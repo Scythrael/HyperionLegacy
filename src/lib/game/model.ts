@@ -3987,6 +3987,23 @@ export interface PatrolMissionState {
   // player ship, which the next wave opens with (plain data). Written only on a cycle under the rules and only when
   // non-empty; a relaunch starts its cycle clean.
   playerStatusEffects?: StatusEffect[];
+  // GEAR WEAR step 4 (docs/plans/2026-10-16-gear-wear-design.md 6.1, user W3 "True condition"): the conditions of the
+  // ship's worn pieces (piece id -> per-mille, pristine pieces left out) frozen when THIS cycle started (dispatch, and
+  // again at each relaunch), so every wave, the live loop and the display replay fight the same frozen gear
+  // (gearWear.ts combatGearView): weapons, the reactor and the drive open their pools at their true condition, the
+  // defenses, pods and modules read their efficiency, and the cycle's battle wear is written to the pieces as it
+  // happens. Its PRESENCE is the cycle's step 4 flag ({} when every piece is pristine). OPTIONAL: absent on every cycle
+  // that started before step 4 and on the training cycle (user W9 "No wear on training"), which fight exactly as before
+  // and wear nothing (no SAVE_VERSION bump).
+  cycleStartCondition?: Record<string, number>;
+  // GEAR WEAR step 4, PAUSE TO REPAIR (user 2026-10-27): a stamped Repeat run that came home to repair its gear (tick.ts
+  // projectedCycleBreak: its next cycle would break a worn system) instead of relaunching: the instant the pause began (game seconds) and the whole ticks
+  // left before it resumes. Absent on every other run.
+  // `first`: set at dispatch (user 2026-10-27 "Repair first, then go": the run repairs, then flies its first cycle).
+  repairPause?: { from: number; ticksRemaining: number; first?: true };
+  // The times this run has paused to repair (user "Count on the run": its one completion log entry says so), carried
+  // across relaunches like routesCompletedThisRun. Absent until the first pause.
+  repairPausesThisRun?: number;
 }
 
 // Safe first runs SF-4: a patrol cycle's difficulty stamp: the run stamp (RunDifficultyStamp, tier I: patrols are
@@ -6709,6 +6726,9 @@ export interface CompletionLogEntry {
   // into this entry", and routes-flown-in-a-run is the same fact. Inventing a parallel
   // `routes` field would give the log two counters meaning one thing.
   patrolEndReason?: PatrolEndReason | null;
+  // GEAR WEAR step 4 (user 2026-10-27 "Count on the run"): on a patrolRun entry, the times the run paused to repair its
+  // gear. Absent when it never did.
+  repairPauses?: number;
   reward: CompletionRewardKind; // the honest summary shape (see above)
   // ⚠️ INJECTED WALL CLOCK, NEVER READ INSIDE THE TICK (design catch 2). resolveProcesses
   // is handed this value as an ARGUMENT exactly as the seeded rng is threaded, because a
@@ -8498,6 +8518,9 @@ export interface HeldSystem {
 export interface ExpeditionWearStamp {
   version: 1;
   dispatchedAt: number;
+  // GEAR WEAR step 4: the run takes BATTLE wear too (its ship battles' events, its hull wear on the plating, its members'
+  // armor in ground fights), written only on a run dispatched while battle wear is live. Absent on a run from step 3.
+  battle?: 1;
 }
 
 // GEAR WEAR step 3 (GroundOpsState.wearTally): one member's use on the ground, counted as it happens on a stamped run
@@ -8505,6 +8528,9 @@ export interface ExpeditionWearStamp {
 export interface GroundWearTally {
   fights?: number;
   steps?: number;
+  // GEAR WEAR step 4 (a run whose wear stamp carries `battle`): the raw battle wear on the member's armor, summed over
+  // their fights (GroundFightRecord.armorWear).
+  armor?: number;
 }
 
 export interface ExpeditionVoyage {
@@ -8561,6 +8587,11 @@ export interface ExpeditionScanEvent {
   hullWear?: number; // shipEvent only: hull points of light damage (GO-8, user Q12)
   bonusDiscovery?: true; // shipEvent only: a sensor ghost read true (one more discovery on this body)
   boarding?: { repelled: boolean; creditsLost?: number }; // shipEvent only (GO-9)
+  // GEAR WEAR step 4 (shipEvent only, a run whose ShipEventBattle carries gearWear): the battle wear this event left on
+  // the ship's pieces, piece id -> raw per-mille before toughness (a battle's pool loss, shields absorbed and drones
+  // lost; the plating's share of its hull wear), applied to the pieces as the run comes home (gearWearEngine.ts).
+  // Written only when nonzero, so every other event keeps its exact shape.
+  gearWear?: Record<string, number>;
 }
 
 // Ground Operations GO-8: the ship-side scan events (design 9b.6, the approved set; a rare ghost is a cloaked ship).
@@ -8722,6 +8753,10 @@ export interface GroundFightRecord {
   basicsUsed?: Record<string, Partial<Record<FieldKitId, number>>>;
   kitsUsed?: Record<string, Partial<Record<FieldKitId, number>>>;
   treated?: Record<string, number>;
+  // GEAR WEAR step 4 (a run whose wear stamp carries `battle`): memberId -> the raw battle wear (per-mille before
+  // toughness) this fight left on the member's armor (design 3.2: the hp they lost over their hp max). Written only on
+  // such a run's fight where a member lost hp, so every other record keeps its exact shape.
+  armorWear?: Record<string, number>;
 }
 
 // A ground team's current step on the run timeline (GO-7b): idle / staging are open-ended (stepEndsAt null).
@@ -9013,6 +9048,11 @@ export interface ShipEventBattle {
   // traits and its installed reactor and drive. OPTIONAL: absent on a run dispatched before WR-8, whose battles are
   // exactly what they were.
   combatRules?: CombatRulesStamp;
+  // GEAR WEAR step 4 (user W3 "True condition"): the battle's step 4 flag. On a flagged run installedGear also carries
+  // the Reactor Core and FTL drive copies, and every copy its condition at dispatch: the ship fights that frozen gear at
+  // its true condition (gearWear.ts combatGearView) and each event records the wear it took (ExpeditionScanEvent.gearWear).
+  // OPTIONAL: absent on a run dispatched before step 4 and on the training run, whose battles are exactly what they were.
+  gearWear?: 1;
 }
 
 // The default per-save expedition seed a fresh save starts from, and the value the v58->v59 migration

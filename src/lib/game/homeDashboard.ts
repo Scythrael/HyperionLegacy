@@ -796,7 +796,8 @@ function rowForPatrol(captain: CaptainState, patrol: PatrolMissionState, state: 
     id: `patrol-${captain.id}`,
     icon: "patrol",
     primaryLabel: `${captain.label}${versus}`,
-    secondaryLabel: PATROL_PHASE_LABEL[patrol.phase],
+    // Gear wear step 4: a run paused to repair says so (it is at home, not returning).
+    secondaryLabel: patrol.repairPause !== undefined ? "Repairing gear at home" : PATROL_PHASE_LABEL[patrol.phase],
     kind: "patrol",
     progress: totalWaves > 0 ? wavesResolved / totalWaves : 0,
     remainingTicks: null,
@@ -1408,7 +1409,10 @@ function completionDetail(entry: CompletionLogEntry): string | null {
     // this release had to fix three times elsewhere.
     const routes = entry.iterations === 1 ? "1 route" : `${entry.iterations} routes`;
     const flown = entry.iterations === 0 ? "no routes completed" : routes;
-    return reason !== null ? `${flown}, ${reason}` : flown;
+    // Gear wear step 4 (user "Count on the run"): the times the run paused to repair its gear.
+    const pauses = entry.repairPauses ?? 0;
+    const paused = pauses > 0 ? `, paused to repair ${pauses === 1 ? "once" : `${pauses} times`}` : "";
+    return reason !== null ? `${flown}, ${reason}${paused}` : `${flown}${paused}`;
   }
   // G1-4: a short-range run's detail is how many missions it delivered (zero is real: recalled before the first).
   // G1-5: and the unidentified relics its cycles found, in the expedition claim line's words.

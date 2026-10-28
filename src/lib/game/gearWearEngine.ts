@@ -8,7 +8,7 @@
 // piece works at 75%: gearWear.ts useWear and the worn-gear view); "No wear on training; implants slow" (a training
 // run makes no wear event; the implant is the slowest source); "Free auto + paid rush" (every repair here is automatic
 // and free; the paid rush is step 5); "Separate, shown together" (hull damage stays its own Shipyard system: a hull in
-// a repair bay only lends its gear the faster bay rate). Battle wear and the combat half are step 4.
+// a repair bay only lends its gear the faster bay rate). Battle wear and the combat half are step 4 (see below).
 //
 // THE USE WEAR SOURCES, per kind (gearWear.ts WEAR_SOURCES, every amount through useWear: toughness-scaled, shrinking
 // toward the 60% use floor and never below it), each applied at its own game instant:
@@ -22,7 +22,11 @@
 //     voyage's light-years both ways, the reactor and crew modules the minutes from dispatch to home, the sensor
 //     array and a Pathfinder Suite every body scanned; each deployed member's weapon their ground fights, their tool
 //     their fieldwork steps (GroundOpsState.wearTally) and their implant the minutes of the ground operations window.
-// The Damage Control Suite's fires (a repair it shortens, a wave it patches) and every battle source are step 4.
+// GEAR WEAR step 4 (the combat half) adds, through the same events and the same pass: the BATTLE wear of a stamped
+// patrol cycle (each wave's shields, plating and pods, the cycle's weapon, reactor and drive pools: tick.ts
+// tickCaptainPatrol, gearWearCombat.ts), an expedition ship battle's wear and its hull wear on the plating, and each
+// member's armor from their ground fights (landing as a battle-stamped run comes home, like the counted use), and the
+// Damage Control Suite's fires (a patrol wave it patched, a Shipyard repair it shortened).
 //
 // WHAT A RUN READS (user 2026-10-21, "Re-read each cycle"): a captain mission and a short-range run freeze the condition
 // of their ship's worn gear in their stamp (RunWearStamp.frozen) at dispatch AND at each cycle start, and fold THAT for
@@ -82,6 +86,7 @@ import {
   CONDITION_FULL,
   WEAR_SOURCES,
   WEAR_VIEW_SLOTS,
+  applyBattleWearAt,
   pieceCondition,
   repairRatePerMinute,
   settlePiece,
@@ -154,7 +159,7 @@ export function projectRunStamp(state: GameState, shipId: string, events: readon
     if (piece.condition === undefined && events.length === 0) continue;
     const rate = pieceRepairRate(state, index, piece, pieceRepairContext(index, piece), bonuses);
     let p = piece;
-    for (const ev of events) if (ev.at <= at) p = applyUseWear(settlePiece(p, ev.at, rate), shipPieceUseRaw(p, ev.wear), ev.at);
+    for (const ev of events) if (ev.at <= at) p = applyShipWear(settlePiece(p, ev.at, rate), ev.wear, ev.at);
     const c = pieceCondition(settlePiece(p, at, rate));
     if (c >= CONDITION_FULL) continue;
     frozen[piece.id] = c;
@@ -193,6 +198,11 @@ export interface ShipUseWear {
   bodiesScanned: number; // bodies scanned on an expedition (the sensor array; a Pathfinder Suite's fires)
   prospectingCycles: number; // extraction or survey cycles (a prospecting rig's fires: its yield line acts)
   crewed: boolean; // crew aboard (the bridge and quarters modules wear only then)
+  // GEAR WEAR step 4: a Damage Control Suite's fires (a patrol wave it patched, a Shipyard repair it shortened).
+  damageControlFires?: number;
+  // GEAR WEAR step 4: BATTLE wear at this instant, piece id -> raw per-mille before toughness (gearWearCombat.ts), taken
+  // after the event's use wear (gearWear.ts applyBattleWearAt: below the use floor, never below 0).
+  battle?: Readonly<Record<string, number>>;
 }
 
 // One use event for a MEMBER's gear.
@@ -203,6 +213,8 @@ export interface MemberUseWear {
   // Gas Giant Study GG-3 (gasGiantStudy.ts studyDiveEvents): ONE probe dive of this piece (a Galileo-Class Probe, a
   // member tool), one fieldwork step's use on that piece alone. Absent on every other event.
   divePieceId?: string;
+  // GEAR WEAR step 4: the raw battle wear on the member's ARMOR (their ground fights' hp lost, GroundWearTally.armor).
+  armor?: number;
 }
 
 // A span of a run in which its ship repaired at the FIELD REPAIR rate instead of the underway one: a GO-8b leg, from
@@ -225,10 +237,17 @@ export interface GearWearEvents {
   // shipId -> the field repair windows of an expedition that came home within the call (its pieces settle at the field
   // rate inside them, in order with the run's wear)
   fieldWindows: Map<string, RepairWindow[]>;
+  // GEAR WEAR step 4: the ships whose run ended within the call carrying the step 4 stamp (a stamped patrol cycle, a
+  // battle-stamped expedition): their pieces carry the underway fraction into the new context at its rate
+  // (rebaseAnchor). A run from before step 4 settles exactly as it always did.
+  rateCarry: Set<string>;
+  // GEAR WEAR step 4 (pause to repair, user 2026-10-27): shipId -> the home repair windows of a Repeat patrol's pauses
+  // that closed within the call (its pieces settle at the HOME rate inside them, in order with its battle wear).
+  pauseWindows: Map<string, RepairWindow[]>;
 }
 
 export function emptyWearEvents(): GearWearEvents {
-  return { ships: new Map(), members: new Map(), runEnds: new Map(), fieldWindows: new Map() };
+  return { ships: new Map(), members: new Map(), runEnds: new Map(), fieldWindows: new Map(), rateCarry: new Set(), pauseWindows: new Map() };
 }
 
 // An expedition's field repair windows (each GO-8b leg the ship set down on, clipped to `upTo`), in time order. Pure.
@@ -329,7 +348,18 @@ export function expeditionWear(exp: Expedition, crewed: boolean): { ship: TimedW
     at: s.at,
     wear: { ...NO_SHIP_USE, minutesUnderway: s.minutes, crewed },
   }));
-  ship.push({ at: home, wear: { ...NO_SHIP_USE, lightYears: (exp.voyage?.distanceLy ?? 0) * 2, bodiesScanned: exp.bodies.filter((b) => b.scanned).length, crewed } });
+  // GEAR WEAR step 4: a battle-stamped run's ship battles and hull wear (each event's gearWear), counted like the use.
+  const battle = stamp.battle === 1 ? expeditionBattleWear(exp) : undefined;
+  ship.push({
+    at: home,
+    wear: {
+      ...NO_SHIP_USE,
+      lightYears: (exp.voyage?.distanceLy ?? 0) * 2,
+      bodiesScanned: exp.bodies.filter((b) => b.scanned).length,
+      crewed,
+      ...(battle ? { battle } : {}),
+    },
+  });
   const members = new Map<string, TimedWear<MemberUseWear>[]>();
   const ops = exp.groundOps;
   if (ops) {
@@ -339,7 +369,9 @@ export function expeditionWear(exp: Expedition, crewed: boolean): { ship: TimedW
         if (members.has(id)) continue;
         const tally = ops.wearTally?.[id];
         const list: TimedWear<MemberUseWear>[] = ground.map((s) => ({ at: s.at, wear: { groundFights: 0, fieldworkSteps: 0, minutesOnGround: s.minutes } }));
-        list.push({ at: home, wear: { groundFights: tally?.fights ?? 0, fieldworkSteps: tally?.steps ?? 0, minutesOnGround: 0 } });
+        // GEAR WEAR step 4: and their armor's battle wear (a battle-stamped run's tally only).
+        const armor = stamp.battle === 1 ? (tally?.armor ?? 0) : 0;
+        list.push({ at: home, wear: { groundFights: tally?.fights ?? 0, fieldworkSteps: tally?.steps ?? 0, minutesOnGround: 0, ...(armor > 0 ? { armor } : {}) } });
         members.set(id, list);
       }
     }
@@ -366,6 +398,7 @@ export function recordExpeditionWear(before: GameState, after: GameState, events
     if (!prior || prior.phase === "complete") continue;
     const home = exp.phaseAnchorSeconds;
     events.runEnds.set(exp.shipId, home + shift);
+    if (exp.gearWear?.battle === 1) events.rateCarry.add(exp.shipId);
     const windows = expeditionFieldWindows(exp, home).map((w) => ({ from: w.from + shift, to: w.to + shift }));
     if (windows.length > 0) events.fieldWindows.set(exp.shipId, windows);
     const ship = after.ships.find((s) => s.id === exp.shipId);
@@ -397,10 +430,25 @@ export function expeditionHomeNow(before: GameState, after: GameState, expeditio
 // The raw per-mille each piece takes from one event
 // ============================================================================
 
-// A Damage Control Suite fires on repairs and waves (step 4), a Pathfinder Suite on scanned bodies, every other
-// specUtility piece (a prospecting rig) on a prospecting cycle. Pure.
+// GEAR WEAR step 4: the battle wear a battle-stamped expedition's ship events left (each event's gearWear, summed by
+// piece), or undefined when none did. Pure.
+export function expeditionBattleWear(exp: Pick<Expedition, "scanEvents">): Record<string, number> | undefined {
+  const out: Record<string, number> = {};
+  let any = false;
+  for (const e of exp.scanEvents ?? []) {
+    for (const [id, raw] of Object.entries(e.gearWear ?? {})) {
+      if (!(raw > 0)) continue;
+      out[id] = (out[id] ?? 0) + raw;
+      any = true;
+    }
+  }
+  return any ? out : undefined;
+}
+
+// A Damage Control Suite fires on the patrol waves it patches and the Shipyard repairs it shortens (step 4), a
+// Pathfinder Suite on scanned bodies, every other specUtility piece (a prospecting rig) on a prospecting cycle. Pure.
 function utilityFires(piece: EquipmentInstance, w: ShipUseWear): number {
-  if (piece.moduleVariant === DAMAGE_CONTROL_SUITE_KEY) return 0;
+  if (piece.moduleVariant === DAMAGE_CONTROL_SUITE_KEY) return w.damageControlFires ?? 0;
   if (piece.moduleVariant === PATHFINDER_SUITE_KEY) return w.bodiesScanned;
   return w.prospectingCycles;
 }
@@ -430,7 +478,8 @@ export function shipPieceUseRaw(piece: EquipmentInstance, w: ShipUseWear): numbe
   }
 }
 
-// The raw per-mille a member piece takes from one use event. Member armor wears by battle only (step 4). Pure.
+// The raw per-mille a member piece takes from one use event. Member armor wears by battle only (step 4: MemberUseWear
+// armor, applyMemberWear). Pure.
 export function memberPieceUseRaw(piece: EquipmentInstance, w: MemberUseWear): number {
   if (w.divePieceId !== undefined) return w.divePieceId === piece.id ? useWearRaw("memberTool:fieldworkStep", 1) : 0;
   switch (piece.slotType) {
@@ -456,6 +505,48 @@ export function applyUseWear(piece: EquipmentInstance, raw: number, at: number):
   if (!(amount > 0)) return piece;
   const anchor = piece.condition !== undefined && piece.conditionAt !== undefined ? piece.conditionAt : at;
   return withPieceCondition(piece, c - amount, anchor);
+}
+
+// ONE ship event on a ship piece at `at` (already settled to `at`): its use wear, then its battle wear (step 4; design
+// 7: "settle, then wear"). The ONE function the tail pass, the cycle-start re-reads and the patrol cycle projection
+// share, so a projected condition is exactly the one the pass writes. Pure.
+export function applyShipWear(piece: EquipmentInstance, w: ShipUseWear, at: number): EquipmentInstance {
+  const used = applyUseWear(piece, shipPieceUseRaw(piece, w), at);
+  return w.battle ? applyBattleWearAt(used, w.battle[piece.id] ?? 0, at) : used;
+}
+
+// ONE member event on a member piece at `at`: its use wear, then (step 4) the armor's battle wear. Pure.
+export function applyMemberWear(piece: EquipmentInstance, w: MemberUseWear, at: number): EquipmentInstance {
+  const used = applyUseWear(piece, memberPieceUseRaw(piece, w), at);
+  return piece.slotType === "memberArmor" && w.divePieceId === undefined && (w.armor ?? 0) > 0 ? applyBattleWearAt(used, w.armor ?? 0, at) : used;
+}
+
+// GEAR WEAR step 4: THE NEXT PATROL CYCLE'S FROZEN GEAR (user W3; design 6.1 cycleStartCondition). The ship's pieces
+// as they stand at `at` (a relaunch instant inside the call): each stored piece settled at the underway `rate` and worn
+// by `events` up to `at` in order (exactly what the tail pass writes for the same events), then settled to `at` without
+// writing. The worn ones, piece id -> per-mille. Pure.
+// Pause to repair: `windows` (a paused patrol's home repair windows) settle at `windowRate`, as the tail pass does.
+export function projectCycleConditions(
+  pieces: readonly EquipmentInstance[],
+  events: readonly TimedWear<ShipUseWear>[],
+  at: number,
+  rate: number,
+  windows: readonly RepairWindow[] = [],
+  windowRate: number = rate,
+): Record<string, number> {
+  const out: Record<string, number> = {};
+  for (const piece of pieces) {
+    let p = piece;
+    for (const ev of events) if (ev.at <= at) p = applyShipWear(settleScheduled(p, ev.at, rate, windows, windowRate), ev.wear, ev.at);
+    const c = pieceCondition(settleScheduled(p, at, rate, windows, windowRate));
+    if (c < CONDITION_FULL) out[piece.id] = c;
+  }
+  return out;
+}
+
+// The empty use of a ship event that carries only battle wear or a Damage Control Suite fire (step 4).
+export function battleOnlyWear(battle: Readonly<Record<string, number>> | undefined, damageControlFires = 0): ShipUseWear {
+  return { ...NO_SHIP_USE, crewed: false, ...(damageControlFires > 0 ? { damageControlFires } : {}), ...(battle && Object.keys(battle).length > 0 ? { battle } : {}) };
 }
 
 // ============================================================================
@@ -544,6 +635,20 @@ export function pieceRepairRate(
   return repairRatePerMinute(context, bonuses);
 }
 
+// GEAR WEAR step 4 fix (design 7, "rate constant between anchors"): a piece settled to `at` at `oldRate` keeps the
+// time it has not yet turned into a whole per-mille (settlePiece carries the leftover by leaving its anchor behind).
+// Before it settles on at `newRate`, that leftover is re-expressed as the same FRACTION of a per-mille at the new rate:
+// the anchor moves to at - fraction x 60 / newRate. Without it a run ending into a faster context (underway, 2 a
+// minute, into home or a Shipyard bay) repaired the whole leftover underway time at the faster rate. A pristine piece,
+// an anchor at or after `at`, or no rate change returns the piece as it is. Pure.
+export function rebaseAnchor(piece: EquipmentInstance, at: number, oldRate: number, newRate: number): EquipmentInstance {
+  if (piece.condition === undefined || piece.conditionAt === undefined || !(newRate > 0) || oldRate === newRate) return piece;
+  const leftover = at - piece.conditionAt;
+  if (!(leftover > 0)) return piece;
+  const fraction = Math.max(0, (oldRate * leftover) / 60);
+  return { ...piece, conditionAt: at - (fraction * 60) / newRate };
+}
+
 // A piece's condition RIGHT NOW without writing it (the UI and the readouts, design 7 "reads compute condition
 // without writing"): settled from its anchor at its current context's rate. Pure.
 export function livePieceCondition(state: GameState, piece: EquipmentInstance): number {
@@ -583,23 +688,30 @@ export function resolveGearWear(before: GameState, after: GameState, events: Gea
     const rate = pieceRepairRate(before, index, piece, context, bonuses);
     // An expedition that came home: its field repair legs, at the field rate, in order with its wear.
     const shipId = pieceShipId(index, piece);
-    const windows = shipId !== null ? events?.fieldWindows.get(shipId) : undefined;
-    const fieldRate = windows ? pieceRepairRate(before, index, piece, "fieldRepair", bonuses) : rate;
+    const field = shipId !== null ? events?.fieldWindows.get(shipId) : undefined;
+    // Pause to repair: a paused patrol's home windows settle at the home rate (same split as a field repair leg).
+    const pause = shipId !== null && !field ? events?.pauseWindows.get(shipId) : undefined;
+    const windows = field ?? pause;
+    const fieldRate = field ? pieceRepairRate(before, index, piece, "fieldRepair", bonuses) : pause ? pieceRepairRate(before, index, piece, "home", bonuses) : rate;
     let p = piece;
     // Ship and member events in one time order (a member's dive lands mid-run, between its ship's slices).
-    const timed: { at: number; raw: (x: EquipmentInstance) => number }[] = [
-      ...(shipWear ?? []).map((ev) => ({ at: ev.at, raw: (x: EquipmentInstance) => shipPieceUseRaw(x, ev.wear) })),
-      ...(memberWear ?? []).map((ev) => ({ at: ev.at, raw: (x: EquipmentInstance) => memberPieceUseRaw(x, ev.wear) })),
+    const timed: { at: number; apply: (x: EquipmentInstance) => EquipmentInstance }[] = [
+      ...(shipWear ?? []).map((ev) => ({ at: ev.at, apply: (x: EquipmentInstance) => applyShipWear(x, ev.wear, ev.at) })),
+      ...(memberWear ?? []).map((ev) => ({ at: ev.at, apply: (x: EquipmentInstance) => applyMemberWear(x, ev.wear, ev.at) })),
     ];
     timed.sort((a, b) => a.at - b.at);
-    for (const ev of timed) p = applyUseWear(settleScheduled(p, ev.at, rate, windows, fieldRate), ev.raw(p), ev.at);
+    for (const ev of timed) p = ev.apply(settleScheduled(p, ev.at, rate, windows, fieldRate));
     if (context === "underway") {
       if (contextAfter !== "underway") {
         // The run ended within the call: underway (and its field legs) up to the instant it ended, then the new
         // context to the call's end.
         const end = Math.min(now, (shipId !== null ? events?.runEnds.get(shipId) : undefined) ?? now);
+        const afterRate = pieceRepairRate(before, index, piece, contextAfter, bonuses);
         p = settleScheduled(p, end, rate, windows, fieldRate);
-        p = settlePiece(p, now, pieceRepairRate(before, index, piece, contextAfter, bonuses));
+        // GEAR WEAR step 4: on a step 4 stamped run the fraction of a per-mille the slow underway rate banked by the end
+        // carries into the new context at ITS rate (rebaseAnchor), so the new rate never repairs time spent underway.
+        if (shipId !== null && events?.rateCarry.has(shipId)) p = rebaseAnchor(p, end, rate, afterRate);
+        p = settlePiece(p, now, afterRate);
       }
     } else {
       p = settlePiece(p, now, rate);

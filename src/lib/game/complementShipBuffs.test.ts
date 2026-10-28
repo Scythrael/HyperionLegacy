@@ -38,6 +38,10 @@ import { expeditionCandidates } from "./expedition";
 import { getSeniorStaffBonusById } from "./seniorStaffBonuses";
 import { withSlottedAwayTeams, plainAwayMember, dispatchPastPropulsion } from "./awayTeamTestFixtures";
 import { MUSEUM_COPY_LADDER, museumBonusesFromRecord, RELIC_SETS } from "./relics";
+// Gear wear step 4 (0.14.0): these checks are about the complement's buffs, written before battle wear (a Repeat patrol's
+// carried wear now wears its ship down over its cycles), so the file runs with the battle sources off.
+import { battleWearOffInThisFile } from "./battleWearSwitch.fixture";
+battleWearOffInThisFile();
 
 // ===== fixtures =====
 

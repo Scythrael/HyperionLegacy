@@ -240,6 +240,12 @@ export interface ResolveOptions {
 	// vs-Drones triangle column; an EW anti-drone hit leaves the drone it does not destroy disrupted; a support pulse
 	// charges its owner's capacitors. Absent: every one of those paths is exactly the pre-WR-8 one.
 	combatRules?: number;
+
+	// Gear wear step 4 (docs/plans/2026-10-16-gear-wear-design.md 3.2): the id of a combatant whose shield pool's
+	// absorbed points the battle should report (the result's shieldAbsorbed), for its shield emitters' battle wear. A
+	// pure read: no draw, no outcome change. Undefined (every caller but a stamped patrol wave): nothing is counted and
+	// the result carries no shieldAbsorbed.
+	shieldTallyFor?: string;
 }
 
 // Transient per-combatant fixed-point accumulators. These are SIM-INTERNAL
@@ -883,6 +889,8 @@ export function applyProjectileDamage(
 	// change no outcome. A hull-direct ambush leaves the shield untouched, so its
 	// shieldDealt is 0 and the whole shot reads as hull damage.
 	const shieldLost = shieldBefore - target.shield;
+	// Gear wear step 4: the absorbed shield points, on the one combatant the battle tallies (ResolveOptions.shieldTallyFor).
+	if (target.shieldTally !== undefined) target.shieldTally += shieldLost;
 	return { dealt: shieldLost + hullPath, attenuated, shieldDealt: shieldLost, hullDealt: hullPath };
 }
 
@@ -2156,7 +2164,7 @@ export function resolveBattle(
 	participants: BattleParticipants,
 	seed: number,
 	options?: ResolveOptions,
-): { outcome: BattleOutcome; log: CombatEvent[]; finalCombatants: Combatant[] } {
+): { outcome: BattleOutcome; log: CombatEvent[]; finalCombatants: Combatant[]; shieldAbsorbed?: number } {
 	const generateLog = options?.generateLog ?? false;
 	const objective = options?.objective ?? lastTeamStanding;
 	// WR-8: the combat rules are on for this battle (see ResolveOptions.combatRules).
@@ -2170,6 +2178,9 @@ export function resolveBattle(
 	// Work on a private copy so the caller's data is never mutated (purity).
 	const working = cloneParticipants(participants);
 	const combatants = working.combatants;
+	// Gear wear step 4: the shield tally rides the private clone only (see ResolveOptions.shieldTallyFor).
+	const tallied = options?.shieldTallyFor === undefined ? undefined : combatants.find((c) => c.id === options.shieldTallyFor);
+	if (tallied) tallied.shieldTally = 0;
 
 	// DETERMINISTIC TURN ORDER: by SIDE, then by INPUT ORDER (WR-4, B14; user 2026-10-16 "Fix: by side, then
 	// order"; OC-I4: the player side first). It used to sort the whole cast by id, so the spelling of a patrol's
@@ -3092,5 +3103,10 @@ export function resolveBattle(
 	// reintroduce input mutation, because `combatants` is the clone from
 	// cloneParticipants (~line 199), never the caller's input (purity intact). It
 	// is in ascending-id order (sorted ~line 1158): callers look ships up BY ID.
+	if (tallied) {
+		const shieldAbsorbed = tallied.shieldTally ?? 0;
+		delete tallied.shieldTally;
+		return { outcome, log, finalCombatants: combatants, shieldAbsorbed };
+	}
 	return { outcome, log, finalCombatants: combatants };
 }

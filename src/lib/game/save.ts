@@ -2515,6 +2515,11 @@ const MIGRATIONS: Record<number, Migration> = {
   // PatrolMissionState.deckHandling and replenishCarryStart, and DroneSquadron.deckHandlingPpm / replenishCarryPpm
   // inside the patrol's playerDrones (an in-flight patrol keeps its seeded screen until the next relaunch freezes the
   // crew aboard). The Survey Aptitude and Spacer racials write no new field (scanSpeedBonus already exists).
+  // Gear wear step 4 (0.14.0, the combat half) adds NOTHING here either, same rule: PatrolMissionState
+  // cycleStartCondition, the expedition stamp's `battle`, ShipEventBattle.gearWear, ExpeditionScanEvent.gearWear,
+  // GroundFightRecord.armorWear and GroundWearTally.armor are optional and absent on everything from before it (an
+  // in-flight patrol fights its unstamped cycle as before until its next relaunch; an in-flight expedition finishes
+  // without battle wear).
   // WR-8 (0.14.0, the combat descriptors) adds NOTHING here either, same rule: PatrolMissionState.combatRules and
   // playerStatusEffects, ShipEventBattle.combatRules, DroneSquadron.smartReflectChance and the Combatant fields are
   // optional and absent on everything from before it (an in-flight patrol fights its old rules until the next relaunch

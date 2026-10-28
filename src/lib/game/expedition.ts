@@ -66,7 +66,7 @@ import { installedSensorArray, sensorArrayCanisterBandLift, sensorArrayEffect, s
 // E4d: the relic-unlocked Pathfinder Suite's expedition effect (a pure leaf over the installed pieces).
 import { pathfinderEffect } from "./utilityGear";
 import { equippedFor } from "./equipment";
-import { viewPieceEfficiency, wornGearView } from "./gearWear";
+import { battleWearLive, viewPieceEfficiency, wornGearView } from "./gearWear";
 import { gearWearLive } from "./gearWearEngine";
 import { effectiveShipStats, foldOfficerPromotionCounters, officerBonusTotal, shipCrewContribution, shipSurveyAptitude } from "./crewOverlay";
 import { CREW_STAT_KEYS } from "./crewBuffs";
@@ -1410,6 +1410,20 @@ export function expeditionRiskPreview(seed: number, region: ExpeditionRegion = T
 // the player saw), the sensor array + crew-inclusive `sensors` are SNAPSHOTTED (resolution is then a pure
 // function of the stored expedition), the anomaly OPT-IN is stored, and expeditionSeed is advanced so the
 // next candidate list is fresh. `anomalyOptIn` defaults true (the E2a/E2b always-chart behavior).
+// GEAR WEAR step 4 (user W3 "True condition"): a battle-stamped run's ship battle profile, flagged (ShipEventBattle
+// gearWear) and carrying the installed Reactor Core and FTL drive copies beside its combat pieces (each copy with its
+// condition at dispatch), so every ship battle fights that frozen gear and records the wear it took. A ship with no
+// combat pieces keeps fighting its hull's default loadout (its snapshot stays without gear). Pure.
+function battleWearSnapshot(exp: Expedition, state: GameState, shipId: string): Pick<Expedition, "groundOps"> | Record<string, never> {
+  const ops = exp.groundOps;
+  const profile = ops?.shipEventProfile;
+  const battle = profile?.battle;
+  if (!ops || !profile || !battle) return {};
+  const systems = battle.installedGear ? equippedFor(state, shipId).filter((p) => p.slotType === "reactorCore" || p.slotType === "ftlDrive").map((p) => structuredClone(p)) : [];
+  const installedGear = battle.installedGear ? { installedGear: [...battle.installedGear, ...systems] } : {};
+  return { groundOps: { ...ops, shipEventProfile: { ...profile, battle: { ...battle, ...installedGear, gearWear: 1 } } } };
+}
+
 export function startExpedition(
   state: GameState,
   shipId: string,
@@ -1466,7 +1480,11 @@ export function startExpedition(
   // GEAR WEAR step 3 (gearWearEngine.ts): the committed run's wear flag with its dispatch instant, while any wear source is
   // live and never on the training run (user W9 "No wear on training"). Only a committed run carries it (the forecast's
   // throwaway runs never wear anything).
-  const wear = gearWearLive() && !isTrainingRun(built) ? { gearWear: { version: 1 as const, dispatchedAt: state.gameTimeSeconds } } : {};
+  // GEAR WEAR step 4: while battle wear is live the stamp carries `battle` too (its ship battles, its hull wear on the
+  // plating and its members' armor wear), and the ship battles fight the snapshot's frozen gear (battleWearSnapshot).
+  const wearing = gearWearLive() && !isTrainingRun(built);
+  const battleWear = wearing && battleWearLive();
+  const wear = wearing ? { gearWear: { version: 1 as const, dispatchedAt: state.gameTimeSeconds, ...(battleWear ? { battle: 1 as const } : {}) } } : {};
   // Relics v2 R2-2: and the relic blanks flag (its relic tokens carry the region tier and the body's culture, and roll
   // their rarity on the tier's blank table; Tier I's is today's).
   const launched: Expedition = {
@@ -1476,6 +1494,7 @@ export function startExpedition(
     // Relics v2 tier stagger: the flag also carries `stagger`, so the run's blanks reveal only the types open at its tier.
     relicBlanks: newRunRelicBlanksFlag(),
     ...wear,
+    ...(battleWear ? battleWearSnapshot(built, state, ship.id) : {}),
   };
   // G2-5: a resumed run met its route's anomaly on the first trip (resolved, never charted twice), and records how
   // many bodies were charted before (the window opens past them, openResumedWindow).

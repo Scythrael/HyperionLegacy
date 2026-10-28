@@ -32,6 +32,10 @@ import { patrolDifficultyAt, runCountsOf } from "./runDifficulty";
 // cycles and runs; combatDescriptorGoldens.test.ts pins the combat rules themselves).
 import { combatRulesOffForThisFile } from "./combatRulesSwitch.fixture";
 combatRulesOffForThisFile();
+// Gear wear step 4 (0.14.0): the same for battle wear (battleWearSwitch.fixture.ts): the pins predate it, and a patrol
+// cycle stamped for it fights its carried wear (gearWearCombatGoldens.test.ts pins that).
+import { battleWearOffInThisFile } from "./battleWearSwitch.fixture";
+battleWearOffInThisFile();
 
 const ROUTES = Object.keys(PATROLS) as PatrolKey[];
 const RAMP_HULLS: ShipTypeKey[] = ["generalFreighter", "prospectorRunner", "destroyer", "carrier", "orion"];

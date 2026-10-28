@@ -298,7 +298,8 @@ band, the GO ship battles), the `patrolReplay` parity proof, the mission Repeat 
 `expeditionTiersGoldens`, `fieldKitsGoldens`, `complementGoldens` and the ship sheet goldens.
 
 Expected to stay byte-identical: every pristine first cycle (efficiency 1, start pool = full, repair a no-op), every
-safe first run (no wear, OC-W9), and the Standard-Issue reactor and FTL in combat (quality 0 pools are 100, as today).
+safe first run (no wear, OC-W9), and the Standard-Issue reactor and FTL in combat while pristine (quality 0 pools are
+100, as today; step 4 opens a worn piece's pool at its true condition, user W3).
 
 Expected to move, each moved hash explained in its commit:
 - Patrol Repeat from cycle 2 (weapons open at carried condition, plating and shields at their efficiency).
@@ -380,6 +381,31 @@ at the skip with its wear and repairs on its timeline laid back to end then (pro
 other in-call context switches (a patrol ending, a bay) settle at the call's starting context, exact at production's
 one-tick calls. gearWearReview.test.ts proves each, and that the 31 use-wear-off golden files' kinds of run gain only
 the wear fields with wear on.
+
+**Carry note, step 4 (built 2026-10-27 on feat 09cca5e).** Goldens first (`gearWearCombatGoldens.test.ts`, own commit:
+every hull x both routes x Dispatch Once and Repeat, Standard Issue pristine and preset worn, crafted, a Damage Control
+Suite, worn modules, the forecast, the expedition ship events and battles, a ground run, a suite repair); the battle
+switch (`battleWearSwitch.fixture.ts`) reproduces every pre row, every in-flight row (dispatched inside it, flown live)
+is byte-identical, and the live table's header names each move. Built (user W3 "True condition", no start floor):
+`gearWear.ts combatGearView` freezes a battle's gear (a patrol cycle's `cycleStartCondition`, written at dispatch and at
+each relaunch through `projectCycleConditions`, never on the training cycle; an expedition's battle snapshot, flagged
+`ShipEventBattle.gearWear` with the reactor and drive copies); the bridge reads a view piece's condition (weapons, the
+reactor and the drive open their pools at it; shields, plating, pods and modules at their efficiency) and a stored
+piece as before. Battle wear (`gearWearCombat.ts`, design 3.2 first-pass raws, scaled by toughness as written): each
+wave's shields (resolveBattle's `shieldTallyFor`, a pure read), plating and pods, each cycle's pools at its end, an
+expedition battle's pools, shields and pods and its hull wear on the plating (on the event, landing as the run comes
+home), each ground fight's armor (`GroundFightRecord.armorWear`, the tally). The Damage Control Suite fires per wave it
+patches and per Shipyard repair it shortens, and its lines read worn there. Registry: every battle source, the four
+combat consumers, the suite's Shipyard and patrol contexts and the two toughness rows live with probes
+(`wiring/wearProbes.ts wear:battle:*`); the reactor's power output consumer is re-owned to the EM-4 open call (item 4);
+`gearWearCombatRegistry.fixture.ts` reads the move back for the earlier pins. Module wear: step 4 owns
+`module:effect`'s combat reads (live); the Survey Pair set tier (an expedition reader) still reads pristine, logged
+for step 5. Also fixed for step 4 stamped runs: a run ending into a faster repair context no longer repairs its
+leftover underway time at the faster rate (`rebaseAnchor`; step 3's runs keep the old arithmetic, a user call).
+**For the user (measured):** one hard patrol leaves its worst system near 67 to 80% (back to full in under 10 minutes
+home), but a Repeat patrol never goes home: the 2 a minute upkeep cannot match a cycle's battle wear, so a
+Standard-Issue destroyer's Repeat Sweep is defeated after 14 cycles (a battleship after 30), where it used to fly on.
+The patrol use wear sources (reactor and drive minutes and distance on a patrol) are still unrecorded (logged).
 
 ## 12. OPEN CALLS (multiple-choice ready; recommended first)
 
@@ -482,3 +508,40 @@ rare RNG losses accepted; retreat is a future design (logged, not step 4).
 Projection build (912f18a, 2026-10-28): PATROL_BREAK_MARGIN [PROPOSAL] 0; pauses per 100 Sweep cycles: destroyer 28 to
 10, battleship 8 to 3. PATROL_REPAIR_ON_PROJECTED_DEFEAT (repair first when the projection loses the ship with its worn
 gear): user "Keep it (Recommended)", 2026-10-28.
+
+**Carry note, step 4 pause to repair (built 2026-10-27 on feat 8c62a53, the answer above).** A stamped Repeat patrol
+whose next cycle would open with a combat piece (weapon, reactor, drive, emitter, plating, pod) under
+`tick.ts PATROL_REPAIR_PAUSE_LINE` [PROPOSAL] 700 goes home at its route's end instead of relaunching
+(`PatrolMissionState.repairPause`, counted down per whole tick like the limp home: until every combat piece is back to
+full at the home rate), then resumes. Its pieces repair through the pause's home window (the field repair leg's split,
+`GearWearEvents.pauseWindows`), so one call == chunks == 1 s steps; an in-flight (unstamped) cycle never pauses. The
+completion log reads "Paused to repair gear" / "Resumed patrol"; the patrol card's phase line says it is home repairing
+and when it goes back out. Registry `ship:audit:patrolRepairPause` live (`wear:repairPause`: weapons just under the line
+pause the first route's end, pristine gear relaunches). Proved: the destroyer and battleship Repeat Sweeps that lost
+to wear after 14 and 30 cycles fly 200 cycles, pausing and resuming, never defeated (gearWearCombat.test.ts).
+
+**Carry note, step 4 review fixes (2026-10-28, the two answers above).** Repair first, then go: a Repeat dispatch whose
+frozen gear has a combat piece under the line is dispatched with `repairPause.first` set (its first cycle's fuel already
+paid) and re-freezes its gear as repaired when it heads out; every preset-worn Sweep Repeat golden row now wins.
+Count on the run: the per-pause log entries are gone; the run's one `patrolRun` entry carries `repairPauses` ("paused
+to repair N times"), counted on the mission (`repairPausesThisRun`). A recall during a pause ends the run at once (its
+entry written then); the Home row reads "Repairing gear at home"; the line is re-checked after every resume; a time
+skip stops at a pause (it takes its real time). **Measured for the user:** a first cycle with every combat piece AT 700
+loses 20 of the 160 fights (8 seeds x 10 hulls x 2 routes) its pristine twin wins, and never wins one it loses; even at
+980 two still flip. So a Repeat run never collapses from carried wear, but a cycle that opens worn above the line can
+still lose a fight a pristine ship would win; strictly "no fight lost to wear" needs a line of 1000 (a repair before
+every cycle).
+
+**Carry note, step 4 repair trigger from realism (built 2026-10-28, the user's "from realism" answer).** The fixed line
+(`PATROL_REPAIR_PAUSE_LINE` 700) is gone. Before each stamped Repeat cycle flies (each relaunch, and a Repeat dispatch,
+still "repair first, then go"), `tick.ts projectedCycleBreak` resolves that cycle through the replay leaves
+(`combat/patrolReplay.ts resolveMissionCycle`: its known fights, the battle raws, no draw on any game stream). When a
+combat piece is worn and the projection takes a weapon, the reactor or the drive down to `PATROL_BREAK_MARGIN`
+[PROPOSAL] 0 at a wave's end, the run repairs first; otherwise it flies worn at its true efficiency. Builder's reading,
+for the user to confirm: `PATROL_REPAIR_ON_PROJECTED_DEFEAT` [PROPOSAL] true also repairs first when the projection
+loses the ship with worn gear (no single system at its floor: with it off, the destroyer's Sweep Repeat lost cycle 27
+that way, its shields at 25%). Shields, plating and pods never break (W7). The log count, recall, Home row, time skip
+and in-flight behavior are unchanged. The 200-cycle "never defeated" test is dropped (losses accepted);
+gearWearCombat.test.ts now proves that no relaunched worn cycle's projection breaks and that every pause's held-back
+cycle would have. **Measured:** Repeat Sweep pauses per 100 cycles: destroyer 28 before, 10 after; battleship 8 before,
+3 after.
