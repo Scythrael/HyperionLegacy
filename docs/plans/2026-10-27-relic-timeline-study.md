@@ -3,7 +3,43 @@
 Prestige redesign plan Slice 0, design section 3.7. Measured from the MAIN game's real rules on `feat/crew-0.14.0`
 (795a2c1). No code changed. Status: for the user before Slice 5 tunes the 2.5x relic ceiling.
 
-## Summary
+## Summary WITH THE TIER STAGGER (re-run 2026-10-28, built on `feat/crew-0.14.0` d62f48d)
+
+The user's 2026-10-27 stagger (each type has a first region tier, `relics.ts RELIC_TYPE_FIRST_TIER`; a band with no
+type open at the tier drops to the nearest lower band that has one, user 2026-10-28) re-run with the same method and
+the same two players (one tier at a time to 1,000, then the next). The 1,000-per-tier rows do not move (the stagger
+changes WHICH type a blank reveals, never how many blanks there are). Only blanks minted by runs dispatched after the
+update are staggered; relics already held are kept.
+
+| Goal | STEADY, before | STEADY, staggered | HEAVY, before | HEAVY, staggered |
+|---|---|---|---|---|
+| 1,000 identified per tier, Tier I to VII | unchanged (table below) | unchanged | unchanged | unchanged |
+| Arrives at Tier VII (cumulative) | 1,948 d | 1,948 d | 251 d | 251 d |
+| First copy of all 17 types | about 51 d, at Tier I | about 2,170 d (5.9 years: Tier VII opens Hull Rivet, Magma Pearl, Leviathan Scale, Heart of the Archive) | about 6 to 8 d | about 320 d |
+| 10,000 RAW copies of every type (bottleneck) | about 744 years (Living Crystal) | about 5,600 years (Heart of the Archive, Tier VII only) | about 88 years | about 1,800 years |
+| 10,000 WEIGHTED copies (every copy at 5x) | about 149 years | about 1,100 years | about 18 years | about 370 years |
+| Rarest type after 1 year on the path | about 13 / 50 (best tier all year) | 0 (Tier IV to VII types not open; day 365 is in Tier III) | about 110 / 540 (best tier all year) | about 2 Heart of the Archive (114 days in Tier VII) |
+
+Type mix with the stagger (share of identified relics; exceptional pieces as before):
+
+| Tier | Types open | Rarest open type | Note |
+|---|---|---|---|
+| I | 4 | Spore Capsule 16.1% | Resonance Shard 43.7% (the only augmented type absorbs every stellar and radiant reveal) |
+| II | 7 | Bioluminescent Seed 9.5% | Precursor Lens 13.6% (stellar and radiant reveals land on it) |
+| III | 9 | Ancient Drive Coil 6.9% | |
+| IV | 11 | Captain's Sigil 2.5% | the first radiant type |
+| V | 12 | Living Crystal 1.35% | |
+| VI | 13 | Living Crystal 0.93% | |
+| VII | 17 | Living Crystal 0.78% | the unstaggered mix exactly (every type open) |
+
+What this means for the minigame ceiling (Slice 5): under the stagger a 1.0 collection of "10,000 of every type" is
+further out of reach than before (the Tier VII-only types only drop at Tier VII's 0.023 relics per explorer-hour). The
+R2-10 pacing collections (`secret/relicCollections.ts`) do not model the stagger: the typical Tier I collection there
+still holds all 17 types, while a staggered Tier I player holds 4 (Glyph Tablet, Spore Capsule, Geode Core, Resonance
+Shard), so 13 of the 17 minigame levers stay at 1 until deeper tiers. Re-basing the collections (and the "Gentle 10 to
+20%" pin) on the stagger is for the ceiling slice to decide.
+
+## Summary (as first measured, before the stagger)
 
 | Goal | STEADY (1 explorer about 16 h a day, drive class = the tier, 2 Tier I short-range missions) | HEAVY (3 explorers on Repeat, Class VII drive, 4 Tier II short-range missions) |
 |---|---|---|
@@ -112,7 +148,21 @@ The commonest is Geode Core (about 16%).
 - **Types are not gated** (see Summary point 1): the tier only shifts the blank rarity table, and only Toxic bodies can
   roll a radiant blank anyway.
 
+## Re-run method (2026-10-28, with the stagger)
+
+The same expected-value model, run once as a throwaway vitest script (not committed) that imported the shipping tables
+including `RELIC_TYPE_FIRST_TIER` and `relicStaggerBand`. Unstaggered, it reproduces the type-mix table above exactly
+(rarest 0.400% to 0.778%, radiant band 1.83% to 3.53%, exceptional 0.30% to 1.52%). Path: each player farms one tier
+to 1,000 and moves on (the arrival days of the table above). First copy of all 17: arrival at Tier VII plus E[max] of
+the four Tier VII-only types' exponential waits there. 10,000 of every type: for each type, the earliest finish over the
+tiers it is open at (arrival plus 10,000 over that tier's daily copies of it); weighted counts every copy at 5x, as
+before. Short-range blanks (Tier I) only feed Tier I types, so they do not move the staggered bottleneck.
+
 ## Side finding for the controller
+
+FIXED 2026-10-28 with the stagger build: `bandShares` now reads `relicIdentify.ts identificationBandRow` (the Tier I
+row), and the R2-10 heavy collection pins were re-taken (relics v2 plan, stagger carry note).
+
 
 `secret/relicCollections.ts` `bandShares` (the R2-10 heavy collection's Tier II and III copies) reads
 `RELIC_BAND_ODDS[tier]` for the revealed band, but identification reads the Tier I row at every tier ("Only one boost",

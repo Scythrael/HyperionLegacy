@@ -623,3 +623,34 @@ steady to Tier VII, ~2.3 years heavy).
   | VII | Hull Rivet (standard, Shipwright), Magma Pearl (augmented, Deep Earth), Leviathan Scale (stellar, Xenobiology), Heart of the Archive (radiant, Precursor) |
   Museum stats that first arrive at Tier VII under this table: Science Team Power (Leviathan Scale) and Rare Material
   Chance (Magma Pearl) (every other stat has an earlier type). Mention to the user at the build; swap a pair if they want.
+- USER (2026-10-28, verbatim, on a band with no type open at a tier): "This is fine. Starting with standard/augmented is
+  fine for Tier I." So a reveal whose band has no open type at the blank's tier drops to the nearest LOWER band that has
+  one (Tier I yields only standard and augmented relics); never a dead roll.
+
+### Tier stagger carry note (built 2026-10-28 on d62f48d)
+- Catalog: `relics.ts RELIC_TYPE_FIRST_TIER` (the table above, verbatim), read into `RELIC_TYPES[].firstTier` (field
+  role "gate"); `relicTypesInBandAt(band, tier)`; `relicStaggerBand(band, tier)` is the 2026-10-28 rule (nearest lower
+  band with an open type; standard always has a Tier I type, tested).
+- Roll: `relicIdentify.ts rollRelicIdentification` keeps its three draws; only draw 3's pool changes for a stamped blank,
+  so no new draw and no new salt. At Tier VII a stamped blank reveals exactly what an unstamped one does.
+- Stamps: `relicBlanks.ts newRunRelicBlanksFlag()` = `{ version: 1, stagger: 1 }` on every new expedition and short-range
+  run; every blank such a run mints (expedition rolls, short-range cycles, the G7 completion hook) carries
+  `stagger: 1`, appended last; the deposit keeps it. Held blanks, studies in flight and runs in flight at the update are
+  unstamped and reveal as before (`relicStaggerGoldens.test.ts`, captured first, unchanged). "Relics already owned are
+  kept": nothing in the Museum or `relicDiscovered` is touched.
+- Relic-gated things whose unlock moves later for NEW finds (held blanks can still reveal them): Damage Control Suite
+  (`damageControlSuiteBp`, Ancient Drive Coil) Tier III; Pathfinder Suite (`pathfinderSuiteBp`, Deep-Vein Compass) Tier IV;
+  Bio-Resonance Array (`bioResonanceArrayBp`, Leviathan Scale) Tier VII; Neural Backup (`neuralBackupBp`, Heart of the
+  Archive) Tier VII. Precursor Lens (EM-8's special module input, not built yet) needs Tier II. Museum stats first
+  arriving at Tier VII: Science Team Power (Leviathan Scale), Rare Material Chance (Magma Pearl).
+- UI: the Museum's undiscovered tile names the type's first tier ("found in Tier IV+ regions"), beside the set's existing
+  "From:" sites; the Relics Help topic gains one line. R2-9 still owns the full Help rewrite.
+- Test helper: `secret/relicCollections.ts bandShares` now reads `identificationBandRow` (was the tier row, a double
+  boost). Heavy pins re-taken (`relicGoldens.json` heavy keys); typical and relic-free unchanged. Heavy average player
+  now finale / e1M / e10M 2.27 / 8.55 / 34.44 d (53.5 / 73.6 / 71.1% sooner; was 2.24 / 8.53 / 34.12). The collections
+  do NOT model the stagger (a staggered Tier I player holds 4 of 17 types, so 13 minigame levers stay at 1 until deeper
+  tiers): re-basing them and the "Gentle 10 to 20%" pin is the minigame ceiling slice's call.
+- Study re-run: `docs/plans/2026-10-27-relic-timeline-study.md` summary with the stagger (first copy of all 17: steady
+  about 5.9 years, heavy about 320 days; 10,000 of every type now bottlenecked on Heart of the Archive at Tier VII).
+- Concentration to watch (balancing, not a bug): at Tier I Resonance Shard is 43.7% of reveals (the only augmented
+  type absorbs every stellar and radiant reveal); at Tier II Precursor Lens 13.6%.
