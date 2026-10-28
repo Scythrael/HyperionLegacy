@@ -12,8 +12,10 @@ import {
   automationUnlocked,
   autoActive,
   hasSkill,
-  canBuySkill,
-  buySkill,
+  canBuySkillLevel,
+  skillLevel,
+  skillLevelCost,
+  skillAvailable,
   automationBuyAmount,
   setAutomationBuy,
   stepMut,
@@ -41,6 +43,7 @@ import {
   MILESTONES,
   SKILLS,
   UPGRADES,
+  LEVELED_SKILLS,
   milestoneAchievement,
   milestoneRewardLine,
   automationUnlockedBy,
@@ -138,14 +141,13 @@ describe("each automation unlocks at its milestone", () => {
 });
 
 describe("no Skill Point is ever spent on an automation", () => {
-  it("canBuySkill is false and buySkill changes nothing for every automation, however many points", () => {
+  it("Skill Points buy only leveled skills: none is an automation, and no offer ever is, however many points", () => {
     const s = freshSecretState(T0);
     s.skillPoints = 99;
-    for (const d of SKILLS) {
-      if (!isAutomationId(d.id)) continue;
-      expect(canBuySkill(s, d.id), d.id).toBe(false);
-      expect(buySkill(s, d.id, T0), d.id).toBe(s);
-    }
+    for (const id of AUTOMATION_IDS) s.milestones[AUTOMATION_UNLOCKS[id]] = T0;
+    for (const d of LEVELED_SKILLS) expect(isAutomationId(d.id), d.id).toBe(false);
+    for (const o of skillOffers(s)) expect(isAutomationId(o.id), o.id).toBe(false);
+    for (const d of SKILLS) if (isAutomationId(d.id)) expect(automationUnlocked(s, d.id), d.id).toBe(false);
     expect(s.skillPoints).toBe(99);
   });
 });
@@ -313,33 +315,55 @@ describe("Auto-buy Upgrades: cheapest level first, its buy amount per step", () 
 });
 
 describe("Auto Skill Allocation: cheapest level first, round-robin on ties", () => {
-  it("spends Skill Points on the cheapest skill each step (1 by default), never an automation", () => {
+  it("spends Skill Points on the cheapest open skill level each step (1 by default), round-robin, never a gated one", () => {
     const s = freshSecretState(T0);
-    s.skillPoints = 6;
+    s.skillPoints = 12;
     s.automations.autoSkills = true;
+    // Head Start and Tenfold Training open; the rest stay gated
+    s.milestones.firstFleet = T0;
+    s.milestones.e1000 = T0;
     for (const id of AUTOMATION_IDS) if (id !== "autoSkills") s.autoOn[id] = false;
-    const a = step(s, 1, T0 + 1000);
-    expect(a.skills).toEqual({ headStart: true });
-    expect(a.skillPoints).toBe(5);
-    const b = step(a, 1, T0 + 2000);
-    expect(b.skills).toEqual({ headStart: true, tenBonus: true });
-    const c = step(b, 1, T0 + 3000);
-    expect(c.skills).toEqual({ headStart: true, tenBonus: true, overdrive: true });
-    expect(c.skillPoints).toBe(0);
-    expect(skillOffers(c)).toEqual([]);
+    const open = LEVELED_SKILLS.filter((d) => skillAvailable(s, d.id)).map((d) => d.id);
+    expect(open).toEqual(["headStart", "tenfoldTraining"]);
+    // the reference rule: the cheapest next level, ties to fewer levels, then list order
+    const expected = (x: SecretState) => {
+      let best: (typeof LEVELED_SKILLS)[number] | null = null;
+      for (const d of LEVELED_SKILLS) {
+        const cost = skillLevelCost(x, d.id);
+        if (cost === null || !canBuySkillLevel(x, d.id)) continue;
+        if (best === null || cost < skillLevelCost(x, best.id)! || (cost === skillLevelCost(x, best.id)! && skillLevel(x, d.id) < skillLevel(x, best.id))) best = d;
+      }
+      return best;
+    };
+    let x = s;
+    let steps = 0;
+    for (let want = expected(x); want !== null; want = expected(x)) {
+      const before = skillLevel(x, want.id);
+      const cost = skillLevelCost(x, want.id)!;
+      const points = x.skillPoints;
+      x = step(x, 1, T0 + 1000 * ++steps);
+      expect(skillLevel(x, want.id), want.id).toBe(before + 1);
+      expect(x.skillPoints).toBe(points - cost);
+    }
+    expect(steps).toBeGreaterThanOrEqual(3);
+    expect(skillOffers(x)).toEqual([]);
+    for (const d of LEVELED_SKILLS) if (!open.includes(d.id)) expect(skillLevel(x, d.id), d.id).toBe(0);
+    expect(skillLevel(x, "headStart")).toBeGreaterThan(0);
+    expect(skillLevel(x, "tenfoldTraining")).toBeGreaterThan(0);
     const all = step(setAutomationBuy(s, "autoSkills", "max"), 1, T0 + 1000);
-    expect(all.skills).toEqual(c.skills);
+    expect(all.skillLevels).toEqual(x.skillLevels);
+    expect(all.skillPoints).toBe(x.skillPoints);
     const off = cloneSecret(s);
     off.autoOn.autoSkills = false;
-    expect(step(off, 1, T0 + 1000).skillPoints).toBe(6);
+    expect(step(off, 1, T0 + 1000).skillPoints).toBe(12);
   });
 
   it("a tie in cost goes to the skill with fewer levels, then list order", () => {
     const offers = [
       { id: "overdrive", level: 1, cost: 2 },
       { id: "headStart", level: 0, cost: 2 },
-      { id: "tenBonus", level: 0, cost: 2 },
-      { id: "overdrive", level: 0, cost: 3 },
+      { id: "tenfoldTraining", level: 0, cost: 2 },
+      { id: "captainsAcademy", level: 0, cost: 3 },
     ] as const;
     expect(pickSkillOffer(offers)).toEqual(offers[1]);
     expect(pickSkillOffer([])).toBeNull();

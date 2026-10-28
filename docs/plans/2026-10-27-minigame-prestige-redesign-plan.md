@@ -243,6 +243,21 @@ both before each slice.
   time e10,000,000 becomes reliable (report the day); tune only the [PROVISIONAL] constants.
 - [ ] Step 4: Commit `feat(minigame): leveled skills and the Skill Point schedule`.
 
+**Slice 4 carry note (built on the Slice 3 WIP; pacing retuned in the next commit, see below):**
+- Engine: `skillLevel` (a 0.13.11.2 stat skill counts as its `replaces` level until Slice 6), `skillLevelCost`,
+  `buySkillLevel` (by hand, one level), `skillAvailable` (gate open now, or opened before and
+  `SKILL_GATE_LIFT_PC` Prestigeceptions done; new save field `skillsOpened`, written only once set),
+  `skillScaleFactor` = (1 + count)^`SKILL_SCALE_POW`, `skillStrength` = step x level x factor, `totalSkillCost`,
+  `skillCostToMax`, `skillPointsRemaining`, `nextSkillPointPay` (the schedule's entry, never more than the levels
+  left need beyond the points held: earning stops exactly at max, no stranded point, a save at the old cutoff
+  earns again). The point skills multiply Captain / Augment / Dream gains; the bars read the same curve
+  (`fleetGainPerLog10`, `pcGainPerLog10`). `skillOffers` lists leveled skills (Auto Skill Allocation).
+- UI (minimal until Slice 7): leveled rows with level X / Y, now / next effect, scale line, gate line, gate-lift
+  note; Fleet card pays "+ N Skill Points". Help SKILLS reworded (Slice 7 rewrites it).
+- Goldens: goldens.json / relicGoldens.json move by the schedule's points and by the 0.13.11.2 stat skills now
+  scaling with prestige counts (test headers say which). devJumpTo bisects to its target (the settled Ore is no
+  longer proportional to the build).
+
 ### Slice 5: The relic ceiling and the late milestones
 
 **Files:**

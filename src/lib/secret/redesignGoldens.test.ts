@@ -9,7 +9,8 @@
 //   pcBarLadder      the same for the 1st to 4th lifetime Prestigeception and prestigeceptionGain.
 //                    Today the bar is a flat e10,000.
 //   skillState       per player (average, optimal, casual): the skills in purchase order with the
-//                    second each was bought, and the Skill Points held at the stop.
+//                    second each was bought, and the Skill Points held at the stop. Since Slice 4 the
+//                    leveled skills: the second of each one's first level and of its cap.
 //   milestoneUnlocks per player: the second each milestone was recorded.
 //   pacingRelicFree  per player: the whole relic-free timeline (every sim event, in seconds) to
 //                    e10,000,000.
@@ -26,7 +27,7 @@ import Decimal from "break_infinity.js";
 import { freshSecretState, type SecretState } from "./state";
 import { fleetGain, prestigeceptionGain, pow10, unsoftenExponent, fleetBarExponent, pcBarExponent } from "./engine";
 import { simulatePlayer, LONG_STRETCH_DT, SIM_START_MS, type SimProfile } from "./sim";
-import { SKILLS, FLEET_AT, PRESTIGECEPTION_AT } from "./config";
+import { LEVELED_SKILLS, FLEET_AT, PRESTIGECEPTION_AT } from "./config";
 
 const PATH = "src/lib/secret/redesignGoldens.json";
 const PEAKS = [308, 400, 1000, 10000] as const;
@@ -102,9 +103,10 @@ const PLAYERS: Record<string, { profile: SimProfile; days: number }> = {
 function player(name: string) {
   const p = PLAYERS[name];
   const r = simulatePlayer({ profile: p.profile, days: p.days, longStretchDt: LONG_STRETCH_DT, stopAfterExponent: { exponent: 1e7, days: 0 } });
-  const order = SKILLS.map((d) => d.id)
-    .filter((id) => r.events[`skill:${id}`] !== undefined)
-    .map((id) => [id, r.events[`skill:${id}`]] as [string, number])
+  // Slice 4: each leveled skill's first level and its cap (sim events skill:<id> and skillMax:<id>)
+  const order = LEVELED_SKILLS.flatMap((d) => [`skill:${d.id}`, `skillMax:${d.id}`])
+    .filter((key) => r.events[key] !== undefined)
+    .map((key) => [key, r.events[key]] as [string, number])
     .sort((a, b) => a[1] - b[1] || a[0].localeCompare(b[0]));
   const milestones: Record<string, number> = {};
   for (const [id, at] of Object.entries(r.final.milestones).sort((a, b) => (a[1] as number) - (b[1] as number))) milestones[id] = ((at as number) - SIM_START_MS) / 1000;

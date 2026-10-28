@@ -5,6 +5,10 @@
 // 0.13.11.1 adds fields and the e1,000,000 upgrades, all of which are exactly 1 at level 0, so
 // nothing before e1,000,000 may move. A failure here means players part way through moved.
 // Regenerate ONLY on purpose: GOLDEN_WRITE=1 npx vitest run src/lib/secret/goldens.test.ts
+// Regenerated on purpose by the 0.14.0 prestige redesign, Slice 4 (leveled skills): the mid states (no stat
+// skill owned) move only by skillPoints (the front-loaded schedule pays 3, 3, 2, 2, then 1); the past-finale
+// states own the 0.13.11.2 Head Start, Ten Bonus and Overdrive, which now act as leveled skills whose strength
+// scales with the prestige counts, so their whole run moves.
 import { describe, it, expect } from "vitest";
 import { readFileSync, writeFileSync } from "node:fs";
 import { serializeSecret, type SecretState } from "./state";

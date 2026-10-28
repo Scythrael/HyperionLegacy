@@ -10,8 +10,14 @@ import {
   doCaptain,
   doFleet,
   doPrestigeception,
-  buySkill,
-  canBuySkill,
+  buySkillLevel,
+  canBuySkillLevel,
+  skillLevel,
+  skillLevelCost,
+  skillOffers,
+  nextSkillPointPay,
+  skillPointScheduleEntry,
+  skillStrength,
   setAuto,
   setAutoTarget,
   step,
@@ -23,7 +29,7 @@ import {
   stepMut,
   gamePace,
   displayIncome,
-  allSkillsLearned,
+  allSkillsMaxed,
 } from "./engine";
 import { cloneSecret } from "./state";
 import { readFileSync } from "node:fs";
@@ -46,6 +52,8 @@ import {
   SKILLS,
   TEN_BONUS_SKILL,
   OVERDRIVE_POWER,
+  LEVELED_SKILLS,
+  isAutomationId,
 } from "./config";
 
 const pow10 = (e: number) => Decimal.pow(10, e);
@@ -84,14 +92,16 @@ describe("Captain Prestige", () => {
 });
 
 describe("Fleet Prestige", () => {
-  it("needs 1.8e308 this fleet and pays Augment Points and one Skill Point, resetting Captain Points", () => {
+  it("needs 1.8e308 this fleet and pays Augment Points and the schedule's Skill Points, resetting Captain Points", () => {
     expect(fleetGain(withRun(308)).eq(0)).toBe(true);
     const s = withRun(FLEET_AT * 2);
     s.captainPoints = new Decimal(5000);
     expect(fleetGain(s).eq(Math.floor(AP_SCALE * Math.pow(2, AP_K)))).toBe(true);
     const t = doFleet(s, 9);
     expect(t.augmentPoints.eq(Math.floor(AP_SCALE * Math.pow(2, AP_K)))).toBe(true);
-    expect(t.skillPoints).toBe(1);
+    // 0.14.0 Slice 4: the first Fleet pays the schedule's first (front-loaded) entry
+    expect(t.skillPoints).toBe(skillPointScheduleEntry(0));
+    expect(t.skillPointsEarned).toBe(skillPointScheduleEntry(0));
     expect(t.captainPoints.eq(0)).toBe(true);
     expect(t.fleetCount).toBe(1);
     expect(t.fleetTotal).toBe(1);
@@ -162,7 +172,9 @@ describe("Prestigeception", () => {
     expect(t.tiersUnlocked).toBe(7);
     expect(t.skillPoints).toBe(2);
     expect(t.skills.headStart).toBe(true);
-    expect(t.ore.eq(1e10)).toBe(true); // Head Start
+    // Head Start: 1e10 at its level, scaled up by the 4 lifetime Fleets (0.14.0 Slice 4)
+    expect(t.ore.eq(pow10(skillStrength(t, "headStart")))).toBe(true);
+    expect(t.ore.gt(1e10)).toBe(true);
     expect(t.pcCount).toBe(1);
     expect(t.milestones.firstPc).toBe(3);
   });
@@ -183,17 +195,24 @@ describe("Prestigeception", () => {
 });
 
 describe("skills", () => {
-  it("cost Skill Points and cannot be bought twice; automations are never sold (0.14.0: milestones unlock them)", () => {
+  it("cost Skill Points level by level up to the cap, once open; automations are never sold (0.14.0 Slices 3 and 4)", () => {
     let s = freshSecretState(0);
-    s.skillPoints = 3;
-    expect(canBuySkill(s, "autoBuyLow")).toBe(false);
-    expect(buySkill(s, "autoBuyLow", 1)).toBe(s);
-    s = buySkill(s, "headStart", 1);
-    expect(s.skillPoints).toBe(2);
-    expect(canBuySkill(s, "headStart")).toBe(false);
-    s = buySkill(s, "tenBonus", 1);
-    expect(s.skillPoints).toBe(0);
-    expect(buySkill(s, "overdrive", 1)).toBe(s);
+    s.skillPoints = 100;
+    // Head Start opens at Fleet Week
+    expect(canBuySkillLevel(s, "headStart")).toBe(false);
+    expect(buySkillLevel(s, "headStart", 1)).toBe(s);
+    s.milestones.firstFleet = 1;
+    const def = LEVELED_SKILLS.find((d) => d.id === "headStart")!;
+    for (let n = 0; n < def.cap; n++) {
+      const before = s.skillPoints;
+      s = buySkillLevel(s, "headStart", 1);
+      expect(before - s.skillPoints).toBe(def.costBase + def.costStep * n);
+      expect(skillLevel(s, "headStart")).toBe(n + 1);
+    }
+    expect(skillLevelCost(s, "headStart")).toBeNull();
+    expect(buySkillLevel(s, "headStart", 1)).toBe(s);
+    expect(skillOffers(s).length).toBeGreaterThanOrEqual(0);
+    for (const o of skillOffers({ ...s, milestones: { firstFleet: 1, e1000: 1, firstPc: 1 } })) expect(isAutomationId(o.id)).toBe(false);
   });
 
   it("Head Start begins resets with 1e10 Ore", () => {
@@ -293,11 +312,15 @@ describe("milestones", () => {
     s.tiersUnlocked = 8;
     s.owned[7] = new Decimal(1);
     s.bestOre = pow10(1e9);
+    // 0.14.0 Slice 4: "every skill maxed" is every leveled skill at its cap (the 0.13.11.2 skills alone are not)
     for (const d of SKILLS) s.skills[d.id] = true;
+    checkMilestonesMut(s, 6);
+    expect(s.milestones.allSkills).toBeUndefined();
+    for (const d of LEVELED_SKILLS) s.skillLevels[d.id] = d.cap;
     checkMilestonesMut(s, 7);
-    expect(s.milestones.singularity).toBe(7);
-    expect(s.milestones.finale).toBe(7);
-    expect(s.milestones.long).toBe(7);
+    expect(s.milestones.singularity).toBe(6);
+    expect(s.milestones.finale).toBe(6);
+    expect(s.milestones.long).toBe(6);
     expect(s.milestones.allSkills).toBe(7);
   });
 });
@@ -367,36 +390,43 @@ describe("0.13.11.1 curve round: the Captain bonus and the game clock (user pick
   });
 });
 
-describe("0.13.11.1: no Skill Points once every skill is learned (user: they shouldn't be awarded afterward)", () => {
-  it("a Fleet with every skill owned pays Augment Points but no Skill Point; spare points are kept", () => {
-    const s = withRun(FLEET_AT * 2);
-    for (const d of SKILLS) s.skills[d.id] = true;
+describe("no Skill Points once every skill is maxed (0.13.11.1 cutoff, 0.14.0 Slice 4 leveled)", () => {
+  const maxed = (s: SecretState) => {
+    for (const d of LEVELED_SKILLS) s.skillLevels[d.id] = d.cap;
+    return s;
+  };
+
+  it("a Fleet with every skill maxed pays Augment Points but no Skill Point; spare points are kept", () => {
+    const s = maxed(withRun(FLEET_AT * 2));
     s.skillPoints = 3; // spare, earned before
     const t = doFleet(s, 1);
     expect(t.fleetTotal).toBe(1);
     expect(t.augmentPoints.gt(0)).toBe(true);
     expect(t.skillPoints).toBe(3);
-    expect(allSkillsLearned(t)).toBe(true);
+    expect(t.skillPointsEarned).toBe(0);
+    expect(allSkillsMaxed(t)).toBe(true);
   });
 
-  it("with any skill still to learn, a Fleet still pays one", () => {
-    const s = withRun(FLEET_AT * 2);
-    for (const d of SKILLS) if (d.id !== "headStart") s.skills[d.id] = true;
-    expect(allSkillsLearned(s)).toBe(false);
-    expect(doFleet(s, 1).skillPoints).toBe(s.skillPoints + 1);
+  it("with a level still to buy, a Fleet pays the schedule's entry, never more than that level costs", () => {
+    const s = maxed(withRun(FLEET_AT * 2));
+    const head = LEVELED_SKILLS.find((d) => d.id === "headStart")!;
+    s.skillLevels.headStart = head.cap - 1;
+    expect(allSkillsMaxed(s)).toBe(false);
+    const last = head.costBase + head.costStep * (head.cap - 1);
+    expect(nextSkillPointPay(s)).toBe(Math.min(skillPointScheduleEntry(0), last));
+    expect(doFleet(s, 1).skillPoints).toBe(s.skillPoints + Math.min(skillPointScheduleEntry(0), last));
   });
 
-  it("0.14.0 Slice 3: the automations no longer count, so the three Skill Point skills alone are 'every skill'", () => {
-    const s = withRun(FLEET_AT * 2);
-    for (const id of ["headStart", "tenBonus", "overdrive"] as const) s.skills[id] = true;
-    expect(allSkillsLearned(s)).toBe(true);
+  it("0.14.0 Slice 3: the automations never count, so the leveled skills alone are 'every skill'", () => {
+    const s = maxed(withRun(FLEET_AT * 2));
+    expect(allSkillsMaxed(s)).toBe(true);
     expect(doFleet(s, 1).skillPoints).toBe(s.skillPoints);
   });
 
   it("the Prestige tab says so on the Fleet card and its payout line", () => {
     const ov = readFileSync("src/lib/SecretGameOverlay.svelte", "utf-8");
-    expect(ov).toContain("allSkillsLearned(s) ? COPY.allSkillsLearned");
-    expect(ov).toContain('points{allSkillsLearned(s) ? "" : " + 1 Skill Point"}');
+    expect(ov).toContain("allSkillsMaxed(s) ? COPY.allSkillsLearned");
+    expect(ov).toContain('points{nextSkillPointPay(s) > 0 ? ` + ${plural(nextSkillPointPay(s), "Skill Point")}` : ""}');
     // 0.13.11.2: the card reads short; the Help view explains the cutoff.
     expect(COPY.allSkillsLearned).toBe("All learned");
     expect(HELP_SECTIONS.some((h) => /stops paying Skill Points/.test(h.body))).toBe(true);

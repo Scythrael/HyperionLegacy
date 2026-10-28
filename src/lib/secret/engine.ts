@@ -35,7 +35,6 @@ import {
   TIERS,
   TIER_COUNT,
   TEN_BONUS,
-  TEN_BONUS_SKILL,
   START_ORE,
   OC_FACTOR,
   OC_SECONDS,
@@ -51,13 +50,10 @@ import {
   AP_POW,
   DP_SCALE,
   DP_POW,
-  HEAD_START_LOG10,
-  OVERDRIVE_POWER,
   FINALE_EXPONENT,
   LONG_EXPONENT,
   SOFT_SCALE,
   SOFT_BETA,
-  SKILLS,
   TURBO_LEVEL,
   UPGRADES,
   UPGRADES_AT,
@@ -77,8 +73,13 @@ import {
   AUTOMATION_UNLOCKS,
   AUTOMATION_BUY_DEFAULT,
   AUTO_SKILLS_PC_COUNT,
-  SKILL_POINT_SKILLS,
+  LEVELED_SKILLS,
+  SKILL_POINT_SCHEDULE,
+  SKILL_GATE_LIFT_PC,
+  SKILL_SCALE_POW,
   isAutomationId,
+  type LeveledSkillId,
+  type LeveledSkillDef,
   type AutomationId,
   type AutomationBuy,
   type RelicLever,
@@ -207,15 +208,18 @@ export function automationUnlocked(s: SecretState, id: AutomationId): boolean {
   return s.automations[id] === true || (s.skills as Partial<Record<string, true>>)[id] === true;
 }
 
-// For the six automations that are still listed as skills, "owned" means unlocked.
+// A 0.13.11.2 skill id. For the six automations "owned" means unlocked; for the three stat skills
+// (Slice 4: now leveled skills) it means the leveled skill that replaced it is at least at the level that
+// gives today's effect (config LEVELED_SKILLS replaces).
 export function hasSkill(s: SecretState, id: SkillId): boolean {
-  return isAutomationId(id) ? automationUnlocked(s, id) : s.skills[id] === true;
+  if (isAutomationId(id)) return automationUnlocked(s, id);
+  const def = LEVELED_SKILLS.find((d) => d.replaces?.skill === id);
+  return def !== undefined && skillLevel(s, def.id) >= def.replaces!.level;
 }
 
 // An automation acts only when unlocked and switched on (missing switch means on).
-export function autoActive(s: SecretState, id: SkillId | AutomationId): boolean {
-  const unlocked = isAutomationId(id) ? automationUnlocked(s, id) : s.skills[id] === true;
-  return unlocked && s.autoOn[id] !== false;
+export function autoActive(s: SecretState, id: AutomationId): boolean {
+  return automationUnlocked(s, id) && s.autoOn[id] !== false;
 }
 
 // How much an automation buys at a time (user 2026-10-28: "Buy 1 at a time. Buy maximum. Buy 10."):
@@ -242,6 +246,142 @@ function buyCount(amount: AutomationBuy, seconds: number): number {
 // Whole seconds a step stands for when it counts purchases (a live step is 1; never 0).
 function purchaseSeconds(dt: number): number {
   return Math.max(1, Math.round(dt));
+}
+
+// ---------------------------------------------------------------------------
+// Leveled skills and the Skill Point schedule (0.14.0 prestige redesign Slice 4, design 3.3 and 3.4)
+// ---------------------------------------------------------------------------
+
+const LEVELED_SKILL_BY_ID = Object.fromEntries(LEVELED_SKILLS.map((d) => [d.id, d])) as Readonly<Record<LeveledSkillId, LeveledSkillDef>>;
+
+// A skill's level. A 0.13.11.2 save that owns the skill this one replaces has at least the level that
+// gives that skill's effect (nobody loses strength on load; Slice 6 converts those saves for good).
+export function skillLevel(s: SecretState, id: LeveledSkillId): number {
+  const def = LEVELED_SKILL_BY_ID[id];
+  const level = s.skillLevels[id] ?? 0;
+  return def.replaces !== undefined && s.skills[def.replaces.skill] === true ? Math.max(level, def.replaces.level) : level;
+}
+
+// Skill Points for one level of a skill (level counts from 0).
+function levelCost(def: LeveledSkillDef, level: number): number {
+  return def.costBase + def.costStep * level;
+}
+
+// The next level's cost, or null at the cap.
+export function skillLevelCost(s: SecretState, id: LeveledSkillId): number | null {
+  const def = LEVELED_SKILL_BY_ID[id];
+  const level = skillLevel(s, id);
+  return level >= def.cap ? null : levelCost(def, level);
+}
+
+// What maxing every skill costs from nothing: the schedule's lifetime total (design 3.4).
+export function totalSkillCost(): number {
+  let total = 0;
+  for (const def of LEVELED_SKILLS) for (let n = 0; n < def.cap; n++) total += levelCost(def, n);
+  return total;
+}
+
+// The Skill Points every level not yet owned still costs.
+export function skillCostToMax(s: SecretState): number {
+  let total = 0;
+  for (const def of LEVELED_SKILLS) for (let n = skillLevel(s, def.id); n < def.cap; n++) total += levelCost(def, n);
+  return total;
+}
+
+export function allSkillsMaxed(s: SecretState): boolean {
+  return LEVELED_SKILLS.every((d) => skillLevel(s, d.id) >= d.cap);
+}
+
+// The schedule total minus what it has paid (0 once earning has stopped).
+export function skillPointsRemaining(s: SecretState): number {
+  return Math.max(0, totalSkillCost() - s.skillPointsEarned);
+}
+
+// The schedule's entry for the n-th lifetime Fleet Prestige (0 = the first); the last entry repeats.
+export function skillPointScheduleEntry(n: number): number {
+  return SKILL_POINT_SCHEDULE[Math.min(n, SKILL_POINT_SCHEDULE.length - 1)];
+}
+
+// What the next Fleet Prestige pays in Skill Points: the schedule's entry, but never more than the levels
+// still to buy need beyond the points already held. So earning stops exactly when every skill is maxed
+// (or the points held cover the rest), no point is ever stranded, and a save that hit the 0.13.11.2 "all
+// learned" cutoff earns again under the deeper caps (plan Review Focus 4).
+export function nextSkillPointPay(s: SecretState): number {
+  return Math.max(0, Math.min(skillPointScheduleEntry(s.fleetTotal), skillCostToMax(s) - s.skillPoints));
+}
+
+// The prestige count a skill's strength scales off.
+export function skillScaleCount(s: SecretState, id: LeveledSkillId): number {
+  switch (LEVELED_SKILL_BY_ID[id].scalesOff) {
+    case "lifetimeFleets":
+      return s.fleetTotal;
+    case "captainSinceFleet":
+      return s.captainSinceFleet;
+    case "lifetimePcs":
+      return s.pcCount;
+    case "fleetCount":
+      return s.fleetCount;
+  }
+}
+
+// (1 + count)^SKILL_SCALE_POW: exactly 1 at a count of 0, only grows, concave (design 3.3).
+export function skillScaleFactor(s: SecretState, id: LeveledSkillId): number {
+  const n = skillScaleCount(s, id);
+  return n <= 0 ? 1 : Math.pow(1 + n, SKILL_SCALE_POW);
+}
+
+// A skill's strength: step x level x scale factor (0 at level 0). Each effect reads this.
+export function skillStrength(s: SecretState, id: LeveledSkillId, level: number = skillLevel(s, id)): number {
+  return level <= 0 ? 0 : LEVELED_SKILL_BY_ID[id].step * level * skillScaleFactor(s, id);
+}
+
+// A gate's count today: the prestiges it waits for (0 for a milestone gate).
+export function skillGateCount(s: SecretState, id: LeveledSkillId): number {
+  const gate = LEVELED_SKILL_BY_ID[id].availableAt;
+  if ("milestone" in gate) return 0;
+  const { layer, scope } = gate.prestiges;
+  if (layer === "captain") return scope === "current" ? s.captainSinceFleet : s.captainCount;
+  if (layer === "fleet") return scope === "current" ? s.fleetCount : s.fleetTotal;
+  return s.pcCount;
+}
+
+// The gate itself is open right now (user 2026-10-28: a skill opens alongside an automation milestone, or
+// at a count of prestiges in a layer, so a reset cannot rush back to full power).
+export function skillGateOpen(s: SecretState, id: LeveledSkillId): boolean {
+  const gate = LEVELED_SKILL_BY_ID[id].availableAt;
+  if ("milestone" in gate) return (s.milestones as Partial<Record<string, number>>)[gate.milestone] !== undefined;
+  return skillGateCount(s, id) >= gate.prestiges.count;
+}
+
+// A skill can take levels now: its gate is open, or (from SKILL_GATE_LIFT_PC lifetime Prestigeceptions
+// on) it has been open before, so it is open from the start of every climb (user 2026-10-28).
+export function skillAvailable(s: SecretState, id: LeveledSkillId): boolean {
+  return skillGateOpen(s, id) || (s.pcCount >= SKILL_GATE_LIFT_PC && s.skillsOpened[id] === true);
+}
+
+export function canBuySkillLevel(s: SecretState, id: LeveledSkillId): boolean {
+  const cost = skillLevelCost(s, id);
+  return cost !== null && skillAvailable(s, id) && s.skillPoints >= cost;
+}
+
+function buySkillLevelMut(s: SecretState, id: LeveledSkillId): void {
+  s.skillPoints -= skillLevelCost(s, id)!;
+  s.skillLevels = { ...s.skillLevels, [id]: skillLevel(s, id) + 1 };
+}
+
+// Skills are bought by hand, one level at a time (user 2026-10-28: "The same process should exist as it
+// does now").
+export function buySkillLevel(s: SecretState, id: LeveledSkillId, atMs: number): SecretState {
+  if (!canBuySkillLevel(s, id)) return s;
+  const next = cloneSecret(s);
+  buySkillLevelMut(next, id);
+  checkMilestonesMut(next, atMs);
+  return next;
+}
+
+// 1 + a skill's strength, the factor the three point skills multiply their gain by (exactly 1 at level 0).
+function pointSkillFactor(s: SecretState, id: LeveledSkillId): number {
+  return 1 + skillStrength(s, id);
 }
 
 // The level of one e1,000,000 upgrade (0 when not bought).
@@ -323,7 +463,7 @@ export function upgradeUnlocked(s: SecretState, id: UpgradeId): boolean {
 export type UpgradeBlock = { kind: "asleep"; unlockAt: number } | { kind: "needsOverdrive" };
 export function upgradeBlocked(s: SecretState, id: UpgradeId): UpgradeBlock | null {
   if (!upgradeUnlocked(s, id)) return { kind: "asleep", unlockAt: UPGRADES.find((u) => u.id === id)!.unlockAt };
-  if (id === "overdriveOverdrive" && !hasSkill(s, "overdrive")) return { kind: "needsOverdrive" };
+  if (id === "overdriveOverdrive" && skillLevel(s, "overdrive") === 0) return { kind: "needsOverdrive" };
   return null;
 }
 
@@ -379,9 +519,11 @@ export function buyUpgrade(s: SecretState, id: UpgradeId, mode: BuyMode): Secret
   return next;
 }
 
-// Tenfold Tuner adds step x level to the ten bonus factor; R2-10 Hull Rivet multiplies the result.
+// The Tenfold Training skill adds its strength to the ten bonus factor (2.2 at level 2 with no Captain
+// Prestige this Fleet, today's Ten Bonus x2.2); Tenfold Tuner adds step x level; R2-10 Hull Rivet
+// multiplies the result.
 export function tenBonusFactor(s: SecretState): number {
-  const base = hasSkill(s, "tenBonus") ? TEN_BONUS_SKILL : TEN_BONUS;
+  const base = TEN_BONUS + skillStrength(s, "tenfoldTraining");
   const tt = upgradeLevel(s, "tenfoldTuner");
   const factor = tt === 0 ? base : base + upgradeStep("tenfoldTuner") * tt;
   const rivet = relicBoost(s, "tenBonus");
@@ -419,9 +561,10 @@ export function sharpenFactor(s: SecretState, tier: number): number {
   return lv === 0 || tier !== TIER_COUNT - 1 ? 1 : 1 + upgradeStep("singularitySharpener") * lv;
 }
 
-// Overdrive Overdrive: the Overdrive skill's power rises by step per level (OVERDRIVE_POWER at 0).
+// The Overdrive skill raises Ore production to 1 + its strength (^1.05 at level 2 before any
+// Prestigeception, today's Overdrive); Overdrive Overdrive adds step per level on top.
 export function overdrivePower(s: SecretState): number {
-  return OVERDRIVE_POWER + upgradeStep("overdriveOverdrive") * upgradeLevel(s, "overdriveOverdrive");
+  return 1 + skillStrength(s, "overdrive") + upgradeStep("overdriveOverdrive") * upgradeLevel(s, "overdriveOverdrive");
 }
 
 // Turbo Encabulator: the whole stack runs 1 + step x level times faster (1 at level 0). A speed, not
@@ -658,7 +801,7 @@ export function produceMut(s: SecretState, dt: number): void {
     gains[m] = acc;
   }
   let oreGain = gains[0];
-  if (hasSkill(s, "overdrive") && oreGain.gt(0)) oreGain = oreGain.div(dt).pow(overdrivePower(s)).mul(dt);
+  if (skillLevel(s, "overdrive") > 0 && oreGain.gt(0)) oreGain = oreGain.div(dt).pow(overdrivePower(s)).mul(dt);
   s.lastIncome = oreGain.div(dt);
   s.ore = s.ore.add(oreGain);
   for (let m = 1; m < n; m++) s.owned[m - 1] = s.owned[m - 1].add(gains[m]);
@@ -698,17 +841,15 @@ function autoUpgradesMut(s: SecretState, seconds: number): void {
 // Points on the cheapest skill level on offer (user 2026-10-28: "This would just unlock cheapest first.
 // We don't want to build logic to efficiently play the game on auto."). A tie in cost goes to the skill
 // with the fewest levels, then list order (round-robin). Up to its buy amount of levels per step.
-// SKILL OFFERS are the seam Slice 4 fills: until the leveled skills land, each Skill Point skill is a
-// one-level skill (level 0, its cost); Slice 4 lists each leveled skill's next level here (its level and
-// skillLevelCost) and buys it with buySkillLevel. The choice rule (pickSkillOffer) stays as it is.
+// Slice 4 fills the SKILL OFFERS seam: each leveled skill whose next level can be bought now.
 export interface SkillOffer {
-  id: SkillId;
+  id: LeveledSkillId;
   level: number; // levels already owned
   cost: number; // Skill Points for the next level
 }
 
 export function skillOffers(s: SecretState): SkillOffer[] {
-  return SKILL_POINT_SKILLS.filter((d) => canBuySkill(s, d.id)).map((d) => ({ id: d.id, level: 0, cost: d.cost }));
+  return LEVELED_SKILLS.filter((d) => canBuySkillLevel(s, d.id)).map((d) => ({ id: d.id, level: skillLevel(s, d.id), cost: skillLevelCost(s, d.id)! }));
 }
 
 export function pickSkillOffer(offers: readonly SkillOffer[]): SkillOffer | null {
@@ -717,18 +858,13 @@ export function pickSkillOffer(offers: readonly SkillOffer[]): SkillOffer | null
   return pick;
 }
 
-function takeSkillOfferMut(s: SecretState, offer: SkillOffer): void {
-  s.skillPoints -= offer.cost;
-  s.skills = { ...s.skills, [offer.id]: true };
-}
-
 function autoSkillsMut(s: SecretState, seconds: number): void {
   if (!autoActive(s, "autoSkills")) return;
   const max = buyCount(automationBuyAmount(s, "autoSkills"), seconds);
   for (let n = 0; n < max; n++) {
     const offer = pickSkillOffer(skillOffers(s));
     if (offer === null) return;
-    takeSkillOfferMut(s, offer);
+    buySkillLevelMut(s, offer.id);
   }
 }
 
@@ -793,8 +929,10 @@ export function captainGain(s: SecretState): Decimal {
   const e = effectiveExponent(s.runPeak);
   if (e < CAPTAIN_AT) return ZERO;
   const k = effectiveExponent(s.bestOre) >= FINALE_EXPONENT ? CP_K_AFTER_FINALE : CP_K;
-  // R2-10 Captain's Sigil: Captain Points earned x relicBoost("captain"), before the floor.
-  return timesRelic(powPositive(gainMultiplier(s), CAPTAIN_BEND).mul(CP_SCALE * gainShape(e, CAPTAIN_AT, k)), relicBoost(s, "captain")).floor();
+  // R2-10 Captain's Sigil: Captain Points earned x relicBoost("captain"), and the Captain's Academy
+  // skill (Slice 4), both before the floor (each skipped at exactly 1).
+  const base = timesRelic(powPositive(gainMultiplier(s), CAPTAIN_BEND).mul(CP_SCALE * gainShape(e, CAPTAIN_AT, k)), relicBoost(s, "captain"));
+  return timesRelic(base, pointSkillFactor(s, "captainsAcademy")).floor();
 }
 
 // 0.14.0 prestige redesign, rising bars (design 3.1; user: "Fleet prestige should get harder and harder
@@ -810,16 +948,26 @@ export function captainGain(s: SecretState): Decimal {
 // what every Fleet and Prestigeception waits for, by hand, at 100% and below (sim.ts simulateBite
 // measures it). Payouts still measure from the BASE bars (user, 2026-10-27: "Harder pays more"), so
 // clearing a risen bar pays more than the last one.
+// log10 of what a climb to the base bar pays, before the floor: the bars and sim.ts targetExponent read it,
+// so they always sit on the payout's own curve (relics and the Slice 4 point skills included).
+export function fleetGainPerLog10(s: SecretState): number {
+  return gainMultiplier(s).log10() + Math.log10(AP_SCALE * relicBoost(s, "augment") * pointSkillFactor(s, "fleetLogistics"));
+}
+
+export function pcGainPerLog10(s: SecretState): number {
+  return Math.log10(DP_SCALE * relicBoost(s, "dream") * pointSkillFactor(s, "lucidPlanning"));
+}
+
 function fleetBarFor(s: SecretState, held: Decimal): number {
   if (held.lte(0)) return FLEET_AT;
-  const per = gainMultiplier(s).log10() + Math.log10(AP_SCALE * relicBoost(s, "augment"));
+  const per = fleetGainPerLog10(s);
   const bar = FLEET_AT * Math.pow(10, (held.log10() + Math.log10(FLEET_BAR_RATIO) - per) / gainExponent(s, AP_K));
   return Math.max(FLEET_AT, bar);
 }
 
 function pcBarFor(s: SecretState, held: Decimal): number {
   if (held.lte(0)) return PRESTIGECEPTION_AT;
-  const per = Math.log10(DP_SCALE * relicBoost(s, "dream"));
+  const per = pcGainPerLog10(s);
   const bar = PRESTIGECEPTION_AT * Math.pow(10, (held.log10() + Math.log10(PC_BAR_RATIO) - per) / DP_K);
   return Math.max(PRESTIGECEPTION_AT, bar);
 }
@@ -846,13 +994,16 @@ export function nextPcBarExponent(s: SecretState): number {
 
 // The payout of a climb to effective exponent e, before the bar check.
 function fleetGainAt(s: SecretState, e: number): Decimal {
-  // R2-10 Glyph Tablet: Augment Points earned x relicBoost("augment"), before the floor.
-  return timesRelic(gainMultiplier(s).mul(AP_SCALE * gainShape(e, FLEET_AT, gainExponent(s, AP_K))), relicBoost(s, "augment")).floor();
+  // R2-10 Glyph Tablet: Augment Points earned x relicBoost("augment"), and the Fleet Requisitions skill
+  // (Slice 4), both before the floor (each skipped at exactly 1).
+  const base = timesRelic(gainMultiplier(s).mul(AP_SCALE * gainShape(e, FLEET_AT, gainExponent(s, AP_K))), relicBoost(s, "augment"));
+  return timesRelic(base, pointSkillFactor(s, "fleetLogistics")).floor();
 }
 
 function pcGainAt(s: SecretState, e: number): Decimal {
-  // R2-10 Star Chart Fragment: Dream Points earned x relicBoost("dream"), before the floor.
-  return new Decimal(DP_SCALE * gainShape(e, PRESTIGECEPTION_AT, DP_K) * relicBoost(s, "dream")).floor();
+  // R2-10 Star Chart Fragment: Dream Points earned x relicBoost("dream"), and the Lucid Planning skill
+  // (Slice 4), both before the floor.
+  return new Decimal(DP_SCALE * gainShape(e, PRESTIGECEPTION_AT, DP_K) * relicBoost(s, "dream") * pointSkillFactor(s, "lucidPlanning")).floor();
 }
 
 export function fleetGain(s: SecretState): Decimal {
@@ -868,7 +1019,10 @@ export function prestigeceptionGain(s: SecretState): Decimal {
 }
 
 function resetRunMut(s: SecretState): void {
-  s.ore = hasSkill(s, "headStart") ? pow10(HEAD_START_LOG10) : new Decimal(START_ORE);
+  // Head Start (Slice 4): resets begin with 10^strength Ore (1e10 at level 1 before the first Fleet,
+  // today's Head Start).
+  const head = skillStrength(s, "headStart");
+  s.ore = head > Math.log10(START_ORE) ? pow10(head) : new Decimal(START_ORE);
   s.bought = new Array(TIER_COUNT).fill(0);
   s.owned = Array.from({ length: TIER_COUNT }, () => ZERO);
   s.overclock = 0;
@@ -898,13 +1052,15 @@ function doCaptainMut(s: SecretState, atMs: number): boolean {
 function doFleetMut(s: SecretState, atMs: number): boolean {
   const gain = fleetGain(s);
   if (gain.lte(0)) return false;
+  // Slice 4 (design 3.4): Skill Points by the front-loaded schedule over lifetime Fleets, until the points
+  // held cover every level still to buy (nextSkillPointPay; spare points are kept, as since 2026-10-23).
+  const pay = nextSkillPointPay(s);
+  s.skillPoints += pay;
+  s.skillPointsEarned += pay;
   s.augmentPoints = s.augmentPoints.add(gain);
   s.fleetCount += 1;
   s.fleetTotal += 1;
   s.captainSinceFleet = 0;
-  // User, 2026-10-23: once every skill is learned, no more Skill Points (spare ones are kept). New
-  // content is expected to come as a new prestige layer that starts scaling things again.
-  if (!allSkillsLearned(s)) s.skillPoints += 1;
   s.captainPoints = ZERO;
   unlockTiersMut(s);
   resetRunMut(s);
@@ -1003,32 +1159,7 @@ export function prestigePreview(s: SecretState, layer: AutoLayer): { before: Pre
 // Skills and settings
 // ---------------------------------------------------------------------------
 
-// Every skill Skill Points buy is owned: Fleet Prestige stops paying Skill Points. (Slice 3: the
-// automations unlock at milestones and no longer count.)
-export function allSkillsLearned(s: SecretState): boolean {
-  return SKILL_POINT_SKILLS.every((d) => s.skills[d.id] === true);
-}
-
-// Automations are never sold for Skill Points (Slice 3; they unlock at milestones).
-export function canBuySkill(s: SecretState, id: SkillId): boolean {
-  if (isAutomationId(id)) return false;
-  const def = SKILLS.find((d) => d.id === id);
-  if (!def || hasSkill(s, id)) return false;
-  if (def.requires && !hasSkill(s, def.requires)) return false;
-  return s.skillPoints >= def.cost;
-}
-
-export function buySkill(s: SecretState, id: SkillId, atMs: number): SecretState {
-  if (!canBuySkill(s, id)) return s;
-  const def = SKILLS.find((d) => d.id === id)!;
-  const next = cloneSecret(s);
-  next.skillPoints -= def.cost;
-  next.skills[id] = true;
-  checkMilestonesMut(next, atMs);
-  return next;
-}
-
-export function setAuto(s: SecretState, id: SkillId | AutomationId, on: boolean): SecretState {
+export function setAuto(s: SecretState, id: AutomationId, on: boolean): SecretState {
   const next = cloneSecret(s);
   next.autoOn[id] = on;
   return next;
@@ -1071,8 +1202,8 @@ function reached(s: SecretState, id: MilestoneId): boolean {
     case "e100k":
       return e() >= 100000;
     case "allSkills":
-      // Slice 3: "every skill maxed" (design 3.2 [PROPOSAL], approved); the automations no longer count.
-      return allSkillsLearned(s);
+      // "every skill maxed" (design 3.2 [PROPOSAL], approved): every leveled skill at its cap (Slice 4).
+      return allSkillsMaxed(s);
     case "finale":
       return e() >= FINALE_EXPONENT;
     case "long":
@@ -1146,6 +1277,10 @@ export function checkMilestonesMut(s: SecretState, atMs: number): void {
   }
   for (const id of AUTOMATION_IDS) {
     if (s.automations[id] !== true && s.milestones[AUTOMATION_UNLOCKS[id]] !== undefined) s.automations = { ...s.automations, [id]: true };
+  }
+  // Slice 4: remember every skill whose gate has opened (the gate lift reopens them; skillAvailable).
+  for (const def of LEVELED_SKILLS) {
+    if (s.skillsOpened[def.id] !== true && skillGateOpen(s, def.id)) s.skillsOpened = { ...s.skillsOpened, [def.id]: true };
   }
 }
 

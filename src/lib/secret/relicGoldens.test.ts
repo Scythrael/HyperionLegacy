@@ -6,6 +6,11 @@
 // so these never move. Regenerate ONLY on purpose: GOLDEN_WRITE=1 npx vitest run src/lib/secret/relicGoldens.test.ts
 // Regenerated on purpose by the 0.14.0 prestige redesign, Slice 2 (rising bars): the saves now carry
 // captainSinceFleet, and the fleetGain / pcGain readouts read 0 below the risen bar (the play is unchanged).
+// Regenerated on purpose by Slice 4 (leveled skills): every save carries the schedule's Skill Points
+// (skillPoints, skillPointsEarned) and the gates opened (skillsOpened); the states that own the 0.13.11.2
+// stat skills (past the finale, after a Prestigeception) play them as leveled skills scaled by the prestige
+// counts (ten bonus, Overdrive, Head Start), so their runs and readouts move. The early and mid readouts
+// (no stat skill) are unchanged.
 import { describe, it, expect } from "vitest";
 import { readFileSync, writeFileSync } from "node:fs";
 import { serializeSecret, type SecretState } from "./state";

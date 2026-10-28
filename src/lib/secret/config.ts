@@ -510,17 +510,12 @@ export function isAutomationId(id: string): id is AutomationId {
   return (AUTOMATION_IDS as readonly string[]).includes(id);
 }
 
-// The skills Skill Points still buy (Slice 3: the automations left the Skills shop for milestones; the
-// leveled skills replace these in Slice 4). Fleet Prestige stops paying Skill Points once all are owned.
-export const SKILL_POINT_SKILLS: readonly SkillDef[] = SKILLS.filter((d) => !isAutomationId(d.id));
-
-// 3.3 Leveled skills (Skill Points). The six names approved by the user 2026-10-27 ("Approve, six
-// skills"); flavor [PROPOSAL]; caps, costs and steps [PROVISIONAL], set by the Slice 4 sim. Level n
-// (counting from 0) costs costBase + costStep x n Skill Points. The caps and costs add up to 79 points,
-// about what today's average player earns on the schedule below by e10,000,000 (73 lifetime Fleets by
-// day 120, measured on the 0.13.11.2 engine; the rising bars will lower that, so Slice 4 re-tunes). A level's effect is step (see effect)
-// times the skill's scale factor, a concave function of its scalesOff count that is exactly 1 at a
-// count of 0 and only grows (design 3.3).
+// 3.3 Leveled skills (Skill Points), live since Slice 4. The six names approved by the user 2026-10-27
+// ("Approve, six skills"); flavor [PROPOSAL]; caps, costs, steps and gates [PROVISIONAL], set by the
+// combined Slice 2 + 3 + 4 pacing retune. Level n (counting from 0) costs costBase + costStep x n Skill
+// Points. A skill's strength is step x level x its scale factor, (1 + count)^SKILL_SCALE_POW of its
+// scalesOff count: exactly 1 at a count of 0, only ever growing, concave (design 3.3; D23, no cap on
+// the factor). Skills are kept through every reset; only buying a level waits for its gate.
 export type LeveledSkillId = "headStart" | "tenfoldTraining" | "overdrive" | "captainsAcademy" | "fleetLogistics" | "lucidPlanning";
 
 export type SkillScaleCount =
@@ -538,6 +533,10 @@ export type SkillGate =
   | { prestiges: { layer: "captain" | "fleet" | "pc"; count: number; scope: "current" | "lifetime" } };
 
 export const SKILL_GATE_LIFT_PC = 6; // [PROVISIONAL]
+
+// The scale factor's power: (1 + count)^SKILL_SCALE_POW (design 3.3: exactly 1 at a count of 0, concave,
+// growing, never capped). [PROVISIONAL]
+export const SKILL_SCALE_POW = 0.17;
 
 export interface LeveledSkillDef {
   id: LeveledSkillId;
@@ -571,10 +570,67 @@ export const LEVELED_SKILLS: readonly LeveledSkillDef[] = [
   { id: "lucidPlanning", name: "Lucid Planning", flavor: "You planned this in a dream. The dream had a whiteboard.", effect: "more Dream Points per Prestigeception", cap: 4, costBase: 2, costStep: 1, step: 0.1, scalesOff: "lifetimePcs", availableAt: { prestiges: { layer: "pc", count: 2, scope: "lifetime" } } },
 ];
 
+function ordinal(n: number): string {
+  const tens = n % 100;
+  if (tens >= 11 && tens <= 13) return `${n}th`;
+  return `${n}${n % 10 === 1 ? "st" : n % 10 === 2 ? "nd" : n % 10 === 3 ? "rd" : "th"}`;
+}
+
+const GATE_LAYER_NAMES = { captain: "Captain Prestige", fleet: "Fleet Prestige", pc: "Prestigeception" } as const;
+// "this ..." for a current count: the layer whose reset clears it.
+const GATE_CURRENT_SCOPE = { captain: " this Fleet", fleet: " this Prestigeception", pc: "" } as const;
+
+// A gated skill's line, saying exactly when it opens (the signed-off mockup: "Opens at your 5th Fleet
+// Prestige this Prestigeception (now 3)."). milestoneName is the gate milestone's name once it is
+// visible, else "???"; now is the gate's count today (engine skillGateCount).
+export function skillGateLine(gate: SkillGate, now: number, milestoneName: string): string {
+  if ("milestone" in gate) return `Opens at ${milestoneName}.`;
+  const { layer, count, scope } = gate.prestiges;
+  return `Opens at your ${ordinal(count)} ${GATE_LAYER_NAMES[layer]}${scope === "current" ? GATE_CURRENT_SCOPE[layer] : ""} (now ${now}).`;
+}
+
+// The note under the skill list (the signed-off mockup).
+export function skillGateLiftLine(): string {
+  return `From your ${ordinal(SKILL_GATE_LIFT_PC)} Prestigeception on, every skill you have opened before is open from the start of each climb.`;
+}
+
+// What a skill's strength (engine skillStrength: step x level x scale factor) does, in words
+// [PROPOSAL wording, after the mockup's sample rows].
+export function skillEffectLine(id: LeveledSkillId, strength: number): string {
+  const pct = (x: number) => `+${Math.round(x * 100)}%`;
+  switch (id) {
+    case "headStart":
+      return `Resets begin with 1e${Math.round(strength > 0 ? strength : Math.log10(START_ORE))} Ore`;
+    case "tenfoldTraining":
+      return `Each ten bonus ×${(TEN_BONUS + strength).toFixed(2)}`;
+    case "overdrive":
+      return `Ore production ^${(1 + strength).toFixed(3)}`;
+    case "captainsAcademy":
+      return `Captain Points earned ${pct(strength)}`;
+    case "fleetLogistics":
+      return `Augment Points earned ${pct(strength)}`;
+    case "lucidPlanning":
+      return `Dream Points earned ${pct(strength)}`;
+  }
+}
+
+// The scale chip: "×1.40 from your 6 lifetime Fleet Prestiges" (mockup).
+const SCALE_COUNT_NAMES: Readonly<Record<SkillScaleCount, [string, string]>> = {
+  lifetimeFleets: ["lifetime Fleet Prestige", "lifetime Fleet Prestiges"],
+  captainSinceFleet: ["Captain Prestige this Fleet", "Captain Prestiges this Fleet"],
+  lifetimePcs: ["Prestigeception", "Prestigeceptions"],
+  fleetCount: ["Fleet Prestige this Prestigeception", "Fleet Prestiges this Prestigeception"],
+};
+export function skillScaleLine(scalesOff: SkillScaleCount, count: number, factor: number): string {
+  const [one, many] = SCALE_COUNT_NAMES[scalesOff];
+  return `×${factor.toFixed(2)} from your ${count} ${count === 1 ? one : many}`;
+}
+
 // 3.4 Skill Points per Fleet Prestige by LIFETIME Fleet count, front-loaded (user: "increase the total
 // skill points we get for the first few fleet prestiges"). The first Fleet pays the first entry, and so
-// on; past the end of the list every Fleet pays the last entry. Earning stops once the lifetime total
-// paid reaches the cost of maxing every leveled skill (design 3.4). [PROVISIONAL]
+// on; past the end of the list every Fleet pays the last entry. Earning stops exactly when the points
+// held cover every level still to buy (engine doFleetMut), so the schedule's lifetime total equals the
+// cost of maxing every skill and no point is ever stranded (design 3.4, plan Review Focus 4). [PROVISIONAL]
 export const SKILL_POINT_SCHEDULE: readonly number[] = [3, 3, 2, 2, 1];
 
 // ---------------------------------------------------------------------------
@@ -587,7 +643,7 @@ export const COPY = {
   subtitle: "The original, with extra zeros.",
   footer: "It keeps running while it's closed, and while the game is closed.",
   captainBlurb: "The small reset. Your stack and Ore start over; Captain Points stay, and every one of them makes the whole stack run a little faster. Promotion by controlled demolition.",
-  fleetBlurb: "The big reset. Trade your Captain Points for Augment Points and a Skill Point. New generators unlock as your Fleet count grows. The admiral would like a word, and the word is \"more\".",
+  fleetBlurb: "The big reset. Trade your Captain Points for Augment Points and Skill Points. New generators unlock as your Fleet count grows. The admiral would like a word, and the word is \"more\".",
   pcBlurb: "We heard you like prestige, so we put a prestige in your prestige. Now you can prestige your prestige while you prestige.",
   finaleTitle: "SEVEN SEVENS SHORT OF SEVEN",
   finaleBody: "You beat the very first version of Hyperion Legacy. It took us a while too.",
@@ -629,9 +685,9 @@ export const HELP_SECTIONS: readonly { title: string; body: string }[] = [
   { title: "OVERCLOCK AND UPGRADES", body: "Overclock lives in the Upgrades tab. It speeds up the whole stack by ×1.125 per level, and the levels multiply. Its price follows your income, so waiting never makes it cheaper. Much later, a few more upgrades wake up there. Each one has a level cap, shown as X / Y." },
   { title: "THREE KINDS OF PRESTIGE", body: "Captain Prestige resets your stack for Captain Points, and every point makes the stack faster. Fleet Prestige resets that too, for Augment Points, a Skill Point and new generators. Prestigeception resets everything below it for Dream Points, which make every Captain and Augment Point you earn count for more. Yes, it is prestige all the way down as well." },
   { title: "THE FINE PRINT", body: "Augment Points speed up the whole stack the way Captain Points do, and only a Prestigeception takes them away. Dream Points are never taken away: they make every Captain and Augment Point you earn count for more. A Fleet Prestige uses up the climb that paid for it, so a Prestigeception needs a fresh climb to e10,000 Ore after one. New generators unlock at 1, 2, 3 and 6 lifetime Fleet Prestiges. Legal read this paragraph twice and then asked to be reset too." },
-  // 0.14.0 Slice 3: automations moved from Skill Points to milestones (a short factual fix; Slice 7
-  // rewrites this section and THE FINE PRINT for the whole redesign).
-  { title: "SKILLS", body: "Skill Points come from Fleet Prestige and buy skills: a head start, a stronger ten bonus and more. The automations that do the clicking for you (auto-buyers, automatic prestiges at a target you set) unlock at milestones instead, and each milestone says which one it unlocks. Once every skill is learned, Fleet Prestige stops paying Skill Points; any you saved stay yours. The late game is mostly watching numbers go up, which is the point." },
+  // 0.14.0 Slices 3 and 4: automations moved from Skill Points to milestones, and the skills took levels
+  // (short factual fixes; Slice 7 rewrites this section and THE FINE PRINT for the whole redesign).
+  { title: "SKILLS", body: "Skill Points come from Fleet Prestige, more for your first few, and buy skill levels: a head start, a stronger ten bonus and more. Each level costs a little more than the last, each skill grows with a prestige count, and some open later in the climb (each one says when). The automations that do the clicking for you (auto-buyers, automatic prestiges at a target you set) unlock at milestones instead, and each milestone says which one it unlocks. Once your Skill Points cover every level left, Fleet Prestige stops paying Skill Points; any you saved stay yours. The late game is mostly watching numbers go up, which is the point." },
   { title: "MILESTONES", body: "Milestones appear as you get close to them, and each one is recorded with the date you reached it. Most rewards arrive in a future update; the last one pays out right away. You will know it when you see it." },
   { title: "RELIC BOOSTS", body: "The relics in your Museum, out in the real game, hum at this old build. Each kind boosts one thing in here (Stats lists them), and every copy helps a little less than the one before. Copies past a tier's 1,000 count five times over. Nothing in here ever flows back out, apart from a certain smugness." },
   { title: "TIME AWAY", body: "The stack keeps running while this window is closed and while the game is closed. Come back whenever you like. It does the work; you take the credit. Not those credits." },

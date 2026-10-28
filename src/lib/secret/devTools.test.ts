@@ -4,7 +4,7 @@ import { readFileSync } from "node:fs";
 import { freshSecretState, serializeSecret, deserializeSecret, cloneSecret, type SecretState } from "./state";
 import { devMarkFound, devMaxSkills, devJumpTo } from "./devTools";
 import { effectiveExponent, upgradesUnlocked, upgradeLevel, hasSkill, autoActive, isTierUnlocked, stepMut, captainGain, fleetGain, prestigeceptionGain } from "./engine";
-import { SKILLS, UPGRADES, MILESTONES, LONG_EXPONENT, STARFALL_EXPONENT, TIER_COUNT } from "./config";
+import { SKILLS, LEVELED_SKILLS, AUTOMATION_IDS, UPGRADES, MILESTONES, LONG_EXPONENT, STARFALL_EXPONENT, TIER_COUNT } from "./config";
 import { newlyReached } from "./runtime";
 
 const NOW = Date.UTC(2026, 9, 23, 12);
@@ -36,10 +36,9 @@ describe("Mark found", () => {
 describe("Max skills", () => {
   it("owns every skill with every switch on, and records the milestone", () => {
     const s = devMaxSkills(freshSecretState(NOW), NOW);
-    for (const d of SKILLS) {
-      expect(hasSkill(s, d.id)).toBe(true);
-      if (d.auto) expect(autoActive(s, d.id)).toBe(true);
-    }
+    for (const d of SKILLS) expect(hasSkill(s, d.id)).toBe(true);
+    for (const id of AUTOMATION_IDS) expect(autoActive(s, id)).toBe(true);
+    for (const d of LEVELED_SKILLS) expect(s.skillLevels[d.id]).toBe(d.cap);
     expect(s.milestones.allSkills).toBe(NOW);
     accepted(s);
   });

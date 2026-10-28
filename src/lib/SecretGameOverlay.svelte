@@ -29,7 +29,8 @@
     buyOverclock,
     overclockQuote,
     upgradeQuote,
-    allSkillsLearned,
+    allSkillsMaxed,
+    nextSkillPointPay,
     upgradeUnlocked,
     upgradeBlocked,
     type BuyQuote,
@@ -42,8 +43,15 @@
     doCaptain,
     doFleet,
     doPrestigeception,
-    canBuySkill,
-    buySkill,
+    canBuySkillLevel,
+    buySkillLevel,
+    skillLevel,
+    skillLevelCost,
+    skillStrength,
+    skillScaleCount,
+    skillScaleFactor,
+    skillAvailable,
+    skillGateCount,
     hasSkill,
     autoActive,
     setAuto,
@@ -80,6 +88,11 @@
     RELIC_LOCKED_TIER_TEXT,
     AUTOMATION_NAMES,
     AUTOMATION_UNLOCKS,
+    LEVELED_SKILLS,
+    skillGateLiftLine,
+    skillGateLine,
+    skillEffectLine,
+    skillScaleLine,
     NEW_AUTOMATION_BLURBS,
     automationUnlockedBy,
     automationListLine,
@@ -87,6 +100,7 @@
     type AutomationId,
     type SkillId,
     type UpgradeId,
+    type LeveledSkillDef,
   } from "./secret/config";
   import { getRelicTypeById } from "./game/relics";
   import { cloneSecret, type SecretState, type AutoLayer } from "./secret/state";
@@ -230,12 +244,25 @@
     return `${COPY.automationLockedPrefix} ${milestoneVisible(x, m.id) ? m.name : "???"}`;
   }
   const NEW_AUTOMATIONS = (Object.keys(NEW_AUTOMATION_BLURBS) as AutomationId[]);
-  function skillOwnedLabel(id: SkillId, x: SecretState): string {
-    const def = SKILLS.find((d) => d.id === id)!;
-    if (!hasSkill(x, id)) return `${def.cost} Skill Point${def.cost === 1 ? "" : "s"}`;
-    if (!def.auto) return "Owned";
-    return autoActive(x, id) ? "On" : "Off";
+  // The automations still listed with the skills (Slice 7's Automation tab replaces these rows).
+  const SKILL_AUTOMATIONS: AutomationId[] = SKILLS.map((d): string => d.id).filter(isAutomationId);
+  // 0.14.0 Slice 4: a leveled skill's gate line ("???" for a milestone not visible yet).
+  function gateLine(d: LeveledSkillDef, x: SecretState): string {
+    const gate = d.availableAt;
+    const m = "milestone" in gate ? MILESTONES.find((ms) => ms.id === gate.milestone) : undefined;
+    return skillGateLine(gate, skillGateCount(x, d.id), m && milestoneVisible(x, m.id) ? m.name : "???");
   }
+  function skillNowLine(d: LeveledSkillDef, x: SecretState): string {
+    const level = skillLevel(x, d.id);
+    const cost = skillLevelCost(x, d.id);
+    const now = skillEffectLine(d.id, skillStrength(x, d.id));
+    return cost === null ? `${now}. ${COPY.maxed}.` : `${now}. Next level: ${skillEffectLine(d.id, skillStrength(x, d.id, level + 1))}.`;
+  }
+  function skillButtonLabel(d: LeveledSkillDef, x: SecretState): string {
+    const cost = skillLevelCost(x, d.id);
+    return cost === null ? COPY.maxed : `Learn · ${cost} SP`;
+  }
+  const plural = (n: number, one: string) => `${n} ${one}${n === 1 ? "" : "s"}`;
   function targetChange(layer: AutoLayer, event: Event): void {
     const value = Number((event.currentTarget as HTMLSelectElement).value);
     secretAct((x) => setAutoTarget(x, layer, value));
@@ -526,16 +553,16 @@
             </div>
             <div class="layer fleet">
               <h3>FLEET PRESTIGE</h3>
-              <p class="muted">{allSkillsLearned(s) ? COPY.fleetBlurbAllSkills : COPY.fleetBlurb}</p>
+              <p class="muted">{allSkillsMaxed(s) ? COPY.fleetBlurbAllSkills : COPY.fleetBlurb}</p>
               <dl class="kv">
                 <div><dt>Fleets</dt><dd class="num">{s.fleetCount} ({s.fleetTotal} lifetime)</dd></div>
                 <div><dt>Points</dt><dd class="num">{formatSecret(s.augmentPoints)}</dd></div>
                 <div><dt>Multiplier</dt><dd class="num">×{formatSecret(augmentMultiplier(s))}</dd></div>
-                <div><dt>Skill Points</dt><dd class="num">{allSkillsLearned(s) ? COPY.allSkillsLearned : `${s.skillPoints} unspent`}</dd></div>
+                <div><dt>Skill Points</dt><dd class="num">{allSkillsMaxed(s) ? COPY.allSkillsLearned : `${s.skillPoints} unspent`}</dd></div>
                 <div><dt>Next unlock</dt><dd class="num">{nextUnlock(s)}</dd></div>
                 <div><dt>Needs</dt><dd class="num">{bars.fleetNeeds}</dd></div>
                 <div><dt>Next one</dt><dd class="num">{bars.fleetNext}</dd></div>
-                <div><dt>Pays</dt><dd class="num">+{formatSecret(fg)} points{allSkillsLearned(s) ? "" : " + 1 Skill Point"}</dd></div>
+                <div><dt>Pays</dt><dd class="num">+{formatSecret(fg)} points{nextSkillPointPay(s) > 0 ? ` + ${plural(nextSkillPointPay(s), "Skill Point")}` : ""}</dd></div>
               </dl>
               {#if previews?.fleet}
                 <p class="preview">
@@ -589,24 +616,29 @@
           <div class="layer">
             <h3 class="skills-title">SKILLS <span class="muted">({s.skillPoints} Skill Point{s.skillPoints === 1 ? "" : "s"} to spend)</span></h3>
             <div class="nodes">
-              {#each SKILLS as d}
-                <div class="node" class:own={hasSkill(s, d.id)}>
-                  <b>{d.name}</b>
-                  <span class="muted">{d.blurb}</span>
-                  {#if isAutomationId(d.id) && !hasSkill(s, d.id)}
-                    <span class="muted">{automationLockedLabel(d.id, s)}</span>
-                  {:else if !hasSkill(s, d.id)}
-                    <button class="sg-btn" type="button" disabled={busy || !canBuySkill(s, d.id)} on:click={() => secretAct((x, t) => buySkill(x, d.id, t))}>Learn · {skillOwnedLabel(d.id, s)}</button>
-                  {:else if d.auto}
-                    <button
-                      class="sg-btn"
-                      type="button"
-                      aria-pressed={autoActive(s, d.id)}
-                      disabled={busy}
-                      on:click={() => secretAct((x) => setAuto(x, d.id, !autoActive(x, d.id)))}
-                    >{skillOwnedLabel(d.id, s)}</button>
+              {#each LEVELED_SKILLS as d}
+                {@const level = skillLevel(s, d.id)}
+                {@const open = skillAvailable(s, d.id)}
+                <div class="node" class:own={level >= d.cap}>
+                  <b>{d.name} <span class="num">{level} / {d.cap}</span></b>
+                  <span class="muted">{d.flavor}</span>
+                  <span class="muted">{skillNowLine(d, s)}</span>
+                  {#if skillScaleCount(s, d.id) > 0}<span class="muted">{skillScaleLine(d.scalesOff, skillScaleCount(s, d.id), skillScaleFactor(s, d.id))}</span>{/if}
+                  {#if !open && skillLevelCost(s, d.id) !== null}
+                    <span class="muted">{gateLine(d, s)}</span>
                   {:else}
-                    <span class="owned">{skillOwnedLabel(d.id, s)}</span>
+                    <button class="sg-btn" type="button" disabled={busy || !canBuySkillLevel(s, d.id)} on:click={() => secretAct((x, t) => buySkillLevel(x, d.id, t))}>{skillButtonLabel(d, s)}</button>
+                  {/if}
+                </div>
+              {/each}
+              {#each SKILL_AUTOMATIONS as id}
+                <div class="node" class:own={automationUnlocked(s, id)}>
+                  <b>{AUTOMATION_NAMES[id]}</b>
+                  <span class="muted">{SKILLS.find((d) => d.id === id)?.blurb}</span>
+                  {#if automationUnlocked(s, id)}
+                    <button class="sg-btn" type="button" aria-pressed={autoActive(s, id)} disabled={busy} on:click={() => secretAct((x) => setAuto(x, id, !autoActive(x, id)))}>{autoActive(s, id) ? "On" : "Off"}</button>
+                  {:else}
+                    <span class="muted">{automationLockedLabel(id, s)}</span>
                   {/if}
                 </div>
               {/each}
@@ -622,6 +654,7 @@
                 </div>
               {/each}
             </div>
+            <p class="muted">{skillGateLiftLine()}</p>
           </div>
         {:else}
           <ul class="ms-list">
@@ -1097,9 +1130,6 @@
   }
   .node .sg-btn {
     white-space: normal;
-  }
-  .owned {
-    color: var(--color-accent);
   }
   .ms-list {
     list-style: none;

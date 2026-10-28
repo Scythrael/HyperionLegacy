@@ -17,10 +17,10 @@ import {
   captainGain,
   fleetGain,
   prestigeceptionGain,
-  allSkillsLearned,
+  allSkillsMaxed,
   pow10,
 } from "./engine";
-import { SKILLS, UPGRADES, TIERS, HELP_SECTIONS, COPY, STARFALL_EXPONENT, LONG_EXPONENT, type UpgradeId } from "./config";
+import { SKILLS, LEVELED_SKILLS, UPGRADES, TIERS, HELP_SECTIONS, COPY, STARFALL_EXPONENT, LONG_EXPONENT, type UpgradeId } from "./config";
 import { readFileSync } from "node:fs";
 import { devJumpTo } from "./devTools";
 
@@ -134,11 +134,11 @@ describe("prestige previews", () => {
     }
   });
 
-  it("Fleet after the Skill Point cutoff (every skill learned)", () => {
+  it("Fleet after the Skill Point cutoff (every skill maxed)", () => {
     const s = ready({ cp: 50, ap: 20 });
-    for (const d of SKILLS) s.skills[d.id] = true;
+    for (const d of LEVELED_SKILLS) s.skillLevels[d.id] = d.cap;
     s.skillPoints = 2;
-    expect(allSkillsLearned(s)).toBe(true);
+    expect(allSkillsMaxed(s)).toBe(true);
     const { after } = expectMatchesReal(s, "fleet");
     expect(after.skillPoints).toBe(2);
   });
@@ -181,7 +181,7 @@ describe("prestige previews", () => {
   it("match real prestiges on engine-built late states (past e1,000,000 and past Starfall)", () => {
     for (const target of [LONG_EXPONENT + 100, STARFALL_EXPONENT + 100]) {
       const s = devJumpTo(freshSecretState(0), target, AT);
-      expect(allSkillsLearned(s)).toBe(true);
+      expect(allSkillsMaxed(s)).toBe(true);
       let shown = 0;
       for (const layer of ["captain", "fleet", "pc"] as const) {
         if (prestigePreview(s, layer) === null) expect(fire[layer](s, AT)).toBe(s);

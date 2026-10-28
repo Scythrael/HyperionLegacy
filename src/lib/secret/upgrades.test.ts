@@ -377,7 +377,7 @@ describe("final re-check: upgrade rows", () => {
     const ov = readFileSync("src/lib/SecretGameOverlay.svelte", "utf-8");
     expect(ov).toContain('if (q.limitedBy === "cap" && q.count === 0) return COPY.maxed;');
     expect(ov).toContain("level >= u.cap ? COPY.maxed : levelsLabel(qMax.count)");
-    expect(ov).toContain("allSkillsLearned(s) ? COPY.fleetBlurbAllSkills : COPY.fleetBlurb");
+    expect(ov).toContain("allSkillsMaxed(s) ? COPY.fleetBlurbAllSkills : COPY.fleetBlurb");
     expect(COPY.fleetBlurbAllSkills).not.toMatch(/Skill Point/);
     expect(COPY.fleetBlurb).toMatch(/Skill Point/);
   });
