@@ -58,3 +58,6 @@ build (relics v2 plan, 2026-10-27 table) + the bandShares test-helper fix; (3) m
 Gear wear step 4: pause to repair BUILT (c4785c2, 10224 green), reviewed "approve with fixes"; user calls answered
 (repair first then go; count on the run). NEXT after the reset: resume worktree-agent-a7ee00fa33710a9a5 with the fix
 list at the end of the gear wear design doc's 2026-10-27 block, then merge.
+2026-10-28: user pacing "not beyond 95%" weekly until the Thu reset, then normal pace all week. Relic stagger empty-band
+rule, user verbatim: "This is fine. Starting with standard/augmented is fine for Tier I." (sent to the stagger builder,
+who records it in the relics v2 plan).
