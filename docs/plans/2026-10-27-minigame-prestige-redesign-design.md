@@ -260,3 +260,12 @@ Automation, Milestones; locked automations show as ??? rows; a 1 / 10 / Max swit
 automations keep their target menu); phone tab names Gen, Upg, Prest, Skills, Auto, Miles; the unlock popup says
 "Reward: <automation> unlocked. Find it on the Automation tab."; skill rows show level X / Y, the joke line, now and next
 level, the prestige-count bonus chip, and gated rows say exactly when they open; the gate-lift note under the list.
+
+## The e25M prize visualization (user, 2026-10-29, verbatim)
+
+"So, I have the perfect visualization for the e25m prize I think. The warp field from Star Trek! That'll need to go live
+with 0.14.0 if the milestone is obtainable at that point."
+Reading: the secret e25,000,000 prize is a warp-speed starfield (stars stretching into streaks as if jumping to warp),
+riding on the Starfall wash plus shine style. Ships WITH 0.14.0 because the milestone is reachable in 0.14.0. Our own
+original effect and name (no Star Trek name, art or sound in game; the generic "stars streaking past" look only). Needs a
+mockup sign-off (visual UI rule); a toggle in Settings, off or still for reduced motion.
