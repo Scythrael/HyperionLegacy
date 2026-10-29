@@ -275,6 +275,9 @@ describe("autos", () => {
     expect(step(s, 1, 0).fleetTotal).toBe(1);
     const p = withRun(20000);
     p.skills.autoPc = true;
+    // (0.14.0: Auto Prestigeception acts only after the player's own first Prestigeception)
+    expect(step(p, 1, 0).pcCount).toBe(0);
+    p.milestones.firstPc = 0;
     expect(step(p, 1, 0).pcCount).toBe(1);
   });
 
@@ -357,6 +360,7 @@ describe("0.13.11.1: one climb pays one layer (staging: Fleet then Prestigecepti
     const s = withRun(20000);
     s.skills.autoFleet = true;
     s.skills.autoPc = true;
+    s.milestones.firstPc = 0; // (Auto Prestigeception acts only once revealed)
     const t = step(s, 1, 0);
     expect(t.pcCount).toBe(1);
     expect(t.fleetTotal).toBe(0);

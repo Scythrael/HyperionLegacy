@@ -117,7 +117,9 @@ describe("the Prestigeception bar", () => {
     expect(pcBarExponent(freshSecretState(T0))).toBe(PRESTIGECEPTION_AT);
     let s = atPeak(at(PRESTIGECEPTION_AT));
     let prev = pcBarExponent(s);
-    for (let m = 1; m <= 6; m++) {
+    // (review round, PC_BAR_RATIO 3: the 6th bar sits far past e10,000,000, beyond what a Decimal can hold once
+    // unsoftened, so the ladder is walked to the 5th)
+    for (let m = 1; m <= 5; m++) {
       s = doPrestigeception(s, T0);
       const bar = pcBarExponent(s);
       if (m === 1 && (PC_BAR_RATIO as number) === 1) expect(bar, `m=${m}`).toBeGreaterThanOrEqual(prev);
@@ -197,6 +199,7 @@ describe("captainSinceFleet", () => {
 // Every skill, every automation switched on (the real automated climb).
 function automated(s: SecretState): SecretState {
   for (const d of SKILLS) s.skills[d.id] = true;
+  s.milestones.firstPc = 0; // (0.14.0: Auto Prestigeception acts only after the player's own first one)
   return s;
 }
 
@@ -206,6 +209,7 @@ function automated(s: SecretState): SecretState {
 function topAutos(s: SecretState): SecretState {
   s.skills.autoFleet = true;
   s.skills.autoPc = true;
+  s.milestones.firstPc = 0; // (0.14.0: Auto Prestigeception acts only after the player's own first one)
   // 0.14.0 Slice 3: the milestones these peaks record grant the other automations; a switch that is
   // already off stays off through the grant, so they stay out of the way.
   for (const id of ["autoOverclock", "autoBuyLow", "autoBuyHigh", "autoCaptain", "autoSkills", "autoUpgrades"] as const) s.autoOn[id] = false;

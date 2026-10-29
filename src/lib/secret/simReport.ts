@@ -64,15 +64,16 @@ export function expectSlowsAfterStarfall(r: SimResult): void {
 // 0.13.11.1 (user: "Retune so default is best"): the steady player at the DEFAULT 100% targets,
 // measured by sim.test.ts (which checks it still lands here). The target sweeps compare against it.
 // 0.14.0 combined pacing retune (prestige redesign Slices 2 to 4): re-measured, 4.88 / 32.35 / 119.15 days before.
-export const DEFAULT_STEADY = { finale: 359394, long: 2833276, starfall: 120.67 * D }; // 4.16 d, 32.79 d, 120.7 d
+// (review round: re-measured with the player's own first Prestigeception and PC_BAR_RATIO 3)
+export const DEFAULT_STEADY = { finale: 312947, long: 2846857, starfall: 122.98 * D }; // 3.62 d, 32.95 d, 123.0 d
 // R2-10 (relic boosts): the relic-free goals the relic pins compare against, measured on the shipped
 // engine (relic-free runs are byte-identical, so these are fixed): the optimal and casual players
 // (simOptimal / simCasual) and the average player (DEFAULT_STEADY). In days.
 export const RELIC_FREE = {
   // 0.14.0 combined pacing retune: re-measured (optimal 4.46 / 34.47 / 130.06 before, casual 6.86 / 47.84 / 140.65)
-  optimal: { finale: 4.11, long: 32.53, starfall: 118.84 },
+  optimal: { finale: 3.51, long: 31.62, starfall: 116.34 },
   average: { finale: DEFAULT_STEADY.finale / D, long: DEFAULT_STEADY.long / D, starfall: DEFAULT_STEADY.starfall / D },
-  casual: { finale: 6.07, long: 33.24, starfall: 113.61 },
+  casual: { finale: 5.62, long: 32.71, starfall: 123.28 },
 } as const;
 // The average player with the TYPICAL collection (simRelicsAverage.test.ts measures it), in days.
 // (0.14.0 combined pacing retune: re-measured, 4.17 / 27.87 / 101.29 before; the relic bands are Slice 5's)

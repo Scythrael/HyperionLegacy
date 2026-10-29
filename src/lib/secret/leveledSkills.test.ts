@@ -346,8 +346,9 @@ describe("the three new skills measurably move their gains", () => {
   });
 
   it("Lucid Planning: more Dream Points per Prestigeception, and the Prestigeception bar sits on the bigger payout", () => {
-    const s = atPeak(freshSecretState(T0), 60000);
+    const s = atPeak(freshSecretState(T0), 300000);
     s.dreamPoints = new Decimal(20000);
+    expect(prestigeceptionGain(s).gt(0)).toBe(true);
     const t = cloneSecret(s);
     t.skillLevels.lucidPlanning = 2;
     expect(prestigeceptionGain(t).gt(prestigeceptionGain(s))).toBe(true);

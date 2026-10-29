@@ -23,6 +23,8 @@ import {
   step,
   milestoneVisible,
   automationRevealed,
+  autoCaptainWaiting,
+  doPrestigeception,
   pickSkillOffer,
   skillOffers,
   upgradePriceExponent,
@@ -51,6 +53,7 @@ import {
   automationUnlockedBy,
   automationListLine,
   MYSTERY_REWARD_LINE,
+  COPY,
   isAutomationId,
   type AutomationId,
   type UpgradeId,
@@ -66,12 +69,13 @@ describe("each automation unlocks at its milestone", () => {
       s.milestones[AUTOMATION_UNLOCKS[id]] = T0;
       checkMilestonesMut(s, T0);
       expect(s.automations, id).toEqual({ [id]: true });
-      expect(autoActive(s, id), id).toBe(true);
+      // (the secret one, Auto Prestigeception, is granted OFF and stays inactive until revealed: tested below)
+      expect(autoActive(s, id), id).toBe(id !== "autoPc");
       expect(s.autoTarget).toEqual({ captain: AUTO_TARGET_DEFAULT, fleet: AUTO_TARGET_DEFAULT, pc: AUTO_TARGET_DEFAULT });
       expect(AUTO_TARGET_DEFAULT).toBe(100);
       expect(automationBuyAmount(s, id), id).toBe(AUTOMATION_BUY_DEFAULT[id] ?? "max");
       // no switch, target or buy amount is written: the save stays as small as it was
-      expect(s.autoOn, id).toEqual({});
+      expect(s.autoOn, id).toEqual(id === "autoPc" ? { autoPc: false } : {});
       expect(s.automationBuy, id).toEqual({});
     }
   });
@@ -446,12 +450,13 @@ describe("the Mystery popup (user 2026-10-28): Auto Prestigeception at A Respect
     expect(milestoneRewardLine("googol")).toBe(MYSTERY_REWARD_LINE);
   });
 
-  it("every view shows it as ??? until the first Prestigeception, and it works all the while", () => {
+  it("every view shows it as ??? until the first Prestigeception; granted switched OFF (user 2026-10-29)", () => {
     const s = freshSecretState(T0);
     s.milestones.googol = T0;
     checkMilestonesMut(s, T0);
     expect(automationUnlocked(s, "autoPc")).toBe(true);
-    expect(autoActive(s, "autoPc")).toBe(true);
+    expect(s.autoOn.autoPc).toBe(false);
+    expect(autoActive(s, "autoPc")).toBe(false);
     expect(automationRevealed(s, "autoPc")).toBe(false);
     for (const reached of [true, false]) {
       const line = automationListLine("autoPc", reached, automationRevealed(s, "autoPc"));
@@ -469,5 +474,80 @@ describe("the Mystery popup (user 2026-10-28): Auto Prestigeception at A Respect
     expect(ov).toContain("{#if !automationRevealed(s, id)}");
     expect(ov).toContain("automationRevealed(x, l.skill)");
     expect(ov).toContain("automationListLine(auto, reached, automationRevealed(x, auto))");
+  });
+});
+
+describe("Granted OFF until revealed (user 2026-10-29): no save ever auto-fires a Prestigeception unseen", () => {
+  // A climb that pays a Prestigeception, every other automation off.
+  const climbing = (): SecretState => {
+    const s = atEffective(20000);
+    for (const id of AUTOMATION_IDS) s.autoOn[id] = false;
+    return s;
+  };
+
+  it("the first Prestigeception is always the player's own: switched on, unlocked, owned as a 0.13.11.2 skill, live or offline", () => {
+    const granted = climbing();
+    granted.automations.autoPc = true;
+    granted.autoOn.autoPc = true; // even forced on
+    const legacy = climbing();
+    legacy.skills.autoPc = true;
+    legacy.autoOn.autoPc = true;
+    for (const s of [granted, legacy]) {
+      expect(autoActive(s, "autoPc")).toBe(false);
+      expect(live(s, 30).pcCount).toBe(0);
+      expect(advanceTo(s, s.lastTickAt + 2 * 86400 * 1000).state.pcCount).toBe(0);
+    }
+  });
+
+  it("after the player's own first Prestigeception it shows itself, still off when granted, as it was when owned before", () => {
+    const granted = climbing();
+    granted.milestones.googol = T0;
+    checkMilestonesMut(granted, T0);
+    const g = doPrestigeception(granted, T0 + 1);
+    expect(g.pcCount).toBe(1);
+    expect(automationRevealed(g, "autoPc")).toBe(true);
+    expect(autoActive(g, "autoPc")).toBe(false);
+    const legacy = climbing();
+    legacy.skills.autoPc = true;
+    legacy.autoOn.autoPc = true;
+    const l = doPrestigeception(legacy, T0 + 1);
+    expect(autoActive(l, "autoPc")).toBe(true);
+  });
+});
+
+describe("Auto Captain waits for Auto-buy I to IV, and its row says so", () => {
+  it("autoCaptainWaiting holds exactly while Auto Captain is on and Auto-buy I to IV is not", () => {
+    const s = freshSecretState(T0);
+    expect(autoCaptainWaiting(s)).toBe(false);
+    s.automations.autoCaptain = true;
+    expect(autoCaptainWaiting(s)).toBe(true);
+    s.automations.autoBuyLow = true;
+    expect(autoCaptainWaiting(s)).toBe(false);
+    s.autoOn.autoBuyLow = false;
+    expect(autoCaptainWaiting(s)).toBe(true);
+    s.autoOn.autoCaptain = false;
+    expect(autoCaptainWaiting(s)).toBe(false);
+    expect(COPY.autoCaptainWaiting).toBe("Waiting for Auto-buy I to IV");
+    const ov = readFileSync("src/lib/SecretGameOverlay.svelte", "utf-8");
+    expect(ov).toContain('{#if id === "autoCaptain" && autoCaptainWaiting(s)}<span class="muted">{COPY.autoCaptainWaiting}</span>{/if}');
+  });
+});
+
+describe("buy amounts carry the fraction of a second (no drift on long coarse steps)", () => {
+  it("steps of 2.5 s at Buy 1 buy one level per booked second, the carry never saved", () => {
+    const base = atEffective(2.5e6);
+    base.automations.autoUpgrades = true;
+    base.autoOn.autoUpgrades = true;
+    const x = cloneSecret(base);
+    for (let i = 1; i <= 4; i++) stepMut(x, 2.5, T0 + i * 2500);
+    expect(levels(x)).toBe(10);
+    const y = cloneSecret(base);
+    stepMut(y, 2.5, T0 + 2500);
+    expect(levels(y)).toBe(2);
+    expect(y.purchaseCarry).toBeCloseTo(0.5, 9);
+    expect(serializeSecret(y)).not.toContain("purchaseCarry");
+    const one = cloneSecret(base);
+    stepMut(one, 1, T0 + 1000);
+    expect(one.purchaseCarry).toBeUndefined();
   });
 });

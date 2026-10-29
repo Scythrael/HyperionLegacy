@@ -12,7 +12,9 @@ describe("the rising bars bite", () => {
     const pct = (a: number, b: number) => `${a}/${b} (${Math.round((100 * a) / Math.max(1, b))}%)`;
     report(`[bite] to e10,000,000 at ${(seconds / 86400).toFixed(1)} d: Fleets decided by the bar ${pct(t.fleetsBarDecided, t.fleets)}, at the bar ${pct(t.fleetsAtBar, t.fleets)}; Prestigeceptions decided ${pct(t.pcsBarDecided, t.pcs)}, at the bar ${pct(t.pcsAtBar, t.pcs)}`);
     expect(t.fleets).toBeGreaterThanOrEqual(20);
-    expect(t.pcs).toBeGreaterThanOrEqual(4);
+    // (review round: PC_BAR_RATIO 3 makes four Prestigeceptions to e10,000,000, so three from the second on;
+    // five at PC_BAR_RATIO 2. The share pins below are unchanged.)
+    expect(t.pcs).toBeGreaterThanOrEqual(3);
     expect(t.fleetsBarDecided / t.fleets).toBeGreaterThanOrEqual(0.9);
     expect(t.pcsBarDecided / t.pcs).toBeGreaterThanOrEqual(0.9);
     expect(t.fleetsAtBar / t.fleets).toBeGreaterThanOrEqual(0.6);

@@ -407,3 +407,12 @@ unstated coarse-step production cut; a "waiting for Auto-buy I to IV" note on th
 carries the fraction (no Math.round drift on long coarse steps); Help: THREE KINDS OF PRESTIGE (Skill Points by
 schedule) and MILESTONES (rewards now unlock automations); reword the goldens.test.ts header; skillPointsRemaining is
 fixed by Slice 6.
+
+**Review fixes (2026-10-29, on the branch):** Auto Prestigeception granted OFF and hidden until the player's own first
+Prestigeception (never acts unseen, old saves too); with the first Prestigeception a check-in's choice the ladder lost
+its anchor, so PC_BAR_RATIO 2 to 3 (climbs at x4.8, x35, x250 of the first: below the finale, between e1M and e10M,
+past e10M), CP_K 0.21, SOFT_SCALE back to 66, SKILL_SCALE_POW 0.1. Relic-free average 3.62 / 32.95 / 122.98 d, +1 h
+3.09 / 31.16 / 117.50, optimal 3.51 / 31.62 / 116.34, casual 5.62 / 32.71 / 123.28; e10M across shifts -2 to +3 h:
+115.2 to 123.0 d. Four Prestigeceptions to e10M (simBite floor three measured); user calls: Frequent Dreamer (4
+Prestigeceptions) now near day 80, the gate lift (5) past e10M, 45 of 49 Skill Points by e10M. Instant fire at the bar
+stays Prestigeception only (all three layers: e10M 86.8 to 115.6 d). Auto Captain row note, purchase carry, Help.

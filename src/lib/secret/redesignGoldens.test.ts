@@ -54,10 +54,10 @@ function atPeak(e: number, fleets: number, pcs: number, ap = new Decimal(0), dp 
 type Rung = [number, number, Decimal, Decimal]; // Fleets, Prestigeceptions, Augment and Dream Points held
 
 // The lowest effective peak exponent at which the gain pays anything (bisection, to 1e-7), searched
-// up to e1,000,000 (Infinity, stored as null, when even that pays nothing).
+// up to e10,000,000 (Infinity, stored as null, when even that pays nothing).
 function barOf(gain: Gain, [fleets, pcs, ap, dp]: Rung): number {
   let lo = 1;
-  let hi = 1e6;
+  let hi = 1e7; // (review round: PC_BAR_RATIO 3 puts the 4th Prestigeception bar past e1,000,000)
   if (!gain(atPeak(hi, fleets, pcs, ap, dp)).gt(0)) return Infinity;
   while (hi - lo > 1e-7) {
     const mid = (lo + hi) / 2;

@@ -81,6 +81,9 @@ export interface SecretState {
   // save (at open and on every main save, never mid-step). NEVER saved (serializeSecret drops it) and
   // absent for a player with no relics, so a relic-free game is byte-identical to before.
   relicBoosts?: RelicBoosts;
+  // 0.14.0: the fraction of a second of automation purchases a coarse catch-up step carries to the next one
+  // (engine purchaseSecondsMut). NEVER saved; absent at whole seconds (every live step).
+  purchaseCarry?: number;
   // --- 0.14.0 prestige redesign (docs/plans/2026-10-27-minigame-prestige-redesign-plan.md, Slice 1:
   // data only, no engine code reads these yet). Absent from every 0.13.11.2 save: deserializeSecret
   // fills the defaults (0 / {} / {} / {}) and never rejects a save over them, and serializeSecret
@@ -192,7 +195,7 @@ const NUMBER_FIELDS = [
 
 export function serializeSecret(s: SecretState): string {
   // The relic boosts are an input from the main save, never part of this save.
-  const { relicBoosts: _relicBoosts, captainSinceFleet, skillPointsEarned, skillLevels, automations, automationBuy, skillsOpened, prestigeV, ...saved } = s;
+  const { relicBoosts: _relicBoosts, purchaseCarry: _purchaseCarry, captainSinceFleet, skillPointsEarned, skillLevels, automations, automationBuy, skillsOpened, prestigeV, ...saved } = s;
   const out: Record<string, unknown> = { ...saved, owned: s.owned.map((d) => d.toString()), peakOwned: s.peakOwned.map((d) => d.toString()) };
   for (const k of DECIMAL_FIELDS) out[k] = s[k].toString();
   // 0.14.0 redesign fields: written only once they hold something, always last and in this order, so

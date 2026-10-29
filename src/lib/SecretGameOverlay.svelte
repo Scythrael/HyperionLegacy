@@ -69,6 +69,7 @@
     milestoneVisible,
     automationUnlocked,
     automationRevealed,
+    autoCaptainWaiting,
     overclockLevelFactor,
     relicBoost,
     type BuyMode,
@@ -644,6 +645,7 @@
                   <div class="node" class:own={automationUnlocked(s, id)}>
                     <b>{AUTOMATION_NAMES[id]}</b>
                     <span class="muted">{SKILLS.find((d) => d.id === id)?.blurb}</span>
+                    {#if id === "autoCaptain" && autoCaptainWaiting(s)}<span class="muted">{COPY.autoCaptainWaiting}</span>{/if}
                     {#if automationUnlocked(s, id)}
                       <button class="sg-btn" type="button" aria-pressed={autoActive(s, id)} disabled={busy} on:click={() => secretAct((x) => setAuto(x, id, !autoActive(x, id)))}>{autoActive(s, id) ? "On" : "Off"}</button>
                     {:else}

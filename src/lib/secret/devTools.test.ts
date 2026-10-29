@@ -37,7 +37,9 @@ describe("Max skills", () => {
   it("owns every skill with every switch on, and records the milestone", () => {
     const s = devMaxSkills(freshSecretState(NOW), NOW);
     for (const d of SKILLS) expect(hasSkill(s, d.id)).toBe(true);
-    for (const id of AUTOMATION_IDS) expect(autoActive(s, id)).toBe(true);
+    // (every switch on; Auto Prestigeception acts only once the player's own first Prestigeception reveals it)
+    for (const id of AUTOMATION_IDS) expect(s.autoOn[id]).toBe(true);
+    for (const id of AUTOMATION_IDS) expect(autoActive(s, id)).toBe(id !== "autoPc");
     for (const d of LEVELED_SKILLS) expect(s.skillLevels[d.id]).toBe(d.cap);
     expect(s.milestones.allSkills).toBe(NOW);
     accepted(s);

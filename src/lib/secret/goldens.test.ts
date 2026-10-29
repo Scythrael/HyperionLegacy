@@ -5,13 +5,17 @@
 // 0.13.11.1 adds fields and the e1,000,000 upgrades, all of which are exactly 1 at level 0, so
 // nothing before e1,000,000 may move. A failure here means players part way through moved.
 // Regenerate ONLY on purpose: GOLDEN_WRITE=1 npx vitest run src/lib/secret/goldens.test.ts
-// Regenerated on purpose by the 0.14.0 prestige redesign, Slice 4 (leveled skills): the mid states (no stat
-// skill owned) move only by skillPoints (the front-loaded schedule pays 3, 3, 2, 2, then 1); the past-finale
-// states own the 0.13.11.2 Head Start, Ten Bonus and Overdrive, which now act as leveled skills whose strength
-// scales with the prestige counts, so their whole run moves.
-// Then the combined pacing retune and its fix round: the states whose window holds a Prestigeception move
-// (Auto Prestigeception now fires the instant its bar is reached, paying exactly the bar's Dream Points, and
-// the retuned CP_K, PC_BAR_RATIO, skills and SOFT_SCALE); the early states without one do not.
+// Regenerated on purpose by the 0.14.0 prestige redesign, so the 0.13.11 freeze no longer holds; every move:
+//   Slice 4 (leveled skills): Skill Points follow the front-loaded schedule (3, 3, 2, 2, then 1), and the
+//     past-finale states' 0.13.11.2 Head Start, Ten Bonus and Overdrive act as leveled skills scaled by the
+//     prestige counts, so those runs move.
+//   The combined pacing retune: CP_K 0.24 to 0.18 makes every Captain gain below the finale smaller, so the mid
+//     states move too (midLive1h by its Captain Prestiges and Ore, not only skillPoints); PC_BAR_RATIO, the
+//     skills and SOFT_SCALE move the past-finale states.
+//   The review round: Auto Prestigeception is granted switched OFF at A Respectable Googol (midLive1h moves only
+//     by that autoOn entry; midCoarse2d is back to no Prestigeception) and never fires before the player's own
+//     first one; it fires the instant its bar is reached; Auto Captain waits for Auto-buy I to IV. earlyLive1h (no
+//     automation) is the one state that never moved.
 import { describe, it, expect } from "vitest";
 import { readFileSync, writeFileSync } from "node:fs";
 import { serializeSecret, type SecretState } from "./state";

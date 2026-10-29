@@ -226,8 +226,16 @@ export function hasSkill(s: SecretState, id: SkillId): boolean {
 }
 
 // An automation acts only when unlocked and switched on (missing switch means on).
+// A secret automation (Auto Prestigeception before the first Prestigeception) never acts, however it is
+// switched (user 2026-10-28 "Granted OFF until revealed": the first Prestigeception is always the player's own,
+// existing saves too).
 export function autoActive(s: SecretState, id: AutomationId): boolean {
-  return automationUnlocked(s, id) && s.autoOn[id] !== false;
+  return automationUnlocked(s, id) && s.autoOn[id] !== false && automationRevealed(s, id);
+}
+
+// Auto Captain is on but holds while Auto-buy I to IV is not (dueAutoPrestige); the Skills row says so.
+export function autoCaptainWaiting(s: SecretState): boolean {
+  return autoActive(s, "autoCaptain") && !autoActive(s, "autoBuyLow");
 }
 
 // How much an automation buys at a time (user 2026-10-28: "Buy 1 at a time. Buy maximum. Buy 10."):
@@ -252,8 +260,17 @@ function buyCount(amount: AutomationBuy, seconds: number): number {
 }
 
 // Whole seconds a step stands for when it counts purchases (a live step is 1; never 0).
-function purchaseSeconds(dt: number): number {
-  return Math.max(1, Math.round(dt));
+// The whole seconds of purchases a step books, carrying the fraction to the next step (s.purchaseCarry, never
+// saved), so a long run of coarse steps of 2.0007 s buys at exactly the live rate instead of drifting by the
+// rounding. A live step (1 s) carries nothing.
+function purchaseSecondsMut(s: SecretState, dt: number): number {
+  const t = dt + (s.purchaseCarry ?? 0);
+  const whole = Math.floor(t + 1e-9);
+  const carry = t - whole;
+  // (set to 0, never deleted: deleting a field would slow every later property read on the state)
+  if (carry > 1e-9) s.purchaseCarry = carry;
+  else if (s.purchaseCarry !== undefined) s.purchaseCarry = 0;
+  return whole;
 }
 
 // ---------------------------------------------------------------------------
@@ -879,7 +896,7 @@ function autoSkillsMut(s: SecretState, seconds: number): void {
 // dt: the seconds this step books (1 live; more in a coarse catch-up step), which sets how
 // many purchases an automation with a "1" or "10" buy amount makes in it.
 function autoBuyMut(s: SecretState, dt: number): void {
-  const seconds = purchaseSeconds(dt);
+  const seconds = purchaseSecondsMut(s, dt);
   autoUpgradesMut(s, seconds);
   autoSkillsMut(s, seconds);
   let overclockBought = false;
@@ -1130,6 +1147,11 @@ function dueAutoPrestige(s: SecretState): AutoLayerDue {
   return null;
 }
 
+// Auto Prestigeception's own check (dueAutoPrestige's first branch, the top layer), for the crossing search.
+function pcAutoDue(s: SecretState): boolean {
+  return autoActive(s, "autoPc") && meetsTarget(prestigeceptionGain(s), s.dreamPoints, s.autoTarget.pc);
+}
+
 function firePrestigeMut(s: SecretState, layer: AutoLayerDue, atMs: number): boolean {
   if (layer === "pc") return doPrestigeceptionMut(s, atMs);
   if (layer === "fleet") return doFleetMut(s, atMs);
@@ -1287,7 +1309,12 @@ export function checkMilestonesMut(s: SecretState, atMs: number): void {
     if (s.milestones[id] === undefined && reached(s, id)) s.milestones[id] = atMs;
   }
   for (const id of AUTOMATION_IDS) {
-    if (s.automations[id] !== true && s.milestones[AUTOMATION_UNLOCKS[id]] !== undefined) s.automations = { ...s.automations, [id]: true };
+    if (s.automations[id] !== true && s.milestones[AUTOMATION_UNLOCKS[id]] !== undefined) {
+      s.automations = { ...s.automations, [id]: true };
+      // A secret one is granted switched OFF (user 2026-10-28 "Granted OFF until revealed"): once it shows itself
+      // the player turns it on. A 0.13.11.2 save that owns it as a skill keeps its switch as it was.
+      if (MYSTERY_AUTOMATIONS[id] !== undefined && s.autoOn[id] === undefined && (s.skills as Partial<Record<string, true>>)[id] !== true) s.autoOn = { ...s.autoOn, [id]: false };
+    }
   }
   // Slice 4: remember every skill whose gate has opened (the gate lift reopens them; skillAvailable).
   for (const def of LEVELED_SKILLS) {
@@ -1306,10 +1333,17 @@ function ensureRecoverableMut(s: SecretState): void {
 
 // productionDt lets a coarse catch-up step produce a little longer than the time it books (its
 // fairness margin) without moving the run clock, the peaks or the prestige checks off real time.
-// An automatic prestige that reached its target by the START of a step fires at the END of it, after
-// that step's production. So every run gets one full step past its target, and since a catch-up
-// step is never shorter than a live one, a catch-up never cuts a run shorter than live play would
-// (catchUp.test.ts: never pays less).
+// An automatic Captain or Fleet Prestige that reached its target by the START of a step fires at the END of
+// it, after that step's production: every run gets one full step past its target, and since a catch-up step
+// is never shorter than a live one, a catch-up never cuts a run shorter than live play would.
+// 0.14.0: Auto Prestigeception instead fires the INSTANT its bar is reached inside a step (firstPcDueAt): the
+// step produces up to that moment, the Prestigeception fires, and the REST OF THE STEP'S PRODUCTION IS CUT
+// (never booked as Ore; the run clock still books the whole step, at most one second live). So it pays exactly
+// the bar and leaves the same best Ore whatever the step length (catchUp.test.ts mid 48 h and day2). Captain and
+// Fleet keep the end-of-step rule: measured with the instant rule on all three layers, the average player's
+// e10,000,000 spread over 86.8 to 115.6 days across check-ins shifted -2 to +3 hours (the optimal player
+// 94.4, far under its band), so it stays on the layer whose landing drifts the parity fixtures.
+// A Prestigeception already due at the START of a step (switched on late) fires at its end like the others.
 export function stepMut(s: SecretState, dt: number, atMs: number, productionDt: number = dt): void {
   // 0.13.11.1 curve round: after the first Prestigeception the game runs at GAME_PACE_AFTER_FIRST_PC.
   // Applied here, the one step live play and every catch-up share, so offline == live stays exact.
@@ -1321,18 +1355,14 @@ export function stepMut(s: SecretState, dt: number, atMs: number, productionDt: 
   ensureRecoverableMut(s);
   const due = dueAutoPrestige(s);
   autoBuyMut(s, bookedDt);
-  // 0.14.0: Auto Prestigeception fires the instant its bar is reached (see firstPcDueAt), so it pays the
-  // same Dream Points and leaves the same best Ore whatever the step size.
-  const pcArmed = due === null && autoActive(s, "autoPc");
-  const before = pcArmed ? { ore: s.ore, lastIncome: s.lastIncome, owned: s.owned.slice(), runPeak: s.runPeak, fleetPeak: s.fleetPeak, pcPeak: s.pcPeak, bestOre: s.bestOre, peakOwned: s.peakOwned.slice(), peakOverclock: s.peakOverclock } : null;
+  const before = due === null && autoActive(s, "autoPc") ? { ore: s.ore, lastIncome: s.lastIncome, owned: s.owned.slice(), runPeak: s.runPeak, fleetPeak: s.fleetPeak, pcPeak: s.pcPeak, bestOre: s.bestOre, peakOwned: s.peakOwned.slice(), peakOverclock: s.peakOverclock } : null;
   produceMut(s, productionDt);
   s.runSeconds += dt;
   trackRunPeaksMut(s);
-  if (before !== null && dueAutoPrestige(s) === "pc") {
+  if (before !== null && pcAutoDue(s)) {
     // Back to the start of the step (production and every peak it raised), then forward to the crossing.
     Object.assign(s, before);
-    const at = firstPcDueAt(s, productionDt);
-    produceMut(s, at);
+    produceMut(s, firstPcDueAt(s, productionDt));
     trackRunPeaksMut(s);
     firePrestigeMut(s, "pc", atMs);
   } else firePrestigeMut(s, due, atMs);
@@ -1347,22 +1377,21 @@ function trackRunPeaksMut(s: SecretState): void {
   trackPeaksMut(s);
 }
 
-// The first moment within a step of `span` seconds of production at which Auto Prestigeception comes due
-// (its bar reached, its target met). A step that fired one only at its END paid whatever the climb had
-// overshot by then, which depends on the step's length: a catch-up step and a live second ended at
-// different Ore, so one Dream Point more (or a Prestigeception peak a few exponents higher) drifted every
-// later prestige (catchUp.test.ts mid 48 h and day2). Bisection on the production time; the climb within
-// a step only rises, so "due" switches once.
-const PC_CROSSING_ITERATIONS = 48;
+// The first moment within a step of `span` seconds of production at which Auto Prestigeception comes due (its
+// bar reached, its target met). Bisection on the production time; the climb within a step only rises, so "due"
+// switches once. Firing only at a step's END paid whatever the climb had overshot by then, which depends on the
+// step's length (one Dream Point more from a 2 s catch-up step drifted every later prestige: catchUp.test.ts mid
+// 48 h and day2).
+const CROSSING_ITERATIONS = 48;
 function firstPcDueAt(s: SecretState, span: number): number {
   let lo = 0;
   let hi = span;
-  for (let i = 0; i < PC_CROSSING_ITERATIONS; i++) {
+  for (let i = 0; i < CROSSING_ITERATIONS; i++) {
     const mid = (lo + hi) / 2;
     const x = cloneSecret(s);
     produceMut(x, mid);
     trackRunPeaksMut(x);
-    if (dueAutoPrestige(x) === "pc") hi = mid;
+    if (pcAutoDue(x)) hi = mid;
     else lo = mid;
   }
   return hi;

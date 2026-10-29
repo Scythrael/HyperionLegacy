@@ -95,8 +95,10 @@ export const DP_POW = 0.24;
 // 0.14.0 combined pacing retune: CP_K 0.6 x CAPTAIN_BEND (0.24) to 0.45 x CAPTAIN_BEND (0.18). With the
 // automations free at milestones the first days ran fast (finale 3.1 days average, optimal 3.1 under its
 // 3.5); smaller Captain gains before the finale slow only the climb to it (0.20: 3.8 / 3.6 days; 0.18:
-// 4.2 / 4.1) and leave e1,000,000 and e10,000,000 where they were. [PROVISIONAL]
-export const CP_K = 0.45 * CAPTAIN_BEND; // 0.18
+// 4.2 / 4.1) and leave e1,000,000 and e10,000,000 where they were. Review round (the player's own first
+// Prestigeception, PC_BAR_RATIO 3): 0.525 x CAPTAIN_BEND (0.21), the finale back in its bands (average 3.62 days,
+// +1 h 3.09, optimal 3.51, casual 5.62; at 0.20 the +1 h run took 5.02, at 0.22 the optimal player 3.40). [PROVISIONAL]
+export const CP_K = 0.525 * CAPTAIN_BEND; // 0.21
 export const CP_K_AFTER_FINALE = CAPTAIN_BEND; // 0.4
 export const AP_K = 0.55;
 export const DP_K = 0.7;
@@ -117,12 +119,9 @@ export const OVERDRIVE_POWER = 1.05; // Overdrive: Ore production ^1.05
 
 export const FINALE_EXPONENT = 777777;
 export const LONG_EXPONENT = 1000000;
-// 0.14.0 combined pacing retune (prestige redesign Slices 2 to 4): 66 to 63 [PROVISIONAL]. At 66 the average
-// player reached e1,000,000 on day 31.5 right at the top of a plateau and then gained nothing for weeks
-// (Overclock Overclocker's second level just out of reach), and e10,000,000 came on day 117.6 with the
-// optimal player under its 115 days; 63 moves both later (32.8 / 120.7 days) so the climb still rises past
-// e1,000,000. (Trying 0.97 of every upgrade step instead kept 66 but left the plateau.)
-export const SOFT_SCALE = 63; // 0.13.11.1 retune: 58 before (e1,000,000 back to about a month)
+// 0.14.0: the combined retune moved this to 63 at PC_BAR_RATIO 2; the review round's PC_BAR_RATIO 3 (fewer
+// Prestigeceptions, so fewer resets of the climb) needs the shipped 66 again for e10,000,000 near day 120.
+export const SOFT_SCALE = 66; // 0.13.11.1 retune: 58 before (e1,000,000 back to about a month)
 export const SOFT_BETA = 0.5;
 
 // ---------------------------------------------------------------------------
@@ -327,7 +326,8 @@ export const END_SOFT_SCALE = 20000;
 export const END_SOFT_BETA = 0.5;
 
 // Prestigeceptions for the "pcRegular" milestone (Auto Skill Allocation, user pick 2026-10-28: "at 4
-// Prestigeceptions") [PROVISIONAL].
+// Prestigeceptions") [PROVISIONAL]. At PC_BAR_RATIO 3 (review round) the 4th comes around day 75 to 100, not
+// day 3 (a user call to move it).
 export const AUTO_SKILLS_PC_COUNT = 4;
 
 // 0.14.0 prestige redesign Slice 3: the three automation beats (secondFleet, e10k, pcRegular; names and
@@ -431,8 +431,14 @@ export const TURBO_LEVEL = 10000;
 // Measured on the way (earlier skill sets): at 2.5 a climb could still land near a goal (e10,000,000 20 days
 // apart between check-in shifts); 3 and above leave four or fewer Prestigeceptions before e10,000,000.
 // The bars still decide (sim.ts simulateBite). FLEET_BAR_RATIO stays 1. [PROVISIONAL]
+// Review round, 2 to 3: with the first Prestigeception the player's own (user 2026-10-29 "Granted OFF until
+// revealed") it lands at whatever exponent the check-in finds (e10,000 to about e18,500), and every later one
+// moves with it. At 2 the third climb sat at x62 of the first, right across the finale and e1,000,000 (e10,000,000
+// 112.7 to 131.6 days across check-ins shifted -2 to +3 hours, the 200% target beating the default by half a day);
+// at 3 the climbs sit at x4.8, x35 and x250 of the first, below the finale, between e1,000,000 and e10,000,000 and
+// past it whatever the first: 115.2 to 123.0 days. Four Prestigeceptions to e10,000,000 (five at 2).
 export const FLEET_BAR_RATIO = 1;
-export const PC_BAR_RATIO = 2;
+export const PC_BAR_RATIO = 3;
 
 // 3.2 Automations. Each one unlocks at a milestone (user: "Only have the automations at the milestone
 // levels"), never for Skill Points. The six that are skills today keep their ids; autoSkills
@@ -511,12 +517,12 @@ export const AUTO_BUY_HIGH_MILESTONE: MilestoneId = "singularity";
 
 // [PROVISIONAL] Auto Prestigeception's milestone: the combined pacing retune's one mapping nudge (design 3.2
 // [PROPOSAL] "Prestiged Your Prestige", the first Prestigeception; user 2026-10-28: "the sim may nudge one
-// and reports it"). Granted at "A Respectable Googol" (1e100 Ore, about 1.4 h in), the first Prestigeception
-// fires the moment a climb pays e10,000 instead of at the next check-in, so every player starts the
-// Prestigeception climbs from the same Dream Points and the later ones land on the same exponents: e10,000,000
-// on 116.1 to 122.7 days across check-ins shifted -2 to +3 hours (without the nudge, at PC_BAR_RATIO 3: 102 to
-// 144, a shifted first Prestigeception moving every later one; the Slice 3 engine: 104 to 166). It arrives
-// before the player has seen a Prestigeception, so it stays a secret (MYSTERY_AUTOMATIONS, user 2026-10-28).
+// and reports it"). Granted at "A Respectable Googol" (1e100 Ore, about 1.4 h in), before the player has seen a
+// Prestigeception, so it stays a secret (MYSTERY_AUTOMATIONS, user 2026-10-28 "Mystery popup") and is granted
+// switched OFF (user 2026-10-29 "Granted OFF until revealed"): the first Prestigeception is always the player's
+// own, then it shows itself for the player to switch on. (It was first nudged here to fire the first one at
+// e10,000 for everyone; the review call made that the player's, and PC_BAR_RATIO 3 now keeps the later ones
+// clear of the goals instead.)
 export const AUTO_PC_MILESTONE: MilestoneId = "googol";
 
 // Which milestone unlocks each automation (design 3.2 table, [PROPOSAL] for the beats the user did not
@@ -568,13 +574,13 @@ export type SkillGate =
   | { milestone: AnyMilestoneId }
   | { prestiges: { layer: "captain" | "fleet" | "pc"; count: number; scope: "current" | "lifetime" } };
 
-// [PROVISIONAL] 6 before the retune; with PC_BAR_RATIO 2 the average player's 5th Prestigeception comes on
-// day 72 and the 6th only past e10,000,000, so 5 lets the lift happen on the way.
+// [PROVISIONAL] 6 before the retune, 5 at PC_BAR_RATIO 2 (5th Prestigeception on day 72). At PC_BAR_RATIO 3 the
+// average player makes 4 Prestigeceptions by e10,000,000, so the lift now comes past it (a user call to move).
 export const SKILL_GATE_LIFT_PC = 5;
 
 // The scale factor's power: (1 + count)^SKILL_SCALE_POW (design 3.3: exactly 1 at a count of 0, concave,
-// growing, never capped). [PROVISIONAL] 0.1 after the retune (x1.43 from 35 lifetime Fleets, x1.18 from 5
-// Prestigeceptions); 0.17 made every skill too strong (e10,000,000 on day 59 with nothing else changed).
+// growing, never capped). [PROVISIONAL] 0.1 (x1.43 from 35 lifetime Fleets, x1.17 from 4 Prestigeceptions);
+// 0.17 made every skill too strong (e10,000,000 on day 59 with nothing else changed).
 export const SKILL_SCALE_POW = 0.1;
 
 export interface LeveledSkillDef {
@@ -598,9 +604,9 @@ export interface LeveledSkillDef {
 // e10,000,000 on day 59). Most Fleets come in the first days (about 29 by day 5) and few late (one every few
 // days after day 75), so most points arrive early: the early levels are small (Tenfold Training and Overdrive
 // reach today's x2.2 and ^1.05 at level 4 of 5, Head Start's 1e10 at level 1 of 2) and the new skills give a
-// little each (+5% a level). The costs total 49, what the average player earns by day 110, so the last point
-// lands 11 days before e10,000,000 (120.7 days) with none spare (a 50th point lands only after day 140: the
-// late Fleets come a week or more apart).
+// little each (+5% a level). The costs total 49 (user 2026-10-28: skill sizes "OK"). At PC_BAR_RATIO 3 (review
+// round) the average player has earned 45 by e10,000,000 (123 days): the last four come with the Fleets after it
+// (the late Fleets come a week or more apart).
 export const LEVELED_SKILLS: readonly LeveledSkillDef[] = [
   // step: log10 of the starting Ore per level (level 1 = 1e10, today's Head Start)
   { id: "headStart", name: "Head Start", flavor: "Why start from nothing when you can start from slightly less nothing?", effect: "resets begin with more Ore", cap: 2, costBase: 1, costStep: 1, step: HEAD_START_LOG10, scalesOff: "lifetimeFleets", availableAt: { milestone: "firstFleet" }, replaces: { skill: "headStart", level: 1 } },
@@ -717,6 +723,8 @@ export const COPY = {
   // 0.14.0 Slice 3 [PROPOSAL]: an automation's Skills row before its milestone, followed by the
   // milestone's name once that milestone is visible ("???" before).
   automationLockedPrefix: "Unlocks at",
+  // 0.14.0 [PROPOSAL]: the Auto Captain row while it holds for Auto-buy I to IV (engine autoCaptainWaiting).
+  autoCaptainWaiting: "Waiting for Auto-buy I to IV",
 } as const;
 
 // The Milestones list's reward column for a milestone that unlocks an automation [PROPOSAL]; revealed false
@@ -732,12 +740,12 @@ export const HELP_SECTIONS: readonly { title: string; body: string }[] = [
   { title: "THE STACK", body: "Mining Lasers make Ore. Every higher generator makes the one below it: Refineries make Mining Lasers, Fabricators make Refineries, and so on up the stack. Ore buys everything. It is generators all the way down." },
   { title: "THE TEN BONUS", body: "Every 10 of a generator you buy doubles its output. Owning them is nice; buying them is what counts." },
   { title: "OVERCLOCK AND UPGRADES", body: "Overclock lives in the Upgrades tab. It speeds up the whole stack by ×1.125 per level, and the levels multiply. Its price follows your income, so waiting never makes it cheaper. Much later, a few more upgrades wake up there. Each one has a level cap, shown as X / Y." },
-  { title: "THREE KINDS OF PRESTIGE", body: "Captain Prestige resets your stack for Captain Points, and every point makes the stack faster. Fleet Prestige resets that too, for Augment Points, a Skill Point and new generators. Prestigeception resets everything below it for Dream Points, which make every Captain and Augment Point you earn count for more. Yes, it is prestige all the way down as well." },
+  { title: "THREE KINDS OF PRESTIGE", body: "Captain Prestige resets your stack for Captain Points, and every point makes the stack faster. Fleet Prestige resets that too, for Augment Points, new generators and Skill Points (more for your first few, then one each, until you can max every skill). Prestigeception resets everything below it for Dream Points, which make every Captain and Augment Point you earn count for more. Yes, it is prestige all the way down as well." },
   { title: "THE FINE PRINT", body: "Augment Points speed up the whole stack the way Captain Points do, and only a Prestigeception takes them away. Dream Points are never taken away: they make every Captain and Augment Point you earn count for more. A Fleet Prestige uses up the climb that paid for it, so a Prestigeception needs a fresh climb to e10,000 Ore after one. New generators unlock at 1, 2, 3 and 6 lifetime Fleet Prestiges. Legal read this paragraph twice and then asked to be reset too." },
   // 0.14.0 Slices 3 and 4: automations moved from Skill Points to milestones, and the skills took levels
   // (short factual fixes; Slice 7 rewrites this section and THE FINE PRINT for the whole redesign).
   { title: "SKILLS", body: "Skill Points come from Fleet Prestige, more for your first few, and buy skill levels: a head start, a stronger ten bonus and more. Each level costs a little more than the last, each skill grows with a prestige count, and some open later in the climb (each one says when). The automations that do the clicking for you (auto-buyers, automatic prestiges at a target you set) unlock at milestones instead, and each milestone says which one it unlocks (Auto Captain Prestige waits until Auto-buy I to IV is on, so a reset never leaves a stack nothing rebuilds). Once your Skill Points cover every level left, Fleet Prestige stops paying Skill Points; any you saved stay yours. The late game is mostly watching numbers go up, which is the point." },
-  { title: "MILESTONES", body: "Milestones appear as you get close to them, and each one is recorded with the date you reached it. Most rewards arrive in a future update; the last one pays out right away. You will know it when you see it." },
+  { title: "MILESTONES", body: "Milestones appear as you get close to them, and each one is recorded with the date you reached it. Many of them unlock an automation the moment you reach them (the popup says which, or keeps it a surprise); most other rewards arrive in a future update, and the last one pays out right away. You will know it when you see it." },
   { title: "RELIC BOOSTS", body: "The relics in your Museum, out in the real game, hum at this old build. Each kind boosts one thing in here (Stats lists them), and every copy helps a little less than the one before. Copies past a tier's 1,000 count five times over. Nothing in here ever flows back out, apart from a certain smugness." },
   { title: "TIME AWAY", body: "The stack keeps running while this window is closed and while the game is closed. Come back whenever you like. It does the work; you take the credit. Not those credits." },
 ];

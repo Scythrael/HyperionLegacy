@@ -34,7 +34,7 @@
 //            for 15 minutes; acts every 3 minutes; default targets.
 
 import { freshSecretState, cloneSecret, type SecretState } from "./state";
-import { stepMut, captainMultiplier, buyOverclockMut, buyTierMut, buySkillLevel, skillOffers, pickSkillOffer, skillLevel, allSkillsMaxed, totalSkillCost, captainGain, fleetGain, prestigeceptionGain, doCaptain, doFleet, doPrestigeception, effectiveExponent, hasSkill, upgradesUnlocked, upgradePriceExponent, canBuyUpgrade, buyUpgrade, fleetBarExponent, pcBarExponent, gainExponent, fleetGainPerLog10, pcGainPerLog10 } from "./engine";
+import { stepMut, captainMultiplier, buyOverclockMut, buyTierMut, buySkillLevel, skillOffers, pickSkillOffer, skillLevel, allSkillsMaxed, totalSkillCost, captainGain, fleetGain, prestigeceptionGain, doCaptain, doFleet, doPrestigeception, effectiveExponent, hasSkill, upgradesUnlocked, upgradePriceExponent, canBuyUpgrade, buyUpgrade, fleetBarExponent, pcBarExponent, gainExponent, fleetGainPerLog10, pcGainPerLog10, automationUnlocked, automationRevealed, setAuto } from "./engine";
 import { advanceTo, EXACT_BOUND_SECONDS, type CatchUpOptions } from "./catchUp";
 import { UPGRADES, LEVELED_SKILLS, FLEET_AT, PRESTIGECEPTION_AT, AP_K, DP_K, type MilestoneId, type UpgradeId, type RelicBoosts } from "./config";
 
@@ -121,6 +121,9 @@ export function decide(s: SecretState, atMs: number, style: PlayStyle = {}): Sec
       s = buyUpgrade(s, best, "one");
     }
   }
+  // User 2026-10-28 "Granted OFF until revealed": Auto Prestigeception shows itself (switched off) after the
+  // player's own first Prestigeception; the player switches it on when it appears.
+  if (!style.manual && automationUnlocked(s, "autoPc") && automationRevealed(s, "autoPc") && s.autoOn.autoPc === false) s = setAuto(s, "autoPc", true);
   // Slice 4: Skill Points, the cheapest level on offer first, as long as one is affordable.
   for (let offer = pickSkillOffer(skillOffers(s)); offer !== null; offer = pickSkillOffer(skillOffers(s))) s = buySkillLevel(s, offer.id, atMs);
   const fg = fleetGain(s);
