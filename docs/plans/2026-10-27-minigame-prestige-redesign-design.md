@@ -269,3 +269,9 @@ Reading: the secret e25,000,000 prize is a warp-speed starfield (stars stretchin
 riding on the Starfall wash plus shine style. Ships WITH 0.14.0 because the milestone is reachable in 0.14.0. Our own
 original effect and name (no Star Trek name, art or sound in game; the generic "stars streaking past" look only). Needs a
 mockup sign-off (visual UI rule); a toggle in Settings, off or still for reduced motion.
+Mockup v1 (https://claude.ai/artifact/XHuVDr4dkLpZyJevxPtYb3, saved as docs/plans/2026-10-29-starfield-drift-mockup.html),
+user 2026-10-29, verbatim: "Yes. I love it. But let's make it the actual warp effect. This one should be saved for a
+future unlock as it is akin to moving through a starfield. But in this case. It's more akin to moving at warp. So the
+stars streak past. Let me see if I can find a proper picture since viewing a video isn't possible for ye (at least it
+wasn't before)." So: v1 (a drift through a starfield) is KEPT as a FUTURE unlock; the e25M prize becomes the true warp
+look (stars streaking past); the user is sending a reference picture.
