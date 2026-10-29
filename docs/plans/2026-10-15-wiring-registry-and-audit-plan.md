@@ -1869,3 +1869,18 @@ the WR-8 rules stamp, so in-flight runs replay unchanged. All Defensive numbers 
 5. Approach (after the stance fix and softer pirates: Orion 87, Freighter 88, Carrier Warband 42, Destroyer Warband 15, Battleship 79; zero pirate armor did not close the gap, the cause is short-gun ships eating railgun fire while closing): "Closing is evasive (Recommended)" (a ship closing to its stance range moves evasively; incoming fire is reduced while it is still out of its own guns' reach).
 6. After evasive closing (c627efe: Orion 88, Freighter 90, Carrier Warband 39, Destroyer Warband 15, Battleship 78; the remaining gap is spread across several new rules working as designed): "Ship it, soften early curve (Recommended)" (tougher Warbands are content balance for 0.16.0; tune the existing safe-first ramp so light hulls' early Warbands are as gentle as before WR-8, Freighter c0 Warband back near 181 of 200).
 7. Patrol monotonicity sweep at 400 seeds instead of 200: "Yes, 400 seeds".
+
+## USER ANSWERS (2026-10-29): WR-7 review balance calls (verbatim picks)
+
+Context: the WR-7 review found every quarters piece carries Crew Stations points (implicit plus rolled, about 23 to
+113), so 1 berth per point gave +35 to +151 berths; the High-Output Core lost mass relief under OC-D6 (nets about +11%
+speed vs the Efficient Core's +35%); Wide arrays netted about 1.27x the finds per hour of Balanced, Focused about 0.76x.
+
+1. Crew Stations berth size: "Small curve (Recommended)": a gentle diminishing curve, about +1 berth near 25 points and
+   about +4 near 113 [PROVISIONAL]. Quarters' own base stays the main source of berths.
+2. Elite Quarters and the Guest Wing: "Elite stays at 0 (Recommended)": Elite Quarters adds no berths, its Crew
+   Stations line only scales its effect; the other quarters (the Guest Wing included) gain the berth bonus.
+3. Cores: "Accept: power vs speed (Recommended)": High-Output is the heavy power core, Efficient the light fast core.
+4. Sensor arrays: "Even out per hour (Recommended)": tune Wide and Focused so finds per hour land near Balanced
+   (about 0.95 to 1.05x); Wide = more per world but slower, Focused = quick looks.
+5. Still open: `VARIETY_RESIST_RATIO` 0.1 [PROVISIONAL] (resist lines on plating and emitters).
