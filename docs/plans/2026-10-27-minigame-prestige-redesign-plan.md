@@ -311,3 +311,18 @@ Slice 3 engine built as WIP 1aaeb6f on worktree-agent-a067ede01b877445a (NOT mer
 17 to 27 days; 19 placements probed, none held). User: "One retune after Slice 4 (Recommended)": keep Slice 3 unmerged,
 build Slice 4 on top of it on the same branch, then ONE combined pacing retune with every new mechanic in place (and
 make the curve less touchy around where Prestigeceptions land); merge Slices 3 + 4 together once green.
+
+## Slices 3 + 4 retune result and user calls (2026-10-28)
+
+Branch worktree-agent-a067ede01b877445a: 4e3ae8e (Slice 4) + 0fd0273 (retune WIP). Relic-free average 4.16 / 32.79 /
+119.60 d, optimal 4.11 / 32.53 / 118.86, casual 4.28 / 36.63 / 119.53; e10M check-in spread 104.4-166.4 d before,
+114.1-126.9 after; last Skill Point day 108.6, 0 spare at e10M. User calls (all Recommended):
+- Casual pace: "Accept, re-pin casual" (automation catching casual players up is the QoL point; re-pin the casual bands).
+- Auto Prestigeception at "A Respectable Googol": "Mystery popup": the popup reads "Reward: a new automation, for later.
+  You'll know it when you see it." and the Automation tab shows it as ??? until the first Prestigeception.
+- Skill sizes "OK" (49 points: Head Start 2; Tenfold Training and Overdrive 5, today's effect at level 4; Captain's
+  Academy 3, Fleet Requisitions 3, Lucid Planning 2 at +5% each); balanced again in 0.16.0.
+FIX ROUND still to do (after the weekly reset): the catch-up parity failures (day2 6 h and 10 h 19 over the bound on a
+plateau; mid 48 h 3.5 UNDER live, which breaks "never less") fixed in code, not by loosening; "keen" finale later than
+"light" (a player who checks in more must never be slower); then Slice 5 (relic ceiling: typical optimal e1M x1.20 and
+casual finale x1.13 out of Gentle; heavy reaches e10M in 24 days).
