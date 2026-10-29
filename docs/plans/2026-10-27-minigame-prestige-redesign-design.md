@@ -344,3 +344,15 @@ Reading (for mockup v2):
 4. A new switch "Ignore theme colors": ON gives classic white warp streaks; OFF (and in every preset) the streaks follow
    the player's color setup: one color uses that color; two or three colors use that setup (flat or gradient wipe), as
    the mockup does.
+
+### Background settings mockup v2 SIGNED OFF (user, 2026-10-29, verbatim): "Perfect. Everything in the mockup is exactly as I had envisioned! Thank you very much!"
+
+Mockup: https://claude.ai/artifact/UuPfNQfEKMYVx4E4Dg9fT6 (v2; local copy docs/plans/2026-10-29-background-settings-mockup.html).
+Signed off AS DRAWN, every open call resolves to the option shown: a new BACKGROUND settings section under UI THEME
+mirroring it exactly (one "Background preset" dropdown: Default, unlocked presets, Manual; Manual reveals "Background
+style" plus Configure); locked entries "Locked: unlocked by completing an achievement"; the Configure window lists every
+background on top (locked ones with the hint) and its controls below change per background (Default: nothing to tune;
+Faster Than Light: Speed, Streak length, Stars, Brightness, Ignore theme colors (white streaks, off in every preset),
+Jump to warp when it turns on, Still (automatic with reduced motion), Reset to default, Done); streaks follow the theme
+(one color, two-color wash, three colors); each background keeps its own settings on this device; a readability guard
+dims the background under panels and text. Build: with Slice 5 (the e25M milestone), as the 0.14.0 background track.
