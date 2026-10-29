@@ -326,3 +326,15 @@ FIX ROUND still to do (after the weekly reset): the catch-up parity failures (da
 plateau; mid 48 h 3.5 UNDER live, which breaks "never less") fixed in code, not by loosening; "keen" finale later than
 "light" (a player who checks in more must never be slower); then Slice 5 (relic ceiling: typical optimal e1M x1.20 and
 casual finale x1.13 out of Gentle; heavy reaches e10M in 24 days).
+
+## Slices 3 + 4 review (2026-10-29): approve with fixes; user call
+
+User: Auto Prestigeception "Granted OFF until revealed (Recommended)": unlocked at A Respectable Googol (the mystery
+popup as approved) but switched OFF and hidden; the first Prestigeception is always the player's own choice; after it
+the automation reveals itself (still off) and the player turns it on. Existing saves the same (never fires unseen).
+Fix list for the next round on the branch (with Slice 5a): the above; apply the instant-fire-at-the-bar rule to Captain
+and Fleet too if pacing holds (else document why Prestigeception only) and fix the stepMut header comment and the
+unstated coarse-step production cut; a "waiting for Auto-buy I to IV" note on the Auto Captain row; purchaseSeconds
+carries the fraction (no Math.round drift on long coarse steps); Help: THREE KINDS OF PRESTIGE (Skill Points by
+schedule) and MILESTONES (rewards now unlock automations); reword the goldens.test.ts header; skillPointsRemaining is
+fixed by Slice 6.
