@@ -78,3 +78,16 @@ USER ANSWER (2026-10-22): headline = "53% to release (Recommended)": keep the wh
 ## 2026-10-23 (v10): 33 systems, 18 done, 14 building, 1 designed = 76% built, 53% to release
 
 Done (18): the v9 seventeen plus the NEW rarity and quality readiness system (RR-0 to RR-8 merged e4246d5; added to the plan and finished the same day). Building (14): unchanged set (WR-8 combat descriptors, EM-3 power in combat and EM-4 reactor speed merged as progress inside wiring / E-MOD; G2-6 merged inside expedition tiers). Designed (1): completion tracking. To release stays 53% (0.70 x 75.8% = 53.0%) because the plan grew by one system while building moved; the card says so.
+
+## 2026-10-29 (v11): 34 systems, 19 done, 14 building, 1 designed = 76% built, 54% to release
+
+Done (19): the v10 eighteen plus Field Kits (FKR-8 field device roll and FKR-11 close-out merged; no release blockers).
+Building (14): wiring framework (WR-7, WR-9 to WR-12 left); safe first runs (SF-5/6 merged, SF-7 close-out left); crew
+complement; expedition tiers; short-range missions; gas giant study (Survey Log live, GG-7 crafting and special
+blueprints merged, GG-8 close-out left); gear wear (step 4 combat wear with projected repair merged, step 5 UI left);
+Overtime and credit sinks; tutorial hooks; Relics v2 (R2-10 minigame boosts and the tier stagger merged; R2-5 to R2-9
+left); Material Lines (ML-7 legibility merged); universal modules / power (EM-7 and EM-10 Modules row and power bar
+merged; EM-8, EM-9 left); recipe realism; plus the NEW minigame prestige redesign (Slices 0 to 2 merged, 3 and 4 on a
+branch awaiting the parity fix round, 5 to 7 left), shown on the public card only as "one under wraps" (the minigame is
+a secret). Designed (1): completion tracking. Build % = (19 + 14 / 2) / 34 = 76.5%; to release = 0.70 x 76.5% = 53.5%,
+shown as 54%. The card also lists the landed items in fan language (Tactical Protocols rename included).

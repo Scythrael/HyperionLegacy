@@ -1,0 +1,221 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Background Visualization Settings</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Orbitron:wght@500;700&family=Space+Grotesk:wght@400;500;600&display=swap">
+<style>
+  :root {
+    color-scheme: dark;
+    --bg-deep: #05070f; --panel: #0b1622; --ink: #e6f4f8; --ink-2: #9fb4c0; --ink-3: #6d8794;
+    --accent: #67e8f9; --accent-rgb: 103, 232, 249;
+    --border: rgba(103, 232, 249, 0.2); --border-strong: rgba(103, 232, 249, 0.42); --corner: 2px; --warn: #fbbf24;
+    --display: "Orbitron", sans-serif; --body: "Space Grotesk", sans-serif;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; }
+  body { background: var(--bg-deep); color: var(--ink); font-family: var(--body); font-size: 13px; line-height: 1.45; padding: 20px 16px 48px; }
+  .wrap { max-width: 1060px; margin: 0 auto; display: grid; gap: 22px; }
+  h1 { font-family: var(--display); font-size: 20px; letter-spacing: .08em; margin: 0 0 4px; }
+  .intro { margin: 0; color: var(--ink-2); max-width: 88ch; }
+  .label { font-family: var(--display); font-size: 12px; letter-spacing: .18em; color: var(--accent); text-transform: uppercase; margin: 0 0 8px; }
+  .prop { color: var(--warn); font-size: 11px; font-family: ui-monospace, monospace; }
+  .frames { display: flex; gap: 18px; flex-wrap: wrap; align-items: flex-start; }
+  .cap { font-family: ui-monospace, monospace; font-size: 11px; color: var(--ink-3); margin: 0 0 6px; }
+  .win { background: var(--panel); border: 1px solid var(--border-strong); border-radius: var(--corner); box-shadow: 0 18px 50px rgba(0,0,0,.5); }
+  .win header { display: flex; justify-content: space-between; align-items: center; padding: 10px 14px; border-bottom: 1px solid var(--border); font-family: var(--display); letter-spacing: .18em; font-size: 12px; }
+  .desk { width: 640px; max-width: 100%; }
+  .phone { width: 375px; max-width: 100%; }
+  .body { padding: 12px 14px; display: grid; gap: 4px; }
+  .ptitle { font-family: var(--display); font-size: 11px; letter-spacing: .2em; color: var(--accent); padding-bottom: 6px; border-bottom: 1px solid var(--border); margin-bottom: 4px; }
+  .srow { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 4px 14px; align-items: center; padding: 8px 0; border-bottom: 1px solid rgba(103,232,249,.08); }
+  .srow .k { font-weight: 600; }
+  .srow .h { color: var(--ink-3); font-size: 12px; grid-column: 1; }
+  .srow .ctl { grid-row: 1 / span 2; grid-column: 2; display: flex; gap: 8px; align-items: center; }
+  .phone .srow { grid-template-columns: 1fr; }
+  .phone .srow .ctl { grid-row: auto; grid-column: 1; }
+  select { font: inherit; font-size: 12.5px; color: var(--ink); background: #071019; border: 1px solid var(--border-strong); border-radius: var(--corner); padding: 7px 10px; min-height: 36px; min-width: 190px; }
+  .phone select { width: 100%; }
+  .cfg { font: inherit; font-size: 12.5px; color: var(--accent); background: rgba(var(--accent-rgb), .06); border: 1px solid var(--border-strong); border-radius: var(--corner); padding: 7px 12px; min-height: 36px; cursor: pointer; }
+  .note { margin: 6px 0 0; color: var(--ink-2); font-size: 12px; }
+  .lockhint { color: var(--ink-3); font-size: 11.5px; }
+  .preview { position: relative; height: 210px; border: 1px solid var(--border); border-radius: var(--corner); overflow: hidden; background: #03050b; }
+  .preview canvas { position: absolute; inset: 0; width: 100%; height: 100%; }
+  .vis { display: flex; gap: 6px; flex-wrap: wrap; margin: 2px 0 6px; }
+  .vbtn { font: inherit; font-size: 12.5px; color: var(--ink-2); background: rgba(0,0,0,.25); border: 1px solid var(--border); border-radius: var(--corner); padding: 7px 12px; min-height: 36px; cursor: pointer; text-align: left; }
+  .vbtn[aria-pressed="true"] { color: var(--ink); border-color: var(--accent); background: rgba(var(--accent-rgb), .14); }
+  .vbtn.locked { border-style: dashed; color: var(--ink-3); cursor: not-allowed; }
+  .vbtn.locked small { display: block; font-size: 10.5px; }
+  .grid { display: grid; gap: 8px; margin-top: 6px; }
+  .ctl2 { display: grid; grid-template-columns: 130px minmax(0, 1fr) 40px; gap: 10px; align-items: center; }
+  .ctl2 .v { font-family: ui-monospace, monospace; font-size: 12px; text-align: right; }
+  input[type=range] { width: 100%; accent-color: #67e8f9; }
+  .tog { display: flex; align-items: center; gap: 10px; }
+  .sw { width: 40px; height: 22px; border-radius: 11px; border: 1px solid var(--border-strong); background: rgba(0,0,0,.4); position: relative; flex: none; cursor: pointer; }
+  .sw::after { content: ""; position: absolute; top: 2px; left: 2px; width: 16px; height: 16px; border-radius: 50%; background: var(--ink-3); transition: left .15s; }
+  .sw[aria-checked="true"] { background: rgba(var(--accent-rgb), .25); }
+  .sw[aria-checked="true"]::after { left: 20px; background: #8ff0e0; }
+  .foot { display: flex; justify-content: space-between; gap: 8px; margin-top: 4px; }
+  .demo { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; padding: 8px 10px; border: 1px dashed rgba(251,191,36,.45); border-radius: var(--corner); color: var(--ink-2); font-size: 12px; }
+  button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  ol { margin: 0; padding-left: 20px; color: var(--ink-2); display: grid; gap: 6px; max-width: 92ch; }
+  ol b { color: var(--ink); }
+  @media (prefers-reduced-motion: reduce) { .sw::after { transition: none; } }
+  @media (max-width: 460px) { .ctl2 { grid-template-columns: 1fr 40px; } .ctl2 label { grid-column: 1 / -1; } }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div>
+    <h1>Background visualizations, v2</h1>
+    <p class="intro">Mirrors the UI THEME section exactly: one <b>Background preset</b> dropdown (Default, each unlocked preset, then Manual). Manual reveals a <b>Background style</b> dropdown and Configure. In the Configure window the visualizations sit at the top and the controls below change with the one you pick. Locked entries hint where they come from.</p>
+  </div>
+
+  <section>
+    <p class="label">1. Settings, new BACKGROUND section (under UI THEME)</p>
+    <div class="frames">
+      <div>
+        <p class="cap">Desktop: Preset view (the default)</p>
+        <div class="win desk">
+          <header><span>SETTINGS</span><span style="color:var(--ink-3)">×</span></header>
+          <div class="body">
+            <div class="ptitle">BACKGROUND</div>
+            <div class="srow"><div class="k">Background preset</div><div class="h">Default is the classic backdrop. Presets come with each background you unlock. Manual lets you pick one and tune it.</div>
+              <div class="ctl"><select aria-label="Background preset"><option>Default</option><option selected>Faster Than Light</option><option disabled>Locked: unlocked by completing an achievement</option><option>Manual</option></select></div></div>
+            <p class="note">Faster Than Light follows your theme colors.</p>
+          </div>
+        </div>
+      </div>
+      <div>
+        <p class="cap">Desktop: Manual view</p>
+        <div class="win desk">
+          <header><span>SETTINGS</span><span style="color:var(--ink-3)">×</span></header>
+          <div class="body">
+            <div class="ptitle">BACKGROUND</div>
+            <div class="srow"><div class="k">Background preset</div><div class="h">Manual: you pick the background and tune it.</div>
+              <div class="ctl"><select aria-label="Background preset"><option>Default</option><option>Faster Than Light</option><option selected>Manual</option></select></div></div>
+            <div class="srow"><div class="k">Background style</div><div class="h">Which background plays. More unlock as you earn them.</div>
+              <div class="ctl"><select aria-label="Background style"><option>Default</option><option selected>Faster Than Light</option><option disabled>Locked: unlocked by completing an achievement</option><option disabled>Locked: unlocked by completing an achievement</option></select><button class="cfg">Configure</button></div></div>
+          </div>
+        </div>
+      </div>
+      <div>
+        <p class="cap">Phone, 375 px: Manual view</p>
+        <div class="win phone">
+          <header><span>SETTINGS</span><span style="color:var(--ink-3)">×</span></header>
+          <div class="body">
+            <div class="ptitle">BACKGROUND</div>
+            <div class="srow"><div class="k">Background preset</div><div class="ctl"><select aria-label="Background preset"><option selected>Manual</option></select></div></div>
+            <div class="srow"><div class="k">Background style</div><div class="ctl"><select aria-label="Background style"><option selected>Faster Than Light</option></select></div><div class="ctl"><button class="cfg" style="width:100%">Configure</button></div></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <p class="label">2. Configure (live): visualizations on top, their controls below</p>
+    <div class="demo">Mockup only, your theme: <select id="theme" aria-label="Sample theme" style="min-width:0"><option value="grad" selected>Gradient wash: Cyan into Purple</option><option value="flat">Flat: Cyan</option><option value="amber">Flat: Amber</option><option value="tri">Three colors: Cyan, Purple, Rose</option></select></div>
+    <div class="frames" style="margin-top:10px">
+      <div>
+        <div class="win desk">
+          <header><span>CONFIGURE BACKGROUND</span><span style="color:var(--ink-3)">×</span></header>
+          <div class="body" style="gap:8px">
+            <div class="vis" role="group" aria-label="Background">
+              <button class="vbtn" data-v="default" aria-pressed="false">Default</button>
+              <button class="vbtn" data-v="ftl" aria-pressed="true">Faster Than Light</button>
+              <button class="vbtn locked" disabled>Locked<small>Unlocked by completing an achievement</small></button>
+              <button class="vbtn locked" disabled>Locked<small>Unlocked by completing an achievement</small></button>
+            </div>
+            <div class="preview"><canvas id="c" aria-label="Live preview of the background" role="img"></canvas></div>
+            <div class="grid" id="ctlFtl">
+              <div class="ctl2"><label for="spd">Speed</label><input id="spd" type="range" min="1" max="10" value="6"><span class="v" id="spdv">6</span></div>
+              <div class="ctl2"><label for="len">Streak length</label><input id="len" type="range" min="1" max="10" value="6"><span class="v" id="lenv">6</span></div>
+              <div class="ctl2"><label for="den">Stars</label><input id="den" type="range" min="1" max="10" value="5"><span class="v" id="denv">5</span></div>
+              <div class="ctl2"><label for="dim">Brightness</label><input id="dim" type="range" min="1" max="10" value="6"><span class="v" id="dimv">6</span></div>
+              <div class="tog"><span class="sw" role="switch" tabindex="0" id="white" aria-checked="false" aria-label="Ignore theme colors"></span><span>Ignore theme colors (classic white streaks)</span></div>
+              <div class="tog"><span class="sw" role="switch" tabindex="0" id="jump" aria-checked="true" aria-label="Jump to warp when it turns on"></span><span>Jump to warp when it turns on</span></div>
+              <div class="tog"><span class="sw" role="switch" tabindex="0" id="still" aria-checked="false" aria-label="Still"></span><span>Still (no motion). On automatically when your system asks for reduced motion.</span></div>
+            </div>
+            <div class="grid" id="ctlDef" hidden><p class="note" style="margin:0">The classic backdrop has nothing to tune.</p></div>
+            <div class="foot"><button class="cfg" id="reset">Reset to default</button><button class="cfg">Done</button></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <p class="label">Open calls</p>
+    <ol>
+      <li><b>One dropdown</b> for the preset (Default, unlocked presets, Manual), exactly like UI THEME today (as drawn)?</li>
+      <li><b>Locked hint</b> <span class="prop">PROPOSAL</span>: "Locked: unlocked by completing an achievement" (generic, names no milestone)?</li>
+      <li><b>Ignore theme colors</b> switch, off in every preset: white streaks when on; otherwise one theme color uses that color, two or three use your setup (as drawn; try the sample theme switcher)?</li>
+      <li><b>Configure top row</b> lists every background, locked ones included, and the controls below change with the one you pick (as drawn)?</li>
+    </ol>
+  </section>
+</div>
+<script>
+(() => {
+  const canvas = document.getElementById("c");
+  const ctx = canvas.getContext("2d");
+  const reduce = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  const el = (id) => document.getElementById(id);
+  const cfg = { spd: 6, len: 6, den: 5, dim: 6 };
+  const THEMES = { grad: [[103,232,249],[167,139,250]], flat: [[103,232,249]], amber: [[251,191,36]], tri: [[103,232,249],[167,139,250],[251,113,133]] };
+  let palette = THEMES.grad, white = false, still = reduce, vis = "ftl", jumpT = 120, w = 0, h = 0, speed = 0.4, raf = 0;
+  let stars = [];
+  function resize() { const r = canvas.getBoundingClientRect(), dpr = Math.min(2, window.devicePixelRatio || 1); w = r.width; h = r.height; canvas.width = Math.round(w * dpr); canvas.height = Math.round(h * dpr); ctx.setTransform(dpr, 0, 0, dpr, 0, 0); }
+  function spawn(s, fresh) { s.x = (Math.random() - .5) * 2; s.y = (Math.random() - .5) * 2; s.z = fresh ? Math.random() : 1; s.pz = s.z; s.t = Math.random(); }
+  function rebuild() { const n = 80 + cfg.den * 50; stars = []; for (let i = 0; i < n; i++) { const s = {}; spawn(s, true); stars.push(s); } }
+  function color(t, a) {
+    if (white) return `rgba(240,246,255,${a})`;
+    if (palette.length === 1) { const c = palette[0]; return `rgba(${c[0]},${c[1]},${c[2]},${a})`; }
+    const seg = t * (palette.length - 1), i = Math.min(palette.length - 2, Math.floor(seg)), f = seg - i;
+    const A = palette[i], B = palette[i + 1];
+    return `rgba(${Math.round(A[0] + (B[0] - A[0]) * f)},${Math.round(A[1] + (B[1] - A[1]) * f)},${Math.round(A[2] + (B[2] - A[2]) * f)},${a})`;
+  }
+  function frame() {
+    if (vis === "default") { ctx.fillStyle = "#070b14"; ctx.fillRect(0, 0, w, h); const g = ctx.createRadialGradient(w * .7, -20, 0, w * .7, -20, w); g.addColorStop(0, "rgba(103,232,249,.08)"); g.addColorStop(1, "rgba(0,0,0,0)"); ctx.fillStyle = g; ctx.fillRect(0, 0, w, h); return; }
+    const cx = w / 2, cy = h / 2, scale = Math.max(w, h) * 0.6, base = 0.4 + cfg.spd * 0.45;
+    let target = base; if (jumpT > 0) { jumpT -= 1; target = jumpT > 30 ? base * 2.4 : base; }
+    speed += (target - speed) * 0.06;
+    const trail = 0.15 + cfg.len * 0.06;
+    ctx.fillStyle = still ? "rgba(3,5,11,1)" : `rgba(3,5,11,${Math.max(0.12, 0.6 - trail * 0.6)})`;
+    ctx.fillRect(0, 0, w, h);
+    const bright = 0.35 + cfg.dim * 0.065;
+    for (const s of stars) {
+      if (!still) s.z -= 0.0026 * speed;
+      if (s.z <= 0.02) { spawn(s, false); continue; }
+      const k = scale * 0.5, sx = cx + (s.x / s.z) * k, sy = cy + (s.y / s.z) * k;
+      const lz = Math.min(1, s.z + 0.002 * speed * (2 + cfg.len * 2.2)), px = cx + (s.x / lz) * k, py = cy + (s.y / lz) * k;
+      if (sx < -60 || sx > w + 60 || sy < -60 || sy > h + 60) { spawn(s, false); continue; }
+      const near = 1 - s.z, a = Math.min(1, (0.2 + near * 0.95) * bright);
+      ctx.lineWidth = 0.5 + near * 1.7;
+      if (still) { ctx.fillStyle = color(s.t, a); ctx.beginPath(); ctx.arc(sx, sy, ctx.lineWidth * 0.6, 0, Math.PI * 2); ctx.fill(); }
+      else { ctx.strokeStyle = color(s.t, a); ctx.beginPath(); ctx.moveTo(px, py); ctx.lineTo(sx, sy); ctx.stroke(); }
+    }
+    if (!still) raf = requestAnimationFrame(frame);
+  }
+  function restart() { cancelAnimationFrame(raf); frame(); }
+  ["spd", "len", "den", "dim"].forEach((id) => { const i = el(id), o = el(id + "v"); i.addEventListener("input", () => { cfg[id] = Number(i.value); o.textContent = i.value; if (id === "den") rebuild(); if (still) frame(); }); });
+  function sw(id, set) { const s = el(id); const flip = () => { const on = s.getAttribute("aria-checked") !== "true"; s.setAttribute("aria-checked", String(on)); set(on); }; s.addEventListener("click", flip); s.addEventListener("keydown", (e) => { if (e.key === " " || e.key === "Enter") { e.preventDefault(); flip(); } }); return s; }
+  sw("white", (on) => { white = on; if (still) frame(); });
+  sw("jump", (on) => { if (on && !still) jumpT = 120; });
+  sw("still", (on) => { still = on; restart(); }).setAttribute("aria-checked", String(still));
+  el("theme").addEventListener("change", (e) => { palette = THEMES[e.target.value]; if (still) frame(); });
+  document.querySelectorAll(".vbtn[data-v]").forEach((b) => b.addEventListener("click", () => {
+    vis = b.dataset.v;
+    document.querySelectorAll(".vbtn[data-v]").forEach((x) => x.setAttribute("aria-pressed", String(x === b)));
+    el("ctlFtl").hidden = vis !== "ftl"; el("ctlDef").hidden = vis !== "default";
+    if (vis === "ftl") jumpT = 120;
+    restart();
+  }));
+  el("reset").addEventListener("click", () => { Object.assign(cfg, { spd: 6, len: 6, den: 5, dim: 6 }); ["spd", "len", "den", "dim"].forEach((id) => { el(id).value = cfg[id]; el(id + "v").textContent = cfg[id]; }); white = false; el("white").setAttribute("aria-checked", "false"); rebuild(); jumpT = 120; restart(); });
+  resize(); rebuild(); frame();
+  window.addEventListener("resize", () => { resize(); if (still || vis === "default") frame(); });
+})();
+</script>
+</body>
+</html>

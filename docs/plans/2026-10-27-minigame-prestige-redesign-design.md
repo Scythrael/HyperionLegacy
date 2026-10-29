@@ -251,3 +251,108 @@ Slice 2 review calls (2026-10-28): at FLEET_BAR_RATIO 1.18 / PC_BAR_RATIO 1.5 th
 prestige prestige far above them: Fleet bar e982 while the climb reaches e327,961). User: "Make them bite
 (Recommended)": steeper bars that sit near where players actually prestige so they become the real gate after a few
 Fleets, with the rest of the curve retuned so the pacing bands hold. Card label "Next one" is fine.
+
+## Mockup sign-off (2026-10-28, verbatim): "Yes. Perfection. Thank you! I approve of the mockup. Looks fantastic."
+
+Mockup: https://claude.ai/artifact/YRWEnUAnKEGSJok22Faz2h (local copy: session scratchpad automation-skills-mockup.html).
+Signed off AS DRAWN, so every open call resolves to the option shown: tab order Generators, Upgrades, Prestige, Skills,
+Automation, Milestones; locked automations show as ??? rows; a 1 / 10 / Max switch on each buying automation (prestige
+automations keep their target menu); phone tab names Gen, Upg, Prest, Skills, Auto, Miles; the unlock popup says
+"Reward: <automation> unlocked. Find it on the Automation tab."; skill rows show level X / Y, the joke line, now and next
+level, the prestige-count bonus chip, and gated rows say exactly when they open; the gate-lift note under the list.
+
+## The e25M prize visualization (user, 2026-10-29, verbatim)
+
+"So, I have the perfect visualization for the e25m prize I think. The warp field from Star Trek! That'll need to go live
+with 0.14.0 if the milestone is obtainable at that point."
+Reading: the secret e25,000,000 prize is a warp-speed starfield (stars stretching into streaks as if jumping to warp),
+riding on the Starfall wash plus shine style. Ships WITH 0.14.0 because the milestone is reachable in 0.14.0. Our own
+original effect and name (no Star Trek name, art or sound in game; the generic "stars streaking past" look only). Needs a
+mockup sign-off (visual UI rule); a toggle in Settings, off or still for reduced motion.
+Mockup v1 (https://claude.ai/artifact/XHuVDr4dkLpZyJevxPtYb3, saved as docs/plans/2026-10-29-starfield-drift-mockup.html),
+user 2026-10-29, verbatim: "Yes. I love it. But let's make it the actual warp effect. This one should be saved for a
+future unlock as it is akin to moving through a starfield. But in this case. It's more akin to moving at warp. So the
+stars streak past. Let me see if I can find a proper picture since viewing a video isn't possible for ye (at least it
+wasn't before)." So: v1 (a drift through a starfield) is KEPT as a FUTURE unlock; the e25M prize becomes the true warp
+look (stars streaking past); the user is sending a reference picture.
+Warp prize answers (2026-10-29): look "Warp mode, as is (Recommended)": the e25M prize is the mockup's Warp mode
+(stars stretching into long streaks) full-time, with the Jump burst when it turns on; placement "Whole game
+(Recommended)": behind every screen under the panels, its own on/off in Settings > UI, a still version for reduced
+motion. Names, user verbatim: "I like "Faster than Light" as a title. The other one is called "The Journey Ahead" where
+you're moving at sublight speeds. Or perhaps "Sublight Stroll". Yeah. "Sublight Stroll" and "Faster Than Light"." So:
+the e25M prize is "Faster Than Light"; the future starfield-drift unlock (the mockup's Cruise mode) is "Sublight
+Stroll" (unlock not yet decided; logged for later).
+
+## Background visualizations as an unlock track (user, 2026-10-29, verbatim)
+
+"It's more prizes to unlock so we keep the awarding of these separate, I was thinking of having a configuration panel for
+each visualization style where the user selects one or the other haha. But, here's an idea. Still able to use some of it.
+We do for the visualization what we did for the style. When you unlock one, you get access to that visualization style.
+For this one, we could call it something like "Starfield" but not that. Perhaps a play on the processes. I have a few ideas
+already. This starfield idea which is the starfield movement like we already have. Faster Than Light is the unlock for
+e25m. Perhaps "Starlight Stroll" (that's even better than sublight stroll) could be saved for something else that we can
+build into the achievement patch. Another idea would be various star types, by class. Pulsar, magenetar, yellow dwarf
+(because we [heart] the Sol system), red dwarf. Sol's eventual fate as a red giant. Neutron star. Etc. Plus some other
+visualization ideas that get unlocks later. Doesn't have to be a space effect. Could even be fractal generation and other
+things as well. As long as they don't look gaudy.
+What you mocked up is what the e25m prize is what I envision. The background visualization style and a configure button
+next to it. When you click the configure button, you have the same panel, with some customization. If we want to go
+faster, we can. If we want slower, we can, etc. If there are other visualizations, the buttons are grayed out with Locked
+on them."
+
+Reading (to play back):
+1. Background visualizations become an unlock track, like theme styles: Settings > UI gets a "Background" choice; each
+   visualization is unlocked separately (prizes kept separate) and the player picks one (or none).
+2. Next to the choice, a Configure button opens a panel like the mockup's controls, per visualization (for Faster Than
+   Light: speed from slow to fast, and similar options), the still version for reduced motion.
+3. Locked visualizations show as grayed-out buttons reading "Locked".
+4. 0.14.0 ships the track plus its first entry: Faster Than Light (the e25M prize, exactly the mockup, with speed
+   configurable). "Starlight Stroll" (renamed from Sublight Stroll; the slow drift through a starfield) is saved for the
+   achievements patch (0.14.3).
+5. Future ideas: star types by class (pulsar, magnetar, yellow dwarf for Sol, red dwarf, Sol's fate as a red giant,
+   neutron star, etc.), and non-space effects such as fractal generation; never gaudy.
+
+### Background settings mockup v1 feedback (user, 2026-10-29, verbatim)
+
+Mockup v1: https://claude.ai/artifact/UuPfNQfEKMYVx4E4Dg9fT6.
+"Locked buttons could get a hint at the source of where to find it. "Unlocked by completing an achievement." and so forth.
+The settings option is close. Not quite there. The theme style has a dropdown for preset and so forth. We will want the
+same for this as well. If you go to manual, you get a dropdown on what to select. When you select an option in the
+dropdown, you get the configure button and it opens up the configure option for that selected option. The actual
+configure window looks great. But the different options for that background visualization would appear in section 2
+above the sliders, and the sliders and such would change as needed with each visualization as you select them.
+So the user goes to settings and sees the "default" option which is what we have now in the background. To the right of
+that is a "manual" button. You click that, and it switches to a dropdown with default, the new name for "Starfield" for
+the actual visualization style, and so forth. You then have "preset" to go back to the preset view, as well as
+configure. Okay, sorry, not a preset button lol. My bad. Let's keep it identical to how the current theme style setup is.
+Dropdown that shows manual/preset options with preset as the default. Then a dropdown box to select from presets. The
+unlocks all come with a preset. When you select manual, you have the ability to then go into configure and edit the
+settings for that visualization.
+Also, have an option that ignores theme and when the theme is ignored, it matches the white streaks of warp travel from
+Star Trek as well please. The preset will not have this toggled on. So the streaks will match your current color setting
+(if it's one color, it matches the one color. If it's 2 or 3, it will match that setup. So if you're using flat or
+gradient wipe, it will use those colors like the mockup does)."
+
+Reading (for mockup v2):
+1. Background mirrors the Theme style setting exactly: a mode dropdown Preset / Manual (Preset is the default) and a
+   dropdown of presets ("Default" = today's background; each unlocked visualization brings its own preset, e.g. Faster
+   Than Light).
+2. Manual: a dropdown to pick the visualization (Default, Faster Than Light, later ones), then Configure opens the
+   configure window for it; inside, the visualization choices sit at the top (section 2, above the sliders) and the
+   sliders and switches change per visualization.
+3. Locked entries show a hint at their source, e.g. "Unlocked by completing an achievement." (generic, no spoiler).
+4. A new switch "Ignore theme colors": ON gives classic white warp streaks; OFF (and in every preset) the streaks follow
+   the player's color setup: one color uses that color; two or three colors use that setup (flat or gradient wipe), as
+   the mockup does.
+
+### Background settings mockup v2 SIGNED OFF (user, 2026-10-29, verbatim): "Perfect. Everything in the mockup is exactly as I had envisioned! Thank you very much!"
+
+Mockup: https://claude.ai/artifact/UuPfNQfEKMYVx4E4Dg9fT6 (v2; local copy docs/plans/2026-10-29-background-settings-mockup.html).
+Signed off AS DRAWN, every open call resolves to the option shown: a new BACKGROUND settings section under UI THEME
+mirroring it exactly (one "Background preset" dropdown: Default, unlocked presets, Manual; Manual reveals "Background
+style" plus Configure); locked entries "Locked: unlocked by completing an achievement"; the Configure window lists every
+background on top (locked ones with the hint) and its controls below change per background (Default: nothing to tune;
+Faster Than Light: Speed, Streak length, Stars, Brightness, Ignore theme colors (white streaks, off in every preset),
+Jump to warp when it turns on, Still (automatic with reduced motion), Reset to default, Done); streaks follow the theme
+(one color, two-color wash, three colors); each background keeps its own settings on this device; a readability guard
+dims the background under panels and text. Build: with Slice 5 (the e25M milestone), as the 0.14.0 background track.
