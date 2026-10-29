@@ -21,6 +21,8 @@
   import { secretGame, secretCatchingUp, secretAct, catchUpSecretNow } from "./secret/runtime";
   import {
     effectiveExponent,
+    stateExponent,
+    relicPlateau,
     displayOre,
     displayIncome,
     unitPrice,
@@ -175,7 +177,7 @@
 
   $: s = $secretGame;
   $: busy = $secretCatchingUp;
-  $: bestE = effectiveExponent(s.bestOre);
+  $: bestE = stateExponent(s, s.bestOre);
   $: celebration = s.milestones.finale !== undefined && !s.finaleSeen ? "finale" : s.milestones.long !== undefined && !s.longSeen ? "long" : null;
   // A celebration that appears mid-play takes focus onto its "Keep going" button.
   let shownCelebration: string | null = null;
@@ -223,7 +225,7 @@
     secretAct((x) => ({ ...cloneSecret(x), upgradesNoteSeen: true }));
   }
 
-  const fmt = (d: Decimal) => formatSecret(displayOre(d));
+  const fmt = (d: Decimal) => formatSecret(displayOre(d, relicPlateau(s)));
   const pct = (p: number) => Math.max(0, Math.min(100, p));
 
   function buy(tier: number, mode: BuyMode): void {
@@ -320,7 +322,7 @@
   const ORE_GOALS = [100, 1000, 100000, FINALE_EXPONENT, LONG_EXPONENT, STARFALL_EXPONENT];
   $: goal = ORE_GOALS.find((g) => bestE < g) ?? null;
   $: goalPct = goal === null ? 100 : pct((bestE / goal) * 100);
-  $: runE = effectiveExponent(s.ore);
+  $: runE = stateExponent(s, s.ore);
   $: runPct = bestE <= 0 ? 0 : pct((runE / bestE) * 100);
   $: visibleMilestones = MILESTONES.filter((m) => milestoneVisible(s, m.id));
   $: reachedCount = MILESTONES.filter((m) => s.milestones[m.id] !== undefined).length;

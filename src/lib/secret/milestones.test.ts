@@ -317,8 +317,9 @@ describe("milestones", () => {
     for (const id of ["firstCaptain", "googol", "firstFleet", "firstPc", "singularity", "finale", "long", "starfall"]) expect(ids).toContain(id);
     expect(MILESTONES.length).toBeGreaterThanOrEqual(10);
     // 0.13.11.1 content pacing adds four; 0.14.0 Slice 3 adds three automation beats
-    expect(MILESTONES.length).toBeLessThanOrEqual(19);
-    expect(MILESTONES.filter((m) => m.achievement).map((m) => m.id).sort()).toEqual(["finale", "long", "starfall"]);
+    // 0.14.0 Slice 5a adds e20,000,000 and the secret e25,000,000 (an achievement)
+    expect(MILESTONES.length).toBeLessThanOrEqual(21);
+    expect(MILESTONES.filter((m) => m.achievement).map((m) => m.id).sort()).toEqual(["e25m", "finale", "long", "starfall"]);
   });
 
   it("a Singularity Engine, the finale, the long goal and every skill each record", () => {

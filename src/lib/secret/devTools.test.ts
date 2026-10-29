@@ -101,7 +101,8 @@ for (const [label, target] of [["e1,000,000", LONG_EXPONENT], ["e10,000,000", ST
       const ids = MILESTONES.map((m) => m.id).filter((id) => s.milestones[id] !== undefined);
       // at e1,000,000 the beats on the way to e10,000,000 are still ahead (e2M, e3M, e5M, e7.77M, e10M), and
       // every skill maxed too (0.14.0 Slice 4: the last Skill Point lands near e10,000,000)
-      expect(ids.length).toBe(target === STARFALL_EXPONENT ? MILESTONES.length : MILESTONES.length - 6);
+      // (0.14.0 Slice 5a: e20,000,000 and the secret e25,000,000 lie past every jump)
+      expect(ids.length).toBe(target === STARFALL_EXPONENT ? MILESTONES.length - 2 : MILESTONES.length - 8);
     });
 
     it("upgrades: none at e1,000,000 (the horse joke still to come), all at their cap at e10,000,000", () => {

@@ -21,7 +21,6 @@ import {
   AUTOMATION_UNLOCKS,
   AUTOMATION_BUY_CHOICES,
   AUTOMATION_BUY_DEFAULT,
-  PENDING_MILESTONES,
   FLEET_BAR_RATIO,
   PC_BAR_RATIO,
   SKILL_POINT_SCHEDULE,
@@ -420,7 +419,7 @@ describe("0.14.0 prestige redesign: state fields (Slice 1)", () => {
 
 describe("0.14.0 prestige redesign: config data (Slice 1)", () => {
   const LIVE = new Set<string>(MILESTONES.map((m) => m.id));
-  const known = (id: string) => LIVE.has(id) || PENDING_MILESTONES.some((m) => m.id === id);
+  const known = (id: string) => LIVE.has(id);
 
   it("has the six leveled skills of the design's table, each with a scale count and a gate", () => {
     expect(LEVELED_SKILLS.map((d) => d.id)).toEqual(["headStart", "tenfoldTraining", "overdrive", "captainsAcademy", "fleetLogistics", "lucidPlanning"]);
@@ -469,12 +468,10 @@ describe("0.14.0 prestige redesign: config data (Slice 1)", () => {
     expect(AUTOMATION_BUY_DEFAULT).toEqual({ autoOverclock: "max", autoBuyLow: "max", autoBuyHigh: "max", autoSkills: "1", autoUpgrades: "1" });
   });
 
-  it("the late milestones are defined but kept out of the live list (Slice 3 moved the automation beats in)", () => {
-    expect(PENDING_MILESTONES.map((m) => m.id)).toEqual(["e20m", "e25m"]);
-    for (const m of PENDING_MILESTONES) expect(LIVE.has(m.id), m.id).toBe(false);
-    for (const id of ["secondFleet", "e10k", "pcRegular"]) expect(LIVE.has(id), id).toBe(true);
-    expect(MILESTONES.length).toBe(19);
-    const secret = PENDING_MILESTONES.find((m) => m.id === "e25m")!;
+  it("the late milestones are live (Slice 5a; Slice 3 moved the automation beats in)", () => {
+    for (const id of ["secondFleet", "e10k", "pcRegular", "e20m", "e25m"]) expect(LIVE.has(id), id).toBe(true);
+    expect(MILESTONES.length).toBe(21);
+    const secret = MILESTONES.find((m) => m.id === "e25m")!;
     expect(secret.secret).toBe(true);
     expect(secret.detail).toContain("e25,000,000");
     expect(SECRET_PRIZE_EXPONENT).toBe(25000000);

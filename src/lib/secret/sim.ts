@@ -34,7 +34,7 @@
 //            for 15 minutes; acts every 3 minutes; default targets.
 
 import { freshSecretState, cloneSecret, type SecretState } from "./state";
-import { stepMut, captainMultiplier, buyOverclockMut, buyTierMut, buySkillLevel, skillOffers, pickSkillOffer, skillLevel, allSkillsMaxed, totalSkillCost, captainGain, fleetGain, prestigeceptionGain, doCaptain, doFleet, doPrestigeception, effectiveExponent, hasSkill, upgradesUnlocked, upgradePriceExponent, canBuyUpgrade, buyUpgrade, fleetBarExponent, pcBarExponent, gainExponent, fleetGainPerLog10, pcGainPerLog10, automationUnlocked, automationRevealed, setAuto } from "./engine";
+import { stepMut, captainMultiplier, buyOverclockMut, buyTierMut, buySkillLevel, skillOffers, pickSkillOffer, skillLevel, allSkillsMaxed, totalSkillCost, captainGain, fleetGain, prestigeceptionGain, doCaptain, doFleet, doPrestigeception, effectiveExponent, hasSkill, upgradesUnlocked, upgradePriceExponent, canBuyUpgrade, buyUpgrade, fleetBarExponent, pcBarExponent, gainExponent, fleetGainPerLog10, pcGainPerLog10, stateExponent, automationUnlocked, automationRevealed, setAuto } from "./engine";
 import { advanceTo, EXACT_BOUND_SECONDS, type CatchUpOptions } from "./catchUp";
 import { UPGRADES, LEVELED_SKILLS, FLEET_AT, PRESTIGECEPTION_AT, AP_K, DP_K, type MilestoneId, type UpgradeId, type RelicBoosts } from "./config";
 
@@ -138,7 +138,7 @@ export function decide(s: SecretState, atMs: number, style: PlayStyle = {}): Sec
   // The higher layer first, like the automatic prestiges: a Fleet would use up the climb.
   if (pays(pg, s.dreamPoints, t.pc)) s = doPrestigeception(s, atMs);
   else if (fg.gt(0) && (style.spam || pays(fg, s.augmentPoints, t.fleet))) s = doFleet(s, atMs);
-  else if ((style.manual || !hasSkill(s, "autoCaptain")) && pays(cg, s.captainPoints, t.captain) && !(s.fleetTotal === 0 && effectiveExponent(s.fleetPeak) >= 250)) {
+  else if ((style.manual || !hasSkill(s, "autoCaptain")) && pays(cg, s.captainPoints, t.captain) && !(s.fleetTotal === 0 && stateExponent(s, s.fleetPeak) >= 250)) {
     s = doCaptain(s, atMs);
   }
   // By hand, whatever the automations do not cover yet. 0.14.0 Slice 3: Auto-buy V to VIII now unlocks
@@ -210,14 +210,14 @@ export function simulatePlayer(opts: SimOptions): SimResult {
   const FROM_MILESTONES: [string, MilestoneId][] = [
     ["captain1", "firstCaptain"], ["googol", "googol"], ["fleet1", "firstFleet"], ["e1000", "e1000"],
     ["singularity", "singularity"], ["pc1", "firstPc"], ["e100000", "e100k"], ["finale", "finale"], ["long", "long"], ["starfall", "starfall"],
-    ["skillsMaxed", "allSkills"],
+    ["skillsMaxed", "allSkills"], ["e20m", "e20m"], ["e25m", "e25m"],
   ];
   const watch = () => {
     for (const [name, id] of FROM_MILESTONES) {
       const at = s.milestones[id];
       if (at !== undefined && !(name in events)) events[name] = (at - START_MS) / 1000;
     }
-    const e = effectiveExponent(s.bestOre);
+    const e = stateExponent(s, s.bestOre);
     if (s.fleetTotal >= 6) mark("fleet6");
     if (e >= 10000) mark("e10000");
     if (e >= 900000) mark("e900000");
@@ -262,7 +262,7 @@ export function simulatePlayer(opts: SimOptions): SimResult {
     }
     s = decide(s, s.lastTickAt, opts.style);
     while (sec() >= nextSample) {
-      samples.push([nextSample, effectiveExponent(s.bestOre)]);
+      samples.push([nextSample, stateExponent(s, s.bestOre)]);
       nextSample += 6 * H;
     }
     if (opts.stopAfterFinale && events.finale !== undefined) break;
@@ -330,8 +330,8 @@ export function simulateBite(opts: { profile: SimProfile; days: number; stopExpo
     const fTarget = fc >= 2 ? targetExponent(s, "fleet") : 0;
     const pBar = p0 >= 1 ? pcBarExponent(s) : 0;
     const pTarget = p0 >= 1 ? targetExponent(s, "pc") : 0;
-    const pPeak = effectiveExponent(s.pcPeak);
-    const fPeak = effectiveExponent(s.fleetPeak);
+    const pPeak = stateExponent(s, s.pcPeak);
+    const fPeak = stateExponent(s, s.fleetPeak);
     act();
     if (s.pcCount > p0) {
       if (p0 >= 1) {
@@ -365,7 +365,7 @@ export function simulateBite(opts: { profile: SimProfile; days: number; stopExpo
       step(1);
     }
     watched(() => (s = decide(s, s.lastTickAt)));
-    if (effectiveExponent(s.bestOre) >= opts.stopExponent) break;
+    if (stateExponent(s, s.bestOre) >= opts.stopExponent) break;
   }
   return { tally, seconds: sec(), final: s };
 }

@@ -179,8 +179,23 @@ export type RelicLever =
   | "tier1" | "tier2" | "tier3" | "tier4" | "tier5" | "tier6" | "tier7" | "tier8"
   | "overclock" | "stack" | "tenBonus" | "captain" | "augment" | "fleet" | "dream" | "allSmall" | "allBig";
 
-// The multiplier per lever (a missing lever is exactly 1). A plain readonly record: engine.ts reads it.
-export type RelicBoosts = Readonly<Partial<Record<RelicLever, number>>>;
+// The multiplier per lever (a missing lever is exactly 1), plus `ceiling`, the combined relic ceiling fraction in
+// [0, 1) (relicBoosts.ts relicCeilingFraction; missing means 0). A plain readonly record: engine.ts reads it.
+export type RelicBoosts = Readonly<Partial<Record<RelicLever | "ceiling", number>>>;
+
+// 0.14.0 relic ceiling (prestige redesign Slice 5a, design 3.6; user 2026-10-27: "All of the bonuses that the relics
+// provide to the minigame will all combine together to be equivalent to a 2.5x increase when reaching the asymptotic
+// limit"). Every identified copy of every one of the 17 types moves one combined fraction F toward 1 (never there):
+// F = the mean over the 17 types of w / (w + ceilingKnee), w the type's weighted copies. The reachable exponent's
+// plateau (where the climb past e10,000,000 bends, engine relicPlateau) is e10,000,000 x (1 + (RELIC_CEILING_MULT -
+// 1) x F): e10,000,000 without relics, e25,000,000 at the limit. Asymptotic, a minigame-only exception to D23 (user,
+// 2026-10-27: "Yes. Keep it that way."). The plateau only moves the bend past e10,000,000, so nothing at or below
+// e10,000,000 moves; the gentle early boost stays the levers' (RELIC_BOOSTS perCopy and knee).
+export const RELIC_CEILING_MULT = 2.5;
+// [PROVISIONAL] F at a full Tier VII collection (1,000 identified in every tier, I to VII, each tier's staggered mix;
+// user 2026-10-29: "near the limit at a full Tier VII collection"): each type's ceilingKnee is its weighted copies
+// there x (1 - this) / this, so every type sits at this share of its own way there.
+export const RELIC_CEILING_AT_FULL_TIER_VII = 0.9;
 
 // The tier levers, by tier index (Mining Laser first).
 export const RELIC_TIER_LEVERS: readonly RelicLever[] = ["tier1", "tier2", "tier3", "tier4", "tier5", "tier6", "tier7", "tier8"];
@@ -194,6 +209,7 @@ export interface RelicBoostDef {
   boosts: string; // what it boosts, for the Stats list (tier levers name their generator there instead)
   perCopy: number; // A: the boost's growth per weighted copy far below the knee
   knee: number; // the D23 knee, in weighted copies
+  ceilingKnee: number; // the relic ceiling's knee, in weighted copies (see RELIC_CEILING_MULT) [PROVISIONAL]
 }
 
 // [PROVISIONAL] every perCopy (A) and knee below: the user picked "Gentle" (about 10 to 20% faster to
@@ -210,30 +226,39 @@ export interface RelicBoostDef {
 // stack (Augment Points count as more, the way Captain's Compound counts them), so it never doubles
 // Glyph Tablet's Augment Points earned (user 2026-10-27: "Augment Points count more", kept). The
 // amounts and knees stay [PROVISIONAL] for the 0.16.0 balancing pass.
+// 0.14.0 Slice 5a: the per-row "typical" targets below were set on the collection with every type open. Under the tier
+// stagger a typical first-weeks collection is Tier I, four types (Glyph Tablet, Spore Capsule, Geode Core, Resonance
+// Shard), so it holds only those levers: average player on the shipping catch-up 3.65 / 30.56 / 117.86 days against
+// 3.62 / 32.95 / 124.93 relic-free (x1.01 / 0.93 / 0.94), short of the Gentle 10 to 20% (a user call: raise the four
+// Tier I levers, or re-pin Gentle to the staggered collection). Measured: the four at x3 0.94 / 0.94 / 0.92; at x7 the
+// faster climb moves the player's own first Prestigeception and with it a later one onto e1,000,000 (x1.35 there).
+// ceilingKnee [PROVISIONAL]: each type's weighted copies in the full Tier VII collection (relicCollections.ts
+// fullTierSevenMuseum, the tier stagger's mix) x (1 - RELIC_CEILING_AT_FULL_TIER_VII) / RELIC_CEILING_AT_FULL_TIER_VII,
+// so a full Tier VII collection sits at F = 0.9 (plateau e23,500,000) and 10,000 of every type at F above 0.99.
 export const RELIC_BOOSTS: readonly RelicBoostDef[] = [
   // typical x1.05 each generator row
-  { relicId: "geodeCore", lever: "tier1", boosts: "Mining Laser output", perCopy: 0.00311, knee: 10 },
-  { relicId: "magmaPearl", lever: "tier2", boosts: "Refinery output", perCopy: 0.0076, knee: 4 },
-  { relicId: "deepVeinCompass", lever: "tier3", boosts: "Fabricator output", perCopy: 0.0152, knee: 2 },
-  { relicId: "tectonicKeystone", lever: "tier4", boosts: "Synthesizer output", perCopy: 0.0809, knee: 0.5 },
-  { relicId: "sporeCapsule", lever: "tier5", boosts: "Fusion Forge output", perCopy: 0.00311, knee: 10 },
-  { relicId: "bioluminescentSeed", lever: "tier6", boosts: "Graviton Press output", perCopy: 0.0076, knee: 4 },
-  { relicId: "leviathanScale", lever: "tier7", boosts: "Quantum Loom output", perCopy: 0.0152, knee: 2 },
-  { relicId: "livingCrystal", lever: "tier8", boosts: "Singularity Engine output", perCopy: 0.0809, knee: 0.5 },
+  { relicId: "geodeCore", lever: "tier1", boosts: "Mining Laser output", perCopy: 0.00311, knee: 10, ceilingKnee: 122.8 },
+  { relicId: "magmaPearl", lever: "tier2", boosts: "Refinery output", perCopy: 0.0076, knee: 4, ceilingKnee: 6.889 },
+  { relicId: "deepVeinCompass", lever: "tier3", boosts: "Fabricator output", perCopy: 0.0152, knee: 2, ceilingKnee: 24 },
+  { relicId: "tectonicKeystone", lever: "tier4", boosts: "Synthesizer output", perCopy: 0.0809, knee: 0.5, ceilingKnee: 4.667 },
+  { relicId: "sporeCapsule", lever: "tier5", boosts: "Fusion Forge output", perCopy: 0.00311, knee: 10, ceilingKnee: 122.8 },
+  { relicId: "bioluminescentSeed", lever: "tier6", boosts: "Graviton Press output", perCopy: 0.0076, knee: 4, ceilingKnee: 53.11 },
+  { relicId: "leviathanScale", lever: "tier7", boosts: "Quantum Loom output", perCopy: 0.0152, knee: 2, ceilingKnee: 5.556 },
+  { relicId: "livingCrystal", lever: "tier8", boosts: "Singularity Engine output", perCopy: 0.0809, knee: 0.5, ceilingKnee: 7.889 },
   // typical x1.02 (each level counts as 1.02 levels)
-  { relicId: "flightRecorder", lever: "overclock", boosts: "each Overclock level counts more", perCopy: 0.00304, knee: 4 },
+  { relicId: "flightRecorder", lever: "overclock", boosts: "each Overclock level counts more", perCopy: 0.00304, knee: 4, ceilingKnee: 53.11 },
   // typical x1.15 on the game clock
-  { relicId: "ancientDriveCoil", lever: "stack", boosts: "the whole stack runs faster", perCopy: 0.0456, knee: 2 },
+  { relicId: "ancientDriveCoil", lever: "stack", boosts: "the whole stack runs faster", perCopy: 0.0456, knee: 2, ceilingKnee: 34.22 },
   // typical x1.005 on the ten bonus factor (2 becomes 2.01)
-  { relicId: "hullRivet", lever: "tenBonus", boosts: "each ten bonus is a little stronger", perCopy: 0.000311, knee: 10 },
+  { relicId: "hullRivet", lever: "tenBonus", boosts: "each ten bonus is a little stronger", perCopy: 0.000311, knee: 10, ceilingKnee: 11.67 },
   // typical x1.04 each points row
-  { relicId: "captainsSigil", lever: "captain", boosts: "Captain Points earned", perCopy: 0.0647, knee: 0.5 },
-  { relicId: "glyphTablet", lever: "augment", boosts: "Augment Points earned", perCopy: 0.00249, knee: 10 },
-  { relicId: "resonanceShard", lever: "fleet", boosts: "your Augment Points count as more", perCopy: 0.00608, knee: 4 },
-  { relicId: "starChartFragment", lever: "dream", boosts: "Dream Points earned", perCopy: 0.00608, knee: 4 },
+  { relicId: "captainsSigil", lever: "captain", boosts: "Captain Points earned", perCopy: 0.0647, knee: 0.5, ceilingKnee: 12 },
+  { relicId: "glyphTablet", lever: "augment", boosts: "Augment Points earned", perCopy: 0.00249, knee: 10, ceilingKnee: 122.8 },
+  { relicId: "resonanceShard", lever: "fleet", boosts: "your Augment Points count as more", perCopy: 0.00608, knee: 4, ceilingKnee: 104.4 },
+  { relicId: "starChartFragment", lever: "dream", boosts: "Dream Points earned", perCopy: 0.00608, knee: 4, ceilingKnee: 41.56 },
   // typical x1.03 and x1.05 on every generator
-  { relicId: "precursorLens", lever: "allSmall", boosts: "every generator", perCopy: 0.00911, knee: 2 },
-  { relicId: "heartOfTheArchive", lever: "allBig", boosts: "every generator, radiantly", perCopy: 0.0809, knee: 0.5 },
+  { relicId: "precursorLens", lever: "allSmall", boosts: "every generator", perCopy: 0.00911, knee: 2, ceilingKnee: 52.67 },
+  { relicId: "heartOfTheArchive", lever: "allBig", boosts: "every generator, radiantly", perCopy: 0.0809, knee: 0.5, ceilingKnee: 2 },
 ];
 
 // The Stats line for a generator boost while that generator is still locked (it stays "???").
@@ -305,7 +330,9 @@ export type MilestoneId =
   | "e3m"
   | "e5m"
   | "e7m"
-  | "starfall";
+  | "starfall"
+  | "e20m"
+  | "e25m";
 
 export interface MilestoneDef {
   id: MilestoneId;
@@ -315,6 +342,10 @@ export interface MilestoneDef {
   flavor?: string; // optional popup joke
   reward?: string; // the popup's green line; default: recorded for a future update
   achievement?: boolean; // the named goals, flagged for the later rewards patch
+  // 0.14.0 Slice 5a: name, detail and reward stay "???" in every view until reached, never hinted (design 3.5).
+  secret?: boolean;
+  // The prize a later slice wires to this milestone (Slice 5b builds the Faster Than Light background).
+  rewardHook?: "fasterThanLight";
 }
 
 // 0.13.11.1: the new final stop. Its reward is real now: the Starfall theme style (themeStyle.ts).
@@ -357,6 +388,11 @@ export const MILESTONES: readonly MilestoneDef[] = [
   { id: "e5m", name: "Halfway to Too Big", detail: "e5,000,000 Ore", how: "Reach e5,000,000 Ore.", flavor: "The numbers have started to look nervous." },
   { id: "e7m", name: "Seven Sevens, Fully Grown", detail: "e7,777,777 Ore", how: "Reach e7,777,777 Ore.", flavor: "The sevens from the finale grew up. They send their regards." },
   { id: "starfall", name: "The Numbers Got Too Big", detail: "e10,000,000 Ore, the Starfall theme", how: "Reach e10,000,000 Ore.", flavor: "You ran out of room for zeros, so we gave you stars.", reward: "Reward: the Starfall theme, live now in Settings › UI", achievement: true },
+  // 0.14.0 Slice 5a (design 3.5, approved as proposals 2026-10-27): the beat past e10,000,000 and the secret prize.
+  // Names and flavor [PROPOSAL]; the e25,000,000 prize is the Faster Than Light background (user 2026-10-29), built in
+  // Slice 5b; its reward line [PROPOSAL].
+  { id: "e20m", name: "The Numbers Got Even Bigger", detail: "e20,000,000 Ore", how: "Reach e20,000,000 Ore.", flavor: "The stars have asked for a bigger sky. We are looking into it." },
+  { id: "e25m", name: "The Sky Is Showing Off", detail: "e25,000,000 Ore", how: "Reach e25,000,000 Ore.", flavor: "You ran out of zeros, then stars, so the sky started moving.", reward: "Reward: the Faster Than Light background", achievement: true, secret: true, rewardHook: "fasterThanLight" },
 ];
 
 export const REWARD_RECORDED_LINE = "Reward: recorded for a future update";
@@ -482,27 +518,12 @@ export const AUTOMATION_BUY_DEFAULT: Readonly<Partial<Record<AutomationId, Autom
   autoUpgrades: "1",
 };
 
-// The milestones the redesign adds that are not live yet. Kept OUT of MILESTONES (the live list) until
-// their slice wires them, so reached(), milestoneVisible(), checkMilestonesMut and every golden never see
-// them: e20,000,000 and the secret e25,000,000 with Slice 5, which moves each def into MILESTONES and its
-// id into MilestoneId. (Slice 3 moved the three automation beats into MILESTONES.)
-export type PendingMilestoneId = "e20m" | "e25m";
-export type AnyMilestoneId = MilestoneId | PendingMilestoneId;
+// Every milestone id a gate may name (the late milestones went live with Slice 5a).
+export type AnyMilestoneId = MilestoneId;
 
 export const E20M_EXPONENT = 20000000;
 // The secret prize (design 3.5): "???" until reached, never hinted in Help.
 export const SECRET_PRIZE_EXPONENT = 25000000;
-
-export interface PendingMilestoneDef extends Omit<MilestoneDef, "id"> {
-  id: PendingMilestoneId;
-  secret?: boolean; // name, detail and reward stay "???" in every view until reached
-}
-
-// Names, flavor and reward lines [PROPOSAL] (design 3.5, approved as proposals 2026-10-27).
-export const PENDING_MILESTONES: readonly PendingMilestoneDef[] = [
-  { id: "e20m", name: "The Numbers Got Even Bigger", detail: "e20,000,000 Ore", how: "Reach e20,000,000 Ore.", flavor: "The stars have asked for a bigger sky. We are looking into it." },
-  { id: "e25m", name: "The Sky Is Showing Off", detail: "e25,000,000 Ore", how: "Reach e25,000,000 Ore.", flavor: "You ran out of zeros, then stars, so the sky started putting on a show.", reward: "Reward: a new Starfall visualization, arriving in a future update", achievement: true, secret: true },
-];
 
 // [PROVISIONAL] Auto-buy V to VIII's milestone, the design table's "Do Not Look Directly at It" (own a
 // Singularity Engine), kept in one constant as the mapping the Slice 3 sim nudges first (user 2026-10-28:

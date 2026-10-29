@@ -5,9 +5,13 @@
 // identificationBandRow, "Only one boost": the Tier I row), then an even split over the band's types (the
 // site bias favors each site's own types, so over many sites it averages out). Fixed 2026-10-28 (relic
 // timeline study side finding): this read RELIC_BAND_ODDS[tier], applying the tier boost a second time
-// above Tier I. The collections do not model the 2026-10-27 tier stagger (relics.ts RELIC_TYPE_FIRST_TIER):
-// they stand for collections with every type open, and the minigame ceiling slice re-bases them. Deposits go through the
-// real museumDepositGeneral, interleaved, so a tier that crosses its 1,000 soft cap snapshots a fair mix.
+// above Tier I. 0.14.0 relic ceiling (prestige redesign Slice 5a): re-based on the tier stagger (relics.ts
+// RELIC_TYPE_FIRST_TIER): a tier reveals only the types open there, and a band with none open drops to the nearest
+// lower band that has one (relicStaggerBand), exactly as identification does for every blank minted since the
+// stagger. So a Tier I collection holds four types. Deposits go through the real museumDepositGeneral, interleaved,
+// so a tier that crosses its 1,000 soft cap snapshots a fair mix.
+// FULL TIER VII (the ceiling's calibration point, user 2026-10-29: "near the limit at a full Tier VII
+// collection"): 1,000 identified in every tier, I to VII, each tier's own staggered mix.
 //
 // TYPICAL (the first few weeks of 0.14.0): three weeks with one explorer out about 16 hours a day at
 // EXPEDITION_RELIC_BLANKS_PER_HOUR (0.5 an hour: 168 blanks), plus two Tier I short-range missions around
@@ -15,7 +19,7 @@
 // HEAVY (a dedicated player months in): Tier I 2,000 identified (1,000 past its cap, each counting 5x),
 // Tier II 1,000 (just at its cap) and Tier III 300.
 import { emptyMuseumV2, type MuseumV2, type RegionTier } from "../game/model";
-import { RELIC_BANDS, RELIC_TYPES, relicBandOf, museumDepositGeneral, type RelicBand } from "../game/relics";
+import { RELIC_BANDS, relicBandOf, museumDepositGeneral, relicStaggerBand, relicTypesInBandAt, REGION_TIER_LIST, type RelicBand } from "../game/relics";
 import { identificationBandRow } from "../game/relicIdentify";
 import { RELIC_BLANK_WEIGHTS, EXPEDITION_RELIC_BLANKS_PER_HOUR, SHORT_RANGE_RELIC_RATE_MULT } from "../game/relicBlanks";
 import { relicBoostsFromMuseum } from "./relicBoosts";
@@ -46,12 +50,13 @@ function bandShares(tier: RegionTier, standardOnly: boolean): Record<RelicBand, 
   return out;
 }
 
-// Expected copies per type id for `blanks` identified blanks of `tier`, rounded to whole copies.
+// Expected copies per type id for `blanks` identified blanks of `tier` under the tier stagger (each revealed band
+// lands on the nearest band open at the tier, split evenly over its open types), rounded to whole copies.
 export function expectedCopies(tier: RegionTier, blanks: number, standardOnly = false): Record<string, number> {
   const shares = bandShares(tier, standardOnly);
   const out: Record<string, number> = {};
   for (const band of RELIC_BANDS) {
-    const types = RELIC_TYPES.filter((t) => t.band === band);
+    const types = relicTypesInBandAt(relicStaggerBand(band, tier), tier);
     for (const t of types) out[t.id] = (out[t.id] ?? 0) + (blanks * shares[band]) / types.length;
   }
   for (const id of Object.keys(out)) out[id] = Math.round(out[id]);
@@ -85,6 +90,19 @@ export function heavyMuseum(): MuseumV2 {
   let m = depositInterleaved(emptyMuseumV2(), 1, expectedCopies(1, 2000));
   m = depositInterleaved(m, 2, expectedCopies(2, 1000));
   return depositInterleaved(m, 3, expectedCopies(3, 300));
+}
+
+export const FULL_TIER_IDENTIFIED = 1000;
+
+// 1,000 identified in every region tier, I to VII (each exactly at its soft cap, so nothing counts 5x).
+export function fullTierSevenMuseum(): MuseumV2 {
+  let m = emptyMuseumV2();
+  for (const tier of REGION_TIER_LIST) m = depositInterleaved(m, tier, expectedCopies(tier, FULL_TIER_IDENTIFIED));
+  return m;
+}
+
+export function fullTierSevenBoosts(): RelicBoosts {
+  return relicBoostsFromMuseum(fullTierSevenMuseum())!;
 }
 
 export function typicalBoosts(): RelicBoosts {

@@ -416,3 +416,12 @@ past e10M), CP_K 0.21, SOFT_SCALE back to 66, SKILL_SCALE_POW 0.1. Relic-free av
 115.2 to 123.0 d. Four Prestigeceptions to e10M (simBite floor three measured); user calls: Frequent Dreamer (4
 Prestigeceptions) now near day 80, the gate lift (5) past e10M, 45 of 49 Skill Points by e10M. Instant fire at the bar
 stays Prestigeception only (all three layers: e10M 86.8 to 115.6 d). Auto Captain row note, purchase carry, Help.
+
+**Slice 5a carry note (relic ceiling engine, 2026-10-29):** combined fraction F = mean over the 17 types of
+w / (w + ceilingKnee) (knees put a full Tier VII collection at F 0.9); the bend past e10M starts at e10M x (1 + 1.5 F)
+(engine relicPlateau; relic-free exactly e10M, relicFree goldens unchanged); e20M and the secret e25M live (e25M ??? until
+reached, rewardHook fasterThanLight for 5b); collections on the tier stagger (typical = Tier I, four types) plus a
+full Tier VII collection; relic pins on the shipping catch-up against RELIC_FREE_SHIPPING. OPEN (user call): the staggered
+typical collection is only x1.01 / 0.93 / 0.94 (Gentle wants 0.8 to 0.9); raising the four Tier I levers moves the
+player's own first Prestigeception and with it a later one onto e1M (x7: e1M x1.35). Suggested fix for that touchiness:
+a Prestigeception pays its bar's Dream Points however far past it the climb went (only the manual one ever goes past).

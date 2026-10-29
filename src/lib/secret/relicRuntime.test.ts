@@ -31,7 +31,10 @@ describe("relic boosts in the secret runtime", () => {
     expect(get(secretGame).relicBoosts).toEqual(typicalBoosts());
     secretAct((s) => buyTier(s, 0, "one"));
     expect(get(secretGame).relicBoosts).toEqual(typicalBoosts());
-    expect(gamePace(get(secretGame))).toBeCloseTo(typicalBoosts().stack!, 12);
+    // (0.14.0 Slice 5a: a typical collection is Tier I under the tier stagger, so no Ancient Drive Coil yet: the
+    // game clock is untouched, and the ceiling fraction rides along)
+    expect(gamePace(get(secretGame))).toBe(1);
+    expect(get(secretGame).relicBoosts!.ceiling).toBeGreaterThan(0);
     expect(data.get(SECRET_SAVE_KEY)).not.toContain("relicBoosts");
   });
 

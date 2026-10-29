@@ -64,6 +64,9 @@ import {
   AP_K,
   DP_K,
   STARFALL_EXPONENT,
+  RELIC_CEILING_MULT,
+  E20M_EXPONENT,
+  SECRET_PRIZE_EXPONENT,
   END_SOFT_SCALE,
   END_SOFT_BETA,
   RELIC_TIER_LEVERS,
@@ -145,22 +148,24 @@ function finaleSoften(x: number): number {
 // 0.13.11.1 (user: "Slow it after e10M"): past e10,000,000 a second bend of the same shape, so the
 // climb reads as the end of the content. It only slows, it never stops (no cap), and nothing at or
 // below e10,000,000 moves.
-function endSoften(e: number): number {
-  if (e <= STARFALL_EXPONENT) return e;
-  return STARFALL_EXPONENT + (END_SOFT_SCALE * (Math.pow(1 + (e - STARFALL_EXPONENT) / END_SOFT_SCALE, END_SOFT_BETA) - 1)) / END_SOFT_BETA;
+// 0.14.0 Slice 5a: the bend starts at the PLATEAU, e10,000,000 without relics and up to e25,000,000 with them
+// (relicPlateau). Every function below takes it, defaulting to the relic-free e10,000,000.
+function endSoften(e: number, plateau: number = STARFALL_EXPONENT): number {
+  if (e <= plateau) return e;
+  return plateau + (END_SOFT_SCALE * (Math.pow(1 + (e - plateau) / END_SOFT_SCALE, END_SOFT_BETA) - 1)) / END_SOFT_BETA;
 }
 
-export function softenExponent(x: number): number {
-  return endSoften(finaleSoften(x));
+export function softenExponent(x: number, plateau: number = STARFALL_EXPONENT): number {
+  return endSoften(finaleSoften(x), plateau);
 }
 
 // d(effective)/d(raw), for turning a raw income into a displayed one (the chain rule through both
 // bends).
-function softenSlope(x: number): number {
+function softenSlope(x: number, plateau: number = STARFALL_EXPONENT): number {
   if (x <= FINALE_EXPONENT) return 1;
   const first = Math.pow(1 + (x - FINALE_EXPONENT) / SOFT_SCALE, SOFT_BETA - 1);
   const e = finaleSoften(x);
-  return e <= STARFALL_EXPONENT ? first : first * Math.pow(1 + (e - STARFALL_EXPONENT) / END_SOFT_SCALE, END_SOFT_BETA - 1);
+  return e <= plateau ? first : first * Math.pow(1 + (e - plateau) / END_SOFT_SCALE, END_SOFT_BETA - 1);
 }
 
 function rawExponent(raw: Decimal): number {
@@ -168,15 +173,32 @@ function rawExponent(raw: Decimal): number {
 }
 
 // log10 of Ore on the effective scale (what milestones, gains and the goal bar read).
-export function effectiveExponent(raw: Decimal): number {
-  return softenExponent(rawExponent(raw));
+export function effectiveExponent(raw: Decimal, plateau: number = STARFALL_EXPONENT): number {
+  return softenExponent(rawExponent(raw), plateau);
+}
+
+// The same for a state: the plateau its relics set (relicPlateau).
+export function stateExponent(s: SecretState, raw: Decimal): number {
+  return effectiveExponent(raw, relicPlateau(s));
 }
 
 // A raw amount as the player sees it.
-export function displayOre(raw: Decimal): Decimal {
+export function displayOre(raw: Decimal, plateau: number = STARFALL_EXPONENT): Decimal {
   const x = rawExponent(raw);
   if (x <= FINALE_EXPONENT) return raw;
-  return pow10(softenExponent(x));
+  return pow10(softenExponent(x, plateau));
+}
+
+// 0.14.0 relic ceiling (config RELIC_CEILING_MULT): the combined fraction from the relic snapshot (0 relic-free).
+export function relicCeilingFraction(s: SecretState): number {
+  return s.relicBoosts?.ceiling ?? 0;
+}
+
+// Where the climb past e10,000,000 bends: e10,000,000 x (1 + (RELIC_CEILING_MULT - 1) x F), exactly e10,000,000
+// relic-free (the very same arithmetic) and approaching e25,000,000 as the collection grows, never reaching it.
+export function relicPlateau(s: SecretState): number {
+  const f = relicCeilingFraction(s);
+  return f > 0 ? STARFALL_EXPONENT * (1 + (RELIC_CEILING_MULT - 1) * f) : STARFALL_EXPONENT;
 }
 
 // The game clock's speed: 1, then GAME_PACE_AFTER_FIRST_PC once the first Prestigeception is done,
@@ -194,7 +216,8 @@ export function displayIncome(s: SecretState): Decimal {
   const x = rawExponent(s.ore);
   const pace = gamePace(s);
   if (x <= FINALE_EXPONENT || s.ore.lte(0)) return s.lastIncome.mul(pace);
-  return displayOre(s.ore).mul(softenSlope(x)).mul(s.lastIncome.div(s.ore)).mul(pace);
+  const plateau = relicPlateau(s);
+  return displayOre(s.ore, plateau).mul(softenSlope(x, plateau)).mul(s.lastIncome.div(s.ore)).mul(pace);
 }
 
 // ---------------------------------------------------------------------------
@@ -468,19 +491,19 @@ export function gainMultiplier(s: SecretState): Decimal {
 }
 
 // The raw exponent whose effective value is e (the inverse of softenExponent).
-export function unsoftenExponent(e: number): number {
-  if (e > STARFALL_EXPONENT) e = STARFALL_EXPONENT + END_SOFT_SCALE * (Math.pow(1 + (END_SOFT_BETA * (e - STARFALL_EXPONENT)) / END_SOFT_SCALE, 1 / END_SOFT_BETA) - 1);
+export function unsoftenExponent(e: number, plateau: number = STARFALL_EXPONENT): number {
+  if (e > plateau) e = plateau + END_SOFT_SCALE * (Math.pow(1 + (END_SOFT_BETA * (e - plateau)) / END_SOFT_SCALE, 1 / END_SOFT_BETA) - 1);
   if (e <= FINALE_EXPONENT) return e;
   return FINALE_EXPONENT + SOFT_SCALE * (Math.pow(1 + (SOFT_BETA * (e - FINALE_EXPONENT)) / SOFT_SCALE, 1 / SOFT_BETA) - 1);
 }
 
 // The Upgrades tab's late section opens at e1,000,000; each upgrade then wakes at its own unlockAt.
 export function upgradesUnlocked(s: SecretState): boolean {
-  return effectiveExponent(s.bestOre) >= UPGRADES_AT;
+  return stateExponent(s, s.bestOre) >= UPGRADES_AT;
 }
 
 export function upgradeUnlocked(s: SecretState, id: UpgradeId): boolean {
-  return effectiveExponent(s.bestOre) >= UPGRADES.find((u) => u.id === id)!.unlockAt;
+  return stateExponent(s, s.bestOre) >= UPGRADES.find((u) => u.id === id)!.unlockAt;
 }
 
 // Why an upgrade cannot be bought right now, apart from its price and cap (null: nothing in the
@@ -503,7 +526,7 @@ export function upgradePriceExponent(s: SecretState, id: UpgradeId): number | nu
 // The next level's price in raw Ore, or null at the cap.
 export function upgradePrice(s: SecretState, id: UpgradeId): Decimal | null {
   const e = upgradePriceExponent(s, id);
-  return e === null ? null : pow10(unsoftenExponent(e));
+  return e === null ? null : pow10(unsoftenExponent(e, relicPlateau(s)));
 }
 
 export function canBuyUpgrade(s: SecretState, id: UpgradeId): boolean {
@@ -527,7 +550,7 @@ export function upgradeQuote(s: SecretState, id: UpgradeId, maxCount: number): B
   const room = def.cap - upgradeLevel(s, id);
   const after = cloneSecret(s);
   const count = upgradeBlocked(s, id) === null ? buyUpgradeMut(after, id, maxCount) : 0;
-  const priceAt = (i: number) => pow10(unsoftenExponent(def.priceBase * Math.pow(def.priceRatio, upgradeLevel(s, id) + i)));
+  const priceAt = (i: number) => pow10(unsoftenExponent(def.priceBase * Math.pow(def.priceRatio, upgradeLevel(s, id) + i), relicPlateau(s)));
   let cost = ZERO;
   for (let i = 0; i < count; i++) cost = cost.add(priceAt(i));
   let fullCost = ZERO;
@@ -943,7 +966,7 @@ function autoBuyMut(s: SecretState, dt: number): void {
 // set off Prestigeceptions that throw away weeks of climbing (measured: a two-week stall right after
 // e1,000,000).
 export function gainExponent(s: SecretState, k: number): number {
-  return effectiveExponent(s.bestOre) >= FINALE_EXPONENT ? 1 : k;
+  return stateExponent(s, s.bestOre) >= FINALE_EXPONENT ? 1 : k;
 }
 
 function gainShape(e: number, at: number, k: number): number {
@@ -951,9 +974,9 @@ function gainShape(e: number, at: number, k: number): number {
 }
 
 export function captainGain(s: SecretState): Decimal {
-  const e = effectiveExponent(s.runPeak);
+  const e = stateExponent(s, s.runPeak);
   if (e < CAPTAIN_AT) return ZERO;
-  const k = effectiveExponent(s.bestOre) >= FINALE_EXPONENT ? CP_K_AFTER_FINALE : CP_K;
+  const k = stateExponent(s, s.bestOre) >= FINALE_EXPONENT ? CP_K_AFTER_FINALE : CP_K;
   // R2-10 Captain's Sigil: Captain Points earned x relicBoost("captain"), and the Captain's Academy
   // skill (Slice 4), both before the floor (each skipped at exactly 1).
   const base = timesRelic(powPositive(gainMultiplier(s), CAPTAIN_BEND).mul(CP_SCALE * gainShape(e, CAPTAIN_AT, k)), relicBoost(s, "captain"));
@@ -1008,12 +1031,12 @@ export function pcBarExponent(s: SecretState): number {
 // The bar after one more of that layer (the Prestige cards' "Next one"): what it would be after a Fleet
 // (or Prestigeception) taken now, or, while the climb is still short of the bar, taken right at the bar.
 export function nextFleetBarExponent(s: SecretState): number {
-  const at = Math.max(fleetBarExponent(s), effectiveExponent(s.fleetPeak));
+  const at = Math.max(fleetBarExponent(s), stateExponent(s, s.fleetPeak));
   return fleetBarFor(s, s.augmentPoints.add(fleetGainAt(s, at)));
 }
 
 export function nextPcBarExponent(s: SecretState): number {
-  const at = Math.max(pcBarExponent(s), effectiveExponent(s.pcPeak));
+  const at = Math.max(pcBarExponent(s), stateExponent(s, s.pcPeak));
   return pcBarFor(s, s.dreamPoints.add(pcGainAt(s, at)));
 }
 
@@ -1032,13 +1055,13 @@ function pcGainAt(s: SecretState, e: number): Decimal {
 }
 
 export function fleetGain(s: SecretState): Decimal {
-  const e = effectiveExponent(s.fleetPeak);
+  const e = stateExponent(s, s.fleetPeak);
   if (e < fleetBarExponent(s)) return ZERO;
   return fleetGainAt(s, e);
 }
 
 export function prestigeceptionGain(s: SecretState): Decimal {
-  const e = effectiveExponent(s.pcPeak);
+  const e = stateExponent(s, s.pcPeak);
   if (e < pcBarExponent(s)) return ZERO;
   return pcGainAt(s, e);
 }
@@ -1210,7 +1233,7 @@ export function setAutoTarget(s: SecretState, layer: AutoLayer, pct: number): Se
 // ---------------------------------------------------------------------------
 
 function reached(s: SecretState, id: MilestoneId): boolean {
-  const e = () => effectiveExponent(s.bestOre);
+  const e = () => stateExponent(s, s.bestOre);
   switch (id) {
     case "firstCaptain":
       return s.captainCount > 0;
@@ -1251,15 +1274,20 @@ function reached(s: SecretState, id: MilestoneId): boolean {
       return e() >= 7777777;
     case "starfall":
       return e() >= STARFALL_EXPONENT;
+    case "e20m":
+      return e() >= E20M_EXPONENT;
+    case "e25m":
+      return e() >= SECRET_PRIZE_EXPONENT;
   }
 }
 
 const MILESTONE_IDS: readonly MilestoneId[] = [
-  "firstCaptain", "googol", "firstFleet", "secondFleet", "e1000", "e10k", "singularity", "firstPc", "pcRegular", "turbo", "e100k", "allSkills", "finale", "long", "e2m", "e3m", "e5m", "e7m", "starfall",
+  "firstCaptain", "googol", "firstFleet", "secondFleet", "e1000", "e10k", "singularity", "firstPc", "pcRegular", "turbo", "e100k", "allSkills", "finale", "long", "e2m", "e3m", "e5m", "e7m", "starfall", "e20m", "e25m",
 ];
 
 // The Ore goals, in order: each appears only once the one before it is reached (0.13.11.1).
-const ORE_CHAIN: readonly MilestoneId[] = ["googol", "e1000", "e10k", "e100k", "finale", "long", "e2m", "e3m", "e5m", "e7m", "starfall"];
+// The secret e25,000,000 is not in the chain: it shows only once reached (design 3.5, never hinted).
+const ORE_CHAIN: readonly MilestoneId[] = ["googol", "e1000", "e10k", "e100k", "finale", "long", "e2m", "e3m", "e5m", "e7m", "starfall", "e20m"];
 
 // Is a milestone shown, or still "???"? Reached ones always show. Ore goals appear one step at a
 // time; the rest appear once their system is in view (design 0.13.11.1 section 5).

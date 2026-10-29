@@ -75,9 +75,18 @@ export const RELIC_FREE = {
   average: { finale: DEFAULT_STEADY.finale / D, long: DEFAULT_STEADY.long / D, starfall: DEFAULT_STEADY.starfall / D },
   casual: { finale: 5.62, long: 32.71, starfall: 123.28 },
 } as const;
+// 0.14.0 Slice 5a: the relic pins are measured on the SHIPPING catch-up all the way (the LONG_STRETCH_DT shortcut
+// runs fast past e1,000,000 and not by the same amount with relics), against these relic-free goals on the same
+// shipping catch-up (each relic pin file checks its own row), in days.
+export const RELIC_FREE_SHIPPING = {
+  average: { finale: 3.62, long: 32.95, starfall: 124.93 },
+  optimal: { finale: 3.51, long: 31.62, starfall: 122.39 },
+  casual: { finale: 5.62, long: 32.71, starfall: 123.36 },
+} as const;
 // The average player with the TYPICAL collection (simRelicsAverage.test.ts measures it), in days.
 // (0.14.0 combined pacing retune: re-measured, 4.17 / 27.87 / 101.29 before; the relic bands are Slice 5's)
-export const TYPICAL_RELIC_AVERAGE = { finale: 3.49, long: 26.48, starfall: 103.26 };
+// Slice 5a: the typical collection re-based on the tier stagger (Tier I, four types), on the shipping catch-up.
+export const TYPICAL_RELIC_AVERAGE = { finale: 3.65, long: 30.56, starfall: 117.86 };
 export const RELIC_GOALS = ["finale", "long", "starfall"] as const;
 
 // Each goal's time with relics over the time without (0.85 = 15% faster), reported and returned.
