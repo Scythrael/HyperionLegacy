@@ -562,14 +562,14 @@ export function expandedLaunchView(
 export function arrayCharacterLine(kind: SensorArrayKind): string {
   switch (kind) {
     case "wide":
-      return "Wide-beam: slower scans, more finds per body, better surface-landmark odds.";
+      return "Wide-beam: slower scans but more finds per world (about the same per hour), better surface-landmark odds.";
     case "focused":
-      return "Focused-beam: faster scans, fewer finds per body, higher underground-PoI odds.";
+      return "Focused-beam: quick looks, fewer finds per world (about the same per hour), higher underground-PoI odds.";
     case "balanced":
-      return "Balanced: even scan speed and finds per body, a small lift to both kinds of find.";
+      return "Balanced: even scan speed and finds per world, a small lift to both kinds of find.";
     case "bioResonance":
       return "Bio-Resonance: the slowest scans of any array, a higher relic find chance.";
     case "resonance":
-      return "Resonance: even scan speed and finds per body, richer canister odds on gas giant studies.";
+      return "Resonance: even scan speed and finds per world, richer canister odds on gas giant studies.";
   }
 }

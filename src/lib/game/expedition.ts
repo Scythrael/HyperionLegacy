@@ -261,7 +261,7 @@ export const BASE_DISCOVERY_PERMILLE = 500; // 50% base per-attempt odds, before
 
 // WR-7 (OC-D11, user 2026-10-15 "Split the two": coverage width drives the discovery attempts, cadence alone drives the
 // scan speed): a split run's attempts on one body, the rolled count x the array's coverage width, rounded, at least one
-// (Wide 1.5: 3, 4, 5 become 5, 6, 8; Focused 0.6: 2, 2, 3; a coverage-1 array keeps the roll). Pure.
+// (Wide 1.25: 3, 4, 5 become 4, 5, 6; Focused 0.75: 2, 3, 4; a coverage-1 array keeps the roll). Pure.
 export function coverageAttempts(rolled: number, coverageWidth: number): number {
   return Math.max(1, Math.round(rolled * (Number.isFinite(coverageWidth) && coverageWidth > 0 ? coverageWidth : 1)));
 }

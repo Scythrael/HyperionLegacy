@@ -144,7 +144,7 @@ import { shortRangeRelicMicrosPerHour } from "../relicBlanks";
 // Relics v2 R2-10: the minigame's relic boost table (one-way; the audit reads it, no gameplay file does).
 import { RELIC_BOOSTS } from "../../secret/config";
 import { CREW_PROFESSIONS } from "../commandStructure";
-import { BRIDGE_MODULES, CREW_MODULE_LINE_KNEE, CREW_STATIONS_BERTHS_PER_POINT, QUARTERS_MODULES, moduleEffectScale } from "../crewModules";
+import { BRIDGE_MODULES, CREW_MODULE_LINE_KNEE, CREW_STATIONS_BERTH_KNEE, CREW_STATIONS_BERTH_SCALE, QUARTERS_MODULES, moduleEffectScale } from "../crewModules";
 // E-MOD EM-7: the v1 universal module roster (each module's registry row reads its def through CATALOGS).
 import { UNIVERSAL_MODULES, bonusHaulUnits, type UniversalModuleDef } from "../shipModules";
 import { graduateStandout } from "../crewGraduation";
@@ -1989,7 +1989,7 @@ const LINE_SEAMS: Readonly<Record<string, LineSeam | null>> = {
   // the quarters capacity (a Utilitarian Quarters piece, 12 berths of its own); a Crew Efficiency line scales the
   // module's boost on the D23 curve (crewModules.ts crewModuleLineScale), read on a Balanced Command bridge's
   // officer multiplier (its boost part above 1 grows by exactly the line scale).
-  crewStations: { probe: "quartersCapacity", contexts: ["sheet"], curve: { kind: "linearAbsolute" }, magnitude: () => Math.round(LINE_POINTS * CREW_STATIONS_BERTHS_PER_POINT) },
+  crewStations: { probe: "quartersCapacity", contexts: ["sheet"], curve: { kind: "linearAbsolute" }, magnitude: () => Math.round(CREW_STATIONS_BERTH_SCALE * diminishing(LINE_POINTS, CREW_STATIONS_BERTH_KNEE)) },
   crewEfficiency: { probe: "bridgeOfficerMult", contexts: ["sheet"], curve: { kind: "bonusRelative", base: 1 }, magnitude: () => diminishing(LINE_POINTS, CREW_MODULE_LINE_KNEE) / CREW_MODULE_LINE_KNEE },
   // WR-7: the speed line had no seam ("WR-1 follow-up"): it lifts the sheet and the expedition voyage's frozen leg
   // speed (G2-3). Measured on a bare hull (no other mass or line), where the lift is exactly the curve's. Its patrol

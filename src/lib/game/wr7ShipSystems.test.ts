@@ -61,6 +61,19 @@ describe("OC-D11: sensor array cadence and coverage act apart (user \"Split the 
     expect(done.bodies.length).toBe(legacy.bodies.length);
   });
 
+  it("Wide and Focused find about as much per hour as Balanced (user 2026-10-29: 0.95 to 1.05x, on the expected attempts)", () => {
+    const perHour = (id: string) => {
+      const a = arrayDef(id);
+      const attempts = [3, 4, 5].reduce((n, r) => n + coverageAttempts(r, a.coverageWidth), 0) / 3;
+      return a.scanRateMult * attempts;
+    };
+    const base = perHour("sensorBalanced");
+    for (const id of ["sensorWideBeam", "sensorFocusedBeam"]) {
+      expect(perHour(id) / base, id).toBeGreaterThanOrEqual(0.95);
+      expect(perHour(id) / base, id).toBeLessThanOrEqual(1.05);
+    }
+  });
+
   it("every array kind has a character line, and each clause is true of its numbers", () => {
     const by = (kind: string) => SENSOR_ARRAYS.find((a) => a.kind === kind)!;
     for (const a of SENSOR_ARRAYS) expect(arrayCharacterLine(a.kind).length).toBeGreaterThan(20);
@@ -119,6 +132,21 @@ describe("OC-D10: the Damage Control Suite shortens field repairs (user \"Field 
 });
 
 describe("OC-D3 + OC-D7: crew module lines and quarters capacity", () => {
+  it("Crew Stations berths ride a small curve (user 2026-10-29): 25 points 1, 50 points 2, 113 points 4, never capped", () => {
+    const at = (points: number) => crewStationsBerths({ slotType: "quarters", implicitStats: { crewStations: points }, rolledStats: {} } as never);
+    expect([at(0), at(25), at(50), at(113)]).toEqual([0, 1, 2, 4]);
+    for (let p = 1; p < 2000; p++) expect(at(p + 1)).toBeGreaterThanOrEqual(at(p));
+    expect(at(5000)).toBeGreaterThan(at(1000));
+  });
+
+  it("Elite Quarters adds no berths, even with a Crew Stations line; the Guest Wing gains them (user 2026-10-29)", () => {
+    const elite = quarters("destroyer", "quartersElite", { crewStations: 113 });
+    expect(quartersCapacityBonus(elite, shipOf(elite))).toBe(0);
+    const guest0 = quarters("destroyer", "quartersGuestWing");
+    const guest = quarters("destroyer", "quartersGuestWing", { crewStations: 113 });
+    expect(quartersCapacityBonus(guest, shipOf(guest)) - quartersCapacityBonus(guest0, shipOf(guest0))).toBe(4);
+  });
+
   it("installing quarters never removes a seat: every rank cap with a bonus of 1 to 200 is at least the hull's own (review fix)", () => {
     for (const hull of Object.keys(SHIP_TYPES) as ShipTypeKey[]) {
       for (const p of CREW_PROFESSIONS) {
@@ -156,8 +184,7 @@ describe("OC-D3 + OC-D7: crew module lines and quarters capacity", () => {
     const lined = quarters("destroyer", "quartersUtilitarian", { crewStations: 12, crewEfficiency: 8 });
     const piece = installedQuartersModule(lined, shipOf(lined))!.instance;
     expect(crewModuleLineScale(piece)).toBeCloseTo(1 + diminishing(20, CREW_MODULE_LINE_KNEE) / CREW_MODULE_LINE_KNEE, 12);
-    expect(crewStationsBerths(piece)).toBe(12);
-    expect(quartersCapacityBonus(lined, shipOf(lined)) - quartersCapacityBonus(bare, shipOf(bare))).toBe(12);
+    expect(quartersCapacityBonus(lined, shipOf(lined)) - quartersCapacityBonus(bare, shipOf(bare))).toBe(crewStationsBerths(piece));
     const m0 = quartersProfessionMultiplier(installedQuartersModule(bare, shipOf(bare))!, "operations") - 1;
     const m1 = quartersProfessionMultiplier(installedQuartersModule(lined, shipOf(lined))!, "operations") - 1;
     expect(m1 / m0).toBeCloseTo(crewModuleLineScale(piece), 12);

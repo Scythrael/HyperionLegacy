@@ -53,7 +53,7 @@ export { MODULE_RARITY_STEP, MODULE_QUALITY_STEP, moduleEffectScale } from "./mo
 // module's rolled CREW STATIONS and CREW EFFICIENCY lines (the bridge's signature crewEfficiency; the quarters'
 // signature crewStations and its crewEfficiency affix) scale the module's effect: their points, summed, lift its boost
 // on the D23 curve, x (1 + diminishing(points, CREW_MODULE_LINE_KNEE) / CREW_MODULE_LINE_KNEE), about +1% per point at
-// first and never capped. A Crew Stations line ALSO adds that many berths (CREW_STATIONS_BERTHS_PER_POINT each, a count
+// first and never capped. A Crew Stations line ALSO adds berths (crewStationsBerths, a small curve; a count
 // that never wears, gearWear.ts WEAR_EXEMPT_LINES), on top of the module's own capacity. Every minted bridge and quarters
 // piece carries one of these lines as its implicit signature (the Guest Wing excepted), so a module minted before WR-7
 // is LIFTED by it too: in a live sheet at once, and in a captain mission or short-range run only when that run carries
@@ -62,9 +62,15 @@ export { MODULE_RARITY_STEP, MODULE_QUALITY_STEP, moduleEffectScale } from "./mo
 // cycles freeze the officer and complement effects at dispatch / the cycle start, so a run in flight keeps its record.
 // The berths act only through the crew fill (auto-crew, transfer, rosters), which a ship out on a run never takes
 // (crewLock.ts shipCrewLocked), so they cannot change a run in flight.
-// [PROVISIONAL] both sizes (no number was asked): the knee 100 points, one berth per point.
+// [PROVISIONAL] the scale's knee, 100 points (no number was asked).
+// WR-7 review (user 2026-10-29, "Small curve (Recommended)"; "Elite stays at 0 (Recommended)"): the berths a Crew
+// Stations line adds ride a gentle D23 curve, CREW_STATIONS_BERTH_SCALE x diminishing(points, CREW_STATIONS_BERTH_KNEE),
+// rounded to whole berths and never capped: 25 points 1, 50 points 2, 113 points 4 (the quarters' own berths stay the
+// main source). The Elite Quarters, with no berths of its own, takes none from its line (it only scales its effect).
+// [PROVISIONAL] the curve's two numbers.
 export const CREW_MODULE_LINE_KNEE = 100;
-export const CREW_STATIONS_BERTHS_PER_POINT = 1;
+export const CREW_STATIONS_BERTH_SCALE = 0.0416;
+export const CREW_STATIONS_BERTH_KNEE = 300;
 const CREW_MODULE_LINE_KEYS = ["crewStations", "crewEfficiency"] as const;
 
 function linePoints(piece: EquipmentInstance, stat: string): number {
@@ -100,7 +106,8 @@ export function crewModuleLineScale(piece: EquipmentInstance): number {
 
 // The berths a crew module's Crew Stations line adds (0 without it). Pure.
 export function crewStationsBerths(piece: EquipmentInstance): number {
-  return Math.round(linePoints(piece, "crewStations") * CREW_STATIONS_BERTHS_PER_POINT);
+  const points = linePoints(piece, "crewStations");
+  return points > 0 ? Math.round(CREW_STATIONS_BERTH_SCALE * diminishing(points, CREW_STATIONS_BERTH_KNEE)) : 0;
 }
 
 // ============================================================================
@@ -351,7 +358,8 @@ export function quartersProfessionMultiplier(mod: InstalledQuartersModule, profe
 export function quartersCapacityBonus(state: GameState, ship: ShipInstance): number {
   const mod = installedQuartersModule(state, ship);
   if (!mod) return 0;
-  const stations = crewStationsBerths(mod.instance);
+  // User 2026-10-29 "Elite stays at 0": a module with no berths of its own (the Elite Quarters) takes none from its line.
+  const stations = mod.def.baseCapacity > 0 ? crewStationsBerths(mod.instance) : 0;
   if (!mod.def.capacityScales) return mod.def.baseCapacity + stations;
   return Math.round(mod.def.baseCapacity * moduleEffectScale(mod.instance.rarity, mod.instance.quality, mod.instance.ascension)) + stations;
 }

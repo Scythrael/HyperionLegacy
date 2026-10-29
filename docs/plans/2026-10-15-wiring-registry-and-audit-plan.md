@@ -1229,7 +1229,8 @@ flips LIVE as a text row, every clause checked by trainingRunDisplay.test.ts and
 **Built:**
 - OC-D11 "Split the two" (B12): `Expedition.arraySplit` (stamped at dispatch when the array's coverage is not 1): the
   scan rate reads the cadence alone and `coverageAttempts` scales each body's discovery attempts (the roll is 3 to 5:
-  Wide 5 / 6 / 8, Focused 2 / 2 / 3). The preview run carries the same stamp. `expeditionDispatchDisplay.ts arrayCharacterLine`: a true line
+  at the WR-7 build Wide 5 / 6 / 8, Focused 2 / 2 / 3; after the
+  review retune Wide 4 / 5 / 6, Focused 2 / 3 / 4). The preview run carries the same stamp. `expeditionDispatchDisplay.ts arrayCharacterLine`: a true line
   per array kind (Bio-Resonance and Resonance had none). Rows `ship:audit:arrayCharacter`, new `ship:wr7:coverageAttempts`.
 - OC-D6 "Unlisted = never rolls" (B11): `itemgen.ts varietyStatBias` (an empty statRatios stays neutral). The plating and
   emitter varieties list the WR-8 resist lines at `VARIETY_RESIST_RATIO` [PROVISIONAL 0.1]. Consequences named for the
@@ -1239,8 +1240,8 @@ flips LIVE as a text row, every clause checked by trainingRunDisplay.test.ts and
 - OC-D10 "Field repairs too": `ShipEventBattle.dcRepairTimeReduction` (frozen at dispatch, written only above 0);
   `fieldRepairSeconds` applies it as the Shipyard does. A run without it repairs exactly as before.
 - OC-D3 "They scale the module" + "Crew Stations also adds capacity": `crewModules.ts crewModuleLineScale` (x (1 +
-  diminishing(points, 100) / 100)) on the quarters and bridge boosts; `crewStationsBerths` adds 1 berth per point
-  [PROVISIONAL knee 100, 1 berth per point]. OC-D7 "Spread across divisions" (B22): `commandStructureWithBonus` (the
+  diminishing(points, 100) / 100)) on the quarters and bridge boosts; `crewStationsBerths` adds berths (1 per point at
+  the build; a small curve after the review, below) [PROVISIONAL knee 100]. OC-D7 "Spread across divisions" (B22): `commandStructureWithBonus` (the
   division and rank caps are the role weights of the larger total; bonus 0 is the cached template, same reference);
   the Complement panel reads it. Rows: the gear lines, every `QUARTERS_MODULES:*:capacity` (Elite notApplicable: 0
   berths), `ship:audit:rrCrewModuleExtras`.
@@ -1248,6 +1249,15 @@ flips LIVE as a text row, every clause checked by trainingRunDisplay.test.ts and
   (probe `reachGateFactor`: the gate's reach split back into one factor); the gear transit line got its seam (it was
   "WR-1 follow-up"; sheet and voyage live); cargo stays missions-only (`outOfScope` + a Help line in the Missions topic).
 - Deleted: `sensorEffectScale` (no caller), `ShipTypeDef.equipmentSlots` (OC-C4 "Keep tested hooks": no planned use).
+
+**Review round (2026-10-29, two commits: the review fixes, then the user's balance answers):** the quarters bonus never
+removes a seat at any rank (`atLeastInclusive`, swept for bonus 1 to 200 on every hull and division); the module lines
+are stamped per run (`moduleLines` on captain missions and short-range runs, carried each cycle; an unstamped run reads
+its modules without the lines). User answers (USER ANSWERS 2026-10-29): Crew Stations berths ride a small curve,
+`round(0.0416 x diminishing(points, 300))` [PROVISIONAL]: 25 points 1, 50 points 2, 113 points 4; Elite Quarters adds
+none (its registry row's "adds no berths" is true and tested), the Guest Wing gains them. Arrays even per hour
+[PROVISIONAL coverage]: Wide 1.25 (0.8 x 5 attempts = 1.00x Balanced), Focused 0.75 (1.3 x 3 = 0.975x); cores accepted as
+built; `VARIETY_RESIST_RATIO` stays 0.1 [PROVISIONAL].
 
 **Not built (owner "WR-7 follow-up"):**
 - OC-D8 patrol legs ("patrol legs scale with transitSpeedMult"). Built and measured in the WR-7 worktree, then held

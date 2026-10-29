@@ -86,6 +86,10 @@ export interface SensorArrayDef {
 // FIRST-PASS magnitudes. BALANCED is the 1.0/1.0 baseline with a small even bias to both discovery
 // kinds; WIDE trades cadence for coverage + a landmark bias; FOCUSED trades coverage for cadence + an
 // underground-PoI bias. TUNABLE.
+// WR-7 review (user 2026-10-29, "Even out per hour (Recommended)"): on a split run (expedition.ts arraySplit) the finds
+// per hour are the cadence x the expected discovery attempts (the 3 to 5 roll x the coverage, rounded). Wide 0.8 x 5 and
+// Focused 1.3 x 3 land at 1.00x and 0.975x Balanced's 1.0 x 4: Wide more per world but slower, Focused quick looks.
+// [PROVISIONAL] the two coverage widths (Wide 1.25, Focused 0.75).
 export const SENSOR_ARRAYS: readonly SensorArrayDef[] = [
   // WIDE-beam: slower passes, wider coverage, better odds of certain (surface) landmark types.
   {
@@ -94,7 +98,7 @@ export const SENSOR_ARRAYS: readonly SensorArrayDef[] = [
     slot: "sensor",
     kind: "wide",
     scanRateMult: 0.8,
-    coverageWidth: 1.5,
+    coverageWidth: 1.25, // [PROVISIONAL] WR-7 review: finds per hour near Balanced (was 1.5: 1.27x)
     landmarkOddsBias: 0.15,
     undergroundPoiOddsBias: 0,
     relicFindBonus: 0,
@@ -107,7 +111,7 @@ export const SENSOR_ARRAYS: readonly SensorArrayDef[] = [
     slot: "sensor",
     kind: "focused",
     scanRateMult: 1.3,
-    coverageWidth: 0.6,
+    coverageWidth: 0.75, // [PROVISIONAL] WR-7 review: finds per hour near Balanced (was 0.6: 0.76x)
     landmarkOddsBias: 0,
     undergroundPoiOddsBias: 0.2,
     relicFindBonus: 0,

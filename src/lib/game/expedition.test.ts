@@ -215,7 +215,7 @@ describe("startExpedition — snapshots the installed sensor array + params", ()
     expect(exp.sensorArrayId).toBe("sensorWideBeam");
     // Wide-beam character (sensorArrays.ts): slower cadence, wider coverage.
     expect(exp.scanParams.scanRateMult).toBe(0.8);
-    expect(exp.scanParams.coverageWidth).toBe(1.5);
+    expect(exp.scanParams.coverageWidth).toBe(1.25); // WR-7 review (user 2026-10-29): finds per hour near Balanced
     // A standard/q0 array's discovery biases scale by 1.0 (moduleEffectScale), so they equal the def.
     expect(exp.scanParams.landmarkOddsBias).toBeCloseTo(0.15, 6);
   });
