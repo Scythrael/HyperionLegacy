@@ -275,3 +275,10 @@ future unlock as it is akin to moving through a starfield. But in this case. It'
 stars streak past. Let me see if I can find a proper picture since viewing a video isn't possible for ye (at least it
 wasn't before)." So: v1 (a drift through a starfield) is KEPT as a FUTURE unlock; the e25M prize becomes the true warp
 look (stars streaking past); the user is sending a reference picture.
+Warp prize answers (2026-10-29): look "Warp mode, as is (Recommended)": the e25M prize is the mockup's Warp mode
+(stars stretching into long streaks) full-time, with the Jump burst when it turns on; placement "Whole game
+(Recommended)": behind every screen under the panels, its own on/off in Settings > UI, a still version for reduced
+motion. Names, user verbatim: "I like "Faster than Light" as a title. The other one is called "The Journey Ahead" where
+you're moving at sublight speeds. Or perhaps "Sublight Stroll". Yeah. "Sublight Stroll" and "Faster Than Light"." So:
+the e25M prize is "Faster Than Light"; the future starfield-drift unlock (the mockup's Cruise mode) is "Sublight
+Stroll" (unlock not yet decided; logged for later).
