@@ -318,16 +318,16 @@ function views(s: GameState): string[] {
 const GOLDEN: Record<string, unknown> = {
   "fleet": ["aa94ddcd", "56ea6bfc", "9e282be3", "41544d1e", "cccaec70", "f73efc26", "583cf72c"],
   "views": [["a78ec59d", "f4663cfa"], ["c4d89f65", "f4663cfa"], ["d17143e7", "f4663cfa"]],
-  "stats:generalFreighter": ["4ec6953b", "a23b4064", "64c2af9f", "a23b4064", "a23b4064", "adc17d60", "a23b4064", "7d4cb65c", "4cb04650", "be1d595e"],
-  "stats:prospectorHauler": ["dab172af", "4c6d2883", "e7aa301f", "4c6d2883", "4c6d2883", "e795f0e6", "4c6d2883", "a1875eb0", "ec014cd9", "8c4400cf"],
-  "stats:prospectorRunner": ["b800f591", "d8f1dbc7", "bbc001a6", "d8f1dbc7", "d8f1dbc7", "4f50d62e", "d8f1dbc7", "f563b320", "6816dbdf", "d4a28dc3"],
-  "stats:prospectorMiner": ["b8a60abf", "11d1dfb7", "6c436790", "11d1dfb7", "11d1dfb7", "60ce6075", "11d1dfb7", "8b42c18c", "3904fab2", "a2014a1b"],
-  "stats:destroyer": ["3d40bb7a", "f728345c", "52394197", "f728345c", "f728345c", "5770fb9a", "f728345c", "195a282f", "bfeb6df9", "78a70374"],
-  "stats:battleship": ["246f2c62", "ce0e2391", "b3fab6f4", "ce0e2391", "ce0e2391", "12d5eca0", "ce0e2391", "5e8b95e", "b3e3dae7", "5b6570e8"],
-  "stats:carrier": ["67cd439e", "dec91223", "48df020c", "dec91223", "dec91223", "9544b23c", "dec91223", "b9fcb13b", "cbaad9cb", "b0c9ff28"],
-  "stats:orion": ["859f2c75", "ec74deed", "b55917c9", "ec74deed", "ec74deed", "2cc7074a", "ec74deed", "f800d632", "a2037617", "d24d5073"],
-  "stats:aurora": ["59fc8c38", "d52a9ba3", "dc065a95", "d52a9ba3", "d52a9ba3", "6bf9671a", "d52a9ba3", "11b7d999", "f5eae818", "727da0bf"],
-  "stats:eir": ["f48e6005", "692728ff", "9330a43b", "692728ff", "692728ff", "13923d66", "692728ff", "aaf5508c", "f3a3b171", "9a5833b0"],
+  "stats:generalFreighter": ["4ec6953b", "9621706b", "3b508409", "9621706b", "9621706b", "236c0de3", "9621706b", "afbf05cd", "4a09ba9a", "4464e2fe"],
+  "stats:prospectorHauler": ["dab172af", "78c579e4", "bcea9e50", "78c579e4", "78c579e4", "1e6e51bf", "78c579e4", "d61272e", "3f250c9b", "fa3a777d"],
+  "stats:prospectorRunner": ["b800f591", "29163f38", "d0e53d2b", "29163f38", "29163f38", "25893a46", "29163f38", "f7fe20ff", "72c7bb66", "1d423ca4"],
+  "stats:prospectorMiner": ["b8a60abf", "3755c126", "c17b3570", "3755c126", "3755c126", "69acdcee", "3755c126", "8dd3f22c", "e68c12bc", "8ec0eff9"],
+  "stats:destroyer": ["3d40bb7a", "b91f0f91", "c66f33cd", "b91f0f91", "b91f0f91", "cc55789", "b91f0f91", "85782d2c", "d0afdfc1", "c32213b"],
+  "stats:battleship": ["246f2c62", "bd5d4ab9", "eceed856", "bd5d4ab9", "bd5d4ab9", "e84055e2", "bd5d4ab9", "67e1e8f2", "a93787b5", "d5cfafe4"],
+  "stats:carrier": ["67cd439e", "b3fa3c44", "194a823b", "b3fa3c44", "b3fa3c44", "91fc6850", "b3fa3c44", "b5c0637d", "a7d5faeb", "b0640374"],
+  "stats:orion": ["859f2c75", "c256a7d0", "eb64ec7c", "c256a7d0", "c256a7d0", "3196d20a", "c256a7d0", "161b8900", "653da10e", "8c2c93b3"],
+  "stats:aurora": ["59fc8c38", "b3317c4a", "396e138a", "b3317c4a", "b3317c4a", "2d27e45e", "b3317c4a", "b19122a2", "2a98c2fc", "bdb4d415"],
+  "stats:eir": ["f48e6005", "a767cc26", "651f8b7d", "a767cc26", "a767cc26", "149fc15c", "a767cc26", "8a128cf6", "4db4ee6b", "e4802eb5"],
   "stats:generalFreighter:guestWing": "4ec6953b",
   "guests:generalFreighter": [20, 22, 22, 22, 22, 22, 22, 22, 22, 22, 66],
   "stats:prospectorHauler:guestWing": "dab172af",
@@ -401,7 +401,7 @@ const GOLDEN: Record<string, unknown> = {
     "50:quartersFlightDeckWing:stellar:q2:iL31:{\"crewStations\":57}:{\"colonistCapacity\":76,\"crewStations\":19}:m0:quartersFlightDeckWing",
     "pool:[{\"stat\":\"crewStations\",\"weight\":5},{\"stat\":\"crewEfficiency\",\"weight\":2},{\"stat\":\"massReduction\",\"weight\":1},{\"stat\":\"colonistCapacity\",\"weight\":2}]",
   ],
-  "registry": [1223, "8ba89020"],
+  "registry": [1213, "2c74b0d9"],
   // Gear wear steps 1 and 2: the 41 pending `wear` entries (held apart from every other registry pin by GW_SLICE).
   "registry:gearWear": [41, "b8143ac4"],
   // Gear wear step 3 (2026-10-21): the 41 `wear` entries with their statuses and live contexts (every use source,
@@ -454,7 +454,7 @@ const GOLDEN: Record<string, unknown> = {
     "facility:REFINE_RECIPES:synthBiocatalyst|live",
     "facility:ITEMS:precursorCircuit:reserved|pending",
   ],
-  "registry:g1": ["captain:SECONDARY_CAPTAIN_TALENTS:trade2:shortRange|live", "ship:gearLine:colonistCapacity|live", "ship:SHIP_TYPES:generalFreighter:colonistCapacity|live", "ship:SHIP_TYPES:orion:colonistCapacity|live", "ship:SHIP_TYPES:aurora:colonistCapacity|live", "ship:SHIP_TYPES:eir:colonistCapacity|live", "ship:SHIP_SEAMS:generalQuartersGuestPerk|live", "ship:QUARTERS_MODULES:quartersGuestWing|live", "ship:QUARTERS_MODULES:quartersGuestWing:capacity|pending",
+  "registry:g1": ["captain:SECONDARY_CAPTAIN_TALENTS:trade2:shortRange|live", "ship:gearLine:colonistCapacity|live", "ship:SHIP_TYPES:generalFreighter:colonistCapacity|live", "ship:SHIP_TYPES:orion:colonistCapacity|live", "ship:SHIP_TYPES:aurora:colonistCapacity|live", "ship:SHIP_TYPES:eir:colonistCapacity|live", "ship:SHIP_SEAMS:generalQuartersGuestPerk|live", "ship:QUARTERS_MODULES:quartersGuestWing|live", "ship:QUARTERS_MODULES:quartersGuestWing:capacity|live",
     // G1-2: the short-range template catalog; G1-4 flipped every one live (the cycle engine reads it).
     "mission:SHORT_RANGE_TEMPLATES:refugeeRelocation:rolls|live", "mission:SHORT_RANGE_TEMPLATES:refugeeRelocation:work|live", "mission:SHORT_RANGE_TEMPLATES:refugeeRelocation:reward|live", "mission:SHORT_RANGE_TEMPLATES:supplyDropOff:rolls|live", "mission:SHORT_RANGE_TEMPLATES:supplyDropOff:work|live", "mission:SHORT_RANGE_TEMPLATES:supplyDropOff:reward|live", "mission:SHORT_RANGE_TEMPLATES:supplyPickup:rolls|live", "mission:SHORT_RANGE_TEMPLATES:supplyPickup:work|live", "mission:SHORT_RANGE_TEMPLATES:supplyPickup:reward|live", "mission:SHORT_RANGE_TEMPLATES:phenomenonSurvey:rolls|live", "mission:SHORT_RANGE_TEMPLATES:phenomenonSurvey:work|live", "mission:SHORT_RANGE_TEMPLATES:phenomenonSurvey:reward|live", "mission:SHORT_RANGE_TEMPLATES:telescopeRepair:rolls|live", "mission:SHORT_RANGE_TEMPLATES:telescopeRepair:work|live", "mission:SHORT_RANGE_TEMPLATES:telescopeRepair:reward|live", "mission:SHORT_RANGE_TEMPLATES:commBoosterBuild:rolls|live", "mission:SHORT_RANGE_TEMPLATES:commBoosterBuild:work|live", "mission:SHORT_RANGE_TEMPLATES:commBoosterBuild:reward|live", "mission:SHORT_RANGE_TEMPLATES:prisonerTransport:rolls|live", "mission:SHORT_RANGE_TEMPLATES:prisonerTransport:work|live", "mission:SHORT_RANGE_TEMPLATES:prisonerTransport:reward|live"],
   "old": ["aa94ddcd", "817862c7", "4ac62731", "d9a483c6"],
@@ -585,7 +585,7 @@ const FKR5_RULINGS_ADDED: ReadonlySet<string> = new Set<string>(["away:audit:fie
 // their status kind hashes the same.
 const G23_ADDED_ENTRY_IDS: ReadonlySet<string> = new Set<string>(["expedition:audit:voyageDeepTiers", "expedition:audit:voyageDriveClass"]);
 // The `registry` pin on the feat base before FKR-5 and G2-3 merged (after WR-6, CP-8 and G1-2).
-const REGISTRY_BEFORE_FKR5_G23 = [1182, "c748495a"];
+const REGISTRY_BEFORE_FKR5_G23 = [1172, "be5b185"];
 // Field Kits FKR-6 (kits in battle), held apart by the cause checks: the 5 entries it ADDS and the 8 it FLIPS pending
 // -> live (read back as pending there). The registry pin before it is REGISTRY_BEFORE_FKR6.
 const FKR6_ADDED_ENTRY_IDS: ReadonlySet<string> = new Set<string>([
@@ -600,7 +600,7 @@ const FKR6_FLIPPED_LIVE: ReadonlySet<string> = new Set<string>([
   "away:KIT_CATEGORY_RULES:firstAid",
   "away:KIT_CATEGORY_RULES:advancedMedical",
 ]);
-const REGISTRY_BEFORE_FKR6 = [1201, "e6523a6f"];
+const REGISTRY_BEFORE_FKR6 = [1191, "3c7c531a"];
 // Field Kits FKR-7 (the run plumbing), held apart by the cause checks: the 2 entries it ADDS (the free basic set's crew
 // curve, the runs switch's audit row, pending FKR-9 / FKR-10) and the 8 it FLIPS pending -> live (the free basic set's
 // base, the six Quartermaster kit prices, the Injury Kit's bay treatment row). The pin before it is REGISTRY_BEFORE_FKR7
@@ -611,15 +611,15 @@ const FKR7_FLIPPED_LIVE: ReadonlySet<string> = new Set<string>([
   ...["firstAidKit", "antitoxin", "combatStim", "splint", "traumaKit", "injuryKit"].map((k) => `facility:FIELD_KIT_PRICES:${k}`),
   "away:audit:treatmentShare",
 ]);
-const REGISTRY_BEFORE_FKR7 = [1217, "a4b86d24"];
+const REGISTRY_BEFORE_FKR7 = [1207, "a1dfe1d1"];
 // The pins the inert racials (on feat) and FKR-7 (on its branch) each left, both from REGISTRY_BEFORE_FKR7. Merged,
 // reading back only the OTHER slice reproduces each one.
-const REGISTRY_RACIALS_PIN = [1218, "942844f9"];
-const REGISTRY_FKR7_PIN = [1219, "422b9c70"];
+const REGISTRY_RACIALS_PIN = [1208, "eb0323ca"];
+const REGISTRY_FKR7_PIN = [1209, "c556ecad"];
 // Field Kits FKR-9 / FKR-10 (the switch-on), held apart by the cause checks: the three FKR-5 entries the switch shows
 // again (stripped) and the two audit rows it flips pending -> live. The pin before it is REGISTRY_BEFORE_FKR9.
 const FKR9_FLIPPED_LIVE: ReadonlySet<string> = new Set<string>(["away:audit:fieldKitsHiddenPieces", "away:audit:fieldKitsRunsSwitch"]);
-const REGISTRY_BEFORE_FKR9 = [1220, "ee493e11"];
+const REGISTRY_BEFORE_FKR9 = [1210, "40beebae"];
 
 // The ONE exclusion helper every registry pin goes through. Each slice names the entries it ADDED (stripped) and the
 // entries it FLIPPED (read back as their earlier status), so a pin taken before that slice is reproduced exactly and
@@ -743,7 +743,7 @@ function fleetRun(): { hours: string[]; seen: string[][]; s: GameState } {
 }
 
 // The `registry` pin before WR-6 (after CP-8), and the nine entries WR-6 flips pending -> live.
-const REGISTRY_BEFORE_WR6 = [1182, "93d27465"];
+const REGISTRY_BEFORE_WR6 = [1172, "cd6876f8"];
 const WR6_WIRED_IDS: ReadonlySet<string> = new Set<string>([
   "captain:CAPTAIN_TALENTS:tacticianHub",
   "captain:CAPTAIN_TALENTS:explorerHub",
@@ -759,7 +759,7 @@ const WR6_SLICE: RegistrySlice = { flipped: WR6_WIRED_IDS, was: "pending" };
 
 // E-MOD EM-1: the `registry` pin before EM-1 (the feat base after FKR-5, G2-3 and R2-1), the seven entries EM-1 flips
 // pending -> live and the eleven it adds (every hull's basePowerOutput and the drive class draw seam).
-const REGISTRY_BEFORE_EM1 = [1201, "e6523a6f"];
+const REGISTRY_BEFORE_EM1 = [1191, "3c7c531a"];
 const EM1_WIRED_IDS: ReadonlySet<string> = new Set<string>([
   "officer:officer.powerEfficiencyMult",
   "crew:crew.powerEfficiency",
@@ -779,7 +779,7 @@ const EM1_SLICE: RegistrySlice = { added: EM1_ADDED_ENTRY_IDS, flipped: EM1_WIRE
 // entries they flip live. Seven were pending (Deck Handling and Survey Aptitude, the Belter, Vael and Outer-Colony
 // racials, the Science and Flight Deck quarters wings); the Spacer was deferred (its old long-haul ramp). One audit row
 // is added: the Spacer long-haul ramp itself, still the user's 0.14.x deferral (crew:audit:spacerLongHaulRamp).
-const REGISTRY_BEFORE_RACIALS = [1217, "a4b86d24"];
+const REGISTRY_BEFORE_RACIALS = [1207, "a1dfe1d1"];
 const RACIALS_WIRED_IDS: ReadonlySet<string> = new Set<string>([
   "crew:crew.droneHandling",
   "crew:crew.surveyAptitude",

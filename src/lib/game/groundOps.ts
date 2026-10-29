@@ -67,6 +67,7 @@ import {
   type ExpeditionPlanetType,
   repairTicksForDamage,
 } from "./model";
+import { damageControlRepairTicks } from "./utilityGear";
 import { snapshotMembers } from "./awayTeam";
 // GO-8: the ship-side scan events' dispatch snapshot (shipScanEvents.ts never imports this module).
 import { snapshotShipEventProfile } from "./shipScanEvents";
@@ -2625,9 +2626,13 @@ export function fieldRepairSite(exp: Pick<Expedition, "bodies">, from: number = 
   return best;
 }
 
-// How long a field repair of `damage` hull points takes on the ground (`landed`) or in orbit. Pure.
-export function fieldRepairSeconds(damage: number, repairSpeed: number, landed: boolean): number {
-  return repairTicksForDamage(Math.max(0, damage), Math.max(0, repairSpeed)) * (landed ? FIELD_REPAIR_TIME_MULT : ORBIT_REPAIR_TIME_MULT);
+// How long a field repair of `damage` hull points takes on the ground (`landed`) or in orbit. WR-7 (OC-D10, "Field
+// repairs too"): the Damage Control Suite's frozen reduction (ShipEventBattle.dcRepairTimeReduction, 0 without it)
+// shortens the repair exactly as it shortens a Shipyard repair (utilityGear.ts damageControlRepairTicks), before the
+// field multiplier. Pure.
+export function fieldRepairSeconds(damage: number, repairSpeed: number, landed: boolean, dcRepairTimeReduction = 0): number {
+  const ticks = damageControlRepairTicks(repairTicksForDamage(Math.max(0, damage), Math.max(0, repairSpeed)), dcRepairTimeReduction);
+  return ticks * (landed ? FIELD_REPAIR_TIME_MULT : ORBIT_REPAIR_TIME_MULT);
 }
 
 // Why a field repair cannot start now (null = it can). Pure.
@@ -2668,7 +2673,7 @@ export function scheduleFieldRepair(exp: Expedition, t: number, ordered: boolean
   const startsAt = free !== null && free > t ? free : t;
   const damage = ops.hullDamage ?? 0;
   const arrivesAt = startsAt + travel;
-  const repairedAt = arrivesAt + fieldRepairSeconds(damage, battle.repairSpeed ?? 0, site !== null);
+  const repairedAt = arrivesAt + fieldRepairSeconds(damage, battle.repairSpeed ?? 0, site !== null, battle.dcRepairTimeReduction ?? 0);
   const scanning = exp.bodies.findIndex((b) => !b.scanned);
   const leg: GroundRepairLeg = {
     kind: "repair",

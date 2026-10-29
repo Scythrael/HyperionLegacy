@@ -165,18 +165,18 @@ function wearAll(s: GameState, member: AwayMember, seed: number): GameState {
 // nothing. What moved since the a678241 capture is feat's own slices between the two (the mission states from 2,400 s,
 // the two patrols' final states, the expedition's dispatch, mid-run and done records); the repair pin did not move.
 const GOLDEN: Record<string, string[]> = {
-  "mission:shortOreRun": ["21b85cb7", "1200:fb90fbb2", "2400:1db8ec6f", "3600:4887c289"],
-  "mission:longOreRun": ["38dbe313", "1200:5978da09", "2400:d997959c", "3600:5b482d7d"],
-  "mission:forageFlora": ["f95fa7c8", "1200:fbe20294", "2400:e3c516bb", "3600:e2c76d7d"],
-  "mission:salvageWreckage": ["9bcbc254", "1200:4a39fc85", "2400:5c45765f", "3600:d9a1be9f"],
-  "mission:surveyStellarPhenomena": ["9207f56", "1200:df63ecd7", "2400:5988ea16", "3600:6e640802"],
+  "mission:shortOreRun": ["21b85cb7", "1200:64fc45f5", "2400:3f500d35", "3600:15e2b4a3"],
+  "mission:longOreRun": ["38dbe313", "1200:b536cb7a", "2400:8bdcf7f3", "3600:fad87931"],
+  "mission:forageFlora": ["f95fa7c8", "1200:edc9a409", "2400:6f443d6d", "3600:9a972c26"],
+  "mission:salvageWreckage": ["9bcbc254", "1200:19ed1260", "2400:e9e7f8ca", "3600:f8a61a79"],
+  "mission:surveyStellarPhenomena": ["9207f56", "1200:b8487de0", "2400:6c3783af", "3600:a33bd117"],
   // Step 3 extension, captured on f85ef73's pre-wear engine (2026-10-21).
-  "mission:frontierSupplyRun": ["94e8217", "1200:fbc123cc", "2400:e0198985", "3600:b6d17d08"],
-  shortRange: ["9132088f", "1200:9a5d5c69", "2400:ea95ba49", "3600:c613b2c8"],
-  "patrol:destroyer": ["df281090", "2ad61e28", "67264ecd", "77d4b235", "5e7e8bd2", "f99c2b34", "35f5a476", "4f7f026a", "9901051b", "relaunches:171", "a89174c6"],
-  "patrol:carrier": ["f2dbd51e", "7ff99f8c", "c1929171", "58b10189", "138a5918", "143f8846", "ed7acf50", "d4ad7090", "ab2b97d9", "relaunches:109", "86e16f3d"],
-  "expedition": ["4eaa82ad", "8f7e452f", "659f1289", "43e5954"],
-  "repair": ["176", "965b8aa9", "a10053e8"],
+  "mission:frontierSupplyRun": ["94e8217", "1200:897bc9fe", "2400:9e01bb31", "3600:cc96ceed"],
+  shortRange: ["535cfb8c", "1200:25d2f6f0", "2400:5d5e8fc7", "3600:2aa60ffa"],
+  "patrol:destroyer": ["df281090", "41b55c24", "731fc751", "3a1135fd", "92180bc6", "9abcca38", "547853f2", "6aa52fe6", "2d46ee23", "relaunches:171", "ce0659d4"],
+  "patrol:carrier": ["f2dbd51e", "b7be39fe", "c99eeca3", "eaf74e1d", "217b95ce", "ef5b9b1a", "4ee7feac", "d70905a2", "492504ed", "relaunches:109", "b1299dba"],
+  "expedition": ["6cce6560", "4e64f0fc", "7e1768ae", "91990378"],
+  "repair": ["176", "965b8aa9", "16ec551b"],
 };
 
 const MISSION_FIXTURES: readonly MissionKey[] = ["shortOreRun", "longOreRun", "forageFlora", "salvageWreckage", "surveyStellarPhenomena"];
@@ -389,17 +389,17 @@ describe("gear wear step 1 goldens (captured before any wear engine edit)", () =
 //                        effective hold, a slower drive), so ITS cycles move. Both re-pinned for the re-read rule (the
 //                        run they follow moved).
 const STEP3: Record<string, string[]> = {
-  "wear:mission:shortOreRun": ["a0f89ec2", "1200:9f3ccf58", "2400:7dc89fcd", "3600:b61edcd", "cargoBay=995 ftlDrive=997 reactorCore=993 specUtility=995 weapon=1000 weapon=1000 shieldEmitters=1000 hullPlating=1000"],
-  "wear:mission:longOreRun": ["bd383776", "1200:26067ed4", "2400:e343d951", "3600:c3842d53", "cargoBay=995 ftlDrive=992 reactorCore=989 specUtility=995 weapon=1000 weapon=1000 shieldEmitters=1000 hullPlating=1000"],
-  "wear:mission:forageFlora": ["28b8807b", "1200:75763396", "2400:51b6ff9c", "3600:d982acd5", "cargoBay=995 ftlDrive=994 reactorCore=990 specUtility=995 weapon=1000 weapon=1000 shieldEmitters=1000 hullPlating=1000"],
-  "wear:mission:salvageWreckage": ["fa78484f", "1200:90dc19c9", "2400:63fa079a", "3600:4d802f75", "cargoBay=995 ftlDrive=995 reactorCore=991 specUtility=995 weapon=1000 weapon=1000 shieldEmitters=1000 hullPlating=1000"],
-  "wear:mission:surveyStellarPhenomena": ["7f9da665", "1200:b645da89", "2400:20f8ee85", "3600:605804c2", "cargoBay=995 ftlDrive=989 reactorCore=987 specUtility=995 weapon=1000 weapon=1000 shieldEmitters=1000 hullPlating=1000"],
+  "wear:mission:shortOreRun": ["a0f89ec2", "1200:70ec333b", "2400:efa6237d", "3600:303bc515", "cargoBay=995 ftlDrive=997 reactorCore=992 specUtility=995 weapon=1000 weapon=1000 shieldEmitters=1000 hullPlating=1000"],
+  "wear:mission:longOreRun": ["bd383776", "1200:15cb498b", "2400:6dc15ba7", "3600:ecb16b18", "cargoBay=995 ftlDrive=992 reactorCore=987 specUtility=995 weapon=1000 weapon=1000 shieldEmitters=1000 hullPlating=1000"],
+  "wear:mission:forageFlora": ["28b8807b", "1200:cf9d1652", "2400:4e0e7a36", "3600:1a82ecf5", "cargoBay=995 ftlDrive=994 reactorCore=989 specUtility=995 weapon=1000 weapon=1000 shieldEmitters=1000 hullPlating=1000"],
+  "wear:mission:salvageWreckage": ["fa78484f", "1200:2ba5d6c1", "2400:10d313f5", "3600:744aa9b", "cargoBay=995 ftlDrive=995 reactorCore=990 specUtility=995 weapon=1000 weapon=1000 shieldEmitters=1000 hullPlating=1000"],
+  "wear:mission:surveyStellarPhenomena": ["7f9da665", "1200:526b50d2", "2400:6b4bc818", "3600:41948f27", "cargoBay=995 ftlDrive=989 reactorCore=985 specUtility=995 weapon=1000 weapon=1000 shieldEmitters=1000 hullPlating=1000"],
   // The transport's working capital never clears on this fixture's credits, so no cycle delivers: only the stamp moves.
-  "wear:mission:frontierSupplyRun": ["58c67fe2", "1200:fcc14e23", "2400:729aee74", "3600:c7f83395", "cargoBay=1000 ftlDrive=1000 reactorCore=1000 specUtility=1000 weapon=1000 weapon=1000 shieldEmitters=1000 hullPlating=1000"],
-  "wear:shortRange": ["1b7e956a", "1200:4fb9e078", "2400:d12ef6e1", "3600:cf574c29", "cargoBay=1000 ftlDrive=993 reactorCore=996 specUtility=1000 weapon=1000 weapon=1000 shieldEmitters=1000 hullPlating=1000"],
-  "wear:expedition": ["6f308f00", "a0543f8c", "f70dc432", "ad5c3fca", "cargoBay=1000 ftlDrive=1000 reactorCore=991 specUtility=1000 weapon=1000 shieldEmitters=1000 hullPlating=1000 memberWeapon=963 memberArmor=1000 memberTool=1000 implant=1000 memberWeapon=963 memberArmor=1000 memberTool=1000 implant=1000 memberWeapon=1000 memberArmor=1000 memberTool=907 implant=1000"],
-  "wear:redispatch": ["b8bfa2b9", "e6c0e4d4", "cargoBay=995 ftlDrive=997 reactorCore=993 specUtility=995 weapon=1000 weapon=1000 shieldEmitters=1000 hullPlating=1000"],
-  "wear:recovery": ["cargoBay=994 ftlDrive=997 reactorCore=990 specUtility=994 weapon=1000 weapon=1000 shieldEmitters=1000 hullPlating=1000", "cargoBay=998 ftlDrive=1000 reactorCore=994 specUtility=998 weapon=1000 weapon=1000 shieldEmitters=1000 hullPlating=1000", "81565289"],
+  "wear:mission:frontierSupplyRun": ["58c67fe2", "1200:da9b815f", "2400:8de2ab4a", "3600:1bdedd34", "cargoBay=1000 ftlDrive=1000 reactorCore=1000 specUtility=1000 weapon=1000 weapon=1000 shieldEmitters=1000 hullPlating=1000"],
+  "wear:shortRange": ["734a5077", "1200:9084f5b1", "2400:41a58fd0", "3600:4d44e491", "cargoBay=995 ftlDrive=995 reactorCore=994 specUtility=1000 weapon=1000 weapon=1000 shieldEmitters=1000 hullPlating=1000"],
+  "wear:expedition": ["595d66cd", "aeafb99f", "c9b0db4b", "f7a4e36", "cargoBay=1000 ftlDrive=1000 reactorCore=991 specUtility=1000 weapon=1000 shieldEmitters=1000 hullPlating=1000 memberWeapon=963 memberArmor=1000 memberTool=1000 implant=1000 memberWeapon=963 memberArmor=1000 memberTool=1000 implant=1000 memberWeapon=1000 memberArmor=1000 memberTool=907 implant=1000"],
+  "wear:redispatch": ["75bc53bf", "833bc007", "cargoBay=995 ftlDrive=997 reactorCore=992 specUtility=995 weapon=1000 weapon=1000 shieldEmitters=1000 hullPlating=1000"],
+  "wear:recovery": ["cargoBay=1000 ftlDrive=997 reactorCore=1000 specUtility=1000 weapon=1000 weapon=1000 shieldEmitters=1000 hullPlating=1000", "cargoBay=1000 ftlDrive=1000 reactorCore=1000 specUtility=1000 weapon=1000 weapon=1000 shieldEmitters=1000 hullPlating=1000", "a3490fab"],
 };
 
 function pin3(key: string, value: string[]): void {
@@ -473,9 +473,9 @@ describe("gear wear step 3 goldens (the use wear engine on)", () => {
 //   wear4:expedition    : the run's battle stamp, its ship battle snapshot (the reactor and drive copies, the flag), each
 //                         ground fight's armor wear on the record and the tally, and the members' armor worn as it lands.
 const STEP4: Record<string, string[]> = {
-  "wear4:patrol:destroyer": ["df281090", "2ad61e28", "67264ecd", "77d4b235", "5e7e8bd2", "f99c2b34", "35f5a476", "4f7f026a", "9901051b", "relaunches:171", "f36e26b", "cargoBay=1000 ftlDrive=1000 reactorCore=1000 specUtility=1000 weapon=1000 weapon=1000 weapon=1000 weapon=1000 shieldEmitters=1000 hullPlating=1000"],
-  "wear4:patrol:carrier": ["f2dbd51e", "af0eb66a", "540a34d9", "31ca3b37", "d6b6265b", "13588699", "c5449924", "224f8322", "224f8322", "relaunches:91", "fa2b40e2", "cargoBay=1000 ftlDrive=54 reactorCore=176 specUtility=1000 weapon=663 weapon=659 shieldEmitters=49 hullPlating=999 droneBay=985"],
-  "wear4:expedition": ["93068874", "e86474b8", "fd26d23d", "c9e694fe", "cargoBay=1000 ftlDrive=1000 reactorCore=991 specUtility=1000 weapon=1000 shieldEmitters=1000 hullPlating=1000 memberWeapon=963 memberArmor=957 memberTool=1000 implant=1000 memberWeapon=963 memberArmor=995 memberTool=1000 implant=1000 memberWeapon=1000 memberArmor=1000 memberTool=907 implant=1000"],
+  "wear4:patrol:destroyer": ["df281090", "41b55c24", "731fc751", "3a1135fd", "92180bc6", "9abcca38", "547853f2", "6aa52fe6", "2d46ee23", "relaunches:171", "49504051", "cargoBay=1000 ftlDrive=1000 reactorCore=1000 specUtility=1000 weapon=1000 weapon=1000 weapon=1000 weapon=1000 shieldEmitters=1000 hullPlating=1000"],
+  "wear4:patrol:carrier": ["f2dbd51e", "ad0bb62e", "729473a3", "440d2809", "ca790797", "75ae48f9", "a88c075a", "f7e3405a", "f7e3405a", "relaunches:91", "92d112c5", "cargoBay=1000 ftlDrive=54 reactorCore=176 specUtility=1000 weapon=663 weapon=659 shieldEmitters=49 hullPlating=999 droneBay=985"],
+  "wear4:expedition": ["82de7fe8", "e65a6c28", "5304ebc1", "142413e2", "cargoBay=1000 ftlDrive=1000 reactorCore=991 specUtility=1000 weapon=1000 shieldEmitters=1000 hullPlating=1000 memberWeapon=963 memberArmor=957 memberTool=1000 implant=1000 memberWeapon=963 memberArmor=995 memberTool=1000 implant=1000 memberWeapon=1000 memberArmor=1000 memberTool=907 implant=1000"],
 };
 
 function pin4(key: string, value: string[]): void {

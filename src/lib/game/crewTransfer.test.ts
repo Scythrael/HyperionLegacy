@@ -141,9 +141,10 @@ function quartersOn(s: GameState, shipId: string, moduleVariant: string): GameSt
 function expectWithinCaps(buckets: CrewBucket[], bonus = 0): void {
   expect(totalCrew(buckets)).toBeLessThanOrEqual(complementTotalCap(HULL, bonus));
   for (const p of CREW_PROFESSIONS) {
-    expect(countInDivision(buckets, p)).toBeLessThanOrEqual(divisionCap(HULL, p));
+    // WR-7 (OC-D7): the quarters bonus spreads across the division and rank caps too.
+    expect(countInDivision(buckets, p)).toBeLessThanOrEqual(divisionCap(HULL, p, bonus));
     for (const r of CREW_RANK_ORDER) {
-      expect(countAtRankOrHigher(buckets, p, r)).toBeLessThanOrEqual(inclusiveRankCap(HULL, p, r));
+      expect(countAtRankOrHigher(buckets, p, r)).toBeLessThanOrEqual(inclusiveRankCap(HULL, p, r, bonus));
     }
   }
 }
@@ -293,7 +294,9 @@ describe("transferCrew: cap-aware per pick, partial and reported (CP-7)", () => 
     const bonus = quartersCapacityBonus(eff, eff.ships[0]);
     expect(bonus).toBeGreaterThan(0);
     const roomy = transferCrew(eff, CREW_POOL, "ship-1", pick);
-    expect(roomy.moved).toBe(1); // the division's last seat, now that the total has room
+    // WR-7 (OC-D7 "Spread across divisions", B22 fixed): the bonus raises the Operations division's cap too, so the
+    // whole pick fits (before WR-7 only the division's last seat, +1).
+    expect(roomy.moved).toBe(10);
     expect(roomy.moved).toBeGreaterThanOrEqual(plain.moved);
     expectWithinCaps(shipBuckets(roomy.next, "ship-1"), bonus);
   });

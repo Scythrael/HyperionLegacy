@@ -143,7 +143,8 @@ import {
 import { shortRangeRelicMicrosPerHour } from "../relicBlanks";
 // Relics v2 R2-10: the minigame's relic boost table (one-way; the audit reads it, no gameplay file does).
 import { RELIC_BOOSTS } from "../../secret/config";
-import { BRIDGE_MODULES, QUARTERS_MODULES, moduleEffectScale } from "../crewModules";
+import { CREW_PROFESSIONS } from "../commandStructure";
+import { BRIDGE_MODULES, CREW_MODULE_LINE_KNEE, CREW_STATIONS_BERTH_KNEE, CREW_STATIONS_BERTH_SCALE, QUARTERS_MODULES, moduleEffectScale } from "../crewModules";
 // E-MOD EM-7: the v1 universal module roster (each module's registry row reads its def through CATALOGS).
 import { UNIVERSAL_MODULES, bonusHaulUnits, type UniversalModuleDef } from "../shipModules";
 import { graduateStandout } from "../crewGraduation";
@@ -1984,14 +1985,25 @@ function percent(key: string): number {
 }
 const LINE_SEAMS: Readonly<Record<string, LineSeam | null>> = {
   cargoCapacity: { probe: "sheetCargo", contexts: ["sheet"], curve: { kind: "linearAbsolute" }, magnitude: () => LINE_POINTS },
-  fuelCapacity: { probe: "sheetFuelCapacity", contexts: ["sheet"], curve: { kind: "linearAbsolute" }, magnitude: () => LINE_POINTS },
+  // WR-7 (OC-D3 "They scale the module", "Crew Stations also adds capacity"): a Crew Stations line adds its berths to
+  // the quarters capacity (a Utilitarian Quarters piece, 12 berths of its own); a Crew Efficiency line scales the
+  // module's boost on the D23 curve (crewModules.ts crewModuleLineScale), read on a Balanced Command bridge's
+  // officer multiplier (its boost part above 1 grows by exactly the line scale).
+  crewStations: { probe: "quartersCapacity", contexts: ["sheet"], curve: { kind: "linearAbsolute" }, magnitude: () => Math.round(CREW_STATIONS_BERTH_SCALE * diminishing(LINE_POINTS, CREW_STATIONS_BERTH_KNEE)) },
+  crewEfficiency: { probe: "bridgeOfficerMult", contexts: ["sheet"], curve: { kind: "bonusRelative", base: 1 }, magnitude: () => diminishing(LINE_POINTS, CREW_MODULE_LINE_KNEE) / CREW_MODULE_LINE_KNEE },
+  // WR-7: the speed line had no seam ("WR-1 follow-up"): it lifts the sheet and the expedition voyage's frozen leg
+  // speed (G2-3). Measured on a bare hull (no other mass or line), where the lift is exactly the curve's. Its patrol
+  // legs stay pending (PATROL_LEGS_OWNER).
+  transitSpeedMult: { probe: "sheetTransit", contexts: ["sheet", "expedition:groundOps"], curve: { kind: "linearRelative" }, magnitude: () => percent("transitSpeedMult"), base: () => bareHull() },
+  // WR-7 (OC-D8, G2-4 built the gate): the tank and the engine efficiency reach the expedition reach gate.
+  fuelCapacity: { probe: "sheetFuelCapacity", contexts: ["sheet", "expedition:groundOps"], curve: { kind: "linearAbsolute" }, magnitude: () => LINE_POINTS },
   sensors: { probe: "sheetSensors", contexts: ["sheet"], curve: { kind: "linearAbsolute" }, magnitude: () => LINE_POINTS },
   // G1-1: a guest line is stored in berths and adds them flat. Measured on an Orion (an explorer: the General quarters
   // perk would multiply both readings, which is its own entry, ship:SHIP_SEAMS:generalQuartersGuestPerk).
   // G1-4: and the guest quarters a short-range sheet judges (mission:shortRange, shortRangeShipRatings).
   colonistCapacity: { probe: "sheetGuestQuarters", contexts: ["sheet", "mission:shortRange"], curve: { kind: "linearAbsolute" }, magnitude: () => LINE_POINTS, base: () => wiringBase("orion") },
   // Expedition Tiers G2-3: the voyage flies each leg at the ship's own speed on it (the run freezes it).
-  engineEfficiency: { probe: "sheetEngineEff", contexts: ["sheet"], curve: { kind: "linearAbsolute" }, magnitude: () => percent("engineEfficiency") },
+  engineEfficiency: { probe: "sheetEngineEff", contexts: ["sheet", "expedition:groundOps"], curve: { kind: "linearAbsolute" }, magnitude: () => percent("engineEfficiency") },
   extractionYieldMult: { probe: "sheetYield", contexts: ["sheet"], curve: { kind: "linearRelative" }, magnitude: () => percent("extractionYieldMult") },
   massReduction: null, // consumed at mint (itemgen.ts:425): measured below as its own entry on the piece's mass
   // E-MOD EM-1: a Reactor Core's powerOutput line adds to the ship's power output (on top of the hull's own, P1).
@@ -2028,7 +2040,8 @@ const LINE_SEAMS: Readonly<Record<string, LineSeam | null>> = {
   shieldCoherence: { probe: "combatShieldCoherence", contexts: ["patrol"], curve: { kind: "linearAbsolute" }, magnitude: () => LINE_POINTS, base: () => combatBase(), where: "rolled" },
   ablativeArmor: { probe: "combatAblativeArmor", contexts: ["patrol"], curve: { kind: "linearAbsolute" }, magnitude: () => LINE_POINTS, base: () => combatBase(), where: "rolled" },
   kineticDampening: { probe: "combatKineticDampening", contexts: ["patrol"], curve: { kind: "linearAbsolute" }, magnitude: () => LINE_POINTS, base: () => combatBase(), where: "rolled" },
-  repairSpeed: { probe: "dcRepairReduction", contexts: ["shipyard"], curve: { kind: "linearAbsolute" }, magnitude: () => plusToPercent(LINE_POINTS, DC_REPAIR_SPEED_B, DC_REPAIR_SPEED_R) },
+  // WR-7 (OC-D10 "Field repairs too"): and the Ground Ops field repair (the reduction the run froze at dispatch).
+  repairSpeed: { probe: "dcRepairReduction", contexts: ["shipyard", "expedition:groundOps"], curve: { kind: "linearAbsolute" }, magnitude: () => plusToPercent(LINE_POINTS, DC_REPAIR_SPEED_B, DC_REPAIR_SPEED_R) },
   waveHullRegen: { probe: "waveHullRegen", contexts: ["patrol"], curve: { kind: "linearAbsolute" }, magnitude: () => plusToPercent(LINE_POINTS, DC_WAVE_REGEN_B, DC_WAVE_REGEN_R) },
   expeditionScanSpeed: { probe: "pathfinderScan", contexts: ["expedition:groundOps"], curve: { kind: "linearAbsolute" }, magnitude: () => plusToPercent(LINE_POINTS, PF_SCAN_SPEED_B, PF_SCAN_SPEED_R) },
   hazardResist: { probe: "pathfinderHazard", contexts: ["expedition:groundOps"], curve: { kind: "linearAbsolute" }, magnitude: () => plusToPercent(LINE_POINTS, PF_HAZARD_RESIST_B, PF_HAZARD_RESIST_R) },
@@ -2054,10 +2067,8 @@ function resistSeam(probe: ProbeId): LineSeam {
   return { probe, contexts: ["patrol", "shipEvent"], curve: { kind: "linearAbsolute" }, magnitude: () => familyResistPercent(LINE_POINTS), base: () => combatBase(), where: "rolled" };
 }
 
-const LINE_PENDING: Readonly<Record<string, { owner: string; probe?: ProbeId; contexts?: ContextId[] }>> = {
-  crewStations: { owner: "WR-7, OC-D3 (the tooltip prints the rolled value; nothing reads it)", probe: "quartersCapacity", contexts: ["sheet"] },
-  crewEfficiency: { owner: "WR-7, OC-D3 (the tooltip prints the rolled value; nothing reads it)", probe: "sheetUnload", contexts: ["sheet"] },
-};
+// (WR-7, OC-D3 "They scale the module": the crewStations / crewEfficiency lines went live, LINE_SEAMS; none is pending.)
+const LINE_PENDING: Readonly<Record<string, { owner: string; probe?: ProbeId; contexts?: ContextId[] }>> = {};
 
 // Install a ship piece carrying `points` of `key` (on the right slot and line), on ship-1.
 function shipPiece(key: string, points: number): Transform {
@@ -2156,12 +2167,8 @@ function shipLineEntries(): WiringEntry[] {
       patrol: { base: () => combatBase(), ...(key === "transitSpeedMult" ? { probe: "patrolOutboundTicks" as ProbeId } : {}) },
     };
     const partial: Readonly<Record<string, WiringStatus>> = {
-      cargoCapacity: pending("WR-7, OC-D8 (expeditions and patrols do not read the hold)", ["expedition:groundOps", "patrol"]),
-      transitSpeedMult: pending("WR-7, OC-D8 (patrol legs are fixed)", ["patrol"]),
-      fuelCapacity: pending("G2-4 (no expedition range gate)", ["expedition:groundOps"]),
-      engineEfficiency: pending("G2-4 (no expedition range gate)", ["expedition:groundOps"]),
+      transitSpeedMult: pending(PATROL_LEGS_OWNER, ["patrol"]),
       sensors: { kind: "deferred", owner: "CP-15 (patrol cloak detection)", userRef: `${T3}: patrol cloak detection`, contexts: ["patrol"] },
-      repairSpeed: pending("WR-7, OC-D10 (not Ground Ops field repair)", ["expedition:groundOps"]),
     };
     return entry({
       ...common,
@@ -2172,11 +2179,22 @@ function shipLineEntries(): WiringEntry[] {
       tolerance: seam.tolerance,
       ...(seam.base ? { base: seam.base } : {}),
       status: partial[key] ?? LIVE,
+      ...(key === "cargoCapacity" ? { outOfScope: CARGO_MISSIONS_ONLY } : {}),
       ...(claimsPatrol(partial[key]) ? { flatChecks: patrolOnCombat } : {}),
     });
   });
 }
 
+// WR-7 (OC-D8, user 2026-10-15 "Speed counts everywhere": "patrol legs scale with transitSpeedMult"): the owner of the
+// transit sources' pending patrol context. The leg scaling was built in the WR-7 worktree and held out of the WR-7
+// commit: it moves every patrol golden (the WR-8 precedent: a slice of its own, goldens first).
+const PATROL_LEGS_OWNER = "WR-7 follow-up, OC-D8 (patrol legs scale with transit speed; moves every patrol golden, its own slice)";
+// WR-7 (OC-D8, user 2026-10-15 "Speed counts everywhere": "cargo stays missions-only, text says so"): the hold is a
+// mission stat; the Help's Missions topic says expeditions and patrols do not use it.
+const CARGO_MISSIONS_ONLY: NonNullable<WiringEntry["outOfScope"]> = [
+  { context: "expedition:groundOps", reason: "an expedition brings its finds home without the hold (missions only)", userRef: "OC-D8 (user 2026-10-15): cargo stays missions-only, text says so" },
+  { context: "patrol", reason: "a patrol pays its bounty without the hold (missions only)", userRef: "OC-D8 (user 2026-10-15): cargo stays missions-only, text says so" },
+];
 const MASS_PIECE = 30; // the massReduction fixture's piece mass (the bare hull carries no other mass)
 const POWER_PIECE = 30; // the powerDrawReduction fixture's piece draw (the bare hull draws nothing else)
 const claimsPatrol = (st: WiringStatus | undefined): boolean => (st?.kind === "pending" || st?.kind === "deferred") && (st.contexts ?? []).includes("patrol");
@@ -2194,10 +2212,9 @@ const HULL_FIELD_PROBES: Readonly<Record<string, ProbeId>> = {
   fuelCapacity: "sheetFuelCapacity",
   engineEfficiency: "sheetEngineEff",
 };
-const HULL_FIELD_PENDING: Readonly<Record<string, string>> = {
-  // (E-MOD EM-7 took `moduleSlots` live: the module slot is shown since UNIVERSAL_MODULES_LIVE, see hullEntries.)
-  equipmentSlots: "WR-7, OC-C4 (a forward bucket; 0 on every hull)",
-};
+// (E-MOD EM-7 took `moduleSlots` live: the module slot is shown since UNIVERSAL_MODULES_LIVE, see hullEntries. WR-7
+// deleted the `equipmentSlots` forward bucket, OC-C4 "Keep tested hooks": no pending hull field is left.)
+const HULL_FIELD_PENDING: Readonly<Record<string, string>> = {};
 
 function hullEntries(): WiringEntry[] {
   const out: WiringEntry[] = [];
@@ -2216,39 +2233,26 @@ function hullEntries(): WiringEntry[] {
     for (const field of ["cargoCapacity", "transitSpeedMult", "extractionYieldMult", "fuelCapacity", "engineEfficiency"] as const) {
       // Expedition Tiers G2-3: the hull's speed reaches the expedition voyage (the run freezes it as each leg's speed).
       const transit = field === "transitSpeedMult";
+      // WR-7 (OC-D8; G2-4 built the gate): the hull's tank and engine efficiency reach the expedition reach gate.
+      const reach = field === "fuelCapacity" || field === "engineEfficiency";
       out.push(
         hullEntry(hull, field, {
           probe: HULL_FIELD_PROBES[field],
-          contexts: transit ? ["sheet", "expedition:groundOps"] : ["sheet"],
+          contexts: transit || reach ? ["sheet", "expedition:groundOps"] : ["sheet"],
           magnitude: (c) => c.SHIP_TYPES[hull][field],
           base: () => {
             // A bare hull: no installed gear, so the sheet is the hull's own number.
             const s = wiringBase(hull);
             return { ...s, equipment: s.equipment.filter((e) => e.fittedToShipId !== "ship-1") };
           },
-          status:
-            field === "cargoCapacity"
-              ? pending("WR-7, OC-D8 (missions only)", combat ? ["expedition:groundOps", "patrol"] : ["expedition:groundOps"])
-              : transit
-                ? combat
-                  ? pending("WR-7, OC-D8 (patrol legs are fixed)", ["patrol"])
-                  : LIVE
-                : field === "fuelCapacity" || field === "engineEfficiency"
-                  ? pending("G2-4 (no expedition reach gate)", ["expedition:groundOps"])
-                  : LIVE,
-          // A hull field reaches a run or a patrol only through the sheet stat it seeds: the flat checks raise that
-          // same stat with a gear line on the hull (patrols fly the hull with its combat baseline installed).
-          ...(field === "extractionYieldMult" || (transit && !combat)
-            ? {}
-            : {
-                flatChecks: {
-                  ...(transit ? {} : { "expedition:groundOps": { on: shipPiece(field, LINE_POINTS), off: identity } }),
-                  // WR-8: a transit flat check reads the patrol legs alone (combat speed reads transit speed now).
-                  ...(combat && (field === "cargoCapacity" || transit)
-                    ? { patrol: { base: () => combatBase(hull), on: shipPiece(field, LINE_POINTS), off: identity, ...(transit ? { probe: "patrolOutboundTicks" as ProbeId } : {}) } }
-                    : {}),
-                },
-              }),
+          status: transit && combat ? pending(PATROL_LEGS_OWNER, ["patrol"]) : LIVE,
+          // WR-7 (OC-D8): the hold is a mission stat (the Help's Missions topic says so).
+          ...(field === "cargoCapacity" ? { outOfScope: combat ? CARGO_MISSIONS_ONLY : CARGO_MISSIONS_ONLY.filter((o) => o.context !== "patrol") } : {}),
+          // A hull's speed reaches a patrol's legs only through the sheet stat it seeds: the flat check raises that same
+          // stat with a gear line on the hull and reads the patrol legs alone (WR-8: combat speed reads transit speed).
+          ...(transit && combat
+            ? { flatChecks: { patrol: { base: () => combatBase(hull), on: shipPiece(field, LINE_POINTS), off: identity, probe: "patrolOutboundTicks" as ProbeId } } }
+            : {}),
         }),
       );
     }
@@ -2399,6 +2403,29 @@ function wingPending(division: CrewProfession): WiringStatus {
   return pending(`CP-3 (the ${division} division's dead keys; its live keys move)`, DEAD_DIVISION_CONTEXTS[division] ?? ["ground"]);
 }
 
+// WR-7 (OC-D7, user 2026-10-15 "Spread across divisions"; B22 fixed): a quarters module's berths spread across the
+// division caps by the hull's role weights (commandStructure.ts commandStructureWithBonus), so an empty complement can
+// fill about that many more (each division cap rounds on its own, so up to half a berth per division either way). The
+// Elite module adds none (its effect is per-head effectiveness): nothing to measure.
+function quartersCapacityEntry(def: (typeof QUARTERS_MODULES)[number]): WiringEntry {
+  const common = {
+    id: `ship:QUARTERS_MODULES:${def.id}:capacity`,
+    system: "ship" as const,
+    source: { catalog: "QUARTERS_MODULES", key: `${def.id}:capacity` },
+    claim: `${def.label}: more crew berths, spread across the divisions`,
+  };
+  if (def.baseCapacity === 0) return entry({ ...common, notApplicable: "the module adds no berths (baseCapacity 0): its effect is per-head effectiveness" });
+  return entry({
+    ...common,
+    probe: "fillableBerths",
+    contexts: ["sheet"],
+    direction: "up",
+    curve: { kind: "event", metric: "berths an empty complement can fill" },
+    magnitude: (c) => Math.max(1, c.QUARTERS_MODULES.find((d) => d.id === def.id)!.baseCapacity - CREW_PROFESSIONS.length / 2),
+    on: (s) => installPiece(s, { slotType: "quarters", moduleVariant: def.id }),
+  });
+}
+
 function moduleEntries(): WiringEntry[] {
   const out: WiringEntry[] = [];
   const scale = moduleEffectScale("standard", 0, "none");
@@ -2418,13 +2445,7 @@ function moduleEntries(): WiringEntry[] {
           claim: def.label,
           notApplicable: "no crew-effectiveness boost (focusBoost 0): its effect is its guest quarters line (ship:gearLine:colonistCapacity)",
         }),
-        entry({
-          id: `ship:QUARTERS_MODULES:${def.id}:capacity`,
-          system: "ship",
-          source: { catalog: "QUARTERS_MODULES", key: `${def.id}:capacity` },
-          claim: `${def.label}: more crew berths`,
-          status: pending("CP-5 + WR-7, OC-D7 (raises only the total cap; division caps still bind, B22)"),
-        }),
+        quartersCapacityEntry(def),
       );
       continue;
     }
@@ -2448,13 +2469,7 @@ function moduleEntries(): WiringEntry[] {
             ? "measured on Operations, the OFF division (its own division boost is the same multiplier)"
             : undefined,
       }),
-      entry({
-        id: `ship:QUARTERS_MODULES:${def.id}:capacity`,
-        system: "ship",
-        source: { catalog: "QUARTERS_MODULES", key: `${def.id}:capacity` },
-        claim: `${def.label}: more crew berths`,
-        status: pending("CP-5 + WR-7, OC-D7 (raises only the total cap; division caps still bind, B22)"),
-      }),
+      quartersCapacityEntry(def),
     );
   }
   for (const def of BRIDGE_MODULES) {
@@ -2512,20 +2527,17 @@ function sensorArrayEntries(): WiringEntry[] {
           curve: { kind: "equals" },
           magnitude: (c) => (c.SENSOR_ARRAYS.find((a) => a.id === def.id)![field] as number) * (field === "landmarkOddsBias" || field === "undergroundPoiOddsBias" || field === "relicFindBonus" || field === "canisterBandLift" ? moduleEffectScale("standard", 0, "none") : 1),
           base: () => installPiece(wiringBase(), { slotType: "sensor", moduleVariant: def.id }),
-          note: field === "scanRateMult" || field === "coverageWidth" ? "the net rate is their product (B12: Focused reads faster but nets 0.78x; WR-7 OC-D11)" : undefined,
+          note:
+            field === "scanRateMult"
+              ? "WR-7 OC-D11: the scan rate reads the cadence alone on a new run (ship:audit:arrayCharacter)"
+              : field === "coverageWidth"
+                ? "WR-7 OC-D11: the coverage scales each body's discovery attempts on a new run (ship:wr7:coverageAttempts)"
+                : undefined,
         }),
       );
     }
   }
-  out.push(
-    entry({
-      id: "ship:sensorEffectScale",
-      system: "ship",
-      source: { catalog: "SHIP_SEAMS", key: "sensorEffectScale" },
-      claim: "sensorArrays.ts sensorEffectScale (no caller)",
-      status: pending("WR-7 (fold into the array reader or delete)"),
-    }),
-  );
+  // (WR-7: the inert `sensorEffectScale` passthrough was deleted, so its pending seam entry is gone.)
   return out;
 }
 
@@ -2558,7 +2570,7 @@ const MUSEUM_SEAMS: Readonly<Record<MuseumStat, { probe: ProbeId; contexts: Cont
 };
 
 const MUSEUM_PARTIAL: Readonly<Partial<Record<MuseumStat, WiringStatus>>> = {
-  transitSpeed: pending("OC-D8 (patrol legs are fixed; G2-3 put it on the expedition voyage)", ["patrol"]),
+  transitSpeed: pending(PATROL_LEGS_OWNER, ["patrol"]),
 };
 
 // The museum's PARTIAL checks: transit on a patrol flies a combat hull.
@@ -3790,8 +3802,9 @@ const AUDIT_ROWS: readonly { id: string; system: WiringSystem; claim: string; st
   { id: "facility:audit:itemEquipStats", system: "facility", claim: "ItemDef.equipStats (no item fills it)", status: pending("WR-4, OC-C4") },
   { id: "facility:audit:precursorCircuit", system: "facility", claim: "Precursor Circuit: salvage drops it, nothing consumes it", status: pending("WR-10, OC-J3") },
   // D. Ship
-  { id: "ship:audit:statRatios", system: "ship", claim: "Variety statRatios: an unlisted key keeps weight 1, so Hauler Hold rolls massReduction more than Prospector Hold (B11)", status: pending("WR-7, OC-D6") },
-  { id: "ship:audit:favorsSpec", system: "ship", claim: "Variety favorsSpec (no reader)", status: pending("WR-7, OC-D5") },
+  // WR-7 (OC-D6, user 2026-10-15 "Unlisted = never rolls"; B11 fixed): itemgen.ts varietyStatBias.
+  { id: "ship:audit:statRatios", system: "ship", claim: "Variety statRatios list what a crafted piece rolls: a stat its variety does not list never rolls (a Hauler Hold, \"none into mass\", rolls no mass relief)", status: LIVE },
+  { id: "ship:audit:favorsSpec", system: "ship", claim: "Variety favorsSpec (no reader)", status: pending("WR-7 follow-up, OC-D5 (\"+10% on its ship type\": the fold needs a per-run stamp on missions, patrol cycles and expeditions so a run in flight stays byte-identical)") },
   { id: "ship:audit:slotPowerDraw", system: "ship", claim: "SLOT_BASE_PHYSICALS powerDraw: a crafted piece draws its slot's power from the ship's budget", status: LIVE },
   // Gear wear step 3: a piece's durabilityMax is its TOUGHNESS (gearWear.ts toughnessScale): every use wear amount on
   // it scales by TOUGHNESS_REFERENCE / durabilityMax, so the slot bases act on every piece that wears by use (economy,
@@ -3802,8 +3815,15 @@ const AUDIT_ROWS: readonly { id: string; system: WiringSystem; claim: string; st
   // E-MOD EM-4 (P3 "Speeds the drive"): B10 fixed. The core's unused power lifts the transit speed (reactorSurplus.ts),
   // and its mass only eats into that lift (never slower than Standard Issue); its mass still costs fuel efficiency.
   { id: "ship:audit:reactorCoreNet", system: "ship", claim: "A crafted Reactor Core's unused power speeds the drive on a diminishing curve (the hull's own power is never surplus); its mass eats into that lift but never makes the ship slower than Standard Issue (B10 fixed)", status: LIVE },
-  { id: "ship:audit:arrayCharacter", system: "ship", claim: "ARRAY_CHARACTER: \"Focused: faster\" while its net rate is 0.78x; no Bio-Resonance line (B12)", status: pending("WR-7, OC-D11") },
-  { id: "ship:audit:hullDescriptions", system: "ship", claim: "Hull descriptions (Aurora, Eir, Orion) claim what the engine does not do", status: pending("WR-7, OC-D13 (heavy cruiser wording: SF-6)") },
+  // WR-7 (OC-D11, user 2026-10-15 "Split the two"; B12 fixed): on a new run the array's cadence alone sets the scan
+  // speed and its coverage width scales each body's discovery attempts (Expedition.arraySplit); every array kind has a
+  // true character line (expeditionDispatchDisplay.ts arrayCharacterLine, wr7ShipSystems.test.ts).
+  { id: "ship:audit:arrayCharacter", system: "ship", claim: "The array character line: Focused-beam scans faster (its cadence alone sets the rate on a new run, B12 fixed), and every array kind has a line", status: LIVE },
+  { id: "ship:wr7:coverageAttempts", system: "ship", claim: "A sensor array's coverage width scales each body's discovery attempts on a new run: Wide-beam finds more per body", status: LIVE },
+  // WR-7 (OC-D13, user 2026-10-15 "Make them true as built"): SF-6 (the heavy cruiser lines and the battleship's, user
+  // 2026-10-27) and EM-5 / EM-7 ("most module slots") made every claim true; trainingRunDisplay.test.ts checks each
+  // explorer and battleship claim and wr7ShipSystems.test.ts the economy, destroyer and carrier ones against the hulls.
+  { id: "ship:audit:hullDescriptions", system: "ship", claim: "Every hull description is true of the built hull (speed, hold, armor, guns, shields, reach, module slots, away teams)", status: LIVE },
   // WR-8 (0.14.0, OC-D9 "Enemies start at range", OC-D12 "Feed them all"): the combat descriptors, each live with its
   // own check (auditRowWiring, combatDescriptorProbes.ts). Every one acts only on a battle whose run carries the
   // combat rules stamp (a patrol cycle or an expedition started since WR-8), except the gear lines and their rows.
@@ -4095,6 +4115,51 @@ function wr8AuditWiring(): Readonly<Record<string, Partial<EntryInput>>> {
   };
 }
 
+// WR-7 (0.14.0): the ship-system audit rows' checks.
+function wr7AuditWiring(): Readonly<Record<string, Partial<EntryInput>>> {
+  const array = (id: string): Transform => (s) => installPiece(s, { slotType: "sensor", moduleVariant: id });
+  const arrayDef = (id: string) => SENSOR_ARRAYS.find((a) => a.id === id)!;
+  return {
+    // OC-D6: the Hauler Hold's unlisted mass relief never rolls (OFF lists it at the raw weight the old rule gave it).
+    "ship:audit:statRatios": {
+      probe: "unlistedStatPicks",
+      contexts: ["craft"],
+      direction: "down",
+      curve: { kind: "event", metric: "mass relief picks on a Hauler Hold" },
+      magnitude: () => 1,
+      on: sourceOn,
+    },
+    // OC-D13: a text claim, checked clause by clause against the built hulls by its own tests (no seam number to move).
+    "ship:audit:hullDescriptions": {
+      notApplicable: "a text claim: trainingRunDisplay.test.ts and wr7ShipSystems.test.ts check every clause of every hull description against the built hull",
+    },
+    // OC-D11: a Focused-beam run scans its first body faster than a Balanced one, by exactly the cadence ratio (the
+    // pre-WR-7 product read 0.78x, so this check fails on the old rule).
+    "ship:audit:arrayCharacter": {
+      probe: "expScanRate",
+      contexts: ["expedition:groundOps"],
+      direction: "up",
+      curve: { kind: "linearRelative" },
+      magnitude: (c) => c.SENSOR_ARRAYS.find((a) => a.id === "sensorFocusedBeam")!.scanRateMult / c.SENSOR_ARRAYS.find((a) => a.id === "sensorBalanced")!.scanRateMult - 1,
+      base: () => wiringBase("orion"),
+      on: array("sensorFocusedBeam"),
+      off: array("sensorBalanced"),
+    },
+    // OC-D11: a Wide-beam run rolls more discovery attempts on its bodies than a Balanced one (the coverage width):
+    // its first body's attempts rise from the rolled count to coverageAttempts(rolled, width).
+    "ship:wr7:coverageAttempts": {
+      probe: "runFirstBodyAttempts",
+      contexts: ["expedition:groundOps"],
+      direction: "up",
+      curve: { kind: "event", metric: "discovery attempts on the first body" },
+      magnitude: () => (arrayDef("sensorWideBeam").coverageWidth > 1 ? 1 : 0),
+      base: () => wiringBase("orion"),
+      on: array("sensorWideBeam"),
+      off: array("sensorBalanced"),
+    },
+  };
+}
+
 function auditRowWiring(): Readonly<Record<string, Partial<EntryInput>>> {
   const emitter = (draw: number): Transform => (s) => installPiece(s, { slotType: "shieldEmitters", powerDraw: draw });
   const torpedo = (draw: number): Transform => (s) => installPiece(s, { slotType: "weapon", weaponType: "concussionTorpedo", powerDraw: draw });
@@ -4106,6 +4171,7 @@ function auditRowWiring(): Readonly<Record<string, Partial<EntryInput>>> {
   });
   return {
     ...wr8AuditWiring(),
+    ...wr7AuditWiring(),
     // E-MOD EM-4: a Reactor Core of REACTOR_LIFT_PROBE_OUTPUT power against the same core (same mass) supplying none, on a
     // bare hull (the hull's own power covers its draw, so the whole output is surplus): the sheet's transit speed and
     // the Ground Ops voyage's frozen outbound speed rise by exactly the lift.
@@ -4871,8 +4937,8 @@ export const FLAT_UNCONTROLLED: Readonly<Record<string, string>> = {
   "secInflictPermille@ground:noInflict": "an inflict piece is the only live source of on-hit statuses, and this context is the one without it",
   "salvageTalentCeiling@salvage:topTier": "the pool's top tier is the clamp: nothing can raise the tier a top Fleet Admiral rolls",
   // WR-8: transit speed reaches a patrol's combat speed now (ship:audit:derivedStatsInCombat), so its pending patrol
-  // context is the LEGS alone, read here; no live effect moves a patrol leg until WR-7 (OC-D8) scales them.
-  "patrolOutboundTicks@patrol": "a patrol's legs are fixed route ticks until WR-7 (OC-D8: patrol legs scale with transit speed): nothing live moves them yet",
+  // context is the LEGS alone, read here; no live effect moves a patrol leg until the patrol legs slice scales them.
+  "patrolOutboundTicks@patrol": "a patrol's legs are fixed route ticks until the WR-7 follow-up (OC-D8: patrol legs scale with transit speed): nothing live moves them yet",
 };
 
 // ============================================================================
@@ -5138,13 +5204,40 @@ function moduleRarityEntries(): WiringEntry[] {
       }),
     );
   }
+  // WR-7 (OC-D3 "They scale the module"): the lines are read now, so a Luminous bridge's secondaries on its Crew
+  // Efficiency line lift its officers: a real Luminous mint against the same piece without its rolled lines.
+  const luminousBridge = (keepRolled: boolean): Transform => (s) => {
+    let x = 0x7b21;
+    const rng = () => {
+      x = (Math.imul(x, 1664525) + 1013904223) >>> 0;
+      return x / 4294967296;
+    };
+    const piece = generateEquipment({
+      slotType: "bridge",
+      varietyKey: "bridgeBalancedCommand",
+      blueprintKey: null,
+      iLevel: 20,
+      quality: 0,
+      rarity: "luminous",
+      ascension: "none",
+      rng,
+      allocateId: () => "wiring-equip-bridge",
+    });
+    return installPiece(s, { ...piece, rolledStats: keepRolled ? piece.rolledStats : {}, fittedToShipId: WIRING_SHIP_ID });
+  };
   out.push(
     entry({
       id: "ship:audit:rrCrewModuleExtras",
       system: "ship",
       source: { catalog: "AUDIT", key: "ship:audit:rrCrewModuleExtras" },
-      claim: "A Luminous / Constellar bridge or quarters module's secondaries and Artisan can land on its crewEfficiency / crewStations lines",
-      status: pending("WR-7, OC-D3 (the tooltip prints the rolled value; nothing reads it)"),
+      claim: "A Luminous / Constellar bridge or quarters module's secondaries and Artisan can land on its crewEfficiency / crewStations lines, and those lines scale the module",
+      probe: "bridgeOfficerMult",
+      contexts: ["sheet"],
+      direction: "up",
+      curve: { kind: "event", metric: "the Luminous bridge's officer multiplier" },
+      magnitude: () => 1 / CREW_MODULE_LINE_KNEE,
+      on: luminousBridge(true),
+      off: luminousBridge(false),
     }),
   );
   return out;

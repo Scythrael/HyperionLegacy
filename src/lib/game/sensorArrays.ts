@@ -30,7 +30,7 @@
 // not built) and Science-officer / Science-division sensor AMPLIFICATION (belongs with the crew overlay
 // + exploration). This file is the sensor ITEM only.
 
-import type { GameState, ShipInstance, EquipmentInstance, EquipmentRarity, EquipmentAscension } from "./model";
+import type { GameState, ShipInstance, EquipmentInstance } from "./model";
 import { equippedFor } from "./equipment";
 // Reuse the crew modules' rarity/quality effect scale: it is the identical "standard/q0 == 1.0, richer
 // amplifies" curve a sensor wants, so a second copy of the same constants would only risk drift. It is a
@@ -86,6 +86,10 @@ export interface SensorArrayDef {
 // FIRST-PASS magnitudes. BALANCED is the 1.0/1.0 baseline with a small even bias to both discovery
 // kinds; WIDE trades cadence for coverage + a landmark bias; FOCUSED trades coverage for cadence + an
 // underground-PoI bias. TUNABLE.
+// WR-7 review (user 2026-10-29, "Even out per hour (Recommended)"): on a split run (expedition.ts arraySplit) the finds
+// per hour are the cadence x the expected discovery attempts (the 3 to 5 roll x the coverage, rounded). Wide 0.8 x 5 and
+// Focused 1.3 x 3 land at 1.00x and 0.975x Balanced's 1.0 x 4: Wide more per world but slower, Focused quick looks.
+// [PROVISIONAL] the two coverage widths (Wide 1.25, Focused 0.75).
 export const SENSOR_ARRAYS: readonly SensorArrayDef[] = [
   // WIDE-beam: slower passes, wider coverage, better odds of certain (surface) landmark types.
   {
@@ -94,7 +98,7 @@ export const SENSOR_ARRAYS: readonly SensorArrayDef[] = [
     slot: "sensor",
     kind: "wide",
     scanRateMult: 0.8,
-    coverageWidth: 1.5,
+    coverageWidth: 1.25, // [PROVISIONAL] WR-7 review: finds per hour near Balanced (was 1.5: 1.27x)
     landmarkOddsBias: 0.15,
     undergroundPoiOddsBias: 0,
     relicFindBonus: 0,
@@ -107,7 +111,7 @@ export const SENSOR_ARRAYS: readonly SensorArrayDef[] = [
     slot: "sensor",
     kind: "focused",
     scanRateMult: 1.3,
-    coverageWidth: 0.6,
+    coverageWidth: 0.75, // [PROVISIONAL] WR-7 review: finds per hour near Balanced (was 0.6: 0.76x)
     landmarkOddsBias: 0,
     undergroundPoiOddsBias: 0.2,
     relicFindBonus: 0,
@@ -244,9 +248,5 @@ export function sensorArrayCanisterBandLift(installed: InstalledSensorArray | nu
   return installed.def.canisterBandLift * moduleEffectScale(installed.instance.rarity, installed.instance.quality, installed.instance.ascension) * viewPieceEfficiency(installed.instance);
 }
 
-// A convenience direct scale reader (rarity/quality -> effect scale), so a consumer that only needs the
-// scalar can avoid resolving the full effect object. Pure passthrough to the shared curve. Unused this
-// patch (dormant), kept for symmetry with the crew-module readers.
-export function sensorEffectScale(rarity: EquipmentRarity, quality: number, ascension: EquipmentAscension = "none"): number {
-  return moduleEffectScale(rarity, quality, ascension);
-}
+// (WR-7: `sensorEffectScale`, a passthrough to moduleEffectScale with no caller, was deleted; every array reader above
+// scales through moduleEffectScale directly.)

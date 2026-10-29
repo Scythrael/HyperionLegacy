@@ -408,6 +408,7 @@ import { CONDITION_FULL, battleWearLive, combatGearView, patrolCycleGear, repair
 import { addBattleWear, poolBattleWear, recordPatrolWear, waveBattleWear, type PatrolWearClock, type PatrolWearEvent } from "./gearWearCombat";
 // E-MOD EM-4: the reactor surplus drive lift's run flag (a leaf).
 import { newReactorLiftFlag, reactorLiftFlagged } from "./reactorSurplus";
+import { crewModuleLinesStamp } from "./crewModules";
 // WR-5b (0.14.0): the commanding captain's Tactician talents (frozen per patrol cycle; the Shipyard repair).
 import {
   captainWaveRegenFraction,
@@ -2799,6 +2800,8 @@ export function tickCaptainMission(
               ...(gearWear !== undefined ? { gearWear } : {}),
               // E-MOD EM-4: the run's reactor lift flag rides every repeated cycle (absent on a run from before EM-4).
               ...(mission!.reactorLift !== undefined ? { reactorLift: mission!.reactorLift } : {}),
+              // WR-7 (OC-D3): and the module lines stamp.
+              ...(mission!.moduleLines !== undefined ? { moduleLines: mission!.moduleLines } : {}),
             };
           }
         }
@@ -4908,6 +4911,8 @@ export function economyTick(
     // E-MOD EM-4 (reactorSurplus.ts): only a run stamped with the reactor lift flag reads the drive lift (none in flight
     // from before EM-4).
     const reactorLift = reactorLiftFlagged(captain.mission.reactorLift); // a malformed flag (null included) never counts
+    // WR-7 (OC-D3): only a run stamped with the module lines reads its crew modules' lines (none in flight from before).
+    const moduleLines = captain.mission.moduleLines === 1;
     // Phase 2 (Task B3, design §3.4): AUTO-STOP, when this mission's PRIMARY material is
     // already at its warehouse tier cap the run CANNOT usefully complete (its haul would
     // land over an already-full warehouse). Rather than leave the captain FROZEN in place
@@ -4998,7 +5003,7 @@ export function economyTick(
     // stamp (at dispatch, and again at each cycle start: onCycleDelivered below), so a worn hold, drive,
     // sensor array, prospecting rig or crew module acts on the run from its next cycle. It is constant within a cycle,
     // so the per-cycle guarantee holds as before. A run without a stamp (dispatched before step 3) reads the stored sheet.
-    const shipStats = ship ? runShipStats(state, ship, wearStamp, reactorLift) : null;
+    const shipStats = ship ? runShipStats(state, ship, wearStamp, reactorLift, moduleLines) : null;
     // GEAR WEAR step 3 (user 2026-10-21, "Re-read each cycle"): at each delivered cycle of a stamped run, its use wear at
     // its own instant (missionCycleWear on the sheet that cycle ran on), and the next cycle's gear re-read from the
     // pieces as the call's deliveries so far leave them (projectRunStamp: the arithmetic the tail pass writes).
@@ -5010,7 +5015,7 @@ export function economyTick(
             const at = state.gameTimeSeconds + endTicks * state.tickDurationSeconds;
             if (stats) missionWear.push({ at, wear: missionCycleWear(missionKey, stats, state.tickDurationSeconds, missionCrewed) });
             const gearWear = projectRunStamp(state, ship.id, missionWear, at);
-            return { gearWear, stats: runShipStats(state, ship, gearWear, reactorLift) };
+            return { gearWear, stats: runShipStats(state, ship, gearWear, reactorLift, moduleLines) };
           }
         : undefined;
     // Mission Rework (Task 5): the fuel one round-trip cycle of THIS mission costs on
@@ -5944,6 +5949,8 @@ export function dispatchCaptainOnMission(
   // E-MOD EM-4 (reactorSurplus.ts): a run dispatched now on a ship with a powered Reactor Core flies with the reactor
   // surplus drive lift.
   const reactorLift = newReactorLiftFlag(wearShip ? equippedFor(state, wearShip.id) : []);
+  // WR-7 (OC-D3): a run dispatched now reads its crew modules' lines (stamped only when one carries a line).
+  const moduleLines = wearShip ? crewModuleLinesStamp(state, wearShip) : undefined;
   captains[idx] = {
     ...captains[idx],
     mission: {
@@ -5958,6 +5965,7 @@ export function dispatchCaptainOnMission(
       // source is live.
       ...(wearStamp !== undefined ? { gearWear: wearStamp } : {}),
       ...(reactorLift !== undefined ? { reactorLift } : {}),
+      ...(moduleLines !== undefined ? { moduleLines } : {}),
     },
     // Combat 0.13.0 (offline recap): CLEAR any stale wall-stop reason on a fresh dispatch, so a
     // captain re-dispatched after a prior cargo/defeat stop never shows the old reason.

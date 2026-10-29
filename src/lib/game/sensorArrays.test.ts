@@ -19,7 +19,6 @@ import {
   getSensorArrayById,
   installedSensorArray,
   sensorArrayEffect,
-  sensorEffectScale,
 } from "./sensorArrays";
 import {
   freshState,
@@ -207,9 +206,6 @@ describe("installedSensorArray resolution + effect params", () => {
     // The array's fixed character (cadence / coverage) does not change with rarity/quality.
     expect(amped.scanRateMult).toBe(base.scanRateMult);
     expect(amped.coverageWidth).toBe(base.coverageWidth);
-    // standard/q0 reads the catalog magnitude as-is (scale 1.0).
-    expect(sensorEffectScale("standard", 0)).toBeCloseTo(1.0, 9);
-    expect(sensorEffectScale("stellar", 5)).toBeGreaterThan(1.0);
   });
 });
 

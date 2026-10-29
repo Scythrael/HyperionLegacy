@@ -195,7 +195,7 @@ const GOLDEN: Record<string, string | string[]> = {
   rungsG16: "5394692d",
   rungsBeforeG16: "9928b877",
   utility: [
-    "f3df2ef8", "3b01c657", "217dee49", "4f69bf08", "5bdee672", "8074aed9", "e1d54513", "a15fe684",
+    "f3df2ef8", "79c5307", "217dee49", "65f94b53", "5bdee672", "55f213d3", "e1d54513", "653100a3",
     "b16f813d", "126b521b", "db034e3c", "94bea692", "91ad5cc1", "1ea09a48", "83b5cc39",
   ],
   // Re-pinned by WR-4 (OC-C1): the Fuel Depot's top level adds its fleet reach bonus (+45%) to every hull's range and
