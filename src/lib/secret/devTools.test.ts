@@ -3,8 +3,8 @@ import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import { freshSecretState, serializeSecret, deserializeSecret, cloneSecret, type SecretState } from "./state";
 import { devMarkFound, devMaxSkills, devJumpTo } from "./devTools";
-import { effectiveExponent, upgradesUnlocked, upgradeLevel, hasSkill, autoActive, isTierUnlocked, stepMut, captainGain, fleetGain, prestigeceptionGain } from "./engine";
-import { SKILLS, LEVELED_SKILLS, AUTOMATION_IDS, UPGRADES, MILESTONES, LONG_EXPONENT, STARFALL_EXPONENT, TIER_COUNT } from "./config";
+import { effectiveExponent, upgradesUnlocked, upgradeLevel, hasSkill, autoActive, isTierUnlocked, stepMut, captainGain, fleetGain, prestigeceptionGain, allSkillsMaxed } from "./engine";
+import { SKILLS, LEVELED_SKILLS, AUTOMATION_IDS, UPGRADES, MILESTONES, LONG_EXPONENT, STARFALL_EXPONENT, TIER_COUNT, isAutomationId } from "./config";
 import { newlyReached } from "./runtime";
 
 const NOW = Date.UTC(2026, 9, 23, 12);
@@ -68,7 +68,10 @@ for (const [label, target] of [["e1,000,000", LONG_EXPONENT], ["e10,000,000", ST
       expect(s.pcCount).toBeGreaterThan(0);
       expect(upgradesUnlocked(s)).toBe(true);
       expect(s.found).toBe(true);
-      for (const d of SKILLS) expect(hasSkill(s, d.id)).toBe(true);
+      // every automation on the way; the skills at the average player's levels there (0.14.0 Slice 4: maxed only
+      // at e10,000,000, where the Skill Points stop)
+      for (const d of SKILLS) if (isAutomationId(d.id)) expect(hasSkill(s, d.id), d.id).toBe(true);
+      expect(allSkillsMaxed(s)).toBe(target === STARFALL_EXPONENT);
     });
 
     it("no automatic prestige is due on arrival (the jump does not reset itself)", () => {
@@ -94,8 +97,9 @@ for (const [label, target] of [["e1,000,000", LONG_EXPONENT], ["e10,000,000", ST
       else expect(fresh).not.toContain("starfall");
       expect(newlyReached(s, liveFor(s, 60))).toEqual([]);
       const ids = MILESTONES.map((m) => m.id).filter((id) => s.milestones[id] !== undefined);
-      // at e1,000,000 the beats on the way to e10,000,000 are still ahead (e2M, e3M, e5M, e7.77M, e10M)
-      expect(ids.length).toBe(target === STARFALL_EXPONENT ? MILESTONES.length : MILESTONES.length - 5);
+      // at e1,000,000 the beats on the way to e10,000,000 are still ahead (e2M, e3M, e5M, e7.77M, e10M), and
+      // every skill maxed too (0.14.0 Slice 4: the last Skill Point lands near e10,000,000)
+      expect(ids.length).toBe(target === STARFALL_EXPONENT ? MILESTONES.length : MILESTONES.length - 6);
     });
 
     it("upgrades: none at e1,000,000 (the horse joke still to come), all at their cap at e10,000,000", () => {

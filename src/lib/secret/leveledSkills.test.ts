@@ -326,6 +326,7 @@ describe("the reworked skills reach today's effect at their named level", () => 
 describe("the three new skills measurably move their gains", () => {
   it("Captain's Academy: more Captain Points per Captain Prestige", () => {
     const s = atPeak(freshSecretState(T0), 400);
+    s.dreamPoints = new Decimal(1e12); // a big payout, so the floor never hides the level
     const t = cloneSecret(s);
     t.skillLevels.captainsAcademy = 1;
     expect(captainGain(t).gt(captainGain(s))).toBe(true);

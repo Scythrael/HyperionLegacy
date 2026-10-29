@@ -258,6 +258,23 @@ both before each slice.
   scaling with prestige counts (test headers say which). devJumpTo bisects to its target (the settled Ore is no
   longer proportional to the build).
 
+**Combined pacing retune (Slices 2 + 3 + 4, user 2026-10-28 "One retune after Slice 4"; WIP, NOT all green):**
+- Cause of the touchiness: at PC_BAR_RATIO 1 the Prestigeception climbs sit x2.7 apart, so one always lands within
+  a step of e1,000,000 or e10,000,000, and where the ladder starts depends on which check-in takes the first one.
+- Picks, every one [PROVISIONAL] in config with its measurements: `PC_BAR_RATIO` 2 (climbs x4.8 apart);
+  `AUTO_PC_MILESTONE` "googol" (the one automation nudge: the first Prestigeception fires at e10,000 for everyone,
+  so the ladder no longer depends on check-ins); `CP_K` 0.18 (finale back to about 4 days); `SOFT_SCALE` 63;
+  `SKILL_SCALE_POW` 0.1; `SKILL_GATE_LIFT_PC` 5; skills 49 points (Head Start 2, Tenfold Training 5 x 0.05 and
+  Overdrive 5 x 0.0125 with today's effect at level 4, the three new skills 3 / 3 / 2 x 5%).
+- Relic-free (finale / e1M / e10M days): average 4.16 / 32.79 / 119.60, +1 h 4.20 / 32.83 / 126.90, optimal
+  4.11 / 32.53 / 118.86, casual 4.28 / 36.63 / 119.53. e10M across check-ins shifted -2 to +3 h: 114.1 to 126.9
+  (Slice 3 engine: 104.4 to 166.4). Last Skill Point day 108.6, 0 spare at e10M.
+- STILL RED (user calls): casual bands (automations at milestones make the casual player as fast as the average
+  one: finale 4.28 under 5.5, e1M 36.6 under 38, e10M 119.5 under 125); keen finale 4.39 later than light 4.28;
+  catch-up parity day2 6 h / 10 h (19 over the bound on a plateau) and mid 48 h (3.5 under live); relic sims
+  (Slice 5's job: typical average x0.84 / 0.81 / 0.86, optimal e1M x1.20, casual finale x1.13; relic coarse stretch
+  9.2%, already 9.1% on Slice 3).
+
 ### Slice 5: The relic ceiling and the late milestones
 
 **Files:**

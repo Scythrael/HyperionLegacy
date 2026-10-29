@@ -191,7 +191,7 @@ describe("the e10,000,000 milestone", () => {
     checkMilestonesMut(t, 7);
     expect(t.milestones.starfall).toBe(7);
     expect(milestoneAchievement("starfall").reward).toContain("Starfall");
-    expect(milestoneAchievement("googol").reward).toBe("Reward: recorded for a future update");
+    expect(milestoneAchievement("e3m").reward).toBe("Reward: recorded for a future update");
     expect(MILESTONES.find((m) => m.id === "starfall")!.achievement).toBe(true);
   });
 });

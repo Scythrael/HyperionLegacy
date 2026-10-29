@@ -12,7 +12,7 @@
 import Decimal from "break_infinity.js";
 import { cloneSecret, type SecretState } from "./state";
 import { markFound, pow10, unsoftenExponent, checkMilestonesMut, stepMut, effectiveExponent, totalSkillCost, skillCostToMax } from "./engine";
-import { SKILLS, AUTOMATION_IDS, LEVELED_SKILLS, TIERS, TIER_COUNT, UPGRADES, STARFALL_EXPONENT, CAPTAIN_BEND } from "./config";
+import { SKILLS, AUTOMATION_IDS, LEVELED_SKILLS, type LeveledSkillId, TIERS, TIER_COUNT, UPGRADES, STARFALL_EXPONENT, CAPTAIN_BEND } from "./config";
 
 export function devMarkFound(s: SecretState, atMs: number): SecretState {
   return markFound(s, atMs);
@@ -35,12 +35,13 @@ function automateAllMut(s: SecretState): void {
   }
 }
 
-// The e1,000,000 jump's skills: today's Head Start, Ten Bonus and Overdrive as their leveled skills (the
-// layer counts below were measured with them), the schedule paid that far.
+// The e1,000,000 jump's skills: the average player's levels there (LONG_SKILL_LEVELS), the schedule paid
+// that far.
 function midSkillsMut(s: SecretState): void {
-  for (const d of LEVELED_SKILLS) if (d.replaces) s.skillLevels[d.id] = Math.max(s.skillLevels[d.id] ?? 0, d.replaces.level);
+  for (const d of LEVELED_SKILLS) s.skillLevels[d.id] = Math.min(d.cap, Math.max(s.skillLevels[d.id] ?? 0, LONG_SKILL_LEVELS[d.id] ?? 0));
   s.skillPointsEarned = Math.max(s.skillPointsEarned, totalSkillCost() - skillCostToMax(s));
-  automateAllMut(s);
+  // The automations come from the milestones the jump records (checkMilestonesMut in build): Auto-buy
+  // Upgrades waits for e2,000,000, as in play.
 }
 
 export function devMaxSkills(s: SecretState, atMs: number): SecretState {
@@ -64,9 +65,12 @@ interface Layers {
   pcCount: number;
 }
 
-// Taken from the pacing sim near each stop, then nudged above the automatic-prestige gain there.
-const AT_LONG: Layers = { captainPoints: 1.812e8, augmentPoints: 5.507e6, dreamPoints: 1.756e6, captainCount: 650, fleetCount: 13, fleetTotal: 72, pcCount: 7 };
-const AT_STARFALL: Layers = { captainPoints: 4e9, augmentPoints: 1.6e8, dreamPoints: 2.8e7, captainCount: 935, fleetCount: 12, fleetTotal: 122, pcCount: 11 };
+// Taken from the pacing sim near each stop (0.14.0 combined pacing retune: the average player at e1,000,000
+// on day 32 and at e10,000,000 on day 117), above the automatic-prestige gain there.
+const AT_LONG: Layers = { captainPoints: 1.131e8, augmentPoints: 5.265e6, dreamPoints: 3.214e5, captainCount: 93, fleetCount: 10, fleetTotal: 29, pcCount: 4 };
+const AT_STARFALL: Layers = { captainPoints: 5.235e8, augmentPoints: 6.545e7, dreamPoints: 9.641e5, captainCount: 144, fleetCount: 13, fleetTotal: 43, pcCount: 5 };
+// The average player's skill levels at e1,000,000 (the same sim); at e10,000,000 every skill is maxed.
+const LONG_SKILL_LEVELS: Readonly<Partial<Record<LeveledSkillId, number>>> = { headStart: 2, tenfoldTraining: 4, overdrive: 3, captainsAcademy: 3, fleetLogistics: 3, lucidPlanning: 2 };
 
 // The upgrades change where a run settles (a maxed Tenfold Tuner lifts it about a third), so the
 // jump builds the state, lets the real engine run it for SETTLE_SECONDS, measures where it settled,

@@ -92,7 +92,11 @@ export const DP_POW = 0.24;
 // scale x (peak exponent / threshold)^k, k under 1 (engine.ts gainExponent). From the finale on,
 // Fleet Prestige uses k = 1 and Captain Prestige CP_K_AFTER_FINALE (the 0.13.11 k = 1, bent by
 // CAPTAIN_BEND); Dream Points keep DP_K. [PROVISIONAL] values, measured in the plan's pacing results.
-export const CP_K = 0.6 * CAPTAIN_BEND; // 0.24
+// 0.14.0 combined pacing retune: CP_K 0.6 x CAPTAIN_BEND (0.24) to 0.45 x CAPTAIN_BEND (0.18). With the
+// automations free at milestones the first days ran fast (finale 3.1 days average, optimal 3.1 under its
+// 3.5); smaller Captain gains before the finale slow only the climb to it (0.20: 3.8 / 3.6 days; 0.18:
+// 4.2 / 4.1) and leave e1,000,000 and e10,000,000 where they were. [PROVISIONAL]
+export const CP_K = 0.45 * CAPTAIN_BEND; // 0.18
 export const CP_K_AFTER_FINALE = CAPTAIN_BEND; // 0.4
 export const AP_K = 0.55;
 export const DP_K = 0.7;
@@ -113,7 +117,12 @@ export const OVERDRIVE_POWER = 1.05; // Overdrive: Ore production ^1.05
 
 export const FINALE_EXPONENT = 777777;
 export const LONG_EXPONENT = 1000000;
-export const SOFT_SCALE = 66; // 0.13.11.1 retune: 58 before (e1,000,000 back to about a month)
+// 0.14.0 combined pacing retune (prestige redesign Slices 2 to 4): 66 to 63 [PROVISIONAL]. At 66 the average
+// player reached e1,000,000 on day 31.5 right at the top of a plateau and then gained nothing for weeks
+// (Overclock Overclocker's second level just out of reach), and e10,000,000 came on day 117.6 with the
+// optimal player under its 115 days; 63 moves both later (32.8 / 119.6 days) so the climb still rises past
+// e1,000,000. (Trying 0.97 of every upgrade step instead kept 66 but left the plateau.)
+export const SOFT_SCALE = 63; // 0.13.11.1 retune: 58 before (e1,000,000 back to about a month)
 export const SOFT_BETA = 0.5;
 
 // ---------------------------------------------------------------------------
@@ -405,8 +414,15 @@ export const TURBO_LEVEL = 10000;
 // resets a long climb; a bar that tracks the last prestige's peak (x2.1 per payout) bit every time but
 // took e10M to 146 days; Fleet-count ladders (Slice 2's x1.18 per Fleet, or x2.2 per payout) stop biting
 // after the finale, where one big payout puts the holdings far above the ladder.
+// 0.14.0 combined pacing retune (Slices 2 to 4): PC_BAR_RATIO 1 to 2, so each Prestigeception must pay
+// twice the Dream Points already held. The Prestigeception climbs then sit about x4.8 apart (at 1 they
+// were x2.7 apart, so one always landed within a step of e1,000,000 or e10,000,000 and reset weeks of
+// climbing: e10,000,000 104 to 166 days across check-ins shifted -2 to +3 hours on the Slice 3 engine).
+// Measured on the way (earlier skill sets): at 2.5 a climb could still land near a goal (e10,000,000 20 days
+// apart between check-in shifts); 3 and above leave four or fewer Prestigeceptions before e10,000,000.
+// The bars still decide (sim.ts simulateBite). FLEET_BAR_RATIO stays 1. [PROVISIONAL]
 export const FLEET_BAR_RATIO = 1;
-export const PC_BAR_RATIO = 1;
+export const PC_BAR_RATIO = 2;
 
 // 3.2 Automations. Each one unlocks at a milestone (user: "Only have the automations at the milestone
 // levels"), never for Skill Points. The six that are skills today keep their ids; autoSkills
@@ -483,6 +499,16 @@ export const PENDING_MILESTONES: readonly PendingMilestoneDef[] = [
 // first Prestigeception (any early milestone) 4.47 / 31.54 / 105.13 and 4.50 / 31.57 / 105.17.
 export const AUTO_BUY_HIGH_MILESTONE: MilestoneId = "singularity";
 
+// [PROVISIONAL] Auto Prestigeception's milestone: the combined pacing retune's one mapping nudge (design 3.2
+// [PROPOSAL] "Prestiged Your Prestige", the first Prestigeception; user 2026-10-28: "the sim may nudge one
+// and reports it"). Granted at "A Respectable Googol" (1e100 Ore, about 1.4 h in), the first Prestigeception
+// fires the moment a climb pays e10,000 instead of at the next check-in, so every player starts the
+// Prestigeception climbs from the same Dream Points and the later ones land on the same exponents: e10,000,000
+// on 114 to 127 days across check-ins shifted -2 to +3 hours (without the nudge, at PC_BAR_RATIO 3: 102 to
+// 144, a shifted first Prestigeception moving every later one; the Slice 3 engine: 104 to 166). Reaching 1e100 first means the popup names Prestigeception before the player
+// has seen one.
+export const AUTO_PC_MILESTONE: MilestoneId = "googol";
+
 // Which milestone unlocks each automation (design 3.2 table, [PROPOSAL] for the beats the user did not
 // name; plan update 2026-10-28 for the last two; user picks 2026-10-28: Auto Captain at a second Fleet
 // Prestige, Auto Fleet at e10,000 Ore, Auto Skill Allocation at 4 Prestigeceptions, Auto-buy Upgrades at
@@ -493,7 +519,7 @@ export const AUTOMATION_UNLOCKS: Readonly<Record<AutomationId, MilestoneId>> = {
   autoBuyLow: "e1000", // "A Thousand Zeros, Give or Take"
   autoCaptain: "secondFleet", // "Fleet Week, the Sequel"
   autoFleet: "e10k", // "Ten Thousand Zeros, Roughly"
-  autoPc: "firstPc", // "Prestiged Your Prestige"
+  autoPc: AUTO_PC_MILESTONE, // [PROVISIONAL] sim nudge, see AUTO_PC_MILESTONE
   autoBuyHigh: AUTO_BUY_HIGH_MILESTONE, // [PROVISIONAL] sim nudge, see AUTO_BUY_HIGH_MILESTONE
   autoUpgrades: "e2m", // "Forever, Twice"
   autoSkills: "pcRegular", // "Frequent Dreamer"
@@ -532,11 +558,14 @@ export type SkillGate =
   | { milestone: AnyMilestoneId }
   | { prestiges: { layer: "captain" | "fleet" | "pc"; count: number; scope: "current" | "lifetime" } };
 
-export const SKILL_GATE_LIFT_PC = 6; // [PROVISIONAL]
+// [PROVISIONAL] 6 before the retune; with PC_BAR_RATIO 2 the average player's 5th Prestigeception comes on
+// day 72 and the 6th only past e10,000,000, so 5 lets the lift happen on the way.
+export const SKILL_GATE_LIFT_PC = 5;
 
 // The scale factor's power: (1 + count)^SKILL_SCALE_POW (design 3.3: exactly 1 at a count of 0, concave,
-// growing, never capped). [PROVISIONAL]
-export const SKILL_SCALE_POW = 0.17;
+// growing, never capped). [PROVISIONAL] 0.1 after the retune (x1.43 from 35 lifetime Fleets, x1.18 from 5
+// Prestigeceptions); 0.17 made every skill too strong (e10,000,000 on day 59 with nothing else changed).
+export const SKILL_SCALE_POW = 0.1;
 
 export interface LeveledSkillDef {
   id: LeveledSkillId;
@@ -554,20 +583,28 @@ export interface LeveledSkillDef {
   replaces?: { skill: SkillId; level: number };
 }
 
+// The combined pacing retune [PROVISIONAL] (Slice 1 started at 79 points: Head Start 3, Tenfold Training 5 at
+// 0.1, Overdrive 4 at 0.025, the three new skills 5 / 5 / 4 at 0.1; that maxed every skill by day 56 with
+// e10,000,000 on day 59). Most Fleets come in the first days (about 29 by day 5) and few late (one every few
+// days after day 75), so most points arrive early: the early levels are small (Tenfold Training and Overdrive
+// reach today's x2.2 and ^1.05 at level 4 of 5, Head Start's 1e10 at level 1 of 2) and the new skills give a
+// little each (+5% a level). The costs total 49, what the average player earns by day 109, so the last point
+// lands 11 days before e10,000,000 (119.6 days) with none spare (a 50th point lands only after day 140: the
+// late Fleets come a week or more apart).
 export const LEVELED_SKILLS: readonly LeveledSkillDef[] = [
   // step: log10 of the starting Ore per level (level 1 = 1e10, today's Head Start)
-  { id: "headStart", name: "Head Start", flavor: "Why start from nothing when you can start from slightly less nothing?", effect: "resets begin with more Ore", cap: 3, costBase: 1, costStep: 1, step: HEAD_START_LOG10, scalesOff: "lifetimeFleets", availableAt: { milestone: "firstFleet" }, replaces: { skill: "headStart", level: 1 } },
-  // step: added to the ten bonus factor per level (2 + 2 x 0.1 = 2.2, today's Ten Bonus x2.2)
-  { id: "tenfoldTraining", name: "Tenfold Training", flavor: "Practice makes tens. Tens make more tens.", effect: "each ten bonus a little stronger", cap: 5, costBase: 1, costStep: 1, step: 0.1, scalesOff: "captainSinceFleet", availableAt: { milestone: "e1000" }, replaces: { skill: "tenBonus", level: 2 } },
-  // step: added to the Ore production power per level (1 + 2 x 0.025 = ^1.05, today's Overdrive)
-  { id: "overdrive", name: "Overdrive", flavor: "Past the red line there is another red line. It is also fine.", effect: "Ore production to a higher power", cap: 4, costBase: 2, costStep: 1, step: 0.025, scalesOff: "lifetimePcs", availableAt: { milestone: "firstPc" }, replaces: { skill: "overdrive", level: 2 } },
+  { id: "headStart", name: "Head Start", flavor: "Why start from nothing when you can start from slightly less nothing?", effect: "resets begin with more Ore", cap: 2, costBase: 1, costStep: 1, step: HEAD_START_LOG10, scalesOff: "lifetimeFleets", availableAt: { milestone: "firstFleet" }, replaces: { skill: "headStart", level: 1 } },
+  // step: added to the ten bonus factor per level (2 + 4 x 0.05 = 2.2, today's Ten Bonus x2.2)
+  { id: "tenfoldTraining", name: "Tenfold Training", flavor: "Practice makes tens. Tens make more tens.", effect: "each ten bonus a little stronger", cap: 5, costBase: 1, costStep: 1, step: 0.05, scalesOff: "captainSinceFleet", availableAt: { milestone: "e1000" }, replaces: { skill: "tenBonus", level: 4 } },
+  // step: added to the Ore production power per level (1 + 4 x 0.0125 = ^1.05, today's Overdrive)
+  { id: "overdrive", name: "Overdrive", flavor: "Past the red line there is another red line. It is also fine.", effect: "Ore production to a higher power", cap: 5, costBase: 1, costStep: 1, step: 0.0125, scalesOff: "lifetimePcs", availableAt: { milestone: "firstPc" }, replaces: { skill: "overdrive", level: 4 } },
   // step: Captain Points earned x (1 + step x level)
-  { id: "captainsAcademy", name: "Captain's Academy", flavor: "Graduates promote faster. Most of them even know which end of the ship is the front.", effect: "more Captain Points per Captain Prestige", cap: 5, costBase: 1, costStep: 1, step: 0.1, scalesOff: "lifetimeFleets", availableAt: { prestiges: { layer: "fleet", count: 2, scope: "current" } } },
+  { id: "captainsAcademy", name: "Captain's Academy", flavor: "Graduates promote faster. Most of them even know which end of the ship is the front.", effect: "more Captain Points per Captain Prestige", cap: 3, costBase: 1, costStep: 1, step: 0.05, scalesOff: "lifetimeFleets", availableAt: { prestiges: { layer: "fleet", count: 2, scope: "current" } } },
   // step: Augment Points earned x (1 + step x level). Player name "Fleet Requisitions" (user pick
   // 2026-10-28: the main game's Homeworld talent branch keeps "Fleet Logistics"); the code id stays.
-  { id: "fleetLogistics", name: "Fleet Requisitions", flavor: "Spreadsheets, but for warships. The admiral finds them deeply soothing.", effect: "more Augment Points per Fleet Prestige", cap: 5, costBase: 1, costStep: 1, step: 0.1, scalesOff: "fleetCount", availableAt: { prestiges: { layer: "fleet", count: 5, scope: "current" } } },
+  { id: "fleetLogistics", name: "Fleet Requisitions", flavor: "Spreadsheets, but for warships. The admiral finds them deeply soothing.", effect: "more Augment Points per Fleet Prestige", cap: 3, costBase: 1, costStep: 1, step: 0.05, scalesOff: "fleetCount", availableAt: { prestiges: { layer: "fleet", count: 5, scope: "current" } } },
   // step: Dream Points earned x (1 + step x level)
-  { id: "lucidPlanning", name: "Lucid Planning", flavor: "You planned this in a dream. The dream had a whiteboard.", effect: "more Dream Points per Prestigeception", cap: 4, costBase: 2, costStep: 1, step: 0.1, scalesOff: "lifetimePcs", availableAt: { prestiges: { layer: "pc", count: 2, scope: "lifetime" } } },
+  { id: "lucidPlanning", name: "Lucid Planning", flavor: "You planned this in a dream. The dream had a whiteboard.", effect: "more Dream Points per Prestigeception", cap: 2, costBase: 1, costStep: 2, step: 0.05, scalesOff: "lifetimePcs", availableAt: { prestiges: { layer: "pc", count: 2, scope: "lifetime" } } },
 ];
 
 function ordinal(n: number): string {

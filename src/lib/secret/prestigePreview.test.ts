@@ -181,7 +181,8 @@ describe("prestige previews", () => {
   it("match real prestiges on engine-built late states (past e1,000,000 and past Starfall)", () => {
     for (const target of [LONG_EXPONENT + 100, STARFALL_EXPONENT + 100]) {
       const s = devJumpTo(freshSecretState(0), target, AT);
-      expect(allSkillsMaxed(s)).toBe(true);
+      // (0.14.0 Slice 4: every skill maxed at e10,000,000; at e1,000,000 the average player's levels)
+      expect(allSkillsMaxed(s)).toBe(target >= STARFALL_EXPONENT);
       let shown = 0;
       for (const layer of ["captain", "fleet", "pc"] as const) {
         if (prestigePreview(s, layer) === null) expect(fire[layer](s, AT)).toBe(s);

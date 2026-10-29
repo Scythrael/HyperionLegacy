@@ -120,7 +120,7 @@ describe("the Prestigeception bar", () => {
     for (let m = 1; m <= 6; m++) {
       s = doPrestigeception(s, T0);
       const bar = pcBarExponent(s);
-      if (m === 1 && PC_BAR_RATIO === 1) expect(bar, `m=${m}`).toBeGreaterThanOrEqual(prev);
+      if (m === 1 && (PC_BAR_RATIO as number) === 1) expect(bar, `m=${m}`).toBeGreaterThanOrEqual(prev);
       else expect(bar, `m=${m}`).toBeGreaterThan(prev);
       expect(prestigeceptionGain(setPeak(cloneSecret(s), below(bar))).eq(0), `m=${m} below`).toBe(true);
       const g = prestigeceptionGain(setPeak(cloneSecret(s), at(bar)));

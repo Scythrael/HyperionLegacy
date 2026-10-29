@@ -203,7 +203,11 @@ describe("every lever moves its consumer", () => {
     s.fleetPeak = new Decimal("1e5000");
     s.pcPeak = new Decimal("1e50000");
     const near = (a: Decimal, b: Decimal) => expect(a.div(b).toNumber()).toBeCloseTo(big, 3);
-    near(captainGain(withBoosts(s, { captain: big })), captainGain(s));
+    // (0.14.0 retune: Captain gains below the finale are small at CP_K 0.18, so the Captain check holds Dream
+    // Points for a payout big enough that the floor cannot hide the boost)
+    const c = cloneSecret(s);
+    c.dreamPoints = new Decimal("1e30");
+    near(captainGain(withBoosts(c, { captain: big })), captainGain(c));
     near(fleetGain(withBoosts(s, { augment: big })), fleetGain(s));
     near(prestigeceptionGain(withBoosts(s, { dream: big })), prestigeceptionGain(s));
   });

@@ -35,6 +35,7 @@ import {
   OVERDRIVE_POWER,
   milestoneRewardLine,
   AUTO_BUY_HIGH_MILESTONE,
+  AUTO_PC_MILESTONE,
 } from "./config";
 import { SAVE_KEY } from "../game/save";
 import { installMemoryStorage, installBlockedStorage, restoreStorage } from "./testStorage";
@@ -456,8 +457,9 @@ describe("0.14.0 prestige redesign: config data (Slice 1)", () => {
       expect(AUTOMATION_NAMES[id].length, id).toBeGreaterThan(0);
     }
     // the design's mapping for the beats it names
-    // (Slice 3: Auto-buy V to VIII is the one mapping the sim nudged, AUTO_BUY_HIGH_MILESTONE)
-    expect(AUTOMATION_UNLOCKS).toMatchObject({ autoOverclock: "firstFleet", autoBuyLow: "e1000", autoPc: "firstPc", autoBuyHigh: AUTO_BUY_HIGH_MILESTONE, autoUpgrades: "e2m" });
+    // (Slice 3 kept Auto-buy V to VIII at its design milestone, AUTO_BUY_HIGH_MILESTONE; the combined pacing
+    // retune nudged Auto Prestigeception, AUTO_PC_MILESTONE)
+    expect(AUTOMATION_UNLOCKS).toMatchObject({ autoOverclock: "firstFleet", autoBuyLow: "e1000", autoPc: AUTO_PC_MILESTONE, autoBuyHigh: AUTO_BUY_HIGH_MILESTONE, autoUpgrades: "e2m" });
     // one automation per milestone, so each popup names exactly one unlock
     expect(new Set(Object.values(AUTOMATION_UNLOCKS)).size).toBe(AUTOMATION_IDS.length);
   });
