@@ -282,3 +282,32 @@ motion. Names, user verbatim: "I like "Faster than Light" as a title. The other 
 you're moving at sublight speeds. Or perhaps "Sublight Stroll". Yeah. "Sublight Stroll" and "Faster Than Light"." So:
 the e25M prize is "Faster Than Light"; the future starfield-drift unlock (the mockup's Cruise mode) is "Sublight
 Stroll" (unlock not yet decided; logged for later).
+
+## Background visualizations as an unlock track (user, 2026-10-29, verbatim)
+
+"It's more prizes to unlock so we keep the awarding of these separate, I was thinking of having a configuration panel for
+each visualization style where the user selects one or the other haha. But, here's an idea. Still able to use some of it.
+We do for the visualization what we did for the style. When you unlock one, you get access to that visualization style.
+For this one, we could call it something like "Starfield" but not that. Perhaps a play on the processes. I have a few ideas
+already. This starfield idea which is the starfield movement like we already have. Faster Than Light is the unlock for
+e25m. Perhaps "Starlight Stroll" (that's even better than sublight stroll) could be saved for something else that we can
+build into the achievement patch. Another idea would be various star types, by class. Pulsar, magenetar, yellow dwarf
+(because we [heart] the Sol system), red dwarf. Sol's eventual fate as a red giant. Neutron star. Etc. Plus some other
+visualization ideas that get unlocks later. Doesn't have to be a space effect. Could even be fractal generation and other
+things as well. As long as they don't look gaudy.
+What you mocked up is what the e25m prize is what I envision. The background visualization style and a configure button
+next to it. When you click the configure button, you have the same panel, with some customization. If we want to go
+faster, we can. If we want slower, we can, etc. If there are other visualizations, the buttons are grayed out with Locked
+on them."
+
+Reading (to play back):
+1. Background visualizations become an unlock track, like theme styles: Settings > UI gets a "Background" choice; each
+   visualization is unlocked separately (prizes kept separate) and the player picks one (or none).
+2. Next to the choice, a Configure button opens a panel like the mockup's controls, per visualization (for Faster Than
+   Light: speed from slow to fast, and similar options), the still version for reduced motion.
+3. Locked visualizations show as grayed-out buttons reading "Locked".
+4. 0.14.0 ships the track plus its first entry: Faster Than Light (the e25M prize, exactly the mockup, with speed
+   configurable). "Starlight Stroll" (renamed from Sublight Stroll; the slow drift through a starfield) is saved for the
+   achievements patch (0.14.3).
+5. Future ideas: star types by class (pulsar, magnetar, yellow dwarf for Sol, red dwarf, Sol's fate as a red giant,
+   neutron star, etc.), and non-space effects such as fractal generation; never gaudy.
