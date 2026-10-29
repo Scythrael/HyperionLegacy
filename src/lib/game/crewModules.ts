@@ -39,6 +39,7 @@ import { SHIP_TYPES, moduleEffectScale } from "./model";
 import { equippedFor } from "./equipmentQueries";
 import { officerRankMagnitudeFactor } from "./seniorStaff";
 import { viewPieceEfficiency } from "./gearWear";
+import { diminishing } from "./diminishing";
 
 // ============================================================================
 // Rarity/quality effect scale (shared by both module kinds)
@@ -47,6 +48,32 @@ import { viewPieceEfficiency } from "./gearWear";
 // moduleEffectScale and its two steps MOVED to model.ts (E-MOD EM-5: the universal modules' power output folds in
 // equipmentStatMods there, which cannot import this file). Re-exported here unchanged, so every importer keeps working.
 export { MODULE_RARITY_STEP, MODULE_QUALITY_STEP, moduleEffectScale } from "./model";
+
+// WR-7 (OC-D3, user 2026-10-15 "They scale the module (Recommended)", "Crew Stations also adds capacity"): a crew
+// module's rolled CREW STATIONS and CREW EFFICIENCY lines (the bridge's signature crewEfficiency; the quarters'
+// signature crewStations and its crewEfficiency affix) scale the module's effect: their points, summed, lift its boost
+// on the D23 curve, x (1 + diminishing(points, CREW_MODULE_LINE_KNEE) / CREW_MODULE_LINE_KNEE), about +1% per point at
+// first and never capped. A Crew Stations line ALSO adds that many berths (CREW_STATIONS_BERTHS_PER_POINT each, a count
+// that never wears, gearWear.ts WEAR_EXEMPT_LINES), on top of the module's own capacity. A piece without the lines
+// reads x1 and +0, so every module minted before the lines rolled acts exactly as before.
+// [PROVISIONAL] both sizes (no number was asked): the knee 100 points, one berth per point.
+export const CREW_MODULE_LINE_KNEE = 100;
+export const CREW_STATIONS_BERTHS_PER_POINT = 1;
+
+function linePoints(piece: EquipmentInstance, stat: string): number {
+  return Math.max(0, (piece.implicitStats[stat] ?? 0) + (piece.rolledStats[stat] ?? 0));
+}
+
+// The x factor a crew module's Crew Stations + Crew Efficiency lines apply to its effect (1 without them). Pure.
+export function crewModuleLineScale(piece: EquipmentInstance): number {
+  const points = linePoints(piece, "crewStations") + linePoints(piece, "crewEfficiency");
+  return points > 0 ? 1 + diminishing(points, CREW_MODULE_LINE_KNEE) / CREW_MODULE_LINE_KNEE : 1;
+}
+
+// The berths a crew module's Crew Stations line adds (0 without it). Pure.
+export function crewStationsBerths(piece: EquipmentInstance): number {
+  return Math.round(linePoints(piece, "crewStations") * CREW_STATIONS_BERTHS_PER_POINT);
+}
 
 // ============================================================================
 // Quarters modules (10): 6 division-focused + 3 general + the Guest Wing (G1-1)
@@ -276,7 +303,8 @@ export function installedBridgeModule(state: GameState, ship: ShipInstance): Ins
 export function quartersProfessionMultiplier(mod: InstalledQuartersModule, profession: CrewProfession): number {
   // GEAR WEAR step 3: a worn module boosts at its efficiency where a run reads it (gearWear.ts viewPieceEfficiency, 1 on
   // a stored piece). Its capacity is a count and never wears (quartersCapacityBonus).
-  const scale = moduleEffectScale(mod.instance.rarity, mod.instance.quality, mod.instance.ascension) * viewPieceEfficiency(mod.instance);
+  // WR-7 (OC-D3): x its Crew Stations and Crew Efficiency lines (crewModuleLineScale).
+  const scale = moduleEffectScale(mod.instance.rarity, mod.instance.quality, mod.instance.ascension) * viewPieceEfficiency(mod.instance) * crewModuleLineScale(mod.instance);
   const raw =
     mod.def.kind === "division"
       ? profession === mod.def.division
@@ -290,11 +318,14 @@ export function quartersProfessionMultiplier(mod: InstalledQuartersModule, profe
 // / autoCrewShip as bonusCapacity). 0 when no quarters module is installed. FIXED (the catalog base)
 // for every module EXCEPT the Efficient module, whose capacity SCALES with rarity/quality (the one
 // capacity-principle exception). Pure.
+// WR-7 (OC-D3): plus the berths of its Crew Stations line (crewStationsBerths); OC-D7: the whole bonus spreads across
+// the division caps by the hull's role weights (commandStructure.ts commandStructureWithBonus).
 export function quartersCapacityBonus(state: GameState, ship: ShipInstance): number {
   const mod = installedQuartersModule(state, ship);
   if (!mod) return 0;
-  if (!mod.def.capacityScales) return mod.def.baseCapacity;
-  return Math.round(mod.def.baseCapacity * moduleEffectScale(mod.instance.rarity, mod.instance.quality, mod.instance.ascension));
+  const stations = crewStationsBerths(mod.instance);
+  if (!mod.def.capacityScales) return mod.def.baseCapacity + stations;
+  return Math.round(mod.def.baseCapacity * moduleEffectScale(mod.instance.rarity, mod.instance.quality, mod.instance.ascension)) + stations;
 }
 
 // The output multiplier a bridge module applies to ONE officer's contribution, given the hull's role.
@@ -307,7 +338,8 @@ export function bridgeOfficerMultiplier(
   hullSpec: ShipSpec,
 ): number {
   // GEAR WEAR step 3: a worn bridge module amplifies at its efficiency where a run reads it (gearWear.ts).
-  const scale = moduleEffectScale(mod.instance.rarity, mod.instance.quality, mod.instance.ascension) * viewPieceEfficiency(mod.instance);
+  // WR-7 (OC-D3): x its Crew Efficiency signature line (crewModuleLineScale).
+  const scale = moduleEffectScale(mod.instance.rarity, mod.instance.quality, mod.instance.ascension) * viewPieceEfficiency(mod.instance) * crewModuleLineScale(mod.instance);
   switch (mod.def.kind) {
     case "balanced":
       return 1 + mod.def.amp * scale;

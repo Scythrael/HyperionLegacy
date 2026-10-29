@@ -30,7 +30,7 @@
 // not built) and Science-officer / Science-division sensor AMPLIFICATION (belongs with the crew overlay
 // + exploration). This file is the sensor ITEM only.
 
-import type { GameState, ShipInstance, EquipmentInstance, EquipmentRarity, EquipmentAscension } from "./model";
+import type { GameState, ShipInstance, EquipmentInstance } from "./model";
 import { equippedFor } from "./equipment";
 // Reuse the crew modules' rarity/quality effect scale: it is the identical "standard/q0 == 1.0, richer
 // amplifies" curve a sensor wants, so a second copy of the same constants would only risk drift. It is a
@@ -244,9 +244,5 @@ export function sensorArrayCanisterBandLift(installed: InstalledSensorArray | nu
   return installed.def.canisterBandLift * moduleEffectScale(installed.instance.rarity, installed.instance.quality, installed.instance.ascension) * viewPieceEfficiency(installed.instance);
 }
 
-// A convenience direct scale reader (rarity/quality -> effect scale), so a consumer that only needs the
-// scalar can avoid resolving the full effect object. Pure passthrough to the shared curve. Unused this
-// patch (dormant), kept for symmetry with the crew-module readers.
-export function sensorEffectScale(rarity: EquipmentRarity, quality: number, ascension: EquipmentAscension = "none"): number {
-  return moduleEffectScale(rarity, quality, ascension);
-}
+// (WR-7: `sensorEffectScale`, a passthrough to moduleEffectScale with no caller, was deleted; every array reader above
+// scales through moduleEffectScale directly.)

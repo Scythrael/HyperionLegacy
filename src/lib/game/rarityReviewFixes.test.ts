@@ -89,8 +89,10 @@ describe("fix 1: secondaries and Artisan land on lines the piece can use", () =>
     };
     expect(share(undefined)).toBeGreaterThan(0.86);
     expect(share(undefined)).toBeLessThan(0.94);
-    expect(share({ b: 9 })).toBeGreaterThan(0.45);
-    expect(share({ b: 9 })).toBeLessThan(0.55);
+    expect(share({ a: 1, b: 9 })).toBeGreaterThan(0.45);
+    expect(share({ a: 1, b: 9 })).toBeLessThan(0.55);
+    // WR-7 (OC-D6 "Unlisted = never rolls"): a stat the ratios do not list is never a secondary.
+    expect(share({ b: 9 })).toBe(0);
   });
 
   it("over 2000 Luminous bridge, sensor and reactor mints every secondary lands on a line the piece keeps", () => {

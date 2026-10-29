@@ -2,6 +2,7 @@
 // docs/plans/2026-10-17-gas-giant-study-plan.md section GG-7; user calls 7, 10 and 11). The pre-GG-7 pins are in
 // gasGiantSpecialsGoldens.test.ts; this file proves what GG-7 adds.
 
+import { makeRng } from "./combat/rng";
 import { describe, expect, it } from "vitest";
 import { gearWearOffInThisFile } from "./gearWearSwitch.fixture";
 gearWearOffInThisFile();
@@ -168,10 +169,14 @@ describe("GG-7: the special blueprints (user call 11, \"Three now\")", () => {
     let kPlain = 0;
     for (let seed = 1; seed <= 200; seed++) {
       const mint = (key: string) => {
-        let x = seed * 7919;
-        const rng = () => ((x = (x * 16807) % 2147483647) - 1) / 2147483646;
+        // WR-7: a well-mixed stream (the old Park-Miller start from seed x 7919 drew nearly the same low first values every
+        // seed, so the picks walked the pool in order; it read the lean only while unlisted stats crowded the pool), at
+        // Standard rarity (two affixes): since "Unlisted = never rolls" a Stellar piece draws three of the plating's six
+        // listed lines, which blurs any lean.
+        const stream = makeRng(seed * 2 + 1);
+        const rng = () => stream.next();
         const out = BLUEPRINTS[key].equipmentOutput!;
-        return generateEquipment({ slotType: out.slotType, varietyKey: out.varietyKey, blueprintKey: key, iLevel: 20, quality: 0, rarity: "stellar", ascension: "none", rng, allocateId: () => key });
+        return generateEquipment({ slotType: out.slotType, varietyKey: out.varietyKey, blueprintKey: key, iLevel: 20, quality: 0, rarity: "standard", ascension: "none", rng, allocateId: () => key });
       };
       const forged = mint("pressureForgedPlatingBp");
       expect(forged.slotType).toBe("hullPlating");

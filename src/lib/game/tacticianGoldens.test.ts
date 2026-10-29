@@ -150,22 +150,22 @@ const TACTICIAN: readonly SecondaryTalentKey[] = [
 // repair column now reads shipyardRepairSpeedBonus, which equals the capture's officerRepairSpeedBonus without a node.
 // [patrol dispatch, patrol replay @12 s, @25 s, patrol final state, event profile, event battle, repair ticks]
 const GOLDEN: Record<string, string[]> = {
-  none: ["5178250e", "f8d1a282", "19067d1b", "43013dc9", "8481e801", "4e0baba", "156"],
-  gunnery1: ["abe30654", "81d7f014", "8da17c63", "50194f86", "cbc8ed0f", "2c30cf99", "156"],
-  gunnery2: ["50587d54", "40617fd0", "d43cf5be", "b12b0125", "31705a4f", "ca5a56e9", "156"],
-  gunnery3: ["a4cd49b5", "7d714225", "e46145c1", "e7b5da0", "735b160c", "72590ef7", "156"],
-  gunnery4: ["7b3dd517", "bf39cec3", "877a6163", "e82f99e7", "be50d026", "5e616e80", "156"],
-  gunnery5: ["b6f24926", "f0ee4404", "fb6de65b", "a24252b2", "b7043659", "59d805c3", "156"],
-  aegis1: ["d18d435", "fd56a76d", "2df986df", "a4382707", "e3f7ae00", "447844fd", "156"],
-  aegis2: ["59d4caa0", "ed78e89", "3fdc527a", "9604a23e", "a458ca07", "3fd9b84a", "156"],
-  aegis3: ["834d9263", "f8d1a282", "19067d1b", "a31ca87d", "553e6bd1", "4e0baba", "145"],
-  aegis4: ["4fb28b28", "cb5b44ca", "e563b729", "8a41a126", "97d18d69", "3cce7bd5", "156"],
-  aegis5: ["9fe233a3", "2751e4da", "d3812e73", "d802aceb", "e2856ce2", "21768082", "156"],
-  fleetOps1: ["36f4dbfc", "28ce5790", "93298185", "ff5f4d56", "242c913d", "701d030", "156"],
-  fleetOps2: ["b5d4acc4", "c057b657", "81dac34d", "c16cb235", "b26c8eca", "3930570f", "156"],
-  fleetOps3: ["7ce825b2", "f8d1a282", "19067d1b", "cfd67a94", "f812afa5", "4e0baba", "156"],
-  fleetOps4: ["c732f35c", "38cc1e5e", "7fc698ab", "bc73e8f7", "fce1f1cc", "fb47a727", "156"],
-  fleetOps5: ["af9ef029", "91dc42b", "298a80f8", "63adff7", "1837c35f", "854a268", "156"],
+  none: ["5178250e", "f8d1a282", "19067d1b", "43013dc9", "469fe665", "4e0baba", "156"],
+  gunnery1: ["abe30654", "81d7f014", "8da17c63", "50194f86", "e8b2918b", "2c30cf99", "156"],
+  gunnery2: ["50587d54", "40617fd0", "d43cf5be", "b12b0125", "1c2886cb", "ca5a56e9", "156"],
+  gunnery3: ["a4cd49b5", "7d714225", "e46145c1", "e7b5da0", "85bce386", "72590ef7", "156"],
+  gunnery4: ["7b3dd517", "bf39cec3", "877a6163", "e82f99e7", "4d4f79e0", "5e616e80", "156"],
+  gunnery5: ["b6f24926", "f0ee4404", "fb6de65b", "a24252b2", "8ac2417d", "59d805c3", "156"],
+  aegis1: ["d18d435", "fd56a76d", "2df986df", "a4382707", "3479f2a2", "447844fd", "156"],
+  aegis2: ["59d4caa0", "ed78e89", "3fdc527a", "9604a23e", "598dda03", "3fd9b84a", "156"],
+  aegis3: ["834d9263", "f8d1a282", "19067d1b", "a31ca87d", "6be2ff35", "4e0baba", "145"],
+  aegis4: ["4fb28b28", "cb5b44ca", "e563b729", "8a41a126", "1284e9cd", "3cce7bd5", "156"],
+  aegis5: ["9fe233a3", "2751e4da", "d3812e73", "d802aceb", "f86c7e34", "21768082", "156"],
+  fleetOps1: ["36f4dbfc", "28ce5790", "93298185", "ff5f4d56", "c93fb19", "701d030", "156"],
+  fleetOps2: ["b5d4acc4", "c057b657", "81dac34d", "c16cb235", "815c953c", "3930570f", "156"],
+  fleetOps3: ["7ce825b2", "f8d1a282", "19067d1b", "cfd67a94", "9bc512a1", "4e0baba", "156"],
+  fleetOps4: ["c732f35c", "38cc1e5e", "7fc698ab", "bc73e8f7", "40785546", "fb47a727", "156"],
+  fleetOps5: ["af9ef029", "91dc42b", "298a80f8", "63adff7", "49f066db", "854a268", "156"],
 };
 
 describe("WR-5b tactician goldens", () => {

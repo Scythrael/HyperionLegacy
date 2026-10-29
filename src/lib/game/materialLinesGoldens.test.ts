@@ -145,7 +145,7 @@ const GOLDEN = {
   ],
   refine: "fd293beb:3",
   fabricate: "42704bb2:2",
-  inspect: ["9c3d1516:0", "3dea091e", "d3741ac8"],
+  inspect: ["9c3d1516:0", "fbfbd399", "54315757"],
   // Re-pinned by ML-3 (by design: this is the seam it turns on; the rig's climb lifts part of each delivery one
   // quality step, the shared draw count is unchanged). The ML-0 capture is ML0_RIG; the rig's climb chance at 0
   // (withMaterialQualityOff) reproduces it (asserted below).

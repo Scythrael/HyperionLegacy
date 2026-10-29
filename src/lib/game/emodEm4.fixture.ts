@@ -4,10 +4,13 @@
 // Every core is a REAL mint (itemgen.ts generateEquipment, a pure function of its inputs), so a pin taken on one is a
 // pin on what a player can craft:
 //   ref : the B10 reference, a Standard-quality tier 1 core at the tier's top item level (20), Standard rarity, the
-//         WORST roll over 400 seeds (the lowest power output, then the heaviest): its two rolled lines missed both
-//         powerOutput and massReduction, so it carries the full base mass 12 and only its signature output.
+//         WORST roll over 400 seeds (the lowest power output, then the heaviest), carrying the full base mass 12. WR-7
+//         (OC-D6 "Unlisted = never rolls"): a Balanced Core lists massReduction, so its worst roll is no longer full
+//         mass; the reference is the worst High-Output Core, which lists no mass relief and always carries mass 12.
 //   mid : a Balanced Core at item level 10, Standard quality and rarity (a mid-early craft).
-//   top : a High-Output Core at item level 40 (the tier 2 cap), quality 5, Radiant: the strongest core 0.14.0 can mint.
+//   top : the strongest core 0.14.0 can mint, at item level 40 (the tier 2 cap), quality 5, Radiant. WR-7 (OC-D6): an
+//         Efficient Core (its mass relief takes it to mass 0); a High-Output Core lists no mass relief since WR-7, so
+//         its mass now eats most of its lift (+11% at best, against +35% for this one).
 
 import { equipmentStatMods, type EquipmentInstance, type GameState } from "./model";
 import { generateEquipment } from "./itemgen";
@@ -61,11 +64,11 @@ export function worstCore(varietyKey: string, iLevel: number): EquipmentInstance
 export function em4Core(name: Em4CoreName): EquipmentInstance {
   switch (name) {
     case "ref":
-      return worstCore("balancedCore", 20);
+      return worstCore("highOutputCore", 20);
     case "mid":
       return mintCore("balancedCore", 10, 0, "standard", 0x4d1d);
     case "top":
-      return mintCore("highOutputCore", 40, 5, "radiant", 0x70b5);
+      return mintCore("efficientCore", 40, 5, "radiant", 0x70b5);
   }
 }
 

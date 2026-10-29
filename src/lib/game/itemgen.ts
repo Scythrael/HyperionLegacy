@@ -391,7 +391,7 @@ export function rollRarityExtras(
       .filter((e) => e.stat !== "groundCarryCapacity")
       .map((e) => {
         const add = rolledLineValue(e.stat, each);
-        const w = Math.round((e.weight ?? 1) * (ctx.statRatios?.[e.stat] ?? 1) * EXTRAS_WEIGHT_SCALE);
+        const w = Math.round((e.weight ?? 1) * varietyStatBias(ctx.statRatios, e.stat) * EXTRAS_WEIGHT_SCALE);
         return { stat: e.stat, add, w: absorbs(e.stat, (rolledStats[e.stat] ?? 0) + add) ? Math.max(0, w) : 0 };
       })
       .filter((e) => e.w > 0);
@@ -426,16 +426,26 @@ export function legendaryAffixLineValue(def: LegendaryAffixDef, budget: number):
 // Task 6: rollDistinctAffixStats
 // ----------------------------------------------------------------------------
 // Pick `count` DISTINCT stats from the slot's affix pool, weighted by
-// (base pool weight * variety bias), where variety bias = variety.statRatios[stat]
-// if the variety lists that stat, else 1 (a stat the variety does not bias keeps
-// its raw pool weight). Selection is WITHOUT replacement: after each pick the stat
+// (base pool weight * variety bias), where variety bias = varietyStatBias (WR-7, OC-D6
+// "Unlisted = never rolls": the variety's ratio for a listed stat, 0 for an unlisted one,
+// 1 for every stat of a variety with an EMPTY statRatios). A stat at weight 0 is not a
+// candidate at all. Selection is WITHOUT replacement: after each pick the stat
 // is removed from the candidate set so no item ever carries a duplicate stat line.
 //
 // Determinism: exactly ONE rng draw per pick, walking the cumulative-weight line,
 // so a fixed rng stream always yields the same ordered picks. If the pool has fewer
-// distinct stats than `count`, we return everything the pool can offer (never throw,
-// never pad).
+// eligible stats than `count`, we return everything the pool can offer (never throw,
+// never pad); the generator then spreads the affix share over the lines that exist.
 // ============================================================================
+// WR-7 (OC-D6, user 2026-10-15 "Unlisted = never rolls"; B11 fixed): a variety's bias on one pool stat. A variety
+// with statRatios lists everything it rolls: its ratio for a listed stat, 0 for an unlisted one (so a Hauler Hold,
+// "none into mass", never rolls mass relief). An EMPTY statRatios (crew modules, sensor arrays, weapons, pods: their
+// power is catalog-driven, not budget-biased) is neutral: every pool stat at its raw weight. Pure.
+export function varietyStatBias(statRatios: Readonly<Record<string, number>> | undefined, stat: string): number {
+  if (statRatios === undefined || Object.keys(statRatios).length === 0) return 1;
+  return statRatios[stat] ?? 0;
+}
+
 export function rollDistinctAffixStats(
   affixPool: { stat: string; weight: number }[],
   variety: EquipmentVarietyDef,
@@ -443,11 +453,13 @@ export function rollDistinctAffixStats(
   rng: () => number
 ): string[] {
   // Build the biased candidate list ONCE. We mutate this local copy (splice out
-  // picks); the caller's affixPool is never touched.
-  const candidates = affixPool.map((entry) => ({
-    stat: entry.stat,
-    weight: entry.weight * (variety.statRatios[entry.stat] ?? 1),
-  }));
+  // picks); the caller's affixPool is never touched. WR-7: an unlisted stat is not a candidate.
+  const candidates = affixPool
+    .map((entry) => ({
+      stat: entry.stat,
+      weight: entry.weight * varietyStatBias(variety.statRatios, entry.stat),
+    }))
+    .filter((c) => c.weight > 0);
 
   const picks: string[] = [];
   // Cannot pick more distinct stats than the pool holds.

@@ -23,7 +23,6 @@ export const FIELD_ROLES: Readonly<Record<string, Readonly<Record<string, FieldR
     fuelCapacity: "effect",
     engineEfficiency: "effect",
     moduleSlots: "effect",
-    equipmentSlots: "effect",
     hullIntegrity: "effect",
     shieldCapacity: "effect",
     shieldRecharge: "effect",

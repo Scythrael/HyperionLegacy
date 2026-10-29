@@ -16,10 +16,10 @@
 // Everything here is PURE and DORMANT: nothing is wired into tick.ts, shipDerivedStats, or the UI.
 // The auto-crew filler (autoCrew.ts) and the later "crew goes live" overlay read these caps. ALL
 // numbers are FIRST-PASS + TUNABLE launch placeholders, the same posture as SHIP_TYPES' other stats.
-// The crew-quarters module (not built yet) will later RAISE the total via a bonusCapacity hook (the
-// reserved `crewStations` stat, model.ts RESERVED_STAT_KEYS); every total-cap reader already accepts
-// it, defaulting to 0. See docs/plans/2026-09-22-crew-0.14.0-plan.md ("Rank ladder + command
-// structure", Phase 2).
+// A crew-quarters module RAISES the total via the bonusCapacity hook (crewModules.ts quartersCapacityBonus: the
+// module's own berths plus its Crew Stations line); since WR-7 (OC-D7) the bonus also spreads across the division and
+// rank caps by the hull's role weights (commandStructureWithBonus). Every reader defaults it to 0. See
+// docs/plans/2026-09-22-crew-0.14.0-plan.md ("Rank ladder + command structure", Phase 2).
 
 import type {
   CrewProfession,
@@ -143,9 +143,16 @@ const STRUCTURE_CACHE = new Map<ShipTypeKey, CommandStructure>();
 export function commandStructureForHull(hullType: ShipTypeKey): CommandStructure {
   const cached = STRUCTURE_CACHE.get(hullType);
   if (cached) return cached;
+  const structure = buildStructure(hullType, 0);
+  STRUCTURE_CACHE.set(hullType, structure);
+  return structure;
+}
 
+// The template on `total` = the hull base + `bonus`: the division caps are the role weights of that total, each split
+// into ranks by the pyramid. Pure.
+function buildStructure(hullType: ShipTypeKey, bonus: number): CommandStructure {
   const def = SHIP_TYPES[hullType];
-  const total = Math.max(0, Math.round(SPEC_BASE_TOTAL[def.spec] * tierMultiplier(def.tier)));
+  const total = Math.max(0, Math.round(SPEC_BASE_TOTAL[def.spec] * tierMultiplier(def.tier))) + bonus;
   const weights = SPEC_DIVISION_WEIGHTS[def.spec];
 
   const divisions = {} as Record<CrewProfession, DivisionTemplate>;
@@ -153,9 +160,24 @@ export function commandStructureForHull(hullType: ShipTypeKey): CommandStructure
     const cap = Math.max(0, Math.round(total * weights[profession]));
     divisions[profession] = { cap, rankAllocations: allocateRanks(cap) };
   }
+  return { hullType, total, divisions };
+}
 
-  const structure: CommandStructure = { hullType, total, divisions };
-  STRUCTURE_CACHE.set(hullType, structure);
+// WR-7 (OC-D7, user 2026-10-15 "Spread across divisions"; B22 fixed): the command structure of a hull whose quarters
+// module adds `bonusCapacity` berths. The bonus raises the total AND spreads across the division caps by the hull's
+// role weights (the division and rank caps are the template on the larger total), so a quarters module's berths can
+// actually be filled (before WR-7 only the total rose and the division caps still bound: +0 or +1 berth). A bonus of
+// 0 or less is the hull's own cached template (byte-identical for every ship without a quarters module). Cached per
+// (hull, bonus). Pure (returns a shared instance; callers must not mutate it).
+const BONUS_STRUCTURE_CACHE = new Map<string, CommandStructure>();
+export function commandStructureWithBonus(hullType: ShipTypeKey, bonusCapacity = 0): CommandStructure {
+  const bonus = Math.max(0, Math.round(Number.isFinite(bonusCapacity) ? bonusCapacity : 0));
+  if (bonus === 0) return commandStructureForHull(hullType);
+  const key = `${hullType}:${bonus}`;
+  const cached = BONUS_STRUCTURE_CACHE.get(key);
+  if (cached) return cached;
+  const structure = buildStructure(hullType, bonus);
+  BONUS_STRUCTURE_CACHE.set(key, structure);
   return structure;
 }
 
@@ -163,29 +185,28 @@ export function commandStructureForHull(hullType: ShipTypeKey): CommandStructure
 // Pure cap readers
 // ============================================================================
 
-// The ship TOTAL complement cap for a hull, plus any module capacity bonus (the future crew-quarters
-// module hook; the reserved `crewStations` stat). bonusCapacity defaults to 0 (no module), so today
-// this returns the pure hull base. Pure.
+// The ship TOTAL complement cap for a hull, plus any quarters module capacity bonus (crewModules.ts
+// quartersCapacityBonus). bonusCapacity defaults to 0 (no module): the pure hull base. Pure.
 export function complementTotalCap(hullType: ShipTypeKey, bonusCapacity = 0): number {
   return commandStructureForHull(hullType).total + Math.max(0, bonusCapacity);
 }
 
-// A division's absolute cap on a hull. Pure.
-export function divisionCap(hullType: ShipTypeKey, profession: CrewProfession): number {
-  return commandStructureForHull(hullType).divisions[profession].cap;
+// A division's absolute cap on a hull (WR-7: with a quarters bonus spread by the role weights). Pure.
+export function divisionCap(hullType: ShipTypeKey, profession: CrewProfession, bonusCapacity = 0): number {
+  return commandStructureWithBonus(hullType, bonusCapacity).divisions[profession].cap;
 }
 
-// A division's raw (non-inclusive) allocation AT exactly `rank`. Pure.
-export function rankAllocation(hullType: ShipTypeKey, profession: CrewProfession, rank: CrewRank): number {
-  return commandStructureForHull(hullType).divisions[profession].rankAllocations[rank];
+// A division's raw (non-inclusive) allocation AT exactly `rank` (WR-7: with a quarters bonus). Pure.
+export function rankAllocation(hullType: ShipTypeKey, profession: CrewProfession, rank: CrewRank, bonusCapacity = 0): number {
+  return commandStructureWithBonus(hullType, bonusCapacity).divisions[profession].rankAllocations[rank];
 }
 
 // The INCLUSIVE per-rank cap: the maximum crew a division may hold at `rank` OR HIGHER = the sum of
 // the division's allocations for every rank >= `rank`. This is the cascading cap: high-rank capacity
 // unused by high ranks rolls down to the lower ranks. At the lowest rank it equals the division total.
-// Pure.
-export function inclusiveRankCap(hullType: ShipTypeKey, profession: CrewProfession, rank: CrewRank): number {
-  const alloc = commandStructureForHull(hullType).divisions[profession].rankAllocations;
+// WR-7: with a quarters bonus spread by the role weights. Pure.
+export function inclusiveRankCap(hullType: ShipTypeKey, profession: CrewProfession, rank: CrewRank, bonusCapacity = 0): number {
+  const alloc = commandStructureWithBonus(hullType, bonusCapacity).divisions[profession].rankAllocations;
   let sum = 0;
   for (const r of CREW_RANK_ORDER) {
     if (r >= rank) sum += alloc[r];
@@ -228,13 +249,15 @@ export function remainingTotalCapacity(complement: ShipComplement, hullType: Shi
   return Math.max(0, complementTotalCap(hullType, bonusCapacity) - totalHeadcount(complement.buckets));
 }
 
-// How many MORE crew a division can hold before hitting its DIVISION cap. Never negative.
+// How many MORE crew a division can hold before hitting its DIVISION cap (WR-7: with the quarters bonus spread across
+// the divisions). Never negative.
 export function remainingDivisionCapacity(
   complement: ShipComplement,
   hullType: ShipTypeKey,
   profession: CrewProfession,
+  bonusCapacity = 0,
 ): number {
-  return Math.max(0, divisionCap(hullType, profession) - countInDivision(complement.buckets, profession));
+  return Math.max(0, divisionCap(hullType, profession, bonusCapacity) - countInDivision(complement.buckets, profession));
 }
 
 // How many MORE crew of exactly `rank` (in `profession`) the INCLUSIVE rank caps permit. Because a
@@ -246,11 +269,12 @@ export function remainingRankCapacity(
   hullType: ShipTypeKey,
   profession: CrewProfession,
   rank: CrewRank,
+  bonusCapacity = 0,
 ): number {
   let limit = Infinity;
   for (const t of CREW_RANK_ORDER) {
     if (t > rank) continue; // a rank-R crewmember only counts toward thresholds T <= R
-    const room = inclusiveRankCap(hullType, profession, t) - countAtRankOrHigher(complement.buckets, profession, t);
+    const room = inclusiveRankCap(hullType, profession, t, bonusCapacity) - countAtRankOrHigher(complement.buckets, profession, t);
     if (room < limit) limit = room;
   }
   return Math.max(0, limit === Infinity ? 0 : limit);
@@ -267,8 +291,8 @@ export function remainingCapacityForSignature(
 ): number {
   return Math.min(
     remainingTotalCapacity(complement, hullType, bonusCapacity),
-    remainingDivisionCapacity(complement, hullType, signature.profession),
-    remainingRankCapacity(complement, hullType, signature.profession, signature.rank),
+    remainingDivisionCapacity(complement, hullType, signature.profession, bonusCapacity),
+    remainingRankCapacity(complement, hullType, signature.profession, signature.rank, bonusCapacity),
   );
 }
 

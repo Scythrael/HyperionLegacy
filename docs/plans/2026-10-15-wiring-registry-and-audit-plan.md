@@ -1218,6 +1218,57 @@ hull description truth (OC-D13), `sensorEffectScale`. The power budget (OC-D1) i
 in this slice; otherwise it stays in E-MOD and its entries stay `pending` on E-MOD. Goldens first (ship sheet for every
 hull with every line, the CP-0 pattern).
 
+#### WR-7 carry note (built 2026-10-29 on 4ff232e; two commits: goldens, then the wiring; no SAVE bump)
+
+**Reconciled first (already live, no build):** moduleSlots (E-MOD EM-5 / EM-7: `ship:SHIP_TYPES:*:moduleSlots` live,
+the shared module slot cap), materialQualityChance (ML-3, `ship:gearLine:materialQualityChance` live), the power budget
+(EM-1 to EM-10; the one open row is `wear:WEAR_EFFICIENCY:reactorCore:powerOutput`, the user's EM-4 call), hull
+descriptions (SF-6 heavy cruiser and battleship lines, EM-5 / EM-7 "most module slots": `ship:audit:hullDescriptions`
+flips LIVE as a text row, every clause checked by trainingRunDisplay.test.ts and wr7ShipSystems.test.ts).
+
+**Built:**
+- OC-D11 "Split the two" (B12): `Expedition.arraySplit` (stamped at dispatch when the array's coverage is not 1): the
+  scan rate reads the cadence alone and `coverageAttempts` scales each body's discovery attempts (Wide 3/4 -> 5/6,
+  Focused -> 2). The preview run carries the same stamp. `expeditionDispatchDisplay.ts arrayCharacterLine`: a true line
+  per array kind (Bio-Resonance and Resonance had none). Rows `ship:audit:arrayCharacter`, new `ship:wr7:coverageAttempts`.
+- OC-D6 "Unlisted = never rolls" (B11): `itemgen.ts varietyStatBias` (an empty statRatios stays neutral). The plating and
+  emitter varieties list the WR-8 resist lines at `VARIETY_RESIST_RATIO` [PROVISIONAL 0.1]. Consequences named for the
+  user: mass relief no longer rolls on any plating or emitter, the Hauler Hold, the Economy and Balanced Drives, the
+  High-Output Core, the three prospecting rigs or the Pathfinder Suite; nor do the Prospector Hold's yield, the Sprint
+  Drive's fuel or the cores' engine efficiency (each variety's ratios never listed them).
+- OC-D10 "Field repairs too": `ShipEventBattle.dcRepairTimeReduction` (frozen at dispatch, written only above 0);
+  `fieldRepairSeconds` applies it as the Shipyard does. A run without it repairs exactly as before.
+- OC-D3 "They scale the module" + "Crew Stations also adds capacity": `crewModules.ts crewModuleLineScale` (x (1 +
+  diminishing(points, 100) / 100)) on the quarters and bridge boosts; `crewStationsBerths` adds 1 berth per point
+  [PROVISIONAL knee 100, 1 berth per point]. OC-D7 "Spread across divisions" (B22): `commandStructureWithBonus` (the
+  division and rank caps are the role weights of the larger total; bonus 0 is the cached template, same reference);
+  the Complement panel reads it. Rows: the gear lines, every `QUARTERS_MODULES:*:capacity` (Elite notApplicable: 0
+  berths), `ship:audit:rrCrewModuleExtras`.
+- OC-D8 "Speed counts everywhere": the tank and engine efficiency rows go live at the expedition reach gate G2-4 built
+  (probe `reachGateFactor`: the gate's reach split back into one factor); the gear transit line got its seam (it was
+  "WR-1 follow-up"; sheet and voyage live); cargo stays missions-only (`outOfScope` + a Help line in the Missions topic).
+- Deleted: `sensorEffectScale` (no caller), `ShipTypeDef.equipmentSlots` (OC-C4 "Keep tested hooks": no planned use).
+
+**Not built (owner "WR-7 follow-up"):**
+- OC-D8 patrol legs ("patrol legs scale with transitSpeedMult"). Built and measured in the WR-7 worktree, then held
+  out: a cycle frozen with `legTicks` (written only when the rounded legs differ from the route's, so a speed-1 cycle
+  and a cycle in flight keep their record), every route reader through one `patrolRouteOf`, reach and fuel left on the
+  route's legs (distance). It moved about 240 patrol pins and behavior harnesses that fly a fixed route length (the
+  Battleship's 3-tick legs take 5), so it is a slice of its own, goldens first (the WR-8 precedent). Every transit
+  source's patrol context stays pending on it (`PATROL_LEGS_OWNER`).
+- OC-D5 favorsSpec ("+10% on its ship type"): its lines fold in three readers (equipmentStatMods, the Damage Control and
+  Pathfinder effects) read live by missions in flight and per patrol cycle, so it needs a per-run stamp on missions,
+  patrol cycles and expeditions first.
+
+**Goldens moved (each attributed by switching that one change off and seeing the pins return):** OC-D6 (the crafted
+mints): emodEm2 / EM-4 / EM-5 / EM-0 crafted sheets and patrols, gearWear step 3 and step 4 crafted rows (incl. the
+ground rows' crafted pieces), materialLines, ML-2, reactorFuel inspect, rarity LIVE and RESERVED mints; the EM-4
+fixture's `ref` and `top` cores re-chosen (see emodEm4.fixture.ts: the best core 0.14.0 can mint is now an Efficient
+Core at +35%, inside the user's +30 to +40% band). OC-D3: shortRange golden 3 (the quarters varieties' sheets), the
+EM-0 full crafted loadout and EM-1 power numbers. OC-D7: shortRangeRelics recalls (the Guest Wing's berths fill more
+crew). OC-D10: tactician goldens (the ship-event battle freezes the suite's reduction). Registry: the snapshot and
+count pins (net -10 entries: ten `equipmentSlots` rows and `sensorEffectScale` out, `coverageAttempts` in).
+
 ### WR-8: Combat descriptors (positions, UNFED inputs, durability)
 
 Positions and range (OC-D9, B3), the UNFED set and INERT descriptors (OC-D12), durability for non-weapon gear and

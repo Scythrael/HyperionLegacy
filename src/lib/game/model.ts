@@ -171,7 +171,8 @@ export interface ShipTypeDef {
   // it caps the universal modules AND the specUtility piece together (user M1 "Separate counts"); the bridge, quarters
   // and sensor keep their own slots. The module slot itself stays hidden until EM-7 (shipModules.ts UNIVERSAL_MODULES_LIVE).
   moduleSlots: number;
-  equipmentSlots: number;           // forward bucket; counts finalized with equipment/reactor design
+  // (WR-7, OC-C4 user 2026-10-15 "Keep tested hooks": the `equipmentSlots` forward bucket, 0 on every hull with no
+  // reader and no planned use, was deleted.)
   // --- Combat / defense base stats (Ship Systems UI, 0.11.0) ---------------------
   // ⚠️ FIRST-PASS TUNABLE launch placeholders, and INERT this pass: combat behavior
   // is deferred to 0.12.0. Carried NOW so the Ship Systems screen's Defensive section
@@ -1125,10 +1126,8 @@ export type PatrolKey = keyof typeof PATROLS;
 
 // The 4 real hulls this feature ships (design doc, Task 1). TUNABLE, first-pass
 // balance; real tuning happens at the device-check stage, same launch-placeholder
-// spirit as MISSIONS'/RECIPES' constants above. `moduleSlots`/`equipmentSlots`
-// are POPULATED but INERT this pass (no module/equipment system exists yet) --
-// carried now so the table shape is stable when those systems land, rather than
-// bolted on later. Add an entry here (and grow ShipTypeKey above) only when a
+// spirit as MISSIONS'/RECIPES' constants above. `moduleSlots` is live since E-MOD
+// EM-5 / EM-7 (the shared module slot cap). Add an entry here (and grow ShipTypeKey above) only when a
 // hull is actually built. The tactician combat trio (destroyer/battleship/carrier)
 // and the explorer family (orion/aurora/eir, 0.14.0 Phase E0) are now BUILT below;
 // no forward bucket remains absent.
@@ -1161,7 +1160,7 @@ export const SHIP_TYPES: Record<ShipTypeKey, ShipTypeDef> = {
     label: "General Freighter", spec: "general", tier: 1,
     cargoCapacity: 90, transitSpeedMult: 1.0, extractionYieldMult: 1.0,
     fuelCapacity: 200, engineEfficiency: 0, // range hull: big tank, baseline burn
-    moduleSlots: 1, equipmentSlots: 0,
+    moduleSlots: 1,
     basePowerOutput: 85, // E-MOD EM-1 (P1): the hull's own power, at or above its heaviest crafted loadout
     // ⚠️ TUNABLE / INERT (0.12.0 combat): range hull, tough frame, modest shields, one hardpoint.
     hullIntegrity: 500, shieldCapacity: 200, shieldRecharge: 5, weaponHardpoints: 2,
@@ -1183,7 +1182,7 @@ export const SHIP_TYPES: Record<ShipTypeKey, ShipTypeDef> = {
     label: "Hauler", spec: "prospector", tier: 1,
     cargoCapacity: 180, transitSpeedMult: 0.8, extractionYieldMult: 1.0,
     fuelCapacity: 160, engineEfficiency: 0.15, // between: mid tank, mild efficiency
-    moduleSlots: 2, equipmentSlots: 0,
+    moduleSlots: 2,
     basePowerOutput: 85, // E-MOD EM-1 (P1): the hull's own power, at or above its heaviest crafted loadout
     // ⚠️ TUNABLE / INERT (0.12.0 combat): biggest hull, most integrity + shields, slow regen.
     hullIntegrity: 700, shieldCapacity: 250, shieldRecharge: 4, weaponHardpoints: 2,
@@ -1203,7 +1202,7 @@ export const SHIP_TYPES: Record<ShipTypeKey, ShipTypeDef> = {
     label: "Runner", spec: "prospector", tier: 1,
     cargoCapacity: 60, transitSpeedMult: 1.5, extractionYieldMult: 1.0,
     fuelCapacity: 100, engineEfficiency: 0.5, // efficiency hull: small tank, least burn
-    moduleSlots: 2, equipmentSlots: 0,
+    moduleSlots: 2,
     basePowerOutput: 50, // E-MOD EM-1 (P1): the hull's own power, at or above its heaviest crafted loadout
     // ⚠️ TUNABLE / INERT (0.12.0 combat): fast + fragile, least integrity, quickest shield regen.
     hullIntegrity: 300, shieldCapacity: 150, shieldRecharge: 8, weaponHardpoints: 1,
@@ -1223,7 +1222,7 @@ export const SHIP_TYPES: Record<ShipTypeKey, ShipTypeDef> = {
     label: "Prospector", spec: "prospector", tier: 1,
     cargoCapacity: 90, transitSpeedMult: 1.0, extractionYieldMult: 1.35,
     fuelCapacity: 140, engineEfficiency: 0.25, // between: mid tank, moderate efficiency
-    moduleSlots: 2, equipmentSlots: 0,
+    moduleSlots: 2,
     basePowerOutput: 50, // E-MOD EM-1 (P1): the hull's own power, at or above its heaviest crafted loadout
     // ⚠️ TUNABLE / INERT (0.12.0 combat): mid extraction rig, balanced defensive profile.
     hullIntegrity: 450, shieldCapacity: 180, shieldRecharge: 6, weaponHardpoints: 1,
@@ -1258,7 +1257,7 @@ export const SHIP_TYPES: Record<ShipTypeKey, ShipTypeDef> = {
     // Fast strike hull: quick transit, tiny hold (it is not a hauler), neutral extraction.
     cargoCapacity: 30, transitSpeedMult: 1.3, extractionYieldMult: 1.0,
     fuelCapacity: 130, engineEfficiency: 0.2, // nimble: mid-small tank, decent efficiency
-    moduleSlots: 2, equipmentSlots: 0,
+    moduleSlots: 2,
     basePowerOutput: 160, // E-MOD EM-1 (P1): the hull's own power, at or above its heaviest crafted loadout
     // ⚠️ TUNABLE / LIVE (combat): FAST + fragile-ish striker. Solid hull, strong fast-
     // regen shields, but FEWER weapon hardpoints than the battleship (a raider, not a
@@ -1286,7 +1285,7 @@ export const SHIP_TYPES: Record<ShipTypeKey, ShipTypeDef> = {
     // Slow line hull: sluggish transit, small hold, neutral extraction.
     cargoCapacity: 40, transitSpeedMult: 0.7, extractionYieldMult: 1.0,
     fuelCapacity: 180, engineEfficiency: 0.05, // heavy: big tank, near-baseline burn
-    moduleSlots: 3, equipmentSlots: 0,
+    moduleSlots: 3,
     basePowerOutput: 230, // E-MOD EM-1 (P1): the hull's own power, at or above its heaviest crafted loadout
     // ⚠️ TUNABLE / LIVE (combat): the TANK. MOST hull + shields of any hull and the MOST
     // weapon hardpoints (a wall of guns), at the cost of SLOW movement + slow shield
@@ -1314,7 +1313,7 @@ export const SHIP_TYPES: Record<ShipTypeKey, ShipTypeDef> = {
     // neutral extraction.
     cargoCapacity: 25, transitSpeedMult: 0.8, extractionYieldMult: 1.0,
     fuelCapacity: 170, engineEfficiency: 0.1, // large hull: mid-large tank, mild efficiency
-    moduleSlots: 2, equipmentSlots: 0,
+    moduleSlots: 2,
     basePowerOutput: 110, // E-MOD EM-1 (P1): the hull's own power, at or above its heaviest crafted loadout
     // ⚠️ TUNABLE / LIVE (combat): the DRONE platform. Tough (second only to the
     // battleship) but with REDUCED weapon hardpoints (design S8: carriers trade
@@ -1379,7 +1378,7 @@ export const SHIP_TYPES: Record<ShipTypeKey, ShipTypeDef> = {
     // everything an explorer does, best at nothing. FIRST-PASS TUNABLE.
     cargoCapacity: 120, transitSpeedMult: 1.1, extractionYieldMult: 1.0, // FIRST-PASS TUNABLE
     fuelCapacity: 340, engineEfficiency: 0.35, // FIRST-PASS TUNABLE: highest-tier range + good reach efficiency
-    moduleSlots: 4, equipmentSlots: 0, // FIRST-PASS TUNABLE: 4 > any combat hull (battleship 3), the explorer identity
+    moduleSlots: 4, // FIRST-PASS TUNABLE: 4 > any combat hull (battleship 3), the explorer identity
     basePowerOutput: 130, // E-MOD EM-1 (P1): the hull's own power, at or above its heaviest crafted loadout
     // ⚠️ TUNABLE / LIVE (combat): the glass tank. Huge shields, frail hull, one token gun.
     hullIntegrity: 340, shieldCapacity: 800, shieldRecharge: 12, weaponHardpoints: 1, // FIRST-PASS TUNABLE
@@ -1404,7 +1403,7 @@ export const SHIP_TYPES: Record<ShipTypeKey, ShipTypeDef> = {
     // straight-line transit, neutral-to-high extraction. Still a glass tank. FIRST-PASS TUNABLE.
     cargoCapacity: 100, transitSpeedMult: 1.3, extractionYieldMult: 1.1, // FIRST-PASS TUNABLE: fastest explorer
     fuelCapacity: 320, engineEfficiency: 0.4, // FIRST-PASS TUNABLE: highest-tier range + best reach efficiency
-    moduleSlots: 5, equipmentSlots: 0, // FIRST-PASS TUNABLE: 5, the MOST in the fleet (survey/science identity)
+    moduleSlots: 5, // FIRST-PASS TUNABLE: 5, the MOST in the fleet (survey/science identity)
     basePowerOutput: 150, // E-MOD EM-1 (P1): the hull's own power, at or above its heaviest crafted loadout
     // ⚠️ TUNABLE / LIVE (combat): the frailest explorer (leanest combat), quick shields.
     hullIntegrity: 300, shieldCapacity: 720, shieldRecharge: 14, weaponHardpoints: 1, // FIRST-PASS TUNABLE
@@ -1433,7 +1432,7 @@ export const SHIP_TYPES: Record<ShipTypeKey, ShipTypeDef> = {
     // glass tank. FIRST-PASS TUNABLE.
     cargoCapacity: 220, transitSpeedMult: 0.9, extractionYieldMult: 1.0, // FIRST-PASS TUNABLE: biggest hold, slower heavy transport
     fuelCapacity: 300, engineEfficiency: 0.3, // FIRST-PASS TUNABLE: still highest-tier range, modest among explorers
-    moduleSlots: 4, equipmentSlots: 0, // FIRST-PASS TUNABLE: 4 > any combat hull (battleship 3)
+    moduleSlots: 4, // FIRST-PASS TUNABLE: 4 > any combat hull (battleship 3)
     basePowerOutput: 120, // E-MOD EM-1 (P1): the hull's own power, at or above its heaviest crafted loadout
     // ⚠️ TUNABLE / LIVE (combat): a touch tougher frame than the other explorers (a big transport)
     // but still frail vs its shields, modest recharge.
@@ -2487,10 +2486,19 @@ export interface EquipmentSlotDef {
 // crewEfficiency 2, massReduction 1). [PROVISIONAL] first pass (the plan's recommended source; no weight was asked).
 export const GUEST_QUARTERS_AFFIX_WEIGHT = 2;
 
+// WR-7 (OC-D6, user 2026-10-15 "Unlisted = never rolls"; B11 fixed): a variety's statRatios is the WHOLE list of what it
+// rolls. A stat the variety does not list never rolls on it (weight 0, itemgen.ts varietyStatBias); an EMPTY statRatios
+// (a crew module, a sensor array, a weapon or pod) is neutral and rolls its pool at the raw weights. So each plating
+// and emitter variety lists the three per-family resist lines WR-8 added to its slot's pool, each at this ratio.
+// [PROVISIONAL] 0.1 (the size of the smallest listed line on those varieties; no number was asked).
+export const VARIETY_RESIST_RATIO = 0.1;
+const PLATING_RESIST_RATIOS = { damageResist_kinetic: VARIETY_RESIST_RATIO, damageResist_particle: VARIETY_RESIST_RATIO, damageResist_ew: VARIETY_RESIST_RATIO };
+const EMITTER_RESIST_RATIOS = { disruptionResist_kinetic: VARIETY_RESIST_RATIO, disruptionResist_particle: VARIETY_RESIST_RATIO, disruptionResist_ew: VARIETY_RESIST_RATIO };
+
 // The six live slots (four economy + two Combat 1.0 defensive). ⚠️ statRatios and affix
 // WEIGHTS are FIRST-PASS TUNABLE launch placeholders (retuned at the device-check stage,
 // not piecemeal), same spirit as every other economy constant in this file. Each variety's
-// ratios lean toward that variety's quirk; each slot's affix weights bias its signature
+// ratios lean toward that variety's quirk (and list everything it rolls, WR-7); each slot's affix weights bias its signature
 // stat highest. Stat keys are constrained to the 16 live keys (the test fences this against
 // an explicit allow-set).
 export const EQUIPMENT_SLOTS: Record<string, EquipmentSlotDef> = {
@@ -2641,8 +2649,8 @@ export const EQUIPMENT_SLOTS: Record<string, EquipmentSlotDef> = {
   // same spirit as the economy slots.
   //
   // SHIELD EMITTER: the deflector. Signature stats are shieldCapacity (the absorb pool) +
-  // shieldRecharge (regen/sec); affixes add shield coherence (attenuation resist) and a
-  // little mass relief. Pure-gear shields (design 5a): the emitter is the SOLE source of a
+  // shieldRecharge (regen/sec); affixes add shield coherence (attenuation resist) and the
+  // per-family disruption resists (the pool's mass relief is listed by no variety, WR-7). Pure-gear shields (design 5a): the emitter is the SOLE source of a
   // ship's shield pool, so a stripped slot means no shields (enforced by the Unit 1.3 blocker).
   shieldEmitters: {
     slotType: "shieldEmitters",
@@ -2662,16 +2670,17 @@ export const EQUIPMENT_SLOTS: Record<string, EquipmentSlotDef> = {
     ],
     varieties: [
       // Capacitor Bank: budget into raw absorb pool, the tank emitter.
-      { key: "capacitorBank", label: "Capacitor Bank", statRatios: { shieldCapacity: 0.7, shieldRecharge: 0.2, shieldCoherence: 0.1 } },
+      // (WR-7: none lists massReduction, so since "Unlisted = never rolls" an emitter rolls no mass relief.)
+      { key: "capacitorBank", label: "Capacitor Bank", statRatios: { shieldCapacity: 0.7, shieldRecharge: 0.2, shieldCoherence: 0.1, ...EMITTER_RESIST_RATIOS } },
       // Recharge Array: budget into regen, rewards burst/attrition fights.
-      { key: "rechargeArray", label: "Recharge Array", statRatios: { shieldRecharge: 0.65, shieldCapacity: 0.25, shieldCoherence: 0.1 } },
+      { key: "rechargeArray", label: "Recharge Array", statRatios: { shieldRecharge: 0.65, shieldCapacity: 0.25, shieldCoherence: 0.1, ...EMITTER_RESIST_RATIOS } },
       // Balanced Emitter: the neutral middle option.
-      { key: "balancedEmitter", label: "Balanced Emitter", statRatios: { shieldCapacity: 0.45, shieldRecharge: 0.4, shieldCoherence: 0.15 } },
+      { key: "balancedEmitter", label: "Balanced Emitter", statRatios: { shieldCapacity: 0.45, shieldRecharge: 0.4, shieldCoherence: 0.15, ...EMITTER_RESIST_RATIOS } },
     ],
   },
   // HULL PLATING: the armor. Signature stat is hullStrength (adds to the structural HP pool);
   // affixes add ablative armor (a depleting flat-energy buffer) and kinetic dampening (flat
-  // kinetic % reduction), plus mass relief. Design 6a middle path: the hull keeps a small
+  // kinetic % reduction) and the per-family damage resists (the pool's mass relief is listed by no variety, WR-7). Design 6a middle path: the hull keeps a small
   // intrinsic frame HP and plating provides the bulk of effective HP + all mitigation.
   hullPlating: {
     slotType: "hullPlating",
@@ -2690,16 +2699,17 @@ export const EQUIPMENT_SLOTS: Record<string, EquipmentSlotDef> = {
     ],
     varieties: [
       // Reinforced: budget into raw structural HP, the straight tank plate.
-      { key: "reinforcedPlating", label: "Reinforced Plating", statRatios: { hullStrength: 0.75, ablativeArmor: 0.15, kineticDampening: 0.1 } },
+      // (WR-7: none lists massReduction, so since "Unlisted = never rolls" a plate rolls no mass relief.)
+      { key: "reinforcedPlating", label: "Reinforced Plating", statRatios: { hullStrength: 0.75, ablativeArmor: 0.15, kineticDampening: 0.1, ...PLATING_RESIST_RATIOS } },
       // Ablative: budget into the depleting energy-soak buffer.
-      { key: "ablativePlating", label: "Ablative Plating", statRatios: { ablativeArmor: 0.55, hullStrength: 0.3, kineticDampening: 0.15 } },
+      { key: "ablativePlating", label: "Ablative Plating", statRatios: { ablativeArmor: 0.55, hullStrength: 0.3, kineticDampening: 0.15, ...PLATING_RESIST_RATIOS } },
       // Composite: an even spread across HP + both mitigations.
-      { key: "compositePlating", label: "Composite Plating", statRatios: { hullStrength: 0.4, ablativeArmor: 0.3, kineticDampening: 0.3 } },
+      { key: "compositePlating", label: "Composite Plating", statRatios: { hullStrength: 0.4, ablativeArmor: 0.3, kineticDampening: 0.3, ...PLATING_RESIST_RATIOS } },
       // Gas Giant Study GG-7 (user call 11, "Three now"): PRESSURE-FORGED PLATING, a special blueprint opened by a decoded
       // ancient entry (pressureForgedPlatingBp). Plating forged the way a giant's depths make diamond from methane:
       // structure first, then kinetic dampening ([PROVISIONAL] lean, specialBlueprints.ts GG7_NUMBERS). The slot's own
       // lines, so it folds and fights like every other plate.
-      { key: PRESSURE_FORGED_PLATING_VARIETY, label: "Pressure-Forged Plating", statRatios: { ...GG7_NUMBERS.pressureForgedPlating } },
+      { key: PRESSURE_FORGED_PLATING_VARIETY, label: "Pressure-Forged Plating", statRatios: { ...GG7_NUMBERS.pressureForgedPlating, ...PLATING_RESIST_RATIOS } },
     ],
   },
   // CREW 0.14.0 (Phase 1b): the two CREW-MODULE slots, activated from the reserved bridge/quarters
@@ -4114,8 +4124,8 @@ export function missionCycleTiming(missionDef: MissionDef): MissionCycleTiming {
 // stats of any equipment fitted to that ship (Equipment 0.11.0, Task 13). A thin
 // projection, it exists so callers (effectiveMissionDef below, the fuel math,
 // plus assignment/UI tasks) depend on a small, explicit shape rather than
-// reaching into the full ShipTypeDef and its inert forward fields
-// (moduleSlots/equipmentSlots/cost/etc.). PURE: reads the immutable table + the
+// reaching into the full ShipTypeDef and its other fields
+// (moduleSlots/cost/etc.). PURE: reads the immutable table + the
 // (already-resolved) fitted-piece list, returns a fresh object, mutates nothing.
 //
 // FIELD SET, and which are BINDING this patch:
@@ -8464,6 +8474,12 @@ export interface Expedition {
   // studyBandOdds; the same two draws per canister). Written only on a study run whose ship had the array installed.
   // Absent on every other run. Optional, no SAVE bump.
   bandLift?: number;
+  // WR-7 (OC-D11, user 2026-10-15 "Split the two"): the sensor array's cadence and coverage act apart on this run. The
+  // scan rate reads the array's cadence alone (scanRateMult) and the coverage width scales each body's discovery
+  // attempts (expedition.ts coverageAttempts). Stamped at dispatch only when the installed array's coverage is not 1
+  // (a run without an array, or with a coverage-1 array, reads the same either way and stores its old record). Absent:
+  // the pre-WR-7 run (the net rate is the product, the attempts are the raw roll). Optional, no SAVE bump.
+  arraySplit?: true;
 }
 
 // Expedition Tiers G2-5 (user #7 "Based on distance traveled 1:1"; G13 one confirm with the return time; G14 detour
@@ -9053,6 +9069,11 @@ export interface ShipEventBattle {
   // its true condition (gearWear.ts combatGearView) and each event records the wear it took (ExpeditionScanEvent.gearWear).
   // OPTIONAL: absent on a run dispatched before step 4 and on the training run, whose battles are exactly what they were.
   gearWear?: 1;
+  // WR-7 (OC-D10, user 2026-10-15 "Field repairs too"): the installed Damage Control Suite's repair time reduction at
+  // dispatch (utilityGear.ts damageControlEffect, through the run's worn-gear view), applied to the field repair's time
+  // exactly as the Shipyard applies it (damageControlRepairTicks). Written only when above 0: absent on a run without
+  // the suite and on a run dispatched before WR-7, whose field repairs are exactly what they were.
+  dcRepairTimeReduction?: number;
 }
 
 // The default per-save expedition seed a fresh save starts from, and the value the v58->v59 migration
