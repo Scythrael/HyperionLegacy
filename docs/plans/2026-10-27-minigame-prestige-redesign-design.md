@@ -311,3 +311,36 @@ Reading (to play back):
    achievements patch (0.14.3).
 5. Future ideas: star types by class (pulsar, magnetar, yellow dwarf for Sol, red dwarf, Sol's fate as a red giant,
    neutron star, etc.), and non-space effects such as fractal generation; never gaudy.
+
+### Background settings mockup v1 feedback (user, 2026-10-29, verbatim)
+
+Mockup v1: https://claude.ai/artifact/UuPfNQfEKMYVx4E4Dg9fT6.
+"Locked buttons could get a hint at the source of where to find it. "Unlocked by completing an achievement." and so forth.
+The settings option is close. Not quite there. The theme style has a dropdown for preset and so forth. We will want the
+same for this as well. If you go to manual, you get a dropdown on what to select. When you select an option in the
+dropdown, you get the configure button and it opens up the configure option for that selected option. The actual
+configure window looks great. But the different options for that background visualization would appear in section 2
+above the sliders, and the sliders and such would change as needed with each visualization as you select them.
+So the user goes to settings and sees the "default" option which is what we have now in the background. To the right of
+that is a "manual" button. You click that, and it switches to a dropdown with default, the new name for "Starfield" for
+the actual visualization style, and so forth. You then have "preset" to go back to the preset view, as well as
+configure. Okay, sorry, not a preset button lol. My bad. Let's keep it identical to how the current theme style setup is.
+Dropdown that shows manual/preset options with preset as the default. Then a dropdown box to select from presets. The
+unlocks all come with a preset. When you select manual, you have the ability to then go into configure and edit the
+settings for that visualization.
+Also, have an option that ignores theme and when the theme is ignored, it matches the white streaks of warp travel from
+Star Trek as well please. The preset will not have this toggled on. So the streaks will match your current color setting
+(if it's one color, it matches the one color. If it's 2 or 3, it will match that setup. So if you're using flat or
+gradient wipe, it will use those colors like the mockup does)."
+
+Reading (for mockup v2):
+1. Background mirrors the Theme style setting exactly: a mode dropdown Preset / Manual (Preset is the default) and a
+   dropdown of presets ("Default" = today's background; each unlocked visualization brings its own preset, e.g. Faster
+   Than Light).
+2. Manual: a dropdown to pick the visualization (Default, Faster Than Light, later ones), then Configure opens the
+   configure window for it; inside, the visualization choices sit at the top (section 2, above the sliders) and the
+   sliders and switches change per visualization.
+3. Locked entries show a hint at their source, e.g. "Unlocked by completing an achievement." (generic, no spoiler).
+4. A new switch "Ignore theme colors": ON gives classic white warp streaks; OFF (and in every preset) the streaks follow
+   the player's color setup: one color uses that color; two or three colors use that setup (flat or gradient wipe), as
+   the mockup does.
