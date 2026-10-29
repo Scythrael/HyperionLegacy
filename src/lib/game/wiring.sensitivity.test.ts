@@ -70,16 +70,19 @@ describe("wiring sensitivity: every claimed context that does not move yet stays
   it("covers the PARTIAL contexts and the inert sources (vacuity guard)", () => {
     // Lowered from 80 at Expedition Tiers G2-3: the voyage took the ship speed sources live at Ground Ops (the
     // gear line, the ten hulls, the museum), leaving 80 partial contexts. Lowered from 70 at Expedition Tiers G2-6: the
-    // region picker took the eight telescope reach entries live at Ground Ops, leaving 63.
-    expect(flatChecks.filter(({ e }) => e.contexts.length > 0).length).toBeGreaterThan(60);
+    // region picker took the eight telescope reach entries live at Ground Ops, leaving 63. Lowered from 60 at WR-7: the
+    // ship systems took their partial contexts live or out of scope (OC-D8: the tank and engine on the expedition reach
+    // gate, the hold missions-only; OC-D10: the Damage Control Suite on the field repair), leaving the transit speed's
+    // patrol legs (the WR-7 follow-up), the deferred patrol sensors and the crew rows other slices own.
+    expect(flatChecks.filter(({ e }) => e.contexts.length > 0).length).toBeGreaterThan(15);
     // Lowered from 30 at the CP-2 + WR-5a integration (0.14.0): both slices moved inert sources live, leaving 28;
     // WR-5b's Tactician tree left 24, WR-5c's Explorer tree 20 (no pending secondary captain entry is left). The
     // guard only asserts the sweep is not vacuous; lower it again as more sources go live. Lowered from 15 when the
     // four inert racials went live (0.14.0: Belter, Vael, Outer-Colony, Spacer with Deck Handling and Survey Aptitude),
     // leaving 13. Lowered from 10 at the D26 line swap (0.14.0: the seven Science combat lines retired, their Science
     // lines live), leaving 6. Lowered from 5 at Material Lines ML-3 (0.14.0: materialQualityChance went live on
-    // mission deliveries, OC-D2), leaving 5.
-    expect(flatChecks.filter(({ e }) => e.contexts.length === 0).length).toBeGreaterThan(4);
+    // mission deliveries, OC-D2), leaving 5. Lowered from 4 at WR-7 (OC-D3: the crew module lines went live), leaving 3.
+    expect(flatChecks.filter(({ e }) => e.contexts.length === 0).length).toBeGreaterThan(2);
   });
   for (const { e, ctx } of flatChecks) {
     const owner = e.status.kind === "pending" || e.status.kind === "deferred" ? e.status.owner : "";

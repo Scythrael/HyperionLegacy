@@ -164,8 +164,8 @@
 
   // Build one division's chart. axisMax clamps to just above the largest FINITE cap so the officer
   // ranks stay legible; the uncapped Crewman is clamped to the axis top and labeled "N+".
-  function buildDivision(profession: CrewProfession, hull: NonNullable<typeof hullType>): DivisionChart {
-    const finiteCaps = FINITE_RANKS.map((r) => rankAllocation(hull, profession, r));
+  function buildDivision(profession: CrewProfession, hull: NonNullable<typeof hullType>, bonus: number): DivisionChart {
+    const finiteCaps = FINITE_RANKS.map((r) => rankAllocation(hull, profession, r, bonus));
     const axisMax = Math.max(1, Math.max(...finiteCaps) + 1);
 
     const columns: ChartColumn[] = FINITE_RANKS.map((rank, i) => {
@@ -209,7 +209,7 @@
       profession,
       label: DIVISION_LABEL[profession],
       total,
-      cap: divisionCap(hull, profession),
+      cap: divisionCap(hull, profession, bonus),
       axisMax,
       columns,
     };
@@ -220,7 +220,7 @@
   // `divisions` would only recompute when `hullType` changes (never, for a given ship) and the charts
   // would stay stale as crew arrive. Referencing countByKey (always a truthy Map) makes the dep visible.
   $: divisions = hullType && countByKey
-    ? CREW_PROFESSIONS.map((p) => buildDivision(p, hullType as NonNullable<typeof hullType>))
+    ? CREW_PROFESSIONS.map((p) => buildDivision(p, hullType as NonNullable<typeof hullType>, moduleBonus))
     : [];
 
   // --- Notable crew (assigned to this ship) -----------------------------------

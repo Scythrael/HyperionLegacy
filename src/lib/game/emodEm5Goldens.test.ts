@@ -174,16 +174,16 @@ function loadoutRow(hull: ShipTypeKey): string {
 
 // Captured on f85ef73 (feat/crew-0.14.0) before EM-5.
 const GOLDEN: Record<string, string> = {
-  "combat:aurora": "d5761347 fa1a8f05",
-  "combat:battleship": "51f78d5 3d810c97",
-  "combat:carrier": "e7476ba8 6394281a",
-  "combat:destroyer": "9c575b32 562e1c2",
-  "combat:eir": "7458f0cb 9aefbd12",
-  "combat:generalFreighter": "89fea74d c8830e46",
-  "combat:orion": "66e7c3fd a2d0c5e6",
-  "combat:prospectorHauler": "6aa71210 d189a06c",
-  "combat:prospectorMiner": "83d03bea 93f62e1c",
-  "combat:prospectorRunner": "a0643b18 4c90e2e",
+  "combat:aurora": "d5761347 a83f4c94",
+  "combat:battleship": "51f78d5 e521fc70",
+  "combat:carrier": "e7476ba8 cd7ca02b",
+  "combat:destroyer": "9c575b32 e5d8078c",
+  "combat:eir": "7458f0cb 5ec927d0",
+  "combat:generalFreighter": "89fea74d 9469bb5a",
+  "combat:orion": "66e7c3fd f049f454",
+  "combat:prospectorHauler": "6aa71210 e76cef2c",
+  "combat:prospectorMiner": "83d03bea b3540a17",
+  "combat:prospectorRunner": "a0643b18 c355c7b3",
   "loadout:aurora": "weapon0/weapon/offense,shieldEmitters/shieldEmitters/defense,hullPlating/hullPlating/defense,cargoBay/cargoBay/systems,ftlDrive/ftlDrive/systems,reactorCore/reactorCore/systems,specUtility/specUtility/systems",
   "loadout:battleship": "weapon0/weapon/offense,weapon1/weapon/offense,weapon2/weapon/offense,weapon3/weapon/offense,weapon4/weapon/offense,weapon5/weapon/offense,shieldEmitters/shieldEmitters/defense,hullPlating/hullPlating/defense,cargoBay/cargoBay/systems,ftlDrive/ftlDrive/systems,reactorCore/reactorCore/systems,specUtility/specUtility/systems",
   "loadout:carrier": "weapon0/weapon/offense,weapon1/weapon/offense,shieldEmitters/shieldEmitters/defense,hullPlating/hullPlating/defense,droneBay0/droneBay/defense,droneBay1/droneBay/defense,cargoBay/cargoBay/systems,ftlDrive/ftlDrive/systems,reactorCore/reactorCore/systems,specUtility/specUtility/systems",
@@ -205,7 +205,7 @@ const GOLDEN: Record<string, string> = {
   "verdicts:prospectorMiner": "ok,ok,ok,ok,ok,ok,ok,ok,ok,hardpointsFull,ok | ok,ok,ok,ok,ok,ok,ok,ok,ok,hardpointsFull,ok",
   "verdicts:prospectorRunner": "ok,ok,ok,ok,ok,ok,ok,ok,ok,hardpointsFull,ok | ok,ok,ok,ok,ok,ok,ok,ok,ok,hardpointsFull,ok",
 };
-const MINT_GOLDEN = "b798f969";
+const MINT_GOLDEN = "3a0e794a";
 
 describe("EM-5 goldens: a module-free fleet is byte-identical", () => {
   for (const hull of HULLS) {

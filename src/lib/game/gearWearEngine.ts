@@ -78,6 +78,7 @@ import {
 } from "./model";
 import { effectiveShipStats, shipRepairSpeedBonus } from "./crewOverlay";
 import { reactorLiftFlagged } from "./reactorSurplus";
+import { withoutCrewModuleLines } from "./crewModules";
 import { shipCaptainCombatMods, withCaptainRepair } from "./captainTacticianEffects";
 import { DAMAGE_CONTROL_SUITE_KEY, PATHFINDER_SUITE_KEY, damageControlEffect } from "./utilityGear";
 import { equippedFor } from "./equipmentQueries";
@@ -174,15 +175,19 @@ export function projectRunStamp(state: GameState, shipId: string, events: readon
 // the stored sheet; every gate reads the stored sheet too (design 4.3). Pure.
 // E-MOD EM-4 (reactorSurplus.ts): `reactorLift` is whether the run carries the reactor surplus drive lift flag (a run
 // dispatched before EM-4 does not, and flies without the lift); required, so every caller states it.
-export function runShipStats(state: GameState, ship: ShipInstance, stamp: RunWearStamp | undefined, reactorLift: boolean): ShipDerivedStats {
-  return effectiveShipStats(stamp === undefined ? state : runGearView(state, ship.id, stamp), ship, { reactorLift });
+// WR-7 (OC-D3): `moduleLines` is whether the run carries the crew module lines stamp (CaptainMissionState.moduleLines);
+// a run without it reads its crew modules without their Crew Stations / Crew Efficiency lines, exactly as before WR-7.
+// Defaults to true (a fresh reading); the engine's run readers pass the run's stamp.
+export function runShipStats(state: GameState, ship: ShipInstance, stamp: RunWearStamp | undefined, reactorLift: boolean, moduleLines = true): ShipDerivedStats {
+  const lined = moduleLines ? state : withoutCrewModuleLines(state);
+  return effectiveShipStats(stamp === undefined ? lined : runGearView(lined, ship.id, stamp), ship, { reactorLift });
 }
 
 // THE SHEET A CAPTAIN MISSION IN FLIGHT IS READ ON (EM-4 review): its frozen gear (the run's wear stamp) and its reactor
 // lift flag, the ONE helper the engine's mission arm and every in-flight readout share (the Home row, the mission
 // card, the transit berth wait), so a readout can never form its own opinion of a phase's length. Pure.
 export function missionRunSheet(state: GameState, ship: ShipInstance, mission: CaptainMissionState): ShipDerivedStats {
-  return runShipStats(state, ship, mission.gearWear, reactorLiftFlagged(mission.reactorLift));
+  return runShipStats(state, ship, mission.gearWear, reactorLiftFlagged(mission.reactorLift), mission.moduleLines === 1);
 }
 
 // ============================================================================

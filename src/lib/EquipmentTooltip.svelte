@@ -275,7 +275,6 @@
     droneInCombatReplenish: "In-Combat Replenish",
     droneSmartReflect: "Smart Reflect",
     moduleSlots: "Module Slots",
-    equipmentSlots: "Equipment Slots",
     // E-CREW 0.14.0: the away-team member gear GROUND lines (model.ts MEMBER_GROUND_STAT_KEYS).
     groundHp: "Health",
     groundPower: "Power",

@@ -1218,6 +1218,67 @@ hull description truth (OC-D13), `sensorEffectScale`. The power budget (OC-D1) i
 in this slice; otherwise it stays in E-MOD and its entries stay `pending` on E-MOD. Goldens first (ship sheet for every
 hull with every line, the CP-0 pattern).
 
+#### WR-7 carry note (built 2026-10-29 on 4ff232e; two commits: goldens, then the wiring; no SAVE bump)
+
+**Reconciled first (already live, no build):** moduleSlots (E-MOD EM-5 / EM-7: `ship:SHIP_TYPES:*:moduleSlots` live,
+the shared module slot cap), materialQualityChance (ML-3, `ship:gearLine:materialQualityChance` live), the power budget
+(EM-1 to EM-10; the one open row is `wear:WEAR_EFFICIENCY:reactorCore:powerOutput`, the user's EM-4 call), hull
+descriptions (SF-6 heavy cruiser and battleship lines, EM-5 / EM-7 "most module slots": `ship:audit:hullDescriptions`
+flips LIVE as a text row, every clause checked by trainingRunDisplay.test.ts and wr7ShipSystems.test.ts).
+
+**Built:**
+- OC-D11 "Split the two" (B12): `Expedition.arraySplit` (stamped at dispatch when the array's coverage is not 1): the
+  scan rate reads the cadence alone and `coverageAttempts` scales each body's discovery attempts (the roll is 3 to 5:
+  at the WR-7 build Wide 5 / 6 / 8, Focused 2 / 2 / 3; after the
+  review retune Wide 4 / 5 / 6, Focused 2 / 3 / 4). The preview run carries the same stamp. `expeditionDispatchDisplay.ts arrayCharacterLine`: a true line
+  per array kind (Bio-Resonance and Resonance had none). Rows `ship:audit:arrayCharacter`, new `ship:wr7:coverageAttempts`.
+- OC-D6 "Unlisted = never rolls" (B11): `itemgen.ts varietyStatBias` (an empty statRatios stays neutral). The plating and
+  emitter varieties list the WR-8 resist lines at `VARIETY_RESIST_RATIO` [PROVISIONAL 0.1]. Consequences named for the
+  user: mass relief no longer rolls on any plating or emitter, the Hauler Hold, the Economy and Balanced Drives, the
+  High-Output Core, the three prospecting rigs or the Pathfinder Suite; nor do the Prospector Hold's yield, the Sprint
+  Drive's fuel or the cores' engine efficiency (each variety's ratios never listed them).
+- OC-D10 "Field repairs too": `ShipEventBattle.dcRepairTimeReduction` (frozen at dispatch, written only above 0);
+  `fieldRepairSeconds` applies it as the Shipyard does. A run without it repairs exactly as before.
+- OC-D3 "They scale the module" + "Crew Stations also adds capacity": `crewModules.ts crewModuleLineScale` (x (1 +
+  diminishing(points, 100) / 100)) on the quarters and bridge boosts; `crewStationsBerths` adds berths (1 per point at
+  the build; a small curve after the review, below) [PROVISIONAL knee 100]. OC-D7 "Spread across divisions" (B22): `commandStructureWithBonus` (the
+  division and rank caps are the role weights of the larger total; bonus 0 is the cached template, same reference);
+  the Complement panel reads it. Rows: the gear lines, every `QUARTERS_MODULES:*:capacity` (Elite notApplicable: 0
+  berths), `ship:audit:rrCrewModuleExtras`.
+- OC-D8 "Speed counts everywhere": the tank and engine efficiency rows go live at the expedition reach gate G2-4 built
+  (probe `reachGateFactor`: the gate's reach split back into one factor); the gear transit line got its seam (it was
+  "WR-1 follow-up"; sheet and voyage live); cargo stays missions-only (`outOfScope` + a Help line in the Missions topic).
+- Deleted: `sensorEffectScale` (no caller), `ShipTypeDef.equipmentSlots` (OC-C4 "Keep tested hooks": no planned use).
+
+**Review round (2026-10-29, two commits: the review fixes, then the user's balance answers):** the quarters bonus never
+removes a seat at any rank (`atLeastInclusive`, swept for bonus 1 to 200 on every hull and division); the module lines
+are stamped per run (`moduleLines` on captain missions and short-range runs, carried each cycle; an unstamped run reads
+its modules without the lines). User answers (USER ANSWERS 2026-10-29): Crew Stations berths ride a small curve,
+`round(0.0416 x diminishing(points, 300))` [PROVISIONAL]: 25 points 1, 50 points 2, 113 points 4; Elite Quarters adds
+none (its registry row's "adds no berths" is true and tested), the Guest Wing gains them. Arrays even per hour
+[PROVISIONAL coverage]: Wide 1.25 (0.8 x 5 attempts = 1.00x Balanced), Focused 0.75 (1.3 x 3 = 0.975x); cores accepted as
+built; `VARIETY_RESIST_RATIO` stays 0.1 [PROVISIONAL].
+
+**Not built (owner "WR-7 follow-up"):**
+- OC-D8 patrol legs ("patrol legs scale with transitSpeedMult"). Built and measured in the WR-7 worktree, then held
+  out: a cycle frozen with `legTicks` (written only when the rounded legs differ from the route's, so a speed-1 cycle
+  and a cycle in flight keep their record), every route reader through one `patrolRouteOf`, reach and fuel left on the
+  route's legs (distance). It moved about 240 patrol pins and behavior harnesses that fly a fixed route length (the
+  Battleship's 3-tick legs take 5), so it is a slice of its own, goldens first (the WR-8 precedent). Every transit
+  source's patrol context stays pending on it (`PATROL_LEGS_OWNER`).
+- OC-D5 favorsSpec ("+10% on its ship type"): its lines fold in three readers (equipmentStatMods, the Damage Control and
+  Pathfinder effects) read live by missions in flight and per patrol cycle, so it needs a per-run stamp on missions,
+  patrol cycles and expeditions first.
+
+**Goldens moved (each attributed by switching that one change off and seeing the pins return):** OC-D6 (the crafted
+mints): emodEm2 / EM-4 / EM-5 / EM-0 crafted sheets and patrols, gearWear step 3 and step 4 crafted rows (incl. the
+ground rows' crafted pieces), materialLines, ML-2, reactorFuel inspect, rarity LIVE and RESERVED mints; the EM-4
+fixture's `ref` and `top` cores re-chosen (see emodEm4.fixture.ts: the best core 0.14.0 can mint is now an Efficient
+Core at +35%, inside the user's +30 to +40% band). OC-D3: shortRange golden 3 (the quarters varieties' sheets), the
+EM-0 full crafted loadout and EM-1 power numbers. OC-D7: shortRangeRelics recalls (the Guest Wing's berths fill more
+crew). OC-D10: tactician goldens (the ship-event battle freezes the suite's reduction). Registry: the snapshot and
+count pins (net -10 entries: ten `equipmentSlots` rows and `sensorEffectScale` out, `coverageAttempts` in).
+
 ### WR-8: Combat descriptors (positions, UNFED inputs, durability)
 
 Positions and range (OC-D9, B3), the UNFED set and INERT descriptors (OC-D12), durability for non-weapon gear and
@@ -1869,3 +1930,18 @@ the WR-8 rules stamp, so in-flight runs replay unchanged. All Defensive numbers 
 5. Approach (after the stance fix and softer pirates: Orion 87, Freighter 88, Carrier Warband 42, Destroyer Warband 15, Battleship 79; zero pirate armor did not close the gap, the cause is short-gun ships eating railgun fire while closing): "Closing is evasive (Recommended)" (a ship closing to its stance range moves evasively; incoming fire is reduced while it is still out of its own guns' reach).
 6. After evasive closing (c627efe: Orion 88, Freighter 90, Carrier Warband 39, Destroyer Warband 15, Battleship 78; the remaining gap is spread across several new rules working as designed): "Ship it, soften early curve (Recommended)" (tougher Warbands are content balance for 0.16.0; tune the existing safe-first ramp so light hulls' early Warbands are as gentle as before WR-8, Freighter c0 Warband back near 181 of 200).
 7. Patrol monotonicity sweep at 400 seeds instead of 200: "Yes, 400 seeds".
+
+## USER ANSWERS (2026-10-29): WR-7 review balance calls (verbatim picks)
+
+Context: the WR-7 review found every quarters piece carries Crew Stations points (implicit plus rolled, about 23 to
+113), so 1 berth per point gave +35 to +151 berths; the High-Output Core lost mass relief under OC-D6 (nets about +11%
+speed vs the Efficient Core's +35%); Wide arrays netted about 1.27x the finds per hour of Balanced, Focused about 0.76x.
+
+1. Crew Stations berth size: "Small curve (Recommended)": a gentle diminishing curve, about +1 berth near 25 points and
+   about +4 near 113 [PROVISIONAL]. Quarters' own base stays the main source of berths.
+2. Elite Quarters and the Guest Wing: "Elite stays at 0 (Recommended)": Elite Quarters adds no berths, its Crew
+   Stations line only scales its effect; the other quarters (the Guest Wing included) gain the berth bonus.
+3. Cores: "Accept: power vs speed (Recommended)": High-Output is the heavy power core, Efficient the light fast core.
+4. Sensor arrays: "Even out per hour (Recommended)": tune Wide and Focused so finds per hour land near Balanced
+   (about 0.95 to 1.05x); Wide = more per world but slower, Focused = quick looks.
+5. Still open: `VARIETY_RESIST_RATIO` 0.1 [PROVISIONAL] (resist lines on plating and emitters).

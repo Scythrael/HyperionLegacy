@@ -8,8 +8,8 @@ import { WIRING_REGISTRY } from "./wiring/registry";
 import { RR_ADDED_ENTRY_IDS } from "./rarityRegistry.fixture";
 
 // The added rows that are not live, and why (each owner is a later patch or another slice, never RR-0 to RR-8).
+// (WR-7 took ship:audit:rrCrewModuleExtras live: OC-D3, the crew module lines scale the module.)
 const NOT_LIVE: Readonly<Record<string, { kind: "pending" | "deferred"; owner: RegExp }>> = {
-  "ship:audit:rrCrewModuleExtras": { kind: "pending", owner: /^WR-7, OC-D3/ },
   "crew:CREW_RARITY_MULTIPLIER:radiant": { kind: "deferred", owner: /raises CREW_RARITY_CAP/ },
   "crew:CREW_RARITY_MULTIPLIER:luminous": { kind: "deferred", owner: /raises CREW_RARITY_CAP/ },
   "crew:CREW_RARITY_MULTIPLIER:constellar": { kind: "deferred", owner: /raises CREW_RARITY_CAP/ },

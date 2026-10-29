@@ -55,8 +55,8 @@ const PINS: Record<string, string> = {
   "tierII:1h": "36b482fd",
   "tierII:12h": "d37894e8",
   "tierII:48h": "f383b047",
-  "recall:tierI": "757f3347",
-  "recall:tierII": "f46de6e5",
+  "recall:tierI": "c1c851bc",
+  "recall:tierII": "1751ec1a",
 };
 
 function pinned(key: string, s: GameState): void {

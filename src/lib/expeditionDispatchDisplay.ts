@@ -17,6 +17,7 @@
 import type { Expedition, GameState, GroundTeamKind, ShipInstance } from "./game/model";
 import { expeditionDispatchGate, type ExpeditionCandidate } from "./game/expedition";
 import { expeditionGateText } from "./game/propulsion";
+import type { SensorArrayKind } from "./game/sensorArrays";
 import { squadsOfType, teamKindLabel, teamKindName } from "./game/groundComposition";
 import { getPlanetTypeById } from "./game/expeditionContent";
 import {
@@ -552,4 +553,23 @@ export function expandedLaunchView(
     recommendation: view.recommendation ? recommendationView(state, shipId, view.recommendation) : null,
     forecast: view.forecast && ship ? forecastView(ship, view.forecast) : null,
   };
+}
+
+// WR-7 (OC-D11, user 2026-10-15 "Split the two"; B12): the scanning array's one-line CHARACTER on the dispatch view, one
+// line per array kind (exhaustive: a new kind is a compile error until it has a line). Each clause is true of the
+// array's numbers (sensorArrays.ts SENSOR_ARRAYS; wr7ShipSystems.test.ts checks them): on a new run the cadence alone
+// sets the scan speed and the coverage width sets the finds per body (expedition.ts coverageAttempts).
+export function arrayCharacterLine(kind: SensorArrayKind): string {
+  switch (kind) {
+    case "wide":
+      return "Wide-beam: slower scans but more finds per world (about the same per hour), better surface-landmark odds.";
+    case "focused":
+      return "Focused-beam: quick looks, fewer finds per world (about the same per hour), higher underground-PoI odds.";
+    case "balanced":
+      return "Balanced: even scan speed and finds per world, a small lift to both kinds of find.";
+    case "bioResonance":
+      return "Bio-Resonance: the slowest scans of any array, a higher relic find chance.";
+    case "resonance":
+      return "Resonance: even scan speed and finds per world, richer canister odds on gas giant studies.";
+  }
 }

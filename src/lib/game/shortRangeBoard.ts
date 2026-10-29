@@ -37,6 +37,7 @@ import { countShortRangeCycleStart, runCountsOf } from "./runDifficulty";
 import { crewLockReasonText, shipCrewLocked } from "./crewLock";
 import { RELIC_BLANKS_VERSION, RELIC_STAGGER_VERSION, newRunRelicBlanksFlag } from "./relicBlanks";
 import { newReactorLiftFlag, reactorLiftFlagged } from "./reactorSurplus";
+import { crewModuleLinesStamp } from "./crewModules";
 import { equippedFor } from "./equipmentQueries";
 
 // ===== the board =====
@@ -117,9 +118,10 @@ export interface ShortRangeCycleStart {
 // runWearStamp at dispatch, projectRunStamp at each later cycle start), so the plan reads the gear the cycle froze; without one (a run from before step 3, a
 // preview) it reads the stored sheet. E-MOD EM-4: `reactorLift` is whether the run carries the reactor surplus drive
 // lift flag (reactorSurplus.ts; a run dispatched before EM-4 plans its later cycles without the lift). Pure.
-export function startShortRangeCycle(state: GameState, ship: ShipInstance, slot: ShortRangeSlotRef, cycleIndex: number, wear: RunWearStamp | undefined, reactorLift: boolean): ShortRangeCycleStart {
+export function startShortRangeCycle(state: GameState, ship: ShipInstance, slot: ShortRangeSlotRef, cycleIndex: number, wear: RunWearStamp | undefined, reactorLift: boolean, moduleLines = true): ShortRangeCycleStart {
   const roll = rollShortRangeJob(state, slot, cycleIndex);
-  const plan = shortRangeCyclePlan(roll, runShipStats(state, ship, wear, reactorLift), shortRangeShipEngineering(state, ship));
+  // WR-7 (OC-D3): `moduleLines` is whether the run carries the crew module lines stamp (true for a preview).
+  const plan = shortRangeCyclePlan(roll, runShipStats(state, ship, wear, reactorLift, moduleLines), shortRangeShipEngineering(state, ship));
   return { roll, plan, runCounts: countShortRangeCycleStart(runCountsOf(state), roll.template) };
 }
 
@@ -232,7 +234,9 @@ export function dispatchCaptainOnShortRange(state: GameState, captainId: number,
   // E-MOD EM-4 (reactorSurplus.ts): a run dispatched now on a ship with a powered Reactor Core flies with the reactor
   // surplus drive lift.
   const reactorLift = newReactorLiftFlag(equippedFor(state, ship.id));
-  const start = startShortRangeCycle(state, ship, slot, shortRangeNextCycle(state, slotId), wear, reactorLift !== undefined);
+  // WR-7 (OC-D3): a run dispatched now reads its crew modules' lines (stamped only when one carries a line).
+  const moduleLines = crewModuleLinesStamp(state, ship);
+  const start = startShortRangeCycle(state, ship, slot, shortRangeNextCycle(state, slotId), wear, reactorLift !== undefined, moduleLines === 1);
   const mission: ShortRangeMissionState = {
     kind: "shortRange",
     slotId,
@@ -247,6 +251,7 @@ export function dispatchCaptainOnShortRange(state: GameState, captainId: number,
     // Relics v2 tier stagger: the flag also carries `stagger` (the run's blanks carry the stagger stamp).
     relicBlanks: newRunRelicBlanksFlag(),
     ...(reactorLift !== undefined ? { reactorLift } : {}),
+    ...(moduleLines !== undefined ? { moduleLines } : {}),
   };
   const captains = [...state.captains];
   captains[idx] = { ...captains[idx], mission, lastStopReason: undefined };
@@ -313,5 +318,6 @@ export function isWellFormedShortRangeMission(m: unknown): m is ShortRangeMissio
   if (s.relicsThisRun !== undefined && !isWholeCount(s.relicsThisRun)) return false;
   // E-MOD EM-4: the reactor surplus drive lift flag.
   if (s.reactorLift !== undefined && !reactorLiftFlagged(s.reactorLift)) return false;
+  if (s.moduleLines !== undefined && s.moduleLines !== 1) return false; // WR-7 (OC-D3): the module lines stamp
   return true;
 }

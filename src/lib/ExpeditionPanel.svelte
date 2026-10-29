@@ -72,6 +72,7 @@
     BLIND_LAUNCH_TITLE,
     BLIND_LAUNCH_WARNING,
     RISK_METER_STEPS,
+    arrayCharacterLine,
     candidateRegionText,
     createInputCache,
     dispatchGateLine,
@@ -191,12 +192,6 @@
     medium: "Medium",
     high: "High",
     veryHigh: "Very High",
-  };
-  // The scanning array's one-line CHARACTER (from its kind), shown read-only in dispatch.
-  const ARRAY_CHARACTER: Record<string, string> = {
-    wide: "Wide-beam: wider coverage per pass, better surface-landmark odds.",
-    focused: "Focused-beam: faster cadence, higher underground-PoI odds.",
-    balanced: "Balanced: an even mix of coverage and cadence.",
   };
   const PHASE_STEPS: { key: Expedition["phase"]; label: string }[] = [
     { key: "transit", label: "Transit" },
@@ -1446,10 +1441,10 @@
             <div class="exp-setup-block">
               {#if chosenArray}
                 <div class="exp-array-name">{chosenArray.def.label}</div>
-                <div class="exp-array-char">{ARRAY_CHARACTER[chosenArray.def.kind] ?? ""}</div>
+                <div class="exp-array-char">{arrayCharacterLine(chosenArray.def.kind)}</div>
               {:else}
                 <div class="exp-array-name dim">No sensor array installed</div>
-                <div class="exp-array-char">Scanning runs at the base rate. Install a sensor array (Ships tab) to scan faster and see farther.</div>
+                <div class="exp-array-char">Scanning runs at the base rate. A sensor array (Ships tab) changes how fast you scan and how much each world turns up, and its sensors see farther.</div>
               {/if}
             </div>
 

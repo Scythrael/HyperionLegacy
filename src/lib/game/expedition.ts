@@ -256,8 +256,33 @@ export const BODY_SCAN_MAX = 200; // largest body's scanTotal
 // per-attempt base odds (the sensor array's discovery-odds biases add on top). A body ALWAYS yields at
 // least one discovery (so it always yields at least one activity, per design I.2 step 4).
 export const DISCOVERY_ATTEMPTS_BASE = 3;
-export const DISCOVERY_ATTEMPTS_SPREAD = 2; // total attempts in [3, 4]
+export const DISCOVERY_ATTEMPTS_SPREAD = 2; // total attempts in [3, 5] (nextInt(SPREAD + 1) draws 0 to 2)
 export const BASE_DISCOVERY_PERMILLE = 500; // 50% base per-attempt odds, before the array's bias
+
+// WR-7 (OC-D11, user 2026-10-15 "Split the two": coverage width drives the discovery attempts, cadence alone drives the
+// scan speed): a split run's attempts on one body, the rolled count x the array's coverage width, rounded, at least one
+// (Wide 1.25: 3, 4, 5 become 4, 5, 6; Focused 0.75: 2, 3, 4; a coverage-1 array keeps the roll). Pure.
+export function coverageAttempts(rolled: number, coverageWidth: number): number {
+  return Math.max(1, Math.round(rolled * (Number.isFinite(coverageWidth) && coverageWidth > 0 ? coverageWidth : 1)));
+}
+
+// A body's keyed discovery stream (chunking-independent: the run seed, DISCOVERY_SALT and the body index). Pure.
+function discoveryRng(exp: Pick<Expedition, "seed">, bodyIndex: number): Rng {
+  return makeRng((exp.seed ^ (DISCOVERY_SALT + Math.imul(bodyIndex + 1, 0x9e3779b9))) >>> 0);
+}
+
+// The discovery attempts of one body, drawn as the body's FIRST draw on its keyed stream: the rolled count, scaled by the
+// array's coverage on a split run (WR-7, OC-D11). Mutates only `rng`.
+function drawDiscoveryAttempts(exp: Pick<Expedition, "arraySplit" | "scanParams">, rng: Rng): number {
+  const rolled = DISCOVERY_ATTEMPTS_BASE + rng.nextInt(DISCOVERY_ATTEMPTS_SPREAD + 1);
+  return exp.arraySplit ? coverageAttempts(rolled, exp.scanParams.coverageWidth) : rolled;
+}
+
+// The discovery attempts body `bodyIndex` of `exp` rolls when it finishes scanning (the same first draw the discovery
+// roll takes). For the wiring probe and tests. Pure.
+export function bodyDiscoveryAttempts(exp: Pick<Expedition, "seed" | "arraySplit" | "scanParams">, bodyIndex: number): number {
+  return drawDiscoveryAttempts(exp, discoveryRng(exp, bodyIndex));
+}
 
 // ACTIVITIES: the placeholder resolver completes one task every ACTIVITY_SECONDS, granting one
 // placeholder finding each. (E3's real gambit combat replaces the resolver, not this cadence.)
@@ -977,6 +1002,8 @@ function previewRun(seed: number, scanParams: ExpeditionScanParams, region: Expe
     systemName: gen.systemName,
     sensorArrayId: null,
     scanParams,
+    // WR-7 (OC-D11): the same split the dispatch stamps (startExpedition), so the preview's discoveries match the run's.
+    ...(scanParams.coverageWidth !== 1 ? { arraySplit: true as const } : {}),
     sensorPower: 0,
     phase: "scanning",
     phaseAnchorSeconds: 0,
@@ -1650,6 +1677,8 @@ function buildExpedition(
     systemName: gen.systemName,
     sensorArrayId: snap.sensorArrayId,
     scanParams: snap.scanParams,
+    // WR-7 (OC-D11): the array's cadence and coverage act apart on every new run whose array's coverage is not 1.
+    ...(snap.scanParams.coverageWidth !== 1 ? { arraySplit: true as const } : {}),
     sensorPower: snap.sensorPower,
     phase: "transit",
     phaseAnchorSeconds: state.gameTimeSeconds,
@@ -1784,7 +1813,9 @@ export function scanRatePerSecond(exp: Expedition, body: ExpeditionBody): number
   const resist = partyResist > 0 ? (exp.hazardResist ?? 0) + partyResist : exp.hazardResist ?? 0;
   const hazardSlow = 1 + Math.max(0, resistedHazard(body.hazard, resist)) * SCAN_HAZARD_PENALTY;
   const museumScan = 1 + (exp.scanSpeedBonus ?? 0);
-  const rate = (SCAN_BASE_RATE * exp.scanParams.scanRateMult * exp.scanParams.coverageWidth * sensorBoost * museumScan) / hazardSlow;
+  // WR-7 (OC-D11): a split run's rate is the array's cadence alone (its coverage scales the discovery attempts).
+  const coverage = exp.arraySplit ? 1 : exp.scanParams.coverageWidth;
+  const rate = (SCAN_BASE_RATE * exp.scanParams.scanRateMult * coverage * sensorBoost * museumScan) / hazardSlow;
   // WR-5c: the captain's Cartographer, its own factor (frozen in the scan params at dispatch). Absent = the rate.
   const cartographer = exp.scanParams.captainScanRateMult;
   return cartographer !== undefined && cartographer > 0 && Number.isFinite(cartographer) ? rate * cartographer : rate;
@@ -1899,12 +1930,12 @@ function assignDiscoveriesAndActivities(
     body.activities = [];
     return;
   }
-  const rng = makeRng((exp.seed ^ (DISCOVERY_SALT + Math.imul(bodyIndex + 1, 0x9e3779b9))) >>> 0);
+  const rng = discoveryRng(exp, bodyIndex);
   // The planet type gates the eligible pools; PLANET_TYPES[0] (terrestrial) is a defensive default the
   // union type makes unreachable, kept so an unexpected id still yields a valid pool.
   const planet = PLANET_TYPES.find((p) => p.id === body.planetType) ?? PLANET_TYPES[0];
   const pools = floraWeightedPools(poisForPlanetType(planet.id), body);
-  const attempts = DISCOVERY_ATTEMPTS_BASE + rng.nextInt(DISCOVERY_ATTEMPTS_SPREAD + 1);
+  const attempts = drawDiscoveryAttempts(exp, rng);
   // Per-pool per-attempt odds: base + the PLANET TYPE's pool bias + the sensor ARRAY's pool bias.
   // WR-5c: the captain's Anomaly Sense multiplies each attempt's odds (its own factor, before the clamp), and Deep Scan
   // makes the first `captainSureFinds` attempts land (the surface roll, or the underground one on a world with no

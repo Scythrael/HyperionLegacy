@@ -59,6 +59,7 @@ import type { CombatStance } from "./combat/positioning";
 import type { Combatant } from "./combat/types";
 import { rollHaul, scanStepKey } from "./gambit";
 import { equippedFor } from "./equipment";
+import { damageControlEffect } from "./utilityGear";
 import { effectiveShipStats, officerCombatModsFromProfile, officerCombatProfile, shipCombatRulesStamp, shipCrewContribution, shipRepairSpeedBonus } from "./crewOverlay";
 import { ENCOUNTER_OPEN_DISTANCE, RULES_COMBAT_SPEED, stampCombatArgs } from "./combat/combatRules";
 // WR-5b (0.14.0): the commanding captain's Tactician talents, frozen with the battle profile.
@@ -172,7 +173,9 @@ export function snapshotShipEventProfile(state: GameState, ship: ShipInstance): 
   // WR-8: the run's combat rules, the ship's combat speed and its installed reactor and drive qualities, frozen here
   // (undefined only under the test switch).
   const combatRules = shipCombatRulesStamp(state, ship);
-  const gear = equippedFor(state, ship.id).filter((piece) => COMBAT_SLOT_TYPES.has(piece.slotType));
+  const installed = equippedFor(state, ship.id);
+  const gear = installed.filter((piece) => COMBAT_SLOT_TYPES.has(piece.slotType));
+  const dcRepair = damageControlEffect(installed).repairTimeReduction;
   // WR-5b: the commanding captain's Tactician talents (absent without a node, so the profile is unchanged).
   const captainCombat = shipCaptainCombatMods(state, ship);
   const battle: ShipEventBattle = {
@@ -186,6 +189,8 @@ export function snapshotShipEventProfile(state: GameState, ship: ShipInstance): 
     repairSpeed: withCaptainRepair(shipRepairSpeedBonus(state, ship), captainCombat),
     ...(captainCombat ? { captainCombat: { ...captainCombat } } : {}),
     ...(combatRules ? { combatRules } : {}),
+    // WR-7 (OC-D10, "Field repairs too"): the Damage Control Suite's repair time reduction, frozen for the field repair.
+    ...(dcRepair > 0 ? { dcRepairTimeReduction: dcRepair } : {}),
   };
   const c = buildShipCombatant(ship.id, battle, 0, 0);
   battle.hullMax = c.hullMax;

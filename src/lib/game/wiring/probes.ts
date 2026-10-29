@@ -58,6 +58,9 @@ import {
   type ObjectiveAffix,
   type OfficerStats,
   type SeniorStaffSeat,
+  type SeniorStaffOfficer,
+  type ShipComplement,
+  type CrewSignature,
   type ShipInstance,
   type ShipTypeKey,
   type SnapshotMember,
@@ -146,6 +149,7 @@ import {
   expeditionSystemGate,
   resumableSystems,
   returnDurationSeconds,
+  bodyDiscoveryAttempts,
   rollBodyDiscoveries,
   scanEncounterChance,
   scanRatePerSecond,
@@ -155,7 +159,9 @@ import {
   type ExpeditionDispatchResult,
 } from "../expedition";
 // Expedition Tiers G2-6: the region picker's readers (the console's tab per tier reads expeditionTierGates).
-import { expeditionTierGates } from "../propulsion";
+import { driveClassReachMult, expeditionTierGates, shipDriveClass } from "../propulsion";
+import { LY_PER_TICK } from "../fuel";
+import { tripReachRamp } from "../tick";
 import { REGION_TIERS } from "../galaxy";
 import { tierHaulMult } from "../riskFactors";
 import { relicBlankStamp, relicBlankTable } from "../relicBlanks";
@@ -221,7 +227,8 @@ import { damageControlEffect, pathfinderEffect } from "../utilityGear";
 import { installedSensorArray, sensorArrayCanisterBandLift, sensorArrayEffect, sensorArrayRelicFindBonus } from "../sensorArrays";
 // Gas Giant Study GG-7: the special blueprints' table.
 import { PRESSURE_FORGED_PLATING_VARIETY, SPECIAL_BLUEPRINT_KEYS } from "../specialBlueprints";
-import { quartersCapacityBonus } from "../crewModules";
+import { CREW_PROFESSIONS, complementTotalCap, remainingCapacityForSignature } from "../commandStructure";
+import { bridgeOfficerMultiplier, hullSpecOf, installedBridgeModule, quartersCapacityBonus } from "../crewModules";
 // WR-5b (0.14.0): the captain Tactician seams.
 import { captainWaveRegenFraction, patrolWaveRewardMult, shipCaptainCombatMods } from "../captainTacticianEffects";
 import { captainDroneDamage, captainProjectileDamage, incomingHitChance } from "../combat/captainEdge";
@@ -1318,6 +1325,23 @@ const tierOneCandidate = (s: GameState) => {
   if (!cand) throw new Error("wiring fixture: no Tier I candidate");
   return cand;
 };
+// WR-7 (OC-D8 "Speed counts everywhere": expedition reach via the G2 reach gate): the expedition reach gate's reach on
+// ship-1's Tier I candidate (candidateReach) split back into ONE of its two ship factors, the tank (fuel capacity, with
+// the fleet reach bonus the gate folds into it) or the engine efficiency, by dividing out every other factor of the
+// gate's product (range = fuel x (1 + efficiency) x LY_PER_TICK, x (1 + the trip's Engineering ramp), x the drive
+// class multiplier; tick.ts shipTripRangeLightYears, propulsion.ts expeditionReachLy). A gate that stopped reading the
+// factor leaves this figure flat.
+function reachGateFactor(s: GameState, factor: "fuel" | "efficiency"): number {
+  const ship = shipOf(s);
+  const cand = tierOneCandidate(s);
+  const reach = candidateReach(s, ship, cand).reachLy;
+  const v = candidateVoyage(s, ship, cand, false);
+  const ticks = (v.outboundSeconds + v.returnSeconds) / (s.tickDurationSeconds > 0 ? s.tickDurationSeconds : 1);
+  const rest = LY_PER_TICK * (1 + tripReachRamp(s, ship, ticks)) * driveClassReachMult(shipDriveClass(s, ship));
+  const stats = sheet(s);
+  const fuel = stats.fuelCapacity * (1 + fleetReachBonus(s));
+  return factor === "fuel" ? reach / ((1 + stats.engineEfficiency) * rest) : reach / (fuel * rest) - 1;
+}
 // Expedition Tiers G2-6: the dispatch console offers every region tier (a tab per tier, expeditionTierGates). The
 // deepest tier whose gates ship-1 meets (0 when none: a non-explorer), the console's pick there (the nearest candidate
 // the ship can launch to, else the nearest: expeditionConsoleDisplay.ts preselectCandidateId) and the gated launch.
@@ -1457,8 +1481,16 @@ export const PROBES = {
     label: "unload speed: effectiveShipStats.unloadSpeedMult (missions) / groundOps.factors.offloadMult (Ground Ops)",
     read: (s, ctx) => (ctx === "expedition:groundOps" ? dispatchRun(s).groundOps?.factors.offloadMult ?? 1 : sheet(s).unloadSpeedMult ?? 1),
   },
-  sheetEngineEff: { label: "effectiveShipStats.engineEfficiency (Ground Ops: the run digest)", read: sheetAt((s) => sheet(s).engineEfficiency) },
-  sheetFuelCapacity: { label: "effectiveShipStats.fuelCapacity (Ground Ops: the run digest)", read: sheetAt((s) => sheet(s).fuelCapacity) },
+  // WR-7 (OC-D8): at Ground Ops, the engine efficiency the expedition reach gate reads (reachGateFactor).
+  sheetEngineEff: {
+    label: "effectiveShipStats.engineEfficiency (Ground Ops: the efficiency the expedition reach gate reads; patrol: the cycle digest)",
+    read: (s: GameState, ctx: ContextId) => (ctx === "expedition:groundOps" ? reachGateFactor(s, "efficiency") : sheetAt((x) => sheet(x).engineEfficiency)(s, ctx)),
+  },
+  // WR-7 (OC-D8): at Ground Ops, the tank the expedition reach gate reads (reachGateFactor); the patrol reads its cycle.
+  sheetFuelCapacity: {
+    label: "effectiveShipStats.fuelCapacity (Ground Ops: the tank the expedition reach gate reads; patrol: the cycle digest)",
+    read: (s: GameState, ctx: ContextId) => (ctx === "expedition:groundOps" ? reachGateFactor(s, "fuel") : sheetAt((x) => sheet(x).fuelCapacity)(s, ctx)),
+  },
   sheetSensors: { label: "effectiveShipStats.sensors (patrol: the cycle digest)", read: sheetAt((s) => sheet(s).sensors) },
   // G1-1: guest quarters on the sheet. At mission:shortRange it reads the short-range cycle's passenger capacity, which
   // does not exist until G1-4 (the cycle engine): 0 there, so a guest source stays flat at that claimed context.
@@ -1774,6 +1806,31 @@ export const PROBES = {
   patrolRun: { label: "the patrol cycle digest (dispatch, one cycle through economyTick)", read: (s) => patrolDigest(s) },
   // == crew modules ==
   quartersCapacity: { label: "quartersCapacityBonus", read: (s) => quartersCapacityBonus(s, shipOf(s)) },
+  // WR-7 (OC-D3): the installed bridge module's output multiplier on one officer (bridgeOfficerMultiplier, the reader
+  // the crew overlay applies to every assigned officer); 1 without a bridge module.
+  bridgeOfficerMult: {
+    label: "bridgeOfficerMultiplier (the installed bridge module, one tactical officer)",
+    read: (s) => {
+      const ship = shipOf(s);
+      const mod = installedBridgeModule(s, ship);
+      return mod ? bridgeOfficerMultiplier(mod, { seat: "tactical", rank: 1 } as unknown as SeniorStaffOfficer, hullSpecOf(ship)) : 1;
+    },
+  },
+  // WR-7 (OC-D7 "Spread across divisions"): the berths an EMPTY complement can actually fill, the quarters bonus
+  // included: the sum over the divisions of the room for a Crewman (commandStructure.ts remainingCapacityForSignature,
+  // the gate auto-crew and transfer fill through), never above the total cap. B22: before WR-7 a module raised the
+  // total alone, so the division caps kept this at +0 or +1.
+  fillableBerths: {
+    label: "berths an empty complement can fill (sum of remainingCapacityForSignature per division, capped at the total)",
+    read: (s) => {
+      const ship = shipOf(s);
+      const bonus = quartersCapacityBonus(s, ship);
+      const empty = { buckets: [] } as unknown as ShipComplement;
+      let room = 0;
+      for (const profession of CREW_PROFESSIONS) room += remainingCapacityForSignature(empty, ship.typeKey, { profession, rank: 1 } as CrewSignature, bonus);
+      return Math.min(complementTotalCap(ship.typeKey, bonus), room);
+    },
+  },
   // == expedition dispatch snapshot and its consumers ==
   expSquadTriage: { label: "dispatch: Expedition.squadTriage", read: (s) => dispatchRun(s).squadTriage ?? 0 },
   expEncounterChance: {
@@ -1799,6 +1856,9 @@ export const PROBES = {
   expTeamKit: { label: "deriveAwayTeam.teamKit", read: (s) => deriveAwayTeam(s, shipOf(s)).teamKit },
   expScanRateMult: { label: "dispatch: scanParams.scanRateMult", read: (s) => dispatchRun(s).scanParams.scanRateMult },
   expCoverageWidth: { label: "dispatch: scanParams.coverageWidth", read: (s) => dispatchRun(s).scanParams.coverageWidth },
+  // WR-7 (OC-D11): the discovery attempts the dispatched run's first body rolls (expedition.ts bodyDiscoveryAttempts,
+  // the draw the discovery roll itself takes).
+  runFirstBodyAttempts: { label: "bodyDiscoveryAttempts(dispatched run, body 0)", read: (s) => bodyDiscoveryAttempts(dispatchRun(s), 0) },
   expLandmarkBias: { label: "dispatch: scanParams.landmarkOddsBias", read: (s) => dispatchRun(s).scanParams.landmarkOddsBias },
   expUndergroundBias: { label: "dispatch: scanParams.undergroundPoiOddsBias", read: (s) => dispatchRun(s).scanParams.undergroundPoiOddsBias },
   // == WR-5c: the captain's explorer secondary nodes, through their consumers ==
@@ -1836,9 +1896,14 @@ export const PROBES = {
   },
   pathfinderScan: { label: "pathfinderEffect.scanSpeed", read: (s) => pathfinderEffect(equippedFor(s, WIRING_SHIP_ID)).scanSpeed },
   pathfinderHazard: { label: "pathfinderEffect.hazardResist", read: (s) => pathfinderEffect(equippedFor(s, WIRING_SHIP_ID)).hazardResist },
+  // WR-7 (OC-D10 "Field repairs too"): at Ground Ops, the reduction the dispatched run froze for its field repairs
+  // (ShipEventBattle.dcRepairTimeReduction, which groundOps.ts fieldRepairSeconds applies); the patrol reads its cycle.
   dcRepairReduction: {
-    label: "damageControlEffect.repairTimeReduction (Ground Ops: the run digest, its field repair included)",
-    read: sheetAt((s) => damageControlEffect(equippedFor(s, WIRING_SHIP_ID)).repairTimeReduction),
+    label: "damageControlEffect.repairTimeReduction (Ground Ops: the field repair reduction the run froze; patrol: the cycle digest)",
+    read: (s: GameState, ctx: ContextId) =>
+      ctx === "expedition:groundOps"
+        ? dispatchRun(readyForRun(s)).groundOps?.shipEventProfile.battle?.dcRepairTimeReduction ?? 0
+        : sheetAt((x) => damageControlEffect(equippedFor(x, WIRING_SHIP_ID)).repairTimeReduction)(s, ctx),
   },
   // == injuries ==
   // == the Security squad (real roster builder) ==
@@ -1929,6 +1994,21 @@ export const PROBES = {
   combatResistLinesRoll: {
     label: "rollDistinctAffixStats(plating / emitter pool): resist line picks",
     read: (s) => resistLinePicks(isOn(s)),
+  },
+  // WR-7 (OC-D6 "Unlisted = never rolls"): mass relief picks over 300 two-affix Cargo Bay rolls of a Hauler Hold, whose
+  // statRatios does not list massReduction ("none into mass"). OFF: the same variety with massReduction listed at the
+  // raw weight 1 an unlisted stat used to keep (B11), so the old rule reads as many picks as OFF.
+  unlistedStatPicks: {
+    label: "rollDistinctAffixStats(Cargo Bay pool, Hauler Hold): massReduction picks (unlisted: never)",
+    read: (s) => {
+      const slot = EQUIPMENT_SLOTS.cargoBay;
+      const hauler = slot.varieties.find((v) => v.key === "haulerHold")!;
+      const variety = isOn(s) ? hauler : { ...hauler, statRatios: { ...hauler.statRatios, massReduction: 1 } };
+      const rng = makeRng(0x7b1f);
+      let picks = 0;
+      for (let i = 0; i < 300; i++) picks += rollDistinctAffixStats(slot.affixPool, variety, 2, () => rng.next()).filter((k) => k === "massReduction").length;
+      return picks;
+    },
   },
 } satisfies Record<string, ProbeDef>;
 

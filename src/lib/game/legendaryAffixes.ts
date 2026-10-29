@@ -58,7 +58,7 @@ export const LUMINOUS_AFFIXES: readonly LegendaryAffixDef[] = [
 
 // The slot families with NO legendary affix in v1, each with why (no inert line: the user's "everything wired" rule).
 export const LEGENDARY_AFFIX_EXCLUDED: Readonly<Partial<Record<EquipmentSlotType, string>>> = {
-  bridge: "a bridge module's power is its catalog effect (crewModules.ts, scaled by rarity); its only rolled stat line (crewEfficiency) is read by nothing yet (WR-7, OC-D3)",
+  bridge: "a bridge module's power is its catalog effect (crewModules.ts, scaled by rarity and, since WR-7 OC-D3, by its Crew Efficiency line); no v1 legendary affix names a bridge",
   module: "a universal module's power is its catalog effect (shipModules.ts); the module roster lands in EM-7",
 };
 

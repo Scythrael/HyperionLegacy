@@ -338,30 +338,30 @@ const GOLDEN: Record<string, unknown> = {
   // Re-pinned by EM-1: every sheet's powerOutput gains the hull's basePowerOutput (P1); with the EM-1 switch on
   // (withEm1Off) every hull reproduces its EM-0 capture (EM0 below).
   sheetCombinations: [
-    "generalFreighter:512:e1c3f535",
-    "prospectorHauler:1024:4cfab90f",
-    "prospectorRunner:1024:d8a2c35f",
-    "prospectorMiner:1024:29c15883",
-    "destroyer:1024:de5e8dcb",
-    "battleship:1024:c9c7ae3f",
-    "carrier:2048:caef074f",
-    "orion:1024:5eea007",
-    "aurora:1024:2dbeb963",
-    "eir:1024:a14f96fb",
+    "generalFreighter:512:904c45b5",
+    "prospectorHauler:1024:81ebe43f",
+    "prospectorRunner:1024:a0912d83",
+    "prospectorMiner:1024:d5857b1b",
+    "destroyer:1024:1c5ccd2f",
+    "battleship:1024:c0787e3",
+    "carrier:2048:bf1e8323",
+    "orion:1024:3ed9843",
+    "aurora:1024:2d6c4713",
+    "eir:1024:9ff23953",
   ],
   // Re-pinned by EM-1: the hull's base output (both halves) and, in the second half, the power crew's net-draw cut
   // (P4); with the switch on both halves reproduce EM0, so the two moves are the only ones.
   sheetFull: [
-    "generalFreighter:78c613c7/7aec42e3",
-    "prospectorHauler:c7305c3d/2797cc9",
-    "prospectorRunner:7609e343/b6673266",
-    "prospectorMiner:1d6fd670/bb4ee37d",
-    "destroyer:e9783aec/c3f931dd",
-    "battleship:181dfacd/e461fe24",
-    "carrier:7b183e99/982351b1",
-    "orion:7c5412f0/1c42aea1",
-    "aurora:6d507f81/d458fdd0",
-    "eir:7fdd10db/182593fa",
+    "generalFreighter:3c8399b8/1545f1aa",
+    "prospectorHauler:e1815faf/ab7e11a9",
+    "prospectorRunner:1a732802/4f3b9348",
+    "prospectorMiner:54d53d3a/b5b2d90",
+    "destroyer:4c700df6/86a39c4d",
+    "battleship:ae047abb/593b8b64",
+    "carrier:7609bcb7/4e0c6a1d",
+    "orion:a683d1f5/9e8563ff",
+    "aurora:6ddeac9d/9200677",
+    "eir:c9782ab/ed133541",
   ],
   census: {
     generalFreighter: 83,
@@ -375,43 +375,43 @@ const GOLDEN: Record<string, unknown> = {
     aurora: 50,
     eir: 50,
   },
-  "patrol:generalFreighter:crimsonReaverSweep": ["a22d953b", "f1303262", "af09e57d", "809c791a", "1ffcda88", "707e22fe"],
-  "patrol:generalFreighter:crimsonReaverWarband": ["14716665", "58ebce7c", "919e12e7"],
-  "patrol:prospectorHauler:crimsonReaverSweep": ["f395dca2", "ec1b3baa", "dcd441c5", "a6ff3d60", "423f1dbb", "9933f234"],
-  "patrol:prospectorHauler:crimsonReaverWarband": ["f7018a80", "1b6a04f", "984eba0d"],
-  "patrol:prospectorRunner:crimsonReaverSweep": ["35304b07", "2683c11c", "e8ba53ff"],
-  "patrol:prospectorRunner:crimsonReaverWarband": ["bb3f0839", "9706551a", "396a7d72"],
-  "patrol:prospectorMiner:crimsonReaverSweep": ["2c976c41", "91a3b4b3", "bc79b4c5"],
-  "patrol:prospectorMiner:crimsonReaverWarband": ["20145f43", "df5c4593", "6494466d"],
-  "patrol:destroyer:crimsonReaverSweep": ["e212a0f4", "fecb657", "fd943642", "3225234d", "83b5d80", "fd01ff75"],
-  "patrol:destroyer:crimsonReaverWarband": ["29d6046", "9ca2efb", "56b823a3"],
-  "patrol:battleship:crimsonReaverSweep": ["7db855f4", "deeaf137", "db94168b", "2a94260e", "c4051625", "88f94b88"],
-  "patrol:battleship:crimsonReaverWarband": ["3ec73e1a", "e7f6f494", "61f5e0a8"],
-  "patrol:carrier:crimsonReaverSweep": ["50c62cd6", "45416125", "101ffd89", "3addcf00", "8259b08a", "491e92c8"],
-  "patrol:carrier:crimsonReaverWarband": ["a0e384dc", "b90af1b3", "58bc8525"],
-  "patrol:orion:crimsonReaverSweep": ["8e12b325", "c286e23", "6d758b62", "843374d", "c5a0241e", "b2f24457"],
-  "patrol:orion:crimsonReaverWarband": ["97101bc3", "e062c2f6", "af0fc738"],
-  "patrol:aurora:crimsonReaverSweep": ["79bb80eb", "c977f577", "f1f71c85", "a82997dd", "f9405ee8", "352183a4"],
-  "patrol:aurora:crimsonReaverWarband": ["d2b521ad", "7b0b391e", "48dd8d1d"],
-  "patrol:eir:crimsonReaverSweep": ["6d0d415d", "7c3e0da4", "9f779576", "71997d4c", "331458c0", "ea8ba22c"],
-  "patrol:eir:crimsonReaverWarband": ["746ba2fb", "ccd52ab", "7a6f8887"],
-  "groundOps:1234": ["e396d8dd", "42027928", "17b9a694"],
-  "groundOps:5678": ["49bebe7a", "f370042b", "8deed810"],
-  "mission:shortOreRun": "e6e74d3d",
-  "mission:surveyMineralAnomaly": "3f929827",
+  "patrol:generalFreighter:crimsonReaverSweep": ["a22d953b", "ba66dffe", "723e2602", "130098be", "fe6ef38e", "8c911439"],
+  "patrol:generalFreighter:crimsonReaverWarband": ["14716665", "c216a930", "959196a4"],
+  "patrol:prospectorHauler:crimsonReaverSweep": ["f395dca2", "bfabeeb8", "8b244bb5", "d641c52e", "16232dd", "3d913738"],
+  "patrol:prospectorHauler:crimsonReaverWarband": ["f7018a80", "60d4aba5", "19676b4e"],
+  "patrol:prospectorRunner:crimsonReaverSweep": ["35304b07", "2185d719", "e93e9b51", "16da2dca"],
+  "patrol:prospectorRunner:crimsonReaverWarband": ["bb3f0839", "9f18867c", "f7534b8d"],
+  "patrol:prospectorMiner:crimsonReaverSweep": ["2c976c41", "a16c6fd", "a9e1b6aa", "14280689"],
+  "patrol:prospectorMiner:crimsonReaverWarband": ["20145f43", "1f247c82", "45787ec6"],
+  "patrol:destroyer:crimsonReaverSweep": ["e212a0f4", "9586b518", "1da1ff6e", "1e78b5f3", "f64053de", "1c053e74"],
+  "patrol:destroyer:crimsonReaverWarband": ["29d6046", "901bc214", "afddc656"],
+  "patrol:battleship:crimsonReaverSweep": ["7db855f4", "58f7ae81", "9068de5", "1acf4ae0", "89a5cba7", "c556c22d"],
+  "patrol:battleship:crimsonReaverWarband": ["3ec73e1a", "4adb9662", "e0d1ba43"],
+  "patrol:carrier:crimsonReaverSweep": ["50c62cd6", "dcbc2dd1", "5cc81f0d", "3ce28abd", "858014be", "a4078401"],
+  "patrol:carrier:crimsonReaverWarband": ["a0e384dc", "178481b4", "825e9b88"],
+  "patrol:orion:crimsonReaverSweep": ["8e12b325", "8d98a86d", "4135379", "79f76d3", "c2ad0786", "f7e3cd8"],
+  "patrol:orion:crimsonReaverWarband": ["97101bc3", "5aaf9652", "f67ce1b7"],
+  "patrol:aurora:crimsonReaverSweep": ["79bb80eb", "7c45f89b", "8bfce8d8", "bb93abd5", "ae0c7bb", "70663bff"],
+  "patrol:aurora:crimsonReaverWarband": ["d2b521ad", "1a87d5fa", "b86390f6"],
+  "patrol:eir:crimsonReaverSweep": ["6d0d415d", "9c5d8a38", "4a803c6e", "3122d103", "2c2b4c4a", "825368c7"],
+  "patrol:eir:crimsonReaverWarband": ["746ba2fb", "38710db5", "4ca7b65c"],
+  "groundOps:1234": ["5faadba9", "1aaa13e8", "69d85c9f"],
+  "groundOps:5678": ["4e315ea2", "aac5113b", "9ca2d437"],
+  "mission:shortOreRun": "f067d369",
+  "mission:surveyMineralAnomaly": "ccae3eb9",
   // EM-1: the full crafted loadout's power output / draw / draw with the power crew aboard (the crafted Reactor Core
   // supplies 32 on top of the hull's own; the crew's 0.2 efficiency cuts the draw by about 13%).
   power: [
-    "generalFreighter:117/83/72",
-    "prospectorHauler:117/85/74",
-    "prospectorRunner:82/50/44",
-    "prospectorMiner:82/50/44",
-    "destroyer:192/155/134",
-    "battleship:262/225/194",
-    "carrier:142/105/91",
-    "orion:162/50/44",
-    "aurora:182/50/44",
-    "eir:152/50/44",
+    "generalFreighter:133/82/71",
+    "prospectorHauler:133/84/73",
+    "prospectorRunner:98/49/43",
+    "prospectorMiner:98/49/43",
+    "destroyer:208/154/133",
+    "battleship:278/224/193",
+    "carrier:158/104/90",
+    "orion:178/49/43",
+    "aurora:198/49/43",
+    "eir:168/49/43",
   ],
   // Re-pinned by EM-1: Reactor Overdrive, Power Discipline, the Martian racial, the powerOutput and powerDrawReduction
   // lines and the slot and weapon draw rows went live, every hull's basePowerOutput joined, the drive class draw seam
@@ -466,7 +466,7 @@ const GOLDEN: Record<string, unknown> = {
   // Field Kits FKR-11 (the close-out) does NOT move it: Inspired's flip and the three re-owned audit rows are read back
   // in the snapshot and every read-back (fkr11ReadBack, the G1-6 pattern).
   registry: [
-    "c89e7c59",
+    "7df9aad2",
     "relic:RELICS:precursorLens",
     "ship:audit:reactorCoreNet",
   ],
@@ -476,36 +476,36 @@ const GOLDEN: Record<string, unknown> = {
 // consumer, so each sheetFull pair read the same hash twice). withEm1Off reproduces each exactly.
 const EM0: Record<string, unknown> = {
   sheetCombinations: [
-    "generalFreighter:512:f4c378a7",
-    "prospectorHauler:1024:ba38163b",
-    "prospectorRunner:1024:4951d2a7",
-    "prospectorMiner:1024:20329e4b",
-    "destroyer:1024:48b66def",
-    "battleship:1024:df33d023",
-    "carrier:2048:f6f8a49b",
-    "orion:1024:52faec4b",
-    "aurora:1024:dc56e30b",
-    "eir:1024:52921f03",
+    "generalFreighter:512:16169b47",
+    "prospectorHauler:1024:8cdda793",
+    "prospectorRunner:1024:854fc36b",
+    "prospectorMiner:1024:1a000283",
+    "destroyer:1024:fa730773",
+    "battleship:1024:e73ece6f",
+    "carrier:2048:fd7b05c3",
+    "orion:1024:a4e64707",
+    "aurora:1024:4c96d94b",
+    "eir:1024:1e3c094f",
   ],
   sheetFull: [
-    "generalFreighter:3a274007/3a274007",
-    "prospectorHauler:9c3047ab/9c3047ab",
-    "prospectorRunner:b9690d52/b9690d52",
-    "prospectorMiner:5bebcb6d/5bebcb6d",
-    "destroyer:40665e55/40665e55",
-    "battleship:67af3f40/67af3f40",
-    "carrier:beb620d7/beb620d7",
-    "orion:c8fb621c/c8fb621c",
-    "aurora:efeb261/efeb261",
-    "eir:79c9fffa/79c9fffa",
+    "generalFreighter:216ef85d/216ef85d",
+    "prospectorHauler:2516fe/2516fe",
+    "prospectorRunner:61a33ebb/61a33ebb",
+    "prospectorMiner:5f61b183/5f61b183",
+    "destroyer:1f3290ba/1f3290ba",
+    "battleship:54a4eab8/54a4eab8",
+    "carrier:4757d743/4757d743",
+    "orion:99c11d4f/99c11d4f",
+    "aurora:b1501469/b1501469",
+    "eir:d521e9b4/d521e9b4",
   ],
 };
 
 // The registry snapshot before ML-2 (the SF-3 pin).
-const REGISTRY_BEFORE_ML2 = "bd1e2f48";
-const REGISTRY_BEFORE_ML3 = "cfe349ea";
+const REGISTRY_BEFORE_ML2 = "6b2ebb9f";
+const REGISTRY_BEFORE_ML3 = "3c79b5fd";
 // The registry snapshot before Material Lines ML-1, and the 14 entries ML-1 added (its recipes and its reserves).
-const REGISTRY_BEFORE_ML1 = "452c9676";
+const REGISTRY_BEFORE_ML1 = "74d966af";
 const ML1_ENTRY_IDS: ReadonlySet<string> = new Set<string>([
   ...["refineFerriteIngot", "refineReclaimedCircuit", "refineIridiumCatalyst", "synthCobaltCoil", "synthOsmiumPlate", "synthPhotonicGel", "synthBiocatalyst"].map((k) => `facility:REFINE_RECIPES:${k}`),
   ...["reclaimedCircuit", "iridiumCatalyst", "cobaltCoil", "osmiumPlate", "photonicGel", "biocatalyst", "precursorCircuit"].map((id) => `facility:ITEMS:${id}:reserved`),
@@ -530,17 +530,17 @@ const FKR6_BEFORE: Readonly<Record<string, string>> = {
   "away:KIT_CATEGORY_RULES:firstAid": "FKR-6 (First Aid kits at 0.5x untrained, 1.25x with Medical Training)",
   "away:KIT_CATEGORY_RULES:advancedMedical": "FKR-6 (the Medical Training gate on Splint, Trauma Kit and Injury Kit)",
 };
-const REGISTRY_BEFORE_FKR6 = "a488ee24";
+const REGISTRY_BEFORE_FKR6 = "9aed426b";
 // G1-3's one moved row, as it stood before it (the c1260fe0 snapshot).
 const G13_ROW = "facility:audit:missionControlUnlock";
 const G13_ROW_BEFORE = { kind: "pending", owner: "WR-4, OC-C4" };
-const REGISTRY_BEFORE_G13 = "c1260fe0";
+const REGISTRY_BEFORE_G13 = "e495f57f";
 
 // The inert racials (0.14.0): the one audit row they added (the Spacer long-haul ramp, still deferred) and the 14 rows
 // they changed as they stood before them ([status, contexts, probe]): 8 flipped live (Deck Handling, Survey Aptitude,
 // the Belter, Outer-Colony, Vael and Spacer racials, the Science and Flight Deck wings) and 6 re-owned to CP-3 (the
 // four Ground Ops crew keys, the Security and Medical wings). Read back, the snapshot is feat's 30489b98.
-const REGISTRY_BEFORE_RACIALS = "30489b98";
+const REGISTRY_BEFORE_RACIALS = "d0bb3317";
 const RACIALS_ADDED_IDS: ReadonlySet<string> = new Set<string>(["crew:audit:spacerLongHaulRamp"]);
 const RACIALS_BEFORE: Readonly<Record<string, readonly unknown[]>> = {
   "crew:crew.droneHandling": [{ "kind": "pending", "owner": "E-CREW Task 23 (division pools + exclusive pool live, design 6.2)", "contexts": ["patrol"]}, [], "combatDroneHp"],
@@ -585,7 +585,7 @@ const G14_SWEPT_IDS: ReadonlySet<string> = new Set<string>([
   "captain:SECONDARY_CAPTAIN_TALENTS:extraction5",
   ...Array.from({ length: 8 }, (_, i) => `facility:TRANSIT_BERTH_RUNGS:${i}`),
 ]);
-const REGISTRY_BEFORE_G14 = "30489b98";
+const REGISTRY_BEFORE_G14 = "d0bb3317";
 function g14Back(e: (typeof WIRING_REGISTRY)[number]): unknown[] {
   if (e.id.startsWith("mission:SHORT_RANGE_TEMPLATES:")) return [e.id, { kind: "pending", owner: G14_CYCLE_OWNER }, [], null];
   if (G14_GUEST_IDS.has(e.id)) return [e.id, { kind: "pending", owner: G14_GUESTS_OWNER, contexts: ["mission:shortRange"] }, ["sheet"], e.probe ?? null];
@@ -604,7 +604,7 @@ const FKR7_BEFORE: Readonly<Record<string, string>> = {
   "away:audit:treatmentShare": "FK-5 / FK-6",
   "away:audit:fieldKitsHiddenPieces": "FKR-7 (flips FIELD_KITS_PLAYER_LIVE when kits are wired into runs)",
 };
-const REGISTRY_BEFORE_FKR7 = "30489b98";
+const REGISTRY_BEFORE_FKR7 = "d0bb3317";
 
 // Field Kits FKR-9 / FKR-10 (the switch-on): the three FKR-5 entries the switch shows again (absent before it), and the two
 // audit rows it flipped pending -> live as they stood before it (status, no contexts, no probe). The snapshot before it
@@ -618,21 +618,21 @@ const FKR9_BEFORE: Readonly<Record<string, string>> = {
   "away:audit:fieldKitsHiddenPieces": "FKR-9 / FKR-10 (flip FIELD_KITS_PLAYER_LIVE with FIELD_KITS_RUNS_LIVE once the pack UI ships)",
   "away:audit:fieldKitsRunsSwitch": "FKR-9 / FKR-10 (the per-member pack UI and the Quartermaster kit sale rows; flips with FIELD_KITS_PLAYER_LIVE)",
 };
-const REGISTRY_BEFORE_FKR9 = "60d00075";
+const REGISTRY_BEFORE_FKR9 = "f3a371a";
 
 // The pins each of the three latest slices left on its own branch (the inert racials on feat, G1-4 and FKR-7 on theirs),
 // each from 30489b98, and feat's pin after G1-4 merged (before FKR-7). Merged, reading back only the OTHER slices
 // reproduces each one.
-const REGISTRY_RACIALS_PIN = "b5c9178b";
-const REGISTRY_G14_PIN = "80e62647";
-const REGISTRY_FKR7_PIN = "3c94e7d1";
-const REGISTRY_BEFORE_FKR7_MERGE = "c844bd4";
+const REGISTRY_RACIALS_PIN = "db20a066";
+const REGISTRY_G14_PIN = "dabbbcb4";
+const REGISTRY_FKR7_PIN = "24105e10";
+const REGISTRY_BEFORE_FKR7_MERGE = "599776ed";
 // GG-1 on its own branch and gear wear steps 1 and 2 on feat, each from 60d00075.
-const REGISTRY_GG1_PIN = "c86ecfb4";
-const REGISTRY_GEAR_WEAR_PIN = "48a843b0";
+const REGISTRY_GG1_PIN = "98ba8d1f";
+const REGISTRY_GEAR_WEAR_PIN = "b7c916e3";
 // The two pins the merge of feat into FKR-9 / FKR-10 joined: feat's (gear wear + GG-1) and FKR-9's own (the switch-on).
-const REGISTRY_FEAT_BEFORE_FKR9_MERGE = "fca48c3f";
-const REGISTRY_FKR9_PIN = "9deacec7";
+const REGISTRY_FEAT_BEFORE_FKR9_MERGE = "5052478c";
+const REGISTRY_FKR9_PIN = "62d7ba06";
 
 // Safe first runs SF-3 (the difficulty curve places Weak enemies): the two Weak rank entries it flipped pending -> live,
 // as they stood before it (status, no contexts, no probe). Every read-back below undoes it too (sf3), so each earlier
@@ -642,7 +642,7 @@ const SF3_BEFORE: Readonly<Record<string, unknown>> = {
   "expedition:ENEMY_RANKS:weak": { kind: "pending", owner: SF3_OWNER },
   "expedition:ENEMY_RANKS:weak:hp": { kind: "pending", owner: SF3_OWNER },
 };
-const REGISTRY_BEFORE_SF3 = "1d8ae09b";
+const REGISTRY_BEFORE_SF3 = "c44be692";
 
 // Which later moves a read-back undoes. Each slice's rows are disjoint from every other slice's.
 // Gear wear steps 1 and 2 (0.14.0): the `wear` system's entries it added (all pending) and the four OC-D14 durability
@@ -651,7 +651,7 @@ const REGISTRY_BEFORE_SF3 = "1d8ae09b";
 const GW_BEFORE: Readonly<Record<string, string>> = Object.fromEntries(
   ["ship:audit:slotDurability", "ship:audit:qualityDurabilityMax", "ship:audit:podDurability", "away:audit:memberSlotPhysicals"].map((id) => [id, "WR-8, OC-D14"]),
 );
-const REGISTRY_BEFORE_GEAR_WEAR = "60d00075";
+const REGISTRY_BEFORE_GEAR_WEAR = "f3a371a";
 // Gas Giant Study GG-1 only ADDS entries (gasStudyGoldens.fixture.ts), so every read-back leaves them out unless
 // `keepGg1` (the one check that reproduces GG-1's own pin with gear wear read back).
 type Back = { readonly sf3?: boolean; readonly fkr9?: boolean; readonly racials?: boolean; readonly g14?: boolean; readonly fkr7?: boolean; readonly fkr6?: boolean; readonly g13?: boolean; readonly gw?: boolean; readonly keepGg1?: boolean };
