@@ -66,3 +66,11 @@ Week, the Sequel"), Auto Fleet at e10,000 Ore, Auto Skill Allocation at 4 Presti
 and the e20M / e25M milestone names and all flavor; skill caps/costs [PROVISIONAL] total 79 points (about 73 lifetime
 Fleets, today's day-120 count). NAME CLASH: the minigame skill "Fleet Logistics" vs the main game's Homeworld talent
 branch "Fleet Logistics": rename one.
+
+## Model test queued (user, 2026-10-29)
+
+User: "we should probably run a test on that first. The same task with both Opus and Sonnet, and see what happens. I
+don't want to lose quality." Pick: "Yes, that task (Recommended)": after the Slice 5a retune finishes, build the WR-7
+follow-up favorsSpec (OC-D5 "+10% on its ship type", per-run flag so in-flight runs stay byte-identical) twice from one
+identical brief, Opus and Sonnet, each in its own worktree. Compare: gates, one blind combined review, fix rounds
+needed, reported tokens. If Sonnet matches, it takes the wiring and UI slices; Opus keeps heavy balance work.
