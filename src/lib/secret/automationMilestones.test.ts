@@ -5,6 +5,7 @@
 // as it was; every automation that buys honors its buy amount; Auto-buy Upgrades and Auto Skill
 // Allocation buy the cheapest level first (QoL only, never optimal play).
 import { describe, it, expect } from "vitest";
+import { readFileSync } from "node:fs";
 import Decimal from "break_infinity.js";
 import { freshSecretState, cloneSecret, serializeSecret, deserializeSecret, type SecretState } from "./state";
 import {
@@ -21,6 +22,7 @@ import {
   stepMut,
   step,
   milestoneVisible,
+  automationRevealed,
   pickSkillOffer,
   skillOffers,
   upgradePriceExponent,
@@ -47,6 +49,8 @@ import {
   milestoneAchievement,
   milestoneRewardLine,
   automationUnlockedBy,
+  automationListLine,
+  MYSTERY_REWARD_LINE,
   isAutomationId,
   type AutomationId,
   type UpgradeId,
@@ -119,7 +123,8 @@ describe("each automation unlocks at its milestone", () => {
     for (const id of AUTOMATION_IDS) {
       const m = AUTOMATION_UNLOCKS[id];
       expect(automationUnlockedBy(m)).toBe(id);
-      expect(milestoneAchievement(m).reward, id).toBe(`Reward: ${AUTOMATION_NAMES[id]} unlocked. Find it on the Automation tab.`);
+      // (the secret one, Auto Prestigeception, gives the Mystery popup's line: tested below)
+      expect(milestoneAchievement(m).reward, id).toBe(id === "autoPc" ? MYSTERY_REWARD_LINE : `Reward: ${AUTOMATION_NAMES[id]} unlocked. Find it on the Automation tab.`);
       expect(milestoneRewardLine(m)).toBe(milestoneAchievement(m).reward);
     }
     expect(milestoneAchievement("firstFleet").reward).toBe("Reward: Auto Overclock unlocked. Find it on the Automation tab.");
@@ -431,4 +436,38 @@ describe("Review Focus 2 with a granted automation: Auto Fleet never fires below
     expect(live(s, 600).fleetTotal).toBe(0);
     expect(advanceTo(s, T0 + 86400 * 1000).state.fleetTotal).toBe(0);
   }, 120000);
+});
+
+describe("the Mystery popup (user 2026-10-28): Auto Prestigeception at A Respectable Googol stays a secret", () => {
+  it("the popup reads the user's line and names no automation", () => {
+    expect(AUTOMATION_UNLOCKS.autoPc).toBe("googol");
+    expect(MYSTERY_REWARD_LINE).toBe("Reward: a new automation, for later. You'll know it when you see it.");
+    expect(milestoneAchievement("googol").reward).toBe(MYSTERY_REWARD_LINE);
+    expect(milestoneRewardLine("googol")).toBe(MYSTERY_REWARD_LINE);
+  });
+
+  it("every view shows it as ??? until the first Prestigeception, and it works all the while", () => {
+    const s = freshSecretState(T0);
+    s.milestones.googol = T0;
+    checkMilestonesMut(s, T0);
+    expect(automationUnlocked(s, "autoPc")).toBe(true);
+    expect(autoActive(s, "autoPc")).toBe(true);
+    expect(automationRevealed(s, "autoPc")).toBe(false);
+    for (const reached of [true, false]) {
+      const line = automationListLine("autoPc", reached, automationRevealed(s, "autoPc"));
+      expect(line).not.toContain("Prestigeception");
+      expect(line).not.toContain(AUTOMATION_NAMES.autoPc);
+    }
+    for (const id of AUTOMATION_IDS) if (id !== "autoPc") expect(automationRevealed(s, id), id).toBe(true);
+    s.milestones.firstPc = T0 + 1;
+    expect(automationRevealed(s, "autoPc")).toBe(true);
+    expect(automationListLine("autoPc", true, automationRevealed(s, "autoPc"))).toBe("Auto Prestigeception unlocked");
+  });
+
+  it("the overlay asks the engine before naming it (Skills rows, the Prestige tab, the Milestones list)", () => {
+    const ov = readFileSync("src/lib/SecretGameOverlay.svelte", "utf-8");
+    expect(ov).toContain("{#if !automationRevealed(s, id)}");
+    expect(ov).toContain("automationRevealed(x, l.skill)");
+    expect(ov).toContain("automationListLine(auto, reached, automationRevealed(x, auto))");
+  });
 });

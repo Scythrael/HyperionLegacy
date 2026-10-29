@@ -120,7 +120,7 @@ export const LONG_EXPONENT = 1000000;
 // 0.14.0 combined pacing retune (prestige redesign Slices 2 to 4): 66 to 63 [PROVISIONAL]. At 66 the average
 // player reached e1,000,000 on day 31.5 right at the top of a plateau and then gained nothing for weeks
 // (Overclock Overclocker's second level just out of reach), and e10,000,000 came on day 117.6 with the
-// optimal player under its 115 days; 63 moves both later (32.8 / 119.6 days) so the climb still rises past
+// optimal player under its 115 days; 63 moves both later (32.8 / 120.7 days) so the climb still rises past
 // e1,000,000. (Trying 0.97 of every upgrade step instead kept 66 but left the plateau.)
 export const SOFT_SCALE = 63; // 0.13.11.1 retune: 58 before (e1,000,000 back to about a month)
 export const SOFT_BETA = 0.5;
@@ -374,12 +374,22 @@ export function automationRewardLine(id: AutomationId): string {
   return `Reward: ${AUTOMATION_NAMES[id]} unlocked. ${AUTOMATION_TAB_POINTER}`;
 }
 
-// The reward line a milestone shows: its own, else the automation it unlocks, else recorded for later.
+// User 2026-10-28 ("Mystery popup"): Auto Prestigeception unlocks at "A Respectable Googol", before the player
+// has seen a Prestigeception, so it stays a secret: its popup gives this line (user's words) and every view
+// shows it as ??? until the milestone named here is recorded (engine automationRevealed).
+export const MYSTERY_AUTOMATIONS: Readonly<Partial<Record<AutomationId, MilestoneId>>> = { autoPc: "firstPc" };
+export const MYSTERY_REWARD_LINE = "Reward: a new automation, for later. You'll know it when you see it.";
+// The Milestones list's reward column for it while it is a secret [PROPOSAL].
+export const MYSTERY_LIST_LINE = { reached: "A new automation, for later", ahead: "Unlocks a new automation" } as const;
+
+// The reward line a milestone shows: its own, else the automation it unlocks (the mystery line for a secret
+// one), else recorded for later.
 export function milestoneRewardLine(id: MilestoneId): string {
   const m = MILESTONES.find((d) => d.id === id)!;
   if (m.reward !== undefined) return m.reward;
   const auto = automationUnlockedBy(id);
-  return auto === undefined ? REWARD_RECORDED_LINE : automationRewardLine(auto);
+  if (auto === undefined) return REWARD_RECORDED_LINE;
+  return MYSTERY_AUTOMATIONS[auto] !== undefined ? MYSTERY_REWARD_LINE : automationRewardLine(auto);
 }
 
 // The achievement popup for a milestone (design section 5).
@@ -504,9 +514,9 @@ export const AUTO_BUY_HIGH_MILESTONE: MilestoneId = "singularity";
 // and reports it"). Granted at "A Respectable Googol" (1e100 Ore, about 1.4 h in), the first Prestigeception
 // fires the moment a climb pays e10,000 instead of at the next check-in, so every player starts the
 // Prestigeception climbs from the same Dream Points and the later ones land on the same exponents: e10,000,000
-// on 114 to 127 days across check-ins shifted -2 to +3 hours (without the nudge, at PC_BAR_RATIO 3: 102 to
-// 144, a shifted first Prestigeception moving every later one; the Slice 3 engine: 104 to 166). Reaching 1e100 first means the popup names Prestigeception before the player
-// has seen one.
+// on 116.1 to 122.7 days across check-ins shifted -2 to +3 hours (without the nudge, at PC_BAR_RATIO 3: 102 to
+// 144, a shifted first Prestigeception moving every later one; the Slice 3 engine: 104 to 166). It arrives
+// before the player has seen a Prestigeception, so it stays a secret (MYSTERY_AUTOMATIONS, user 2026-10-28).
 export const AUTO_PC_MILESTONE: MilestoneId = "googol";
 
 // Which milestone unlocks each automation (design 3.2 table, [PROPOSAL] for the beats the user did not
@@ -588,8 +598,8 @@ export interface LeveledSkillDef {
 // e10,000,000 on day 59). Most Fleets come in the first days (about 29 by day 5) and few late (one every few
 // days after day 75), so most points arrive early: the early levels are small (Tenfold Training and Overdrive
 // reach today's x2.2 and ^1.05 at level 4 of 5, Head Start's 1e10 at level 1 of 2) and the new skills give a
-// little each (+5% a level). The costs total 49, what the average player earns by day 109, so the last point
-// lands 11 days before e10,000,000 (119.6 days) with none spare (a 50th point lands only after day 140: the
+// little each (+5% a level). The costs total 49, what the average player earns by day 110, so the last point
+// lands 11 days before e10,000,000 (120.7 days) with none spare (a 50th point lands only after day 140: the
 // late Fleets come a week or more apart).
 export const LEVELED_SKILLS: readonly LeveledSkillDef[] = [
   // step: log10 of the starting Ore per level (level 1 = 1e10, today's Head Start)
@@ -709,8 +719,10 @@ export const COPY = {
   automationLockedPrefix: "Unlocks at",
 } as const;
 
-// The Milestones list's reward column for a milestone that unlocks an automation [PROPOSAL].
-export function automationListLine(id: AutomationId, reached: boolean): string {
+// The Milestones list's reward column for a milestone that unlocks an automation [PROPOSAL]; revealed false
+// for a secret one not shown yet (engine automationRevealed).
+export function automationListLine(id: AutomationId, reached: boolean, revealed = true): string {
+  if (!revealed) return reached ? MYSTERY_LIST_LINE.reached : MYSTERY_LIST_LINE.ahead;
   return reached ? `${AUTOMATION_NAMES[id]} unlocked` : `Unlocks ${AUTOMATION_NAMES[id]}`;
 }
 
@@ -724,7 +736,7 @@ export const HELP_SECTIONS: readonly { title: string; body: string }[] = [
   { title: "THE FINE PRINT", body: "Augment Points speed up the whole stack the way Captain Points do, and only a Prestigeception takes them away. Dream Points are never taken away: they make every Captain and Augment Point you earn count for more. A Fleet Prestige uses up the climb that paid for it, so a Prestigeception needs a fresh climb to e10,000 Ore after one. New generators unlock at 1, 2, 3 and 6 lifetime Fleet Prestiges. Legal read this paragraph twice and then asked to be reset too." },
   // 0.14.0 Slices 3 and 4: automations moved from Skill Points to milestones, and the skills took levels
   // (short factual fixes; Slice 7 rewrites this section and THE FINE PRINT for the whole redesign).
-  { title: "SKILLS", body: "Skill Points come from Fleet Prestige, more for your first few, and buy skill levels: a head start, a stronger ten bonus and more. Each level costs a little more than the last, each skill grows with a prestige count, and some open later in the climb (each one says when). The automations that do the clicking for you (auto-buyers, automatic prestiges at a target you set) unlock at milestones instead, and each milestone says which one it unlocks. Once your Skill Points cover every level left, Fleet Prestige stops paying Skill Points; any you saved stay yours. The late game is mostly watching numbers go up, which is the point." },
+  { title: "SKILLS", body: "Skill Points come from Fleet Prestige, more for your first few, and buy skill levels: a head start, a stronger ten bonus and more. Each level costs a little more than the last, each skill grows with a prestige count, and some open later in the climb (each one says when). The automations that do the clicking for you (auto-buyers, automatic prestiges at a target you set) unlock at milestones instead, and each milestone says which one it unlocks (Auto Captain Prestige waits until Auto-buy I to IV is on, so a reset never leaves a stack nothing rebuilds). Once your Skill Points cover every level left, Fleet Prestige stops paying Skill Points; any you saved stay yours. The late game is mostly watching numbers go up, which is the point." },
   { title: "MILESTONES", body: "Milestones appear as you get close to them, and each one is recorded with the date you reached it. Most rewards arrive in a future update; the last one pays out right away. You will know it when you see it." },
   { title: "RELIC BOOSTS", body: "The relics in your Museum, out in the real game, hum at this old build. Each kind boosts one thing in here (Stats lists them), and every copy helps a little less than the one before. Copies past a tier's 1,000 count five times over. Nothing in here ever flows back out, apart from a certain smugness." },
   { title: "TIME AWAY", body: "The stack keeps running while this window is closed and while the game is closed. Come back whenever you like. It does the work; you take the credit. Not those credits." },

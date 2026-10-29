@@ -11,6 +11,9 @@
 // stat skills (past the finale, after a Prestigeception) play them as leveled skills scaled by the prestige
 // counts (ten bonus, Overdrive, Head Start), so their runs and readouts move. The early and mid readouts
 // (no stat skill) are unchanged.
+// Then the combined pacing retune and its fix round: the states whose window holds a Prestigeception move
+// (Auto Prestigeception now fires the instant its bar is reached, paying exactly the bar's Dream Points, and
+// the retuned CP_K, PC_BAR_RATIO, skills and SOFT_SCALE); the early states without one do not.
 import { describe, it, expect } from "vitest";
 import { readFileSync, writeFileSync } from "node:fs";
 import { serializeSecret, type SecretState } from "./state";

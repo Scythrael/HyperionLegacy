@@ -275,6 +275,22 @@ both before each slice.
   (Slice 5's job: typical average x0.84 / 0.81 / 0.86, optimal e1M x1.20, casual finale x1.13; relic coarse stretch
   9.2%, already 9.1% on Slice 3).
 
+**Fix round (2026-10-29, after the user calls "Accept, re-pin casual", "Mystery popup", skill sizes "OK"):**
+- Catch-up parity, one root cause: Auto Prestigeception fired at the END of the step after its bar was crossed,
+  so its payout and the run's best Ore depended on the step length (a 2 s catch-up step overshot more than a
+  live second: one Dream Point more moved every later Captain Prestige to a lower exponent, mid 48 h 3.5 under
+  live; a Prestigeception peak 13 to 27 higher left day2 over its plateau bound). Now it fires the instant the
+  climb reaches its bar (engine `firstPcDueAt`, a bisection on the step's production time; live, catch-up and
+  the sim alike), paying exactly the bar. Every parity fixture passes with the tolerances unchanged.
+- Keen slower than light: a sim-revealed ENGINE trap. Auto Captain (second Fleet) could arrive before Auto-buy I
+  to IV (e1,000); offline it reset the stack and nothing rebought the generators (keen sat at e22 for 8.5 h). Auto
+  Captain now waits while Auto-buy I to IV is not on. Keen finale 4.16 d, light 6.07 d.
+- Mystery popup: `MYSTERY_AUTOMATIONS` / `MYSTERY_REWARD_LINE` (user's words), `automationRevealed`; the Skills row,
+  the Prestige tab's auto row and the Milestones list show ??? until the first Prestigeception.
+- Casual re-pinned (simCasual: finale 5 to 7.5, e1M 28 to 41, e10M 105 to 135).
+- Relic-free: average 4.16 / 32.79 / 120.67, +1 h 4.20 / 32.83 / 120.72, optimal 4.11 / 32.53 / 118.84, casual
+  6.07 / 33.24 / 113.61. e10M across shifts -2 to +3 h: 116.1 to 122.7. Last Skill Point day 109.6, 0 spare.
+
 ### Slice 5: The relic ceiling and the late milestones
 
 **Files:**

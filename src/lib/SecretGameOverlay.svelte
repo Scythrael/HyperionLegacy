@@ -68,6 +68,7 @@
     buyUpgrade,
     milestoneVisible,
     automationUnlocked,
+    automationRevealed,
     overclockLevelFactor,
     relicBoost,
     type BuyMode,
@@ -286,6 +287,8 @@
     { layer: "pc", skill: "autoPc" },
   ];
   const autoSkill = (layer: AutoLayer) => LAYERS.find((l) => l.layer === layer)!.skill;
+  // An automatic prestige the Prestige tab may show: unlocked and not a secret any more.
+  const autoShown = (x: SecretState, l: { skill: SkillId }) => hasSkill(x, l.skill) && (!isAutomationId(l.skill) || automationRevealed(x, l.skill));
 
   // Overclock's per-level factor, after Overclock Overclocker and the Flight Recorder relic boost.
   const ocPerLevel = (x: SecretState): number => overclockLevelFactor(x);
@@ -320,10 +323,10 @@
   $: runPct = bestE <= 0 ? 0 : pct((runE / bestE) * 100);
   $: visibleMilestones = MILESTONES.filter((m) => milestoneVisible(s, m.id));
   $: reachedCount = MILESTONES.filter((m) => s.milestones[m.id] !== undefined).length;
-  function milestoneReward(id: (typeof MILESTONES)[number]["id"], reached: boolean): string {
+  function milestoneReward(id: (typeof MILESTONES)[number]["id"], reached: boolean, x: SecretState): string {
     if (id === "starfall") return reached ? COPY.starfallRewardDone : COPY.starfallRewardLater;
     const auto = automationUnlockedBy(id);
-    if (auto !== undefined) return automationListLine(auto, reached);
+    if (auto !== undefined) return automationListLine(auto, reached, automationRevealed(x, auto));
     return reached ? COPY.rewardRecorded : COPY.rewardLater;
   }
 
@@ -597,11 +600,11 @@
               </button>
             </div>
           </div>
-          {#if LAYERS.some((l) => hasSkill(s, l.skill))}
+          {#if LAYERS.some((l) => autoShown(s, l))}
             <div class="layer autos">
               <h3>AUTO PRESTIGE</h3>
               {#each LAYERS as l}
-                {#if hasSkill(s, l.skill)}
+                {#if autoShown(s, l)}
                   <label class="auto-row">
                     <span>{SKILLS.find((d) => d.id === autoSkill(l.layer))?.name}: when the gain is at least</span>
                     <select value={s.autoTarget[l.layer]} disabled={busy} on:change={(e) => targetChange(l.layer, e)}>
@@ -632,15 +635,22 @@
                 </div>
               {/each}
               {#each SKILL_AUTOMATIONS as id}
-                <div class="node" class:own={automationUnlocked(s, id)}>
-                  <b>{AUTOMATION_NAMES[id]}</b>
-                  <span class="muted">{SKILLS.find((d) => d.id === id)?.blurb}</span>
-                  {#if automationUnlocked(s, id)}
-                    <button class="sg-btn" type="button" aria-pressed={autoActive(s, id)} disabled={busy} on:click={() => secretAct((x) => setAuto(x, id, !autoActive(x, id)))}>{autoActive(s, id) ? "On" : "Off"}</button>
-                  {:else}
-                    <span class="muted">{automationLockedLabel(id, s)}</span>
-                  {/if}
-                </div>
+                {#if !automationRevealed(s, id)}
+                  <div class="node">
+                    <b>???</b>
+                    <span class="muted">???</span>
+                  </div>
+                {:else}
+                  <div class="node" class:own={automationUnlocked(s, id)}>
+                    <b>{AUTOMATION_NAMES[id]}</b>
+                    <span class="muted">{SKILLS.find((d) => d.id === id)?.blurb}</span>
+                    {#if automationUnlocked(s, id)}
+                      <button class="sg-btn" type="button" aria-pressed={autoActive(s, id)} disabled={busy} on:click={() => secretAct((x) => setAuto(x, id, !autoActive(x, id)))}>{autoActive(s, id) ? "On" : "Off"}</button>
+                    {:else}
+                      <span class="muted">{automationLockedLabel(id, s)}</span>
+                    {/if}
+                  </div>
+                {/if}
               {/each}
               {#each NEW_AUTOMATIONS as id}
                 <div class="node" class:own={automationUnlocked(s, id)}>
@@ -666,7 +676,7 @@
                     {#if m.achievement}<Icon name="star" size={18} />{:else if at !== undefined}<Icon name="check" size={18} />{:else}<Icon name="circle" size={18} />{/if}
                   </span>
                   <span class="ms-name"><b>{m.name}</b><span class="muted">{m.detail}{at !== undefined ? ` · ${when(at)}` : ""}</span></span>
-                  <span class="rw">{milestoneReward(m.id, at !== undefined)}</span>
+                  <span class="rw">{milestoneReward(m.id, at !== undefined, s)}</span>
                 </li>
               {:else}
                 <li class="ms hidden">

@@ -9,6 +9,9 @@
 // skill owned) move only by skillPoints (the front-loaded schedule pays 3, 3, 2, 2, then 1); the past-finale
 // states own the 0.13.11.2 Head Start, Ten Bonus and Overdrive, which now act as leveled skills whose strength
 // scales with the prestige counts, so their whole run moves.
+// Then the combined pacing retune and its fix round: the states whose window holds a Prestigeception move
+// (Auto Prestigeception now fires the instant its bar is reached, paying exactly the bar's Dream Points, and
+// the retuned CP_K, PC_BAR_RATIO, skills and SOFT_SCALE); the early states without one do not.
 import { describe, it, expect } from "vitest";
 import { readFileSync, writeFileSync } from "node:fs";
 import { serializeSecret, type SecretState } from "./state";

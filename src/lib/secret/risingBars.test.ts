@@ -256,7 +256,10 @@ describe("automatic Fleet and Prestigeception read the risen bar (Review Focus 2
       stepMut(s, 1, i * 1000);
       if (s.pcCount > pre.pcCount) {
         pcs++;
-        expect(effectiveExponent(pre.pcPeak)).toBeGreaterThanOrEqual(pcBarExponent(pre));
+        // 0.14.0: Auto Prestigeception fires the instant the climb reaches its bar, inside the step, so the
+        // payout shows it: at least what the bar pays (PC_BAR_RATIO times the Dream Points held).
+        expect(s.dreamPoints.sub(pre.dreamPoints).gte(pre.dreamPoints.mul(PC_BAR_RATIO).floor())).toBe(true);
+        expect(pcBarExponent(pre)).toBeGreaterThan(effectiveExponent(pre.pcPeak) - 1e-9);
       } else if (s.fleetTotal > pre.fleetTotal) {
         fleets++;
         expect(effectiveExponent(pre.fleetPeak)).toBeGreaterThanOrEqual(fleetBarExponent(pre));

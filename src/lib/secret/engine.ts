@@ -72,6 +72,7 @@ import {
   AUTOMATION_IDS,
   AUTOMATION_UNLOCKS,
   AUTOMATION_BUY_DEFAULT,
+  MYSTERY_AUTOMATIONS,
   AUTO_SKILLS_PC_COUNT,
   LEVELED_SKILLS,
   SKILL_POINT_SCHEDULE,
@@ -206,6 +207,13 @@ export function displayIncome(s: SecretState): Decimal {
 // converts those saves for good).
 export function automationUnlocked(s: SecretState, id: AutomationId): boolean {
   return s.automations[id] === true || (s.skills as Partial<Record<string, true>>)[id] === true;
+}
+
+// Whether a view may name an automation: a secret one (config MYSTERY_AUTOMATIONS, user 2026-10-28
+// "Mystery popup") shows as ??? until its reveal milestone is recorded. It works the same either way.
+export function automationRevealed(s: SecretState, id: AutomationId): boolean {
+  const reveal = MYSTERY_AUTOMATIONS[id];
+  return reveal === undefined || s.milestones[reveal] !== undefined;
 }
 
 // A 0.13.11.2 skill id. For the six automations "owned" means unlocked; for the three stat skills
@@ -1115,7 +1123,10 @@ type AutoLayerDue = "pc" | "fleet" | "captain" | null;
 function dueAutoPrestige(s: SecretState): AutoLayerDue {
   if (autoActive(s, "autoPc") && meetsTarget(prestigeceptionGain(s), s.dreamPoints, s.autoTarget.pc)) return "pc";
   if (autoActive(s, "autoFleet") && meetsTarget(fleetGain(s), s.augmentPoints, s.autoTarget.fleet)) return "fleet";
-  if (autoActive(s, "autoCaptain") && meetsTarget(captainGain(s), s.captainPoints, s.autoTarget.captain)) return "captain";
+  // 0.14.0: Auto Captain (unlocked at the second Fleet) waits while Auto-buy I to IV (unlocked at e1,000) is not
+  // on: a reset with nothing to rebuy the generators left the stack empty until the next visit (a player who
+  // checked in more reached the second Fleet first and stalled for hours offline, simRobust "keen").
+  if (autoActive(s, "autoCaptain") && autoActive(s, "autoBuyLow") && meetsTarget(captainGain(s), s.captainPoints, s.autoTarget.captain)) return "captain";
   return null;
 }
 
@@ -1310,15 +1321,51 @@ export function stepMut(s: SecretState, dt: number, atMs: number, productionDt: 
   ensureRecoverableMut(s);
   const due = dueAutoPrestige(s);
   autoBuyMut(s, bookedDt);
+  // 0.14.0: Auto Prestigeception fires the instant its bar is reached (see firstPcDueAt), so it pays the
+  // same Dream Points and leaves the same best Ore whatever the step size.
+  const pcArmed = due === null && autoActive(s, "autoPc");
+  const before = pcArmed ? { ore: s.ore, lastIncome: s.lastIncome, owned: s.owned.slice(), runPeak: s.runPeak, fleetPeak: s.fleetPeak, pcPeak: s.pcPeak, bestOre: s.bestOre, peakOwned: s.peakOwned.slice(), peakOverclock: s.peakOverclock } : null;
   produceMut(s, productionDt);
   s.runSeconds += dt;
+  trackRunPeaksMut(s);
+  if (before !== null && dueAutoPrestige(s) === "pc") {
+    // Back to the start of the step (production and every peak it raised), then forward to the crossing.
+    Object.assign(s, before);
+    const at = firstPcDueAt(s, productionDt);
+    produceMut(s, at);
+    trackRunPeaksMut(s);
+    firePrestigeMut(s, "pc", atMs);
+  } else firePrestigeMut(s, due, atMs);
+  checkMilestonesMut(s, atMs);
+}
+
+function trackRunPeaksMut(s: SecretState): void {
   if (s.ore.gt(s.runPeak)) s.runPeak = s.ore;
   if (s.ore.gt(s.fleetPeak)) s.fleetPeak = s.ore;
   if (s.ore.gt(s.pcPeak)) s.pcPeak = s.ore;
   if (s.ore.gt(s.bestOre)) s.bestOre = s.ore;
   trackPeaksMut(s);
-  firePrestigeMut(s, due, atMs);
-  checkMilestonesMut(s, atMs);
+}
+
+// The first moment within a step of `span` seconds of production at which Auto Prestigeception comes due
+// (its bar reached, its target met). A step that fired one only at its END paid whatever the climb had
+// overshot by then, which depends on the step's length: a catch-up step and a live second ended at
+// different Ore, so one Dream Point more (or a Prestigeception peak a few exponents higher) drifted every
+// later prestige (catchUp.test.ts mid 48 h and day2). Bisection on the production time; the climb within
+// a step only rises, so "due" switches once.
+const PC_CROSSING_ITERATIONS = 48;
+function firstPcDueAt(s: SecretState, span: number): number {
+  let lo = 0;
+  let hi = span;
+  for (let i = 0; i < PC_CROSSING_ITERATIONS; i++) {
+    const mid = (lo + hi) / 2;
+    const x = cloneSecret(s);
+    produceMut(x, mid);
+    trackRunPeaksMut(x);
+    if (dueAutoPrestige(x) === "pc") hi = mid;
+    else lo = mid;
+  }
+  return hi;
 }
 
 export function step(s: SecretState, dt: number, atMs: number): SecretState {

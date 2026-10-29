@@ -480,7 +480,8 @@ describe("0.14.0 prestige redesign: config data (Slice 1)", () => {
     expect(SECRET_PRIZE_EXPONENT).toBe(25000000);
     expect(E20M_EXPONENT).toBe(20000000);
     expect(AUTOMATION_UNLOCKS).toMatchObject({ autoCaptain: "secondFleet", autoFleet: "e10k", autoSkills: "pcRegular" });
-    for (const id of AUTOMATION_IDS) expect(milestoneRewardLine(AUTOMATION_UNLOCKS[id]), id).toBe(`Reward: ${AUTOMATION_NAMES[id]} unlocked. Find it on the Automation tab.`);
+    // (Auto Prestigeception stays a secret at its milestone: the "Mystery popup", automationMilestones.test.ts)
+    for (const id of AUTOMATION_IDS) if (id !== "autoPc") expect(milestoneRewardLine(AUTOMATION_UNLOCKS[id]), id).toBe(`Reward: ${AUTOMATION_NAMES[id]} unlocked. Find it on the Automation tab.`);
   });
 
   it("the bars rise, and the gate lift and the Skill Point schedule are sane", () => {

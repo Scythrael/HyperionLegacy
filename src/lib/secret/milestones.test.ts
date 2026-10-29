@@ -246,6 +246,7 @@ describe("autos", () => {
   it("auto Captain fires only when the gain reaches the target percent, and never when switched off", () => {
     const s = withRun(120);
     s.skills.autoCaptain = true;
+    s.skills.autoBuyLow = true;
     s.captainPoints = new Decimal(10); // the gain (4) is 40% of 10
     s.autoTarget.captain = 50;
     expect(step(s, 1, 0).captainCount).toBe(0);
@@ -253,6 +254,16 @@ describe("autos", () => {
     expect(step(low, 1, 0).captainCount).toBe(1);
     const off = setAuto(low, "autoCaptain", false);
     expect(step(off, 1, 0).captainCount).toBe(0);
+  });
+
+  it("0.14.0: auto Captain waits while Auto-buy I to IV is not on (a reset nothing would rebuild)", () => {
+    const s = withRun(120);
+    s.automations.autoCaptain = true;
+    s.autoTarget.captain = 10;
+    expect(step(s, 1, 0).captainCount).toBe(0);
+    s.automations.autoBuyLow = true;
+    expect(step(s, 1, 0).captainCount).toBe(1);
+    expect(step(setAuto(s, "autoBuyLow", false), 1, 0).captainCount).toBe(0);
   });
 
   it("auto Fleet and auto Prestigeception follow their own targets", () => {
@@ -336,6 +347,7 @@ describe("0.13.11.1: one climb pays one layer (staging: Fleet then Prestigecepti
     expect(doPrestigeception(t, 2).pcCount).toBe(0);
     // a fresh climb past e10,000 pays it again
     const climbed = cloneSecret(t);
+    climbed.autoOn.autoPc = false; // (0.14.0: Auto Prestigeception, unlocked at 1e100, would take it at once)
     climbed.ore = pow10(12000);
     stepMut(climbed, 1, 3);
     expect(prestigeceptionGain(climbed).gt(0)).toBe(true);
