@@ -657,3 +657,12 @@ steady to Tier VII, ~2.3 years heavy).
 - Stagger review (2026-10-28): later relic-gated unlocks for new finds (Damage Control Suite Tier III, Pathfinder Suite
   Tier IV, Bio-Resonance Array and Neural Backup Tier VII): "Fine as is (Recommended)". Help line reworded to "Some relic
   types only start turning up in higher-tier regions" (Hull Rivet, a standard type, opens at Tier VII).
+
+## Memorial: the Captain's Sigil (user, 2026-10-29)
+
+A tribute to a pillar of the user's childhood from the franchise the game lovingly references, who passed away on
+2026-10-29. User picks: the tribute lives on "one of the important relics, the one-of-a-kind options" (the Captain's
+Sigil, the Shipwright capstone); "Unnamed everywhere" (no name in the game, patch notes or Help; every nod is an
+original echo); the theme "The Inner Light"; the line "The flute beside it". The Sigil's flavor now reads: "Found
+beside a small tin flute. Its captain once lived a whole lifetime in a single hour, and carried a lost world's song
+home so it would never be forgotten." Keep this line as is in future rewrites; it is a memorial, not placeholder text.

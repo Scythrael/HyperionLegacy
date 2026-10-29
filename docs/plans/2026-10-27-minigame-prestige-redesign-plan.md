@@ -425,3 +425,18 @@ full Tier VII collection; relic pins on the shipping catch-up against RELIC_FREE
 typical collection is only x1.01 / 0.93 / 0.94 (Gentle wants 0.8 to 0.9); raising the four Tier I levers moves the
 player's own first Prestigeception and with it a later one onto e1M (x7: e1M x1.35). Suggested fix for that touchiness:
 a Prestigeception pays its bar's Dream Points however far past it the climb went (only the manual one ever goes past).
+
+## Slice 5a retune calls (user, 2026-10-29 evening, verbatim picks)
+
+Context: with Auto Prestigeception granted off until revealed, the first Prestigeception is manual, overshoot past
+the bar paid extra Dream Points, and the ladder lost its anchor. The builder's interim retune (branch
+worktree-agent-a067ede01b877445a @ ff34005: PC_BAR_RATIO 3, CP_K 0.21, SOFT_SCALE 66, SKILL_SCALE_POW 0.1) kept the
+relic-free bands (average 3.62 / 32.95 / 122.98 d) but gave only 4 Prestigeceptions and about 45 of 49 Skill Points
+by e10M, Frequent Dreamer near day 80, the gate lift after e10M; a typical Tier I collection sped the climb only x1.01
+/ 0.93 / 0.94 (short of Gentle 0.8 to 0.9). Plateau table: relic-free e10.0M, typical e11.0M, heavy e15.9M, full
+Tier VII e23.5M, 10k of every type e24.9M, limit e25.0M.
+
+1. Prestigeception payout: "Pay at the bar (Recommended)": a Prestigeception pays its bar's Dream Points no matter
+   how far past it the climb went; waiting costs nothing and earns nothing. Then tune the relic levers to Gentle.
+2. e10M goals: "All 49 points before e10M (Recommended)": every Skill Point and the gate lift arrive before e10M,
+   with at least 4 Prestigeceptions on the way; e20M and e25M are where relics carry you.

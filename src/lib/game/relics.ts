@@ -246,7 +246,7 @@ export const RELICS: readonly RelicDef[] = [
     setId: "shipwright",
     index: 4,
     rarity: "capstone",
-    flavor: "Worn smooth by a thumb that rubbed it before every jump. Command is older than any of us.",
+    flavor: "Found beside a small tin flute. Its captain once lived a whole lifetime in a single hour, and carried a lost world's song home so it would never be forgotten.",
   },
   // --- XENOBIOLOGY SET -----------------------------------------------------------------------------
   {
