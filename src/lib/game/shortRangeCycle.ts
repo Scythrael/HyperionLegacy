@@ -305,7 +305,9 @@ export function tickCaptainShortRange(input: ShortRangeTickInput): ShortRangeTic
   const wearStamp = startMission.gearWear;
   // E-MOD EM-4 (reactorSurplus.ts): only a run stamped with the reactor lift flag reads the drive lift.
   const reactorLift = reactorLiftFlagged(startMission.reactorLift);
-  let stats = runShipStats(state, ship, wearStamp, reactorLift);
+  // WR-7 (OC-D3): only a run stamped with the module lines reads its crew modules' lines.
+  const moduleLines = startMission.moduleLines === 1;
+  let stats = runShipStats(state, ship, wearStamp, reactorLift, moduleLines);
   const crewed = wearStamp === undefined ? false : shipCrewAboard(state, ship);
   const timedWear: TimedWear<ShipUseWear>[] = [];
   const outputShare = Math.max(0, shipMissionOutputBonus(state, ship));
@@ -450,8 +452,8 @@ export function tickCaptainShortRange(input: ShortRangeTickInput): ShortRangeTic
     // step 3: the new cycle re-reads its gear (its stamp re-frozen at this instant), and its plan and pay fold it.
     const cycleStamp =
       wearStamp === undefined ? undefined : projectRunStamp(state, ship.id, timedWear, state.gameTimeSeconds + (ticksElapsed - remaining) * state.tickDurationSeconds);
-    if (cycleStamp !== undefined) stats = runShipStats(state, ship, cycleStamp, reactorLift);
-    const start = startShortRangeCycle({ ...state, runCounts }, ship, slot, roll.cycleIndex + 1, cycleStamp, reactorLift);
+    if (cycleStamp !== undefined) stats = runShipStats(state, ship, cycleStamp, reactorLift, moduleLines);
+    const start = startShortRangeCycle({ ...state, runCounts }, ship, slot, roll.cycleIndex + 1, cycleStamp, reactorLift, moduleLines);
     runCounts = start.runCounts;
     mission = {
       kind: "shortRange",
@@ -468,6 +470,8 @@ export function tickCaptainShortRange(input: ShortRangeTickInput): ShortRangeTic
       ...(relicsThisRun > 0 ? { relicsThisRun } : {}),
       // E-MOD EM-4: the run's reactor lift flag rides every later cycle (absent on a run without it).
       ...(mission.reactorLift !== undefined ? { reactorLift: mission.reactorLift } : {}),
+      // WR-7 (OC-D3): and the module lines stamp.
+      ...(mission.moduleLines !== undefined ? { moduleLines: mission.moduleLines } : {}),
     };
   }
 

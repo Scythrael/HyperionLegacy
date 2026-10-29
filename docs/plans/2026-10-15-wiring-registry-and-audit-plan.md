@@ -1228,8 +1228,8 @@ flips LIVE as a text row, every clause checked by trainingRunDisplay.test.ts and
 
 **Built:**
 - OC-D11 "Split the two" (B12): `Expedition.arraySplit` (stamped at dispatch when the array's coverage is not 1): the
-  scan rate reads the cadence alone and `coverageAttempts` scales each body's discovery attempts (Wide 3/4 -> 5/6,
-  Focused -> 2). The preview run carries the same stamp. `expeditionDispatchDisplay.ts arrayCharacterLine`: a true line
+  scan rate reads the cadence alone and `coverageAttempts` scales each body's discovery attempts (the roll is 3 to 5:
+  Wide 5 / 6 / 8, Focused 2 / 2 / 3). The preview run carries the same stamp. `expeditionDispatchDisplay.ts arrayCharacterLine`: a true line
   per array kind (Bio-Resonance and Resonance had none). Rows `ship:audit:arrayCharacter`, new `ship:wr7:coverageAttempts`.
 - OC-D6 "Unlisted = never rolls" (B11): `itemgen.ts varietyStatBias` (an empty statRatios stays neutral). The plating and
   emitter varieties list the WR-8 resist lines at `VARIETY_RESIST_RATIO` [PROVISIONAL 0.1]. Consequences named for the

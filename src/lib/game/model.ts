@@ -3683,6 +3683,10 @@ export interface ShortRangeMissionState {
   // E-MOD EM-4 (reactorSurplus.ts): the reactor surplus drive lift FLAG, stamped at dispatch and carried to every later
   // cycle; only a flagged run's cycle plans read the lift, so a run in flight at the update flies exactly as it did.
   reactorLift?: { version: 1 };
+  // WR-7 (OC-D3): the crew module lines stamp (crewModules.ts crewModuleLinesStamp), stamped at dispatch when the ship's
+  // bridge or quarters carries a Crew Stations / Crew Efficiency line and carried to every later cycle; only a stamped
+  // run's sheet reads those lines, so a run in flight at the update reads its modules as it did. Optional, no SAVE bump.
+  moduleLines?: 1;
 }
 
 // The board's per-slot cycle cursor (GameState.shortRangeBoard): slot id -> the cycle index its NEXT roll reads
@@ -3735,6 +3739,9 @@ export interface CaptainMissionState {
   // repeated cycle. Only a flagged run's legs read the lift (gearWearEngine.ts runShipStats), so a run in flight at the
   // update flies exactly as it did. Optional, no SAVE bump.
   reactorLift?: { version: 1 };
+  // WR-7 (OC-D3): the crew module lines stamp, as on ShortRangeMissionState: stamped at dispatch, carried to every
+  // repeated cycle; only a stamped run's sheet reads the modules' Crew Stations / Crew Efficiency lines.
+  moduleLines?: 1;
 }
 
 // GEAR WEAR step 3: a captain mission's or short-range run's wear flag. `frozen`: piece id -> the condition (per-mille)
@@ -9070,7 +9077,7 @@ export interface ShipEventBattle {
   // OPTIONAL: absent on a run dispatched before step 4 and on the training run, whose battles are exactly what they were.
   gearWear?: 1;
   // WR-7 (OC-D10, user 2026-10-15 "Field repairs too"): the installed Damage Control Suite's repair time reduction at
-  // dispatch (utilityGear.ts damageControlEffect, through the run's worn-gear view), applied to the field repair's time
+  // dispatch (utilityGear.ts damageControlEffect over the ship's stored pieces, as the Shipyard reads it), applied to the field repair's time
   // exactly as the Shipyard applies it (damageControlRepairTicks). Written only when above 0: absent on a run without
   // the suite and on a run dispatched before WR-7, whose field repairs are exactly what they were.
   dcRepairTimeReduction?: number;

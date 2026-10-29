@@ -12,10 +12,14 @@ import { fieldRepairSeconds } from "./groundOps";
 import { damageControlEffect } from "./utilityGear";
 import { equippedFor } from "./equipmentQueries";
 import { CREW_MODULE_LINE_KNEE, crewModuleLineScale, crewStationsBerths, installedQuartersModule, quartersCapacityBonus, quartersProfessionMultiplier } from "./crewModules";
-import { CREW_PROFESSIONS, commandStructureForHull, commandStructureWithBonus, complementTotalCap, divisionCap } from "./commandStructure";
+import { CREW_PROFESSIONS, commandStructureForHull, commandStructureWithBonus, complementTotalCap, divisionCap, inclusiveRankCap } from "./commandStructure";
+import { CREW_RANK_ORDER } from "./crewRank";
+import { dispatchCaptainOnMission } from "./tick";
+import { missionRunSheet } from "./gearWearEngine";
+import type { CaptainMissionState } from "./model";
 import { diminishing } from "./diminishing";
 import { PLATING_RESIST_LINES, EMITTER_RESIST_LINES } from "./combat/combatRules";
-import { dispatchRun, installPiece, wiringBase } from "./wiring/probes";
+import { dispatchRun, installPiece, seatOfficer, wiringBase } from "./wiring/probes";
 
 const SHIP = "ship-1";
 const shipOf = (s: GameState) => s.ships.find((x) => x.id === SHIP)!;
@@ -115,6 +119,35 @@ describe("OC-D10: the Damage Control Suite shortens field repairs (user \"Field 
 });
 
 describe("OC-D3 + OC-D7: crew module lines and quarters capacity", () => {
+  it("installing quarters never removes a seat: every rank cap with a bonus of 1 to 200 is at least the hull's own (review fix)", () => {
+    for (const hull of Object.keys(SHIP_TYPES) as ShipTypeKey[]) {
+      for (const p of CREW_PROFESSIONS) {
+        const base = CREW_RANK_ORDER.map((r) => inclusiveRankCap(hull, p, r));
+        for (let bonus = 1; bonus <= 200; bonus++) {
+          const s = commandStructureWithBonus(hull, bonus).divisions[p];
+          expect(CREW_RANK_ORDER.reduce((n, r) => n + s.rankAllocations[r], 0), `${hull} ${p} +${bonus} sums to its cap`).toBe(s.cap);
+          CREW_RANK_ORDER.forEach((r, i) => expect(inclusiveRankCap(hull, p, r, bonus), `${hull} ${p} rank ${r} +${bonus}`).toBeGreaterThanOrEqual(base[i]));
+        }
+      }
+    }
+  });
+
+  it("a captain mission reads the module lines only when stamped at dispatch; a run in flight from before keeps the old reading", () => {
+    const s0 = installPiece(seatOfficer(wiringBase(), "operations", ["ops.cargoExpand"]), { slotType: "bridge", moduleVariant: "bridgeBalancedCommand", implicitStats: { crewEfficiency: 40 } });
+    const s = { ...s0, captains: s0.captains.map((c) => ({ ...c, level: 10 })) };
+    const r = dispatchCaptainOnMission(s, 1, "shortOreRun");
+    const m = r.next.captains[0].mission as CaptainMissionState;
+    expect(m.moduleLines).toBe(1);
+    const ship = r.next.ships[0];
+    const { moduleLines: _drop, ...legacy } = m;
+    const stripped = { ...r.next, equipment: r.next.equipment.map((e) => (e.slotType === "bridge" ? { ...e, implicitStats: {} } : e)) };
+    expect(missionRunSheet(r.next, ship, legacy as CaptainMissionState)).toEqual(missionRunSheet(stripped, ship, m));
+    expect(missionRunSheet(r.next, ship, m).cargoCapacity).toBeGreaterThan(missionRunSheet(r.next, ship, legacy as CaptainMissionState).cargoCapacity);
+    // Without a lined module nothing is stamped (the record is unchanged).
+    const plain = { ...wiringBase(), captains: wiringBase().captains.map((c) => ({ ...c, level: 10 })) };
+    expect((dispatchCaptainOnMission(plain, 1, "shortOreRun").next.captains[0].mission as CaptainMissionState).moduleLines).toBeUndefined();
+  });
+
   const quarters = (hull: ShipTypeKey, variant: string, lines: Record<string, number> = {}) =>
     installPiece(wiringBase(hull), { slotType: "quarters", moduleVariant: variant, rolledStats: lines });
 

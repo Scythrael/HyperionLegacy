@@ -1444,7 +1444,7 @@
                 <div class="exp-array-char">{arrayCharacterLine(chosenArray.def.kind)}</div>
               {:else}
                 <div class="exp-array-name dim">No sensor array installed</div>
-                <div class="exp-array-char">Scanning runs at the base rate. Install a sensor array (Ships tab) to scan faster and see farther.</div>
+                <div class="exp-array-char">Scanning runs at the base rate. A sensor array (Ships tab) changes how fast you scan and how much each world turns up, and its sensors see farther.</div>
               {/if}
             </div>
 

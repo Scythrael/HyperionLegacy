@@ -256,12 +256,12 @@ export const BODY_SCAN_MAX = 200; // largest body's scanTotal
 // per-attempt base odds (the sensor array's discovery-odds biases add on top). A body ALWAYS yields at
 // least one discovery (so it always yields at least one activity, per design I.2 step 4).
 export const DISCOVERY_ATTEMPTS_BASE = 3;
-export const DISCOVERY_ATTEMPTS_SPREAD = 2; // total attempts in [3, 4]
+export const DISCOVERY_ATTEMPTS_SPREAD = 2; // total attempts in [3, 5] (nextInt(SPREAD + 1) draws 0 to 2)
 export const BASE_DISCOVERY_PERMILLE = 500; // 50% base per-attempt odds, before the array's bias
 
 // WR-7 (OC-D11, user 2026-10-15 "Split the two": coverage width drives the discovery attempts, cadence alone drives the
 // scan speed): a split run's attempts on one body, the rolled count x the array's coverage width, rounded, at least one
-// (Wide 1.5: 3 or 4 become 5 or 6; Focused 0.6: 2; a coverage-1 array keeps the roll). Pure.
+// (Wide 1.5: 3, 4, 5 become 5, 6, 8; Focused 0.6: 2, 2, 3; a coverage-1 array keeps the roll). Pure.
 export function coverageAttempts(rolled: number, coverageWidth: number): number {
   return Math.max(1, Math.round(rolled * (Number.isFinite(coverageWidth) && coverageWidth > 0 ? coverageWidth : 1)));
 }

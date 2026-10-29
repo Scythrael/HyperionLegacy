@@ -54,14 +54,42 @@ export { MODULE_RARITY_STEP, MODULE_QUALITY_STEP, moduleEffectScale } from "./mo
 // signature crewStations and its crewEfficiency affix) scale the module's effect: their points, summed, lift its boost
 // on the D23 curve, x (1 + diminishing(points, CREW_MODULE_LINE_KNEE) / CREW_MODULE_LINE_KNEE), about +1% per point at
 // first and never capped. A Crew Stations line ALSO adds that many berths (CREW_STATIONS_BERTHS_PER_POINT each, a count
-// that never wears, gearWear.ts WEAR_EXEMPT_LINES), on top of the module's own capacity. A piece without the lines
-// reads x1 and +0, so every module minted before the lines rolled acts exactly as before.
+// that never wears, gearWear.ts WEAR_EXEMPT_LINES), on top of the module's own capacity. Every minted bridge and quarters
+// piece carries one of these lines as its implicit signature (the Guest Wing excepted), so a module minted before WR-7
+// is LIFTED by it too: in a live sheet at once, and in a captain mission or short-range run only when that run carries
+// the stamp (CaptainMissionState.moduleLines, crewModuleLinesStamp below), so a run in flight at the update reads its
+// modules exactly as before (effectiveShipStats opts.moduleLines false: withoutCrewModuleLines). Expeditions and patrol
+// cycles freeze the officer and complement effects at dispatch / the cycle start, so a run in flight keeps its record.
+// The berths act only through the crew fill (auto-crew, transfer, rosters), which a ship out on a run never takes
+// (crewLock.ts shipCrewLocked), so they cannot change a run in flight.
 // [PROVISIONAL] both sizes (no number was asked): the knee 100 points, one berth per point.
 export const CREW_MODULE_LINE_KNEE = 100;
 export const CREW_STATIONS_BERTHS_PER_POINT = 1;
+const CREW_MODULE_LINE_KEYS = ["crewStations", "crewEfficiency"] as const;
 
 function linePoints(piece: EquipmentInstance, stat: string): number {
   return Math.max(0, (piece.implicitStats[stat] ?? 0) + (piece.rolledStats[stat] ?? 0));
+}
+
+const isCrewModule = (piece: EquipmentInstance): boolean => piece.slotType === "bridge" || piece.slotType === "quarters";
+const hasModuleLine = (piece: EquipmentInstance): boolean => isCrewModule(piece) && CREW_MODULE_LINE_KEYS.some((k) => linePoints(piece, k) > 0);
+
+// The stamp a new captain mission or short-range run carries when the ship's crew modules carry a line (the run then
+// reads them, OC-D3); undefined when none does (both readings agree, so the record stays as it was). Pure.
+export function crewModuleLinesStamp(state: GameState, ship: ShipInstance): 1 | undefined {
+  return equippedFor(state, ship.id).some(hasModuleLine) ? 1 : undefined;
+}
+
+// The state with every crew module's Crew Stations and Crew Efficiency lines left out: the pre-WR-7 reading, for a run
+// dispatched before the lines acted. The SAME state reference when no module carries one. Pure.
+export function withoutCrewModuleLines<T extends { equipment: EquipmentInstance[] }>(state: T): T {
+  if (!state.equipment.some(hasModuleLine)) return state;
+  const strip = (lines: Record<string, number>): Record<string, number> => {
+    const out = { ...lines };
+    for (const k of CREW_MODULE_LINE_KEYS) delete out[k];
+    return out;
+  };
+  return { ...state, equipment: state.equipment.map((p) => (hasModuleLine(p) ? { ...p, implicitStats: strip(p.implicitStats), rolledStats: strip(p.rolledStats) } : p)) };
 }
 
 // The x factor a crew module's Crew Stations + Crew Efficiency lines apply to its effect (1 without them). Pure.

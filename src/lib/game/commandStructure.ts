@@ -155,12 +155,38 @@ function buildStructure(hullType: ShipTypeKey, bonus: number): CommandStructure 
   const total = Math.max(0, Math.round(SPEC_BASE_TOTAL[def.spec] * tierMultiplier(def.tier))) + bonus;
   const weights = SPEC_DIVISION_WEIGHTS[def.spec];
 
+  // WR-7 review (OC-D7): the pyramid's floors are not monotone in the cap (a bigger cap can floor a high rank lower),
+  // so a bonus template keeps, at every rank, at least the seats the hull's own template has (never fewer).
+  const base = bonus > 0 ? commandStructureForHull(hullType) : null;
   const divisions = {} as Record<CrewProfession, DivisionTemplate>;
   for (const profession of CREW_PROFESSIONS) {
     const cap = Math.max(0, Math.round(total * weights[profession]));
-    divisions[profession] = { cap, rankAllocations: allocateRanks(cap) };
+    const alloc = allocateRanks(cap);
+    divisions[profession] = { cap, rankAllocations: base ? atLeastInclusive(alloc, base.divisions[profession].rankAllocations) : alloc };
   }
   return { hullType, total, divisions };
+}
+
+// WR-7 review (OC-D7, "installing quarters never removes a seat"): allocations whose INCLUSIVE caps (seats at a rank or
+// higher) are, rank by rank, the larger of `alloc`'s and `floor`'s. The max of two non-increasing inclusive ladders is
+// non-increasing, and its bottom is the larger total, so the result is a valid allocation summing to max(totals). Pure.
+function atLeastInclusive(alloc: Record<CrewRank, number>, floor: Record<CrewRank, number>): Record<CrewRank, number> {
+  const top = [...CREW_RANK_ORDER].reverse();
+  const inclusive = new Map<CrewRank, number>();
+  let a = 0;
+  let f = 0;
+  for (const r of top) {
+    a += alloc[r];
+    f += floor[r];
+    inclusive.set(r, Math.max(a, f));
+  }
+  const out = {} as Record<CrewRank, number>;
+  let above = 0;
+  for (const r of top) {
+    out[r] = inclusive.get(r)! - above;
+    above = inclusive.get(r)!;
+  }
+  return out;
 }
 
 // WR-7 (OC-D7, user 2026-10-15 "Spread across divisions"; B22 fixed): the command structure of a hull whose quarters
