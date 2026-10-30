@@ -40,6 +40,6 @@ describe("overlay focus wiring (source)", () => {
     expect(src).toContain('disabled={busy} on:click={() => dismissCelebration("long")}');
     expect(src).toContain("keepGoing?.focus()");
     expect(src).toMatch(/<select[^>]*disabled=\{busy\}/);
-    expect(src).toMatch(/aria-pressed=\{autoActive\(s, d\.id\)\}\s*disabled=\{busy\}/);
+    expect(src).toMatch(/aria-pressed=\{autoActive\(s, id\)\}\s*disabled=\{busy\}/);
   });
 });

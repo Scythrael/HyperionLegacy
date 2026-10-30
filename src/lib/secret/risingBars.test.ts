@@ -117,14 +117,19 @@ describe("the Prestigeception bar", () => {
     expect(pcBarExponent(freshSecretState(T0))).toBe(PRESTIGECEPTION_AT);
     let s = atPeak(at(PRESTIGECEPTION_AT));
     let prev = pcBarExponent(s);
-    for (let m = 1; m <= 6; m++) {
+    // (walked to the 5th bar: at the review round's PC_BAR_RATIO 3 the 6th sat beyond what a Decimal can hold once
+    // unsoftened; at today's 2 the 6th is about e14,400,000, past e10,000,000, so the walk stops at the 5th anyway)
+    for (let m = 1; m <= 5; m++) {
       s = doPrestigeception(s, T0);
       const bar = pcBarExponent(s);
-      if (m === 1 && PC_BAR_RATIO === 1) expect(bar, `m=${m}`).toBeGreaterThanOrEqual(prev);
+      if (m === 1 && (PC_BAR_RATIO as number) === 1) expect(bar, `m=${m}`).toBeGreaterThanOrEqual(prev);
       else expect(bar, `m=${m}`).toBeGreaterThan(prev);
       expect(prestigeceptionGain(setPeak(cloneSecret(s), below(bar))).eq(0), `m=${m} below`).toBe(true);
       const g = prestigeceptionGain(setPeak(cloneSecret(s), at(bar)));
-      expect(g.gte(s.dreamPoints.mul(PC_BAR_RATIO).floor()), `m=${m}`).toBe(true);
+      // Pay at the bar (Slice 5a, user 2026-10-29): the payout is the bar's own, PC_BAR_RATIO x what you hold (the
+      // floor and the bar's float rounding can take one point off; before, the peak a hair past the bar paid more).
+      expect(g.gte(s.dreamPoints.mul(PC_BAR_RATIO).floor().sub(1)), `m=${m}`).toBe(true);
+      expect(g.lte(s.dreamPoints.mul(PC_BAR_RATIO)), `m=${m}`).toBe(true);
       prev = bar;
       s = setPeak(s, at(bar));
     }
@@ -137,7 +142,10 @@ describe("the Prestigeception bar", () => {
     const base = prestigeceptionGain(atPeak(at(PRESTIGECEPTION_AT)));
     const s = atPeak(400, 0, 50000);
     expect(prestigeceptionGain(setPeak(s, at(pcBarExponent(s)))).gt(base)).toBe(true);
-    expect(prestigeceptionGain(atPeak(400000, 0, 50000)).eq(prestigeceptionGain(atPeak(400000)))).toBe(true);
+    // Pay at the bar (Slice 5a, user 2026-10-29): a climb far past the bar pays exactly the bar's Dream Points, with or
+    // without Dream Points held (before, a climb above the bar paid what it paid with nothing held).
+    expect(prestigeceptionGain(atPeak(400000, 0, 50000)).eq(prestigeceptionGain(setPeak(s, at(pcBarExponent(s)))))).toBe(true);
+    expect(prestigeceptionGain(atPeak(400000)).eq(base)).toBe(true);
   });
 
   it("previews nothing below a risen bar (the button and the preview read the same bar)", () => {
@@ -197,6 +205,7 @@ describe("captainSinceFleet", () => {
 // Every skill, every automation switched on (the real automated climb).
 function automated(s: SecretState): SecretState {
   for (const d of SKILLS) s.skills[d.id] = true;
+  s.milestones.firstPc = 0; // (0.14.0: Auto Prestigeception acts only after the player's own first one)
   return s;
 }
 
@@ -206,6 +215,10 @@ function automated(s: SecretState): SecretState {
 function topAutos(s: SecretState): SecretState {
   s.skills.autoFleet = true;
   s.skills.autoPc = true;
+  s.milestones.firstPc = 0; // (0.14.0: Auto Prestigeception acts only after the player's own first one)
+  // 0.14.0 Slice 3: the milestones these peaks record grant the other automations; a switch that is
+  // already off stays off through the grant, so they stay out of the way.
+  for (const id of ["autoOverclock", "autoBuyLow", "autoBuyHigh", "autoCaptain", "autoSkills", "autoUpgrades"] as const) s.autoOn[id] = false;
   s.autoTarget = { captain: 10, fleet: 10, pc: 10 };
   return s;
 }
@@ -253,7 +266,10 @@ describe("automatic Fleet and Prestigeception read the risen bar (Review Focus 2
       stepMut(s, 1, i * 1000);
       if (s.pcCount > pre.pcCount) {
         pcs++;
-        expect(effectiveExponent(pre.pcPeak)).toBeGreaterThanOrEqual(pcBarExponent(pre));
+        // 0.14.0: Auto Prestigeception fires the instant the climb reaches its bar, inside the step, so the
+        // payout shows it: at least what the bar pays (PC_BAR_RATIO times the Dream Points held).
+        expect(s.dreamPoints.sub(pre.dreamPoints).gte(pre.dreamPoints.mul(PC_BAR_RATIO).floor())).toBe(true);
+        expect(pcBarExponent(pre)).toBeGreaterThan(effectiveExponent(pre.pcPeak) - 1e-9);
       } else if (s.fleetTotal > pre.fleetTotal) {
         fleets++;
         expect(effectiveExponent(pre.fleetPeak)).toBeGreaterThanOrEqual(fleetBarExponent(pre));

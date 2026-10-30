@@ -6,6 +6,18 @@
 // so these never move. Regenerate ONLY on purpose: GOLDEN_WRITE=1 npx vitest run src/lib/secret/relicGoldens.test.ts
 // Regenerated on purpose by the 0.14.0 prestige redesign, Slice 2 (rising bars): the saves now carry
 // captainSinceFleet, and the fleetGain / pcGain readouts read 0 below the risen bar (the play is unchanged).
+// Regenerated on purpose by Slice 5a (relic ceiling): the relic cases move by the collections re-based on the tier
+// stagger and the ceiling fraction in the snapshot; relicFree did not move (the relic-free plateau is e10,000,000).
+// Regenerated on purpose by Slice 4 (leveled skills): every save carries the schedule's Skill Points
+// (skillPoints, skillPointsEarned) and the gates opened (skillsOpened); the states that own the 0.13.11.2
+// stat skills (past the finale, after a Prestigeception) play them as leveled skills scaled by the prestige
+// counts (ten bonus, Overdrive, Head Start), so their runs and readouts move. The early and mid readouts
+// (no stat skill) are unchanged.
+// Then the combined pacing retune and its fix round: the states whose window holds a Prestigeception move
+// (Auto Prestigeception now fires the instant its bar is reached, paying exactly the bar's Dream Points, and
+// the retuned CP_K, PC_BAR_RATIO, skills and SOFT_SCALE); the early states without one do not.
+// The Slice 5a retune (user 2026-10-29): the relic-free captures move with the 0.13.11 goldens (CP_K, pay at the bar,
+// PC_BAR_RATIO 2, SOFT_SCALE 63), and the four Tier I levers' perCopy x6.5 move the typical and heavy boosts and states.
 import { describe, it, expect } from "vitest";
 import { readFileSync, writeFileSync } from "node:fs";
 import { serializeSecret, type SecretState } from "./state";

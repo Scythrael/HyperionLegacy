@@ -21,7 +21,6 @@ import {
   AUTOMATION_UNLOCKS,
   AUTOMATION_BUY_CHOICES,
   AUTOMATION_BUY_DEFAULT,
-  PENDING_MILESTONES,
   FLEET_BAR_RATIO,
   PC_BAR_RATIO,
   SKILL_POINT_SCHEDULE,
@@ -33,6 +32,9 @@ import {
   TEN_BONUS,
   TEN_BONUS_SKILL,
   OVERDRIVE_POWER,
+  milestoneRewardLine,
+  AUTO_BUY_HIGH_MILESTONE,
+  AUTO_PC_MILESTONE,
 } from "./config";
 import { SAVE_KEY } from "../game/save";
 import { installMemoryStorage, installBlockedStorage, restoreStorage } from "./testStorage";
@@ -417,7 +419,7 @@ describe("0.14.0 prestige redesign: state fields (Slice 1)", () => {
 
 describe("0.14.0 prestige redesign: config data (Slice 1)", () => {
   const LIVE = new Set<string>(MILESTONES.map((m) => m.id));
-  const known = (id: string) => LIVE.has(id) || PENDING_MILESTONES.some((m) => m.id === id);
+  const known = (id: string) => LIVE.has(id);
 
   it("has the six leveled skills of the design's table, each with a scale count and a gate", () => {
     expect(LEVELED_SKILLS.map((d) => d.id)).toEqual(["headStart", "tenfoldTraining", "overdrive", "captainsAcademy", "fleetLogistics", "lucidPlanning"]);
@@ -454,7 +456,9 @@ describe("0.14.0 prestige redesign: config data (Slice 1)", () => {
       expect(AUTOMATION_NAMES[id].length, id).toBeGreaterThan(0);
     }
     // the design's mapping for the beats it names
-    expect(AUTOMATION_UNLOCKS).toMatchObject({ autoOverclock: "firstFleet", autoBuyLow: "e1000", autoPc: "firstPc", autoBuyHigh: "singularity", autoUpgrades: "e2m" });
+    // (Slice 3 kept Auto-buy V to VIII at its design milestone, AUTO_BUY_HIGH_MILESTONE; the combined pacing
+    // retune nudged Auto Prestigeception, AUTO_PC_MILESTONE)
+    expect(AUTOMATION_UNLOCKS).toMatchObject({ autoOverclock: "firstFleet", autoBuyLow: "e1000", autoPc: AUTO_PC_MILESTONE, autoBuyHigh: AUTO_BUY_HIGH_MILESTONE, autoUpgrades: "e2m" });
     // one automation per milestone, so each popup names exactly one unlock
     expect(new Set(Object.values(AUTOMATION_UNLOCKS)).size).toBe(AUTOMATION_IDS.length);
   });
@@ -464,19 +468,17 @@ describe("0.14.0 prestige redesign: config data (Slice 1)", () => {
     expect(AUTOMATION_BUY_DEFAULT).toEqual({ autoOverclock: "max", autoBuyLow: "max", autoBuyHigh: "max", autoSkills: "1", autoUpgrades: "1" });
   });
 
-  it("the new milestones are defined but kept out of the live list (nothing can reach them yet)", () => {
-    expect(PENDING_MILESTONES.map((m) => m.id)).toEqual(["secondFleet", "e10k", "pcRegular", "e20m", "e25m"]);
-    for (const m of PENDING_MILESTONES) expect(LIVE.has(m.id), m.id).toBe(false);
-    expect(MILESTONES.length).toBe(16);
-    const secret = PENDING_MILESTONES.find((m) => m.id === "e25m")!;
+  it("the late milestones are live (Slice 5a; Slice 3 moved the automation beats in)", () => {
+    for (const id of ["secondFleet", "e10k", "pcRegular", "e20m", "e25m"]) expect(LIVE.has(id), id).toBe(true);
+    expect(MILESTONES.length).toBe(21);
+    const secret = MILESTONES.find((m) => m.id === "e25m")!;
     expect(secret.secret).toBe(true);
     expect(secret.detail).toContain("e25,000,000");
     expect(SECRET_PRIZE_EXPONENT).toBe(25000000);
     expect(E20M_EXPONENT).toBe(20000000);
-    for (const id of ["autoCaptain", "autoFleet", "autoSkills"] as const) {
-      const m = PENDING_MILESTONES.find((p) => p.id === AUTOMATION_UNLOCKS[id])!;
-      expect(m.reward).toBe(`Reward: ${AUTOMATION_NAMES[id]} unlocked`);
-    }
+    expect(AUTOMATION_UNLOCKS).toMatchObject({ autoCaptain: "secondFleet", autoFleet: "e10k", autoSkills: "pcRegular" });
+    // (Auto Prestigeception stays a secret at its milestone: the "Mystery popup", automationMilestones.test.ts)
+    for (const id of AUTOMATION_IDS) if (id !== "autoPc") expect(milestoneRewardLine(AUTOMATION_UNLOCKS[id]), id).toBe(`Reward: ${AUTOMATION_NAMES[id]} unlocked. Find it on the Automation tab.`);
   });
 
   it("the bars rise, and the gate lift and the Skill Point schedule are sane", () => {

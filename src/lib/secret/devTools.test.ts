@@ -3,8 +3,8 @@ import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import { freshSecretState, serializeSecret, deserializeSecret, cloneSecret, type SecretState } from "./state";
 import { devMarkFound, devMaxSkills, devJumpTo } from "./devTools";
-import { effectiveExponent, upgradesUnlocked, upgradeLevel, hasSkill, autoActive, isTierUnlocked, stepMut, captainGain, fleetGain, prestigeceptionGain } from "./engine";
-import { SKILLS, UPGRADES, MILESTONES, LONG_EXPONENT, STARFALL_EXPONENT, TIER_COUNT } from "./config";
+import { effectiveExponent, upgradesUnlocked, upgradeLevel, hasSkill, autoActive, isTierUnlocked, stepMut, captainGain, fleetGain, prestigeceptionGain, allSkillsMaxed } from "./engine";
+import { SKILLS, LEVELED_SKILLS, AUTOMATION_IDS, UPGRADES, MILESTONES, LONG_EXPONENT, STARFALL_EXPONENT, TIER_COUNT, isAutomationId } from "./config";
 import { newlyReached } from "./runtime";
 
 const NOW = Date.UTC(2026, 9, 23, 12);
@@ -36,10 +36,11 @@ describe("Mark found", () => {
 describe("Max skills", () => {
   it("owns every skill with every switch on, and records the milestone", () => {
     const s = devMaxSkills(freshSecretState(NOW), NOW);
-    for (const d of SKILLS) {
-      expect(hasSkill(s, d.id)).toBe(true);
-      if (d.auto) expect(autoActive(s, d.id)).toBe(true);
-    }
+    for (const d of SKILLS) expect(hasSkill(s, d.id)).toBe(true);
+    // (every switch on; Auto Prestigeception acts only once the player's own first Prestigeception reveals it)
+    for (const id of AUTOMATION_IDS) expect(s.autoOn[id]).toBe(true);
+    for (const id of AUTOMATION_IDS) expect(autoActive(s, id)).toBe(id !== "autoPc");
+    for (const d of LEVELED_SKILLS) expect(s.skillLevels[d.id]).toBe(d.cap);
     expect(s.milestones.allSkills).toBe(NOW);
     accepted(s);
   });
@@ -69,7 +70,10 @@ for (const [label, target] of [["e1,000,000", LONG_EXPONENT], ["e10,000,000", ST
       expect(s.pcCount).toBeGreaterThan(0);
       expect(upgradesUnlocked(s)).toBe(true);
       expect(s.found).toBe(true);
-      for (const d of SKILLS) expect(hasSkill(s, d.id)).toBe(true);
+      // every automation on the way; the skills at the average player's levels there (0.14.0 Slice 4: maxed only
+      // at e10,000,000, where the Skill Points stop)
+      for (const d of SKILLS) if (isAutomationId(d.id)) expect(hasSkill(s, d.id), d.id).toBe(true);
+      expect(allSkillsMaxed(s)).toBe(target === STARFALL_EXPONENT);
     });
 
     it("no automatic prestige is due on arrival (the jump does not reset itself)", () => {
@@ -95,8 +99,10 @@ for (const [label, target] of [["e1,000,000", LONG_EXPONENT], ["e10,000,000", ST
       else expect(fresh).not.toContain("starfall");
       expect(newlyReached(s, liveFor(s, 60))).toEqual([]);
       const ids = MILESTONES.map((m) => m.id).filter((id) => s.milestones[id] !== undefined);
-      // at e1,000,000 the beats on the way to e10,000,000 are still ahead (e2M, e3M, e5M, e7.77M, e10M)
-      expect(ids.length).toBe(target === STARFALL_EXPONENT ? MILESTONES.length : MILESTONES.length - 5);
+      // at e1,000,000 the beats on the way to e10,000,000 are still ahead (e2M, e3M, e5M, e7.77M, e10M), and
+      // every skill maxed too (0.14.0 Slice 4: the last Skill Point lands near e10,000,000)
+      // (0.14.0 Slice 5a: e20,000,000 and the secret e25,000,000 lie past every jump)
+      expect(ids.length).toBe(target === STARFALL_EXPONENT ? MILESTONES.length - 2 : MILESTONES.length - 8);
     });
 
     it("upgrades: none at e1,000,000 (the horse joke still to come), all at their cap at e10,000,000", () => {

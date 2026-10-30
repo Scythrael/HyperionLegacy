@@ -191,7 +191,7 @@ describe("the e10,000,000 milestone", () => {
     checkMilestonesMut(t, 7);
     expect(t.milestones.starfall).toBe(7);
     expect(milestoneAchievement("starfall").reward).toContain("Starfall");
-    expect(milestoneAchievement("googol").reward).toBe("Reward: recorded for a future update");
+    expect(milestoneAchievement("e3m").reward).toBe("Reward: recorded for a future update");
     expect(MILESTONES.find((m) => m.id === "starfall")!.achievement).toBe(true);
   });
 });
@@ -340,7 +340,8 @@ describe("0.13.11.1 content pacing: staggered and new upgrades, new milestones",
       const pop = milestoneAchievement(id);
       expect(pop.title.length).toBeGreaterThan(3);
       expect(pop.flavor).toBeTruthy();
-      expect(pop.reward).toBe("Reward: recorded for a future update");
+      // 0.14.0 Slice 3: "Forever, Twice" unlocks Auto-buy Upgrades and its popup says so
+      expect(pop.reward).toBe(id === "e2m" ? "Reward: Auto-buy Upgrades unlocked. Find it on the Automation tab." : "Reward: recorded for a future update");
     }
   });
 });
@@ -376,7 +377,7 @@ describe("final re-check: upgrade rows", () => {
     const ov = readFileSync("src/lib/SecretGameOverlay.svelte", "utf-8");
     expect(ov).toContain('if (q.limitedBy === "cap" && q.count === 0) return COPY.maxed;');
     expect(ov).toContain("level >= u.cap ? COPY.maxed : levelsLabel(qMax.count)");
-    expect(ov).toContain("allSkillsLearned(s) ? COPY.fleetBlurbAllSkills : COPY.fleetBlurb");
+    expect(ov).toContain("allSkillsMaxed(s) ? COPY.fleetBlurbAllSkills : COPY.fleetBlurb");
     expect(COPY.fleetBlurbAllSkills).not.toMatch(/Skill Point/);
     expect(COPY.fleetBlurb).toMatch(/Skill Point/);
   });

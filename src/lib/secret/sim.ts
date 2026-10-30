@@ -7,8 +7,9 @@
 // gaps run through the real catch-up (advanceTo) with the shipping exact window, exactly as the
 // game pays them.
 //
-// Every 3 minutes in a session (and once more on leaving) the player: buys skills in the listed
-// order when affordable; takes Prestigeception if it at least doubles Dream Points (or is the
+// Every 3 minutes in a session (and once more on leaving) the player: buys skill levels, the cheapest
+// level on offer first (0.14.0 Slice 4, so each skill is bought as it opens: a new skill's first level is
+// the cheapest); takes Prestigeception if it at least doubles Dream Points (or is the
 // first); else Fleet Prestige if it at least doubles Augment Points (or is the first; 0.13.11.1:
 // the higher layer first, as a Fleet uses up the climb); else, until
 // Auto Captain is owned, Captain Prestige if it at least doubles Captain Points (holding off when
@@ -16,24 +17,26 @@
 // Ore and Max on every tier, highest first. Auto targets stay at their 100% default.
 // 0.13.11.1: from e1,000,000 on, the player also buys the four upgrades at every look, cheapest next
 // level first, as long as one is affordable.
+// 0.14.0 Slice 3: the automations unlock at milestones (the engine grants them, switched on at their
+// defaults); "until Auto Captain is owned" and "until auto-buyers cover it" read the milestone unlocks.
+// Slice 4: Skill Points buy the leveled skills, each when its gate opens (engine skillAvailable).
 //
 // 0.13.11.1 curve round (user: "run a few sims as an optimal player, an average player, and a casual
 // player"). The three named players:
 //   OPTIMAL  ("optimal"): a 3-hour first session, back 4 hours later for 30 minutes, then every day
 //            at 07:00, 09:00, 11:00, 13:00, 15:00, 17:00, 19:00, 21:00 and 23:00 for 20 minutes (nine
 //            check-ins); acts every 3 minutes in a session; the best settings (the default 100%
-//            targets, which the retune made best) and the listed skill order. Measured faster to the
-//            finale and e1,000,000 than acting every minute or an automation-first skill order.
+//            targets, which the retune made best). Measured faster to the finale and e1,000,000 than
+//            acting every minute.
 //   AVERAGE  ("average", the same player as "steady"): a 90-minute first session, back at 22:00, then
-//            08:00, 12:30, 18:00 and 22:00 for 20 minutes; acts every 3 minutes; default targets;
-//            skills in the listed order.
+//            08:00, 12:30, 18:00 and 22:00 for 20 minutes; acts every 3 minutes; default targets.
 //   CASUAL   ("casual", the same player as "light"): a 90-minute first session, then 08:00 and 20:00
-//            for 15 minutes; acts every 3 minutes; default targets; skills in the listed order.
+//            for 15 minutes; acts every 3 minutes; default targets.
 
 import { freshSecretState, cloneSecret, type SecretState } from "./state";
-import { stepMut, captainMultiplier, buyOverclockMut, buyTierMut, buySkill, canBuySkill, captainGain, fleetGain, prestigeceptionGain, doCaptain, doFleet, doPrestigeception, effectiveExponent, hasSkill, upgradesUnlocked, upgradePriceExponent, canBuyUpgrade, buyUpgrade, fleetBarExponent, pcBarExponent, gainMultiplier, gainExponent, relicBoost } from "./engine";
+import { stepMut, captainMultiplier, buyOverclockMut, buyTierMut, buySkillLevel, skillOffers, pickSkillOffer, skillLevel, allSkillsMaxed, totalSkillCost, captainGain, fleetGain, prestigeceptionGain, doCaptain, doFleet, doPrestigeception, effectiveExponent, hasSkill, upgradesUnlocked, upgradePriceExponent, canBuyUpgrade, buyUpgrade, fleetBarExponent, pcBarExponent, gainExponent, fleetGainPerLog10, pcGainPerLog10, stateExponent, automationUnlocked, automationRevealed, setAuto } from "./engine";
 import { advanceTo, EXACT_BOUND_SECONDS, type CatchUpOptions } from "./catchUp";
-import { SKILLS, UPGRADES, FLEET_AT, PRESTIGECEPTION_AT, AP_SCALE, AP_K, DP_SCALE, DP_K, type MilestoneId, type UpgradeId, type SkillId, type RelicBoosts } from "./config";
+import { UPGRADES, LEVELED_SKILLS, SKILL_GATE_LIFT_PC, FLEET_AT, PRESTIGECEPTION_AT, AP_K, DP_K, type MilestoneId, type UpgradeId, type RelicBoosts } from "./config";
 
 export type SimProfile = "steady" | "light" | "keen" | "optimal" | "average" | "casual";
 
@@ -101,7 +104,7 @@ export interface PlayStyle {
   spam?: boolean;
 }
 
-export function decide(s: SecretState, atMs: number, style: PlayStyle = {}, order: readonly SkillId[] = SKILLS.map((d) => d.id)): SecretState {
+export function decide(s: SecretState, atMs: number, style: PlayStyle = {}): SecretState {
   // 0.13.11.1: the e1,000,000 upgrades, cheapest next level first, as often as affordable.
   if (upgradesUnlocked(s)) {
     for (;;) {
@@ -118,15 +121,11 @@ export function decide(s: SecretState, atMs: number, style: PlayStyle = {}, orde
       s = buyUpgrade(s, best, "one");
     }
   }
-  for (const id of order) {
-    const def = SKILLS.find((d) => d.id === id)!;
-    if (hasSkill(s, def.id)) continue;
-    if (!canBuySkill(s, def.id)) {
-      if (def.requires && !hasSkill(s, def.requires)) continue;
-      break;
-    }
-    s = buySkill(s, def.id, atMs);
-  }
+  // User 2026-10-28 "Granted OFF until revealed": Auto Prestigeception shows itself (switched off) after the
+  // player's own first Prestigeception; the player switches it on when it appears.
+  if (!style.manual && automationUnlocked(s, "autoPc") && automationRevealed(s, "autoPc") && s.autoOn.autoPc === false) s = setAuto(s, "autoPc", true);
+  // Slice 4: Skill Points, the cheapest level on offer first, as long as one is affordable.
+  for (let offer = pickSkillOffer(skillOffers(s)); offer !== null; offer = pickSkillOffer(skillOffers(s))) s = buySkillLevel(s, offer.id, atMs);
   const fg = fleetGain(s);
   const pg = prestigeceptionGain(s);
   const cg = captainGain(s);
@@ -137,14 +136,25 @@ export function decide(s: SecretState, atMs: number, style: PlayStyle = {}, orde
   const t = s.autoTarget;
   const pays = (gain: typeof fg, have: typeof fg, pct: number) => gain.gt(0) && (have.eq(0) || gain.gte(have.mul(pct / 100)));
   // The higher layer first, like the automatic prestiges: a Fleet would use up the climb.
-  if (pays(pg, s.dreamPoints, t.pc)) s = doPrestigeception(s, atMs);
+  // A Prestigeception pays its bar's Dream Points (pay at the bar, engine pcTargetMet): the hand takes it once
+  // it pays at all, as Auto Prestigeception does, whatever the target.
+  if (pg.gt(0)) s = doPrestigeception(s, atMs);
   else if (fg.gt(0) && (style.spam || pays(fg, s.augmentPoints, t.fleet))) s = doFleet(s, atMs);
-  else if ((style.manual || !hasSkill(s, "autoCaptain")) && pays(cg, s.captainPoints, t.captain) && !(s.fleetTotal === 0 && effectiveExponent(s.fleetPeak) >= 250)) {
+  else if ((style.manual || !hasSkill(s, "autoCaptain")) && pays(cg, s.captainPoints, t.captain) && !(s.fleetTotal === 0 && stateExponent(s, s.fleetPeak) >= 250)) {
     s = doCaptain(s, atMs);
   }
-  if (!(hasSkill(s, "autoBuyLow") && hasSkill(s, "autoOverclock"))) {
+  // By hand, whatever the automations do not cover yet. 0.14.0 Slice 3: Auto-buy V to VIII now unlocks
+  // at "Do Not Look Directly at It" (own a Singularity Engine), so the player buys Generators V to VIII
+  // by hand until then, as a real player sees their Buy buttons (before, the hand stopped at Auto-buy I
+  // to IV plus Auto Overclock and waited for Auto-buy V to VIII bought with Skill Points; now that would
+  // never own a Singularity Engine at all).
+  const low = hasSkill(s, "autoBuyLow");
+  const high = hasSkill(s, "autoBuyHigh");
+  if (!(low && hasSkill(s, "autoOverclock"))) {
     buyOverclockMut(s, s.ore.mul(0.5));
     for (let k = s.tiersUnlocked - 1; k >= 0; k--) buyTierMut(s, k, s.ore);
+  } else if (!high) {
+    for (let k = s.tiersUnlocked - 1; k >= 4; k--) buyTierMut(s, k, s.ore);
   }
   return s;
 }
@@ -168,7 +178,6 @@ export interface SimOptions {
   targets?: { captain: number; fleet: number; pc: number };
   style?: PlayStyle;
   // Overrides of the profile's own habits (curve round comparisons).
-  skillOrder?: readonly SkillId[];
   decisionSeconds?: number;
   // R2-10: the main game's relic boosts the whole run plays with (relic-free when absent).
   relicBoosts?: RelicBoosts;
@@ -183,7 +192,6 @@ export function simulatePlayer(opts: SimOptions): SimResult {
   const events: Record<string, number> = {};
   const samples: [number, number][] = [];
   const captainResets: [number, number, number][] = [];
-  const order = opts.skillOrder ?? SKILLS.map((d) => d.id);
   const every = opts.decisionSeconds ?? 180;
   // Wraps one live action: logs it when it was a Captain Prestige and nothing above it.
   const watchCaptain = (act: () => void) => {
@@ -204,18 +212,27 @@ export function simulatePlayer(opts: SimOptions): SimResult {
   const FROM_MILESTONES: [string, MilestoneId][] = [
     ["captain1", "firstCaptain"], ["googol", "googol"], ["fleet1", "firstFleet"], ["e1000", "e1000"],
     ["singularity", "singularity"], ["pc1", "firstPc"], ["e100000", "e100k"], ["finale", "finale"], ["long", "long"], ["starfall", "starfall"],
+    ["skillsMaxed", "allSkills"], ["e20m", "e20m"], ["e25m", "e25m"],
   ];
   const watch = () => {
     for (const [name, id] of FROM_MILESTONES) {
       const at = s.milestones[id];
       if (at !== undefined && !(name in events)) events[name] = (at - START_MS) / 1000;
     }
-    const e = effectiveExponent(s.bestOre);
+    const e = stateExponent(s, s.bestOre);
     if (s.fleetTotal >= 6) mark("fleet6");
     if (e >= 10000) mark("e10000");
     if (e >= 900000) mark("e900000");
     for (const m of [2e6, 3e6, 5e6, 7e6, 1e7]) if (e >= m) mark(`e${m}`);
-    for (const def of SKILLS) if (hasSkill(s, def.id)) mark(`skill:${def.id}`);
+    // Slice 4: each skill's first level and its cap, and the moment the schedule pays its last point.
+    for (const def of LEVELED_SKILLS) {
+      const level = skillLevel(s, def.id);
+      if (level >= 1) mark(`skill:${def.id}`);
+      if (level >= def.cap) mark(`skillMax:${def.id}`);
+    }
+    if (s.skillPointsEarned >= totalSkillCost() || allSkillsMaxed(s)) mark("lastSkillPoint");
+    // Slice 5a retune (user 2026-10-29 "All 49 points before e10M"): the skill gate lifts at this Prestigeception.
+    if (s.pcCount >= SKILL_GATE_LIFT_PC) mark("gateLift");
     for (const u of UPGRADES) {
       const def = u;
       if ((s.upgrades[u.id] ?? 0) >= 1) mark(`up1:${u.id}`);
@@ -238,7 +255,7 @@ export function simulatePlayer(opts: SimOptions): SimResult {
     let nextDecision = sec();
     while (sec() < end) {
       if (sec() >= nextDecision) {
-        watchCaptain(() => (s = decide(s, s.lastTickAt, opts.style, order)));
+        watchCaptain(() => (s = decide(s, s.lastTickAt, opts.style)));
         nextDecision += every;
       }
       watchCaptain(() => {
@@ -247,9 +264,9 @@ export function simulatePlayer(opts: SimOptions): SimResult {
       });
       watch();
     }
-    s = decide(s, s.lastTickAt, opts.style, order);
+    s = decide(s, s.lastTickAt, opts.style);
     while (sec() >= nextSample) {
-      samples.push([nextSample, effectiveExponent(s.bestOre)]);
+      samples.push([nextSample, stateExponent(s, s.bestOre)]);
       nextSample += 6 * H;
     }
     if (opts.stopAfterFinale && events.finale !== undefined) break;
@@ -284,10 +301,10 @@ export function targetExponent(s: SecretState, layer: "fleet" | "pc"): number {
   if (held.lte(0)) return 0;
   const need = held.log10() + Math.log10(pct);
   if (layer === "fleet") {
-    const per = gainMultiplier(s).log10() + Math.log10(AP_SCALE * relicBoost(s, "augment"));
+    const per = fleetGainPerLog10(s);
     return FLEET_AT * Math.pow(10, (need - per) / gainExponent(s, AP_K));
   }
-  const per = Math.log10(DP_SCALE * relicBoost(s, "dream"));
+  const per = pcGainPerLog10(s);
   return PRESTIGECEPTION_AT * Math.pow(10, (need - per) / DP_K);
 }
 
@@ -317,8 +334,8 @@ export function simulateBite(opts: { profile: SimProfile; days: number; stopExpo
     const fTarget = fc >= 2 ? targetExponent(s, "fleet") : 0;
     const pBar = p0 >= 1 ? pcBarExponent(s) : 0;
     const pTarget = p0 >= 1 ? targetExponent(s, "pc") : 0;
-    const pPeak = effectiveExponent(s.pcPeak);
-    const fPeak = effectiveExponent(s.fleetPeak);
+    const pPeak = stateExponent(s, s.pcPeak);
+    const fPeak = stateExponent(s, s.fleetPeak);
     act();
     if (s.pcCount > p0) {
       if (p0 >= 1) {
@@ -352,7 +369,7 @@ export function simulateBite(opts: { profile: SimProfile; days: number; stopExpo
       step(1);
     }
     watched(() => (s = decide(s, s.lastTickAt)));
-    if (effectiveExponent(s.bestOre) >= opts.stopExponent) break;
+    if (stateExponent(s, s.bestOre) >= opts.stopExponent) break;
   }
   return { tally, seconds: sec(), final: s };
 }

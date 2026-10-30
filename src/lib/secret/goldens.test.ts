@@ -5,6 +5,20 @@
 // 0.13.11.1 adds fields and the e1,000,000 upgrades, all of which are exactly 1 at level 0, so
 // nothing before e1,000,000 may move. A failure here means players part way through moved.
 // Regenerate ONLY on purpose: GOLDEN_WRITE=1 npx vitest run src/lib/secret/goldens.test.ts
+// Regenerated on purpose by the 0.14.0 prestige redesign, so the 0.13.11 freeze no longer holds; every move:
+//   Slice 4 (leveled skills): Skill Points follow the front-loaded schedule (3, 3, 2, 2, then 1), and the
+//     past-finale states' 0.13.11.2 Head Start, Ten Bonus and Overdrive act as leveled skills scaled by the
+//     prestige counts, so those runs move.
+//   The combined pacing retune: CP_K 0.24 to 0.18 makes every Captain gain below the finale smaller, so the mid
+//     states move too (midLive1h by its Captain Prestiges and Ore, not only skillPoints); PC_BAR_RATIO, the
+//     skills and SOFT_SCALE move the past-finale states.
+//   The review round: Auto Prestigeception is granted switched OFF at A Respectable Googol (midLive1h moves only
+//     by that autoOn entry; midCoarse2d is back to no Prestigeception) and never fires before the player's own
+//     first one; it fires the instant its bar is reached; Auto Captain waits for Auto-buy I to IV. earlyLive1h (no
+//     automation) is the one state that never moved.
+//   The Slice 5a retune (user 2026-10-29, "Pay at the bar" and "All 49 points before e10M"): CP_K 0.21 to 0.212
+//     moves every Captain gain below the finale (midLive1h, midCoarse2d); pay at the bar, PC_BAR_RATIO 3 to 2 and
+//     SOFT_SCALE 66 to 63 move the past-finale states.
 import { describe, it, expect } from "vitest";
 import { readFileSync, writeFileSync } from "node:fs";
 import { serializeSecret, type SecretState } from "./state";

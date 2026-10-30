@@ -95,25 +95,24 @@ describe("reading the Museum", () => {
     const b = relicBoostsFromMuseum(m)!;
     expect(b.tenBonus).toBe(relicBoostFor("tenBonus", w.hullRivet));
     expect(b.tier1).toBe(relicBoostFor("tier1", w.geodeCore));
-    expect(Object.keys(b).sort()).toEqual(["tenBonus", "tier1"]);
+    // (0.14.0 Slice 5a: plus the combined relic ceiling fraction)
+    expect(Object.keys(b).sort()).toEqual(["ceiling", "tenBonus", "tier1"]);
   });
 
-  it("typical and heavy collections (relicCollections.ts) are what the pacing pins use", () => {
+  it("typical and heavy collections (relicCollections.ts) are what the pacing pins use, on the tier stagger", () => {
     expect(typicalTierOneBlanks()).toEqual({ expedition: 168, shortRange: 40 });
     const w = relicWeightedCopies(typicalMuseum());
-    // standard, augmented, stellar and radiant types
-    expect([w.geodeCore, w.flightRecorder, w.ancientDriveCoil, w.captainsSigil]).toEqual([29, 12, 6, 1]);
+    // 0.14.0 Slice 5a: Tier I reveals only its four types (relics.ts RELIC_TYPE_FIRST_TIER); the augmented share
+    // lands on Resonance Shard, the one augmented type open there, and the stellar and radiant reveals drop to it
+    expect(w).toEqual({ glyphTablet: 38, sporeCapsule: 38, geodeCore: 38, resonanceShard: 93 });
     const t = typicalBoosts();
-    // each row's target (config.ts RELIC_BOOSTS comments)
-    for (const lever of RELIC_TIER_LEVERS) expect(t[lever], lever).toBeCloseTo(1.05, 2);
-    expect(t.overclock).toBeCloseTo(1.02, 3);
-    expect(t.stack).toBeCloseTo(1.15, 2);
-    expect(t.tenBonus).toBeCloseTo(1.005, 3);
-    for (const lever of ["captain", "augment", "fleet", "dream"] as const) expect(t[lever], lever).toBeCloseTo(1.04, 2);
-    expect(t.allSmall).toBeCloseTo(1.03, 2);
-    expect(t.allBig).toBeCloseTo(1.05, 2);
+    for (const d of RELIC_BOOSTS) {
+      if (w[d.relicId] === undefined) expect(t[d.lever], d.lever).toBeUndefined();
+      else expect(t[d.lever]!, d.lever).toBeGreaterThan(1);
+    }
     const h = heavyBoosts();
-    for (const d of RELIC_BOOSTS) expect(h[d.lever]!, d.lever).toBeGreaterThan(t[d.lever]!);
+    for (const d of RELIC_BOOSTS) if (t[d.lever] !== undefined) expect(h[d.lever]!, d.lever).toBeGreaterThan(t[d.lever]!);
+    expect(h.ceiling!).toBeGreaterThan(t.ceiling!);
     expect(relicWeightedCopies(heavyMuseum()).geodeCore).toBeGreaterThan(5 * w.geodeCore);
   });
 
@@ -203,9 +202,18 @@ describe("every lever moves its consumer", () => {
     s.fleetPeak = new Decimal("1e5000");
     s.pcPeak = new Decimal("1e50000");
     const near = (a: Decimal, b: Decimal) => expect(a.div(b).toNumber()).toBeCloseTo(big, 3);
-    near(captainGain(withBoosts(s, { captain: big })), captainGain(s));
-    near(fleetGain(withBoosts(s, { augment: big })), fleetGain(s));
-    near(prestigeceptionGain(withBoosts(s, { dream: big })), prestigeceptionGain(s));
+    // (0.14.0 retune: Captain and Augment gains on this state are small, so those two checks hold Dream Points
+    // for a payout big enough that the floor cannot hide the boost)
+    const c = cloneSecret(s);
+    c.dreamPoints = new Decimal("1e60");
+    near(captainGain(withBoosts(c, { captain: big })), captainGain(c));
+    near(fleetGain(withBoosts(c, { augment: big })), fleetGain(c));
+    // Pay at the bar (Slice 5a, user 2026-10-29): with Dream Points held the bar moves with the boost and the payout
+    // is PC_BAR_RATIO x what you hold, so the boost shows on a payout from nothing held (the first Prestigeception),
+    // and every later one scales with it.
+    const d = cloneSecret(s);
+    d.dreamPoints = new Decimal(0);
+    near(prestigeceptionGain(withBoosts(d, { dream: big })), prestigeceptionGain(d));
   });
 
   it("Resonance Shard: Augment Points count as `boost` times as many on the stack", () => {
@@ -241,7 +249,7 @@ describe("relic boosts keep the minigame deterministic", () => {
     const s = withBoosts(postPrestigeceptionState(), typicalBoosts());
     const p = prestigePreview(s, "captain");
     if (p) expect(p.after.captain.toString()).not.toBe("");
-    expect(relicBoost(s, "captain")).toBe(typicalBoosts().captain);
+    expect(relicBoost(s, "fleet")).toBe(typicalBoosts().fleet);
   });
 });
 

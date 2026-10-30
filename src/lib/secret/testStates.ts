@@ -1,6 +1,6 @@
 // testStates.ts: representative secret game states for the catch-up tests. Test-only.
 import { freshSecretState, cloneSecret, type SecretState } from "./state";
-import { stepMut, buyOverclockMut, buyTierMut, effectiveExponent } from "./engine";
+import { stepMut, buyOverclockMut, buyTierMut, effectiveExponent, prestigeceptionGain, doPrestigeception } from "./engine";
 import { SKILLS, FINALE_EXPONENT, LONG_EXPONENT, STARFALL_EXPONENT, type SkillId } from "./config";
 import { devJumpTo } from "./devTools";
 
@@ -11,6 +11,9 @@ function grant(s: SecretState, ids: readonly SkillId[]): void {
 function play(s: SecretState, seconds: number, dt: number, until?: (s: SecretState) => boolean): SecretState {
   let t = 0;
   while (t < seconds) {
+    // 0.14.0 (user 2026-10-29 "Granted OFF until revealed"): the first Prestigeception is always the player's
+    // own, so the player takes it by hand as soon as it pays; Auto Prestigeception takes over after.
+    if (s.pcCount === 0 && prestigeceptionGain(s).gt(0)) Object.assign(s, doPrestigeception(s, s.lastTickAt + t * 1000));
     stepMut(s, dt, s.lastTickAt + (t + dt) * 1000);
     t += dt;
     if (until && until(s)) break;

@@ -200,6 +200,27 @@ both before each slice.
 - [ ] Step 2: Implement; tests pass.
 - [ ] Step 3: Commit `feat(minigame): automations unlock at milestones`.
 
+**Slice 3 carry note (engine and data built; PACING OPEN, gates red on the sim pins):**
+- Built: the three automation beats are live milestones; `checkMilestonesMut` grants the automation of every
+  recorded milestone (switch, target and buy amount stay at their missing defaults), so live, catch-up and a
+  prestige grant at the same step, and a save that recorded the milestone earlier gets it at its next step;
+  `automationUnlocked`; `hasSkill` / `autoActive` read `automations` (or a 0.13.11.2 skill the save owns, kept
+  as it was); `canBuySkill` / `buySkill` never sell automations; "every skill maxed" counts only Skill Point
+  skills. Auto-buy Upgrades and Auto Skill Allocation buy the cheapest level first, ties to fewer levels then
+  list order. Auto Skill Allocation runs on the `skillOffers` seam (Slice 4 lists its leveled skills there).
+  Buy amounts are a RATE: "1" / "10" per second booked, so a coarse catch-up step buys at the live rate.
+  Popup: "Reward: <automation> unlocked. Find it on the Automation tab." (the signed-off mockup). The Skills
+  tab keeps working (automation rows read "Unlocks at <milestone>" or "???"); no Automation tab yet.
+- Goldens: goldens.json and relicGoldens.json move only by the new milestone records and the `automations`
+  field (no Ore, point or count moves).
+- OPEN for the user: automations now arrive with progress instead of Skill Points (and the stat skills come
+  days sooner), so the relic-free pins move and no single mapping nudge holds them on both the pinned and the
+  hour-later run (table at config `AUTO_BUY_HIGH_MILESTONE`). The pacing is chaotic around a Prestigeception
+  landing just short of a goal (e1,000,000 at 31.6 or 48.7 days). Also open: Auto-buy Upgrades widens the
+  sim's coarse-stretch gap with relics to 9.1% (2.6% without it); and the day2 catch-up parity fixture lands
+  on a Prestigeception plateau (17 over its bound). Red: sim, simRobust, simOptimal, simCasual, the relic and
+  target sweeps, simRelicsStretch, catchUp day2, redesignGoldens pacing rows.
+
 ### Slice 4: Leveled skills and the Skill Point schedule
 
 **Files:**
@@ -221,6 +242,54 @@ both before each slice.
 - [ ] Step 3: Re-sim (steady, optimal, casual): relic-free bands hold; the average player's last point lands near the
   time e10,000,000 becomes reliable (report the day); tune only the [PROVISIONAL] constants.
 - [ ] Step 4: Commit `feat(minigame): leveled skills and the Skill Point schedule`.
+
+**Slice 4 carry note (built on the Slice 3 WIP; pacing retuned in the next commit, see below):**
+- Engine: `skillLevel` (a 0.13.11.2 stat skill counts as its `replaces` level until Slice 6), `skillLevelCost`,
+  `buySkillLevel` (by hand, one level), `skillAvailable` (gate open now, or opened before and
+  `SKILL_GATE_LIFT_PC` Prestigeceptions done; new save field `skillsOpened`, written only once set),
+  `skillScaleFactor` = (1 + count)^`SKILL_SCALE_POW`, `skillStrength` = step x level x factor, `totalSkillCost`,
+  `skillCostToMax`, `skillPointsRemaining`, `nextSkillPointPay` (the schedule's entry, never more than the levels
+  left need beyond the points held: earning stops exactly at max, no stranded point, a save at the old cutoff
+  earns again). The point skills multiply Captain / Augment / Dream gains; the bars read the same curve
+  (`fleetGainPerLog10`, `pcGainPerLog10`). `skillOffers` lists leveled skills (Auto Skill Allocation).
+- UI (minimal until Slice 7): leveled rows with level X / Y, now / next effect, scale line, gate line, gate-lift
+  note; Fleet card pays "+ N Skill Points". Help SKILLS reworded (Slice 7 rewrites it).
+- Goldens: goldens.json / relicGoldens.json move by the schedule's points and by the 0.13.11.2 stat skills now
+  scaling with prestige counts (test headers say which). devJumpTo bisects to its target (the settled Ore is no
+  longer proportional to the build).
+
+**Combined pacing retune (Slices 2 + 3 + 4, user 2026-10-28 "One retune after Slice 4"; WIP, NOT all green):**
+- Cause of the touchiness: at PC_BAR_RATIO 1 the Prestigeception climbs sit x2.7 apart, so one always lands within
+  a step of e1,000,000 or e10,000,000, and where the ladder starts depends on which check-in takes the first one.
+- Picks, every one [PROVISIONAL] in config with its measurements: `PC_BAR_RATIO` 2 (climbs x4.8 apart);
+  `AUTO_PC_MILESTONE` "googol" (the one automation nudge: the first Prestigeception fires at e10,000 for everyone,
+  so the ladder no longer depends on check-ins); `CP_K` 0.18 (finale back to about 4 days); `SOFT_SCALE` 63;
+  `SKILL_SCALE_POW` 0.1; `SKILL_GATE_LIFT_PC` 5; skills 49 points (Head Start 2, Tenfold Training 5 x 0.05 and
+  Overdrive 5 x 0.0125 with today's effect at level 4, the three new skills 3 / 3 / 2 x 5%).
+- Relic-free (finale / e1M / e10M days): average 4.16 / 32.79 / 119.60, +1 h 4.20 / 32.83 / 126.90, optimal
+  4.11 / 32.53 / 118.86, casual 4.28 / 36.63 / 119.53. e10M across check-ins shifted -2 to +3 h: 114.1 to 126.9
+  (Slice 3 engine: 104.4 to 166.4). Last Skill Point day 108.6, 0 spare at e10M.
+- STILL RED (user calls): casual bands (automations at milestones make the casual player as fast as the average
+  one: finale 4.28 under 5.5, e1M 36.6 under 38, e10M 119.5 under 125); keen finale 4.39 later than light 4.28;
+  catch-up parity day2 6 h / 10 h (19 over the bound on a plateau) and mid 48 h (3.5 under live); relic sims
+  (Slice 5's job: typical average x0.84 / 0.81 / 0.86, optimal e1M x1.20, casual finale x1.13; relic coarse stretch
+  9.2%, already 9.1% on Slice 3).
+
+**Fix round (2026-10-29, after the user calls "Accept, re-pin casual", "Mystery popup", skill sizes "OK"):**
+- Catch-up parity, one root cause: Auto Prestigeception fired at the END of the step after its bar was crossed,
+  so its payout and the run's best Ore depended on the step length (a 2 s catch-up step overshot more than a
+  live second: one Dream Point more moved every later Captain Prestige to a lower exponent, mid 48 h 3.5 under
+  live; a Prestigeception peak 13 to 27 higher left day2 over its plateau bound). Now it fires the instant the
+  climb reaches its bar (engine `firstPcDueAt`, a bisection on the step's production time; live, catch-up and
+  the sim alike), paying exactly the bar. Every parity fixture passes with the tolerances unchanged.
+- Keen slower than light: a sim-revealed ENGINE trap. Auto Captain (second Fleet) could arrive before Auto-buy I
+  to IV (e1,000); offline it reset the stack and nothing rebought the generators (keen sat at e22 for 8.5 h). Auto
+  Captain now waits while Auto-buy I to IV is not on. Keen finale 4.16 d, light 6.07 d.
+- Mystery popup: `MYSTERY_AUTOMATIONS` / `MYSTERY_REWARD_LINE` (user's words), `automationRevealed`; the Skills row,
+  the Prestige tab's auto row and the Milestones list show ??? until the first Prestigeception.
+- Casual re-pinned (simCasual: finale 5 to 7.5, e1M 28 to 41, e10M 105 to 135).
+- Relic-free: average 4.16 / 32.79 / 120.67, +1 h 4.20 / 32.83 / 120.72, optimal 4.11 / 32.53 / 118.84, casual
+  6.07 / 33.24 / 113.61. e10M across shifts -2 to +3 h: 116.1 to 122.7. Last Skill Point day 109.6, 0 spare.
 
 ### Slice 5: The relic ceiling and the late milestones
 
@@ -339,6 +408,24 @@ carries the fraction (no Math.round drift on long coarse steps); Help: THREE KIN
 schedule) and MILESTONES (rewards now unlock automations); reword the goldens.test.ts header; skillPointsRemaining is
 fixed by Slice 6.
 
+**Review fixes (2026-10-29, on the branch):** Auto Prestigeception granted OFF and hidden until the player's own first
+Prestigeception (never acts unseen, old saves too); with the first Prestigeception a check-in's choice the ladder lost
+its anchor, so PC_BAR_RATIO 2 to 3 (climbs at x4.8, x35, x250 of the first: below the finale, between e1M and e10M,
+past e10M), CP_K 0.21, SOFT_SCALE back to 66, SKILL_SCALE_POW 0.1. Relic-free average 3.62 / 32.95 / 122.98 d, +1 h
+3.09 / 31.16 / 117.50, optimal 3.51 / 31.62 / 116.34, casual 5.62 / 32.71 / 123.28; e10M across shifts -2 to +3 h:
+115.2 to 123.0 d. Four Prestigeceptions to e10M (simBite floor three measured); user calls: Frequent Dreamer (4
+Prestigeceptions) now near day 80, the gate lift (5) past e10M, 45 of 49 Skill Points by e10M. Instant fire at the bar
+stays Prestigeception only (all three layers: e10M 86.8 to 115.6 d). Auto Captain row note, purchase carry, Help.
+
+**Slice 5a carry note (relic ceiling engine, 2026-10-29):** combined fraction F = mean over the 17 types of
+w / (w + ceilingKnee) (knees put a full Tier VII collection at F 0.9); the bend past e10M starts at e10M x (1 + 1.5 F)
+(engine relicPlateau; relic-free exactly e10M, relicFree goldens unchanged); e20M and the secret e25M live (e25M ??? until
+reached, rewardHook fasterThanLight for 5b); collections on the tier stagger (typical = Tier I, four types) plus a
+full Tier VII collection; relic pins on the shipping catch-up against RELIC_FREE_SHIPPING. OPEN (user call): the staggered
+typical collection is only x1.01 / 0.93 / 0.94 (Gentle wants 0.8 to 0.9); raising the four Tier I levers moves the
+player's own first Prestigeception and with it a later one onto e1M (x7: e1M x1.35). Suggested fix for that touchiness:
+a Prestigeception pays its bar's Dream Points however far past it the climb went (only the manual one ever goes past).
+
 ## Slice 5a retune calls (user, 2026-10-29 evening, verbatim picks)
 
 Context: with Auto Prestigeception granted off until revealed, the first Prestigeception is manual, overshoot past
@@ -353,6 +440,28 @@ Tier VII e23.5M, 10k of every type e24.9M, limit e25.0M.
    how far past it the climb went; waiting costs nothing and earns nothing. Then tune the relic levers to Gentle.
 2. e10M goals: "All 49 points before e10M (Recommended)": every Skill Point and the gate lift arrive before e10M,
    with at least 4 Prestigeceptions on the way; e20M and e25M are where relics carry you.
+
+**Slice 5a retune result (2026-10-29, on the branch):** pay at the bar is live: `prestigeceptionGain` pays
+`pcGainAt(bar)` once the climb reaches the bar (PC_BAR_RATIO x the Dream Points held), so the player's own first
+Prestigeception pays 11,900 wherever the check-in finds it and the ladder is fixed again (relic-free bars e10,000,
+e26,900, e129,000, e621,000, e2,990,000, then e14,400,000; Lucid Planning lowers the later ones a little; a relic
+collection never moves them). Auto Prestigeception fires at the bar whatever its target (`pcTargetMet`: a target
+above what the bar pays could otherwise never fire); the Help's THE FINE PRINT says waiting earns nothing extra.
+Captain and Fleet are NOT changed: Captain's growing payout is design 3.1 ("keeps its bar and its growing payout")
+and the Fleet's 0.13.11.1 automatic targets above 100% ask a Fleet for more than its bar pays (pay at the bar there
+would make them wait forever). Saves: no new field; a save already past its bar gets the bar's payout when it
+Prestigeceptions (less than the old overshoot would have paid, but nothing held is taken away; Dream Points already
+earned stay and set the next bar, so an old overshoot only sets that save's later bars a little higher).
+Constants [PROVISIONAL]: PC_BAR_RATIO 3 to 2, CP_K 0.21 to 0.53 x CAPTAIN_BEND (0.212), SOFT_SCALE 66 to 63 (61 gave e10M on day 122.9 but put simStretch's coarse shortcut 8% off the shipping catch-up),
+SKILL_SCALE_POW 0.1 (kept), the four Tier I relic levers (Geode Core, Spore Capsule, Glyph Tablet, Resonance Shard)
+perCopy x6.5 (x7 put simRelicsStretch's coarse shortcut 3.7% off); ceiling knees unchanged, so the plateau table is unchanged. Relic-free average 3.76 / 32.10 / 118.06 d,
+optimal 3.60 / 32.03 / 120.22, casual 4.81 / 32.50 / 120.61; five Prestigeceptions and all 49 Skill Points before
+e10M (49th about day 98 average, 94 optimal, 94.6 casual; the gate lift at the 5th, about day 90); simBite
+floor back to 4 (from the second on). Typical Tier I collection on the shipping catch-up: average x0.890 / 0.851 /
+0.876, optimal 0.872 / 0.849 / 0.857, casual 0.940 / 0.859 / 0.865 (Gentle). Heavy collection: e10M on day 42, best
+about e18.5M after a year (plateau e15.9M; e25M needs a near-full Tier VII collection). OPEN (user call): the Auto
+Prestigeception target menu is now inert (every target fires at the bar); suggest removing it from that row (the
+signed-off mockup kept a target menu on every prestige automation).
 
 ## Slice 5a retune result and calls (user, 2026-10-29 night)
 

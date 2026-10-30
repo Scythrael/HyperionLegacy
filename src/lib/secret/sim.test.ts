@@ -17,5 +17,9 @@ describe("steady player pacing", () => {
     expect(r.events.finale / DEFAULT_STEADY.finale).toBeCloseTo(1, 2);
     expect(r.events.long / DEFAULT_STEADY.long).toBeCloseTo(1, 2);
     expect(r.events.starfall / DEFAULT_STEADY.starfall).toBeCloseTo(1, 2);
+    // Slice 5a retune (user 2026-10-29, "All 49 points before e10M"): every Skill Point and the skill gate lift
+    // arrive before e10,000,000 (measured: the 49th point about day 98, the lift at the 5th Prestigeception).
+    expect(r.events.lastSkillPoint).toBeLessThan(r.events.starfall);
+    expect(r.events.gateLift).toBeLessThan(r.events.starfall);
   }, 900000);
 });

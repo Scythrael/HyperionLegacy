@@ -9,7 +9,8 @@
 //   pcBarLadder      the same for the 1st to 4th lifetime Prestigeception and prestigeceptionGain.
 //                    Today the bar is a flat e10,000.
 //   skillState       per player (average, optimal, casual): the skills in purchase order with the
-//                    second each was bought, and the Skill Points held at the stop.
+//                    second each was bought, and the Skill Points held at the stop. Since Slice 4 the
+//                    leveled skills: the second of each one's first level and of its cap.
 //   milestoneUnlocks per player: the second each milestone was recorded.
 //   pacingRelicFree  per player: the whole relic-free timeline (every sim event, in seconds) to
 //                    e10,000,000.
@@ -20,13 +21,16 @@
 // sits where the climb pays FLEET_BAR_RATIO (PC_BAR_RATIO) times those; the gains at a peak above the
 // bar are unchanged, as payouts still measure from the base bars. It also moved the pacing rows (see
 // the plan's Slice 2 carry note).
+// The Slice 5a retune (user 2026-10-29, "Pay at the bar"): pcBarLadder's gains are now each bar's own payout
+// (PC_BAR_RATIO 2 x what is held), and CP_K, PC_BAR_RATIO and SOFT_SCALE move the pacing rows (five
+// Prestigeceptions and all 49 Skill Points before e10,000,000).
 import { describe, it, expect } from "vitest";
 import { readFileSync, writeFileSync } from "node:fs";
 import Decimal from "break_infinity.js";
 import { freshSecretState, type SecretState } from "./state";
 import { fleetGain, prestigeceptionGain, pow10, unsoftenExponent, fleetBarExponent, pcBarExponent } from "./engine";
 import { simulatePlayer, LONG_STRETCH_DT, SIM_START_MS, type SimProfile } from "./sim";
-import { SKILLS, FLEET_AT, PRESTIGECEPTION_AT } from "./config";
+import { LEVELED_SKILLS, FLEET_AT, PRESTIGECEPTION_AT } from "./config";
 
 const PATH = "src/lib/secret/redesignGoldens.json";
 const PEAKS = [308, 400, 1000, 10000] as const;
@@ -53,10 +57,10 @@ function atPeak(e: number, fleets: number, pcs: number, ap = new Decimal(0), dp 
 type Rung = [number, number, Decimal, Decimal]; // Fleets, Prestigeceptions, Augment and Dream Points held
 
 // The lowest effective peak exponent at which the gain pays anything (bisection, to 1e-7), searched
-// up to e1,000,000 (Infinity, stored as null, when even that pays nothing).
+// up to e10,000,000 (Infinity, stored as null, when even that pays nothing).
 function barOf(gain: Gain, [fleets, pcs, ap, dp]: Rung): number {
   let lo = 1;
-  let hi = 1e6;
+  let hi = 1e7; // (review round: PC_BAR_RATIO 3 puts the 4th Prestigeception bar past e1,000,000)
   if (!gain(atPeak(hi, fleets, pcs, ap, dp)).gt(0)) return Infinity;
   while (hi - lo > 1e-7) {
     const mid = (lo + hi) / 2;
@@ -102,9 +106,10 @@ const PLAYERS: Record<string, { profile: SimProfile; days: number }> = {
 function player(name: string) {
   const p = PLAYERS[name];
   const r = simulatePlayer({ profile: p.profile, days: p.days, longStretchDt: LONG_STRETCH_DT, stopAfterExponent: { exponent: 1e7, days: 0 } });
-  const order = SKILLS.map((d) => d.id)
-    .filter((id) => r.events[`skill:${id}`] !== undefined)
-    .map((id) => [id, r.events[`skill:${id}`]] as [string, number])
+  // Slice 4: each leveled skill's first level and its cap (sim events skill:<id> and skillMax:<id>)
+  const order = LEVELED_SKILLS.flatMap((d) => [`skill:${d.id}`, `skillMax:${d.id}`])
+    .filter((key) => r.events[key] !== undefined)
+    .map((key) => [key, r.events[key]] as [string, number])
     .sort((a, b) => a[1] - b[1] || a[0].localeCompare(b[0]));
   const milestones: Record<string, number> = {};
   for (const [id, at] of Object.entries(r.final.milestones).sort((a, b) => (a[1] as number) - (b[1] as number))) milestones[id] = ((at as number) - SIM_START_MS) / 1000;

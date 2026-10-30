@@ -18,6 +18,17 @@ import { diminishing } from "../game/diminishing";
 import { REGION_TIER_LIST } from "../game/relics";
 import { RELIC_BOOSTS, RELIC_PAST_CAP_WEIGHT, type RelicBoosts, type RelicLever } from "./config";
 
+// 0.14.0 relic ceiling (config RELIC_CEILING_MULT): the mean over all 17 types of w / (w + ceilingKnee). Exactly 0
+// with no relics, strictly increasing in every type's weighted copies, always below 1. Pure.
+export function relicCeilingFraction(weighted: Readonly<Record<string, number>>): number {
+  let sum = 0;
+  for (const def of RELIC_BOOSTS) {
+    const w = weighted[def.relicId] ?? 0;
+    if (w > 0) sum += w / (w + def.ceilingKnee);
+  }
+  return sum / RELIC_BOOSTS.length;
+}
+
 // Every region tier's Museum key, from the one tier list the Museum math walks.
 const TIER_KEYS: readonly RegionTierKey[] = REGION_TIER_LIST.map((t) => String(t) as RegionTierKey);
 
@@ -53,7 +64,7 @@ export function relicBoostFor(lever: RelicLever, weighted: number): number {
 // The snapshot the secret runtime takes: one multiplier per lever with any copies, or undefined when the
 // Museum holds none of the 17 types (so a relic-free minigame carries no field at all). Pure.
 export function relicBoostsFromWeighted(weighted: Readonly<Record<string, number>>): RelicBoosts | undefined {
-  const out: Partial<Record<RelicLever, number>> = {};
+  const out: Partial<Record<RelicLever | "ceiling", number>> = {};
   let any = false;
   for (const def of RELIC_BOOSTS) {
     const w = weighted[def.relicId] ?? 0;
@@ -61,6 +72,7 @@ export function relicBoostsFromWeighted(weighted: Readonly<Record<string, number
     out[def.lever] = relicBoostFor(def.lever, w);
     any = true;
   }
+  if (any) out.ceiling = relicCeilingFraction(weighted);
   return any ? out : undefined;
 }
 
@@ -72,5 +84,5 @@ export function relicBoostsFromMuseum(museum: MuseumV2 | undefined): RelicBoosts
 export function sameRelicBoosts(a: RelicBoosts | undefined, b: RelicBoosts | undefined): boolean {
   if (a === b) return true;
   if (!a || !b) return false;
-  return RELIC_BOOSTS.every((d) => a[d.lever] === b[d.lever]);
+  return a.ceiling === b.ceiling && RELIC_BOOSTS.every((d) => a[d.lever] === b[d.lever]);
 }
