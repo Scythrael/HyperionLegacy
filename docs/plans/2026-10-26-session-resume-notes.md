@@ -188,3 +188,20 @@ for testing, we use staging to do a live test. Then it pushes to prod after that
 2. STAGING (live test): when the release is ready (wiring gate passes + user go): `git push origin <local>:staging`.
 3. PROD: promote main from staging only on the user's explicit trigger.
 First tag: slice/wr7-oc-d8-patrol-legs at 336db4a.
+
+## Hub queue (2026-10-30 ~23:10 UTC), feat @ 0ac9f40
+
+Merged today after Slice 7: OC-D8 patrol legs 336db4a (tag slice/wr7-oc-d8-patrol-legs), OC-D8 follow-up 0ac9f40
+(Fast Departure/Return on patrol legs, flown-tick run clock, exact crewHoursMs; tag slice/oc-d8-patrol-crew-lifts;
+10,501 green). Both in the dev repo and Proton.
+Dependency-ordered queue (planning pass): CP-3 (unblocks WR-9, WR-10) -> WR-11 -> GG-8; alternates EM-8, CP-5,
+SF-7, G1-7, CP-4 rest, CP-14, CP-16, CP-17/18, ML-5, ML-6 (mostly superseded: verify and close), CP-11 -> CP-12 ->
+CP-13; then WR-9, WR-10; R2-5..R2-9 and completion tracking after the name sheets; CP-21, G2-9, WR-12 last.
+Moved to 0.14.x: EM-9, G2-8, CP-15, the Spacer ramp. Tutorial hooks: nothing left in 0.14.0.
+USER CALLS THAT BLOCK WORK (most blocking first): (1) relic name sheets, 54 exceptional + 42 culture names, NOT
+drafted yet (relics v2 plan 2026-10-19 "Still open: the name sign-offs"), block R2-5..R2-9 and completion tracking;
+(2) gear wear step 5 UI sign-off (no approval recorded); (3) CP-10 mockup + CP-9 manifest sketch (not drafted);
+(4) CP-19 home and cost (OC-17 / OC-C4); (5) endless telescope cycles name; (6) Wolf 359 nod; (7) CP-20 graph colors.
+Before the release gate: VARIETY_RESIST_RATIO, EM-3 call 4 (Battle Rating), EM-4 worn-reactor + mass-cut, R2-4 Museum
+numbers. Stale: registry.ts:517 says Pilot Cunning "pending user decision" but OC-E4 was answered 2026-10-15
+("Quicker trips home"); WR-9 builds it.
