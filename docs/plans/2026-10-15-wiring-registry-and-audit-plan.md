@@ -1979,3 +1979,8 @@ speed vs the Efficient Core's +35%); Wide arrays netted about 1.27x the finds pe
 - Review minors for the follow-up: the Constitution `runHours` multiplies routesThisRun by the current cycle length
   (tick.ts ~3479/3848), so a run mixing cycle lengths is slightly off; accumulate flown ticks instead (deterministic,
   old runs fall back). The model.ts ~1117 comment ("a mission leg's own rule") becomes true once the lifts land.
+- Constitution run clock (user, 2026-10-30): "Count only flown (Recommended)". Ticks a Constitution return cut
+  (returnCutTicks) skips do NOT count toward the run clock; it measures time actually spent out on patrol.
+- Hub engineering call: the officers' `crewHours` float drift (one economyTick(span) adds span/3600 once vs 1 s steps
+  adding 1/3600 span times; tick.ts ~4485) violates "one call == chunked == 1 s steps" and gets fixed with a
+  whole-number seconds counter, not tolerated by a 12-digit comparison.
