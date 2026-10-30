@@ -353,3 +353,13 @@ Tier VII e23.5M, 10k of every type e24.9M, limit e25.0M.
    how far past it the climb went; waiting costs nothing and earns nothing. Then tune the relic levers to Gentle.
 2. e10M goals: "All 49 points before e10M (Recommended)": every Skill Point and the gate lift arrive before e10M,
    with at least 4 Prestigeceptions on the way; e20M and e25M are where relics carry you.
+
+## Slice 5a retune result and calls (user, 2026-10-29 night)
+
+Retune 9850b1f (branch worktree-agent-a067ede01b877445a): pay at the bar for Prestigeception only (Captain and Fleet
+keep growing payouts, design 3.1); PC_BAR_RATIO 2, CP_K 0.53 x CAPTAIN_BEND, SOFT_SCALE 63, SKILL_SCALE_POW 0.1, Tier
+I relic levers x6.5 [PROVISIONAL]. Relic-free average 3.76 / 32.10 / 118.06 d; 5 Prestigeceptions and all 49 Skill
+Points (about day 98) before e10M; gate lift about day 90; typical Tier I x0.890 / 0.851 / 0.876 (Gentle).
+1. Auto Prestigeception target menu: "Remove it (Recommended)": a plain on/off that fires at the bar; Captain and
+   Fleet keep their target menus. (Amends the signed-off automation mockup for that one row; Slice 7 UI.)
+2. e10M near day 118 instead of about 123: "118 is fine (Recommended)".
