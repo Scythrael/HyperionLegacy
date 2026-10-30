@@ -1955,3 +1955,15 @@ speed vs the Efficient Core's +35%); Wide arrays netted about 1.27x the finds pe
 4. Sensor arrays: "Even out per hour (Recommended)": tune Wide and Focused so finds per hour land near Balanced
    (about 0.95 to 1.05x); Wide = more per world but slower, Focused = quick looks.
 5. Still open: `VARIETY_RESIST_RATIO` 0.1 [PROVISIONAL] (resist lines on plating and emitters).
+
+## USER ANSWERS (2026-10-30): OC-D8 patrol legs follow-up
+
+- Fast Departure / Fast Return on patrols: "Yes, each its own leg (Recommended)". Fast Departure shortens a patrol's
+  outbound legs and Fast Return its legs home, matching missions (OC-E5 "Each its own leg"). Built as a small
+  follow-up, goldens first, frozen per cycle like `legTicks`.
+- Engineering calls (hub, no user question needed): the 15 other golden files run with PATROL_LEGS_SWITCH off (the
+  *Switch.fixture.ts precedent; patrolLegsGoldens pins every hull with the legs on); the wiring.sensitivity vacuity
+  floor dropped 15 -> 6 because it counts pending entries (7 left).
+- Review minors for the follow-up: the Constitution `runHours` multiplies routesThisRun by the current cycle length
+  (tick.ts ~3479/3848), so a run mixing cycle lengths is slightly off; accumulate flown ticks instead (deterministic,
+  old runs fall back). The model.ts ~1117 comment ("a mission leg's own rule") becomes true once the lifts land.
