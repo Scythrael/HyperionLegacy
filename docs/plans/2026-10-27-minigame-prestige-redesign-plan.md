@@ -502,9 +502,16 @@ less the points held (the stopping rule of `nextSkillPointPay`). The 0.13.11.2 `
 still has it); `captainScale` and the device's Captain Points key are never touched. Milestones new in 0.14.0 are
 recorded by the next step as in play (their popups show then). Tests: prestigeConversion.test.ts; serialization
 tests that model a 0.14.0 save now start from `newSecretGame`.
-- [PROPOSAL] Levels that cost more than the history pays (for example 3 Fleets pay 8 but Ten Bonus and Overdrive as
-  levels 4 cost 20): every level is kept, 0 points held, nothing owed; the earned count is raised to the levels'
-  cost, so later Fleets pay only what the levels still to buy need (the save maxes on the same lifetime total as
-  everyone, 49). Alternative: carry the shortfall as a debt that later Fleets repay before paying points.
-- [PROPOSAL] An Auto Prestigeception buyer who had switched it OFF in 0.13.11.2 stays off when it is revealed
-  (switched exactly as it was); buyers who never touched the switch are revealed ON.
+User answers (2026-10-30), all as built:
+- Levels that cost more than the history pays (5 Fleets pay 11, Ten Bonus and Overdrive as levels 4 cost 20):
+  "Keep levels, no debt": every level is kept, 0 points held, nothing owed; the earned count is raised to the
+  levels' cost, so later Fleets pay only what the levels still to buy need (the earned count ends at 49 like
+  everyone's).
+- An Auto Prestigeception buyer who had switched it OFF in 0.13.11.2 stays off when it is revealed (switched exactly
+  as it was); buyers who never touched the switch are revealed ON.
+- An all-learned 0.13.11.2 save keeps its recorded allSkills milestone ("Fully Automated Luxury Mining", detail
+  now "Every skill maxed") as earned history.
+Review fixes (test only): the conversion fixtures are real 0.13.11.2 shapes (only its milestone ids, every milestone
+the save would have recorded, tiers and unspent points from its Fleets at one point each); a test pins the real path:
+a converted save that never bought them gets Auto Captain, Auto Fleet and Auto Skill Allocation at the end of the
+first step after load (their 0.14.0 milestones are recorded and announced there), and none acts in that step.

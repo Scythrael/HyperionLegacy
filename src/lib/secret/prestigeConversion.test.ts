@@ -39,15 +39,30 @@ import {
   buySkillLevel,
   skillOffers,
   checkMilestonesMut,
+  step,
+  unsoftenExponent,
+  effectiveExponent,
   pow10,
 } from "./engine";
-import { LEVELED_SKILLS, SKILL_POINT_SCHEDULE, AUTOMATION_IDS, TEN_BONUS_SKILL, OVERDRIVE_POWER, HEAD_START_LOG10, FLEET_AT, CP_POW, CP_POW_BEFORE_CURVE_ROUND, type AutomationId } from "./config";
+import { newlyReached } from "./runtime";
+import { LEVELED_SKILLS, SKILLS, TIERS, FINALE_EXPONENT, LONG_EXPONENT, SKILL_POINT_SCHEDULE, AUTOMATION_IDS, TEN_BONUS_SKILL, OVERDRIVE_POWER, HEAD_START_LOG10, FLEET_AT, CP_POW, CP_POW_BEFORE_CURVE_ROUND, type AutomationId } from "./config";
 import { installMemoryStorage, restoreStorage } from "./testStorage";
 
 const T0 = 1_761_800_000_000;
 
+// Milestones as the 0.13.11.2 engine records them (its MILESTONES at cffd5bf: only those ids, never secondFleet,
+// e10k or pcRegular, which 0.14.0 added), each at the moment it was reached.
+const M = {
+  firstCaptain: 1761156000000, googol: 1761167700000, firstFleet: 1761168240000, e1000: 1761175386000,
+  singularity: 1761190000000, firstPc: 1761242400000, turbo: 1761300000000, e100k: 1761330000000,
+  allSkills: 1761400000000, finale: 1761578000000,
+};
+const { allSkills: _allSkills, ...M_NOT_ALL } = M;
+
 // A mid-game save exactly as 0.13.11.2 writes it (its keys in its order, nothing from 0.14.0), the
-// state.test.ts Slice 1 shape: every old skill owned, two spare points, 47 lifetime Fleets, six Prestigeceptions.
+// state.test.ts Slice 1 shape: every old skill owned (14 of the 16 points its Fleets paid; 0.13.11.2 paid one
+// a Fleet until everything was learned), 47 lifetime Fleets, six Prestigeceptions, past the finale, Overclock
+// past 10,000 and a Singularity Engine, so every milestone those reach is recorded, "Own every skill" too.
 const BASE_0_13_11_2: Record<string, unknown> = {
   v: 0,
   ore: "4.2e+5123",
@@ -72,7 +87,7 @@ const BASE_0_13_11_2: Record<string, unknown> = {
   skills: { autoOverclock: true, autoBuyLow: true, autoCaptain: true, autoFleet: true, autoPc: true, headStart: true, tenBonus: true, autoBuyHigh: true, overdrive: true },
   autoOn: { autoCaptain: false, autoPc: true },
   autoTarget: { captain: 100, fleet: 200, pc: 100 },
-  milestones: { firstCaptain: 1761156000000, googol: 1761167700000, firstFleet: 1761168240000, e1000: 1761175386000, firstPc: 1761242400000, finale: 1761578000000 },
+  milestones: M,
   finaleSeen: true,
   longSeen: false,
   lastTickAt: T0,
@@ -89,17 +104,34 @@ function oldSave(over: Record<string, unknown> = {}): string {
   return JSON.stringify({ ...BASE_0_13_11_2, ...over });
 }
 
-// An early 0.13.11.2 save: a few Fleets, no Prestigeception yet, the Ore down at e20,000 in one climb.
+// The 0.13.11.2 Skill Point cost of the skills owned (one point per Fleet paid for them).
+const oldCost = (skills: Record<string, true>) => SKILLS.filter((d) => skills[d.id]).reduce((n, d) => n + d.cost, 0);
+const tiersFor = (fleets: number) => TIERS.filter((t) => t.unlockFleet <= fleets).length;
+// Every peak of one climb at Ore 1e(exp).
+const climbAt = (exp: number) => {
+  const ore = `1e+${exp}`;
+  return { ore, runPeak: ore, fleetPeak: ore, pcPeak: ore, bestOre: ore };
+};
+
+// An early 0.13.11.2 save: a few Fleets, no Prestigeception yet, the Ore at e20,000 in one climb. Its tiers,
+// unspent points (Fleets less the skills' cost) and milestones follow from what it is given.
 function earlySave(over: Record<string, unknown> = {}): string {
-  const ore = "1e+20000";
+  const fleets = (over.fleetTotal as number | undefined) ?? 3;
+  const skills = (over.skills as Record<string, true> | undefined) ?? {};
+  const milestones: Record<string, number> = { firstCaptain: M.firstCaptain, googol: M.googol, e1000: M.e1000 };
+  if (fleets > 0) milestones.firstFleet = M.firstFleet;
   return oldSave({
-    ore, runPeak: ore, fleetPeak: ore, pcPeak: ore, bestOre: ore,
-    owned: ["1e+19990", "1e+19900", "1e+19800", "1e+19700", "0", "0", "0", "0"],
-    peakOwned: ["1e+19990", "1e+19900", "1e+19800", "1e+19700", "0", "0", "0", "0"],
-    captainPoints: "0", augmentPoints: "0", dreamPoints: "0",
-    fleetCount: 3, fleetTotal: 3, pcCount: 0, tiersUnlocked: 4, skillPoints: 0,
+    ...climbAt(20000),
+    bought: [300, 280, 260, 240, 30, 20, 10, 0],
+    owned: ["1e+19990", "1e+19900", "1e+19800", "1e+19700", "1e+19000", "1e+18000", "1e+17000", "0"],
+    overclock: 900,
+    peakOwned: ["1e+19990", "1e+19900", "1e+19800", "1e+19700", "1e+19000", "1e+18000", "1e+17000", "0"],
+    peakOverclock: 900,
+    captainPoints: "0", augmentPoints: "1500", dreamPoints: "0",
+    captainCount: 40, fleetCount: fleets, pcCount: 0, tiersUnlocked: tiersFor(fleets),
+    skillPoints: fleets - oldCost(skills),
     skills: {}, autoOn: {},
-    milestones: { firstCaptain: 1761156000000, googol: 1761167700000, firstFleet: 1761168240000, e1000: 1761175386000 },
+    milestones,
     finaleSeen: false,
     ...over,
   });
@@ -157,7 +189,7 @@ describe("1. the marker: one conversion, on load, for unmarked saves only", () =
   });
 
   it("a second load changes nothing (8: byte-identical from the first save on)", () => {
-    for (const raw of [oldSave(), earlySave(), earlySave({ skills: { tenBonus: true, overdrive: true } })]) {
+    for (const raw of [oldSave(), earlySave(), earlySave({ skills: { tenBonus: true, overdrive: true }, fleetTotal: 5 })]) {
       const once = serializeSecret(load(raw));
       const twice = serializeSecret(load(once));
       expect(twice).toBe(once);
@@ -215,10 +247,12 @@ describe("2. Skill Points recomputed from lifetime Fleets on the new schedule", 
 
   it("a save with no stat skill gets exactly its history's points; its 0.13.11.2 points are replaced, not added", () => {
     for (const fleets of [0, 1, 2, 3, 4, 5, 6, 20, 39, 47, 300]) {
-      const s = load(earlySave({ fleetTotal: fleets, fleetCount: Math.min(fleets, 3), skillPoints: 5 }));
+      // 0.13.11.2 paid one point a Fleet: this save holds all of them, unspent
+      const s = load(earlySave({ fleetTotal: fleets }));
       expect(s.skillPointsEarned, `${fleets} Fleets`).toBe(scheduledSkillPoints(fleets));
       expect(s.skillPoints, `${fleets} Fleets`).toBe(scheduledSkillPoints(fleets));
       expect(skillPointsRemaining(s)).toBe(totalSkillCost() - scheduledSkillPoints(fleets));
+      if (fleets > 0) expect(s.skillPoints).not.toBe(fleets + scheduledSkillPoints(fleets));
     }
   });
 
@@ -265,11 +299,18 @@ describe("3. automations: owned ones kept with their switches, the rest granted 
   });
 
   it("an owned automation whose milestone was never reached stays usable (Review Focus 3)", () => {
-    const s = load(earlySave({ skills: { autoFleet: true, autoBuyHigh: true }, autoOn: { autoBuyHigh: false } }));
-    expect(s.milestones.e10k).toBeUndefined();
+    // Auto-buy V to VIII (needs I to IV) before a Singularity Engine: tier VIII opens at the 6th Fleet
+    const s = load(earlySave({ skills: { autoBuyLow: true, autoBuyHigh: true }, autoOn: { autoBuyHigh: false } }));
+    expect(s.tiersUnlocked).toBe(7);
     expect(s.milestones.singularity).toBeUndefined();
-    expect(automationUnlocked(s, "autoFleet")).toBe(true);
-    expect(autoActive(s, "autoFleet")).toBe(true);
+    expect(step(s, 1, T0 + 1000).milestones.singularity).toBeUndefined();
+    // Auto Fleet on a climb still short of e10,000 (that milestone is 0.14.0's)
+    const lowOwned = ["1e+4990", "1e+4900", "1e+4800", "1e+4700", "1e+4000", "1e+3000", "1e+2000", "0"];
+    const f = load(earlySave({ ...climbAt(5000), owned: lowOwned, peakOwned: lowOwned, skills: { autoFleet: true } }));
+    expect(f.milestones.e10k).toBeUndefined();
+    expect(step(f, 1, T0 + 1000).milestones.e10k).toBeUndefined();
+    expect(automationUnlocked(f, "autoFleet")).toBe(true);
+    expect(autoActive(f, "autoFleet")).toBe(true);
     expect(automationUnlocked(s, "autoBuyHigh")).toBe(true);
     expect(autoActive(s, "autoBuyHigh")).toBe(false);
     expect(s.autoOn.autoBuyHigh).toBe(false);
@@ -281,10 +322,36 @@ describe("3. automations: owned ones kept with their switches, the rest granted 
     for (const id of AUTOMATION_IDS) expect(s.automations[id] === true, id).toBe(expected.includes(id));
     expect(autoActive(s, "autoOverclock")).toBe(true);
     expect(autoActive(s, "autoBuyLow")).toBe(true);
-    // the two automations that were never skills, from milestones a 0.13.11.2 save may have recorded
-    const late = load(oldSave({ skills: {}, autoOn: {}, milestones: { ...(BASE_0_13_11_2.milestones as object), pcRegular: T0 - 1, e2m: T0 } }));
-    expect(late.automations.autoSkills).toBe(true);
+    // Auto-buy Upgrades from a 0.13.11.2 milestone (e2,000,000); Auto Skill Allocation's (Frequent Dreamer) is 0.14.0's
+    const late = load(oldSave({ bestOre: pow10(unsoftenExponent(2.1e6)).toString(), skills: {}, autoOn: {}, skillPoints: 47, milestones: { ...M_NOT_ALL, long: M.finale + 1e9, e2m: M.finale + 2e9 } }));
     expect(late.automations.autoUpgrades).toBe(true);
+    expect(late.automations.autoSkills).toBeUndefined();
+  });
+
+  it("the real path: a converted save that never bought them gets Auto Captain, Auto Fleet and Auto Skills on the first step, and none acts in it", () => {
+    // owns only the stat skills (6 of its 47 points), so "Own every skill" was never recorded
+    const s = load(oldSave({ skills: { headStart: true, tenBonus: true, overdrive: true }, autoOn: {}, skillPoints: 41, milestones: M_NOT_ALL }));
+    // the fixture is what 0.13.11.2 records: past the finale, short of e1,000,000
+    expect(effectiveExponent(s.bestOre)).toBeGreaterThanOrEqual(FINALE_EXPONENT);
+    expect(effectiveExponent(s.bestOre)).toBeLessThan(LONG_EXPONENT);
+    const atLoad: AutomationId[] =["autoOverclock", "autoBuyLow", "autoBuyHigh", "autoPc"]; // firstFleet, e1000, singularity, googol
+    for (const id of AUTOMATION_IDS) expect(s.automations[id] === true, id).toBe(atLoad.includes(id));
+    expect(autoActive(s, "autoPc")).toBe(false); // granted off (shown: this save has Prestigeceptioned)
+    // The milestones 0.14.0 added are recorded at the END of the first step (the runtime's first advance after
+    // a load, which announces them), and their automations are granted there: they act from the next step on.
+    const t = step(s, 1, T0 + 1000);
+    expect(newlyReached(s, t)).toEqual(expect.arrayContaining(["secondFleet", "e10k", "pcRegular"]));
+    for (const id of ["secondFleet", "e10k", "pcRegular"] as const) expect(t.milestones[id], id).toBe(T0 + 1000);
+    for (const id of ["autoCaptain", "autoFleet", "autoSkills"] as const) {
+      expect(automationUnlocked(s, id), id).toBe(false);
+      expect(t.automations[id], id).toBe(true);
+      expect(autoActive(t, id), id).toBe(true);
+    }
+    // nothing fired unseen in that step: no prestige of any layer, no Skill Point spent
+    expect([t.captainCount, t.fleetTotal, t.pcCount]).toEqual([s.captainCount, s.fleetTotal, s.pcCount]);
+    expect(t.skillLevels).toEqual(s.skillLevels);
+    expect(t.skillPoints).toBe(s.skillPoints);
+    expect(autoActive(t, "autoPc")).toBe(false);
   });
 });
 
@@ -294,8 +361,9 @@ describe("4. Head Start, Ten Bonus and Overdrive become levels: nobody loses str
     for (const d of replaced) expect(s.skillLevels[d.id], d.id).toBe(d.replaces!.level);
     expect(hasSkill(s, "headStart") && hasSkill(s, "tenBonus") && hasSkill(s, "overdrive")).toBe(true);
     // today's effects at a count of 0 (the scale factor only grows from there)
-    const zero = load(earlySave({ skills: { headStart: true, tenBonus: true, overdrive: true }, fleetTotal: 0, fleetCount: 0 }));
+    const zero = load(earlySave({ skills: { headStart: true, tenBonus: true, overdrive: true }, fleetTotal: 6 }));
     const atZero = cloneSecret(zero);
+    atZero.fleetTotal = 0;
     atZero.captainSinceFleet = 0;
     atZero.pcCount = 0;
     expect(skillStrength(atZero, "headStart")).toBe(HEAD_START_LOG10);
@@ -304,7 +372,7 @@ describe("4. Head Start, Ten Bonus and Overdrive become levels: nobody loses str
   });
 
   it("every readout equals what the engine gave the 0.13.11.2 skills before the conversion", () => {
-    for (const raw of [oldSave(), earlySave({ skills: { headStart: true, tenBonus: true, overdrive: true } })]) {
+    for (const raw of [oldSave(), earlySave({ skills: { headStart: true, tenBonus: true, overdrive: true }, fleetTotal: 6 })]) {
       const s = load(raw);
       const before = cloneSecret(s);
       before.skillLevels = {}; // the engine reads the owned 0.13.11.2 skills as their levels
@@ -317,17 +385,18 @@ describe("4. Head Start, Ten Bonus and Overdrive become levels: nobody loses str
   });
 
   it("a save that hit the 0.13.11.2 'all learned' cutoff earns again under the deeper caps", () => {
-    const s = load(oldSave({ fleetTotal: 20, skillPoints: 0, milestones: { ...(BASE_0_13_11_2.milestones as object), allSkills: T0 - 5 } }));
+    const s = load(oldSave({ fleetTotal: 20, skillPoints: 0 }));
     expect(allSkillsMaxed(s)).toBe(false);
     expect(nextSkillPointPay(s)).toBeGreaterThan(0);
     expect(fleetOnce(s).skillPoints).toBeGreaterThan(s.skillPoints);
-    expect(s.milestones.allSkills).toBe(T0 - 5); // a recorded milestone is never taken back
+    // user 2026-10-30: its recorded "Own every skill" milestone stays as earned history
+    expect(s.milestones.allSkills).toBe(M.allSkills);
   });
 
-  it("[PROPOSAL] levels costing more than the history pays are all kept, with 0 points held and nothing owed", () => {
-    // 3 Fleets pay 8 on the new schedule; Ten Bonus and Overdrive as levels 4 cost 10 each
-    const s = load(earlySave({ skills: { tenBonus: true, overdrive: true }, skillPoints: 4 }));
-    expect(scheduledSkillPoints(3)).toBe(8);
+  it("levels costing more than the history pays are all kept, with 0 points held and nothing owed (user 2026-10-30 'Keep levels, no debt')", () => {
+    // 5 Fleets (the 5 points 0.13.11.2 paid bought both) pay 11 on the new schedule; levels 4 cost 10 each
+    const s = load(earlySave({ skills: { tenBonus: true, overdrive: true }, fleetTotal: 5 }));
+    expect(scheduledSkillPoints(5)).toBe(11);
     expect(spentOn(s)).toBe(20);
     expect(skillLevel(s, "tenfoldTraining")).toBe(4);
     expect(skillLevel(s, "overdrive")).toBe(4);
