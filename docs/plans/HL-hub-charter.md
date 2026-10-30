@@ -49,51 +49,68 @@ Read this first when you become "HL Hub", the user's ongoing Hyperion Legacy hub
   tell the user to open a fresh session titled "HL Hub" with "Read docs/plans/HL-hub-charter.md and take the hub".
 - Brainstorms and tributes can live in the hub, but capture any decisions in git promptly.
 
-## Part 2: current handoff (2026-10-30 ~18:30 UTC, hub session local_636d394d)
+## Part 2: current handoff (2026-10-30 ~19:25 UTC, from hub session local_636d394d, the first hub)
 
 **State:**
-- PROD is 0.13.11.2 @ cffd5bf. Never roll prod back past 0.13.11.1.
-- feat/crew-0.14.0 was at 1aea4e6 when I checked (the session protocol commit, on top of d58bf5f).
-- Slice 6 (save conversion) merged as af0320b, with 10,454 tests green.
-- Slice 7 (UI + Help) is in progress in session "Slice 6/7 Implementation": built as 7842f84 on
-  worktree-agent-a4f30434476d21c47; review approved with wording fixes; fix round running. That session sends the
-  full report after merge, gates and backup.
-- User calls recorded by that session today: four new automation lines approved, the e25M reward line approved, the
-  dimmed "ahead" automation row kept, and a NEW marker on the Automation tab.
+- PROD is 0.13.11.2 @ cffd5bf, and origin/main = origin/staging = cffd5bf. Never roll prod back past 0.13.11.1.
+- feat/crew-0.14.0 @ edac076, never pushed to origin.
+- Since the last summary: the minigame prestige redesign is complete (Slices 1 to 7). Slice 6 is af0320b, Slice 7 is
+  14c0e6e, with 10,478 tests passing and check at 0 errors.
+- Proton bundle refreshed after Slice 7.
+- The first slice session, "Slice 6/7 Implementation" (local_9083ce76), is finished. It can be archived when the user
+  agrees.
+- **Next slice session** (not started at this handoff; the user may already have opened it). Its paste-in line:
+  `Read the end of docs/plans/2026-10-26-session-resume-notes.md (SESSION PROTOCOL and the hub note at ab2bf42) and run the next slice. Report to HL Hub.`
+  - Its job, step 1 (housekeeping): remove the locked merged worktree agent-a4f30434476d21c47 safely, then reproduce
+    the vitest "Could not resolve 'node:module'" failure in a fresh worktree.
+  - Its job, step 2: WR-7 patrol legs (verify notes, then goldens first).
 
-**Usage measurement (the user wants real numbers for the session-per-slice saving):**
-- Baseline: 5-hour 10%, weekly 30% (weekly resets 2026-11-05 12:00 UTC), read at 18:30 UTC during Slice 7's fix
-  round.
-- Slice 7 final report (~18:57 UTC): 5-hour 13% (+3 from the fix round through merge, full gates, npm ci and backup),
-  weekly 30%; the slice session's context was 165k (Messages 81k).
-- Record the readings again and across the next slice, and compare with the long-session
-  days of 2026-10-29/30.
-- Fixed per-session overhead was measured at about 75k tokens: system tools ~40k, MCP tools ~20k, skills ~7k,
-  system prompt 5 to 11k, memory ~3k. That's higher than my first guess of 20 to 30k, so the expected saving is
-  smaller than the first estimate.
-- One possible lever: slice sessions that never use the browser or visualization tools could run without those MCP
-  servers. That is the user's call, because their setup is deliberate.
-- User call (2026-10-30), "Measure first": keep every tool in every session for now. Mockups happen in the hub;
-  visual QA stays in the slice session. Revisit after the Slice 7 and next-slice readings. Two alternatives were
-  offered: a separate short QA session per slice with build sessions stripped of the browser tools, or doing QA in
-  the hub.
+**User calls made today in the hub (all recorded in git):**
+- Session per slice reporting to HL Hub (resume notes, SESSION PROTOCOL).
+- Mockups and QA: "Measure first". Mockups happen in the hub; visual QA stays in the slice session (Part 1 history
+  above).
+- QA of the minigame redesign is deferred to one big release QA doc, run at the END of development, on staging.
+  - User: "QA should point me at staging. Devpreview exists solely for testing and QA purposes."
+  - User: "I prefer to QA a build at the end of development. The actual full QA doc part anyway. What you do while
+    building is fine."
+  - 0.14.0 still reaches staging only after the wiring gate passes and the user says go.
+- node_modules incident: SOLVED and logged (docs/ops/node-modules-incidents.md, scripts/session-timeline.mjs). The
+  cause was a builder junction to the main checkout, then `git worktree remove`. Worktree safety rules are in the
+  protocol.
 
-**Open items for the user (re-present when useful, most important first):**
-1. Memorials for the other fallen titans: the user names who and where. The rules match the Sigil: unnamed, an
-   original echo, on an existing item or one the user names (relics v2 plan).
+**Starting sessions** (see Part 1):
+- Check for `start_session` first.
+- The user's brand-new home session showed `mcp__claude-code-remote__create_session`. That tool makes CLOUD sessions,
+  and those clash with two rules:
+  - they work from origin, but feat is never pushed to origin (it would also steal staging's Vercel build);
+  - cloud sessions cannot message the hub back yet.
+- So prefer a LOCAL linked session. If only the cloud tool exists, keep using hand-opened local sessions and tell the
+  user why.
+
+**Usage measurement:**
+- Baseline before Slice 7's fix round: 5-hour 10%, weekly 30%.
+- At its report: 13% / 30%. At this handoff: 14% / 31%.
+- 5-hour resets 22:40 UTC; weekly resets 2026-11-05 12:00 UTC.
+- Hub context at handoff was 190k (Messages 115k), which triggered this rotation.
+- Fixed setup per session is about 75k tokens (most of it tool definitions), so expect a 10 to 20% saving per slice.
+  Keep comparing across the next slices.
+
+**Open items for the user (most important first):**
+1. Memorials for the other fallen titans: the user names who and where. The Sigil rules apply (unnamed, an original
+   echo, on an existing or user-named item).
 2. Optional dedication line on the shared Sigil mockup (https://claude.ai/artifact/PkkEgFFQnY7RNaKwpC8CtH), only if
-   the user wants one.
-3. VARIETY_RESIST_RATIO 0.1 is still [PROVISIONAL] (wiring plan).
+   wanted.
+3. VARIETY_RESIST_RATIO 0.1 [PROVISIONAL].
 4. Check the 2026-10-27 question queue in the resume notes (gear wear step 4, FKR-8 Lure) against later answers
-   before re-asking. Its status was not re-verified at this handoff.
+   before re-asking. Not re-verified.
+5. Optional, measure first: running build sessions without the browser and visualization tools.
 
-**Queue after Slice 7** (from the resume notes):
-- WR-7 patrol legs (goldens first);
+**Queue after WR-7 patrol legs:**
 - WR-8..12, ML-5/6, EM-8/9, R2-5..9;
 - gear wear step 5, GG-8, SF-7, the CP slices;
-- then the wiring gate before staging, which needs the user's go.
+- assemble the release QA doc;
+- the wiring gate, then staging on the user's go.
 
-**Other:**
-- Pace: marathon mode, one slice session at a time, careful with usage.
-- The Proton bundle is refreshed after each merge (`reference_proton_backup.md`).
-- The RPG-Idle-Game Unity repo has a detached HEAD at e0fd42c (separate project, unaddressed).
+**Pace:** marathon mode, one slice session at a time.
+
+**Other:** the RPG-Idle-Game Unity repo has a detached HEAD at e0fd42c (separate project).
