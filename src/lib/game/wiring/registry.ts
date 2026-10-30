@@ -2190,7 +2190,9 @@ function shipLineEntries(): WiringEntry[] {
 // patrolDispatchRoute and the relaunch), so every transit source (the gear line, each hull, the museum, the crew and
 // captain lifts) reaches the legs through the one sheet stat it already lifts live: that sheet-to-legs step is measured
 // once, by ship:audit:patrolLegs (the WR-8 precedent: ship:audit:derivedStatsInCombat for the combat speed). No transit
-// source keeps a pending patrol context.
+// source keeps a pending patrol context. The OC-D8 follow-up (user 2026-10-30 "Yes, each its own leg"): Fast Departure
+// and Fast Return are not that sheet speed but a lift on their own leg (transitOutLegMult / transitBackLegMult), so the
+// patrol half of each is measured on its own leg: crew:audit:patrolDepartureLeg and crew:audit:patrolReturnLeg.
 // WR-7 (OC-D8, user 2026-10-15 "Speed counts everywhere": "cargo stays missions-only, text says so"): the hold is a
 // mission stat; the Help's Missions topic says expeditions and patrols do not use it.
 const CARGO_MISSIONS_ONLY: NonNullable<WiringEntry["outOfScope"]> = [
@@ -4771,6 +4773,9 @@ function cp8AuditEntries(): WiringEntry[] {
 
 // CP-2: the two crew audit rows CP-2 resolves, now live with their own checks.
 const CONSTITUTION_HIGH = 20; // the top of the officer stat roll (OFFICER_STAT_ROLL_MAX)
+// OC-D8 follow-up: the heads the patrol leg-lift checks carry: +20% on the leg, enough to cut a Battleship's 5-tick
+// Sweep leg to 4.
+const PATROL_LIFT_HEADS = 100;
 function cp2AuditEntries(): WiringEntry[] {
   const neutral: OfficerStats = { strength: OFFICER_STAT_NEUTRAL, integrity: OFFICER_STAT_NEUTRAL, cunning: OFFICER_STAT_NEUTRAL, constitution: OFFICER_STAT_NEUTRAL };
   const tactical = (constitution: number): Transform => (s) => seatOfficer(s, "tactical", ["tac.weaponCommand"], { stats: { ...neutral, constitution } });
@@ -4806,6 +4811,31 @@ function cp2AuditEntries(): WiringEntry[] {
       off: (s) => withBuckets(s, [bucketOf("flightDeck", "wiring.none")]),
       note: "a move of 0: the other leg's speed is untouched; crew:crew.transitOutSpeed / transitBackSpeed prove each own leg",
     }),
+    // OC-D8 follow-up (user 2026-10-30 "Yes, each its own leg"): on a patrol too, each lift shortens its own leg of the
+    // cycle (frozen when the cycle starts, model.ts patrolLegTicksForStats). A Battleship's Sweep (its slow hull makes
+    // the 3-tick legs 5, long enough to show the cut), through the live engine, with a big Flight Deck bucket on the
+    // lift against the same heads on no buff. Each leg divides by its speed, rounded up to a whole route tick, so the
+    // divide holds within that one tick.
+    ...([
+      ["patrolDepartureLeg", "flight.transitOut", "patrolOutboundTicks", "Fast Departure shortens a patrol's outbound leg (the flight out to the patrol zone)"],
+      ["patrolReturnLeg", "flight.transitBack", "patrolReturnTicks", "Fast Return shortens a patrol's leg home"],
+    ] as const).map(([key, buffId, probe, claim]) =>
+      entry({
+        id: `crew:audit:${key}`,
+        system: "crew",
+        source: { catalog: "AUDIT", key: `crew:audit:${key}` },
+        claim,
+        probe,
+        contexts: ["patrol"],
+        direction: "down",
+        curve: { kind: "divisor" },
+        magnitude: (c) => PATROL_LIFT_HEADS * c.CREW_PROFESSION_BUFFS.flightDeck.find((d) => d.id === buffId)!.magnitude,
+        base: () => combatBase("battleship"),
+        on: (s) => withBuckets(s, [bucketOf("flightDeck", buffId, PATROL_LIFT_HEADS)]),
+        off: (s) => withBuckets(s, [bucketOf("flightDeck", "wiring.none", PATROL_LIFT_HEADS)]),
+        tolerance: 1,
+      }),
+    ),
   ];
 }
 

@@ -1979,3 +1979,8 @@ speed vs the Efficient Core's +35%); Wide arrays netted about 1.27x the finds pe
 - Review minors for the follow-up: the Constitution `runHours` multiplies routesThisRun by the current cycle length
   (tick.ts ~3479/3848), so a run mixing cycle lengths is slightly off; accumulate flown ticks instead (deterministic,
   old runs fall back). The model.ts ~1117 comment ("a mission leg's own rule") becomes true once the lifts land.
+- BUILT (OC-D8 follow-up): each patrol cycle freezes its outbound leg (`transitOutTicks`, home to the patrol zone)
+  at the sweeping speed x Fast Departure and its leg home (`transitBackTicks`; a limp home is twice it) x Fast Return,
+  into the same `legTicks` (written only when they differ). The Constitution run clock sums each completed cycle's
+  route ticks (`routeTicksThisRun`, written only when a run mixes cycle lengths). Test switches
+  PATROL_LEG_LIFTS_SWITCH / PATROL_RUN_CLOCK_SWITCH; registry crew:audit:patrolDepartureLeg / patrolReturnLeg.

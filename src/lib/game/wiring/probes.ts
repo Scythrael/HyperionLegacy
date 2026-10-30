@@ -2022,6 +2022,24 @@ export const PROBES = {
       return ticks;
     },
   },
+  // OC-D8 follow-up: a Dispatch Once patrol's leg home in route ticks (the ticks it spends in transitBack; -1 for a run
+  // that never flew home on it, a lost run limping instead).
+  patrolReturnTicks: {
+    label: "the first patrol's leg home (route ticks in transitBack)",
+    read: (s) => {
+      const r = dispatchCaptainOnPatrol(s, WIRING_CAPTAIN_ID, Object.keys(PATROLS)[0], "balanced", false);
+      if (!r.success) return -1;
+      let after = r.next;
+      let ticks = 0;
+      let back = 0;
+      while (captainOf(after).mission !== null && ticks < 10_000) {
+        if ((captainOf(after).mission as PatrolMissionState).phase === "transitBack") back += 1;
+        after = economyTick(after, 1, () => 0.5);
+        ticks += 1;
+      }
+      return back > 0 ? back : -1;
+    },
+  },
   // WR-8: the six per-family resist lines roll on crafted Hull Plating and Shield Emitters (resist picks over 300
   // two-affix rolls per variety; OFF leaves the resist lines out of the pool). A variety bias that silenced them fails.
   combatResistLinesRoll: {

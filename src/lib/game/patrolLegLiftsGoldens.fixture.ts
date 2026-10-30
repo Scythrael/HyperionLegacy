@@ -398,5 +398,78 @@ export const LIFTS_PINS_PRE: Record<string, unknown> = {
   "constMixed:destroyer:crimsonReaverWarband": ["1:0:1e380c9e","ec446d82"],
 };
 
-// MOVED by the follow-up (re-pinned on the wiring commit), each returning to LIFTS_PINS_PRE with its switch off.
-export const LIFTS_PINS_MOVED: Record<string, unknown> = {};
+// MOVED by the follow-up (re-pinned on the wiring commit), each returning to LIFTS_PINS_PRE with its switch off and
+// traced in patrolLegLiftsGoldens.test.ts:
+//   once / replay / repeat (56): the runs whose lifted legs round to other ticks than the sweeping speed's alone (7 of
+//            20 hull and route pairs on each crew). `once`: the phases shift by the outbound leg's change, the ending
+//            by both legs' (a lost run's limp home is twice the frozen return leg). `replay`: only an outbound lift
+//            moves the waves' route ticks (Fast Return alone leaves the replay where it was). `repeat`: the same 200 s
+//            fly other cycles. PATROL_LEG_LIFTS_SWITCH off: every one returns.
+//   constMixed (4): the runs whose cycles fly different route lengths: from the second relaunch on, the clock sums
+//            each cycle's own route ticks instead of routes x the current length, so the frozen battle bonuses and
+//            the end state move. PATROL_RUN_CLOCK_SWITCH off: every one returns.
+//   Held   : every inFlight row (a cycle in flight from before keeps the legs it froze), every constSteady row (a
+//            run of one cycle length reads the old clock exactly and stores no routeTicksThisRun), and every run whose
+//            lifted legs round back to the sweeping speed's.
+export const LIFTS_PINS_MOVED: Record<string, unknown> = {
+  "once:prospectorHauler:crimsonReaverWarband:out": ["59fbcc50","transitOut@0,engaging@6,limpingHome@14","lost:28","8f292e36"],
+  "repeat:prospectorHauler:crimsonReaverWarband:out": "3ba03951",
+  "replay:prospectorHauler:crimsonReaverWarband:out": "ab0997ea",
+  "once:prospectorHauler:crimsonReaverWarband:back": ["e5f9682d","transitOut@0,engaging@7,limpingHome@15","lost:27","ad35dcd6"],
+  "repeat:prospectorHauler:crimsonReaverWarband:back": "2f49fec8",
+  "once:prospectorHauler:crimsonReaverWarband:both": ["c6797e3f","transitOut@0,engaging@6,limpingHome@14","lost:26","892db66e"],
+  "repeat:prospectorHauler:crimsonReaverWarband:both": "e8f57ca4",
+  "replay:prospectorHauler:crimsonReaverWarband:both": "ab0997ea",
+  "once:prospectorRunner:crimsonReaverWarband:out": ["cd8b1b96","transitOut@0,engaging@3,limpingHome@8","lost:16","abcf4712"],
+  "repeat:prospectorRunner:crimsonReaverWarband:out": "7afb7319",
+  "replay:prospectorRunner:crimsonReaverWarband:out": "79255792",
+  "once:prospectorRunner:crimsonReaverWarband:back": ["91f736c7","transitOut@0,engaging@4,limpingHome@9","lost:15","65e73f96"],
+  "repeat:prospectorRunner:crimsonReaverWarband:back": "952bad4e",
+  "once:prospectorRunner:crimsonReaverWarband:both": ["c3c0cc57","transitOut@0,engaging@3,limpingHome@8","lost:14","9ad351df"],
+  "repeat:prospectorRunner:crimsonReaverWarband:both": "c66e24c3",
+  "replay:prospectorRunner:crimsonReaverWarband:both": "79255792",
+  "once:battleship:crimsonReaverSweep:out": ["2d6da00","transitOut@0,engaging@4,transitBack@12","won:17","761209de"],
+  "repeat:battleship:crimsonReaverSweep:out": "d2439064",
+  "replay:battleship:crimsonReaverSweep:out": "33148c9e",
+  "once:battleship:crimsonReaverSweep:back": ["3dd9e79d","transitOut@0,engaging@5,transitBack@13","won:17","f131259e"],
+  "repeat:battleship:crimsonReaverSweep:back": "60560584",
+  "once:battleship:crimsonReaverSweep:both": ["6f561eef","transitOut@0,engaging@4,transitBack@12","won:16","beb05a10"],
+  "repeat:battleship:crimsonReaverSweep:both": "c8688821",
+  "replay:battleship:crimsonReaverSweep:both": "33148c9e",
+  "once:battleship:crimsonReaverWarband:out": ["f1ac6784","transitOut@0,engaging@7,transitBack@19","won:27","a20d4cdc"],
+  "repeat:battleship:crimsonReaverWarband:out": "116f1c3c",
+  "replay:battleship:crimsonReaverWarband:out": "9d984a84",
+  "once:battleship:crimsonReaverWarband:back": ["96619579","transitOut@0,engaging@8,transitBack@20","won:27","ec0f6ee9"],
+  "repeat:battleship:crimsonReaverWarband:back": "92d896d0",
+  "once:battleship:crimsonReaverWarband:both": ["a47f1e09","transitOut@0,engaging@7,transitBack@19","won:26","e271d033"],
+  "repeat:battleship:crimsonReaverWarband:both": "d3517329",
+  "replay:battleship:crimsonReaverWarband:both": "9d984a84",
+  "once:carrier:crimsonReaverWarband:out": ["61b486d9","transitOut@0,engaging@6,transitBack@18","won:25","45cb2593"],
+  "repeat:carrier:crimsonReaverWarband:out": "44dbe2be",
+  "replay:carrier:crimsonReaverWarband:out": "166e78b",
+  "once:carrier:crimsonReaverWarband:back": ["e7a04bf8","transitOut@0,engaging@7,transitBack@19","won:25","df26d409"],
+  "repeat:carrier:crimsonReaverWarband:back": "d660a533",
+  "once:carrier:crimsonReaverWarband:both": ["cf2c2806","transitOut@0,engaging@6,transitBack@18","won:24","dc5acb4a"],
+  "repeat:carrier:crimsonReaverWarband:both": "1d33fc77",
+  "replay:carrier:crimsonReaverWarband:both": "b76597cd",
+  "once:eir:crimsonReaverSweep:out": ["5405e26","transitOut@0,engaging@3,transitBack@11","won:15","30ac35e5"],
+  "repeat:eir:crimsonReaverSweep:out": "a6dc0d",
+  "replay:eir:crimsonReaverSweep:out": "28bafcf2",
+  "once:eir:crimsonReaverSweep:back": ["5fbc08e0","transitOut@0,engaging@4,transitBack@12","won:15","94db17a0"],
+  "repeat:eir:crimsonReaverSweep:back": "d4251e4",
+  "once:eir:crimsonReaverSweep:both": ["29832d98","transitOut@0,engaging@3,transitBack@11","won:14","3db1d291"],
+  "repeat:eir:crimsonReaverSweep:both": "1a76c055",
+  "replay:eir:crimsonReaverSweep:both": "28bafcf2",
+  "once:eir:crimsonReaverWarband:out": ["4edd6cd4","transitOut@0,engaging@5,limpingHome@10","lost:22","6bdd4ba8"],
+  "repeat:eir:crimsonReaverWarband:out": "9135e94",
+  "replay:eir:crimsonReaverWarband:out": "5f90e37a",
+  "once:eir:crimsonReaverWarband:back": ["9218b62b","transitOut@0,engaging@6,limpingHome@11","lost:21","2b477a36"],
+  "repeat:eir:crimsonReaverWarband:back": "7908c818",
+  "once:eir:crimsonReaverWarband:both": ["e71e100e","transitOut@0,engaging@5,limpingHome@10","lost:20","d01d9efe"],
+  "repeat:eir:crimsonReaverWarband:both": "f5613870",
+  "replay:eir:crimsonReaverWarband:both": "5f90e37a",
+  "constMixed:battleship:crimsonReaverSweep": ["1:0:be19e8ce,2:0:b09cbc4c,3:0:26d2e511,4:0:91c1e749,5:0:5a9731,6:0:46e67944,7:0:3c3e40bc,8:0:9ca330a,9:0:c6399e39,10:0:a43c87f8,11:0:98ee427f,12:0:44eed343,13:0:6591e9fe,14:0:2bcecdd9,15:0:4dd6e03,16:0:24db61a6,17:0:820d480a,18:0:8ee8d163,19:0:11134c10,20:0:cd33c7c7,21:0:9d1a3408,22:0:87659201","80f99df8"],
+  "constMixed:battleship:crimsonReaverWarband": ["1:0:8ae7544c,2:0:26d2e511,3:0:26d2e511","958b393a"],
+  "constMixed:carrier:crimsonReaverSweep": ["1:0:be19e8ce,2:0:8a8e3787,3:0:c19131c4,4:0:1b5c54d8,5:0:83eee97d,6:0:f5683cb8,7:0:70dd4149,8:0:9915b662,9:0:b0d79a3,10:0:c6399e39,11:0:21ce806b,12:0:c3457db8,13:0:c3457db8","c4c698a2"],
+  "constMixed:prospectorHauler:crimsonReaverSweep": ["1:0:be19e8ce,2:0:8a8e3787,3:0:c19131c4,4:0:1b5c54d8,5:0:83eee97d,6:0:f5683cb8,7:0:f5683cb8","125b7457"],
+};

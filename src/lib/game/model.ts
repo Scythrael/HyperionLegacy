@@ -1126,9 +1126,14 @@ export type PatrolKey = keyof typeof PATROLS;
 
 // WR-7 follow-up OC-D8 (user 2026-10-15 "Speed counts everywhere": "patrol legs scale with transitSpeedMult"): a patrol
 // cycle's two transit legs in route ticks, frozen when the cycle starts (dispatch, and again at each relaunch) from the
-// ship's transit speed then: each leg is the route's leg divided by the speed, rounded up (a mission leg's own rule,
-// outboundLegTicks). The wave window keeps its length (the fight is not travel) and starts where the outbound leg ends.
-// Reach and fuel stay on the route's legs: they are distance, not time.
+// ship's speed on each leg then: each leg is the route's leg divided by that leg's speed, rounded up (a mission leg's
+// own rule, outboundLegTicks / returnLegTicks without the mission's Constitution ramp: a patrol's Flight Deck
+// Constitution is its own return cut, returnCutTicks). A leg's speed is the sweeping transitSpeedMult times its own
+// complement lift (OC-D8 follow-up, user 2026-10-30 "Yes, each its own leg"): Fast Departure (transitOutLegMult) on the
+// outbound leg, `transitOutTicks`, the flight from home to the patrol zone; Fast Return (transitBackLegMult) on the leg
+// home, `transitBackTicks` (a limp home is twice that frozen leg, so a defeated ship crawls home on its lifted leg too).
+// The wave window keeps its length (the fight is not travel) and starts where the outbound leg ends. Reach and fuel
+// stay on the route's legs: they are distance, not time.
 export interface PatrolLegTicks {
   out: number;
   back: number;
@@ -1138,13 +1143,45 @@ export interface PatrolLegTicks {
 // legs and a golden can show that the pins it moved return. Always live in the game.
 export const PATROL_LEGS_SWITCH = { live: true };
 
-// The legs a cycle starting now freezes at `transitSpeedMult`, or undefined when they are the route's own (speed 1, or
-// any speed the rounding brings back to the route's legs), so such a cycle stores exactly what it stored before. Pure.
-export function patrolLegTicksFor(def: PatrolDef, transitSpeedMult: number | undefined): PatrolLegTicks | undefined {
+// Test switch only (the same pattern, OC-D8 follow-up): off, a cycle freezes its legs at the sweeping speed alone (the
+// rule before Fast Departure / Fast Return reached patrols), so a golden can show that the pins the lifts moved return.
+// Always live in the game.
+export const PATROL_LEG_LIFTS_SWITCH = { live: true };
+
+// Test switch only (the same pattern, OC-D8 follow-up review finding): off, a patrol run's Constitution clock reads
+// routesCompletedThisRun x the current cycle's route length (the clock before it summed each cycle's own route ticks)
+// and stores no PatrolMissionState.routeTicksThisRun, so a golden can show that the pins it moved return. Always live
+// in the game.
+export const PATROL_RUN_CLOCK_SWITCH = { live: true };
+
+// A patrol leg's per-leg complement lifts (ShipDerivedStats.transitOutLegMult / transitBackLegMult; absent = 1).
+export interface PatrolLegLifts {
+  out?: number;
+  back?: number;
+}
+
+// The legs a cycle starting now freezes at `transitSpeedMult` and the per-leg `lifts`, or undefined when they are the
+// route's own (speed 1, or any speeds the rounding brings back to the route's legs), so such a cycle stores exactly
+// what it stored before. Each leg's speed is outboundLegSpeed / returnLegSpeed's arithmetic (absent lift: the sweeping
+// speed itself). Pure.
+export function patrolLegTicksFor(def: PatrolDef, transitSpeedMult: number | undefined, lifts: PatrolLegLifts = {}): PatrolLegTicks | undefined {
   if (!PATROL_LEGS_SWITCH.live || transitSpeedMult === undefined || !(transitSpeedMult > 0) || !Number.isFinite(transitSpeedMult)) return undefined;
-  const out = Math.ceil(def.transitOutTicks / transitSpeedMult);
-  const back = Math.ceil(def.transitBackTicks / transitSpeedMult);
+  const liftOf = (m: number | undefined): number | undefined =>
+    PATROL_LEG_LIFTS_SWITCH.live && m !== undefined && m > 0 && Number.isFinite(m) ? m : undefined;
+  const outLift = liftOf(lifts.out);
+  const backLift = liftOf(lifts.back);
+  const out = Math.ceil(def.transitOutTicks / (outLift === undefined ? transitSpeedMult : transitSpeedMult * outLift));
+  const back = Math.ceil(def.transitBackTicks / (backLift === undefined ? transitSpeedMult : transitSpeedMult * backLift));
   return out === def.transitOutTicks && back === def.transitBackTicks ? undefined : { out, back };
+}
+
+// The legs a cycle starting now freezes on a ship with these stats (its sheet: the sweeping speed and both leg lifts).
+// Pure.
+export function patrolLegTicksForStats(
+  def: PatrolDef,
+  stats: Pick<ShipDerivedStats, "transitSpeedMult" | "transitOutLegMult" | "transitBackLegMult">,
+): PatrolLegTicks | undefined {
+  return patrolLegTicksFor(def, stats.transitSpeedMult, { out: stats.transitOutLegMult, back: stats.transitBackLegMult });
 }
 
 // THE route a patrol cycle flies: the PATROLS def with the cycle's frozen legs in place of the route's (a cycle without
@@ -4127,10 +4164,18 @@ export interface PatrolMissionState {
   // exactly as it did. Optional, no SAVE bump.
   favoredSpec?: 1;
   // WR-7 follow-up OC-D8 (patrolLegTicksFor): THIS cycle's transit legs in route ticks, frozen when the cycle starts
-  // (dispatch, and again at each relaunch) from the ship's transit speed then. Every reader of the cycle's time reads
-  // them through patrolRouteOf. OPTIONAL, written only when they differ from the route's legs: a cycle at speed 1 and
-  // every cycle in flight from before OC-D8 fly the route's legs exactly as before (no SAVE_VERSION bump).
+  // (dispatch, and again at each relaunch) from the ship's speed on each leg then (the sweeping transit speed, and since
+  // the OC-D8 follow-up Fast Departure's lift on the outbound leg and Fast Return's on the leg home). Every reader of
+  // the cycle's time reads them through patrolRouteOf. OPTIONAL, written only when they differ from the route's legs: a
+  // cycle at speed 1 and every cycle in flight from before OC-D8 fly the route's legs exactly as before, and a cycle in
+  // flight from before the follow-up keeps the legs it froze (no SAVE_VERSION bump).
   legTicks?: PatrolLegTicks;
+  // OC-D8 follow-up (review finding, the Constitution run clock): the route ticks this RUN has flown over its completed
+  // cycles, each cycle counting its own route's full length (patrolRouteTicks of its frozen legs), carried across
+  // relaunches like routesCompletedThisRun. It is the Constitution ramps' clock at each relaunch. OPTIONAL, written only
+  // when it differs from routesCompletedThisRun x the current cycle's route length (a run that mixes cycle lengths): a
+  // run of one cycle length, and every run from before, read that product exactly as before (no SAVE_VERSION bump).
+  routeTicksThisRun?: number;
 }
 
 // Safe first runs SF-4: a patrol cycle's difficulty stamp: the run stamp (RunDifficultyStamp, tier I: patrols are
