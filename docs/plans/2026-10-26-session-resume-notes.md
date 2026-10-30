@@ -88,3 +88,15 @@ Next, in order (careful pace: one builder at a time, fresh builders, lean briefs
 3. Slice 6 save conversion, Slice 7 UI + Help (Automation tab, leveled Skills tab; Auto PC row is on/off only).
 4. Open: VARIETY_RESIST_RATIO 0.1 [PROVISIONAL]; WR-7 follow-up patrol legs (goldens first); remaining 0.14.0 queue
    (WR-8..12, ML-5/6, EM-8/9, R2-5..9, gear wear step 5, GG-8, SF-7, CP slices, wiring gate before staging).
+
+## Handoff (2026-10-30 ~15:30 UTC), feat @ 2a69178
+
+Merged since 502a0c8: favorsSpec b82ad72 (Opus build + fixes, 10,379 green; Opus vs Sonnet result in
+feedback memory: keep Opus, marathon vs burn modes), Slice 5b 2a69178 (Background setting + Faster Than Light, 10,427
+green; visually checked in dev, no console errors; dev unlock: Settings > Debug > "Grant Faster Than Light unlock").
+Slice 5b deviations from the mockup to show the user at QA: only existing backgrounds listed (no future locked rows);
+readability guard makes panels near-opaque while a visualization runs; Still follows the game's Reduce motion
+setting; Jump burst also plays on game open; DPR capped at 1.5.
+Backup: refresh the Proton Drive bundle after each merge (reference memory). 84 merged worktrees removed 2026-10-30.
+Next: Slice 6 save conversion, Slice 7 UI + Help (Automation tab, leveled Skills tab; Auto PC on/off only), then the
+remaining 0.14.0 queue in the earlier handoff. Pace: marathon mode, one fresh Opus builder at a time.
