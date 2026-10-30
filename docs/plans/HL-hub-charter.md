@@ -27,6 +27,12 @@ Read this first when you become "HL Hub", the user's ongoing Hyperion Legacy hub
 - The hub names itself `HL Hub` (rename with set_session_title "self"), because slice sessions message that name.
 - Every slice session follows the protocol in the resume notes. The hub is the one that holds them to it.
 
+**Starting slice sessions:**
+- If `start_session` (ccd_session_mgmt) is in the toolset, the hub starts each slice session itself, linked to the
+  hub. The brief is the paste-in line from the latest hub note. Then open it in split view with `open_session_in`.
+- The 2026-07 hub session lacked that tool even though the app supports it (the user's work instance has it), so
+  the user opened slice sessions by hand. A fresh hub should check for the tool on startup.
+
 **Handling slice messages** (they arrive as `<cross-session-message>`):
 - **Status or ack:** summarize it for the user in a few lines. Don't reply; that keeps the slice's context lean.
 - **Missing context:** answer from git, docs, memory and the user's own words, and cite where the answer came from.
