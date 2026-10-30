@@ -405,7 +405,7 @@ export const MILESTONES: readonly MilestoneDef[] = [
   { id: "starfall", name: "The Numbers Got Too Big", detail: "e10,000,000 Ore, the Starfall theme", how: "Reach e10,000,000 Ore.", flavor: "You ran out of room for zeros, so we gave you stars.", reward: "Reward: the Starfall theme, live now in Settings › UI", achievement: true },
   // 0.14.0 Slice 5a (design 3.5, approved as proposals 2026-10-27): the beat past e10,000,000 and the secret prize.
   // Names and flavor [PROPOSAL]; the e25,000,000 prize is the Faster Than Light background (user 2026-10-29), built in
-  // Slice 5b; its reward line [PROPOSAL].
+  // Slice 5b; its reward line approved by the user 2026-10-30.
   { id: "e20m", name: "The Numbers Got Even Bigger", detail: "e20,000,000 Ore", how: "Reach e20,000,000 Ore.", flavor: "The stars have asked for a bigger sky. We are looking into it." },
   { id: "e25m", name: "The Sky Is Showing Off", detail: "e25,000,000 Ore", how: "Reach e25,000,000 Ore.", flavor: "You ran out of zeros, then stars, so the sky started moving.", reward: "Reward: the Faster Than Light background", achievement: true, secret: true, rewardHook: "fasterThanLight" },
 ];
@@ -589,7 +589,8 @@ export const AUTOMATION_UNLOCKS: Readonly<Record<AutomationId, MilestoneId>> = {
 
 // The Automation tab's line for each automation (Slice 7). Auto Overclock, Auto-buy I to IV, Auto Captain
 // Prestige and Auto-buy Upgrades are the signed-off mockup's (docs/plans/2026-10-28-automation-skills-
-// mockup.html); the other four follow them [PROPOSAL]. The row adds "Earned at <milestone>."
+// mockup.html); the other four follow them (user 2026-10-30: approved as written). The row adds "Earned at
+// <milestone>."
 export const AUTOMATION_LINES: Readonly<Record<AutomationId, string>> = {
   autoOverclock: "Buys Overclock for you.",
   autoBuyLow: "Buys generators I to IV.",
@@ -599,6 +600,11 @@ export const AUTOMATION_LINES: Readonly<Record<AutomationId, string>> = {
   autoPc: "Prestigeceptions the moment the climb reaches the bar.",
   autoSkills: "Spends Skill Points on the cheapest skill level, round and round.",
   autoUpgrades: "Buys the cheapest upgrade level, round and round.",
+};
+// The mockup's phone frame shortens the target lines; every other line reads the same on a phone.
+export const AUTOMATION_SHORT_LINES: Readonly<Partial<Record<AutomationId, string>>> = {
+  autoCaptain: "At your target.",
+  autoFleet: "At your target.",
 };
 
 export function isAutomationId(id: string): id is AutomationId {
@@ -787,12 +793,14 @@ export const COPY = {
   automationLede: "Earned at milestones. They save clicks; they never play for you. Switch any of them off.",
   automationEarnedAt: "Earned at",
   automationHidden: "Earned at a milestone you have not seen yet.",
-  automationSecret: "You'll know it when you see it.", // [PROPOSAL] a secret one already earned (the user's popup line)
+  automationHiddenShort: "A milestone you have not seen yet.", // the mockup's phone frame
+  automationSecret: "You'll know it when you see it.", // a secret one already earned (the user's popup line)
   skillPointsLabel: "Skill Points to spend",
   skillPointsShort: "Skill Points",
   skillHidden: "Opens later in the climb.",
   skillLocked: "Locked",
-  // 0.14.0 Slice 7 [PROPOSAL]: the e25,000,000 milestone's reward column once reached (it is "???" before).
+  // 0.14.0 Slice 7: the e25,000,000 milestone's reward column once reached (it is "???" before; user 2026-10-30
+  // approved its reward line).
   ftlRewardDone: "Faster Than Light background unlocked",
 } as const;
 
@@ -813,9 +821,13 @@ function listAnd(items: readonly (string | number)[], last: "and" | "or" = "and"
   const words = items.map(String);
   return words.length <= 1 ? words.join("") : `${words.slice(0, -1).join(", ")} ${last} ${words[words.length - 1]}`;
 }
-// "as many" at a bar ratio of 1, "2 times as many" above it.
+// "as many" at a bar ratio of 1, "twice as many" at 2, "N times as many" above.
 function asMany(ratio: number): string {
-  return ratio === 1 ? "as many" : `${ratio} times as many`;
+  return ratio === 1 ? "as many" : ratio === 2 ? "twice as many" : `${ratio} times as many`;
+}
+// "doubles" for a factor of 2, "triples" for 3, else "multiplies by ×N".
+function multiplies(factor: number): string {
+  return factor === 2 ? "doubles" : factor === 3 ? "triples" : `multiplies by ×${factor}`;
 }
 // What maxing every leveled skill costs (engine totalSkillCost reads the same table; a test pins the match).
 export const HELP_SKILL_POINTS_TOTAL = LEVELED_SKILLS.reduce((sum, d) => {
@@ -834,11 +846,11 @@ const HELP_BUY_CHOICES = AUTOMATION_BUY_CHOICES.map((c) => (c === "max" ? "Max" 
 // bar); the new wording is [PROPOSAL].
 export const HELP_SECTIONS: readonly { title: string; body: string }[] = [
   { title: "THE STACK", body: "Mining Lasers make Ore. Every higher generator makes the one below it: Refineries make Mining Lasers, Fabricators make Refineries, and so on up the stack. Ore buys everything. It is generators all the way down." },
-  { title: "THE TEN BONUS", body: `Every ten of a generator you buy multiplies its output by ×${TEN_BONUS}. Owning them is nice; buying them is what counts.` },
+  { title: "THE TEN BONUS", body: `Every ten of a generator you buy ${multiplies(TEN_BONUS)} its output. Owning them is nice; buying them is what counts.` },
   { title: "OVERCLOCK AND UPGRADES", body: `Overclock lives in the Upgrades tab. It speeds up the whole stack by ×${OC_FACTOR} per level, and the levels multiply. Its price follows your income, so waiting never makes it cheaper. Much later, a few more upgrades wake up there. Each one has a level cap, shown as X / Y.` },
   {
     title: "THREE KINDS OF PRESTIGE",
-    body: `Captain Prestige (from ${formatThreshold(CAPTAIN_AT)} Ore) resets your stack for Captain Points, and every point makes the stack faster. Fleet Prestige (the first from ${formatThreshold(FLEET_AT)} Ore) resets that too, for Augment Points, new generators and Skill Points, paid by a schedule: ${listAnd(HELP_SCHEDULE_HEAD)} for your first ${HELP_SCHEDULE_HEAD.length} Fleet Prestiges, then ${HELP_SCHEDULE_LAST} each, until your points cover every skill level (${HELP_SKILL_POINTS_TOTAL} in all). Prestigeception (the first from ${formatThreshold(PRESTIGECEPTION_AT)} Ore) resets everything below it for Dream Points, which make every Captain and Augment Point you earn count for more. Each card shows what it needs now and what the next one will need. Yes, it is prestige all the way down as well.`,
+    body: `Captain Prestige (from ${formatThreshold(CAPTAIN_AT)} Ore) resets your stack for Captain Points, and every point makes the stack faster. Fleet Prestige (the first from ${formatThreshold(FLEET_AT)} Ore) resets that too, for Augment Points, new generators and Skill Points, paid by a schedule: ${listAnd(HELP_SCHEDULE_HEAD)} for your first ${HELP_SCHEDULE_HEAD.length} Fleet Prestiges, then ${HELP_SCHEDULE_LAST} each, until your points cover every skill level (${HELP_SKILL_POINTS_TOTAL} in all). Prestigeception (the first from ${formatThreshold(PRESTIGECEPTION_AT)} Ore) resets everything below it for Dream Points, which make every Captain and Augment Point you earn count for more. Each card shows what it needs now, and the Fleet and Prestigeception cards also show what the next one will need. Yes, it is prestige all the way down as well.`,
   },
   {
     title: "THE FINE PRINT",
@@ -846,11 +858,11 @@ export const HELP_SECTIONS: readonly { title: string; body: string }[] = [
   },
   {
     title: "SKILLS",
-    body: `Skill Points buy skill levels, by hand: a head start, a stronger ten bonus, more points from every kind of prestige and more. Each level costs a little more than the last, and each skill grows with a prestige count (its row says which). Skills open as you climb, and each row says exactly when. A skill that waits for prestiges since a reset closes again at that reset: the levels you own keep working, and you buy more once it opens again. From your ${ordinal(SKILL_GATE_LIFT_PC)} Prestigeception on, every skill you have opened before is open from the start of each climb. Once your Skill Points cover every level left, Fleet Prestige stops paying Skill Points; any you saved stay yours. The late game is mostly watching numbers go up, which is the point.`,
+    body: `Skill Points buy skill levels, by hand: a head start, a stronger ten bonus, more points from every kind of prestige and more. Each level costs a little more than the last, and each skill grows with a prestige count (its row says which). Skills open as you climb: once the step that opens a skill is in sight, its row says exactly when (until then it reads ???). A skill that waits for prestiges since a reset closes again at that reset: the levels you own keep working, and you buy more once it opens again. From your ${ordinal(SKILL_GATE_LIFT_PC)} Prestigeception on, every skill you have opened before is open from the start of each climb. Once your Skill Points cover every level left, Fleet Prestige stops paying Skill Points; any you saved stay yours. The late game is mostly watching numbers go up, which is the point.`,
   },
   {
     title: "AUTOMATIONS",
-    body: `Automations do the clicking for you. Each one is earned at a milestone, never bought, and waits on the Automation tab with its own on/off switch. The ones that buy (Overclock, generators, upgrade levels, skill levels) take a buy amount: ${listAnd(HELP_BUY_CHOICES, "or")} at a time. Automatic Captain and Fleet Prestige fire once the gain reaches the target you pick, a percent of the points you already have. Auto Captain Prestige holds while Auto-buy I to IV is off, so a reset never leaves a stack that nothing rebuilds. They save clicks; they never play for you: the skill and upgrade buyers just take the cheapest level, round and round. Some keep themselves a secret until you have seen what they automate.`,
+    body: `Automations do the clicking for you. Each one is earned at a milestone, never bought, and waits on the Automation tab with its own on/off switch. The tab says NEW when one arrives. The ones that buy things take a buy amount: ${listAnd(HELP_BUY_CHOICES, "or")} at a time. Most of the ones that prestige for you wait for a target you pick: the gain as a percent of the points you already have. An automatic Captain Prestige waits until your first generators buy themselves, so a reset never leaves a stack that nothing rebuilds. They save clicks; they never play for you, and they never hunt for the best buy. Some keep themselves a secret until you have seen what they automate.`,
   },
   { title: "MILESTONES", body: "Milestones appear as you get close to them, and each one is recorded with the date you reached it. Many of them unlock an automation the moment you reach them: the list and the popup say which (or keep it a surprise), and you will find it on the Automation tab. Some skills open at a milestone too. Most other rewards arrive in a future update, and some pay out right away. You will know it when you see it." },
   { title: "RELIC BOOSTS", body: `The relics in your Museum, out in the real game, hum at this old build. Each kind boosts one thing in here (Stats lists them), and every copy helps a little less than the one before. Copies past a tier's ${groupThousands(RELIC_SOFT_CAP)} count ${RELIC_PAST_CAP_WEIGHT} times over. Nothing in here ever flows back out, apart from a certain smugness.` },

@@ -51,6 +51,7 @@
     setAuto,
     setAutoTarget,
     setAutomationBuy,
+    markAutomationsSeen,
     gainMultiplier,
     captainMultiplier,
     augmentMultiplier,
@@ -234,6 +235,9 @@
   // 0.14.0 Slice 7 (the signed-off mockup): the Automation tab's and the Skills tab's rows, read off the
   // engine by secret/overlayRows.ts (tested there). Locked automations and skills read "???".
   $: autoList = tab === "automation" ? automationRows(s) : [];
+  // The mockup's NEW marker on the Automation tab: lit by an unlock (engine checkMilestonesMut), cleared
+  // when the tab is open (also when an unlock lands while it is).
+  $: if (tab === "automation" && s.automationsNew && !busy) secretAct((x) => markAutomationsSeen(x));
   $: skillList = tab === "skills" ? skillRows(s) : [];
   const buyLabel = (a: AutomationBuy) => (a === "max" ? "Max" : a);
   function toggleAuto(id: AutomationId): void {
@@ -436,7 +440,7 @@
             bind:this={tabButtons[t.key]}
             on:click={() => selectTab(t.key)}
             on:keydown={(e) => onTabKeydown(e, i)}
-          ><span class="tab-full">{t.label}</span><span class="tab-short">{t.short}</span></button>
+          ><span class="tab-full">{t.label}</span><span class="tab-short">{t.short}</span>{#if t.key === "automation" && s.automationsNew}<span class="tab-new">NEW</span>{/if}</button>
         {/each}
       </div>
 
@@ -610,7 +614,7 @@
                   <div class="row-flavor">{r.flavor}</div>
                   {#if shown || r.gate}
                     <div class="row-line">
-                      {#if shown}{r.now.before}<b class="num">{r.now.value}</b>{r.now.after}. {#if r.next !== null}Next level: <b class="num">{r.next}</b>.{:else}{COPY.maxed}.{/if}{/if}
+                      {#if shown}{r.now.before}<b class="num">{r.now.value}</b>{r.now.after}. {#if r.next !== null}<span class="lbl-full">Next level:</span><span class="lbl-short">Next:</span> <b class="num">{r.next}</b>.{:else}{COPY.maxed}.{/if}{/if}
                       {#if r.scale}<span class="chip scale">{r.scale}</span>{/if}
                       {#if r.gate}<span class="chip warn gate">{r.gate}</span>{/if}
                     </div>
@@ -635,13 +639,13 @@
           {#each autoList as r (r.id)}
             {#if r.state === "hidden"}
               <div class="row locked">
-                <div class="row-text"><div class="row-name">???</div><div class="row-line">{r.line}</div></div>
+                <div class="row-text"><div class="row-name">???</div><div class="row-line"><span class="lbl-full">{r.line}</span><span class="lbl-short">{r.short}</span></div></div>
               </div>
             {:else}
               <div class="row" class:ahead={r.state === "ahead"}>
                 <div class="row-text">
                   <div class="row-name">{r.name}</div>
-                  <div class="row-line">{r.line} {COPY.automationEarnedAt} <b>{r.milestone}</b>.</div>
+                  <div class="row-line"><span class="lbl-full">{r.line}</span><span class="lbl-short">{r.short}</span> {COPY.automationEarnedAt} <b>{r.milestone}</b>.</div>
                   {#if r.state === "open" && r.note}<div class="row-line"><span class="chip warn">{r.note}</span></div>{/if}
                 </div>
                 {#if r.state === "open"}
@@ -1134,6 +1138,12 @@
   .tab-short {
     display: none;
   }
+  /* The mockup's NEW marker on the Automation tab. */
+  .tab-new {
+    margin-left: 4px;
+    font-size: var(--text-2xs);
+    color: var(--color-warning);
+  }
   .row-lede,
   .row-note {
     margin: 0;
@@ -1508,6 +1518,10 @@
     .row-line .chip.scale {
       display: block;
       margin-left: 0;
+    }
+    /* The mockup's phone skill rows leave the joke line out. */
+    .row-flavor {
+      display: none;
     }
     .sg-head {
       padding: 8px 10px;

@@ -2,10 +2,10 @@
 // column (0.14.0 prestige redesign Slice 7, built to the signed-off mockup).
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
-import { freshSecretState, type SecretState } from "./state";
-import { setAutomationBuy, milestoneVisible, setAuto } from "./engine";
+import { freshSecretState, serializeSecret, deserializeSecret, type SecretState } from "./state";
+import { setAutomationBuy, milestoneVisible, setAuto, checkMilestonesMut, markAutomationsSeen } from "./engine";
 import { automationRows, automationRow, skillRow, skillRows, milestoneRewardText } from "./overlayRows";
-import { AUTOMATION_IDS, AUTOMATION_NAMES, AUTOMATION_UNLOCKS, AUTOMATION_LINES, AUTOMATION_BUY_DEFAULT, LEVELED_SKILLS, MILESTONES, COPY, SECRET_PRIZE_EXPONENT } from "./config";
+import { AUTOMATION_IDS, AUTOMATION_NAMES, AUTOMATION_UNLOCKS, AUTOMATION_LINES, AUTOMATION_SHORT_LINES, AUTOMATION_BUY_DEFAULT, LEVELED_SKILLS, MILESTONES, COPY, SECRET_PRIZE_EXPONENT } from "./config";
 
 const T0 = 1_000_000;
 const fresh = (): SecretState => freshSecretState(T0);
@@ -19,6 +19,7 @@ describe("the Automation tab", () => {
       expect(r.state, r.id).toBe("hidden");
       expect(r.name).toBe("???");
       expect(r.line).toBe(COPY.automationHidden);
+      expect(r.short).toBe(COPY.automationHiddenShort);
     }
     const text = JSON.stringify(rows);
     for (const id of AUTOMATION_IDS) expect(text).not.toContain(AUTOMATION_NAMES[id]);
@@ -31,7 +32,7 @@ describe("the Automation tab", () => {
     s.captainCount = 1; // Fleet Week shows after the first Captain Prestige
     expect(milestoneVisible(s, "firstFleet")).toBe(true);
     const r = automationRow(s, "autoOverclock");
-    expect(r).toEqual({ id: "autoOverclock", state: "ahead", name: "Auto Overclock", line: AUTOMATION_LINES.autoOverclock, milestone: name("firstFleet") });
+    expect(r).toEqual({ id: "autoOverclock", state: "ahead", name: "Auto Overclock", line: AUTOMATION_LINES.autoOverclock, short: AUTOMATION_LINES.autoOverclock, milestone: name("firstFleet") });
     for (const id of AUTOMATION_IDS) {
       const row = automationRow(s, id);
       expect(row.state === "hidden", id).toBe(!milestoneVisible(s, AUTOMATION_UNLOCKS[id]) || id === "autoPc");
@@ -67,7 +68,7 @@ describe("the Automation tab", () => {
     s.milestones.googol = T0;
     s.automations.autoPc = true;
     const r = automationRow(s, "autoPc");
-    expect(r).toEqual({ id: "autoPc", state: "hidden", name: "???", line: COPY.automationSecret });
+    expect(r).toEqual({ id: "autoPc", state: "hidden", name: "???", line: COPY.automationSecret, short: COPY.automationSecret });
     expect(JSON.stringify(automationRows(s))).not.toMatch(/Prestigeception/);
     s.milestones.firstPc = T0 + 1;
     expect(automationRow(s, "autoPc").name).toBe(AUTOMATION_NAMES.autoPc);
@@ -173,5 +174,77 @@ describe("the e25,000,000 milestone stays ??? in every view until reached", () =
     expect(milestoneRewardText(s, "firstFleet", true)).toBe("Auto Overclock unlocked");
     expect(milestoneRewardText(s, "googol", false)).not.toContain("Prestigeception");
     expect(milestoneRewardText(s, "e100k", true)).toBe(COPY.rewardRecorded);
+  });
+});
+
+describe("the mockup's phone lines", () => {
+  it("automatic Captain and Fleet Prestige read 'At your target.' on a phone; the rest read their full line", () => {
+    const s = fresh();
+    for (const id of AUTOMATION_IDS) s.automations[id] = true;
+    s.milestones.firstPc = T0;
+    for (const id of AUTOMATION_IDS) {
+      const r = automationRow(s, id);
+      expect(r.state === "open" && r.short, id).toBe(AUTOMATION_SHORT_LINES[id] ?? AUTOMATION_LINES[id]);
+    }
+    expect(AUTOMATION_SHORT_LINES.autoCaptain).toBe("At your target.");
+    expect(COPY.automationHiddenShort).toBe("A milestone you have not seen yet.");
+    const ov = readFileSync("src/lib/SecretGameOverlay.svelte", "utf-8");
+    expect(ov).toContain('<span class="lbl-full">Next level:</span><span class="lbl-short">Next:</span>');
+    const phone = ov.slice(ov.indexOf("@media (max-width: 480px)"));
+    expect(phone).toMatch(/\.row-flavor \{\s*display: none;/);
+  });
+});
+
+// User 2026-10-30: the signed-off mockup's NEW marker on the Automation tab. Lit when an automation unlocks (or a
+// secret one reveals itself), cleared when the tab is opened; an optional save field, no version bump.
+describe("the Automation tab's NEW marker", () => {
+  it("lights when a milestone grants an automation, not for a secret grant, and again when the secret reveals itself", () => {
+    const s = fresh();
+    s.fleetTotal = 1;
+    checkMilestonesMut(s, T0);
+    expect(s.automations.autoOverclock).toBe(true);
+    expect(s.automationsNew).toBe(true);
+    const seen = markAutomationsSeen(s);
+    expect(seen.automationsNew).toBeUndefined();
+    expect(markAutomationsSeen(seen)).toBe(seen);
+    // A Respectable Googol grants the secret Auto Prestigeception: nothing to see yet, so nothing lights.
+    seen.milestones.googol = T0;
+    checkMilestonesMut(seen, T0 + 1);
+    expect(seen.automations.autoPc).toBe(true);
+    expect(seen.automationsNew).toBeUndefined();
+    // The player's own first Prestigeception reveals it: that lights it.
+    seen.pcCount = 1;
+    checkMilestonesMut(seen, T0 + 2);
+    expect(seen.automationsNew).toBe(true);
+  });
+
+  it("a step that records no milestone never lights it", () => {
+    const s = fresh();
+    s.fleetTotal = 1;
+    checkMilestonesMut(s, T0);
+    const t = markAutomationsSeen(s);
+    checkMilestonesMut(t, T0 + 1);
+    expect(t.automationsNew).toBeUndefined();
+  });
+
+  it("round-trips in the save, written only while lit; an old save reads unlit", () => {
+    const s: SecretState = { ...fresh(), prestigeV: 1 }; // a 0.14.0 save (loading never converts it)
+    expect(serializeSecret(s)).not.toContain("automationsNew");
+    s.automationsNew = true;
+    const raw = serializeSecret(s);
+    expect(raw).toContain('"automationsNew":true');
+    expect(deserializeSecret(raw, T0)!.automationsNew).toBe(true);
+    expect(serializeSecret(deserializeSecret(raw, T0)!)).toBe(raw);
+    const bad = JSON.parse(raw);
+    bad.automationsNew = "yes";
+    expect(deserializeSecret(JSON.stringify(bad), T0)!.automationsNew).toBeUndefined();
+    delete bad.automationsNew;
+    expect(deserializeSecret(JSON.stringify(bad), T0)!.automationsNew).toBeUndefined();
+  });
+
+  it("the tab shows it and opening the tab clears it", () => {
+    const ov = readFileSync("src/lib/SecretGameOverlay.svelte", "utf-8");
+    expect(ov).toContain('{#if t.key === "automation" && s.automationsNew}<span class="tab-new">NEW</span>{/if}');
+    expect(ov).toContain('$: if (tab === "automation" && s.automationsNew && !busy) secretAct((x) => markAutomationsSeen(x));');
   });
 });

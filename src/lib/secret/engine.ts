@@ -1350,14 +1350,37 @@ function trackPeaksMut(s: SecretState): void {
 // A grant only sets s.automations: the switch (autoOn, missing means on), the target (autoTarget, 100%
 // unless the player set one) and the buy amount (missing means AUTOMATION_BUY_DEFAULT) keep their state.
 export function checkMilestonesMut(s: SecretState, atMs: number): void {
+  // The Automation tab's NEW marker (Slice 7): lit when this check makes an automation the player can see
+  // (unlocked, or a secret one revealing itself). Counted only when a milestone is recorded, so a plain step
+  // costs nothing extra.
+  let shownBefore = -1;
   for (const id of MILESTONE_IDS) {
-    if (s.milestones[id] === undefined && reached(s, id)) s.milestones[id] = atMs;
+    if (s.milestones[id] === undefined && reached(s, id)) {
+      if (shownBefore < 0) shownBefore = shownAutomationCount(s);
+      s.milestones[id] = atMs;
+    }
   }
   grantMilestoneAutomationsMut(s);
+  if (shownBefore >= 0 && shownAutomationCount(s) > shownBefore) s.automationsNew = true;
   // Slice 4: remember every skill whose gate has opened (the gate lift reopens them; skillAvailable).
   for (const def of LEVELED_SKILLS) {
     if (s.skillsOpened[def.id] !== true && skillGateOpen(s, def.id)) s.skillsOpened = { ...s.skillsOpened, [def.id]: true };
   }
+}
+
+// Automations the Automation tab shows as earned (unlocked and not a secret any more).
+function shownAutomationCount(s: SecretState): number {
+  let n = 0;
+  for (const id of AUTOMATION_IDS) if (automationUnlocked(s, id) && automationRevealed(s, id)) n++;
+  return n;
+}
+
+// Clears the Automation tab's NEW marker (the player opened the tab).
+export function markAutomationsSeen(s: SecretState): SecretState {
+  if (s.automationsNew === undefined) return s;
+  const next = cloneSecret(s);
+  delete next.automationsNew;
+  return next;
 }
 
 // The grant half of checkMilestonesMut, also run by the one-time conversion on load (prestigeConversion.ts),

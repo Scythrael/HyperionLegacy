@@ -101,6 +101,10 @@ export interface SecretState {
   // The one-time prestige redesign conversion has run (Slice 6, like captainScale; prestigeConversion.ts), or
   // the game began on 0.14.0 (newSecretGame). A save without it is converted once on load.
   prestigeV?: 1;
+  // Slice 7 (user 2026-10-30, the signed-off mockup's NEW marker): an automation unlocked (or revealed itself)
+  // since the Automation tab was last opened. Absent when unlit; opening the tab clears it. The one-time
+  // conversion never lights it (only an unlock after load does).
+  automationsNew?: true;
 }
 
 export function freshUpgrades(): Record<UpgradeId, number> {
@@ -205,7 +209,7 @@ const NUMBER_FIELDS = [
 
 export function serializeSecret(s: SecretState): string {
   // The relic boosts are an input from the main save, never part of this save.
-  const { relicBoosts: _relicBoosts, purchaseCarry, captainSinceFleet, skillPointsEarned, skillLevels, automations, automationBuy, skillsOpened, prestigeV, ...saved } = s;
+  const { relicBoosts: _relicBoosts, purchaseCarry, captainSinceFleet, skillPointsEarned, skillLevels, automations, automationBuy, skillsOpened, prestigeV, automationsNew, ...saved } = s;
   const out: Record<string, unknown> = { ...saved, owned: s.owned.map((d) => d.toString()), peakOwned: s.peakOwned.map((d) => d.toString()) };
   for (const k of DECIMAL_FIELDS) out[k] = s[k].toString();
   // 0.14.0 redesign fields: written only once they hold something, always last and in this order, so
@@ -218,6 +222,7 @@ export function serializeSecret(s: SecretState): string {
   if (Object.keys(skillsOpened).length > 0) out.skillsOpened = skillsOpened;
   if (prestigeV !== undefined) out.prestigeV = prestigeV;
   if (purchaseCarry !== undefined && purchaseCarry > 0) out.purchaseCarry = purchaseCarry;
+  if (automationsNew === true) out.automationsNew = true;
   return JSON.stringify(out);
 }
 
@@ -334,6 +339,8 @@ function readRedesignFields(s: SecretState, parsed: Record<string, unknown>): vo
   // A fraction of a second, or nothing (a missing or bad value carries nothing, as before it was saved).
   const pc = parsed.purchaseCarry;
   if (isFiniteNumber(pc) && pc > 0 && pc < 1) s.purchaseCarry = pc;
+  // The Automation tab's NEW marker (Slice 7): lit only by true; anything else reads unlit.
+  if (parsed.automationsNew === true) s.automationsNew = true;
 }
 
 // 0.13.11.1 fields. Every 0.13.11 save lacks them, so a missing or bad value takes its default

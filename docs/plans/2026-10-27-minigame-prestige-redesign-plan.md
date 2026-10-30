@@ -523,7 +523,7 @@ first step after load (their 0.14.0 milestones are recorded and announced there)
   (named, dimmed, "Earned at <milestone>", no controls), then ??? rows. Auto Prestigeception stays ??? until the
   player's own first Prestigeception ("You'll know it when you see it." once earned). The Auto Captain row carries
   "Waiting for Auto-buy I to IV". The automation rows left the Skills tab; the Prestige tab's AUTO PRESTIGE box is
-  unchanged (same targets). Row text: `AUTOMATION_LINES` (four from the mockup, four [PROPOSAL]).
+  unchanged (same targets). Row text: `AUTOMATION_LINES` (four from the mockup, four approved by the user 2026-10-30).
 - Skills tab: the mockup's Skill Points box and rows (the Upgrades rows' box): level chip X / Y (green at max), joke
   line, now and next value in bold (`skillEffectParts`), the prestige-count chip, gated rows dashed with the exact gate
   line and a disabled Locked button (no button on a phone), ??? for a skill whose milestone is not visible, the
@@ -540,4 +540,16 @@ first step after load (their 0.14.0 milestones are recorded and announced there)
 - Verified in a local build at 1280 px and 375 px (Automation, Skills, Prestige, Milestones, Help): no clipping, no
   sideways scroll, every button and select at least 36 px (phone tabs and header tools raised from 32 / 34 px).
 - QA sheet: docs/qa/2026-10-30-minigame-prestige-redesign-qa.html (desktop + mobile, Slices 1 to 7, old-save checks).
-- Not built (needs a call): the mockup's "NEW" marker on the Automation tab (it would need a seen flag in the save).
+- User answers (2026-10-30, review of 7842f84): the four new `AUTOMATION_LINES` approved as written; the e25M
+  "Reward: the Faster Than Light background" approved; the dimmed "ahead" automation row (named, "Earned at
+  <milestone>", no controls) KEPT; the Automation tab "NEW" marker: build it now per the signed-off mockup.
+- Review fixes: the NEW marker (`automationsNew`, an optional secret-save field written only while lit, no version
+  bump): engine `checkMilestonesMut` lights it when a recorded milestone makes an automation the player can see
+  (a grant, or Auto Prestigeception revealing itself; its secret grant at A Respectable Googol does not), the overlay
+  clears it (`markAutomationsSeen`) whenever the Automation tab is open; the conversion never lights it, an unlock
+  after load does. Help names no automation at all (static text, so nothing locked), says only the Fleet and
+  Prestigeception cards show the next bar, says a skill's row reads ??? until its step is in sight, and reads
+  "doubles" / "twice" (still from TEN_BONUS / PC_BAR_RATIO). Phone rows use the mockup's short lines
+  (`AUTOMATION_SHORT_LINES` "At your target.", "A milestone you have not seen yet."), hide the skill joke line and
+  say "Next:". relicGoldens.json moves only by `"automationsNew":true` on the six past-finale saves (their window
+  grants Auto Skill Allocation); goldens.json is unchanged.

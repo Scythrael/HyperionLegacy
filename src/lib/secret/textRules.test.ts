@@ -182,7 +182,9 @@ describe("0.14.0 minigame Help and text rules", () => {
   });
 
   it("the Help numbers are the constants' values", () => {
-    expect(section("THE TEN BONUS")).toContain(`×${TEN_BONUS}`);
+    // Review fix: natural words for the constants ("doubles", "twice"), still read from them.
+    expect(TEN_BONUS).toBe(2);
+    expect(section("THE TEN BONUS")).toContain("you buy doubles its output");
     expect(section("OVERCLOCK AND UPGRADES")).toContain(`×${OC_FACTOR} per level`);
     const three = section("THREE KINDS OF PRESTIGE");
     expect(three).toContain(`${formatThreshold(CAPTAIN_AT)} Ore`);
@@ -195,7 +197,8 @@ describe("0.14.0 minigame Help and text rules", () => {
     expect(three).toContain(`${head.slice(0, -1).join(", ")} and ${head[head.length - 1]} for your first ${head.length} Fleet Prestiges, then ${SKILL_POINT_SCHEDULE[SKILL_POINT_SCHEDULE.length - 1]} each`);
     expect(HELP_SKILL_POINTS_TOTAL).toBe(totalSkillCost());
     expect(three).toContain(`(${totalSkillCost()} in all)`);
-    expect(section("THE FINE PRINT")).toContain(`${PC_BAR_RATIO} times as many Dream Points as you hold`);
+    expect(PC_BAR_RATIO).toBe(2);
+    expect(section("THE FINE PRINT")).toContain("twice as many Dream Points as you hold");
     expect(section("SKILLS")).toContain(`From your ${SKILL_GATE_LIFT_PC}th Prestigeception on`);
     expect(section("RELIC BOOSTS")).toContain(`${groupThousands(RELIC_SOFT_CAP)} count ${RELIC_PAST_CAP_WEIGHT} times over`);
     const ladder = TIERS.map((t) => t.unlockFleet).filter((n) => n > 0);
@@ -208,15 +211,17 @@ describe("0.14.0 minigame Help and text rules", () => {
     for (const t of ["THREE KINDS OF PRESTIGE", "THE FINE PRINT", "SKILLS", "AUTOMATIONS", "MILESTONES"]) expect(titles).toContain(t);
     expect(section("AUTOMATIONS")).toMatch(/earned at a milestone, never bought/);
     expect(section("AUTOMATIONS")).toMatch(/Automation tab/);
-    expect(section("AUTOMATIONS")).toMatch(/Auto Captain Prestige holds while Auto-buy I to IV is off/);
+    expect(section("AUTOMATIONS")).toMatch(/automatic Captain Prestige waits until your first generators buy themselves/);
+    expect(section("AUTOMATIONS")).toMatch(/The tab says NEW when one arrives/);
+    expect(section("THREE KINDS OF PRESTIGE")).toMatch(/the Fleet and Prestigeception cards also show what the next one will need/);
     expect(section("MILESTONES")).toMatch(/unlock an automation/);
-    expect(section("SKILLS")).toMatch(/each row says exactly when/);
+    expect(section("SKILLS")).toContain("its row says exactly when (until then it reads ???)");
     expect(section("SKILLS")).toMatch(/open from the start of each climb/);
     expect(section("THE FINE PRINT")).toMatch(/waiting earns nothing extra/);
     expect(section("THE FINE PRINT")).toContain(COPY.pcFirst);
     // The secret automation and locked content stay unnamed.
-    expect(help).not.toContain(AUTOMATION_NAMES.autoPc);
-    expect(help).not.toContain(AUTOMATION_NAMES.autoSkills);
+    // Review fix: Help is static, so it names no automation at all (each one is locked content until its milestone).
+    for (const name of Object.values(AUTOMATION_NAMES)) expect(help, name).not.toContain(name);
   });
 
   it("never abbreviates Fleet Admiral Prestige, and says Tactical Protocols, never gambit, to the player", () => {

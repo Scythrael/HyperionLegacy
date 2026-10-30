@@ -352,6 +352,16 @@ describe("3. automations: owned ones kept with their switches, the rest granted 
     expect(t.skillLevels).toEqual(s.skillLevels);
     expect(t.skillPoints).toBe(s.skillPoints);
     expect(autoActive(t, "autoPc")).toBe(false);
+    // Slice 7 review (user 2026-10-30): the conversion never lights the Automation tab's NEW marker; an unlock
+    // after load does (here the first step's three grants).
+    expect(s.automationsNew).toBeUndefined();
+    expect(t.automationsNew).toBe(true);
+  });
+
+  it("a converted save whose automations were all granted at load starts with the NEW marker unlit", () => {
+    const s = load(oldSave());
+    expect(s.automationsNew).toBeUndefined();
+    expect(serializeSecret(s)).not.toContain("automationsNew");
   });
 });
 

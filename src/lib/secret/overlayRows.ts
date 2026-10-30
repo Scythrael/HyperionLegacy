@@ -27,6 +27,7 @@ import {
   AUTOMATION_IDS,
   AUTOMATION_NAMES,
   AUTOMATION_LINES,
+  AUTOMATION_SHORT_LINES,
   AUTOMATION_UNLOCKS,
   AUTOMATION_BUY_DEFAULT,
   MYSTERY_AUTOMATIONS,
@@ -53,9 +54,9 @@ const milestoneName = (id: MilestoneId) => MILESTONES.find((m) => m.id === id)!.
 export type AutomationControl = { kind: "buy"; amount: AutomationBuy } | { kind: "target"; layer: AutoLayer } | { kind: "switch" };
 
 export type AutomationRow =
-  | { id: AutomationId; state: "hidden"; name: "???"; line: string }
-  | { id: AutomationId; state: "ahead"; name: string; line: string; milestone: string }
-  | { id: AutomationId; state: "open"; name: string; line: string; milestone: string; on: boolean; control: AutomationControl; note: string | null };
+  | { id: AutomationId; state: "hidden"; name: "???"; line: string; short: string }
+  | { id: AutomationId; state: "ahead"; name: string; line: string; short: string; milestone: string }
+  | { id: AutomationId; state: "open"; name: string; line: string; short: string; milestone: string; on: boolean; control: AutomationControl; note: string | null };
 
 const TARGET_LAYERS: Partial<Record<AutomationId, AutoLayer>> = { autoCaptain: "captain", autoFleet: "fleet" };
 
@@ -70,10 +71,11 @@ export function automationRow(s: SecretState, id: AutomationId): AutomationRow {
   const milestone = AUTOMATION_UNLOCKS[id];
   // A secret one (Auto Prestigeception before the first Prestigeception) is ??? however far along it is.
   if (!automationRevealed(s, id)) {
-    return { id, state: "hidden", name: "???", line: automationUnlocked(s, id) && MYSTERY_AUTOMATIONS[id] !== undefined ? COPY.automationSecret : COPY.automationHidden };
+    if (automationUnlocked(s, id) && MYSTERY_AUTOMATIONS[id] !== undefined) return { id, state: "hidden", name: "???", line: COPY.automationSecret, short: COPY.automationSecret };
+    return { id, state: "hidden", name: "???", line: COPY.automationHidden, short: COPY.automationHiddenShort };
   }
-  if (!automationUnlocked(s, id) && !milestoneVisible(s, milestone)) return { id, state: "hidden", name: "???", line: COPY.automationHidden };
-  const base = { id, name: AUTOMATION_NAMES[id], line: AUTOMATION_LINES[id], milestone: milestoneName(milestone) };
+  if (!automationUnlocked(s, id) && !milestoneVisible(s, milestone)) return { id, state: "hidden", name: "???", line: COPY.automationHidden, short: COPY.automationHiddenShort };
+  const base = { id, name: AUTOMATION_NAMES[id], line: AUTOMATION_LINES[id], short: AUTOMATION_SHORT_LINES[id] ?? AUTOMATION_LINES[id], milestone: milestoneName(milestone) };
   if (!automationUnlocked(s, id)) return { ...base, state: "ahead" };
   return { ...base, state: "open", on: autoActive(s, id), control: controlFor(s, id), note: id === "autoCaptain" && autoCaptainWaiting(s) ? COPY.autoCaptainWaiting : null };
 }
