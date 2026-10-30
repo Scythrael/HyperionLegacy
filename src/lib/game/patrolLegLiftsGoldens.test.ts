@@ -28,27 +28,24 @@ import {
   speedOnlyLegs,
 } from "./patrolLegLiftsGoldens.fixture";
 import { withPatrolLegLiftsOff, withPatrolRunClockOff } from "./patrolLegLiftsSwitch.fixture";
+// The crewHours determinism fix (2026-10-30) came after these pins, which are about the patrol slices: the rows are
+// read with the float crewHours counter (crewHoursMs.test.ts traces that move). The offline == live check runs live.
+import { withCrewHoursFloat } from "./crewHoursSwitch.fixture";
 
 const CAPTURE = import.meta.env.LIFTS_CAPTURE as string | undefined;
 // FLOWN_CAPTURE = an output path: record the count-only-flown rows instead of asserting.
 const FLOWN_CAPTURE = import.meta.env.FLOWN_CAPTURE as string | undefined;
 const RNG = (): number => 0.5;
 // The whole state, each top-level key hashed on its own, and `discovered` as a set (patrolLegsGoldens' reading). The
-// officers' promotion clock (promotionCounters.crewHours) sums a float per call, so one call and 1 s steps land on it
-// a few ulps apart (true before this follow-up, and not a patrol reading): it is compared to 12 significant digits.
-const officersRounded = (s: GameState): unknown =>
-  s.officers.map((o) => {
-    const c = (o as { promotionCounters?: { crewHours?: number } }).promotionCounters;
-    return c?.crewHours === undefined ? o : { ...o, promotionCounters: { ...c, crewHours: Number(c.crewHours.toPrecision(12)) } };
-  });
+// officers' promotion clock (crewHoursMs) is a whole-millisecond counter, so it is compared exactly too.
 const keyedHash = (s: GameState): string => {
-  const r = { ...s, discovered: [...s.discovered].sort(), officers: officersRounded(s) } as unknown as Record<string, unknown>;
+  const r = { ...s, discovered: [...s.discovered].sort() } as unknown as Record<string, unknown>;
   return hash(Object.fromEntries(Object.keys(r).sort().map((k) => [k, hash(r[k])])));
 };
 
 describe("OC-D8 follow-up goldens (patrol leg lifts, the Constitution run clock)", () => {
   it("every reading matches its pin (the pre-change pins, with the follow-up's moves re-pinned)", () => {
-    const now = { ...liftsRows(), ...constRows() };
+    const now = withCrewHoursFloat(() => ({ ...liftsRows(), ...constRows() }));
     if (CAPTURE) {
       writeFileSync(CAPTURE, JSON.stringify(now, null, 2));
       return;
@@ -57,13 +54,13 @@ describe("OC-D8 follow-up goldens (patrol leg lifts, the Constitution run clock)
   }, 600_000);
 
   it("with the lifts off (PATROL_LEG_LIFTS_SWITCH) every moved lift pin returns, and the clock rows are not theirs", () => {
-    const off = withPatrolLegLiftsOff(liftsRows);
+    const off = withCrewHoursFloat(() => withPatrolLegLiftsOff(liftsRows));
     expect(off).toEqual(Object.fromEntries(Object.keys(off).map((k) => [k, LIFTS_PINS_PRE[k]])));
     expect(Object.keys(LIFTS_PINS_MOVED).filter((k) => !(k in off)).every((k) => k.startsWith("constMixed:"))).toBe(true);
   }, 600_000);
 
   it("with the run clock off (PATROL_RUN_CLOCK_SWITCH) every moved clock pin returns", () => {
-    const off = withPatrolRunClockOff(constRows);
+    const off = withCrewHoursFloat(() => withPatrolRunClockOff(constRows));
     expect(off).toEqual(Object.fromEntries(Object.keys(off).map((k) => [k, LIFTS_PINS_PRE[k]])));
   }, 600_000);
 
@@ -172,7 +169,7 @@ describe("count only flown goldens (the Constitution run clock with a return cut
   });
 
   it("every reading matches its pin", () => {
-    const now = cutRows();
+    const now = withCrewHoursFloat(cutRows);
     if (FLOWN_CAPTURE) {
       writeFileSync(FLOWN_CAPTURE, JSON.stringify(now, null, 2));
       return;
@@ -181,7 +178,7 @@ describe("count only flown goldens (the Constitution run clock with a return cut
   }, 600_000);
 
   it("with the run clock off (PATROL_RUN_CLOCK_SWITCH) every moved pin returns", () => {
-    expect(withPatrolRunClockOff(cutRows)).toEqual(FLOWN_PINS_PRE);
+    expect(withCrewHoursFloat(() => withPatrolRunClockOff(cutRows))).toEqual(FLOWN_PINS_PRE);
   }, 600_000);
 
   // The trace: at every route a run completes, the clock gains the cycle's route less, on a stamped cycle, its return
@@ -201,7 +198,7 @@ describe("count only flown goldens (the Constitution run clock with a return cut
             const m = s.captains[0].mission as PatrolMissionState | null;
             if (m === null) break;
             // Every cycle started here carries the stamp with its cut (the in-flight row's first cycle does not).
-            if (m.masterSeed !== start.captains[0].mission!.masterSeed) expect([hull, route, m.cutFlown]).toEqual([hull, route, (m.returnCutTicks ?? 0) > 0 ? 1 : undefined]);
+            if (m.masterSeed !== (start.captains[0].mission as PatrolMissionState).masterSeed) expect([hull, route, m.cutFlown]).toEqual([hull, route, (m.returnCutTicks ?? 0) > 0 ? 1 : undefined]);
             if (m.routesCompletedThisRun === before.routesCompletedThisRun) continue;
             const cut = before.cutFlown === 1 ? before.returnCutTicks ?? 0 : 0;
             if (cut > 0) cutCounted = true;

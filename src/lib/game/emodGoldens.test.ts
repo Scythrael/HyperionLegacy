@@ -108,6 +108,10 @@ import { patrolLegsReadBack } from "./patrolLegsRegistry.fixture";
 import { patrolLegLiftsReadBack } from "./patrolLegLiftsRegistry.fixture";
 import { favoredSpecOffForThisFile } from "./favoredSpecSwitch.fixture";
 favoredSpecOffForThisFile();
+// The crewHours determinism fix (2026-10-30): this file's pins predate it and are about another slice, so the whole
+// file runs with the float crewHours counter (crewHoursSwitch.fixture.ts; crewHoursMs.test.ts traces the move).
+import { crewHoursFloatForThisFile } from "./crewHoursSwitch.fixture";
+crewHoursFloatForThisFile();
 
 // ===== shared helpers =====
 

@@ -200,7 +200,7 @@ import { FIELD_KITS_BATTLE, withFieldKitsDefaultProgram } from "../fieldKitsBatt
 import { fieldworkEffect, fieldworkHazardResist, fieldworkSpeedMult } from "../fieldwork";
 import { taskSecurityHazardResist } from "../groundTasks";
 import { awayRecruitCandidates, snapshotMembers } from "../awayTeam";
-import { seniorStaffCandidates } from "../seniorStaff";
+import { officerPromotionCounter, seniorStaffCandidates } from "../seniorStaff";
 import { applyExpeditionInjuries, injuryRecoverySeconds, shipInjuryFactors } from "../injuries";
 import { boardingRepelChance, buildShipCombatant, shipSalvageScale, snapshotShipEventProfile } from "../shipScanEvents";
 import { shipsWithMemberAutoSlotted } from "../groundTeamSlots";
@@ -1279,7 +1279,7 @@ function missionCrewHours(s: GameState, ctx?: ContextId): number {
   let after = r.next;
   for (let t = 0; t < 600; t++) after = economyTick(after, 1, () => 0.5);
   const o = after.officers.find((x) => x.assignedShipId === WIRING_SHIP_ID);
-  return o ? o.promotionCounters?.crewHours ?? 0 : -1;
+  return o ? officerPromotionCounter(o, "crewHours") : -1;
 }
 
 // A dispatched run brought home with one objective done, then claimed: the first officer aboard's

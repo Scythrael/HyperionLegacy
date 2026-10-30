@@ -28,7 +28,7 @@
 // ("Engine seams" 1/4/5).
 
 import type { EquipmentInstance, GameState, ShipInstance, ShipDerivedStats, SeniorStaffOfficer, CrewSignature, CrewBucket, OfficerCombatMods, SeniorStaffSeat, PromotionObjectiveKind } from "./model";
-import { equipmentStatMods, shipDerivedStats, MASS_SPEED_DRAG, SHIP_TYPES } from "./model";
+import { equipmentStatMods, shipDerivedStats, MASS_SPEED_DRAG, SHIP_TYPES, CREW_HOURS_MS_SWITCH } from "./model";
 import { combatSpeedFor, newCombatRulesStamp, type CombatRulesStamp } from "./combat/combatRules";
 import { powerSupplyPercent } from "./combat/power";
 import { equippedFor } from "./equipmentQueries";
@@ -36,7 +36,7 @@ import { CREW_PROFESSION_BUFFS, CREW_STAT_KEYS, SECOND_LEVEL_EXCLUSIVE, TRANSIT_
 import { CREW_RACES } from "./crewRaces";
 import { coalesceBuckets, contributionForSignature, notableSignature, removeFromBucketList, rollupBuckets, totalCrew } from "./crew";
 import { shipCrewLocked } from "./crewLock";
-import { captainRacialBonus, officerRacialBonus } from "./seniorStaff";
+import { captainRacialBonus, officerCrewHoursMs, officerRacialBonus } from "./seniorStaff";
 import { getSeniorStaffBonusById } from "./seniorStaffBonuses";
 import { crewTransportsDue, deliverDueTransports, transportBatchSize } from "./transports";
 import { autoCrewShip } from "./autoCrew";
@@ -1033,14 +1033,22 @@ export function foldOfficerMissionCompletions(
   return changed ? next : officers;
 }
 
+// One call's promotion counter increments for one ship: the counted kinds, and `crewSeconds`, the seconds the ship
+// was out on a run (crewHours accrues from them in whole milliseconds, SeniorStaffOfficer.crewHoursMs).
+export type PromotionIncrements = Partial<Record<Exclude<PromotionObjectiveKind, "crewHours">, number>> & { crewSeconds?: number };
+
 // WR-4 (B4, OC-E10): add per-ship promotion counter increments (crewHours, shipsDestroyed, personnelAchievement)
 // to the optional promotionCounters of every officer assigned to that ship. The counters start at 0 (an absent map
 // or key reads 0) and nothing is backfilled (user: "Start at 0"). PURE: a fresh officers array, or the SAME
 // reference when no increment touches an assigned officer, so a save with no officers aboard is byte-identical.
 // WR-5c: `multOf` as in foldOfficerMissionCompletions (Drillmaster x every increment; absent or 1 = unchanged).
+// crewHours determinism fix (2026-10-30): crewSeconds adds round(seconds x mult x 1000) WHOLE milliseconds to
+// crewHoursMs (a pre-fix save's float hours carried over first, officerCrewHoursMs, and dropped): integer adds, so one
+// call over a span, any chunking of it and 1 s steps land on the same counter (seconds are whole, Drillmaster's
+// factor has at most three decimals). CREW_HOURS_MS_SWITCH off (test only): the float hours as before.
 export function foldOfficerPromotionCounters(
   officers: SeniorStaffOfficer[],
-  incByShip: ReadonlyMap<string, Partial<Record<PromotionObjectiveKind, number>>>,
+  incByShip: ReadonlyMap<string, PromotionIncrements>,
   multOf?: (shipId: string) => number,
 ): SeniorStaffOfficer[] {
   if (incByShip.size === 0) return officers;
@@ -1052,14 +1060,29 @@ export function foldOfficerPromotionCounters(
     const counters: Partial<Record<PromotionObjectiveKind, number>> = { ...(o.promotionCounters ?? {}) };
     const mult = multOf ? multOf(o.assignedShipId) : 1;
     let touched = false;
-    for (const [kind, amount] of Object.entries(inc) as [PromotionObjectiveKind, number][]) {
+    let crewHoursMs: number | undefined = o.crewHoursMs;
+    for (const [key, amount] of Object.entries(inc) as [keyof PromotionIncrements, number][]) {
       if (!(amount > 0)) continue;
-      counters[kind] = (counters[kind] ?? 0) + (mult === 1 ? amount : amount * mult);
       touched = true;
+      if (key === "crewSeconds") {
+        if (CREW_HOURS_MS_SWITCH.live) {
+          crewHoursMs = officerCrewHoursMs(o) + Math.round(amount * mult * 1000);
+          delete counters.crewHours;
+        } else {
+          const hours = amount / 3600;
+          counters.crewHours = (counters.crewHours ?? 0) + (mult === 1 ? hours : hours * mult);
+        }
+        continue;
+      }
+      counters[key] = (counters[key] ?? 0) + (mult === 1 ? amount : amount * mult);
     }
     if (!touched) return o;
     changed = true;
-    return { ...o, promotionCounters: counters };
+    if (crewHoursMs === undefined) return { ...o, promotionCounters: counters };
+    // One shape however the increments were chunked (the counters, a map left empty by the dropped float left out,
+    // then crewHoursMs, both last), so one call and many small ones serialize alike.
+    const { promotionCounters: _counters, crewHoursMs: _ms, ...rest } = o;
+    return { ...rest, ...(Object.keys(counters).length > 0 ? { promotionCounters: counters } : {}), crewHoursMs };
   });
   return changed ? next : officers;
 }

@@ -1154,6 +1154,11 @@ export const PATROL_LEG_LIFTS_SWITCH = { live: true };
 // "Count only flown"), so a golden can show that the pins it moved return. Always live in the game.
 export const PATROL_RUN_CLOCK_SWITCH = { live: true };
 
+// Test switch only (the same pattern, the crewHours determinism fix 2026-10-30): off, an officer's crewHours accrues
+// as before, the float promotionCounters.crewHours += span hours x Drillmaster per call (no crewHoursMs), so a golden
+// can show that the pins the fix moved return. Always live in the game.
+export const CREW_HOURS_MS_SWITCH = { live: true };
+
 // A patrol leg's per-leg complement lifts (ShipDerivedStats.transitOutLegMult / transitBackLegMult; absent = 1).
 export interface PatrolLegLifts {
   out?: number;
@@ -7560,8 +7565,15 @@ export interface SeniorStaffOfficer {
   // WR-4 (B4: crewOverlay.ts foldOfficerPromotionCounters), starting at 0 (user: no backfill);
   // officerPromotionCounter reads a missing entry as 0, so this needs NO SAVE_VERSION bump (an old save
   // simply lacks it), the established optional-additive field convention (e.g. favorite / weaponType).
-  // crewHours is fractional (hours, accrued per tick); the checklist shows it rounded down.
+  // crewHours is fractional (hours); the checklist shows it rounded down. Since the crewHours determinism fix
+  // (2026-10-30) it accrues in crewHoursMs below, and promotionCounters.crewHours is only a pre-fix save's value.
   promotionCounters?: Partial<Record<PromotionObjectiveKind, number>>;
+  // crewHours determinism fix (2026-10-30, hub call "one call == chunked == 1 s steps"): the crewHours counter in WHOLE
+  // milliseconds (each call adds round(span seconds x Drillmaster x 1000), an integer, so any chunking of a span sums
+  // to the same value); crewHours = crewHoursMs / 3_600_000 (seniorStaff.ts officerCrewHoursMs / officerPromotionCounter).
+  // OPTIONAL: absent on a pre-fix save, which reads its promotionCounters.crewHours; the first increment carries it
+  // over as round(crewHours x 3_600_000) and drops the float (no SAVE_VERSION bump).
+  crewHoursMs?: number;
   assignedShipId: string | null; // mirrors EquipmentInstance.fittedToShipId authority; null = unassigned
   // Crew 0.14.0 (Phase C-2): favoriting parity with NotableCrewMember (which already carries
   // `favorite?`), so the Personnel Rosters builder can favorite an officer the same way ships/items

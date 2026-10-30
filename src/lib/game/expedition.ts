@@ -56,7 +56,6 @@ import type {
   ExpeditionScanParams,
   ExpeditionScanEvent,
   SnapshotMember,
-  PromotionObjectiveKind,
 } from "./model";
 import { SHIP_TYPES, commandingCaptain, moduleEffectScale, shipGearSetBonusLines, withFavoredLines } from "./model";
 // E-MOD EM-6: the body-scanned module trigger (its frozen procs and private stream).
@@ -68,7 +67,7 @@ import { pathfinderEffect } from "./utilityGear";
 import { equippedFor } from "./equipment";
 import { battleWearLive, viewPieceEfficiency, wornGearView } from "./gearWear";
 import { gearWearLive } from "./gearWearEngine";
-import { effectiveShipStats, foldOfficerPromotionCounters, officerBonusTotal, shipCrewContribution, shipSurveyAptitude } from "./crewOverlay";
+import { effectiveShipStats, foldOfficerPromotionCounters, officerBonusTotal, type PromotionIncrements, shipCrewContribution, shipSurveyAptitude } from "./crewOverlay";
 import { CREW_STAT_KEYS } from "./crewBuffs";
 import { fieldworkHazardResist, fieldworkSpeedMult } from "./fieldwork";
 import { ACTIVITY_SECONDS } from "./groundTasks";
@@ -2892,10 +2891,10 @@ export function claimExpedition(state: GameState, expeditionId: string): Expedit
 }
 
 // WR-4 (B4): one claimed run's promotion counter increments, keyed by its ship. Pure.
-function expeditionPromotionIncrements(exp: Expedition): Map<string, Partial<Record<PromotionObjectiveKind, number>>> {
+function expeditionPromotionIncrements(exp: Expedition): Map<string, PromotionIncrements> {
   const objectives = exp.bodies.reduce((n, b) => n + b.activities.filter((a) => a.done).length, 0);
   const shipWins = (exp.scanEvents ?? []).filter((e) => e.kind === "shipEvent" && e.outcome === "win").length;
-  const inc: Partial<Record<PromotionObjectiveKind, number>> = {};
+  const inc: PromotionIncrements = {};
   if (objectives > 0) inc.personnelAchievement = objectives;
   if (shipWins > 0) inc.shipsDestroyed = shipWins;
   return new Map(Object.keys(inc).length > 0 ? [[exp.shipId, inc]] : []);

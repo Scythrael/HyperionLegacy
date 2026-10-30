@@ -83,7 +83,6 @@ import {
   type ShipTypeKey,
   type ShipTypeDef,
   type ShipInstance,
-  type PromotionObjectiveKind,
   type CaptainState,
   type CaptainStopReason,
   type CaptainMissionState,
@@ -381,6 +380,7 @@ import {
   resolveCrew,
   foldOfficerMissionCompletions,
   foldOfficerPromotionCounters,
+  type PromotionIncrements,
   officerCombatModsFromProfile,
   officerCombatProfile,
   shipMissionOutputBonus,
@@ -4479,14 +4479,15 @@ export function shipsOutOnRuns(state: GameState): Set<string> {
 }
 
 // WR-4 (B4): one call's promotion counter increments per ship: crewHours for every ship out on a run (the call's
-// span in hours) and shipsDestroyed for every ship whose patrol destroyed an enemy. Pure.
+// span, as crewSeconds: the fold adds it in whole milliseconds, crewOverlay.ts foldOfficerPromotionCounters) and
+// shipsDestroyed for every ship whose patrol destroyed an enemy. Pure.
 function runCounterIncrements(
   shipsOnRuns: ReadonlySet<string>,
   deltaSeconds: number,
   shipKills: ReadonlyMap<string, number>,
-): Map<string, Partial<Record<PromotionObjectiveKind, number>>> {
-  const inc = new Map<string, Partial<Record<PromotionObjectiveKind, number>>>();
-  if (deltaSeconds > 0) for (const id of shipsOnRuns) inc.set(id, { crewHours: deltaSeconds / 3600 });
+): Map<string, PromotionIncrements> {
+  const inc = new Map<string, PromotionIncrements>();
+  if (deltaSeconds > 0) for (const id of shipsOnRuns) inc.set(id, { crewSeconds: deltaSeconds });
   for (const [id, kills] of shipKills) inc.set(id, { ...(inc.get(id) ?? {}), shipsDestroyed: kills });
   return inc;
 }
@@ -4516,7 +4517,10 @@ export function economyTick(
   const deltaSeconds = ticksElapsed * state.tickDurationSeconds;
   // WR-4 (B4, OC-E10 "crewHours from the officer's ship hours out on any run"): the ships OUT on a run at the start
   // of this call (a captain mission or patrol, or an expedition not yet home), read from the INCOMING state so the
-  // whole call's span counts once. tick() always steps whole ticks, so one call == many small calls exactly.
+  // whole call's span counts once. It accrues in whole milliseconds (crewHoursMs, integer adds: the crewHours
+  // determinism fix 2026-10-30), so while the ship stays out one call over a span, any chunking of it and 1 s steps
+  // land on the same counter. A ship that comes home inside a call counts to the call's end; tick() (offline) and the
+  // live loop both step one tick per call, so offline == live.
   const shipsOnRuns = shipsOutOnRuns(state);
   // WR-4 (B4): enemy ships each ship's patrol destroyed this call (officers' shipsDestroyed).
   const shipKills = new Map<string, number>();

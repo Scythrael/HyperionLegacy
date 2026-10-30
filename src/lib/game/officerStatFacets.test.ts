@@ -89,7 +89,10 @@ import { withCombatRulesOff } from "./combatRulesSwitch.fixture";
 import { withPatrolLegsOff } from "./patrolLegsSwitch.fixture";
 // WR-7 follow-up OC-D8: these neutrality goldens were captured before the patrol legs scaled, so their patrols fly the
 // route's legs too (patrolLegsSwitch.fixture.ts; patrolLegsGoldens.test.ts pins the legs).
-const withCombatRulesAndLegsOff = <T>(run: () => T): T => withCombatRulesOff(() => withPatrolLegsOff(run));
+// The crewHours determinism fix (2026-10-30): these neutrality goldens predate it and are about the officer facets, so
+// they also run with the float crewHours counter (crewHoursSwitch.fixture.ts; crewHoursMs.test.ts traces the move).
+const withCombatRulesAndLegsOff = <T>(run: () => T): T => withCombatRulesOff(() => withPatrolLegsOff(() => withCrewHoursFloat(run)));
+import { withCrewHoursFloat } from "./crewHoursSwitch.fixture";
 import { activityRelicFindBonus, generateEncounter, softenAmbush } from "./gambit";
 import { applyExpeditionInjuries, injuryRecoverySeconds } from "./injuries";
 import {

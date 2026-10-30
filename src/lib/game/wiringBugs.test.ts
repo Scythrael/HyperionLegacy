@@ -41,7 +41,7 @@ import { seatOfficer, withFacilityLevel } from "./wiring/probes";
 import { PATROLS } from "./model";
 import { dispatchCaptainOnPatrol, tick } from "./tick";
 import { advanceExpedition, claimExpedition } from "./expedition";
-import { canPromoteOfficer } from "./seniorStaff";
+import { canPromoteOfficer, officerPromotionCounter } from "./seniorStaff";
 import { FUEL_DEPOT_REACH_PER_RUNG } from "./model";
 import { fleetReachBonus, shipRangeLightYears, shipReachDef, shipReachesRoundTrip } from "./tick";
 import * as tickModule from "./tick";
@@ -271,16 +271,52 @@ describe("B4: officer promotion counters are fed (OC-E10), starting at 0", () =>
 
   it("crewHours: the officer's ship's hours out on a run (a mission)", () => {
     const s0 = seatOfficer(rich(freshState()), "operations", ["ops.cargoExpand"]);
-    expect(officerOf(s0).promotionCounters?.crewHours ?? 0).toBe(0);
+    expect(officerPromotionCounter(officerOf(s0), "crewHours")).toBe(0);
     const r = dispatchCaptainOnMission(s0, 1, "shortOreRun");
     let s = r.next;
     const rng = lcg(3);
     for (let i = 0; i < 3600; i++) s = economyTick(s, 1, rng);
-    expect(officerOf(s).promotionCounters?.crewHours ?? 0).toBeCloseTo(1, 9);
+    // Whole milliseconds (the crewHours determinism fix): an hour out is exactly 1.
+    expect(officerOf(s).crewHoursMs).toBe(3_600_000);
+    expect(officerPromotionCounter(officerOf(s), "crewHours")).toBe(1);
     // An idle ship's officer gains nothing.
     let idle = s0;
     for (let i = 0; i < 600; i++) idle = economyTick(idle, 1, rng);
-    expect(officerOf(idle).promotionCounters?.crewHours ?? 0).toBe(0);
+    expect(officerPromotionCounter(officerOf(idle), "crewHours")).toBe(0);
+    expect(officerOf(idle).crewHoursMs).toBeUndefined();
+  });
+
+  // The crewHours determinism fix (2026-10-30): one economyTick over a span, 7 s chunks and 1 s steps land on the
+  // same counter exactly (it accrued a float per call before, a few ulps apart). The ship stays out over the span.
+  it("crewHours: one economyTick call == 7 s chunks == 1 s steps, exactly", () => {
+    const s0 = dispatchCaptainOnMission(seatOfficer(rich(freshState()), "operations", ["ops.cargoExpand"]), 1, "shortOreRun").next;
+    const span = 600;
+    const one = economyTick(s0, span, () => 0.5);
+    let chunked = s0;
+    for (let t = 0; t < span; t += 7) chunked = economyTick(chunked, Math.min(7, span - t), () => 0.5);
+    let steps = s0;
+    for (let i = 0; i < span; i++) steps = economyTick(steps, 1, () => 0.5);
+    expect(steps.captains[0].mission).not.toBeNull();
+    expect(officerOf(steps).crewHoursMs).toBe(span * 1000);
+    expect(officerOf(one).crewHoursMs).toBe(span * 1000);
+    expect(officerOf(chunked).crewHoursMs).toBe(span * 1000);
+    expect(officerPromotionCounter(officerOf(one), "crewHours")).toBe(officerPromotionCounter(officerOf(steps), "crewHours"));
+  });
+
+  // A save from before the fix: its float promotionCounters.crewHours reads as it is until the first increment, which
+  // carries it over as round(crewHours x 3_600_000) whole milliseconds and drops the float (the other counters stay).
+  it("crewHours: a pre-fix save's float hours carry over at the first increment", () => {
+    const legacy = 0.1 + 0.2; // a drifted float, 0.30000000000000004
+    const seated = seatOfficer(rich(freshState()), "operations", ["ops.cargoExpand"]);
+    const s0 = {
+      ...seated,
+      officers: seated.officers.map((o) => (o.assignedShipId === "ship-1" ? { ...o, promotionCounters: { crewHours: legacy, shipsDestroyed: 2 } } : o)),
+    };
+    expect(officerPromotionCounter(officerOf(s0), "crewHours")).toBe(legacy);
+    const s = economyTick(dispatchCaptainOnMission(s0, 1, "shortOreRun").next, 1, () => 0.5);
+    expect(officerOf(s).crewHoursMs).toBe(1_080_000 + 1000);
+    expect(officerOf(s).promotionCounters).toEqual({ shipsDestroyed: 2 });
+    expect(officerPromotionCounter(officerOf(s), "crewHours")).toBe(1_081_000 / 3_600_000);
   });
 
   it("crewHours: offline equals live (one call, 997 s chunks, 1 s ticks)", () => {
@@ -290,8 +326,9 @@ describe("B4: officer promotion counters are fed (OC-E10), starting at 0", () =>
     for (let i = 0; i < 2; i++) chunked = tick(997, chunked, () => 0.5);
     let live = s0;
     for (let i = 0; i < 1994; i++) live = tick(1, live, () => 0.5);
-    expect(officerOf(one).promotionCounters).toEqual(officerOf(chunked).promotionCounters);
-    expect(officerOf(one).promotionCounters).toEqual(officerOf(live).promotionCounters);
+    expect(officerOf(one).crewHoursMs).toBeGreaterThan(0);
+    expect(officerOf(one)).toEqual(officerOf(chunked));
+    expect(officerOf(one)).toEqual(officerOf(live));
   });
 
   it("shipsDestroyed: every enemy a patrol destroys", () => {
