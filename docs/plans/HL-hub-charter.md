@@ -34,6 +34,9 @@ Read this first when you become "HL Hub", the user's ongoing Hyperion Legacy hub
   2026-10-30). Both work only on a message the user types in the desktop app. A phone REMOTE DESKTOP app
   driving the PC's composer counts as the desktop (tested 2026-10-30: the card appeared), so that is the phone route.
   Otherwise the hub runs the slice as a background agent from the hub, only on the user's yes.
+- Toggling Remote Control off to place a card is blocked by auto mode's safety check (tested 2026-10-30); never
+  retry that. User (2026-10-30): "I'll just keep doing what we were doing from before", so slices run as background
+  agents launched from the hub (each launch on the user's yes) until the app allows session cards over Remote Control.
 - The 2026-07 hub session lacked that tool even though the app supports it (the user's work instance has it), so
   the user opened slice sessions by hand. A fresh hub should check for the tool on startup.
 
