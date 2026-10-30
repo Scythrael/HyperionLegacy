@@ -40,6 +40,7 @@ describe("overlay focus wiring (source)", () => {
     expect(src).toContain('disabled={busy} on:click={() => dismissCelebration("long")}');
     expect(src).toContain("keepGoing?.focus()");
     expect(src).toMatch(/<select[^>]*disabled=\{busy\}/);
-    expect(src).toMatch(/aria-pressed=\{autoActive\(s, id\)\}\s*disabled=\{busy\}/);
+    // Slice 7: the automation switches live on the Automation tab.
+    expect(src).toMatch(/role="switch" aria-checked=\{r\.on\} aria-label=\{r\.name\} disabled=\{busy\}/);
   });
 });

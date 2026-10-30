@@ -469,11 +469,14 @@ describe("the Mystery popup (user 2026-10-28): Auto Prestigeception at A Respect
     expect(automationListLine("autoPc", true, automationRevealed(s, "autoPc"))).toBe("Auto Prestigeception unlocked");
   });
 
-  it("the overlay asks the engine before naming it (Skills rows, the Prestige tab, the Milestones list)", () => {
+  it("the overlay asks the engine before naming it (the Automation tab, the Prestige tab, the Milestones list)", () => {
     const ov = readFileSync("src/lib/SecretGameOverlay.svelte", "utf-8");
-    expect(ov).toContain("{#if !automationRevealed(s, id)}");
     expect(ov).toContain("automationRevealed(x, l.skill)");
-    expect(ov).toContain("automationListLine(auto, reached, automationRevealed(x, auto))");
+    // Slice 7: the Automation tab's rows and the Milestones list's reward column come from overlayRows.ts.
+    const rows = readFileSync("src/lib/secret/overlayRows.ts", "utf-8");
+    expect(rows).toContain("if (!automationRevealed(s, id))");
+    expect(rows).toContain("automationListLine(auto, reached, automationRevealed(s, auto))");
+    expect(ov).toContain("milestoneRewardText(s, m.id, at !== undefined)");
   });
 });
 
@@ -528,8 +531,10 @@ describe("Auto Captain waits for Auto-buy I to IV, and its row says so", () => {
     s.autoOn.autoCaptain = false;
     expect(autoCaptainWaiting(s)).toBe(false);
     expect(COPY.autoCaptainWaiting).toBe("Waiting for Auto-buy I to IV");
+    // Slice 7: the Automation tab's Auto Captain row carries the note (overlayRows.test.ts checks the row).
     const ov = readFileSync("src/lib/SecretGameOverlay.svelte", "utf-8");
-    expect(ov).toContain('{#if id === "autoCaptain" && autoCaptainWaiting(s)}<span class="muted">{COPY.autoCaptainWaiting}</span>{/if}');
+    expect(ov).toContain('{#if r.state === "open" && r.note}<div class="row-line"><span class="chip warn">{r.note}</span></div>{/if}');
+    expect(readFileSync("src/lib/secret/overlayRows.ts", "utf-8")).toContain('note: id === "autoCaptain" && autoCaptainWaiting(s) ? COPY.autoCaptainWaiting : null');
   });
 });
 

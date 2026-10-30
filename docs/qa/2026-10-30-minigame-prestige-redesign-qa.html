@@ -1,0 +1,349 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>0.14.0 QA: Minigame Prestige Redesign</title>
+<style>
+  :root {
+    --bg: #070b12;
+    --bg-2: #0d1420;
+    --panel: #111a29;
+    --panel-2: #0b1220;
+    --line: #1f2c40;
+    --line-2: #2a3a54;
+    --text: #dce6f3;
+    --dim: #8497af;
+    --faint: #5d6d86;
+    --accent: #38e0ff;
+    --accent-2: #7cf6c9;
+    --claude: #b98bff;
+    --desk: #38e0ff;
+    --mob: #ffcc66;
+    --warn: #ffcc66;
+    --save: #ff9a6b;
+    --device: #7fb2ff;
+    --good: #6ff2b0;
+    --danger: #ff7a7a;
+    --shadow: 0 0 0 1px var(--line), 0 18px 40px -24px #000;
+  }
+  * { box-sizing: border-box; }
+  html { color-scheme: dark; }
+  body {
+    margin: 0;
+    background:
+      radial-gradient(1200px 600px at 78% -10%, rgba(56,224,255,0.10), transparent 60%),
+      radial-gradient(900px 500px at 8% 8%, rgba(185,139,255,0.08), transparent 55%),
+      var(--bg);
+    color: var(--text);
+    font: 14px/1.55 ui-sans-serif, system-ui, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    padding: env(safe-area-inset-top, 0) 0 calc(env(safe-area-inset-bottom, 0) + 48px);
+  }
+  .wrap { max-width: 980px; margin: 0 auto; padding: 28px 18px 0; }
+  a { color: var(--accent); }
+
+  .eyebrow { font-size: 11px; letter-spacing: 3px; text-transform: uppercase; color: var(--accent); opacity: 0.85; margin: 0 0 6px; }
+  h1 { font-size: clamp(22px, 4.4vw, 34px); line-height: 1.1; margin: 0 0 4px; text-wrap: balance; font-weight: 750; letter-spacing: 0.3px; }
+  h1 .v { color: var(--accent); }
+  .sub { color: var(--dim); margin: 0 0 20px; font-size: 13px; }
+
+  .progress-card {
+    background: linear-gradient(180deg, var(--panel), var(--panel-2));
+    border: 1px solid var(--line-2); border-radius: 16px; padding: 20px 22px; box-shadow: var(--shadow); margin-bottom: 20px;
+  }
+  .progress-top { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+  .pct { font-size: clamp(30px, 8vw, 52px); font-weight: 800; line-height: 1; letter-spacing: -1px; color: var(--accent);
+    text-shadow: 0 0 24px rgba(56,224,255,0.45); font-variant-numeric: tabular-nums; }
+  .pct small { font-size: 15px; font-weight: 600; color: var(--dim); margin-left: 8px; letter-spacing: 0; }
+  .rowcount { color: var(--text); font-size: 15px; font-weight: 650; font-variant-numeric: tabular-nums; }
+  .rowcount b { color: var(--accent-2); }
+  .bar { margin-top: 16px; height: 16px; border-radius: 999px; background: #0a1220; border: 1px solid var(--line-2); overflow: hidden; }
+  .bar > i { display: block; height: 100%; width: 0%; background: linear-gradient(90deg, #2bd0ff, #7cf6c9);
+    box-shadow: 0 0 18px rgba(56,224,255,0.6); border-radius: 999px; transition: width .35s cubic-bezier(.2,.8,.2,1); }
+  .substats { display: flex; gap: 18px; flex-wrap: wrap; margin-top: 14px; font-size: 12.5px; color: var(--dim); }
+  .substats .dot { display: inline-block; width: 9px; height: 9px; border-radius: 3px; margin-right: 7px; vertical-align: middle; }
+  .substats b { color: var(--text); font-variant-numeric: tabular-nums; }
+  .d-claude { background: var(--claude); box-shadow: 0 0 10px var(--claude); }
+  .d-desk { background: var(--desk); box-shadow: 0 0 10px var(--desk); }
+  .d-mob { background: var(--mob); box-shadow: 0 0 10px var(--mob); }
+
+  .legend { background: var(--panel-2); border: 1px solid var(--line); border-radius: 12px; padding: 14px 16px; margin-bottom: 26px; font-size: 12.5px; color: var(--dim); }
+  .legend p { margin: 0 0 8px; }
+  .legend p:last-child { margin-bottom: 0; }
+  .legend b { color: var(--text); }
+  .chip { display: inline-block; padding: 1px 8px; border-radius: 999px; font-size: 11px; font-weight: 650; letter-spacing: 0.3px; vertical-align: middle; }
+  .chip.save { color: var(--save); background: rgba(255,154,107,0.12); border: 1px solid rgba(255,154,107,0.4); }
+  .chip.device { color: var(--device); background: rgba(127,178,255,0.12); border: 1px solid rgba(127,178,255,0.4); }
+  .chip.theme { color: var(--accent-2); background: rgba(124,246,201,0.10); border: 1px solid rgba(124,246,201,0.35); }
+  .chip.later { color: var(--danger); background: rgba(255,122,122,0.10); border: 1px solid rgba(255,122,122,0.4); }
+  .toolbar { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-bottom: 22px; }
+  .btn { background: var(--panel); color: var(--text); border: 1px solid var(--line-2); border-radius: 8px; padding: 7px 13px; font-size: 12.5px; cursor: pointer; font-weight: 600; }
+  .btn:hover { border-color: var(--accent); color: var(--accent); }
+  .toolbar .note { color: var(--faint); font-size: 12px; }
+
+  section { margin-bottom: 26px; }
+  .sec-head { display: flex; align-items: center; gap: 12px; margin: 0 0 6px; }
+  .sec-num { font-variant-numeric: tabular-nums; font-weight: 800; color: var(--accent); font-size: 13px; letter-spacing: 1px;
+    background: rgba(56,224,255,0.08); border: 1px solid rgba(56,224,255,0.3); border-radius: 7px; padding: 3px 9px; min-width: 34px; text-align: center; }
+  .sec-title { font-size: 16px; font-weight: 700; letter-spacing: 0.2px; }
+  .sec-line { flex: 1; height: 1px; background: linear-gradient(90deg, var(--line-2), transparent); }
+  .sec-done { font-size: 11.5px; color: var(--faint); font-variant-numeric: tabular-nums; }
+  .sec-note { color: var(--dim); font-size: 12.5px; font-style: italic; margin: 0 0 10px; border-left: 2px solid var(--line-2); padding: 2px 0 2px 12px; }
+
+  .items { display: flex; flex-direction: column; gap: 2px; }
+  .col-head, .item { display: grid; grid-template-columns: 52px 52px 52px 1fr; gap: 10px; }
+  .col-head { align-items: center; padding: 4px 12px; font-size: 10.5px; letter-spacing: 1px; text-transform: uppercase; color: var(--faint); }
+  .col-head .ch { text-align: center; }
+  .col-head .ch.claude { color: var(--claude); }
+  .col-head .ch.desk { color: var(--desk); }
+  .col-head .ch.mob { color: var(--mob); }
+  .item { align-items: start; padding: 10px 12px; border-radius: 10px; border: 1px solid transparent; }
+  .item:nth-child(odd) { background: rgba(255,255,255,0.014); }
+  .item.done { background: rgba(124,246,201,0.05); border-color: rgba(124,246,201,0.18); }
+  .cell { display: flex; justify-content: center; padding-top: 1px; }
+
+  .cb { position: relative; width: 22px; height: 22px; }
+  .cb input { position: absolute; inset: 0; opacity: 0; margin: 0; cursor: pointer; }
+  .cb .box { width: 22px; height: 22px; border-radius: 6px; border: 2px solid var(--line-2); display: grid; place-items: center; transition: .12s; background: #0a1220; }
+  .cb .box svg { width: 13px; height: 13px; opacity: 0; transform: scale(.5); transition: .12s; }
+  .cb input:checked + .box svg { opacity: 1; transform: scale(1); }
+  .cb input:focus-visible + .box { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .cb.claude input:checked + .box { background: rgba(185,139,255,0.18); border-color: var(--claude); }
+  .cb.claude .box svg { color: var(--claude); }
+  .cb.desk input:checked + .box { background: rgba(56,224,255,0.18); border-color: var(--desk); }
+  .cb.desk .box svg { color: var(--desk); }
+  .cb.mob input:checked + .box { background: rgba(255,204,102,0.18); border-color: var(--mob); }
+  .cb.mob .box svg { color: var(--mob); }
+  .cb.desk input:not(:disabled):hover + .box { border-color: var(--desk); }
+  .cb.mob input:not(:disabled):hover + .box { border-color: var(--mob); }
+  .cb input:disabled { cursor: default; }
+  .cb.claude.empty .box { border-style: dashed; opacity: 0.5; }
+
+  .body .t { color: var(--text); }
+  .body .t .k { color: var(--accent-2); font-weight: 600; }
+  .meta { margin-top: 5px; display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+  .how { color: var(--dim); font-size: 12px; font-style: italic; margin-top: 4px; }
+  .how::before { content: "how: "; font-style: normal; color: var(--claude); opacity: 0.85; font-weight: 650; }
+
+  .findings { background: linear-gradient(180deg, rgba(124,246,201,0.06), transparent); border: 1px solid rgba(124,246,201,0.25); border-radius: 14px; padding: 18px 20px; margin-top: 12px; }
+  .findings h2 { margin: 0 0 6px; font-size: 15px; color: var(--good); letter-spacing: 0.3px; }
+  .findings ol { margin: 8px 0 0; padding-left: 20px; }
+  .findings li { margin-bottom: 10px; color: var(--dim); }
+  .findings li b { color: var(--text); }
+  .foot { margin-top: 26px; color: var(--faint); font-size: 11.5px; text-align: center; }
+
+  @media (max-width: 520px) {
+    .col-head, .item { grid-template-columns: 34px 34px 34px 1fr; gap: 6px; }
+    .item { padding: 10px 8px; }
+    .col-head { padding: 4px 8px; font-size: 9.5px; letter-spacing: 0.5px; }
+    .wrap { padding-left: 14px; padding-right: 14px; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <p class="eyebrow">Hyperion Legacy · QA · 0.14.0 feature pass</p>
+  <h1><span class="v">0.14.0</span> Minigame prestige redesign</h1>
+  <p class="sub">Delta checklist for the Hyperion Legacy v0.0000001a prestige redesign, Slices 1 to 7 (plan docs/plans/2026-10-27-minigame-prestige-redesign-plan.md): rising bars, automations at milestones and the new Automation tab, leveled skills and the Skill Point schedule, pay at the bar, the late milestones, the one-time save conversion, and the rewritten Help. Run each check once at <b>1280 px</b> (desktop) and once at <b>375 px</b> (mobile). The Debug tab needs a DEV_MODE build (staging, or <span class="k">.env.local</span> VITE_DEV_MODE locally).</p>
+
+  <div class="progress-card">
+    <div class="progress-top">
+      <div class="pct" id="pct">0%<small id="pctlabel">ready</small></div>
+      <div class="rowcount"><b id="doneCount">0</b> / <span id="totalCount">0</span> checks complete</div>
+    </div>
+    <div class="bar"><i id="barFill"></i></div>
+    <div class="substats">
+      <span><span class="dot d-claude"></span>Claude (tests) <b id="claudeCount">0</b></span>
+      <span><span class="dot d-desk"></span>You at 1280 px <b id="deskCount">0</b></span>
+      <span><span class="dot d-mob"></span>You at 375 px <b id="mobCount">0</b></span>
+      <span style="color:var(--faint)">A row is complete when both of your columns are ticked.</span>
+    </div>
+  </div>
+
+  <div class="legend">
+    <p><b>The three columns.</b> <b style="color:var(--claude)">Claude</b> is pre-filled and read-only: a tick means the engine or display test suite proves that rule (the "how" line names the test file). Claude also looked at the Automation, Skills, Prestige, Milestones and Help views at 1280 px and 375 px in a local build (no clipping, no sideways scroll, every button at least 36 px), but every on-screen check is still yours. <b style="color:var(--desk)">1280</b> and <b style="color:var(--mob)">375</b> are your desktop and mobile passes; your ticks are saved in this browser.</p>
+    <p><b>Progress rule.</b> A row counts as complete once BOTH of your columns are ticked.</p>
+    <p>Tags: <span class="chip save">needs real save</span> needs your own 0.13.11.2 minigame save. <span class="chip device">needs device</span> touch, a real phone, or a visual call. <span class="chip theme">light + dark</span> look at it in both themes. <span class="chip later">not in this build</span> listed in the plan but not shipped yet.</p>
+    <p><b>Dev shortcuts</b> (Settings, Debug, [DEV] Minigame): <span class="k">Mark found</span>, <span class="k">Max skills</span>, <span class="k">Jump to e1,000,000</span>, <span class="k">Jump to e10,000,000</span>; [DEV] Secret game: <span class="k">+1h</span>, <span class="k">+1d</span>, <span class="k">+7d</span>, <span class="k">+30d</span> (paid through the real catch-up), <span class="k">Wipe</span>. A jump records every milestone up to it, so a queue of popups plays first.</p>
+  </div>
+
+  <div class="toolbar">
+    <button class="btn" type="button" id="resetBtn">Reset my columns</button>
+    <span class="note">Claude's column is read-only (it records what the tests prove).</span>
+  </div>
+
+  <div id="sections"></div>
+
+  <div class="findings">
+    <h2>Close-out notes (Slice 7, 2026-10-30)</h2>
+    <ol>
+      <li><b>Automation tab.</b> Built to the signed-off mockup: the earned automations first (switch, plus 1 / 10 / Max on the ones that buy, a target menu on automatic Captain and Fleet Prestige), then the ones whose milestone you can see (named, dimmed, "Earned at"), then ??? rows. Auto Prestigeception is the switch alone (your 2026-10-29 call) and stays ??? until your own first Prestigeception. The automations left the Skills tab. The Prestige tab's AUTO PRESTIGE box is unchanged and sets the same targets.</li>
+      <li><b>Skills tab.</b> The mockup's rows: Skill Points box, level X / Y chip (green when maxed), joke line, now and next level in bold, the prestige-count chip, gated rows dashed with exactly when they open, ??? for a skill whose milestone you cannot see yet, the gate-lift note under the list.</li>
+      <li><b>Help.</b> Rewritten: THREE KINDS OF PRESTIGE (Skill Points by schedule), THE FINE PRINT (rising bars, Prestigeception first, pay at the bar), SKILLS (gates and the lift), a new AUTOMATIONS section, MILESTONES (rewards unlock automations). Every number reads from its constant (a test strips the constants out and finds no digit left). Not named in Help: Auto Prestigeception, Auto Skill Allocation, and anything about the e25,000,000 prize.</li>
+      <li><b>Small extras.</b> The Captain card's "1e60 Ore" reads its constant; the Stats goal goes on to e20,000,000 after e10,000,000; the e25,000,000 milestone's reward column reads "Faster Than Light background unlocked" once reached (??? before, like the rest of its row).</li>
+    </ol>
+  </div>
+
+  <p class="foot">0.14.0 Minigame prestige redesign QA · boxes persist in this browser only.</p>
+</div>
+
+<script>
+const TICK = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>';
+// c: a test proves it (how names the file). tag: "save" | "device" | "theme" | "later" | null.
+const SECTIONS = [
+  { n: "0", title: "Setup and the tab row", items: [
+    { t: "Open the minigame (Minigames, Play). No console errors on open or on any tab, Stats or [?] Help." },
+    { t: 'Six tabs in this order: <span class="k">Generators, Upgrades, Prestige, Skills, Automation, Milestones</span>. At 375 px they read <span class="k">Gen, Upg, Prest, Skills, Auto, Miles</span> on ONE row with no sideways scroll; every tab and header button is at least 36 px tall.', c: true, how: "overlayKeys.test.ts (tab keys and ids); Claude measured both widths in a local build." },
+    { t: "Arrow keys move between all six tabs; Escape closes the window.", c: true, how: "overlayKeys.test.ts (tabKeyTarget over TABS.length)." },
+    { t: "The whole window stays on one screen; only its body scrolls, at both widths.", tag: "device" },
+  ]},
+  { n: "1", title: "Automation tab", items: [
+    { t: 'A fresh game (Debug, Wipe, then Mark found): the tab reads the lede "Earned at milestones. They save clicks; they never play for you. Switch any of them off." and eight ??? rows, each "Earned at a milestone you have not seen yet."', c: true, how: "overlayRows.test.ts (a fresh game shows every automation as ???)." },
+    { t: 'After your first Captain Prestige, the Auto Overclock row shows its name, dimmed, "Buys Overclock for you. Earned at Fleet Week." with no controls.', c: true, how: "overlayRows.test.ts (??? until its milestone is visible, then named)." },
+    { t: 'Each unlock popup says "Reward: (automation) unlocked. Find it on the Automation tab." and the row turns live: earned rows sit first, then named rows, then ??? rows.', c: true, how: "automationMilestones.test.ts (reward lines); overlayRows.test.ts (row order)." },
+    { t: "Auto Overclock, Auto-buy I to IV and V to VIII default to Max; Auto Skill Allocation and Auto-buy Upgrades default to 1. Clicking 1 / 10 / Max moves the highlight and survives a reload.", c: true, how: "overlayRows.test.ts (buy amount reads the save); state.test.ts (automationBuy round trip)." },
+    { t: "With Auto-buy I to IV on 1 or 10, the generators visibly buy slower than on Max (watch a minute, or +1h)." },
+    { t: 'Auto Captain Prestige and Auto Fleet Prestige show "Target 100%" menus; changing one also changes the Prestige tab\'s AUTO PRESTIGE menu, and the other way round.', c: true, how: "overlayRows.test.ts (target control per layer); both menus write setAutoTarget." },
+    { t: "Every switch turns its automation on and off (the knob slides, the automation stops acting) and the setting survives a reload." },
+    { t: 'With Auto Captain Prestige on and Auto-buy I to IV off (or not earned), its row shows "Waiting for Auto-buy I to IV" and it does not fire.', c: true, how: "automationMilestones.test.ts (autoCaptainWaiting); overlayRows.test.ts (the note)." },
+    { t: 'Reaching 1e100 Ore ("A Respectable Googol") shows "Reward: a new automation, for later. You\'ll know it when you see it." The Automation tab and the Milestones list still name no Prestigeception automation.', c: true, how: "automationMilestones.test.ts (Mystery popup); overlayRows.test.ts (??? until revealed)." },
+    { t: "Your own first Prestigeception reveals Auto Prestigeception, switched OFF, with a switch and NO target menu. Switched on, it fires the moment the climb reaches the bar.", c: true, how: "automationMilestones.test.ts (granted off until revealed); overlayRows.test.ts (switch only)." },
+    { t: "All controls are usable by keyboard and touch; the switch reads as a switch to a screen reader (on or off).", tag: "device" },
+  ]},
+  { n: "2", title: "Skills tab", items: [
+    { t: 'No automations on this tab. A "Skill Points to spend" box (at 375 px: "Skill Points") shows the points held.', c: true, how: "overlayRows.test.ts (lists every leveled skill and no automation)." },
+    { t: "Six skills: Head Start, Tenfold Training, Overdrive, Captain's Academy, Fleet Requisitions, Lucid Planning. A skill whose opening milestone you cannot see yet reads ??? and \"Opens later in the climb.\"", c: true, how: "overlayRows.test.ts (??? for a milestone not visible)." },
+    { t: 'An open row: name, level chip "X / Y", joke line, "what it does now" with the value in bold and "Next level:" with the next value, and a chip like "×1.41 from your 29 lifetime Fleet Prestiges" once its count is above 0 (on its own line at 375 px).', c: true, how: "overlayRows.test.ts (now, next, cost, scale chip)." },
+    { t: 'Learn · N SP spends exactly N points and raises the level by one; at the cap the chip turns green and the button reads Maxed.', c: true, how: "leveledSkills.test.ts (buySkillLevel); overlayRows.test.ts (maxed row)." },
+    { t: 'A gated row is dashed and says exactly when it opens, for example "Opens at your 2nd Fleet Prestige this Prestigeception (now 0)." Desktop shows a disabled Locked button; 375 px shows no button.', c: true, how: "overlayRows.test.ts (gated line); CSS hides the gated button under 480 px." },
+    { t: "After a Prestigeception, Captain's Academy and Fleet Requisitions close again (their Fleet count reset) but keep their levels and keep working.", c: true, how: "overlayRows.test.ts (gated row keeps its level); leveledSkills.test.ts (skills kept through resets)." },
+    { t: 'Under the list: "From your 5th Prestigeception on, every skill you have opened before is open from the start of each climb." From the 5th, a reset no longer closes them.', c: true, how: "leveledSkills.test.ts (gate lift)." },
+  ]},
+  { n: "3", title: "Skill Points by schedule", items: [
+    { t: 'The Fleet card\'s Pays line adds "+ N Skill Points": 3, 3, 2 and 2 for the first four Fleet Prestiges, then 1 each.', c: true, how: "leveledSkills.test.ts (schedule); milestones.test.ts (the Pays line)." },
+    { t: 'Once your points cover every level left, Fleet Prestige pays none ("All learned" on the card when every skill is maxed); 49 points in all.', c: true, how: "leveledSkills.test.ts (earning stops exactly at max, total equals the levels' cost)." },
+    { t: "Auto Skill Allocation (from 4 Prestigeceptions) spends points on the cheapest open level, at its buy amount." },
+  ]},
+  { n: "4", title: "Prestige cards and the rising bars", items: [
+    { t: 'Captain card: Needs "1e60 Ore". Fleet card: Needs and Next one read Ore bars (the first Fleet after a Prestigeception needs 1.8e308). Prestigeception card: "Needs ... Ore in one climb" and Next one.', c: true, how: "risingBars.test.ts (prestigeCardBars)." },
+    { t: 'When the next Fleet would need more than a Prestigeception, Needs or Next one reads "Prestigeception first", and the Fleet button says so. A Prestigeception brings the Fleet bar back to 1.8e308.', c: true, how: "risingBars.test.ts (Prestigeception first)." },
+    { t: "Each Fleet in a Prestigeception needs more than the one before; each Prestigeception needs more than the last.", c: true, how: "risingBars.test.ts (bar ladders); redesignGoldens.test.ts." },
+    { t: "Pay at the bar: the Prestigeception card's Pays value does not grow while you climb past the bar (waiting earns nothing extra). Captain and Fleet payouts still grow with the climb.", c: true, how: "relicCeiling.test.ts and risingBars.test.ts (prestigeceptionGain pays the bar)." },
+    { t: "The three preview lines (\"Captain Prestige now: ...\") still show above the buttons; no card row clips at either width.", c: true, how: "prestigePreview.test.ts (card rows read short)." },
+  ]},
+  { n: "5", title: "Milestones and Stats", items: [
+    { t: 'The Milestones list names each automation milestone\'s reward ("Unlocks Auto Overclock", then "Auto Overclock unlocked"); "A Respectable Googol" reads "Unlocks a new automation" until your first Prestigeception.', c: true, how: "overlayRows.test.ts (reward column); automationMilestones.test.ts." },
+    { t: 'New beats: "Fleet Week, the Sequel" (second Fleet), "Ten Thousand Zeros, Roughly" (e10,000), "Frequent Dreamer" (4 Prestigeceptions); "Fully Automated Luxury Mining" now means every skill maxed.', c: true, how: "automationMilestones.test.ts; milestones.test.ts." },
+    { t: 'Past e10,000,000 (Jump to e10,000,000, then +7d): "The Numbers Got Even Bigger" (e20,000,000) appears in the list, and the Stats goal moves to e20,000,000.', c: true, how: "relicCeiling.test.ts (e20M live); the Stats goal list ends at e20,000,000." },
+    { t: "The e25,000,000 milestone is a ??? row in the list, never a Stats goal, never in Help; reached, it shows its name and \"Faster Than Light background unlocked\".", c: true, how: "overlayRows.test.ts and relicCeiling.test.ts (??? in every view until reached)." },
+  ]},
+  { n: "6", title: "Help ([?])", items: [
+    { t: "Sections: THE STACK, THE TEN BONUS, OVERCLOCK AND UPGRADES, THREE KINDS OF PRESTIGE, THE FINE PRINT, SKILLS, AUTOMATIONS, MILESTONES, RELIC BOOSTS, TIME AWAY.", c: true, how: "textRules.test.ts (0.14.0 minigame Help)." },
+    { t: "THREE KINDS OF PRESTIGE gives the bars (1e60, 1.8e308, e10,000) and the Skill Point schedule (3, 3, 2 and 2, then 1 each, 49 in all). THE FINE PRINT explains the rising bars, \"Prestigeception first\" and that waiting earns nothing extra.", c: true, how: "textRules.test.ts (numbers equal the constants; no digit typed by hand)." },
+    { t: "SKILLS explains the gates and the 5th Prestigeception lift; AUTOMATIONS explains the tab, the switch, 1, 10 or Max, the targets and the Auto Captain wait; MILESTONES says rewards unlock automations.", c: true, how: "textRules.test.ts." },
+    { t: "Help reads well and matches what you see in the game; nothing in it spoils a ??? (no Auto Prestigeception, no e25,000,000)." },
+    { t: "Help scrolls inside the window at 375 px; no sideways scroll.", tag: "device" },
+  ]},
+  { n: "7", title: "Offline and catch-up", items: [
+    { t: "+1h and +1d with automations on: the stack advances, the automations act at their buy amounts, and the result looks like play would have.", c: true, how: "catchUp.test.ts and automationMilestones.test.ts (offline equals live; buy amounts as a rate)." },
+    { t: "A milestone reached during catch-up grants its automation and shows its popup when you return.", c: true, how: "automationMilestones.test.ts (catch-up grants at the same step as live)." },
+  ]},
+  { n: "8", title: "Relics and the late game", items: [
+    { t: "Set a museum (Debug, [DEV] Museum copies, Set museum): Stats lists the relic boosts; a relic-free save climbs as before.", c: true, how: "relicBoosts.test.ts; relicGoldens.test.ts (relic-free byte-identical)." },
+    { t: "Grant Faster Than Light unlock (Debug): Settings, UI, BACKGROUND lists it; it runs and stops with Reduce motion. (Its own sheet covers the details.)", tag: "theme" },
+  ]},
+  { n: "9", title: "Old saves: the one-time conversion", note: "Bring your own 0.13.11.2 minigame save across: on the live game, open the browser console and run copy(localStorage.getItem(\"hl_secret_v0\")); on this build, close the minigame, run localStorage.setItem(\"hl_secret_v0\", (paste)) and reload at once. Note your old Stats (Fleets, Prestigeceptions, points) and which skills and automations you owned first.", items: [
+    { t: "The save loads with the same Ore, Captain, Augment and Dream Points, counts and milestone dates; no console error.", c: true, tag: "save", how: "prestigeConversion.test.ts (real 0.13.11.2 fixtures)." },
+    { t: "Head Start, Ten Bonus ×2.2 and Overdrive you owned are now Head Start 1 / 2, Tenfold Training 4 / 5 and Overdrive 4 / 5, with the same effect as before.", c: true, tag: "save", how: "prestigeConversion.test.ts (levels 1 / 4 / 4, every readout equal)." },
+    { t: "Every automation you bought is on the Automation tab, switched exactly as you left it; automations for milestones you already reached arrive (with their popups) within the first second.", c: true, tag: "save", how: "prestigeConversion.test.ts (owned kept, the rest granted at the first step)." },
+    { t: "Skill Points held = the schedule over your lifetime Fleets minus what your levels cost (never below 0, nothing owed).", c: true, tag: "save", how: "prestigeConversion.test.ts (Keep levels, no debt)." },
+    { t: "If you had bought Auto Prestigeception: with a Prestigeception already done it is on the Automation tab, ON (OFF if you had switched it off); with none done it stays ??? until your first one.", c: true, tag: "save", how: "prestigeConversion.test.ts; automationMilestones.test.ts." },
+    { t: 'A save that had every skill keeps its "Fully Automated Luxury Mining" date.', c: true, tag: "save", how: "prestigeConversion.test.ts." },
+    { t: "Reload again: nothing changes (the conversion runs once). Your Captain Points multiplier is the same as on the live game.", c: true, tag: "save", how: "prestigeConversion.test.ts (idempotent; captainScale untouched)." },
+  ]},
+];
+
+const STORE = "hl-qa-0140-minigame-prestige-v1";
+let userState = {};
+try { userState = JSON.parse(localStorage.getItem(STORE) || "{}"); } catch (e) { userState = {}; }
+function save() { try { localStorage.setItem(STORE, JSON.stringify(userState)); } catch (e) {} }
+
+const CHIP = {
+  save: '<span class="chip save">needs real save</span>',
+  device: '<span class="chip device">needs device</span>',
+  theme: '<span class="chip theme">light + dark</span>',
+  later: '<span class="chip later">not in this build</span>',
+};
+
+function cb(kind, id, checked, disabled, label) {
+  const empty = (kind === "claude" && !checked) ? " empty" : "";
+  return '<span class="cb ' + kind + empty + '"><input type="checkbox" id="' + id + '" ' + (checked ? "checked " : "") + (disabled ? "disabled " : "") +
+    'aria-label="' + label + '"><span class="box">' + TICK + "</span></span>";
+}
+
+const secWrap = document.getElementById("sections");
+SECTIONS.forEach((sec, si) => {
+  const el = document.createElement("section");
+  let html = '<div class="sec-head"><span class="sec-num">' + sec.n + '</span><span class="sec-title">' + sec.title +
+    '</span><span class="sec-line"></span><span class="sec-done" id="secdone-' + si + '"></span></div>';
+  if (sec.note) html += '<p class="sec-note">' + sec.note + "</p>";
+  html += '<div class="items"><div class="col-head"><span class="ch claude">Claude</span><span class="ch desk">1280</span><span class="ch mob">375</span><span></span></div>';
+  sec.items.forEach((it, ii) => {
+    const key = si + "-" + ii;
+    const meta = it.tag ? '<div class="meta">' + (CHIP[it.tag] || "") + "</div>" : "";
+    const how = it.how ? '<div class="how">' + it.how + "</div>" : "";
+    html += '<div class="item" data-key="' + key + '">' +
+      '<div class="cell">' + cb("claude", "c-" + key, !!it.c, true, "Claude: covered by tests") + "</div>" +
+      '<div class="cell">' + cb("desk", "d-" + key, !!userState["d-" + key], false, "Checked at 1280 px") + "</div>" +
+      '<div class="cell">' + cb("mob", "m-" + key, !!userState["m-" + key], false, "Checked at 375 px") + "</div>" +
+      '<div class="body"><span class="t">' + it.t + "</span>" + meta + how + "</div></div>";
+  });
+  html += "</div>";
+  el.innerHTML = html;
+  secWrap.appendChild(el);
+});
+
+function isDone(key) { return !!userState["d-" + key] && !!userState["m-" + key]; }
+function recompute() {
+  let total = 0, done = 0, claude = 0, desk = 0, mob = 0;
+  SECTIONS.forEach((sec, si) => {
+    let secTotal = 0, secDone = 0;
+    sec.items.forEach((it, ii) => {
+      const key = si + "-" + ii;
+      total++; secTotal++;
+      if (it.c) claude++;
+      if (userState["d-" + key]) desk++;
+      if (userState["m-" + key]) mob++;
+      if (isDone(key)) { done++; secDone++; }
+      const row = secWrap.querySelector('.item[data-key="' + key + '"]');
+      if (row) row.classList.toggle("done", isDone(key));
+    });
+    const sd = document.getElementById("secdone-" + si);
+    if (sd) sd.textContent = secDone + " / " + secTotal;
+  });
+  const pctVal = total ? Math.round((done / total) * 100) : 0;
+  document.getElementById("pct").firstChild.textContent = pctVal + "%";
+  document.getElementById("barFill").style.width = pctVal + "%";
+  document.getElementById("doneCount").textContent = done;
+  document.getElementById("totalCount").textContent = total;
+  document.getElementById("claudeCount").textContent = claude;
+  document.getElementById("deskCount").textContent = desk;
+  document.getElementById("mobCount").textContent = mob;
+  document.getElementById("pctlabel").textContent = pctVal >= 100 ? "launch-ready" : (pctVal >= 60 ? "closing in" : "in progress");
+}
+
+secWrap.addEventListener("change", (e) => {
+  const inp = e.target;
+  if (!inp.id || (inp.id[0] !== "d" && inp.id[0] !== "m")) return;
+  if (inp.checked) userState[inp.id] = true; else delete userState[inp.id];
+  save(); recompute();
+});
+document.getElementById("resetBtn").addEventListener("click", () => {
+  userState = {}; save();
+  secWrap.querySelectorAll('input[id^="d-"], input[id^="m-"]').forEach((i) => (i.checked = false));
+  recompute();
+});
+recompute();
+</script>
+</body>
+</html>

@@ -1,6 +1,27 @@
 // textRules.test.ts: the project's text, glyph and accessibility rules on every 0.13.11 file.
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
+import {
+  HELP_SECTIONS,
+  HELP_SKILL_POINTS_TOTAL,
+  COPY,
+  AUTOMATION_NAMES,
+  AUTOMATION_LINES,
+  OC_FACTOR,
+  TEN_BONUS,
+  CAPTAIN_AT,
+  FLEET_AT,
+  PRESTIGECEPTION_AT,
+  PC_BAR_RATIO,
+  SKILL_GATE_LIFT_PC,
+  SKILL_POINT_SCHEDULE,
+  RELIC_PAST_CAP_WEIGHT,
+  TIERS,
+  MILESTONES,
+} from "./config";
+import { totalSkillCost } from "./engine";
+import { formatThreshold, groupThousands } from "./format";
+import { RELIC_SOFT_CAP } from "../game/relics";
 
 const FILES = [
   "src/lib/secret/format.ts",
@@ -49,6 +70,13 @@ const FILES = [
   "src/lib/Background.svelte",
   "src/lib/BackgroundConfigure.svelte",
   "src/lib/FasterThanLight.svelte",
+  // 0.14.0 prestige redesign (Slice 7 close-out)
+  "src/lib/secret/prestigeCards.ts",
+  "src/lib/secret/prestigeConversion.ts",
+  "src/lib/secret/overlayRows.ts",
+  "src/lib/secret/overlayRows.test.ts",
+  "docs/plans/2026-10-27-minigame-prestige-redesign-plan.md",
+  "docs/qa/2026-10-30-minigame-prestige-redesign-qa.html",
 ].map((path) => ({ path, src: readFileSync(path, "utf-8") }));
 
 // 0.13.11.1 additions inside files that predate the text rules, checked as slices.
@@ -134,5 +162,66 @@ describe("0.13.11 text rules", () => {
     expect(codesPanel).not.toMatch(/combo|konami|secret|v0\.0000001a/i);
     const help = readFileSync("src/lib/helpTopics.ts", "utf-8");
     expect(help).not.toMatch(/combo|konami|v0\.0000001a|Prestigeception/i);
+  });
+});
+
+// 0.14.0 prestige redesign Slice 7: the [?] Help view and THE FINE PRINT rewritten for the redesign.
+describe("0.14.0 minigame Help and text rules", () => {
+  const help = HELP_SECTIONS.map((h) => h.body).join(" ");
+  const section = (title: string) => HELP_SECTIONS.find((h) => h.title === title)?.body ?? "";
+  // Every player-facing line of the minigame: Help, COPY, the automation and milestone texts.
+  const playerText = [help, ...Object.values(COPY), ...Object.values(AUTOMATION_NAMES), ...Object.values(AUTOMATION_LINES), ...MILESTONES.flatMap((m) => [m.name, m.detail, m.how, m.flavor ?? "", m.reward ?? ""])].join(" ");
+
+  it("every number in Help reads from a constant: the source of HELP_SECTIONS has no digit outside a ${...}", () => {
+    const src = readFileSync("src/lib/secret/config.ts", "utf-8");
+    const block = src.slice(src.indexOf("export const HELP_SECTIONS"), src.indexOf("];", src.indexOf("export const HELP_SECTIONS")));
+    expect(block.length).toBeGreaterThan(2000);
+    // Drop the type annotation, then every ${...} (none nests braces), then look for digits.
+    const text = block.replace(/^export const HELP_SECTIONS[^=]*=/, "").replace(/\$\{[^}]*\}/g, "");
+    expect(text.match(/\d/g), text.match(/.{0,30}\d.{0,30}/)?.[0]).toBeNull();
+  });
+
+  it("the Help numbers are the constants' values", () => {
+    expect(section("THE TEN BONUS")).toContain(`×${TEN_BONUS}`);
+    expect(section("OVERCLOCK AND UPGRADES")).toContain(`×${OC_FACTOR} per level`);
+    const three = section("THREE KINDS OF PRESTIGE");
+    expect(three).toContain(`${formatThreshold(CAPTAIN_AT)} Ore`);
+    expect(three).toContain("1e60 Ore");
+    expect(three).toContain(`${formatThreshold(FLEET_AT)} Ore`);
+    expect(three).toContain("1.8e308 Ore");
+    expect(three).toContain(`${formatThreshold(PRESTIGECEPTION_AT)} Ore`);
+    // Skill Points by schedule (the Slices 3 + 4 review): the schedule's head, its repeating last entry, the total.
+    const head = SKILL_POINT_SCHEDULE.slice(0, -1);
+    expect(three).toContain(`${head.slice(0, -1).join(", ")} and ${head[head.length - 1]} for your first ${head.length} Fleet Prestiges, then ${SKILL_POINT_SCHEDULE[SKILL_POINT_SCHEDULE.length - 1]} each`);
+    expect(HELP_SKILL_POINTS_TOTAL).toBe(totalSkillCost());
+    expect(three).toContain(`(${totalSkillCost()} in all)`);
+    expect(section("THE FINE PRINT")).toContain(`${PC_BAR_RATIO} times as many Dream Points as you hold`);
+    expect(section("SKILLS")).toContain(`From your ${SKILL_GATE_LIFT_PC}th Prestigeception on`);
+    expect(section("RELIC BOOSTS")).toContain(`${groupThousands(RELIC_SOFT_CAP)} count ${RELIC_PAST_CAP_WEIGHT} times over`);
+    const ladder = TIERS.map((t) => t.unlockFleet).filter((n) => n > 0);
+    expect(section("THE FINE PRINT")).toContain(`${ladder.slice(0, -1).join(", ")} and ${ladder[ladder.length - 1]} lifetime Fleet Prestiges`);
+    expect(section("AUTOMATIONS")).toContain("1, 10 or Max at a time");
+  });
+
+  it("covers the redesign: automations and their tab, skill gates and the lift, the three prestiges, milestones, pay at the bar", () => {
+    const titles = HELP_SECTIONS.map((h) => h.title);
+    for (const t of ["THREE KINDS OF PRESTIGE", "THE FINE PRINT", "SKILLS", "AUTOMATIONS", "MILESTONES"]) expect(titles).toContain(t);
+    expect(section("AUTOMATIONS")).toMatch(/earned at a milestone, never bought/);
+    expect(section("AUTOMATIONS")).toMatch(/Automation tab/);
+    expect(section("AUTOMATIONS")).toMatch(/Auto Captain Prestige holds while Auto-buy I to IV is off/);
+    expect(section("MILESTONES")).toMatch(/unlock an automation/);
+    expect(section("SKILLS")).toMatch(/each row says exactly when/);
+    expect(section("SKILLS")).toMatch(/open from the start of each climb/);
+    expect(section("THE FINE PRINT")).toMatch(/waiting earns nothing extra/);
+    expect(section("THE FINE PRINT")).toContain(COPY.pcFirst);
+    // The secret automation and locked content stay unnamed.
+    expect(help).not.toContain(AUTOMATION_NAMES.autoPc);
+    expect(help).not.toContain(AUTOMATION_NAMES.autoSkills);
+  });
+
+  it("never abbreviates Fleet Admiral Prestige, and says Tactical Protocols, never gambit, to the player", () => {
+    const files = [readFileSync("src/lib/SecretGameOverlay.svelte", "utf-8"), readFileSync("src/lib/secret/config.ts", "utf-8"), playerText];
+    for (const f of files) expect(f).not.toMatch(/\bFAP\b/);
+    expect(playerText).not.toMatch(/gambit/i);
   });
 });

@@ -237,7 +237,8 @@ describe("prestige cards read short", () => {
     const help = HELP_SECTIONS.map((h) => h.body).join(" ");
     expect(help).toMatch(/Augment Points speed up the whole stack/);
     expect(help).toMatch(/Dream Points are never taken away/);
-    expect(help).toMatch(/fresh climb to e10,000 Ore/);
+    // 0.14.0 Slice 7: the bars rise, so the fresh climb goes to the Prestigeception's bar.
+    expect(help).toMatch(/fresh climb to its bar/);
     expect(help).toMatch(/stops paying Skill Points/);
     const ladder = TIERS.map((t) => t.unlockFleet).filter((n) => n > 0);
     const last = ladder.pop();
