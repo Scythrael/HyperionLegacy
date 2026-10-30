@@ -126,6 +126,11 @@ something is missing."
 - REPORT BACK: on finish (or when blocked), SendMessage `HL Hub` a report under 200 words: commits, gates, user calls
   needed, deviations, next step. The handoff commit here stays the durable record.
 - One slice session at a time in marathon mode; parallel slice sessions only in burn mode.
+- WORKTREE SAFETY (2026-10-30 incident, docs/ops/node-modules-incidents.md): every builder brief says "run `npm ci` in
+  your own worktree; never junction, symlink or copy node_modules". Before any `git worktree remove`, check the
+  worktree's node_modules for a link and remove the link alone first (`cmd /c rmdir`). Before ending, each slice
+  session removes its own merged builder worktrees (stop a live agent first, then `git worktree unlock` and remove).
+  If node_modules is ever found empty, follow the incident log's steps before reinstalling.
 - The hub rotates too: when its context grows large, it writes a handoff here and the user opens a fresh hub with the
   same title.
 
