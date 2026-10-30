@@ -74,3 +74,17 @@ don't want to lose quality." Pick: "Yes, that task (Recommended)": after the Sli
 follow-up favorsSpec (OC-D5 "+10% on its ship type", per-run flag so in-flight runs stay byte-identical) twice from one
 identical brief, Opus and Sonnet, each in its own worktree. Compare: gates, one blind combined review, fix rounds
 needed, reported tokens. If Sonnet matches, it takes the wiring and UI slices; Opus keeps heavy balance work.
+
+## Handoff (2026-10-30 ~02:30 UTC), feat @ 115bf35
+
+Merged since the last notes: WR-7 a7e6a63 (gated 10,295 green), Captain's Sigil memorial 3383483 (keep its flavor
+line as is), minigame Slices 3+4+5a 115bf35 (tree identical to the gated branch: 377 files green, check 0 errors).
+User calls recorded in the wiring plan (2026-10-29) and the minigame plan (Slice 5a sections).
+Next, in order (careful pace: one builder at a time, fresh builders, lean briefs; check get_usage before launching):
+1. Opus vs Sonnet test: WR-7 favorsSpec (OC-D5 "+10% on its ship type", per-run stamp), identical brief, two
+   worktrees, blind combined review, compare gates / fix rounds / tokens; report to the user.
+2. Slice 5b: background visualization track + Faster Than Light per the signed-off mockup
+   (docs/plans/2026-10-29-background-settings-mockup.html; design doc sections). The e25M popup already names it.
+3. Slice 6 save conversion, Slice 7 UI + Help (Automation tab, leveled Skills tab; Auto PC row is on/off only).
+4. Open: VARIETY_RESIST_RATIO 0.1 [PROVISIONAL]; WR-7 follow-up patrol legs (goldens first); remaining 0.14.0 queue
+   (WR-8..12, ML-5/6, EM-8/9, R2-5..9, gear wear step 5, GG-8, SF-7, CP slices, wiring gate before staging).
