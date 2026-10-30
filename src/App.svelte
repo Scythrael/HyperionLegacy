@@ -9,7 +9,6 @@
   // site. The alias makes "flush the DOM" impossible to confuse with "advance the game".
   import { onMount, onDestroy, tick as svelteTick } from "svelte";
   import Decimal from "break_infinity.js";
-  import Starfield from "./lib/Starfield.svelte";
   import Panel from "./lib/Panel.svelte";
   import SubTabs from "./lib/SubTabs.svelte";
   import ConsoleTabs from "./lib/ConsoleTabs.svelte";
@@ -1316,6 +1315,11 @@
   import { pushAchievement } from "./lib/achievements";
   import { redeemGift, hasThemeStyle, unlockThemeStyle, NO_STREAK, ENDLESS_GREED, type RedeemOutcome, type RedeemStreak } from "./lib/accountExtras";
   import { availablePresets, availableStyles, resolveLook, loadLookPrefs, hasManualPrefs, savePreset, saveManual, applyLook, isGradient, stopRgb, DEFAULT_LOOK_PREFS, type LookPrefs, type PresetChoice, type ThemeStyleId } from "./lib/themeStyle";
+  // 0.14.0 Slice 5b: the background visualization track (backgroundStyle.ts), mirroring the theme preset.
+  import { hasBackground, unlockBackground } from "./lib/accountExtras";
+  import { BACKGROUNDS, LOCKED_OPTION, WHITE_STREAK, availableBackgroundPresets, availableBackgrounds, lockedBackgroundCount, resolveBackground, shownBackgroundPreset, backgroundUnlocked, backgroundsFromMilestones, streakPalette, effectiveStill, loadBackgroundPrefs, saveBackgroundPreset, saveBackgroundManual, applyBackground, DEFAULT_BACKGROUND_PREFS, type BackgroundId, type BackgroundPrefs, type BackgroundPresetChoice, type FtlSettings } from "./lib/backgroundStyle";
+  import Background from "./lib/Background.svelte";
+  import BackgroundConfigure from "./lib/BackgroundConfigure.svelte";
   import { displayOre as secretDisplayOre } from "./lib/secret/engine";
   import { formatSecret } from "./lib/secret/format";
   import { COPY as SECRET_COPY } from "./lib/secret/config";
@@ -3280,6 +3284,45 @@
     lookPrefs = { ...lookPrefs, ...patch };
     saveManual(lookPrefs);
   }
+  // 0.14.0 Slice 5b BACKGROUNDS (backgroundStyle.ts, signed-off mockup v2). A minigame milestone whose
+  // rewardHook names a background (Faster Than Light) is mirrored into the main save as an account-level
+  // unlock, exactly like Starfall: it survives every minigame prestige (the milestone stays reached) and
+  // Delete Save wipes it with everything else. The choice is device-side and mirrors the theme preset:
+  // Default, one preset per unlocked background, Manual (style + Configure).
+  function doUnlockBackground(id: BackgroundId): void {
+    const next = unlockBackground(state, id);
+    if (next === state) return;
+    state = next;
+    pushLog(`Unlocked the ${BACKGROUNDS.find((b) => b.id === id)?.label ?? "new"} background. Pick it in Settings > UI.`);
+    doSave();
+  }
+  $: if (accountReady && !suppressSave) {
+    for (const id of backgroundsFromMilestones($secretGame.milestones)) if (!hasBackground(state, id)) doUnlockBackground(id);
+  }
+  let backgroundPrefs: BackgroundPrefs = DEFAULT_BACKGROUND_PREFS;
+  let backgroundConfigureOpen = false;
+  const WHITE_STREAKS = [WHITE_STREAK];
+  $: unlockedBackgrounds = Array.isArray(state.unlockedBackgrounds) ? state.unlockedBackgrounds : [];
+  $: backgroundPresetChoices = availableBackgroundPresets(unlockedBackgrounds);
+  $: backgroundStyleChoices = availableBackgrounds(unlockedBackgrounds);
+  $: backgroundLockedCount = lockedBackgroundCount(unlockedBackgrounds);
+  $: background = resolveBackground(backgroundPrefs, unlockedBackgrounds);
+  // A preset whose unlock is gone (Delete Save) shows, and plays, as Default; a locked Manual pick plays Default.
+  $: shownBackgroundChoice = shownBackgroundPreset(backgroundPrefs, unlockedBackgrounds);
+  $: shownBackgroundStyle = backgroundUnlocked(backgroundPrefs.manualBackground, unlockedBackgrounds) ? backgroundPrefs.manualBackground : "default";
+  // Streak colors follow the look (one color, or the gradient's stops); Ignore theme colors is white.
+  $: themeStreaks = streakPalette(look, false);
+  $: backgroundPalette = background.ftl.ignoreThemeColors ? WHITE_STREAKS : themeStreaks;
+  $: backgroundStill = effectiveStill(background.ftl, reducedMotion);
+  $: applyBackground(background.id);
+  function setBackgroundPreset(p: BackgroundPresetChoice): void {
+    backgroundPrefs = { ...backgroundPrefs, preset: p };
+    saveBackgroundPreset(p);
+  }
+  function setBackgroundManual(patch: Partial<Pick<BackgroundPrefs, "manualBackground" | "ftl">>): void {
+    backgroundPrefs = { ...backgroundPrefs, ...patch };
+    saveBackgroundManual(backgroundPrefs);
+  }
   // [DEV] minigame shortcuts (Debug tab only). devTools is loaded by a dynamic import behind the
   // compile-time DEV_MODE gate, so the production bundle never carries it.
   async function devSecret(kind: "found" | "skills" | "e1m" | "e10m"): Promise<void> {
@@ -3296,6 +3339,11 @@
   function devGrantStarfall(): void {
     if (!DEV_MODE) return;
     doUnlockThemeStyle("washShine");
+  }
+  // [DEV] 0.14.0 Slice 5b: grant the Faster Than Light background to test it (Debug tab only).
+  function devGrantFasterThanLight(): void {
+    if (!DEV_MODE) return;
+    doUnlockBackground("fasterThanLight");
   }
 
   // The Minigames list's one-line status for the minigame.
@@ -3713,6 +3761,7 @@
     // placeholder state before the load can never be written over the real save.
     accountReady = true;
     lookPrefs = loadLookPrefs(currentTheme);
+    backgroundPrefs = loadBackgroundPrefs();
 
     // Tick-bar loop, checks the ONE shared fleet-wide cycle's progress every
     // 100ms, firing tickCaptainMission (Phase 3a) for EVERY mission captain
@@ -11830,7 +11879,8 @@
 {/snippet}
 
 <div class="root">
-  <Starfield />
+  <!-- 0.14.0 Slice 5b: Default is today's Starfield, unchanged; an unlocked visualization replaces it. -->
+  <Background id={background.id} settings={background.ftl} palette={backgroundPalette} still={backgroundStill} paused={backgroundConfigureOpen} />
   <div class="frame">
     <div class="top-bar">
       <!-- ============================================================================
@@ -19376,6 +19426,67 @@
         {/if}
       </Panel>
 
+      <!-- 0.14.0 BACKGROUND (Slice 5b, signed-off mockup v2, docs/plans/2026-10-29-background-settings-mockup.html):
+           mirrors UI THEME exactly. One Background preset dropdown (Default, each unlocked background's
+           preset, Manual); Manual reveals Background style plus Configure. Locked backgrounds show only a
+           generic hint at their source, never their name. Device-side, like the theme. -->
+      <Panel class="settings-section">
+        <div class="panel-title">BACKGROUND</div>
+        <SettingRow
+          label="Background preset"
+          description={shownBackgroundChoice === "manual" ? "Manual: you pick the background and tune it." : "Default is the classic backdrop. Presets come with each background you unlock. Manual lets you pick one and tune it."}
+        >
+          <select
+            class="setting-select"
+            value={shownBackgroundChoice}
+            on:change={(e) => setBackgroundPreset((e.target as HTMLSelectElement).value as BackgroundPresetChoice)}
+            aria-label="Background preset"
+          >
+            <option value="default">Default</option>
+            {#each backgroundPresetChoices as bg (bg.id)}
+              <option value={bg.id}>{bg.label}</option>
+            {/each}
+            {#each Array(backgroundLockedCount) as _, i (i)}
+              <option disabled value="">{LOCKED_OPTION}</option>
+            {/each}
+            <option value="manual">Manual</option>
+          </select>
+        </SettingRow>
+        {#if shownBackgroundChoice === "fasterThanLight"}
+          <p class="setting-group-note">Faster Than Light follows your theme colors.</p>
+        {:else if shownBackgroundChoice === "manual"}
+          <SettingRow label="Background style" description="Which background plays. More unlock as you earn them.">
+            <select
+              class="setting-select"
+              value={shownBackgroundStyle}
+              on:change={(e) => setBackgroundManual({ manualBackground: (e.target as HTMLSelectElement).value as BackgroundId })}
+              aria-label="Background style"
+            >
+              {#each backgroundStyleChoices as bg (bg.id)}
+                <option value={bg.id}>{bg.label}</option>
+              {/each}
+              {#each Array(backgroundLockedCount) as _, i (i)}
+                <option disabled value="">{LOCKED_OPTION}</option>
+              {/each}
+            </select>
+            <button class="dev-btn" on:click={() => (backgroundConfigureOpen = true)}>Configure</button>
+          </SettingRow>
+        {/if}
+      </Panel>
+      {#if backgroundConfigureOpen}
+        <BackgroundConfigure
+          unlocked={unlockedBackgrounds}
+          selected={shownBackgroundStyle}
+          ftl={backgroundPrefs.ftl}
+          themePalette={themeStreaks}
+          whitePalette={WHITE_STREAKS}
+          {reducedMotion}
+          onPick={(id) => setBackgroundManual({ manualBackground: id })}
+          onChange={(ftl: FtlSettings) => setBackgroundManual({ ftl })}
+          onClose={() => (backgroundConfigureOpen = false)}
+        />
+      {/if}
+
       <!-- HEADER CURRENCIES (0.13.6): pick which currencies fill the header band (Variant C), up to
            MAX_HEADER_CURRENCIES, split evenly. Data-driven off CURRENCY_META, so a new currency
            appears here automatically. A cosmetic display choice, so it lives under Visual beside the
@@ -19974,6 +20085,11 @@
           <div class="dev-row">
             <span class="dev-label">[DEV] Theme style</span>
             <button class="dev-btn" on:click={devGrantStarfall}>Grant Starfall unlock</button>
+          </div>
+          <!-- [DEV] 0.14.0 Slice 5b: grant the Faster Than Light background to test it. -->
+          <div class="dev-row">
+            <span class="dev-label">[DEV] Background</span>
+            <button class="dev-btn" on:click={devGrantFasterThanLight}>Grant Faster Than Light unlock</button>
           </div>
           <!-- [DEV] Non-destructive preview of the SavePersistWarning banner (see
                devToggleSavePersistBanner). Flips ONLY the display flag; real saving is

@@ -9225,6 +9225,9 @@ export interface GameState {
   seenCodeLines?: number[]; // "already redeemed" humor lines seen (1 to 40)
   endlessGreedAt?: number; // when every humor line had been seen (the Endless Greed achievement)
   unlockedThemeStyles?: string[]; // earned theme styles (themeStyle.ts ThemeStyleId), e.g. "washShine"
+  // 0.14.0 Slice 5b: earned background visualizations (backgroundStyle.ts BackgroundId), e.g. "fasterThanLight".
+  // The same contract as the four above: optional, no SAVE_VERSION bump, written only through accountExtras.ts.
+  unlockedBackgrounds?: string[];
   unlockedHomeworldTalents: HomeworldTalentKey[]; // fleet-wide purchased Homeworld Talent keys, see buyHomeworldTalent (tick.ts)
   fleetAdminXp: Decimal; // Fleet Admiral leveling, see applyFleetAdminXp (tick.ts)
   fleetAdminLevel: number; // starts at 1

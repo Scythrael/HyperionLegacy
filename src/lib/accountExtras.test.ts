@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { freshState } from "./game/model";
 import { serialize, deserialize, migrate } from "./game/save";
-import { redeemGift, hasThemeStyle, unlockThemeStyle, NO_STREAK, ENDLESS_GREED, type RedeemStreak } from "./accountExtras";
+import { redeemGift, hasThemeStyle, unlockThemeStyle, hasBackground, unlockBackground, NO_STREAK, ENDLESS_GREED, type RedeemStreak } from "./accountExtras";
 import { JOKE_LINES } from "./secret/codes";
 
 const rng = (() => {
@@ -111,7 +111,7 @@ describe("theme style unlocks", () => {
 describe("the account-level fields in the main save", () => {
   it("a fresh save has none of them (Delete Save and Debug Reset start from freshState)", () => {
     const s = freshState() as unknown as Record<string, unknown>;
-    for (const k of ["redeemedGifts", "seenCodeLines", "endlessGreedAt", "unlockedThemeStyles"]) expect(k in s).toBe(false);
+    for (const k of ["redeemedGifts", "seenCodeLines", "endlessGreedAt", "unlockedThemeStyles", "unlockedBackgrounds"]) expect(k in s).toBe(false);
   });
 
   it("round-trip through serialize, deserialize and migrate", () => {
@@ -138,5 +138,33 @@ describe("the account-level fields in the main save", () => {
     const r = redeemGift(s, "SUPERDUPERLEET", NO_STREAK, rng);
     expect(r.outcome).toEqual({ kind: "redeemed", credits: 1337 });
     expect(r.next.redeemedGifts).toEqual(["leetCredits"]);
+  });
+});
+
+describe("0.14.0 Slice 5b: background unlocks (unlockedBackgrounds)", () => {
+  it("unlock is idempotent and same-ref when already present, and kept apart from theme styles", () => {
+    const s0 = freshState();
+    expect(hasBackground(s0, "fasterThanLight")).toBe(false);
+    const s1 = unlockBackground(s0, "fasterThanLight");
+    expect(hasBackground(s1, "fasterThanLight")).toBe(true);
+    expect(unlockBackground(s1, "fasterThanLight")).toBe(s1);
+    expect(hasThemeStyle(s1, "fasterThanLight")).toBe(false);
+    expect(hasBackground(unlockThemeStyle(s0, "washShine"), "washShine")).toBe(false);
+  });
+
+  it("round-trips through serialize, deserialize and migrate (no SAVE_VERSION bump)", () => {
+    const s = unlockBackground(unlockThemeStyle(freshState(), "washShine"), "fasterThanLight");
+    const back = migrate(deserialize(serialize(s, 1, 2))!);
+    expect(back.unlockedBackgrounds).toEqual(["fasterThanLight"]);
+    expect(back.unlockedThemeStyles).toEqual(["washShine"]);
+  });
+
+  it("a save without the field (every save before 0.14.0) has nothing unlocked; garbage is ignored", () => {
+    const back = migrate(deserialize(serialize(freshState(), 1, 2))!);
+    expect("unlockedBackgrounds" in back).toBe(false);
+    expect(hasBackground(back, "fasterThanLight")).toBe(false);
+    const junk = { ...freshState(), unlockedBackgrounds: "fasterThanLight" as unknown as string[] };
+    expect(hasBackground(junk, "fasterThanLight")).toBe(false);
+    expect(unlockBackground(junk, "fasterThanLight").unlockedBackgrounds).toEqual(["fasterThanLight"]);
   });
 });

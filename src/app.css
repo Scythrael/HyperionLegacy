@@ -88,9 +88,11 @@
   /* Ambient Starfield dot color. Overridden per-theme below with a subtle,
      mostly-white tint of that theme's hue so the DEFAULT background meshes with
      the theme. IMPORTANT: this token is ONLY for the default ambient starfield.
-     Future selectable background styles (sub-light stars streaking toward the
-     player, warp-jump streaks) keep their OWN fixed proper colors and must NOT
-     read this token or theme-shift (user directive, 2026-07-17). */
+     Selectable backgrounds never read it. (The 2026-07-17 directive that they keep
+     fixed colors was superseded by the signed-off background mockup v2, user
+     2026-10-29: Faster Than Light follows the player's theme colors from
+     backgroundStyle.ts streakPalette, with an "Ignore theme colors" switch for
+     classic white streaks.) */
   --color-starfield: #bfe9f5;
 
   --font-display: "Orbitron", sans-serif;
@@ -471,6 +473,21 @@ button {
 }
 :root[data-style="washShine"] :is(.research-bar-fill, .tb-bar:not(.tb-bar-amber) > i, .sg-track i) {
   background: var(--style-fill);
+}
+
+/* BACKGROUND READABILITY GUARD (0.14.0 Slice 5b, backgroundStyle.ts applyBackground). Over a moving
+   background (data-background, never set for Default) panels turn nearly opaque, in the color today's
+   translucent panel already resolves to over the deep backdrop, so a panel looks the same and the
+   streaks never run behind its text. Only the token changes, so every panel (and washShine's
+   --style-panel, which draws over it) picks it up at once. Text contrast only rises: the panel can no
+   longer be lightened by anything behind it. */
+:root[data-background] {
+  --color-panel-bg: rgba(13, 24, 40, 0.84);
+}
+/* The header and the tab bar draw with the faint accent tint alone; give them the guarded panel under
+   it (washShine already draws them over --color-panel-bg, through --style-panel). */
+:root[data-background]:not([data-style="washShine"]) :is(.top-bar, .nav-tabs) {
+  background: linear-gradient(rgba(var(--color-accent-rgb), 0.06), rgba(var(--color-accent-rgb), 0.06)), var(--color-panel-bg);
 }
 /* REDUCED MOTION, as an explicit SETTING rather than only an OS query.
    ⚠️ THE OS QUERY STILL WORKS ON ITS OWN (see the prefers-reduced-motion block in
