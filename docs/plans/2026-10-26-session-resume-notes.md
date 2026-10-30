@@ -100,3 +100,11 @@ setting; Jump burst also plays on game open; DPR capped at 1.5.
 Backup: refresh the Proton Drive bundle after each merge (reference memory). 84 merged worktrees removed 2026-10-30.
 Next: Slice 6 save conversion, Slice 7 UI + Help (Automation tab, leveled Skills tab; Auto PC on/off only), then the
 remaining 0.14.0 queue in the earlier handoff. Pace: marathon mode, one fresh Opus builder at a time.
+
+## Handoff (2026-10-30 later), feat @ af0320b
+
+Slice 6 save conversion merged (af0320b: bb20c2e + daf83bf real 0.13.11.2 fixtures; 10,454 green, check 0 errors;
+combined review approved, no correctness bug). User picks (2026-10-30): over-owned old skills keep every level with no
+debt; a buyer who switched Auto Prestigeception off stays off on reveal; allSkills stays recorded as earned history.
+Backup bundle refreshed. Next: Slice 7 UI + Help (Automation tab, leveled Skills tab; Auto PC row on/off only, no
+target menu), then the remaining 0.14.0 queue. Pace: marathon mode, one fresh Opus builder at a time.
