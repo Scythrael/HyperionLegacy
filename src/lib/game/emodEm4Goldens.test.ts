@@ -35,6 +35,12 @@ import { EM4_CORES, EM4_SHIP, em4Core, withCore, withDraw, type Em4CoreName } fr
 import { gearWearOffInThisFile } from "./gearWearSwitch.fixture";
 import { withReactorLiftOff } from "./emodEm4Switch.fixture";
 import { advanceExpedition } from "./expedition";
+import { patrolLegsOffForThisFile } from "./patrolLegsSwitch.fixture";
+
+// WR-7 follow-up OC-D8 (patrol legs scale with transit speed): every pin here predates the legs and is about E-MOD EM-4;
+// with the legs off each one returns (checked when the legs were wired), so the file runs with them off and keeps
+// proving its own slice. patrolLegsGoldens.test.ts pins the legs on every patrol and every combat hull.
+patrolLegsOffForThisFile();
 // The pins are about speed, not gear wear: use wear stays off so a later wear tune never moves them.
 gearWearOffInThisFile();
 

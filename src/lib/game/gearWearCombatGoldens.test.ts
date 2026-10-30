@@ -63,6 +63,12 @@ import { DAMAGE_CONTROL_SUITE_KEY } from "./utilityGear";
 import { patrolDispatchCycle } from "./tick";
 import { withBattleWearOff } from "./battleWearSwitch.fixture";
 import { withFavoredSpecOff } from "./favoredSpecSwitch.fixture";
+import { patrolLegsOffForThisFile } from "./patrolLegsSwitch.fixture";
+
+// WR-7 follow-up OC-D8 (patrol legs scale with transit speed): every pin here predates the legs and is about gear wear step 4;
+// with the legs off each one returns (checked when the legs were wired), so the file runs with them off and keeps
+// proving its own slice. patrolLegsGoldens.test.ts pins the legs on every patrol and every combat hull.
+patrolLegsOffForThisFile();
 
 const HULLS = Object.keys(SHIP_TYPES) as ShipTypeKey[];
 const ROUTES = Object.keys(PATROLS) as PatrolKey[];

@@ -46,6 +46,12 @@ import { shipCombatRulesStamp } from "./crewOverlay";
 import { shipPowerTotals } from "./shipPower";
 import { gearWearOffInThisFile } from "./gearWearSwitch.fixture";
 import { withPowerSupplyOff } from "./emodEm3Switch.fixture";
+import { patrolLegsOffForThisFile } from "./patrolLegsSwitch.fixture";
+
+// WR-7 follow-up OC-D8 (patrol legs scale with transit speed): every pin here predates the legs and is about E-MOD EM-3;
+// with the legs off each one returns (checked when the legs were wired), so the file runs with them off and keeps
+// proving its own slice. patrolLegsGoldens.test.ts pins the legs on every patrol and every combat hull.
+patrolLegsOffForThisFile();
 // The pins are about combat power, not gear wear: use wear stays off so a later wear tune never moves them.
 gearWearOffInThisFile();
 

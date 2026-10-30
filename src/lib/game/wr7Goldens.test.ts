@@ -19,6 +19,7 @@
 
 import { describe, expect, it } from "vitest";
 import { writeFileSync } from "node:fs";
+import { withPatrolLegsOff } from "./patrolLegsSwitch.fixture";
 import {
   EQUIPMENT_SLOTS,
   MEMBER_SLOT_TYPES,
@@ -182,6 +183,10 @@ function computePins(): Record<string, string> {
 // Pathfinder Suite on the three explorer hulls (its sensors fold into the sheet). Held: every unfavored hull, and the
 // Damage Control Suite on the tactician hulls (it carries no sheet line, and this row reads its effect reader as
 // stored; the runs read it favored, favorsSpecRuns.test.ts). With FAVORED_SPEC_SWITCH off every sheet pin returns.
+// Re-pinned by the WR-7 follow-up OC-D8 (patrol legs scale with transit speed, user 2026-10-15): the patrol rows whose
+// hull (or its +30 drive) rounds to other legs than the Sweep's 3 ticks (the probe reads the outbound leg, the digest the
+// whole cycle on the frozen route). Held: every row whose legs round back to 3. With PATROL_LEGS_SWITCH off each
+// returns to PATROL_PINS_PRE_OC_D8.
 const PINS: Record<string, string> = {
   "rolls:cargoBay:prospectorHold:standard": "27bcb56a",
   "rolls:cargoBay:prospectorHold:luminous": "50b569ad",
@@ -407,25 +412,40 @@ const PINS: Record<string, string> = {
   "crew:eir:bridgeFlagCommand:bare": "d4b7f4f5",
   "crew:eir:bridgeFlagCommand:lines": "d4b7f4f5",
   "patrol:generalFreighter": "5eb9fc4c",
-  "patrol:generalFreighter:fastDrive": "24f7588f",
-  "patrol:prospectorHauler": "6d3278a3",
+  "patrol:generalFreighter:fastDrive": "f799c0b9",
+  "patrol:prospectorHauler": "1076cf9a",
   "patrol:prospectorHauler:fastDrive": "cb2b81e",
-  "patrol:prospectorRunner": "7947d073",
-  "patrol:prospectorRunner:fastDrive": "4a9e888a",
+  "patrol:prospectorRunner": "f85068e7",
+  "patrol:prospectorRunner:fastDrive": "fd52aba0",
   "patrol:prospectorMiner": "f9c38de2",
-  "patrol:prospectorMiner:fastDrive": "ebc14c6c",
+  "patrol:prospectorMiner:fastDrive": "c0bae86d",
   "patrol:destroyer": "c79c3507",
-  "patrol:destroyer:fastDrive": "fe083fc3",
-  "patrol:battleship": "1a1a7871",
+  "patrol:destroyer:fastDrive": "7478ade6",
+  "patrol:battleship": "7af5f52e",
   "patrol:battleship:fastDrive": "2b88da6e",
-  "patrol:carrier": "bc6578ac",
+  "patrol:carrier": "39d4d403",
   "patrol:carrier:fastDrive": "f613d397",
   "patrol:orion": "4e8dc7da",
-  "patrol:orion:fastDrive": "5661c949",
+  "patrol:orion:fastDrive": "3301960e",
   "patrol:aurora": "5ff0f071",
+  "patrol:aurora:fastDrive": "2e73678c",
+  "patrol:eir": "ad2abd68",
+  "patrol:eir:fastDrive": "f79bdd19",
+};
+
+// The OC-D8 patrol rows as pinned before the legs scaled.
+const PATROL_PINS_PRE_OC_D8: Record<string, string> = {
+  "patrol:generalFreighter:fastDrive": "24f7588f",
+  "patrol:prospectorHauler": "6d3278a3",
+  "patrol:prospectorRunner": "7947d073",
+  "patrol:prospectorRunner:fastDrive": "4a9e888a",
+  "patrol:prospectorMiner:fastDrive": "ebc14c6c",
+  "patrol:destroyer:fastDrive": "fe083fc3",
+  "patrol:battleship": "1a1a7871",
+  "patrol:carrier": "bc6578ac",
+  "patrol:orion:fastDrive": "5661c949",
   "patrol:aurora:fastDrive": "321757f5",
   "patrol:eir": "fbfea59",
-  "patrol:eir:fastDrive": "f79bdd19",
 };
 
 describe("WR-7 goldens", () => {
@@ -436,5 +456,11 @@ describe("WR-7 goldens", () => {
       return;
     }
     expect(now).toEqual(PINS);
+  }, 600_000);
+
+  it("with the patrol legs off (PATROL_LEGS_SWITCH) every OC-D8 move returns, and nothing else moves", () => {
+    const off: Record<string, string> = {};
+    withPatrolLegsOff(() => patrolPins(off));
+    for (const [key, value] of Object.entries(off)) expect([key, value]).toEqual([key, PATROL_PINS_PRE_OC_D8[key] ?? PINS[key]]);
   }, 600_000);
 });

@@ -28,6 +28,8 @@ import Decimal from "break_infinity.js";
 import {
   freshState,
   PATROLS,
+  patrolRouteOf,
+  patrolRouteTicks,
   type GameState,
   type PatrolMissionState,
   type PatrolEndReason,
@@ -37,8 +39,6 @@ import { dispatchCaptainOnPatrol, economyTick, tick, installMissingCombatBaselin
 import { PATROL_END_REASON_VIEW, buildHomeDashboard } from "./homeDashboard";
 
 const PATROL_KEY = "crimsonReaverSweep";
-const DEF = PATROLS[PATROL_KEY];
-const ROUTE_LEN = DEF.transitOutTicks + DEF.rollWindowTicks + DEF.transitBackTicks;
 const RNG = () => 0.5;
 // A clock so completion stamps are real rather than UNKNOWN_COMPLETION_TIME_MS. Fixed, never
 // Date.now(), because a test that reads the wall clock cannot be a parity test.
@@ -65,6 +65,12 @@ function dispatched(seed: number, repeat: boolean, typeKey: ShipTypeKey = "battl
 function missionOf(state: GameState): PatrolMissionState | null {
   return (state.captains[0].mission ?? null) as PatrolMissionState | null;
 }
+
+// WR-7 follow-up OC-D8: the route a battleship cycle flies here (its legs frozen at the hull's transit speed, through
+// patrolRouteOf), the same for every cycle of these runs (one ship, one loadout).
+const ROUTE_LEN = patrolRouteTicks(
+  patrolRouteOf(dispatchCaptainOnPatrol(patrolState("battleship", 0), 1, PATROL_KEY, "balanced", false).next.captains[0].mission as PatrolMissionState),
+);
 
 function patrolEntries(state: GameState) {
   return (state.completionLog ?? []).filter((e) => e.kind === "patrolRun");
@@ -318,7 +324,7 @@ describe("the completion-log entry", () => {
     expect(row).toBeDefined();
     // The patrol's own NAME, not a raw key: without the kind branch in completionSubjectLabel
     // this fell through the reward switch and rendered a bare "Patrolled".
-    expect(row!.primaryLabel).toContain(DEF.label);
+    expect(row!.primaryLabel).toContain(PATROLS[PATROL_KEY].label);
     // ...and the detail carries the outcome rather than a bare "N runs".
     expect(row!.secondaryLabel).toBeTruthy();
     expect(row!.secondaryLabel!.toLowerCase()).toContain("orders complete");

@@ -31,6 +31,12 @@ import { patrolDifficultyAt, runCountsOf } from "./runDifficulty";
 // runs with them switched off and its pins keep proving WR-8 moved nothing else here (the rules stamp new patrol
 // cycles and runs; combatDescriptorGoldens.test.ts pins the combat rules themselves).
 import { combatRulesOffForThisFile } from "./combatRulesSwitch.fixture";
+import { patrolLegsOffForThisFile } from "./patrolLegsSwitch.fixture";
+
+// WR-7 follow-up OC-D8 (patrol legs scale with transit speed): every pin here predates the legs and is about safe first runs SF-4 (the patrol curve);
+// with the legs off each one returns (checked when the legs were wired), so the file runs with them off and keeps
+// proving its own slice. patrolLegsGoldens.test.ts pins the legs on every patrol and every combat hull.
+patrolLegsOffForThisFile();
 combatRulesOffForThisFile();
 // Gear wear step 4 (0.14.0): the same for battle wear (battleWearSwitch.fixture.ts): the pins predate it, and a patrol
 // cycle stamped for it fights its carried wear (gearWearCombatGoldens.test.ts pins that).

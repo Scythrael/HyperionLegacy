@@ -23,6 +23,12 @@ import { describe, expect, it, vi } from "vitest";
 // GEAR WEAR step 3: this file's pins were captured before the use wear engine; it runs with the use sources off
 // (gearWearSwitch.fixture.ts), so they keep proving nothing else moved. gearWearGoldens.test.ts pins the wear.
 import { gearWearOffInThisFile } from "./gearWearSwitch.fixture";
+import { patrolLegsOffForThisFile } from "./patrolLegsSwitch.fixture";
+
+// WR-7 follow-up OC-D8 (patrol legs scale with transit speed): every pin here predates the legs and is about the complement slices;
+// with the legs off each one returns (checked when the legs were wired), so the file runs with them off and keeps
+// proving its own slice. patrolLegsGoldens.test.ts pins the legs on every patrol and every combat hull.
+patrolLegsOffForThisFile();
 gearWearOffInThisFile();
 // E-MOD EM-1: sheets pinned before the power budget engine are hashed with it switched off (emodGoldens.test.ts pins
 // the power numbers and proves the switch reproduces its own capture), so these pins keep proving nothing else moved.

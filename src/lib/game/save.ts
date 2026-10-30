@@ -2524,6 +2524,9 @@ const MIGRATIONS: Record<number, Migration> = {
   // playerStatusEffects, ShipEventBattle.combatRules, DroneSquadron.smartReflectChance and the Combatant fields are
   // optional and absent on everything from before it (an in-flight patrol fights its old rules until the next relaunch
   // stamps the new cycle; an in-flight expedition finishes under the rules it was dispatched with).
+  // The patrol legs (WR-7 follow-up OC-D8) add NOTHING here either, same rule: PatrolMissionState.legTicks is optional
+  // and written only when a cycle's legs differ from its route's, so an in-flight patrol flies the route's legs to its
+  // end and its next relaunch freezes the ship's.
   65: (state: any): any => {
     const seniorStaffSeed = state.seniorStaffSeed ?? SENIOR_STAFF_DEFAULT_SEED;
     return {

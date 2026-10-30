@@ -16,7 +16,8 @@
 import {
   EQUIPMENT_SLOTS,
   MISSIONS,
-  PATROLS,
+  patrolRouteOf,
+  patrolRouteTicks,
   SUBSPACE_TELESCOPE_FACILITY_KEY,
   freshState,
   effectiveMissionDef,
@@ -420,8 +421,8 @@ function battleMeasure(sourceId: string, raw: number, replay: PatrolReplay, miss
     const s0 = read(start);
     const s1 = read(end);
     if (!s0 || !s1 || !(s0.durabilityMax > 0)) return null;
-    const def = PATROLS[mission.patrolKey];
-    const tick = replay.defeated ? waves[waves.length - 1].routeTick : def.transitOutTicks + def.rollWindowTicks + def.transitBackTicks - (mission.returnCutTicks ?? 0);
+    // WR-7 follow-up OC-D8: the cycle's own route (its frozen legs).
+    const tick = replay.defeated ? waves[waves.length - 1].routeTick : patrolRouteTicks(patrolRouteOf(mission)) - (mission.returnCutTicks ?? 0);
     return { tick, f: (s0.durability - s1.durability) / s0.durabilityMax };
   };
   if (sourceId === "weapon:hitsTaken") return pool("weapon");
@@ -584,9 +585,10 @@ export function underRepairPauseLine(s: GameState): GameState {
 function repairPausedAfterFirstRoute(s: GameState): number {
   const r = dispatchCaptainOnPatrol(s, WIRING_CAPTAIN_ID, "crimsonReaverSweep", "balanced", true);
   if (!r.success) throw new Error(`wear probe: patrol dispatch refused: ${r.reason}`);
-  const def = PATROLS.crimsonReaverSweep;
+  // WR-7 follow-up OC-D8: the route the dispatched cycle flies (its frozen legs).
+  const routeTicks = patrolRouteTicks(patrolRouteOf(captainOf(r.next).mission as PatrolMissionState));
   let st = r.next;
-  for (let t = 0; t < def.transitOutTicks + def.rollWindowTicks + def.transitBackTicks; t++) st = economyTick(st, 1, () => 0.5);
+  for (let t = 0; t < routeTicks; t++) st = economyTick(st, 1, () => 0.5);
   const m = captainOf(st).mission as PatrolMissionState | null;
   return m?.repairPause !== undefined ? 1 : 0;
 }

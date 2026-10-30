@@ -813,6 +813,8 @@
     // dispatch. PatrolDispatchBlockReason types the reason the block-reason helper maps
     // to player text (mirrors DispatchBlockReason for extraction missions).
     canDispatchPatrol,
+    // WR-7 follow-up OC-D8: the route (legs at the ship's transit speed) a patrol dispatched now would fly.
+    patrolDispatchRoute,
     // 0.13.9: the ONE gear-inclusive reach reading the gates use, for every range readout.
     shipRangeLightYears,
     shipTripRangeLightYears,
@@ -4753,7 +4755,9 @@
     const difficulty = patrolDifficultyAt(state);
     // WR-8: the combat rules stamp a dispatch would write now (the ship's combat speed rides it), part of the key.
     const combatRules = shipCombatRulesStamp(state, ship);
-    const signature = `${patrolKey}::${ship.id}::${stance}::${gearIds}::${conditionDigest}::${JSON.stringify(difficulty ?? null)}::${JSON.stringify(combatRules ?? null)}`;
+    // WR-7 follow-up OC-D8: the route a dispatch would fly now (its legs at the ship's transit speed), part of the key.
+    const route = patrolDispatchRoute(state, ship, patrolKey).route;
+    const signature = `${patrolKey}::${ship.id}::${stance}::${gearIds}::${conditionDigest}::${JSON.stringify(difficulty ?? null)}::${JSON.stringify(combatRules ?? null)}::${route.transitOutTicks}/${route.transitBackTicks}`;
     const cached = patrolForecastCache.get(patrolKey);
     if (cached && cached.signature === signature) return cached.value;
 
@@ -4817,7 +4821,7 @@
         installedGear: cycleGear,
         masterSeed: FORECAST_SEED + i,
         factionId: def.factionId,
-        def,
+        def: route,
         startHull: startDefense.hullMax,
         startShield: startDefense.shieldMax,
         startDrones,
@@ -18363,6 +18367,9 @@
                 {@const forecast = patrolForecastFor(state, patrolKey, def, selectedShip, hullType, stance)}
                 {@const expanded = expandedPatrolKey === patrolKey}
                 {@const outOfReach = selectedShip !== null && !shipReachesRoundTrip(state, selectedShip, def.transitOutTicks, def.transitBackTicks)}
+                <!-- WR-7 follow-up OC-D8: the legs the selected ship would fly (its transit speed scales them; reach and
+                     distance stay on the route's own legs); the route's own legs until a captain is picked. -->
+                {@const shipRoute = selectedShip ? patrolDispatchRoute(state, selectedShip, patrolKey).route : def}
                 {@const advisoryActive = gate !== null && (!gate.ok || gate.noWeaponAdvisory)}
                 <div class="mpane-wrap">
                   <!-- ROW: id (the fightPoint SVG glyph + patrol label + faction sub) · glance mid · actions. warnedge
@@ -18380,7 +18387,7 @@
                            run vs tank (fuel colored danger when the tank is short of a run). -->
                       <div class="statline">
                         <span>Waves <b>{wavesLabel}</b></span>
-                        <span>Route <b>{def.transitOutTicks + def.rollWindowTicks + def.transitBackTicks} ticks</b></span>
+                        <span>Route <b>{shipRoute.transitOutTicks + shipRoute.rollWindowTicks + shipRoute.transitBackTicks} ticks</b></span>
                         <span>Distance <b class:bad={outOfReach}>{formatNumber(Math.round(patrolDistanceLy))} LY</b>{#if patrolReachLy !== null} / range <b class:bad={outOfReach}>{formatNumber(Math.floor(patrolReachLy))} LY</b>{/if}</span>
                       </div>
                       <!-- THREAT readout: the shared ThreatChip (GO-10: SVG tier dot, no emoji) once a
@@ -18431,7 +18438,7 @@
                             <div class="mission-col-label">Encounter</div>
                             <div class="mission-req-line">Hostiles: {hostiles}</div>
                             <div class="mission-req-line">Waves: {wavesLabel}</div>
-                            <div class="mission-req-line">Route: out {def.transitOutTicks}t &middot; window {def.rollWindowTicks}t &middot; back {def.transitBackTicks}t</div>
+                            <div class="mission-req-line">Route: out {shipRoute.transitOutTicks}t &middot; window {shipRoute.rollWindowTicks}t &middot; back {shipRoute.transitBackTicks}t</div>
                             {#if forecast !== null}<div class="mission-req-line">Battle Rating: {formatNumber(forecast.rating)}</div>{/if}
                           </div>
                           <div class="mission-card-col">

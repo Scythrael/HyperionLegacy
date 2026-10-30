@@ -139,6 +139,12 @@ import { GW3_ADDED_IDS, gw3EntryBack } from "./gearWearRegistry.fixture";
 // Gear wear step 4 came after every pin here: its flips are read back (gearWearCombatRegistry.fixture.ts).
 import { GW4_ADDED_IDS, gw4EntryBack } from "./gearWearCombatRegistry.fixture";
 import { WEAR_SOURCES } from "./gearWear";
+import { patrolLegsOffForThisFile } from "./patrolLegsSwitch.fixture";
+
+// WR-7 follow-up OC-D8 (patrol legs scale with transit speed): every pin here predates the legs and is about G1 (short-range missions);
+// with the legs off each one returns (checked when the legs were wired), so the file runs with them off and keeps
+// proving its own slice. patrolLegsGoldens.test.ts pins the legs on every patrol and every combat hull.
+patrolLegsOffForThisFile();
 gearWearOffInThisFile();
 // E-MOD EM-1: sheets pinned before the power budget engine are hashed with it switched off (emodGoldens.test.ts pins
 // the power numbers and proves the switch reproduces its own capture), so these pins keep proving nothing else moved.
@@ -155,6 +161,7 @@ import { buildShipRoster } from "./shipRoster";
 import { deserialize, migrate, serialize, type SaveFile } from "./save";
 import { FKR8_ADDED_IDS, FKR8_FLIPPED_LIVE, WIRING_REGISTRY } from "./wiring/registry";
 import { FAVORS_SPEC_ROW } from "./favoredSpecRegistry.fixture";
+import { PATROL_LEGS_ADDED_IDS, PATROL_LEGS_FLIPPED_IDS } from "./patrolLegsRegistry.fixture";
 import { EM7_ADDED_ENTRY_IDS, EM7_MODULE_SLOTS_IDS } from "./emodEm7Registry.fixture";
 // WR-8: every registry pin here was taken before WR-8, so its added entries are left out and its flips read back.
 import { wr8ReadBack } from "./combatDescriptorRegistry.fixture";
@@ -714,8 +721,11 @@ const FKR8_SLICE: RegistrySlice = { added: FKR8_ADDED_IDS, flipped: new Set(Obje
 // WR-7 follow-up OC-D5 (favorsSpec, "+10% on its ship type"), after every pin here: its one audit row flipped pending ->
 // live (favoredSpecRegistry.fixture.ts). Read back in EVERY pin (the ML3_SLICE pattern).
 const OC_D5_SLICE: RegistrySlice = { flipped: new Set([FAVORS_SPEC_ROW]), was: "pending" };
+// WR-7 follow-up OC-D8 (patrol legs), after every pin here: the transit sources' patrol context flipped pending -> live
+// and ship:audit:patrolLegs added (patrolLegsRegistry.fixture.ts). Read back in EVERY pin (the ML3_SLICE pattern).
+const OC_D8_SLICE: RegistrySlice = { added: PATROL_LEGS_ADDED_IDS, flipped: PATROL_LEGS_FLIPPED_IDS, was: "pending" };
 function registryPin(...given: readonly RegistrySlice[]): [number, string] {
-  const slices = [RX_SLICE, RR_SLICE, FUSE_SLICE, ML2_SLICE, OC15_SLICE, R2_2_SLICE, R2_3_SLICE, R2_4_SLICE, R2_10_SLICE, G16_SLICE, ...G2_4_SLICES, ...G2_6_SLICES, ML3_SLICE, GG_STUDY_SLICE, EM7_SLICE, FKR11_SLICE, FKR8_SLICE, GW4_SLICE, OC_D5_SLICE, ...given];
+  const slices = [RX_SLICE, RR_SLICE, FUSE_SLICE, ML2_SLICE, OC15_SLICE, R2_2_SLICE, R2_3_SLICE, R2_4_SLICE, R2_10_SLICE, G16_SLICE, ...G2_4_SLICES, ...G2_6_SLICES, ML3_SLICE, GG_STUDY_SLICE, EM7_SLICE, FKR11_SLICE, FKR8_SLICE, GW4_SLICE, OC_D5_SLICE, OC_D8_SLICE, ...given];
   const rows = siReadBack(em4ReadBack(em3ReadBack(wr8ReadBack(WIRING_REGISTRY))).map((e) => ({ id: e.id, kind: e.status.kind as string })), (r) => r.id, (row) => ({ id: row[0], kind: row[1].kind as string }));
   const lines = rows.filter((e) => !slices.some((sl) => sl.added?.has(e.id))).map((e) => {
     const flip = slices.find((sl) => sl.flipped?.has(e.id));

@@ -73,8 +73,10 @@ describe("wiring sensitivity: every claimed context that does not move yet stays
     // region picker took the eight telescope reach entries live at Ground Ops, leaving 63. Lowered from 60 at WR-7: the
     // ship systems took their partial contexts live or out of scope (OC-D8: the tank and engine on the expedition reach
     // gate, the hold missions-only; OC-D10: the Damage Control Suite on the field repair), leaving the transit speed's
-    // patrol legs (the WR-7 follow-up), the deferred patrol sensors and the crew rows other slices own.
-    expect(flatChecks.filter(({ e }) => e.contexts.length > 0).length).toBeGreaterThan(15);
+    // patrol legs (the WR-7 follow-up), the deferred patrol sensors and the crew rows other slices own. Lowered from 15
+    // at the WR-7 follow-up OC-D8: the patrol legs went live (the speed line, the ten hulls and the museum lost their
+    // pending patrol context, measured by ship:audit:patrolLegs), leaving 7.
+    expect(flatChecks.filter(({ e }) => e.contexts.length > 0).length).toBeGreaterThan(6);
     // Lowered from 30 at the CP-2 + WR-5a integration (0.14.0): both slices moved inert sources live, leaving 28;
     // WR-5b's Tactician tree left 24, WR-5c's Explorer tree 20 (no pending secondary captain entry is left). The
     // guard only asserts the sweep is not vacuous; lower it again as more sources go live. Lowered from 15 when the

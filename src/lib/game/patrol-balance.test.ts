@@ -41,6 +41,8 @@ import {
   type GameState,
   type ShipTypeKey,
   type PatrolMissionState,
+  patrolRouteOf,
+  patrolRouteTicks,
   type CombatStandardIssueSpec,
   type EquipmentInstance,
 } from "./model";
@@ -62,10 +64,8 @@ import type { WeaponId } from "./combat/weapons";
 import { asPatrolVeteran } from "./awayTeamTestFixtures";
 
 const PATROL_KEY = "crimsonReaverSweep";
-const DEF = PATROLS[PATROL_KEY];
-// Full route length in whole ticks. Advancing this many ticks guarantees the
-// Dispatch-Once patrol resolves (completes or is defeated) so mission === null.
-const ROUTE_LEN = DEF.transitOutTicks + DEF.rollWindowTicks + DEF.transitBackTicks;
+// WR-7 follow-up OC-D8: a cycle's route length is its own (patrolRouteOf: the legs it froze at the ship's transit
+// speed), so the harness reads it from the dispatched cycle instead of the def.
 // A constant rng so any incidental economyTick draw is identical + reproducible (a
 // patrol-only fleet makes zero economy draws, but this removes Math.random entirely).
 const RNG = () => 0.5;
@@ -109,8 +109,10 @@ function patrolWon(typeKey: ShipTypeKey, seed: number): boolean {
   );
   expect(dispatched.success).toBe(true);
   // One big call is safe: the loop's closed-form parity (proven in patrol-tick.test.ts)
-  // makes economyTick(state, N) identical to N single ticks. +2 slack over ROUTE_LEN.
-  const final = economyTick(dispatched.next, ROUTE_LEN + 2, RNG);
+  // makes economyTick(state, N) identical to N single ticks. Advancing the cycle's full route (its own legs) plus 2
+  // slack guarantees the Dispatch-Once patrol resolves (completes or is defeated) so mission === null.
+  const routeLen = patrolRouteTicks(patrolRouteOf(dispatched.next.captains[0].mission as PatrolMissionState));
+  const final = economyTick(dispatched.next, routeLen + 2, RNG);
   const mission = final.captains[0].mission as PatrolMissionState | null;
   const ship = final.ships.find((s) => s.id === "ship-1");
   // WON iff the cycle resolved (mission null) AND the ship was not flagged damaged.
