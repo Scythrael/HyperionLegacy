@@ -58,7 +58,7 @@ import type {
   SnapshotMember,
   PromotionObjectiveKind,
 } from "./model";
-import { SHIP_TYPES, commandingCaptain, moduleEffectScale, shipGearSetBonusLines } from "./model";
+import { SHIP_TYPES, commandingCaptain, moduleEffectScale, shipGearSetBonusLines, withFavoredLines } from "./model";
 // E-MOD EM-6: the body-scanned module trigger (its frozen procs and private stream).
 import { moduleNebulaSweep, moduleScanProcs, moduleScanSeed, rollModuleChance } from "./shipModules";
 import { makeRng, type Rng } from "./combat/rng";
@@ -881,7 +881,9 @@ export function expeditionGearBonuses(state: GameState, ship: ShipInstance): Exp
   // GEAR WEAR step 3: a worn suite or array reads at its efficiency (the worn-gear view, gearWear.ts).
   const gearView = wornGearView(state);
   const installed = equippedFor(gearView, ship.id);
-  const pathfinder = pathfinderEffect(installed);
+  // WR-7 follow-up (OC-D5): the suite's favored lines on an Explorer hull, frozen with the rest of the snapshot at
+  // dispatch (a run in flight keeps the record it launched with).
+  const pathfinder = pathfinderEffect(withFavoredLines(installed, ship.typeKey));
   const setScan = shipGearSetBonusLines(installed).scanSpeedBonus ?? 0;
   return {
     scanSpeed: setScan > 0 ? pathfinder.scanSpeed + setScan : pathfinder.scanSpeed,

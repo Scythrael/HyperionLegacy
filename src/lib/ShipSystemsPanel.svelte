@@ -480,7 +480,11 @@
   // BASE (bare hull) vs FITTED (equipped pieces folded in) derived stats.
   $: baseStats = ship ? shipDerivedStats(ship, []) : null;
   $: fittedPieces = ship ? equippedFor(safeState, shipId) : [];
-  $: fitStats = ship ? shipDerivedStats(ship, fittedPieces) : null;
+  // WR-7 follow-up (OC-D5): the gear fold reads a favored piece's lines +10% on a hull of its spec (model.ts
+  // withFavoredLines), as the engine reads the ship now; fitStatsPlain is the same fold without that bonus, so the source
+  // split names it as its own "Favored hull" bucket.
+  $: fitStats = ship ? shipDerivedStats(ship, fittedPieces, { favored: true }) : null;
+  $: fitStatsPlain = ship ? shipDerivedStats(ship, fittedPieces) : null;
   // 0.14.0 crew C-4c: the CREW-INCLUSIVE fitted stats (Senior Staff + Complement folded on top of the
   // gear fold) the readout DISPLAYS as the current value. This is the SAME effectiveShipStats every
   // engine consumer reads, so the number the player sees matches what the ship actually does.
@@ -640,8 +644,11 @@
     const base = d.get(baseStats);
     const gear = d.get(fitStats);
     const out: SourceBucket[] = [{ label: "Base / hull", text: fmtStatUnit(d.kind, base), delta: false }];
-    const gearDelta = gear - base;
+    // WR-7 follow-up (OC-D5): the gear's own lines, then the favored-spec bonus on them as its own bucket.
+    const plain = fitStatsPlain ? d.get(fitStatsPlain) : gear;
+    const gearDelta = plain - base;
     if (Math.abs(gearDelta) > 1e-9) out.push({ label: "Ship systems", text: fmtDeltaUnit(d.kind, gearDelta), delta: true });
+    if (Math.abs(gear - plain) > 1e-9) out.push({ label: "Favored hull", text: fmtDeltaUnit(d.kind, gear - plain), delta: true });
     if (crewOnlyStats && complementOnlyStats) {
       const od = d.get(crewOnlyStats) - d.get(complementOnlyStats);
       if (Math.abs(od) > 1e-9) out.push({ label: "Senior Staff", text: fmtDeltaUnit(d.kind, od), delta: true });
@@ -2300,7 +2307,7 @@
       on:pointerenter={cancelTipHide}
       on:pointerleave={scheduleTipHide}
     >
-      <EquipmentTooltip piece={tipPiece} shipPieces={fittedPieces} />
+      <EquipmentTooltip piece={tipPiece} shipPieces={fittedPieces} hostTypeKey={ship?.typeKey} />
     </div>
   {/if}
 

@@ -4,7 +4,8 @@
 
 import { describe, expect, it } from "vitest";
 import Decimal from "break_infinity.js";
-import { freshState, shipDerivedStats, type GameState } from "./model";
+import { FAVORED_SPEC_LINE_BONUS, freshState, pieceFavorsHull, shipDerivedStats, type GameState } from "./model";
+import { favoredReadPiece } from "../ui/favoredSpecText";
 import { dispatchCaptainOnMission, economyTick, itemCap, worksDirectorateSaveSeed } from "./tick";
 import { equippedFor } from "./equipmentQueries";
 import { effectiveShipStats } from "./crewOverlay";
@@ -92,7 +93,9 @@ describe("ML-3 the ship sheet", () => {
     const rig = s.equipment.find((e) => e.id === "rig-1")!;
     const points = (rig.implicitStats.materialQualityChance ?? 0) + (rig.rolledStats.materialQualityChance ?? 0);
     expect(points).toBeGreaterThan(0);
-    expect(rigChance(s)).toBeCloseTo(materialQualityClimbChance(points), 12);
+    // WR-7 follow-up (OC-D5): the rig's variety favors the Prospector spec, so on this hull its points count +10%.
+    expect(pieceFavorsHull(rig, s.ships[0].typeKey)).toBe(true);
+    expect(rigChance(s)).toBeCloseTo(materialQualityClimbChance(points * (1 + FAVORED_SPEC_LINE_BONUS)), 12);
   });
 });
 
@@ -175,7 +178,8 @@ describe("ML-3 the readout and the registry", () => {
     const s = rigFleet();
     const rig = s.equipment.find((e) => e.id === "rig-1")!;
     const pct = (Math.round(rigChance(s) * 1000) / 10).toFixed(1);
-    expect(pieceMaterialQualityText(rig)).toBe(`+${pct}% chance per unit to arrive one quality higher`);
+    // WR-7 follow-up (OC-D5): the tooltip on the rig's own (favored) hull reads its favored lines, as the run does.
+    expect(pieceMaterialQualityText(favoredReadPiece(rig, s.ships[0].typeKey))).toBe(`+${pct}% chance per unit to arrive one quality higher`);
     const plain = s.equipment.find((e) => e.fittedToShipId === "ship-1" && e.slotType === "cargoBay")!;
     expect(pieceMaterialQualityText(plain)).toBeNull();
   });

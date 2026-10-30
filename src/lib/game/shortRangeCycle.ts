@@ -46,7 +46,7 @@ import { ITEMS, type CaptainState, type GameState, type RelicVaultToken, type Ru
 import { SHORT_RANGE_OUTPUT_SALT, SHORT_RANGE_TEMPLATES, shortRangeCycleReward, wholeUnits, type ShortRangeCyclePlan, type ShortRangeRoll } from "./shortRange";
 import { shortRangeSlotById, startShortRangeCycle } from "./shortRangeBoard";
 import { shipMissionOutputBonus } from "./crewOverlay";
-import { projectRunStamp, runShipStats, shipCrewAboard, shortRangeWear, type ShipUseWear, type TimedWear } from "./gearWearEngine";
+import { missionRunSheet, projectRunStamp, runShipStats, shipCrewAboard, shortRangeWear, type ShipUseWear, type TimedWear } from "./gearWearEngine";
 import { captainMotherlodeChance, captainTransportTerms, motherlodeSeed } from "./captainSecondaryEffects";
 import { countShortRangeCycleComplete } from "./runDifficulty";
 import { makeRng } from "./combat/rng";
@@ -307,7 +307,10 @@ export function tickCaptainShortRange(input: ShortRangeTickInput): ShortRangeTic
   const reactorLift = reactorLiftFlagged(startMission.reactorLift);
   // WR-7 (OC-D3): only a run stamped with the module lines reads its crew modules' lines.
   const moduleLines = startMission.moduleLines === 1;
-  let stats = runShipStats(state, ship, wearStamp, reactorLift, moduleLines);
+  // WR-7 follow-up (OC-D5): only a run stamped with the favored spec reads its favored pieces' bonus.
+  const favored = startMission.favoredSpec === 1;
+  // The run's sheet, read on its stamps exactly as every captain mission reads its own (gearWearEngine.ts missionRunSheet).
+  let stats = missionRunSheet(state, ship, startMission);
   const crewed = wearStamp === undefined ? false : shipCrewAboard(state, ship);
   const timedWear: TimedWear<ShipUseWear>[] = [];
   const outputShare = Math.max(0, shipMissionOutputBonus(state, ship));
@@ -452,8 +455,8 @@ export function tickCaptainShortRange(input: ShortRangeTickInput): ShortRangeTic
     // step 3: the new cycle re-reads its gear (its stamp re-frozen at this instant), and its plan and pay fold it.
     const cycleStamp =
       wearStamp === undefined ? undefined : projectRunStamp(state, ship.id, timedWear, state.gameTimeSeconds + (ticksElapsed - remaining) * state.tickDurationSeconds);
-    if (cycleStamp !== undefined) stats = runShipStats(state, ship, cycleStamp, reactorLift, moduleLines);
-    const start = startShortRangeCycle({ ...state, runCounts }, ship, slot, roll.cycleIndex + 1, cycleStamp, reactorLift, moduleLines);
+    if (cycleStamp !== undefined) stats = runShipStats(state, ship, cycleStamp, reactorLift, moduleLines, favored);
+    const start = startShortRangeCycle({ ...state, runCounts }, ship, slot, roll.cycleIndex + 1, cycleStamp, reactorLift, moduleLines, favored);
     runCounts = start.runCounts;
     mission = {
       kind: "shortRange",
@@ -472,6 +475,8 @@ export function tickCaptainShortRange(input: ShortRangeTickInput): ShortRangeTic
       ...(mission.reactorLift !== undefined ? { reactorLift: mission.reactorLift } : {}),
       // WR-7 (OC-D3): and the module lines stamp.
       ...(mission.moduleLines !== undefined ? { moduleLines: mission.moduleLines } : {}),
+      // WR-7 follow-up (OC-D5): and the favored-spec stamp.
+      ...(mission.favoredSpec !== undefined ? { favoredSpec: mission.favoredSpec } : {}),
     };
   }
 

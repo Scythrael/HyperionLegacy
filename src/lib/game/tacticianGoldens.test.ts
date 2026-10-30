@@ -37,6 +37,10 @@ combatRulesOffForThisFile();
 // cycle stamped for it fights its carried wear (gearWearCombatGoldens.test.ts pins that).
 import { battleWearOffInThisFile } from "./battleWearSwitch.fixture";
 battleWearOffInThisFile();
+// WR-7 follow-up OC-D5 (favorsSpec, "+10% on its ship type"): the same for the favored-spec bonus (the carrier's Damage
+// Control Suite favors the Tactician spec): the pins predate it; favorsSpecGoldens.test.ts pins it.
+import { favoredSpecOffForThisFile } from "./favoredSpecSwitch.fixture";
+favoredSpecOffForThisFile();
 
 function fnv(s: string): string {
   let h = 0x811c9dc5;

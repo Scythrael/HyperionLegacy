@@ -50,6 +50,7 @@ import {
   type ShipEventProfile,
   type ShipInstance,
   type ShipScanEventKind,
+  withFavoredLines,
 } from "./model";
 import { makeRng } from "./combat/rng";
 import { combatHullTypeOf, shipToCombatant, type CombatShipStats } from "./combat/bridge";
@@ -175,7 +176,8 @@ export function snapshotShipEventProfile(state: GameState, ship: ShipInstance): 
   const combatRules = shipCombatRulesStamp(state, ship);
   const installed = equippedFor(state, ship.id);
   const gear = installed.filter((piece) => COMBAT_SLOT_TYPES.has(piece.slotType));
-  const dcRepair = damageControlEffect(installed).repairTimeReduction;
+  // WR-7 follow-up (OC-D5): the suite's favored lines on a Tactician hull, frozen here with the rest of the profile.
+  const dcRepair = damageControlEffect(withFavoredLines(installed, ship.typeKey)).repairTimeReduction;
   // WR-5b: the commanding captain's Tactician talents (absent without a node, so the profile is unchanged).
   const captainCombat = shipCaptainCombatMods(state, ship);
   const battle: ShipEventBattle = {

@@ -19,7 +19,7 @@
 // Pure: every function reads state and returns verdicts or new states; no draws outside the roll's own stream, no
 // clock, never the shared economy rng.
 
-import { MISSION_CONTROL_BOARD_RUNGS, type CaptainState, type GameState, type RunWearStamp, type ShipInstance, type ShortRangeBoardState, type ShortRangeMissionState, type ShortRangePhase, type RunCounts } from "./model";
+import { MISSION_CONTROL_BOARD_RUNGS, favoredSpecStamp, type CaptainState, type GameState, type RunWearStamp, type ShipInstance, type ShortRangeBoardState, type ShortRangeMissionState, type ShortRangePhase, type RunCounts } from "./model";
 import {
   SHORT_RANGE_TEMPLATES,
   meetsSheet,
@@ -118,10 +118,11 @@ export interface ShortRangeCycleStart {
 // runWearStamp at dispatch, projectRunStamp at each later cycle start), so the plan reads the gear the cycle froze; without one (a run from before step 3, a
 // preview) it reads the stored sheet. E-MOD EM-4: `reactorLift` is whether the run carries the reactor surplus drive
 // lift flag (reactorSurplus.ts; a run dispatched before EM-4 plans its later cycles without the lift). Pure.
-export function startShortRangeCycle(state: GameState, ship: ShipInstance, slot: ShortRangeSlotRef, cycleIndex: number, wear: RunWearStamp | undefined, reactorLift: boolean, moduleLines = true): ShortRangeCycleStart {
+export function startShortRangeCycle(state: GameState, ship: ShipInstance, slot: ShortRangeSlotRef, cycleIndex: number, wear: RunWearStamp | undefined, reactorLift: boolean, moduleLines = true, favored = true): ShortRangeCycleStart {
   const roll = rollShortRangeJob(state, slot, cycleIndex);
   // WR-7 (OC-D3): `moduleLines` is whether the run carries the crew module lines stamp (true for a preview).
-  const plan = shortRangeCyclePlan(roll, runShipStats(state, ship, wear, reactorLift, moduleLines), shortRangeShipEngineering(state, ship));
+  // WR-7 follow-up (OC-D5): `favored` likewise, the favored-spec stamp (true for a preview).
+  const plan = shortRangeCyclePlan(roll, runShipStats(state, ship, wear, reactorLift, moduleLines, favored), shortRangeShipEngineering(state, ship));
   return { roll, plan, runCounts: countShortRangeCycleStart(runCountsOf(state), roll.template) };
 }
 
@@ -236,7 +237,9 @@ export function dispatchCaptainOnShortRange(state: GameState, captainId: number,
   const reactorLift = newReactorLiftFlag(equippedFor(state, ship.id));
   // WR-7 (OC-D3): a run dispatched now reads its crew modules' lines (stamped only when one carries a line).
   const moduleLines = crewModuleLinesStamp(state, ship);
-  const start = startShortRangeCycle(state, ship, slot, shortRangeNextCycle(state, slotId), wear, reactorLift !== undefined, moduleLines === 1);
+  // WR-7 follow-up (OC-D5): and its favored pieces' bonus (stamped only when a piece favors the hull's spec).
+  const favoredSpec = favoredSpecStamp(equippedFor(state, ship.id), ship.typeKey);
+  const start = startShortRangeCycle(state, ship, slot, shortRangeNextCycle(state, slotId), wear, reactorLift !== undefined, moduleLines === 1, favoredSpec === 1);
   const mission: ShortRangeMissionState = {
     kind: "shortRange",
     slotId,
@@ -252,6 +255,7 @@ export function dispatchCaptainOnShortRange(state: GameState, captainId: number,
     relicBlanks: newRunRelicBlanksFlag(),
     ...(reactorLift !== undefined ? { reactorLift } : {}),
     ...(moduleLines !== undefined ? { moduleLines } : {}),
+    ...(favoredSpec !== undefined ? { favoredSpec } : {}),
   };
   const captains = [...state.captains];
   captains[idx] = { ...captains[idx], mission, lastStopReason: undefined };
@@ -319,5 +323,6 @@ export function isWellFormedShortRangeMission(m: unknown): m is ShortRangeMissio
   // E-MOD EM-4: the reactor surplus drive lift flag.
   if (s.reactorLift !== undefined && !reactorLiftFlagged(s.reactorLift)) return false;
   if (s.moduleLines !== undefined && s.moduleLines !== 1) return false; // WR-7 (OC-D3): the module lines stamp
+  if (s.favoredSpec !== undefined && s.favoredSpec !== 1) return false; // WR-7 follow-up (OC-D5): the favored-spec stamp
   return true;
 }

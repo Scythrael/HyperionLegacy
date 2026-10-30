@@ -34,6 +34,8 @@
   import { MODULE_CARD_NOTE, moduleEffectSentence, moduleKindText, moduleRuleText, moduleWhenText, pieceModuleLines, type PieceModuleLines } from "./ui/moduleEffectText";
   import { universalModuleDef } from "./game/shipModules";
   import { pieceMaterialQualityText, shipMaterialQualityText } from "./ui/materialQualityText";
+  // WR-7 follow-up (OC-D5): a favored-variety piece's "+10% on its ship type" line, and its lines as a favored hull reads them.
+  import { favoredReadPiece, favoredReadPieces, favoredSpecText } from "./ui/favoredSpecText";
   import type { IconName } from "./ui/icons";
   import { previewCraftOutcome, type CraftPreview } from "./game/itemgen";
   // RR-4 (rarity readiness): the grade label with its ascension ("Nova Luminous"); the band label when there is none.
@@ -356,6 +358,9 @@
   // Material Lines ML-3: the pieces installed on the same ship as `piece`, when the host knows them (Ship Systems),
   // so a piece whose Material Quality stacks with another's also shows the ship's combined chance. Absent elsewhere.
   export let shipPieces: EquipmentInstance[] | undefined = undefined;
+  // WR-7 follow-up (OC-D5): the hull the host shows `piece` on, when it knows one (Ship Systems), so a favored-variety
+  // piece says whether its "+10% on its ship type" applies there and its derived readouts read the favored lines.
+  export let hostTypeKey: ShipTypeKey | undefined = undefined;
 
   $: resolved = subject ?? (piece !== undefined ? ({ kind: "equipment", piece } as const) : null);
 
@@ -445,8 +450,13 @@
         // E-MOD EM-7: a universal module's kind, effect and (an Active) rule, or null for any other piece. EM-10 adds
         // when it acts (its trigger in plain words) and its power draw.
         moduleLines: PieceModuleLines | null;
+        // WR-7 follow-up (OC-D5): a favored-variety piece's favored-hull line, else null.
+        favored: string | null;
         flavor: string | null;
         piece: EquipmentInstance;
+        // WR-7 follow-up (OC-D5): the piece and the ship's pieces as the host hull reads them (favored lines there).
+        readPiece: EquipmentInstance;
+        readShipPieces: EquipmentInstance[] | undefined;
       }
     | {
         kind: "material";
@@ -502,6 +512,8 @@
       const p = resolved.piece;
       const accent = equipmentRarityColor(p.rarity);
       const grade = ascensionLabel(p.rarity, p.ascension);
+      // WR-7 follow-up (OC-D5): the readouts derived from the lines read them as the host hull folds them.
+      const readPiece = favoredReadPiece(p, hostTypeKey);
       return {
         kind: "equipment",
         accent,
@@ -519,13 +531,16 @@
             : null,
         implicit: Object.entries(p.implicitStats),
         primaries: Object.entries(p.rolledStats),
-        hazardResist: pieceHazardResistText(p),
-        materialQuality: pieceMaterialQualityText(p),
+        hazardResist: pieceHazardResistText(readPiece),
+        materialQuality: pieceMaterialQualityText(readPiece),
         legendaryAffix: pieceLegendaryAffixText(p),
         setLine: pieceSetText(p),
         moduleLines: pieceModuleLines(p, shipPieces),
+        favored: favoredSpecText(p, hostTypeKey),
         flavor: equipmentFlavor(p),
         piece: p,
+        readPiece,
+        readShipPieces: favoredReadPieces(shipPieces, hostTypeKey),
       };
     }
     if (resolved.kind === "material") {
@@ -683,6 +698,11 @@
           {/each}
         </div>
       {/if}
+      <!-- WR-7 follow-up (OC-D5): the lines above are as rolled; this says what a favored hull adds to them (the
+           readouts below already read the favored lines when the host hull is favored). -->
+      {#if view.favored}
+        <div class="et-detail">{view.favored}</div>
+      {/if}
       <!-- GO-6: the Hazard Resist lines above are stat POINTS; this is what they buy in a run (the effective
            resist on the curve toward the 75% cap, never full immunity). -->
       {#if view.hazardResist}
@@ -690,7 +710,7 @@
       {/if}
       <!-- Material Lines ML-3: the Material Quality line is stat POINTS; this is the chance they buy per delivered unit. -->
       {#if view.materialQuality}
-        {@const shipTotal = shipMaterialQualityText(view.piece, shipPieces)}
+        {@const shipTotal = shipMaterialQualityText(view.readPiece, view.readShipPieces)}
         <div class="et-detail">{view.materialQuality}</div>
         {#if shipTotal}
           <div class="et-detail">{shipTotal}</div>

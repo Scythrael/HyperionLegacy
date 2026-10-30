@@ -67,6 +67,7 @@ import {
   MISSIONS,
   effectiveMissionDef,
   missionCycleTiming,
+  withFavoredLines,
   type CaptainMissionState,
   type EquipmentInstance,
   type Expedition,
@@ -178,16 +179,23 @@ export function projectRunStamp(state: GameState, shipId: string, events: readon
 // WR-7 (OC-D3): `moduleLines` is whether the run carries the crew module lines stamp (CaptainMissionState.moduleLines);
 // a run without it reads its crew modules without their Crew Stations / Crew Efficiency lines, exactly as before WR-7.
 // Defaults to true (a fresh reading); the engine's run readers pass the run's stamp.
-export function runShipStats(state: GameState, ship: ShipInstance, stamp: RunWearStamp | undefined, reactorLift: boolean, moduleLines = true): ShipDerivedStats {
+// WR-7 follow-up (OC-D5): `favored` likewise, whether the run carries the favored-spec stamp (favoredSpec); a run
+// without it reads its pieces without the favored-spec bonus, exactly as before. Defaults to true (a fresh reading).
+export function runShipStats(state: GameState, ship: ShipInstance, stamp: RunWearStamp | undefined, reactorLift: boolean, moduleLines = true, favored = true): ShipDerivedStats {
   const lined = moduleLines ? state : withoutCrewModuleLines(state);
-  return effectiveShipStats(stamp === undefined ? lined : runGearView(lined, ship.id, stamp), ship, { reactorLift });
+  return effectiveShipStats(stamp === undefined ? lined : runGearView(lined, ship.id, stamp), ship, { reactorLift, favored });
 }
 
 // THE SHEET A CAPTAIN MISSION IN FLIGHT IS READ ON (EM-4 review): its frozen gear (the run's wear stamp) and its reactor
 // lift flag, the ONE helper the engine's mission arm and every in-flight readout share (the Home row, the mission
 // card, the transit berth wait), so a readout can never form its own opinion of a phase's length. Pure.
-export function missionRunSheet(state: GameState, ship: ShipInstance, mission: CaptainMissionState): ShipDerivedStats {
-  return runShipStats(state, ship, mission.gearWear, reactorLiftFlagged(mission.reactorLift), mission.moduleLines === 1);
+// WR-7 follow-up (OC-D5): a short-range run carries the same stamps, so the short-range cycle engine reads it here too.
+export function missionRunSheet(
+  state: GameState,
+  ship: ShipInstance,
+  mission: Pick<CaptainMissionState, "gearWear" | "reactorLift" | "moduleLines" | "favoredSpec">,
+): ShipDerivedStats {
+  return runShipStats(state, ship, mission.gearWear, reactorLiftFlagged(mission.reactorLift), mission.moduleLines === 1, mission.favoredSpec === 1);
 }
 
 // ============================================================================
@@ -563,16 +571,23 @@ export interface RepairContextIndex {
   readonly bay: ReadonlySet<string>; // ships in a Shipyard repair bay
   readonly field: ReadonlySet<string>; // ships set down on a field repair leg right now (readouts; the pass reads windows)
   readonly memberShip: ReadonlyMap<string, string | null>; // member id -> the ship they are assigned to
+  // WR-7 follow-up (OC-D5): ships out on a captain run stamped with the favored spec (favoredSpec === 1). A ship out on
+  // a run NOT in this set (an unstamped run, an expedition) reads its Damage Control Suite as stored (shipRepairBonuses).
+  readonly favoredRun: ReadonlySet<string>;
 }
 
 // Where every ship is at `state.gameTimeSeconds`, for the repair contexts. Pure.
 export function repairContextIndex(state: GameState): RepairContextIndex {
   const t = state.gameTimeSeconds;
   const out = new Set<string>();
+  const favoredRun = new Set<string>();
   for (const ship of state.ships) {
     if (ship.assignedCaptainId === null) continue;
     const captain = state.captains.find((c) => c.id === ship.assignedCaptainId);
-    if (captain && captain.mission !== null) out.add(ship.id);
+    if (captain && captain.mission !== null) {
+      out.add(ship.id);
+      if ((captain.mission as { favoredSpec?: unknown }).favoredSpec === 1) favoredRun.add(ship.id);
+    }
   }
   // A ship on an expedition is underway for the whole run, its field repair legs included: those settle at the field
   // rate when the run comes home, in event order with its wear (fieldWindows), never call by call, so a leg repairs
@@ -587,7 +602,7 @@ export function repairContextIndex(state: GameState): RepairContextIndex {
   for (const p of state.activeProcesses) if (p.kind === "shipRepair" && p.effect.type === "clearShipDamage") bay.add(p.effect.shipId);
   const memberShip = new Map<string, string | null>();
   for (const m of state.awayMembers) memberShip.set(m.id, m.assignedShipId ?? null);
-  return { out, bay, field, memberShip };
+  return { out, bay, field, memberShip, favoredRun };
 }
 
 // The ship a piece rides with: its own ship, or its member's. null = in storage (a spare, an Armory piece). Pure.
@@ -612,30 +627,41 @@ type RepairBonuses = Partial<Record<RepairRateBonus, number>>;
 // A ship's two hull repair bonuses as every gear repair rate on it reads them (REPAIR_RATE_BONUSES): the hull repair's
 // own speed bonus (as tick.ts shipyardRepairSpeedBonus reads it: officers, crew and captain) and the installed Damage
 // Control Suite's time reduction. Pure.
-export function shipRepairBonuses(state: GameState, ship: ShipInstance): RepairBonuses {
+// WR-7 follow-up (OC-D5): `favored` is whether the suite reads its favored-spec lines on a Tactician hull (model.ts
+// withFavoredLines). A run reads them only when stamped (favoredSpec): a patrol's wear clock passes its run's stamp
+// (dispatch and every relaunch) and the tail pass the same stamp (pieceRepairRate, RepairContextIndex.favoredRun), so an
+// unstamped run in flight repairs exactly as before. A ship on no run reads the suite as it stands (favored).
+export function shipRepairBonuses(state: GameState, ship: ShipInstance, favored: boolean): RepairBonuses {
+  const installed = equippedFor(state, ship.id);
   return {
     officerRepairSpeed: withCaptainRepair(shipRepairSpeedBonus(state, ship), shipCaptainCombatMods(state, ship)),
-    damageControlRepairTime: damageControlEffect(equippedFor(state, ship.id)).repairTimeReduction,
+    damageControlRepairTime: damageControlEffect(favored ? withFavoredLines(installed, ship.typeKey) : installed).repairTimeReduction,
   };
 }
 
 // The rate a piece repairs at in `context` (per-mille a minute): the context's free rate lifted by its ship's hull
 // repair bonuses, the same algebra as the hull repair. A piece in storage takes no bonus. Pure (the cache is the
 // caller's, per call).
+// WR-7 follow-up (OC-D5): a ship out on a run reads its suite on the run's favored-spec stamp (index.favoredRun); a ship
+// on no run, and `postRun` (the context a run that ended within the call hands its pieces to), as it stands, so the
+// span after a run ends repairs alike in one call or many.
 export function pieceRepairRate(
   state: GameState,
   index: RepairContextIndex,
   piece: EquipmentInstance,
   context: RepairContext,
   cache?: Map<string, RepairBonuses>,
+  postRun = false,
 ): number {
   const shipId = pieceShipId(index, piece);
   if (shipId === null) return repairRatePerMinute(context);
-  let bonuses = cache?.get(shipId);
+  const favored = postRun || !index.out.has(shipId) || index.favoredRun.has(shipId);
+  const key = favored ? `${shipId}|favored` : shipId;
+  let bonuses = cache?.get(key);
   if (bonuses === undefined) {
     const ship = state.ships.find((s) => s.id === shipId);
-    bonuses = ship ? shipRepairBonuses(state, ship) : {};
-    cache?.set(shipId, bonuses);
+    bonuses = ship ? shipRepairBonuses(state, ship, favored) : {};
+    cache?.set(key, bonuses);
   }
   return repairRatePerMinute(context, bonuses);
 }
@@ -711,7 +737,8 @@ export function resolveGearWear(before: GameState, after: GameState, events: Gea
         // The run ended within the call: underway (and its field legs) up to the instant it ended, then the new
         // context to the call's end.
         const end = Math.min(now, (shipId !== null ? events?.runEnds.get(shipId) : undefined) ?? now);
-        const afterRate = pieceRepairRate(before, index, piece, contextAfter, bonuses);
+        // WR-7 follow-up (OC-D5): the new context reads the ship off its run (postRun), as the next call would.
+        const afterRate = pieceRepairRate(before, index, piece, contextAfter, bonuses, true);
         p = settleScheduled(p, end, rate, windows, fieldRate);
         // GEAR WEAR step 4: on a step 4 stamped run the fraction of a per-mille the slow underway rate banked by the end
         // carries into the new context at ITS rate (rebaseAnchor), so the new rate never repairs time spent underway.

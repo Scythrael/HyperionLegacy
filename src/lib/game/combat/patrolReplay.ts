@@ -47,6 +47,8 @@ import {
   type CaptainCombatMods,
   type PatrolDifficultyStamp,
   type PatrolMissionState,
+  type ShipTypeKey,
+  withFavoredLines,
 } from "../model";
 // Combat 1.0 (Unit 1.4): the SAME fitted-gear query the live tick loop uses (equippedFor), so the
 // display replay derives the player's installed combat gear byte-identically to the real fight and
@@ -236,6 +238,10 @@ export interface ResolvePatrolWavesInput {
   // WR-8 (0.14.0): the cycle's combat rules stamp (the mission's stored stamp; the dispatch forecast passes the one a
   // dispatch would write now, crewOverlay.ts shipCombatRulesStamp). Absent = the pre-WR-8 waves (byte-identical).
   combatRules?: CombatRulesStamp;
+  // WR-7 follow-up (OC-D5): the hull whose favored pieces the Damage Control patch-up reads with the favored-spec bonus
+  // (model.ts withFavoredLines): a cycle stamped favoredSpec (the live loop's reading), and the dispatch forecast (a
+  // dispatch now stamps). Absent = the suite's lines as stored (a cycle from before the bonus; byte-identical).
+  favoredHull?: ShipTypeKey;
 }
 
 export interface ResolvePatrolWavesResult {
@@ -259,7 +265,9 @@ export function resolvePatrolWaves(input: ResolvePatrolWavesInput): ResolvePatro
   const foldedDefense = foldedPlayerDefense(stats, input.installedGear, input.officerCombat, input.captainCombat);
   // E4d: the Damage Control Suite's between-wave hull patch-up fraction (0 without the suite), the SAME
   // value the live loop computes from the same gear. WR-5b: x the captain's Damage Control, as live.
-  const waveHullRegenFraction = captainWaveRegenFraction(damageControlEffect(input.installedGear).waveHullRegenFraction, input.captainCombat);
+  // WR-7 follow-up (OC-D5): the suite's favored lines on a stamped cycle, exactly as the live loop reads them.
+  const suiteGear = input.installedGear && input.favoredHull !== undefined ? withFavoredLines(input.installedGear, input.favoredHull) : input.installedGear;
+  const waveHullRegenFraction = captainWaveRegenFraction(damageControlEffect(suiteGear).waveHullRegenFraction, input.captainCombat);
 
   // The wave schedule: a pure function of the master seed + def params, IDENTICAL to
   // the array freshPatrolMission persisted at dispatch (same call), so the replay's
@@ -550,6 +558,8 @@ export function resolveMissionCycle(
     difficulty: mission.difficulty,
     // WR-8: the cycle's stored combat rules (absent = a cycle from before WR-8).
     combatRules: mission.combatRules,
+    // WR-7 follow-up (OC-D5): a stamped cycle's suite reads its favored lines (the hull type is the ship's type key).
+    ...(mission.favoredSpec === 1 ? { favoredHull: hullType } : {}),
   });
   return resolved;
 }

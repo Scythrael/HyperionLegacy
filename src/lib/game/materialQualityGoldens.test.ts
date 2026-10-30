@@ -21,6 +21,7 @@ import { gearWearOffInThisFile } from "./gearWearSwitch.fixture";
 gearWearOffInThisFile();
 import { enqueueOrder } from "./tick";
 import { stateHash } from "./firstRunsGoldens.fixture";
+import { withFavoredSpecOff } from "./favoredSpecSwitch.fixture";
 import { MIXED_INGOT, MIXED_ORE, craftStateQ, lineQ, rigFleet, rigRun, steppedQ, stripCarry, withMaterialQualityOff } from "./materialQualityGoldens.fixture";
 
 const ML34_GOLDEN = {
@@ -46,6 +47,13 @@ const ML4_CRAFT = {
 const ML3_RIG = {
   rigAssayer: "87121346:1104",
   rigSalvage: "c057cdeb:819",
+};
+// Re-pinned by the WR-7 follow-up OC-D5 favorsSpec ("+10% on its ship type", user 2026-10-29): the Refinery-Feed Rig
+// favors the Prospector spec, so on the Prospector Miner every line counts +10% (a higher climb chance, more yield);
+// the shared draw count is unchanged. With the bonus switched off (withFavoredSpecOff) each row is ML3_RIG again.
+const OC_D5_RIG = {
+  rigAssayer: "c52ca533:1104",
+  rigSalvage: "d02e9efc:819",
 };
 
 describe("ML-3 + ML-4 pre-change goldens", () => {
@@ -85,12 +93,14 @@ describe("ML-3 + ML-4 pre-change goldens", () => {
   });
 
   it("rigAssayer: a Refinery-Feed Rig ship flown by an Assayer captain on the Local Asteroid run", () => {
-    expect(rigRun(rigFleet(["extraction4"]), "shortOreRun", 0x7eb)).toEqual(ML3_RIG.rigAssayer);
-    expect(withMaterialQualityOff(() => rigRun(rigFleet(["extraction4"]), "shortOreRun", 0x7eb))).toEqual(ML34_GOLDEN.rigAssayer);
+    expect(rigRun(rigFleet(["extraction4"]), "shortOreRun", 0x7eb)).toEqual(OC_D5_RIG.rigAssayer);
+    expect(withFavoredSpecOff(() => rigRun(rigFleet(["extraction4"]), "shortOreRun", 0x7eb))).toEqual(ML3_RIG.rigAssayer);
+    expect(withFavoredSpecOff(() => withMaterialQualityOff(() => rigRun(rigFleet(["extraction4"]), "shortOreRun", 0x7eb)))).toEqual(ML34_GOLDEN.rigAssayer);
   });
 
   it("rigSalvage: a Refinery-Feed Rig ship on Salvage Wreckage", () => {
-    expect(rigRun(rigFleet(), "salvageWreckage", 0x7ed)).toEqual(ML3_RIG.rigSalvage);
-    expect(withMaterialQualityOff(() => rigRun(rigFleet(), "salvageWreckage", 0x7ed))).toEqual(ML34_GOLDEN.rigSalvage);
+    expect(rigRun(rigFleet(), "salvageWreckage", 0x7ed)).toEqual(OC_D5_RIG.rigSalvage);
+    expect(withFavoredSpecOff(() => rigRun(rigFleet(), "salvageWreckage", 0x7ed))).toEqual(ML3_RIG.rigSalvage);
+    expect(withFavoredSpecOff(() => withMaterialQualityOff(() => rigRun(rigFleet(), "salvageWreckage", 0x7ed)))).toEqual(ML34_GOLDEN.rigSalvage);
   });
 });
