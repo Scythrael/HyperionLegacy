@@ -340,9 +340,11 @@ export function allSkillsMaxed(s: SecretState): boolean {
   return LEVELED_SKILLS.every((d) => skillLevel(s, d.id) >= d.cap);
 }
 
-// The schedule total minus what it has paid (0 once earning has stopped).
+// What Fleet Prestiges will still pay: every level not yet owned, less the points held (0 once earning has
+// stopped). The stopping rule of nextSkillPointPay, so it also holds for a save converted on load (Slice 6),
+// whose levels came from its 0.13.11.2 skills rather than from points this build paid.
 export function skillPointsRemaining(s: SecretState): number {
-  return Math.max(0, totalSkillCost() - s.skillPointsEarned);
+  return Math.max(0, skillCostToMax(s) - s.skillPoints);
 }
 
 // The schedule's entry for the n-th lifetime Fleet Prestige (0 = the first); the last entry repeats.
@@ -1351,17 +1353,24 @@ export function checkMilestonesMut(s: SecretState, atMs: number): void {
   for (const id of MILESTONE_IDS) {
     if (s.milestones[id] === undefined && reached(s, id)) s.milestones[id] = atMs;
   }
+  grantMilestoneAutomationsMut(s);
+  // Slice 4: remember every skill whose gate has opened (the gate lift reopens them; skillAvailable).
+  for (const def of LEVELED_SKILLS) {
+    if (s.skillsOpened[def.id] !== true && skillGateOpen(s, def.id)) s.skillsOpened = { ...s.skillsOpened, [def.id]: true };
+  }
+}
+
+// The grant half of checkMilestonesMut, also run by the one-time conversion on load (prestigeConversion.ts),
+// so a converted save gets exactly what its next step would grant.
+export function grantMilestoneAutomationsMut(s: SecretState): void {
   for (const id of AUTOMATION_IDS) {
     if (s.automations[id] !== true && s.milestones[AUTOMATION_UNLOCKS[id]] !== undefined) {
       s.automations = { ...s.automations, [id]: true };
       // A secret one is granted switched OFF (user 2026-10-28 "Granted OFF until revealed"): once it shows itself
-      // the player turns it on. A 0.13.11.2 save that owns it as a skill keeps its switch as it was.
+      // the player turns it on. A 0.13.11.2 save that owns it as a skill keeps its switch as it was (user
+      // 2026-10-29 "Back ON for buyers": still hidden until its own first Prestigeception, then on as it was).
       if (MYSTERY_AUTOMATIONS[id] !== undefined && s.autoOn[id] === undefined && (s.skills as Partial<Record<string, true>>)[id] !== true) s.autoOn = { ...s.autoOn, [id]: false };
     }
-  }
-  // Slice 4: remember every skill whose gate has opened (the gate lift reopens them; skillAvailable).
-  for (const def of LEVELED_SKILLS) {
-    if (s.skillsOpened[def.id] !== true && skillGateOpen(s, def.id)) s.skillsOpened = { ...s.skillsOpened, [def.id]: true };
   }
 }
 

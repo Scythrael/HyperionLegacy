@@ -486,3 +486,25 @@ BackgroundConfigure.svelte. Unlock: main-save optional unlockedBackgrounds (no S
 the e25M milestone like Starfall. Readability guard: data-background makes panels, header and tab bar nearly opaque
 plus a static scrim. Still is automatic with reduced motion (the game's Reduce motion, which defaults to the
 system's). Only real backgrounds are listed (the mockup's extra locked rows stand for future ones; none ship yet).
+
+**Slice 6 carry note (save conversion, 2026-10-30):** `convertPrestigeV1` (src/lib/secret/prestigeConversion.ts), pure
+and idempotent by the marker, runs once from `deserializeSecret` for any save without `prestigeV: 1`. New games
+start marked (`newSecretGame`: the runtime's start, Delete Save / Reset, and a missing or unreadable save);
+`freshSecretState` stays the unmarked base every load fills in and the fixtures build on, so the relic-free goldens
+and pacing are byte-identical. No SAVE_VERSION bump. What it does: owned Head Start / Ten Bonus / Overdrive become
+levels 1 / 4 / 4 (today's effect; every engine readout equal to before); every automation owned as a skill is set
+in `automations` with its switch untouched, then the milestones already recorded grant the rest through the step's
+own grant (engine `grantMilestoneAutomationsMut`, split out of `checkMilestonesMut`, so Auto Prestigeception bought
+as a skill stays hidden until the save's own first Prestigeception and is then on as it was, while granted it
+starts off); Skill Points = the schedule's total over `fleetTotal` (front-loaded, capped at 49) minus the levels'
+cost, the 0.13.11.2 points held replaced, not added. `skillPointsRemaining` now reads the levels still to buy
+less the points held (the stopping rule of `nextSkillPointPay`). The 0.13.11.2 `skills` record is kept (a rollback
+still has it); `captainScale` and the device's Captain Points key are never touched. Milestones new in 0.14.0 are
+recorded by the next step as in play (their popups show then). Tests: prestigeConversion.test.ts; serialization
+tests that model a 0.14.0 save now start from `newSecretGame`.
+- [PROPOSAL] Levels that cost more than the history pays (for example 3 Fleets pay 8 but Ten Bonus and Overdrive as
+  levels 4 cost 20): every level is kept, 0 points held, nothing owed; the earned count is raised to the levels'
+  cost, so later Fleets pay only what the levels still to buy need (the save maxes on the same lifetime total as
+  everyone, 49). Alternative: carry the shortfall as a debt that later Fleets repay before paying points.
+- [PROPOSAL] An Auto Prestigeception buyer who had switched it OFF in 0.13.11.2 stays off when it is revealed
+  (switched exactly as it was); buyers who never touched the switch are revealed ON.
