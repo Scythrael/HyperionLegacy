@@ -200,7 +200,7 @@ import { FIELD_KITS_BATTLE, withFieldKitsDefaultProgram } from "../fieldKitsBatt
 import { fieldworkEffect, fieldworkHazardResist, fieldworkSpeedMult } from "../fieldwork";
 import { taskSecurityHazardResist } from "../groundTasks";
 import { awayRecruitCandidates, snapshotMembers } from "../awayTeam";
-import { seniorStaffCandidates } from "../seniorStaff";
+import { officerPromotionCounter, seniorStaffCandidates } from "../seniorStaff";
 import { applyExpeditionInjuries, injuryRecoverySeconds, shipInjuryFactors } from "../injuries";
 import { boardingRepelChance, buildShipCombatant, shipSalvageScale, snapshotShipEventProfile } from "../shipScanEvents";
 import { shipsWithMemberAutoSlotted } from "../groundTeamSlots";
@@ -1279,7 +1279,7 @@ function missionCrewHours(s: GameState, ctx?: ContextId): number {
   let after = r.next;
   for (let t = 0; t < 600; t++) after = economyTick(after, 1, () => 0.5);
   const o = after.officers.find((x) => x.assignedShipId === WIRING_SHIP_ID);
-  return o ? o.promotionCounters?.crewHours ?? 0 : -1;
+  return o ? officerPromotionCounter(o, "crewHours") : -1;
 }
 
 // A dispatched run brought home with one objective done, then claimed: the first officer aboard's
@@ -2020,6 +2020,24 @@ export const PROBES = {
         ticks += 1;
       }
       return ticks;
+    },
+  },
+  // OC-D8 follow-up: a Dispatch Once patrol's leg home in route ticks (the ticks it spends in transitBack; -1 for a run
+  // that never flew home on it, a lost run limping instead).
+  patrolReturnTicks: {
+    label: "the first patrol's leg home (route ticks in transitBack)",
+    read: (s) => {
+      const r = dispatchCaptainOnPatrol(s, WIRING_CAPTAIN_ID, Object.keys(PATROLS)[0], "balanced", false);
+      if (!r.success) return -1;
+      let after = r.next;
+      let ticks = 0;
+      let back = 0;
+      while (captainOf(after).mission !== null && ticks < 10_000) {
+        if ((captainOf(after).mission as PatrolMissionState).phase === "transitBack") back += 1;
+        after = economyTick(after, 1, () => 0.5);
+        ticks += 1;
+      }
+      return back > 0 ? back : -1;
     },
   },
   // WR-8: the six per-family resist lines roll on crafted Hull Plating and Shield Emitters (resist picks over 300

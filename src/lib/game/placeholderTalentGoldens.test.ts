@@ -51,6 +51,10 @@ import { asPreCurveDispatch, asPreG2NamesDispatch, dispatchPastPropulsion, asPre
 // cycles and runs; combatDescriptorGoldens.test.ts pins the combat rules themselves).
 import { combatRulesOffForThisFile } from "./combatRulesSwitch.fixture";
 combatRulesOffForThisFile();
+// The crewHours determinism fix (2026-10-30): this file's pins predate it and are about another slice, so the whole
+// file runs with the float crewHours counter (crewHoursSwitch.fixture.ts; crewHoursMs.test.ts traces the move).
+import { crewHoursFloatForThisFile } from "./crewHoursSwitch.fixture";
+crewHoursFloatForThisFile();
 
 function fnv(s: string): string {
   let h = 0x811c9dc5;

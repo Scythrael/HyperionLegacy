@@ -183,17 +183,28 @@ export function officerPromotionObjectiveSet(officer: SeniorStaffOfficer): reado
   );
 }
 
+// The crewHours counter's unit (SeniorStaffOfficer.crewHoursMs): whole milliseconds.
+export const CREW_HOURS_MS_PER_HOUR = 3_600_000;
+
+// An officer's crewHours in whole milliseconds: the stored counter, else a pre-fix save's float hours carried over
+// (round(crewHours x 3_600_000), 0 when absent). Pure.
+export function officerCrewHoursMs(officer: SeniorStaffOfficer): number {
+  return officer.crewHoursMs ?? Math.round((officer.promotionCounters?.crewHours ?? 0) * CREW_HOURS_MS_PER_HOUR);
+}
+
 // An officer's CURRENT value for one objective kind. `missionsCompleted` reads the officer's own folded
 // counter (crewOverlay.foldOfficerMissionCompletions, from the mission cycles and patrol routes). The OTHER
 // kinds read the optional per-officer `promotionCounters` map (absent = 0), fed since WR-4 (B4; user OC-E10
 // "Count the objectives", counters start at 0 with no backfill) by crewOverlay.foldOfficerPromotionCounters:
 //   crewHours            : the hours the officer's ship spends out on any run (missions, patrols, expeditions),
-//                          accrued live by economyTick;
+//                          accrued live by economyTick in whole milliseconds (crewHoursMs; a pre-fix save's float
+//                          promotionCounters.crewHours until its first increment);
 //   shipsDestroyed       : the enemy ships its patrols destroy (economyTick) and the ship battles its expeditions
 //                          win (at the claim);
 //   personnelAchievement : the objectives the ship's squads complete on an expedition (at the claim). Pure.
 export function officerPromotionCounter(officer: SeniorStaffOfficer, kind: PromotionObjectiveKind): number {
   if (kind === "missionsCompleted") return officer.missionsCompleted;
+  if (kind === "crewHours" && officer.crewHoursMs !== undefined) return officer.crewHoursMs / CREW_HOURS_MS_PER_HOUR;
   return officer.promotionCounters?.[kind] ?? 0;
 }
 

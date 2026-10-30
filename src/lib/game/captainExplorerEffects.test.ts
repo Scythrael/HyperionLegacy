@@ -24,6 +24,7 @@ import { describeSecondaryTalentEffect, secondaryTalentEffectText } from "./capt
 import { effectiveShipStats, officerMissionOutputBonus } from "./crewOverlay";
 import { discoveryOddsPermille, expeditionCandidates, rollBodyDiscoveries, scanRatePerSecond } from "./expedition";
 import { dispatchCaptainOnMission, economyTick, tick } from "./tick";
+import { officerPromotionCounter } from "./seniorStaff";
 import { relicChancePermille, relicTierCeiling, rollRelicToken } from "./gambit";
 import { readSystem, telescopeReading, TELESCOPE_DETAIL } from "./telescope";
 import { expeditionRiskPreview } from "./expedition";
@@ -219,11 +220,12 @@ describe("WR-5c Command & Crew", () => {
     expect(ones.officers).toEqual(once.officers);
     // And it is the plain counter x 1.08.
     const plain = tick(1994, dispatchCaptainOnMission(seatOfficer(wiringBase(), "science", ["sci.discovery"]), 1, "shortOreRun").next, rng);
-    const hours = (s: GameState) => s.officers[0].promotionCounters?.crewHours ?? 0;
+    const hours = (s: GameState) => officerPromotionCounter(s.officers[0], "crewHours");
     expect(hours(once)).toBeCloseTo(hours(plain) * (1 + mag("commandCrew3")), 9);
     expect(once.officers[0].missionsCompleted).toBeCloseTo(plain.officers[0].missionsCompleted * (1 + mag("commandCrew3")), 9);
     // economyTick reads the incoming state's captain: a single call agrees too.
-    expect(economyTick(r.next, 1, rng).officers[0].promotionCounters?.crewHours).toBeCloseTo((1 / 3600) * (1 + mag("commandCrew3")), 12);
+    // In whole milliseconds (the crewHours determinism fix): 1 s x 1.08 = 1080 ms, exactly.
+    expect(economyTick(r.next, 1, rng).officers[0].crewHoursMs).toBe(Math.round(1000 * (1 + mag("commandCrew3"))));
   });
 });
 

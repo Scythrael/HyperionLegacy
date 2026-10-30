@@ -1984,3 +1984,12 @@ speed vs the Efficient Core's +35%); Wide arrays netted about 1.27x the finds pe
 - Hub engineering call: the officers' `crewHours` float drift (one economyTick(span) adds span/3600 once vs 1 s steps
   adding 1/3600 span times; tick.ts ~4485) violates "one call == chunked == 1 s steps" and gets fixed with a
   whole-number seconds counter, not tolerated by a 12-digit comparison.
+- BUILT (OC-D8 follow-up): each patrol cycle freezes its outbound leg (`transitOutTicks`, home to the patrol zone)
+  at the sweeping speed x Fast Departure and its leg home (`transitBackTicks`; a limp home is twice it) x Fast Return,
+  into the same `legTicks` (written only when they differ). The Constitution run clock sums each completed cycle's
+  route ticks (`routeTicksThisRun`, written only when a run mixes cycle lengths). Test switches
+  PATROL_LEG_LIFTS_SWITCH / PATROL_RUN_CLOCK_SWITCH; registry crew:audit:patrolDepartureLeg / patrolReturnLeg.
+- BUILT (fix round, 2026-10-30): the run clock counts only flown ticks for cycles stamped `cutFlown` (old and in-flight
+  cycles add their full route, byte-identical); crewHours accrues in whole milliseconds (`crewHoursMs`, milliseconds
+  because Drillmaster x1.08 makes seconds x mult fractional; exact while the multiplier is 1 or 1.08), old saves
+  convert on first increment; test switch CREW_HOURS_MS_SWITCH. No SAVE_VERSION bump.

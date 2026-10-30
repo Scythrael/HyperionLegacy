@@ -42,6 +42,8 @@ import {
   PATROLS,
   // WR-7 follow-up OC-D8: a patrol cycle's frozen legs and the route it flies.
   patrolLegTicksFor,
+  patrolLegTicksForStats,
+  PATROL_RUN_CLOCK_SWITCH,
   patrolRouteOf,
   patrolRouteTicks,
   type PatrolLegTicks,
@@ -81,7 +83,6 @@ import {
   type ShipTypeKey,
   type ShipTypeDef,
   type ShipInstance,
-  type PromotionObjectiveKind,
   type CaptainState,
   type CaptainStopReason,
   type CaptainMissionState,
@@ -379,6 +380,7 @@ import {
   resolveCrew,
   foldOfficerMissionCompletions,
   foldOfficerPromotionCounters,
+  type PromotionIncrements,
   officerCombatModsFromProfile,
   officerCombatProfile,
   shipMissionOutputBonus,
@@ -3306,7 +3308,7 @@ export function tickCaptainPatrol(
   // E-CREW 0.14.0 (Task 21), the officer stat facets a RELAUNCH freezes onto its new cycle:
   //   relaunchCombatProfile : the officers' combat profile (crewOverlay.ts officerCombatProfile). When present
   //                    it REPLACES relaunchCombat: each relaunch folds it at the hours this run has flown so
-  //                    far (routesCompletedThisRun * route length * secondsPerTick), so the Constitution
+  //                    far (the route ticks its completed cycles flew x secondsPerTick, OC-D8 follow-up), so the Constitution
   //                    ramp grows cycle by cycle (a pure function of the stored run, so chunking cannot
   //                    change it) and the Integrity extras ride along.
   //   secondsPerTick : the fleet tick length for that clock (default 1).
@@ -3334,6 +3336,11 @@ export function tickCaptainPatrol(
     // WR-7 follow-up OC-D8: the ship's transit speed now (its sheet, crew included), the legs a relaunch freezes onto its
     // new cycle (patrolLegTicksFor). Absent = the route's legs (a test call; the app always passes it).
     transitSpeed?: number;
+    // OC-D8 follow-up (user 2026-10-30 "Yes, each its own leg"): the ship's per-leg complement lifts now (its sheet's
+    // transitOutLegMult, Fast Departure, and transitBackLegMult, Fast Return), each multiplying transitSpeed on its own
+    // leg of the new cycle. Absent = no lift on that leg.
+    transitOutLegMult?: number;
+    transitBackLegMult?: number;
   } = {},
 ): PatrolTickResult {
   const noOp: PatrolTickResult = {
@@ -3474,9 +3481,22 @@ export function tickCaptainPatrol(
   // PER RUN and survives both a call boundary and a relaunch. A single variable cannot do both
   // jobs, which is why the persisted field exists.
   let routesThisRun = mission.routesCompletedThisRun ?? 0;
-  // E-CREW (Task 21): the hours a run has flown after `routes` full routes (the Constitution ramps' clock; the
-  // current cycle's full route length per route, a stored-value function, so chunking cannot change it).
-  const runHours = (routes: number): number => (routes * routeLength * (officerEffects.secondsPerTick ?? 1)) / 3600;
+  // E-CREW (Task 21): the hours this run has flown over its completed routes (the Constitution ramps' clock). OC-D8
+  // follow-up (review finding): the route ticks each completed cycle flew, summed (runRouteTicks), so a run that mixes
+  // cycle lengths (legs frozen per cycle at the ship's speed then) reads its own; a stored-value function, so chunking
+  // cannot change it. A run without the stored sum (one cycle length, or from before) reads routes x this cycle's
+  // length, the old clock exactly.
+  // User 2026-10-30 "Count only flown": a cycle started since counts only the ticks it flew (its route less its return
+  // cut, PatrolMissionState.cutFlown), so a run whose cycles were cut stores the sum too.
+  let runRouteTicks = mission.routeTicksThisRun ?? routesThisRun * routeLength;
+  // (PATROL_RUN_CLOCK_SWITCH, test only: off, the old clock, and nothing stored.)
+  const runHours = (): number =>
+    ((PATROL_RUN_CLOCK_SWITCH.live ? runRouteTicks : routesThisRun * routeLength) * (officerEffects.secondsPerTick ?? 1)) / 3600;
+  // The stored sum is written only when it is not that product (PatrolMissionState.routeTicksThisRun).
+  const persistRunRouteTicks = (m: PatrolMissionState): void => {
+    if (!PATROL_RUN_CLOCK_SWITCH.live || runRouteTicks === routesThisRun * routeLength) delete m.routeTicksThisRun;
+    else m.routeTicksThisRun = runRouteTicks;
+  };
   // 0.13.4 Phase 2: set at each ending path, read into the result at the end of the call.
   let endReason: PatrolEndReason | null = null;
 
@@ -3830,6 +3850,10 @@ export function tickCaptainPatrol(
         // per-call counter) rather than at the ending, because a repeat-dispatch run completes
         // many routes and only the last one coincides with an ending.
         routesThisRun += 1;
+        // OC-D8 follow-up: and the route ticks this cycle flew, the run clock's. User 2026-10-30 "Count only flown": a
+        // cycle stamped cutFlown (started after that answer) counts its route less the ticks its Constitution return
+        // cut skipped; an unstamped cycle (in flight from before) counts its route's full length, as it did.
+        runRouteTicks += routeLength - (mission.cutFlown === 1 ? (mission.returnCutTicks ?? 0) : 0);
       }
       // GEAR WEAR step 4 (user 2026-10-28, the repair trigger from realism): the NEXT cycle, minted now so its wear can be
       // projected before it flies (the relaunch below takes this same value). Pure.
@@ -3845,7 +3869,7 @@ export function tickCaptainPatrol(
           const newSeed = deriveWaveSeed(cur.masterSeed, 0, RELAUNCH_SEED_SALT);
           // E-CREW (Task 21): the hours this run has flown before the new cycle (the Constitution ramp's clock)
           // and the new cycle's frozen combat bonuses: the profile folded at those hours, else Task 20's value.
-          const hoursOut = runHours(routesThisRun);
+          const hoursOut = runHours();
           const relaunchCombat = officerEffects.relaunchCombatProfile
             ? officerCombatModsFromProfile(officerEffects.relaunchCombatProfile, hoursOut)
             : officerEffects.relaunchCombat;
@@ -3858,7 +3882,8 @@ export function tickCaptainPatrol(
           // cycle opens at its carried wear. Never on a training cycle (W9), never without the engine's clock.
           // WR-7 follow-up OC-D8: the new cycle freezes its legs at the ship's transit speed now (economyTick's live read;
           // absent = the route's legs, a test call), and its Constitution cut and clock read that cycle's route.
-          const nextLegs = patrolLegTicksFor(def, officerEffects.transitSpeed);
+          // OC-D8 follow-up: each leg at its own speed (Fast Departure out, Fast Return home).
+          const nextLegs = patrolLegTicksFor(def, officerEffects.transitSpeed, { out: officerEffects.transitOutLegMult, back: officerEffects.transitBackLegMult });
           const nextRoute = patrolRouteOf({ patrolKey: cur.patrolKey, legTicks: nextLegs });
           const nextConditions = relaunchCycleConditions(installedGear, gearWearEvents, offsetNow(), nextDifficulty, officerEffects.gearWear, pauseWindows);
           const nextGear = nextConditions !== undefined && installedGear ? combatGearView(installedGear, nextConditions) : installedGear;
@@ -3972,6 +3997,8 @@ export function tickCaptainPatrol(
           // ending no matter how many it actually flew, which is the exact failure the per-run
           // counter exists to prevent. Phase 0's comment on the factory predicted this line.
           mission.routesCompletedThisRun = routesThisRun;
+          // OC-D8 follow-up: carried the same way (the new cycle's route length set above).
+          persistRunRouteTicks(mission);
           if (pausesThisRun > 0) mission.repairPausesThisRun = pausesThisRun;
           progress = 0;
           // Loop continues: any remaining ticks advance the FRESH patrol.
@@ -4019,6 +4046,8 @@ export function tickCaptainPatrol(
     // assignment inside the loop above. Covers the ordinary case where a run spans many ticks
     // without relaunching at all (a single long Dispatch Once).
     mission.routesCompletedThisRun = routesThisRun;
+    // OC-D8 follow-up: the run clock's route ticks, at the call boundary too.
+    persistRunRouteTicks(mission);
     if (pausesThisRun > 0) mission.repairPausesThisRun = pausesThisRun;
   }
 
@@ -4450,14 +4479,15 @@ export function shipsOutOnRuns(state: GameState): Set<string> {
 }
 
 // WR-4 (B4): one call's promotion counter increments per ship: crewHours for every ship out on a run (the call's
-// span in hours) and shipsDestroyed for every ship whose patrol destroyed an enemy. Pure.
+// span, as crewSeconds: the fold adds it in whole milliseconds, crewOverlay.ts foldOfficerPromotionCounters) and
+// shipsDestroyed for every ship whose patrol destroyed an enemy. Pure.
 function runCounterIncrements(
   shipsOnRuns: ReadonlySet<string>,
   deltaSeconds: number,
   shipKills: ReadonlyMap<string, number>,
-): Map<string, Partial<Record<PromotionObjectiveKind, number>>> {
-  const inc = new Map<string, Partial<Record<PromotionObjectiveKind, number>>>();
-  if (deltaSeconds > 0) for (const id of shipsOnRuns) inc.set(id, { crewHours: deltaSeconds / 3600 });
+): Map<string, PromotionIncrements> {
+  const inc = new Map<string, PromotionIncrements>();
+  if (deltaSeconds > 0) for (const id of shipsOnRuns) inc.set(id, { crewSeconds: deltaSeconds });
   for (const [id, kills] of shipKills) inc.set(id, { ...(inc.get(id) ?? {}), shipsDestroyed: kills });
   return inc;
 }
@@ -4487,7 +4517,10 @@ export function economyTick(
   const deltaSeconds = ticksElapsed * state.tickDurationSeconds;
   // WR-4 (B4, OC-E10 "crewHours from the officer's ship hours out on any run"): the ships OUT on a run at the start
   // of this call (a captain mission or patrol, or an expedition not yet home), read from the INCOMING state so the
-  // whole call's span counts once. tick() always steps whole ticks, so one call == many small calls exactly.
+  // whole call's span counts once. It accrues in whole milliseconds (crewHoursMs, integer adds: the crewHours
+  // determinism fix 2026-10-30), so while the ship stays out one call over a span, any chunking of it and 1 s steps
+  // land on the same counter. A ship that comes home inside a call counts to the call's end; tick() (offline) and the
+  // live loop both step one tick per call, so offline == live.
   const shipsOnRuns = shipsOutOnRuns(state);
   // WR-4 (B4): enemy ships each ship's patrol destroyed this call (officers' shipsDestroyed).
   const shipKills = new Map<string, number>();
@@ -4768,6 +4801,9 @@ export function economyTick(
                 combatRules: shipCombatRulesStamp(state, patrolShip, patrolFavored),
                 // WR-7 follow-up OC-D8: the transit speed the next cycle freezes its legs at (the sheet the fuel reads).
                 ...(patrolStats ? { transitSpeed: patrolStats.transitSpeedMult } : {}),
+                // OC-D8 follow-up: and its per-leg lifts (Fast Departure, Fast Return), each on its own leg.
+                ...(patrolStats?.transitOutLegMult !== undefined ? { transitOutLegMult: patrolStats.transitOutLegMult } : {}),
+                ...(patrolStats?.transitBackLegMult !== undefined ? { transitBackLegMult: patrolStats.transitBackLegMult } : {}),
                 // GEAR WEAR step 4: the clock and the underway repair rate a relaunch freezes its gear with.
                 gearWear: {
                   startSeconds: state.gameTimeSeconds,
@@ -6109,7 +6145,8 @@ function freshPatrolMission(args: {
   // E-CREW 0.14.0 (Task 21): the cycle's Engineering Cunning free repair ticks (rolled by the caller on this
   // cycle's masterSeed). Stored only when > 0, so a cycle without the roll is byte-identical to before.
   freeRepairTicks?: number;
-  // E-CREW 0.14.0 (Task 21 review calls): the cycle's Flight Deck Constitution return cut. Stored only when > 0.
+  // E-CREW 0.14.0 (Task 21 review calls): the cycle's Flight Deck Constitution return cut. Stored only when > 0, and
+  // then (user 2026-10-30 "Count only flown") with the cutFlown stamp: the run clock counts only the ticks it flies.
   returnCutTicks?: number;
   // 0.14.0 (CP-4, OC-1 "Faster drone replenish"): the cycle's Deck Handling (crewOverlay.ts shipDeckHandling: the
   // Flight Deck buff + the Belter racial), folded into the seeded screen's replenish rate. Stored only when > 0.
@@ -6167,6 +6204,8 @@ function freshPatrolMission(args: {
     ...(replenishCarryStart.some((c) => c > 0) ? { replenishCarryStart } : {}),
     ...(freeRepairTicks > 0 ? { freeRepairTicks } : {}),
     ...(returnCutTicks > 0 ? { returnCutTicks } : {}),
+    // User 2026-10-30 "Count only flown" (PATROL_RUN_CLOCK_SWITCH, test only: off, no stamp).
+    ...(returnCutTicks > 0 && PATROL_RUN_CLOCK_SWITCH.live ? { cutFlown: 1 as const } : {}),
     ...(args.difficulty ? { difficulty: args.difficulty } : {}),
     ...(args.combatRules ? { combatRules: { ...args.combatRules } } : {}),
     ...(args.cycleStartCondition ? { cycleStartCondition: { ...args.cycleStartCondition } } : {}),
@@ -6531,11 +6570,12 @@ export function canDispatchPatrol(
 }
 
 // WR-7 follow-up OC-D8 ("patrol legs scale with transitSpeedMult"): the route a patrol dispatched now on `ship` would
-// fly: the def with the legs its first cycle freezes at the ship's transit speed now (its sheet, crew included, the same
+// fly: the def with the legs its first cycle freezes at the ship's speed on each leg now (its sheet, crew included: the
+// sweeping transit speed with Fast Departure on the outbound leg and Fast Return on the leg home, the same
 // reading its combat rules stamp takes). dispatchCaptainOnPatrol freezes exactly these legs, and the dispatch card and
 // forecast read them, so the shown leg times are the flown ones. Pure.
 export function patrolDispatchRoute(state: GameState, ship: ShipInstance, patrolKey: PatrolKey): { route: PatrolDef; legTicks?: PatrolLegTicks } {
-  const legTicks = patrolLegTicksFor(PATROLS[patrolKey], effectiveShipStats(state, ship).transitSpeedMult);
+  const legTicks = patrolLegTicksForStats(PATROLS[patrolKey], effectiveShipStats(state, ship));
   return { route: patrolRouteOf({ patrolKey, legTicks }), ...(legTicks !== undefined ? { legTicks } : {}) };
 }
 

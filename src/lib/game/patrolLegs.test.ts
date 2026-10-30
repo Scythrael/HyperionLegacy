@@ -14,6 +14,7 @@ import { asPatrolVeteran } from "./awayTeamTestFixtures";
 import { installPiece } from "./wiring/probes";
 import { asPreLegs } from "./patrolLegsGoldens.fixture";
 import { withPatrolLegsOff } from "./patrolLegsSwitch.fixture";
+import { withPatrolLegLiftsOff } from "./patrolLegLiftsSwitch.fixture";
 
 const RNG = (): number => 0.5;
 const SWEEP: PatrolKey = "crimsonReaverSweep";
@@ -153,6 +154,18 @@ describe("OC-D8: patrol legs scale with transit speed", () => {
     expect(recalled.success).toBe(true);
     const r = patrolOf(recalled.next)!;
     expect([r.phase, r.progressTicks]).toEqual(["transitBack", route.transitOutTicks + route.rollWindowTicks]);
+  });
+
+  // OC-D8 follow-up (user 2026-10-30 "Yes, each its own leg"): Fast Departure lifts the outbound leg, Fast Return the
+  // leg home, each at outboundLegSpeed / returnLegSpeed's arithmetic.
+  it("each leg lift shortens its own leg only (patrolLegTicksFor)", () => {
+    const def = PATROLS[WARBAND]; // 5-tick legs
+    expect(patrolLegTicksFor(def, 0.8)).toEqual({ out: 7, back: 7 });
+    expect(patrolLegTicksFor(def, 0.8, { out: 1.4 })).toEqual({ out: 5, back: 7 });
+    expect(patrolLegTicksFor(def, 0.8, { back: 1.4 })).toEqual({ out: 7, back: 5 });
+    // Lifts that bring both legs back to the route's write nothing, like speed 1.
+    expect(patrolLegTicksFor(def, 0.8, { out: 1.4, back: 1.4 })).toBeUndefined();
+    expect(withPatrolLegLiftsOff(() => patrolLegTicksFor(def, 0.8, { out: 1.4, back: 1.4 }))).toEqual({ out: 7, back: 7 });
   });
 
   it("the frozen legs survive a save and load", () => {
