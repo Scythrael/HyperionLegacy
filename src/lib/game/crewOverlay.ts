@@ -834,15 +834,17 @@ function reactorDriveFold(stats: ShipDerivedStats, core: EquipmentInstance, lift
 // (no crew power efficiency: the gear-only scope), the floor the same pieces with the core weightless. Every other
 // field is shipDerivedStats' own. The same object without a core, with the Standard-Issue core and while the test
 // switch is off. PURE.
+// WR-7 follow-up (OC-D5): a fresh reading (a loadout as a dispatch now would read it), so a favored piece folds its
+// favored-spec lines on this hull.
 export function gearSheetWithReactorDrive(ship: ShipInstance, pieces: EquipmentInstance[]): ShipDerivedStats {
-  const stats = shipDerivedStats(ship, pieces);
+  const stats = shipDerivedStats(ship, pieces, { favored: true });
   if (!REACTOR_LIFT_SWITCH.live) return stats;
   const core = pieces.find((p) => p.slotType === "reactorCore");
   if (core === undefined) return stats;
   const mods = equipmentStatMods(pieces);
   const other = SHIP_TYPES[ship.typeKey].basePowerOutput + mods.modulePowerOutput;
   const surplus = Math.min(mods.powerOutput, Math.max(0, other + mods.powerOutput - mods.totalPowerDraw));
-  return reactorDriveFold(stats, core, reactorSurplusSpeedLift(surplus), () => shipDerivedStats(ship, pieces.map((p) => (p.id === core.id ? { ...p, mass: 0 } : p))).transitSpeedMult);
+  return reactorDriveFold(stats, core, reactorSurplusSpeedLift(surplus), () => shipDerivedStats(ship, pieces.map((p) => (p.id === core.id ? { ...p, mass: 0 } : p)), { favored: true }).transitSpeedMult);
 }
 
 // E-MOD EM-4: the installed Reactor Core's UNUSED power, min(the reactor's own output, max(0, output - net draw)),

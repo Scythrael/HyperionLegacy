@@ -4593,8 +4593,10 @@ function foldGuestQuarters(ship: ShipInstance, pieces: EquipmentInstance[], base
 // the bare-hull projection EXACTLY (equipmentStatMods([]) is all-zero -> every
 // fold is an identity), keeping every existing 1-arg call site byte-identical.
 // WR-7 follow-up (OC-D5, user 2026-10-29 "+10% on its ship type"): a piece whose variety favors this hull's spec folds
-// its lines x (1 + FAVORED_SPEC_LINE_BONUS) (withFavoredLines). `opts.favored: false` reads every piece as stored: a
-// captain mission, short-range run or patrol cycle dispatched before the bonus (no favoredSpec stamp).
+// its lines x (1 + FAVORED_SPEC_LINE_BONUS) (withFavoredLines) ONLY with `opts.favored: true` (opt-in, review
+// 2026-10-30): a reader that does not ask reads every piece as stored, so an in-flight reader added later can never take
+// the bonus silently. The fresh readings opt in (crewOverlay.ts effectiveShipStats, the readouts); a captain mission,
+// short-range run or patrol cycle opts in only when stamped (favoredSpec).
 export function shipDerivedStats(
   ship: ShipInstance,
   installed: EquipmentInstance[] = [],
@@ -4602,7 +4604,7 @@ export function shipDerivedStats(
 ): ShipDerivedStats {
   const base = hullDerivedStats(ship);
   if (installed.length === 0) return base; // fast path + explicit byte-identical guarantee
-  const pieces = opts.favored === false ? installed : withFavoredLines(installed, ship.typeKey);
+  const pieces = opts.favored === true ? withFavoredLines(installed, ship.typeKey) : installed;
 
   const mods = equipmentStatMods(pieces);
 

@@ -1987,7 +1987,7 @@
   // hull label is prefixed by the caller only when the ship also has a custom name.
   function shipPickerStats(ship: GameState["ships"][number]): string {
     const gear = equippedFor(state, ship.id);
-    const stats = shipDerivedStats(ship, gear);
+    const stats = shipDerivedStats(ship, gear, { favored: true }); // WR-7 follow-up (OC-D5): as it stands
     const reachLy = shipRangeLightYears(state, ship); // 0.13.9: the shared gear-inclusive reach
     // Battle Rating via the SAME shipToCombatant + battleRating path the roster + install panel use,
     // so this number agrees with the roster's "BR". BR / Holds / Range is one spread that reads for
@@ -4919,7 +4919,7 @@
   function patrolFuelCost(patrolKey: PatrolKey, ship: GameState["ships"][number]): number {
     const def = PATROLS[patrolKey];
     const shipDef = SHIP_TYPES[ship.typeKey];
-    const stats = shipDerivedStats(ship, equippedFor(state, ship.id));
+    const stats = shipDerivedStats(ship, equippedFor(state, ship.id), { favored: true }); // WR-7 follow-up (OC-D5): as a dispatch now reads it
     return fuelForRoundTrip(def.transitOutTicks, def.transitBackTicks, {
       ...shipDef,
       engineEfficiency: stats.engineEfficiency,
@@ -20195,7 +20195,7 @@
             {@const assignedCaptain = ship.assignedCaptainId !== null ? state.captains.find((c) => c.id === ship.assignedCaptainId) ?? null : null}
             {@const devGearLock = crewLockReason(state, ship.id)}
             {@const baseStats = shipDerivedStats(ship, [])}
-            {@const fitStats = shipDerivedStats(ship, equippedFor(state, ship.id))}
+            {@const fitStats = shipDerivedStats(ship, equippedFor(state, ship.id), { favored: true })}
             {@const statRows = [
               { label: "cargoCapacity", base: devEqFlat(baseStats.cargoCapacity), fit: devEqFlat(fitStats.cargoCapacity) },
               { label: "transitSpeed", base: devEqPct(baseStats.transitSpeedMult), fit: devEqPct(fitStats.transitSpeedMult) },

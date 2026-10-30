@@ -4749,8 +4749,9 @@ export function economyTick(
                 gearWear: {
                   startSeconds: state.gameTimeSeconds,
                   secondsPerTick: state.tickDurationSeconds,
-                  underwayRate: repairRatePerMinute("underway", shipRepairBonuses(state, patrolShip)),
-                  homeRate: repairRatePerMinute("home", shipRepairBonuses(state, patrolShip)),
+                  // WR-7 follow-up (OC-D5): on the run's favored-spec stamp, as the tail pass reads it.
+                  underwayRate: repairRatePerMinute("underway", shipRepairBonuses(state, patrolShip, patrolFavored)),
+                  homeRate: repairRatePerMinute("home", shipRepairBonuses(state, patrolShip, patrolFavored)),
                 },
               }
             : {},
@@ -6604,8 +6605,9 @@ export function dispatchCaptainOnPatrol(
     ? cycleRepairPause(mission, ship.id, hullType, installedGear, {
         startSeconds: state.gameTimeSeconds,
         secondsPerTick: state.tickDurationSeconds,
-        underwayRate: repairRatePerMinute("underway", shipRepairBonuses(state, ship)),
-        homeRate: repairRatePerMinute("home", shipRepairBonuses(state, ship)),
+        // WR-7 follow-up (OC-D5): on the stamp this dispatch just wrote, as the tail pass reads it.
+        underwayRate: repairRatePerMinute("underway", shipRepairBonuses(state, ship, mission.favoredSpec === 1)),
+        homeRate: repairRatePerMinute("home", shipRepairBonuses(state, ship, mission.favoredSpec === 1)),
       })
     : 0;
   if (firstPause > 0) {
