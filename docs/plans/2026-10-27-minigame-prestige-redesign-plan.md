@@ -462,3 +462,16 @@ floor back to 4 (from the second on). Typical Tier I collection on the shipping 
 about e18.5M after a year (plateau e15.9M; e25M needs a near-full Tier VII collection). OPEN (user call): the Auto
 Prestigeception target menu is now inert (every target fires at the bar); suggest removing it from that row (the
 signed-off mockup kept a target menu on every prestige automation).
+
+## Slice 5a retune result and calls (user, 2026-10-29 night)
+
+Retune 9850b1f (branch worktree-agent-a067ede01b877445a): pay at the bar for Prestigeception only (Captain and Fleet
+keep growing payouts, design 3.1); PC_BAR_RATIO 2, CP_K 0.53 x CAPTAIN_BEND, SOFT_SCALE 63, SKILL_SCALE_POW 0.1, Tier
+I relic levers x6.5 [PROVISIONAL]. Relic-free average 3.76 / 32.10 / 118.06 d; 5 Prestigeceptions and all 49 Skill
+Points (about day 98) before e10M; gate lift about day 90; typical Tier I x0.890 / 0.851 / 0.876 (Gentle).
+1. Auto Prestigeception target menu: "Remove it (Recommended)": a plain on/off that fires at the bar; Captain and
+   Fleet keep their target menus. (Amends the signed-off automation mockup for that one row; Slice 7 UI.)
+2. e10M near day 118 instead of about 123: "118 is fine (Recommended)".
+3. Casual finale about 4.8 days (simCasual floor 5 -> 4 days): "Accept ~4.8 days (Recommended)".
+4. Old saves that bought the Auto Prestigeception skill: hidden until their own first Prestigeception, then revealed
+   ON: "Back ON for buyers (Recommended)". New players get it OFF.
