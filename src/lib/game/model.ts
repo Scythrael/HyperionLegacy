@@ -1124,6 +1124,44 @@ export const PATROLS: Record<string, PatrolDef> = {
 // error rather than a runtime miss.
 export type PatrolKey = keyof typeof PATROLS;
 
+// WR-7 follow-up OC-D8 (user 2026-10-15 "Speed counts everywhere": "patrol legs scale with transitSpeedMult"): a patrol
+// cycle's two transit legs in route ticks, frozen when the cycle starts (dispatch, and again at each relaunch) from the
+// ship's transit speed then: each leg is the route's leg divided by the speed, rounded up (a mission leg's own rule,
+// outboundLegTicks). The wave window keeps its length (the fight is not travel) and starts where the outbound leg ends.
+// Reach and fuel stay on the route's legs: they are distance, not time.
+export interface PatrolLegTicks {
+  out: number;
+  back: number;
+}
+
+// Test switch only (the EM-4 REACTOR_LIFT_SWITCH pattern): off, no cycle freezes legs, so every patrol flies its route's
+// legs and a golden can show that the pins it moved return. Always live in the game.
+export const PATROL_LEGS_SWITCH = { live: true };
+
+// The legs a cycle starting now freezes at `transitSpeedMult`, or undefined when they are the route's own (speed 1, or
+// any speed the rounding brings back to the route's legs), so such a cycle stores exactly what it stored before. Pure.
+export function patrolLegTicksFor(def: PatrolDef, transitSpeedMult: number | undefined): PatrolLegTicks | undefined {
+  if (!PATROL_LEGS_SWITCH.live || transitSpeedMult === undefined || !(transitSpeedMult > 0) || !Number.isFinite(transitSpeedMult)) return undefined;
+  const out = Math.ceil(def.transitOutTicks / transitSpeedMult);
+  const back = Math.ceil(def.transitBackTicks / transitSpeedMult);
+  return out === def.transitOutTicks && back === def.transitBackTicks ? undefined : { out, back };
+}
+
+// THE route a patrol cycle flies: the PATROLS def with the cycle's frozen legs in place of the route's (a cycle without
+// `legTicks`, from before OC-D8 or at the route's own legs, flies the def itself, the same object). Every reader of a
+// cycle's time (its phases, wave schedule, route end, limp home, Constitution clock, the replay and the readouts) goes
+// through here; reach and fuel read the def (distance). Pure.
+export function patrolRouteOf(cycle: { patrolKey: PatrolKey; legTicks?: PatrolLegTicks }): PatrolDef {
+  const def = PATROLS[cycle.patrolKey];
+  const legs = cycle.legTicks;
+  return legs === undefined ? def : { ...def, transitOutTicks: legs.out, transitBackTicks: legs.back };
+}
+
+// A route's whole length in route ticks (out + window + back). Pure.
+export function patrolRouteTicks(route: PatrolDef): number {
+  return route.transitOutTicks + route.rollWindowTicks + route.transitBackTicks;
+}
+
 // The 4 real hulls this feature ships (design doc, Task 1). TUNABLE, first-pass
 // balance; real tuning happens at the device-check stage, same launch-placeholder
 // spirit as MISSIONS'/RECIPES' constants above. `moduleSlots` is live since E-MOD
@@ -4088,6 +4126,11 @@ export interface PatrolMissionState {
   // Damage Control Suite's patch-up, the relaunch's fuel and combat speed), so a patrol in flight at the update flies
   // exactly as it did. Optional, no SAVE bump.
   favoredSpec?: 1;
+  // WR-7 follow-up OC-D8 (patrolLegTicksFor): THIS cycle's transit legs in route ticks, frozen when the cycle starts
+  // (dispatch, and again at each relaunch) from the ship's transit speed then. Every reader of the cycle's time reads
+  // them through patrolRouteOf. OPTIONAL, written only when they differ from the route's legs: a cycle at speed 1 and
+  // every cycle in flight from before OC-D8 fly the route's legs exactly as before (no SAVE_VERSION bump).
+  legTicks?: PatrolLegTicks;
 }
 
 // Safe first runs SF-4: a patrol cycle's difficulty stamp: the run stamp (RunDifficultyStamp, tier I: patrols are

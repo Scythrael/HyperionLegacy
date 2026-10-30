@@ -8,6 +8,12 @@ import { writeFileSync } from "node:fs";
 import { gearWearOffInThisFile } from "./gearWearSwitch.fixture";
 import { FAVORS_PINS_PRE, favorsRows } from "./favorsSpecGoldens.fixture";
 import { withFavoredSpecOff } from "./favoredSpecSwitch.fixture";
+import { patrolLegsOffForThisFile } from "./patrolLegsSwitch.fixture";
+
+// WR-7 follow-up OC-D8 (patrol legs scale with transit speed): every pin here predates the legs and is about OC-D5 favorsSpec;
+// with the legs off each one returns (checked when the legs were wired), so the file runs with them off and keeps
+// proving its own slice. patrolLegsGoldens.test.ts pins the legs on every patrol and every combat hull.
+patrolLegsOffForThisFile();
 
 gearWearOffInThisFile();
 

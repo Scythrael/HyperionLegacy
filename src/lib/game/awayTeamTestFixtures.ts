@@ -5,7 +5,7 @@
 // through withMinimumAwayTeam so it keeps testing what it tested before (sensors, museum, relics, phases)
 // rather than the gate. The members are plain: rank 1, no traits, no gear, no own program.
 
-import { SHIP_TYPES, type AwayMember, type AwayTeamType, type Expedition, type ExpeditionFinding, type GameState, type ShipGroundTeam, type ShipTypeDef, type ShipTypeKey, PATROLS, type PatrolMissionState } from "./model";
+import { SHIP_TYPES, type AwayMember, type AwayTeamType, type Expedition, type ExpeditionFinding, type GameState, type ShipGroundTeam, type ShipTypeDef, type ShipTypeKey, patrolRouteOf, type PatrolMissionState } from "./model";
 import { BANKED_SYSTEMS, SYSTEM_SALT, expeditionAwayTeamCheck, startExpedition, type ExpeditionCandidate, type ExpeditionDispatchResult } from "./expedition";
 import { FIELD_KITS_RUNS_LIVE } from "./fieldKits";
 import { PROVISIONAL_HOMEWORLD, type HomeworldPlacement } from "./galaxy";
@@ -470,7 +470,7 @@ export function asPatrolVeteran(state: GameState): GameState {
 export function withoutPatrolCurve(m: PatrolMissionState): PatrolMissionState {
   if (m.difficulty === undefined) return m;
   const { difficulty: _stamp, ...rest } = m;
-  return { ...rest, waveTicks: planWaveSchedule(m.masterSeed, patrolWaveParams(PATROLS[m.patrolKey])) };
+  return { ...rest, waveTicks: planWaveSchedule(m.masterSeed, patrolWaveParams(patrolRouteOf(m))) };
 }
 
 // Safe first runs SF-4: a patrol dispatch result turned into the one it was before SF-4 (withoutPatrolCurve on every

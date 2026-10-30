@@ -40,6 +40,12 @@ import { withCombatRulesOff } from "./combatRulesSwitch.fixture";
 // file runs with use wear switched off (the precedent every pre-step-3 golden file follows); the expedition rows'
 // whole-run hashes were the only rows step 3 moved (its run wear stamp), and gearWearGoldens.test.ts pins the wear.
 import { gearWearOffInThisFile } from "./gearWearSwitch.fixture";
+import { patrolLegsOffForThisFile } from "./patrolLegsSwitch.fixture";
+
+// WR-7 follow-up OC-D8 (patrol legs scale with transit speed): every pin here predates the legs and is about WR-8 (the combat descriptors);
+// with the legs off each one returns (checked when the legs were wired), so the file runs with them off and keeps
+// proving its own slice. patrolLegsGoldens.test.ts pins the legs on every patrol and every combat hull.
+patrolLegsOffForThisFile();
 gearWearOffInThisFile();
 
 const HULLS = Object.keys(SHIP_TYPES) as ShipTypeKey[];

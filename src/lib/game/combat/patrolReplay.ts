@@ -36,7 +36,7 @@
 
 import {
   SHIP_TYPES,
-  PATROLS,
+  patrolRouteOf,
   type GameState,
   type CaptainState,
   type PatrolDef,
@@ -479,9 +479,6 @@ export function replayPatrol(state: GameState, captain: CaptainState): PatrolRep
   const hullType = combatHullTypeOf(ship.typeKey);
   if (hullType === null) return unavailableReplay();
 
-  const shipDef = SHIP_TYPES[ship.typeKey];
-  const def = PATROLS[mission.patrolKey];
-
   const resolved = resolveMissionCycle(mission, ship.id, hullType, equippedFor(state, ship.id));
 
   return {
@@ -504,7 +501,8 @@ export function resolveMissionCycle(
   storedGear: EquipmentInstance[],
 ): ResolvePatrolWavesResult {
   const shipDef = SHIP_TYPES[hullType];
-  const def = PATROLS[mission.patrolKey];
+  // WR-7 follow-up OC-D8: the route THIS cycle flies (its frozen legs place the wave window), as the live loop reads it.
+  const def = patrolRouteOf(mission);
   // The ship's INSTALLED combat gear, read the SAME way the live tick loop reads it (equippedFor off
   // this GameState). Resolved ONCE and used for BOTH the player combatant's weapons/shield/hull/defenses
   // (Unit 1.4) AND the initial drone carry-state (Unit 2.3b) below, so the replay's two drone-seeding

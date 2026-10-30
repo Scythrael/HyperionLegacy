@@ -19,6 +19,12 @@ import { describe, expect, it } from "vitest";
 // GEAR WEAR step 3: this file's pins were captured before the use wear engine; it runs with the use sources off
 // (gearWearSwitch.fixture.ts), so they keep proving nothing else moved. gearWearGoldens.test.ts pins the wear.
 import { gearWearOffInThisFile } from "./gearWearSwitch.fixture";
+import { patrolLegsOffForThisFile } from "./patrolLegsSwitch.fixture";
+
+// WR-7 follow-up OC-D8 (patrol legs scale with transit speed): every pin here predates the legs and is about the inert racials;
+// with the legs off each one returns (checked when the legs were wired), so the file runs with them off and keeps
+// proving its own slice. patrolLegsGoldens.test.ts pins the legs on every patrol and every combat hull.
+patrolLegsOffForThisFile();
 gearWearOffInThisFile();
 import Decimal from "break_infinity.js";
 import { freshState, type AwayMember, type CrewBucket, type CrewRace, type Expedition, type GameState, type PatrolMissionState, type SeniorStaffSeat, type ShipTypeKey } from "./model";

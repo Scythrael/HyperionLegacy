@@ -201,7 +201,8 @@ describe("SF-4 offline == live", () => {
     let s = r.next;
     const stamps: (number | null)[] = [patrolOf(s)!.difficulty!.firstRun ? -1 : null];
     for (let cycle = 0; cycle < 4; cycle++) {
-      s = economyTick(s, routeTicks("crimsonReaverSweep"), RNG);
+      // WR-7 follow-up OC-D8: each cycle's own route (the battleship's frozen legs).
+      s = economyTick(s, routeTicks(patrolOf(s)!), RNG);
       const m = patrolOf(s)!;
       stamps.push(m.difficulty ? m.difficulty.completed : null);
     }
@@ -215,7 +216,7 @@ describe("SF-4 offline == live", () => {
     const positions: (number | null)[] = [patrolOf(t)!.difficulty!.completed];
     const counted: number[] = [];
     for (let cycle = 0; cycle < 4; cycle++) {
-      t = economyTick(t, routeTicks("crimsonReaverSweep"), RNG);
+      t = economyTick(t, routeTicks(patrolOf(t)!), RNG);
       const m = patrolOf(t)!;
       positions.push(m.difficulty ? m.difficulty.completed : null);
       counted.push(runCountsOf(t).patrol.completed);
@@ -224,7 +225,7 @@ describe("SF-4 offline == live", () => {
     expect(counted).toEqual([3, 3, 3, 3]);
     expect(patrolOf(t)!.routesCompletedThisRun).toBe(4);
     // The same span in ONE call lands the same count (offline == live).
-    expect(runCountsOf(economyTick(later.next, 4 * routeTicks("crimsonReaverSweep"), RNG)).patrol.completed).toBe(3);
+    expect(runCountsOf(economyTick(later.next, 4 * routeTicks(patrolOf(later.next)!), RNG)).patrol.completed).toBe(3);
   });
 
   it("an in-flight patrol from before SF-4 (no stamp) relaunches without one: the new cycle is the pre-SF-4 cycle", () => {

@@ -40,6 +40,11 @@ import {
   // Combat 0.13.0 (Phase 9b.5a): the patrol content table + its shapes, for patrol
   // dispatch (canDispatchPatrol / dispatchCaptainOnPatrol) and the economyTick kind routing.
   PATROLS,
+  // WR-7 follow-up OC-D8: a patrol cycle's frozen legs and the route it flies.
+  patrolLegTicksFor,
+  patrolRouteOf,
+  patrolRouteTicks,
+  type PatrolLegTicks,
   SHIP_TYPES,
   // WR-7 follow-up (OC-D5): the favored-spec stamp and the favored lines.
   favoredSpecStamp,
@@ -3326,6 +3331,9 @@ export function tickCaptainPatrol(
     // GEAR WEAR step 4: the engine's clock and the ship's underway repair rate, so a relaunch can freeze its gear as it
     // stands at that instant (relaunchCycleConditions). Absent = the new cycle is unstamped (a test call).
     gearWear?: PatrolWearClock;
+    // WR-7 follow-up OC-D8: the ship's transit speed now (its sheet, crew included), the legs a relaunch freezes onto its
+    // new cycle (patrolLegTicksFor). Absent = the route's legs (a test call; the app always passes it).
+    transitSpeed?: number;
   } = {},
 ): PatrolTickResult {
   const noOp: PatrolTickResult = {
@@ -3363,13 +3371,16 @@ export function tickCaptainPatrol(
   const def = PATROLS[captain.mission.patrolKey];
   const shipDef = SHIP_TYPES[ship.typeKey];
   const playerId = ship.id; // the player combatant's stable id across every wave (the by-id lookup)
-  const routeLength = def.transitOutTicks + def.rollWindowTicks + def.transitBackTicks;
+  // WR-7 follow-up OC-D8: the route THIS cycle flies (patrolRouteOf: the def with the cycle's frozen legs; the def
+  // itself for a cycle without them). Its length, phases and limp home are the cycle's; `let`: a relaunch flies its own.
+  let route = patrolRouteOf(captain.mission);
+  let routeLength = patrolRouteTicks(route);
   // Combat 0.13.0 (Phase 11, design S13): the LIMP-HOME duration a defeat imposes = 2x the
   // return leg (movement is damaged, so the wreck crawls back at half speed). A pure
-  // function of the def, deterministic, computed once. FIRST-PASS: fixed 2x regardless of
+  // function of the cycle's route, deterministic. FIRST-PASS: fixed 2x regardless of
   // where in the route the ship died (design S13 says "2x return time"); a crew bonus /
   // module exception is a forward hook only (not this pass).
-  const limpHomeTicks = 2 * def.transitBackTicks;
+  let limpHomeTicks = 2 * route.transitBackTicks;
   // Combat 0.13.0 (Phase 10): the loot table for THIS patrol, resolved once. patrolKey is
   // invariant across a relaunch (a relaunch reuses the same patrolKey), so this one table
   // covers every cycle this call advances, exactly like `def` above.
@@ -3464,7 +3475,7 @@ export function tickCaptainPatrol(
   // jobs, which is why the persisted field exists.
   let routesThisRun = mission.routesCompletedThisRun ?? 0;
   // E-CREW (Task 21): the hours a run has flown after `routes` full routes (the Constitution ramps' clock; the
-  // def's full route length per route, a stored-value function, so chunking cannot change it).
+  // current cycle's full route length per route, a stored-value function, so chunking cannot change it).
   const runHours = (routes: number): number => (routes * routeLength * (officerEffects.secondsPerTick ?? 1)) / 3600;
   // 0.13.4 Phase 2: set at each ending path, read into the result at the end of the call.
   let endReason: PatrolEndReason | null = null;
@@ -3794,7 +3805,7 @@ export function tickCaptainPatrol(
     }
 
     // Keep the persisted coarse phase consistent with the route position (derive-and-store).
-    mission.phase = patrolPhaseFor(def, progress);
+    mission.phase = patrolPhaseFor(route, progress);
 
     // ---- COMPLETION: the whole route is flown (all waves passed + player alive). --------
     // Reached only on a non-defeat tick (defeat broke out above). progress lands exactly
@@ -3845,6 +3856,10 @@ export function tickCaptainPatrol(
           // stands at this relaunch: the stored pieces, worn by this call's earlier battles at their instants and
           // settled underway (gearWearEngine.ts projectCycleConditions, exactly what the tail pass will write), so a
           // cycle opens at its carried wear. Never on a training cycle (W9), never without the engine's clock.
+          // WR-7 follow-up OC-D8: the new cycle freezes its legs at the ship's transit speed now (economyTick's live read;
+          // absent = the route's legs, a test call), and its Constitution cut and clock read that cycle's route.
+          const nextLegs = patrolLegTicksFor(def, officerEffects.transitSpeed);
+          const nextRoute = patrolRouteOf({ patrolKey: cur.patrolKey, legTicks: nextLegs });
           const nextConditions = relaunchCycleConditions(installedGear, gearWearEvents, offsetNow(), nextDifficulty, officerEffects.gearWear, pauseWindows);
           const nextGear = nextConditions !== undefined && installedGear ? combatGearView(installedGear, nextConditions) : installedGear;
           // Mint the next cycle via the shared factory (THE single source of truth for a
@@ -3878,10 +3893,12 @@ export function tickCaptainPatrol(
             freeRepairTicks: cunningProc(newSeed, "engineering", officerEffects.freeRepairChance ?? 0) ? CUNNING_FREE_REPAIR_TICKS : 0,
             // E-CREW (Task 21 review calls): the Flight Deck's Constitution, a faster return the longer the run.
             returnCutTicks: patrolReturnCutTicks(
-              def,
+              nextRoute,
               officerEffects.returnConstitution ?? 0,
-              hoursOut + ((def.transitOutTicks + def.rollWindowTicks) * (officerEffects.secondsPerTick ?? 1)) / 3600,
+              hoursOut + ((nextRoute.transitOutTicks + nextRoute.rollWindowTicks) * (officerEffects.secondsPerTick ?? 1)) / 3600,
             ),
+            // WR-7 follow-up OC-D8: the new cycle's frozen legs (stored only when they differ from the route's).
+            legTicks: nextLegs,
             // Safe first runs SF-4: the new cycle's difficulty (read above).
             difficulty: nextDifficulty,
             // WR-8: the new cycle starts under the combat rules, at the ship's combat speed now (economyTick's live
@@ -3944,6 +3961,10 @@ export function tickCaptainPatrol(
           foldedDefense = foldedPlayerDefense(shipDef, cycleGear, mission.officerCombat, mission.captainCombat);
           waveHullRegenFraction = damageControlEffect(suiteGear(cycleGear)).waveHullRegenFraction;
           cyclePools = patrolCyclePools(hullType, shipDef, cycleGear, mission);
+          // WR-7 follow-up OC-D8: and the new cycle's route (its frozen legs), which its phases, end and limp read.
+          route = patrolRouteOf(mission);
+          routeLength = patrolRouteTicks(route);
+          limpHomeTicks = 2 * route.transitBackTicks;
           // ⚠️ 0.13.4 Phase 2: CARRY THE PER-RUN COUNT ACROSS THE RELAUNCH. freshPatrolMission
           // is the shared factory for a NEW patrol and seeds routesCompletedThisRun to 0, which
           // is right for a dispatch and WRONG here: a relaunch is the middle of a run, not the
@@ -4745,6 +4766,8 @@ export function economyTick(
                 deckHandling: shipDeckHandling(state, patrolShip),
                 // WR-8: the combat rules and combat speed, for the next cycle's frozen record.
                 combatRules: shipCombatRulesStamp(state, patrolShip, patrolFavored),
+                // WR-7 follow-up OC-D8: the transit speed the next cycle freezes its legs at (the sheet the fuel reads).
+                ...(patrolStats ? { transitSpeed: patrolStats.transitSpeedMult } : {}),
                 // GEAR WEAR step 4: the clock and the underway repair rate a relaunch freezes its gear with.
                 gearWear: {
                   startSeconds: state.gameTimeSeconds,
@@ -6106,14 +6129,18 @@ function freshPatrolMission(args: {
   // WR-7 follow-up (OC-D5): the run's favored-spec stamp (dispatch: favoredSpecStamp; relaunch: the run's own). Stored
   // only when present.
   favoredSpec?: 1;
+  // WR-7 follow-up OC-D8: the cycle's frozen legs (patrolLegTicksFor at the ship's transit speed when the cycle starts).
+  // Stored only when present (they differ from the route's); the wave schedule is planned on the route they make.
+  legTicks?: PatrolLegTicks;
 }): PatrolMissionState {
   const { patrolKey, stance, masterSeed, repeatDispatch, shipDef, hullType, installedGear, officerCombat, captainCombat } = args;
   const deckHandling = args.deckHandling ?? 0;
   const freeRepairTicks = args.freeRepairTicks ?? 0;
   const returnCutTicks = args.returnCutTicks ?? 0;
   // factionId + wave params BOTH come from this one def lookup (no caller-passed def that
-  // could disagree with patrolKey).
+  // could disagree with patrolKey). WR-7 follow-up OC-D8: the wave window sits where the cycle's own outbound leg ends.
   const def = PATROLS[patrolKey];
+  const route = patrolRouteOf({ patrolKey, legTicks: args.legTicks });
   // Combat-defense BLOCKER fix (2026-08-27): seed the FULL hull/shield carry-pools from the FOLDED
   // installed-gear defense (foldedPlayerDefense -> shipToCombatant), NOT the raw authored SHIP_TYPES
   // stats. A crafted-plated hull / crafted emitter fights above authored, so an authored seed opened
@@ -6154,7 +6181,7 @@ function freshPatrolMission(args: {
     // is stable across save/load and reproducible offline==live (see PatrolMissionState
     // .waveTicks for the wave-plan-now rationale).
     // Safe first runs SF-4: through the cycle's profile (the training cycle keeps the first waves of this schedule).
-    waveTicks: patrolCycleWaveTicks(masterSeed, def, { difficulty: args.difficulty }),
+    waveTicks: patrolCycleWaveTicks(masterSeed, route, { difficulty: args.difficulty }),
     nextWaveIndex: 0,
     wavesWon: 0,
     wavesLost: 0,
@@ -6188,6 +6215,7 @@ function freshPatrolMission(args: {
     recalled: false,
     repeatDispatch,
     ...(args.favoredSpec === 1 ? { favoredSpec: 1 as const } : {}),
+    ...(args.legTicks !== undefined ? { legTicks: { ...args.legTicks } } : {}),
   };
 }
 
@@ -6502,6 +6530,15 @@ export function canDispatchPatrol(
   return noWeaponAdvisory ? { ok: true, noWeaponAdvisory: true } : { ok: true };
 }
 
+// WR-7 follow-up OC-D8 ("patrol legs scale with transitSpeedMult"): the route a patrol dispatched now on `ship` would
+// fly: the def with the legs its first cycle freezes at the ship's transit speed now (its sheet, crew included, the same
+// reading its combat rules stamp takes). dispatchCaptainOnPatrol freezes exactly these legs, and the dispatch card and
+// forecast read them, so the shown leg times are the flown ones. Pure.
+export function patrolDispatchRoute(state: GameState, ship: ShipInstance, patrolKey: PatrolKey): { route: PatrolDef; legTicks?: PatrolLegTicks } {
+  const legTicks = patrolLegTicksFor(PATROLS[patrolKey], effectiveShipStats(state, ship).transitSpeedMult);
+  return { route: patrolRouteOf({ patrolKey, legTicks }), ...(legTicks !== undefined ? { legTicks } : {}) };
+}
+
 // dispatchCaptainOnPatrol: put an idle captain onto a patrol. A THIN WRAPPER over
 // canDispatchPatrol (the single source of truth for every gate), mirroring
 // dispatchCaptainOnMission exactly: (a) consult the gate, (b) on failure return the SAME
@@ -6549,17 +6586,19 @@ export function dispatchCaptainOnPatrol(
   // CP-2 (OC-E13, B17, user 2026-10-15 "Ramp cycle 1 too"): folded at the first cycle's own mid-route sample, so a
   // Dispatch Once patrol's Constitution ramps too. Without a Constitution facet the ramp is 0 at any hour and this is
   // exactly officerCombatMods (the 0-hour fold).
-  const officerCombat = officerCombatModsFromProfile(officerCombatProfile(state, ship), patrolCycleOneRampHours(PATROLS[patrolKey], state.tickDurationSeconds));
+  // WR-7 follow-up OC-D8: the first cycle freezes its legs at the ship's transit speed now (its sheet, crew included, as
+  // the combat rules stamp below reads it); the cycle's clock and Constitution cut read the route those legs make.
+  const { route, legTicks } = patrolDispatchRoute(state, ship, patrolKey);
+  const officerCombat = officerCombatModsFromProfile(officerCombatProfile(state, ship), patrolCycleOneRampHours(route, state.tickDurationSeconds));
   // E-CREW (Task 21): the first cycle's Engineering Cunning roll, keyed on its masterSeed (0 hours: no ramp).
   const freeRepairTicks = cunningProc(masterSeed, "engineering", departmentFacet(state, ship, "engineering", "cunning"))
     ? CUNNING_FREE_REPAIR_TICKS
     : 0;
   // E-CREW (Task 21 review calls): the first cycle's Flight Deck Constitution return cut (0 hours flown before).
-  const patrolDef = PATROLS[patrolKey];
   const returnCutTicks = patrolReturnCutTicks(
-    patrolDef,
+    route,
     departmentFacet(state, ship, "flightDeck", "constitution"),
-    ((patrolDef.transitOutTicks + patrolDef.rollWindowTicks) * state.tickDurationSeconds) / 3600,
+    ((route.transitOutTicks + route.rollWindowTicks) * state.tickDurationSeconds) / 3600,
   );
   // Safe first runs SF-4: the save's one safe patrol, or the curve at the patrol runs counted so far (read BEFORE this
   // dispatch is counted; absent at full strength).
@@ -6591,6 +6630,8 @@ export function dispatchCaptainOnPatrol(
     // WR-7 follow-up (OC-D5): a patrol dispatched now reads its favored pieces' bonus (stamped only when one favors
     // the hull's spec), carried to every relaunched cycle.
     favoredSpec: favoredSpecStamp(installedGear, ship.typeKey),
+    // WR-7 follow-up OC-D8: read above.
+    legTicks,
   });
 
   const captains = [...state.captains];
@@ -6694,8 +6735,8 @@ export function recallCaptain(state: GameState, captainId: number, nowMs: number
     );
     return { next: ended, success: true };
   } else {
-    // A patrol's transit-back begins transitOutTicks + rollWindowTicks into the route.
-    const def = PATROLS[mission.patrolKey];
+    // A patrol's transit-back begins transitOutTicks + rollWindowTicks into the route (the cycle's own, OC-D8).
+    const def = patrolRouteOf(mission);
     const outbound = mission.phase === "transitOut" || mission.phase === "engaging";
     recalledMission = outbound
       ? { ...mission, recalled: true, phase: "transitBack", progressTicks: def.transitOutTicks + def.rollWindowTicks }

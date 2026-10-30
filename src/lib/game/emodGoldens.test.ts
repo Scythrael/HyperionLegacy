@@ -24,6 +24,12 @@ import { gearWearOffInThisFile } from "./gearWearSwitch.fixture";
 import { gw3RegistryBack } from "./gearWearRegistry.fixture";
 // Gear wear step 4 came after every pin here: its registry move is read back first (gearWearCombatRegistry.fixture.ts).
 import { gw4ReadBack } from "./gearWearCombatRegistry.fixture";
+import { patrolLegsOffForThisFile } from "./patrolLegsSwitch.fixture";
+
+// WR-7 follow-up OC-D8 (patrol legs scale with transit speed): every pin here predates the legs and is about E-MOD;
+// with the legs off each one returns (checked when the legs were wired), so the file runs with them off and keeps
+// proving its own slice. patrolLegsGoldens.test.ts pins the legs on every patrol and every combat hull.
+patrolLegsOffForThisFile();
 gearWearOffInThisFile();
 import Decimal from "break_infinity.js";
 import {
@@ -94,6 +100,9 @@ combatRulesOffForThisFile();
 // back (favorsSpecReadBack) and the file runs with the bonus off: the census and crafted sheets install favored pieces
 // on hulls of their spec, which it moves by design (favorsSpecGoldens.test.ts and wr7Goldens.test.ts pin it).
 import { favorsSpecReadBack } from "./favoredSpecRegistry.fixture";
+// WR-7 follow-up OC-D8 (patrol legs), after every pin here: the transit sources' patrol context flipped live and its
+// audit row added (patrolLegsRegistry.fixture.ts), read back in the registry chain.
+import { patrolLegsReadBack } from "./patrolLegsRegistry.fixture";
 import { favoredSpecOffForThisFile } from "./favoredSpecSwitch.fixture";
 favoredSpecOffForThisFile();
 
@@ -714,7 +723,7 @@ function fkr11ReadBack(rows: readonly WiringEntry[]): WiringEntry[] {
   });
 }
 const BEFORE_RX: WiringEntry[] = siReadBack(
-  em4ReadBack(em3ReadBack(em5ReadBack(wr8ReadBack(gw3RegistryBack(em7ReadBack(fkr11ReadBack(gw4ReadBack(favorsSpecReadBack(WIRING_REGISTRY))))))))).filter(
+  em4ReadBack(em3ReadBack(em5ReadBack(wr8ReadBack(gw3RegistryBack(em7ReadBack(fkr11ReadBack(gw4ReadBack(favorsSpecReadBack(patrolLegsReadBack(WIRING_REGISTRY)))))))))).filter(
     (e) =>
       !RX_ADDED_ENTRY_IDS.has(e.id) && !RR_ADDED_ENTRY_IDS.has(e.id) && !FUSE_ADDED_ENTRY_IDS.has(e.id) && !R2_2_ADDED_ENTRY_IDS.has(e.id) && !R2_3_ADDED_ENTRY_IDS.has(e.id) && !R2_10_ADDED_ENTRY_IDS.has(e.id) && !R2_4_ADDED_ENTRY_IDS.has(e.id) && !G16_ADDED_IDS.has(e.id) &&
       !G2_4_ADDED_ENTRY_IDS.has(e.id) && !OC15_ADDED_ENTRY_IDS.has(e.id) && !GG_STUDY_ADDED_ENTRY_IDS.has(e.id) && !G2_6_ADDED_ENTRY_IDS.has(e.id),
@@ -879,7 +888,7 @@ describe("EM-0 goldens (re-pinned by EM-1 where named)", () => {
     // Merged onto feat (0.14.0 integration): the slices BEFORE_RX holds apart (the timed grenades, R2-2, the SI read-back)
     // and G2-4's additions are held apart here the same way, so the comparison sees G1-6's move alone. E-MOD EM-5's move is
     // read back first (em5ReadBack), as BEFORE_RX does; Gas Giant Study GG-3's added seam is held apart too.
-    const live = em4ReadBack(em3ReadBack(em5ReadBack(wr8ReadBack(gw3RegistryBack(em7ReadBack(gw4ReadBack(WIRING_REGISTRY))))))).filter(
+    const live = em4ReadBack(em3ReadBack(em5ReadBack(wr8ReadBack(gw3RegistryBack(em7ReadBack(gw4ReadBack(patrolLegsReadBack(WIRING_REGISTRY)))))))).filter(
       (e) => !FKR8_ADDED_IDS.has(e.id) && !RX_ADDED_ENTRY_IDS.has(e.id) && !RR_ADDED_ENTRY_IDS.has(e.id) && !FUSE_ADDED_ENTRY_IDS.has(e.id) && !R2_2_ADDED_ENTRY_IDS.has(e.id) && !R2_3_ADDED_ENTRY_IDS.has(e.id) && !R2_10_ADDED_ENTRY_IDS.has(e.id) && !R2_4_ADDED_ENTRY_IDS.has(e.id) && !G2_4_ADDED_ENTRY_IDS.has(e.id) && !OC15_ADDED_ENTRY_IDS.has(e.id) && !GG_STUDY_ADDED_ENTRY_IDS.has(e.id) && !G2_6_ADDED_ENTRY_IDS.has(e.id),
     );
     const rung = live.filter((e) => G16_ADDED_IDS.has(e.id)).map((e) => [e.id, e.status, e.contexts, e.probe ?? null]);

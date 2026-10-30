@@ -22,6 +22,8 @@ import {
   MEMBER_SLOT_TYPES,
   MISSIONS,
   PATROLS,
+  patrolRouteOf,
+  patrolRouteTicks,
   REFINE_RECIPES,
   SALVAGE_LOOT_POOLS,
   SHIP_TYPES,
@@ -940,10 +942,11 @@ export function patrolDigest(s: GameState): number {
   const key = Object.keys(PATROLS)[0];
   const r = dispatchCaptainOnPatrol(s, WIRING_CAPTAIN_ID, key, "balanced", false);
   if (!r.success) return -1;
-  const def = PATROLS[key];
+  // WR-7 follow-up OC-D8: the route the dispatched cycle flies (its frozen legs), not the def's length.
+  const route = patrolRouteOf(captainOf(r.next).mission as PatrolMissionState);
   let after = r.next;
   const trace: unknown[] = [captainOf(after).mission];
-  for (let t = 0; t < def.transitOutTicks + def.rollWindowTicks + def.transitBackTicks + 5; t++) {
+  for (let t = 0; t < patrolRouteTicks(route) + 5; t++) {
     after = economyTick(after, 1, () => 0.5);
     trace.push(captainOf(after).mission); // tick by tick: the legs, every wave and the ship's pools between them
   }

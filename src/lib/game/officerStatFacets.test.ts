@@ -86,6 +86,10 @@ import { withCp2Off } from "./complementCp2Switch.fixture";
 // The inert racials (0.14.0): the Spacer key restored and the drone / survey sources zeroed (racialsSwitch.fixture.ts).
 import { withRacialsOff } from "./racialsSwitch.fixture";
 import { withCombatRulesOff } from "./combatRulesSwitch.fixture";
+import { withPatrolLegsOff } from "./patrolLegsSwitch.fixture";
+// WR-7 follow-up OC-D8: these neutrality goldens were captured before the patrol legs scaled, so their patrols fly the
+// route's legs too (patrolLegsSwitch.fixture.ts; patrolLegsGoldens.test.ts pins the legs).
+const withCombatRulesAndLegsOff = <T>(run: () => T): T => withCombatRulesOff(() => withPatrolLegsOff(run));
 import { activityRelicFindBonus, generateEncounter, softenAmbush } from "./gambit";
 import { applyExpeditionInjuries, injuryRecoverySeconds } from "./injuries";
 import {
@@ -519,17 +523,17 @@ const RACIALS_STATLESS: Record<string, string | string[]> = {
 describe("neutrality: an all-10 bridge = byte-identical to before Task 21 (golden)", () => {
   // WR-8 (0.14.0): captured before the combat rules, so these fly with them switched off (combatRulesSwitch.fixture.ts;
   // combatDescriptorGoldens.test.ts pins the rules).
-  it("a full bridge at 10/10/10/10 (sheet, missions, patrols + replays, repair, expeditions)", { timeout: 120_000 }, () => withCombatRulesOff(() => {
+  it("a full bridge at 10/10/10/10 (sheet, missions, patrols + replays, repair, expeditions)", { timeout: 120_000 }, () => withCombatRulesAndLegsOff(() => {
     expect(scenarioHashes(() => NEUTRAL)).toEqual(RACIALS_NEUTRAL);
     expect(racialsOffHashes(() => NEUTRAL)).toEqual(GOLDEN_NEUTRAL);
   }));
 
-  it("the same bridge with stat-less officers (absent = neutral)", { timeout: 120_000 }, () => withCombatRulesOff(() => {
+  it("the same bridge with stat-less officers (absent = neutral)", { timeout: 120_000 }, () => withCombatRulesAndLegsOff(() => {
     expect(scenarioHashes(() => undefined)).toEqual(RACIALS_STATLESS);
     expect(racialsOffHashes(() => undefined)).toEqual(GOLDEN_STATLESS);
   }));
 
-  it("CP-2 turn it off: both bridges with the CP-2 effects switched off are the pre-CP-2 capture", { timeout: 240_000 }, () => withCombatRulesOff(() => {
+  it("CP-2 turn it off: both bridges with the CP-2 effects switched off are the pre-CP-2 capture", { timeout: 240_000 }, () => withCombatRulesAndLegsOff(() => {
     // Captured before the inert racials too, so they are switched off as well.
     expect(racialsOffHashes(() => NEUTRAL, (run) => withCp2Off(run))).toEqual(GOLDEN_NEUTRAL_CP2_OFF);
     expect(racialsOffHashes(() => undefined, (run) => withCp2Off(run))).toEqual(GOLDEN_STATLESS_CP2_OFF);

@@ -7,8 +7,8 @@
 
 import Decimal from "break_infinity.js";
 import { expect } from "vitest";
-import { PATROLS, SHIP_TYPES, type GameState, type PatrolKey, type PatrolMissionState, type ShipTypeKey } from "./model";
-import { dispatchCaptainOnPatrol, economyTick } from "./tick";
+import { PATROLS, SHIP_TYPES, patrolRouteOf, patrolRouteTicks, type GameState, type PatrolKey, type PatrolMissionState, type ShipTypeKey } from "./model";
+import { dispatchCaptainOnPatrol, economyTick, patrolDispatchRoute } from "./tick";
 import { equippedFor } from "./equipment";
 import { replayPatrol, resolvePatrolWaves } from "./combat/patrolReplay";
 import { lightestPatrolHull } from "./combat/patrolProfile";
@@ -35,10 +35,10 @@ export function onPatrolCurve(state: GameState, completed: number): GameState {
   return { ...state, runCounts: { ...counts, patrol: { dispatched: 1, completed, veteran: false } } };
 }
 
-// One route's length in route ticks (no officers aboard, so no Flight Deck return cut). Pure.
-export function routeTicks(key: PatrolKey): number {
-  const def = PATROLS[key];
-  return def.transitOutTicks + def.rollWindowTicks + def.transitBackTicks;
+// One route's length in route ticks (no officers aboard, so no Flight Deck return cut): a dispatched cycle's own route
+// (WR-7 follow-up OC-D8: its frozen legs, patrolRouteOf), or the def's for a key. Pure.
+export function routeTicks(of: PatrolKey | PatrolMissionState): number {
+  return patrolRouteTicks(typeof of === "string" ? PATROLS[of] : patrolRouteOf(of));
 }
 
 export interface TrainingProof {
@@ -66,7 +66,7 @@ export function proveTrainingPatrol(hull: ShipTypeKey, key: PatrolKey, seed: num
   for (const w of replay.waves) expect(w.enemyHullIds, label).toEqual([lightestPatrolHull(def)]);
   const brokeOff = replay.waves.filter((w) => w.brokeOff === true).length;
 
-  const end = economyTick(r.next, routeTicks(key), RNG);
+  const end = economyTick(r.next, routeTicks(mission), RNG);
   expect(end.ships[0].damaged, label).not.toBe(true);
   expect(end.ships[0].repairDamage ?? 0, label).toBe(0);
   const counts = runCountsOf(end).patrol;
@@ -93,6 +93,8 @@ export function patrolForecastBand(state: GameState, key: PatrolKey): { wins: nu
   const hullType = combatHullTypeOf(ship.typeKey);
   if (hullType === null) return null;
   const def = PATROLS[key];
+  // WR-7 follow-up OC-D8: the route a dispatch now would fly (the app's forecast reads the same).
+  const route = patrolDispatchRoute(state, ship, key).route;
   const shipDef = SHIP_TYPES[ship.typeKey];
   const installedGear = equippedFor(state, ship.id);
   const startDefense = foldedPlayerDefense(shipDef, installedGear);
@@ -100,7 +102,7 @@ export function patrolForecastBand(state: GameState, key: PatrolKey): { wins: nu
   let wins = 0;
   for (let i = 0; i < DEFAULT_SAMPLES; i++) {
     const result = resolvePatrolWaves({
-      playerId: ship.id, stats: shipDef, hullType, stance: "balanced", installedGear, masterSeed: 0x5a4d + i, factionId: def.factionId, def,
+      playerId: ship.id, stats: shipDef, hullType, stance: "balanced", installedGear, masterSeed: 0x5a4d + i, factionId: def.factionId, def: route,
       startHull: startDefense.hullMax, startShield: startDefense.shieldMax,
       startDrones: installedDronesForPatrol(installedGear, `forecast-${key}-p`),
       startSystemDurability: defaultSystemDurabilityForHull(hullType, shipDef, installedGear),
@@ -116,7 +118,8 @@ export function patrolForecastBand(state: GameState, key: PatrolKey): { wins: nu
 export function patrolWon(state: GameState, key: PatrolKey, seed: number): boolean {
   const r = dispatchCaptainOnPatrol({ ...state, nextPatrolSeed: seed }, 1, key, "balanced", false);
   expect(r.success).toBe(true);
-  const def = PATROLS[key];
-  const end = economyTick(r.next, def.transitOutTicks + def.rollWindowTicks + 3 * def.transitBackTicks + 4, RNG);
+  // WR-7 follow-up OC-D8: the dispatched cycle's own route (its frozen legs).
+  const route = patrolRouteOf(patrolOf(r.next)!);
+  const end = economyTick(r.next, route.transitOutTicks + route.rollWindowTicks + 3 * route.transitBackTicks + 4, RNG);
   return patrolOf(end) === null && end.ships[0].damaged !== true;
 }

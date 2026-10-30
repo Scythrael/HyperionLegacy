@@ -1260,12 +1260,24 @@ none (its registry row's "adds no berths" is true and tested), the Guest Wing ga
 built; `VARIETY_RESIST_RATIO` stays 0.1 [PROVISIONAL].
 
 **Not built (owner "WR-7 follow-up"):**
-- OC-D8 patrol legs ("patrol legs scale with transitSpeedMult"). Built and measured in the WR-7 worktree, then held
+- ~~OC-D8 patrol legs ("patrol legs scale with transitSpeedMult"). Built and measured in the WR-7 worktree, then held
   out: a cycle frozen with `legTicks` (written only when the rounded legs differ from the route's, so a speed-1 cycle
   and a cycle in flight keep their record), every route reader through one `patrolRouteOf`, reach and fuel left on the
   route's legs (distance). It moved about 240 patrol pins and behavior harnesses that fly a fixed route length (the
   Battleship's 3-tick legs take 5), so it is a slice of its own, goldens first (the WR-8 precedent). Every transit
-  source's patrol context stays pending on it (`PATROL_LEGS_OWNER`).
+  source's patrol context stays pending on it (`PATROL_LEGS_OWNER`).~~ BUILT (WR-7 follow-up, 2026-10-30 on 0fcee45;
+  two commits: goldens, then the wiring; no SAVE bump): model.ts `patrolLegTicksFor` (each leg = the route's leg / the
+  ship's sheet transit speed, rounded up, the mission rule), `PatrolMissionState.legTicks` (frozen at dispatch, tick.ts
+  `patrolDispatchRoute`, and at each relaunch from economyTick's live sheet speed), `patrolRouteOf` / `patrolRouteTicks`
+  read by the phases, wave schedule, route end, limp home (2x the frozen return leg), Constitution clock and cut, recall,
+  the display replay, the dispatch forecast and the patrol card's route line; reach and fuel stay on the def. Registry:
+  the transit sources' patrol context went live (the speed line, the ten hulls, the museum) and `ship:audit:patrolLegs`
+  measures the sheet speed scaling the legs (divisor, within one tick). Goldens: patrolLegsGoldens (every patrol on every
+  hull; 78 of 160 rows moved, all traced to the legs and returning with `PATROL_LEGS_SWITCH` off), wr7Goldens' 11
+  patrol rows re-pinned; the golden files about other slices run with the legs off (patrolLegsSwitch.fixture.ts), every
+  pin in them having returned with the switch off; harnesses that flew a fixed route length read `patrolRouteOf`. Only
+  the sweeping transitSpeedMult scales the legs: the per-leg Fast Departure / Fast Return lifts stay missions and
+  expeditions (they claim no patrol context).
 - ~~OC-D5 favorsSpec ("+10% on its ship type"): its lines fold in three readers (equipmentStatMods, the Damage Control and
   Pathfinder effects) read live by missions in flight and per patrol cycle, so it needs a per-run stamp on missions,
   patrol cycles and expeditions first.~~ BUILT (WR-7 follow-up, 2026-10-29 on 502a0c8; two commits: goldens, then the

@@ -1993,8 +1993,8 @@ const LINE_SEAMS: Readonly<Record<string, LineSeam | null>> = {
   crewStations: { probe: "quartersCapacity", contexts: ["sheet"], curve: { kind: "linearAbsolute" }, magnitude: () => Math.round(CREW_STATIONS_BERTH_SCALE * diminishing(LINE_POINTS, CREW_STATIONS_BERTH_KNEE)) },
   crewEfficiency: { probe: "bridgeOfficerMult", contexts: ["sheet"], curve: { kind: "bonusRelative", base: 1 }, magnitude: () => diminishing(LINE_POINTS, CREW_MODULE_LINE_KNEE) / CREW_MODULE_LINE_KNEE },
   // WR-7: the speed line had no seam ("WR-1 follow-up"): it lifts the sheet and the expedition voyage's frozen leg
-  // speed (G2-3). Measured on a bare hull (no other mass or line), where the lift is exactly the curve's. Its patrol
-  // legs stay pending (PATROL_LEGS_OWNER).
+  // speed (G2-3). Measured on a bare hull (no other mass or line), where the lift is exactly the curve's. WR-7 follow-up
+  // OC-D8: the sheet speed it lifts scales a patrol cycle's legs (ship:audit:patrolLegs).
   transitSpeedMult: { probe: "sheetTransit", contexts: ["sheet", "expedition:groundOps"], curve: { kind: "linearRelative" }, magnitude: () => percent("transitSpeedMult"), base: () => bareHull() },
   // WR-7 (OC-D8, G2-4 built the gate): the tank and the engine efficiency reach the expedition reach gate.
   fuelCapacity: { probe: "sheetFuelCapacity", contexts: ["sheet", "expedition:groundOps"], curve: { kind: "linearAbsolute" }, magnitude: () => LINE_POINTS },
@@ -2162,13 +2162,12 @@ function shipLineEntries(): WiringEntry[] {
     if (p) return entry({ ...common, probe: p.probe, status: pending(p.owner, p.contexts) });
     if (!seam) return entry({ ...common, status: pending("WR-1 follow-up: no seam probe for this ship line") });
     // The patrol checks fly a combat hull (a freighter cannot patrol, so its patrol reading would be vacuous).
-    // WR-8: transit speed now reaches a patrol's combat speed (ship:audit:derivedStatsInCombat), so its pending patrol
-    // context is the legs alone (patrolOutboundTicks).
+    // WR-8: transit speed reaches a patrol's combat speed (ship:audit:derivedStatsInCombat); WR-7 follow-up OC-D8: and
+    // its legs (ship:audit:patrolLegs), so the speed line has no pending patrol context left.
     const patrolOnCombat: Partial<Record<ContextId, FlatCheck>> = {
-      patrol: { base: () => combatBase(), ...(key === "transitSpeedMult" ? { probe: "patrolOutboundTicks" as ProbeId } : {}) },
+      patrol: { base: () => combatBase() },
     };
     const partial: Readonly<Record<string, WiringStatus>> = {
-      transitSpeedMult: pending(PATROL_LEGS_OWNER, ["patrol"]),
       sensors: { kind: "deferred", owner: "CP-15 (patrol cloak detection)", userRef: `${T3}: patrol cloak detection`, contexts: ["patrol"] },
     };
     return entry({
@@ -2186,10 +2185,12 @@ function shipLineEntries(): WiringEntry[] {
   });
 }
 
-// WR-7 (OC-D8, user 2026-10-15 "Speed counts everywhere": "patrol legs scale with transitSpeedMult"): the owner of the
-// transit sources' pending patrol context. The leg scaling was built in the WR-7 worktree and held out of the WR-7
-// commit: it moves every patrol golden (the WR-8 precedent: a slice of its own, goldens first).
-const PATROL_LEGS_OWNER = "WR-7 follow-up, OC-D8 (patrol legs scale with transit speed; moves every patrol golden, its own slice)";
+// WR-7 follow-up OC-D8 (user 2026-10-15 "Speed counts everywhere": "patrol legs scale with transitSpeedMult"): BUILT.
+// A patrol cycle freezes its legs at the ship's sheet speed when it starts (model.ts patrolLegTicksFor, tick.ts
+// patrolDispatchRoute and the relaunch), so every transit source (the gear line, each hull, the museum, the crew and
+// captain lifts) reaches the legs through the one sheet stat it already lifts live: that sheet-to-legs step is measured
+// once, by ship:audit:patrolLegs (the WR-8 precedent: ship:audit:derivedStatsInCombat for the combat speed). No transit
+// source keeps a pending patrol context.
 // WR-7 (OC-D8, user 2026-10-15 "Speed counts everywhere": "cargo stays missions-only, text says so"): the hold is a
 // mission stat; the Help's Missions topic says expeditions and patrols do not use it.
 const CARGO_MISSIONS_ONLY: NonNullable<WiringEntry["outOfScope"]> = [
@@ -2246,14 +2247,11 @@ function hullEntries(): WiringEntry[] {
             const s = wiringBase(hull);
             return { ...s, equipment: s.equipment.filter((e) => e.fittedToShipId !== "ship-1") };
           },
-          status: transit && combat ? pending(PATROL_LEGS_OWNER, ["patrol"]) : LIVE,
+          status: LIVE,
           // WR-7 (OC-D8): the hold is a mission stat (the Help's Missions topic says so).
           ...(field === "cargoCapacity" ? { outOfScope: combat ? CARGO_MISSIONS_ONLY : CARGO_MISSIONS_ONLY.filter((o) => o.context !== "patrol") } : {}),
-          // A hull's speed reaches a patrol's legs only through the sheet stat it seeds: the flat check raises that same
-          // stat with a gear line on the hull and reads the patrol legs alone (WR-8: combat speed reads transit speed).
-          ...(transit && combat
-            ? { flatChecks: { patrol: { base: () => combatBase(hull), on: shipPiece(field, LINE_POINTS), off: identity, probe: "patrolOutboundTicks" as ProbeId } } }
-            : {}),
+          // WR-7 follow-up OC-D8: a hull's speed reaches a patrol's legs through the sheet stat it seeds (measured here),
+          // and the sheet speed scales the legs (ship:audit:patrolLegs).
         }),
       );
     }
@@ -2570,14 +2568,12 @@ const MUSEUM_SEAMS: Readonly<Record<MuseumStat, { probe: ProbeId; contexts: Cont
   scienceTeamPower: { probe: "expScienceStrength", contexts: ["fieldwork"], curve: { kind: "linearRelative" }, base: () => withBuckets(wiringBase(), [bucketOf("science", "sci.extraction")]) },
 };
 
-const MUSEUM_PARTIAL: Readonly<Partial<Record<MuseumStat, WiringStatus>>> = {
-  transitSpeed: pending(PATROL_LEGS_OWNER, ["patrol"]),
-};
+// WR-7 follow-up OC-D8: the museum's transit speed reaches the patrol legs through the sheet (ship:audit:patrolLegs), so
+// no museum stat keeps a pending context.
+const MUSEUM_PARTIAL: Readonly<Partial<Record<MuseumStat, WiringStatus>>> = {};
 
-// The museum's PARTIAL checks: transit on a patrol flies a combat hull.
-const MUSEUM_FLAT_CHECKS: Readonly<Partial<Record<MuseumStat, Partial<Record<ContextId, FlatCheck>>>>> = {
-  transitSpeed: { patrol: { base: () => combatBase() } },
-};
+// The museum's PARTIAL checks (none left).
+const MUSEUM_FLAT_CHECKS: Readonly<Partial<Record<MuseumStat, Partial<Record<ContextId, FlatCheck>>>>> = {};
 
 // A museum record that sets ONLY `stat` (one set tier at level 1), and the stat's value in it. The set's per-copy
 // stat also rises with the copies; tiers whose stat is the per-copy stat count both (museumBonusesFromRecord).
@@ -3875,6 +3871,8 @@ const AUDIT_ROWS: readonly { id: string; system: WiringSystem; claim: string; st
   { id: "ship:audit:familyResists", system: "ship", claim: "damageResist_<family> / disruptionResist_<family>: crafted Hull Plating rolls the damage resists, Shield Emitters the disruption resists", status: LIVE },
   { id: "ship:audit:installedSystems", system: "ship", claim: "Reactor / FTL systems from installed gear: the combat pools take the installed pieces' quality", status: LIVE },
   { id: "ship:audit:derivedStatsInCombat", system: "ship", claim: "ShipDerivedStats in combat: the transit speed (its gear, crew, captain and mass drag) sets the combat speed", status: LIVE },
+  // WR-7 follow-up OC-D8 (user 2026-10-15 "Speed counts everywhere": "patrol legs scale with transitSpeedMult").
+  { id: "ship:audit:patrolLegs", system: "ship", claim: "Patrol legs: the ship's transit speed (its gear, crew, captain, museum and mass drag) scales each patrol cycle's transit legs, frozen when the cycle starts; reach and fuel stay on the route's distance", status: LIVE },
   // E-MOD EM-3 (user answers 2026-10-17: Over budget "Gentle penalty curve", P6 "sqrt curve, floor 60%"): live in place,
   // its checks in wr8AuditWiring below; the shield and floor rows beside it are EM-3's own.
   { id: "ship:wr8:powerInCombat", system: "ship", claim: "ShipDerivedStats in combat: power output against the net draw. An over-budget ship's weapons hit at its power supply (sqrt(output / draw), frozen in the run's combat rules stamp)", status: LIVE },
@@ -4087,6 +4085,20 @@ function wr8AuditWiring(): Readonly<Record<string, Partial<EntryInput>>> {
     "ship:audit:smartReflect": ev("combatEventSmartReflect", "up", "the weakest foe's damage taken"),
     "ship:audit:droneDisrupted": ev("combatEventDroneDisrupted", "up", "the enemy's drones disrupted at the end"),
     "ship:audit:familyResists": { probe: "combatResistLinesRoll", contexts: ["craft"], curve: { kind: "event", metric: "resist line picks over the plating and emitter rolls" }, magnitude: () => 1, on: sourceOn },
+    // WR-7 follow-up OC-D8: a Battleship's outbound Sweep leg (its slow hull makes the leg long enough to show the cut),
+    // through the live engine, with a drive's +20 transit speed line against the same drive without it. Each leg is the
+    // route's leg divided by the speed, rounded up to a whole route tick, so the divide holds within that one tick.
+    "ship:audit:patrolLegs": {
+      probe: "patrolOutboundTicks",
+      contexts: ["patrol"],
+      direction: "down",
+      curve: { kind: "divisor" },
+      magnitude: () => percent("transitSpeedMult"),
+      base: () => combatBase("battleship"),
+      on: transitDrive(LINE_POINTS),
+      off: transitDrive(0),
+      tolerance: 1,
+    },
     "ship:audit:derivedStatsInCombat": {
       probe: "combatSpeedStamp",
       contexts: ["patrol", "shipEvent"],
@@ -4956,9 +4968,6 @@ export const FLAT_UNCONTROLLED: Readonly<Record<string, string>> = {
   "sciCombatPower@ground": "Science never fights (D2): nothing live reaches a Science member's battle stats",
   "secInflictPermille@ground:noInflict": "an inflict piece is the only live source of on-hit statuses, and this context is the one without it",
   "salvageTalentCeiling@salvage:topTier": "the pool's top tier is the clamp: nothing can raise the tier a top Fleet Admiral rolls",
-  // WR-8: transit speed reaches a patrol's combat speed now (ship:audit:derivedStatsInCombat), so its pending patrol
-  // context is the LEGS alone, read here; no live effect moves a patrol leg until the patrol legs slice scales them.
-  "patrolOutboundTicks@patrol": "a patrol's legs are fixed route ticks until the WR-7 follow-up (OC-D8: patrol legs scale with transit speed): nothing live moves them yet",
 };
 
 // ============================================================================

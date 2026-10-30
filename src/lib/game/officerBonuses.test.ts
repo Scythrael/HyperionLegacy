@@ -64,6 +64,10 @@ import { asLegacyDispatch, asPreG2NamesDispatch, withSlottedAwayTeams, withoutGr
 // SF-1: whole states hash without the run counters (seeded by freshState, written by a patrol), absent before SF-1.
 import { withoutRunCounts, goldenJson } from "./firstRunsGoldens.fixture";
 import { withCombatRulesOff } from "./combatRulesSwitch.fixture";
+import { withPatrolLegsOff } from "./patrolLegsSwitch.fixture";
+// WR-7 follow-up OC-D8: these neutrality goldens were captured before the patrol legs scaled, so their patrols fly the
+// route's legs too (patrolLegsSwitch.fixture.ts; patrolLegsGoldens.test.ts pins the legs).
+const withCombatRulesAndLegsOff = <T>(run: () => T): T => withCombatRulesOff(() => withPatrolLegsOff(run));
 
 // Ground Ops (GO-7b): this file pins LEGACY expedition runs (goldens captured before Ground Ops): every dispatch
 // slots the members in hire order (dispatch reads the slotted ground teams) and resolves without the groundOps
@@ -206,7 +210,7 @@ describe("neutrality: no officer = byte-identical to before Task 20 (golden)", (
 
   // WR-8 (0.14.0): captured before the combat rules, so the patrols fly with them switched off (combatRulesSwitch
   // .fixture.ts; combatDescriptorGoldens.test.ts pins the rules).
-  it("patrols (live loop + relaunches + the display replay)", () => withCombatRulesOff(() => {
+  it("patrols (live loop + relaunches + the display replay)", () => withCombatRulesAndLegsOff(() => {
     for (const typeKey of ["destroyer", "carrier", "battleship"] as ShipTypeKey[]) {
       const r = asPrePatrolCurveDispatch(dispatchCaptainOnPatrol(patrolState(typeKey), 1, "crimsonReaverSweep", "balanced", true));
       expect(r.success).toBe(true);
