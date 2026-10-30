@@ -246,7 +246,10 @@ export interface RelicBoostDef {
 // fullTierSevenMuseum, the tier stagger's mix) x (1 - RELIC_CEILING_AT_FULL_TIER_VII) / RELIC_CEILING_AT_FULL_TIER_VII,
 // so a full Tier VII collection sits at F = 0.9 (plateau e23,500,000) and 10,000 of every type at F above 0.99.
 export const RELIC_BOOSTS: readonly RelicBoostDef[] = [
-  // typical x1.05 each generator row (Slice 5a retune: the two Tier I rows, Geode Core and Spore Capsule, x6.5)
+  // Each row's "x" note is what it gave the old all-types typical collection. The typical Tier I collection (Slice 5a)
+  // holds only the four Tier I types, at x6.5 their old perCopy: Mining Laser and Fusion Forge x1.39, Augment Points
+  // earned x1.31, Augment Points counting x1.93; every other row gives it nothing.
+  // all-types typical x1.05 each generator row
   { relicId: "geodeCore", lever: "tier1", boosts: "Mining Laser output", perCopy: 0.0202, knee: 10, ceilingKnee: 122.8 },
   { relicId: "magmaPearl", lever: "tier2", boosts: "Refinery output", perCopy: 0.0076, knee: 4, ceilingKnee: 6.889 },
   { relicId: "deepVeinCompass", lever: "tier3", boosts: "Fabricator output", perCopy: 0.0152, knee: 2, ceilingKnee: 24 },
@@ -255,18 +258,18 @@ export const RELIC_BOOSTS: readonly RelicBoostDef[] = [
   { relicId: "bioluminescentSeed", lever: "tier6", boosts: "Graviton Press output", perCopy: 0.0076, knee: 4, ceilingKnee: 53.11 },
   { relicId: "leviathanScale", lever: "tier7", boosts: "Quantum Loom output", perCopy: 0.0152, knee: 2, ceilingKnee: 5.556 },
   { relicId: "livingCrystal", lever: "tier8", boosts: "Singularity Engine output", perCopy: 0.0809, knee: 0.5, ceilingKnee: 7.889 },
-  // typical x1.02 (each level counts as 1.02 levels)
+  // all-types typical x1.02 (each level counts as 1.02 levels)
   { relicId: "flightRecorder", lever: "overclock", boosts: "each Overclock level counts more", perCopy: 0.00304, knee: 4, ceilingKnee: 53.11 },
-  // typical x1.15 on the game clock
+  // all-types typical x1.15 on the game clock
   { relicId: "ancientDriveCoil", lever: "stack", boosts: "the whole stack runs faster", perCopy: 0.0456, knee: 2, ceilingKnee: 34.22 },
-  // typical x1.005 on the ten bonus factor (2 becomes 2.01)
+  // all-types typical x1.005 on the ten bonus factor (2 becomes 2.01)
   { relicId: "hullRivet", lever: "tenBonus", boosts: "each ten bonus is a little stronger", perCopy: 0.000311, knee: 10, ceilingKnee: 11.67 },
-  // typical x1.04 each points row (Slice 5a retune: the two Tier I rows, Glyph Tablet and Resonance Shard, x6.5)
+  // all-types typical x1.04 each points row
   { relicId: "captainsSigil", lever: "captain", boosts: "Captain Points earned", perCopy: 0.0647, knee: 0.5, ceilingKnee: 12 },
   { relicId: "glyphTablet", lever: "augment", boosts: "Augment Points earned", perCopy: 0.0162, knee: 10, ceilingKnee: 122.8 },
   { relicId: "resonanceShard", lever: "fleet", boosts: "your Augment Points count as more", perCopy: 0.0395, knee: 4, ceilingKnee: 104.4 },
   { relicId: "starChartFragment", lever: "dream", boosts: "Dream Points earned", perCopy: 0.00608, knee: 4, ceilingKnee: 41.56 },
-  // typical x1.03 and x1.05 on every generator
+  // all-types typical x1.03 and x1.05 on every generator
   { relicId: "precursorLens", lever: "allSmall", boosts: "every generator", perCopy: 0.00911, knee: 2, ceilingKnee: 52.67 },
   { relicId: "heartOfTheArchive", lever: "allBig", boosts: "every generator, radiantly", perCopy: 0.0809, knee: 0.5, ceilingKnee: 2 },
 ];
@@ -306,7 +309,7 @@ export const SKILLS: readonly SkillDef[] = [
   { id: "autoBuyLow", name: "Auto-buy I to IV", blurb: "Buys Max for you", cost: 1, auto: true },
   { id: "autoCaptain", name: "Auto Captain Prestige", blurb: "At a target you set", cost: 1, auto: true },
   { id: "autoFleet", name: "Auto Fleet Prestige", blurb: "At a target you set", cost: 1, auto: true },
-  { id: "autoPc", name: "Auto Prestigeception", blurb: "At a target you set", cost: 2, auto: true },
+  { id: "autoPc", name: "Auto Prestigeception", blurb: "The moment you reach the bar", cost: 2, auto: true },
   { id: "headStart", name: "Head Start", blurb: "Begin resets with 1e10 Ore", cost: 1 },
   { id: "tenBonus", name: "Ten Bonus ×2.2", blurb: "Each ten is worth more", cost: 2 },
   { id: "autoBuyHigh", name: "Auto-buy V to VIII", blurb: "Needs Auto-buy I to IV", cost: 2, requires: "autoBuyLow", auto: true },
@@ -786,7 +789,7 @@ export const HELP_SECTIONS: readonly { title: string; body: string }[] = [
   { title: "THE FINE PRINT", body: "Augment Points speed up the whole stack the way Captain Points do, and only a Prestigeception takes them away. Dream Points are never taken away: they make every Captain and Augment Point you earn count for more. A Fleet Prestige uses up the climb that paid for it, so a Prestigeception needs a fresh climb to e10,000 Ore after one. A Prestigeception pays what its bar is worth however far past the bar you climb, so waiting earns nothing extra. New generators unlock at 1, 2, 3 and 6 lifetime Fleet Prestiges. Legal read this paragraph twice and then asked to be reset too." },
   // 0.14.0 Slices 3 and 4: automations moved from Skill Points to milestones, and the skills took levels
   // (short factual fixes; Slice 7 rewrites this section and THE FINE PRINT for the whole redesign).
-  { title: "SKILLS", body: "Skill Points come from Fleet Prestige, more for your first few, and buy skill levels: a head start, a stronger ten bonus and more. Each level costs a little more than the last, each skill grows with a prestige count, and some open later in the climb (each one says when). The automations that do the clicking for you (auto-buyers, automatic prestiges at a target you set) unlock at milestones instead, and each milestone says which one it unlocks (Auto Captain Prestige waits until Auto-buy I to IV is on, so a reset never leaves a stack nothing rebuilds). Once your Skill Points cover every level left, Fleet Prestige stops paying Skill Points; any you saved stay yours. The late game is mostly watching numbers go up, which is the point." },
+  { title: "SKILLS", body: "Skill Points come from Fleet Prestige, more for your first few, and buy skill levels: a head start, a stronger ten bonus and more. Each level costs a little more than the last, each skill grows with a prestige count, and some open later in the climb (each one says when). The automations that do the clicking for you (auto-buyers, Captain and Fleet Prestige at a target you set, Prestigeception the moment you reach its bar) unlock at milestones instead, and each milestone says which one it unlocks (Auto Captain Prestige waits until Auto-buy I to IV is on, so a reset never leaves a stack nothing rebuilds). Once your Skill Points cover every level left, Fleet Prestige stops paying Skill Points; any you saved stay yours. The late game is mostly watching numbers go up, which is the point." },
   { title: "MILESTONES", body: "Milestones appear as you get close to them, and each one is recorded with the date you reached it. Many of them unlock an automation the moment you reach them (the popup says which, or keeps it a surprise); most other rewards arrive in a future update, and the last one pays out right away. You will know it when you see it." },
   { title: "RELIC BOOSTS", body: "The relics in your Museum, out in the real game, hum at this old build. Each kind boosts one thing in here (Stats lists them), and every copy helps a little less than the one before. Copies past a tier's 1,000 count five times over. Nothing in here ever flows back out, apart from a certain smugness." },
   { title: "TIME AWAY", body: "The stack keeps running while this window is closed and while the game is closed. Come back whenever you like. It does the work; you take the credit. Not those credits." },

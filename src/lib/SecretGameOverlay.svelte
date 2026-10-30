@@ -284,10 +284,11 @@
     const h = Math.floor((m % 1440) / 60);
     return d > 0 ? `${d}d ${h}h` : `${h}h ${m % 60}m`;
   }
+  // The automatic prestiges with a target menu. Auto Prestigeception has none (user 2026-10-29: it fires at the
+  // bar, since a Prestigeception pays its bar's Dream Points however long it waits; plain on/off on the Automation tab).
   const LAYERS: { layer: AutoLayer; skill: SkillId }[] = [
     { layer: "captain", skill: "autoCaptain" },
     { layer: "fleet", skill: "autoFleet" },
-    { layer: "pc", skill: "autoPc" },
   ];
   const autoSkill = (layer: AutoLayer) => LAYERS.find((l) => l.layer === layer)!.skill;
   // An automatic prestige the Prestige tab may show: unlocked and not a secret any more.

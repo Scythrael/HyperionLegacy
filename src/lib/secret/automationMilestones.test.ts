@@ -534,7 +534,7 @@ describe("Auto Captain waits for Auto-buy I to IV, and its row says so", () => {
 });
 
 describe("buy amounts carry the fraction of a second (no drift on long coarse steps)", () => {
-  it("steps of 2.5 s at Buy 1 buy one level per booked second, the carry never saved", () => {
+  it("steps of 2.5 s at Buy 1 buy one level per booked second, the carry saved across a reload", () => {
     const base = atEffective(2.5e6);
     base.automations.autoUpgrades = true;
     base.autoOn.autoUpgrades = true;
@@ -545,7 +545,17 @@ describe("buy amounts carry the fraction of a second (no drift on long coarse st
     stepMut(y, 2.5, T0 + 2500);
     expect(levels(y)).toBe(2);
     expect(y.purchaseCarry).toBeCloseTo(0.5, 9);
-    expect(serializeSecret(y)).not.toContain("purchaseCarry");
+    // Slice 5a review: the carry is saved, so chunked steps with a save and reload between buy exactly what the
+    // same steps without a reload buy (x above).
+    expect(serializeSecret(y)).toContain("purchaseCarry");
+    let z = deserializeSecret(serializeSecret(y), T0 + 2500)!;
+    expect(z.purchaseCarry).toBeCloseTo(0.5, 9);
+    for (let i = 2; i <= 4; i++) {
+      stepMut(z, 2.5, T0 + i * 2500);
+      z = deserializeSecret(serializeSecret(z), T0 + i * 2500)!;
+    }
+    expect(levels(z)).toBe(levels(x));
+    expect(JSON.parse(serializeSecret(z))).toEqual(JSON.parse(serializeSecret(x)));
     const one = cloneSecret(base);
     stepMut(one, 1, T0 + 1000);
     expect(one.purchaseCarry).toBeUndefined();

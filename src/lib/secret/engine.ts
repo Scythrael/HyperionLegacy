@@ -283,8 +283,8 @@ function buyCount(amount: AutomationBuy, seconds: number): number {
 }
 
 // Whole seconds a step stands for when it counts purchases (a live step is 1; never 0).
-// The whole seconds of purchases a step books, carrying the fraction to the next step (s.purchaseCarry, never
-// saved), so a long run of coarse steps of 2.0007 s buys at exactly the live rate instead of drifting by the
+// The whole seconds of purchases a step books, carrying the fraction to the next step (s.purchaseCarry, saved
+// while it holds one, so chunked with a reload between equals one call), so a long run of coarse steps of 2.0007 s buys at exactly the live rate instead of drifting by the
 // rounding. A live step (1 s) carries nothing.
 function purchaseSecondsMut(s: SecretState, dt: number): number {
   const t = dt + (s.purchaseCarry ?? 0);

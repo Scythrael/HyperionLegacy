@@ -82,7 +82,8 @@ export interface SecretState {
   // absent for a player with no relics, so a relic-free game is byte-identical to before.
   relicBoosts?: RelicBoosts;
   // 0.14.0: the fraction of a second of automation purchases a coarse catch-up step carries to the next one
-  // (engine purchaseSecondsMut). NEVER saved; absent at whole seconds (every live step).
+  // (engine purchaseSecondsMut). Saved while it holds a fraction (Slice 5a review: a save between two coarse steps
+  // must buy exactly what one call would); absent at whole seconds (every live step), 0 after it was used.
   purchaseCarry?: number;
   // --- 0.14.0 prestige redesign (docs/plans/2026-10-27-minigame-prestige-redesign-plan.md, Slice 1:
   // data only, no engine code reads these yet). Absent from every 0.13.11.2 save: deserializeSecret
@@ -195,7 +196,7 @@ const NUMBER_FIELDS = [
 
 export function serializeSecret(s: SecretState): string {
   // The relic boosts are an input from the main save, never part of this save.
-  const { relicBoosts: _relicBoosts, purchaseCarry: _purchaseCarry, captainSinceFleet, skillPointsEarned, skillLevels, automations, automationBuy, skillsOpened, prestigeV, ...saved } = s;
+  const { relicBoosts: _relicBoosts, purchaseCarry, captainSinceFleet, skillPointsEarned, skillLevels, automations, automationBuy, skillsOpened, prestigeV, ...saved } = s;
   const out: Record<string, unknown> = { ...saved, owned: s.owned.map((d) => d.toString()), peakOwned: s.peakOwned.map((d) => d.toString()) };
   for (const k of DECIMAL_FIELDS) out[k] = s[k].toString();
   // 0.14.0 redesign fields: written only once they hold something, always last and in this order, so
@@ -207,6 +208,7 @@ export function serializeSecret(s: SecretState): string {
   if (Object.keys(automationBuy).length > 0) out.automationBuy = automationBuy;
   if (Object.keys(skillsOpened).length > 0) out.skillsOpened = skillsOpened;
   if (prestigeV !== undefined) out.prestigeV = prestigeV;
+  if (purchaseCarry !== undefined && purchaseCarry > 0) out.purchaseCarry = purchaseCarry;
   return JSON.stringify(out);
 }
 
@@ -319,6 +321,9 @@ function readRedesignFields(s: SecretState, parsed: Record<string, unknown>): vo
     if (AUTOMATION_BUY_DEFAULT[id] !== undefined && AUTOMATION_BUY_CHOICES.includes(buy as AutomationBuy)) s.automationBuy[id] = buy as AutomationBuy;
   }
   if (parsed.prestigeV === 1) s.prestigeV = 1;
+  // A fraction of a second, or nothing (a missing or bad value carries nothing, as before it was saved).
+  const pc = parsed.purchaseCarry;
+  if (isFiniteNumber(pc) && pc > 0 && pc < 1) s.purchaseCarry = pc;
 }
 
 // 0.13.11.1 fields. Every 0.13.11 save lacks them, so a missing or bad value takes its default

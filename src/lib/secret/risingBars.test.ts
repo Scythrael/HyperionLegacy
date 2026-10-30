@@ -117,8 +117,8 @@ describe("the Prestigeception bar", () => {
     expect(pcBarExponent(freshSecretState(T0))).toBe(PRESTIGECEPTION_AT);
     let s = atPeak(at(PRESTIGECEPTION_AT));
     let prev = pcBarExponent(s);
-    // (review round, PC_BAR_RATIO 3: the 6th bar sits far past e10,000,000, beyond what a Decimal can hold once
-    // unsoftened, so the ladder is walked to the 5th)
+    // (walked to the 5th bar: at the review round's PC_BAR_RATIO 3 the 6th sat beyond what a Decimal can hold once
+    // unsoftened; at today's 2 the 6th is about e14,400,000, past e10,000,000, so the walk stops at the 5th anyway)
     for (let m = 1; m <= 5; m++) {
       s = doPrestigeception(s, T0);
       const bar = pcBarExponent(s);
