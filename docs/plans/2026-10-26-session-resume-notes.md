@@ -128,3 +128,17 @@ something is missing."
 - One slice session at a time in marathon mode; parallel slice sessions only in burn mode.
 - The hub rotates too: when its context grows large, it writes a handoff here and the user opens a fresh hub with the
   same title.
+
+## Handoff (2026-10-30 evening), feat @ 14c0e6e (+ this notes commit)
+
+Slice 7 UI + Help merged (14c0e6e: 7842f84 + 39a9f7b review fixes and the Automation tab NEW marker). Gates on merged
+feat: 10,478 passed, 308 skipped; check 0 errors (2 old RadialWeb warnings). relicGoldens re-pinned: six past-finale
+states only gain "automationsNew":true (Auto Skill Allocation unlocks in their window); goldens.json unchanged.
+User picks (2026-10-30): four new AUTOMATION_LINES approved as written; e25M reward line approved; dimmed "ahead"
+automation rows kept; NEW marker built. QA sheet: docs/qa/2026-10-30-minigame-prestige-redesign-qa.html.
+Minigame prestige redesign Slices 0 to 7 are all merged; the redesign awaits the user's QA pass.
+Incident: the main checkout's node_modules was found empty (mtime 11:40:40 PDT, cause unknown; the hub ran no npm or
+cleanup then); restored with npm ci from package-lock.json. Builder worktree agent-a4f30434476d21c47 still locked by
+its agent process (branch worktree-agent-a4f30434476d21c47 merged; remove later). Builder note: vitest's dependency
+cache would not rebuild in fresh worktrees ("Could not resolve 'node:module'"); builders used an uncommitted config.
+Next: user QA of the redesign; then the remaining 0.14.0 queue (handoff 2026-10-30 ~02:30 UTC item 4).
