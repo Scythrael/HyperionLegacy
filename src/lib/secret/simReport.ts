@@ -64,29 +64,35 @@ export function expectSlowsAfterStarfall(r: SimResult): void {
 // 0.13.11.1 (user: "Retune so default is best"): the steady player at the DEFAULT 100% targets,
 // measured by sim.test.ts (which checks it still lands here). The target sweeps compare against it.
 // 0.14.0 combined pacing retune (prestige redesign Slices 2 to 4): re-measured, 4.88 / 32.35 / 119.15 days before.
-// (review round: re-measured with the player's own first Prestigeception and PC_BAR_RATIO 3)
-export const DEFAULT_STEADY = { finale: 312947, long: 2846857, starfall: 122.98 * D }; // 3.62 d, 32.95 d, 123.0 d
+// (review round: re-measured with the player's own first Prestigeception and PC_BAR_RATIO 3: 3.62 / 32.95 / 122.98)
+// (Slice 5a retune, user 2026-10-29 "Pay at the bar" and "All 49 points before e10M": PC_BAR_RATIO 2, CP_K 0.53 x
+// CAPTAIN_BEND, SOFT_SCALE 63, re-measured)
+export const DEFAULT_STEADY = { finale: 3.764 * D, long: 32.1007 * D, starfall: 118.0556 * D }; // 3.76 d, 32.10 d, 118.06 d
 // R2-10 (relic boosts): the relic-free goals the relic pins compare against, measured on the shipped
 // engine (relic-free runs are byte-identical, so these are fixed): the optimal and casual players
 // (simOptimal / simCasual) and the average player (DEFAULT_STEADY). In days.
 export const RELIC_FREE = {
   // 0.14.0 combined pacing retune: re-measured (optimal 4.46 / 34.47 / 130.06 before, casual 6.86 / 47.84 / 140.65)
-  optimal: { finale: 3.51, long: 31.62, starfall: 116.34 },
+  // (Slice 5a retune: re-measured, 3.51 / 31.62 / 116.34 and casual 5.62 / 32.71 / 123.28 before)
+  optimal: { finale: 3.6035, long: 32.0313, starfall: 120.2188 },
   average: { finale: DEFAULT_STEADY.finale / D, long: DEFAULT_STEADY.long / D, starfall: DEFAULT_STEADY.starfall / D },
-  casual: { finale: 5.62, long: 32.71, starfall: 123.28 },
+  casual: { finale: 4.8051, long: 32.5024, starfall: 120.6095 },
 } as const;
 // 0.14.0 Slice 5a: the relic pins are measured on the SHIPPING catch-up all the way (the LONG_STRETCH_DT shortcut
 // runs fast past e1,000,000 and not by the same amount with relics), against these relic-free goals on the same
 // shipping catch-up (each relic pin file checks its own row), in days.
+// (Slice 5a retune: re-measured; 3.62 / 32.95 / 124.93, 3.51 / 31.62 / 122.39 and 5.62 / 32.71 / 123.36 before)
 export const RELIC_FREE_SHIPPING = {
-  average: { finale: 3.62, long: 32.95, starfall: 124.93 },
-  optimal: { finale: 3.51, long: 31.62, starfall: 122.39 },
-  casual: { finale: 5.62, long: 32.71, starfall: 123.36 },
+  average: { finale: 3.764, long: 32.1007, starfall: 120.322 },
+  optimal: { finale: 3.6035, long: 32.0313, starfall: 123.13 },
+  casual: { finale: 4.8051, long: 32.5024, starfall: 120.0299 },
 } as const;
 // The average player with the TYPICAL collection (simRelicsAverage.test.ts measures it), in days.
 // (0.14.0 combined pacing retune: re-measured, 4.17 / 27.87 / 101.29 before; the relic bands are Slice 5's)
 // Slice 5a: the typical collection re-based on the tier stagger (Tier I, four types), on the shipping catch-up.
-export const TYPICAL_RELIC_AVERAGE = { finale: 3.65, long: 30.56, starfall: 117.86 };
+// Slice 5a retune (pay at the bar, the four Tier I levers x6.5, user 2026-10-29): 3.65 / 30.56 / 117.86 before, x1.01 /
+// 0.93 / 0.94 of relic-free; now x0.890 / 0.851 / 0.876, inside Gentle.
+export const TYPICAL_RELIC_AVERAGE = { finale: 3.35, long: 27.31, starfall: 105.44 };
 export const RELIC_GOALS = ["finale", "long", "starfall"] as const;
 
 // Each goal's time with relics over the time without (0.85 = 15% faster), reported and returned.

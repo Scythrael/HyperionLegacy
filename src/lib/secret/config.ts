@@ -98,7 +98,10 @@ export const DP_POW = 0.24;
 // 4.2 / 4.1) and leave e1,000,000 and e10,000,000 where they were. Review round (the player's own first
 // Prestigeception, PC_BAR_RATIO 3): 0.525 x CAPTAIN_BEND (0.21), the finale back in its bands (average 3.62 days,
 // +1 h 3.09, optimal 3.51, casual 5.62; at 0.20 the +1 h run took 5.02, at 0.22 the optimal player 3.40). [PROVISIONAL]
-export const CP_K = 0.525 * CAPTAIN_BEND; // 0.21
+// Slice 5a retune (user 2026-10-29: "Pay at the bar", "All 49 points before e10M"): PC_BAR_RATIO 3 to 2 and
+// 0.53 x CAPTAIN_BEND (0.212), the finale at 3.76 days average, 3.60 optimal (band floor 3.5), 4.8 casual
+// (0.55: 3.56 average but 3.43 optimal; 0.45: 4.31 average). [PROVISIONAL]
+export const CP_K = 0.53 * CAPTAIN_BEND; // 0.212
 export const CP_K_AFTER_FINALE = CAPTAIN_BEND; // 0.4
 export const AP_K = 0.55;
 export const DP_K = 0.7;
@@ -120,8 +123,11 @@ export const OVERDRIVE_POWER = 1.05; // Overdrive: Ore production ^1.05
 export const FINALE_EXPONENT = 777777;
 export const LONG_EXPONENT = 1000000;
 // 0.14.0: the combined retune moved this to 63 at PC_BAR_RATIO 2; the review round's PC_BAR_RATIO 3 (fewer
-// Prestigeceptions, so fewer resets of the climb) needs the shipped 66 again for e10,000,000 near day 120.
-export const SOFT_SCALE = 66; // 0.13.11.1 retune: 58 before (e1,000,000 back to about a month)
+// Prestigeceptions, so fewer resets of the climb) needed the shipped 66 again for e10,000,000 near day 120. Slice 5a
+// retune (pay at the bar, PC_BAR_RATIO 2, CP_K 0.53 x CAPTAIN_BEND): 63, e10,000,000 on day 118.1 (61 gave 122.9 but
+// put simStretch's coarse shortcut 8% off the shipping catch-up, 62 7.7%; 63 1.9%, 64 2.0%, 65 1.5%).
+// [PROVISIONAL]
+export const SOFT_SCALE = 63;
 export const SOFT_BETA = 0.5;
 
 // ---------------------------------------------------------------------------
@@ -229,19 +235,23 @@ export interface RelicBoostDef {
 // 0.14.0 Slice 5a: the per-row "typical" targets below were set on the collection with every type open. Under the tier
 // stagger a typical first-weeks collection is Tier I, four types (Glyph Tablet, Spore Capsule, Geode Core, Resonance
 // Shard), so it holds only those levers: average player on the shipping catch-up 3.65 / 30.56 / 117.86 days against
-// 3.62 / 32.95 / 124.93 relic-free (x1.01 / 0.93 / 0.94), short of the Gentle 10 to 20% (a user call: raise the four
-// Tier I levers, or re-pin Gentle to the staggered collection). Measured: the four at x3 0.94 / 0.94 / 0.92; at x7 the
-// faster climb moves the player's own first Prestigeception and with it a later one onto e1,000,000 (x1.35 there).
+// 3.62 / 32.95 / 124.93 relic-free (x1.01 / 0.93 / 0.94), short of the Gentle 10 to 20%. Slice 5a retune (user
+// 2026-10-29: "Pay at the bar", then tune the relic levers to Gentle): with the Prestigeception ladder fixed, the four
+// Tier I levers (Geode Core, Spore Capsule, Glyph Tablet, Resonance Shard) at x6.5 their old perCopy put the typical
+// collection at x0.890 / 0.851 / 0.876 (average), 0.872 / 0.849 / 0.857 (optimal), 0.940 / 0.859 / 0.865 (casual) on
+// the shipping catch-up. x7 measured 0.881 / 0.843 / 0.874 but put simRelicsStretch's coarse shortcut 3.7% off the
+// shipping catch-up (6: 2.6%, 6.5: 1.9%, 7.5: 3.1%, 8: 10.1%). The ceiling knees
+// are unchanged, so the plateau table is too.
 // ceilingKnee [PROVISIONAL]: each type's weighted copies in the full Tier VII collection (relicCollections.ts
 // fullTierSevenMuseum, the tier stagger's mix) x (1 - RELIC_CEILING_AT_FULL_TIER_VII) / RELIC_CEILING_AT_FULL_TIER_VII,
 // so a full Tier VII collection sits at F = 0.9 (plateau e23,500,000) and 10,000 of every type at F above 0.99.
 export const RELIC_BOOSTS: readonly RelicBoostDef[] = [
-  // typical x1.05 each generator row
-  { relicId: "geodeCore", lever: "tier1", boosts: "Mining Laser output", perCopy: 0.00311, knee: 10, ceilingKnee: 122.8 },
+  // typical x1.05 each generator row (Slice 5a retune: the two Tier I rows, Geode Core and Spore Capsule, x6.5)
+  { relicId: "geodeCore", lever: "tier1", boosts: "Mining Laser output", perCopy: 0.0202, knee: 10, ceilingKnee: 122.8 },
   { relicId: "magmaPearl", lever: "tier2", boosts: "Refinery output", perCopy: 0.0076, knee: 4, ceilingKnee: 6.889 },
   { relicId: "deepVeinCompass", lever: "tier3", boosts: "Fabricator output", perCopy: 0.0152, knee: 2, ceilingKnee: 24 },
   { relicId: "tectonicKeystone", lever: "tier4", boosts: "Synthesizer output", perCopy: 0.0809, knee: 0.5, ceilingKnee: 4.667 },
-  { relicId: "sporeCapsule", lever: "tier5", boosts: "Fusion Forge output", perCopy: 0.00311, knee: 10, ceilingKnee: 122.8 },
+  { relicId: "sporeCapsule", lever: "tier5", boosts: "Fusion Forge output", perCopy: 0.0202, knee: 10, ceilingKnee: 122.8 },
   { relicId: "bioluminescentSeed", lever: "tier6", boosts: "Graviton Press output", perCopy: 0.0076, knee: 4, ceilingKnee: 53.11 },
   { relicId: "leviathanScale", lever: "tier7", boosts: "Quantum Loom output", perCopy: 0.0152, knee: 2, ceilingKnee: 5.556 },
   { relicId: "livingCrystal", lever: "tier8", boosts: "Singularity Engine output", perCopy: 0.0809, knee: 0.5, ceilingKnee: 7.889 },
@@ -251,10 +261,10 @@ export const RELIC_BOOSTS: readonly RelicBoostDef[] = [
   { relicId: "ancientDriveCoil", lever: "stack", boosts: "the whole stack runs faster", perCopy: 0.0456, knee: 2, ceilingKnee: 34.22 },
   // typical x1.005 on the ten bonus factor (2 becomes 2.01)
   { relicId: "hullRivet", lever: "tenBonus", boosts: "each ten bonus is a little stronger", perCopy: 0.000311, knee: 10, ceilingKnee: 11.67 },
-  // typical x1.04 each points row
+  // typical x1.04 each points row (Slice 5a retune: the two Tier I rows, Glyph Tablet and Resonance Shard, x6.5)
   { relicId: "captainsSigil", lever: "captain", boosts: "Captain Points earned", perCopy: 0.0647, knee: 0.5, ceilingKnee: 12 },
-  { relicId: "glyphTablet", lever: "augment", boosts: "Augment Points earned", perCopy: 0.00249, knee: 10, ceilingKnee: 122.8 },
-  { relicId: "resonanceShard", lever: "fleet", boosts: "your Augment Points count as more", perCopy: 0.00608, knee: 4, ceilingKnee: 104.4 },
+  { relicId: "glyphTablet", lever: "augment", boosts: "Augment Points earned", perCopy: 0.0162, knee: 10, ceilingKnee: 122.8 },
+  { relicId: "resonanceShard", lever: "fleet", boosts: "your Augment Points count as more", perCopy: 0.0395, knee: 4, ceilingKnee: 104.4 },
   { relicId: "starChartFragment", lever: "dream", boosts: "Dream Points earned", perCopy: 0.00608, knee: 4, ceilingKnee: 41.56 },
   // typical x1.03 and x1.05 on every generator
   { relicId: "precursorLens", lever: "allSmall", boosts: "every generator", perCopy: 0.00911, knee: 2, ceilingKnee: 52.67 },
@@ -357,8 +367,8 @@ export const END_SOFT_SCALE = 20000;
 export const END_SOFT_BETA = 0.5;
 
 // Prestigeceptions for the "pcRegular" milestone (Auto Skill Allocation, user pick 2026-10-28: "at 4
-// Prestigeceptions") [PROVISIONAL]. At PC_BAR_RATIO 3 (review round) the 4th comes around day 75 to 100, not
-// day 3 (a user call to move it).
+// Prestigeceptions") [PROVISIONAL]. At PC_BAR_RATIO 2 (Slice 5a retune) the 4th comes at the e621,000 bar,
+// shortly before the finale.
 export const AUTO_SKILLS_PC_COUNT = 4;
 
 // 0.14.0 prestige redesign Slice 3: the three automation beats (secondFleet, e10k, pcRegular; names and
@@ -474,7 +484,17 @@ export const TURBO_LEVEL = 10000;
 // at 3 the climbs sit at x4.8, x35 and x250 of the first, below the finale, between e1,000,000 and e10,000,000 and
 // past it whatever the first: 115.2 to 123.0 days. Four Prestigeceptions to e10,000,000 (five at 2).
 export const FLEET_BAR_RATIO = 1;
-export const PC_BAR_RATIO = 3;
+// Slice 5a retune, 3 to 2 (user 2026-10-29: "Pay at the bar", "All 49 points before e10M"). A Prestigeception now
+// pays its bar's Dream Points however far past it the climb went (engine prestigeceptionGain), so the player's own
+// first one pays the same 11,900 wherever the check-in finds it and the ladder is fixed again: each bar pays
+// RATIO x what you hold, so the climbs sit at e10,000, e26,900, e129,000, e621,000 and e2,990,000
+// (then e14,400,000; Lucid Planning lowers the later ones a little), clear of the finale, e1,000,000 and e10,000,000, and a relic collection never moves them
+// (Star Chart Fragment scales the payout and the bar alike). Five Prestigeceptions to e10,000,000 (the gate lift at
+// the 5th), every one of the 49 Skill Points by about day 98 (average). At 3 the fifth came past e10,000,000 (at
+// e18,300,000); 2.5 puts it at e7,950,000, right before the goal. Measured (with SOFT_SCALE 63): the average player 3.76 / 32.10 /
+// 118.06 days, optimal 3.60 / 32.03 / 120.22, casual 4.81 / 32.50 / 120.61; the 5th Prestigeception about day 90.
+// [PROVISIONAL]
+export const PC_BAR_RATIO = 2;
 
 // 3.2 Automations. Each one unlocks at a milestone (user: "Only have the automations at the milestone
 // levels"), never for Skill Points. The six that are skills today keep their ids; autoSkills
@@ -595,8 +615,9 @@ export type SkillGate =
   | { milestone: AnyMilestoneId }
   | { prestiges: { layer: "captain" | "fleet" | "pc"; count: number; scope: "current" | "lifetime" } };
 
-// [PROVISIONAL] 6 before the retune, 5 at PC_BAR_RATIO 2 (5th Prestigeception on day 72). At PC_BAR_RATIO 3 the
-// average player makes 4 Prestigeceptions by e10,000,000, so the lift now comes past it (a user call to move).
+// [PROVISIONAL] 6 before the retune, 5 at PC_BAR_RATIO 2. Slice 5a retune (user 2026-10-29 "All 49 points before
+// e10M"): back at PC_BAR_RATIO 2 with pay at the bar, the 5th Prestigeception is the e2,990,000 bar, well before
+// e10,000,000.
 export const SKILL_GATE_LIFT_PC = 5;
 
 // The scale factor's power: (1 + count)^SKILL_SCALE_POW (design 3.3: exactly 1 at a count of 0, concave,
@@ -625,9 +646,9 @@ export interface LeveledSkillDef {
 // e10,000,000 on day 59). Most Fleets come in the first days (about 29 by day 5) and few late (one every few
 // days after day 75), so most points arrive early: the early levels are small (Tenfold Training and Overdrive
 // reach today's x2.2 and ^1.05 at level 4 of 5, Head Start's 1e10 at level 1 of 2) and the new skills give a
-// little each (+5% a level). The costs total 49 (user 2026-10-28: skill sizes "OK"). At PC_BAR_RATIO 3 (review
-// round) the average player has earned 45 by e10,000,000 (123 days): the last four come with the Fleets after it
-// (the late Fleets come a week or more apart).
+// little each (+5% a level). The costs total 49 (user 2026-10-28: skill sizes "OK"). Slice 5a retune (PC_BAR_RATIO
+// 2, pay at the bar): the average player earns the 49th about day 98, the optimal player day 94, the casual day
+// 94.6, all before e10,000,000 (user 2026-10-29: "All 49 points before e10M").
 export const LEVELED_SKILLS: readonly LeveledSkillDef[] = [
   // step: log10 of the starting Ore per level (level 1 = 1e10, today's Head Start)
   { id: "headStart", name: "Head Start", flavor: "Why start from nothing when you can start from slightly less nothing?", effect: "resets begin with more Ore", cap: 2, costBase: 1, costStep: 1, step: HEAD_START_LOG10, scalesOff: "lifetimeFleets", availableAt: { milestone: "firstFleet" }, replaces: { skill: "headStart", level: 1 } },
@@ -762,7 +783,7 @@ export const HELP_SECTIONS: readonly { title: string; body: string }[] = [
   { title: "THE TEN BONUS", body: "Every 10 of a generator you buy doubles its output. Owning them is nice; buying them is what counts." },
   { title: "OVERCLOCK AND UPGRADES", body: "Overclock lives in the Upgrades tab. It speeds up the whole stack by ×1.125 per level, and the levels multiply. Its price follows your income, so waiting never makes it cheaper. Much later, a few more upgrades wake up there. Each one has a level cap, shown as X / Y." },
   { title: "THREE KINDS OF PRESTIGE", body: "Captain Prestige resets your stack for Captain Points, and every point makes the stack faster. Fleet Prestige resets that too, for Augment Points, new generators and Skill Points (more for your first few, then one each, until you can max every skill). Prestigeception resets everything below it for Dream Points, which make every Captain and Augment Point you earn count for more. Yes, it is prestige all the way down as well." },
-  { title: "THE FINE PRINT", body: "Augment Points speed up the whole stack the way Captain Points do, and only a Prestigeception takes them away. Dream Points are never taken away: they make every Captain and Augment Point you earn count for more. A Fleet Prestige uses up the climb that paid for it, so a Prestigeception needs a fresh climb to e10,000 Ore after one. New generators unlock at 1, 2, 3 and 6 lifetime Fleet Prestiges. Legal read this paragraph twice and then asked to be reset too." },
+  { title: "THE FINE PRINT", body: "Augment Points speed up the whole stack the way Captain Points do, and only a Prestigeception takes them away. Dream Points are never taken away: they make every Captain and Augment Point you earn count for more. A Fleet Prestige uses up the climb that paid for it, so a Prestigeception needs a fresh climb to e10,000 Ore after one. A Prestigeception pays what its bar is worth however far past the bar you climb, so waiting earns nothing extra. New generators unlock at 1, 2, 3 and 6 lifetime Fleet Prestiges. Legal read this paragraph twice and then asked to be reset too." },
   // 0.14.0 Slices 3 and 4: automations moved from Skill Points to milestones, and the skills took levels
   // (short factual fixes; Slice 7 rewrites this section and THE FINE PRINT for the whole redesign).
   { title: "SKILLS", body: "Skill Points come from Fleet Prestige, more for your first few, and buy skill levels: a head start, a stronger ten bonus and more. Each level costs a little more than the last, each skill grows with a prestige count, and some open later in the climb (each one says when). The automations that do the clicking for you (auto-buyers, automatic prestiges at a target you set) unlock at milestones instead, and each milestone says which one it unlocks (Auto Captain Prestige waits until Auto-buy I to IV is on, so a reset never leaves a stack nothing rebuilds). Once your Skill Points cover every level left, Fleet Prestige stops paying Skill Points; any you saved stay yours. The late game is mostly watching numbers go up, which is the point." },

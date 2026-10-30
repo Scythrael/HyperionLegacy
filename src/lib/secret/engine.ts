@@ -1036,8 +1036,9 @@ export function nextFleetBarExponent(s: SecretState): number {
 }
 
 export function nextPcBarExponent(s: SecretState): number {
-  const at = Math.max(pcBarExponent(s), stateExponent(s, s.pcPeak));
-  return pcBarFor(s, s.dreamPoints.add(pcGainAt(s, at)));
+  // A Prestigeception pays its bar's Dream Points (pay at the bar), so the next bar is the same however far
+  // past this one the climb is.
+  return pcBarFor(s, s.dreamPoints.add(pcGainAt(s, pcBarExponent(s))));
 }
 
 // The payout of a climb to effective exponent e, before the bar check.
@@ -1060,10 +1061,16 @@ export function fleetGain(s: SecretState): Decimal {
   return fleetGainAt(s, e);
 }
 
+// Slice 5a retune (user 2026-10-29, "Pay at the bar (Recommended)"): a Prestigeception pays its BAR's Dream
+// Points however far past the bar the climb went; waiting costs nothing and earns nothing. The bar's payout is
+// RATIO times the Dream Points held (the bar's own definition), so the ladder of bars no longer moves with how
+// far past the bar the player's own first Prestigeception (or one taken by hand) happened to be. Captain and
+// Fleet keep paying for the climb (design 3.1 "its growing payout"; the 0.13.11.1 automatic targets above 100%
+// ask a Fleet for more than its bar pays).
 export function prestigeceptionGain(s: SecretState): Decimal {
-  const e = stateExponent(s, s.pcPeak);
-  if (e < pcBarExponent(s)) return ZERO;
-  return pcGainAt(s, e);
+  const bar = pcBarExponent(s);
+  if (stateExponent(s, s.pcPeak) < bar) return ZERO;
+  return pcGainAt(s, bar);
 }
 
 function resetRunMut(s: SecretState): void {
@@ -1157,11 +1164,19 @@ function meetsTarget(gain: Decimal, have: Decimal, pct: number): boolean {
   return gain.gt(0) && gain.gte(have.mul(pct / 100));
 }
 
+// Auto Prestigeception's target under "pay at the bar": from the moment the bar is reached the gain is the bar's
+// payout (PC_BAR_RATIO times what you hold) and never grows. Every target up to that fires right at the bar, as
+// before; a higher one (500% or 1000%: at PC_BAR_RATIO 2 the bar pays 200%) could never be met and would wait forever, so it is read
+// as "at the bar" too: waiting longer earns nothing. So Auto Prestigeception fires once the bar is reached.
+export function pcTargetMet(s: SecretState): boolean {
+  return prestigeceptionGain(s).gt(0);
+}
+
 type AutoLayerDue = "pc" | "fleet" | "captain" | null;
 
 // Which automatic prestige has reached its target (top layer first), if any.
 function dueAutoPrestige(s: SecretState): AutoLayerDue {
-  if (autoActive(s, "autoPc") && meetsTarget(prestigeceptionGain(s), s.dreamPoints, s.autoTarget.pc)) return "pc";
+  if (autoActive(s, "autoPc") && pcTargetMet(s)) return "pc";
   if (autoActive(s, "autoFleet") && meetsTarget(fleetGain(s), s.augmentPoints, s.autoTarget.fleet)) return "fleet";
   // 0.14.0: Auto Captain (unlocked at the second Fleet) waits while Auto-buy I to IV (unlocked at e1,000) is not
   // on: a reset with nothing to rebuy the generators left the stack empty until the next visit (a player who
@@ -1172,7 +1187,7 @@ function dueAutoPrestige(s: SecretState): AutoLayerDue {
 
 // Auto Prestigeception's own check (dueAutoPrestige's first branch, the top layer), for the crossing search.
 function pcAutoDue(s: SecretState): boolean {
-  return autoActive(s, "autoPc") && meetsTarget(prestigeceptionGain(s), s.dreamPoints, s.autoTarget.pc);
+  return autoActive(s, "autoPc") && pcTargetMet(s);
 }
 
 function firePrestigeMut(s: SecretState, layer: AutoLayerDue, atMs: number): boolean {

@@ -16,6 +16,9 @@
 //     by that autoOn entry; midCoarse2d is back to no Prestigeception) and never fires before the player's own
 //     first one; it fires the instant its bar is reached; Auto Captain waits for Auto-buy I to IV. earlyLive1h (no
 //     automation) is the one state that never moved.
+//   The Slice 5a retune (user 2026-10-29, "Pay at the bar" and "All 49 points before e10M"): CP_K 0.21 to 0.212
+//     moves every Captain gain below the finale (midLive1h, midCoarse2d); pay at the bar, PC_BAR_RATIO 3 to 2 and
+//     SOFT_SCALE 66 to 63 move the past-finale states.
 import { describe, it, expect } from "vitest";
 import { readFileSync, writeFileSync } from "node:fs";
 import { serializeSecret, type SecretState } from "./state";

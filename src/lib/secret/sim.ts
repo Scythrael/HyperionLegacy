@@ -36,7 +36,7 @@
 import { freshSecretState, cloneSecret, type SecretState } from "./state";
 import { stepMut, captainMultiplier, buyOverclockMut, buyTierMut, buySkillLevel, skillOffers, pickSkillOffer, skillLevel, allSkillsMaxed, totalSkillCost, captainGain, fleetGain, prestigeceptionGain, doCaptain, doFleet, doPrestigeception, effectiveExponent, hasSkill, upgradesUnlocked, upgradePriceExponent, canBuyUpgrade, buyUpgrade, fleetBarExponent, pcBarExponent, gainExponent, fleetGainPerLog10, pcGainPerLog10, stateExponent, automationUnlocked, automationRevealed, setAuto } from "./engine";
 import { advanceTo, EXACT_BOUND_SECONDS, type CatchUpOptions } from "./catchUp";
-import { UPGRADES, LEVELED_SKILLS, FLEET_AT, PRESTIGECEPTION_AT, AP_K, DP_K, type MilestoneId, type UpgradeId, type RelicBoosts } from "./config";
+import { UPGRADES, LEVELED_SKILLS, SKILL_GATE_LIFT_PC, FLEET_AT, PRESTIGECEPTION_AT, AP_K, DP_K, type MilestoneId, type UpgradeId, type RelicBoosts } from "./config";
 
 export type SimProfile = "steady" | "light" | "keen" | "optimal" | "average" | "casual";
 
@@ -136,7 +136,9 @@ export function decide(s: SecretState, atMs: number, style: PlayStyle = {}): Sec
   const t = s.autoTarget;
   const pays = (gain: typeof fg, have: typeof fg, pct: number) => gain.gt(0) && (have.eq(0) || gain.gte(have.mul(pct / 100)));
   // The higher layer first, like the automatic prestiges: a Fleet would use up the climb.
-  if (pays(pg, s.dreamPoints, t.pc)) s = doPrestigeception(s, atMs);
+  // A Prestigeception pays its bar's Dream Points (pay at the bar, engine pcTargetMet): the hand takes it once
+  // it pays at all, as Auto Prestigeception does, whatever the target.
+  if (pg.gt(0)) s = doPrestigeception(s, atMs);
   else if (fg.gt(0) && (style.spam || pays(fg, s.augmentPoints, t.fleet))) s = doFleet(s, atMs);
   else if ((style.manual || !hasSkill(s, "autoCaptain")) && pays(cg, s.captainPoints, t.captain) && !(s.fleetTotal === 0 && stateExponent(s, s.fleetPeak) >= 250)) {
     s = doCaptain(s, atMs);
@@ -229,6 +231,8 @@ export function simulatePlayer(opts: SimOptions): SimResult {
       if (level >= def.cap) mark(`skillMax:${def.id}`);
     }
     if (s.skillPointsEarned >= totalSkillCost() || allSkillsMaxed(s)) mark("lastSkillPoint");
+    // Slice 5a retune (user 2026-10-29 "All 49 points before e10M"): the skill gate lifts at this Prestigeception.
+    if (s.pcCount >= SKILL_GATE_LIFT_PC) mark("gateLift");
     for (const u of UPGRADES) {
       const def = u;
       if ((s.upgrades[u.id] ?? 0) >= 1) mark(`up1:${u.id}`);

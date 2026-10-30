@@ -126,7 +126,10 @@ describe("the Prestigeception bar", () => {
       else expect(bar, `m=${m}`).toBeGreaterThan(prev);
       expect(prestigeceptionGain(setPeak(cloneSecret(s), below(bar))).eq(0), `m=${m} below`).toBe(true);
       const g = prestigeceptionGain(setPeak(cloneSecret(s), at(bar)));
-      expect(g.gte(s.dreamPoints.mul(PC_BAR_RATIO).floor()), `m=${m}`).toBe(true);
+      // Pay at the bar (Slice 5a, user 2026-10-29): the payout is the bar's own, PC_BAR_RATIO x what you hold (the
+      // floor and the bar's float rounding can take one point off; before, the peak a hair past the bar paid more).
+      expect(g.gte(s.dreamPoints.mul(PC_BAR_RATIO).floor().sub(1)), `m=${m}`).toBe(true);
+      expect(g.lte(s.dreamPoints.mul(PC_BAR_RATIO)), `m=${m}`).toBe(true);
       prev = bar;
       s = setPeak(s, at(bar));
     }
@@ -139,7 +142,10 @@ describe("the Prestigeception bar", () => {
     const base = prestigeceptionGain(atPeak(at(PRESTIGECEPTION_AT)));
     const s = atPeak(400, 0, 50000);
     expect(prestigeceptionGain(setPeak(s, at(pcBarExponent(s)))).gt(base)).toBe(true);
-    expect(prestigeceptionGain(atPeak(400000, 0, 50000)).eq(prestigeceptionGain(atPeak(400000)))).toBe(true);
+    // Pay at the bar (Slice 5a, user 2026-10-29): a climb far past the bar pays exactly the bar's Dream Points, with or
+    // without Dream Points held (before, a climb above the bar paid what it paid with nothing held).
+    expect(prestigeceptionGain(atPeak(400000, 0, 50000)).eq(prestigeceptionGain(setPeak(s, at(pcBarExponent(s)))))).toBe(true);
+    expect(prestigeceptionGain(atPeak(400000)).eq(base)).toBe(true);
   });
 
   it("previews nothing below a risen bar (the button and the preview read the same bar)", () => {

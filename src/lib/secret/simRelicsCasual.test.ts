@@ -1,7 +1,7 @@
 // simRelicsCasual.test.ts: R2-10, the casual player with the typical relic collection. The finale and
-// e10,000,000 come 5 to 20% sooner. e1,000,000 comes much sooner (measured about 42%): the relic-free
-// casual player sits at the slow end of its 38 to 58 day band (47.8 days, one Prestigeception landing
-// late), and the relics carry it to the average player's month instead; reported, pinned to "sooner".
+// e10,000,000 come 5 to 20% sooner, e1,000,000 sooner (pinned 5 to 50%). Slice 5a retune (pay at the bar, the four
+// Tier I levers x6.5): measured x0.940 / 0.859 / 0.865 (an earlier engine had the relic-free casual player slow at
+// e1,000,000 and the relics carried it about 42% sooner, hence the wider e1,000,000 pin).
 import { describe, it, expect } from "vitest";
 import { simulatePlayer } from "./sim";
 import { timeline, relicRatios, RELIC_FREE_SHIPPING, RELIC_GOALS, D } from "./simReport";

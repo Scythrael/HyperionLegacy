@@ -440,3 +440,25 @@ Tier VII e23.5M, 10k of every type e24.9M, limit e25.0M.
    how far past it the climb went; waiting costs nothing and earns nothing. Then tune the relic levers to Gentle.
 2. e10M goals: "All 49 points before e10M (Recommended)": every Skill Point and the gate lift arrive before e10M,
    with at least 4 Prestigeceptions on the way; e20M and e25M are where relics carry you.
+
+**Slice 5a retune result (2026-10-29, on the branch):** pay at the bar is live: `prestigeceptionGain` pays
+`pcGainAt(bar)` once the climb reaches the bar (PC_BAR_RATIO x the Dream Points held), so the player's own first
+Prestigeception pays 11,900 wherever the check-in finds it and the ladder is fixed again (relic-free bars e10,000,
+e26,900, e129,000, e621,000, e2,990,000, then e14,400,000; Lucid Planning lowers the later ones a little; a relic
+collection never moves them). Auto Prestigeception fires at the bar whatever its target (`pcTargetMet`: a target
+above what the bar pays could otherwise never fire); the Help's THE FINE PRINT says waiting earns nothing extra.
+Captain and Fleet are NOT changed: Captain's growing payout is design 3.1 ("keeps its bar and its growing payout")
+and the Fleet's 0.13.11.1 automatic targets above 100% ask a Fleet for more than its bar pays (pay at the bar there
+would make them wait forever). Saves: no new field; a save already past its bar gets the bar's payout when it
+Prestigeceptions (less than the old overshoot would have paid, but nothing held is taken away; Dream Points already
+earned stay and set the next bar, so an old overshoot only sets that save's later bars a little higher).
+Constants [PROVISIONAL]: PC_BAR_RATIO 3 to 2, CP_K 0.21 to 0.53 x CAPTAIN_BEND (0.212), SOFT_SCALE 66 to 63 (61 gave e10M on day 122.9 but put simStretch's coarse shortcut 8% off the shipping catch-up),
+SKILL_SCALE_POW 0.1 (kept), the four Tier I relic levers (Geode Core, Spore Capsule, Glyph Tablet, Resonance Shard)
+perCopy x6.5 (x7 put simRelicsStretch's coarse shortcut 3.7% off); ceiling knees unchanged, so the plateau table is unchanged. Relic-free average 3.76 / 32.10 / 118.06 d,
+optimal 3.60 / 32.03 / 120.22, casual 4.81 / 32.50 / 120.61; five Prestigeceptions and all 49 Skill Points before
+e10M (49th about day 98 average, 94 optimal, 94.6 casual; the gate lift at the 5th, about day 90); simBite
+floor back to 4 (from the second on). Typical Tier I collection on the shipping catch-up: average x0.890 / 0.851 /
+0.876, optimal 0.872 / 0.849 / 0.857, casual 0.940 / 0.859 / 0.865 (Gentle). Heavy collection: e10M on day 42, best
+about e18.5M after a year (plateau e15.9M; e25M needs a near-full Tier VII collection). OPEN (user call): the Auto
+Prestigeception target menu is now inert (every target fires at the bar); suggest removing it from that row (the
+signed-off mockup kept a target menu on every prestige automation).

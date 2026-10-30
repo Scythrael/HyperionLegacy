@@ -3,6 +3,7 @@ import Decimal from "break_infinity.js";
 import { freshSecretState, type SecretState } from "./state";
 import {
   fleetBarExponent,
+  pcBarExponent,
   captainGain,
   fleetGain,
   gainExponent,
@@ -46,6 +47,7 @@ import {
   GAME_PACE_AFTER_FIRST_PC,
   AP_K,
   DP_K,
+  PC_BAR_RATIO,
   MILESTONES,
   COPY,
   HELP_SECTIONS,
@@ -131,10 +133,14 @@ describe("0.13.11.1: gains bend before the finale; Captain and Fleet return to t
     expect(gainExponent(s, CP_K)).toBe(1);
     // Captain: the 0.13.11 k = 1 bent by the curve round's CAPTAIN_BEND
     expect(captainGain(s).eq(Math.floor(CP_SCALE * Math.pow(2, CP_K_AFTER_FINALE)))).toBe(true);
-    // Dream Points keep their bend past the finale (they are never reset).
-    const p = withRun(20000);
+    // Dream Points keep their bend past the finale (they are never reset). Slice 5a "pay at the bar" (user
+    // 2026-10-29): a Prestigeception pays its bar's Dream Points, so the bend is read off the bar: holding the Dream
+    // Points whose bar is e20,000, the bar sits at e10,000 x 2 and pays DP_SCALE x 2^DP_K (within the floor).
+    const p = withRun(20001);
     p.bestOre = pow10(FINALE_EXPONENT + 1);
-    expect(prestigeceptionGain(p).eq(Math.floor(DP_SCALE * Math.pow(2, DP_K)))).toBe(true);
+    p.dreamPoints = new Decimal((DP_SCALE * Math.pow(2, DP_K)) / PC_BAR_RATIO);
+    expect(pcBarExponent(p)).toBeCloseTo(20000, 6);
+    expect(Math.abs(prestigeceptionGain(p).toNumber() - DP_SCALE * Math.pow(2, DP_K))).toBeLessThanOrEqual(1);
     const f = withRun(FLEET_AT * 2);
     f.bestOre = pow10(FINALE_EXPONENT);
     expect(fleetGain(f).eq(Math.floor(AP_SCALE * 2))).toBe(true);
@@ -151,7 +157,10 @@ describe("0.13.11.1: gains bend before the finale; Captain and Fleet return to t
 describe("Prestigeception", () => {
   it("needs e10,000 since the last one and pays Dream Points", () => {
     expect(prestigeceptionGain(withRun(9999)).eq(0)).toBe(true);
-    expect(prestigeceptionGain(withRun(20000)).eq(Math.floor(DP_SCALE * Math.pow(2, DP_K)))).toBe(true);
+    // Slice 5a "pay at the bar" (user 2026-10-29): a climb past e10,000 with nothing held pays the e10,000 bar's
+    // Dream Points, however far past it went (DP_SCALE x 2^DP_K at e20,000 before).
+    expect(prestigeceptionGain(withRun(10000)).eq(Math.floor(DP_SCALE))).toBe(true);
+    expect(prestigeceptionGain(withRun(20000)).eq(Math.floor(DP_SCALE))).toBe(true);
   });
 
   it("resets Captain and Augment Points and the Fleet count, keeps skills, Skill Points and tiers", () => {

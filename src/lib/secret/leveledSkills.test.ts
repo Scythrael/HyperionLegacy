@@ -351,7 +351,15 @@ describe("the three new skills measurably move their gains", () => {
     expect(prestigeceptionGain(s).gt(0)).toBe(true);
     const t = cloneSecret(s);
     t.skillLevels.lucidPlanning = 2;
-    expect(prestigeceptionGain(t).gt(prestigeceptionGain(s))).toBe(true);
+    // Slice 5a "pay at the bar" (user 2026-10-29): a Prestigeception pays its bar's Dream Points (PC_BAR_RATIO x what
+    // you hold), so with Dream Points held Lucid Planning shows as a LOWER bar for the same payout (the payout comes
+    // sooner); with nothing held (the first, bar e10,000) it pays more.
+    expect(prestigeceptionGain(t).eq(prestigeceptionGain(s))).toBe(true);
     expect(pcBarExponent(t)).toBeLessThan(pcBarExponent(s));
+    const f = cloneSecret(s);
+    f.dreamPoints = new Decimal(0);
+    const g = cloneSecret(f);
+    g.skillLevels.lucidPlanning = 2;
+    expect(prestigeceptionGain(g).gt(prestigeceptionGain(f))).toBe(true);
   });
 });

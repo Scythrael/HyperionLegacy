@@ -208,7 +208,12 @@ describe("every lever moves its consumer", () => {
     c.dreamPoints = new Decimal("1e60");
     near(captainGain(withBoosts(c, { captain: big })), captainGain(c));
     near(fleetGain(withBoosts(c, { augment: big })), fleetGain(c));
-    near(prestigeceptionGain(withBoosts(s, { dream: big })), prestigeceptionGain(s));
+    // Pay at the bar (Slice 5a, user 2026-10-29): with Dream Points held the bar moves with the boost and the payout
+    // is PC_BAR_RATIO x what you hold, so the boost shows on a payout from nothing held (the first Prestigeception),
+    // and every later one scales with it.
+    const d = cloneSecret(s);
+    d.dreamPoints = new Decimal(0);
+    near(prestigeceptionGain(withBoosts(d, { dream: big })), prestigeceptionGain(d));
   });
 
   it("Resonance Shard: Augment Points count as `boost` times as many on the stack", () => {

@@ -16,6 +16,8 @@
 // Then the combined pacing retune and its fix round: the states whose window holds a Prestigeception move
 // (Auto Prestigeception now fires the instant its bar is reached, paying exactly the bar's Dream Points, and
 // the retuned CP_K, PC_BAR_RATIO, skills and SOFT_SCALE); the early states without one do not.
+// The Slice 5a retune (user 2026-10-29): the relic-free captures move with the 0.13.11 goldens (CP_K, pay at the bar,
+// PC_BAR_RATIO 2, SOFT_SCALE 63), and the four Tier I levers' perCopy x6.5 move the typical and heavy boosts and states.
 import { describe, it, expect } from "vitest";
 import { readFileSync, writeFileSync } from "node:fs";
 import { serializeSecret, type SecretState } from "./state";

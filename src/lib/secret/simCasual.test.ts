@@ -6,7 +6,8 @@
 // point), so the bands moved to the new measurement (6.07 / 33.24 / 113.61 days; before 6.86 / 47.84 /
 // 140.65 with finale 5.5 to 8.5, e1,000,000 38 to 58 and e10,000,000 125 to 160). Review round: the player's own
 // first Prestigeception (Auto Prestigeception granted off until revealed, user 2026-10-29) took the measured casual
-// finale to 4.82 days at PC_BAR_RATIO 2, so the finale floor moved from 5 to 4 days (5.62 / 32.71 / 123.28 at 3).
+// finale to 4.82 days at PC_BAR_RATIO 2, so the finale floor moved from 5 to 4 days (5.62 / 32.71 / 123.28 at 3;
+// Slice 5a retune, pay at the bar and PC_BAR_RATIO 2: 4.81 / 32.50 / 120.61).
 import { describe, it, expect } from "vitest";
 import { simulatePlayer, LONG_STRETCH_DT } from "./sim";
 import { timeline, expectSlowsAfterStarfall, D, H, RELIC_FREE, RELIC_GOALS } from "./simReport";

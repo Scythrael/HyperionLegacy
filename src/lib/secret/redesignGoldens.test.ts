@@ -21,6 +21,9 @@
 // sits where the climb pays FLEET_BAR_RATIO (PC_BAR_RATIO) times those; the gains at a peak above the
 // bar are unchanged, as payouts still measure from the base bars. It also moved the pacing rows (see
 // the plan's Slice 2 carry note).
+// The Slice 5a retune (user 2026-10-29, "Pay at the bar"): pcBarLadder's gains are now each bar's own payout
+// (PC_BAR_RATIO 2 x what is held), and CP_K, PC_BAR_RATIO and SOFT_SCALE move the pacing rows (five
+// Prestigeceptions and all 49 Skill Points before e10,000,000).
 import { describe, it, expect } from "vitest";
 import { readFileSync, writeFileSync } from "node:fs";
 import Decimal from "break_infinity.js";
