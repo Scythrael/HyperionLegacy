@@ -519,10 +519,32 @@ export function canThrowGrenade(c: Pick<GroundCombatant, "grenade">): boolean {
 //                (D23) and can never reach certainty without a hard cap.
 //   powerMult  : WR-5c, the captain's Away-Team Doctrine (Expedition.explorerCaptain.squadPowerMult): every member's
 //                power and accuracy x this (accuracy still under its cap). Absent or 1 = unchanged.
+//   hpBonus      : complement plan CP-3, Away-Team Protection (Expedition.squadHpBonus): every member's max HP x
+//                  (1 + this), rounded to a whole point (at least 1). Absent or 0 = unchanged.
+//   debuffResist : CP-3, Counter-Infiltration (Expedition.squadDebuffResist, OC-E1 "Resist enemy debuffs"): each
+//                  member's chance to shrug off EVERY debuff becomes 1 - (1 - own)(1 - squadDebuffResistShare(this)),
+//                  folded with Morale Anchor on Fear the same way. Read by the existing resist roll (no extra draw).
+//                  Absent or 0 = unchanged.
 export interface SquadOfficerCare {
   triage?: number;
   fearResist?: number;
   powerMult?: number;
+  hpBonus?: number;
+  debuffResist?: number;
+}
+
+// Complement plan CP-3: Counter-Infiltration's ceiling, the existing per-status resist cap (awayTeam.ts
+// STATUS_RESIST_CAP; complementCp3.test.ts pins the two equal). The crew's share runs toward it on the museum hazard
+// resist's tanh curve (D23: diminishing returns, it never reaches the ceiling), so combined with a member's own resist
+// (itself capped there) no member is ever fully immune.
+export const SQUAD_DEBUFF_RESIST_CEILING = 0.9;
+
+// The share of a debuff the crew's Counter-Infiltration resists: ceiling x tanh(raw / ceiling), about `raw` while it
+// is small, never reaching the ceiling. 0 for 0, a negative or a non-finite input. Pure.
+export function squadDebuffResistShare(raw: number | undefined): number {
+  if (raw === undefined || !(raw > 0) || !Number.isFinite(raw)) return 0;
+  const r = SQUAD_DEBUFF_RESIST_CEILING * Math.tanh(raw / SQUAD_DEBUFF_RESIST_CEILING);
+  return r < SQUAD_DEBUFF_RESIST_CEILING ? r : SQUAD_DEBUFF_RESIST_CEILING * (1 - Number.EPSILON);
 }
 
 // ============================================================================
@@ -2041,11 +2063,15 @@ export function buildRosterCombatants(
   const triage = Math.max(0, care.triage ?? 0);
   const fearResist = Math.max(0, Math.min(1, care.fearResist ?? 0));
   const doctrine = care.powerMult !== undefined && care.powerMult > 0 && Number.isFinite(care.powerMult) ? care.powerMult : 1;
+  // CP-3: Away-Team Protection and Counter-Infiltration (see SquadOfficerCare). Negative, non-finite or absent reads 0.
+  const hpBonus = care.hpBonus !== undefined && care.hpBonus > 0 && Number.isFinite(care.hpBonus) ? care.hpBonus : 0;
+  const debuffResist = squadDebuffResistShare(care.debuffResist);
   const team = members.map((m, i) => {
     const spec = SECURITY_SPEC_BASE[m.spec as SecuritySpec] ?? { hp: 0, power: 0, armor: 0, statusChance: 0 };
     const bump = (stat: string): number => m.groundStats[stat] ?? 0;
     const rf = m.rankFactor;
-    const hp = Math.max(1, Math.round((SECURITY_BASE_HP + spec.hp + crewPer * STRENGTH_HP_COEFF) * rf * (1 + bump("hp"))));
+    const baseHp = Math.max(1, Math.round((SECURITY_BASE_HP + spec.hp + crewPer * STRENGTH_HP_COEFF) * rf * (1 + bump("hp"))));
+    const hp = hpBonus > 0 ? Math.max(1, Math.round(baseHp * (1 + hpBonus))) : baseHp;
     const rawPower = Math.max(0, (SECURITY_BASE_POWER + spec.power + crewPer * STRENGTH_POWER_COEFF) * rf * (1 + bump("power")));
     const power = doctrine === 1 ? rawPower : rawPower * doctrine;
     const armor = Math.max(0, (SECURITY_BASE_ARMOR + spec.armor) * rf * (1 + bump("armor")));
@@ -2127,6 +2153,16 @@ export function buildRosterCombatants(
       const r = Math.round(fearResist * 1000);
       if (r > 0) resists.fear = r;
     }
+    // CP-3: Counter-Infiltration folds into the member's resist to EVERY debuff (independent chances, after Morale
+    // Anchor on Fear). Buffs are never resisted. Without it the resists above stand exactly as before.
+    if (debuffResist > 0) {
+      for (const id of DEBUFF_IDS) {
+        const base = m.resists[id] ?? 0;
+        const own = id === "fear" && fearResist > 0 ? 1 - (1 - base) * (1 - fearResist) : base;
+        const r = Math.round((1 - (1 - own) * (1 - debuffResist)) * 1000);
+        if (r > 0) resists[id] = r;
+      }
+    }
     if (Object.keys(resists).length > 0) c.resists = resists;
     if (triage > 0) c.careMult = 1 + triage;
     if (firstStrike) c.firstStrike = true;
@@ -2147,6 +2183,10 @@ export function expeditionTeamCombatants(exp: Expedition, idPrefix: string, sitt
   return buildRosterCombatants(exp.roster?.security ?? [], exp.securityStrength, idPrefix, sittingOut, {
     triage: exp.squadTriage,
     fearResist: exp.squadFearResist,
+    // CP-3: the complement's Away-Team Protection and Counter-Infiltration (a Ground Ops run's scan encounters; a run
+    // dispatched before CP-3 carries neither).
+    hpBonus: exp.squadHpBonus,
+    debuffResist: exp.squadDebuffResist,
   });
 }
 

@@ -193,7 +193,7 @@ const EXP_KEY_FIELDS = {
   squadFearResist: true,
   hazardResist: true,
   teamKit: true,
-} as const satisfies Record<Exclude<keyof ThreatExp, "enemyRanks" | "difficulty" | "explorerCaptain" | "fieldKits">, true>;
+} as const satisfies Record<Exclude<keyof ThreatExp, "enemyRanks" | "difficulty" | "explorerCaptain" | "fieldKits" | "squadHpBonus" | "squadDebuffResist">, true>;
 // Field Kits FKR-5: a team's grenade charges (`charges`) are read only on a Field Kits run, so they are keyed with the
 // Field Kits tag below, never here (every other key reads exactly as before). FKR-6: so are its kits (`basics`, `kits`).
 const TEAM_KEY_FIELDS = { securityIds: true, downedThisTask: true, securityShare: true } as const satisfies Record<
@@ -247,6 +247,9 @@ export function groundThreatOddsKey(
   const curve = stamp ? [["curve", stamp.ramp, stamp.tier]] : [];
   // WR-5c: the captain's Away-Team Doctrine shapes the squad (taskFightTeam), tagged and appended only when present.
   const doctrine = exp.explorerCaptain?.squadPowerMult !== undefined ? [["doctrine", exp.explorerCaptain.squadPowerMult]] : [];
+  // Complement plan CP-3: the crew's Away-Team Protection and Counter-Infiltration shape the squad (taskFightTeam),
+  // tagged and appended only when the run froze either.
+  const crewGuard = exp.squadHpBonus !== undefined || exp.squadDebuffResist !== undefined ? [["crewGuard", exp.squadHpBonus, exp.squadDebuffResist]] : [];
   // Field Kits FKR-4: a Field Kits run's conditions and inflictors shape the read (with the task's grade: Neurotoxin from
   // Challenging), tagged and appended only on such a run.
   // FKR-5: with each team's grenade charges left this objective (the throws the squad can still make). FKR-6 (FK12): and
@@ -270,6 +273,7 @@ export function groundThreatOddsKey(
       ...ranked,
       ...curve,
       ...doctrine,
+      ...crewGuard,
       ...kits,
     ],
     keyReplacer,

@@ -279,6 +279,28 @@ parity with all five live; threat indicator memo key widened if `GroundFightTeam
 `satisfies` key). Remove 8 entries (awayTeamProtection, counterInfiltration, triage, preventCrewLoss, surveyAptitude,
 vael, outerColony + any facet entry the test reports newly live). **UI:** none beyond Help lines (Task 34).
 
+**Carry note (2026-10-30, CP-3 landed on top of b95a878, with the wiring plan's OC-E1 "Resist enemy debuffs" and
+OC-E2 "Shorter bay time"; Survey Aptitude, Vael and Outer-Colony were already live from the inert-racials slice, and
+Crew Output Multiplier from CP-2):** `crewOverlay.ts` `shipAwayTeamProtection` / `shipCounterInfiltration` /
+`shipCrewTriage` / `shipPreventCrewLoss` (0 without the key, `carriesCrewKey` guard). Frozen at dispatch, each only
+when non-zero: `Expedition.squadHpBonus` (every Security member's max HP x (1 + p), rounded, at least 1, in
+`buildRosterCombatants`: objective fights and scan encounters), `Expedition.squadDebuffResist` (every DEBUFF id's
+resist = 1 - (1 - own)(1 - share), folded after Morale Anchor on Fear; buffs never; the existing single resist roll),
+`squadTriage` = Fleet Triage + the crew's Triage, `GroundOpsFactors.preventLossShare` (injury-class bay care only,
+`BayCare.preventLossShare` through `groundOpsBayCare`, so the bay cards read it too). Legacy claim recovery
+(`injuryRecoverySeconds`) is untouched. Counter-Infiltration's ceiling: `gambit.ts squadDebuffResistShare` = 0.9 x
+tanh(raw / 0.9) (`SQUAD_DEBUFF_RESIST_CEILING` = `STATUS_RESIST_CAP`, the plan's "D23 hazard-style ceiling stays the
+existing cap"; about the raw value while small) [interpretation, flagged for the user]. The threat memo key appends
+a tagged `crewGuard` entry only when either Security field is present. No save change, no new draw. Registry: the four
+crew entries live with probes on the dispatched run (`runTaskSecHp`, `runTaskSecDebuffResist`, `runTaskSecHeal`,
+`runBayFractureSeconds`), plus `crew:audit:preventCrewLossInjuriesOnly` (a Health cure does not move); the Security and
+Medical quarters wings live (every division wing is). Goldens: `complementCp3Goldens.test.ts` (captured first) moves
+only its keyed fixtures, each reproduced with `complementCp3Switch.fixture.ts withCp3Off`; `officerStatFacets.test.ts`
+re-pins only its eight expeditions (its complement's Security bucket carries Away-Team Protection), reproduced with the
+switch; the registry pins (`shortRangeGoldens`, `emodGoldens`) read CP-3 back (`cp3Registry.fixture.ts`). The
+sensitivity vacuity guard's inert-source count is now pinned at 0. Help: Team Types and Squads
+"SHIP CREW SUPPORT", Return Trip's medical bay line.
+
 ### CP-4: Deck Handling and the Spacer ramp (Task 23 remainder) [blocked on OC-1, OC-2]
 
 **Files:** `combat/droneDefense.ts` + `combat/bridge.ts` (if OC-1 picks replenish), `officerStats.ts` /

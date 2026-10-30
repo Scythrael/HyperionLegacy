@@ -13,6 +13,7 @@ import { shipCrewContribution } from "./crewOverlay";
 import { CREW_STAT_KEYS } from "./crewBuffs";
 import { CP3_CONTROL_CREW, CP3_CREW, CP3_MEDICAL_CREW, CP3_SECURITY_CREW, CP3_SEEDS, cp3Run, cp3State, type Cp3Fixture } from "./complementCp3.fixture";
 import type { CrewBucket } from "./model";
+import { withCp3Off } from "./complementCp3Switch.fixture";
 
 // Captured on the code BEFORE the engine edit (b95a878).
 const BEFORE: Record<Cp3Fixture, string[]> = {
@@ -23,7 +24,20 @@ const BEFORE: Record<Cp3Fixture, string[]> = {
 };
 
 // The pins today. Each move names its reason; an unchanged pin equals BEFORE.
-const GOLDEN: Record<Cp3Fixture, string[]> = { ...BEFORE };
+const GOLDEN: Record<Cp3Fixture, string[]> = {
+  // MOVES: the dispatch freezes squadHpBonus and squadDebuffResist (the record and the run carry them). The claimed
+  // state is unchanged: the bigger HP and the resist change no fight's outcome or bay time on this seed.
+  security: ["d7578cb8", "ae625665", BEFORE.security[2]],
+  // MOVES: squadTriage carries the crew's Triage and the factors freeze preventLossShare. The claim is unchanged: this
+  // seed's bay stays are Health only (Prevent a Crew Loss is for injuries) and the stronger first aid lands no
+  // different outcome.
+  medical: ["1d65838b", "4b32e210", BEFORE.medical[2]],
+  // MOVES: all four keys frozen, and on this seed they reshape the fights (Triage's heals and the bigger HP), so the
+  // run ends sooner and the claimed state (the member's bay end, the clock) moves too.
+  all: ["7fcf8766", "4645678", "ad5f4741"],
+  // Unchanged (the control): its crew holds no CP-3 key.
+  control: BEFORE.control,
+};
 
 const CP3_KEYS = [CREW_STAT_KEYS.counterInfiltration, CREW_STAT_KEYS.awayTeamProtection, CREW_STAT_KEYS.triage, CREW_STAT_KEYS.preventCrewLoss];
 
@@ -50,4 +64,10 @@ describe("CP-3 goldens (captured before the Ground Ops complement consumers)", (
       expect(out).toEqual(GOLDEN[name]);
     });
   }
+
+  it("the switch proof: with the four CP-3 keys off every fixture reproduces its pre-CP-3 capture", () => {
+    for (const name of Object.keys(CP3_SEEDS) as Cp3Fixture[]) {
+      expect(withCp3Off(() => cp3Run(CP3_CREW[name], CP3_SEEDS[name]).out), name).toEqual(BEFORE[name]);
+    }
+  });
 });

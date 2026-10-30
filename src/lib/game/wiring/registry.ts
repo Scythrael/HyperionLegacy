@@ -119,7 +119,7 @@ import { TIER_TRANSIT_HOURS, VOYAGE_BAND_SCALE_PERMILLE, voyageClassSteps } from
 import { TIER_HAUL_MULT } from "../riskFactors";
 import { recallExpedition } from "../expedition";
 import { AWAY_TRAITS, type AwayTraitDef } from "../awayTraits";
-import { FIRST_AID_TRAINED_EFFECTIVENESS, FIRST_AID_UNTRAINED_EFFECTIVENESS, GAMBIT_PRESETS, GAMBIT_STATUSES, STONESKIN_BATTLE_RESIST } from "../gambit";
+import { FIRST_AID_TRAINED_EFFECTIVENESS, FIRST_AID_UNTRAINED_EFFECTIVENESS, GAMBIT_PRESETS, GAMBIT_STATUSES, STONESKIN_BATTLE_RESIST, squadDebuffResistShare } from "../gambit";
 import { applyMemberGambitPreset } from "../memberGambits";
 import { GEAR_POINT_BUMP, GROUND_STAT_MEMBER_STAT, FIELDWORK_YIELD_PER_POINT, STATUS_RESIST_PER_POINT } from "../awayTeam";
 import { PROSPECTING_BLUEPRINTS, PROSPECTING_SPEC_BASE, PROSPECTING_USES } from "../prospecting";
@@ -506,11 +506,8 @@ function pending(owner: string, contexts?: readonly ContextId[]): WiringStatus {
 }
 
 // The phase strings no-dead-stats used (kept verbatim: the liveness level reads them as owners).
-// The slice that owns the four Ground Ops complement consumers still pending (complement plan
-// docs/plans/2026-10-14-complement-and-acquisition-plan.md section 3 CP-3). The old owner, "E-CREW Task 23 (division
-// pools + exclusive pool live, design 6.2)", was split into CP-1 to CP-4; CP-2 and the inert-racials slice (0.14.0,
-// user "everything wired" 2026-10-20) took the rest live. Exported for the liveness parity test (the renamed owner).
-export const CP_3 = "Complement plan CP-3 (Ground Ops complement consumers: Security, Medical, exclusive pool)";
+// (The old owner "E-CREW Task 23 (division pools + exclusive pool live, design 6.2)" was split into the complement
+// plan's CP-1 to CP-4; CP-2, the inert-racials slice and CP-3 took every complement key live.)
 // Expedition Tiers G2-6 (the dispatch console's region picker and recall): the tier-gated sources G2-2 to G2-5 left to
 // it (owners "G2-6 (the region picker ...)" and "G2-6 (the recall button ...)") are live, each with its own check
 // (auditRowWiring below; expeditionConsoleRegistry.fixture.ts G2_6_FLIPPED_BEFORE holds the flips apart in the pins).
@@ -659,6 +656,7 @@ const EFFECTIVENESS_SEAM: CrewSeam = {
   effect: (e) => diminishing(e, CREW_EFFECTIVENESS_KNEE),
 };
 
+const withMedic: Transform = (s) => editMember(s, WIRING_SECURITY_ID, { traits: ["fieldMedic"] });
 const CREW_SEAMS: Readonly<Record<string, CrewSeam>> = {
   [CREW_STAT_KEYS.unloadSpeed]: { probe: "sheetUnload", contexts: ["sheet", "expedition:groundOps"], curve: { kind: "linearRelative" } },
   [CREW_STAT_KEYS.loadSpeed]: { probe: "expReloadMult", contexts: ["expedition:groundOps"], curve: { kind: "linearAbsolute" } },
@@ -691,6 +689,25 @@ const CREW_SEAMS: Readonly<Record<string, CrewSeam>> = {
   // The Spacer racial (user 2026-10-20 "+Transit speed"): the sweeping transit speed key, read exactly as the Pilot's
   // Ace Navigator (the sheet and the voyage's frozen speed). No crew buff targets it, so only the racial reads this.
   [TRANSIT_SPEED_KEY]: { probe: "sheetTransit", contexts: ["sheet", "expedition:groundOps"], curve: { kind: "linearRelative" } },
+  // Complement plan CP-3: the Ground Ops consumers, each frozen at dispatch and read on the run's objective fight or
+  // its medical bay, on a fixture that HAS the system (an away team; a medic for Triage).
+  // Away-Team Protection: every Security member's max HP x (1 + it), rounded to a whole point.
+  [CREW_STAT_KEYS.awayTeamProtection]: { probe: "runTaskSecHp", contexts: ["ground"], curve: { kind: "linearRelative" }, tolerance: 0.5, base: () => withAwayTeam(wiringBase()) },
+  // Counter-Infiltration (OC-E1 "Resist enemy debuffs"): a debuff the member has no resist of its own to (Weakened),
+  // resisted at squadDebuffResistShare(it) (the D23 tanh curve), rounded to a whole permille.
+  [CREW_STAT_KEYS.counterInfiltration]: {
+    probe: "runTaskSecDebuffResist",
+    contexts: ["ground"],
+    curve: { kind: "linearAbsolute" },
+    effect: squadDebuffResistShare,
+    tolerance: 0.0005,
+    base: () => withAwayTeam(wiringBase()),
+  },
+  // Triage: joins Fleet Triage's squadTriage, so a medic's heal x (1 + it) (and every member's first aid).
+  [CREW_STAT_KEYS.triage]: { probe: "runTaskSecHeal", contexts: ["ground"], curve: { kind: "linearRelative" }, base: () => withMedic(withAwayTeam(wiringBase())) },
+  // Prevent a Crew Loss (OC-E2 "Shorter bay time"): the bay's injury care divisor, a Fracture's cure / (1 + it) within
+  // one rounded second (a Health cure does not move: crew:audit:preventCrewLossInjuriesOnly).
+  [CREW_STAT_KEYS.preventCrewLoss]: { probe: "runBayFractureSeconds", contexts: ["medbay"], curve: { kind: "divisor" }, direction: "down", tolerance: 1, base: () => withAwayTeam(wiringBase()) },
 };
 
 // The claimed consumer of each dead crew.* key, read so a pending key that starts moving fails until it is flipped:
@@ -701,19 +718,10 @@ interface DeadKeySeam {
   context: ContextId;
   base?: () => GameState;
 }
-const withMedic: Transform = (s) => editMember(s, WIRING_SECURITY_ID, { traits: ["fieldMedic"] });
-const CREW_PENDING_PROBES: Readonly<Record<string, DeadKeySeam>> = {
-  [CREW_STAT_KEYS.awayTeamProtection]: { probe: "runSecHp", context: "ground", base: () => withAwayTeam(wiringBase()) },
-  [CREW_STAT_KEYS.triage]: { probe: "runSecHeal", context: "ground", base: () => withMedic(withAwayTeam(wiringBase())) },
-  [CREW_STAT_KEYS.preventCrewLoss]: { probe: "injuryCare", context: "medbay" },
-};
+// CP-3: every complement key is live, so none is pending; the shape stays for the next key that waits on a consumer.
+const CREW_PENDING_PROBES: Readonly<Record<string, DeadKeySeam>> = {};
 
-const CREW_PENDING: Readonly<Record<string, string>> = {
-  [CREW_STAT_KEYS.counterInfiltration]: CP_3,
-  [CREW_STAT_KEYS.awayTeamProtection]: CP_3,
-  [CREW_STAT_KEYS.triage]: CP_3,
-  [CREW_STAT_KEYS.preventCrewLoss]: CP_3,
-};
+const CREW_PENDING: Readonly<Record<string, string>> = {};
 
 const PROFESSION_OF_BUFF = new Map<string, CrewProfession>(
   (Object.entries(CREW_PROFESSION_BUFFS) as [CrewProfession, CrewBuffDef[]][]).flatMap(([p, defs]) => defs.map((d) => [d.id, p] as const)),
@@ -2373,36 +2381,11 @@ function hullEntries(): WiringEntry[] {
 }
 
 
-// Where each division's not-yet-live complement keys would act (a division wing amplifies them too, once they do).
-// (Science's Survey Aptitude and the Flight Deck's Deck Handling went live with the inert racials, 0.14.0.)
-const DEAD_DIVISION_CONTEXTS: Readonly<Partial<Record<CrewProfession, ContextId[]>>> = {
-  security: ["ground"], // counterInfiltration, awayTeamProtection
-  medical: ["ground"], // triage (Crew Effectiveness is live since CP-2)
-};
-
-// A division wing's flat check: its division's complement carrying the division's dead key, read where the key
-// claims to act (the dead key's own consumer and fixture). The wing amplifies nothing there until the key is live.
-const DEAD_KEY_OF_DIVISION: Readonly<Partial<Record<CrewProfession, string>>> = {
-  security: "sec.awayTeam",
-  medical: "med.triage",
-};
-function divisionWingChecks(division: CrewProfession): Partial<Record<ContextId, FlatCheck>> {
-  const buffId = DEAD_KEY_OF_DIVISION[division];
-  const def = buffId ? [...Object.values(CREW_PROFESSION_BUFFS).flat()].find((d) => d.id === buffId) : undefined;
-  const dead = def ? CREW_PENDING_PROBES[def.statKey] : undefined;
-  if (!def || !dead) return {};
-  const fixture = dead.base ?? (() => wiringBase());
-  return { [dead.context]: { probe: dead.probe, base: () => withBuckets(fixture(), [bucketOf(division, def.id)]) } };
-}
-
 // CP-2: the Engineering wing is LIVE: every Engineering key it amplifies acts (Engine Tuning, Damage Control since
 // CP-2, and Power Discipline since E-MOD EM-1). The Science and Flight Deck wings went live with the inert racials
-// (0.14.0: Survey Aptitude's scan speed, Deck Handling's drone replenish), so every key they amplify acts too. The
-// Security and Medical wings wait on CP-3's Ground Ops consumers.
-const LIVE_WINGS: ReadonlySet<CrewProfession> = new Set(["operations", "engineering", "science", "flightDeck"]);
-function wingPending(division: CrewProfession): WiringStatus {
-  return pending(`CP-3 (the ${division} division's dead keys; its live keys move)`, DEAD_DIVISION_CONTEXTS[division] ?? ["ground"]);
-}
+// (0.14.0: Survey Aptitude's scan speed, Deck Handling's drone replenish). CP-3: the Security and Medical wings are live
+// too (Away-Team Protection, Counter-Infiltration and Triage act on Ground Ops), so every division wing amplifies only
+// keys that act.
 
 // WR-7 (OC-D7, user 2026-10-15 "Spread across divisions"; B22 fixed): a quarters module's berths spread across the
 // division caps by the hull's role weights (commandStructure.ts commandStructureWithBonus), so an empty complement can
@@ -2463,8 +2446,7 @@ function moduleEntries(): WiringEntry[] {
         magnitude: () => boost * scale,
         base: opsBase,
         on: (s) => installPiece(s, { slotType: "quarters", moduleVariant: def.id }),
-        status: def.kind === "division" && !LIVE_WINGS.has(def.division!) ? wingPending(def.division!) : LIVE,
-        ...(def.kind === "division" && !LIVE_WINGS.has(def.division!) ? { flatChecks: divisionWingChecks(def.division!) } : {}),
+        status: LIVE,
         note:
           def.kind === "division" && def.division !== "operations"
             ? "measured on Operations, the OFF division (its own division boost is the same multiplier)"
@@ -4015,6 +3997,7 @@ function auditEntries(): WiringEntry[] {
   return [
     ...AUDIT_ROWS.map((r) => entry({ id: r.id, system: r.system, source: { catalog: "AUDIT", key: r.id }, claim: r.claim, status: r.status, ...(auditRowWiring()[r.id] ?? {}) })),
     ...cp2AuditEntries(),
+    ...cp3AuditEntries(),
     ...fieldKitsAuditEntries(),
     ...cp8AuditEntries(),
     ...emodAuditEntries(),
@@ -4771,6 +4754,30 @@ function cp8AuditEntries(): WiringEntry[] {
   ];
 }
 
+// CP-3: the half of a Ground Ops consumer its crew entry does not measure. OC-E2 (user 2026-10-15 "Shorter bay
+// time"; the plan's "injuries only"): Prevent a Crew Loss shortens INJURIES, so a Health cure on the same run is
+// unchanged. (complementCp3.test.ts proves the rest: buffs are never resisted, a member's own resist stacks.)
+const CP3_HEADS = WIRING_BUCKET_COUNT;
+function cp3AuditEntries(): WiringEntry[] {
+  const exclusive = (id: string): Transform => (s) => withBuckets(s, [bucketOf("operations", id, CP3_HEADS)]);
+  return [
+    entry({
+      id: "crew:audit:preventCrewLossInjuriesOnly",
+      system: "crew",
+      source: { catalog: "AUDIT", key: "crew:audit:preventCrewLossInjuriesOnly" },
+      claim: "Prevent a Crew Loss shortens injuries in the medical bay, never Health or ailments",
+      probe: "runBayHealthSeconds",
+      contexts: ["medbay"],
+      direction: "none",
+      magnitude: () => 0,
+      base: () => withAwayTeam(wiringBase()),
+      on: exclusive("excl.preventCrewLoss"),
+      off: exclusive("wiring.none"),
+      note: "a move of 0 on a Health cure; crew:crew.preventCrewLoss proves the injury (Fracture) cure divides",
+    }),
+  ];
+}
+
 // CP-2: the two crew audit rows CP-2 resolves, now live with their own checks.
 const CONSTITUTION_HIGH = 20; // the top of the officer stat roll (OFFICER_STAT_ROLL_MAX)
 // OC-D8 follow-up: the heads the patrol leg-lift checks carry: +20% on the leg, enough to cut a Battleship's 5-tick
@@ -4887,10 +4894,6 @@ function speedSeamEntries(): WiringEntry[] {
 const OFFICER_DORMANT = "dormant by design until its system lands (crewOverlay.ts OFFICER_BONUSES_PENDING_IN_RELEASE)";
 const ALLOW_LIST_REASONS: Readonly<Record<string, string>> = {
   ...Object.fromEntries(Object.keys(OFFICER_BONUSES_PENDING_IN_RELEASE).map((k) => [`officer:${k}`, OFFICER_DORMANT])),
-  "crew:crew.counterInfiltration": "Counter-Infiltration: resists enemy debuffs (Security pool)",
-  "crew:crew.awayTeamProtection": "Away-Team Protection: squad HP (Security pool)",
-  "crew:crew.triage": "Triage: squad healing (Medical pool)",
-  "crew:crew.preventCrewLoss": "Prevent a Crew Loss: shorter injuries (exclusive pool)",
   "facet:pilot:cunning": "the Flight Deck has no over-delivery of its own yet (design section 7 names none)",
 };
 

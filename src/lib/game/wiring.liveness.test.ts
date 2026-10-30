@@ -7,7 +7,7 @@
 
 import { describe, it, expect } from "vitest";
 import { D26_GEAR_LINES, ENTRIES, FIELD_KITS_GEAR_LINES } from "./wiring/liveness.testkit";
-import { CP_3, WIRING_REGISTRY } from "./wiring/registry";
+import { WIRING_REGISTRY } from "./wiring/registry";
 
 // The PENDING_IN_RELEASE allow-list of no-dead-stats.test.ts as it stood when WR-1 moved it (id -> phase).
 const ALLOW_LIST_AT_THE_MOVE: Readonly<Record<string, string>> = {
@@ -43,13 +43,8 @@ const ALLOW_LIST_AT_THE_MOVE: Readonly<Record<string, string>> = {
 };
 
 // The owners renamed since the move: E-CREW Task 23 was split into the complement plan's CP-1 to CP-4, and the four
-// Ground Ops consumers still pending belong to CP-3 (inert-racials slice, 0.14.0: the registry still named the task).
-const OWNER_SINCE_THE_MOVE: Readonly<Record<string, string>> = {
-  "crew:crew.counterInfiltration": CP_3,
-  "crew:crew.awayTeamProtection": CP_3,
-  "crew:crew.triage": CP_3,
-  "crew:crew.preventCrewLoss": CP_3,
-};
+// Ground Ops consumers were renamed to CP-3 (inert-racials slice); CP-3 took all four live, so none is renamed now.
+const OWNER_SINCE_THE_MOVE: Readonly<Record<string, string>> = {};
 
 // Prospecting squads (0.14.0, built HIDDEN; user group 4, 2026-10-16): the 25 Prospecting gear lines came AFTER the
 // move, each deferred to the prospecting quests patch on the user's word (no Prospecting member deploys in 0.14.0).

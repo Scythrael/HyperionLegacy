@@ -83,6 +83,7 @@ import { asLegacyDispatch, asPreG2NamesDispatch, withSlottedAwayTeams, withoutGr
 // SF-1: whole states hash without the run counters (seeded by freshState, written by a patrol), absent before SF-1.
 import { goldenJson, withoutGuests, withoutRunCounts } from "./firstRunsGoldens.fixture";
 import { withCp2Off } from "./complementCp2Switch.fixture";
+import { withCp3Off } from "./complementCp3Switch.fixture";
 // The inert racials (0.14.0): the Spacer key restored and the drone / survey sources zeroed (racialsSwitch.fixture.ts).
 import { withRacialsOff } from "./racialsSwitch.fixture";
 import { withCombatRulesOff } from "./combatRulesSwitch.fixture";
@@ -523,23 +524,46 @@ const RACIALS_STATLESS: Record<string, string | string[]> = {
   ],
 };
 
+// Complement plan CP-3 re-pins the expeditions only: the complement's Security bucket carries Away-Team Protection, so
+// every run freezes squadHpBonus (and its Security members field more max HP). Every other scenario is unchanged. With
+// the four CP-3 keys switched off (complementCp3Switch.fixture.ts withCp3Off) the expeditions reproduce the pins before
+// CP-3 (the switch zeroes catalog magnitudes, which the sheet's crew map would show, so only the runs read it).
+// The neutral and stat-less bridges run the same expeditions (no facet reaches these runs), so one list serves both.
+const CP3_EXPEDITIONS = [
+    "b6bfbec2/da2b1303/a1bc9cbc",
+    "cc4992cf/1a82cae9/a1bc9cbc",
+    "435d1566/ad5eaeeb/a1bc9cbc",
+    "ed1bf185/f771f885/a1bc9cbc",
+    "703b81a8/c34c10d3/6ac12a6e",
+    "9bb28188/8f9c918d/a1bc9cbc",
+    "523e2983/7c9bc56f/a1bc9cbc",
+    "9e8fd557/6c592176/a1bc9cbc",
+  ];
+const CP3_NEUTRAL: Record<string, string | string[]> = { ...RACIALS_NEUTRAL, expedition: CP3_EXPEDITIONS };
+const CP3_STATLESS: Record<string, string | string[]> = { ...RACIALS_STATLESS, expedition: CP3_EXPEDITIONS };
+function cp3OffExpeditions(run: () => Record<string, string | string[]>): Record<string, string | string[]> {
+  return { ...run(), expedition: withCp3Off(run).expedition };
+}
+
 describe("neutrality: an all-10 bridge = byte-identical to before Task 21 (golden)", () => {
   // WR-8 (0.14.0): captured before the combat rules, so these fly with them switched off (combatRulesSwitch.fixture.ts;
   // combatDescriptorGoldens.test.ts pins the rules).
   it("a full bridge at 10/10/10/10 (sheet, missions, patrols + replays, repair, expeditions)", { timeout: 120_000 }, () => withCombatRulesAndLegsOff(() => {
-    expect(scenarioHashes(() => NEUTRAL)).toEqual(RACIALS_NEUTRAL);
-    expect(racialsOffHashes(() => NEUTRAL)).toEqual(GOLDEN_NEUTRAL);
+    expect(scenarioHashes(() => NEUTRAL)).toEqual(CP3_NEUTRAL);
+    expect(withCp3Off(() => scenarioHashes(() => NEUTRAL)).expedition).toEqual(RACIALS_NEUTRAL.expedition);
+    expect(cp3OffExpeditions(() => racialsOffHashes(() => NEUTRAL))).toEqual(GOLDEN_NEUTRAL);
   }));
 
   it("the same bridge with stat-less officers (absent = neutral)", { timeout: 120_000 }, () => withCombatRulesAndLegsOff(() => {
-    expect(scenarioHashes(() => undefined)).toEqual(RACIALS_STATLESS);
-    expect(racialsOffHashes(() => undefined)).toEqual(GOLDEN_STATLESS);
+    expect(scenarioHashes(() => undefined)).toEqual(CP3_STATLESS);
+    expect(withCp3Off(() => scenarioHashes(() => undefined)).expedition).toEqual(RACIALS_STATLESS.expedition);
+    expect(cp3OffExpeditions(() => racialsOffHashes(() => undefined))).toEqual(GOLDEN_STATLESS);
   }));
 
   it("CP-2 turn it off: both bridges with the CP-2 effects switched off are the pre-CP-2 capture", { timeout: 240_000 }, () => withCombatRulesAndLegsOff(() => {
     // Captured before the inert racials too, so they are switched off as well.
-    expect(racialsOffHashes(() => NEUTRAL, (run) => withCp2Off(run))).toEqual(GOLDEN_NEUTRAL_CP2_OFF);
-    expect(racialsOffHashes(() => undefined, (run) => withCp2Off(run))).toEqual(GOLDEN_STATLESS_CP2_OFF);
+    expect(cp3OffExpeditions(() => racialsOffHashes(() => NEUTRAL, (run) => withCp2Off(run)))).toEqual(GOLDEN_NEUTRAL_CP2_OFF);
+    expect(cp3OffExpeditions(() => racialsOffHashes(() => undefined, (run) => withCp2Off(run)))).toEqual(GOLDEN_STATLESS_CP2_OFF);
     // The sheet's one remaining difference is the Pilot's transit key name (same value): renamed back, it is the
     // pre-CP-2 capture.
     const sheet = withCrew(freshState(), bridge(() => NEUTRAL));

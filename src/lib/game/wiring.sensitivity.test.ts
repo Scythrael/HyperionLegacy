@@ -75,8 +75,9 @@ describe("wiring sensitivity: every claimed context that does not move yet stays
     // gate, the hold missions-only; OC-D10: the Damage Control Suite on the field repair), leaving the transit speed's
     // patrol legs (the WR-7 follow-up), the deferred patrol sensors and the crew rows other slices own. Lowered from 15
     // at the WR-7 follow-up OC-D8: the patrol legs went live (the speed line, the ten hulls and the museum lost their
-    // pending patrol context, measured by ship:audit:patrolLegs), leaving 7.
-    expect(flatChecks.filter(({ e }) => e.contexts.length > 0).length).toBeGreaterThan(6);
+    // pending patrol context, measured by ship:audit:patrolLegs), leaving 7. Lowered from 7 at CP-3: the Security and
+    // Medical quarters wings went live (their division keys act on Ground Ops), leaving 5.
+    expect(flatChecks.filter(({ e }) => e.contexts.length > 0).length).toBeGreaterThan(4);
     // Lowered from 30 at the CP-2 + WR-5a integration (0.14.0): both slices moved inert sources live, leaving 28;
     // WR-5b's Tactician tree left 24, WR-5c's Explorer tree 20 (no pending secondary captain entry is left). The
     // guard only asserts the sweep is not vacuous; lower it again as more sources go live. Lowered from 15 when the
@@ -84,7 +85,10 @@ describe("wiring sensitivity: every claimed context that does not move yet stays
     // leaving 13. Lowered from 10 at the D26 line swap (0.14.0: the seven Science combat lines retired, their Science
     // lines live), leaving 6. Lowered from 5 at Material Lines ML-3 (0.14.0: materialQualityChance went live on
     // mission deliveries, OC-D2), leaving 5. Lowered from 4 at WR-7 (OC-D3: the crew module lines went live), leaving 3.
-    expect(flatChecks.filter(({ e }) => e.contexts.length === 0).length).toBeGreaterThan(2);
+    // CP-3 took the last three live (Away-Team Protection, Triage, Prevent a Crew Loss: the complement's Ground Ops
+    // consumers), so no wholly inert source with a claimed context is left; the count is pinned at 0 so a new one
+    // must be named here.
+    expect(flatChecks.filter(({ e }) => e.contexts.length === 0).length).toBe(0);
   });
   for (const { e, ctx } of flatChecks) {
     const owner = e.status.kind === "pending" || e.status.kind === "deferred" ? e.status.owner : "";

@@ -217,7 +217,7 @@ import { taskFightGuard, taskFightTeam } from "../groundFight";
 import { buyFieldKits, sellItem } from "../quartermaster";
 // Field Kits FKR-7: the run plumbing (the free basic set at an objective start, the bay share).
 import { carriedExtras, fieldKitsStamp, refreshObjectiveSupplies } from "../fieldKitsRun";
-import { RETURN_SECONDS, ambushStrike, groundDeviceChance, groundTeamBaySeconds, visitReinforcements, type GroundTaskRef } from "../groundOps";
+import { RETURN_SECONDS, ambushStrike, groundDeviceChance, groundOpsBayCare, groundTeamBaySeconds, visitReinforcements, type GroundTaskRef } from "../groundOps";
 import { retirementExpMultiplier } from "../captainRetirement";
 import { transitBerthCount } from "../berths";
 import { shortRangeBoardSlots, startShortRangeCycle } from "../shortRangeBoard";
@@ -239,7 +239,7 @@ import { captainWaveRegenFraction, patrolWaveRewardMult, shipCaptainCombatMods }
 import { captainDroneDamage, captainProjectileDamage, incomingHitChance } from "../combat/captainEdge";
 import { applyProjectileDamage } from "../combat/resolveBattle";
 import { addItemQuality, itemTotal } from "../inventory";
-import { GROUND_CONDITIONS, conditionCureSeconds } from "../medicalBay";
+import { GROUND_CONDITIONS, conditionCureSeconds, memberBaySeconds } from "../medicalBay";
 import { loadoutSlotDefsForShipType } from "../armory";
 import { gambitProgramEquals } from "../memberGambits";
 // Gas Giant Study GG-2 / GG-3: the study engine and its content.
@@ -1990,6 +1990,31 @@ export const PROBES = {
   },
   runSecHp: { label: "the dispatched run's Security combatant hp (expeditionTeamCombatants)", read: (s) => runMember(s, sec())?.hp ?? 0 },
   runSecHeal: { label: "the dispatched run's Security combatant heal (expeditionTeamCombatants)", read: (s) => runMember(s, sec())?.heal ?? 0 },
+  // Complement plan CP-3: the Ground Ops consumers, read on the dispatched run's objective fight (groundFight.ts
+  // taskFightTeam, the squad every Ground Ops task fields) and its medical bay.
+  runTaskSecHp: { label: "the dispatched run's Security member in an objective fight: max HP (Away-Team Protection)", read: (s) => runFieldKitsTaskMember(s, sec())?.hpMax ?? 0 },
+  runTaskSecHeal: { label: "the dispatched run's Security member in an objective fight: heal (Fleet Triage + Triage)", read: (s) => runFieldKitsTaskMember(s, sec())?.heal ?? 0 },
+  runTaskSecDebuffResist: {
+    label: "the dispatched run's Security member in an objective fight: Weakened resist roll (fraction; Counter-Infiltration)",
+    read: (s) => {
+      const c = runFieldKitsTaskMember(s, sec());
+      return c ? statusResistPermille(c, "weakened") / 1000 : 0;
+    },
+  },
+  runBayFractureSeconds: {
+    label: "the dispatched run's medical bay: a Fracture's cure seconds on its frozen care (groundOpsBayCare; injuries only)",
+    read: (s) => {
+      const ops = dispatchRun(readyForRun(s)).groundOps;
+      return ops ? memberBaySeconds(["fracture"], [], groundOpsBayCare(ops.factors)) : 0;
+    },
+  },
+  runBayHealthSeconds: {
+    label: "the dispatched run's medical bay: a Health cure's seconds on its frozen care (groundOpsBayCare)",
+    read: (s) => {
+      const ops = dispatchRun(readyForRun(s)).groundOps;
+      return ops ? memberBaySeconds(["health"], [], groundOpsBayCare(ops.factors)) : 0;
+    },
+  },
   secTaskHazardResist: {
     label: "taskSecurityHazardResist",
     read: (s) => taskSecurityHazardResist({ roster: rosterOf(s) as Expedition["roster"] }, [{ securityIds: [sec()], scienceIds: [sci()], scienceShare: 1 }]),

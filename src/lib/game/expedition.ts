@@ -67,7 +67,7 @@ import { pathfinderEffect } from "./utilityGear";
 import { equippedFor } from "./equipment";
 import { battleWearLive, viewPieceEfficiency, wornGearView } from "./gearWear";
 import { gearWearLive } from "./gearWearEngine";
-import { effectiveShipStats, foldOfficerPromotionCounters, officerBonusTotal, type PromotionIncrements, shipCrewContribution, shipSurveyAptitude } from "./crewOverlay";
+import { effectiveShipStats, foldOfficerPromotionCounters, officerBonusTotal, type PromotionIncrements, shipAwayTeamProtection, shipCounterInfiltration, shipCrewContribution, shipCrewTriage, shipSurveyAptitude } from "./crewOverlay";
 import { CREW_STAT_KEYS } from "./crewBuffs";
 import { fieldworkHazardResist, fieldworkSpeedMult } from "./fieldwork";
 import { ACTIVITY_SECONDS } from "./groundTasks";
@@ -1609,8 +1609,15 @@ function buildExpedition(
   const gambitPrograms = { security: [], science: [] };
   // E-CREW (Task 20): Fleet Triage (stronger in-battle healing + first-aid cures) and Morale Anchor (Fear
   // resist) for the away team, read off the seated officers at the same dispatch instant.
-  const squadTriage = officerBonusTotal(state, ship, "officer.crewLossPrevention");
+  // Complement plan CP-3: the Medical complement's Triage adds to Fleet Triage's field (0 without the crew, so the
+  // stored value is the officer's alone, exactly as before), and the Security complement's Away-Team Protection and
+  // Counter-Infiltration freeze beside it (each written only when non-zero).
+  const officerTriage = officerBonusTotal(state, ship, "officer.crewLossPrevention");
+  const crewTriage = shipCrewTriage(state, ship);
+  const squadTriage = crewTriage > 0 ? officerTriage + crewTriage : officerTriage;
   const squadFearResist = officerBonusTotal(state, ship, "officer.crewRetention");
+  const squadHpBonus = shipAwayTeamProtection(state, ship);
+  const squadDebuffResist = shipCounterInfiltration(state, ship);
   const encounterEvasion = officerBonusTotal(state, ship, "officer.evasion");
   const crewRareFind = shipCrewContribution(state, ship)[CREW_STAT_KEYS.rareFindChance] ?? 0;
   // Survey Aptitude + the Vael and Outer-Colony racials (complement plan CP-3, OC-4 "Faster scans"): the crew's share
@@ -1720,6 +1727,9 @@ function buildExpedition(
     // ONLY when non-zero, so a run without the officer stores exactly the pre-Task-20 record.
     ...(squadTriage > 0 ? { squadTriage } : {}),
     ...(squadFearResist > 0 ? { squadFearResist } : {}),
+    // CP-3: the complement's two Security squad buffs, each only when non-zero.
+    ...(squadHpBonus > 0 ? { squadHpBonus } : {}),
+    ...(squadDebuffResist > 0 ? { squadDebuffResist } : {}),
     // E-CREW (Task 21): the officer stat facets (see above), each only when non-zero.
     ...(ambushSoften > 0 ? { ambushSoften } : {}),
     ...(quickRecovery > 0 ? { quickRecovery } : {}),
