@@ -17,7 +17,9 @@ import {
   LIFTS_PINS_PRE,
   LIFTS_ROUTES,
   constDispatch,
+  FLOWN_PINS_MOVED,
   FLOWN_PINS_PRE,
+  asPreFlown,
   constRows,
   cutDispatch,
   cutRows,
@@ -132,12 +134,13 @@ describe("OC-D8 follow-up goldens (patrol leg lifts, the Constitution run clock)
   }, 600_000);
 
   // Offline == live on the Constitution run clock: one call over the span, 7 s chunks and 1 s steps land on the same
-  // state, a run mixing cycle lengths included. The span ends where the run ends (patrolLegsGoldens' note).
+  // state, a run mixing cycle lengths and a run whose return cut acts included. The span ends where the run ends (patrolLegsGoldens' note).
   it("one call == chunked == 1 s steps on a Constitution run", () => {
     for (const hull of CONST_HULLS) {
       for (const route of LIFTS_ROUTES) {
-        for (const mixed of [false, true]) {
-          const start = constDispatch(hull, route, mixed);
+        // "cut": a run whose return cut acts (count only flown, an hour-long fleet tick).
+        for (const mixed of [false, true, "cut"] as const) {
+          const start = mixed === "cut" ? cutDispatch(hull, route) : constDispatch(hull, route, mixed);
           let stepped = start;
           let span = 0;
           while (span < CONST_SECONDS && stepped.captains[0].mission !== null) {
@@ -174,6 +177,40 @@ describe("count only flown goldens (the Constitution run clock with a return cut
       writeFileSync(FLOWN_CAPTURE, JSON.stringify(now, null, 2));
       return;
     }
-    expect(now).toEqual(FLOWN_PINS_PRE);
+    expect(now).toEqual({ ...FLOWN_PINS_PRE, ...FLOWN_PINS_MOVED });
+  }, 600_000);
+
+  it("with the run clock off (PATROL_RUN_CLOCK_SWITCH) every moved pin returns", () => {
+    expect(withPatrolRunClockOff(cutRows)).toEqual(FLOWN_PINS_PRE);
+  }, 600_000);
+
+  // The trace: at every route a run completes, the clock gains the cycle's route less, on a stamped cycle, its return
+  // cut; a cycle in flight from before (unstamped) gains its full route. Only the constCut rows move.
+  it("each moved pin is the clock counting only flown ticks", () => {
+    expect(Object.keys(FLOWN_PINS_MOVED).every((k) => k.startsWith("constCut:"))).toBe(true);
+    for (const hull of CONST_HULLS) {
+      for (const route of LIFTS_ROUTES) {
+        for (const inFlight of [false, true]) {
+          const start = cutDispatch(hull, route);
+          let s = inFlight ? asPreFlown(start) : start;
+          let expected = 0;
+          let cutCounted = false;
+          for (let i = 0; i < CONST_SECONDS && s.captains[0].mission !== null; i++) {
+            const before = s.captains[0].mission as PatrolMissionState;
+            s = economyTick(s, 1, RNG);
+            const m = s.captains[0].mission as PatrolMissionState | null;
+            if (m === null) break;
+            // Every cycle started here carries the stamp with its cut (the in-flight row's first cycle does not).
+            if (m.masterSeed !== start.captains[0].mission!.masterSeed) expect([hull, route, m.cutFlown]).toEqual([hull, route, (m.returnCutTicks ?? 0) > 0 ? 1 : undefined]);
+            if (m.routesCompletedThisRun === before.routesCompletedThisRun) continue;
+            const cut = before.cutFlown === 1 ? before.returnCutTicks ?? 0 : 0;
+            if (cut > 0) cutCounted = true;
+            expected += patrolRouteTicks(patrolRouteOf(before)) - cut;
+            expect([hull, route, inFlight, m.routeTicksThisRun ?? m.routesCompletedThisRun * patrolRouteTicks(patrolRouteOf(m))]).toEqual([hull, route, inFlight, expected]);
+          }
+          if (`constCut:${hull}:${route}` in FLOWN_PINS_MOVED && !inFlight) expect([hull, route, cutCounted]).toEqual([hull, route, true]);
+        }
+      }
+    }
   }, 600_000);
 });

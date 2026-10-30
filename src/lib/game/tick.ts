@@ -3486,6 +3486,8 @@ export function tickCaptainPatrol(
   // cycle lengths (legs frozen per cycle at the ship's speed then) reads its own; a stored-value function, so chunking
   // cannot change it. A run without the stored sum (one cycle length, or from before) reads routes x this cycle's
   // length, the old clock exactly.
+  // User 2026-10-30 "Count only flown": a cycle started since counts only the ticks it flew (its route less its return
+  // cut, PatrolMissionState.cutFlown), so a run whose cycles were cut stores the sum too.
   let runRouteTicks = mission.routeTicksThisRun ?? routesThisRun * routeLength;
   // (PATROL_RUN_CLOCK_SWITCH, test only: off, the old clock, and nothing stored.)
   const runHours = (): number =>
@@ -3848,8 +3850,10 @@ export function tickCaptainPatrol(
         // per-call counter) rather than at the ending, because a repeat-dispatch run completes
         // many routes and only the last one coincides with an ending.
         routesThisRun += 1;
-        // OC-D8 follow-up: and the route ticks this cycle flew (its own route's full length), the run clock's.
-        runRouteTicks += routeLength;
+        // OC-D8 follow-up: and the route ticks this cycle flew, the run clock's. User 2026-10-30 "Count only flown": a
+        // cycle stamped cutFlown (started after that answer) counts its route less the ticks its Constitution return
+        // cut skipped; an unstamped cycle (in flight from before) counts its route's full length, as it did.
+        runRouteTicks += routeLength - (mission.cutFlown === 1 ? (mission.returnCutTicks ?? 0) : 0);
       }
       // GEAR WEAR step 4 (user 2026-10-28, the repair trigger from realism): the NEXT cycle, minted now so its wear can be
       // projected before it flies (the relaunch below takes this same value). Pure.
@@ -6137,7 +6141,8 @@ function freshPatrolMission(args: {
   // E-CREW 0.14.0 (Task 21): the cycle's Engineering Cunning free repair ticks (rolled by the caller on this
   // cycle's masterSeed). Stored only when > 0, so a cycle without the roll is byte-identical to before.
   freeRepairTicks?: number;
-  // E-CREW 0.14.0 (Task 21 review calls): the cycle's Flight Deck Constitution return cut. Stored only when > 0.
+  // E-CREW 0.14.0 (Task 21 review calls): the cycle's Flight Deck Constitution return cut. Stored only when > 0, and
+  // then (user 2026-10-30 "Count only flown") with the cutFlown stamp: the run clock counts only the ticks it flies.
   returnCutTicks?: number;
   // 0.14.0 (CP-4, OC-1 "Faster drone replenish"): the cycle's Deck Handling (crewOverlay.ts shipDeckHandling: the
   // Flight Deck buff + the Belter racial), folded into the seeded screen's replenish rate. Stored only when > 0.
@@ -6195,6 +6200,8 @@ function freshPatrolMission(args: {
     ...(replenishCarryStart.some((c) => c > 0) ? { replenishCarryStart } : {}),
     ...(freeRepairTicks > 0 ? { freeRepairTicks } : {}),
     ...(returnCutTicks > 0 ? { returnCutTicks } : {}),
+    // User 2026-10-30 "Count only flown" (PATROL_RUN_CLOCK_SWITCH, test only: off, no stamp).
+    ...(returnCutTicks > 0 && PATROL_RUN_CLOCK_SWITCH.live ? { cutFlown: 1 as const } : {}),
     ...(args.difficulty ? { difficulty: args.difficulty } : {}),
     ...(args.combatRules ? { combatRules: { ...args.combatRules } } : {}),
     ...(args.cycleStartCondition ? { cycleStartCondition: { ...args.cycleStartCondition } } : {}),

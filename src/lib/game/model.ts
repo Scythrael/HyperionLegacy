@@ -1150,8 +1150,8 @@ export const PATROL_LEG_LIFTS_SWITCH = { live: true };
 
 // Test switch only (the same pattern, OC-D8 follow-up review finding): off, a patrol run's Constitution clock reads
 // routesCompletedThisRun x the current cycle's route length (the clock before it summed each cycle's own route ticks)
-// and stores no PatrolMissionState.routeTicksThisRun, so a golden can show that the pins it moved return. Always live
-// in the game.
+// and stores no PatrolMissionState.routeTicksThisRun, and a cut cycle carries no cutFlown stamp (user 2026-10-30
+// "Count only flown"), so a golden can show that the pins it moved return. Always live in the game.
 export const PATROL_RUN_CLOCK_SWITCH = { live: true };
 
 // A patrol leg's per-leg complement lifts (ShipDerivedStats.transitOutLegMult / transitBackLegMult; absent = 1).
@@ -4171,11 +4171,17 @@ export interface PatrolMissionState {
   // flight from before the follow-up keeps the legs it froze (no SAVE_VERSION bump).
   legTicks?: PatrolLegTicks;
   // OC-D8 follow-up (review finding, the Constitution run clock): the route ticks this RUN has flown over its completed
-  // cycles, each cycle counting its own route's full length (patrolRouteTicks of its frozen legs), carried across
-  // relaunches like routesCompletedThisRun. It is the Constitution ramps' clock at each relaunch. OPTIONAL, written only
-  // when it differs from routesCompletedThisRun x the current cycle's route length (a run that mixes cycle lengths): a
-  // run of one cycle length, and every run from before, read that product exactly as before (no SAVE_VERSION bump).
+  // cycles, each cycle counting its own route (patrolRouteTicks of its frozen legs) less, on a cycle stamped cutFlown,
+  // the ticks its return cut skipped; carried across relaunches like routesCompletedThisRun. It is the Constitution
+  // ramps' clock at each relaunch. OPTIONAL, written only when it differs from routesCompletedThisRun x the current
+  // cycle's route length (a run that mixes cycle lengths, or whose stamped cycles were cut): a run of one uncut cycle
+  // length, and every run from before, read that product exactly as before (no SAVE_VERSION bump).
   routeTicksThisRun?: number;
+  // User 2026-10-30 "Count only flown": the run clock counts only the ticks this cycle flies, its route less its
+  // returnCutTicks. Written with returnCutTicks (> 0) when the cycle starts (dispatch, and again at each relaunch).
+  // OPTIONAL: a cycle in flight from before carries none and counts its route's full length, as it did (no
+  // SAVE_VERSION bump).
+  cutFlown?: 1;
 }
 
 // Safe first runs SF-4: a patrol cycle's difficulty stamp: the run stamp (RunDifficultyStamp, tier I: patrols are

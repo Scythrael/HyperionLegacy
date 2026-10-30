@@ -479,7 +479,8 @@ export const LIFTS_PINS_MOVED: Record<string, unknown> = {
 // (an hour), so the Flight Deck's ramp cuts every cycle's leg home. Captured on fc1ff7c, before the change (FLOWN_PINS_PRE):
 //   constCut         : a Repeat run, every relaunch traced ("routes:returnCut:officerCombat") and the end state.
 //   constCutInFlight : the same run's first cycle dispatched before the change (it carries no stamp; a no-op before it),
-//                      read to its first relaunch: that relaunch's trace and the state there.
+//                      read to its first relaunch: that relaunch's trace and the state there, read without the stamp
+//                      the relaunched cycle carries (asPreFlown, a no-op on the capture: no cycle was stamped then).
 
 export const CUT_SECONDS_PER_TICK = 3600;
 
@@ -509,9 +510,9 @@ export function firstRelaunchRow(start: GameState): string[] {
   for (let i = 0; i < CONST_SECONDS && s.captains[0].mission !== null; i++) {
     s = economyTick(s, 1, RNG);
     const m = s.captains[0].mission as PatrolMissionState | null;
-    if (m !== null && m.routesCompletedThisRun !== routes0) return [`${m.routesCompletedThisRun}:${m.returnCutTicks ?? 0}:${hash(m.officerCombat ?? null)}`, stateHash(s)];
+    if (m !== null && m.routesCompletedThisRun !== routes0) return [`${m.routesCompletedThisRun}:${m.returnCutTicks ?? 0}:${hash(m.officerCombat ?? null)}`, stateHash(asPreFlown(s))];
   }
-  return ["", stateHash(s)];
+  return ["", stateHash(asPreFlown(s))];
 }
 
 export function cutRows(): Record<string, unknown> {
@@ -544,4 +545,19 @@ export const FLOWN_PINS_PRE: Record<string, unknown> = {
   "constCutInFlight:destroyer:crimsonReaverSweep": ["1:1:9188a8da","b7d374ca"],
   "constCut:destroyer:crimsonReaverWarband": ["1:1:605f98b6","bc6e6f86"],
   "constCutInFlight:destroyer:crimsonReaverWarband": ["1:1:605f98b6","b15892f3"],
+};
+
+// MOVED by "Count only flown" (re-pinned on the change), each returning to FLOWN_PINS_PRE with PATROL_RUN_CLOCK_SWITCH
+// off and traced in patrolLegLiftsGoldens.test.ts:
+//   constCut (5): from the first relaunch on, the clock counts each stamped cycle's route less its return cut, so the
+//            relaunches' return cuts and frozen battle bonuses and the end state move.
+//   Held : every constCutInFlight row (a cycle in flight from before counts its full route; only the cycle it
+//          relaunches carries the stamp) and the constCut runs that end before a relaunch shows the clock (a Warband
+//          lost on the cycle after its pause to repair).
+export const FLOWN_PINS_MOVED: Record<string, unknown> = {
+  "constCut:battleship:crimsonReaverSweep": ["1:2:f2741546,2:3:48a707e5,3:3:67417214,4:3:e7f20446,5:3:7190a62d,6:3:9d034e8,7:3:7ffbbd81,8:3:80231dd5,9:3:b81267f1,10:3:9ec97650,11:3:feb74bee,12:3:c0f54280,13:4:1ba59d4c,14:4:f96f7071,15:4:a9d3d91b,16:4:79e33bfe,17:4:33628f9b,18:4:b04f3b96,19:4:978363e7,20:4:1b7fa29a,21:4:a2f03488,22:4:c578d122,23:4:bdb3dae5,24:4:ec828928,25:4:bd5afe87,26:4:571c2ab0,27:4:ade582c5","7060dcb6"],
+  "constCut:battleship:crimsonReaverWarband": ["1:4:9a8b2899,2:5:3976a662,3:5:3976a662","ddf4ed8a"],
+  "constCut:carrier:crimsonReaverSweep": ["1:2:b764277c,2:2:4a6855fe,3:2:d2cfcf11,4:2:419e225e,5:2:eed0dacd,6:2:3092077d,7:2:59157b12,8:3:7ebfc300,9:3:c838884c,10:3:76989965,11:3:9ec97650,12:3:11fccece,13:3:c68e7529,14:3:4e0aa7ff,15:3:372efaa2,16:3:691196ac,17:3:89e54ba4,18:3:4fdfa686,19:3:12cab1c5,20:3:25856126,21:3:ebf5741f,22:3:1b7fa29a,23:3:35f970f0,24:3:c9fb7c99,25:3:7d68efc4,26:3:f042fb02,27:3:2cc0b0c6,28:3:b08ef0c5,29:3:b9734a9,30:3:d2f0be5d","5218ff41"],
+  "constCut:prospectorHauler:crimsonReaverSweep": ["1:2:b764277c,2:2:4a6855fe,3:2:d2cfcf11,4:2:419e225e,5:2:eed0dacd,6:2:3092077d,7:2:59157b12,8:3:7ebfc300,9:3:c838884c,10:3:76989965,11:3:9ec97650,12:3:11fccece,13:3:c68e7529,14:3:4e0aa7ff,15:3:372efaa2,16:3:691196ac,17:3:89e54ba4,18:3:4fdfa686,19:3:12cab1c5,20:3:25856126,21:3:ebf5741f,22:3:1b7fa29a,23:3:35f970f0,24:3:c9fb7c99,25:3:7d68efc4,26:3:f042fb02,27:3:2cc0b0c6,28:3:b08ef0c5,29:3:b9734a9,30:3:d2f0be5d","7e322697"],
+  "constCut:destroyer:crimsonReaverSweep": ["1:1:64a5565,2:1:14931a4e,3:1:6214bfa8,4:2:f8b596f0,5:2:7a3ab6fe,6:2:a2e12314,7:2:7d97a260,8:2:9022e327,9:2:7484f88e,10:2:9223e994,11:2:dff812ee,12:2:b0e7fd,13:2:f2687c32,14:2:ecb04d6a,15:2:87bfa3e5,16:2:383c53ca,17:2:b07641d4,18:2:931f818f,19:2:9100ff29,20:2:3d72274,21:2:12cab1c5,22:2:1f974be2,23:2:f9e39ae9,24:2:4cf3f4a6,25:2:8e7a3690,26:2:c2ef432d,27:2:e2bbf42c,28:2:3ec709dd,29:2:74c36edd,30:2:8688baff,31:2:e1716176,32:2:24c86ccd,33:2:bea232d1","bdeb37d4"],
 };
