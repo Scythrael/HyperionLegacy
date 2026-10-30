@@ -58,7 +58,9 @@ Read this first when you become "HL Hub", the user's ongoing Hyperion Legacy hub
 **Usage measurement (the user wants real numbers for the session-per-slice saving):**
 - Baseline: 5-hour 10%, weekly 30% (weekly resets 2026-11-05 12:00 UTC), read at 18:30 UTC during Slice 7's fix
   round.
-- Record the readings again at Slice 7's final report and across the next slice, and compare with the long-session
+- Slice 7 final report (~18:57 UTC): 5-hour 13% (+3 from the fix round through merge, full gates, npm ci and backup),
+  weekly 30%; the slice session's context was 165k (Messages 81k).
+- Record the readings again and across the next slice, and compare with the long-session
   days of 2026-10-29/30.
 - Fixed per-session overhead was measured at about 75k tokens: system tools ~40k, MCP tools ~20k, skills ~7k,
   system prompt 5 to 11k, memory ~3k. That's higher than my first guess of 20 to 30k, so the expected saving is
