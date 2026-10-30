@@ -515,3 +515,41 @@ Review fixes (test only): the conversion fixtures are real 0.13.11.2 shapes (onl
 the save would have recorded, tiers and unspent points from its Fleets at one point each); a test pins the real path:
 a converted save that never bought them gets Auto Captain, Auto Fleet and Auto Skill Allocation at the end of the
 first step after load (their 0.14.0 milestones are recorded and announced there), and none acts in that step.
+
+**Slice 7 carry note (UI, Help and close-out, 2026-10-30):** built to the signed-off automation and skills mockup.
+- Automation tab (between Skills and Milestones; phones read Gen, Upg, Prest, Skills, Auto, Miles on one row): earned
+  automations first (a 48 x 36 switch; 1 / 10 / Max on the five that buy; "Target N%" menus on Auto Captain and Auto
+  Fleet; Auto Prestigeception the switch alone, user call 1 of 2026-10-29), then the ones whose milestone is visible
+  (named, dimmed, "Earned at <milestone>", no controls), then ??? rows. Auto Prestigeception stays ??? until the
+  player's own first Prestigeception ("You'll know it when you see it." once earned). The Auto Captain row carries
+  "Waiting for Auto-buy I to IV". The automation rows left the Skills tab; the Prestige tab's AUTO PRESTIGE box is
+  unchanged (same targets). Row text: `AUTOMATION_LINES` (four from the mockup, four approved by the user 2026-10-30).
+- Skills tab: the mockup's Skill Points box and rows (the Upgrades rows' box): level chip X / Y (green at max), joke
+  line, now and next value in bold (`skillEffectParts`), the prestige-count chip, gated rows dashed with the exact gate
+  line and a disabled Locked button (no button on a phone), ??? for a skill whose milestone is not visible, the
+  gate-lift note. Display logic in `src/lib/secret/overlayRows.ts` (tested in overlayRows.test.ts).
+- Prestige cards: the label stays "Next one" (user, Slice 2 review: "fine"; card labels are pinned at two words);
+  "Prestigeception first" unchanged; the Captain card's Needs reads CAPTAIN_AT. Milestones: the e25M reward column reads
+  "Faster Than Light background unlocked" once reached (??? before, like the whole row); the Stats goal list goes on
+  to e20,000,000 (never e25,000,000).
+- Help rewritten (THREE KINDS OF PRESTIGE with the schedule, THE FINE PRINT with the rising bars and pay at the bar,
+  SKILLS with the gates and the lift, a new AUTOMATIONS section, MILESTONES); every number reads from a constant
+  (`formatBar` moved to format.ts for it, `formatThreshold`, `HELP_SKILL_POINTS_TOTAL` pinned to totalSkillCost); it
+  names neither Auto Prestigeception nor Auto Skill Allocation nor the e25M prize. textRules.test.ts covers the new
+  files, the Help numbers, no "FAP" and no player-facing "gambit".
+- Verified in a local build at 1280 px and 375 px (Automation, Skills, Prestige, Milestones, Help): no clipping, no
+  sideways scroll, every button and select at least 36 px (phone tabs and header tools raised from 32 / 34 px).
+- QA sheet: docs/qa/2026-10-30-minigame-prestige-redesign-qa.html (desktop + mobile, Slices 1 to 7, old-save checks).
+- User answers (2026-10-30, review of 7842f84): the four new `AUTOMATION_LINES` approved as written; the e25M
+  "Reward: the Faster Than Light background" approved; the dimmed "ahead" automation row (named, "Earned at
+  <milestone>", no controls) KEPT; the Automation tab "NEW" marker: build it now per the signed-off mockup.
+- Review fixes: the NEW marker (`automationsNew`, an optional secret-save field written only while lit, no version
+  bump): engine `checkMilestonesMut` lights it when a recorded milestone makes an automation the player can see
+  (a grant, or Auto Prestigeception revealing itself; its secret grant at A Respectable Googol does not), the overlay
+  clears it (`markAutomationsSeen`) whenever the Automation tab is open; the conversion never lights it, an unlock
+  after load does. Help names no automation at all (static text, so nothing locked), says only the Fleet and
+  Prestigeception cards show the next bar, says a skill's row reads ??? until its step is in sight, and reads
+  "doubles" / "twice" (still from TEN_BONUS / PC_BAR_RATIO). Phone rows use the mockup's short lines
+  (`AUTOMATION_SHORT_LINES` "At your target.", "A milestone you have not seen yet."), hide the skill joke line and
+  say "Next:". relicGoldens.json moves only by `"automationsNew":true` on the six past-finale saves (their window
+  grants Auto Skill Allocation); goldens.json is unchanged.

@@ -45,19 +45,13 @@
     doCaptain,
     doFleet,
     doPrestigeception,
-    canBuySkillLevel,
     buySkillLevel,
-    skillLevel,
-    skillLevelCost,
-    skillStrength,
-    skillScaleCount,
-    skillScaleFactor,
-    skillAvailable,
-    skillGateCount,
     hasSkill,
     autoActive,
     setAuto,
     setAutoTarget,
+    setAutomationBuy,
+    markAutomationsSeen,
     gainMultiplier,
     captainMultiplier,
     augmentMultiplier,
@@ -69,9 +63,7 @@
     canBuyUpgrade,
     buyUpgrade,
     milestoneVisible,
-    automationUnlocked,
     automationRevealed,
-    autoCaptainWaiting,
     overclockLevelFactor,
     relicBoost,
     type BuyMode,
@@ -84,43 +76,42 @@
     COPY,
     HELP_SECTIONS,
     AUTO_TARGET_CHOICES,
+    AUTOMATION_BUY_CHOICES,
+    CAPTAIN_AT,
     FINALE_EXPONENT,
     LONG_EXPONENT,
     STARFALL_EXPONENT,
+    E20M_EXPONENT,
     RELIC_BOOSTS,
     RELIC_TIER_LEVERS,
     RELIC_LOCKED_TIER_TEXT,
-    AUTOMATION_NAMES,
-    AUTOMATION_UNLOCKS,
-    LEVELED_SKILLS,
     skillGateLiftLine,
-    skillGateLine,
-    skillEffectLine,
-    skillScaleLine,
-    NEW_AUTOMATION_BLURBS,
-    automationUnlockedBy,
-    automationListLine,
     isAutomationId,
     type AutomationId,
+    type AutomationBuy,
     type SkillId,
     type UpgradeId,
-    type LeveledSkillDef,
+    type LeveledSkillId,
   } from "./secret/config";
   import { getRelicTypeById } from "./game/relics";
   import { cloneSecret, type SecretState, type AutoLayer } from "./secret/state";
   import { prestigeCardBars } from "./secret/prestigeCards";
-  import { formatSecret, formatExponent, formatMultiplier } from "./secret/format";
+  import { automationRows, skillRows, milestoneRewardText } from "./secret/overlayRows";
+  import { formatSecret, formatExponent, formatMultiplier, formatThreshold } from "./secret/format";
   import { tabKeyTarget, overlayClosesOn } from "./secret/overlayKeys";
 
   export let onClose: () => void;
 
-  type Tab = "generators" | "upgrades" | "prestige" | "skills" | "milestones";
-  const TABS: { key: Tab; label: string }[] = [
-    { key: "generators", label: "Generators" },
-    { key: "upgrades", label: "Upgrades" },
-    { key: "prestige", label: "Prestige" },
-    { key: "skills", label: "Skills" },
-    { key: "milestones", label: "Milestones" },
+  // 0.14.0 Slice 7: the Automation tab joins (the signed-off mockup's order); phones read the short names
+  // (the mockup's Gen, Upg, Prest, Skills, Auto, Miles) so all six sit on one row.
+  type Tab = "generators" | "upgrades" | "prestige" | "skills" | "automation" | "milestones";
+  const TABS: { key: Tab; label: string; short: string }[] = [
+    { key: "generators", label: "Generators", short: "Gen" },
+    { key: "upgrades", label: "Upgrades", short: "Upg" },
+    { key: "prestige", label: "Prestige", short: "Prest" },
+    { key: "skills", label: "Skills", short: "Skills" },
+    { key: "automation", label: "Automation", short: "Auto" },
+    { key: "milestones", label: "Milestones", short: "Miles" },
   ];
   let tab: Tab = "generators";
   // The main view, or one of the two header views.
@@ -241,30 +232,19 @@
     const n = locked[0].t.unlockFleet;
     return `Generator ${locked[0].t.numeral} at ${n} Fleet${n === 1 ? "" : "s"}`;
   }
-  // 0.14.0 Slice 3: an automation's row before its milestone names that milestone once it is visible
-  // ("???" before, like the Milestones list). The Automation tab (Slice 7) replaces these rows.
-  function automationLockedLabel(id: AutomationId, x: SecretState): string {
-    const m = MILESTONES.find((d) => d.id === AUTOMATION_UNLOCKS[id])!;
-    return `${COPY.automationLockedPrefix} ${milestoneVisible(x, m.id) ? m.name : "???"}`;
+  // 0.14.0 Slice 7 (the signed-off mockup): the Automation tab's and the Skills tab's rows, read off the
+  // engine by secret/overlayRows.ts (tested there). Locked automations and skills read "???".
+  $: autoList = tab === "automation" ? automationRows(s) : [];
+  // The mockup's NEW marker on the Automation tab: lit by an unlock (engine checkMilestonesMut), cleared
+  // when the tab is open (also when an unlock lands while it is).
+  $: if (tab === "automation" && s.automationsNew && !busy) secretAct((x) => markAutomationsSeen(x));
+  $: skillList = tab === "skills" ? skillRows(s) : [];
+  const buyLabel = (a: AutomationBuy) => (a === "max" ? "Max" : a);
+  function toggleAuto(id: AutomationId): void {
+    secretAct((x) => setAuto(x, id, !autoActive(x, id)));
   }
-  const NEW_AUTOMATIONS = (Object.keys(NEW_AUTOMATION_BLURBS) as AutomationId[]);
-  // The automations still listed with the skills (Slice 7's Automation tab replaces these rows).
-  const SKILL_AUTOMATIONS: AutomationId[] = SKILLS.map((d): string => d.id).filter(isAutomationId);
-  // 0.14.0 Slice 4: a leveled skill's gate line ("???" for a milestone not visible yet).
-  function gateLine(d: LeveledSkillDef, x: SecretState): string {
-    const gate = d.availableAt;
-    const m = "milestone" in gate ? MILESTONES.find((ms) => ms.id === gate.milestone) : undefined;
-    return skillGateLine(gate, skillGateCount(x, d.id), m && milestoneVisible(x, m.id) ? m.name : "???");
-  }
-  function skillNowLine(d: LeveledSkillDef, x: SecretState): string {
-    const level = skillLevel(x, d.id);
-    const cost = skillLevelCost(x, d.id);
-    const now = skillEffectLine(d.id, skillStrength(x, d.id));
-    return cost === null ? `${now}. ${COPY.maxed}.` : `${now}. Next level: ${skillEffectLine(d.id, skillStrength(x, d.id, level + 1))}.`;
-  }
-  function skillButtonLabel(d: LeveledSkillDef, x: SecretState): string {
-    const cost = skillLevelCost(x, d.id);
-    return cost === null ? COPY.maxed : `Learn · ${cost} SP`;
+  function learn(id: LeveledSkillId): void {
+    secretAct((x, t) => buySkillLevel(x, id, t));
   }
   const plural = (n: number, one: string) => `${n} ${one}${n === 1 ? "" : "s"}`;
   function targetChange(layer: AutoLayer, event: Event): void {
@@ -320,19 +300,14 @@
   }
 
   // Stats: the next Ore goal on a log scale, then the run against the best.
-  const ORE_GOALS = [100, 1000, 100000, FINALE_EXPONENT, LONG_EXPONENT, STARFALL_EXPONENT];
+  // (The secret e25,000,000 is never a goal here: it stays ??? until reached, design 3.5.)
+  const ORE_GOALS = [100, 1000, 100000, FINALE_EXPONENT, LONG_EXPONENT, STARFALL_EXPONENT, E20M_EXPONENT];
   $: goal = ORE_GOALS.find((g) => bestE < g) ?? null;
   $: goalPct = goal === null ? 100 : pct((bestE / goal) * 100);
   $: runE = stateExponent(s, s.ore);
   $: runPct = bestE <= 0 ? 0 : pct((runE / bestE) * 100);
   $: visibleMilestones = MILESTONES.filter((m) => milestoneVisible(s, m.id));
   $: reachedCount = MILESTONES.filter((m) => s.milestones[m.id] !== undefined).length;
-  function milestoneReward(id: (typeof MILESTONES)[number]["id"], reached: boolean, x: SecretState): string {
-    if (id === "starfall") return reached ? COPY.starfallRewardDone : COPY.starfallRewardLater;
-    const auto = automationUnlockedBy(id);
-    if (auto !== undefined) return automationListLine(auto, reached, automationRevealed(x, auto));
-    return reached ? COPY.rewardRecorded : COPY.rewardLater;
-  }
 
   // Portal to <body> (the ActionModal pattern) so no transformed or clipped ancestor can trap the
   // fixed layer, and the blur covers the whole app.
@@ -465,7 +440,7 @@
             bind:this={tabButtons[t.key]}
             on:click={() => selectTab(t.key)}
             on:keydown={(e) => onTabKeydown(e, i)}
-          >{t.label}</button>
+          ><span class="tab-full">{t.label}</span><span class="tab-short">{t.short}</span>{#if t.key === "automation" && s.automationsNew}<span class="tab-new">NEW</span>{/if}</button>
         {/each}
       </div>
 
@@ -550,7 +525,7 @@
               <dl class="kv">
                 <div><dt>Points</dt><dd class="num">{formatSecret(s.captainPoints)}</dd></div>
                 <div><dt>Multiplier</dt><dd class="num">×{formatSecret(captainMultiplier(s))}</dd></div>
-                <div><dt>Needs</dt><dd class="num">1e60 Ore</dd></div>
+                <div><dt>Needs</dt><dd class="num">{formatThreshold(CAPTAIN_AT)} Ore</dd></div>
                 <div><dt>Pays</dt><dd class="num">+{formatSecret(cg)} points</dd></div>
               </dl>
               {#if previews?.captain}
@@ -620,57 +595,79 @@
             </div>
           {/if}
         {:else if tab === "skills"}
-          <div class="layer">
-            <h3 class="skills-title">SKILLS <span class="muted">({s.skillPoints} Skill Point{s.skillPoints === 1 ? "" : "s"} to spend)</span></h3>
-            <div class="nodes">
-              {#each LEVELED_SKILLS as d}
-                {@const level = skillLevel(s, d.id)}
-                {@const open = skillAvailable(s, d.id)}
-                <div class="node" class:own={level >= d.cap}>
-                  <b>{d.name} <span class="num">{level} / {d.cap}</span></b>
-                  <span class="muted">{d.flavor}</span>
-                  <span class="muted">{skillNowLine(d, s)}</span>
-                  {#if skillScaleCount(s, d.id) > 0}<span class="muted">{skillScaleLine(d.scalesOff, skillScaleCount(s, d.id), skillScaleFactor(s, d.id))}</span>{/if}
-                  {#if !open && skillLevelCost(s, d.id) !== null}
-                    <span class="muted">{gateLine(d, s)}</span>
-                  {:else}
-                    <button class="sg-btn" type="button" disabled={busy || !canBuySkillLevel(s, d.id)} on:click={() => secretAct((x, t) => buySkillLevel(x, d.id, t))}>{skillButtonLabel(d, s)}</button>
+          <!-- 0.14.0 Slice 7, the signed-off mockup's Skills tab: leveled rows, bought by hand. The automations
+               moved to the Automation tab. -->
+          <div class="pts">
+            <span><span class="lbl-full">{COPY.skillPointsLabel}</span><span class="lbl-short">{COPY.skillPointsShort}</span></span>
+            <b class="num">{s.skillPoints}</b>
+          </div>
+          {#each skillList as r (r.id)}
+            {#if r.state === "hidden"}
+              <div class="row locked">
+                <div class="row-text"><div class="row-name">???</div><div class="row-line">{r.gate}</div></div>
+              </div>
+            {:else}
+              {@const shown = r.state === "open" || r.level > 0}
+              <div class="row" class:gated={r.state === "gated"}>
+                <div class="row-text">
+                  <div class="row-name">{r.name}{#if shown} <span class="lvl num" class:max={r.maxed}>{r.level} / {r.cap}</span>{/if}</div>
+                  <div class="row-flavor">{r.flavor}</div>
+                  {#if shown || r.gate}
+                    <div class="row-line">
+                      {#if shown}{r.now.before}<b class="num">{r.now.value}</b>{r.now.after}. {#if r.next !== null}<span class="lbl-full">Next level:</span><span class="lbl-short">Next:</span> <b class="num">{r.next}</b>.{:else}{COPY.maxed}.{/if}{/if}
+                      {#if r.scale}<span class="chip scale">{r.scale}</span>{/if}
+                      {#if r.gate}<span class="chip warn gate">{r.gate}</span>{/if}
+                    </div>
                   {/if}
                 </div>
-              {/each}
-              {#each SKILL_AUTOMATIONS as id}
-                {#if !automationRevealed(s, id)}
-                  <div class="node">
-                    <b>???</b>
-                    <span class="muted">???</span>
-                  </div>
-                {:else}
-                  <div class="node" class:own={automationUnlocked(s, id)}>
-                    <b>{AUTOMATION_NAMES[id]}</b>
-                    <span class="muted">{SKILLS.find((d) => d.id === id)?.blurb}</span>
-                    {#if id === "autoCaptain" && autoCaptainWaiting(s)}<span class="muted">{COPY.autoCaptainWaiting}</span>{/if}
-                    {#if automationUnlocked(s, id)}
-                      <button class="sg-btn" type="button" aria-pressed={autoActive(s, id)} disabled={busy} on:click={() => secretAct((x) => setAuto(x, id, !autoActive(x, id)))}>{autoActive(s, id) ? "On" : "Off"}</button>
-                    {:else}
-                      <span class="muted">{automationLockedLabel(id, s)}</span>
+                <div class="row-ctl" class:gate-ctl={r.state === "gated"}>
+                  {#if r.state === "gated"}
+                    <button class="sg-btn" type="button" disabled>{COPY.skillLocked}</button>
+                  {:else}
+                    <button class="sg-btn learn" class:primary={!r.maxed} type="button" disabled={busy || !r.canBuy} on:click={() => learn(r.id)}>{r.maxed ? COPY.maxed : `Learn · ${r.cost} SP`}</button>
+                  {/if}
+                </div>
+              </div>
+            {/if}
+          {/each}
+          <p class="muted row-note">{skillGateLiftLine()}</p>
+        {:else if tab === "automation"}
+          <!-- 0.14.0 Slice 7, the signed-off mockup's Automation tab: every automation, earned at milestones,
+               each with its switch and, where it buys, its buy amount; automatic Captain and Fleet Prestige keep
+               their target menu; Auto Prestigeception is the switch alone (user 2026-10-29). -->
+          <p class="muted row-lede">{COPY.automationLede}</p>
+          {#each autoList as r (r.id)}
+            {#if r.state === "hidden"}
+              <div class="row locked">
+                <div class="row-text"><div class="row-name">???</div><div class="row-line"><span class="lbl-full">{r.line}</span><span class="lbl-short">{r.short}</span></div></div>
+              </div>
+            {:else}
+              <div class="row" class:ahead={r.state === "ahead"}>
+                <div class="row-text">
+                  <div class="row-name">{r.name}</div>
+                  <div class="row-line"><span class="lbl-full">{r.line}</span><span class="lbl-short">{r.short}</span> {COPY.automationEarnedAt} <b>{r.milestone}</b>.</div>
+                  {#if r.state === "open" && r.note}<div class="row-line"><span class="chip warn">{r.note}</span></div>{/if}
+                </div>
+                {#if r.state === "open"}
+                  {@const c = r.control}
+                  <div class="row-ctl">
+                    {#if c.kind === "buy"}
+                      <div class="seg" role="group" aria-label={`${r.name}: buy amount`}>
+                        {#each AUTOMATION_BUY_CHOICES as amount}
+                          <button class="seg-btn num" type="button" aria-pressed={c.amount === amount} disabled={busy} on:click={() => secretAct((x) => setAutomationBuy(x, r.id, amount))}>{buyLabel(amount)}</button>
+                        {/each}
+                      </div>
+                    {:else if c.kind === "target"}
+                      <select class="sel" aria-label={`${r.name}: target`} value={s.autoTarget[c.layer]} disabled={busy} on:change={(e) => targetChange(c.layer, e)}>
+                        {#each AUTO_TARGET_CHOICES as choice}<option value={choice}>Target {choice}%</option>{/each}
+                      </select>
                     {/if}
+                    <button class="tog" type="button" role="switch" aria-checked={r.on} aria-label={r.name} disabled={busy} on:click={() => toggleAuto(r.id)}><span class="tog-track"><span class="tog-knob"></span></span></button>
                   </div>
                 {/if}
-              {/each}
-              {#each NEW_AUTOMATIONS as id}
-                <div class="node" class:own={automationUnlocked(s, id)}>
-                  <b>{AUTOMATION_NAMES[id]}</b>
-                  <span class="muted">{NEW_AUTOMATION_BLURBS[id]}</span>
-                  {#if automationUnlocked(s, id)}
-                    <button class="sg-btn" type="button" aria-pressed={autoActive(s, id)} disabled={busy} on:click={() => secretAct((x) => setAuto(x, id, !autoActive(x, id)))}>{autoActive(s, id) ? "On" : "Off"}</button>
-                  {:else}
-                    <span class="muted">{automationLockedLabel(id, s)}</span>
-                  {/if}
-                </div>
-              {/each}
-            </div>
-            <p class="muted">{skillGateLiftLine()}</p>
-          </div>
+              </div>
+            {/if}
+          {/each}
         {:else}
           <ul class="ms-list">
             {#each MILESTONES as m}
@@ -681,7 +678,7 @@
                     {#if m.achievement}<Icon name="star" size={18} />{:else if at !== undefined}<Icon name="check" size={18} />{:else}<Icon name="circle" size={18} />{/if}
                   </span>
                   <span class="ms-name"><b>{m.name}</b><span class="muted">{m.detail}{at !== undefined ? ` · ${when(at)}` : ""}</span></span>
-                  <span class="rw">{milestoneReward(m.id, at !== undefined, s)}</span>
+                  <span class="rw">{milestoneRewardText(s, m.id, at !== undefined)}</span>
                 </li>
               {:else}
                 <li class="ms hidden">
@@ -1119,32 +1116,194 @@
     border-radius: var(--corner);
     max-width: 100%;
   }
-  .skills-title .muted {
-    font-family: var(--font-body);
-    font-size: var(--text-sm);
-    letter-spacing: 0;
-  }
-  .nodes {
-    display: grid;
-    grid-template-columns: repeat(3, minmax(0, 1fr));
+  /* 0.14.0 Slice 7, the Skills and Automation tabs (the signed-off mockup): one row per skill or automation,
+     the Upgrades rows' box (border, tint, padding), the text at the left and the controls at the right; on a
+     phone the controls wrap under the text. */
+  .pts {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
     gap: var(--space-4);
-  }
-  .node {
-    display: grid;
-    gap: var(--space-3);
-    align-content: start;
-    padding: 8px;
+    padding: 8px 10px;
     border: 1px solid var(--color-border);
     border-radius: var(--corner);
+    background: rgba(0, 0, 0, 0.25);
     font-size: var(--text-sm);
+  }
+  .pts b {
+    font-size: var(--text-lg);
+    color: var(--color-accent-bright);
+  }
+  .lbl-short,
+  .tab-short {
+    display: none;
+  }
+  /* The mockup's NEW marker on the Automation tab. */
+  .tab-new {
+    margin-left: 4px;
+    font-size: var(--text-2xs);
+    color: var(--color-warning);
+  }
+  .row-lede,
+  .row-note {
+    margin: 0;
+    font-size: var(--text-sm);
+  }
+  .row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 6px var(--space-5);
+    align-items: center;
+    padding: 7px 10px;
+    border: 1px solid var(--color-border);
+    border-radius: var(--corner);
+    background: rgba(0, 0, 0, 0.18);
     min-width: 0;
   }
-  .node.own {
-    border-color: var(--sg-fleet-border);
-    background: color-mix(in srgb, var(--sg-fleet) 10%, transparent);
+  .row.locked,
+  .row.ahead {
+    opacity: 0.55;
   }
-  .node .sg-btn {
-    white-space: normal;
+  .row.locked .row-name {
+    font-family: var(--font-mono);
+    letter-spacing: 0.2em;
+  }
+  .row.gated {
+    border-style: dashed;
+  }
+  .row-text {
+    min-width: 0;
+  }
+  .row-name {
+    font-weight: 600;
+    overflow-wrap: anywhere;
+  }
+  .row-flavor {
+    font-size: var(--text-xs);
+    color: var(--color-text-dim);
+    font-style: italic;
+  }
+  .row-line {
+    font-size: var(--text-sm);
+    color: var(--color-text-secondary);
+    overflow-wrap: anywhere;
+  }
+  .row-line b {
+    color: var(--color-text-primary);
+    font-weight: 600;
+  }
+  .lvl {
+    display: inline-block;
+    margin-left: 4px;
+    padding: 0 6px;
+    font-size: var(--text-xs);
+    font-weight: 400;
+    border: 1px solid var(--color-border);
+    border-radius: var(--corner);
+  }
+  .lvl.max {
+    color: var(--color-success);
+    border-color: color-mix(in srgb, var(--color-success) 50%, transparent);
+  }
+  .chip {
+    font-size: var(--text-xs);
+    color: var(--color-accent-bright);
+  }
+  .chip.warn {
+    color: var(--color-warning);
+  }
+  .row-line .chip.scale,
+  .row-line .chip.gate {
+    margin-left: 4px;
+  }
+  .row-line .chip.gate:first-child {
+    margin-left: 0;
+  }
+  .row-ctl {
+    display: flex;
+    gap: var(--space-3);
+    align-items: center;
+    justify-content: flex-end;
+    flex-wrap: wrap;
+  }
+  .seg {
+    display: inline-flex;
+    border: 1px solid var(--color-border-strong);
+    border-radius: var(--corner);
+    overflow: hidden;
+  }
+  .seg-btn {
+    min-height: 36px;
+    min-width: 40px;
+    padding: 0 9px;
+    font-size: var(--text-xs);
+    color: var(--color-text-secondary);
+    background: transparent;
+    border: 0;
+    border-right: 1px solid var(--color-border);
+    cursor: pointer;
+  }
+  .seg-btn:last-child {
+    border-right: 0;
+  }
+  .seg-btn[aria-pressed="true"] {
+    background: rgba(var(--color-accent-rgb), 0.18);
+    color: var(--color-text-primary);
+  }
+  .seg-btn:disabled,
+  .tog:disabled {
+    cursor: default;
+    opacity: 0.7;
+  }
+  .sel {
+    min-height: 36px;
+    font-family: var(--font-mono);
+    font-size: var(--text-xs);
+    color: var(--color-text-primary);
+    background: var(--color-bg-deep);
+    border: 1px solid var(--color-border-strong);
+    border-radius: var(--corner);
+    max-width: 100%;
+  }
+  /* The switch: a 40 x 22 track inside a 48 x 36 button, so the touch target stays large. */
+  .tog {
+    display: inline-grid;
+    place-items: center;
+    min-width: 48px;
+    min-height: 36px;
+    padding: 0;
+    background: transparent;
+    border: 0;
+    cursor: pointer;
+  }
+  .tog-track {
+    position: relative;
+    width: 40px;
+    height: 22px;
+    border-radius: 11px;
+    border: 1px solid var(--color-border-strong);
+    background: rgba(0, 0, 0, 0.4);
+  }
+  .tog-knob {
+    position: absolute;
+    top: 2px;
+    left: 2px;
+    width: 16px;
+    height: 16px;
+    border-radius: 50%;
+    background: var(--color-text-dim);
+  }
+  .tog[aria-checked="true"] .tog-track {
+    background: rgba(var(--color-accent-rgb), 0.25);
+  }
+  .tog[aria-checked="true"] .tog-knob {
+    left: 20px;
+    background: var(--color-accent-bright);
+  }
+  .seg-btn:focus-visible,
+  .tog:focus-visible {
+    outline: 2px solid var(--color-accent-bright);
+    outline-offset: 2px;
   }
   .ms-list {
     list-style: none;
@@ -1307,8 +1466,7 @@
     flex-shrink: 0;
   }
   @media (max-width: 860px) {
-    .split,
-    .nodes {
+    .split {
       grid-template-columns: 1fr;
     }
   }
@@ -1329,16 +1487,48 @@
     }
     .sg-tab {
       flex: 0 0 auto;
-      min-height: 32px;
+      min-height: 36px;
       padding: 3px 8px;
       font-size: var(--text-xs);
+    }
+    /* 0.14.0 Slice 7: six tabs, so phones read the mockup's short names (Gen, Upg, Prest, Skills, Auto,
+       Miles), and the Skill Points box its short label. */
+    .tab-full,
+    .lbl-full {
+      display: none;
+    }
+    .tab-short,
+    .lbl-short {
+      display: inline;
+    }
+    /* The mockup's phone rows: the controls wrap under the text, spread across the row; Learn spans the row
+       and a gated skill shows no button (its line says when it opens). */
+    .row {
+      grid-template-columns: minmax(0, 1fr);
+    }
+    .row-ctl {
+      justify-content: space-between;
+    }
+    .row-ctl .learn {
+      flex: 1;
+    }
+    .row-ctl.gate-ctl {
+      display: none;
+    }
+    .row-line .chip.scale {
+      display: block;
+      margin-left: 0;
+    }
+    /* The mockup's phone skill rows leave the joke line out. */
+    .row-flavor {
+      display: none;
     }
     .sg-head {
       padding: 8px 10px;
     }
     .sg-tool {
-      height: 34px;
-      min-width: 34px;
+      height: 36px;
+      min-width: 36px;
       padding: 0 8px;
       font-size: var(--text-xs);
     }

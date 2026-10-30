@@ -18,6 +18,8 @@
 // the retuned CP_K, PC_BAR_RATIO, skills and SOFT_SCALE); the early states without one do not.
 // The Slice 5a retune (user 2026-10-29): the relic-free captures move with the 0.13.11 goldens (CP_K, pay at the bar,
 // PC_BAR_RATIO 2, SOFT_SCALE 63), and the four Tier I levers' perCopy x6.5 move the typical and heavy boosts and states.
+// Slice 7 review (the Automation tab's NEW marker): the six past-finale saves, whose window grants Auto Skill
+// Allocation, end with "automationsNew":true; nothing else in any capture moved.
 import { describe, it, expect } from "vitest";
 import { readFileSync, writeFileSync } from "node:fs";
 import { serializeSecret, type SecretState } from "./state";
