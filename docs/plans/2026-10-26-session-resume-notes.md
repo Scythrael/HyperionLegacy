@@ -176,3 +176,15 @@ connection."
   (release QA doc at the end, on staging).
 - Next work is unchanged: housekeeping (the locked worktree agent-a4f30434476d21c47, the vitest "node:module" repro),
   then WR-7 patrol legs.
+
+## RELEASE PIPELINE (user, 2026-10-30)
+
+User (verbatim): "any time we're going between various slices, we want a slice to appear in that repo first. Bit by
+bit as needed. So it makes rewinding our progress easier and better. It only deploys to that repo. Then, when ready
+for testing, we use staging to do a live test. Then it pushes to prod after that."
+1. DEV (every slice): after each slice merges into feat with full gates, push feat to the private remote `backup`
+   (github.com/Scythrael/HyperionLegacy_Dev) with an annotated tag `slice/<id>` on the merge commit (rewind points),
+   plus the Proton bundle. Tags and feat go to `backup` ONLY, never to origin.
+2. STAGING (live test): when the release is ready (wiring gate passes + user go): `git push origin <local>:staging`.
+3. PROD: promote main from staging only on the user's explicit trigger.
+First tag: slice/wr7-oc-d8-patrol-legs at 336db4a.
