@@ -141,9 +141,9 @@ describe("App wiring for 0.13.11", () => {
     for (const raw of ["recallCaptain(state, captainId, Date.now())", "cancelLine(state, lineId, Date.now())", "tick(secondsAway, before, Math.random, Date.now())", "shownAtMs: Date.now()"]) expect(APP).not.toContain(raw);
     const runtime = readFileSync("src/lib/secret/runtime.ts", "utf-8");
     // (one placeholder before the save loads, never the trusted clock at module load: review H1)
-    expect(runtime).toContain("let state: SecretState = freshSecretState(Date.now());");
-    expect(runtime).not.toContain("let state: SecretState = freshSecretState(trustedNow());");
-    expect(runtime.replace("let state: SecretState = freshSecretState(Date.now());", "")).not.toMatch(/Date\.now\(\)/);
+    expect(runtime).toContain("let state: SecretState = newSecretGame(Date.now());");
+    expect(runtime).not.toContain("let state: SecretState = newSecretGame(trustedNow());");
+    expect(runtime.replace("let state: SecretState = newSecretGame(Date.now());", "")).not.toMatch(/Date\.now\(\)/);
   });
 
   it("0.13.11.1: one achievement popup mount, after the overlay", () => {

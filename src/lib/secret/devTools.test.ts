@@ -1,13 +1,14 @@
 // devTools.test.ts: the [DEV] minigame shortcuts land states the engine accepts (0.13.11.1).
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
-import { freshSecretState, serializeSecret, deserializeSecret, cloneSecret, type SecretState } from "./state";
+import { newSecretGame, serializeSecret, deserializeSecret, cloneSecret, type SecretState } from "./state";
 import { devMarkFound, devMaxSkills, devJumpTo } from "./devTools";
 import { effectiveExponent, upgradesUnlocked, upgradeLevel, hasSkill, autoActive, isTierUnlocked, stepMut, captainGain, fleetGain, prestigeceptionGain, allSkillsMaxed } from "./engine";
 import { SKILLS, LEVELED_SKILLS, AUTOMATION_IDS, UPGRADES, MILESTONES, LONG_EXPONENT, STARFALL_EXPONENT, TIER_COUNT, isAutomationId } from "./config";
 import { newlyReached } from "./runtime";
 
 const NOW = Date.UTC(2026, 9, 23, 12);
+// The dev tools act on the running game, a 0.14.0 one (newSecretGame: marked, so a reload never converts it).
 
 function accepted(s: SecretState): SecretState {
   const back = deserializeSecret(serializeSecret(s), 0);
@@ -25,7 +26,7 @@ function liveFor(s: SecretState, seconds: number): SecretState {
 
 describe("Mark found", () => {
   it("unlocks as a first combo success would", () => {
-    const s = devMarkFound(freshSecretState(NOW), NOW);
+    const s = devMarkFound(newSecretGame(NOW), NOW);
     expect(s.found).toBe(true);
     expect(s.foundAt).toBe(NOW);
     expect(devMarkFound(s, NOW + 5).foundAt).toBe(NOW);
@@ -35,7 +36,7 @@ describe("Mark found", () => {
 
 describe("Max skills", () => {
   it("owns every skill with every switch on, and records the milestone", () => {
-    const s = devMaxSkills(freshSecretState(NOW), NOW);
+    const s = devMaxSkills(newSecretGame(NOW), NOW);
     for (const d of SKILLS) expect(hasSkill(s, d.id)).toBe(true);
     // (every switch on; Auto Prestigeception acts only once the player's own first Prestigeception reveals it)
     for (const id of AUTOMATION_IDS) expect(s.autoOn[id]).toBe(true);
@@ -48,7 +49,7 @@ describe("Max skills", () => {
 
 for (const [label, target] of [["e1,000,000", LONG_EXPONENT], ["e10,000,000", STARFALL_EXPONENT]] as const) {
   describe(`Jump to ${label}`, () => {
-    const before = devMarkFound(freshSecretState(NOW), NOW);
+    const before = devMarkFound(newSecretGame(NOW), NOW);
     const s = devJumpTo(before, target, NOW);
 
     it("lands a consistent state the engine accepts", () => {
@@ -114,7 +115,7 @@ for (const [label, target] of [["e1,000,000", LONG_EXPONENT], ["e10,000,000", ST
 
 describe("jumps never move dates already earned", () => {
   it("an earlier milestone date stays", () => {
-    const s = devMarkFound(freshSecretState(NOW), NOW);
+    const s = devMarkFound(newSecretGame(NOW), NOW);
     s.milestones.googol = 123;
     expect(devJumpTo(s, LONG_EXPONENT, NOW).milestones.googol).toBe(123);
   });
@@ -122,7 +123,7 @@ describe("jumps never move dates already earned", () => {
 
 describe("final re-check: the Debug jumps", () => {
   it("leave no spare Skill Points (every skill is owned, so Fleets pay none)", () => {
-    for (const target of [1e6, STARFALL_EXPONENT]) expect(devJumpTo(freshSecretState(0), target, 1000).skillPoints).toBe(0);
+    for (const target of [1e6, STARFALL_EXPONENT]) expect(devJumpTo(newSecretGame(0), target, 1000).skillPoints).toBe(0);
   });
 
   it("say on the Debug button that the e10,000,000 jump is a fast-forward state", () => {

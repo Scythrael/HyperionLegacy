@@ -20,7 +20,7 @@
 // game without saving); a corrupt one is kept under the backup key before anything overwrites it.
 
 import { writable, type Readable } from "svelte/store";
-import { freshSecretState, inspectSecretSave, saveSecret, clearSecretSave, type SecretState } from "./state";
+import { newSecretGame, inspectSecretSave, saveSecret, clearSecretSave, type SecretState } from "./state";
 import { relicBoostsFromMuseum, sameRelicBoosts } from "./relicBoosts";
 import type { RelicBoosts } from "./config";
 import type { MuseumV2 } from "../game/model";
@@ -40,7 +40,7 @@ const INLINE_SECONDS = 60;
 
 // A placeholder until startSecretRuntime loads the save: never the trusted clock at module load, which
 // would run before the main game starts the clock from its save stamps (0.13.11.1).
-let state: SecretState = freshSecretState(Date.now());
+let state: SecretState = newSecretGame(Date.now());
 let lastGood: SecretState = state;
 let readOnly = false; // a newer version's save is on disk: never overwrite it
 const store = writable<SecretState>(state);
@@ -222,7 +222,7 @@ export function wipeSecretGame(): void {
   readOnly = false;
   clearSecretSave();
   pendingFoundAt = null;
-  publish(withRelics(freshSecretState(trustedNow())), false);
+  publish(withRelics(newSecretGame(trustedNow())), false);
 }
 
 // Dev only (Debug tab): pretend the secret game was away for `seconds` and pay it through the real
@@ -244,7 +244,7 @@ export function startSecretRuntime(): () => void {
     readOnly = loaded.status === "future";
     publish(loaded.state, false);
   } catch {
-    publish(freshSecretState(trustedNow()), false);
+    publish(newSecretGame(trustedNow()), false);
   }
   advance(trustedNow());
   const tick = setInterval(() => advance(trustedNow()), TICK_MS);

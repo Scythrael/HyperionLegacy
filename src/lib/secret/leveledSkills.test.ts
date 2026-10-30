@@ -183,10 +183,13 @@ describe("buying levels by hand", () => {
 
   it("levels round-trip through the save, with the gates each skill has opened", () => {
     let s = allOpen(freshSecretState(T0));
+    s.prestigeV = 1; // a 0.14.0 save (the Slice 6 marker), so the reload is a plain round trip, not a conversion
     checkMilestonesMut(s, T0);
     s.skillPoints = 50;
     s = buySkillLevel(buySkillLevel(s, "captainsAcademy", T0), "headStart", T0);
     const back = deserializeSecret(serializeSecret(s), T0)!;
+    expect(back.prestigeV).toBe(1);
+    expect(back.skillPoints).toBe(s.skillPoints);
     expect(back.skillLevels).toEqual(s.skillLevels);
     expect(back.skillsOpened).toEqual(s.skillsOpened);
     expect(Object.keys(back.skillsOpened).sort()).toEqual(LEVELED_SKILLS.map((d) => d.id).sort());

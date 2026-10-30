@@ -2,6 +2,7 @@ import { describe, it, expect, afterEach } from "vitest";
 import Decimal from "break_infinity.js";
 import {
   freshSecretState,
+  newSecretGame,
   cloneSecret,
   serializeSecret,
   deserializeSecret,
@@ -65,8 +66,9 @@ describe("fresh state", () => {
 });
 
 describe("serialization", () => {
+  // A 0.14.0 save (newSecretGame carries the Slice 6 marker; an unmarked one is converted on load).
   it("round-trips every Decimal and counter exactly", () => {
-    const s = freshSecretState(12345);
+    const s = newSecretGame(12345);
     s.ore = new Decimal("4.21e1284");
     s.owned[2] = new Decimal("8.8e1277");
     s.bought[7] = 3;
@@ -95,7 +97,7 @@ describe("serialization", () => {
 });
 
 describe("range checks", () => {
-  const base = () => JSON.parse(serializeSecret(freshSecretState(0)));
+  const base = () => JSON.parse(serializeSecret(newSecretGame(0)));
   it("drops unknown skills, bad switches and non-numeric milestone dates", () => {
     const raw = base();
     raw.skills = { headStart: true, wings: true, overdrive: "yes" };
@@ -163,7 +165,7 @@ describe("0.13.11.1 fields", () => {
   });
 
   it("round-trips every new field", () => {
-    const s = freshSecretState(0);
+    const s = newSecretGame(0);
     s.found = true;
     s.foundAt = 1234;
     s.upgrades = { ocOverclocker: 3, tenfoldTuner: 1, captainsCompound: 0, lucidDreaming: 2, turboEncabulator: 0, overdriveOverdrive: 0, singularitySharpener: 0 };
@@ -339,28 +341,42 @@ describe("0.14.0 prestige redesign: state fields (Slice 1)", () => {
     captainScale: 2,
   });
 
-  it("a 0.13.11.2 save loads with the new fields defaulted and round-trips byte-identical", () => {
-    const s = deserializeSecret(V0_13_11_2_SAVE, 0)!;
+  // Slice 6: an unmarked save is converted on load (prestigeConversion.test.ts covers what moves). Marked, the
+  // same save reads every redesign field as its default and round-trips byte-identically.
+  it("a 0.13.11.2 save with the Slice 6 marker loads with the new fields defaulted and round-trips byte-identical", () => {
+    const marked = V0_13_11_2_SAVE.slice(0, -1) + ',"prestigeV":1}';
+    const s = deserializeSecret(marked, 0)!;
     expect(s).not.toBeNull();
     expect(s.captainSinceFleet).toBe(0);
     expect(s.skillPointsEarned).toBe(0);
     expect(s.skillLevels).toEqual({});
     expect(s.automations).toEqual({});
     expect(s.automationBuy).toEqual({});
-    expect(s.prestigeV).toBeUndefined();
+    expect(s.prestigeV).toBe(1);
     // nothing of the old save moved
     expect(s.skillPoints).toBe(2);
     expect(s.skills.overdrive).toBe(true);
     expect(s.autoOn).toEqual({ autoCaptain: false, autoPc: true });
-    expect(serializeSecret(s)).toBe(V0_13_11_2_SAVE);
+    expect(serializeSecret(s)).toBe(marked);
     // and again through a clone (what every engine action does)
-    expect(serializeSecret(cloneSecret(s))).toBe(V0_13_11_2_SAVE);
+    expect(serializeSecret(cloneSecret(s))).toBe(marked);
   });
 
-  it("a fresh game's save has no 0.14.0 keys (fresh saves are byte-identical to 0.13.11.2's)", () => {
+  it("the same save unmarked is converted once: every 0.13.11.2 key keeps its place, the marker is saved", () => {
+    const s = deserializeSecret(V0_13_11_2_SAVE, 0)!;
+    expect(s.prestigeV).toBe(1);
+    const out = JSON.parse(serializeSecret(s)) as Record<string, unknown>;
+    const old = JSON.parse(V0_13_11_2_SAVE) as Record<string, unknown>;
+    expect(Object.keys(out).slice(0, Object.keys(old).length)).toEqual(Object.keys(old));
+    expect(out.prestigeV).toBe(1);
+  });
+
+  it("a fresh state's save has no 0.14.0 keys; a new game adds only the Slice 6 marker", () => {
     const raw = JSON.parse(serializeSecret(freshSecretState(0)));
     for (const k of ["captainSinceFleet", "skillPointsEarned", "skillLevels", "automations", "automationBuy", "prestigeV"]) expect(k in raw, k).toBe(false);
     expect(Object.keys(raw).at(-1)).toBe("captainScale");
+    const game = JSON.parse(serializeSecret(newSecretGame(0)));
+    expect(Object.keys(game)).toEqual([...Object.keys(raw), "prestigeV"]);
   });
 
   it("round-trips every new field, written last in one fixed order whatever order they were set in", () => {
@@ -388,12 +404,12 @@ describe("0.14.0 prestige redesign: state fields (Slice 1)", () => {
 
   it("bad values in the new fields fall back to defaults instead of rejecting the save", () => {
     const raw = JSON.parse(V0_13_11_2_SAVE);
+    raw.prestigeV = 1; // marked, so the Slice 6 conversion does not run over what is read here
     raw.captainSinceFleet = -3;
     raw.skillPointsEarned = "lots";
     raw.skillLevels = { headStart: 99, overdrive: 0, tenfoldTraining: 2.7, bogus: 3, lucidPlanning: "1" };
     raw.automations = { autoCaptain: true, autoFleet: "yes", wings: true };
     raw.automationBuy = { autoBuyLow: "10", autoCaptain: "max", autoSkills: "all", autoUpgrades: 10 };
-    raw.prestigeV = 2;
     const s = deserializeSecret(JSON.stringify(raw), 0)!;
     expect(s).not.toBeNull();
     expect(s.captainSinceFleet).toBe(0);
@@ -402,7 +418,8 @@ describe("0.14.0 prestige redesign: state fields (Slice 1)", () => {
     expect(s.automations).toEqual({ autoCaptain: true });
     // the prestige automations have no buy setting (they keep their target), so theirs is dropped
     expect(s.automationBuy).toEqual({ autoBuyLow: "10" });
-    expect(s.prestigeV).toBeUndefined();
+    // only prestigeV: 1 marks: any other value reads as unmarked, so the save is converted (and then marked)
+    expect(deserializeSecret(JSON.stringify({ ...raw, prestigeV: 2 }), 0)!.prestigeV).toBe(1);
   });
 
   it("clones the new containers deeply", () => {

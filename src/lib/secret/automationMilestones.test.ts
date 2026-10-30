@@ -536,6 +536,7 @@ describe("Auto Captain waits for Auto-buy I to IV, and its row says so", () => {
 describe("buy amounts carry the fraction of a second (no drift on long coarse steps)", () => {
   it("steps of 2.5 s at Buy 1 buy one level per booked second, the carry saved across a reload", () => {
     const base = atEffective(2.5e6);
+    base.prestigeV = 1; // a 0.14.0 save (the Slice 6 marker), so the reloads below never convert it
     base.automations.autoUpgrades = true;
     base.autoOn.autoUpgrades = true;
     const x = cloneSecret(base);

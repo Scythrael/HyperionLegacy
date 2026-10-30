@@ -27,6 +27,7 @@ import {
   type LeveledSkillId,
   type MilestoneId, CP_POW, CP_POW_BEFORE_CURVE_ROUND,
   type RelicBoosts } from "./config";
+import { convertPrestigeV1 } from "./prestigeConversion";
 
 const SKILL_IDS: readonly SkillId[] = SKILLS.map((d) => d.id);
 // The two 0.14.0 automations that were never skills (their on/off switches share autoOn).
@@ -97,7 +98,8 @@ export interface SecretState {
   // Slice 4: the leveled skills whose gate has been open at least once (the gate lift reopens these from
   // the start of every climb once SKILL_GATE_LIFT_PC Prestigeceptions are done); missing means never.
   skillsOpened: Partial<Record<LeveledSkillId, true>>;
-  // The one-time prestige redesign conversion has run (Slice 6, like captainScale). Absent until then.
+  // The one-time prestige redesign conversion has run (Slice 6, like captainScale; prestigeConversion.ts), or
+  // the game began on 0.14.0 (newSecretGame). A save without it is converted once on load.
   prestigeV?: 1;
 }
 
@@ -149,6 +151,13 @@ export function freshSecretState(nowMs: number): SecretState {
     automationBuy: {},
     skillsOpened: {},
   };
+}
+
+// A new game (the runtime's, and a missing or unreadable save's): fresh, with the prestige redesign marker
+// already set, so there is nothing to convert. freshSecretState stays unmarked: it is the base every load
+// fills in (and the engine fixtures and goldens build on it).
+export function newSecretGame(nowMs: number): SecretState {
+  return { ...freshSecretState(nowMs), prestigeV: 1 };
 }
 
 // Decimals are immutable, so a shallow copy of each container is a full, independent copy.
@@ -295,7 +304,8 @@ export function deserializeSecret(raw: string | null, nowMs: number, opts: { cpC
   s.longSeen = parsed.longSeen === true;
   readNewFields(s, parsed, opts.cpConverted === true);
   readRedesignFields(s, parsed);
-  return s;
+  // Slice 6: a save without the marker (every 0.13.11.2 save) is converted once; it saves with the marker.
+  return s.prestigeV === 1 ? s : convertPrestigeV1(s);
 }
 
 // 0.14.0 prestige redesign fields. Every 0.13.11.2 save lacks them: a missing or bad value keeps its
@@ -381,14 +391,14 @@ export function isFutureSecretSave(raw: string): boolean {
 // SECRET_BACKUP_KEY first, so the fresh game that replaces it can never destroy it.
 export function inspectSecretSave(nowMs: number): { state: SecretState; status: SecretLoadStatus } {
   const raw = safeGetItem(SECRET_SAVE_KEY);
-  if (raw === null) return { state: freshSecretState(nowMs), status: "empty" };
+  if (raw === null) return { state: newSecretGame(nowMs), status: "empty" };
   const state = deserializeSecret(raw, nowMs, { cpConverted: safeGetItem(SECRET_CP_SCALE_KEY) === "2" });
   if (state) {
     safeSetItem(SECRET_CP_SCALE_KEY, "2");
     return { state, status: "ok" };
   }
   safeSetItem(SECRET_BACKUP_KEY, raw);
-  return { state: freshSecretState(nowMs), status: isFutureSecretSave(raw) ? "future" : "corrupt" };
+  return { state: newSecretGame(nowMs), status: isFutureSecretSave(raw) ? "future" : "corrupt" };
 }
 
 // The secret save's own time stamp, without loading it (the shared trusted clock raises its mark from
