@@ -666,3 +666,10 @@ Sigil, the Shipwright capstone); "Unnamed everywhere" (no name in the game, patc
 original echo); the theme "The Inner Light"; the line "The flute beside it". The Sigil's flavor now reads: "Found
 beside a small tin flute. Its captain once lived a whole lifetime in a single hour, and carried a lost world's song
 home so it would never be forgotten." Keep this line as is in future rewrites; it is a memorial, not placeholder text.
+
+User (2026-10-30, verbatim): "Please make a mockup of what Patrick Stewart's artifact tribute will be. Also, I want to
+have something for each of those titans that have fallen. But for now, let's get a proper mockup of that item. I want
+to show it to those who are also in mourning." Mockup published: https://claude.ai/artifact/PkkEgFFQnY7RNaKwpC8CtH.
+OPEN (user's idea, not yet designed): a memorial for each fallen titan of the franchise; the user names who and
+where. Same rules as the Sigil unless the user says otherwise: unnamed in game, an original echo, on an existing or
+user-named item (never a new entity the user did not name).
