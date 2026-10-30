@@ -108,3 +108,23 @@ combined review approved, no correctness bug). User picks (2026-10-30): over-own
 debt; a buyer who switched Auto Prestigeception off stays off on reveal; allSkills stays recorded as earned history.
 Backup bundle refreshed. Next: Slice 7 UI + Help (Automation tab, leveled Skills tab; Auto PC row on/off only, no
 target menu), then the remaining 0.14.0 queue. Pace: marathon mode, one fresh Opus builder at a time.
+
+## SESSION PROTOCOL (user, 2026-10-30): one session per slice, reporting to the hub
+
+User (verbatim): "Perhaps each slice/phase/etc is engaged in a new session that reports back to the main one, and you
+two can communicate back and forth if there are specific questions on missing context for decisions, etc. Since that
+session would report back to you, yes? That way, no assumptions are made, and the session reaches out to you if
+something is missing."
+- HUB: the Claude Desktop session titled "HL Hub" (address `HL Hub` via ListAgents/SendMessage). It holds the
+  conversation with the user, the question queue and the decisions; it stays lean (short reports in, no file dumps).
+- SLICE SESSION: a fresh session in the fleet-admiral folder per slice/phase. Starts from these notes, runs the usual
+  workflow (fresh builder, goldens first, combined review, fixes, merge with full gates, Proton bundle refresh,
+  handoff commit here), then ends.
+- MISSING CONTEXT: never assume. SendMessage `HL Hub` with the specific question; wait for the answer. The hub answers
+  from docs, git and the user's own words; a game DECISION is still the user's: the hub asks the user (multiple
+  choice) and relays the answer verbatim, which also gets recorded in the plan doc.
+- REPORT BACK: on finish (or when blocked), SendMessage `HL Hub` a report under 200 words: commits, gates, user calls
+  needed, deviations, next step. The handoff commit here stays the durable record.
+- One slice session at a time in marathon mode; parallel slice sessions only in burn mode.
+- The hub rotates too: when its context grows large, it writes a handoff here and the user opens a fresh hub with the
+  same title.
