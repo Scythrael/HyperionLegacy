@@ -473,3 +473,75 @@ export const LIFTS_PINS_MOVED: Record<string, unknown> = {
   "constMixed:carrier:crimsonReaverSweep": ["1:0:be19e8ce,2:0:8a8e3787,3:0:c19131c4,4:0:1b5c54d8,5:0:83eee97d,6:0:f5683cb8,7:0:70dd4149,8:0:9915b662,9:0:b0d79a3,10:0:c6399e39,11:0:21ce806b,12:0:c3457db8,13:0:c3457db8","c4c698a2"],
   "constMixed:prospectorHauler:crimsonReaverSweep": ["1:0:be19e8ce,2:0:8a8e3787,3:0:c19131c4,4:0:1b5c54d8,5:0:83eee97d,6:0:f5683cb8,7:0:f5683cb8","125b7457"],
 };
+
+// ---- 3. count only flown (user 2026-10-30 "Count only flown") ------------------------------------------------------
+// The Constitution run clock with a return cut that acts: the constBase runs on a fleet tick of CUT_SECONDS_PER_TICK
+// (an hour), so the Flight Deck's ramp cuts every cycle's leg home. Captured on fc1ff7c, before the change (FLOWN_PINS_PRE):
+//   constCut         : a Repeat run, every relaunch traced ("routes:returnCut:officerCombat") and the end state.
+//   constCutInFlight : the same run's first cycle dispatched before the change (it carries no stamp; a no-op before it),
+//                      read to its first relaunch: that relaunch's trace and the state there.
+
+export const CUT_SECONDS_PER_TICK = 3600;
+
+export function cutDispatch(hull: ShipTypeKey, route: PatrolKey): GameState {
+  const r = dispatchCaptainOnPatrol({ ...constBase(hull), tickDurationSeconds: CUT_SECONDS_PER_TICK }, 1, route, "balanced", true);
+  must(r.success, `${hull} ${route} cut: ${r.reason}`);
+  return r.next;
+}
+
+// A cycle dispatched before "Count only flown": captain 1's patrol without its flown-clock stamp (a no-op on a record
+// that carries none).
+export function asPreFlown(s: GameState): GameState {
+  return {
+    ...s,
+    captains: s.captains.map((c, i) => {
+      if (i !== 0 || c.mission === null || c.mission.kind !== "patrol") return c;
+      const { cutFlown: _drop, ...rest } = c.mission as PatrolMissionState & { cutFlown?: unknown };
+      return { ...c, mission: rest as PatrolMissionState };
+    }),
+  };
+}
+
+// The run to its first relaunch (or its end): that relaunch's trace and the state there.
+export function firstRelaunchRow(start: GameState): string[] {
+  let s = start;
+  const routes0 = (s.captains[0].mission as PatrolMissionState).routesCompletedThisRun;
+  for (let i = 0; i < CONST_SECONDS && s.captains[0].mission !== null; i++) {
+    s = economyTick(s, 1, RNG);
+    const m = s.captains[0].mission as PatrolMissionState | null;
+    if (m !== null && m.routesCompletedThisRun !== routes0) return [`${m.routesCompletedThisRun}:${m.returnCutTicks ?? 0}:${hash(m.officerCombat ?? null)}`, stateHash(s)];
+  }
+  return ["", stateHash(s)];
+}
+
+export function cutRows(): Record<string, unknown> {
+  const got: Record<string, unknown> = {};
+  for (const hull of CONST_HULLS) {
+    for (const route of LIFTS_ROUTES) {
+      const start = cutDispatch(hull, route);
+      got[`constCut:${hull}:${route}`] = constRow(start);
+      got[`constCutInFlight:${hull}:${route}`] = firstRelaunchRow(asPreFlown(start));
+    }
+  }
+  return got;
+}
+
+// Captured on fc1ff7c, before "Count only flown".
+export const FLOWN_PINS_PRE: Record<string, unknown> = {
+  "constCut:battleship:crimsonReaverSweep": ["1:2:9228ca18,2:3:a723fa74,3:3:8f5c430,4:3:39afef29,5:3:46287b6b,6:3:cdb0a434,7:3:c838884c,8:3:9c39bfbe,9:3:3c5911be,10:3:ce984748,11:4:8f73995c,12:4:100304fc,13:4:f1504835,14:4:2d17bf6b,15:4:8afb2ab4,16:4:a4df6e77,17:4:c33b3e3a,18:4:25ada4b,19:4:8018f143,20:4:2cc0b0c6,21:4:581f0e2c,22:4:6c7b4a1e,23:4:aa9db8a,24:4:496944dc,25:4:930e24d5,26:4:ee5954db,27:4:9d98583f","6137071c"],
+  "constCutInFlight:battleship:crimsonReaverSweep": ["1:2:9228ca18","dd1c2eaa"],
+  "constCut:battleship:crimsonReaverWarband": ["1:5:b0a3dda6,2:5:f5bb4416,3:5:f5bb4416","1f0b3944"],
+  "constCutInFlight:battleship:crimsonReaverWarband": ["1:5:b0a3dda6","be2db3fd"],
+  "constCut:carrier:crimsonReaverSweep": ["1:2:f2741546,2:2:48a707e5,3:2:3976a662,4:2:7a3ab6fe,5:2:9c7d8d59,6:2:f01275d8,7:3:7484f88e,8:3:6220e94a,9:3:9c39bfbe,10:3:f2687c32,11:3:63c490d4,12:3:c9d63be2,13:3:b07641d4,14:3:65451799,15:3:60d1541c,16:3:12cab1c5,17:3:b0d38a8e,18:3:a4df6e77,19:3:8e7a3690,20:3:3be25a33,21:3:f921fab,22:3:74c36edd,23:3:1e3b9123,24:3:b64e59a8,25:3:bea232d1,26:3:bb5ed721,27:3:496944dc,28:3:eab254ab,29:3:df68d552,30:3:b3d53d2c","2aecae31"],
+  "constCutInFlight:carrier:crimsonReaverSweep": ["1:2:f2741546","7534d531"],
+  "constCut:carrier:crimsonReaverWarband": ["1:3:64a5565","20beae2a"],
+  "constCutInFlight:carrier:crimsonReaverWarband": ["1:3:64a5565","c18de15d"],
+  "constCut:prospectorHauler:crimsonReaverSweep": ["1:2:f2741546,2:2:48a707e5,3:2:3976a662,4:2:7a3ab6fe,5:2:9c7d8d59,6:2:f01275d8,7:3:7484f88e,8:3:6220e94a,9:3:9c39bfbe,10:3:f2687c32,11:3:63c490d4,12:3:c9d63be2,13:3:b07641d4,14:3:65451799,15:3:60d1541c,16:3:12cab1c5,17:3:b0d38a8e,18:3:a4df6e77,19:3:8e7a3690,20:3:3be25a33,21:3:f921fab,22:3:74c36edd,23:3:1e3b9123,24:3:b64e59a8,25:3:bea232d1,26:3:bb5ed721,27:3:496944dc,28:3:eab254ab,29:3:df68d552,30:3:b3d53d2c","6fbba1fb"],
+  "constCutInFlight:prospectorHauler:crimsonReaverSweep": ["1:2:f2741546","11114933"],
+  "constCut:prospectorHauler:crimsonReaverWarband": ["1:3:64a5565","9a36c532"],
+  "constCutInFlight:prospectorHauler:crimsonReaverWarband": ["1:3:64a5565","24f9762c"],
+  "constCut:destroyer:crimsonReaverSweep": ["1:1:9188a8da,2:1:b0a3dda6,3:1:d4adc0c6,4:2:f5bb4416,5:2:ff4cba8e,6:2:9b716e43,7:2:6e89163f,8:2:7484f88e,9:2:c838884c,10:2:9f642008,11:2:4f8d4e9e,12:2:1924050b,13:2:c0f54280,14:2:383c53ca,15:2:86fb9550,16:2:65451799,17:2:d9fa9576,18:2:2d17bf6b,19:2:ebc93089,20:2:f9e39ae9,21:2:c4d6803f,22:2:35f970f0,23:2:3ec24d0d,24:2:f921fab,25:2:1ae0cb3a,26:2:8688baff,27:2:581f0e2c,28:2:43f444c0,29:2:25c8d9f3,30:2:b4d8ac13,31:2:14718c9,32:2:eab254ab,33:2:53283fd5","e7a47f69"],
+  "constCutInFlight:destroyer:crimsonReaverSweep": ["1:1:9188a8da","b7d374ca"],
+  "constCut:destroyer:crimsonReaverWarband": ["1:1:605f98b6","bc6e6f86"],
+  "constCutInFlight:destroyer:crimsonReaverWarband": ["1:1:605f98b6","b15892f3"],
+};

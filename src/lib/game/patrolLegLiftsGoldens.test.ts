@@ -17,7 +17,10 @@ import {
   LIFTS_PINS_PRE,
   LIFTS_ROUTES,
   constDispatch,
+  FLOWN_PINS_PRE,
   constRows,
+  cutDispatch,
+  cutRows,
   liftsDispatch,
   liftsRows,
   speedOnlyLegs,
@@ -25,6 +28,8 @@ import {
 import { withPatrolLegLiftsOff, withPatrolRunClockOff } from "./patrolLegLiftsSwitch.fixture";
 
 const CAPTURE = import.meta.env.LIFTS_CAPTURE as string | undefined;
+// FLOWN_CAPTURE = an output path: record the count-only-flown rows instead of asserting.
+const FLOWN_CAPTURE = import.meta.env.FLOWN_CAPTURE as string | undefined;
 const RNG = (): number => 0.5;
 // The whole state, each top-level key hashed on its own, and `discovered` as a set (patrolLegsGoldens' reading). The
 // officers' promotion clock (promotionCounters.crewHours) sums a float per call, so one call and 1 s steps land on it
@@ -148,5 +153,27 @@ describe("OC-D8 follow-up goldens (patrol leg lifts, the Constitution run clock)
         }
       }
     }
+  }, 600_000);
+});
+
+// "Count only flown" (user 2026-10-30): the Constitution run clock on runs whose return cut acts (an hour-long fleet
+// tick), captured on fc1ff7c before the change (FLOWN_PINS_PRE).
+describe("count only flown goldens (the Constitution run clock with a return cut)", () => {
+  it("every run carries a return cut (the rows read the rule)", () => {
+    for (const hull of CONST_HULLS) {
+      for (const route of LIFTS_ROUTES) {
+        const m = cutDispatch(hull, route).captains[0].mission as PatrolMissionState;
+        expect([hull, route, (m.returnCutTicks ?? 0) > 0]).toEqual([hull, route, true]);
+      }
+    }
+  });
+
+  it("every reading matches its pin", () => {
+    const now = cutRows();
+    if (FLOWN_CAPTURE) {
+      writeFileSync(FLOWN_CAPTURE, JSON.stringify(now, null, 2));
+      return;
+    }
+    expect(now).toEqual(FLOWN_PINS_PRE);
   }, 600_000);
 });
