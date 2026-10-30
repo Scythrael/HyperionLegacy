@@ -40,6 +40,15 @@ const FILES = [
   // 0.13.11.2
   "src/lib/secret/prestigePreview.test.ts",
   "docs/plans/2026-10-26-hotfix-0.13.11.2-plan.md",
+  // 0.14.0 Slice 5b: the background visualization track
+  "src/lib/backgroundStyle.ts",
+  "src/lib/backgroundStyle.test.ts",
+  "src/lib/ftlRenderer.ts",
+  "src/lib/ftlRenderer.test.ts",
+  "src/lib/backgroundWiring.test.ts",
+  "src/lib/Background.svelte",
+  "src/lib/BackgroundConfigure.svelte",
+  "src/lib/FasterThanLight.svelte",
 ].map((path) => ({ path, src: readFileSync(path, "utf-8") }));
 
 // 0.13.11.1 additions inside files that predate the text rules, checked as slices.

@@ -1,7 +1,7 @@
 // accountExtras.ts: the 0.13.11.1 account-level fields of the main save, as PURE functions.
 //
-// The four optional GameState fields (model.ts: redeemedGifts, seenCodeLines, endlessGreedAt,
-// unlockedThemeStyles) are written ONLY here. Every function returns the SAME state reference when
+// The optional GameState fields (model.ts: redeemedGifts, seenCodeLines, endlessGreedAt,
+// unlockedThemeStyles, and 0.14.0's unlockedBackgrounds) are written ONLY here. Every function returns the SAME state reference when
 // nothing changes, so App's do* handlers can skip the save and the log (the same-ref guard).
 // Nothing here touches the tick, the economy or any other field, except the one credit grant a
 // gift pays.
@@ -104,4 +104,16 @@ export function hasThemeStyle(state: GameState, id: string): boolean {
 export function unlockThemeStyle(state: GameState, id: string): GameState {
   if (hasThemeStyle(state, id)) return state;
   return { ...state, unlockedThemeStyles: [...stringList(state.unlockedThemeStyles), id] };
+}
+
+// Background visualizations earned on this account (0.14.0 Slice 5b: the Faster Than Light mirror of the
+// minigame's e25,000,000 milestone, backgroundStyle.ts). Kept apart from the theme styles: the user keeps
+// the awarding of these prizes separate.
+export function hasBackground(state: GameState, id: string): boolean {
+  return stringList(state.unlockedBackgrounds).includes(id);
+}
+
+export function unlockBackground(state: GameState, id: string): GameState {
+  if (hasBackground(state, id)) return state;
+  return { ...state, unlockedBackgrounds: [...stringList(state.unlockedBackgrounds), id] };
 }

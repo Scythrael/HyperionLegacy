@@ -475,3 +475,14 @@ Points (about day 98) before e10M; gate lift about day 90; typical Tier I x0.890
 3. Casual finale about 4.8 days (simCasual floor 5 -> 4 days): "Accept ~4.8 days (Recommended)".
 4. Old saves that bought the Auto Prestigeception skill: hidden until their own first Prestigeception, then revealed
    ON: "Back ON for buyers (Recommended)". New players get it OFF.
+
+**Slice 5b carry note (background track, Faster Than Light, 2026-10-30):** built to the signed-off mockup v2. Settings >
+UI > BACKGROUND (under UI THEME): Background preset (Default, each unlocked preset, generic locked entries, Manual);
+Manual adds Background style plus Configure (backgrounds on top, live preview, per-background controls, Reset to
+default, Done). Code: backgroundStyle.ts (data, device prefs, palette, unlock from MilestoneDef.rewardHook),
+ftlRenderer.ts (typed arrays, no per-frame allocation, 600 stars max, DPR 1.5 max, about 60 fps max, time-based
+motion), FasterThanLight.svelte (hidden-tab pause), Background.svelte (Default = Starfield, untouched),
+BackgroundConfigure.svelte. Unlock: main-save optional unlockedBackgrounds (no SAVE_VERSION bump) mirrored from
+the e25M milestone like Starfall. Readability guard: data-background makes panels, header and tab bar nearly opaque
+plus a static scrim. Still is automatic with reduced motion (the game's Reduce motion, which defaults to the
+system's). Only real backgrounds are listed (the mockup's extra locked rows stand for future ones; none ship yet).
