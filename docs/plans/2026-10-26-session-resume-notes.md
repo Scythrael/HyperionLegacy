@@ -153,8 +153,9 @@ Next: user QA of the redesign; then the remaining 0.14.0 queue (handoff 2026-10-
 User QA call: QA of the minigame prestige redesign is deferred. User (verbatim): "Later then. We'll just have a very
 massive QA doc that we'll be going through in the end, which is perfectly fine. Let's continue forward with more of
 0.14.0." So: collect every 0.14.0 QA sheet into one release QA doc before staging (start with
-docs/qa/2026-10-30-minigame-prestige-redesign-qa.html). 0.14.0 QA is LOCAL ONLY (dev preview with .env.local
-VITE_DEV_MODE) until the wiring gate passes and the user says go; QA sheets must not tell the user to use staging.
+docs/qa/2026-10-30-minigame-prestige-redesign-qa.html). QA sheets POINT AT STAGING: user (verbatim, correcting me):
+"QA should point me at staging. Devpreview exists solely for testing and QA purposes." 0.14.0 still reaches staging
+only after the wiring gate passes and the user says go, so the release QA doc is run on staging then.
 NEXT SLICE SESSION, in order:
 1. Housekeeping: remove the merged, locked worktree agent-a4f30434476d21c47 (stop its agent if live, unlock, check
    node_modules is not a link, remove). Reproduce the "Could not resolve 'node:module'" vitest failure in a fresh
