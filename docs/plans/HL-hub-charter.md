@@ -30,6 +30,9 @@ Read this first when you become "HL Hub", the user's ongoing Hyperion Legacy hub
 **Starting slice sessions:**
 - If `start_session` (ccd_session_mgmt) is in the toolset, the hub starts each slice session itself, linked to the
   hub. The brief is the paste-in line from the latest hub note. Then open it in split view with `open_session_in`.
+- Over Remote Control (phone), the app refuses both a direct start and a clickable session card (found
+  2026-10-30). Both work only on a message the user types in the desktop app. From the phone, the user opens the
+  slice session by hand with the paste-in line, or sends any message from the desktop and the hub starts it.
 - The 2026-07 hub session lacked that tool even though the app supports it (the user's work instance has it), so
   the user opened slice sessions by hand. A fresh hub should check for the tool on startup.
 
