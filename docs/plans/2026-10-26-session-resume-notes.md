@@ -147,3 +147,17 @@ cleanup then); restored with npm ci from package-lock.json. Builder worktree age
 its agent process (branch worktree-agent-a4f30434476d21c47 merged; remove later). Builder note: vitest's dependency
 cache would not rebuild in fresh worktrees ("Could not resolve 'node:module'"); builders used an uncommitted config.
 Next: user QA of the redesign; then the remaining 0.14.0 queue (handoff 2026-10-30 ~02:30 UTC item 4).
+
+## Hub note (2026-10-30 ~19:20 UTC), feat @ 7f38fad
+
+User QA call: QA of the minigame prestige redesign is deferred. User (verbatim): "Later then. We'll just have a very
+massive QA doc that we'll be going through in the end, which is perfectly fine. Let's continue forward with more of
+0.14.0." So: collect every 0.14.0 QA sheet into one release QA doc before staging (start with
+docs/qa/2026-10-30-minigame-prestige-redesign-qa.html). 0.14.0 QA is LOCAL ONLY (dev preview with .env.local
+VITE_DEV_MODE) until the wiring gate passes and the user says go; QA sheets must not tell the user to use staging.
+NEXT SLICE SESSION, in order:
+1. Housekeeping: remove the merged, locked worktree agent-a4f30434476d21c47 (stop its agent if live, unlock, check
+   node_modules is not a link, remove). Reproduce the "Could not resolve 'node:module'" vitest failure in a fresh
+   worktree with its own `npm ci`; fix it or record why before any builder launches.
+2. WR-7 follow-up patrol legs (goldens first), after reconciling the wiring plan's WR-7 notes ("verify notes before
+   build").
