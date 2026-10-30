@@ -1,5 +1,8 @@
 # HL Hub charter and handoff
 
+**ON HOLD (user, 2026-10-30):** back to one conversation plus subagents until sessions can be spawned from Remote
+Control; see the resume notes "SESSION PROTOCOL SUPERSEDED". Kept for when that becomes possible.
+
 Read this first when you become "HL Hub", the user's ongoing Hyperion Legacy hub session. The user calls the hub
 "Mr. Data", their Operations officer. Part 1 is permanent. Part 2 is rewritten at every hub rotation.
 

@@ -162,3 +162,17 @@ NEXT SLICE SESSION, in order:
    worktree with its own `npm ci`; fix it or record why before any builder launches.
 2. WR-7 follow-up patrol legs (goldens first), after reconciling the wiring plan's WR-7 notes ("verify notes before
    build").
+
+## SESSION PROTOCOL SUPERSEDED (user, 2026-10-30 ~19:45 UTC)
+
+User (verbatim): "Looks like our plans weren't working that well. Looks like we'll just continue doing what we're
+doing now and keep using subagents until Anthropic allows for trusted sources to spawn sessions from a remote control
+connection."
+- ONE conversation again: the hub conversation does everything, and slice work goes to fresh builder SUBAGENTS as
+  before. Do not ask the user to open sessions by hand. Revisit only when sessions can be spawned from a Remote
+  Control connection.
+- Still in force from the protocol: the WORKTREE SAFETY rules (builder briefs forbid node_modules links; check for a
+  link before any `git worktree remove`; clean up merged builder worktrees), the incident log, and the QA calls
+  (release QA doc at the end, on staging).
+- Next work is unchanged: housekeeping (the locked worktree agent-a4f30434476d21c47, the vitest "node:module" repro),
+  then WR-7 patrol legs.
