@@ -91,3 +91,13 @@ merged; EM-8, EM-9 left); recipe realism; plus the NEW minigame prestige redesig
 branch awaiting the parity fix round, 5 to 7 left), shown on the public card only as "one under wraps" (the minigame is
 a secret). Designed (1): completion tracking. Build % = (19 + 14 / 2) / 34 = 76.5%; to release = 0.70 x 76.5% = 53.5%,
 shown as 54%. The card also lists the landed items in fan language (Tactical Protocols rename included).
+
+## 2026-10-30 (v12): 34 systems, 20 done, 13 building, 1 designed = 78% built, 55% to release
+
+Done (20): the v11 nineteen plus the minigame prestige redesign (Slices 0 to 7 merged through 14c0e6e, 10,478 green;
+its QA moves into the release QA doc), still shown only as "one under wraps". Building (13): the v11 fourteen minus
+the redesign; inside the wiring framework, WR-7 (a7e6a63), favorsSpec (b82ad72) and OC-D8 patrol legs (336db4a)
+merged, with the Fast Departure / Fast Return patrol follow-up building. Designed (1): completion tracking.
+Build % = (20 + 13 / 2) / 34 = 77.9%, shown as 78%; to release = 0.70 x 77.9% = 54.6%, shown as 55%. Landed items on
+the card, in fan language: ship systems wiring pass, gear that suits its ship, speed-aware patrols, crew on patrol
+(building).
