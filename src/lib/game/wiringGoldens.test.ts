@@ -179,7 +179,10 @@ const GOLDEN: Record<string, string | string[]> = {
     "frontierSupplyRun:4b3a27f7",
     "colonySupplyLift:fab12771",
   ],
-  repair: ["239", "156", "13d55f21", "70d18e4"],
+  // Re-pinned by the WR-7 follow-up (OC-D5 "+10% on its ship type"): the started Shipyard repair process (13d55f21 ->
+  // da049df9) reads the suite's favored lines on the Destroyer (a Tactician hull), so it is shorter; `ticks` (the raw
+  // pieces) and the repaired state hold. With FAVORED_SPEC_SWITCH off the process hash returns to 13d55f21.
+  repair: ["239", "156", "da049df9", "70d18e4"],
   // Re-pinned by WR-4 (B14): turn order by side, then input order (the player side first); the dispatch record
   // (91429198) is unchanged, every replay and the final state moved. The final state moved again with B4 (the
   // tactical officer's promotion counters: crewHours and shipsDestroyed).

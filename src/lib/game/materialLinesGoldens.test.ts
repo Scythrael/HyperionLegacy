@@ -21,6 +21,10 @@ import { GG7_BLUEPRINT_KEYS } from "./gasGiantSpecials.fixture";
 // (gearWearSwitch.fixture.ts), so they keep proving nothing else moved. gearWearGoldens.test.ts pins the wear.
 import { gearWearOffInThisFile } from "./gearWearSwitch.fixture";
 gearWearOffInThisFile();
+// WR-7 follow-up OC-D5 (favorsSpec, "+10% on its ship type"): the pins predate it too (the `rig` row's Refinery-Feed Rig
+// favors the Prospector spec), so the file runs with it off; favorsSpecGoldens and materialQualityGoldens pin the move.
+import { favoredSpecOffForThisFile } from "./favoredSpecSwitch.fixture";
+favoredSpecOffForThisFile();
 import Decimal from "break_infinity.js";
 import {
   BLUEPRINTS,

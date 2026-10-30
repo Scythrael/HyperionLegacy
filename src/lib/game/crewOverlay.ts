@@ -784,13 +784,16 @@ export function shipSurveyAptitude(state: GameState, ship: ShipInstance): number
 // transit speed, LAST (it multiplies the finished speed, so its share is exactly effective / (the sheet without it)).
 // `opts.reactorLift: false` reads the sheet without the lift: a captain mission or short-range run dispatched before
 // EM-4 (no flag, gearWearEngine.ts runShipStats), and the readout's source split (its Reactor surplus bucket).
-export function effectiveShipStats(state: GameState, ship: ShipInstance, opts: { reactorLift?: boolean } = {}): ShipDerivedStats {
+// WR-7 follow-up (OC-D5): `opts.favored: false` reads the installed pieces without the favored-spec bonus (model.ts
+// withFavoredLines): a captain mission, short-range run or patrol cycle dispatched before it (no favoredSpec stamp).
+export function effectiveShipStats(state: GameState, ship: ShipInstance, opts: { reactorLift?: boolean; favored?: boolean } = {}): ShipDerivedStats {
+  const favored = opts.favored !== false;
   // WR-5a: the commanding captain's Prospector nodes, LAST (Overloaded Holds' overflow is a share of the finished hold).
   // WR-5c: then the same captain's Keen Sensors (a multiplier on the finished sensors; the Prospector lifts never
   // touch sensors, so the order between the two is immaterial).
   const captain = commandingCaptain(state, ship);
-  const stats = applyCaptainSensors(applyCaptainOverlay(shipStatsBeforeCaptain(state, ship), captainShipLifts(captain)), captainSensorsMult(captain));
-  return opts.reactorLift === false ? stats : applyReactorDrive(state, ship, stats);
+  const stats = applyCaptainSensors(applyCaptainOverlay(shipStatsBeforeCaptain(state, ship, favored), captainShipLifts(captain)), captainSensorsMult(captain));
+  return opts.reactorLift === false ? stats : applyReactorDrive(state, ship, stats, favored);
 }
 
 // E-MOD EM-4: the installed Reactor Core's drive effect on the finished sheet. Transit speed x the surplus lift, then
@@ -801,13 +804,13 @@ export function effectiveShipStats(state: GameState, ship: ShipInstance, opts: {
 // Departure / Fast Return) multiply this sweeping speed, so both legs, the voyage and the combat speed all take it.
 // Returns `stats` itself without a core, with the Standard-Issue core and while the test switch is off (the
 // byte-identical guarantee). PURE.
-function applyReactorDrive(state: GameState, ship: ShipInstance, stats: ShipDerivedStats): ShipDerivedStats {
+function applyReactorDrive(state: GameState, ship: ShipInstance, stats: ShipDerivedStats, favored: boolean): ShipDerivedStats {
   if (!REACTOR_LIFT_SWITCH.live) return stats;
   const core = equippedFor(state, ship.id).find((p) => p.slotType === "reactorCore");
   if (core === undefined) return stats;
   return reactorDriveFold(stats, core, reactorSurplusSpeedLift(shipReactorSurplus(state, ship)), () => {
     const weightless = { ...state, equipment: state.equipment.map((e) => (e.id === core.id ? { ...e, mass: 0 } : e)) };
-    return effectiveShipStats(weightless, ship, { reactorLift: false }).transitSpeedMult;
+    return effectiveShipStats(weightless, ship, { reactorLift: false, favored }).transitSpeedMult;
   });
 }
 
@@ -867,13 +870,15 @@ export function shipReactorSurplus(state: GameState, ship: ShipInstance): number
 // while the test switch is off. PURE.
 // E-MOD EM-3 (0.14.0): and its power supply percent (combat/power.ts powerSupplyPercent, from shipNetPowerTotals: the
 // pristine output against the net draw), stored only when below 100.
-export function shipCombatRulesStamp(state: GameState, ship: ShipInstance): CombatRulesStamp | undefined {
+// WR-7 follow-up (OC-D5): `favored` false for a patrol cycle relaunched from a run dispatched before the favored-spec
+// bonus (its speed reads the pieces as stored).
+export function shipCombatRulesStamp(state: GameState, ship: ShipInstance, favored = true): CombatRulesStamp | undefined {
   const hullBase = SHIP_TYPES[ship.typeKey]?.transitSpeedMult ?? 1;
   const gear = equippedFor(state, ship.id);
   const quality = (slotType: string): number => gear.find((p) => p.slotType === slotType)?.quality ?? 0;
   const power = shipNetPowerTotals(state, ship);
   return newCombatRulesStamp(
-    combatSpeedFor(effectiveShipStats(state, ship).transitSpeedMult, hullBase),
+    combatSpeedFor(effectiveShipStats(state, ship, { favored }).transitSpeedMult, hullBase),
     quality("reactorCore"),
     quality("ftlDrive"),
     powerSupplyPercent(power.output, power.draw),
@@ -897,8 +902,8 @@ export function shipNetPowerTotals(state: GameState, ship: ShipInstance): { outp
 
 // effectiveShipStats WITHOUT the captain overlays: the gear fold, the crew, the museum and the officer facets. The
 // ship readout's source split reads it (its Captain bucket is effective minus this, Keen Sensors included). PURE.
-export function shipStatsBeforeCaptain(state: GameState, ship: ShipInstance): ShipDerivedStats {
-  const base = shipDerivedStats(ship, equippedFor(state, ship.id));
+export function shipStatsBeforeCaptain(state: GameState, ship: ShipInstance, favored = true): ShipDerivedStats {
+  const base = shipDerivedStats(ship, equippedFor(state, ship.id), { favored });
   const museum = museumBonuses(state);
   const crewed = applyCrewOverlay(base, shipCrewContribution(state, ship, museum));
   return applyOfficerFacetStats(applyMuseumOverlay(crewed, museum), state, ship);

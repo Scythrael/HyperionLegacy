@@ -39,6 +39,10 @@ import { equippedFor } from "./equipmentQueries";
 import { dispatchRun, installPiece, wiringBase } from "./wiring/probes";
 import { hash } from "./firstRunsGoldens.fixture";
 import { withoutEm7Blueprints } from "./emodEm7.fixture";
+// WR-7 follow-up OC-D5 (favorsSpec, "+10% on its ship type"): every pin here predates the favored-spec bonus (the
+// explorer hulls' Pathfinder Suite rows read it), so the file runs with it off; favorsSpecGoldens.test.ts pins it.
+import { favoredSpecOffForThisFile } from "./favoredSpecSwitch.fixture";
+favoredSpecOffForThisFile();
 
 const CAPTURE = Boolean(import.meta.env.EM7_CAPTURE);
 const HULLS = Object.keys(SHIP_TYPES) as ShipTypeKey[];

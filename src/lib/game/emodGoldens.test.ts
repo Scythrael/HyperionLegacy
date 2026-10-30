@@ -90,6 +90,12 @@ import { ml3RowsBack } from "./materialQualityGoldens.fixture";
 // cycles and runs; combatDescriptorGoldens.test.ts pins the combat rules themselves).
 import { combatRulesOffForThisFile } from "./combatRulesSwitch.fixture";
 combatRulesOffForThisFile();
+// WR-7 follow-up OC-D5 (favorsSpec, "+10% on its ship type"): after every pin here too. Its one registry flip is read
+// back (favorsSpecReadBack) and the file runs with the bonus off: the census and crafted sheets install favored pieces
+// on hulls of their spec, which it moves by design (favorsSpecGoldens.test.ts and wr7Goldens.test.ts pin it).
+import { favorsSpecReadBack } from "./favoredSpecRegistry.fixture";
+import { favoredSpecOffForThisFile } from "./favoredSpecSwitch.fixture";
+favoredSpecOffForThisFile();
 
 // ===== shared helpers =====
 
@@ -708,7 +714,7 @@ function fkr11ReadBack(rows: readonly WiringEntry[]): WiringEntry[] {
   });
 }
 const BEFORE_RX: WiringEntry[] = siReadBack(
-  em4ReadBack(em3ReadBack(em5ReadBack(wr8ReadBack(gw3RegistryBack(em7ReadBack(fkr11ReadBack(gw4ReadBack(WIRING_REGISTRY)))))))).filter(
+  em4ReadBack(em3ReadBack(em5ReadBack(wr8ReadBack(gw3RegistryBack(em7ReadBack(fkr11ReadBack(gw4ReadBack(favorsSpecReadBack(WIRING_REGISTRY))))))))).filter(
     (e) =>
       !RX_ADDED_ENTRY_IDS.has(e.id) && !RR_ADDED_ENTRY_IDS.has(e.id) && !FUSE_ADDED_ENTRY_IDS.has(e.id) && !R2_2_ADDED_ENTRY_IDS.has(e.id) && !R2_3_ADDED_ENTRY_IDS.has(e.id) && !R2_10_ADDED_ENTRY_IDS.has(e.id) && !R2_4_ADDED_ENTRY_IDS.has(e.id) && !G16_ADDED_IDS.has(e.id) &&
       !G2_4_ADDED_ENTRY_IDS.has(e.id) && !OC15_ADDED_ENTRY_IDS.has(e.id) && !GG_STUDY_ADDED_ENTRY_IDS.has(e.id) && !G2_6_ADDED_ENTRY_IDS.has(e.id),

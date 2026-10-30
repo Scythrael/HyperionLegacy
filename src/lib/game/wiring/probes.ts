@@ -25,6 +25,7 @@ import {
   REFINE_RECIPES,
   SALVAGE_LOOT_POOLS,
   SHIP_TYPES,
+  favoredSpecStamp,
   blueprintResearchable,
   effectiveMissionDef,
   equipmentStorageCap,
@@ -117,6 +118,8 @@ import {
   tierCap,
   xpPerTick,
 } from "../tick";
+// WR-7 follow-up (OC-D5): the sheet a dispatched captain mission reads (its favored-spec stamp decides).
+import { missionRunSheet } from "../gearWearEngine";
 import { TRANSPORT_WINDOW_SECONDS } from "../transports";
 import { OVERTIME_PROCESS_KINDS, buyOvertime } from "../processSpeed";
 import { combatHullTypeOf, shipToCombatant } from "../combat/bridge";
@@ -747,8 +750,20 @@ export function shortRangeJobRoll(s: GameState, template: ShortRangeTemplateKey)
 export function onShortRangeJob(s: GameState, template: ShortRangeTemplateKey, phase: ShortRangePhase = "transitOut", repeat = false): GameState {
   // E-MOD EM-4: the reactor lift flag a dispatch now writes (none with the Standard-Issue core).
   const reactorLift = newReactorLiftFlag(equippedFor(s, WIRING_SHIP_ID));
-  const start = startShortRangeCycle(s, shipOf(s), SHORT_RANGE_PROBE_SLOT, shortRangeJobIndex(s, template), undefined, reactorLift !== undefined);
-  const mission: ShortRangeMissionState = { kind: "shortRange", slotId: 0, roll: start.roll, plan: start.plan, phase, phaseProgressTicks: 0, recalled: !repeat, ...(reactorLift ? { reactorLift } : {}) };
+  // WR-7 follow-up (OC-D5): and the favored-spec stamp a dispatch now writes (none without a favored piece).
+  const favoredSpec = favoredSpecStamp(equippedFor(s, WIRING_SHIP_ID), shipOf(s).typeKey);
+  const start = startShortRangeCycle(s, shipOf(s), SHORT_RANGE_PROBE_SLOT, shortRangeJobIndex(s, template), undefined, reactorLift !== undefined, true, favoredSpec === 1);
+  const mission: ShortRangeMissionState = {
+    kind: "shortRange",
+    slotId: 0,
+    roll: start.roll,
+    plan: start.plan,
+    phase,
+    phaseProgressTicks: 0,
+    recalled: !repeat,
+    ...(reactorLift ? { reactorLift } : {}),
+    ...(favoredSpec ? { favoredSpec } : {}),
+  };
   return { ...editCaptain(s, { mission } as Partial<CaptainState>), runCounts: start.runCounts };
 }
 
@@ -1388,6 +1403,21 @@ const sec = () => WIRING_SECURITY_ID;
 export const PROBES = {
   // == the ship stat sheet ==
   sheetCargo: { label: "effectiveShipStats.cargoCapacity (Ground Ops / patrol: the run / cycle digest)", read: sheetAt((s) => sheet(s).cargoCapacity) },
+  // WR-7 follow-up (OC-D5): the hold a run reads: the sheet, or (an extraction mission) the run sheet of a Short Ore Run
+  // dispatched now by a level 10 captain (gearWearEngine.ts missionRunSheet: its favored-spec stamp decides), or (a
+  // short-range run) the run sheet of a job started through the board's seam. -1 when the dispatch is refused.
+  favoredRunCargo: {
+    label: "effectiveShipStats.cargoCapacity (an extraction mission: missionRunSheet of a Short Ore Run dispatched now)",
+    read: (s, ctx) => {
+      // A short-range run's cycle engine reads the same run sheet (shortRangeCycle.ts) on the job's stamps.
+      if (ctx === "mission:shortRange") return missionRunSheet(s, shipOf(s), shortRangeMissionOf(onShortRangeJob(s, "telescopeRepair"))).cargoCapacity;
+      if (ctx !== "mission:extraction") return sheet(s).cargoCapacity;
+      const ready = { ...s, captains: s.captains.map((c) => ({ ...c, level: Math.max(c.level, 10) })) };
+      const r = dispatchCaptainOnMission(ready, WIRING_CAPTAIN_ID, "shortOreRun");
+      const m = captainOf(r.next).mission;
+      return r.success && m?.kind === "extraction" ? missionRunSheet(r.next, shipOf(r.next), m).cargoCapacity : -1;
+    },
+  },
   // Expedition Tiers G2-3: at Ground Ops, the outbound leg speed the run's voyage froze (voyage.ts: each leg's seconds
   // divide by it); the patrol reads its whole cycle digest.
   sheetTransit: {

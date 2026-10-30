@@ -2300,7 +2300,7 @@
       on:pointerenter={cancelTipHide}
       on:pointerleave={scheduleTipHide}
     >
-      <EquipmentTooltip piece={tipPiece} shipPieces={fittedPieces} />
+      <EquipmentTooltip piece={tipPiece} shipPieces={fittedPieces} hostTypeKey={ship?.typeKey} />
     </div>
   {/if}
 

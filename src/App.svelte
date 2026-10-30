@@ -4776,6 +4776,8 @@
         difficulty,
         // WR-8: the cycle a dispatch would start fights under the combat rules.
         combatRules,
+        // WR-7 follow-up (OC-D5): a dispatch now reads the Damage Control Suite's favored lines on a Tactician hull.
+        favoredHull: ship.typeKey,
       });
       // A full-patrol WIN = survived every scheduled wave (never limped home defeated).
       if (!result.defeated) wins += 1;

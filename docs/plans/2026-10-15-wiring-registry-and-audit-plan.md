@@ -1266,9 +1266,19 @@ built; `VARIETY_RESIST_RATIO` stays 0.1 [PROVISIONAL].
   route's legs (distance). It moved about 240 patrol pins and behavior harnesses that fly a fixed route length (the
   Battleship's 3-tick legs take 5), so it is a slice of its own, goldens first (the WR-8 precedent). Every transit
   source's patrol context stays pending on it (`PATROL_LEGS_OWNER`).
-- OC-D5 favorsSpec ("+10% on its ship type"): its lines fold in three readers (equipmentStatMods, the Damage Control and
+- ~~OC-D5 favorsSpec ("+10% on its ship type"): its lines fold in three readers (equipmentStatMods, the Damage Control and
   Pathfinder effects) read live by missions in flight and per patrol cycle, so it needs a per-run stamp on missions,
-  patrol cycles and expeditions first.
+  patrol cycles and expeditions first.~~ BUILT (WR-7 follow-up, 2026-10-29 on 502a0c8; two commits: goldens, then the
+  wiring; no SAVE bump): model.ts `withFavoredLines` (every line of a favored piece x 1.1 [PROVISIONAL 10%] on a hull
+  of its spec; the variety resolves from the stamped moduleVariant or the blueprint, so Standard Issue favors none).
+  Readers: the sheet (shipDerivedStats), the Damage Control Suite (patrol patch-up, field repair, Shipyard repair, gear
+  repair rates) and the Pathfinder Suite (expedition snapshot). Stamp `favoredSpec: 1` on captain missions, short-range
+  runs and patrols (dispatch, carried every cycle); an unstamped run reads its pieces as stored. Expeditions freeze every
+  reading at dispatch, so no stamp. Tooltip line (EquipmentTooltip, ui/favoredSpecText.ts). Registry row
+  `ship:audit:favorsSpec` LIVE (sheet, mission:extraction, mission:shortRange). Goldens moved: wr7Goldens' nine favored
+  sheet rows, favorsSpecGoldens' Prospector mission and Orion Pathfinder expedition, wiringGoldens' Shipyard repair
+  process (the Destroyer's suite); each returns with FAVORED_SPEC_SWITCH off. Open: the gear repair rates read the suite
+  favored also for a ship out on a run from before (one shared reading keeps offline == live).
 
 **Goldens moved (each attributed by switching that one change off and seeing the pins return):** OC-D6 (the crafted
 mints): emodEm2 / EM-4 / EM-5 / EM-0 crafted sheets and patrols, gearWear step 3 and step 4 crafted rows (incl. the

@@ -8,7 +8,7 @@
 
 import { describe, expect, it } from "vitest";
 import Decimal from "break_infinity.js";
-import { SHIP_TYPES, type EquipmentInstance, type GameState, type PatrolMissionState, type ShipTypeKey } from "./model";
+import { SHIP_TYPES, withFavoredLines, type EquipmentInstance, type GameState, type PatrolMissionState, type ShipTypeKey } from "./model";
 import { PATROL_BREAK_MARGIN, PATROL_REPAIR_ON_PROJECTED_DEFEAT, projectedCycleBreak, canDispatchPatrol, recallCaptain, dispatchCaptainOnPatrol, economyTick, processShipRepairs, shipRepairDurationTicks, shipRepairGear } from "./tick";
 import { equippedFor } from "./equipment";
 import { replayPatrol } from "./combat/patrolReplay";
@@ -300,8 +300,9 @@ describe("gear wear step 4: the Damage Control Suite (its fires and its lines)",
     const worn = damaged(withSuite(veteran("destroyer"), 300));
     const ship = worn.ships[0];
     expect(shipRepairDurationTicks(ship, shipRepairGear(worn, "ship-1"))).toBeGreaterThan(shipRepairDurationTicks(ship, shipRepairGear(s, "ship-1")));
-    // The stored gear (no wear) is what the repair read before step 4.
-    expect(shipRepairGear(s, "ship-1")).toEqual(equippedFor(s, "ship-1"));
+    // The stored gear (no wear) is what the repair read before step 4 (WR-7 follow-up OC-D5: with the suite's favored
+    // lines on the Destroyer, a Tactician hull).
+    expect(shipRepairGear(s, "ship-1")).toEqual(withFavoredLines(equippedFor(s, "ship-1"), "destroyer"));
     expect(processShipRepairs(s).activeProcesses.length).toBe(1);
   });
 

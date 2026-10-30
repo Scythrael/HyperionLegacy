@@ -2437,6 +2437,61 @@ export function pieceVarietyDef(piece: Pick<EquipmentInstance, "slotType" | "mod
   return EQUIPMENT_SLOTS[piece.slotType]?.varieties.find((v) => v.key === piece.moduleVariant);
 }
 
+// ============================================================================
+// FAVORED SPEC (WR-7 follow-up, OC-D5; user 2026-10-29 "+10% on its ship type (Recommended)")
+// ============================================================================
+// A variety that names a `favorsSpec` (the Prospector Hold, the three Prospecting Rigs, the Damage Control Suite, the
+// Pathfinder Suite) gives every line of its piece (implicit and rolled) +FAVORED_SPEC_LINE_BONUS while the piece is
+// installed on a hull of that spec. The lines fold that way in every reader of them: the ship sheet (shipDerivedStats),
+// the Damage Control Suite (patrol patch-up, field and Shipyard repairs, gear repair rates) and the Pathfinder Suite
+// (the expedition snapshot). A run reads it only when stamped at dispatch (favoredSpec on a captain mission,
+// short-range run or patrol cycle); an expedition freezes every reading at dispatch, so its record carries the bonus.
+// [PROVISIONAL] the size (the user's "+10%").
+export const FAVORED_SPEC_LINE_BONUS = 0.1;
+// Test switch only (the EM-4 REACTOR_LIFT_SWITCH pattern): off, no piece is favored anywhere, so a golden can show
+// that the pins it moved return. Always live in the game.
+export const FAVORED_SPEC_SWITCH = { live: true };
+
+// The spec a piece's variety favors, or undefined: its stamped variety (moduleVariant), else its blueprint's minted
+// variety. A Standard-Issue piece (no blueprint, no stamp) favors none, the floor's design rule (DEFAULT_EQUIPMENT_VARIETY
+// "the baseline favours no spec"). Pure.
+export function pieceFavoredSpec(piece: Pick<EquipmentInstance, "slotType" | "moduleVariant" | "blueprintKey">): ShipSpec | undefined {
+  if (piece.moduleVariant !== undefined) return pieceVarietyDef(piece)?.favorsSpec;
+  const out = piece.blueprintKey ? BLUEPRINTS[piece.blueprintKey]?.equipmentOutput : undefined;
+  if (out === undefined || out.slotType !== piece.slotType) return undefined;
+  return EQUIPMENT_SLOTS[piece.slotType]?.varieties.find((v) => v.key === out.varietyKey)?.favorsSpec;
+}
+
+// Whether `piece` installed on a `typeKey` hull is favored (its variety favors that hull's spec). Pure.
+export function pieceFavorsHull(piece: Pick<EquipmentInstance, "slotType" | "moduleVariant" | "blueprintKey">, typeKey: ShipTypeKey): boolean {
+  if (!FAVORED_SPEC_SWITCH.live) return false;
+  const spec = pieceFavoredSpec(piece);
+  return spec !== undefined && SHIP_TYPES[typeKey]?.spec === spec;
+}
+
+// The piece with every line x (1 + FAVORED_SPEC_LINE_BONUS): what a favored piece's lines read as. A fresh object. Pure.
+export function favoredPieceView<T extends EquipmentInstance>(piece: T): T {
+  const scale = (lines: Record<string, number>): Record<string, number> => {
+    const out: Record<string, number> = {};
+    for (const [k, v] of Object.entries(lines)) out[k] = v * (1 + FAVORED_SPEC_LINE_BONUS);
+    return out;
+  };
+  return { ...piece, implicitStats: scale(piece.implicitStats), rolledStats: scale(piece.rolledStats) };
+}
+
+// The pieces of a `typeKey` hull as their readers fold them: each favored piece through favoredPieceView. The SAME
+// array when none is favored (every Standard-Issue loadout, every unfavored hull). Pure.
+export function withFavoredLines<T extends EquipmentInstance>(pieces: T[], typeKey: ShipTypeKey): T[] {
+  if (!pieces.some((p) => pieceFavorsHull(p, typeKey))) return pieces;
+  return pieces.map((p) => (pieceFavorsHull(p, typeKey) ? favoredPieceView(p) : p));
+}
+
+// The stamp a run dispatched now carries: 1 when a piece installed on the hull is favored (the run then reads the
+// bonus), undefined otherwise (both readings agree, so the record stays as it was). Pure.
+export function favoredSpecStamp(installed: readonly EquipmentInstance[], typeKey: ShipTypeKey): 1 | undefined {
+  return installed.some((p) => pieceFavorsHull(p, typeKey)) ? 1 : undefined;
+}
+
 // E4d: the player-facing SLOT label for a (slot, variety) pair. A slot's catalog label names its ORIGINAL
 // single family (specUtility reads "Prospecting Rig"), which would mislabel a relic-unlocked family living in
 // the same slot ("Prospecting Rig · Damage Control Suite"). So a variety with its OWN identity reads the slot's
@@ -3687,6 +3742,10 @@ export interface ShortRangeMissionState {
   // bridge or quarters carries a Crew Stations / Crew Efficiency line and carried to every later cycle; only a stamped
   // run's sheet reads those lines, so a run in flight at the update reads its modules as it did. Optional, no SAVE bump.
   moduleLines?: 1;
+  // WR-7 follow-up (OC-D5): the favored-spec stamp (favoredSpecStamp), written at dispatch when a piece installed on the
+  // hull favors its spec and carried to every later cycle; only a stamped run's sheet reads the favored lines, so a
+  // run in flight at the update reads its pieces as it did. Optional, no SAVE bump.
+  favoredSpec?: 1;
 }
 
 // The board's per-slot cycle cursor (GameState.shortRangeBoard): slot id -> the cycle index its NEXT roll reads
@@ -3742,6 +3801,9 @@ export interface CaptainMissionState {
   // WR-7 (OC-D3): the crew module lines stamp, as on ShortRangeMissionState: stamped at dispatch, carried to every
   // repeated cycle; only a stamped run's sheet reads the modules' Crew Stations / Crew Efficiency lines.
   moduleLines?: 1;
+  // WR-7 follow-up (OC-D5): the favored-spec stamp, as on ShortRangeMissionState: stamped at dispatch, carried to every
+  // repeated cycle; only a stamped run's sheet reads the favored lines.
+  favoredSpec?: 1;
 }
 
 // GEAR WEAR step 3: a captain mission's or short-range run's wear flag. `frozen`: piece id -> the condition (per-mille)
@@ -4021,6 +4083,11 @@ export interface PatrolMissionState {
   // The times this run has paused to repair (user "Count on the run": its one completion log entry says so), carried
   // across relaunches like routesCompletedThisRun. Absent until the first pause.
   repairPausesThisRun?: number;
+  // WR-7 follow-up (OC-D5, favoredSpecStamp): the favored-spec stamp, written at dispatch when a piece installed on the
+  // hull favors its spec and carried to every relaunched cycle. Only a stamped run reads the favored lines (the
+  // Damage Control Suite's patch-up, the relaunch's fuel and combat speed), so a patrol in flight at the update flies
+  // exactly as it did. Optional, no SAVE bump.
+  favoredSpec?: 1;
 }
 
 // Safe first runs SF-4: a patrol cycle's difficulty stamp: the run stamp (RunDifficultyStamp, tier I: patrols are
@@ -4525,12 +4592,17 @@ function foldGuestQuarters(ship: ShipInstance, pieces: EquipmentInstance[], base
 // The optional `pieces` param DEFAULTS to [] so shipDerivedStats(ship) reproduces
 // the bare-hull projection EXACTLY (equipmentStatMods([]) is all-zero -> every
 // fold is an identity), keeping every existing 1-arg call site byte-identical.
+// WR-7 follow-up (OC-D5, user 2026-10-29 "+10% on its ship type"): a piece whose variety favors this hull's spec folds
+// its lines x (1 + FAVORED_SPEC_LINE_BONUS) (withFavoredLines). `opts.favored: false` reads every piece as stored: a
+// captain mission, short-range run or patrol cycle dispatched before the bonus (no favoredSpec stamp).
 export function shipDerivedStats(
   ship: ShipInstance,
-  pieces: EquipmentInstance[] = []
+  installed: EquipmentInstance[] = [],
+  opts: { favored?: boolean } = {},
 ): ShipDerivedStats {
   const base = hullDerivedStats(ship);
-  if (pieces.length === 0) return base; // fast path + explicit byte-identical guarantee
+  if (installed.length === 0) return base; // fast path + explicit byte-identical guarantee
+  const pieces = opts.favored === false ? installed : withFavoredLines(installed, ship.typeKey);
 
   const mods = equipmentStatMods(pieces);
 

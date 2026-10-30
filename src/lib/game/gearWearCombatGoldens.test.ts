@@ -62,6 +62,7 @@ import { afterExpeditionTraining } from "./wiring/wearProbes";
 import { DAMAGE_CONTROL_SUITE_KEY } from "./utilityGear";
 import { patrolDispatchCycle } from "./tick";
 import { withBattleWearOff } from "./battleWearSwitch.fixture";
+import { withFavoredSpecOff } from "./favoredSpecSwitch.fixture";
 
 const HULLS = Object.keys(SHIP_TYPES) as ShipTypeKey[];
 const ROUTES = Object.keys(PATROLS) as PatrolKey[];
@@ -618,6 +619,11 @@ ROWS["repair:dc"] = { run: () => dcRepair(), inFlight: false };
 // Held (section 10 "expected to stay"): every pristine first cycle's fight; the safe first runs (no wear on training,
 // W9: the training cycle and run are never stamped); the Standard-Issue reactor and drive pools (quality 0, 100) while
 // pristine.
+// Re-pinned by the WR-7 follow-up OC-D5 favorsSpec ("+10% on its ship type", user 2026-10-29): the three `dc` rows
+// (the Damage Control Suite favors the Tactician spec, so on the Destroyer its lines count +10%): each patrol record
+// carries the favoredSpec stamp, its patch-up and the gear repair rates read the favored lines (the Warband Repeat
+// relaunches at 169 and is lost at 185, was 171 and 187), and repair:dc's Shipyard process is shorter. With the bonus
+// switched off each of the three is its earlier pin; GOLDEN_PRE is read with it off (the first suite).
 const GOLDEN: Record<string, string[]> = {
   "patrol:si:generalFreighter:crimsonReaverSweep:once": ["e1c443c2", "597c09a2", "won:14", "b2f38143", "ccde4fa", "cargoBay=1000 ftlDrive=830 reactorCore=892 specUtility=1000 weapon=820 weapon=870 shieldEmitters=817 hullPlating=909"],
   "patrol:si:generalFreighter:crimsonReaverSweep:repeat": ["3f20dbd7", "597c09a2", "relaunch:14", "277f3b70", "c0f70648", "ea2c4ae9", "relaunch:28", "92768286", "f0f1651f", "e7ef4da8", "won:42", "b2f38143", "2cff7989", "cargoBay=1000 ftlDrive=640 reactorCore=759 specUtility=1000 weapon=630 weapon=750 shieldEmitters=493 hullPlating=904"],
@@ -705,9 +711,9 @@ const GOLDEN: Record<string, string[]> = {
   "patrol:crafted:battleship:crimsonReaverWarband:repeat": ["6fe710c6", "20e5809f", "relaunch:22", "db5714af", "ff6e942c", "4c3ae770", "relaunch:44", "29e77fb", "94fe8a0f", "5deb55bd", "won:66", "c6dba9cb", "8e9a2d57", "cargoBay=1000 ftlDrive=935 reactorCore=942 specUtility=1000 weapon=954 weapon=939 weapon=924 weapon=958 weapon=946 weapon=942 shieldEmitters=951 hullPlating=939"],
   "patrol:crafted:carrier:crimsonReaverSweep:repeat": ["7f43a551", "831980ba", "relaunch:14", "31f33560", "87a09a0", "c517b89d", "relaunch:28", "64d19ca8", "5c816bf5", "14d96ce1", "won:42", "ea909677", "7c14cd5f", "cargoBay=1000 ftlDrive=990 reactorCore=988 specUtility=1000 weapon=994 weapon=986 shieldEmitters=1000 hullPlating=1000 droneBay=1000"],
   "patrol:crafted:carrier:crimsonReaverWarband:repeat": ["9c37eeab", "321d47ca", "lost:20", "72b470a8", "88f0aaae", "cargoBay=1000 ftlDrive=942 reactorCore=932 specUtility=1000 weapon=938 weapon=934 shieldEmitters=999 hullPlating=935 droneBay=899"],
-  "patrol:dc:destroyer:crimsonReaverSweep:repeat": ["c370e97f", "7a88748f", "relaunch:14", "ac553f92", "2600f819", "f7ebb727", "relaunch:28", "47bd05b", "4ffbff85", "5fb3c4d8", "won:42", "6ad9f46c", "2acf72c7", "cargoBay=1000 ftlDrive=881 reactorCore=919 weapon=851 weapon=871 weapon=881 weapon=931 shieldEmitters=762 hullPlating=1000 specUtility=1000"],
+  "patrol:dc:destroyer:crimsonReaverSweep:repeat": ["4ba0fc6a", "7a88748f", "relaunch:14", "b7aca6cf", "2600f819", "d8bc78d0", "relaunch:28", "c115bf3e", "4ffbff85", "ab096728", "won:42", "6ad9f46c", "60a59c8", "cargoBay=1000 ftlDrive=881 reactorCore=919 weapon=851 weapon=871 weapon=881 weapon=931 shieldEmitters=762 hullPlating=1000 specUtility=1000"],
   "patrol:modules:battleship:crimsonReaverSweep:repeat": ["7e7ded06", "dcbbe45d", "relaunch:14", "449a2907", "12ea7fa2", "f04f61a1", "relaunch:28", "381f2c69", "975bf0fd", "442a6cea", "won:42", "c6dba9cb", "b8064903", "cargoBay=1000 ftlDrive=920 reactorCore=968 specUtility=1000 weapon=950 weapon=950 weapon=960 weapon=950 weapon=940 weapon=960 shieldEmitters=951 hullPlating=1000 module=651 module=651"],
-  "patrol:dc:destroyer:crimsonReaverWarband:repeat": ["b4671", "15ccdf90", "relaunch:171", "b8df3e68", "e78441ab", "8434da3f", "lost:187", "44b4c6b5", "adc42d5e", "cargoBay=1000 ftlDrive=890 reactorCore=909 weapon=920 weapon=900 weapon=890 weapon=890 shieldEmitters=927 hullPlating=844 specUtility=995"],
+  "patrol:dc:destroyer:crimsonReaverWarband:repeat": ["8ec4a090", "40351818", "relaunch:169", "4be34a01", "e78441ab", "1bf51b43", "lost:185", "44b4c6b5", "e0aaf98e", "cargoBay=1000 ftlDrive=890 reactorCore=909 weapon=920 weapon=900 weapon=890 weapon=890 shieldEmitters=927 hullPlating=844 specUtility=995"],
   "patrol:modules:battleship:crimsonReaverWarband:repeat": ["353aa350", "c3504eb9", "relaunch:128", "c8f2ec08", "ca33bc97", "d69a22a4", "lost:146", "ccfe2305", "9b0994ae", "cargoBay=1000 ftlDrive=790 reactorCore=900 specUtility=1000 weapon=810 weapon=850 weapon=850 weapon=850 weapon=780 weapon=860 shieldEmitters=835 hullPlating=846 module=735 module=735"],
   "forecast:si:generalFreighter:crimsonReaverSweep": ["57:likely"],
   "forecast:si:generalFreighter:crimsonReaverWarband": ["0:impossible"],
@@ -785,7 +791,7 @@ const GOLDEN: Record<string, string[]> = {
   "battle:worn:eir:cand-2": ["probe:0:0:win:0:a52b3873", "probe:0:1:win:0:1550b13a", "probe:0:2:win:0:84e10609", "probe:1:0:win:0:9a1ec739", "probe:1:1:win:0:d7150fe7", "probe:1:2:win:0:6306f5e1", "cloakedPass:0:0:loss:43:1c90bce3", "cloakedPass:0:1:loss:43:873bee25", "cloakedPass:0:2:loss:43:307f7b16", "cloakedPass:1:0:loss:43:ee589d39", "cloakedPass:1:1:loss:43:5d1cccf9", "cloakedPass:1:2:loss:43:4abd1fde", "cloakedFail:0:0:loss:43:35d0d7bd", "cloakedFail:0:1:loss:43:3c5c8fb2", "cloakedFail:0:2:loss:43:fa503afd", "cloakedFail:1:0:loss:43:2962042e", "cloakedFail:1:1:loss:43:864a794d", "cloakedFail:1:2:loss:43:c4fdca96"],
   "ground:si": ["ghost:pass:0,storm:pass:0,ghost:pass:0", "cbf2e30e", "3aa28993", "f87faa10", "cargoBay=1000 ftlDrive=970 reactorCore=991 specUtility=1000 weapon=1000 shieldEmitters=1000 hullPlating=1000 memberWeapon=982 memberArmor=986 memberTool=1000 implant=1000 memberWeapon=982 memberArmor=1000 memberTool=1000 implant=1000 memberWeapon=1000 memberArmor=1000 memberTool=940 implant=1000"],
   "ground:worn": ["ghost:pass:0,storm:pass:0,ghost:pass:0", "ad33b252", "1b51fd6b", "cce99a9a", "cargoBay=1000 ftlDrive=970 reactorCore=991 specUtility=1000 weapon=1000 shieldEmitters=1000 hullPlating=1000 memberWeapon=982 memberArmor=986 memberTool=1000 implant=1000 memberWeapon=982 memberArmor=1000 memberTool=1000 implant=1000 memberWeapon=1000 memberArmor=1000 memberTool=940 implant=1000"],
-  "repair:dc": ["111", "b126e5d5", "c621a214", "cargoBay=1000 ftlDrive=1000 reactorCore=1000 weapon=1000 weapon=1000 weapon=1000 weapon=1000 shieldEmitters=1000 hullPlating=1000 specUtility=1000"],
+  "repair:dc": ["111", "fd12e611", "c621a214", "cargoBay=1000 ftlDrive=1000 reactorCore=1000 weapon=1000 weapon=1000 weapon=1000 weapon=1000 shieldEmitters=1000 hullPlating=1000 specUtility=1000"],
   "inflight:patrol:si:destroyer:crimsonReaverSweep:repeat": ["88ed10aa", "ba2ee129", "relaunch:14", "35d57735", "cd28e7d8", "e4797c1", "relaunch:28", "7337dec3", "57a71435", "9c751e83", "won:42", "6ad9f46c", "21990c5c", "cargoBay=1000 ftlDrive=930 reactorCore=926 specUtility=1000 weapon=930 weapon=930 weapon=950 weapon=960 shieldEmitters=908 hullPlating=1000"],
   "inflight:patrol:worn:destroyer:crimsonReaverSweep:repeat": ["88ed10aa", "ba2ee129", "relaunch:14", "242131b2", "f5b1a600", "990c5c5b", "relaunch:28", "6cb8523d", "bdd3e1e2", "39e59f8b", "won:42", "6ad9f46c", "2c17e9d9", "cargoBay=901 ftlDrive=461 reactorCore=453 specUtility=701 weapon=501 weapon=481 weapon=511 weapon=501 shieldEmitters=460 hullPlating=521"],
   "inflight:patrol:si:carrier:crimsonReaverWarband:repeat": ["a6257fcf", "c28deffe", "relaunch:22", "5d51819", "9145b617", "8a8e8bde", "lost:38", "73109288", "39666199", "cargoBay=1000 ftlDrive=910 reactorCore=917 specUtility=1000 weapon=900 weapon=860 shieldEmitters=850 hullPlating=844 droneBay=700"],
@@ -807,7 +813,9 @@ describe("gear wear step 4 goldens: the switch reproduces every GOLDEN_PRE row (
     expect(Object.keys(ROWS).sort()).toEqual(Object.keys(GOLDEN_PRE).sort());
   });
   for (const [id, row] of Object.entries(ROWS)) {
-    it.skipIf(CAPTURE)(id, () => expect(withBattleWearOff(() => row.run(false)), id).toEqual(GOLDEN_PRE[id]));
+    // WR-7 follow-up (OC-D5): GOLDEN_PRE also predates the favored-spec bonus (the `dc` rows' suite on a Destroyer), so it
+    // is read with that switched off too.
+    it.skipIf(CAPTURE)(id, () => expect(withBattleWearOff(() => withFavoredSpecOff(() => row.run(false))), id).toEqual(GOLDEN_PRE[id]));
   }
 });
 

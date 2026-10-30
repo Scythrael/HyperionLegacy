@@ -154,6 +154,7 @@ import { buildHomeDashboard } from "./homeDashboard";
 import { buildShipRoster } from "./shipRoster";
 import { deserialize, migrate, serialize, type SaveFile } from "./save";
 import { FKR8_ADDED_IDS, FKR8_FLIPPED_LIVE, WIRING_REGISTRY } from "./wiring/registry";
+import { FAVORS_SPEC_ROW } from "./favoredSpecRegistry.fixture";
 import { EM7_ADDED_ENTRY_IDS, EM7_MODULE_SLOTS_IDS } from "./emodEm7Registry.fixture";
 // WR-8: every registry pin here was taken before WR-8, so its added entries are left out and its flips read back.
 import { wr8ReadBack } from "./combatDescriptorRegistry.fixture";
@@ -710,8 +711,11 @@ const FKR11_SLICE: RegistrySlice = { flipped: FKR11_FLIPPED_LIVE, was: "pending"
 // and its two audit rows flipped pending -> live, and OC-F1's two added audit rows (reinforcement, salvage). Held apart in
 // EVERY pin (the ML3_SLICE pattern); "FKR-8 is the only cause" below proves the flips and additions are the whole move.
 const FKR8_SLICE: RegistrySlice = { added: FKR8_ADDED_IDS, flipped: new Set(Object.keys(FKR8_FLIPPED_LIVE)), was: "pending" };
+// WR-7 follow-up OC-D5 (favorsSpec, "+10% on its ship type"), after every pin here: its one audit row flipped pending ->
+// live (favoredSpecRegistry.fixture.ts). Read back in EVERY pin (the ML3_SLICE pattern).
+const OC_D5_SLICE: RegistrySlice = { flipped: new Set([FAVORS_SPEC_ROW]), was: "pending" };
 function registryPin(...given: readonly RegistrySlice[]): [number, string] {
-  const slices = [RX_SLICE, RR_SLICE, FUSE_SLICE, ML2_SLICE, OC15_SLICE, R2_2_SLICE, R2_3_SLICE, R2_4_SLICE, R2_10_SLICE, G16_SLICE, ...G2_4_SLICES, ...G2_6_SLICES, ML3_SLICE, GG_STUDY_SLICE, EM7_SLICE, FKR11_SLICE, FKR8_SLICE, GW4_SLICE, ...given];
+  const slices = [RX_SLICE, RR_SLICE, FUSE_SLICE, ML2_SLICE, OC15_SLICE, R2_2_SLICE, R2_3_SLICE, R2_4_SLICE, R2_10_SLICE, G16_SLICE, ...G2_4_SLICES, ...G2_6_SLICES, ML3_SLICE, GG_STUDY_SLICE, EM7_SLICE, FKR11_SLICE, FKR8_SLICE, GW4_SLICE, OC_D5_SLICE, ...given];
   const rows = siReadBack(em4ReadBack(em3ReadBack(wr8ReadBack(WIRING_REGISTRY))).map((e) => ({ id: e.id, kind: e.status.kind as string })), (r) => r.id, (row) => ({ id: row[0], kind: row[1].kind as string }));
   const lines = rows.filter((e) => !slices.some((sl) => sl.added?.has(e.id))).map((e) => {
     const flip = slices.find((sl) => sl.flipped?.has(e.id));

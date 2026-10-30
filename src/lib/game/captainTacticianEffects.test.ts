@@ -9,6 +9,7 @@ import {
   SECONDARY_CAPTAIN_TALENTS,
   SHIP_TYPES,
   freshState,
+  withFavoredLines,
   type CaptainCombatMods,
   type EquipmentInstance,
   type GameState,
@@ -248,7 +249,8 @@ describe("Aegis", () => {
       while (patrolOf(s).nextWaveIndex < 2) s = economyTick(s, 1, () => 0.5);
       return patrolOf(s).playerHull - before;
     };
-    const fraction = damageControlEffect([dcSuite()]).waveHullRegenFraction;
+    // WR-7 follow-up (OC-D5): the run is stamped favoredSpec, so the suite's lines count +10% on the carrier.
+    const fraction = damageControlEffect(withFavoredLines([dcSuite()], "carrier")).waveHullRegenFraction;
     const hullMax = foldedPlayerDefense(SHIP_TYPES.carrier, equippedFor(onHull("carrier", [], { suite: true }), "ship-1")).hullMax;
     expect(regenOf(["aegis3"]) - regenOf([])).toBe(Math.floor(hullMax * captainWaveRegenFraction(fraction, mods("aegis3"))) - Math.floor(hullMax * fraction));
     expect(captainWaveRegenFraction(0, mods("aegis3"))).toBe(0);

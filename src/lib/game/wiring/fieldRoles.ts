@@ -314,7 +314,8 @@ export const FIELD_ROLES: Readonly<Record<string, Readonly<Record<string, FieldR
     affixPool: "effect",
     statRatios: "effect",
     member: "effect",
-    favorsSpec: { seam: "WR-7, OC-D5 (no reader)" },
+    // WR-7 follow-up (OC-D5): read by model.ts pieceFavoredSpec (the registry's ship:audit:favorsSpec row).
+    favorsSpec: "effect",
   },
 };
 

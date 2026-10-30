@@ -41,6 +41,9 @@ import {
   // dispatch (canDispatchPatrol / dispatchCaptainOnPatrol) and the economyTick kind routing.
   PATROLS,
   SHIP_TYPES,
+  // WR-7 follow-up (OC-D5): the favored-spec stamp and the favored lines.
+  favoredSpecStamp,
+  withFavoredLines,
   CAPTAIN_TALENTS,
   CAPTAIN_SPEC_BONUS,
   HOMEWORLD_TALENTS,
@@ -2802,6 +2805,8 @@ export function tickCaptainMission(
               ...(mission!.reactorLift !== undefined ? { reactorLift: mission!.reactorLift } : {}),
               // WR-7 (OC-D3): and the module lines stamp.
               ...(mission!.moduleLines !== undefined ? { moduleLines: mission!.moduleLines } : {}),
+              // WR-7 follow-up (OC-D5): and the favored-spec stamp.
+              ...(mission!.favoredSpec !== undefined ? { favoredSpec: mission!.favoredSpec } : {}),
             };
           }
         }
@@ -3393,7 +3398,11 @@ export function tickCaptainPatrol(
   // computed ONCE (pure, from the same installedGear). EXACTLY 0 without the suite, which makes the
   // per-wave damageControlBeforeWave call below a same-value no-op (byte-identical attrition).
   // GEAR WEAR step 4: from the cycle's frozen gear (a worn suite patches at its worn line), re-read at a relaunch.
-  let waveHullRegenFraction = damageControlEffect(cycleGear).waveHullRegenFraction;
+  // WR-7 follow-up (OC-D5): a run stamped with the favored spec reads the suite's favored lines on a Tactician hull (the
+  // stamp rides every relaunch); a run in flight from before reads them as stored.
+  const favoredRun = captain.mission.favoredSpec === 1;
+  const suiteGear = (g: EquipmentInstance[] | undefined): EquipmentInstance[] | undefined => (g && favoredRun ? withFavoredLines(g, ship.typeKey) : g);
+  let waveHullRegenFraction = damageControlEffect(suiteGear(cycleGear)).waveHullRegenFraction;
 
   // WORKING mission copy. Spread makes a fresh object (so wavesWon/phase/etc. mutations
   // never touch the input), and playerDrones is DEEP-cloned so the between-wave
@@ -3878,6 +3887,8 @@ export function tickCaptainPatrol(
             // WR-8: the new cycle starts under the combat rules, at the ship's combat speed now (economyTick's live
             // read), like every new cycle; a cycle stamped before WR-8 kept its old rules only to its end.
             combatRules: officerEffects.combatRules,
+            // WR-7 follow-up (OC-D5): the run's favored-spec stamp rides every relaunched cycle (absent stays absent).
+            favoredSpec: cur.favoredSpec,
           });
           return { mission: minted, gear: nextGear };
         })()
@@ -3931,7 +3942,7 @@ export function tickCaptainPatrol(
           // GEAR WEAR step 4: and its frozen gear (the view, the suite's patch-up, the pools its wear is read against).
           cycleGear = nextGear;
           foldedDefense = foldedPlayerDefense(shipDef, cycleGear, mission.officerCombat, mission.captainCombat);
-          waveHullRegenFraction = damageControlEffect(cycleGear).waveHullRegenFraction;
+          waveHullRegenFraction = damageControlEffect(suiteGear(cycleGear)).waveHullRegenFraction;
           cyclePools = patrolCyclePools(hullType, shipDef, cycleGear, mission);
           // ⚠️ 0.13.4 Phase 2: CARRY THE PER-RUN COUNT ACROSS THE RELAUNCH. freshPatrolMission
           // is the shared factory for a NEW patrol and seeds routesCompletedThisRun to 0, which
@@ -4693,7 +4704,10 @@ export function economyTick(
         // with the ship's crew contribution overlaid). patrolGear is still resolved above for the
         // COMBAT path (tickCaptainPatrol reads the installed weapons/shield); this only swaps the
         // stat SOURCE. With no crew it equals the pure equipment fold (byte-identical).
-        const patrolStats = patrolShip && patrolGear ? effectiveShipStats(state, patrolShip) : null;
+        // WR-7 follow-up (OC-D5): a patrol stamped with the favored spec reads its favored pieces' bonus (the relaunch's
+        // fuel here, its combat speed below); a patrol in flight from before reads them as stored.
+        const patrolFavored = captain.mission.favoredSpec === 1;
+        const patrolStats = patrolShip && patrolGear ? effectiveShipStats(state, patrolShip, { favored: patrolFavored }) : null;
         const patrolFuelPerCycle =
           patrolShip && patrolStats
             ? fuelForRoundTrip(patrolDef.transitOutTicks, patrolDef.transitBackTicks, {
@@ -4730,7 +4744,7 @@ export function economyTick(
                 // 0.14.0 (CP-4): Deck Handling, for the next cycle's frozen record (0 without the key).
                 deckHandling: shipDeckHandling(state, patrolShip),
                 // WR-8: the combat rules and combat speed, for the next cycle's frozen record.
-                combatRules: shipCombatRulesStamp(state, patrolShip),
+                combatRules: shipCombatRulesStamp(state, patrolShip, patrolFavored),
                 // GEAR WEAR step 4: the clock and the underway repair rate a relaunch freezes its gear with.
                 gearWear: {
                   startSeconds: state.gameTimeSeconds,
@@ -4913,6 +4927,8 @@ export function economyTick(
     const reactorLift = reactorLiftFlagged(captain.mission.reactorLift); // a malformed flag (null included) never counts
     // WR-7 (OC-D3): only a run stamped with the module lines reads its crew modules' lines (none in flight from before).
     const moduleLines = captain.mission.moduleLines === 1;
+    // WR-7 follow-up (OC-D5): only a run stamped with the favored spec reads its favored pieces' bonus.
+    const favored = captain.mission.favoredSpec === 1;
     // Phase 2 (Task B3, design §3.4): AUTO-STOP, when this mission's PRIMARY material is
     // already at its warehouse tier cap the run CANNOT usefully complete (its haul would
     // land over an already-full warehouse). Rather than leave the captain FROZEN in place
@@ -5003,7 +5019,7 @@ export function economyTick(
     // stamp (at dispatch, and again at each cycle start: onCycleDelivered below), so a worn hold, drive,
     // sensor array, prospecting rig or crew module acts on the run from its next cycle. It is constant within a cycle,
     // so the per-cycle guarantee holds as before. A run without a stamp (dispatched before step 3) reads the stored sheet.
-    const shipStats = ship ? runShipStats(state, ship, wearStamp, reactorLift, moduleLines) : null;
+    const shipStats = ship ? runShipStats(state, ship, wearStamp, reactorLift, moduleLines, favored) : null;
     // GEAR WEAR step 3 (user 2026-10-21, "Re-read each cycle"): at each delivered cycle of a stamped run, its use wear at
     // its own instant (missionCycleWear on the sheet that cycle ran on), and the next cycle's gear re-read from the
     // pieces as the call's deliveries so far leave them (projectRunStamp: the arithmetic the tail pass writes).
@@ -5015,7 +5031,7 @@ export function economyTick(
             const at = state.gameTimeSeconds + endTicks * state.tickDurationSeconds;
             if (stats) missionWear.push({ at, wear: missionCycleWear(missionKey, stats, state.tickDurationSeconds, missionCrewed) });
             const gearWear = projectRunStamp(state, ship.id, missionWear, at);
-            return { gearWear, stats: runShipStats(state, ship, gearWear, reactorLift, moduleLines) };
+            return { gearWear, stats: runShipStats(state, ship, gearWear, reactorLift, moduleLines, favored) };
           }
         : undefined;
     // Mission Rework (Task 5): the fuel one round-trip cycle of THIS mission costs on
@@ -5951,6 +5967,8 @@ export function dispatchCaptainOnMission(
   const reactorLift = newReactorLiftFlag(wearShip ? equippedFor(state, wearShip.id) : []);
   // WR-7 (OC-D3): a run dispatched now reads its crew modules' lines (stamped only when one carries a line).
   const moduleLines = wearShip ? crewModuleLinesStamp(state, wearShip) : undefined;
+  // WR-7 follow-up (OC-D5): and its favored pieces' bonus (stamped only when a piece favors the hull's spec).
+  const favoredSpec = wearShip ? favoredSpecStamp(equippedFor(state, wearShip.id), wearShip.typeKey) : undefined;
   captains[idx] = {
     ...captains[idx],
     mission: {
@@ -5966,6 +5984,7 @@ export function dispatchCaptainOnMission(
       ...(wearStamp !== undefined ? { gearWear: wearStamp } : {}),
       ...(reactorLift !== undefined ? { reactorLift } : {}),
       ...(moduleLines !== undefined ? { moduleLines } : {}),
+      ...(favoredSpec !== undefined ? { favoredSpec } : {}),
     },
     // Combat 0.13.0 (offline recap): CLEAR any stale wall-stop reason on a fresh dispatch, so a
     // captain re-dispatched after a prior cargo/defeat stop never shows the old reason.
@@ -6083,6 +6102,9 @@ function freshPatrolMission(args: {
   // GEAR WEAR step 4: the cycle's frozen gear conditions (PatrolMissionState.cycleStartCondition), its step 4 flag.
   // Stored only when present ({} when every piece is pristine); `installedGear` is then the matching frozen view.
   cycleStartCondition?: Record<string, number>;
+  // WR-7 follow-up (OC-D5): the run's favored-spec stamp (dispatch: favoredSpecStamp; relaunch: the run's own). Stored
+  // only when present.
+  favoredSpec?: 1;
 }): PatrolMissionState {
   const { patrolKey, stance, masterSeed, repeatDispatch, shipDef, hullType, installedGear, officerCombat, captainCombat } = args;
   const deckHandling = args.deckHandling ?? 0;
@@ -6164,6 +6186,7 @@ function freshPatrolMission(args: {
     playerSystemDurability: defaultSystemDurabilityForHull(hullType, shipDef, installedGear, args.combatRules),
     recalled: false,
     repeatDispatch,
+    ...(args.favoredSpec === 1 ? { favoredSpec: 1 as const } : {}),
   };
 }
 
@@ -6564,6 +6587,9 @@ export function dispatchCaptainOnPatrol(
     difficulty,
     // WR-8: the first cycle starts under the combat rules at the ship's combat speed now.
     combatRules: shipCombatRulesStamp(state, ship),
+    // WR-7 follow-up (OC-D5): a patrol dispatched now reads its favored pieces' bonus (stamped only when one favors
+    // the hull's spec), carried to every relaunched cycle.
+    favoredSpec: favoredSpecStamp(installedGear, ship.typeKey),
   });
 
   const captains = [...state.captains];
@@ -8471,8 +8497,12 @@ export function shipRepairDurationTicks(
 // GEAR WEAR step 4: the gear a Shipyard repair reads when it starts: the ship's installed pieces through the worn-gear
 // view (gearWear.ts wornGearView), so a worn Damage Control Suite shortens it at its worn line; the stored gear when
 // nothing is worn. Pure.
+// WR-7 follow-up (OC-D5): with the favored-spec bonus on the suite's lines on a Tactician hull (the repair starts at
+// home, after its run, so it reads the ship as it stands).
 export function shipRepairGear(state: GameState, shipId: string): EquipmentInstance[] {
-  return equippedFor(wornGearView(state), shipId);
+  const gear = equippedFor(wornGearView(state), shipId);
+  const ship = state.ships.find((s) => s.id === shipId);
+  return ship ? withFavoredLines(gear, ship.typeKey) : gear;
 }
 
 // GEAR WEAR step 4: the Shipyard repairs processShipRepairs started between `before` and `after` on a ship whose

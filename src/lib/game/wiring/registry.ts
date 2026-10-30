@@ -62,6 +62,7 @@ import {
   driveClassPowerDraw,
   SUBSPACE_TELESCOPE_FACILITY_KEY,
   SUBSPACE_TELESCOPE_LEVELS,
+  FAVORED_SPEC_LINE_BONUS,
   TRANSIT_BERTH_RUNGS,
   blueprintsUnlockedByRelic,
   type AffixAlignment,
@@ -3804,7 +3805,10 @@ const AUDIT_ROWS: readonly { id: string; system: WiringSystem; claim: string; st
   // D. Ship
   // WR-7 (OC-D6, user 2026-10-15 "Unlisted = never rolls"; B11 fixed): itemgen.ts varietyStatBias.
   { id: "ship:audit:statRatios", system: "ship", claim: "Variety statRatios list what a crafted piece rolls: a stat its variety does not list never rolls (a Hauler Hold, \"none into mass\", rolls no mass relief)", status: LIVE },
-  { id: "ship:audit:favorsSpec", system: "ship", claim: "Variety favorsSpec (no reader)", status: pending("WR-7 follow-up, OC-D5 (\"+10% on its ship type\": the fold needs a per-run stamp on missions, patrol cycles and expeditions so a run in flight stays byte-identical)") },
+  // WR-7 follow-up (OC-D5, user 2026-10-29 "+10% on its ship type"): model.ts withFavoredLines, read by the sheet, the
+  // Damage Control and Pathfinder readers; a captain mission, short-range run or patrol reads it when stamped at dispatch
+  // (favoredSpec), an expedition freezes it into its snapshot. favorsSpecRuns.test.ts covers every run type.
+  { id: "ship:audit:favorsSpec", system: "ship", claim: "Variety favorsSpec: a piece whose variety favors the hull's spec counts every line +10% while installed on that hull (the sheet, and every run dispatched since)", status: LIVE },
   { id: "ship:audit:slotPowerDraw", system: "ship", claim: "SLOT_BASE_PHYSICALS powerDraw: a crafted piece draws its slot's power from the ship's budget", status: LIVE },
   // Gear wear step 3: a piece's durabilityMax is its TOUGHNESS (gearWear.ts toughnessScale): every use wear amount on
   // it scales by TOUGHNESS_REFERENCE / durabilityMax, so the slot bases act on every piece that wears by use (economy,
@@ -4119,7 +4123,23 @@ function wr8AuditWiring(): Readonly<Record<string, Partial<EntryInput>>> {
 function wr7AuditWiring(): Readonly<Record<string, Partial<EntryInput>>> {
   const array = (id: string): Transform => (s) => installPiece(s, { slotType: "sensor", moduleVariant: id });
   const arrayDef = (id: string) => SENSOR_ARRAYS.find((a) => a.id === id)!;
+  // WR-7 follow-up (OC-D5): a crafted hold of FAVORS_PROBE_CARGO cargo, its variety the Prospector Hold (favors the
+  // prospector spec) or the Balanced Hold (favors none): the same line either way.
+  const FAVORS_PROBE_CARGO = 20;
+  const hold = (blueprintKey: string): Transform => (s) => installPiece(s, { slotType: "cargoBay", blueprintKey, implicitStats: { cargoCapacity: FAVORS_PROBE_CARGO } });
   return {
+    // OC-D5: on a Hauler (prospector spec) the Prospector Hold's 20 cargo count +10% (22) where the Balanced Hold's count
+    // 20, on the sheet and in the run sheet of a mission or short-range run dispatched now (stamped favoredSpec).
+    "ship:audit:favorsSpec": {
+      probe: "favoredRunCargo",
+      contexts: ["sheet", "mission:extraction", "mission:shortRange"],
+      direction: "up",
+      curve: { kind: "linearAbsolute" },
+      magnitude: () => FAVORS_PROBE_CARGO * FAVORED_SPEC_LINE_BONUS,
+      base: () => wiringBase("prospectorHauler"),
+      on: hold("prospectorHoldBp"),
+      off: hold("balancedHoldBp"),
+    },
     // OC-D6: the Hauler Hold's unlisted mass relief never rolls (OFF lists it at the raw weight the old rule gave it).
     "ship:audit:statRatios": {
       probe: "unlistedStatPicks",

@@ -177,6 +177,11 @@ function computePins(): Record<string, string> {
 // Re-pinned by the WR-7 review round (user answers 2026-10-29): arrays:sensorWideBeam / sensorFocusedBeam (the coverage
 // retune to even finds per hour) and every quarters ":lines" row (12 Crew Stations points now add 0 berths on the small
 // curve, and the Elite Quarters none). Nothing else moved.
+// Re-pinned by the WR-7 follow-up OC-D5 favorsSpec ("+10% on its ship type", user 2026-10-29): the sheet of each
+// favored piece on a hull of its spec, nine rows: the Prospector Hold and Yield Rig on the three prospector hulls, the
+// Pathfinder Suite on the three explorer hulls (its sensors fold into the sheet). Held: every unfavored hull, and the
+// Damage Control Suite on the tactician hulls (it carries no sheet line, and this row reads its effect reader as
+// stored; the runs read it favored, favorsSpecRuns.test.ts). With FAVORED_SPEC_SWITCH off every sheet pin returns.
 const PINS: Record<string, string> = {
   "rolls:cargoBay:prospectorHold:standard": "27bcb56a",
   "rolls:cargoBay:prospectorHold:luminous": "50b569ad",
@@ -278,16 +283,16 @@ const PINS: Record<string, string> = {
   "sheet:generalFreighter:yieldRigBp": "3d568b41",
   "sheet:generalFreighter:damageControlSuiteBp": "d1342ae6",
   "sheet:generalFreighter:pathfinderSuiteBp": "dc777399",
-  "sheet:prospectorHauler:prospectorHoldBp": "2360d96f",
-  "sheet:prospectorHauler:yieldRigBp": "69303f2c",
+  "sheet:prospectorHauler:prospectorHoldBp": "d273962e",
+  "sheet:prospectorHauler:yieldRigBp": "ca949d30",
   "sheet:prospectorHauler:damageControlSuiteBp": "4ce8e4e5",
   "sheet:prospectorHauler:pathfinderSuiteBp": "8e57e12c",
-  "sheet:prospectorRunner:prospectorHoldBp": "5ac635c5",
-  "sheet:prospectorRunner:yieldRigBp": "a9433d46",
+  "sheet:prospectorRunner:prospectorHoldBp": "cd0be379",
+  "sheet:prospectorRunner:yieldRigBp": "a239a396",
   "sheet:prospectorRunner:damageControlSuiteBp": "337a457f",
   "sheet:prospectorRunner:pathfinderSuiteBp": "a21c3492",
-  "sheet:prospectorMiner:prospectorHoldBp": "ad5bb6b4",
-  "sheet:prospectorMiner:yieldRigBp": "41fd0611",
+  "sheet:prospectorMiner:prospectorHoldBp": "43973674",
+  "sheet:prospectorMiner:yieldRigBp": "accb9507",
   "sheet:prospectorMiner:damageControlSuiteBp": "7692c53d",
   "sheet:prospectorMiner:pathfinderSuiteBp": "80b66754",
   "sheet:destroyer:prospectorHoldBp": "3ebc0429",
@@ -305,15 +310,15 @@ const PINS: Record<string, string> = {
   "sheet:orion:prospectorHoldBp": "cc0049b9",
   "sheet:orion:yieldRigBp": "a42fb6",
   "sheet:orion:damageControlSuiteBp": "732e0d31",
-  "sheet:orion:pathfinderSuiteBp": "65135d60",
+  "sheet:orion:pathfinderSuiteBp": "8076d292",
   "sheet:aurora:prospectorHoldBp": "bac24126",
   "sheet:aurora:yieldRigBp": "f7a2eb91",
   "sheet:aurora:damageControlSuiteBp": "d0b4d134",
-  "sheet:aurora:pathfinderSuiteBp": "b49ce06b",
+  "sheet:aurora:pathfinderSuiteBp": "9e81aea5",
   "sheet:eir:prospectorHoldBp": "c8ee5668",
   "sheet:eir:yieldRigBp": "6d34f2f6",
   "sheet:eir:damageControlSuiteBp": "6d93f9df",
-  "sheet:eir:pathfinderSuiteBp": "8fc21592",
+  "sheet:eir:pathfinderSuiteBp": "49b2aaf8",
   "arrays:none": "543de03c",
   "arrays:sensorWideBeam": "5c2622bc",
   "arrays:sensorFocusedBeam": "b20d7523",

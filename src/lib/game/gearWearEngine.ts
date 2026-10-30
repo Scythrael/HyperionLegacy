@@ -67,6 +67,7 @@ import {
   MISSIONS,
   effectiveMissionDef,
   missionCycleTiming,
+  withFavoredLines,
   type CaptainMissionState,
   type EquipmentInstance,
   type Expedition,
@@ -178,16 +179,23 @@ export function projectRunStamp(state: GameState, shipId: string, events: readon
 // WR-7 (OC-D3): `moduleLines` is whether the run carries the crew module lines stamp (CaptainMissionState.moduleLines);
 // a run without it reads its crew modules without their Crew Stations / Crew Efficiency lines, exactly as before WR-7.
 // Defaults to true (a fresh reading); the engine's run readers pass the run's stamp.
-export function runShipStats(state: GameState, ship: ShipInstance, stamp: RunWearStamp | undefined, reactorLift: boolean, moduleLines = true): ShipDerivedStats {
+// WR-7 follow-up (OC-D5): `favored` likewise, whether the run carries the favored-spec stamp (favoredSpec); a run
+// without it reads its pieces without the favored-spec bonus, exactly as before. Defaults to true (a fresh reading).
+export function runShipStats(state: GameState, ship: ShipInstance, stamp: RunWearStamp | undefined, reactorLift: boolean, moduleLines = true, favored = true): ShipDerivedStats {
   const lined = moduleLines ? state : withoutCrewModuleLines(state);
-  return effectiveShipStats(stamp === undefined ? lined : runGearView(lined, ship.id, stamp), ship, { reactorLift });
+  return effectiveShipStats(stamp === undefined ? lined : runGearView(lined, ship.id, stamp), ship, { reactorLift, favored });
 }
 
 // THE SHEET A CAPTAIN MISSION IN FLIGHT IS READ ON (EM-4 review): its frozen gear (the run's wear stamp) and its reactor
 // lift flag, the ONE helper the engine's mission arm and every in-flight readout share (the Home row, the mission
 // card, the transit berth wait), so a readout can never form its own opinion of a phase's length. Pure.
-export function missionRunSheet(state: GameState, ship: ShipInstance, mission: CaptainMissionState): ShipDerivedStats {
-  return runShipStats(state, ship, mission.gearWear, reactorLiftFlagged(mission.reactorLift), mission.moduleLines === 1);
+// WR-7 follow-up (OC-D5): a short-range run carries the same stamps, so the short-range cycle engine reads it here too.
+export function missionRunSheet(
+  state: GameState,
+  ship: ShipInstance,
+  mission: Pick<CaptainMissionState, "gearWear" | "reactorLift" | "moduleLines" | "favoredSpec">,
+): ShipDerivedStats {
+  return runShipStats(state, ship, mission.gearWear, reactorLiftFlagged(mission.reactorLift), mission.moduleLines === 1, mission.favoredSpec === 1);
 }
 
 // ============================================================================
@@ -612,10 +620,13 @@ type RepairBonuses = Partial<Record<RepairRateBonus, number>>;
 // A ship's two hull repair bonuses as every gear repair rate on it reads them (REPAIR_RATE_BONUSES): the hull repair's
 // own speed bonus (as tick.ts shipyardRepairSpeedBonus reads it: officers, crew and captain) and the installed Damage
 // Control Suite's time reduction. Pure.
+// WR-7 follow-up (OC-D5): the suite's lines with the favored-spec bonus on a Tactician hull (model.ts withFavoredLines),
+// always: the tail pass and a patrol cycle's wear clock share this one reading, so it never depends on a run's stamp
+// (one call == many small calls).
 export function shipRepairBonuses(state: GameState, ship: ShipInstance): RepairBonuses {
   return {
     officerRepairSpeed: withCaptainRepair(shipRepairSpeedBonus(state, ship), shipCaptainCombatMods(state, ship)),
-    damageControlRepairTime: damageControlEffect(equippedFor(state, ship.id)).repairTimeReduction,
+    damageControlRepairTime: damageControlEffect(withFavoredLines(equippedFor(state, ship.id), ship.typeKey)).repairTimeReduction,
   };
 }
 
