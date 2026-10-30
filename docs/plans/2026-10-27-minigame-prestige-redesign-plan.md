@@ -363,3 +363,6 @@ Points (about day 98) before e10M; gate lift about day 90; typical Tier I x0.890
 1. Auto Prestigeception target menu: "Remove it (Recommended)": a plain on/off that fires at the bar; Captain and
    Fleet keep their target menus. (Amends the signed-off automation mockup for that one row; Slice 7 UI.)
 2. e10M near day 118 instead of about 123: "118 is fine (Recommended)".
+3. Casual finale about 4.8 days (simCasual floor 5 -> 4 days): "Accept ~4.8 days (Recommended)".
+4. Old saves that bought the Auto Prestigeception skill: hidden until their own first Prestigeception, then revealed
+   ON: "Back ON for buyers (Recommended)". New players get it OFF.
