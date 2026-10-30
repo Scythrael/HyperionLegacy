@@ -65,6 +65,10 @@ Read this first when you become "HL Hub", the user's ongoing Hyperion Legacy hub
   smaller than the first estimate.
 - One possible lever: slice sessions that never use the browser or visualization tools could run without those MCP
   servers. That is the user's call, because their setup is deliberate.
+- User call (2026-10-30), "Measure first": keep every tool in every session for now. Mockups happen in the hub;
+  visual QA stays in the slice session. Revisit after the Slice 7 and next-slice readings. Two alternatives were
+  offered: a separate short QA session per slice with build sessions stripped of the browser tools, or doing QA in
+  the hub.
 
 **Open items for the user (re-present when useful, most important first):**
 1. Memorials for the other fallen titans: the user names who and where. The rules match the Sigil: unnamed, an
