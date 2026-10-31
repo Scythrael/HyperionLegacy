@@ -96,6 +96,9 @@ import { captainComplementMult, captainOfficerOutputMult, captainSensorsMult } f
 //   crew.surveyAptitude (Survey Aptitude + Vael and Outer-Colony) -> the expedition's scanSpeedBonus (shipSurveyAptitude,
 //                                                   frozen at dispatch; OC-4 "Faster scans")
 // and the Spacer racial rides OFFICER_TRANSIT_KEY (the sweeping transit speed, both legs and the voyage).
+// CP-3 (the Ground Ops complement consumers), read off this map at Ground Ops dispatch and frozen on the run:
+//   crew.awayTeamProtection -> Security max HP; crew.counterInfiltration -> the squad's debuff resist;
+//   crew.triage -> the run's squadTriage; crew.preventCrewLoss -> the bay's injury care (see shipAwayTeamProtection).
 // The combat keys still map to NOTHING on purpose: combat power stays on installed combat gear so crew never
 // DOUBLE-DIPS weapons/shields (locked design, D12). All magnitudes above are first-pass; retuning happens in a
 // later balance phase.
@@ -762,6 +765,26 @@ export function shipSurveyAptitude(state: GameState, ship: ShipInstance): number
   if (!carriesCrewKey(state, ship, CREW_STAT_KEYS.surveyAptitude)) return 0;
   return Math.max(0, shipCrewContribution(state, ship)[CREW_STAT_KEYS.surveyAptitude] ?? 0);
 }
+
+// Complement plan CP-3 (Ground Ops complement consumers): the four ground keys, each read at Ground Ops dispatch and
+// frozen on the run (expedition.ts; written only when non-zero), so a crew change mid-run never reshapes it:
+//   Away-Team Protection (crew.awayTeamProtection, Security): every Security member's max HP x (1 + it)
+//                         (Expedition.squadHpBonus, gambit.ts buildRosterCombatants).
+//   Counter-Infiltration (crew.counterInfiltration, Security; OC-E1 "Resist enemy debuffs"): the squad's resist to
+//                         every debuff the enemy lands (Expedition.squadDebuffResist, gambit.ts squadDebuffResistShare).
+//   Triage               (crew.triage, Medical): adds to the run's squadTriage (Fleet Triage's field), so a medic's
+//                         heals and every member's first aid grow.
+//   Prevent a Crew Loss  (crew.preventCrewLoss, the exclusive pool; OC-E2 "Shorter bay time"): a share of the medical
+//                         bay's care divisor for injuries (GroundOpsFactors.preventLossShare, medicalBay.ts).
+// Each is 0 without the key. Pure.
+function groundCrewKey(state: GameState, ship: ShipInstance, key: string): number {
+  if (!carriesCrewKey(state, ship, key)) return 0;
+  return Math.max(0, shipCrewContribution(state, ship)[key] ?? 0);
+}
+export const shipAwayTeamProtection = (state: GameState, ship: ShipInstance): number => groundCrewKey(state, ship, CREW_STAT_KEYS.awayTeamProtection);
+export const shipCounterInfiltration = (state: GameState, ship: ShipInstance): number => groundCrewKey(state, ship, CREW_STAT_KEYS.counterInfiltration);
+export const shipCrewTriage = (state: GameState, ship: ShipInstance): number => groundCrewKey(state, ship, CREW_STAT_KEYS.triage);
+export const shipPreventCrewLoss = (state: GameState, ship: ShipInstance): number => groundCrewKey(state, ship, CREW_STAT_KEYS.preventCrewLoss);
 
 // ============================================================================
 // The single crew-boosted derived-stats helper (the ONE consumers route through)

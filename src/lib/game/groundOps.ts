@@ -21,6 +21,8 @@
 //                                           injurySteady), mapped by medicalBay.ts bayCareFrom, the ONE place
 //                                           the bay mapping is written. GO-7b reads the bay care back with
 //                                           groundOpsBayCare(factors) (the four fields, as they were frozen).
+//       preventLossShare : CP-3, Prevent a Crew Loss (crewOverlay.ts shipPreventCrewLoss): the bay's injury care;
+//                          written only when non-zero (groundOpsBayCare carries it).
 //       offloadMult : crewOverlay.ts effectiveShipStats(...).unloadSpeedMult (the crew Efficient Unloading and
 //                     Veteran Instincts multiplier missions use; absent = 1). Divides the offload step.
 //       reloadMult  : 1 + crew.loadSpeed (Rapid Loadout, shipCrewContribution) + Efficient Stowage (captain
@@ -74,7 +76,7 @@ import { snapshotShipEventProfile } from "./shipScanEvents";
 import { deployableGroundTeams, shipGroundTeams } from "./groundTeams";
 import { bayCareFrom, memberBaySeconds, type BayCare } from "./medicalBay";
 import { shipInjuryFactors } from "./injuries";
-import { effectiveShipStats, shipCrewContribution } from "./crewOverlay";
+import { effectiveShipStats, shipCrewContribution, shipPreventCrewLoss } from "./crewOverlay";
 import { CREW_STAT_KEYS } from "./crewBuffs";
 // GO-7b: the timeline engine's building blocks (GO-4 task model, GO-5 fight, GO-6 odds) and the legacy reward
 // rolls one task keeps whichever engine resolves it.
@@ -216,6 +218,8 @@ export function snapshotGroundOps(state: GameState, ship: ShipInstance, run: Gro
     bayEnds: {},
   }));
   const care = bayCareFrom(shipInjuryFactors(state, ship), run);
+  // Complement plan CP-3 (OC-E2): Prevent a Crew Loss, frozen here and written only when non-zero (injuries only).
+  const preventLossShare = shipPreventCrewLoss(state, ship);
   const factors: GroundOpsFactors = {
     medicalShare: care.medicalShare,
     rapidRecoveryShare: care.rapidRecoveryShare,
@@ -226,17 +230,20 @@ export function snapshotGroundOps(state: GameState, ship: ShipInstance, run: Gro
     // Squads SQ-3: split per SQUAD (design 3.4): a Strike team carries two Security shares and no Science share.
     securityShare: sharesOf(teams.map((t) => teamSquadsOf(t).security)),
     scienceShare: sharesOf(teams.map((t) => teamSquadsOf(t).science)),
+    ...(preventLossShare > 0 ? { preventLossShare } : {}),
   };
   return { teams, factors, shipEventProfile: snapshotShipEventProfile(state, ship) };
 }
 
-// The bay care a run's frozen factors carry (GO-7b passes it to medicalBay.ts memberBaySeconds). Pure.
+// The bay care a run's frozen factors carry (GO-7b passes it to medicalBay.ts memberBaySeconds). CP-3: plus Prevent a
+// Crew Loss when the run froze one (absent on every other run, so its care reads exactly as before). Pure.
 export function groundOpsBayCare(factors: GroundOpsFactors): BayCare {
   return {
     medicalShare: factors.medicalShare,
     rapidRecoveryShare: factors.rapidRecoveryShare,
     officerFacetShare: factors.officerFacetShare,
     injurySteady: factors.injurySteady,
+    ...(factors.preventLossShare !== undefined ? { preventLossShare: factors.preventLossShare } : {}),
   };
 }
 

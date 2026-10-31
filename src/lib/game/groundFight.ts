@@ -181,7 +181,7 @@ function carriedStatuses(statuses: readonly GroundStatus[] | undefined): GroundS
 // clamped to [1, hpMax] (a standing member is never fielded at 0; a non-finite HP is ignored), with its
 // persisting statuses only. GO-6's threat samples build their squads here too. Pure.
 export function taskFightTeam(
-  exp: Pick<Expedition, "id" | "roster" | "securityStrength" | "squadTriage" | "squadFearResist" | "explorerCaptain" | "fieldKits">,
+  exp: Pick<Expedition, "id" | "roster" | "securityStrength" | "squadTriage" | "squadFearResist" | "squadHpBonus" | "squadDebuffResist" | "explorerCaptain" | "fieldKits">,
   teams: readonly GroundFightTeam[],
   task: Pick<ExpeditionActivity, "id" | "fightCount">,
   carried?: Readonly<Record<string, GroundMemberCarry>>,
@@ -199,6 +199,9 @@ export function taskFightTeam(
     fearResist: exp.squadFearResist,
     // WR-5c: the captain's Away-Team Doctrine, frozen at dispatch (absent = unchanged).
     powerMult: exp.explorerCaptain?.squadPowerMult,
+    // Complement plan CP-3: Away-Team Protection and Counter-Infiltration, frozen at dispatch (absent = unchanged).
+    hpBonus: exp.squadHpBonus,
+    debuffResist: exp.squadDebuffResist,
   });
   // Field Kits FKR-4: Stoneskin's battle half (a Field Kits run only; fieldKitsConditions.ts). FKR-5: the thrown
   // grenades with each member's charges left this objective (fieldKitsGrenades.ts), in place of their passive on-hit;
@@ -347,7 +350,19 @@ export type RankedFightTask = Pick<ExpeditionActivity, "id" | "poiId" | "fightCo
 // must widen this type first (TypeScript then flags the memo's key list until it is listed too).
 export type TaskFightExp = Pick<
   Expedition,
-  "id" | "roster" | "securityStrength" | "squadTriage" | "squadFearResist" | "hazardResist" | "teamKit" | "enemyRanks" | "difficulty" | "explorerCaptain" | "fieldKits"
+  | "id"
+  | "roster"
+  | "securityStrength"
+  | "squadTriage"
+  | "squadFearResist"
+  | "squadHpBonus"
+  | "squadDebuffResist"
+  | "hazardResist"
+  | "teamKit"
+  | "enemyRanks"
+  | "difficulty"
+  | "explorerCaptain"
+  | "fieldKits"
 >;
 
 // THE GUARD a task fight fields on a given stream seed, as fresh combatants: generateEncounter on the body's hazard

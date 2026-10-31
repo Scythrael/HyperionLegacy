@@ -7,7 +7,8 @@
 // ailments and 1 fracture ... you wait for 10 ticks"). Times are in seconds (1 tick = 1 second, user 9b.5).
 //
 //   care_c = medicalShare + rapidRecoveryShare + officerFacetShare + treatmentShare
-//            (+ injurySteady when the condition's class is "injury"), each share clamped at 0 or more
+//            (+ injurySteady + preventLossShare when the condition's class is "injury"), each share clamped at 0
+//            or more
 //   t      = cureSeconds x (STONESKIN_INJURY_MULT for an injury on a Stoneskin member, else 1) / (1 + care_c)
 //   cure   = max(BAY_MIN_SECONDS, round(t))
 // Care DIVIDES (D23: diminishing returns, never a cap): every share point still shortens the cure, each a
@@ -24,6 +25,8 @@
 //                        Applies to EVERY condition class.
 //   injurySteady       = Medical's Integrity facet Expedition.injurySteady. Applies to INJURY-class
 //                        conditions only (Task 21 review: it steadies members who come home injured).
+//   preventLossShare   = the complement's Prevent a Crew Loss (crew.preventCrewLoss; complement plan CP-3, OC-E2
+//                        "Shorter bay time"), frozen on GroundOpsFactors.preventLossShare. INJURY-class only.
 // On a legacy run every condition is an injury, so this is the same care divisor injuries.ts
 // injuryRecoverySeconds uses (there the three facets fold into one officerFacetShare); only the base time and
 // the floor differ (2h base and a 15 minute floor there; per-condition times and BAY_MIN_SECONDS here).
@@ -85,6 +88,10 @@ export interface BayCare {
   rapidRecoveryShare: number;
   officerFacetShare: number;
   injurySteady: number;
+  // Complement plan CP-3 (OC-E2 "Shorter bay time"): Prevent a Crew Loss (crew.preventCrewLoss, the exclusive pool),
+  // frozen at dispatch on GroundOpsFactors.preventLossShare. INJURY-class conditions only, like injurySteady. Absent = 0
+  // (every run dispatched before CP-3 and every ship without the buff).
+  preventLossShare?: number;
 }
 
 // The BayCare a run carries: the ship's two care shares (injuries.ts InjuryRecoveryFactors, frozen at
@@ -114,6 +121,7 @@ export function conditionCureSeconds(
   const injury = cond.cls === "injury";
   let total = share(care.medicalShare) + share(care.rapidRecoveryShare) + share(care.officerFacetShare) + share(treatmentShare);
   if (injury) total += share(care.injurySteady);
+  if (injury && care.preventLossShare !== undefined) total += share(care.preventLossShare);
   const mult = injury && perks.includes("stoneskin") ? STONESKIN_INJURY_MULT : 1;
   return Math.max(BAY_MIN_SECONDS, Math.round((cond.cureSeconds * mult) / (1 + total)));
 }

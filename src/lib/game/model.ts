@@ -8534,6 +8534,18 @@ export interface Expedition {
   //                     combined with each member's own Fear resist (gambit.ts buildRosterCombatants).
   squadTriage?: number;
   squadFearResist?: number;
+  // Complement plan CP-3 (0.14.0): two Security complement buffs for the AWAY TEAM, frozen here at dispatch like the
+  // two above (crewOverlay.ts shipAwayTeamProtection / shipCounterInfiltration). OPTIONAL, written only when non-zero,
+  // so a run without the crew (and every run dispatched before CP-3) is byte-identical (no SAVE_VERSION bump). Since
+  // CP-3, squadTriage above also carries the Medical complement's Triage (crew.triage) on top of Fleet Triage.
+  //   squadHpBonus      : Away-Team Protection (crew.awayTeamProtection): every Security member's max HP x (1 + it),
+  //                       the added part rounded up, at least +1 (gambit.ts buildRosterCombatants).
+  //   squadDebuffResist : Counter-Infiltration (crew.counterInfiltration, OC-E1): the squad's chance to shrug off a
+  //                       debuff the enemy lands, through gambit.ts squadDebuffResistShare (a diminishing curve
+  //                       toward awayTeam.ts STATUS_RESIST_CAP, never reaching it), combined with each member's own so the two together stay under that cap
+  //                       (gambit.ts squadCombinedResist).
+  squadHpBonus?: number;
+  squadDebuffResist?: number;
   // E-CREW 0.14.0 (Task 21): the OFFICER STAT FACETS that reach this run, frozen at dispatch like the fields
   // above (officerStats.ts; small named fields for the Ground Operations redesign, D25, to carry forward).
   // OPTIONAL, written only when non-zero (absent = no effect, no SAVE_VERSION bump).
@@ -9207,6 +9219,10 @@ export interface GroundOpsFactors {
   reloadMult: number; // >= 1 is faster; divides the reload step
   securityShare: number[];
   scienceShare: number[];
+  // Complement plan CP-3 (OC-E2 "Shorter bay time"): Prevent a Crew Loss (crew.preventCrewLoss), a care share for
+  // INJURY-class conditions in the medical bay (medicalBay.ts BayCare.preventLossShare). Written only when non-zero, so
+  // a run without it (and every run dispatched before CP-3) keeps its exact shape.
+  preventLossShare?: number;
 }
 
 // The ship-side scan event inputs, frozen at dispatch (shipScanEvents.ts snapshotShipEventProfile, GO-8; GO-9
