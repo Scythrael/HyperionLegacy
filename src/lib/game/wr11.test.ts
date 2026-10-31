@@ -36,7 +36,7 @@ import { buildHomeDashboard } from "./homeDashboard";
 import { MUSEUM_STAT_LABEL } from "../ui/relicIcons";
 import { HELP_TOPICS } from "../helpTopics";
 import { wr11Dispatch, wr11Run, wr11SalvageRun, wr11SalvageState, wr11State } from "./wr11.fixture";
-import { withWr11Off } from "./wr11Switch.fixture";
+import { WR11_DELETED_CARGO, withWr11Off } from "./wr11Switch.fixture";
 
 describe("WR-11 OC-G4: each site gives what its flavor names, on a run stamped with the site rules", () => {
   it("Buried Vault and Subterranean Civilization raise the relic chance; every other site leaves it", () => {
@@ -155,6 +155,8 @@ describe("WR-11 OC-I1 and OC-I2", () => {
   it("no mission carries a cargoCapacity of its own; a def read without a ship takes the reference hold", () => {
     for (const def of Object.values(MISSIONS)) expect("cargoCapacity" in def).toBe(false);
     expect(missionDefWithoutShip(MISSIONS.shortOreRun).cargoCapacity).toBe(90);
+    // Each mission keeps the hold it carried before the deletion as its no-ship preview hold.
+    for (const [key, def] of Object.entries(MISSIONS)) expect(missionDefWithoutShip(def).cargoCapacity).toBe(WR11_DELETED_CARGO[key]);
   });
   it("the three unused factions stay out of every patrol and every Help line until the user names their content", () => {
     const used = new Set(Object.values(PATROLS).map((p) => p.factionId));

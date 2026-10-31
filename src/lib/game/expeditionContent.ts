@@ -142,7 +142,7 @@ export const POI_CATALOG: readonly ExpeditionPoiDef[] = [
     id: "derelictOutpost",
     label: "Derelict Outpost",
     pool: "surface",
-    flavor: "An abandoned outpost: extra supplies to haul home, with a fight risk.",
+    flavor: "An abandoned outpost: extra materials to haul home, with a fight risk.",
     // Habitable-ish worlds; strongest on Terrestrial (outposts). Few on Volcanic / Gas Giant / Toxic.
     planetWeights: { terrestrial: 3, ocean: 2, arid: 2, volcanic: 1, frozen: 2, gasGiant: 1, barren: 2, toxic: 1 },
     materialMult: POI_MATERIAL_MULT,
@@ -178,7 +178,7 @@ export const POI_CATALOG: readonly ExpeditionPoiDef[] = [
     id: "geothermalChamber",
     label: "Geothermal Chamber",
     pool: "underground",
-    flavor: "A superheated chamber: extra exotic compounds to haul, most common on volcanic worlds.",
+    flavor: "A superheated chamber: extra materials to haul, most common on volcanic worlds.",
     // Strongest on Volcanic + Toxic (exotic compounds). None on Gas Giant / Barren.
     planetWeights: { terrestrial: 1, ocean: 1, arid: 1, volcanic: 4, frozen: 1, toxic: 3 },
     materialMult: POI_MATERIAL_MULT,

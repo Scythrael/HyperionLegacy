@@ -464,9 +464,9 @@ describe("tickCaptainMission, transport cost-in/reward-out (Exploration 0.14.0 E
   });
 
   it("working-capital gate: idles (no spend, no reward, no loot) when credits are short, resumes when affordable", () => {
-    // null shipStats -> the reference hold (WR-11, OC-I1: missionDefWithoutShip, 90), so loadCost = 90 * 4 = 360 per cycle.
+    // null shipStats -> the mission's no-ship reference hold (WR-11, OC-I1: missionDefWithoutShip, 120), so loadCost = 120 * 4 = 480 per cycle.
     const loadCost = missionDefWithoutShip(MISSIONS.frontierSupplyRun).cargoCapacity * MISSIONS.frontierSupplyRun.supplyCostPerCargo!;
-    expect(loadCost).toBe(360);
+    expect(loadCost).toBe(480);
 
     // STARVED: a running balance below the load cost -> every cycle idles. No credits booked, no loot,
     // and NO cycle counted (an idle cycle delivered nothing). The mission stays active (it will resume).

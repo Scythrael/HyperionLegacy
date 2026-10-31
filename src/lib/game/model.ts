@@ -4784,11 +4784,30 @@ const UNLOAD_MIN_TICKS = 3;        // floor: the smallest holds still take at le
 // divides evenly, no partial-final-tick path is introduced. The unload phase is
 // now cargo-scaled too (Crew 0.14.0 Phase 5): unloadTicks grows with the hull's
 // cargo hold and is then shortened by the crew unloadSpeed multiplier (see below).
-// Wiring WR-11 (OC-I1): the def a caller WITHOUT a ship reads (a test, or a readout with no hull to scale by): the content
-// def at the reference hull's hold (UNLOAD_REFERENCE_CARGO, the General Freighter's 90, which every ore, salvage and
-// forage run carried as its own field before the field was deleted). Pure.
+// Wiring WR-11 (OC-I1): the def a caller WITHOUT a ship reads (a test, or a readout with no hull to scale by, such as the
+// mission popup before a ship is chosen): the content def at that mission's no-ship reference hold. MISSIONS no longer
+// carries a cargoCapacity (a ship's hold always drives a real run); these are the values each mission carried before the
+// field was deleted, kept here so the no-ship preview reads what it did before. A def not found here (a copy, or a
+// mission added later) falls back to the General Freighter's 90 (UNLOAD_REFERENCE_CARGO). Pure.
+const NO_SHIP_REFERENCE_HOLD: Readonly<Record<MissionKey, number>> = {
+  localFuelRun: 90,
+  shortOreRun: 90,
+  longOreRun: 90,
+  salvageWreckage: 90,
+  forageFlora: 90,
+  surveyMineralAnomaly: 120,
+  surveyStellarPhenomena: 120,
+  frontierSupplyRun: 120,
+  colonySupplyLift: 150,
+  cometIceHarvest: 90,
+};
+let noShipHoldByDef: Map<MissionDef, number> | undefined;
 export function missionDefWithoutShip(base: MissionDef): RunMissionDef {
-  return { ...base, cargoCapacity: UNLOAD_REFERENCE_CARGO };
+  if (!noShipHoldByDef) {
+    noShipHoldByDef = new Map();
+    for (const [key, def] of Object.entries(MISSIONS)) noShipHoldByDef.set(def, NO_SHIP_REFERENCE_HOLD[key as MissionKey]);
+  }
+  return { ...base, cargoCapacity: noShipHoldByDef.get(base) ?? UNLOAD_REFERENCE_CARGO };
 }
 
 export function effectiveMissionDef(base: MissionDef, ship: ShipDerivedStats): RunMissionDef {
@@ -10109,8 +10128,9 @@ const EM8_PRECURSOR_LENS = "EM-8 (the Precursor Lens special module is crafted w
 // Depot's 50 ice -> 100 fuel at 20 cr), which made the open-from-day-one Cometary Ice Harvest a 2,700-credit run.
 export const DEUTERIUM_ICE_SELL_VALUE = 4;
 
-// Wiring WR-11 (OC-J3 "Sell now, recipes later"): the two salvage drops nothing consumed yet sell at the Quartermaster
-// (credits per unit) until the content pass gives them recipes. [PROVISIONAL] prices for 0.16.0.
+// Wiring WR-11 (OC-J3 "Sell now, recipes later"): two salvage drops sell at the Quartermaster (credits per unit).
+// Salvaged Circuitry is also a refine input (refineReclaimedCircuit); the Precursor Circuit has no recipe until the
+// content pass gives it one. [PROVISIONAL] prices for 0.16.0.
 export const SALVAGE_DROP_SELL_VALUE = { salvagedCircuitry: 12, precursorCircuit: 300 } as const;
 
 // The Deuterium Canister anchors the scale (450 cr); the Standard band sells under it and each band up roughly doubles.
