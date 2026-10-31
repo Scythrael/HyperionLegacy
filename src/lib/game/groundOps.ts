@@ -67,6 +67,8 @@ import {
   type ShipEventProfile,
   type ShipInstance,
   type ExpeditionPlanetType,
+  FULL_HOLD_FRACTION,
+  WR9_SWITCH,
   repairTicksForDamage,
 } from "./model";
 import { damageControlRepairTicks } from "./utilityGear";
@@ -77,6 +79,7 @@ import { deployableGroundTeams, shipGroundTeams } from "./groundTeams";
 import { bayCareFrom, memberBaySeconds, type BayCare } from "./medicalBay";
 import { shipInjuryFactors } from "./injuries";
 import { effectiveShipStats, shipCrewContribution, shipPreventCrewLoss } from "./crewOverlay";
+import { departmentFacet } from "./officerStats";
 import { CREW_STAT_KEYS } from "./crewBuffs";
 // GO-7b: the timeline engine's building blocks (GO-4 task model, GO-5 fight, GO-6 odds) and the legacy reward
 // rolls one task keeps whichever engine resolves it.
@@ -218,6 +221,8 @@ export function snapshotGroundOps(state: GameState, ship: ShipInstance, run: Gro
   const care = bayCareFrom(shipInjuryFactors(state, ship), run);
   // Complement plan CP-3 (OC-E2): Prevent a Crew Loss, frozen here and written only when non-zero (injuries only).
   const preventLossShare = shipPreventCrewLoss(state, ship);
+  // Wiring WR-9 (OC-E9): the Operations officer's Integrity steadies a packed offload (written only when non-zero).
+  const offloadSteady = WR9_SWITCH.live ? departmentFacet(state, ship, "operations", "integrity") : 0;
   const factors: GroundOpsFactors = {
     medicalShare: care.medicalShare,
     rapidRecoveryShare: care.rapidRecoveryShare,
@@ -229,6 +234,7 @@ export function snapshotGroundOps(state: GameState, ship: ShipInstance, run: Gro
     securityShare: sharesOf(teams.map((t) => teamSquadsOf(t).security)),
     scienceShare: sharesOf(teams.map((t) => teamSquadsOf(t).science)),
     ...(preventLossShare > 0 ? { preventLossShare } : {}),
+    ...(offloadSteady > 0 ? { offloadSteady } : {}),
   };
   return { teams, factors, shipEventProfile: snapshotShipEventProfile(state, ship) };
 }
@@ -2009,9 +2015,21 @@ function finishReturn(exp: Expedition, ops: GroundOpsState, team: GroundTeamRun,
   // The user's pickup pause: a team the ship flew to collect (not wiped) is a study pickup, never a recovery.
   const rec: Partial<GroundStepRecord> = recovered ? { recovered: true } : on.length > 0 ? { studyPickup: true } : {};
   if (!team.jointPartner && ref && (ref.task.segmentsBanked ?? 0) > (ref.task.segmentsOffloaded ?? 0)) {
-    return moveTo(ops, team, "offload", t, t + OFFLOAD_BASE_SECONDS / ops.factors.offloadMult, rec);
+    const batch = (ref.task.segmentsBanked ?? 0) - (ref.task.segmentsOffloaded ?? 0);
+    return moveTo(ops, team, "offload", t, t + groundOffloadSeconds(ops.factors, batch, segmentCount(ref.task)), rec);
   }
   startBay(exp, ops, team, t, rec);
+}
+
+// The offload step's seconds for a batch of `batch` of a task's `segments` segments: OFFLOAD_BASE_SECONDS divided by
+// the frozen offloadMult, and (Wiring WR-9, OC-E9) by (1 + offloadSteady) too when the batch carries at least
+// FULL_HOLD_FRACTION of the objective's haul (the Operations officer's Integrity, the twin of a mission's full-hold
+// unload). Without offloadSteady (every run dispatched before WR-9) it is exactly the old divide. Pure.
+export function groundOffloadSeconds(factors: Pick<GroundOpsFactors, "offloadMult" | "offloadSteady">, batch: number, segments: number): number {
+  const base = OFFLOAD_BASE_SECONDS / factors.offloadMult;
+  const steady = factors.offloadSteady;
+  if (steady === undefined || !(steady > 0) || !(segments > 0) || batch / segments < FULL_HOLD_FRACTION) return base;
+  return base / (1 + steady);
 }
 
 // The offload ends: one finding for the batch of banked segments not yet offloaded (see the header). Mutates.

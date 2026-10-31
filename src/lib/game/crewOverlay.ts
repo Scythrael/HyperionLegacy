@@ -395,6 +395,7 @@ function rawShipCrewContribution(state: GameState, ship: ShipInstance): Record<s
             race: n.race,
             buff1Id: n.buff1Id,
             buff2Id: n.buff2Id,
+            ...(n.buff3Id !== undefined ? { buff3Id: n.buff3Id } : {}),
             count: 1,
           })),
         ]
@@ -710,8 +711,8 @@ const KEY_SOURCES: ReadonlyMap<string, { buffs: ReadonlySet<string>; races: Read
 function carriesCrewKey(state: GameState, ship: ShipInstance, key: string): boolean {
   const src = KEY_SOURCES.get(key);
   if (!src) return false;
-  const holds = (b: { buff1Id: string; buff2Id: string | null; race: string }): boolean =>
-    src.buffs.has(b.buff1Id) || (b.buff2Id !== null && src.buffs.has(b.buff2Id)) || src.races.has(b.race);
+  const holds = (b: { buff1Id: string; buff2Id: string | null; buff3Id?: string; race: string }): boolean =>
+    src.buffs.has(b.buff1Id) || (b.buff2Id !== null && src.buffs.has(b.buff2Id)) || (b.buff3Id !== undefined && src.buffs.has(b.buff3Id)) || src.races.has(b.race);
   if (ship.complement?.buckets.some((b) => b.count > 0 && holds(b))) return true;
   if (state.notableCrew.some((n) => (n.assignedShipId ?? null) === ship.id && holds(n))) return true;
   if (src.races.size === 0) return false;

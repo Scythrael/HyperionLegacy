@@ -107,7 +107,7 @@ import {
   RAMP_ODDS_LAG,
   TIER_ENCOUNTER_HAZARD_CEILING,
 } from "./game/runDifficulty";
-import { SHIP_TYPES } from "./game/model";
+import { FULL_HOLD_FRACTION, SHIP_TYPES } from "./game/model";
 import { TRAINING_RUN_CHIP } from "./trainingRunDisplay";
 import {
   REGION_TIER_NAMES,
@@ -602,7 +602,7 @@ On the order form, This order uses lists the qualities the order will draw, and 
     title: "Return Trip and Medical Bay",
     body: [
       `After every trip to an objective, won or lost, a team comes back to the ship before its next one:\n- Shuttle up (${span(RETURN_SECONDS)}), or wait for the ship after a wipe (see the Ground Operations topic).\n- Offload (${span(OFFLOAD_BASE_SECONDS)}): the haul banked on the trip goes into the hold. Skipped when nothing new was banked.\n- Medical bay: everyone heals (below).\n- Reload (${span(RELOAD_BASE_SECONDS)}), then the drop to the next objective (${span(DEPLOY_SECONDS)}).`,
-      "WHAT SPEEDS EACH STEP:\n- Offload: the crew's Efficient Unloading and the Veteran Instincts officer bonus.\n- Reload: the crew's Rapid Loadout and the captain's Efficient Stowage talent.\n- Medical bay: the Medical crew's Reduced Crew Losses, the Rapid Recovery officer bonus, and the Medical officer's Constitution and Cunning (plus Integrity and the crew's Prevent a Crew Loss, for injuries), with a share of the XO's.\nThese are set when the ship launches. Each bonus divides the time, so every bit helps, each a little less than the last, and a cure never drops to nothing.",
+      `WHAT SPEEDS EACH STEP:\n- Offload: the crew's Efficient Unloading and the Veteran Instincts officer bonus, plus the Operations officer's Integrity when the team brings home at least ${pct(FULL_HOLD_FRACTION)} of an objective's haul at once.\n- Reload: the crew's Rapid Loadout (this reload is the only step it speeds: missions have no load step) and the captain's Efficient Stowage talent.\n- Medical bay: the Medical crew's Reduced Crew Losses, the Rapid Recovery officer bonus, and the Medical officer's Constitution and Cunning (plus Integrity and the crew's Prevent a Crew Loss, for injuries), with a share of the XO's.\nThese are set when the ship launches. Each bonus divides the time, so every bit helps, each a little less than the last, and a cure never drops to nothing.`,
       `THE MEDICAL BAY: every condition a member picked up on the trip cures on its own clock, and they all tick down at once. A member waits for their longest condition, and the team waits for its longest member. Times before any bonus:\n${CURE_LIST}\nOther battle effects, such as stuns and fear, end with the fight. Each team's bay card shows who is waiting on what. On an expedition with field kits, a ${BONE[0]} splinted in the fight costs no ${BONE[0]} time, and ${article(FIELD_KITS.injuryKit.label)} ${FIELD_KITS.injuryKit.label} used on a downed member shortens that member's bay time (see the Field Kits topic).`,
       `STONESKIN: Ossir crew members have Stoneskin. Their injuries take ${pct(STONESKIN_INJURY_MULT - 1)} longer to mend in the bay. On an expedition with field kits, physical conditions land on them ${pct(STONESKIN_BATTLE_RESIST)} less often in the fights, and the ones that land last ${pct(STONESKIN_INJURY_MULT - 1)} longer.`,
     ].join("\n\n"),

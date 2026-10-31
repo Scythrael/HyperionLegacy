@@ -11,23 +11,24 @@
 
 import type { CrewRank } from "./model";
 
+// Wiring WR-9 (OC-E11, user 2026-10-15: delete the flag, identity only): the `enlisted` flag is gone. The 1-4 enlisted /
+// 5-8 officer track split is the ladder's naming (the labels below), not a rule anything reads.
 export interface CrewRankDef {
   id: CrewRank;
   label: string;
-  enlisted: boolean; // true for ranks 1-4 (enlisted), false for the officer track 5-8
 }
 
 // The ladder, in ascending order. 1-4 enlisted, 5-8 officer track. Labels are user-facing display
 // strings (US English). Commander (Senior Staff) sits above rank 8 and is not in this table.
 export const CREW_RANKS: Record<CrewRank, CrewRankDef> = {
-  1: { id: 1, label: "Crewman", enlisted: true },
-  2: { id: 2, label: "Petty Officer", enlisted: true },
-  3: { id: 3, label: "Chief", enlisted: true },
-  4: { id: 4, label: "Master Chief", enlisted: true },
-  5: { id: 5, label: "Cadet", enlisted: false },
-  6: { id: 6, label: "Ensign", enlisted: false },
-  7: { id: 7, label: "Lieutenant", enlisted: false },
-  8: { id: 8, label: "Lieutenant Commander", enlisted: false },
+  1: { id: 1, label: "Crewman" },
+  2: { id: 2, label: "Petty Officer" },
+  3: { id: 3, label: "Chief" },
+  4: { id: 4, label: "Master Chief" },
+  5: { id: 5, label: "Cadet" },
+  6: { id: 6, label: "Ensign" },
+  7: { id: 7, label: "Lieutenant" },
+  8: { id: 8, label: "Lieutenant Commander" },
 };
 
 // A rank's display label that never throws (GO-12 review minor): a whole rank past the ladder reads as the
@@ -44,9 +45,9 @@ export const CREW_RANK_ORDER: readonly CrewRank[] = [1, 2, 3, 4, 5, 6, 7, 8];
 
 // How many buffs a crewmember of this rank carries. FIRST-PASS (from the plan's rank table):
 // Crewman 1, Petty Officer 1, Chief 2, Master Chief 2, Cadet 2, Ensign 2, Lieutenant 3, Lt Cmdr 3.
-// A count of 1 means buff1 only (buff2Id null); 2+ means buff2 is present. (Only buff1/buff2 are
-// modeled on a bucket today; a "3" reads as "eligible for the exclusive pool as the 2nd buff" until
-// a later phase widens the signature. Tunable.)
+// A count of 1 means buff1 only (buff2Id null); 2+ means buff2 is present; 3 also makes the 2nd buff eligible for the
+// exclusive pool and (Wiring WR-9, OC-E12, user 2026-10-15 "Roll a third buff") rolls a third buff (buff3Id) from the
+// profession pool. Tunable.
 const BUFF_COUNT_BY_RANK: Record<CrewRank, number> = {
   1: 1,
   2: 1,

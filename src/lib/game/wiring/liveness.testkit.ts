@@ -98,7 +98,7 @@ import { CREW_PROFESSION_BUFFS, ROLLABLE_SECOND_LEVEL_EXCLUSIVE, type CrewBuffDe
 import { CREW_RACES } from "../crewRaces";
 import { SENIOR_STAFF_BONUSES, getSeniorStaffBonusById, type SeniorStaffBonusDef } from "../seniorStaffBonuses";
 import { OFFICER_STAT_KEYS } from "../seniorStaff";
-import { DEPARTMENT_OF_SEAT } from "../officerStats";
+import { DEPARTMENT_OF_SEAT, pilotCunningStamp } from "../officerStats";
 import { POI_CATALOG, PLANET_TYPES } from "../expeditionContent";
 
 
@@ -542,6 +542,8 @@ function probeMissions(t: Transform): string {
   return fp(
     (["shortOreRun", "surveyMineralAnomaly", "frontierSupplyRun"] as MissionKey[]).map((missionKey) => {
       let s = t(shipScaffold());
+      // WR-9 (OC-E4): the Pilot's Cunning is stamped at dispatch, so the probe's run carries the stamp a dispatch writes.
+      const pilotCunning = pilotCunningStamp(s, shipOf(s));
       s = {
         ...s,
         captains: s.captains.map((c, i) =>
@@ -555,6 +557,7 @@ function probeMissions(t: Transform): string {
                   phaseProgressTicks: 0,
                   cargo: { commonOre: new Decimal(0), uncommonMaterial: new Decimal(0), rareMaterial: new Decimal(0) },
                   recalled: false,
+                  ...(pilotCunning !== undefined ? { pilotCunning } : {}),
                 },
               }
             : c,

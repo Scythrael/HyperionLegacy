@@ -57,6 +57,7 @@ function notableSignature(n: NotableCrewMember): CrewSignature {
     race: n.race,
     buff1Id: n.buff1Id,
     buff2Id: n.buff2Id,
+    ...(n.buff3Id !== undefined ? { buff3Id: n.buff3Id } : {}),
   };
 }
 

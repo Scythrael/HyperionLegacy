@@ -37,6 +37,11 @@ import { withReactorLiftOff } from "./emodEm4Switch.fixture";
 import { advanceExpedition } from "./expedition";
 import { patrolLegsOffForThisFile } from "./patrolLegsSwitch.fixture";
 import { wr11OffForThisFile } from "./wr11Switch.fixture";
+import { wr9OffForThisFile } from "./wr9Switch.fixture";
+
+// Wiring WR-9: this file's pins are about other slices and were captured before WR-9; it runs with WR-9 off (the
+// WR-9 moves are pinned and proven in wr9Goldens.test.ts), so every pin here keeps proving its own slice exactly.
+wr9OffForThisFile();
 
 // WR-7 follow-up OC-D8 (patrol legs scale with transit speed): every pin here predates the legs and is about E-MOD EM-4;
 // with the legs off each one returns (checked when the legs were wired), so the file runs with them off and keeps

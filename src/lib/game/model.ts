@@ -1144,6 +1144,13 @@ export const PATROL_LEGS_SWITCH = { live: true };
 // entry without the roll it recovered, so a golden can show that the pins WR-11 moved return. Always live in the game.
 export const WR11_SWITCH = { live: true };
 
+// Test switch only (the same pattern, Wiring WR-9): off, a captain mission is dispatched without the Pilot's Cunning
+// stamp (CaptainMissionState.pilotCunning), an expedition without Command Presence on its objective hauls
+// (Expedition.groundOutputShare) or Operations Integrity on its offload (GroundOpsFactors.offloadSteady), and a
+// generated crewmember rolls no third buff (CrewSignature.buff3Id), so a golden can show that the pins WR-9 moved return.
+// Always live in the game.
+export const WR9_SWITCH = { live: true };
+
 // Test switch only (the same pattern, OC-D8 follow-up): off, a cycle freezes its legs at the sweeping speed alone (the
 // rule before Fast Departure / Fast Return reached patrols), so a golden can show that the pins the lifts moved return.
 // Always live in the game.
@@ -3885,6 +3892,11 @@ export interface CaptainMissionState {
   // WR-7 follow-up (OC-D5): the favored-spec stamp, as on ShortRangeMissionState: stamped at dispatch, carried to every
   // repeated cycle; only a stamped run's sheet reads the favored lines.
   favoredSpec?: 1;
+  // WR-9 (OC-E4, user 2026-10-15 "Quicker trips home"): the Flight Deck's Cunning facet at dispatch
+  // (officerStats.ts pilotCunningStamp), carried to every repeated cycle: each cycle, that chance its return leg runs
+  // PILOT_CUNNING_RETURN_CUT_TICKS shorter (tick.ts tickCaptainMission). Written only when non-zero; a run in flight
+  // from before WR-9 has none and flies as it did. Optional, no SAVE bump.
+  pilotCunning?: number;
 }
 
 // GEAR WEAR step 3: a captain mission's or short-range run's wear flag. `frozen`: piece id -> the condition (per-mille)
@@ -7499,6 +7511,10 @@ export interface CrewSignature {
   race: CrewRace;
   buff1Id: CrewBuffId; // the primary rolled buff (always present)
   buff2Id: CrewBuffId | null; // a 2nd buff at higher ranks only (profession pool OR the exclusive pool); null otherwise
+  // Wiring WR-9 (OC-E12, user 2026-10-15 "Roll a third buff"): a 3rd buff, from the crewmember's PROFESSION pool, rolled
+  // by a rank whose buffCountForRank is 3 (Lieutenant, Lieutenant Commander). Absent on every crewmember rolled before
+  // WR-9 and on every lower rank (no SAVE bump: absent = two buffs, as before).
+  buff3Id?: CrewBuffId;
 }
 
 // A histogram bucket: how many identical-signature crew sit together. The persisted unit of a
@@ -7530,6 +7546,7 @@ export interface NotableCrewMember {
   race: CrewRace;
   buff1Id: CrewBuffId; // mirrors the CrewSignature buff shape (see above)
   buff2Id: CrewBuffId | null;
+  buff3Id?: CrewBuffId; // WR-9 (OC-E12): the third buff of a top-rank signature (absent otherwise)
   name: string;
   gender: string;
   favorite?: boolean;
@@ -8580,6 +8597,11 @@ export interface Expedition {
   //                       (gambit.ts squadCombinedResist).
   squadHpBonus?: number;
   squadDebuffResist?: number;
+  // WR-9 (OC-E9, user 2026-10-15 "Expeditions too"): Command Presence (crewOverlay.ts officerMissionOutputBonus, the
+  // XO's officer.shipOutputMult; the complement's Crew Output Multiplier stays missions and patrols, OC-E3), frozen at
+  // dispatch: every Ground Ops objective's haul (materials and credits) grows by this share (groundTasks.ts
+  // taskFullHaul). Written only when non-zero; a run dispatched before WR-9 has none and hauls as it did.
+  groundOutputShare?: number;
   // E-CREW 0.14.0 (Task 21): the OFFICER STAT FACETS that reach this run, frozen at dispatch like the fields
   // above (officerStats.ts; small named fields for the Ground Operations redesign, D25, to carry forward).
   // OPTIONAL, written only when non-zero (absent = no effect, no SAVE_VERSION bump).
@@ -9269,6 +9291,11 @@ export interface GroundOpsFactors {
   // INJURY-class conditions in the medical bay (medicalBay.ts BayCare.preventLossShare). Written only when non-zero, so
   // a run without it (and every run dispatched before CP-3) keeps its exact shape.
   preventLossShare?: number;
+  // WR-9 (OC-E9, user 2026-10-15 "Expeditions too"): the Operations department's INTEGRITY facet (officerStats.ts
+  // departmentFacet), the Ground Ops twin of a mission's full-hold unload: an offload whose batch carries at least
+  // FULL_HOLD_FRACTION of its objective's haul runs offloadMult x (1 + this) faster (groundOps.ts groundOffloadSeconds).
+  // Written only when non-zero; a run dispatched before WR-9 keeps its exact shape.
+  offloadSteady?: number;
 }
 
 // The ship-side scan event inputs, frozen at dispatch (shipScanEvents.ts snapshotShipEventProfile, GO-8; GO-9

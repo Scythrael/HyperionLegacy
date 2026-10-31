@@ -441,6 +441,8 @@ import {
   cunningProc,
   cunningStream,
   departmentFacet,
+  pilotCunningStamp,
+  pilotCutReturnLeg,
 } from "./officerStats";
 import { CREW_STAT_KEYS } from "./crewBuffs";
 // Exploration 0.14.0 (Phase E2a): the per-tick EXPEDITION engine, run once per whole tick at the tail
@@ -2447,7 +2449,12 @@ export function tickCaptainMission(
   // the per-cycle rolls AND the cursor stamp, so a run without them is byte-identical.
   const opsCunning = Math.max(0, bonuses.cunningOperationsChance ?? 0);
   const sciCunning = Math.max(0, bonuses.cunningScienceChance ?? 0);
-  const cunningLive = opsCunning > 0 || sciCunning > 0;
+  // WR-9 (OC-E4, user 2026-10-15 "Quicker trips home"): the Pilot's Cunning, STAMPED on the run at dispatch
+  // (CaptainMissionState.pilotCunning, carried to every repeated cycle), so it is constant for the whole run. Each
+  // cycle's return leg rolls it once on the Flight Deck's private stream of that cycle's key (the lifetime counter
+  // below, which steps at delivery, so the roll is the same however the leg is chunked). Absent = no roll.
+  const pilotCunning = Math.max(0, captain.mission?.kind === "extraction" ? captain.mission.pilotCunning ?? 0 : 0);
+  const cunningLive = opsCunning > 0 || sciCunning > 0 || pilotCunning > 0;
   // The captain's LIFETIME Cunning cycle counter (CaptainState.cunningCycles): one step per delivered cycle
   // rolled, persisted on the CAPTAIN so a recall + redispatch never resets it (a per-run cursor would replay
   // the same outcomes every dispatch, a farmable cycle-0 success). Undefined until the first rolled cycle,
@@ -2525,9 +2532,12 @@ export function tickCaptainMission(
     // ordersReceived phases add 0. `?? 0` tolerates a pre-F3 in-flight mission (field absent).
     // E-CREW (Task 21): missionPhaseTicks = requiredTicksForPhase, except a packed hold's faster unload
     // (Operations Integrity); the cargo is fixed while unloading, so the length is constant in the phase.
+    // WR-9 (OC-E4): on the return leg of a cycle whose Pilot roll lands, the leg runs a tick shorter (pilotCutReturnLeg).
+    const phaseTicks = missionPhaseTicks(mission.phase, missionDef, mission.cargo);
     const requiredTicks =
-      missionPhaseTicks(mission.phase, missionDef, mission.cargo) +
-      (mission.phase === "ordersReceived" ? mission.refuelDelayTicks ?? 0 : 0);
+      (mission.phase === "transitBack" && pilotCunning > 0 && cunningProc(captainCycleMissionSeed(captain.id, cunningCycles ?? 0), "pilot", pilotCunning)
+        ? pilotCutReturnLeg(phaseTicks)
+        : phaseTicks) + (mission.phase === "ordersReceived" ? mission.refuelDelayTicks ?? 0 : 0);
     const ticksLeftInPhase = requiredTicks - mission.phaseProgressTicks;
     let ticksToApply = skipping ? ticksLeftInPhase : Math.min(remaining, ticksLeftInPhase);
 
@@ -2823,6 +2833,8 @@ export function tickCaptainMission(
               ...(mission!.moduleLines !== undefined ? { moduleLines: mission!.moduleLines } : {}),
               // WR-7 follow-up (OC-D5): and the favored-spec stamp.
               ...(mission!.favoredSpec !== undefined ? { favoredSpec: mission!.favoredSpec } : {}),
+              // WR-9 (OC-E4): and the Pilot's Cunning stamp.
+              ...(mission!.pilotCunning !== undefined ? { pilotCunning: mission!.pilotCunning } : {}),
             };
           }
         }
@@ -6038,6 +6050,8 @@ export function dispatchCaptainOnMission(
   const moduleLines = wearShip ? crewModuleLinesStamp(state, wearShip) : undefined;
   // WR-7 follow-up (OC-D5): and its favored pieces' bonus (stamped only when a piece favors the hull's spec).
   const favoredSpec = wearShip ? favoredSpecStamp(equippedFor(state, wearShip.id), wearShip.typeKey) : undefined;
+  // WR-9 (OC-E4): and the Pilot's Cunning (stamped only when the Flight Deck's Cunning facet is non-zero).
+  const pilotCunning = wearShip ? pilotCunningStamp(state, wearShip) : undefined;
   captains[idx] = {
     ...captains[idx],
     mission: {
@@ -6054,6 +6068,7 @@ export function dispatchCaptainOnMission(
       ...(reactorLift !== undefined ? { reactorLift } : {}),
       ...(moduleLines !== undefined ? { moduleLines } : {}),
       ...(favoredSpec !== undefined ? { favoredSpec } : {}),
+      ...(pilotCunning !== undefined ? { pilotCunning } : {}),
     },
     // Combat 0.13.0 (offline recap): CLEAR any stale wall-stop reason on a fresh dispatch, so a
     // captain re-dispatched after a prior cargo/defeat stop never shows the old reason.

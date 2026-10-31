@@ -7,6 +7,11 @@ import { describe, it, expect } from "vitest";
 // GEAR WEAR step 3: this file's pins were captured before the use wear engine; it runs with the use sources off
 // (gearWearSwitch.fixture.ts), so they keep proving nothing else moved. gearWearGoldens.test.ts pins the wear.
 import { gearWearOffInThisFile } from "./gearWearSwitch.fixture";
+import { wr9OffForThisFile } from "./wr9Switch.fixture";
+
+// Wiring WR-9: this file's pins are about other slices and were captured before WR-9; it runs with WR-9 off (the
+// WR-9 moves are pinned and proven in wr9Goldens.test.ts), so every pin here keeps proving its own slice exactly.
+wr9OffForThisFile();
 gearWearOffInThisFile();
 // E-MOD EM-1: sheets pinned before the power budget engine are hashed with it switched off (emodGoldens.test.ts pins
 // the power numbers and proves the switch reproduces its own capture), so these pins keep proving nothing else moved.
@@ -1047,8 +1052,11 @@ describe("Cunning: per-mission over-delivery", () => {
     expect(injuryRecoverySeconds({ ...base, officerFacetShare: CUNNING_QUICK_RECOVERY })).toBeLessThan(injuryRecoverySeconds(base));
   });
 
-  it("the Pilot and the XO have no over-delivery of their own yet (pending the user's call)", () => {
-    expect([...CUNNING_PENDING_SEATS].sort()).toEqual(["executive", "pilot"]);
+  // WR-9 (OC-E4, user 2026-10-15 "Quicker trips home"): the Pilot's Cunning acts on a run STAMPED at dispatch
+  // (wr9.test.ts proves the quicker trip home); a run built without the stamp (as here, and every run in flight from
+  // before WR-9) is unchanged. The XO still has no over-delivery of its own.
+  it("the XO has no over-delivery of its own; the Pilot's Cunning leaves an unstamped run unchanged", () => {
+    expect([...CUNNING_PENDING_SEATS].sort()).toEqual(["executive"]);
     const neutral = bridgeWith({});
     const pilot = bridgeWith({ pilot: { cunning: 28 } });
     for (const key of ["shortOreRun", "frontierSupplyRun"] as MissionKey[]) {

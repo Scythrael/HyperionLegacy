@@ -269,7 +269,7 @@ export function taskWorkSeconds(
 // tier of the run's region stamp (Expedition.region, written since G2-2) multiplies it too (riskFactors.ts
 // tierHaulMult: Tier I x1); a run without the stamp (dispatched before G2-2) rolls exactly as before. Pure.
 export function taskFullHaul(
-  exp: Pick<Expedition, "seed" | "roster" | "scienceStrength" | "museumSciencePower" | "siteRules"> & { region?: Pick<ExpeditionRegionStamp, "tier"> },
+  exp: Pick<Expedition, "seed" | "roster" | "scienceStrength" | "museumSciencePower" | "siteRules" | "groundOutputShare"> & { region?: Pick<ExpeditionRegionStamp, "tier"> },
   teams: readonly GroundTaskTeam[],
   body: Pick<ExpeditionBody, "planetType" | "hazard">,
   poiId: string,
@@ -279,7 +279,10 @@ export function taskFullHaul(
   const yieldMult = fieldworkEffect(taskFieldworkRun(exp, teams), body.planetType, poiId).yieldMult;
   const risked = riskBonus > 0 && Number.isFinite(riskBonus) ? yieldMult * (1 + riskBonus) : yieldMult;
   const tier = tierHaulMult(exp.region);
-  const scale = tier !== 1 ? risked * tier : risked;
+  const tiered = tier !== 1 ? risked * tier : risked;
+  // Wiring WR-9 (OC-E9): Command Presence, frozen on the run, grows the objective's haul (absent = unchanged).
+  const output = exp.groundOutputShare;
+  const scale = output !== undefined && output > 0 && Number.isFinite(output) ? tiered * (1 + output) : tiered;
   // Wiring WR-11 (OC-G4): a site that names more materials hauls more of them on a run stamped with the site rules.
   return rollHaul(taskRewardSeed(exp, flatIndex), body.planetType, body.hazard, scale, poiMaterialMult(exp, poiId));
 }

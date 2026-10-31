@@ -42,7 +42,12 @@
 //                               enemies at (1 - CUNNING_AMBUSH_SOFTEN) health and power (rolled at dispatch)
 //                   Medical     a quicker recovery: the expedition's injured come home with
 //                               CUNNING_QUICK_RECOVERY added to their care (rolled at dispatch)
-//                   Flight Deck + XO: NO decided effect yet (see CUNNING_PENDING_SEATS).
+//                   Flight Deck a quicker trip home (WR-9, OC-E4, user 2026-10-15 "Quicker trips home"): each
+//                               cycle of a captain mission, a chance (= the facet) that the return leg runs
+//                               PILOT_CUNNING_RETURN_CUT_TICKS shorter (tick.ts tickCaptainMission), keyed on the
+//                               captain's lifetime cycle counter; the chance is stamped at dispatch
+//                               (CaptainMissionState.pilotCunning), so a run in flight from before WR-9 never rolls
+//                   XO: NO over-delivery of its own (see CUNNING_PENDING_SEATS); its share raises the others.
 //   CONSTITUTION  the long-haul RAMP: the department's in-run buffs grow by facet * diminishing(hours out,
 //                 CONSTITUTION_RAMP_KNEE_HOURS). The plan's first pass said "capped 5 hours"; D23 (user,
 //                 2026-10-08: diminishing returns, never hard caps) supersedes the cap, so 5 hours is the
@@ -67,7 +72,7 @@
 // keyed stream. Nothing reads Date.now() or Math.random.
 
 import type { CrewProfession, GameState, OfficerStats, SeniorStaffOfficer, SeniorStaffSeat, ShipInstance } from "./model";
-import { FULL_HOLD_FRACTION } from "./model";
+import { FULL_HOLD_FRACTION, WR9_SWITCH } from "./model";
 import { officerStats, OFFICER_STAT_INFO, SENIOR_STAFF_SEATS } from "./seniorStaff";
 import { CONSTITUTION_RAMP_KNEE_HOURS, constitutionRamp } from "./constitutionRamp";
 import { makeRng, type Rng } from "./combat/rng";
@@ -176,11 +181,28 @@ export const CUNNING_FREE_REPAIR_TICKS = 1; // Engineering: one repair tick off 
 export const CUNNING_AMBUSH_SOFTEN = 0.25; // Security: scan-encounter enemies at 75% health and power
 export const CUNNING_QUICK_RECOVERY = 0.5; // Medical: +0.5 on the run's injury care divisor
 
-// TODO(user decision pending, asked 2026-10-09): the Flight Deck officer (Pilot) and the XO have NO decided
-// Cunning over-delivery yet. Until the user names one, a Pilot's Cunning does nothing on its own and the XO's
-// Cunning only reaches the other departments through its XO_DEPARTMENT_SHARE. Listed so the Task 22 "no dead
-// stats" pass and the Help topic can name the gap honestly.
-export const CUNNING_PENDING_SEATS: readonly SeniorStaffSeat[] = ["pilot", "executive"];
+// The XO has no Cunning over-delivery of its OWN: its Cunning reaches the other departments through its
+// XO_DEPARTMENT_SHARE (live that way). Listed so the "no dead stats" pass and the tooltips name it honestly. The Pilot
+// left this list with WR-9 (OC-E4, user 2026-10-15 "Quicker trips home": PILOT_CUNNING_RETURN_CUT_TICKS below).
+export const CUNNING_PENDING_SEATS: readonly SeniorStaffSeat[] = ["executive"];
+
+// WR-9 (OC-E4): the Flight Deck's over-delivery. On a proc the cycle's return leg runs this many ticks shorter, never
+// below one tick (a one-tick leg cannot be cut). FIRST-PASS, TUNABLE.
+export const PILOT_CUNNING_RETURN_CUT_TICKS = 1;
+
+// The Pilot's Cunning stamp a captain mission dispatched now carries: the Flight Deck's Cunning facet (the Pilot's own
+// plus the XO's share), or undefined when it is 0 (nothing is written) or the WR-9 test switch is off. Pure.
+export function pilotCunningStamp(state: GameState, ship: ShipInstance): number | undefined {
+  if (!WR9_SWITCH.live) return undefined;
+  const chance = departmentFacet(state, ship, "flightDeck", "cunning");
+  return chance > 0 ? chance : undefined;
+}
+
+// A return leg of `ticks` after the Pilot's over-delivery: PILOT_CUNNING_RETURN_CUT_TICKS shorter, never below one
+// tick (a leg already at or below one tick is unchanged). Pure.
+export function pilotCutReturnLeg(ticks: number): number {
+  return ticks <= 1 ? ticks : Math.max(1, ticks - PILOT_CUNNING_RETURN_CUT_TICKS);
+}
 
 // A seat's index in SENIOR_STAFF_SEATS (the "seat index" of the roll key). Pure.
 export function seatIndex(seat: SeniorStaffSeat): number {
@@ -240,6 +262,7 @@ export const CUNNING_EDGE_BY_DEPARTMENT: Readonly<Partial<Record<CrewProfession,
   engineering: "a free repair tick when a patrol ends in defeat",
   security: `a softened ambush: an expedition's random battles field enemies at ${Math.round((1 - CUNNING_AMBUSH_SOFTEN) * 100)}% strength`,
   medical: "a quicker recovery for the expedition's injured",
+  flightDeck: "a quicker trip home: each mission cycle, a chance the return leg is one tick shorter",
 };
 
 // What each department's Constitution touches: the ramp's in-run buffs, and for the three departments that
@@ -262,7 +285,7 @@ export const INTEGRITY_DETAIL_BY_DEPARTMENT: Readonly<Record<CrewProfession, str
   engineering: "Below half hull in a patrol battle: the shields recharge faster",
   science: "While scanning a hazardous world: the hazard slows the scan less",
   medical: "When away-team members come home injured: they recover sooner",
-  operations: `With the hold at least ${Math.round(FULL_HOLD_FRACTION * 100)}% full: unloading at home is faster`,
+  operations: `With the hold at least ${Math.round(FULL_HOLD_FRACTION * 100)}% full: unloading at home is faster. On an expedition: a team's offload carrying at least ${Math.round(FULL_HOLD_FRACTION * 100)}% of an objective's haul is faster`,
 };
 
 // The stats whose facet also reaches the XO's OWN bonuses in full (seatFacet's "all" branch): Integrity and

@@ -346,7 +346,7 @@ export const UNREAD_CONSTANTS: Readonly<Record<string, string>> = {
   // Rarity readiness RR-5.
   LEGENDARY_AFFIX_EXCLUDED: "bookkeeping: the slot families with no Luminous legendary affix and why (no inert line), checked by legendaryAffixes.test.ts",
   ASCENSION_PRODUCIBLE: "switch: false = no player path mints Nova / Celestial; its reader is the producer (crafting-talent proc or drop source) designed when the user ships ascension (owner: that later patch); the Debug minter is the only source until then",
-  CUNNING_PENDING_SEATS: "bookkeeping: the seats with no Cunning over-delivery yet (Pilot Cunning, WR-9 OC-E4)",
+  CUNNING_PENDING_SEATS: "bookkeeping: the seats with no Cunning over-delivery of their own (the XO; its share reaches the others; the Pilot's went live with WR-9 OC-E4)",
   ECONOMY_FLOOR_SLOTS: "display: the Quartermaster's economy floor set, named for its readers",
   PROSPECTING_USES: "seam: the prospecting quests patch (the three later Prospecting uses, read by the wiring registry; deferred)",
   PROSPECTING_BLUEPRINTS: "seam: the prospecting quests patch merges these hidden blueprints into BLUEPRINTS (read by the wiring registry; deferred)",
