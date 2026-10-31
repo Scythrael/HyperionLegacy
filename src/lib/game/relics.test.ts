@@ -231,7 +231,7 @@ describe("PoI -> relic set: ONE source of truth for the reward roll AND the fore
     for (const cand of cands) {
       const fk = cand.foreknowledge;
       expect(fk.relicSets).not.toBeNull();
-      expect(fk.relicSignature).toBe(fk.relicSets!.length > 0);
+      expect("relicSignature" in fk).toBe(false); // WR-11: the always-true flag is gone; relicSets is the lead
       // Commit this candidate and run it to completion; derive the sets from its real discoveries.
       // A legacy run (asLegacyDispatch) always completes; the discoveries are the same on either engine.
       const raw = dispatchPastPropulsion(s, "ship-1", 1, cand.id);
@@ -250,7 +250,7 @@ describe("PoI -> relic set: ONE source of truth for the reward roll AND the fore
   it("the relic sets stay masked below the relic reveal threshold", () => {
     const fk = expeditionCandidates(shipWithSensors(SENSOR_REVEAL_HAZARD), "ship-1")[0].foreknowledge;
     expect(fk.relicSets).toBeNull();
-    expect(fk.relicSignature).toBeNull();
+    expect("relicSignature" in fk).toBe(false);
   });
 });
 

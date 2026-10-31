@@ -22,6 +22,10 @@ import { advanceExpedition, claimExpedition, expeditionCandidates } from "./expe
 import { asPreG2NamesDispatch, asV67GroundState, plainAwayMember, withSlottedAwayTeams, withoutGroundOps, dispatchPastPropulsion } from "./awayTeamTestFixtures";
 // SF-1: the claimed state hashes without the run counters (a claim writes them), absent before SF-1.
 import { withoutRunCounts, goldenJson } from "./firstRunsGoldens.fixture";
+import { wr11OffForThisFile } from "./wr11Switch.fixture";
+// Wiring WR-11 came after every pin here: the whole file runs with WR-11 off (wr11Switch.fixture.ts), so its pins keep
+// proving their own slice moved nothing else (WR-11's own moves are pinned in wr11Goldens.test.ts).
+wr11OffForThisFile();
 
 function fnv(s: string): string {
   let h = 0x811c9dc5;

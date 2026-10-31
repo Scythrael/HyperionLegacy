@@ -16,7 +16,7 @@
 // (expedition.ts imports this module for ACTIVITY_SECONDS, and GO-7's groundOps.ts sits between them).
 
 import type { BodyRiskGrades, Expedition, ExpeditionActivity, ExpeditionBody, ExpeditionRegionStamp, SnapshotMember } from "./model";
-import type { ExpeditionPoiId } from "./expeditionContent";
+import { poiMaterialMult, surfaceWorkMult, type ExpeditionPoiId } from "./expeditionContent";
 import { fieldworkEffect, fieldworkHazardResist, fieldworkSpeedMult } from "./fieldwork";
 import { resistedHazard } from "./relics";
 import { rollHaul, taskRewardSeed } from "./gambit";
@@ -180,14 +180,16 @@ export function teamSnapshotMembers<T>(
 // Science crew layer times the teams' summed share (each share clamped at 0). Security stays empty: the
 // fieldwork readers never read it (Science does the fieldwork, design D2). Pure; fresh arrays.
 export function taskFieldworkRun(
-  exp: Pick<Expedition, "roster" | "scienceStrength">,
+  exp: Pick<Expedition, "roster" | "scienceStrength" | "museumSciencePower">,
   teams: readonly GroundTaskTeam[],
-): Pick<Expedition, "roster" | "scienceStrength"> {
+): Pick<Expedition, "roster" | "scienceStrength" | "museumSciencePower"> {
   let share = 0;
   for (const team of teams) share += Math.max(0, team.scienceShare);
   return {
     roster: { security: [], science: teamSnapshotMembers(exp.roster?.science, teams, (t) => t.scienceIds) },
     scienceStrength: (exp.scienceStrength ?? 0) * share,
+    // Wiring WR-11 (OC-H1): the Museum's Science team power on the members is a per-member factor, not a pool share.
+    ...(exp.museumSciencePower !== undefined ? { museumSciencePower: exp.museumSciencePower } : {}),
   };
 }
 
@@ -229,9 +231,10 @@ export const TASK_MIN_WORK_SECONDS = 1;
 // dig by riskFactors.ts floraWorkMult (exactly 1 without it, so every other body is unchanged). Pure (reads the
 // stored run only).
 export function taskWorkSeconds(
-  exp: Pick<Expedition, "roster" | "scienceStrength" | "hazardResist">,
+  exp: Pick<Expedition, "roster" | "scienceStrength" | "hazardResist" | "museumSciencePower" | "siteRules">,
   teams: readonly GroundTaskTeam[],
   body: Pick<ExpeditionBody, "planetType" | "hazard" | "risk">,
+  poiId?: string,
 ): number {
   const run = taskFieldworkRun(exp, teams);
   const rawSpeed = fieldworkSpeedMult(run, body.planetType);
@@ -246,7 +249,11 @@ export function taskWorkSeconds(
   const presented = resistedHazard(body.hazard, resist);
   const hazardSlow = 1 + (presented > 0 && Number.isFinite(presented) ? presented : 0) * TASK_HAZARD_PENALTY;
   const flora = floraWorkMult(body);
-  const secs = flora === 1 ? (ACTIVITY_SECONDS / speed) * hazardSlow : (ACTIVITY_SECONDS / speed) * hazardSlow * flora;
+  const base = flora === 1 ? (ACTIVITY_SECONDS / speed) * hazardSlow : (ACTIVITY_SECONDS / speed) * hazardSlow * flora;
+  // Wiring WR-11 (OC-G6 "Model Ocean only"): surface work on an Ocean world is slower on a run stamped with the site
+  // rules (expeditionContent.ts surfaceWorkMult; exactly 1 otherwise, so the time is the one before WR-11).
+  const surface = surfaceWorkMult(exp, body.planetType, poiId);
+  const secs = surface === 1 ? base : base * surface;
   return Math.max(TASK_MIN_WORK_SECONDS, Math.round(secs));
 }
 
@@ -262,7 +269,7 @@ export function taskWorkSeconds(
 // tier of the run's region stamp (Expedition.region, written since G2-2) multiplies it too (riskFactors.ts
 // tierHaulMult: Tier I x1); a run without the stamp (dispatched before G2-2) rolls exactly as before. Pure.
 export function taskFullHaul(
-  exp: Pick<Expedition, "seed" | "roster" | "scienceStrength"> & { region?: Pick<ExpeditionRegionStamp, "tier"> },
+  exp: Pick<Expedition, "seed" | "roster" | "scienceStrength" | "museumSciencePower" | "siteRules"> & { region?: Pick<ExpeditionRegionStamp, "tier"> },
   teams: readonly GroundTaskTeam[],
   body: Pick<ExpeditionBody, "planetType" | "hazard">,
   poiId: string,
@@ -273,5 +280,6 @@ export function taskFullHaul(
   const risked = riskBonus > 0 && Number.isFinite(riskBonus) ? yieldMult * (1 + riskBonus) : yieldMult;
   const tier = tierHaulMult(exp.region);
   const scale = tier !== 1 ? risked * tier : risked;
-  return rollHaul(taskRewardSeed(exp, flatIndex), body.planetType, body.hazard, scale);
+  // Wiring WR-11 (OC-G4): a site that names more materials hauls more of them on a run stamped with the site rules.
+  return rollHaul(taskRewardSeed(exp, flatIndex), body.planetType, body.hazard, scale, poiMaterialMult(exp, poiId));
 }

@@ -332,8 +332,11 @@ describe("ML-1 sink rule: every material has a consumer or a typed reserve", () 
   });
 
   it("every raw, salvaged, refined and component item has a consumer XOR a reserve", () => {
+    // Wiring WR-11 (OC-J3 "Sell now, recipes later"): a Quartermaster sale is the interim sink of an item whose recipe
+    // is still reserved for its slice (Precursor Circuit: EM-8), so a sale alone never counts against the reserve.
+    const recipeUsed = (id: string, reserved: boolean) => (reserved ? (used.get(id) ?? []).some((k) => k !== "sell") : used.has(id));
     const bad = materials
-      .filter(([id, d]) => used.has(id) === (d.reserved !== undefined))
+      .filter(([id, d]) => recipeUsed(id, d.reserved !== undefined) === (d.reserved !== undefined))
       .map(([id, d]) => `${id}: ${d.reserved !== undefined ? `reserved but consumed by ${used.get(id)?.join(", ")}` : "no consumer and no reserve"}`);
     expect(bad).toEqual([]);
   });

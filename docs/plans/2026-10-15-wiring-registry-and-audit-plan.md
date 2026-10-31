@@ -1993,3 +1993,28 @@ speed vs the Efficient Core's +35%); Wide arrays netted about 1.27x the finds pe
   cycles add their full route, byte-identical); crewHours accrues in whole milliseconds (`crewHoursMs`, milliseconds
   because Drillmaster x1.08 makes seconds x mult fractional; exact while the multiplier is 1 or 1.08), old saves
   convert on first increment; test switch CREW_HOURS_MS_SWITCH. No SAVE_VERSION bump.
+
+## WR-11 BUILT (2026-10-30)
+
+Goldens first (wr11Goldens.test.ts on a158982), test switch WR11_SWITCH (wr11Switch.fixture.ts); every moved pin returns
+with it off. No SAVE_VERSION bump: every new field is optional and stamped at dispatch or at a salvage job's start.
+
+- OC-G4: each PoI's flavor shows on the objective card and the queue row (expeditionContent.ts groundSiteFlavor) and is
+  true: a run stamped with the site rules (Expedition.siteRules) multiplies the relic chance at Buried Vault x1.5 and
+  Subterranean Civilization x2, and the haul's materials at Xeno-Flora Bloom, Geothermal Chamber, Derelict Outpost and
+  Crashed Ship x1.25 (credits unchanged) [PROVISIONAL sizes]. Flavor lines reworded so every claim is real.
+- Hostile and clearing site flavor: rendered the same way.
+- OC-G3: on a stamped run the chart chance is 1000 - 650 / (1 + sensorPower / 40) permille (35% at 0 sensors, never
+  certain) and a charted anomaly brings home a small haul (rollHaul on the default table at 0.5 x the tier haul)
+  [PROVISIONAL]. The old-run text no longer claims a finding.
+- relicSignature: deleted (always true; relicSets is the lead). OC-G5: ShipEventProfile evasion / shieldCapacity deleted.
+- OC-G6: Ocean surface objectives take x1.25 work time on a stamped run [PROVISIONAL]; Frozen and Toxic comments dropped.
+- OC-I1: MISSIONS.cargoCapacity deleted (RunMissionDef carries the hull's hold; missionDefWithoutShip reads the 90
+  reference hold for a caller without a ship). OC-I2: deferred with the user's words (hidden from every text).
+- OC-J1: the salvage talent's +1 reach past the pool's top tilts the tier weights up (weight x factor^i, factor =
+  1 + diminishing(0.5 x overflow, 1)) on a job stamped at its start (rollRules); RR-7's reserved FA 20 row tilts nothing.
+- OC-J2: a material salvage's log entry carries its loot tier; the Home board row reads "Standard quality" and the like.
+- OC-J3: Salvaged Circuitry 12 cr and Precursor Circuit 300 cr at the Quartermaster [PROVISIONAL prices].
+- OC-J4: the safety rows stay, each covered by a test. Status `color`: deleted.
+- OC-H1: the Museum's Science team power is frozen on the run (museumSciencePower) and scales each named Science
+  member's own fieldwork. OC-H2: the stat reads "salvage yield (recycling and hull teardown)".

@@ -17,6 +17,10 @@ import { fnv, goldenJson } from "./firstRunsGoldens.fixture";
 // Gear wear step 4 (0.14.0): every run here was pinned before step 4 stamped a new run for battle wear (the stamp's
 // `battle`, its ship battle snapshot's frozen reactor and drive), so the file runs with the battle sources off.
 import { battleWearOffInThisFile } from "./battleWearSwitch.fixture";
+import { wr11OffForThisFile } from "./wr11Switch.fixture";
+// Wiring WR-11 came after every pin here: the whole file runs with WR-11 off (wr11Switch.fixture.ts), so its pins keep
+// proving their own slice moved nothing else (WR-11's own moves are pinned in wr11Goldens.test.ts).
+wr11OffForThisFile();
 battleWearOffInThisFile();
 
 const SEC = ["member-1", "member-2", "member-3", "member-4", "member-5", "member-6"];

@@ -25,6 +25,9 @@ import { patrolLegsOffForThisFile } from "./patrolLegsSwitch.fixture";
 // proving its own slice. patrolLegsGoldens.test.ts pins the legs on every patrol and every combat hull.
 patrolLegsOffForThisFile();
 combatRulesOffForThisFile();
+// Wiring WR-11 came after every pin here: the whole file runs with WR-11 off (wr11Switch.fixture.ts), so its pins keep
+// proving their own slice moved nothing else (WR-11's own moves are pinned in wr11Goldens.test.ts).
+wr11OffForThisFile();
 // GEAR WEAR step 3: this file's pins were captured before the use wear engine; it runs with the use sources off
 // (gearWearSwitch.fixture.ts), so they keep proving nothing else moved. gearWearGoldens.test.ts pins the wear.
 import { gearWearOffInThisFile } from "./gearWearSwitch.fixture";
@@ -41,6 +44,7 @@ import { shipEventsLive } from "./shipScanEvents";
 import { deserialize, migrate, serialize } from "./save";
 import { asPreNebulaDispatch, asPreStaggerDispatch, plainAwayMember, withSlottedAwayTeams, dispatchPastPropulsion } from "./awayTeamTestFixtures";
 import { goldenJson, withV1Museum } from "./firstRunsGoldens.fixture";
+import { wr11OffForThisFile } from "./wr11Switch.fixture";
 
 function fnv(s: string): string {
   let h = 0x811c9dc5;

@@ -319,9 +319,8 @@ export interface MissionDef {
   transitBackTicks: number;
   unloadTicks: number;
   extractionRatePerTick: number; // total units/tick, regardless of which tier they land as
-  cargoCapacity: number; // total units across all tiers; MUST divide evenly by extractionRatePerTick
-  // for this launch's requiredTicksForPhase() to have no partial-final-tick
-  // edge case, see that function's comment below if this is ever violated.
+  // Wiring WR-11 (OC-I1 "Delete it"): the old per-mission `cargoCapacity` is gone. The hull's hold rules every run
+  // (effectiveMissionDef writes the ship's cargoCapacity onto the RunMissionDef below), so the field was never read.
   // Per-tick occurrence chances (0-1) checked in sequential, mutually
   // exclusive priority order, rare first, then uncommon, then a guaranteed
   // common fallback (2026-07-08 Extraction Rework, see the design doc).
@@ -480,6 +479,12 @@ export interface MissionDef {
   fullHoldUnloadTicks?: number;
 }
 
+// Wiring WR-11 (OC-I1): a mission as one ship flies it (effectiveMissionDef): the content def plus the hull's hold, the
+// one cargoCapacity a run reads (the extracting phase's length, the transport load, the full-hold unload).
+export interface RunMissionDef extends MissionDef {
+  cargoCapacity: number;
+}
+
 // Mission Rework (Task 1, docs/plans/2026-07-14-mission-rework-plan.md): 4 missions.
 // The 2 original ore runs (KEYS kept `shortOreRun`/`longOreRun`, label-only rename,
 // so no save migration) plus 2 new missions (`salvageWreckage`, `forageFlora`). Each
@@ -564,7 +569,6 @@ export const MISSIONS: Record<
     transitBackTicks: 0,
     unloadTicks: 8,
     extractionRatePerTick: 1,
-    cargoCapacity: 90, // 90 Deuterium Ice per cycle (divides evenly by rate 1)
     uncommonChance: 0, // Deuterium Ice ONLY, no uncommon tier
     rareChance: 0, //    , and no rare tier
     lootTable: { common: "deuteriumIce", uncommon: "uncommonMaterial", rare: "rareMaterial" },
@@ -581,7 +585,6 @@ export const MISSIONS: Record<
     transitBackTicks: 25,
     unloadTicks: 8,
     extractionRatePerTick: 1,
-    cargoCapacity: 90,
     uncommonChance: 0.019, // was lootTable weight 19/1000 (1.9%)
     rareChance: 0.001, // was lootTable weight 1/1000 (0.1%)
     // ANTI-REGRESSION: the IDENTITY triad, tier key == item key, so this run's
@@ -607,7 +610,6 @@ export const MISSIONS: Record<
     transitBackTicks: 70,
     unloadTicks: 8,
     extractionRatePerTick: 1,
-    cargoCapacity: 90,
     uncommonChance: 0.08, // was lootTable weight 80/1000 (8%)
     rareChance: 0.02, // was lootTable weight 20/1000 (2%)
     // REWIRED (design §1): the Lunar Mine yields its own Ferrite / Dense Ore / Osmium triad, not the ore keys.
@@ -635,7 +637,6 @@ export const MISSIONS: Record<
     transitBackTicks: 45,
     unloadTicks: 8,
     extractionRatePerTick: 1,
-    cargoCapacity: 90,
     uncommonChance: 0.014, // first-pass: design's 1.4% uncommon split (tunable)
     rareChance: 0.001, // first-pass: design's 0.1% rare split (tunable)
     lootTable: { common: "scrapAlloy", uncommon: "salvagedCircuitry", rare: "intactReactorCore" },
@@ -659,7 +660,6 @@ export const MISSIONS: Record<
     transitBackTicks: 55,
     unloadTicks: 8,
     extractionRatePerTick: 1,
-    cargoCapacity: 90,
     uncommonChance: 0.014, // first-pass: design's 1.4% uncommon split (tunable)
     rareChance: 0.001, // first-pass: design's 0.1% rare split (tunable)
     lootTable: { common: "fibrousBiomass", uncommon: "volatileResin", rare: "exoticSporeCluster" },
@@ -694,7 +694,6 @@ export const MISSIONS: Record<
     transitBackTicks: 85,
     unloadTicks: 8,
     extractionRatePerTick: 1,
-    cargoCapacity: 120, // a longer scan than the ore runs; divides evenly by rate 1
     uncommonChance: 0.1, // ABOVE longOreRun's 0.08: a survey is rarity-focused (tunable)
     rareChance: 0.03, //    ABOVE longOreRun's 0.02 (tunable)
     // NEW combination of EXISTING items (not an existing mission's triad): Titanium common
@@ -715,7 +714,6 @@ export const MISSIONS: Record<
     transitBackTicks: 95,
     unloadTicks: 8,
     extractionRatePerTick: 1,
-    cargoCapacity: 120,
     uncommonChance: 0.12, // the richer of the two surveys (tunable)
     rareChance: 0.04, //    the richer of the two surveys (tunable)
     // NEW combination of EXISTING items: Ferrite common floor, Volatile Resin uncommon, Exotic
@@ -752,7 +750,6 @@ export const MISSIONS: Record<
     transitBackTicks: 60,
     unloadTicks: 8,
     extractionRatePerTick: 1,
-    cargoCapacity: 120, // divides evenly by rate 1 (the extracting-phase contract)
     uncommonChance: 0, // no loot rolled/delivered: a transport is a pure credit loop
     rareChance: 0,
     // Inert scaffolding (never deposited): the generic tiers, guaranteed real + correctly tagged.
@@ -774,7 +771,6 @@ export const MISSIONS: Record<
     transitBackTicks: 90,
     unloadTicks: 8,
     extractionRatePerTick: 1,
-    cargoCapacity: 150, // divides evenly by rate 1
     uncommonChance: 0,
     rareChance: 0,
     lootTable: { common: "commonOre", uncommon: "uncommonMaterial", rare: "rareMaterial" },
@@ -807,7 +803,6 @@ export const MISSIONS: Record<
     transitBackTicks: COMETARY_ICE_HARVEST_NUMBERS.transitTicks,
     unloadTicks: 8,
     extractionRatePerTick: 1,
-    cargoCapacity: 90, // divides evenly by rate 1 (overwritten by the hull hold, like every mission: WR-11)
     uncommonChance: COMETARY_ICE_HARVEST_NUMBERS.titaniumChance,
     rareChance: COMETARY_ICE_HARVEST_NUMBERS.iridiumChance,
     lootTable: { common: "deuteriumIce", uncommon: "commonOre", rare: "rareMaterial" },
@@ -1142,6 +1137,12 @@ export interface PatrolLegTicks {
 // Test switch only (the EM-4 REACTOR_LIFT_SWITCH pattern): off, no cycle freezes legs, so every patrol flies its route's
 // legs and a golden can show that the pins it moved return. Always live in the game.
 export const PATROL_LEGS_SWITCH = { live: true };
+
+// Test switch only (the same pattern, Wiring WR-11): off, a dispatch stamps neither the site rules (Expedition.siteRules)
+// nor the Museum's Science team power on the members (Expedition.museumSciencePower), the ship-event profile keeps its
+// two frozen display copies (evasion, shieldCapacity), a material salvage starts without the overflow stamp and its log
+// entry without the roll it recovered, so a golden can show that the pins WR-11 moved return. Always live in the game.
+export const WR11_SWITCH = { live: true };
 
 // Test switch only (the same pattern, OC-D8 follow-up): off, a cycle freezes its legs at the sweeping speed alone (the
 // rule before Fast Departure / Fast Return reached patrols), so a golden can show that the pins the lifts moved return.
@@ -4253,7 +4254,7 @@ export interface CaptainCombatMods {
 // units at extractionRatePerTick units/tick. Rounds up, which only matters
 // if cargoCapacity doesn't divide evenly by extractionRatePerTick (today's
 // launch content avoids this; see the MISSIONS comment above).
-export function requiredTicksForPhase(phase: MissionPhase, missionDef: MissionDef): number {
+export function requiredTicksForPhase(phase: MissionPhase, missionDef: RunMissionDef): number {
   switch (phase) {
     case "ordersReceived":
       return 1;
@@ -4275,7 +4276,7 @@ export function requiredTicksForPhase(phase: MissionPhase, missionDef: MissionDe
 // popup's TIMING list showed four rows but quietly added the 1-tick Orders Received phase to its
 // total. Pass the EFFECTIVE def (effectiveMissionDef) for a ship-scaled readout, as the popup does.
 export type MissionCycleTiming = Record<MissionPhase, number> & { total: number };
-export function missionCycleTiming(missionDef: MissionDef): MissionCycleTiming {
+export function missionCycleTiming(missionDef: RunMissionDef): MissionCycleTiming {
   const ordersReceived = requiredTicksForPhase("ordersReceived", missionDef);
   const transitOut = requiredTicksForPhase("transitOut", missionDef);
   const extracting = requiredTicksForPhase("extracting", missionDef);
@@ -4783,7 +4784,33 @@ const UNLOAD_MIN_TICKS = 3;        // floor: the smallest holds still take at le
 // divides evenly, no partial-final-tick path is introduced. The unload phase is
 // now cargo-scaled too (Crew 0.14.0 Phase 5): unloadTicks grows with the hull's
 // cargo hold and is then shortened by the crew unloadSpeed multiplier (see below).
-export function effectiveMissionDef(base: MissionDef, ship: ShipDerivedStats): MissionDef {
+// Wiring WR-11 (OC-I1): the def a caller WITHOUT a ship reads (a test, or a readout with no hull to scale by, such as the
+// mission popup before a ship is chosen): the content def at that mission's no-ship reference hold. MISSIONS no longer
+// carries a cargoCapacity (a ship's hold always drives a real run); these are the values each mission carried before the
+// field was deleted, kept here so the no-ship preview reads what it did before. A def not found here (a copy, or a
+// mission added later) falls back to the General Freighter's 90 (UNLOAD_REFERENCE_CARGO). Pure.
+const NO_SHIP_REFERENCE_HOLD: Readonly<Record<MissionKey, number>> = {
+  localFuelRun: 90,
+  shortOreRun: 90,
+  longOreRun: 90,
+  salvageWreckage: 90,
+  forageFlora: 90,
+  surveyMineralAnomaly: 120,
+  surveyStellarPhenomena: 120,
+  frontierSupplyRun: 120,
+  colonySupplyLift: 150,
+  cometIceHarvest: 90,
+};
+let noShipHoldByDef: Map<MissionDef, number> | undefined;
+export function missionDefWithoutShip(base: MissionDef): RunMissionDef {
+  if (!noShipHoldByDef) {
+    noShipHoldByDef = new Map();
+    for (const [key, def] of Object.entries(MISSIONS)) noShipHoldByDef.set(def, NO_SHIP_REFERENCE_HOLD[key as MissionKey]);
+  }
+  return { ...base, cargoCapacity: noShipHoldByDef.get(base) ?? UNLOAD_REFERENCE_CARGO };
+}
+
+export function effectiveMissionDef(base: MissionDef, ship: ShipDerivedStats): RunMissionDef {
   // Crew 0.14.0 Phase 5: unloadTicks is derived in TWO ordered steps, both integer + closed-form so
   // requiredTicksForPhase reads a whole number and the offline==live parity of this pure function holds.
   //   (1) CARGO-SCALE FIRST: scale base.unloadTicks by the hull's cargoCapacity relative to
@@ -4864,7 +4891,7 @@ export function holdFillFraction(cargo: Record<LootMaterialKey, Decimal>, cargoC
 // engine (tickCaptainMission) and every in-flight readout read THIS, so they agree. Pure.
 export function missionPhaseTicks(
   phase: MissionPhase,
-  missionDef: MissionDef,
+  missionDef: RunMissionDef,
   cargo?: Record<LootMaterialKey, Decimal>,
 ): number {
   if (
@@ -5239,7 +5266,11 @@ export type ProcessEffect =
   // Terminal and for every job a manual promotion starts, so no migration touches
   // activeProcesses. It is `true | undefined` rather than `boolean` so "false" cannot be
   // written as a third, meaningless state. A plain boolean, so hydrateDecimals is unchanged.
-  | { type: "salvageResolve"; target: SalvageTargetRef; auto?: true }
+  // Wiring WR-11 (OC-J1, OC-J2): `rollRules`, stamped at the start of a MATERIAL salvage, tilts the loot tiers by any reach
+  // past the pool's top (salvage.ts salvageOverflowTiers) and carries the rolled tier to the completed-events log
+  // (CompletionLogEntry.salvageRoll). Absent on every other salvage and on a job started before WR-11 (rolled and
+  // logged exactly as before).
+  | { type: "salvageResolve"; target: SalvageTargetRef; auto?: true; rollRules?: 1 }
   // Exploration 0.14.0 (Phase E4a): a completed "relicStudy" IDENTIFIES the carried vault token. The
   // token was REMOVED from state.relicVault at start (startRelicStudy), so it lives only here while the
   // study runs (a cancel-free one-shot, like research). `studyIndex` is the monotonic index minted at
@@ -6951,6 +6982,9 @@ export interface CompletionLogEntry {
   // delivered). Written only on a "shortRangeRun" entry that found at least one, and on every "shortRangeRelicFind"
   // entry (the relics that one cycle found); absent everywhere else.
   relicsFound?: number;
+  // Wiring WR-11 (OC-J2 "Show it"): a MATERIAL salvage started since WR-11 carries the loot tier its one drop rolled (the
+  // pool tier's rarity name and quality bucket), so the row can say "Standard quality". Absent everywhere else.
+  salvageRoll?: { tier: EquipmentRarity; quality: number };
 }
 
 // The RUNNING accumulation for one line-backed order that has not finished yet.
@@ -8679,6 +8713,18 @@ export interface Expedition {
   // (a run without an array, or with a coverage-1 array, reads the same either way and stores its old record). Absent:
   // the pre-WR-7 run (the net rate is the product, the attempts are the raw roll). Optional, no SAVE bump.
   arraySplit?: true;
+  // Wiring WR-11 (OC-G3 "Sensors + a small reward", OC-G4 "Show it and make it true", OC-G6 "Model Ocean only"): the
+  // SITE RULES, stamped at dispatch. Present: each objective's PoI gives what its flavor names (expeditionContent.ts
+  // POI_CATALOG relicOddsMult on the relic chance, materialMult on the haul's materials), surface work on an Ocean world
+  // is slower (PLANET_TYPES surfaceWorkMult, groundTasks.ts taskWorkSeconds), and the anomaly chart's chance rises with
+  // the frozen sensorPower while a charted anomaly brings home a small haul (expedition.ts anomalyChartPermille,
+  // anomalyHaul). Absent on every run dispatched before WR-11, which resolves exactly as stamped. Optional, no SAVE bump.
+  siteRules?: 1;
+  // Wiring WR-11 (OC-H1 "Members too"): the Museum's Science team power at dispatch (relics.ts museumBonuses), frozen
+  // so it also scales each named Science member's own fieldwork (fieldwork.ts memberFieldworkScale); scienceStrength
+  // above already carries it for the crew layer. Written only when above 0. Absent = no member scale (every run
+  // dispatched before WR-11). Optional, no SAVE bump.
+  museumSciencePower?: number;
 }
 
 // Expedition Tiers G2-5 (user #7 "Based on distance traveled 1:1"; G13 one confirm with the return time; G14 detour
@@ -9228,17 +9274,15 @@ export interface GroundOpsFactors {
 // The ship-side scan event inputs, frozen at dispatch (shipScanEvents.ts snapshotShipEventProfile, GO-8; GO-9
 // boardingDefense). A flagged run dispatched before GO-8 carries groundOps.ts NEUTRAL_SHIP_EVENT_PROFILE (no
 // `battle`) and rolls no ship event, so it keeps its exact shape.
-//   evasion        : the ship's battle evasion share at dispatch (officer combat applied; display, the events read
-//                    the combatant at each event's wall hours)
 //   sensors        : effectiveShipStats(...).sensors at dispatch (the sensor ghost)
-//   shieldCapacity : the ship's battle shield pool at dispatch (display, as evasion)
 //   engineering    : the Engineering department's Integrity facet (the radiation storm)
 //   boardingDefense: crew.boardingDefense (GO-9: the Security division + the Ossir racial)
 //   battle         : GO-8, the frozen ship battle inputs. Its PRESENCE is the ship-event flag.
+// Wiring WR-11 (OC-G5, user "Delete frozen copies"): the two display copies `evasion` and `shieldCapacity` are gone (the
+// checks always rebuilt the combatant from `battle`, so nothing read them). A run dispatched before WR-11 still carries
+// them in its stored record; nothing reads them there either.
 export interface ShipEventProfile {
-  evasion: number;
   sensors: number;
-  shieldCapacity: number;
   engineering: number;
   boardingDefense: number;
   battle?: ShipEventBattle;
@@ -10084,6 +10128,11 @@ const EM8_PRECURSOR_LENS = "EM-8 (the Precursor Lens special module is crafted w
 // Depot's 50 ice -> 100 fuel at 20 cr), which made the open-from-day-one Cometary Ice Harvest a 2,700-credit run.
 export const DEUTERIUM_ICE_SELL_VALUE = 4;
 
+// Wiring WR-11 (OC-J3 "Sell now, recipes later"): two salvage drops sell at the Quartermaster (credits per unit).
+// Salvaged Circuitry is also a refine input (refineReclaimedCircuit); the Precursor Circuit has no recipe until the
+// content pass gives it one. [PROVISIONAL] prices for 0.16.0.
+export const SALVAGE_DROP_SELL_VALUE = { salvagedCircuitry: 12, precursorCircuit: 300 } as const;
+
 // The Deuterium Canister anchors the scale (450 cr); the Standard band sells under it and each band up roughly doubles.
 // It was set when ten Deuterium Ice sold for 400 cr; ice is now a cheap crafting input (DEUTERIUM_ICE_SELL_VALUE), so
 // the refine adds most of the value.
@@ -10254,8 +10303,9 @@ export const ITEMS: Record<string, ItemDef> = {
     subCategory: "recoveredTech",
     tier: 1,
     rarity: "uncommon",
-    unlockHint: "An uncommon find on the Salvage Nearby Skirmish Wreckage run.",
+    unlockHint: "An uncommon find on the Salvage Nearby Skirmish Wreckage run. Sells at the Quartermaster.",
     flavor: "Scorched boards with intact traces, worth pulling before the reclaimers arrive.",
+    sellValue: SALVAGE_DROP_SELL_VALUE.salvagedCircuitry,
   },
   // RECLASSIFY + RENAME (0.11.0 Storage/Salvage, Task A3, design §3/§8): this rare
   // Salvage-mission drop was "Intact Reactor Core", a raw item. It is re-cast as the
@@ -10511,8 +10561,9 @@ export const ITEMS: Record<string, ItemDef> = {
     category: "refined",
     tier: 1,
     rarity: "epic",
-    unlockHint: "Recovered only from salvage; reserved for a future recipe not yet built.",
+    unlockHint: "Recovered only from salvage. Sells at the Quartermaster; reserved for a future recipe not yet built.",
     flavor: "An impossibly fine circuit lattice from a hull far older than the fleet, still faintly warm to the touch.",
+    sellValue: SALVAGE_DROP_SELL_VALUE.precursorCircuit,
     reserved: EM8_PRECURSOR_LENS,
   },
   intactDataCore: {

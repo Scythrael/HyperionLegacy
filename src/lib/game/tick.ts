@@ -14,6 +14,7 @@ import {
   missionPhaseTicks,
   missionCycleTiming,
   effectiveMissionDef,
+  missionDefWithoutShip,
   // 0.13.4 Phase 3: the berth floor, for turning a stored rung level into a reported count.
   TRANSIT_BERTH_BASE,
   TRANSIT_BERTH_RUNGS,
@@ -35,6 +36,8 @@ import {
   type EquipmentRarity,
   // E-MOD EM-6: a module piece's rarity and quality scale (the mission-cycle modules).
   moduleEffectScale,
+  // Wiring WR-11: the test switch (a material salvage's roll rules stamp).
+  WR11_SWITCH,
   MISSIONS,
   BASE_XP_PER_TICK,
   // Combat 0.13.0 (Phase 9b.5a): the patrol content table + its shapes, for patrol
@@ -963,8 +966,9 @@ export function describeHomeworldTalentEffect(effect: HomeworldTalentEffect): st
     // the recycle recovery, the ceiling as a "+N tier" reach on the loot roll.
     // WR-6 (B16, OC-B1): the yield is a FLAT add onto the recovery fraction, so the text says percentage points,
     // and it now reaches hull teardowns too.
+    // WR-11 (OC-J1 "Shift odds upward"): past the pool's top tier the reach tilts the loot odds upward instead of going unused.
     case "salvageBoost":
-      return `+${(effect.yieldBonus * 100).toFixed(0)} percentage points salvage recovery (recycled systems and hull teardowns), +${effect.ceilingBonus} loot tier reach`;
+      return `+${(effect.yieldBonus * 100).toFixed(0)} percentage points salvage recovery (recycled systems and hull teardowns), +${effect.ceilingBonus} loot tier reach (past the top tier, better odds of the higher tiers)`;
     // Crafting 0.13.3 (Phase 1 Unit 1.2): the queue-depth chain. "per facility" is
     // load-bearing in this string, not filler: the grant applies to EVERY
     // queue-capable facility independently (design §5.2), and a tooltip reading
@@ -1291,6 +1295,8 @@ interface CompletionYield {
   // undefined for every other kind (and for a salvage whose target was already gone), so the
   // emitted entry simply omits the optional field. See CompletionSalvageSubject in model.ts.
   salvageSubject?: CompletionSalvageSubject;
+  // Wiring WR-11 (OC-J2): a material salvage's rolled loot tier (stamped jobs only; salvageJob never batches).
+  salvageRoll?: { tier: EquipmentRarity; quality: number };
 }
 
 // The post-completion level readings a "level" reward reports. Passed in from
@@ -1671,6 +1677,8 @@ function completionYieldFor(
         subjectKey,
         creditsAmount: credits > 0 ? String(credits) : null,
         salvageSubject,
+        // WR-11 (OC-J2): the material drop's loot tier, on a job stamped with the roll rules.
+        ...(salvage.rolled ? { salvageRoll: salvage.rolled } : {}),
       };
     }
   }
@@ -1752,6 +1760,7 @@ function recordCompletion(args: {
       // field existed, which is what every existing deep-equal parity + save round-trip case
       // compares against.
       ...(contribution.salvageSubject !== undefined ? { salvageSubject: contribution.salvageSubject } : {}),
+      ...(contribution.salvageRoll !== undefined ? { salvageRoll: contribution.salvageRoll } : {}),
     };
     return { log: pushCompletionEntry(acc.log, entry), nextId: acc.nextId + 1, open: acc.open };
   }
@@ -2246,7 +2255,7 @@ export function tickCaptainMission(
   // still yield the same numbers (effectiveMissionDef is pure), but computing it
   // once is both cheaper and the clearest signal that it's a call-constant.
   const rawMissionDef = MISSIONS[extractionMission.missionKey];
-  let missionDef = shipStats ? effectiveMissionDef(rawMissionDef, shipStats) : rawMissionDef;
+  let missionDef = shipStats ? effectiveMissionDef(rawMissionDef, shipStats) : missionDefWithoutShip(rawMissionDef);
   let mission: CaptainMissionState | null = { ...extractionMission, cargo: { ...extractionMission.cargo } };
   let remaining = ticksElapsed;
   // 0.13.4 Phase 3: berths claimed so far in THIS call, and the budget still available to it.
@@ -10626,7 +10635,7 @@ export function startSalvageJob(
     "salvageJob",
     {}, // ⚠️ no inputs: consume-at-completion, see the header
     salvageJobDurationTicks(state, order.target),
-    { type: "salvageResolve", target: order.target }
+    { type: "salvageResolve", target: order.target, ...salvageRollRulesStamp(order.target) }
   );
 }
 
@@ -10690,8 +10699,14 @@ export function startAutoSalvageJob(
     "salvageJob",
     {}, // ⚠️ no inputs: consume-at-completion, exactly as the manual path
     salvageJobDurationTicks(state, order.target),
-    { type: "salvageResolve", target: order.target, auto: true }
+    { type: "salvageResolve", target: order.target, auto: true, ...salvageRollRulesStamp(order.target) }
   );
+}
+
+// Wiring WR-11 (OC-J1, OC-J2): the roll rules stamp a MATERIAL salvage takes at its start (never under the test switch),
+// so a job in flight at the update rolls and logs as it always did. Pure.
+function salvageRollRulesStamp(target: SalvageTargetRef): { rollRules?: 1 } {
+  return WR11_SWITCH.live && target.kind === "material" ? { rollRules: 1 } : {};
 }
 
 // How long THIS target takes to break down: the one lookup that turns a target's ids into
@@ -12106,6 +12121,8 @@ interface SalvageEffectOutcome {
   next: GameState;
   recovered: Record<string, number>;
   creditsRecovered: number; // only a hull teardown pays credits; the other two arms report 0
+  // WR-11 (OC-J2): the material arm's rolled loot tier, on a job stamped with the roll rules only.
+  rolled?: { tier: EquipmentRarity; quality: number };
 }
 
 // CP-6 review: every GameState field a salvage writes beyond the four resolveProcesses already accumulates
@@ -12126,7 +12143,8 @@ function pickSalvageWrites(s: GameState): Pick<GameState, SalvageWriteKey> {
 function resolveSalvageEffect(
   scratch: GameState,
   target: SalvageTargetRef,
-  rng: () => number
+  rng: () => number,
+  rollRules = false
 ): SalvageEffectOutcome | null {
   switch (target.kind) {
     case "equipment": {
@@ -12137,8 +12155,11 @@ function resolveSalvageEffect(
     }
     case "material": {
       // Consume one salvaged material for its tiered, FA-level-gated loot roll.
-      const result = salvageSalvagedMaterial(scratch, target.itemId, rng);
-      return result.ok ? { next: result.next, recovered: result.recovered, creditsRecovered: 0 } : null;
+      // WR-11 (OC-J1): a job stamped with the roll rules tilts the tiers by any reach past the pool's top.
+      const result = salvageSalvagedMaterial(scratch, target.itemId, rng, 0, rollRules);
+      if (!result.ok) return null;
+      const rolled = rollRules && result.rolled ? { tier: result.rolled.tier, quality: result.rolled.quality } : undefined;
+      return { next: result.next, recovered: result.recovered, creditsRecovered: 0, ...(rolled ? { rolled } : {}) };
     }
     case "ship": {
       // Tear a whole hull down: crafted systems back to the spare pool, baselines
@@ -12929,7 +12950,7 @@ export function resolveProcesses(
       // CP-6 review: plus salvageWrites, the people / loadout fields a hull teardown writes, which the four
       // assignments below used to drop (a queued teardown left members pointing at the removed hull).
       const scratch: GameState = { ...state, ...(salvageWrites ?? {}), inventory, equipment, ships, credits };
-      const resolved = resolveSalvageEffect(scratch, process.effect.target, rng);
+      const resolved = resolveSalvageEffect(scratch, process.effect.target, rng, process.effect.rollRules === 1);
       // 0.13.3 Unit 4.4b: remembered for the completed-events log ONLY. Nothing below
       // reads it, and null still means "stale target" to the branch exactly as before.
       salvageOutcome = resolved;

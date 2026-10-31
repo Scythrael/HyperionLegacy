@@ -114,7 +114,8 @@ export const MUSEUM_STAT_LABEL: Readonly<Record<MuseumStat, string>> = {
   relicFindChance: "relic find chance",
   cargoCapacity: "cargo capacity",
   transitSpeed: "transit speed",
-  salvageYield: "salvage yield",
+  // Wiring WR-11 (OC-H2 "Keep scope, honest text"): it scales recycling and hull teardown only (salvage.ts salvageYieldMult).
+  salvageYield: "salvage yield (recycling and hull teardown)",
   sensors: "sensors",
   scanSpeed: "scan speed",
   scienceTeamPower: "Science team power",

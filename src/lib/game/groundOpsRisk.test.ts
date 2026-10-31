@@ -46,6 +46,10 @@ import { groundTaskClearOdds, groundThreatOddsKey, remainingTaskFights } from ".
 import { groundSiteLabel } from "./expeditionContent";
 import { FLORA_POISON_PERMILLE_PER_GRADE, riskAmbushChance, riskRewardBonus } from "./riskFactors";
 import { asPreCurveDispatch, asPreG2NamesDispatch, plainAwayMember, withSlottedAwayTeams, withoutEnemyRanks, withoutRisk, dispatchPastPropulsion } from "./awayTeamTestFixtures";
+import { wr11OffForThisFile } from "./wr11Switch.fixture";
+// Wiring WR-11 came after every pin here: the whole file runs with WR-11 off (wr11Switch.fixture.ts), so its pins keep
+// proving their own slice moved nothing else (WR-11's own moves are pinned in wr11Goldens.test.ts).
+wr11OffForThisFile();
 
 // ===== fixtures =====
 

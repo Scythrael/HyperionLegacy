@@ -71,9 +71,13 @@ import { withCp2Off } from "./complementCp2Switch.fixture";
 // cycles and runs; combatDescriptorGoldens.test.ts pins the combat rules themselves).
 import { combatRulesOffForThisFile } from "./combatRulesSwitch.fixture";
 combatRulesOffForThisFile();
+// Wiring WR-11 came after every pin here: the whole file runs with WR-11 off (wr11Switch.fixture.ts), so its pins keep
+// proving their own slice moved nothing else (WR-11's own moves are pinned in wr11Goldens.test.ts).
+wr11OffForThisFile();
 // The crewHours determinism fix (2026-10-30): this file's pins predate it and are about another slice, so the whole
 // file runs with the float crewHours counter (crewHoursSwitch.fixture.ts; crewHoursMs.test.ts traces the move).
 import { crewHoursFloatForThisFile } from "./crewHoursSwitch.fixture";
+import { wr11OffForThisFile } from "./wr11Switch.fixture";
 crewHoursFloatForThisFile();
 
 // ===== shared helpers =====

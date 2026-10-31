@@ -4853,6 +4853,8 @@ describe("promoteQueuedOrders: a BATCH consumes ONE unit per job, leaving a resi
     expect(promoted.activeProcesses[0].effect).toEqual({
       type: "salvageResolve",
       target: { kind: "material", itemId: HOUSING },
+      // Wiring WR-11 (OC-J1, OC-J2): a material salvage stamps its roll rules at its start.
+      rollRules: 1,
     });
     // The residual keeps the SAME id (so the Remove button still points at it) and the same
     // target, one unit lighter.

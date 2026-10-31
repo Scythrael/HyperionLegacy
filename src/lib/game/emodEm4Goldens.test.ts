@@ -36,11 +36,15 @@ import { gearWearOffInThisFile } from "./gearWearSwitch.fixture";
 import { withReactorLiftOff } from "./emodEm4Switch.fixture";
 import { advanceExpedition } from "./expedition";
 import { patrolLegsOffForThisFile } from "./patrolLegsSwitch.fixture";
+import { wr11OffForThisFile } from "./wr11Switch.fixture";
 
 // WR-7 follow-up OC-D8 (patrol legs scale with transit speed): every pin here predates the legs and is about E-MOD EM-4;
 // with the legs off each one returns (checked when the legs were wired), so the file runs with them off and keeps
 // proving its own slice. patrolLegsGoldens.test.ts pins the legs on every patrol and every combat hull.
 patrolLegsOffForThisFile();
+// Wiring WR-11 came after every pin here: the whole file runs with WR-11 off (wr11Switch.fixture.ts), so its pins keep
+// proving their own slice moved nothing else (WR-11's own moves are pinned in wr11Goldens.test.ts).
+wr11OffForThisFile();
 // The pins are about speed, not gear wear: use wear stays off so a later wear tune never moves them.
 gearWearOffInThisFile();
 

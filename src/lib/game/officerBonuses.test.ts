@@ -65,6 +65,10 @@ import { asLegacyDispatch, asPreG2NamesDispatch, withSlottedAwayTeams, withoutGr
 import { withoutRunCounts, goldenJson } from "./firstRunsGoldens.fixture";
 import { withCombatRulesOff } from "./combatRulesSwitch.fixture";
 import { withPatrolLegsOff } from "./patrolLegsSwitch.fixture";
+import { wr11OffForThisFile } from "./wr11Switch.fixture";
+// Wiring WR-11 came after every pin here: the whole file runs with WR-11 off (wr11Switch.fixture.ts), so its pins keep
+// proving their own slice moved nothing else (WR-11's own moves are pinned in wr11Goldens.test.ts).
+wr11OffForThisFile();
 // WR-7 follow-up OC-D8: these neutrality goldens were captured before the patrol legs scaled, so their patrols fly the
 // route's legs too (patrolLegsSwitch.fixture.ts; patrolLegsGoldens.test.ts pins the legs).
 const withCombatRulesAndLegsOff = <T>(run: () => T): T => withCombatRulesOff(() => withPatrolLegsOff(run));

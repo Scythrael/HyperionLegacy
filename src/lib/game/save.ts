@@ -5,7 +5,7 @@
 import LZString from "lz-string";
 import Decimal from "break_infinity.js";
 import { QUALITY_TIERS } from "./inventory";
-import { type GameState, type MissionPhase, type ShortRangeMissionState, freshCaptains, freshLifetimeStats, requiredTicksForPhase, MISSIONS, SHIP_TYPES, seedStandardIssueForShip, STANDARD_ISSUE_ILEVEL, SI_PLATING_HP, SI_EMITTER_CAP, SI_EMITTER_RECHARGE, isStandardIssueBaseline, withStandardIssueMemberLines, withScienceLineSwap, AUTO_SALVAGE_RARITIES_NONE, AUTO_SALVAGE_GRACE_SECONDS_DEFAULT, SENIOR_STAFF_DEFAULT_SEED, SENIOR_STAFF_ROSTER_BASE, EXPEDITION_DEFAULT_SEED, DEFAULT_GAMBIT_PROGRAMS, RELIC_DEFAULT_SEED, awayRecruitSeedFrom, normalizeEquipmentRarity, normalizeEquipmentAscension } from "./model";
+import { type GameState, type MissionPhase, type ShortRangeMissionState, freshCaptains, freshLifetimeStats, requiredTicksForPhase, missionDefWithoutShip, MISSIONS, SHIP_TYPES, seedStandardIssueForShip, STANDARD_ISSUE_ILEVEL, SI_PLATING_HP, SI_EMITTER_CAP, SI_EMITTER_RECHARGE, isStandardIssueBaseline, withStandardIssueMemberLines, withScienceLineSwap, AUTO_SALVAGE_RARITIES_NONE, AUTO_SALVAGE_GRACE_SECONDS_DEFAULT, SENIOR_STAFF_DEFAULT_SEED, SENIOR_STAFF_ROSTER_BASE, EXPEDITION_DEFAULT_SEED, DEFAULT_GAMBIT_PROGRAMS, RELIC_DEFAULT_SEED, awayRecruitSeedFrom, normalizeEquipmentRarity, normalizeEquipmentAscension } from "./model";
 // E-CREW (Task 2): the v64->v65 step backfills each officer's stats through the officer stat roll
 // (a neutral stub until Task 19, the real seeded roll since). Task 19's v65->v66 step re-rolls the
 // stub-era neutral lines through the same roll. One-way import: seniorStaff.ts is a pure leaf over
@@ -684,7 +684,9 @@ const MIGRATIONS: Record<number, Migration> = {
       // pre-migration), but defense in depth, same category as MIGRATIONS[2]/
       // [3]/[10]'s ??/fallback comments above.
       const progressRatio = Math.min(1, c.mission.phaseProgressTicks / oldRequired);
-      const newRequired = requiredTicksForPhase(c.mission.phase, MISSIONS[c.mission.missionKey as keyof typeof MISSIONS]);
+      // Wiring WR-11 (OC-I1): the two ore runs carried a 90-unit hold of their own when this step was written; it is the
+      // reference hold missionDefWithoutShip reads, so the migration is unchanged.
+      const newRequired = requiredTicksForPhase(c.mission.phase, missionDefWithoutShip(MISSIONS[c.mission.missionKey as keyof typeof MISSIONS]));
       return { ...c, mission: { ...c.mission, phaseProgressTicks: progressRatio * newRequired } };
     }),
   }),

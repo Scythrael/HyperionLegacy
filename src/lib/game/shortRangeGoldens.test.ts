@@ -160,6 +160,8 @@ import { buildHomeDashboard } from "./homeDashboard";
 import { buildShipRoster } from "./shipRoster";
 import { deserialize, migrate, serialize, type SaveFile } from "./save";
 import { FKR8_ADDED_IDS, FKR8_FLIPPED_LIVE, WIRING_REGISTRY } from "./wiring/registry";
+// Wiring WR-11 came after every registry pin here: its flips, added and removed rows are read back (wr11Registry.fixture.ts).
+import { wr11ReadBack } from "./wr11Registry.fixture";
 import { FAVORS_SPEC_ROW } from "./favoredSpecRegistry.fixture";
 import { PATROL_LEGS_ADDED_IDS, PATROL_LEGS_FLIPPED_IDS } from "./patrolLegsRegistry.fixture";
 import { PATROL_LEG_LIFTS_ADDED_IDS } from "./patrolLegLiftsRegistry.fixture";
@@ -197,7 +199,11 @@ import { withOc11Off } from "./complementOc11Switch.fixture";
 // runs with them switched off and its pins keep proving WR-8 moved nothing else here (the rules stamp new patrol
 // cycles and runs; combatDescriptorGoldens.test.ts pins the combat rules themselves).
 import { combatRulesOffForThisFile } from "./combatRulesSwitch.fixture";
+import { wr11OffForThisFile } from "./wr11Switch.fixture";
 combatRulesOffForThisFile();
+// Wiring WR-11 came after every pin here: the whole file runs with WR-11 off (wr11Switch.fixture.ts), so its pins keep
+// proving their own slice moved nothing else (WR-11's own moves are pinned in wr11Goldens.test.ts).
+wr11OffForThisFile();
 
 // ===== shared helpers =====
 
@@ -734,7 +740,7 @@ const OC_D8_LIFTS_SLICE: RegistrySlice = { added: PATROL_LEG_LIFTS_ADDED_IDS };
 const CP3_SLICE: RegistrySlice = { added: CP3_ADDED_IDS, flipped: CP3_FLIPPED_IDS, was: "pending" };
 function registryPin(...given: readonly RegistrySlice[]): [number, string] {
   const slices = [RX_SLICE, RR_SLICE, FUSE_SLICE, ML2_SLICE, OC15_SLICE, R2_2_SLICE, R2_3_SLICE, R2_4_SLICE, R2_10_SLICE, G16_SLICE, ...G2_4_SLICES, ...G2_6_SLICES, ML3_SLICE, GG_STUDY_SLICE, EM7_SLICE, FKR11_SLICE, FKR8_SLICE, GW4_SLICE, OC_D5_SLICE, OC_D8_SLICE, OC_D8_LIFTS_SLICE, CP3_SLICE, ...given];
-  const rows = siReadBack(em4ReadBack(em3ReadBack(wr8ReadBack(WIRING_REGISTRY))).map((e) => ({ id: e.id, kind: e.status.kind as string })), (r) => r.id, (row) => ({ id: row[0], kind: row[1].kind as string }));
+  const rows = siReadBack(em4ReadBack(em3ReadBack(wr8ReadBack(wr11ReadBack(WIRING_REGISTRY)))).map((e) => ({ id: e.id, kind: e.status.kind as string })), (r) => r.id, (row) => ({ id: row[0], kind: row[1].kind as string }));
   const lines = rows.filter((e) => !slices.some((sl) => sl.added?.has(e.id))).map((e) => {
     const flip = slices.find((sl) => sl.flipped?.has(e.id));
     return `${e.id}|${flip ? (flip.was ?? "pending") : e.kind}`;

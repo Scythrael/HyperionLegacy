@@ -74,7 +74,11 @@ combatRulesOffForThisFile();
 // a crafted Reactor Core, so its legs move with the lift by design (emodEm4Goldens.test.ts pins the lift). The file
 // runs with the lift off, so its pins keep proving the wear engine and nothing else.
 import { reactorLiftOffForThisFile } from "./emodEm4Switch.fixture";
+import { wr11OffForThisFile } from "./wr11Switch.fixture";
 reactorLiftOffForThisFile();
+// Wiring WR-11 came after every pin here: the whole file runs with WR-11 off (wr11Switch.fixture.ts), so its pins keep
+// proving their own slice moved nothing else (WR-11's own moves are pinned in wr11Goldens.test.ts).
+wr11OffForThisFile();
 
 // ===== shared helpers =====
 

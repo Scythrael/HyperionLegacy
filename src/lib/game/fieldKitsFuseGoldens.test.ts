@@ -27,7 +27,11 @@ import { hash } from "./firstRunsGoldens.fixture";
 // runs with them switched off and its pins keep proving WR-8 moved nothing else here (the rules stamp new patrol
 // cycles and runs; combatDescriptorGoldens.test.ts pins the combat rules themselves).
 import { combatRulesOffForThisFile } from "./combatRulesSwitch.fixture";
+import { wr11OffForThisFile } from "./wr11Switch.fixture";
 combatRulesOffForThisFile();
+// Wiring WR-11 came after every pin here: the whole file runs with WR-11 off (wr11Switch.fixture.ts), so its pins keep
+// proving their own slice moved nothing else (WR-11's own moves are pinned in wr11Goldens.test.ts).
+wr11OffForThisFile();
 
 const T0 = 100_000;
 const SEC = ["member-1", "member-2", "member-3", "member-4", "member-5", "member-6"];

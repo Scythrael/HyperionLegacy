@@ -2451,10 +2451,14 @@ export function rollRelicToken(
   findBonus: number = 0,
   captain?: ExplorerCaptainRun,
   blank?: RelicBlankStamp,
+  siteOddsMult: number = 1,
 ): ExpeditionRelicToken | null {
   if (!isRelicBearingPoi(poiId)) return null;
   const rng = makeRng(seed >>> 0);
-  const chance = relicChancePermille(hazard, findBonus, captain?.relicFindMult);
+  // Wiring WR-11 (OC-G4): the site's relic odds (expeditionContent.ts poiRelicOddsMult, 1 off a stamped run) are their
+  // own factor beside the captain's Field Science (OC-A1 "Always multiply"); 1 leaves the captain's factor untouched.
+  const findMult = siteOddsMult !== 1 && siteOddsMult > 0 && Number.isFinite(siteOddsMult) ? (captain?.relicFindMult ?? 1) * siteOddsMult : captain?.relicFindMult;
+  const chance = relicChancePermille(hazard, findBonus, findMult);
   if (!rng.chance(chance, 1000)) return null;
   // The relic blank ladder (its own frozen table since RR-7): hazard sets how far up the ordered tiers the roll can reach.
   const ceiling = relicTierCeiling(hazard, captain?.relicTierLift);
@@ -2493,16 +2497,20 @@ export function relicTierCeiling(hazard: number, tierLift?: number): number {
 // scale with hazard. `scale` reduces the haul on an evacuation (keep-what-you-gathered). PURE. Draw order:
 // material item, then material quantity (fixed). Exported (GO-4): Ground Ops rolls a task's full haul with it
 // (groundTasks.ts taskFullHaul) on the same taskRewardSeed.
+// Wiring WR-11 (OC-G4): `materialMult` (a site that names more materials, expeditionContent.ts poiMaterialMult) scales the
+// material count only, on the same draws; 1 (the default) is the roll before WR-11 exactly.
 export function rollHaul(
   seed: number,
   planetType: string,
   hazard: number,
   scale: number,
+  materialMult: number = 1,
 ): { materials: Record<string, number>; credits: number } {
   const rng = makeRng(seed >>> 0);
   const table = MATERIAL_BY_PLANET_TYPE[planetType] ?? DEFAULT_MATERIALS;
   const item = pickWeighted(rng, table);
-  const qty = Math.max(1, Math.round(rng.nextRange(MATERIAL_QTY_MIN, MATERIAL_QTY_MAX) * scale));
+  const drawn = rng.nextRange(MATERIAL_QTY_MIN, MATERIAL_QTY_MAX) * scale;
+  const qty = Math.max(1, Math.round(materialMult !== 1 && materialMult > 0 && Number.isFinite(materialMult) ? drawn * materialMult : drawn));
   const credits = Math.max(0, Math.round((CREDITS_BASE + CREDITS_HAZARD_COEFF * Math.max(0, hazard)) * scale));
   return { materials: { [item.itemId]: qty }, credits };
 }

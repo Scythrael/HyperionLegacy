@@ -115,6 +115,10 @@ import {
   seatFacet,
   seatOfDepartment,
 } from "./officerStats";
+import { wr11OffForThisFile } from "./wr11Switch.fixture";
+// Wiring WR-11 came after every pin here: the whole file runs with WR-11 off (wr11Switch.fixture.ts), so its pins keep
+// proving their own slice moved nothing else (WR-11's own moves are pinned in wr11Goldens.test.ts).
+wr11OffForThisFile();
 
 // Ground Ops (GO-7b): this file pins LEGACY expedition runs (goldens captured before Ground Ops): every dispatch
 // slots the members in hire order (dispatch reads the slotted ground teams) and resolves without the groundOps

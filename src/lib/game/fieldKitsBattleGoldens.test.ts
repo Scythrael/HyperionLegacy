@@ -28,7 +28,11 @@ import { hash } from "./firstRunsGoldens.fixture";
 // runs with them switched off and its pins keep proving WR-8 moved nothing else here (the rules stamp new patrol
 // cycles and runs; combatDescriptorGoldens.test.ts pins the combat rules themselves).
 import { combatRulesOffForThisFile } from "./combatRulesSwitch.fixture";
+import { wr11OffForThisFile } from "./wr11Switch.fixture";
 combatRulesOffForThisFile();
+// Wiring WR-11 came after every pin here: the whole file runs with WR-11 off (wr11Switch.fixture.ts), so its pins keep
+// proving their own slice moved nothing else (WR-11's own moves are pinned in wr11Goldens.test.ts).
+wr11OffForThisFile();
 
 // Field Kits catalog 1, pinned as a literal (timed grenades, 2026-10-21): these runs throw Stun and Toxin Grenades, and
 // catalog 2 gives those a fuse, so the pins stay the catalog 1 run (a run in flight before the fuse), byte-identical.

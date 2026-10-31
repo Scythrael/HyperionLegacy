@@ -59,6 +59,7 @@ import {
   // The stuck-at-00:00 fix (2026-09-11): the readout must resolve the SAME effective mission def
   // the engine advances against. See rowForExtraction.
   effectiveMissionDef,
+  missionDefWithoutShip,
   PATROL_PHASE_LABEL,
   requiredTicksForPhase,
   missionPhaseTicks,
@@ -723,7 +724,7 @@ function rowForExtraction(
   const ship = state.ships.find((s) => s.assignedCaptainId === captain.id);
   // E-MOD EM-4 review: the run's own sheet (gearWearEngine.ts missionRunSheet: its frozen gear and its reactor lift
   // flag), the one the engine flies it on.
-  const missionDef = ship ? effectiveMissionDef(rawMissionDef, missionRunSheet(state, ship, mission)) : rawMissionDef;
+  const missionDef = ship ? effectiveMissionDef(rawMissionDef, missionRunSheet(state, ship, mission)) : missionDefWithoutShip(rawMissionDef);
   // E-CREW (Task 21): the same phase length the engine advances on (a packed hold unloads faster).
   const requiredTicks = missionPhaseTicks(mission.phase, missionDef, mission.cargo);
   const progress = Math.min(1, mission.phaseProgressTicks / requiredTicks);
@@ -1378,6 +1379,12 @@ function completionDetail(entry: CompletionLogEntry): string | null {
     // 0.13.9: recovery is chance-rounded now, so an all-zero result is an unlucky roll on a small
     // recipe, not a rounding certainty; "this time" says that without blaming a rule.
     return "No materials recovered this time";
+  }
+  // Wiring WR-11 (OC-J2 "Show it"): a material salvage names the loot tier its drop rolled ("Standard quality"), read off
+  // the record (a job started before WR-11 carries none and keeps its old row).
+  if (entry.kind === "salvageJob" && entry.salvageRoll !== undefined) {
+    const tier = entry.salvageRoll.tier;
+    return `${tier.charAt(0).toUpperCase()}${tier.slice(1)} quality`;
   }
   if (entry.reward === "level" && entry.level !== null) {
     // ⚠️ SOME "LEVEL" REWARDS ARE REALLY CAPACITIES, and reporting a level for them is wrong in a

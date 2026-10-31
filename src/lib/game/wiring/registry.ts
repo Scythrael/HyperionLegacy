@@ -153,7 +153,7 @@ import { signatureKey } from "../crew";
 import { SENSOR_ARRAYS } from "../sensorArrays";
 import { RETIREMENT_EXP_PER } from "../captainRetirement";
 import { explorerTalentText } from "../captainExplorerEffects";
-import { POI_CATALOG, PLANET_TYPES } from "../expeditionContent";
+import { CLEARING_SITE_CATALOG, HOSTILE_SITE_CATALOG, POI_CATALOG, PLANET_TYPES } from "../expeditionContent";
 import { WEAPON_DEFS } from "../combat/weapons";
 import { ROLE_TEMPLATE } from "../combat/drones";
 import { PIRATE_HULLS } from "../combat/enemyHulls";
@@ -1611,9 +1611,10 @@ function homeworldEntries(): WiringEntry[] {
             id: `${common.id}:ceiling`,
             claim: `${def.label}: +1 loot tier reach`,
             probe: "salvageTalentCeiling",
-            contexts: ["salvage"],
+            // WR-11 (OC-J1 "Shift odds upward"): past the top tier the +1 tilts the loot weights upward (salvage.ts
+            // salvageOverflowTiers on a job stamped with the roll rules), so a top Fleet Admiral's reach rises too.
+            contexts: ["salvage", "salvage:topTier"],
             magnitude: field("ceilingBonus"),
-            status: pending("WR-11, OC-J1 (the +1 tier is clamped and wasted from FA 15, B16)", ["salvage:topTier"]),
           }),
         );
         break;
@@ -2840,15 +2841,7 @@ function missionEntries(): WiringEntry[] {
         }),
       );
     }
-    out.push(
-      entry({
-        id: `mission:MISSIONS:${key}:cargoCapacity`,
-        system: "mission",
-        source: { catalog: "MISSIONS", key: `${key}:cargoCapacity` },
-        claim: `${def.label} per-cycle units`,
-        status: pending("WR-11, OC-I1 (overwritten by the hull hold, model.ts:3733)"),
-      }),
-    );
+    // WR-11 (OC-I1 "Delete it"): the per-mission cargoCapacity rows are gone with the field (the hull's hold rules).
   }
   // G1-2 + G1-4: every effect field of every short-range template, LIVE through the cycle engine (shortRangeCycle.ts),
   // each read on the template's training cycle on the bare wiring fixture (probes.ts shortRangeTrainingCycle):
@@ -3170,11 +3163,43 @@ function contentEntries(): WiringEntry[] {
         curve: { kind: "equals" },
         magnitude: (c) => Object.values(c.POI_CATALOG.find((x) => x.id === p.id)!.planetWeights).filter((w) => (w ?? 0) > 0).length,
       }),
+      // WR-11 (OC-G4 "Show it and make it true"): the flavor is the objective card's and the queue row's line
+      // (expeditionContent.ts groundSiteFlavor); the rewards it names are the rows below.
       entry({
         ...base("expedition", "POI_CATALOG", `${p.id}:flavor`, `${p.label} flavor: ${p.flavor}`),
-        status: pending("WR-11, OC-G4 (never rendered; relic odds and haul do not vary by PoI)"),
+        probe: `content:poiFlavor:${p.id}`,
+        contexts: ["expedition:groundOps"],
+        direction: "none",
+        curve: { kind: "equals" },
+        magnitude: () => 1,
       }),
     );
+    if (p.relicOddsMult !== undefined) {
+      out.push(
+        entry({
+          ...base("expedition", "POI_CATALOG", `${p.id}:relicOddsMult`, `${p.label}: better relic odds (x${p.relicOddsMult} on its objective's relic chance)`),
+          probe: `content:poiRelicOdds:${p.id}`,
+          contexts: ["expedition:groundOps"],
+          curve: { kind: "linearRelative" },
+          magnitude: (c) => (c.POI_CATALOG.find((x) => x.id === p.id)!.relicOddsMult ?? 1) - 1,
+          on: sourceOn,
+          tolerance: 1,
+        }),
+      );
+    }
+    if (p.materialMult !== undefined) {
+      out.push(
+        entry({
+          ...base("expedition", "POI_CATALOG", `${p.id}:materialMult`, `${p.label}: more materials (x${p.materialMult} on its objective's haul)`),
+          probe: `content:poiMaterials:${p.id}`,
+          contexts: ["expedition:groundOps"],
+          curve: { kind: "linearRelative" },
+          magnitude: (c) => (c.POI_CATALOG.find((x) => x.id === p.id)!.materialMult ?? 1) - 1,
+          on: sourceOn,
+          tolerance: 1,
+        }),
+      );
+    }
   }
   for (const p of PLANET_TYPES) {
     out.push(
@@ -3203,6 +3228,20 @@ function contentEntries(): WiringEntry[] {
           base: () => withAwayTeam(wiringBase()),
           on: sourceOn,
           ...(bias === 0 ? { notApplicable: "a zero bias leaves the base odds" } : {}),
+        }),
+      );
+    }
+    // WR-11 (OC-G6 "Model Ocean only"): surface work on an Ocean world takes longer on a site-rules run.
+    if (p.surfaceWorkMult !== undefined) {
+      out.push(
+        entry({
+          ...base("expedition", "PLANET_TYPES", `${p.id}:surfaceWorkMult`, `${p.label}: surface work is slower (x${p.surfaceWorkMult} work time)`),
+          probe: `content:surfaceWork:${p.id}`,
+          contexts: ["expedition:groundOps"],
+          curve: { kind: "linearRelative" },
+          magnitude: (c) => (c.PLANET_TYPES.find((x) => x.id === p.id)!.surfaceWorkMult ?? 1) - 1,
+          on: sourceOn,
+          tolerance: 1,
         }),
       );
     }
@@ -3781,7 +3820,8 @@ const AUDIT_ROWS: readonly { id: string; system: WiringSystem; claim: string; st
   // the shortRangeSlots probe), and this row checks their 50-completion gate (auditRowWiring).
   { id: "facility:audit:missionControlUnlock", system: "facility", claim: "MISSION_CONTROL_UNLOCK_COMPLETIONS 50: the Mission Control board rung that opens the Tier II short-range slot (MISSION_CONTROL_BOARD_RUNGS[0], level 2) waits on 50 completions of each ore run", status: LIVE },
   { id: "facility:audit:itemEquipStats", system: "facility", claim: "ItemDef.equipStats (no item fills it)", status: pending("WR-4, OC-C4") },
-  { id: "facility:audit:precursorCircuit", system: "facility", claim: "Precursor Circuit: salvage drops it, nothing consumes it", status: pending("WR-10, OC-J3") },
+  // WR-11 (OC-J3 "Sell now, recipes later"): it sells at the Quartermaster; its recipe stays EM-8's (facility:ITEMS:precursorCircuit:reserved).
+  { id: "facility:audit:precursorCircuit", system: "facility", claim: "Precursor Circuit: salvage drops it and the Quartermaster buys it (its recipe is the Precursor Lens, EM-8)", status: LIVE },
   // D. Ship
   // WR-7 (OC-D6, user 2026-10-15 "Unlisted = never rolls"; B11 fixed): itemgen.ts varietyStatBias.
   { id: "ship:audit:statRatios", system: "ship", claim: "Variety statRatios list what a crafted piece rolls: a stat its variety does not list never rolls (a Hauler Hold, \"none into mass\", rolls no mass relief)", status: LIVE },
@@ -3873,7 +3913,8 @@ const AUDIT_ROWS: readonly { id: string; system: WiringSystem; claim: string; st
   // OC-C4 (user 2026-10-15): "Keep tested hooks (Recommended)". builtInBays (a duplicate of SHIP_TYPES droneBays) and the
   // legacy frameHp split were retired by WR-8.
   { id: "ship:audit:inertDescriptors", system: "ship", claim: "ResolveOptions.objective (a pluggable win condition), TargetingPolicy.escortShare (escort ships) and the DoT rng (a DoT with variance): framework hooks with no caller", status: { kind: "seam", owner: "the first mission type with its own win condition, escort ships, a varying DoT", userRef: "OC-C4 (user 2026-10-15): \"Keep tested hooks (Recommended)\"" } },
-  { id: "ship:audit:statusColor", system: "ship", claim: "Status color (no reader)", status: pending("WR-11 (use in the combat view or delete; no call)") },
+  // WR-11 (no call): deleted; the combat view colors a status pip by its kind.
+  { id: "ship:audit:statusColor", system: "ship", claim: "Status color: deleted from every status def (the combat view colors a pip by its kind)", status: LIVE },
   { id: "ship:audit:partialCombat", system: "ship", claim: "Patrols pre-charge their guns during the close, like the ship events", status: LIVE },
   { id: "ship:wr8:enemyMitigation", system: "ship", claim: "Enemy mitigation and evasion: a pirate hull fights with its armor and evasion", status: LIVE },
   { id: "ship:wr8:ambushInPatrols", system: "ship", claim: "The ambush opener in patrols (only a cloak ambushes; it and Rapid Charge act in the ship events today)", status: { kind: "deferred", owner: "CP-15 (patrol cloak detection)", userRef: `${T3}: patrol cloak detection` } },
@@ -3937,8 +3978,10 @@ const AUDIT_ROWS: readonly { id: string; system: WiringSystem; claim: string; st
   { id: "away:audit:difficultyTiers", system: "away", claim: "DIFFICULTY_TIER_ROLL_MULT above the base difficulty tier (the future difficulty tiers hook: one row today)", status: pending("SF-3 follow-up (the future difficulty tiers: nothing designed; objective affixes capture 2026-10-14)") },
   { id: "away:audit:objectiveHooks", system: "away", claim: "taskChainFollowUp, calmObjective, affix weightFor (no caller)", status: pending("OC-C4") },
   // G. Expedition content
-  { id: "expedition:audit:siteFlavor", system: "expedition", claim: "Hostile and clearing site flavor (never rendered)", status: pending("WR-11 (render; no call)") },
-  { id: "expedition:audit:anomalyFinding", system: "expedition", claim: "Charting the anomaly costs a detour (a voyage run: 25% of its outbound leg; an older run: 1 h) and pays nothing (B15)", status: pending("WR-11, OC-G3") },
+  // WR-11: rendered on the objective card and the queue row (expeditionContent.ts groundSiteFlavor).
+  { id: "expedition:audit:siteFlavor", system: "expedition", claim: "Hostile and clearing site flavor: shown on the objective card and the queue row", status: LIVE },
+  // WR-11 (OC-G3 "Sensors + a small reward", B15): a charted anomaly brings home a small haul on a site-rules run.
+  { id: "expedition:audit:anomalyFinding", system: "expedition", claim: "Charting the anomaly costs a detour and its finding brings home a small haul (materials and credits) on a run stamped with the site rules", status: LIVE },
   // Expedition Tiers G2-3: the voyage engine reaches every tier and every drive class (voyage.test.ts proves the ladder,
   // the band scale and the halving); since G2-6 a player picks any tier on the console, so the deeper ladder is live.
   { id: "expedition:audit:voyageDeepTiers", system: "expedition", claim: "The voyage ladder above Tier I: TIER_TRANSIT_HOURS II 4 h, III 8 h, IV 12 h, V 24 h, VI 72 h, VII 168 h", status: LIVE },
@@ -3956,12 +3999,17 @@ const AUDIT_ROWS: readonly { id: string; system: WiringSystem; claim: string; st
   { id: "expedition:audit:recall", system: "expedition", claim: "Recall: home in the outbound time flown (the detour not counted), or after arrival the window closes, one shared pickup, then the full return leg; finished work comes home", status: LIVE },
   { id: "expedition:audit:resumableSystems", system: "expedition", claim: "A recalled system with charted bodies stays open to resume by any explorer (scans done, objectives keep progress, the trip flown again) until finished or abandoned; one recalled before anything was charted is an ordinary candidate again", status: LIVE },
   { id: "facility:audit:heldDriveClasses", system: "facility", claim: "The Class III to VII Drive Blueprints (DRIVE_CLASS_BLUEPRINTS) join BLUEPRINTS once the Research Lab and Fabricator tracks reach their tiers", status: LIVE },
-  { id: "expedition:audit:anomalySensors", system: "expedition", claim: "ANOMALY_CHANCE_PERMILLE: \"if sensors detect one\" (sensors not read)", status: pending("WR-11, OC-G3") },
-  { id: "expedition:audit:relicSignature", system: "expedition", claim: "Foreknowledge relicSignature (the UI never reads it)", status: pending("WR-11 (delete or render; no call)") },
+  // WR-11 (OC-G3): the chart chance rises with the frozen sensors on a diminishing curve toward certain (never reaching it).
+  { id: "expedition:audit:anomalySensors", system: "expedition", claim: "The anomaly chart chance: \"if sensors detect one\", better sensors chart one more often (expedition.ts anomalyChartPermille)", status: LIVE },
+  // WR-11 (no call): deleted (always true where revealed; the console reads relicSets).
+  { id: "expedition:audit:relicSignature", system: "expedition", claim: "Foreknowledge relicSignature: deleted (always true where revealed; relicSets is the lead)", status: LIVE },
   { id: "expedition:audit:blindLaunch", system: "expedition", claim: "The blind launch path (a candidate past the telescope's reach: a deeper tier)", status: LIVE },
   { id: "expedition:audit:oddsRiskyBelow", system: "expedition", claim: "ODDS_RISKY_BELOW (behind tier > 2)", status: LIVE },
-  { id: "expedition:audit:shipEventProfileFields", system: "expedition", claim: "ShipEventProfile evasion and shieldCapacity (frozen, never read)", status: pending("WR-11, OC-G5") },
-  { id: "expedition:audit:planetComments", system: "expedition", claim: "Planet comments: Ocean slower work, Frozen best relic survival, Toxic hardened team", status: pending("OC-G6") },
+  // WR-11 (OC-G5 "Delete frozen copies"): no longer frozen.
+  { id: "expedition:audit:shipEventProfileFields", system: "expedition", claim: "ShipEventProfile evasion and shieldCapacity: deleted (the checks rebuild the combatant)", status: LIVE },
+  // WR-11 (OC-G6 "Model Ocean only"): Ocean's slower surface work is modeled (PLANET_TYPES surfaceWorkMult); the Frozen and
+  // Toxic comments are dropped.
+  { id: "expedition:audit:planetComments", system: "expedition", claim: "Planet comments: Ocean's slower surface work is modeled; the Frozen and Toxic comments are dropped", status: LIVE },
   { id: "expedition:audit:legacyFallbacks", system: "expedition", claim: "FIGHT_POINTS_DEFAULT / MIN, SURVEY_AMBUSH_CHANCE (old runs only)", status: pending("OC-G1") },
   // H. Relics v2 R2-2 (relicBlanks.ts): live on every new run at Tier I; the rest waits for the slice that reaches it.
   { id: "relic:audit:blankTiers", system: "relic", claim: "Relic blanks above Tier I: RELIC_BLANK_WEIGHTS II to VII (a deeper find rolls rarer on the same chance, user call 13 \"Better rarity only\")", status: LIVE },
@@ -3980,13 +4028,25 @@ const AUDIT_ROWS: readonly { id: string; system: WiringSystem; claim: string; st
   // Relics v2 R2-10 (secret/relicBoosts.ts): every relic type boosts one minigame lever (user table 2026-10-26).
   ...minigameAuditRows(),
   // I. Missions, patrols, factions
-  { id: "mission:audit:unusedFactions", system: "mission", claim: "voidJackals, ironVultures, ashenCorsairs and Faction.id (no patrol references them)", status: pending("WR-11, OC-I2") },
+  // WR-11 (OC-I2, user 2026-10-15 "Routes when you name content (Recommended)"): hidden from every text until the user
+  // names their content (no patrol, Help line or log names them; the UI reads only a patrol's own faction).
+  {
+    id: "mission:audit:unusedFactions",
+    system: "mission",
+    claim: "voidJackals, ironVultures, ashenCorsairs and Faction.id (no patrol references them; hidden from every text)",
+    status: { kind: "deferred", owner: "the patrol routes the user names content for", userRef: "OC-I2 (user 2026-10-15): \"Routes when you name content (Recommended)\": hidden from text until the user names content" },
+  },
   // J. Salvage and item generation
-  { id: "salvage:audit:rolledNarration", system: "salvage", claim: "SalvageRoll rolled: \"the UI narrates the drop\" (dropped)", status: pending("WR-11, OC-J2") },
-  { id: "salvage:audit:lootTierNames", system: "salvage", claim: "Loot tier names (damagedWeaponSystem) unread", status: pending("WR-11, OC-J2") },
-  { id: "salvage:audit:deadEndDrops", system: "salvage", claim: "Salvaged Circuitry, Precursor Circuit: nothing uses them (Scrap Alloy refines into Reclaimed Alloy since WR-4, OC-C3)", status: pending("WR-11, OC-J3") },
+  // WR-11 (OC-J2 "Show it"): a material salvage's completed-events entry carries its rolled tier, and the row names it.
+  { id: "salvage:audit:rolledNarration", system: "salvage", claim: "SalvageRoll rolled: the completed-events log narrates the drop's loot tier", status: LIVE },
+  { id: "salvage:audit:lootTierNames", system: "salvage", claim: "Loot tier names: the Home board's salvage row names the drop's tier (\"Standard quality\")", status: LIVE },
+  // WR-11 (OC-J3 "Sell now, recipes later"): both sell at the Quartermaster.
+  { id: "salvage:audit:deadEndDrops", system: "salvage", claim: "Salvaged Circuitry, Precursor Circuit: both sell at the Quartermaster until the content pass gives them recipes (Scrap Alloy refines into Reclaimed Alloy since WR-4, OC-C3)", status: LIVE },
   { id: "salvage:audit:achievementBoost", system: "salvage", claim: "achievementBoost (always 0)", status: pending("OC-C4") },
-  { id: "salvage:audit:affixCountBranches", system: "salvage", claim: "affixCount derelict / luminous / constellar (unreachable rarities)", status: pending("WR-11, OC-J4") },
+  // WR-11 (OC-J4 "keep safeties"): kept as safety rows, each read by affixCount and covered by itemgen.test.ts.
+  { id: "salvage:audit:affixCountBranches", system: "salvage", claim: "affixCount derelict / luminous / constellar: safety rows of RARITY_PROFILES, each a finite affix count", status: LIVE },
+  // WR-11 (OC-H1 "Members too"): the Museum's Science team power also scales each named Science member's own fieldwork.
+  { id: "relic:audit:scienceTeamPowerMembers", system: "relic", claim: "Museum Science team power scales each named Science member's own fieldwork (frozen at dispatch)", status: LIVE },
   { id: "salvage:audit:ascension", system: "salvage", claim: "ascension (always none)", status: pending("OC-C4") },
   // K. Gear wear (0.14.0): the user's "Free auto + paid rush" and credit sinks "Quick gear repair" plus Overtime.
   { id: "wear:audit:quickGearRepair", system: "wear", claim: "Quick gear repair: an optional instant gear repair for credits; the free automatic repair stays the default", status: pending(GEAR_WEAR_STEP_5) },
@@ -4177,6 +4237,101 @@ function wr7AuditWiring(): Readonly<Record<string, Partial<EntryInput>>> {
   };
 }
 
+// Wiring WR-11: the checks of the audit rows it made live (probes.ts wr11AuditValue and the content probes), each read
+// through the consumer that makes the row true.
+function wr11AuditWiring(): Readonly<Record<string, Partial<EntryInput>>> {
+  const flagged = (key: string, metric: string): Partial<EntryInput> => ({
+    probe: `content:wr11:${key}` as ProbeId,
+    contexts: ["expedition:groundOps"],
+    direction: "none",
+    curve: { kind: "equals" },
+    magnitude: () => 1,
+    note: metric,
+  });
+  const scienceGrant = museumGrantFor("scienceTeamPower") ?? {};
+  return {
+    "expedition:audit:siteFlavor": {
+      probe: "content:siteFlavor" as ProbeId,
+      contexts: ["expedition:groundOps"],
+      direction: "none",
+      curve: { kind: "equals" },
+      magnitude: () => HOSTILE_SITE_CATALOG.length + CLEARING_SITE_CATALOG.length,
+    },
+    "expedition:audit:anomalyFinding": {
+      probe: "content:wr11:anomalyFinding" as ProbeId,
+      contexts: ["expedition:groundOps"],
+      curve: { kind: "event", metric: "credits plus material units a charted anomaly's finding carries (site-rules run vs older run)" },
+      magnitude: () => 1,
+      base: () => withAwayTeam(wiringBase()),
+      on: sourceOn,
+    },
+    "expedition:audit:anomalySensors": {
+      probe: "content:wr11:anomalySensors" as ProbeId,
+      contexts: ["expedition:groundOps"],
+      curve: { kind: "event", metric: "the dispatched run's anomaly chart chance (permille) with sensors 40 installed vs none" },
+      magnitude: () => 1,
+      base: () => withAwayTeam(wiringBase()),
+      on: (s) => installPiece(s, { slotType: "sensor", moduleVariant: "sensorBalanced", implicitStats: { sensors: 40 } }),
+    },
+    "expedition:audit:relicSignature": { ...flagged("noRelicSignature", "1 when no candidate's foreknowledge carries relicSignature"), base: () => withAwayTeam(wiringBase()) },
+    "expedition:audit:shipEventProfileFields": { ...flagged("noProfileCopies", "1 when the frozen ship-event profile carries neither evasion nor shieldCapacity"), base: () => withAwayTeam(wiringBase()) },
+    "expedition:audit:planetComments": {
+      probe: "content:surfaceWork:ocean" as ProbeId,
+      contexts: ["expedition:groundOps"],
+      curve: { kind: "linearRelative" },
+      magnitude: (c) => (c.PLANET_TYPES.find((x) => x.id === "ocean")!.surfaceWorkMult ?? 1) - 1,
+      on: sourceOn,
+      tolerance: 1,
+    },
+    "ship:audit:statusColor": { ...flagged("noStatusColor", "1 when no status def carries a color"), contexts: ["patrol"] },
+    "salvage:audit:rolledNarration": {
+      probe: "content:wr11:salvageRoll" as ProbeId,
+      contexts: ["salvage"],
+      curve: { kind: "event", metric: "a material salvage's completed-events entry carries its rolled tier (stamped job vs unstamped)" },
+      magnitude: () => 1,
+      on: sourceOn,
+    },
+    "salvage:audit:lootTierNames": {
+      probe: "content:wr11:salvageTierName" as ProbeId,
+      contexts: ["salvage"],
+      curve: { kind: "event", metric: "the Home board's salvage row names the drop's tier (stamped job vs unstamped)" },
+      magnitude: () => 1,
+      on: sourceOn,
+    },
+    "salvage:audit:deadEndDrops": {
+      probe: "content:wr11:deadEndSell" as ProbeId,
+      contexts: ["facility"],
+      direction: "none",
+      curve: { kind: "equals" },
+      magnitude: (c) => ((c.ITEMS.salvagedCircuitry as { sellValue?: number }).sellValue ?? 0) + ((c.ITEMS.precursorCircuit as { sellValue?: number }).sellValue ?? 0),
+    },
+    "facility:audit:precursorCircuit": {
+      probe: "content:wr11:precursorSell" as ProbeId,
+      contexts: ["facility"],
+      direction: "none",
+      curve: { kind: "equals" },
+      magnitude: (c) => (c.ITEMS.precursorCircuit as { sellValue?: number }).sellValue ?? 0,
+    },
+    "salvage:audit:affixCountBranches": {
+      probe: "content:wr11:safetyAffixes" as ProbeId,
+      contexts: ["craft"],
+      direction: "none",
+      curve: { kind: "equals" },
+      magnitude: () => 3,
+    },
+    "relic:audit:scienceTeamPowerMembers": {
+      probe: "content:wr11:memberFieldwork" as ProbeId,
+      contexts: ["fieldwork"],
+      curve: { kind: "linearRelative" },
+      magnitude: () => museumBonusesFromRecord(scienceGrant).scienceTeamPower,
+      base: () => wearPiece(withAwayTeam(wiringBase()), WIRING_SCIENCE_ID, "memberWeapon", "sidearm", { groundFieldwork: GEAR_TEST_POINTS }),
+      on: (s) => withMuseum(s, scienceGrant),
+      off: (s) => withMuseum(s, {}),
+      tolerance: 1e-9,
+    },
+  };
+}
+
 function auditRowWiring(): Readonly<Record<string, Partial<EntryInput>>> {
   const emitter = (draw: number): Transform => (s) => installPiece(s, { slotType: "shieldEmitters", powerDraw: draw });
   const torpedo = (draw: number): Transform => (s) => installPiece(s, { slotType: "weapon", weaponType: "concussionTorpedo", powerDraw: draw });
@@ -4189,6 +4344,7 @@ function auditRowWiring(): Readonly<Record<string, Partial<EntryInput>>> {
   return {
     ...wr8AuditWiring(),
     ...wr7AuditWiring(),
+    ...wr11AuditWiring(),
     // E-MOD EM-4: a Reactor Core of REACTOR_LIFT_PROBE_OUTPUT power against the same core (same mass) supplying none, on a
     // bare hull (the hull's own power covers its draw, so the whole output is surplus): the sheet's transit speed and
     // the Ground Ops voyage's frozen outbound speed rise by exactly the lift.
@@ -5025,7 +5181,6 @@ export function flatControl(probe: ProbeId, ctx: ContextId): Transform | null {
 export const FLAT_UNCONTROLLED: Readonly<Record<string, string>> = {
   "sciCombatPower@ground": "Science never fights (D2): nothing live reaches a Science member's battle stats",
   "secInflictPermille@ground:noInflict": "an inflict piece is the only live source of on-hit statuses, and this context is the one without it",
-  "salvageTalentCeiling@salvage:topTier": "the pool's top tier is the clamp: nothing can raise the tier a top Fleet Admiral rolls",
 };
 
 // ============================================================================

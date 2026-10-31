@@ -57,7 +57,7 @@ import type {
   ExpeditionScanEvent,
   SnapshotMember,
 } from "./model";
-import { SHIP_TYPES, commandingCaptain, moduleEffectScale, shipGearSetBonusLines, withFavoredLines } from "./model";
+import { SHIP_TYPES, WR11_SWITCH, commandingCaptain, moduleEffectScale, shipGearSetBonusLines, withFavoredLines } from "./model";
 // E-MOD EM-6: the body-scanned module trigger (its frozen procs and private stream).
 import { moduleNebulaSweep, moduleScanProcs, moduleScanSeed, rollModuleChance } from "./shipModules";
 import { makeRng, type Rng } from "./combat/rng";
@@ -88,6 +88,7 @@ import {
   deriveAwayTeam,
   resolveExpeditionActivity,
   resolveScanEncounter,
+  rollHaul,
   rollSupplyCache,
   scanDownedBefore,
   scanStepKey,
@@ -151,6 +152,7 @@ import {
   hostileSiteFieldable,
   isClearingSiteId,
   isHostileSiteId,
+  tierHaulMult,
   type ExpeditionRegion,
 } from "./riskFactors";
 import type { BodyRiskGrades, ExpeditionRecall, ExpeditionRegionStamp, ExpeditionRiskProfile, ExpeditionVoyage, GroundTaskNeeds, GroundTeamKind, HeldSystem, RegionTier } from "./model";
@@ -234,6 +236,14 @@ export const ANOMALY_CHECK_FRACTION = 0.5; // roll at the halfway point of the B
 // (voyage.ts VOYAGE_ANOMALY_DETOUR_PERMILLE of its outbound leg).
 export const ANOMALY_EXTRA_SECONDS = 3600;
 export const ANOMALY_CHANCE_PERMILLE = 350; // 35% chance to chart (permille -> exact integer draw)
+// Wiring WR-11 (OC-G3 "Sensors + a small reward"), on a run stamped with the site rules (Expedition.siteRules): the
+// chart chance rises with the frozen sensorPower on a diminishing curve toward certain, never reaching it (D23):
+// 1000 - (1000 - ANOMALY_CHANCE_PERMILLE) / (1 + sensorPower / ANOMALY_SENSOR_REF), floored (sensors 0 = 35%,
+// 20 = 56.7%, 40 = 67.5%, 80 = 78.4%); and a charted anomaly's finding carries a small haul (gambit.ts rollHaul on the
+// default salvage table at ANOMALY_HAUL_SCALE x the region tier's haul, on the anomaly's own stream after its chance
+// draw). [PROVISIONAL] sizes for 0.16.0.
+export const ANOMALY_SENSOR_REF = 40;
+export const ANOMALY_HAUL_SCALE = 0.5;
 
 // SCANNING: % scanned per second via the installed array's effect + the ship's sensors. Bigger body
 // (larger scanTotal) = longer; more hazardous = slower. The per-array scanRateMult / coverageWidth
@@ -925,7 +935,6 @@ export interface ExpeditionForeknowledge {
   inRange: boolean; // sensors >= SENSOR_REVEAL_IN_RANGE
   bodyCount: number | null; // revealed with inRange
   bodies: ExpeditionForeknowledgeBody[] | null; // one per body once in range (fields fill by threshold)
-  relicSignature: boolean | null; // revealed at SENSOR_REVEAL_RELIC: a relic lead is present
   // E4a (additive): WHICH relic sets the system's would-be discoveries source, in canonical RELIC_SETS
   // order, revealed at the same SENSOR_REVEAL_RELIC threshold (null below it). Since E4a every PoI sources
   // some set, so the boolean above reads true for any revealed system; this list is the informative half
@@ -961,7 +970,16 @@ export interface ExpeditionCandidate {
 // (design 6.4: a ship parked at the homeworld cannot see thousands of light-years) [PROPOSAL, open call 7; user #7
 // asks for a "truly unknown territory" warning]. G2-2: a candidate of a tier past the telescope's reach reads it (the
 // console offers deeper tiers once G2-6 adds the region picker).
-const BLIND_FOREKNOWLEDGE: ExpeditionForeknowledge = { inRange: false, bodyCount: null, bodies: null, relicSignature: null, relicSets: null };
+const BLIND_FOREKNOWLEDGE: ExpeditionForeknowledge = { inRange: false, bodyCount: null, bodies: null, relicSets: null };
+
+// Wiring WR-11 deleted the foreknowledge's `relicSignature` (always true where revealed: every PoI bears a relic set, and
+// the console never read it; relicSets is the lead). Only the test switch puts it back, in its old place, so a
+// pre-WR-11 golden of the candidate list reproduces. Pure.
+function withLegacyRelicSignature(fk: ExpeditionForeknowledge): ExpeditionForeknowledge {
+  if (WR11_SWITCH.live) return fk;
+  const { relicSets, ...rest } = fk;
+  return { ...rest, relicSignature: relicSets === null ? null : relicSets.length > 0, relicSets } as ExpeditionForeknowledge;
+}
 
 // Run the REAL seeded discovery roll for a preview system (generateBodies), reusing the exact
 // engine path (assignDiscoveriesAndActivities) so the projection cannot drift from what the committed
@@ -1043,7 +1061,7 @@ function gateForeknowledge(
   region: ExpeditionRegion,
 ): ExpeditionForeknowledge {
   const inRange = sensorPower >= SENSOR_REVEAL_IN_RANGE;
-  if (!inRange) return { inRange: false, bodyCount: null, bodies: null, relicSignature: null, relicSets: null };
+  if (!inRange) return { inRange: false, bodyCount: null, bodies: null, relicSets: null };
   const showTypes = sensorPower >= SENSOR_REVEAL_PLANET_TYPES;
   const showHazard = sensorPower >= SENSOR_REVEAL_HAZARD;
   const showRelic = sensorPower >= SENSOR_REVEAL_RELIC;
@@ -1055,7 +1073,6 @@ function gateForeknowledge(
       planetType: showTypes ? b.planetType : null,
       hazard: showHazard ? b.hazard : null,
     })),
-    relicSignature: relicSets === null ? null : relicSets.length > 0,
     relicSets,
   };
 }
@@ -1095,7 +1112,7 @@ export function expeditionCandidates(state: GameState, shipId: string, tier: Reg
       seed,
       systemId: cand.systemId,
       systemName: cand.systemName,
-      foreknowledge: telescope.blind ? { ...BLIND_FOREKNOWLEDGE } : gateForeknowledge(foreSensors, bodies, seed, snap.scanParams, region),
+      foreknowledge: withLegacyRelicSignature(telescope.blind ? { ...BLIND_FOREKNOWLEDGE } : gateForeknowledge(foreSensors, bodies, seed, snap.scanParams, region)),
       telescope,
     };
   });
@@ -1765,6 +1782,10 @@ function buildExpedition(
     ...(study || nebula ? { pickupPause: 1 as const } : {}),
     // Gas Giant Study GG-7: the Resonance Sensor Array's band lift (see above), only when the ship carries one.
     ...(bandLift !== undefined ? { bandLift } : {}),
+    // Wiring WR-11: the site rules (OC-G3, OC-G4, OC-G6) on every new run, and the Museum's Science team power on the
+    // named Science members (OC-H1), only when the Museum has some. Neither under the test switch.
+    ...(WR11_SWITCH.live ? { siteRules: 1 as const } : {}),
+    ...(WR11_SWITCH.live && museum.scienceTeamPower > 0 ? { museumSciencePower: museum.scienceTeamPower } : {}),
   };
   return expedition;
 }
@@ -2589,11 +2610,39 @@ function maybeResolveAnomaly(exp: Expedition, elapsedInPhase: number): void {
   // stable) but never roll -> the detour is never added and no anomaly finding is granted. The gate is a
   // stored flag, not a live value, so this stays deterministic + offline==live parity-safe.
   if (!exp.anomalyOptIn) return;
-  const charted = makeRng((exp.seed ^ ANOMALY_SALT) >>> 0).chance(ANOMALY_CHANCE_PERMILLE, 1000);
+  const rng = makeRng((exp.seed ^ ANOMALY_SALT) >>> 0);
+  const charted = rng.chance(anomalyChartPermille(exp), 1000);
   if (charted) {
     exp.anomalyCharted = true;
-    exp.findings.push({ id: `${exp.id}-find-anomaly`, source: "anomaly" });
+    // Wiring WR-11 (OC-G3, B15): on a run stamped with the site rules the finding carries a small haul (anomalyHaul,
+    // the next draw of the same stream), which the claim deposits like any other. An older run's finding stays empty
+    // and draws nothing more.
+    exp.findings.push(chartedAnomalyFinding(exp, () => rng.nextInt(0x7fffffff)));
   }
+}
+
+// Wiring WR-11 (OC-G3): the finding a charted anomaly logs: with its small haul on a run stamped with the site rules
+// (`nextSeed` is drawn only then), empty on an older run. Pure apart from the draw (the wiring probe reads it).
+export function chartedAnomalyFinding(exp: Pick<Expedition, "id" | "siteRules" | "region">, nextSeed: () => number): ExpeditionFinding {
+  if (exp.siteRules !== 1) return { id: `${exp.id}-find-anomaly`, source: "anomaly" };
+  const haul = anomalyHaul(exp, nextSeed());
+  return { id: `${exp.id}-find-anomaly`, source: "anomaly", materials: haul.materials, credits: haul.credits };
+}
+
+// Wiring WR-11 (OC-G3): the anomaly chart chance in permille. A run stamped with the site rules reads its frozen
+// sensorPower on the ANOMALY_SENSOR_REF curve (see the constants); an older run keeps the flat ANOMALY_CHANCE_PERMILLE.
+// Pure (the dispatch console and the wiring probe read it).
+export function anomalyChartPermille(exp: Pick<Expedition, "siteRules" | "sensorPower">): number {
+  if (exp.siteRules !== 1) return ANOMALY_CHANCE_PERMILLE;
+  const sensors = exp.sensorPower > 0 && Number.isFinite(exp.sensorPower) ? exp.sensorPower : 0;
+  return Math.floor(1000 - (1000 - ANOMALY_CHANCE_PERMILLE) / (1 + sensors / ANOMALY_SENSOR_REF));
+}
+
+// Wiring WR-11 (OC-G3): a charted anomaly's small haul, rolled on `seed` (the anomaly stream's draw after the chance):
+// the default salvage table at ANOMALY_HAUL_SCALE x the region tier's haul multiplier, no hazard. Pure.
+export function anomalyHaul(exp: Pick<Expedition, "region">, seed: number): { materials: Record<string, number>; credits: number } {
+  const tier = tierHaulMult(exp.region);
+  return rollHaul(seed, "", 0, tier !== 1 ? ANOMALY_HAUL_SCALE * tier : ANOMALY_HAUL_SCALE);
 }
 
 const PHASE_NEXT: Record<Expedition["phase"], Expedition["phase"]> = {
@@ -2749,7 +2798,8 @@ export interface ExpeditionClaimResult {
 //     relic-bearing PoI).
 //   - EVACUATED partial findings deposit exactly like any other (their payload is already the reduced
 //     "always win something" haul, and never carries a relic).
-//   - ANOMALY findings carry no payload today, so they are no-ops.
+//   - ANOMALY findings: a run stamped with the site rules (WR-11, OC-G3) carries a small haul (materials + credits),
+//     deposited like any other; an older run's anomaly finding carries none and is a no-op.
 // LIFETIME STATS: the haul folds through the shared foldLifetimeStatsDelta seam (the one extraction and
 // patrol loot use): materials into itemsGathered (the gross amount, mirroring how mission loot counts) and
 // credits into creditsEarned.

@@ -36,6 +36,7 @@ import type {
 } from "./game/model";
 import { ITEMS } from "./game/model";
 import { nebulaKindById } from "./game/gasGiantContent";
+import { groundSiteFlavor } from "./game/expeditionContent";
 import { RETURN_SECONDS, TRAINING_FELL_BACK_TEXT, groundLegTeams, groundOpsBayCare, groundShipPosition, groundTaskProgressAt, groundTaskFindingPrefix, groundTaskStuck, groundTeamRemainingTasks } from "./game/groundOps";
 import type { FlaggedScanPause, FlaggedScanSpan } from "./game/expedition";
 import { GROUND_CONDITIONS, STONESKIN_INJURY_MULT, conditionCureSeconds, type ConditionClass } from "./game/medicalBay";
@@ -837,6 +838,7 @@ export interface TaskPipView {
 export interface TaskCardView {
   id: string;
   name: string;
+  flavor: string | null; // Wiring WR-11 (OC-G4): the site's flavor line (expeditionContent.ts groundSiteFlavor), or null
   where: string; // the body title
   state: TaskCardState;
   stateText: string; // "In progress", "Paused: Alpha in the med bay", "Done", "Skipped"
@@ -1044,6 +1046,7 @@ export function taskCardView(exp: Expedition, ship: ShipInstance | null | undefi
   return {
     id: task.id,
     name,
+    flavor: groundSiteFlavor(task.poiId) ?? null,
     where,
     state,
     stateText,
