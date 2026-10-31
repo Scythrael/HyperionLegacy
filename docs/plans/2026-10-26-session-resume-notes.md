@@ -205,3 +205,12 @@ drafted yet (relics v2 plan 2026-10-19 "Still open: the name sign-offs"), block 
 Before the release gate: VARIETY_RESIST_RATIO, EM-3 call 4 (Battle Rating), EM-4 worn-reactor + mass-cut, R2-4 Museum
 numbers. Stale: registry.ts:517 says Pilot Cunning "pending user decision" but OC-E4 was answered 2026-10-15
 ("Quicker trips home"); WR-9 builds it.
+
+## Hub note (2026-10-31 ~01:30 UTC): CP-3 and WR-11 merged
+
+CP-3 a158982 (tag slice/cp-3-ground-ops-complement, 10,521 green; user calls in the complement plan 2026-10-30).
+WR-11 f5c5284 (10,610 + the catchUp timing test, which flakes under parallel load and passes alone 40/40; release
+gate pending 80 -> 47). WR-11 [PROVISIONAL] numbers for the balance pass (pre-release-gate list): PoI relic x1.5 /
+x2 and materials x1.25; Ocean surface x1.25; anomaly sensor reference 40, haul scale 0.5; salvage tilt 0.5, knee 1;
+sell prices Salvaged Circuitry 12 cr, Precursor Circuit 300 cr. Open (non-blocking): should the reserved FA 20 row
+also tilt the salvage odds? Next: GG-8, then alternates (EM-8, CP-5, SF-7, G1-7, ...), WR-9 and WR-10 now unblocked.
