@@ -133,6 +133,7 @@ import { museumBonuses } from "./relics";
 // 0.13.9: the codebase's seeded mulberry32 factory, for the PRIVATE chance-rounding stream
 // (see salvageRoundingStream). rng.ts has no imports, so this adds no cycle.
 import { makeRng } from "./combat/rng";
+import { diminishing } from "./diminishing";
 // RARITY READINESS RR-4: the ascension order (keep-best tie-break) and the Celestial auto-salvage exemption.
 import { ascensionOrder, isCelestialPiece } from "./ascension";
 
@@ -566,11 +567,40 @@ function weightedPick<T extends { weight: number }>(items: T[], rng: () => numbe
 // REJECTS (same-ref no-op + reason):
 //   notSalvagedMaterial  itemId is not a `salvagedMaterial` category item (no loot pool)
 //   noneHeld             the player holds zero of that salvaged material
+// Wiring WR-11 (OC-J1 "Shift odds upward", B16): the salvage talent's +1 tier of reach used to be clamped away once the
+// Fleet Admiral ceiling alone reached the pool's top (FA 15 on). On a job stamped at its start (`shiftOverflow`, the
+// salvageResolve effect's `rollRules`), the part of the talent's reach that lands past the top tilts the tier weights
+// upward instead: tier i's weight x factor^i, factor = 1 + diminishing(SALVAGE_OVERFLOW_TILT x overflow,
+// SALVAGE_OVERFLOW_KNEE) (D23: more reach always tilts a little more, never a cap). Only the talent's share counts: the
+// Fleet Admiral row past the top (RR-7's reserved fifth tier, FA 20) stays reserved and tilts nothing. The same two
+// draws; no talent overflow, or an unstamped job, picks exactly as before.
+export const SALVAGE_OVERFLOW_TILT = 0.5; // [PROVISIONAL] for 0.16.0
+export const SALVAGE_OVERFLOW_KNEE = 1;
+
+export function salvageOverflowTiers(tiers: readonly SalvageLootTier[], overflow: number): SalvageLootTier[] {
+  if (!(overflow > 0) || !Number.isFinite(overflow)) return [...tiers];
+  const factor = 1 + diminishing(SALVAGE_OVERFLOW_TILT * overflow, SALVAGE_OVERFLOW_KNEE);
+  return tiers.map((t, i) => (i === 0 ? t : { ...t, weight: t.weight * factor ** i }));
+}
+
+// The loot reach of one material salvage on a pool of `poolLength` tiers: the clamped ceiling index the roll slices to,
+// and (WR-11, OC-J1, a job stamped `shiftOverflow`) the talent's tiers of reach past the top that tilt the weights.
+// Pure (salvageSalvagedMaterial's own reach; the wiring probe reads ceiling + overflow).
+export function salvageTierReach(state: GameState, poolLength: number, ceilingBonus = 0, shiftOverflow = false): { ceiling: number; overflow: number } {
+  const talentReach = salvageTalentBonus(state).ceilingBonus;
+  const rawCeiling = salvageBaseCeiling(state.fleetAdminLevel) + talentReach + ceilingBonus;
+  const top = poolLength - 1;
+  const ceiling = Math.min(Math.max(rawCeiling, 0), top);
+  const overflow = shiftOverflow ? Math.max(0, rawCeiling - top) - Math.max(0, rawCeiling - talentReach - top) : 0;
+  return { ceiling, overflow };
+}
+
 export function salvageSalvagedMaterial(
   state: GameState,
   itemId: string,
   rng: () => number = Math.random,
-  ceilingBonus = 0
+  ceilingBonus = 0,
+  shiftOverflow = false
 ): SalvageResult {
   // --- Validate the target is a salvaged material WITH a loot pool ----------
   // Category gate first: only `salvagedMaterial` items are salvaged for loot. An
@@ -596,12 +626,10 @@ export function salvageSalvagedMaterial(
   // the defined tiers. salvageTalentBonus(state) folds in the learned FA salvage
   // talent automatically (always applies in real play); `ceilingBonus` is the extra
   // test-override on top.
-  const rawCeiling =
-    salvageBaseCeiling(state.fleetAdminLevel) +
-    salvageTalentBonus(state).ceilingBonus +
-    ceilingBonus;
-  const ceiling = Math.min(Math.max(rawCeiling, 0), pool.length - 1);
-  const eligibleTiers: SalvageLootTier[] = pool.slice(0, ceiling + 1);
+  const { ceiling, overflow } = salvageTierReach(state, pool.length, ceilingBonus, shiftOverflow);
+  const sliced: SalvageLootTier[] = pool.slice(0, ceiling + 1);
+  // WR-11 (OC-J1): the talent's reach past the top tilts the weights up on a stamped job (see salvageOverflowTiers).
+  const eligibleTiers: SalvageLootTier[] = overflow > 0 ? salvageOverflowTiers(sliced, overflow) : sliced;
 
   // --- Roll: tier, then item within the tier -------------------------------
   const tier = weightedPick(eligibleTiers, rng); // draw 1

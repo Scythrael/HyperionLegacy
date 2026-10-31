@@ -5,7 +5,7 @@
 // through withMinimumAwayTeam so it keeps testing what it tested before (sensors, museum, relics, phases)
 // rather than the gate. The members are plain: rank 1, no traits, no gear, no own program.
 
-import { SHIP_TYPES, type AwayMember, type AwayTeamType, type Expedition, type ExpeditionFinding, type GameState, type ShipGroundTeam, type ShipTypeDef, type ShipTypeKey, patrolRouteOf, type PatrolMissionState } from "./model";
+import { SHIP_TYPES, WR11_SWITCH, type AwayMember, type AwayTeamType, type Expedition, type ExpeditionFinding, type GameState, type ShipGroundTeam, type ShipTypeDef, type ShipTypeKey, patrolRouteOf, type PatrolMissionState } from "./model";
 import { BANKED_SYSTEMS, SYSTEM_SALT, expeditionAwayTeamCheck, startExpedition, type ExpeditionCandidate, type ExpeditionDispatchResult } from "./expedition";
 import { FIELD_KITS_RUNS_LIVE } from "./fieldKits";
 import { PROVISIONAL_HOMEWORLD, type HomeworldPlacement } from "./galaxy";
@@ -96,7 +96,10 @@ export function withoutRisk(exp: Expedition): Expedition {
 // returned as it is. Every other key keeps its order. Pure: shallow copies.
 export function withoutShipEvents(exp: Expedition): Expedition {
   if (!exp.groundOps) return exp;
-  return { ...exp, groundOps: { ...exp.groundOps, shipEventProfile: { ...NEUTRAL_SHIP_EVENT_PROFILE } } };
+  // Wiring WR-11 (OC-G5) deleted the profile's evasion and shieldCapacity copies; under the WR-11 test switch the neutral
+  // profile carries them in their old places (0), so a golden captured before WR-11 reproduces.
+  const legacy = { evasion: 0, sensors: 0, shieldCapacity: 0, engineering: 0, boardingDefense: 0 } as unknown as typeof NEUTRAL_SHIP_EVENT_PROFILE;
+  return { ...exp, groundOps: { ...exp.groundOps, shipEventProfile: WR11_SWITCH.live ? { ...NEUTRAL_SHIP_EVENT_PROFILE } : legacy } };
 }
 
 // Objective affixes (AF-1): the run WITHOUT its affix flag, i.e. the risk-aware run the same dispatch produced

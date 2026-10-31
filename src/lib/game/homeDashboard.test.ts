@@ -43,7 +43,7 @@ import { buildHomeDashboard, HOME_RECENT_COMPLETIONS_LIMIT, type ActivityRow } f
 // 0.13.9: the same gate the upgrade prompt reads, for the retired-Fuel-Depot non-vacuity check.
 import { canBuildFacilityUpgrade } from "./tick";
 // The stuck-at-00:00 regression cases below read the mission table directly.
-import { MISSIONS } from "./model";
+import { MISSIONS, missionDefWithoutShip } from "./model";
 
 // One TimedProcess of every kind, each with a valid effect whose noun resolves against
 // the real launch tables (so the label assertions below track any content rename). The
@@ -1308,7 +1308,7 @@ describe("extraction rows measure the SHIP's mission, not the mission's baseline
   // A captain part-way through EXTRACTING, on a ship with a hold BIGGER than the mission baseline.
   function extractingOnBigHold(shipTypeKey: string) {
     const base = freshState();
-    const rawDef = MISSIONS[MISSION_KEY];
+    const rawDef = missionDefWithoutShip(MISSIONS[MISSION_KEY]); // WR-11 (OC-I1): the reference hold, 90
     const captain: CaptainState = {
       ...freshCaptainStack(),
       id: 1,
@@ -1345,7 +1345,7 @@ describe("extraction rows measure the SHIP's mission, not the mission's baseline
   it("reports the SHIP's phase length, not the mission def's", () => {
     const state = extractingOnBigHold("prospectorHauler");
     const row = buildHomeDashboard(state).inProgress.find((r) => r.kind === "extraction")!;
-    const rawDef = MISSIONS[MISSION_KEY];
+    const rawDef = missionDefWithoutShip(MISSIONS[MISSION_KEY]); // WR-11 (OC-I1): the reference hold, 90
     const rawTicks = Math.ceil(rawDef.cargoCapacity / rawDef.extractionRatePerTick);
     // Strictly longer than the baseline: this is the whole bug in one assertion.
     expect(row.durationTicks).toBeGreaterThan(rawTicks);
@@ -1356,7 +1356,7 @@ describe("extraction rows measure the SHIP's mission, not the mission's baseline
     // Non-vacuous guard: proves the fix did not simply inflate every mission's length.
     const state = extractingOnBigHold("generalFreighter");
     const row = buildHomeDashboard(state).inProgress.find((r) => r.kind === "extraction")!;
-    const rawDef = MISSIONS[MISSION_KEY];
+    const rawDef = missionDefWithoutShip(MISSIONS[MISSION_KEY]); // WR-11 (OC-I1): the reference hold, 90
     expect(row.durationTicks).toBe(Math.ceil(rawDef.cargoCapacity / rawDef.extractionRatePerTick));
   });
 

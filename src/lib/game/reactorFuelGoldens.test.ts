@@ -37,6 +37,10 @@ import { reactorCoreFuel } from "./reactorTech";
 import { withPreMl2Recipes } from "./ml2RecipeGoldens.fixture";
 import { WIRING_REGISTRY } from "./wiring/registry";
 import { shipReachesRoundTrip, shipTripRangeLightYears } from "./tick";
+import { missionDefWithCargoBack, wr11OffForThisFile } from "./wr11Switch.fixture";
+// Wiring WR-11 came after every pin here: the whole file runs with WR-11 off (wr11Switch.fixture.ts), so its pins keep
+// proving their own slice moved nothing else (WR-11's own moves are pinned in wr11Goldens.test.ts).
+wr11OffForThisFile();
 
 const HULLS = Object.keys(SHIP_TYPES) as ShipTypeKey[];
 const REACTOR_BPS = Object.keys(BLUEPRINTS).filter((k) => BLUEPRINTS[k].equipmentOutput?.slotType === "reactorCore");
@@ -118,7 +122,7 @@ const AFTER: Record<string, unknown> = {
     ["carrier", true, 93.50000000000001, "ok"], ["orion", true, 229.50000000000003, "ok"], ["aurora", true, 224, "ok"],
     ["eir", true, 195, "ok"],
   ],
-  // The mission's per-field rows (its cargoCapacity pending on WR-11 like every mission's: the hull hold overwrites it),
+  // The mission's per-field rows (WR-11, OC-I1 "Delete it": its cargoCapacity row went with the field; the hull's hold rules),
   // the fuel rungs (fusion tiers I and II live, the larger fusion cores and the three higher tech tiers seams for the
   // balancing patch), the variety tags (live) and the hull requirement seam.
   registryAdded: [
@@ -133,7 +137,6 @@ const AFTER: Record<string, unknown> = {
     "mission:MISSIONS:cometIceHarvest:lootTable|live",
     "mission:MISSIONS:cometIceHarvest:unlockLevel|live",
     "mission:MISSIONS:cometIceHarvest:primaryMaterial|live",
-    "mission:MISSIONS:cometIceHarvest:cargoCapacity|pending",
     "facility:REACTOR_TECH_TIERS:fusion:fuel:0|live",
     "facility:REACTOR_TECH_TIERS:fusion:fuel:1|live",
     "facility:REACTOR_TECH_TIERS:fusion:fuel:2|seam",
@@ -195,8 +198,9 @@ describe("RX-0 goldens: reactor recipes, crafted reactors, power budget and the 
   it("missions: the capture's keys and defs unchanged, the Cometary Ice Harvest appended", () => {
     expect(PRE_RX_MISSION_KEYS).toEqual(GOLDEN.missionKeys);
     expect(Object.keys(MISSIONS)).toEqual([...(GOLDEN.missionKeys as string[]), ...RX_NEW_MISSIONS]);
-    expect(PRE_RX_MISSION_KEYS.map((k) => [k, hash(MISSIONS[k])])).toEqual(GOLDEN.missionDefs);
-    expect(hash(MISSIONS.cometIceHarvest)).toBe(AFTER.cometDef);
+    // WR-11 (OC-I1 "Delete it") deleted every def's cargoCapacity: each def hashes as captured with it put back.
+    expect(PRE_RX_MISSION_KEYS.map((k) => [k, hash(missionDefWithCargoBack(k, MISSIONS[k]))])).toEqual(GOLDEN.missionDefs);
+    expect(hash(missionDefWithCargoBack("cometIceHarvest", MISSIONS.cometIceHarvest))).toBe(AFTER.cometDef);
   });
 
   it("missions: every earlier mission flown from dispatch for 300 seconds is unchanged; the comet run pinned", () => {

@@ -135,6 +135,7 @@
     // by the flying hull's speed, so the fuel-chip expenditure math can measure a burn
     // rate against the REAL (ship-adjusted) cycle length, not the un-adjusted base.
     effectiveMissionDef,
+    missionDefWithoutShip,
     xpForNextLevel,
     xpForNextFleetAdminLevel,
     CAPTAIN_TALENTS,
@@ -17788,7 +17789,7 @@
                     {@const missionShip = state.ships.find((s) => s.assignedCaptainId === captain.id)}
                     {@const missionDef = missionShip
                       ? effectiveMissionDef(MISSIONS[mission.missionKey], missionRunSheet(state, missionShip, mission))
-                      : MISSIONS[mission.missionKey]}
+                      : missionDefWithoutShip(MISSIONS[mission.missionKey])}
                     {@const requiredTicks = missionPhaseTicks(mission.phase, missionDef, mission.cargo)}
                     {@const progress = Math.min(1, mission.phaseProgressTicks / requiredTicks)}
                     {@const remainingTicks = Math.max(0, Math.ceil(requiredTicks - mission.phaseProgressTicks))}
@@ -20556,7 +20557,7 @@
                museum's transit / cargo / extraction-speed override (the bare equipment fold omitted both). -->
           {@const timingDef = popupShip !== null
             ? effectiveMissionDef(missionDef, effectiveShipStats(state, popupShip))
-            : missionDef}
+            : missionDefWithoutShip(missionDef)}
           <!-- 0.13.9: every TIMING row, Orders Received included, comes from missionCycleTiming
                (model.ts), and the total is their sum, so the listed rows always add up. -->
           {@const cycleTiming = missionCycleTiming(timingDef)}

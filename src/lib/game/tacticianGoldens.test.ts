@@ -46,7 +46,11 @@ battleWearOffInThisFile();
 // WR-7 follow-up OC-D5 (favorsSpec, "+10% on its ship type"): the same for the favored-spec bonus (the carrier's Damage
 // Control Suite favors the Tactician spec): the pins predate it; favorsSpecGoldens.test.ts pins it.
 import { favoredSpecOffForThisFile } from "./favoredSpecSwitch.fixture";
+import { wr11OffForThisFile } from "./wr11Switch.fixture";
 favoredSpecOffForThisFile();
+// Wiring WR-11 came after every pin here: the whole file runs with WR-11 off (wr11Switch.fixture.ts), so its pins keep
+// proving their own slice moved nothing else (WR-11's own moves are pinned in wr11Goldens.test.ts).
+wr11OffForThisFile();
 
 function fnv(s: string): string {
   let h = 0x811c9dc5;

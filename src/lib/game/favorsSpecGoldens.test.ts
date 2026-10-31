@@ -9,11 +9,15 @@ import { gearWearOffInThisFile } from "./gearWearSwitch.fixture";
 import { FAVORS_PINS_PRE, favorsRows } from "./favorsSpecGoldens.fixture";
 import { withFavoredSpecOff } from "./favoredSpecSwitch.fixture";
 import { patrolLegsOffForThisFile } from "./patrolLegsSwitch.fixture";
+import { wr11OffForThisFile } from "./wr11Switch.fixture";
 
 // WR-7 follow-up OC-D8 (patrol legs scale with transit speed): every pin here predates the legs and is about OC-D5 favorsSpec;
 // with the legs off each one returns (checked when the legs were wired), so the file runs with them off and keeps
 // proving its own slice. patrolLegsGoldens.test.ts pins the legs on every patrol and every combat hull.
 patrolLegsOffForThisFile();
+// Wiring WR-11 came after every pin here: the whole file runs with WR-11 off (wr11Switch.fixture.ts), so its pins keep
+// proving their own slice moved nothing else (WR-11's own moves are pinned in wr11Goldens.test.ts).
+wr11OffForThisFile();
 
 gearWearOffInThisFile();
 

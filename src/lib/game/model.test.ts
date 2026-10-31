@@ -11,6 +11,7 @@ import {
   freshCaptainStack,
   requiredTicksForPhase,
   missionCycleTiming,
+  missionDefWithoutShip,
   MISSIONS,
   REFINE_RECIPES,
   FACILITIES,
@@ -328,11 +329,12 @@ describe("MISSIONS, launch set", () => {
     expect(MISSIONS.shortOreRun.transitBackTicks).toBe(25);
     expect(MISSIONS.shortOreRun.unloadTicks).toBe(8);
     expect(MISSIONS.shortOreRun.extractionRatePerTick).toBe(1);
-    expect(MISSIONS.shortOreRun.cargoCapacity).toBe(90);
+    // Wiring WR-11 (OC-I1 "Delete it"): no mission carries a cargoCapacity of its own; the hull's hold rules.
+    expect("cargoCapacity" in MISSIONS.shortOreRun).toBe(false);
 
     expect(MISSIONS.longOreRun.transitOutTicks).toBe(70);
     expect(MISSIONS.longOreRun.transitBackTicks).toBe(70);
-    expect(MISSIONS.longOreRun.cargoCapacity).toBe(90);
+    expect("cargoCapacity" in MISSIONS.longOreRun).toBe(false);
 
     // Progression Pacing Rework (Task 5): fleetAdminXpPerCycle was renamed to the
     // per-tick field fleetAdminXpPerTick and both missions reset to 1 (the old
@@ -494,9 +496,8 @@ describe("MISSIONS, per-mission loot triads (Mission Rework Task 1)", () => {
       expect(m.transitBackTicks).toBeGreaterThan(0);
       expect(m.unloadTicks).toBeGreaterThan(0);
       expect(m.extractionRatePerTick).toBeGreaterThan(0);
-      // cargoCapacity must divide evenly by extractionRatePerTick (requiredTicksForPhase
-      // has no partial-final-tick path, see model.ts).
-      expect(m.cargoCapacity % m.extractionRatePerTick).toBe(0);
+      // WR-11 (OC-I1): the hull's hold sets the extracting phase; the def carries no cargoCapacity.
+      expect("cargoCapacity" in m).toBe(false);
       expect(m.uncommonChance).toBeGreaterThan(0);
       expect(m.uncommonChance).toBeLessThanOrEqual(1);
       expect(m.rareChance).toBeGreaterThan(0);
@@ -521,7 +522,7 @@ describe("MISSIONS, per-mission loot triads (Mission Rework Task 1)", () => {
       expect(m.transitOutTicks).toBeGreaterThan(MISSIONS.longOreRun.transitOutTicks);
       expect(m.transitOutTicks + m.transitBackTicks).toBeLessThanOrEqual(SHIP_TYPES.generalFreighter.fuelCapacity);
       expect(m.unloadTicks).toBeGreaterThan(0);
-      expect(m.cargoCapacity % m.extractionRatePerTick).toBe(0);
+      expect("cargoCapacity" in m).toBe(false);
       // A survey hunts the good stuff: its rarity odds sit ABOVE the richest ore run (longOreRun).
       expect(m.uncommonChance).toBeGreaterThan(MISSIONS.longOreRun.uncommonChance);
       expect(m.rareChance).toBeGreaterThan(MISSIONS.longOreRun.rareChance);
@@ -567,7 +568,7 @@ describe("MISSIONS, per-mission loot triads (Mission Rework Task 1)", () => {
       // captain-level gate is the progression nudge. Integer FA XP rate (closed-form parity trap).
       expect(m.unlockLevel).toBe(1);
       expect(m.requiresCaptainLevel).toBeGreaterThanOrEqual(3);
-      expect(m.cargoCapacity % m.extractionRatePerTick).toBe(0);
+      expect("cargoCapacity" in m).toBe(false);
       expect(Number.isInteger(m.fleetAdminXpPerTick)).toBe(true);
     }
     // The richer run (colonySupplyLift) carries the higher margin + a higher captain-level gate.
@@ -611,8 +612,7 @@ describe("MISSIONS, per-mission loot triads (Mission Rework Task 1)", () => {
     expect(m.transitOutTicks).toBe(COMETARY_ICE_HARVEST_NUMBERS.transitTicks);
     expect(m.transitBackTicks).toBe(COMETARY_ICE_HARVEST_NUMBERS.transitTicks);
     expect(m.transitOutTicks).toBeGreaterThan(0); // a real hop, unlike the skim's 0
-    expect(m.cargoCapacity).toBe(90);
-    expect(m.cargoCapacity % m.extractionRatePerTick).toBe(0);
+    expect("cargoCapacity" in m).toBe(false);
     expect(m.uncommonChance).toBe(COMETARY_ICE_HARVEST_NUMBERS.titaniumChance);
     expect(m.rareChance).toBe(COMETARY_ICE_HARVEST_NUMBERS.iridiumChance);
     expect(m.creditsPerCycle).toBe(COMETARY_ICE_HARVEST_NUMBERS.creditsPerCycle);
@@ -796,22 +796,25 @@ describe("Fuel-sourcing restructure, the free localFuelRun bootstrap mission", (
   });
 });
 
+// WR-11 (OC-I1): a def read without a ship takes the reference hold (missionDefWithoutShip, the General Freighter's 90).
+const SHORT_RUN = missionDefWithoutShip(MISSIONS.shortOreRun);
+
 describe("requiredTicksForPhase", () => {
   it("ordersReceived is always exactly 1 tick", () => {
-    expect(requiredTicksForPhase("ordersReceived", MISSIONS.shortOreRun)).toBe(1);
+    expect(requiredTicksForPhase("ordersReceived", SHORT_RUN)).toBe(1);
   });
 
   it("transitOut/transitBack/unloading match the mission definition directly", () => {
-    expect(requiredTicksForPhase("transitOut", MISSIONS.shortOreRun)).toBe(25);
-    expect(requiredTicksForPhase("transitBack", MISSIONS.shortOreRun)).toBe(25);
-    expect(requiredTicksForPhase("unloading", MISSIONS.shortOreRun)).toBe(8);
+    expect(requiredTicksForPhase("transitOut", SHORT_RUN)).toBe(25);
+    expect(requiredTicksForPhase("transitBack", SHORT_RUN)).toBe(25);
+    expect(requiredTicksForPhase("unloading", SHORT_RUN)).toBe(8);
   });
 
   it("extracting is cargoCapacity / extractionRatePerTick, rounded up", () => {
     // 90 / 1 = exactly 90, both cargoCapacity and extractionRatePerTick were
     // rescaled 10x down together (Extraction Rework regression fix), keeping the
     // resulting phase length unchanged at 90 ticks.
-    expect(requiredTicksForPhase("extracting", MISSIONS.shortOreRun)).toBe(90);
+    expect(requiredTicksForPhase("extracting", SHORT_RUN)).toBe(90);
   });
 });
 
@@ -819,8 +822,8 @@ describe("missionCycleTiming (0.13.9: the dispatch TIMING list)", () => {
   it("lists every phase, Orders Received included, and the total is their exact sum", () => {
     // The dispatch popup used to list four rows but add a hidden 1 tick for Orders Received to
     // its total, so the rows did not add up. Every row now comes from requiredTicksForPhase.
-    const t = missionCycleTiming(MISSIONS.shortOreRun);
-    expect(t.ordersReceived).toBe(requiredTicksForPhase("ordersReceived", MISSIONS.shortOreRun));
+    const t = missionCycleTiming(SHORT_RUN);
+    expect(t.ordersReceived).toBe(requiredTicksForPhase("ordersReceived", SHORT_RUN));
     expect(t.ordersReceived).toBe(1);
     expect(t.transitOut).toBe(25);
     expect(t.extracting).toBe(90);
@@ -1355,7 +1358,7 @@ describe("effectiveMissionDef", () => {
 
   it("does not mutate the base mission", () => {
     effectiveMissionDef(short, shipDerivedStats({ id: "s", typeKey: "prospectorHauler", assignedCaptainId: null }));
-    expect(MISSIONS.shortOreRun.cargoCapacity).toBe(90);
+    expect("cargoCapacity" in MISSIONS.shortOreRun).toBe(false);
   });
 
   // Crew 0.14.0 Phase 5 ("cargo scales unload"): unloadTicks = max(UNLOAD_MIN_TICKS,

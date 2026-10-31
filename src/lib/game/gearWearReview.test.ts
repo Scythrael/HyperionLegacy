@@ -3,6 +3,7 @@
 // with the use sources off would only gain the wear fields with wear on.
 
 import { describe, expect, it } from "vitest";
+import { withWr11Off } from "./wr11Switch.fixture";
 import Decimal from "break_infinity.js";
 import { MISSIONS, freshState, type EquipmentInstance, type Expedition, type GameState, type MissionKey } from "./model";
 import { dispatchCaptainOnMission, dispatchCaptainOnPatrol, economyTick, installMissingCombatBaselines } from "./tick";
@@ -42,7 +43,9 @@ function fieldRepairRun(): { s: GameState; exp: Expedition; done: Expedition } {
   const s = withSlottedAwayTeams({ ...freshState(), awayMembers: squad, nextAwayMemberId: 100, expeditionSeed: 0x1244 });
   // Dispatched as complementGoldens' groundOpsRepair dispatches it (before enemy ranks and safe first runs), whose ship
   // events set it down for a field repair.
-  const res = asPreSafeFirstRunsDispatch(asPreRanksDispatch(dispatchPastPropulsion(s, "ship-1", 1, expeditionCandidates(s, "ship-1")[0].id)));
+  // Wiring WR-11: dispatched before the site rules too (withWr11Off), the run whose ship events set it down after its
+  // reactor wore (the site rules' slower Ocean work moves that leg ahead of the wear).
+  const res = withWr11Off(() => asPreSafeFirstRunsDispatch(asPreRanksDispatch(dispatchPastPropulsion(s, "ship-1", 1, expeditionCandidates(s, "ship-1")[0].id))));
   if (!res.success || !res.expedition) throw new Error(`dispatch refused: ${res.reason}`);
   const exp0 = res.expedition;
   const exp: Expedition = { ...exp0, groundOps: { ...exp0.groundOps!, hullDamage: FIELD_REPAIR_DAMAGE_SHARE * exp0.groundOps!.shipEventProfile.battle!.hullMax - 1 } };

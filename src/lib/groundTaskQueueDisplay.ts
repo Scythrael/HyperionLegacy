@@ -31,7 +31,7 @@ import {
 } from "./game/groundOps";
 import { DEFAULT_GROUND_TEAM_KIND, isGroundTeamKind, teamKindName } from "./game/groundComposition";
 import { groundTeamDefaultName, groundTeamName, groundTeamShortLabel } from "./game/groundTeams";
-import { getPlanetTypeById, groundSiteLabel } from "./game/expeditionContent";
+import { getPlanetTypeById, groundSiteFlavor, groundSiteLabel } from "./game/expeditionContent";
 import { DIFFICULTY_NAMES, difficultyName, difficultyWeight, storedDifficulty } from "./game/riskFactors";
 import type { ThreatAssessment } from "./game/combat/threatAssessment";
 import { bodyLetter } from "./game/starCatalog";
@@ -487,6 +487,7 @@ export function queuePosition(
 export interface TaskRowView {
   id: string;
   name: string;
+  flavor: string | null; // Wiring WR-11 (OC-G4): the site's flavor line (expeditionContent.ts groundSiteFlavor), or null
   status: QueueTaskStatus;
   statusText: string;
   statusDetail: string | null;
@@ -563,6 +564,7 @@ export function taskRowView(
   return {
     id: task.id,
     name,
+    flavor: groundSiteFlavor(task.poiId) ?? null,
     status,
     statusText: QUEUE_STATUS_TEXT[status],
     statusDetail: queueStatusDetail(exp, ship, task, status),

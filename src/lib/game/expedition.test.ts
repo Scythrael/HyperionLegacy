@@ -703,7 +703,7 @@ describe("E2c foreknowledge — progressive reveal scales with the ship's sensor
       expect(c.foreknowledge.inRange).toBe(false);
       expect(c.foreknowledge.bodyCount).toBeNull();
       expect(c.foreknowledge.bodies).toBeNull();
-      expect(c.foreknowledge.relicSignature).toBeNull();
+      expect(c.foreknowledge.relicSets).toBeNull(); // WR-11 deleted the always-true relicSignature (relicSets is the lead)
       // The system NAME is still known (a destination reads by name even beyond range).
       expect(c.systemName.length).toBeGreaterThan(0);
     }
@@ -719,7 +719,7 @@ describe("E2c foreknowledge — progressive reveal scales with the ship's sensor
         expect(b.planetType).toBeNull(); // below the planet-type threshold
         expect(b.hazard).toBeNull();
       }
-      expect(c.foreknowledge.relicSignature).toBeNull();
+      expect(c.foreknowledge.relicSets).toBeNull(); // WR-11 deleted the always-true relicSignature (relicSets is the lead)
     }
   });
 
@@ -733,7 +733,7 @@ describe("E2c foreknowledge — progressive reveal scales with the ship's sensor
         expect(PLANET_TYPES.some((p) => p.id === b.planetType)).toBe(true);
         expect(b.hazard).toBe(planetTypeHazard(b.planetType!));
       }
-      expect(typeof c.foreknowledge.relicSignature).toBe("boolean");
+      expect(Array.isArray(c.foreknowledge.relicSets)).toBe(true);
     }
   });
 
@@ -750,8 +750,8 @@ describe("E2c foreknowledge — progressive reveal scales with the ship's sensor
     expect(types.bodies![0].planetType).not.toBeNull();
     expect(types.bodies![0].hazard).toBeNull();
     expect(hazard.bodies![0].hazard).not.toBeNull();
-    expect(hazard.relicSignature).toBeNull();
-    expect(typeof relic.relicSignature).toBe("boolean");
+    expect(hazard.relicSets).toBeNull();
+    expect(Array.isArray(relic.relicSets)).toBe(true);
   });
 });
 

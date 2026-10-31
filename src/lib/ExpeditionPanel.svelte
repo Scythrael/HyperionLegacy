@@ -755,7 +755,7 @@
             {#if exp.phase === "transit" && anomalyMarker !== null}
               <div class="exp-leg-note">
                 {#if exp.anomalyResolved}
-                  {exp.anomalyCharted ? "Anomaly charted: a detour was added and logged a finding." : "Anomaly check passed: nothing charted."}
+                  {exp.anomalyCharted ? (exp.siteRules === 1 ? "Anomaly charted: a detour was added, and its small haul comes home with the run." : "Anomaly charted: a detour was added.") : "Anomaly check passed: nothing charted."}
                 {:else}
                   Anomaly-chart opt-in active: sensors will check for an anomaly at the marker.
                 {/if}
@@ -1504,7 +1504,7 @@
               <input type="checkbox" bind:checked={anomalyOptIn} />
               <span class="exp-toggle-text">
                 Chart an anomaly if sensors detect one en route
-                <span class="exp-toggle-note">Adds transit time but yields an extra finding.</span>
+                <span class="exp-toggle-note">Adds transit time; a charted anomaly brings home a small haul, and better sensors chart one more often.</span>
               </span>
             </label>
           </div>

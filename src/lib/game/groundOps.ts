@@ -32,7 +32,7 @@
 //                     member count) [PROPOSAL, Q20]. With one team both are [1] (a Ground team), so every
 //                     crew-layer read (exp.securityStrength x share, exp.scienceStrength x share) equals today.
 //     shipEventProfile : the ship-side scan events' frozen inputs (GO-8, shipScanEvents.ts
-//               snapshotShipEventProfile: evasion, sensors, shields, Engineering, the battle inputs). A run
+//               snapshotShipEventProfile: sensors, Engineering, Boarding Defense, the battle inputs). A run
 //               dispatched before GO-8 carries NEUTRAL_SHIP_EVENT_PROFILE (no battle inputs: no ship events).
 //   snapshotAwayRosterForTeams(state, ship, teams) : the run's UNION roster (Expedition.roster): Security then
 //     Science members of the deployed teams, team order then slot order. Scan readers keep reading exp.roster.
@@ -95,7 +95,7 @@ import {
 import { resolveTaskFight, taskFightSeconds, type GroundFightTeam } from "./groundFight";
 import { HELPER_MIN_TIER, groundTaskClearOdds, groundTaskThreat } from "./groundThreat";
 import { threatAssessment, tierAtLeast, type ThreatAssessment } from "./combat/threatAssessment";
-import { groundSiteLabel } from "./expeditionContent";
+import { groundSiteLabel, poiRelicOddsMult } from "./expeditionContent";
 import { activityRelicFindBonus, rollRelicToken, taskRelicSeed } from "./gambit";
 import { relicBlankStamp } from "./relicBlanks";
 import { fieldworkEffect } from "./fieldwork";
@@ -157,9 +157,7 @@ export type GroundOpsRunFacets = Pick<Expedition, "recoveryTurnaround" | "quickR
 // The ship-event profile every flagged run dispatched BEFORE GO-8 carries (no `battle`: it rolls no ship event).
 // Frozen so nothing can mutate the shared value. Since GO-8 snapshotGroundOps writes the real profile.
 export const NEUTRAL_SHIP_EVENT_PROFILE: Readonly<ShipEventProfile> = Object.freeze({
-  evasion: 0,
   sensors: 0,
-  shieldCapacity: 0,
   engineering: 0,
   boardingDefense: 0,
 });
@@ -1448,7 +1446,7 @@ function startWork(exp: Expedition, ops: GroundOpsState, team: GroundTeamRun, re
   const from = ref.task.progress ?? 0;
   const to = cleared < points.length ? points[cleared] : 1;
   const crew = crewOf(ops, team);
-  const full = taskWorkSeconds(exp, crew.map((member) => workTeamOf(ops, member)), ref.body);
+  const full = taskWorkSeconds(exp, crew.map((member) => workTeamOf(ops, member)), ref.body, ref.task.poiId);
   const secs = Math.max(1, Math.round((to - from) * full));
   team.workFrom = from;
   // AF-1, Reinforcing: this visit's next reinforcement strikes inside this step (its point before `to`): the step
@@ -2061,6 +2059,8 @@ function offloadFindings(exp: Expedition, ops: GroundOpsState, team: GroundTeamR
       exp.explorerCaptain,
       // Relics v2 R2-2: the blank stamp (the run's region tier, the body's culture) on a run with the R2-2 flag only.
       relicBlankStamp(exp, ref.bodyIndex),
+      // Wiring WR-11 (OC-G4): the site's relic odds on a run stamped with the site rules (1 otherwise).
+      poiRelicOddsMult(exp, task.poiId),
     );
   }
   exp.findings.push(finding);

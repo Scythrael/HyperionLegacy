@@ -51,6 +51,7 @@ import {
   type ShipInstance,
   type ShipScanEventKind,
   withFavoredLines,
+  WR11_SWITCH,
 } from "./model";
 import { makeRng } from "./combat/rng";
 import { combatHullTypeOf, shipToCombatant, type CombatShipStats } from "./combat/bridge";
@@ -196,16 +197,17 @@ export function snapshotShipEventProfile(state: GameState, ship: ShipInstance): 
   };
   const c = buildShipCombatant(ship.id, battle, 0, 0);
   battle.hullMax = c.hullMax;
-  return {
-    evasion: c.evasion / 100,
-    sensors: effectiveShipStats(state, ship).sensors,
-    shieldCapacity: c.shieldMax,
-    engineering: departmentFacet(state, ship, "engineering", "integrity"),
-    // GO-9: the crew rollup's Boarding Defense (the Security division's buff, the Ossir racial; Strength scales the
-    // Security division), frozen here like every other input.
-    boardingDefense: Math.max(0, shipCrewContribution(state, ship)[CREW_STAT_KEYS.boardingDefense] ?? 0),
-    battle,
-  };
+  const sensors = effectiveShipStats(state, ship).sensors;
+  const engineering = departmentFacet(state, ship, "engineering", "integrity");
+  // GO-9: the crew rollup's Boarding Defense (the Security division's buff, the Ossir racial; Strength scales the
+  // Security division), frozen here like every other input.
+  const boardingDefense = Math.max(0, shipCrewContribution(state, ship)[CREW_STAT_KEYS.boardingDefense] ?? 0);
+  // Wiring WR-11 (OC-G5 "Delete frozen copies"): the evasion and shield pool copies are no longer frozen (nothing read
+  // them). Only the test switch writes them, in their old places, so a pre-WR-11 golden reproduces.
+  if (!WR11_SWITCH.live) {
+    return { evasion: c.evasion / 100, sensors, shieldCapacity: c.shieldMax, engineering, boardingDefense, battle } as ShipEventProfile;
+  }
+  return { sensors, engineering, boardingDefense, battle };
 }
 
 // The ship as a combatant `hoursOut` hours into the run (the officers' Constitution ramp folded at that hour),

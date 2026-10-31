@@ -10,7 +10,7 @@ import {
   freshRunCounts,
   shipDerivedStats,
   type GameState,
-  type MissionDef,
+  type RunMissionDef,
   type RunDifficultyStamp,
   type ShipDerivedStats,
   type ShipTypeKey,
@@ -356,7 +356,7 @@ describe("G1-2 the cycle plan applies the captain-mission folds", () => {
     unloadSpeedMult: 1.4,
     fullHoldUnloadIntegrity: 0.5,
   };
-  const matchingDef = (leg: number, extracting: number): MissionDef => ({
+  const matchingDef = (leg: number, extracting: number): RunMissionDef => ({
     label: "matching",
     transitOutTicks: leg,
     transitBackTicks: leg,

@@ -79,11 +79,23 @@ export interface ExpeditionPoiDef {
   id: ExpeditionPoiId;
   label: string;
   pool: PoiPool;
-  flavor: string; // short mockup-locked flavor (the E2c UI surfaces it)
+  // The site's player-facing flavor (Wiring WR-11, OC-G4 "Show it and make it true": the objective cards and the queue
+  // show it, and every reward it names is real: relicOddsMult / materialMult below).
+  flavor: string;
   // planetType -> relative WEIGHT for a weighted pick within the pool. Absent => NOT eligible on that
   // planet type (weight 0). FIRST-PASS TUNABLE; the SET of eligible types per PoI is the locked content.
   planetWeights: Partial<Record<ExpeditionPlanetType, number>>;
+  // Wiring WR-11 (OC-G4, user: "better relic odds at Buried Vault and Subterranean sites; more materials at Bloom,
+  // Geothermal, Outpost, Crashed Ship"): on a run stamped with the site rules (Expedition.siteRules), the objective's
+  // relic chance is multiplied by relicOddsMult (its own factor, gambit.ts relicChancePermille) and the material count of
+  // its haul by materialMult (gambit.ts rollHaul; credits unchanged). Absent = x1. [PROVISIONAL] sizes for 0.16.0.
+  relicOddsMult?: number;
+  materialMult?: number;
 }
+
+// The WR-11 site reward sizes [PROVISIONAL] (OC-G4): better relic odds and more materials.
+export const POI_RELIC_ODDS_MULT = { buriedVault: 1.5, subterraneanCivilization: 2 } as const;
+export const POI_MATERIAL_MULT = 1.25;
 
 // The 9 PoIs (5 surface + 4 underground), LOCKED 2026-09-30. Each planetWeights map is FIRST-PASS
 // TUNABLE. Verified below (POIS_BY_PLANET_TYPE builder asserts) that every planet type has at least one
@@ -103,18 +115,20 @@ export const POI_CATALOG: readonly ExpeditionPoiDef[] = [
     id: "crashedShip",
     label: "Crashed Ship",
     pool: "surface",
-    flavor: "A downed hull: salvage plus a chance at intact tech or a log.",
-    // Everywhere; best on Frozen (best relic-survival) + Arid (preserved) + Ocean (sunken structures).
+    flavor: "A downed hull: extra salvage to haul home, plus a chance at intact tech or a flight log.",
+    // Everywhere; most common on Frozen + Arid (preserved) + Ocean (sunken structures).
     planetWeights: { terrestrial: 2, ocean: 3, arid: 3, volcanic: 1, frozen: 4, gasGiant: 2, barren: 2, toxic: 1 },
+    materialMult: POI_MATERIAL_MULT,
   },
   {
     id: "xenoFloraBloom",
     label: "Xeno-Flora Bloom",
     pool: "surface",
-    flavor: "A living bloom: Science sampling for biotech + research.",
+    flavor: "A living bloom: extra materials for Science to sample, and a chance at biotech.",
     // Life-bearing worlds: strongest on Ocean (xeno-flora) + Toxic (strange life). None on Volcanic /
     // Barren (nothing grows).
     planetWeights: { terrestrial: 2, ocean: 4, arid: 1, frozen: 1, gasGiant: 1, toxic: 3 },
+    materialMult: POI_MATERIAL_MULT,
   },
   {
     id: "mineralOutcrop",
@@ -128,9 +142,10 @@ export const POI_CATALOG: readonly ExpeditionPoiDef[] = [
     id: "derelictOutpost",
     label: "Derelict Outpost",
     pool: "surface",
-    flavor: "An abandoned outpost: supplies + data, with a fight risk.",
+    flavor: "An abandoned outpost: extra supplies to haul home, with a fight risk.",
     // Habitable-ish worlds; strongest on Terrestrial (outposts). Few on Volcanic / Gas Giant / Toxic.
     planetWeights: { terrestrial: 3, ocean: 2, arid: 2, volcanic: 1, frozen: 2, gasGiant: 1, barren: 2, toxic: 1 },
+    materialMult: POI_MATERIAL_MULT,
   },
   // --- UNDERGROUND pool (Focused-Beam favors) -----------------------------------------------------
   {
@@ -145,25 +160,28 @@ export const POI_CATALOG: readonly ExpeditionPoiDef[] = [
     id: "buriedVault",
     label: "Buried Vault",
     pool: "underground",
-    flavor: "A sealed cache: high relic odds waiting behind a fight.",
-    // Strongest on Arid (strong underground) + Frozen (relic survival). None on Gas Giant.
+    flavor: "A sealed cache: better relic odds, waiting behind a fight.",
+    // Most common on Arid (strong underground) + Frozen. None on Gas Giant.
     planetWeights: { terrestrial: 2, ocean: 1, arid: 4, volcanic: 1, frozen: 3, barren: 1, toxic: 2 },
+    relicOddsMult: POI_RELIC_ODDS_MULT.buriedVault,
   },
   {
     id: "subterraneanCivilization",
     label: "Subterranean Civilization",
     pool: "underground",
-    flavor: "The big relic prize: a deep-dwelling culture that needs an exploration build.",
+    flavor: "The big relic prize: a deep-dwelling culture, with the best relic odds of any site.",
     // The rare deep prize: low weight everywhere it appears, best on Arid. None on Gas Giant.
     planetWeights: { terrestrial: 1, ocean: 1, arid: 2, volcanic: 1, frozen: 1, barren: 1, toxic: 1 },
+    relicOddsMult: POI_RELIC_ODDS_MULT.subterraneanCivilization,
   },
   {
     id: "geothermalChamber",
     label: "Geothermal Chamber",
     pool: "underground",
-    flavor: "A superheated chamber: energy + exotic compounds, volcanic-flavored.",
-    // Strongest on Volcanic (volcanic-flavored) + Toxic (exotic compounds). None on Gas Giant / Barren.
+    flavor: "A superheated chamber: extra exotic compounds to haul, most common on volcanic worlds.",
+    // Strongest on Volcanic + Toxic (exotic compounds). None on Gas Giant / Barren.
     planetWeights: { terrestrial: 1, ocean: 1, arid: 1, volcanic: 4, frozen: 1, toxic: 3 },
+    materialMult: POI_MATERIAL_MULT,
   },
 ];
 
@@ -184,7 +202,13 @@ export interface PlanetTypeDef {
   // discoveries" per the mockup. FIRST-PASS TUNABLE.
   surfaceBias: number;
   undergroundBias: number;
+  // Wiring WR-11 (OC-G6 "Model Ocean only"): on a run stamped with the site rules (Expedition.siteRules), a SURFACE-pool
+  // objective's work time on this world x this (groundTasks.ts taskWorkSeconds). Absent = x1. [PROVISIONAL] for 0.16.0.
+  surfaceWorkMult?: number;
 }
+
+// The WR-11 Ocean surface work slowdown [PROVISIONAL] (OC-G6).
+export const OCEAN_SURFACE_WORK_MULT = 1.25;
 
 // Small helper so each entry reads the hazard scalar off its tier (single source of truth for the scalar).
 function planetType(
@@ -203,19 +227,19 @@ function planetType(
 export const PLANET_TYPES: readonly PlanetTypeDef[] = [
   // 1. Terrestrial: balanced finds (ruins, outposts, mixed minerals); hazard LOW.
   planetType("terrestrial", "Terrestrial", "low", false, 0.05, 0.05),
-  // 2. Ocean: xeno-flora, biotech, sunken structures; surface work slower; hazard MEDIUM.
-  planetType("ocean", "Ocean", "medium", false, 0.15, 0.0),
+  // 2. Ocean: xeno-flora, biotech, sunken structures; surface work slower (WR-11, surfaceWorkMult); hazard MEDIUM.
+  { ...planetType("ocean", "Ocean", "medium", false, 0.15, 0.0), surfaceWorkMult: OCEAN_SURFACE_WORK_MULT },
   // 3. Arid / Desert: buried ruins + preserved tech; strong UNDERGROUND odds; hazard LOW-MEDIUM.
   planetType("arid", "Arid", "lowMedium", false, 0.0, 0.2),
   // 4. Volcanic: rare/exotic minerals, few structures; hazard HIGH.
   planetType("volcanic", "Volcanic", "high", false, -0.05, 0.1),
-  // 5. Frozen / Ice: preserved relics + crashed ships, best relic-survival; hazard MEDIUM.
+  // 5. Frozen / Ice: preserved relics + crashed ships; hazard MEDIUM.
   planetType("frozen", "Frozen", "medium", false, 0.1, 0.05),
   // 6. Gas Giant: NO LANDING, orbital scan only; its satellites host the ground activities; hazard LOW (orbital).
   planetType("gasGiant", "Gas Giant", "low", true, 0.05, -0.1),
   // 7. Barren / Airless: straightforward mining, few discoveries; hazard LOW.
   planetType("barren", "Barren", "low", false, -0.1, -0.1),
-  // 8. Toxic: exotic compounds + strange life, needs a hardened team; hazard VERY HIGH.
+  // 8. Toxic: exotic compounds + strange life; hazard VERY HIGH.
   planetType("toxic", "Toxic", "veryHigh", false, 0.1, 0.1),
 ];
 
@@ -342,4 +366,26 @@ export function getClearingSiteById(id: string): ClearingSiteDef | undefined {
 // undefined. Pure.
 export function groundSiteLabel(id: string): string | undefined {
   return getPoiById(id)?.label ?? getHostileSiteById(id)?.label ?? getClearingSiteById(id)?.label;
+}
+
+// Wiring WR-11: the player-facing flavor of any ground task's site (the objective card and the queue row show it), or
+// undefined. Pure.
+export function groundSiteFlavor(id: string): string | undefined {
+  return getPoiById(id)?.flavor ?? getHostileSiteById(id)?.flavor ?? getClearingSiteById(id)?.flavor;
+}
+
+// Wiring WR-11 (OC-G4): the relic chance factor and the material factor a site's objective gets on a run stamped with
+// the site rules; 1 for an unstamped run, a hostile or clearing site, or a PoI that names neither. Pure.
+export function poiRelicOddsMult(run: { siteRules?: 1 }, poiId: string): number {
+  return run.siteRules === 1 ? (getPoiById(poiId)?.relicOddsMult ?? 1) : 1;
+}
+export function poiMaterialMult(run: { siteRules?: 1 }, poiId: string): number {
+  return run.siteRules === 1 ? (getPoiById(poiId)?.materialMult ?? 1) : 1;
+}
+
+// Wiring WR-11 (OC-G6): the work time factor of an objective at `poiId` on a body of `planetType`: the world's
+// surfaceWorkMult for a SURFACE-pool PoI on a run stamped with the site rules, else 1. Pure.
+export function surfaceWorkMult(run: { siteRules?: 1 }, planetType: string, poiId: string | undefined): number {
+  if (run.siteRules !== 1 || poiId === undefined || getPoiById(poiId)?.pool !== "surface") return 1;
+  return getPlanetTypeById(planetType)?.surfaceWorkMult ?? 1;
 }

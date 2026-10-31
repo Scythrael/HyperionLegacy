@@ -14,6 +14,10 @@ import { CREW_STAT_KEYS } from "./crewBuffs";
 import { CP3_CONTROL_CREW, CP3_CREW, CP3_MEDICAL_CREW, CP3_SECURITY_CREW, CP3_SEEDS, cp3Run, cp3State, type Cp3Fixture } from "./complementCp3.fixture";
 import type { CrewBucket } from "./model";
 import { withCp3Off } from "./complementCp3Switch.fixture";
+import { wr11OffForThisFile } from "./wr11Switch.fixture";
+// Wiring WR-11 came after every pin here: the whole file runs with WR-11 off (wr11Switch.fixture.ts), so its pins keep
+// proving their own slice moved nothing else (WR-11's own moves are pinned in wr11Goldens.test.ts).
+wr11OffForThisFile();
 
 // Captured on the code BEFORE the engine edit (b95a878).
 const BEFORE: Record<Cp3Fixture, string[]> = {

@@ -72,12 +72,11 @@ describe("registry: encodes the S4 System Disruptions table", () => {
 		expect(Object.keys(DISRUPTIONS).length).toBe(12);
 	});
 
-	it("every def id matches its registry key and carries flavor + color data", () => {
+	it("every def id matches its registry key and carries flavor data", () => {
 		for (const [key, def] of Object.entries(STATUS_EFFECT_DEFS)) {
 			expect(def.id).toBe(key);
 			expect(def.displayName.length).toBeGreaterThan(0);
 			expect(def.flavor.length).toBeGreaterThan(0);
-			expect(def.color.length).toBeGreaterThan(0);
 			expect(def.durationDeciSec).toBeGreaterThan(0);
 		}
 	});

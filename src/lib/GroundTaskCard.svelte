@@ -28,6 +28,8 @@
     <span class="gtc-chip s-{card.state}">{card.stateText}</span>
   </div>
 
+  {#if card.flavor}<div class="gtc-flavor">{card.flavor}</div>{/if}
+
   {#if card.affixes}<ObjectiveAffixes view={card.affixes} />{/if}
 
   {#if card.crew.length > 0}
@@ -75,6 +77,12 @@
   }
   .gtc.s-inProgress {
     border-color: rgba(var(--color-accent-rgb), 0.45);
+  }
+  .gtc-flavor {
+    font-size: var(--text-2xs);
+    font-style: italic;
+    color: var(--color-text-secondary);
+    overflow-wrap: anywhere;
   }
   .gtc-top {
     display: flex;

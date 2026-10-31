@@ -380,7 +380,7 @@ describe("the candidate carries the telescope reading", () => {
     blind.forEach((c, i) => {
       expect(c.seed).toBe(seen[i].seed);
       expect(c.telescope.blind).toBe(true);
-      expect(c.foreknowledge).toEqual({ inRange: false, bodyCount: null, bodies: null, relicSignature: null, relicSets: null });
+      expect(c.foreknowledge).toEqual({ inRange: false, bodyCount: null, bodies: null, relicSets: null });
     });
   });
 

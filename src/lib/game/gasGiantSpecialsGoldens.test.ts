@@ -19,6 +19,9 @@ import { gearWearOffInThisFile } from "./gearWearSwitch.fixture";
 gearWearOffInThisFile();
 import { combatRulesOffForThisFile } from "./combatRulesSwitch.fixture";
 combatRulesOffForThisFile();
+// Wiring WR-11 came after every pin here: the whole file runs with WR-11 off (wr11Switch.fixture.ts), so its pins keep
+// proving their own slice moved nothing else (WR-11's own moves are pinned in wr11Goldens.test.ts).
+wr11OffForThisFile();
 import Decimal from "break_infinity.js";
 import { BLUEPRINTS, RESEARCH_FACILITY_KEY, SUBSPACE_TELESCOPE_FACILITY_KEY, freshState, type AwayMember, type GameState, type ShipGroundTeam } from "./model";
 import { canResearch } from "./tick";
@@ -26,6 +29,7 @@ import { advanceExpedition, claimExpedition } from "./expedition";
 import { ancientFragmentPermille } from "./gasGiantStudy";
 import { asPreStaggerDispatch, dispatchPastPropulsion, plainAwayMember } from "./awayTeamTestFixtures";
 import { goldenJson } from "./firstRunsGoldens.fixture";
+import { wr11OffForThisFile } from "./wr11Switch.fixture";
 
 function fnv(s: string): string {
   let h = 0x811c9dc5;

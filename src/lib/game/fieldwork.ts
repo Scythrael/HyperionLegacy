@@ -162,7 +162,15 @@ export function specFavorsPoi(spec: string, poiId: string): boolean {
 }
 
 // What the fieldwork readers need from the stored expedition.
-type FieldworkRun = Pick<Expedition, "roster" | "scienceStrength">;
+type FieldworkRun = Pick<Expedition, "roster" | "scienceStrength" | "museumSciencePower">;
+
+// Wiring WR-11 (OC-H1 "Members too"): the factor on each named Science member's own fieldwork (its fw_m in THE MODEL):
+// 1 + the Museum's Science team power frozen at dispatch (Expedition.museumSciencePower), 1 without it. The crew layer
+// already carries the same power through scienceStrength. Pure.
+export function memberFieldworkScale(exp: Pick<Expedition, "museumSciencePower">): number {
+  const p = exp.museumSciencePower;
+  return p !== undefined && p > 0 && Number.isFinite(p) ? 1 + p : 1;
+}
 
 // The crew layer's contribution to F: the snapshotted scienceStrength through the D23 crew curve. Pure.
 function crewFieldwork(exp: FieldworkRun): number {
@@ -179,9 +187,18 @@ function speedMultFromF(F: number): number {
 export function fieldworkSpeedMult(exp: FieldworkRun, planetType: ExpeditionPlanetType): number {
   const party = exp.roster?.science ?? [];
   if (party.length === 0) return 1;
+  return speedMultFromF(memberFieldworkTotal(exp, planetType) + crewFieldwork(exp));
+}
+
+// The named Science members' own fieldwork on a body of `planetType` (the sum of fw_m in THE MODEL), each x the Museum's
+// Science team power frozen on the run (WR-11, OC-H1: memberFieldworkScale). 0 without a party. Pure (the pace reads it;
+// fieldworkEffect sums the same terms in the same order; the wiring probe reads it).
+export function memberFieldworkTotal(exp: FieldworkRun, planetType: ExpeditionPlanetType): number {
+  const party = exp.roster?.science ?? [];
+  const scale = memberFieldworkScale(exp);
   let F = 0;
-  for (const m of party) F += memberFieldworkOnBody(m, planetType).fieldwork;
-  return speedMultFromF(F + crewFieldwork(exp));
+  for (const m of party) F += scale === 1 ? memberFieldworkOnBody(m, planetType).fieldwork : memberFieldworkOnBody(m, planetType).fieldwork * scale;
+  return F;
 }
 
 // The Science party's effect on one task: a body of `planetType`, PoI `poiId` (see THE MODEL above).
@@ -195,9 +212,10 @@ export function fieldworkEffect(exp: FieldworkRun, planetType: ExpeditionPlanetT
   let poiBonus = 0;
   const organics = (ORGANICS_POIS as readonly string[]).includes(poiId);
   const vault = (VAULT_POIS as readonly string[]).includes(poiId);
+  const scale = memberFieldworkScale(exp);
   for (const m of party) {
     const fw = memberFieldworkOnBody(m, planetType);
-    F += fw.fieldwork;
+    F += scale === 1 ? fw.fieldwork : fw.fieldwork * scale;
     relicFind += fw.relicFind;
     hazardResist += fw.hazardResist;
     if (organics) poiBonus += fw.organicsYield;

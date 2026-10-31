@@ -30,6 +30,10 @@ import { groundOpsAssignIdle, groundOpsBodyScanned, initGroundTasks } from "./gr
 import { shipEventsLive } from "./shipScanEvents";
 import { asPreStaggerDispatch, plainAwayMember, dispatchPastPropulsion } from "./awayTeamTestFixtures";
 import { hash, stateHash } from "./firstRunsGoldens.fixture";
+import { wr11OffForThisFile } from "./wr11Switch.fixture";
+// Wiring WR-11 came after every pin here: the whole file runs with WR-11 off (wr11Switch.fixture.ts), so its pins keep
+// proving their own slice moved nothing else (WR-11's own moves are pinned in wr11Goldens.test.ts).
+wr11OffForThisFile();
 
 const T0 = 100_000;
 const MID = T0 + 200_000;

@@ -87,8 +87,8 @@ export type StatusEffectMechanic =
 	  };
 
 // A DEFINITION: the immutable template for one disruption/DoT/buff. Content, not
-// state. The registry below is a table of these. name/flavor/color are DATA the
-// def carries; the actual flavor-LINE selection happens later on the cosmetic
+// state. The registry below is a table of these. name/flavor are DATA the
+// def carries (Wiring WR-11 deleted the unread `color`: the combat view colors a pip by its kind); the actual flavor-LINE selection happens later on the cosmetic
 // stream (design S16), so these fields never touch an outcome.
 export interface StatusEffectDef {
 	// Stable id; also the registry key + the CombatEvent.effectDefId the flavor
@@ -103,7 +103,6 @@ export interface StatusEffectDef {
 	// Display + flavor DATA (selection of a flavor line is cosmetic, done later).
 	readonly displayName: string;
 	readonly flavor: string;
-	readonly color: string;
 }
 
 // An ACTIVE INSTANCE on a combatant: which def, at what rank, with how long left.
@@ -194,7 +193,6 @@ function debuffDef(
 	deltaPercentPerRank: number,
 	displayName: string,
 	flavor: string,
-	color: string,
 	durationDeciSec: number = DEFAULT_DURATION_DECISEC,
 ): StatusEffectDef {
 	return {
@@ -208,7 +206,6 @@ function debuffDef(
 		durationDeciSec,
 		displayName,
 		flavor,
-		color,
 	};
 }
 
@@ -221,7 +218,6 @@ export const DISRUPTIONS: Record<string, StatusEffectDef> = {
 		-20, // -20% weapon accuracy per rank
 		"Scattering Field",
 		"Sensor returns dissolve into ghost contacts; targeting solutions slip.",
-		"#4fc3f7",
 	),
 	sensorPowerDrain: debuffDef(
 		"sensorPowerDrain",
@@ -230,7 +226,6 @@ export const DISRUPTIONS: Record<string, StatusEffectDef> = {
 		-20, // -20% effective sensor/weapon range per rank
 		"Sensor Power Drain",
 		"Sensor arrays brown out; the horizon closes in.",
-		"#4fc3f7",
 	),
 	// Engines -------------------------------------------------------------
 	manifoldOverheat: debuffDef(
@@ -240,7 +235,6 @@ export const DISRUPTIONS: Record<string, StatusEffectDef> = {
 		-20, // -20% maneuverability per rank
 		"Manifold Overheat",
 		"Thermal alarms redline the maneuvering thrusters.",
-		"#ff8a65",
 	),
 	coolantLeak: debuffDef(
 		"coolantLeak",
@@ -249,7 +243,6 @@ export const DISRUPTIONS: Record<string, StatusEffectDef> = {
 		-20, // -20% movement speed per rank
 		"Coolant Leak",
 		"Coolant venting forces the drives into a limp.",
-		"#ff8a65",
 	),
 	// Shields -------------------------------------------------------------
 	emitterOverload: debuffDef(
@@ -259,7 +252,6 @@ export const DISRUPTIONS: Record<string, StatusEffectDef> = {
 		20, // +20% damage taken per rank
 		"Emitter Overload",
 		"Shield emitters cascade; incoming fire bites deeper.",
-		"#ba68c8",
 	),
 	harmonicGap: debuffDef(
 		"harmonicGap",
@@ -268,7 +260,6 @@ export const DISRUPTIONS: Record<string, StatusEffectDef> = {
 		20, // +20% attenuation bleed-through per rank
 		"Harmonic Gap",
 		"A harmonic gap opens; particle fire slips through the screen.",
-		"#ba68c8",
 	),
 	capacitorFailure: debuffDef(
 		"capacitorFailure",
@@ -277,7 +268,6 @@ export const DISRUPTIONS: Record<string, StatusEffectDef> = {
 		-20, // -20% shield recharge per rank
 		"Capacitor Failure",
 		"Shield capacitors falter; the screen refuses to rebuild.",
-		"#ba68c8",
 	),
 	// Weapons -------------------------------------------------------------
 	// (Weapons -damage; design S4 left the name pending Power Sag / Emitter
@@ -290,7 +280,6 @@ export const DISRUPTIONS: Record<string, StatusEffectDef> = {
 		-20, // -20% outgoing weapon damage per rank
 		"Coil Dampening",
 		"Weapon coils sag; every shot lands softer.",
-		"#e57373",
 	),
 	weaponJam: debuffDef(
 		"weaponJam",
@@ -299,7 +288,6 @@ export const DISRUPTIONS: Record<string, StatusEffectDef> = {
 		20, // +20% chance a weapon is offline this shot, per rank
 		"Weapon Jam",
 		"Feed mechanisms seize; guns cough and fall silent.",
-		"#e57373",
 	),
 	targetingDrift: debuffDef(
 		"targetingDrift",
@@ -308,7 +296,6 @@ export const DISRUPTIONS: Record<string, StatusEffectDef> = {
 		-20, // -20% weapon accuracy per rank
 		"Targeting Drift",
 		"Fire-control drifts off-boresight; rounds sail wide.",
-		"#e57373",
 	),
 	// Drones --------------------------------------------------------------
 	// WIRED by WR-8 (0.14.0). `inhibit` is the drones-category member of the twelve-entry S4
@@ -324,7 +311,6 @@ export const DISRUPTIONS: Record<string, StatusEffectDef> = {
 		-20, // -20% drone attack rate per rank
 		"Inhibit",
 		"Squadron comms jam; drones hesitate between passes.",
-		"#aed581",
 	),
 	// DoT -----------------------------------------------------------------
 	plasmaFire: {
@@ -337,7 +323,6 @@ export const DISRUPTIONS: Record<string, StatusEffectDef> = {
 		durationDeciSec: 30, // 3.0s: a burn cycles faster than a system disruption
 		displayName: "Plasma Fire",
 		flavor: "Superheated plasma clings to the hull and eats inward.",
-		color: "#ff7043",
 	},
 };
 
@@ -353,7 +338,6 @@ export const BUFFS: Record<string, StatusEffectDef> = {
 		durationDeciSec: DEFAULT_DURATION_DECISEC,
 		displayName: "Overcharged Capacitors",
 		flavor: "Capacitors run hot; the shield screen rebuilds in a rush.",
-		color: "#64b5f6",
 	},
 };
 

@@ -43,7 +43,7 @@ export const FIELD_ROLES: Readonly<Record<string, Readonly<Record<string, FieldR
     transitBackTicks: "effect",
     unloadTicks: "effect",
     extractionRatePerTick: "effect",
-    cargoCapacity: "effect",
+    // WR-11 (OC-I1 "Delete it"): MISSIONS.cargoCapacity is gone (the hull's hold rules every run).
     uncommonChance: "effect",
     rareChance: "effect",
     lootTable: "effect",
@@ -79,6 +79,7 @@ export const FIELD_ROLES: Readonly<Record<string, Readonly<Record<string, FieldR
     orbitalOnly: "effect",
     surfaceBias: "effect",
     undergroundBias: "effect",
+    surfaceWorkMult: "effect", // WR-11 (OC-G6 "Model Ocean only")
   },
   SENSOR_ARRAYS: {
     id: "identity",
@@ -261,7 +262,7 @@ export const FIELD_ROLES: Readonly<Record<string, Readonly<Record<string, FieldR
     flavor: "display",
     mechanic: "effect",
     durationDeciSec: "effect",
-    color: { seam: "WR-11 (use in the combat view or delete)" },
+    // WR-11 (no call): the unread `color` is deleted (the combat view colors a pip by its kind).
   },
   RELIC_SETS: { id: "identity", label: "display", relicIds: "identity", sources: "effect", perCopyStat: "effect", tiers: "effect" },
   RELICS: { id: "identity", label: "display", flavor: "display", setId: "identity", index: "identity", rarity: "effect" },
@@ -304,7 +305,9 @@ export const FIELD_ROLES: Readonly<Record<string, Readonly<Record<string, FieldR
     waveChanceNumerator: "effect",
     waveChanceDenominator: "effect",
   },
-  POI_CATALOG: { id: "identity", label: "display", pool: "effect", planetWeights: "effect", flavor: { seam: "WR-11, OC-G4 (never rendered)" } },
+  // WR-11 (OC-G4 "Show it and make it true"): the flavor is rendered (the objective card and queue row) and the rewards
+  // it names are the two effect fields beside it.
+  POI_CATALOG: { id: "identity", label: "display", pool: "effect", planetWeights: "effect", flavor: "display", relicOddsMult: "effect", materialMult: "effect" },
   EQUIPMENT_SLOTS: { slotType: "identity", label: "display", varieties: "identity", implicitStats: "effect", affixPool: "effect", equipRequirement: "gate" },
   EQUIPMENT_VARIETIES: {
     key: "identity",

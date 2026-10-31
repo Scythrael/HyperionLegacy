@@ -204,6 +204,7 @@
                       <span class="gq-task-name">{row.name}</span>
                       <span class="gq-status s-{row.status}">{row.statusText}</span>
                     </div>
+                    {#if row.flavor}<div class="gq-flavor">{row.flavor}</div>{/if}
                     {#if row.statusDetail}<div class="gq-detail">{row.statusDetail}</div>{/if}
                     {#if row.affixes}<ObjectiveAffixes view={row.affixes} />{/if}
                     {#if row.difficulty}
@@ -587,6 +588,12 @@
   .gq-detail {
     font-size: var(--text-2xs);
     color: var(--color-text-secondary);
+  }
+  .gq-flavor {
+    font-size: var(--text-2xs);
+    font-style: italic;
+    color: var(--color-text-secondary);
+    overflow-wrap: anywhere;
   }
   .gq-diff {
     display: flex;

@@ -31,7 +31,11 @@ import { goldenJson } from "./firstRunsGoldens.fixture";
 // cycles and runs; combatDescriptorGoldens.test.ts pins the combat rules themselves).
 import { combatRulesOffForThisFile } from "./combatRulesSwitch.fixture";
 import { EM7_BLUEPRINT_KEYS } from "./emodEm7.fixture";
+import { wr11OffForThisFile } from "./wr11Switch.fixture";
 combatRulesOffForThisFile();
+// Wiring WR-11 came after every pin here: the whole file runs with WR-11 off (wr11Switch.fixture.ts), so its pins keep
+// proving their own slice moved nothing else (WR-11's own moves are pinned in wr11Goldens.test.ts).
+wr11OffForThisFile();
 
 function fnv(s: string): string {
   let h = 0x811c9dc5;

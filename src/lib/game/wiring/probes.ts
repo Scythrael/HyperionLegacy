@@ -114,6 +114,7 @@ import {
   shipRepairDurationTicks,
   shipyardBayCount,
   startProcess,
+  startSalvageJob,
   resolveProcesses,
   relicStudySlotCount,
   shipyardRepairSpeedBonus,
@@ -160,6 +161,8 @@ import {
   scanRatePerSecond,
   startExpedition,
   tierCandidateSystems,
+  anomalyChartPermille,
+  chartedAnomalyFinding,
   type CandidateSystem,
   type ExpeditionDispatchResult,
 } from "../expedition";
@@ -210,7 +213,7 @@ import { UNIVERSAL_MODULES } from "../shipModules";
 import { effectiveShipStats, officerCombatMods, officerRepairSpeedBonus, resolveCrew, shipCrewContribution, shipMissionOutputBonus, shipRepairSpeedBonus } from "../crewOverlay";
 import { departmentFacet, seatFacet } from "../officerStats";
 import { RELICS, museumBonuses, type MuseumStat } from "../relics";
-import { hullTeardownFraction, salvageSalvagedMaterial, salvageShip, salvageTalentBonus, salvageYieldMult } from "../salvage";
+import { hullTeardownFraction, salvageSalvagedMaterial, salvageShip, salvageTalentBonus, salvageTierReach, salvageYieldMult } from "../salvage";
 import { alertResetSeconds, escalationAt, extraBattleChance, longRangeCover, maxExtraBattles } from "../affixes";
 import { ENEMY_RANK_IDS, ENEMY_RANKS_VERSION, type EnemyRank } from "../enemyRanks";
 import { taskFightGuard, taskFightTeam } from "../groundFight";
@@ -227,7 +230,23 @@ import { rollShortRangeJob, shortRangeCycleReward, shortRangeShipRatings, type S
 import { blindLaunchCount, telescopeReading } from "../telescope";
 import { getSeniorStaffBonusById } from "../seniorStaffBonuses";
 import { CREW_STAT_KEYS } from "../crewBuffs";
-import { POI_CATALOG, PLANET_TYPES, planetTypeHazard, poisForPlanetType } from "../expeditionContent";
+import {
+  CLEARING_SITE_CATALOG,
+  HOSTILE_SITE_CATALOG,
+  POI_CATALOG,
+  PLANET_TYPES,
+  groundSiteFlavor,
+  planetTypeHazard,
+  poiMaterialMult,
+  poiRelicOddsMult,
+  poisForPlanetType,
+} from "../expeditionContent";
+import { memberFieldworkTotal } from "../fieldwork";
+import { taskWorkSeconds } from "../groundTasks";
+import { buildHomeDashboard } from "../homeDashboard";
+import { rarityProfile } from "../rarityProfiles";
+
+import { rollHaul } from "../gambit";
 import { damageControlEffect, pathfinderEffect } from "../utilityGear";
 import { installedSensorArray, sensorArrayCanisterBandLift, sensorArrayEffect, sensorArrayRelicFindBonus } from "../sensorArrays";
 // Gas Giant Study GG-7: the special blueprints' table.
@@ -1075,11 +1094,13 @@ function transportCrewDelivered(s: GameState): number {
 }
 
 // The loot tier one salvaged material gives a Fleet Admiral past every loot-tier threshold, the draw at the top.
+// Wiring WR-11 (OC-J1 "Shift odds upward"): a top Fleet Admiral's material salvage (a job stamped with the roll rules)
+// reads its reach as the clamped ceiling plus the talent's tiers past the top that tilt the loot weights
+// (salvage.ts salvageTierReach, the roll's own reach). Before WR-11 the clamp threw the talent's tier away here.
 function topTierRolled(s: GameState): number {
-  const item = Object.keys(SALVAGE_LOOT_POOLS)[0];
-  const held = holding({ ...s, fleetAdminLevel: 99 }, item, new Decimal(1));
-  const r = salvageSalvagedMaterial(held, item, () => 0.999999);
-  return r.ok && r.rolled ? r.rolled.quality : -1; // a higher tier deposits at a higher quality rung
+  const pool = SALVAGE_LOOT_POOLS[Object.keys(SALVAGE_LOOT_POOLS)[0] as keyof typeof SALVAGE_LOOT_POOLS];
+  const reach = salvageTierReach({ ...s, fleetAdminLevel: 99 }, pool.length, 0, true);
+  return reach.ceiling + reach.overflow;
 }
 
 // One whole shortOreRun cycle (every draw common): the credits and Titanium Ore it delivered.
@@ -1828,7 +1849,7 @@ export const PROBES = {
     read: (s) => transportCrewDelivered(s),
   },
   salvageTalentCeiling: {
-    label: "salvageTalentBonus.ceilingBonus / salvage:topTier: the loot tier (its quality rung) a top Fleet Admiral rolls at the top draw",
+    label: "salvageTalentBonus.ceilingBonus / salvage:topTier: a top Fleet Admiral's loot reach (the clamped ceiling plus the talent's tiers past the top that tilt the weights, salvageTierReach)",
     read: (s, ctx) => (ctx === "salvage:topTier" ? topTierRolled(s) : salvageTalentBonus(s).ceilingBonus),
   },
   salvageYield: { label: "salvageYieldMult", read: (s) => salvageYieldMult(s) },
@@ -3216,8 +3237,101 @@ function readContent(id: string, s: GameState): number {
       const carry = (["stunGrenade", "toxinGrenade"] as const).filter((key) => poolOf(key).some((a) => a.stat === "groundCarryCapacity")).length;
       return merged + carry;
     }
+    // Wiring WR-11 content probes (OC-G4, OC-G6): the site flavor the objective card and queue row render, and the
+    // rewards the flavor names, each read on a run stamped with the site rules (on) vs an unstamped run (off).
+    case "poiFlavor": {
+      const def = POI_CATALOG.find((p) => p.id === a);
+      return def && def.flavor.length > 0 && groundSiteFlavor(a) === def.flavor ? 1 : 0;
+    }
+    case "siteFlavor":
+      return [...HOSTILE_SITE_CATALOG, ...CLEARING_SITE_CATALOG].filter((d) => d.flavor.length > 0 && groundSiteFlavor(d.id) === d.flavor).length;
+    case "poiRelicOdds":
+      // The relic chance (permille) of an objective at this site on a calm world: gambit.ts relicChancePermille with the
+      // site's factor (expeditionContent.ts poiRelicOddsMult, rollRelicToken's factor on a stamped run).
+      return relicChancePermille(0, 0, poiRelicOddsMult(on ? { siteRules: 1 } : {}, a));
+    case "poiMaterials": {
+      // One task haul's material count at this site (gambit.ts rollHaul at a large scale, so rounding is one unit of 100).
+      const haul = rollHaul(0x5eed, "terrestrial", 0, 100, poiMaterialMult(on ? { siteRules: 1 } : {}, a));
+      return Object.values(haul.materials).reduce((x, y) => x + y, 0);
+    }
+    case "surfaceWork": {
+      // One surface objective's work seconds on a world of this type, no team (groundTasks.ts taskWorkSeconds).
+      const run = { roster: undefined, scienceStrength: 0, hazardResist: 0, ...(on ? { siteRules: 1 as const } : {}) };
+      return taskWorkSeconds(run, [], { planetType: a as ExpeditionPlanetType, hazard: 0 }, "crashedShip");
+    }
+    case "wr11":
+      return wr11AuditValue(s, a, on);
     default:
       throw new Error(`unknown content probe ${id}`);
+  }
+}
+
+// Wiring WR-11's audit rows, each read through the consumer that makes it true (on = the WR-11 rule, off = the
+// record or run without it). Pure.
+function wr11AuditValue(s: GameState, key: string, on: boolean): number {
+  switch (key) {
+    case "anomalySensors":
+      // The anomaly chart chance of the run this fixture dispatches (its sensors frozen at dispatch).
+      return anomalyChartPermille(dispatchRun(s));
+    case "anomalyFinding": {
+      // The credits plus material units a charted anomaly's finding carries home: a stamped run (on) vs an older one.
+      const run = dispatchRun(s);
+      const f = chartedAnomalyFinding(on ? run : { ...run, siteRules: undefined }, () => 0x1234);
+      return (f.credits ?? 0) + Object.values(f.materials ?? {}).reduce((x, y) => x + y, 0);
+    }
+    case "noRelicSignature":
+      // The candidate lists' foreknowledge without the deleted always-true relicSignature (1 = none carries it).
+      return expeditionCandidates(withAwayTeam(s), WIRING_SHIP_ID).every((c) => !("relicSignature" in c.foreknowledge)) ? 1 : 0;
+    case "noProfileCopies": {
+      // The ship-event profile a dispatch freezes, without the two deleted display copies (1 = neither is written).
+      const profile = snapshotShipEventProfile(s, shipOf(s)) as unknown as Record<string, unknown>;
+      return !("evasion" in profile) && !("shieldCapacity" in profile) ? 1 : 0;
+    }
+    case "noStatusColor":
+      return Object.values(STATUS_EFFECT_DEFS).every((d) => !("color" in d)) ? 1 : 0;
+    case "salvageRoll":
+    case "salvageTierName": {
+      // One real material salvage job (startSalvageJob, then resolveProcesses): its completed-events entry carries the
+      // rolled loot tier (salvageRoll), and the Home board row names it ("Standard quality"). Off: the job's roll rules
+      // stamp removed (a job started before WR-11).
+      const item = Object.keys(SALVAGE_LOOT_POOLS)[0];
+      const started = startSalvageJob(holding(s, item, new Decimal(1)), { type: "salvage", target: { kind: "material", itemId: item }, mode: { kind: "batch", remaining: 1 } });
+      if (!started.started) return -1;
+      let st: GameState = on
+        ? started.next
+        : { ...started.next, activeProcesses: started.next.activeProcesses.map((p) => (p.effect.type === "salvageResolve" ? { ...p, effect: { type: "salvageResolve" as const, target: p.effect.target } } : p)) };
+      for (let i = 0; i < 100_000 && st.activeProcesses.some((p) => p.kind === "salvageJob"); i += 1) st = resolveProcesses(st, 1, () => 0.5, 1).next;
+      const entry = st.completionLog[st.completionLog.length - 1];
+      if (key === "salvageRoll") return entry?.salvageRoll !== undefined ? 1 : 0;
+      const row = buildHomeDashboard(st).recentlyCompleted.find((r) => r.id === entry?.id);
+      return row?.secondaryLabel?.endsWith(" quality") ? 1 : 0;
+    }
+    case "deadEndSell": {
+      // Selling one Salvaged Circuitry and one Precursor Circuit at the Quartermaster: the credits they bring.
+      let total = 0;
+      for (const id of ["salvagedCircuitry", "precursorCircuit"]) {
+        const held = holding(s, id, new Decimal(1));
+        const r = sellItem(held, id, new Decimal(1));
+        total += r.ok ? Number(r.next.credits) - Number(held.credits) : 0;
+      }
+      return total;
+    }
+    case "precursorSell": {
+      const held = holding(s, "precursorCircuit", new Decimal(1));
+      const r = sellItem(held, "precursorCircuit", new Decimal(1));
+      return r.ok ? Number(r.next.credits) - Number(held.credits) : 0;
+    }
+    case "safetyAffixes":
+      // The affix count rows of the unreachable bands (itemgen.ts affixCount reads rarityProfile): each is a finite row.
+      return (["derelict", "luminous", "constellar"] as const).filter((r) => Number.isFinite(rarityProfile(r).affixes)).length;
+    case "memberFieldwork": {
+      // The named Science members' own fieldwork on the dispatched run (best planet), which the Museum's Science team
+      // power scales (fieldwork.ts memberFieldworkTotal, frozen museumSciencePower).
+      const run = dispatchRun(s);
+      return bestOverPlanets((p) => memberFieldworkTotal(run, p));
+    }
+    default:
+      throw new Error(`unknown WR-11 audit probe ${key}`);
   }
 }
 

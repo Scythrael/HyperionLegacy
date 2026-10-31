@@ -20,7 +20,11 @@ import { asExpeditionVeteran, asPreStudyDispatch, dispatchPastPropulsion } from 
 import { gearWearOffInThisFile } from "./gearWearSwitch.fixture";
 gearWearOffInThisFile();
 import { combatRulesOffForThisFile } from "./combatRulesSwitch.fixture";
+import { wr11OffForThisFile } from "./wr11Switch.fixture";
 combatRulesOffForThisFile();
+// Wiring WR-11 came after every pin here: the whole file runs with WR-11 off (wr11Switch.fixture.ts), so its pins keep
+// proving their own slice moved nothing else (WR-11's own moves are pinned in wr11Goldens.test.ts).
+wr11OffForThisFile();
 
 const TIERS: readonly RegionTier[] = [1, 2, 3, 4, 5, 6, 7];
 const RARITIES: readonly EquipmentRarity[] = ["standard", "augmented", "stellar", "radiant"];

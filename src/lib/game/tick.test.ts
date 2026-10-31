@@ -72,6 +72,7 @@ import {
   type TimedProcessKind,
   type ProcessEffect,
   type EquipmentInstance,
+  missionDefWithoutShip,
 } from "./model";
 // 0.13.3 Unit 3.3: the per-tier iLevel ceiling, so the hard-cap assertions read the
 // shipped constant (itemgen.ts owns it) instead of hardcoding 20 / 40.
@@ -463,9 +464,9 @@ describe("tickCaptainMission, transport cost-in/reward-out (Exploration 0.14.0 E
   });
 
   it("working-capital gate: idles (no spend, no reward, no loot) when credits are short, resumes when affordable", () => {
-    // null shipStats -> the raw def's cargo 120, so loadCost = 120 * 4 = 480 credits per cycle.
-    const loadCost = MISSIONS.frontierSupplyRun.cargoCapacity * MISSIONS.frontierSupplyRun.supplyCostPerCargo!;
-    expect(loadCost).toBe(480);
+    // null shipStats -> the reference hold (WR-11, OC-I1: missionDefWithoutShip, 90), so loadCost = 90 * 4 = 360 per cycle.
+    const loadCost = missionDefWithoutShip(MISSIONS.frontierSupplyRun).cargoCapacity * MISSIONS.frontierSupplyRun.supplyCostPerCargo!;
+    expect(loadCost).toBe(360);
 
     // STARVED: a running balance below the load cost -> every cycle idles. No credits booked, no loot,
     // and NO cycle counted (an idle cycle delivered nothing). The mission stays active (it will resume).
@@ -1241,7 +1242,7 @@ describe("tickCaptainMission, cycle completion, auto-repeat, and recall", () => 
     const cycleTicks =
       1 +
       MISSIONS.salvageWreckage.transitOutTicks +
-      MISSIONS.salvageWreckage.cargoCapacity / MISSIONS.salvageWreckage.extractionRatePerTick +
+      missionDefWithoutShip(MISSIONS.salvageWreckage).cargoCapacity / MISSIONS.salvageWreckage.extractionRatePerTick +
       MISSIONS.salvageWreckage.transitBackTicks +
       MISSIONS.salvageWreckage.unloadTicks;
     const result = tick(cycleTicks, state, () => 0.5);
