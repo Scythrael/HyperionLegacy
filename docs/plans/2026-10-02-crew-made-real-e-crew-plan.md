@@ -515,6 +515,13 @@ Deuterium Ice canister process, typed research data, AND the Research Lab ancien
 It will split into sub-tasks once the design is approved. Crew curve compounding (mid crews keep ~78%) is left for the
 balance pass (user, 2026-10-08).
 
+**Carry from Task 15b (GG-0 to GG-8 built, 2026-10-30):** the design and build plan is
+`docs/plans/2026-10-17-gas-giant-study-plan.md` (every open call answered; per-slice carry notes there). The ONE-pick pool
+above was superseded by the user's 1b.3 (canisters always, research data 40%, a Survey Log readout 15%), and the
+separate ancient-data tab by call 10 "One lane" (the Data study tab studies both). GG-8 closed it out: six Help topics
+(every number read from its constant), the gas giant lines in five older topics, no gas giant entry in the release gate
+(gasGiantCloseout.test.ts), and the QA sheet `docs/qa/2026-10-30-gas-giant-study-qa.html` (run on staging at release).
+
 ### Task 16: Injuries + Neural Backup + claim
 
 **Files:** `gambit.ts` (battle end), `expedition.ts` (`claimExpedition` ~924, `depositExpeditionFindings`),

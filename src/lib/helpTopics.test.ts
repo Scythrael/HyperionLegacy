@@ -45,6 +45,28 @@ import { BASIC_DEBUFFS, BLINDNESS_MIN_ROUNDS, BLINDNESS_ROUND_SPAN, GAMBIT_STATU
 import { EQUIPMENT_SLOTS, GRENADE_CARRY_PER_LINE, GRENADE_FUSE_MOVED_CLEAR_CHANCE, GRENADE_THROWS_PER_BATTLE } from "./game/model";
 import { ACTION_LABEL, RANK_OPTIONS, SELECTOR_LABEL } from "./gambitEditorDisplay";
 import { kitEffectText } from "./fieldKitsDisplay";
+// Gas Giant Study GG-8.
+import { DEUTERIUM_BURNING_MILLI_J, GAS_CANISTER_IDS, GIANT_CLASSES, HYDROGEN_FUSION_MILLI_J, NEBULA_KINDS, RESEARCH_DATA_ITEM, RESEARCH_FAMILIES, giantClassDisplayName } from "./game/gasGiantContent";
+import {
+  FAMOUS_NEBULA_KIND,
+  NEBULA_CANISTERS_MAX,
+  NEBULA_CANISTERS_MIN,
+  NEBULA_PERMILLE_BY_TIER,
+  NEBULA_SWEEP_SECONDS,
+  STUDY_BASE_SECONDS,
+  STUDY_CANISTERS_MAX,
+  STUDY_CANISTERS_MIN,
+  STUDY_MIN_SECONDS,
+  STUDY_RESEARCH_DATA_PERMILLE,
+  STUDY_SURVEY_READOUT_PERMILLE,
+  ancientFragmentPermille,
+} from "./game/gasGiantStudy";
+import { DATA_STUDY_LANES, DATA_STUDY_RECIPE_PERMILLE, DATA_STUDY_TICKS, RESEARCH_BOOST_PER, RESEARCH_FAMILY_BY_SLOT, RESEARCH_FAMILY_OVERRIDE, researchBoostSpeed } from "./game/dataStudy";
+import { GG7_NUMBERS, SPECIAL_BLUEPRINT_KEYS, SPECIAL_BLUEPRINT_TIER } from "./game/specialBlueprints";
+import { TIER_HAUL_MULT } from "./game/riskFactors";
+import { BLUEPRINTS, ITEMS, REFINE_RECIPES } from "./game/model";
+import { NEBULA_STAGES, SURVEY_LOG_HELP, archiveSubTabs } from "./gasGiantStudyDisplay";
+import { decodeLockText } from "./dataStudyDisplay";
 
 describe("HELP_TOPICS", () => {
   it("covers the core systems", () => {
@@ -383,6 +405,151 @@ describe("HELP_TOPICS", () => {
       expect(qm).not.toMatch(/Coming Soon/i);
       expect(qm).toMatch(/Purchase tab sells field kits for credits/);
       expect(topic("storage").body).not.toMatch(/reserved for later/);
+    });
+  });
+
+  // Gas Giant Study GG-8: the six topics and the gas giant lines in the older topics. Every number and name is read from
+  // the engine table (or the screen's display module) that owns it, so these pin that the right ones reach the text,
+  // and each claim was checked against the engine that enforces it.
+  describe("Gas giant study (0.14.0 GG-8)", () => {
+    const topic = (id: string) => {
+      const t = HELP_TOPICS.find((x) => x.id === id);
+      expect(t, `missing help topic: ${id}`).toBeDefined();
+      return t!;
+    };
+    const permille = (p: number) => `${Math.round(p) / 10}%`;
+    const pc = (f: number) => `${Math.round(f * 100)}%`;
+
+    it("has the six topics, each cross-linked from the topics it touches", () => {
+      expect(topic("gasGiants").title).toBe("Gas Giants and Nebulae");
+      expect(topic("galileoProbe").title).toBe("Galileo-Class Probe");
+      expect(topic("gasCanisters").title).toBe("Gas Storage Canisters");
+      expect(topic("dataStudy").title).toBe("Research Data and Data Study");
+      expect(topic("ancientData").title).toBe("Ancient Data and Special Blueprints");
+      expect(topic("surveyLog").title).toBe("Survey Log");
+      const gg = topic("gasGiants").body;
+      for (const t of ["Galileo-Class Probe", "Gas Storage Canisters", "Research Data and Data Study", "Survey Log", "Ancient Data and Special Blueprints"]) expect(gg).toContain(`see the ${t} topic`);
+      for (const id of ["groundOperations", "riskFactors"]) expect(topic(id).body, id).toContain("see the Gas Giants and Nebulae topic");
+      for (const id of ["research", "storage"]) expect(topic(id).body, id).toContain("see the Research Data and Data Study topic");
+      expect(topic("scanEvents").body).toContain("Supply cache: a small find, no check needed (never at a Gas Giant)");
+      expect(topic("groundOperations").body).toContain("every ship study is done");
+      expect(topic("storage").body).toContain("Gas Storage Canisters");
+    });
+
+    it("the study: no ground work, its length, the pickup pause and its rewards, from gasGiantStudy.ts", () => {
+      const b = topic("gasGiants").body;
+      expect(getPlanetTypeById("gasGiant")!.label).toBe("Gas Giant");
+      expect(b).toContain("no ground objectives, no hostile sites, no clearing objectives and no supply caches");
+      expect(b).toContain(`a study takes ${STUDY_BASE_SECONDS / 60} minutes with no Science member aboard`);
+      expect(b).toContain(`never below ${STUDY_MIN_SECONDS === 60 ? "1 minute" : `${STUDY_MIN_SECONDS} seconds`}`);
+      expect(b).toContain(`${STUDY_CANISTERS_MIN} to ${STUDY_CANISTERS_MAX}, more when a Galileo-Class Probe dives`);
+      expect(b).toContain(`(x${TIER_HAUL_MULT[1]} at Tier I up to x${TIER_HAUL_MULT[7]} at Tier VII)`);
+      expect(b).toContain(`Research data, ${permille(STUDY_RESEARCH_DATA_PERMILLE)} of the time`);
+      expect(b).toContain(`A Survey Log readout, ${permille(STUDY_SURVEY_READOUT_PERMILLE)} of the time`);
+      // the user's pickup pause (2026-10-23) and its pays-off rule (GG-6 pause review)
+      expect(b).toMatch(/pauses the study, flies to pick the team up, then goes back and carries on where it left off/);
+      expect(b).toMatch(/only when it brings the team aboard sooner than waiting/);
+      expect(b).toContain("A pause never changes what the study brings home.");
+      expect(b).toContain("An expedition that was already underway when gas giant studies arrived finishes under its old rules.");
+    });
+
+    it("giant classes and nebulae: every class's and kind's band odds, the nebula chance and the sweep, from the tables", () => {
+      const b = topic("gasGiants").body;
+      const odds = (o: Record<string, number>) =>
+        (["standard", "augmented", "stellar", "radiant"] as const)
+          .filter((k) => o[k] > 0)
+          .map((k) => `${o[k]}% ${k[0].toUpperCase()}${k.slice(1)}`)
+          .join(", ");
+      for (const c of GIANT_CLASSES) expect(b).toContain(`- ${giantClassDisplayName(c)}: ${odds(c.bandOdds)}.`);
+      for (const k of NEBULA_KINDS) expect(b).toContain(`- ${k.name}: ${odds(k.bandOdds)}.`);
+      expect(b).toContain(`one of ${GIANT_CLASSES.length} classes`);
+      expect(b).toContain(`${permille(NEBULA_PERMILLE_BY_TIER[1])} of systems at Tier I, rising to ${permille(NEBULA_PERMILLE_BY_TIER[7])} at Tier VII`);
+      expect(b).toContain("the Orion Nebula, the Lagoon Nebula and the Eagle Nebula always hold an emission nebula");
+      for (const kind of Object.values(FAMOUS_NEBULA_KIND)) expect(kind).toBe("emissionNebula");
+      expect(NEBULA_SWEEP_SECONDS).toBe(7200);
+      expect(b).toContain(`the sweep takes 2 hours, needs no squad and no probe, and fills ${NEBULA_CANISTERS_MIN} to ${NEBULA_CANISTERS_MAX} canisters`);
+      // Radiant 0 on every kind (no antimatter) and no fragment from a sweep (rollNebulaReward rolls none).
+      for (const k of NEBULA_KINDS) expect(k.bandOdds.radiant).toBe(0);
+      expect(b).toContain("never an Ancient Data Fragment and never an Antimatter Containment Cell");
+      expect(b).toContain("Pickups pause the sweep the same way they pause a study.");
+    });
+
+    it("the probe: its three lines, one probe per dive, the ancient data odds from ancientFragmentPermille", () => {
+      const b = topic("galileoProbe").body;
+      expect(b).toContain(`a Lab tier ${regionTierNumeral(BLUEPRINTS.atmoProbeBp.tier as RegionTier)} blueprint`);
+      for (const s of ["- Fieldwork: speeds the study", "- Hazard resist: its crush rating", "- Relic find: the odds of an Ancient Data Fragment", "Tool slot", "with no cap"]) expect(b).toContain(s);
+      expect(b).toContain("the probe with the best hazard resist dives (the better relic find breaks a tie)");
+      expect(b).toContain("Without a probe the study still runs, from orbit, and still fills its canisters.");
+      const at = (t: number, r: number) => permille(ancientFragmentPermille({ region: { tier: t as RegionTier } } as unknown as Parameters<typeof ancientFragmentPermille>[0], r));
+      expect(b).toContain(`about ${at(1, 0)} of studies at Tier I with no probe`);
+      expect(b).toContain(`to about ${at(7, 0)} at Tier VII`);
+      expect(b).toContain(`lifts that to about ${at(1, 1)} at Tier I`);
+      expect(at(1, 1)).not.toBe(at(1, 0));
+    });
+
+    it("canisters: every canister's band, price and every recipe that takes it, from ITEMS and BLUEPRINTS", () => {
+      const b = topic("gasCanisters").body;
+      for (const id of GAS_CANISTER_IDS) {
+        const item = ITEMS[id];
+        const line = b.split("\n").find((l) => l.startsWith(`- ${item.label} (`)) ?? "";
+        expect(line, id).toContain(`sells for ${item.sellValue!.toLocaleString("en-US")} credits`);
+        expect(line, id).toContain(`(${item.band![0].toUpperCase()}${item.band!.slice(1)})`);
+        const uses = Object.keys(BLUEPRINTS).filter((k) => (BLUEPRINTS[k].recipe.inputs[id] ?? 0) > 0);
+        expect(uses.length, `${id} has a consumer`).toBeGreaterThan(0);
+        for (const k of uses) expect(line, `${id} in ${k}`).toContain(BLUEPRINTS[k].label.replace(/ Blueprint$/, ""));
+      }
+      expect(b).toContain(`from ${REFINE_RECIPES.refineDeuteriumCanister.input.deuteriumIce!.toString()} Deuterium Ice each`);
+      expect(b).toContain("Quartermaster's Sell tab");
+    });
+
+    it("the data study lane: types, lane, Auto-study, boosts, the recipe chance and the families, from dataStudy.ts", () => {
+      const b = topic("dataStudy").body;
+      for (const f of RESEARCH_FAMILIES) expect(b).toContain(ITEMS[RESEARCH_DATA_ITEM[f]].label);
+      expect(b).toContain(`in ${RESEARCH_FAMILIES.length} types`);
+      expect(DATA_STUDY_LANES).toBe(1);
+      expect(b).toContain("one study at a time");
+      expect(b).toContain(`Each study takes ${DATA_STUDY_TICKS / 60} minutes`);
+      expect(b).toMatch(/Auto-study on \(the default\), the lane starts the oldest held data whenever it is idle/);
+      expect(b).toMatch(/the running study holds its countdown/);
+      expect(b).toContain(`one boost +${pc(researchBoostSpeed(1))}, two about +${pc(researchBoostSpeed(2))}, four about +${pc(researchBoostSpeed(4))}`);
+      expect(pc(researchBoostSpeed(1))).toBe(pc(RESEARCH_BOOST_PER));
+      expect(b).toContain(`${permille(DATA_STUDY_RECIPE_PERMILLE)} chance to teach a recipe`);
+      // the family map as the text states it (dataStudy.ts RESEARCH_FAMILY_BY_SLOT and the overrides)
+      expect(RESEARCH_FAMILY_BY_SLOT).toMatchObject({ ftlDrive: "propulsion", shieldEmitters: "defense", hullPlating: "defense", weapon: "weapons", droneBay: "weapons", reactorCore: "systems", specUtility: "systems", module: "systems", cargoBay: "hullDesign", bridge: "hullDesign", quarters: "hullDesign", sensor: "sensors", memberTool: "field" });
+      expect(RESEARCH_FAMILY_OVERRIDE).toMatchObject({ surveyRigBp: "sensors", pathfinderSuiteBp: "sensors" });
+      expect(b).toContain("sensor arrays, the Survey Rig and the Pathfinder Suite are Sensors");
+    });
+
+    it("ancient data and the special blueprints: the decode gate, each blueprint's entry, tier and numbers", () => {
+      const b = topic("ancientData").body;
+      for (const key of SPECIAL_BLUEPRINT_KEYS) {
+        const name = BLUEPRINTS[key].label.replace(/ Blueprint$/, "");
+        expect(b).toContain(`- ${name}: entry ${BLUEPRINTS[key].requiresDecode}, Lab tier ${regionTierNumeral(SPECIAL_BLUEPRINT_TIER[key] as RegionTier)}.`);
+        expect(BLUEPRINTS[key].tier).toBe(SPECIAL_BLUEPRINT_TIER[key]);
+      }
+      expect(b).toContain(`the sweep fills ${pc(GG7_NUMBERS.ramscoopCollector.nebulaSweep)} more canisters and finishes ${1 + GG7_NUMBERS.ramscoopCollector.nebulaSweep} times as fast`);
+      expect(b).toContain(`It draws ${GG7_NUMBERS.ramscoopCollector.powerDraw} power`);
+      expect(b).toContain(`Augmented and Stellar odds ${pc(GG7_NUMBERS.resonanceSensorArray.canisterBandLift)} higher`);
+      expect(b).toContain("Crafted with a Methane Canister");
+      expect(b).toContain("Crafted with a Helium-3 Canister");
+      expect(b).toContain(decodeLockText(2));
+      expect(b).toContain("never a nebula sweep");
+      expect(b).toContain("the next entry of the fragment's own culture");
+      expect(b).toContain("entries spread across several cultures do not add up");
+      expect(BLUEPRINTS.eliteQuartersBp.requiresDecode).toBeUndefined();
+      expect(b).toContain(`The Elite Quarters blueprint (Lab tier ${regionTierNumeral(BLUEPRINTS.eliteQuartersBp.tier as RegionTier)})`);
+    });
+
+    it("the Survey Log: the Archive tab, the readout odds, the groups, the star lines and the nebula stages", () => {
+      const b = topic("surveyLog").body;
+      expect(archiveSubTabs(true).map((t) => t.label)).toEqual(["Archive", "Museum", "Survey Log"]);
+      expect(b).toContain("a tab of the Archive, beside the Archive and Museum tabs");
+      expect(b).toContain(SURVEY_LOG_HELP);
+      expect(b).toContain(`${permille(STUDY_SURVEY_READOUT_PERMILLE)} of the time`);
+      expect(b).toContain(`deuterium-burning line (${DEUTERIUM_BURNING_MILLI_J / 1000} Jupiter masses`);
+      expect(b).toContain(`hydrogen-fusion line (about ${HYDROGEN_FUSION_MILLI_J / 1000} Jupiter masses`);
+      for (const s of NEBULA_STAGES) expect(b).toContain(s);
+      expect(b).toMatch(/On a phone, the card of the selected entry shows first/);
     });
   });
 
