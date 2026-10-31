@@ -174,6 +174,8 @@ connection."
 - Still in force from the protocol: the WORKTREE SAFETY rules (builder briefs forbid node_modules links; check for a
   link before any `git worktree remove`; clean up merged builder worktrees), the incident log, and the QA calls
   (release QA doc at the end, on staging).
+- Full gates = suite + check + test:perf (`npx vitest run --maxWorkers=4 --testTimeout=60000`, `npm run check`,
+  `npm run test:perf`: the wall-clock tests, *.perf.test.ts, run alone and serially, never in the parallel suite).
 - Next work is unchanged: housekeeping (the locked worktree agent-a4f30434476d21c47, the vitest "node:module" repro),
   then WR-7 patrol legs.
 

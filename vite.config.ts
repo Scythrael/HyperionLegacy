@@ -8,7 +8,7 @@ import { resolveBuildId } from './src/lib/buildId.ts'
 const BUILD_ID = resolveBuildId(process.env.VERCEL_GIT_COMMIT_SHA)
 
 // https://vite.dev/config/
-export default defineConfig({
+export default defineConfig(({ mode }) => ({
   plugins: [
     svelte(),
     {
@@ -40,8 +40,11 @@ export default defineConfig({
   test: {
     // Parallel builders work in git worktrees under .claude/worktrees; their copies of the test files must never
     // run in this tree's suite (duplicate tests and timeouts).
-    exclude: [...configDefaults.exclude, '.claude/**'],
+    exclude: [...configDefaults.exclude, '.claude/**', ...(mode === 'perf' ? [] : ['**/*.perf.test.ts'])],
+    // Wall-clock tests (*.perf.test.ts) time real work, so they run only alone and serially under `npm run test:perf`
+    // (vitest in mode "perf"); a loaded parallel suite would time the load instead.
+    ...(mode === 'perf' ? { include: ['src/**/*.perf.test.ts'] } : {}),
     // Several parallel builders can load the machine; a 5 s default timeout then flakes on heavy goldens.
     testTimeout: 20_000,
   },
-})
+}))
