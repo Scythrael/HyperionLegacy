@@ -784,3 +784,11 @@ User 2026-10-21 (merge-batch answers, late calls): "Build them in 0.14.0 (Recomm
   (researchSlots / fabricateSlots probes), held apart in every registry pin via `OC15_ADDED_ENTRY_IDS`.
 - Merged feat/crew-0.14.0 (472672d: ML-2, SI gear, EM-2, timed grenades) in: the registry pins union OC15_SLICE with
   ML2_SLICE (shortRangeGoldens registryPin) and keep OC15_ADDED_ENTRY_IDS out of emodGoldens BEFORE_RX beside ml2RowsBack.
+
+## USER ANSWERS (2026-10-30): CP-3 review calls
+
+- Counter-Infiltration crew share curve: "Smooth curve to 90% (Recommended)": share = 0.9 x tanh(raw / 0.9).
+- Combined resist: "Combined stays under 90% (Recommended)": a member's own resist and the crew share together bend
+  toward the existing 0.9 per-status cap (smoothly, never a hard clamp, D23); members already near 0.9 gain little.
+- Away-Team Protection rounding: "Round up (Recommended)": any holder gives a Security member at least +1 max HP;
+  larger crews scale as before (ceil, not round).
