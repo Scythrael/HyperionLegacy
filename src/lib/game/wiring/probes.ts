@@ -1866,6 +1866,8 @@ export const PROBES = {
   },
   // == expedition dispatch snapshot and its consumers ==
   expSquadTriage: { label: "dispatch: Expedition.squadTriage", read: (s) => dispatchRun(s).squadTriage ?? 0 },
+  // CP-3: Away-Team Protection as frozen on the dispatched run (the share every Security member's max HP grows by).
+  expSquadHpBonus: { label: "dispatch: Expedition.squadHpBonus (Away-Team Protection)", read: (s) => dispatchRun(s).squadHpBonus ?? 0 },
   expEncounterChance: {
     label: "scanEncounterChance on a hazard-0.4 world",
     read: (s) => scanEncounterChance(dispatchRun(s), syntheticBody("terrestrial", 0.4)),

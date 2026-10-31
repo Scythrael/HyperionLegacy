@@ -520,11 +520,12 @@ export function canThrowGrenade(c: Pick<GroundCombatant, "grenade">): boolean {
 //   powerMult  : WR-5c, the captain's Away-Team Doctrine (Expedition.explorerCaptain.squadPowerMult): every member's
 //                power and accuracy x this (accuracy still under its cap). Absent or 1 = unchanged.
 //   hpBonus      : complement plan CP-3, Away-Team Protection (Expedition.squadHpBonus): every member's max HP x
-//                  (1 + this), rounded to a whole point (at least 1). Absent or 0 = unchanged.
+//                  (1 + this), the added part rounded UP to a whole point (user 2026-10-30 "Round up"), so any holder
+//                  gives at least +1. Absent or 0 = unchanged.
 //   debuffResist : CP-3, Counter-Infiltration (Expedition.squadDebuffResist, OC-E1 "Resist enemy debuffs"): each
-//                  member's chance to shrug off EVERY debuff becomes 1 - (1 - own)(1 - squadDebuffResistShare(this)),
-//                  folded with Morale Anchor on Fear the same way. Read by the existing resist roll (no extra draw).
-//                  Absent or 0 = unchanged.
+//                  member's chance to shrug off EVERY debuff bends toward the 0.9 ceiling with the crew's share
+//                  (squadCombinedResist; user 2026-10-30 "Combined stays under 90%"), after Morale Anchor on Fear.
+//                  Read by the existing resist roll (no extra draw). Absent or 0 = unchanged.
 export interface SquadOfficerCare {
   triage?: number;
   fearResist?: number;
@@ -545,6 +546,29 @@ export function squadDebuffResistShare(raw: number | undefined): number {
   if (raw === undefined || !(raw > 0) || !Number.isFinite(raw)) return 0;
   const r = SQUAD_DEBUFF_RESIST_CEILING * Math.tanh(raw / SQUAD_DEBUFF_RESIST_CEILING);
   return r < SQUAD_DEBUFF_RESIST_CEILING ? r : SQUAD_DEBUFF_RESIST_CEILING * (1 - Number.EPSILON);
+}
+
+// CP-3 (user 2026-10-30 "Combined stays under 90%"): a member's own resist and the crew's share together, as
+// independent chances measured against the ceiling C instead of certainty:
+//   combined = own + (C - own) x share / C
+// The crew closes `share / C` of the member's headroom under C, so the result is `own` when the share is 0, grows
+// smoothly with the share, never reaches C (the share never does), and a member already near C gains little (the
+// headroom left is small). A member at or above C on their own (Morale Anchor on Fear can carry Fear past it) keeps
+// their own unchanged: the crew adds nothing past the ceiling. Pure.
+export function squadCombinedResist(own: number, share: number): number {
+  const c = SQUAD_DEBUFF_RESIST_CEILING;
+  if (!(share > 0) || !(own < c)) return own;
+  return own + (c - own) * (share / c);
+}
+
+// The permille the combined resist is stored at, rounded to the nearest like every resist: never below the member's
+// own (rounded as before) and, while the member's own is under the ceiling, on the permille grid's last step under
+// the ceiling at most (the curve itself never reaches the ceiling, so the rounding must not land on it). Pure.
+function squadCombinedResistPermille(own: number, share: number): number {
+  const ownR = Math.round(own * 1000);
+  if (!(share > 0) || !(own < SQUAD_DEBUFF_RESIST_CEILING)) return ownR;
+  const below = Math.round(SQUAD_DEBUFF_RESIST_CEILING * 1000) - 1;
+  return Math.max(ownR, Math.min(below, Math.round(squadCombinedResist(own, share) * 1000)));
 }
 
 // ============================================================================
@@ -2071,7 +2095,9 @@ export function buildRosterCombatants(
     const bump = (stat: string): number => m.groundStats[stat] ?? 0;
     const rf = m.rankFactor;
     const baseHp = Math.max(1, Math.round((SECURITY_BASE_HP + spec.hp + crewPer * STRENGTH_HP_COEFF) * rf * (1 + bump("hp"))));
-    const hp = hpBonus > 0 ? Math.max(1, Math.round(baseHp * (1 + hpBonus))) : baseHp;
+    // The added HP rounds UP (user 2026-10-30 "Round up"): any holder gives at least +1, a larger crew ceil(base x it).
+    // The 1e-9 keeps a product that is whole in exact arithmetic (100 x 0.1) from gaining a point to float noise.
+    const hp = hpBonus > 0 ? baseHp + Math.max(1, Math.ceil(baseHp * hpBonus - 1e-9)) : baseHp;
     const rawPower = Math.max(0, (SECURITY_BASE_POWER + spec.power + crewPer * STRENGTH_POWER_COEFF) * rf * (1 + bump("power")));
     const power = doctrine === 1 ? rawPower : rawPower * doctrine;
     const armor = Math.max(0, (SECURITY_BASE_ARMOR + spec.armor) * rf * (1 + bump("armor")));
@@ -2153,13 +2179,13 @@ export function buildRosterCombatants(
       const r = Math.round(fearResist * 1000);
       if (r > 0) resists.fear = r;
     }
-    // CP-3: Counter-Infiltration folds into the member's resist to EVERY debuff (independent chances, after Morale
-    // Anchor on Fear). Buffs are never resisted. Without it the resists above stand exactly as before.
+    // CP-3: Counter-Infiltration bends the member's resist to EVERY debuff toward the ceiling (squadCombinedResist,
+    // after Morale Anchor on Fear). Buffs are never resisted. Without it the resists above stand exactly as before.
     if (debuffResist > 0) {
       for (const id of DEBUFF_IDS) {
         const base = m.resists[id] ?? 0;
         const own = id === "fear" && fearResist > 0 ? 1 - (1 - base) * (1 - fearResist) : base;
-        const r = Math.round((1 - (1 - own) * (1 - debuffResist)) * 1000);
+        const r = squadCombinedResistPermille(own, debuffResist);
         if (r > 0) resists[id] = r;
       }
     }

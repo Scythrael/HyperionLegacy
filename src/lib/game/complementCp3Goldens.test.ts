@@ -27,14 +27,19 @@ const BEFORE: Record<Cp3Fixture, string[]> = {
 const GOLDEN: Record<Cp3Fixture, string[]> = {
   // MOVES: the dispatch freezes squadHpBonus and squadDebuffResist (the record and the run carry them). The claimed
   // state is unchanged: the bigger HP and the resist change no fight's outcome or bay time on this seed.
-  security: ["d7578cb8", "ae625665", BEFORE.security[2]],
+  // CP-3 fix round (user 2026-10-30 "Round up"): the added HP rounds up, so the finished run's squad HP moves again
+  // (the end hash; was ae625665). The combined resist moved nothing here: no member has a resist of their own, and
+  // with none the combination is the crew's share alone, as before.
+  security: ["d7578cb8", "f765ca5a", BEFORE.security[2]],
   // MOVES: squadTriage carries the crew's Triage and the factors freeze preventLossShare. The claim is unchanged: this
   // seed's bay stays are Health only (Prevent a Crew Loss is for injuries) and the stronger first aid lands no
   // different outcome.
   medical: ["1d65838b", "4b32e210", BEFORE.medical[2]],
   // MOVES: all four keys frozen, and on this seed they reshape the fights (Triage's heals and the bigger HP), so the
   // run ends sooner and the claimed state (the member's bay end, the clock) moves too.
-  all: ["7fcf8766", "4645678", "ad5f4741"],
+  // CP-3 fix round (user 2026-10-30 "Round up"): the added HP rounds up, so the finished run moves again (the end
+  // hash; was 4645678); the claimed state is the same as at CP-3.
+  all: ["7fcf8766", "a21a10f7", "ad5f4741"],
   // Unchanged (the control): its crew holds no CP-3 key.
   control: BEFORE.control,
 };

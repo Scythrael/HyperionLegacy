@@ -8539,10 +8539,11 @@ export interface Expedition {
   // so a run without the crew (and every run dispatched before CP-3) is byte-identical (no SAVE_VERSION bump). Since
   // CP-3, squadTriage above also carries the Medical complement's Triage (crew.triage) on top of Fleet Triage.
   //   squadHpBonus      : Away-Team Protection (crew.awayTeamProtection): every Security member's max HP x (1 + it),
-  //                       rounded to a whole point (gambit.ts buildRosterCombatants).
+  //                       the added part rounded up, at least +1 (gambit.ts buildRosterCombatants).
   //   squadDebuffResist : Counter-Infiltration (crew.counterInfiltration, OC-E1): the squad's chance to shrug off a
   //                       debuff the enemy lands, through gambit.ts squadDebuffResistShare (a diminishing curve
-  //                       toward awayTeam.ts STATUS_RESIST_CAP, never reaching it), combined with each member's own.
+  //                       toward awayTeam.ts STATUS_RESIST_CAP, never reaching it), combined with each member's own so the two together stay under that cap
+  //                       (gambit.ts squadCombinedResist).
   squadHpBonus?: number;
   squadDebuffResist?: number;
   // E-CREW 0.14.0 (Task 21): the OFFICER STAT FACETS that reach this run, frozen at dispatch like the fields

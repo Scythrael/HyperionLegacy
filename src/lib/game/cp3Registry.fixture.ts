@@ -1,11 +1,12 @@
 // Complement plan CP-3 (the Ground Ops complement consumers): the wiring registry READ-BACK the registry golden chains
 // apply, since their pins were taken before it. TEST-ONLY.
 //
-// CP-3 flips six entries pending -> live and adds one audit row (wiring/registry.ts):
+// CP-3 flips six entries pending -> live and adds three audit rows (wiring/registry.ts):
 //   flipped : the four crew keys (Counter-Infiltration, Away-Team Protection, Triage, Prevent a Crew Loss), each
 //             pending on CP-3 with the dead-key probe it was read through (none for Counter-Infiltration), and the
 //             Security and Medical quarters wings (pending on CP-3 at their "ground" context, measured on the sheet).
-//   added   : crew:audit:preventCrewLossInjuriesOnly (a Health cure does not move).
+//   added   : crew:audit:preventCrewLossInjuriesOnly (a Health cure does not move), and (the fix round) the two wings'
+//             ground checks ship:audit:quartersSecurityWing:ground and ship:audit:quartersMedicalWing:ground.
 // cp3ReadBack puts each flipped entry's status, contexts and probe back as they stood and drops the added row, so a pin
 // taken before CP-3 is reproduced exactly.
 
@@ -15,7 +16,12 @@ const CP_3 = "Complement plan CP-3 (Ground Ops complement consumers: Security, M
 const pending = (owner: string, contexts?: string[]): WiringEntry["status"] =>
   (contexts ? { kind: "pending", owner, contexts } : { kind: "pending", owner }) as WiringEntry["status"];
 
-export const CP3_ADDED_IDS: ReadonlySet<string> = new Set(["crew:audit:preventCrewLossInjuriesOnly"]);
+// The CP-3 fix round added the two wing ground checks (ship:audit:<wing>:ground), read back the same way.
+export const CP3_ADDED_IDS: ReadonlySet<string> = new Set([
+  "crew:audit:preventCrewLossInjuriesOnly",
+  "ship:audit:quartersSecurityWing:ground",
+  "ship:audit:quartersMedicalWing:ground",
+]);
 
 type Before = { status: WiringEntry["status"]; contexts: string[]; probe: string | undefined };
 export const CP3_FLIPPED_BEFORE: Readonly<Record<string, Before>> = {

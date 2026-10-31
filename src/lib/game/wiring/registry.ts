@@ -2385,7 +2385,7 @@ function hullEntries(): WiringEntry[] {
 // CP-2, and Power Discipline since E-MOD EM-1). The Science and Flight Deck wings went live with the inert racials
 // (0.14.0: Survey Aptitude's scan speed, Deck Handling's drone replenish). CP-3: the Security and Medical wings are live
 // too (Away-Team Protection, Counter-Infiltration and Triage act on Ground Ops), so every division wing amplifies only
-// keys that act.
+// keys that act; their boost to the ground keys is measured by ship:audit:<wing>:ground (cp3AuditEntries).
 
 // WR-7 (OC-D7, user 2026-10-15 "Spread across divisions"; B22 fixed): a quarters module's berths spread across the
 // division caps by the hull's role weights (commandStructure.ts commandStructureWithBonus), so an empty complement can
@@ -4774,6 +4774,31 @@ function cp3AuditEntries(): WiringEntry[] {
       on: exclusive("excl.preventCrewLoss"),
       off: exclusive("wiring.none"),
       note: "a move of 0 on a Health cure; crew:crew.preventCrewLoss proves the injury (Fracture) cure divides",
+    }),
+    // CP-3 fix round: the Security and Medical quarters wings amplify their own division's ground keys (their crew
+    // entries measure them on the sheet, on Operations). Each wing measured on its OWN division's complement carrying
+    // a ground key, read where the run freezes it: the frozen share grows by the wing's focus boost.
+    ...(
+      [
+        ["security", "quartersSecurityWing", "sec.awayTeam", "expSquadHpBonus", "Away-Team Protection"],
+        ["medical", "quartersMedicalWing", "med.triage", "expSquadTriage", "Triage"],
+      ] as const
+    ).map(([division, wingId, buffId, probe, label]) => {
+      const wing = QUARTERS_MODULES.find((d) => d.id === wingId)!;
+      return entry({
+        id: `ship:audit:${wingId}:ground`,
+        system: "ship",
+        source: { catalog: "AUDIT", key: `ship:audit:${wingId}:ground` },
+        claim: `${wing.label}: its crew's ${label} on a Ground Ops run grows by the wing's division boost`,
+        probe,
+        contexts: ["ground"],
+        direction: "up",
+        curve: { kind: "bonusRelative", base: 0 },
+        magnitude: (c) => c.QUARTERS_MODULES.find((d) => d.id === wingId)!.focusBoost * moduleEffectScale("standard", 0, "none"),
+        base: () => withBuckets(withAwayTeam(wiringBase()), [bucketOf(division, buffId)]),
+        on: (s) => installPiece(s, { slotType: "quarters", moduleVariant: wingId }),
+        note: `measured on the ${division} division's own complement, the frozen ${label} share at dispatch`,
+      });
     }),
   ];
 }

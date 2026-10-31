@@ -1,6 +1,6 @@
 // Complement and Acquisition CP-3 (docs/plans/2026-10-14-complement-and-acquisition-plan.md section 3 CP-3; wiring
 // plan answers OC-E1 "Resist enemy debuffs", OC-E2 "Shorter bay time"): the four Ground Ops complement consumers.
-//   Away-Team Protection  -> every Security member's max HP x (1 + it), rounded (Expedition.squadHpBonus)
+//   Away-Team Protection  -> every Security member's max HP x (1 + it), the added part rounded up (Expedition.squadHpBonus)
 //   Counter-Infiltration  -> the squad's resist to every enemy debuff (Expedition.squadDebuffResist)
 //   Triage                -> the run's squadTriage (Fleet Triage's field)
 //   Prevent a Crew Loss   -> the medical bay's injury care (GroundOpsFactors.preventLossShare)
@@ -9,13 +9,13 @@
 import { describe, expect, it } from "vitest";
 import { DEFAULT_MEMBER_GAMBIT, type GambitStatusId, type SnapshotMember } from "./model";
 import { CREW_PROFESSION_BUFFS, SECOND_LEVEL_EXCLUSIVE } from "./crewBuffs";
-import { GAMBIT_STATUSES, SQUAD_DEBUFF_RESIST_CEILING, buildRosterCombatants, squadDebuffResistShare, statusResistPermille } from "./gambit";
+import { GAMBIT_STATUSES, SQUAD_DEBUFF_RESIST_CEILING, buildRosterCombatants, squadCombinedResist, squadDebuffResistShare, statusResistPermille } from "./gambit";
 import { STATUS_RESIST_CAP } from "./awayTeam";
 import { GROUND_CONDITIONS, conditionCureSeconds, memberBaySeconds, type BayCare } from "./medicalBay";
-import { advanceExpedition } from "./expedition";
-import { officerBonusTotal } from "./crewOverlay";
+import { advanceExpedition, resolveExpeditions } from "./expedition";
+import { officerBonusTotal, shipAwayTeamProtection, shipCounterInfiltration, shipCrewTriage, shipPreventCrewLoss } from "./crewOverlay";
 import { groundOpsBayCare } from "./groundOps";
-import { CP3_ALL_CREW, CP3_CONTROL_CREW, CP3_MEDICAL_CREW, CP3_SECURITY_CREW, cp3Dispatch, cp3State } from "./complementCp3.fixture";
+import { CP3_ALL_CREW, CP3_CONTROL_CREW, CP3_MEDICAL_CREW, CP3_SECURITY_CREW, cp3Bucket, cp3Dispatch, cp3State } from "./complementCp3.fixture";
 import { withCp3Off } from "./complementCp3Switch.fixture";
 
 const member = (id: string, resists: Partial<Record<GambitStatusId, number>> = {}): SnapshotMember => ({
@@ -39,17 +39,34 @@ const ZERO_CARE: BayCare = { medicalShare: 0, rapidRecoveryShare: 0, officerFace
 const magnitudeOf = (id: string): number => [...Object.values(CREW_PROFESSION_BUFFS).flat(), ...SECOND_LEVEL_EXCLUSIVE].find((d) => d.id === id)!.magnitude;
 
 describe("CP-3 Away-Team Protection: Security max HP", () => {
-  it("multiplies every member's max HP by 1 + it, rounded to a whole point; absent or 0 is the squad as before", () => {
+  it("multiplies every member's max HP by 1 + it, the added part rounded up; absent or 0 is the squad as before", () => {
     const plain = buildRosterCombatants([member("a"), member("b")], 0, "t");
     expect(buildRosterCombatants([member("a"), member("b")], 0, "t", undefined, { hpBonus: 0 })).toEqual(plain);
     const lifted = buildRosterCombatants([member("a"), member("b")], 0, "t", undefined, { hpBonus: 0.25 });
     lifted.forEach((c, i) => {
-      expect(c.hpMax).toBe(Math.round(plain[i].hpMax * 1.25));
+      expect(c.hpMax).toBe(plain[i].hpMax + Math.ceil(plain[i].hpMax * 0.25));
       expect(c.hp).toBe(c.hpMax);
       expect(c.power).toBe(plain[i].power); // HP only
     });
     // A bad input reads 0.
     expect(buildRosterCombatants([member("a")], 0, "t", undefined, { hpBonus: Number.NaN })).toEqual(buildRosterCombatants([member("a")], 0, "t"));
+    // A whole product gains no point to float noise (50 x 0.14 reads 7.000000000000001 in floats: +7, not +8).
+    const fifty = { ...member("a"), groundStats: { hp: 5 / 45 } };
+    expect(buildRosterCombatants([fifty], 0, "t")[0].hpMax).toBe(50);
+    expect(50 * 0.14).toBeGreaterThan(7);
+    expect(buildRosterCombatants([fifty], 0, "t", undefined, { hpBonus: 0.14 })[0].hpMax).toBe(57);
+  });
+
+  it("rounds UP (user 2026-10-30): one holder on the ship gives a 45 HP Security member +1 max HP", () => {
+    const { exp } = cp3Dispatch([cp3Bucket("security", "sec.awayTeam", 1)], 0x1244);
+    const bonus = exp.squadHpBonus!;
+    expect(bonus).toBeGreaterThan(0);
+    expect(Math.round(45 * (1 + bonus))).toBe(45); // rounding to the nearest would give this crew nothing
+    const [plain] = buildRosterCombatants([member("a")], 0, "t");
+    expect(plain.hpMax).toBe(45);
+    const [lifted] = buildRosterCombatants([member("a")], 0, "t", undefined, { hpBonus: bonus });
+    expect(lifted.hpMax).toBe(46);
+    expect(lifted.hp).toBe(46);
   });
 });
 
@@ -69,12 +86,37 @@ describe("CP-3 Counter-Infiltration: the squad resists enemy debuffs (OC-E1)", (
     for (const raw of [5, 50, 1e9, Number.MAX_VALUE]) expect(squadDebuffResistShare(raw)).toBeLessThan(SQUAD_DEBUFF_RESIST_CEILING);
   });
 
-  it("every debuff is resisted, never a buff; a member's own resist and Morale Anchor stack as independent chances", () => {
+  it("combined with a member's own resist it bends toward the ceiling (user 2026-10-30 \"Combined stays under 90%\")", () => {
+    const C = SQUAD_DEBUFF_RESIST_CEILING;
+    // Equal to the member's own with no crew share; the share alone with no own resist.
+    for (const own of [0, 0.3, 0.6, 0.89]) expect(squadCombinedResist(own, 0)).toBe(own);
+    for (const share of [0.01, 0.3, 0.8]) expect(squadCombinedResist(0, share)).toBeCloseTo(share, 12);
+    // Rises smoothly with the share, always under the ceiling.
+    let prev = -1;
+    for (const share of [0.01, 0.1, 0.4, 0.8, squadDebuffResistShare(1e9)]) {
+      const r = squadCombinedResist(0.6, share);
+      expect(r).toBeGreaterThan(prev);
+      expect(r).toBeLessThan(C);
+      prev = r;
+    }
+    // A member near the ceiling gains little: the gain is the share's part of the headroom left.
+    const share = squadDebuffResistShare(0.2);
+    const gainLow = squadCombinedResist(0.1, share) - 0.1;
+    const gainHigh = squadCombinedResist(0.88, share) - 0.88;
+    expect(gainHigh).toBeLessThan(gainLow / 30);
+    expect(gainHigh).toBeCloseTo((C - 0.88) * (share / C), 12);
+    // At or past the ceiling on their own (Morale Anchor can carry Fear past it), the crew adds nothing.
+    expect(squadCombinedResist(C, share)).toBe(C);
+    expect(squadCombinedResist(0.95, share)).toBe(0.95);
+  });
+
+  it("every debuff is resisted, never a buff; a member's own resist and Morale Anchor combine with the crew's share", () => {
     const c = squadDebuffResistShare(0.2);
     const [m] = buildRosterCombatants([member("a", { poison: 0.5 })], 0, "t", undefined, { debuffResist: 0.2, fearResist: 0.3 });
     for (const id of DEBUFFS) {
       const own = id === "poison" ? 0.5 : id === "fear" ? 0.3 : 0;
-      expect(m.resists?.[id], id).toBe(Math.round((1 - (1 - own) * (1 - c)) * 1000));
+      expect(m.resists?.[id], id).toBe(Math.round(squadCombinedResist(own, c) * 1000));
+      expect(m.resists?.[id], id).toBeLessThan(SQUAD_DEBUFF_RESIST_CEILING * 1000);
     }
     for (const id of BUFFS) expect(m.resists?.[id], id).toBeUndefined();
     // Without it the member's resists are exactly as before.
@@ -86,6 +128,12 @@ describe("CP-3 Counter-Infiltration: the squad resists enemy debuffs (OC-E1)", (
   it("no member is ever fully immune: a capped own resist with a huge crew still leaves a chance to land", () => {
     const [m] = buildRosterCombatants([member("a", { stun: STATUS_RESIST_CAP })], 0, "t", undefined, { debuffResist: 1e9 });
     for (const id of DEBUFFS) expect(statusResistPermille(m, id)).toBeLessThan(1000);
+    // The capped own resist stays at the cap (the crew adds nothing past it); every other debuff stays under it,
+    // the permille rounding included.
+    expect(m.resists?.stun).toBe(Math.round(STATUS_RESIST_CAP * 1000));
+    for (const id of DEBUFFS.filter((d) => d !== "stun")) expect(m.resists?.[id], id).toBeLessThan(STATUS_RESIST_CAP * 1000);
+    const [near] = buildRosterCombatants([member("a", { poison: 0.898 })], 0, "t", undefined, { debuffResist: 1e9 });
+    expect(near.resists?.poison).toBe(Math.round(STATUS_RESIST_CAP * 1000) - 1);
   });
 });
 
@@ -131,9 +179,30 @@ describe("CP-3 dispatch: each key frozen on the run, only when non-zero", () => 
   });
 
   it("a crew change after dispatch never reshapes the run (the values are frozen on it)", () => {
-    const { exp } = cp3Dispatch(CP3_ALL_CREW, 0x1234);
-    // advanceExpedition reads only the stored run: the same record resolves the same way however the ship changes.
-    expect(advanceExpedition(structuredClone(exp), 40_000)).toEqual(advanceExpedition(exp, 40_000));
+    const { next, exp } = cp3Dispatch(CP3_ALL_CREW, 0x1234);
+    expect(exp.squadHpBonus).toBeGreaterThan(0);
+    // Swap the ship's whole complement, mid-run, for crew holding none of the four keys.
+    const changed = {
+      ...next,
+      ships: next.ships.map((sh) => (sh.id === "ship-1" ? { ...sh, complement: { mode: "active" as const, buckets: CP3_CONTROL_CREW.map((b) => ({ ...b })) } } : sh)),
+    };
+    const ship = changed.ships.find((sh) => sh.id === "ship-1")!;
+    // The change is real: the ship now carries none of the keys the run froze at dispatch.
+    expect(shipAwayTeamProtection(changed, ship)).toBe(0);
+    expect(shipCounterInfiltration(changed, ship)).toBe(0);
+    expect(shipCrewTriage(changed, ship)).toBe(0);
+    expect(shipPreventCrewLoss(changed, ship)).toBe(0);
+    // The run in flight keeps its frozen values and resolves exactly as it does on the unchanged ship.
+    for (const t of [12_000, 40_000]) {
+      const before = resolveExpeditions({ ...next, gameTimeSeconds: t }).expeditions.find((e) => e.id === exp.id)!;
+      const after = resolveExpeditions({ ...changed, gameTimeSeconds: t }).expeditions.find((e) => e.id === exp.id)!;
+      expect(after).toEqual(before);
+      expect(after).toEqual(advanceExpedition(exp, t));
+      expect(after.squadHpBonus).toBe(exp.squadHpBonus);
+      expect(after.squadDebuffResist).toBe(exp.squadDebuffResist);
+      expect(after.squadTriage).toBe(exp.squadTriage);
+      expect(after.groundOps?.factors.preventLossShare).toBe(exp.groundOps?.factors.preventLossShare);
+    }
   });
 });
 
