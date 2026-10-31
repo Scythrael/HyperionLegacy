@@ -546,6 +546,24 @@ Help topics: gas giants and nebulae, the Galileo-Class Probe, Gas Storage Canist
 ancient data, the Survey Log (numbers read from constants; the helpTopics text-rules test). Holistic review, carry
 notes into this doc and the E-CREW plan, curated QA sheet. Deploy only after the user confirms.
 
+**GG-8 carry note (built 2026-10-30, on feat a78c505).** Help (helpTopics.ts): six new topics, Gas Giants and Nebulae,
+Galileo-Class Probe, Gas Storage Canisters, Research Data and Data Study, Ancient Data and Special Blueprints (the
+special blueprints have no topic of their own; the design's "Decryption" topic folded in with call 10 "One lane") and
+Survey Log. Every number and list is read from its owner (GIANT_CLASSES / NEBULA_KINDS band odds, the study and sweep
+timings and canister counts, TIER_HAUL_MULT, NEBULA_PERMILLE_BY_TIER, FAMOUS_NEBULA_KIND, ancientFragmentPermille,
+researchBoostSpeed, DATA_STUDY_*, ITEMS sell values, every BLUEPRINTS recipe that takes a canister, GG7_NUMBERS and
+SPECIAL_BLUEPRINT_TIER, the Archive tab labels, NEBULA_STAGES, SURVEY_LOG_HELP, decodeLockText); helpTopics.test.ts pins
+each. Older topics gained their gas giant line: Ground Operations (the run waits for its studies), Risk Factors (no
+hostile site or clearing objective on a gas giant), Scan Events (no supply cache there), Research (the Data study tab),
+Storage (the canister section; research data has no shelf). Text fix: the Deuterium Canister's unlockHint also names the
+study and the sweep (it rolls there as an Augmented canister). Registry: every gas giant row was already live after GG-7
+(release gate GG entries: 0 before, 0 after); the one seam is DATA_STUDY_SEAM cultureStudyPoint (owner R2-6, the user's
+relics v2 call 9). New `gasGiantCloseout.test.ts` pins the coverage, the live-or-seam rule and an empty gate. QA sheet:
+`docs/qa/2026-10-30-gas-giant-study-qa.html` (staging, 1280 px and 375 px, each check naming its test). Still tagged
+for the user (Help prints them, so a retune flows through): [PROPOSAL] NEBULA_PERMILLE_BY_TIER, FAMOUS_NEBULA_KIND, the
+uniform kind draw, 24 to 48 sweep canisters, the sweep's extras, the family map; [PROVISIONAL] GG7_NUMBERS, one data lane
+at every Lab level, RESEARCH_BOOST_KNEE.
+
 ## 5. OPEN CALLS (multiple-choice ready; recommended first; most important first)
 
 1. **Giant classes.** (a) Sudarsky I to V plus Ice Giant and Brown Dwarf, mass as its own number, shown by name

@@ -10677,7 +10677,7 @@ export const ITEMS: Record<string, ItemDef> = {
     band: "augmented",
     tier: 1,
     rarity: "uncommon",
-    unlockHint: "Refined at the Refinery from Deuterium Ice.",
+    unlockHint: "Refined at the Refinery from Deuterium Ice, or collected when a ship studies a gas giant or sweeps a nebula on an expedition.",
     flavor: "Heavy hydrogen pressed out of comet ice and sealed under pressure: the fuel charge every fusion Reactor Core is built around.",
     sellValue: GAS_CANISTER_SELL_VALUE.deuteriumCanister,
   },

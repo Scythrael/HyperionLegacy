@@ -1,0 +1,346 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>0.14.0 QA: Gas Giant Study</title>
+<style>
+  :root {
+    --bg: #070b12;
+    --bg-2: #0d1420;
+    --panel: #111a29;
+    --panel-2: #0b1220;
+    --line: #1f2c40;
+    --line-2: #2a3a54;
+    --text: #dce6f3;
+    --dim: #8497af;
+    --faint: #5d6d86;
+    --accent: #38e0ff;
+    --accent-2: #7cf6c9;
+    --claude: #b98bff;
+    --desk: #38e0ff;
+    --mob: #ffcc66;
+    --warn: #ffcc66;
+    --save: #ff9a6b;
+    --device: #7fb2ff;
+    --good: #6ff2b0;
+    --danger: #ff7a7a;
+    --shadow: 0 0 0 1px var(--line), 0 18px 40px -24px #000;
+  }
+  * { box-sizing: border-box; }
+  html { color-scheme: dark; }
+  body {
+    margin: 0;
+    background:
+      radial-gradient(1200px 600px at 78% -10%, rgba(56,224,255,0.10), transparent 60%),
+      radial-gradient(900px 500px at 8% 8%, rgba(185,139,255,0.08), transparent 55%),
+      var(--bg);
+    color: var(--text);
+    font: 14px/1.55 ui-sans-serif, system-ui, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    padding: env(safe-area-inset-top, 0) 0 calc(env(safe-area-inset-bottom, 0) + 48px);
+  }
+  .wrap { max-width: 980px; margin: 0 auto; padding: 28px 18px 0; }
+  a { color: var(--accent); }
+
+  .eyebrow { font-size: 11px; letter-spacing: 3px; text-transform: uppercase; color: var(--accent); opacity: 0.85; margin: 0 0 6px; }
+  h1 { font-size: clamp(22px, 4.4vw, 34px); line-height: 1.1; margin: 0 0 4px; text-wrap: balance; font-weight: 750; letter-spacing: 0.3px; }
+  h1 .v { color: var(--accent); }
+  .sub { color: var(--dim); margin: 0 0 20px; font-size: 13px; }
+
+  .progress-card {
+    background: linear-gradient(180deg, var(--panel), var(--panel-2));
+    border: 1px solid var(--line-2); border-radius: 16px; padding: 20px 22px; box-shadow: var(--shadow); margin-bottom: 20px;
+  }
+  .progress-top { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+  .pct { font-size: clamp(30px, 8vw, 52px); font-weight: 800; line-height: 1; letter-spacing: -1px; color: var(--accent);
+    text-shadow: 0 0 24px rgba(56,224,255,0.45); font-variant-numeric: tabular-nums; }
+  .pct small { font-size: 15px; font-weight: 600; color: var(--dim); margin-left: 8px; letter-spacing: 0; }
+  .rowcount { color: var(--text); font-size: 15px; font-weight: 650; font-variant-numeric: tabular-nums; }
+  .rowcount b { color: var(--accent-2); }
+  .bar { margin-top: 16px; height: 16px; border-radius: 999px; background: #0a1220; border: 1px solid var(--line-2); overflow: hidden; }
+  .bar > i { display: block; height: 100%; width: 0%; background: linear-gradient(90deg, #2bd0ff, #7cf6c9);
+    box-shadow: 0 0 18px rgba(56,224,255,0.6); border-radius: 999px; transition: width .35s cubic-bezier(.2,.8,.2,1); }
+  .substats { display: flex; gap: 18px; flex-wrap: wrap; margin-top: 14px; font-size: 12.5px; color: var(--dim); }
+  .substats .dot { display: inline-block; width: 9px; height: 9px; border-radius: 3px; margin-right: 7px; vertical-align: middle; }
+  .substats b { color: var(--text); font-variant-numeric: tabular-nums; }
+  .d-claude { background: var(--claude); box-shadow: 0 0 10px var(--claude); }
+  .d-desk { background: var(--desk); box-shadow: 0 0 10px var(--desk); }
+  .d-mob { background: var(--mob); box-shadow: 0 0 10px var(--mob); }
+
+  .legend { background: var(--panel-2); border: 1px solid var(--line); border-radius: 12px; padding: 14px 16px; margin-bottom: 26px; font-size: 12.5px; color: var(--dim); }
+  .legend p { margin: 0 0 8px; }
+  .legend p:last-child { margin-bottom: 0; }
+  .legend b { color: var(--text); }
+  .chip { display: inline-block; padding: 1px 8px; border-radius: 999px; font-size: 11px; font-weight: 650; letter-spacing: 0.3px; vertical-align: middle; }
+  .chip.save { color: var(--save); background: rgba(255,154,107,0.12); border: 1px solid rgba(255,154,107,0.4); }
+  .chip.device { color: var(--device); background: rgba(127,178,255,0.12); border: 1px solid rgba(127,178,255,0.4); }
+  .chip.theme { color: var(--accent-2); background: rgba(124,246,201,0.10); border: 1px solid rgba(124,246,201,0.35); }
+  .chip.later { color: var(--danger); background: rgba(255,122,122,0.10); border: 1px solid rgba(255,122,122,0.4); }
+  .toolbar { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-bottom: 22px; }
+  .btn { background: var(--panel); color: var(--text); border: 1px solid var(--line-2); border-radius: 8px; padding: 7px 13px; font-size: 12.5px; cursor: pointer; font-weight: 600; }
+  .btn:hover { border-color: var(--accent); color: var(--accent); }
+  .toolbar .note { color: var(--faint); font-size: 12px; }
+
+  section { margin-bottom: 26px; }
+  .sec-head { display: flex; align-items: center; gap: 12px; margin: 0 0 6px; }
+  .sec-num { font-variant-numeric: tabular-nums; font-weight: 800; color: var(--accent); font-size: 13px; letter-spacing: 1px;
+    background: rgba(56,224,255,0.08); border: 1px solid rgba(56,224,255,0.3); border-radius: 7px; padding: 3px 9px; min-width: 34px; text-align: center; }
+  .sec-title { font-size: 16px; font-weight: 700; letter-spacing: 0.2px; }
+  .sec-line { flex: 1; height: 1px; background: linear-gradient(90deg, var(--line-2), transparent); }
+  .sec-done { font-size: 11.5px; color: var(--faint); font-variant-numeric: tabular-nums; }
+  .sec-note { color: var(--dim); font-size: 12.5px; font-style: italic; margin: 0 0 10px; border-left: 2px solid var(--line-2); padding: 2px 0 2px 12px; }
+
+  .items { display: flex; flex-direction: column; gap: 2px; }
+  .col-head, .item { display: grid; grid-template-columns: 52px 52px 52px 1fr; gap: 10px; }
+  .col-head { align-items: center; padding: 4px 12px; font-size: 10.5px; letter-spacing: 1px; text-transform: uppercase; color: var(--faint); }
+  .col-head .ch { text-align: center; }
+  .col-head .ch.claude { color: var(--claude); }
+  .col-head .ch.desk { color: var(--desk); }
+  .col-head .ch.mob { color: var(--mob); }
+  .item { align-items: start; padding: 10px 12px; border-radius: 10px; border: 1px solid transparent; }
+  .item:nth-child(odd) { background: rgba(255,255,255,0.014); }
+  .item.done { background: rgba(124,246,201,0.05); border-color: rgba(124,246,201,0.18); }
+  .cell { display: flex; justify-content: center; padding-top: 1px; }
+
+  .cb { position: relative; width: 22px; height: 22px; }
+  .cb input { position: absolute; inset: 0; opacity: 0; margin: 0; cursor: pointer; }
+  .cb .box { width: 22px; height: 22px; border-radius: 6px; border: 2px solid var(--line-2); display: grid; place-items: center; transition: .12s; background: #0a1220; }
+  .cb .box svg { width: 13px; height: 13px; opacity: 0; transform: scale(.5); transition: .12s; }
+  .cb input:checked + .box svg { opacity: 1; transform: scale(1); }
+  .cb input:focus-visible + .box { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .cb.claude input:checked + .box { background: rgba(185,139,255,0.18); border-color: var(--claude); }
+  .cb.claude .box svg { color: var(--claude); }
+  .cb.desk input:checked + .box { background: rgba(56,224,255,0.18); border-color: var(--desk); }
+  .cb.desk .box svg { color: var(--desk); }
+  .cb.mob input:checked + .box { background: rgba(255,204,102,0.18); border-color: var(--mob); }
+  .cb.mob .box svg { color: var(--mob); }
+  .cb.desk input:not(:disabled):hover + .box { border-color: var(--desk); }
+  .cb.mob input:not(:disabled):hover + .box { border-color: var(--mob); }
+  .cb input:disabled { cursor: default; }
+  .cb.claude.empty .box { border-style: dashed; opacity: 0.5; }
+
+  .body .t { color: var(--text); }
+  .body .t .k { color: var(--accent-2); font-weight: 600; }
+  .meta { margin-top: 5px; display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+  .how { color: var(--dim); font-size: 12px; font-style: italic; margin-top: 4px; }
+  .how::before { content: "how: "; font-style: normal; color: var(--claude); opacity: 0.85; font-weight: 650; }
+
+  .findings { background: linear-gradient(180deg, rgba(124,246,201,0.06), transparent); border: 1px solid rgba(124,246,201,0.25); border-radius: 14px; padding: 18px 20px; margin-top: 12px; }
+  .findings h2 { margin: 0 0 6px; font-size: 15px; color: var(--good); letter-spacing: 0.3px; }
+  .findings ol { margin: 8px 0 0; padding-left: 20px; }
+  .findings li { margin-bottom: 10px; color: var(--dim); }
+  .findings li b { color: var(--text); }
+  .foot { margin-top: 26px; color: var(--faint); font-size: 11.5px; text-align: center; }
+
+  @media (max-width: 520px) {
+    .col-head, .item { grid-template-columns: 34px 34px 34px 1fr; gap: 6px; }
+    .item { padding: 10px 8px; }
+    .col-head { padding: 4px 8px; font-size: 9.5px; letter-spacing: 0.5px; }
+    .wrap { padding-left: 14px; padding-right: 14px; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <p class="eyebrow">Hyperion Legacy · QA · 0.14.0 feature pass</p>
+  <h1><span class="v">0.14.0</span> Gas Giant Study</h1>
+  <p class="sub">Curated checklist for the Gas Giant Study (plan docs/plans/2026-10-17-gas-giant-study-plan.md, GG-0 to GG-8): the ship's study of a gas giant from orbit, the nebula sweep, the pickup pause, the Gas Storage Canisters, the Research Lab's Data study lane, ancient data and the three special blueprints, the Archive's Survey Log, and the six new Help topics. <b>Run this on staging</b> (devpreview.crystalisoft.com, the staging branch) with your migrated save, once 0.14.0 is deployed there at release (0.14.0 stays off staging until the wiring gate passes and you say go). Run each check once at <b>1280 px</b> (desktop) and once at <b>375 px</b> (mobile), and run the pass in both <b>light and dark</b> themes.</p>
+
+  <div class="progress-card">
+    <div class="progress-top">
+      <div class="pct" id="pct">0%<small id="pctlabel">ready</small></div>
+      <div class="rowcount"><b id="doneCount">0</b> / <span id="totalCount">0</span> checks complete</div>
+    </div>
+    <div class="bar"><i id="barFill"></i></div>
+    <div class="substats">
+      <span><span class="dot d-claude"></span>Claude (tests) <b id="claudeCount">0</b></span>
+      <span><span class="dot d-desk"></span>You at 1280 px <b id="deskCount">0</b></span>
+      <span><span class="dot d-mob"></span>You at 375 px <b id="mobCount">0</b></span>
+      <span style="color:var(--faint)">A row is complete when both of your columns are ticked.</span>
+    </div>
+  </div>
+
+  <div class="legend">
+    <p><b>Where to test.</b> Staging, <b>devpreview.crystalisoft.com</b>, on the 0.14.0 build, with your own migrated save. A gas giant turns up in most systems at every tier; a nebula is rarer (8% of systems at Tier I up to 20% at Tier VII), and the Orion Nebula (Tier II) always holds one, so it is the quickest nebula run.</p>
+    <p><b>The three columns.</b> <b style="color:var(--claude)">Claude</b> is pre-filled and read-only: a tick means the engine or display test suite proves that rule (the "how" line names the test file). Nothing here was clicked through in a browser for this sheet, so every on-screen check is yours. <b style="color:var(--desk)">1280</b> and <b style="color:var(--mob)">375</b> are your desktop and mobile passes; your ticks are saved in this browser.</p>
+    <p><b>Progress rule.</b> A row counts as complete once BOTH of your columns are ticked (a rule the tests prove still wants your eyes on the screen at both widths).</p>
+    <p>Tags: <span class="chip save">needs real save</span> needs your migrated save or an expedition in flight. <span class="chip device">needs device</span> touch, a real phone, or a visual call. <span class="chip theme">light + dark</span> look at it in both themes. <span class="chip later">not in this build</span> owned by a slice that has not shipped.</p>
+  </div>
+
+  <div class="toolbar">
+    <button class="btn" type="button" id="resetBtn">Reset my columns</button>
+    <span class="note">Claude's column is read-only (it records what the tests prove).</span>
+  </div>
+
+  <div id="sections"></div>
+
+  <div class="findings">
+    <h2>Close-out notes (GG-8, 2026-10-30)</h2>
+    <ol>
+      <li><b>Help.</b> Six new topics: <b>Gas Giants and Nebulae</b>, <b>Galileo-Class Probe</b>, <b>Gas Storage Canisters</b>, <b>Research Data and Data Study</b>, <b>Ancient Data and Special Blueprints</b> and <b>Survey Log</b>. Every number is read from its engine constant (band odds, timings, canister counts, the region haul, the nebula chance, the fragment odds, the boost curve, prices, recipes, the special blueprints' entries and tiers). Five older topics gained their gas giant line: Ground Operations (the run waits for its studies), Risk Factors (no hostile site or clearing objective on a gas giant), Scan Events (no supply cache there), Research (the Data study tab) and Storage (the canister section; research data has no shelf). All pinned by helpTopics.test.ts.</li>
+      <li><b>Wiring.</b> Every gas giant registry row was already live after GG-7: the release gate held no gas giant entry before this slice and holds none after. One row is a seam in your words: an Ancient Data Fragment's culture study point (owner Relics v2 R2-6, relics v2 call 9). gasGiantCloseout.test.ts now pins all of it.</li>
+      <li><b>Text fix.</b> The Deuterium Canister's tooltip said it only comes from the Refinery; it now also names gas giant studies and nebula sweeps, where it rolls as an Augmented canister.</li>
+    </ol>
+  </div>
+
+  <p class="foot">0.14.0 Gas Giant Study QA · boxes persist in this browser only.</p>
+</div>
+
+<script>
+const TICK = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>';
+// c: a test proves it (how names the file). tag: "save" | "device" | "theme" | "later" | null.
+const SECTIONS = [
+  { n: "0", title: "Setup on staging and the in-flight run", note: "Staging only: devpreview.crystalisoft.com on the 0.14.0 build, your migrated save.", items: [
+    { t: "Open staging and load your save. It loads clean and nothing is missing (the study adds optional fields only; no save step).", tag: "save" },
+    { t: "An expedition already underway before this build, to a system with a gas giant, finishes exactly as it would have: its old ground objectives on the giant stay, and no study, sweep or pickup pause starts.", c: true, tag: "save", how: "gasGiantStudyGoldens.test.ts (the run with the study stamp taken off equals the GG-0 golden); gasGiantPickupPause.test.ts (golden 124dbee8, a run without the pause stamp)." },
+    { t: "No console errors opening Ops, Exploration, an expedition card, the Research Lab's Data study tab, the Archive's Survey Log, Logistics Materials and Help." },
+  ]},
+  { n: "1", title: "Before launch: the expedition card", items: [
+    { t: 'Pick a system with a gas giant. The launch preview shows the study chips (<span class="k">1 ship study</span>, no squad needed) and asks for no squad for the giant.', c: true, how: "gasGiantStudyDisplay.test.ts (demandStudyChips); gasGiantStudy.test.ts (preview == run, no squad need on an orbital body)." },
+    { t: 'Each gas giant has its body card: the class by name and Sudarsky number (for example "Ammonia-cloud giant, Sudarsky I"), its mass, "Orbital: no ground objectives", the ship study time and the Galileo dive line.', c: true, tag: "theme", how: "gasGiantStudyDisplay.test.ts (giantCardView, studyBodyView)." },
+    { t: "The canister range on the card (for example 8 to 17 with a probe) matches the engine's range for that giant.", c: true, how: "gasGiantStudyDisplay.test.ts reads studyCanisterRange (gasGiantStudy.ts)." },
+    { t: "No hostile site, no clearing objective and no supply cache on a gas giant, at any tier.", c: true, how: "gasGiantStudy.test.ts (64 seeds, Tiers I to VII: no PoI, site, clearing objective or squad need on an orbital body; the cache draw kept)." },
+    { t: 'A nebula system (the Orion Nebula is the quickest): the dashed nebula row with its kind, the sweep length (2 h, shorter with a Ramscoop Collector) and its canister range (30 to 60 at Tier II without one).', c: true, tag: "theme", how: "gasGiantStudyDisplay.test.ts (nebulaRowView, nebulaSweepSeconds); gasGiantNebula.test.ts (the famous nebulae always hold one)." },
+  ]},
+  { n: "2", title: "During the run: the study and the sweep", items: [
+    { t: 'When the giant\'s scan finishes, the ship card reads "Holding orbit: studying ..." with the probe and the fieldwork pace, the scan of the next body waits, and the teams keep working the other bodies.', c: true, how: "gasGiantStudyLeg.test.ts (the leg starts at the scan's completion; the scan clock pauses for it)." },
+    { t: "The study shows on the timeline's ship lane, with its time left; with no Science member aboard it takes 30 minutes, faster with Science crew and a Galileo-Class Probe, never under 1 minute.", c: true, tag: "theme", how: "gasGiantStudyLeg.test.ts (studySeconds); gasGiantStudyDisplay.test.ts (studyLegsView)." },
+    { t: 'Pickup pause: a team ready for pickup mid-study shows "Study paused: flying to pick up ...", the "Study paused for a pickup" card with the time left on resume, then "Resumed after a pickup, progress kept".', c: true, how: "gasGiantPickupPause.test.ts (the stamped run pins affce7e6; 600 s == 997 s == one call); gasGiantStudyDisplay.test.ts (the pause chips and card)." },
+    { t: "A team ready near the end of a study just waits for it (the pause is flown only when it brings the team aboard sooner); a team with every Security member down is fetched right away.", c: true, how: "gasGiantPickupPause.test.ts (pausePaysOff, the review's example docks in 105 s; the weak-crew wipe fixture)." },
+    { t: 'On a nebula run, after the last body is scanned the ship sweeps: "Sweeping the ... nebula", 2 hours, no probe, pickups pause it the same way.', c: true, how: "gasGiantNebula.test.ts (the sweep is scheduled after the last scan; pickups and the pause)." },
+    { t: "The expedition heads home only after every study and the sweep are done.", c: true, how: "gasGiantStudyLeg.test.ts and gasGiantNebula.test.ts (checkRunEnd waits for open study legs)." },
+    { t: "Close the game mid-study for a while, then reopen: the study and the sweep moved on exactly as if you had watched.", c: true, tag: "save", how: "parity in gasGiantStudyLeg.test.ts, gasGiantNebula.test.ts and gasGiantPickupPause.test.ts (one call == 997 s chunks == 1 s steps)." },
+    { t: "Recall an expedition during a study, then resume the system: a giant studied on the first trip is not studied again; the unfinished study (or sweep) runs on the resumed trip.", c: true, tag: "save", how: "gasGiantStudyResume.test.ts (held bodies keep studied; parity included)." },
+  ]},
+  { n: "3", title: "The claim", items: [
+    { t: "The study results card and the claim log line list each study's canisters by gas, any research data, a Survey Log readout and any Ancient Data Fragment, without repeating the haul.", c: true, tag: "theme", how: "gasGiantStudyDisplay.test.ts (studyResultsView, studyClaimLine)." },
+    { t: "Canisters land on the Logistics, Materials, Gas Storage Canisters shelf; research data does not appear on any warehouse shelf.", c: true, how: "gasGiantStudyDisplay.test.ts (onWarehouseShelf)." },
+    { t: "A readout shows up in the Archive's Survey Log after the claim (about 15% of studies and sweeps).", c: true, how: "gasGiantStudyLeg.test.ts (the claim appends the readout to the Survey Log; data 40% and readout 15% over 2,000 studies per class)." },
+  ]},
+  { n: "4", title: "Gas Storage Canisters", items: [
+    { t: 'The shelf shows each canister with its band color, the warehouse fill and a red "Full (cap N)" state at the cap; tapping a canister opens its detail card (band, sell value, what it crafts).', c: true, tag: "theme", how: "gasGiantStudyDisplay.test.ts (canisterDetailView); stockFillDisplay.test.ts." },
+    { t: "Quartermaster Sell: Hydrogen 200, Methane 200, Ammonia 450, Deuterium 450, Helium-3 1,000, Antimatter Containment Cell 2,500 credits.", c: true, how: "gasGiantContent.test.ts (GAS_CANISTER_SELL_VALUE); helpTopics.test.ts (the Help prints ITEMS' sell values)." },
+    { t: "Refinery: the Deuterium Canister refines from 10 Deuterium Ice. Its tooltip names the Refinery and gas giant studies.", c: true, how: "gasGiantContent.test.ts (the recipe)." },
+    { t: "Fabricator: every recipe that takes a canister shows it as an input and refuses to start without it (Class III to VII drives, the Reactor Cores, Elite Quarters, Pressure-Forged Plating, Resonance Sensor Array).", c: true, how: "gasGiantSpecials.test.ts; the wiring probes content:craftSpends and content:gg7:canisterUses." },
+  ]},
+  { n: "5", title: "Research Lab: the Data study tab", items: [
+    { t: 'Research Lab sub-tabs include <span class="k">Data study</span>. The lane card shows the lane and Lab level and an <span class="k">Auto-study</span> switch, on by default.', c: true, tag: "theme", how: "dataStudyDisplay.test.ts (dataStudyView); the switch's aria-checked." },
+    { t: "With data held, the oldest held item starts on its own and takes 20 minutes; blueprint research and relic study keep running beside it.", c: true, how: "gasGiantDataStudy.test.ts (heldDataQueue order, DATA_STUDY_TICKS, lane independence)." },
+    { t: "Switch Auto-study off: nothing new starts, the running study's countdown holds, and the Home row shows the paused line. Switch it on and it carries on.", c: true, how: "gasGiantDataStudy.test.ts (setDataStudyPaused); dataStudyDisplay.test.ts (DATA_STUDY_NOTE_PAUSED, the Home row)." },
+    { t: 'Each queue row shows its type\'s held count against its cap; a type at its cap shows the "is full" warning.', c: true, how: "dataStudyDisplay.test.ts (dataQueueRows, heldCap)." },
+    { t: "Banked boosts: after a study, the family's row shows +12% speed. Start a research project of that family: it runs 12% faster and the row goes back to none.", c: true, how: "gasGiantDataStudy.test.ts (researchBoostSpeed and consumption at startResearch); the DATA_STUDY boost wiring probes." },
+    { t: "A study that learns a recipe (5%) says so in the tab's log, and the blueprint shows as researched.", c: true, how: "gasGiantDataStudy.test.ts (rollDataStudyRecipe, the candidates); dataStudyDisplay.test.ts (dataStudyLogLine)." },
+  ]},
+  { n: "6", title: "Ancient data and the special blueprints", items: [
+    { t: 'An Ancient Data Fragment\'s study decodes an entry: the lane reads "Entries decoded by the furthest culture so far: N".', c: true, how: "gasGiantDataStudy.test.ts (a fragment decodes its own culture's next entry); dataStudyDisplay.test.ts (ancientEntriesText)." },
+    { t: 'The Special blueprints section shows three cards: Pressure-Forged Plating (Lab tier III), Ramscoop Collector (IV), Resonance Sensor Array (V), each with its glyph, line and state chip ("Entry N" while locked).', c: true, tag: "theme", how: "gasGiantSpecials.test.ts (specialBlueprintCards)." },
+    { t: 'The Research list refuses a locked one with "Decode N ancient entries of one culture first"; it opens once one culture has decoded that many.', c: true, how: "gasGiantSpecials.test.ts (each special blueprint walked across its own entry)." },
+    { t: "Ramscoop Collector: its module card in the Modules row; on a nebula run the sweep is shorter and fills more canisters than without it.", c: true, how: "gasGiantSpecials.test.ts; wiring probes content:gg7:ramscoopStamp and content:gg7:sweepRate." },
+    { t: "Resonance Sensor Array installed: a gas giant's body card shows the lifted band odds (more Augmented and Stellar), and the claim brings more canisters above Standard over several studies.", c: true, how: "gasGiantSpecials.test.ts (liftedBandOdds); wiring probe content:gg7:studyBands." },
+    { t: "Pressure-Forged Plating crafts and installs in the Hull Plating slot like any plating.", c: true, how: "gasGiantSpecials.test.ts; wiring probe content:gg7:platingLean." },
+  ]},
+  { n: "7", title: "The Archive's Survey Log", items: [
+    { t: 'The Archive tabs read Archive, Museum, <span class="k">Survey Log</span>. With no entries, the empty line names the 15% readout.', c: true, how: "gasGiantStudyDisplay.test.ts (archiveSubTabs); the empty line reads STUDY_SURVEY_READOUT_PERMILLE." },
+    { t: 'Entries are grouped by class (giants, then nebulae) with counts, newest first; the first of each class is marked ("Tier III · first of its class", with the space).', c: true, tag: "theme", how: "gasGiantStudyDisplay.test.ts (surveyLogGroups, surveyEntryView)." },
+    { t: "A gas giant's card: its art, mass, radius, density, cloud-top gravity, main gases, feature and the star bar with the deuterium (13 Jupiter masses) and fusion (about 78) lines and the verdict.", c: true, tag: "theme", how: "gasGiantStudyDisplay.test.ts (starBarView, starVerdict)." },
+    { t: "A nebula's card: its art, gases, feature, example and the life-cycle strip (Nursery, Young stars, Dying sun-like star, Exploded giant star).", c: true, tag: "theme", how: "gasGiantStudyDisplay.test.ts (NEBULA_STAGES, surveyEntryView)." },
+    { t: "Phone: under 760 px of panel width the selected entry's card shows first and the list follows; picking an entry scrolls back up to the card (no animation with reduced motion).", tag: "device" },
+  ]},
+  { n: "8", title: "Help", items: [
+    { t: "The six new topics are listed and read true against the screens: Gas Giants and Nebulae, Galileo-Class Probe, Gas Storage Canisters, Research Data and Data Study, Ancient Data and Special Blueprints, Survey Log.", c: true, how: "helpTopics.test.ts (Gas giant study, GG-8: every number read from its engine constant)." },
+    { t: "Their numbers match what you saw: the 30 minute study, 4 to 8 canisters times the region haul, the band odds per class and kind, 40% data, 15% readout, the 2 hour sweep, 20 minute data studies, +12% boosts, 5% recipes, the prices.", c: true, how: "helpTopics.test.ts reads each from gasGiantStudy.ts, gasGiantContent.ts, dataStudy.ts, ITEMS and BLUEPRINTS." },
+    { t: "The older topics point to them: Ground Operations, Risk Factors, Scan Events, Research and Storage.", c: true, how: "helpTopics.test.ts (the cross-links; every \"the X topic\" names a real topic)." },
+  ]},
+  { n: "9", title: "Visual and cross-cutting", items: [
+    { t: "Glyphs at 16, 28 and 56 px read clearly: gas canister, antimatter cell, research data, ancient fragment, Galileo probe, giant, nebula, pause.", tag: "theme", c: true, how: "gasStudyIcons.test.ts and icons.test.ts (every glyph registered with ICON_SEMANTICS); the visual call is yours." },
+    { t: "Every giant class's art and every nebula kind's art look right in light and dark.", tag: "theme" },
+    { t: "No horizontal scroll at 375 px on the study panel, the body cards, the timeline, the Data study tab, the canister shelf and the Survey Log.", tag: "device" },
+    { t: "Every gas giant registry row is live (or a seam in your words), and the release gate holds no gas giant entry.", c: true, how: "gasGiantCloseout.test.ts; RELEASE_GATE=1 no-dead-stats.test.ts and wiring.completeness.test.ts." },
+    { t: "Save persists across a reload mid-study, mid-sweep, with Auto-study off and with Survey Log entries kept.", tag: "save" },
+  ]},
+];
+
+const STORE = "hl-qa-0140-gas-giant-study-v1";
+let userState = {};
+try { userState = JSON.parse(localStorage.getItem(STORE) || "{}"); } catch (e) { userState = {}; }
+function save() { try { localStorage.setItem(STORE, JSON.stringify(userState)); } catch (e) {} }
+
+const CHIP = {
+  save: '<span class="chip save">needs real save</span>',
+  device: '<span class="chip device">needs device</span>',
+  theme: '<span class="chip theme">light + dark</span>',
+  later: '<span class="chip later">not in this build</span>',
+};
+
+function cb(kind, id, checked, disabled, label) {
+  const empty = (kind === "claude" && !checked) ? " empty" : "";
+  return '<span class="cb ' + kind + empty + '"><input type="checkbox" id="' + id + '" ' + (checked ? "checked " : "") + (disabled ? "disabled " : "") +
+    'aria-label="' + label + '"><span class="box">' + TICK + "</span></span>";
+}
+
+const secWrap = document.getElementById("sections");
+SECTIONS.forEach((sec, si) => {
+  const el = document.createElement("section");
+  let html = '<div class="sec-head"><span class="sec-num">' + sec.n + '</span><span class="sec-title">' + sec.title +
+    '</span><span class="sec-line"></span><span class="sec-done" id="secdone-' + si + '"></span></div>';
+  if (sec.note) html += '<p class="sec-note">' + sec.note + "</p>";
+  html += '<div class="items"><div class="col-head"><span class="ch claude">Claude</span><span class="ch desk">1280</span><span class="ch mob">375</span><span></span></div>';
+  sec.items.forEach((it, ii) => {
+    const key = si + "-" + ii;
+    const meta = it.tag ? '<div class="meta">' + (CHIP[it.tag] || "") + "</div>" : "";
+    const how = it.how ? '<div class="how">' + it.how + "</div>" : "";
+    html += '<div class="item" data-key="' + key + '">' +
+      '<div class="cell">' + cb("claude", "c-" + key, !!it.c, true, "Claude: covered by tests") + "</div>" +
+      '<div class="cell">' + cb("desk", "d-" + key, !!userState["d-" + key], false, "Checked at 1280 px") + "</div>" +
+      '<div class="cell">' + cb("mob", "m-" + key, !!userState["m-" + key], false, "Checked at 375 px") + "</div>" +
+      '<div class="body"><span class="t">' + it.t + "</span>" + meta + how + "</div></div>";
+  });
+  html += "</div>";
+  el.innerHTML = html;
+  secWrap.appendChild(el);
+});
+
+function isDone(key) { return !!userState["d-" + key] && !!userState["m-" + key]; }
+function recompute() {
+  let total = 0, done = 0, claude = 0, desk = 0, mob = 0;
+  SECTIONS.forEach((sec, si) => {
+    let secTotal = 0, secDone = 0;
+    sec.items.forEach((it, ii) => {
+      const key = si + "-" + ii;
+      total++; secTotal++;
+      if (it.c) claude++;
+      if (userState["d-" + key]) desk++;
+      if (userState["m-" + key]) mob++;
+      if (isDone(key)) { done++; secDone++; }
+      const row = secWrap.querySelector('.item[data-key="' + key + '"]');
+      if (row) row.classList.toggle("done", isDone(key));
+    });
+    const sd = document.getElementById("secdone-" + si);
+    if (sd) sd.textContent = secDone + " / " + secTotal;
+  });
+  const pctVal = total ? Math.round((done / total) * 100) : 0;
+  document.getElementById("pct").firstChild.textContent = pctVal + "%";
+  document.getElementById("barFill").style.width = pctVal + "%";
+  document.getElementById("doneCount").textContent = done;
+  document.getElementById("totalCount").textContent = total;
+  document.getElementById("claudeCount").textContent = claude;
+  document.getElementById("deskCount").textContent = desk;
+  document.getElementById("mobCount").textContent = mob;
+  document.getElementById("pctlabel").textContent = pctVal >= 100 ? "launch-ready" : (pctVal >= 60 ? "closing in" : "in progress");
+}
+
+secWrap.addEventListener("change", (e) => {
+  const inp = e.target;
+  if (!inp.id || (inp.id[0] !== "d" && inp.id[0] !== "m")) return;
+  if (inp.checked) userState[inp.id] = true; else delete userState[inp.id];
+  save(); recompute();
+});
+document.getElementById("resetBtn").addEventListener("click", () => {
+  userState = {}; save();
+  secWrap.querySelectorAll('input[id^="d-"], input[id^="m-"]').forEach((i) => (i.checked = false));
+  recompute();
+});
+recompute();
+</script>
+</body>
+</html>

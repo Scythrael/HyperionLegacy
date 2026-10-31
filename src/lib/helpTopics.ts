@@ -16,7 +16,8 @@
 // topics (crew, operations, homeworld, shipSystems, combat, patrols, combatView,
 // combatGear, queues, craftingLevels, autoSalvage, quartermaster, relics, and the 0.14.0 ground set:
 // groundTeams, groundOperations, returnTrip, objectiveDifficulty, affixes, reinforcing, riskFactors,
-// subspaceTelescope, scanEvents, and Field Kits FKR-11's enemyRanks and fieldKits) are welcome and
+// subspaceTelescope, scanEvents, Field Kits FKR-11's enemyRanks and fieldKits, and Gas Giant Study GG-8's gasGiants,
+// galileoProbe, gasCanisters, dataStudy, ancientData and surveyLog) are welcome and
 // help orient a new player, but the nine above must always be present.
 //
 // ⚠️ THIS MANUAL IS PART OF A RELEASE, NOT A ONE-TIME WRITE-UP. Crafting 0.13.3
@@ -184,6 +185,44 @@ import {
 import { EQUIPMENT_SLOTS, GRENADE_CARRY_PER_LINE, GRENADE_FUSE_MOVED_CLEAR_CHANCE, GRENADE_THROWS_PER_BATTLE } from "./game/model";
 import { ACTION_LABEL, RANK_OPTIONS, SELECTOR_LABEL } from "./gambitEditorDisplay";
 import { kitEffectText } from "./fieldKitsDisplay";
+// Gas Giant Study GG-8: the study, probe, canister, data study, ancient data and Survey Log topics read every number,
+// name and list from the engine tables and the screens' display modules.
+import {
+  DEUTERIUM_BURNING_MILLI_J,
+  GAS_CANISTER_IDS,
+  GIANT_CLASSES,
+  HYDROGEN_FUSION_MILLI_J,
+  ITEM_BANDS,
+  NEBULA_KINDS,
+  RESEARCH_DATA_ITEM,
+  RESEARCH_FAMILIES,
+  canistersInBand,
+  giantClassDisplayName,
+  nebulaKindById,
+  type BandOdds,
+} from "./game/gasGiantContent";
+import {
+  FAMOUS_NEBULA_KIND,
+  GALILEO_VARIETY,
+  NEBULA_CANISTERS_MAX,
+  NEBULA_CANISTERS_MIN,
+  NEBULA_PERMILLE_BY_TIER,
+  NEBULA_SWEEP_SECONDS,
+  STUDY_BASE_SECONDS,
+  STUDY_CANISTERS_MAX,
+  STUDY_CANISTERS_MIN,
+  STUDY_MIN_SECONDS,
+  STUDY_RESEARCH_DATA_PERMILLE,
+  STUDY_SURVEY_READOUT_PERMILLE,
+  ancientFragmentPermille,
+} from "./game/gasGiantStudy";
+import { DATA_STUDY_LANES, DATA_STUDY_RECIPE_PERMILLE, DATA_STUDY_TICKS, researchBoostSpeed } from "./game/dataStudy";
+import { GG7_NUMBERS, SPECIAL_BLUEPRINT_KEYS, SPECIAL_BLUEPRINT_TIER, type SpecialBlueprintKey } from "./game/specialBlueprints";
+import { TIER_HAUL_MULT } from "./game/riskFactors";
+import { ITEMS, REFINE_RECIPES } from "./game/model";
+import { FAMOUS_SYSTEMS } from "./game/starCatalog";
+import { NEBULA_STAGES, SURVEY_LOG_HELP, archiveSubTabs, bandName, permilleText } from "./gasGiantStudyDisplay";
+import { decodeLockText } from "./dataStudyDisplay";
 
 // ===== Derived-text helpers (0.14.0 topics; see the header) =====
 
@@ -340,6 +379,119 @@ export const FIELD_KITS_PARAGRAPHS: readonly string[] = [
   `SAVING FOR THE BOSS: a rule that targets a foe can ask for "${RANK_ELITE_OPTION}" or "${RANK_BOSS_OPTION}" (see the Enemy Ranks topic). A ${ACTION_LABEL.throwGrenade} or ${ACTION_LABEL.useItem} rule can also "Keep for a Boss" a number: it fires only while the member holds more than that many (charges, or of that kit), except against a ${rankLabel("boss")}, or, for a kit, while a ${rankLabel("boss")} is in the fight. The odds chips count each team's packs and charges, so packing better shows better odds.`,
 ];
 
+// ===== Gas Giant Study GG-8: the gas giant, probe, canister, data study, ancient data and Survey Log topics =====
+// Every number, name and list below is read from the engine table or the screen's display module that owns it, so a
+// retune or a relabel cannot make the manual lie (helpTopics.test.ts pins each one against its owner).
+
+// "30 minutes", "2 hours", "1 minute".
+function longSpan(seconds: number): string {
+  if (seconds % 3600 === 0) return seconds === 3600 ? "1 hour" : `${seconds / 3600} hours`;
+  return span(seconds);
+}
+const GAS_GIANT = getPlanetTypeById("gasGiant")?.label ?? "Gas Giant";
+const GALILEO = EQUIPMENT_SLOTS.memberTool.varieties.find((v) => v.key === GALILEO_VARIETY)?.label ?? GALILEO_VARIETY;
+const bpName = (key: string): string => (BLUEPRINTS[key]?.label ?? key).replace(/ Blueprint$/, "");
+const itemName = (id: string): string => ITEMS[id]?.label ?? id;
+const labTier = (t: number): string => `Lab tier ${regionTierNumeral(t as RegionTier)}`;
+// "x1 at Tier I up to x3.3 at Tier VII" (the region haul every study and sweep is multiplied by).
+const HAUL_TIERS = Object.keys(TIER_HAUL_MULT).map(Number).sort((a, b) => a - b);
+const HAUL_TEXT = `x${TIER_HAUL_MULT[HAUL_TIERS[0] as RegionTier]} at ${tier(HAUL_TIERS[0])} up to x${TIER_HAUL_MULT[HAUL_TIERS[HAUL_TIERS.length - 1] as RegionTier]} at ${tier(HAUL_TIERS[HAUL_TIERS.length - 1])}`;
+// "66% Standard, 26% Augmented, 6% Stellar, 2% Radiant" (bands with no chance left out).
+const oddsText = (odds: BandOdds): string =>
+  ITEM_BANDS.filter((b) => odds[b] > 0)
+    .map((b) => `${odds[b]}% ${bandName(b)}`)
+    .join(", ");
+export const GIANT_CLASS_ODDS_LINES = GIANT_CLASSES.map((c) => `- ${giantClassDisplayName(c)}: ${oddsText(c.bandOdds)}.`).join("\n");
+export const NEBULA_KIND_ODDS_LINES = NEBULA_KINDS.map((k) => `- ${k.name}: ${oddsText(k.bandOdds)}.`).join("\n");
+const NEBULA_NO_RADIANT = NEBULA_KINDS.every((k) => k.bandOdds.radiant === 0);
+const RADIANT_CANISTER = canistersInBand("radiant").map(itemName);
+const NEBULA_TIERS = Object.keys(NEBULA_PERMILLE_BY_TIER).map(Number).sort((a, b) => a - b);
+const FAMOUS_NEBULAE = Object.keys(FAMOUS_NEBULA_KIND).map((id) => `the ${FAMOUS_SYSTEMS.find((s) => s.id === id)?.name ?? id}`);
+const FAMOUS_NEBULA_KINDS = [...new Set(Object.values(FAMOUS_NEBULA_KIND))].map((k) => nebulaKindById(k)?.name.toLowerCase() ?? k);
+// The Ancient Data Fragment's chance per study (gasGiantStudy.ts ancientFragmentPermille), from orbit and with the
+// reference probe (relic rating 1), at a region tier.
+const fragmentAt = (t: number, relicRating: number): string =>
+  permilleText(ancientFragmentPermille({ region: { tier: t as RegionTier } } as unknown as Parameters<typeof ancientFragmentPermille>[0], relicRating));
+const FIRST_TIER = HAUL_TIERS[0];
+const LAST_TIER = HAUL_TIERS[HAUL_TIERS.length - 1];
+// The research data types, by their item names ("Propulsion Data, ... and Sensors Data").
+const DATA_TYPE_NAMES = andList(RESEARCH_FAMILIES.map((f) => itemName(RESEARCH_DATA_ITEM[f])));
+const boostPct = (n: number): string => pct(researchBoostSpeed(n));
+// Each canister's crafting uses: every blueprint whose recipe takes it, by name.
+const canisterUses = (id: string): string[] =>
+  Object.keys(BLUEPRINTS)
+    .filter((k) => (BLUEPRINTS[k].recipe.inputs[id] ?? 0) > 0)
+    .map(bpName);
+export const CANISTER_LINES = GAS_CANISTER_IDS.map((id) => {
+  const uses = canisterUses(id);
+  const band = ITEMS[id]?.band;
+  return `- ${itemName(id)} (${band ? bandName(band) : "Standard"}): sells for ${(ITEMS[id]?.sellValue ?? 0).toLocaleString("en-US")} credits${uses.length > 0 ? `; goes into the ${andList(uses)}` : ""}.`;
+}).join("\n");
+const DEUTERIUM_REFINE = REFINE_RECIPES.refineDeuteriumCanister;
+const DEUTERIUM_ICE_PER_CANISTER = DEUTERIUM_REFINE ? Number(DEUTERIUM_REFINE.input.deuteriumIce?.toString() ?? 0) : 0;
+// The three special blueprints, each with its entry, its Lab tier and what it does (GG7_NUMBERS, the first-pass values).
+const RAMSCOOP_BOOST = GG7_NUMBERS.ramscoopCollector.nebulaSweep;
+const RESONANCE_LIFT = GG7_NUMBERS.resonanceSensorArray.canisterBandLift;
+const specialInputs = (key: string): string => {
+  const canisters = GAS_CANISTER_IDS.filter((id) => (BLUEPRINTS[key]?.recipe.inputs[id] ?? 0) > 0).map(itemName);
+  return canisters.length > 0 ? ` Crafted with ${andList(canisters.map((c) => `${article(c)} ${c}`))}.` : "";
+};
+const SPECIAL_WHAT: Readonly<Record<SpecialBlueprintKey, string>> = {
+  pressureForgedPlatingBp: "Hull Plating forged under crushing pressure, leaning into structure and kinetic dampening.",
+  ramscoopCollectorBp: `A passive module that works on expeditions: in a system with a nebula, the sweep fills ${pct(RAMSCOOP_BOOST)} more canisters and finishes ${1 + RAMSCOOP_BOOST} times as fast. It draws ${GG7_NUMBERS.ramscoopCollector.powerDraw} power. A sweep never needs one.`,
+  resonanceSensorArrayBp: `A sensor array: every gas giant study by a ship carrying it rolls its canisters with the Augmented and Stellar odds ${pct(RESONANCE_LIFT)} higher, the Standard odds giving way and the Radiant odds unchanged. It does not change a nebula sweep.`,
+};
+export const SPECIAL_BLUEPRINT_LINES = SPECIAL_BLUEPRINT_KEYS.map(
+  (key) => `- ${bpName(key)}: entry ${BLUEPRINTS[key]?.requiresDecode ?? GG7_NUMBERS.decodeEntry[key]}, ${labTier(SPECIAL_BLUEPRINT_TIER[key])}. ${SPECIAL_WHAT[key]}${specialInputs(key)}`,
+).join("\n");
+const SURVEY_TAB = archiveSubTabs(true).find((t) => t.key === "surveyLog")?.label ?? "Survey Log";
+const ARCHIVE_TABS = andList(archiveSubTabs(true).filter((t) => t.key !== "surveyLog").map((t) => t.label));
+
+export const GAS_GIANT_PARAGRAPHS: readonly string[] = [
+  `A ${GAS_GIANT} has no surface to land on, so your teams never go down to one. On an expedition, a ${GAS_GIANT} has no ground objectives, no hostile sites, no clearing objectives and no supply caches. The ship studies it from orbit instead: once it finishes scanning the giant, it holds orbit and studies it. A study needs no squad. The ship always does it, and your Science crew and a ${GALILEO} make it faster and richer (see the ${GALILEO} topic). An expedition that was already underway when gas giant studies arrived finishes under its old rules.`,
+  `THE STUDY: a study takes ${longSpan(STUDY_BASE_SECONDS)} with no Science member aboard. The deployed Science squads' fieldwork pace on a ${GAS_GIANT} divides that time (a ${GALILEO}'s fieldwork line included), never below ${span(STUDY_MIN_SECONDS)}. While the ship studies, its scan of the next body waits, but your teams keep working the other bodies. The expedition heads home only after every study is done.`,
+  `PICKUPS: when a team is ready to come back aboard while the ship is studying, the ship pauses the study, flies to pick the team up, then goes back and carries on where it left off, with the study's progress kept. It does this only when it brings the team aboard sooner than waiting, so a team ready near the end of a study just waits for it. A team whose Security members are all down is always fetched right away. A pause never changes what the study brings home.`,
+  `WHAT A STUDY BRINGS HOME:\n- Gas Storage Canisters, always: ${STUDY_CANISTERS_MIN} to ${STUDY_CANISTERS_MAX}, more when a ${GALILEO} dives, times the region's haul (${HAUL_TEXT}). Each canister rolls its band by the giant's class, then its gas (see the Gas Storage Canisters topic).\n- Research data, ${permilleText(STUDY_RESEARCH_DATA_PERMILLE)} of the time: one item of a random research family (see the Research Data and Data Study topic).\n- A Survey Log readout, ${permilleText(STUDY_SURVEY_READOUT_PERMILLE)} of the time (see the Survey Log topic).\n- Now and then, an Ancient Data Fragment (see the Ancient Data and Special Blueprints topic).\nEverything comes home when you claim the expedition. The expedition card shows the canister range each study can return.`,
+  `GIANT CLASSES: every gas giant is one of ${GIANT_CLASSES.length} classes, named by real science (the Sudarsky classes, sorted by their clouds, plus ice giants and brown dwarfs), and it has its own mass. A system's inner worlds lean to the hot classes and its outer worlds to the cold ones, though any class can turn up anywhere. The class sets the odds of each canister's band:\n${GIANT_CLASS_ODDS_LINES}\nA heavier, denser giant lets a probe dive deeper, for more canisters.`,
+  `NEBULAE: some systems sit inside a nebula, ${permilleText(NEBULA_PERMILLE_BY_TIER[NEBULA_TIERS[0] as RegionTier])} of systems at ${tier(NEBULA_TIERS[0])}, rising to ${permilleText(NEBULA_PERMILLE_BY_TIER[NEBULA_TIERS[NEBULA_TIERS.length - 1] as RegionTier])} at ${tier(NEBULA_TIERS[NEBULA_TIERS.length - 1])}, and ${andList(FAMOUS_NEBULAE)} always hold ${article(FAMOUS_NEBULA_KINDS[0] ?? "")} ${andList(FAMOUS_NEBULA_KINDS)}. A nebula is one of ${NEBULA_KINDS.length} kinds: ${andList(NEBULA_KINDS.map((k) => k.name))}. Once the ship has scanned the last body (and finished any study under way), it sweeps the nebula: the sweep takes ${longSpan(NEBULA_SWEEP_SECONDS)}, needs no squad and no probe, and fills ${NEBULA_CANISTERS_MIN} to ${NEBULA_CANISTERS_MAX} canisters times the region's haul. It also brings research data ${permilleText(STUDY_RESEARCH_DATA_PERMILLE)} and a Survey Log readout ${permilleText(STUDY_SURVEY_READOUT_PERMILLE)} of the time, but never an Ancient Data Fragment${NEBULA_NO_RADIANT && RADIANT_CANISTER.length > 0 ? ` and never ${article(RADIANT_CANISTER[0])} ${andList(RADIANT_CANISTER)}: a nebula has no magnetic field to trap antimatter` : ""}. A Ramscoop Collector makes the sweep bigger and faster (see the Ancient Data and Special Blueprints topic). Pickups pause the sweep the same way they pause a study. The kind sets the odds of each canister's band:\n${NEBULA_KIND_ODDS_LINES}`,
+  "BEFORE LAUNCH AND AFTER A RECALL: the expedition card's launch preview counts the ship studies and the nebula sweep a system holds, and none of them asks for a squad. A recalled expedition keeps what it finished: a giant studied on the first trip stays studied, and a study or sweep left unfinished is done when you resume the system.",
+];
+
+export const GALILEO_PARAGRAPHS: readonly string[] = [
+  `The ${GALILEO} is a Science squad member's tool, built to dive into a gas giant and survive the crushing pressure and the corrosive gases on the way down. Research its blueprint at the Research Lab (a ${labTier(BLUEPRINTS.atmoProbeBp.tier)} blueprint), craft it at the Fabricator, then install it in a Science member's Tool slot on the ship's Away Team tab. It works on ${GAS_GIANT} studies only. Each of its three lines does one job there:\n- Fieldwork: speeds the study, like every Science member's fieldwork.\n- Hazard resist: its crush rating, how deep it dives. A deeper dive fills more canisters, more so on a heavier, denser giant. Each step adds a little less than the last, with no cap.\n- Relic find: the odds of an Ancient Data Fragment.`,
+  `ONE PROBE PER DIVE: when several Science members carry one, the probe with the best hazard resist dives (the better relic find breaks a tie). The probe is chosen when the ship launches. Without a probe the study still runs, from orbit, and still fills its canisters. Each dive wears the probe like one step of fieldwork.`,
+  `ANCIENT DATA ODDS: an Ancient Data Fragment comes home from about ${fragmentAt(FIRST_TIER, 0)} of studies at ${tier(FIRST_TIER)} with no probe, rising with the region's tier to about ${fragmentAt(LAST_TIER, 0)} at ${tier(LAST_TIER)}. A ${GALILEO} of item level 10, Standard and quality 0 lifts that to about ${fragmentAt(FIRST_TIER, 1)} at ${tier(FIRST_TIER)}, and a better probe lifts it further, each step a little less than the last.`,
+];
+
+export const GAS_CANISTER_PARAGRAPHS: readonly string[] = [
+  `Gas Storage Canisters are the gases, and one antimatter cell, that your ships bring home from gas giant studies and nebula sweeps. They have their own section in Logistics, under Materials (Gas Storage Canisters), and the Warehouse cap applies to them like any material. Each canister belongs to a band, from Standard up to Radiant, and a study rolls the band of every canister it fills (see the Gas Giants and Nebulae topic):\n${CANISTER_LINES}`,
+  `The ${itemName("deuteriumCanister")} can also be refined at the Refinery, from ${DEUTERIUM_ICE_PER_CANISTER} ${itemName("deuteriumIce")} each. Every canister sells at the Quartermaster's Sell tab.`,
+];
+
+export const DATA_STUDY_PARAGRAPHS: readonly string[] = [
+  `Research data comes home from gas giant studies and nebula sweeps in ${RESEARCH_FAMILIES.length} types, one for each research family: ${DATA_TYPE_NAMES}. It has no Warehouse shelf: the Research Lab's Data study tab holds it and shows each type's count against its cap. A type at its cap says so, because more of it coming home is not kept.`,
+  `THE LANE: from Research Lab level I, the Lab studies held data on its own lane (${DATA_STUDY_LANES === 1 ? "one study" : `${DATA_STUDY_LANES} studies`} at a time), apart from blueprint research and relic study, so it never holds either up. Each study takes ${longSpan(DATA_STUDY_TICKS)}. With Auto-study on (the default), the lane starts the oldest held data whenever it is idle. Switch Auto-study off to pause: nothing new starts and the running study holds its countdown. Nothing is lost, and switching it back on carries on where it was.`,
+  `BANKED BOOSTS: each study of research data banks one boost for its family. The next research project of that family you start spends every boost banked for it and runs faster: one boost +${boostPct(1)}, two about +${boostPct(2)}, four about +${boostPct(4)}, each extra boost adding a little less, with no cap. The Data study tab lists the boosts banked for each family.`,
+  `A RECIPE NOW AND THEN: each study of research data also has a ${permilleText(DATA_STUDY_RECIPE_PERMILLE)} chance to teach a recipe: one blueprint of its family, at or below the Lab's tier, that you have not researched and that is not waiting on a relic or an ancient entry, is researched at once. When none is left, nothing is learned.`,
+  "FAMILIES: every blueprint belongs to one family. FTL drives and the other drive parts are Propulsion; shield emitters and hull plating are Defense; weapons and drone pods are Weapons; Reactor Cores, utility rigs and modules are Systems; hull blueprints, cargo bays, bridges and quarters are Hull Design; sensor arrays, the Survey Rig and the Pathfinder Suite are Sensors; squad gear and field kits are Field; materials are Materials.",
+  "An Ancient Data Fragment is studied on the same lane (see the Ancient Data and Special Blueprints topic).",
+];
+
+export const ANCIENT_DATA_PARAGRAPHS: readonly string[] = [
+  `An Ancient Data Fragment is a record left by an ancient culture. Only a ship's study of a gas giant finds one, never a nebula sweep, and the odds rise with the region's tier and with a ${GALILEO}'s relic find line (see the ${GALILEO} topic). It is studied on the Research Lab's data study lane like research data. Each study decodes the next entry of the fragment's own culture, the culture of the world it came from. The Data study tab shows how many entries the furthest culture has decoded. The cultures have no names yet.`,
+  `SPECIAL BLUEPRINTS: three blueprints open only once one culture has decoded enough entries, and each also needs its Research Lab tier:\n${SPECIAL_BLUEPRINT_LINES}\nThe numbers are at Standard and quality 0; a better rarity and quality raise them, and wear lowers them.`,
+  `The entries count for ONE culture: the blueprint marked entry N opens once a single culture has decoded N entries, and entries spread across several cultures do not add up. The Data study tab shows each special blueprint's card with the entry it waits on, and the Research list reads "${decodeLockText(2)}" (or the number it needs) until then.`,
+  `The ${bpName("eliteQuartersBp")} blueprint (${labTier(BLUEPRINTS.eliteQuartersBp.tier)}) also takes canisters, but it needs no ancient entry.`,
+];
+
+export const SURVEY_LOG_PARAGRAPHS: readonly string[] = [
+  `The ${SURVEY_TAB} is a tab of the Archive, beside the ${ARCHIVE_TABS} tabs. ${SURVEY_LOG_HELP} An entry is added when you claim the expedition that brought it home.`,
+  "THE LIST: entries are grouped by class (gas giants by class, then nebulae by kind), each group with its count and its newest entry first, and the first entry of each class is marked as the first of its class. Pick an entry to open its card. On a phone, the card of the selected entry shows first and the list follows it.",
+  `A GAS GIANT'S CARD: its mass, radius, density, cloud-top gravity, main gases and a feature, and a bar showing how close it came to becoming a star: its mass against the deuterium-burning line (${DEUTERIUM_BURNING_MILLI_J / 1000} Jupiter masses, where a brown dwarf begins) and the hydrogen-fusion line (about ${HYDROGEN_FUSION_MILLI_J / 1000} Jupiter masses, a true star).`,
+  `A NEBULA'S CARD: its main gases, a feature, a real example, and where it sits in the life cycle of stars (${andList([...NEBULA_STAGES])}).`,
+  "The Survey Log is a record: it changes nothing in play.",
+];
+
 export interface HelpTopic {
   id: string;
   title: string;
@@ -406,7 +558,7 @@ On the order form, This order uses lists the qualities the order will draw, and 
   {
     id: "research",
     title: "Research",
-    body: `The Research Lab, in Facilities, is where you unlock blueprints. Each research project takes time and credits and permanently unlocks something you can build, from component recipes to ship-system and combat-gear blueprints (weapons, shield emitters, hull plating, and drone pods). Combat gear is researched here just like other ship systems: unlock a weapon, shield, plating, or drone-pod blueprint, then craft it at the Fabricator. Projects are organized in tiers gated by the lab's own level, so upgrading the lab opens deeper research. The lab and the Fabricator each upgrade to level ${LAB_FABRICATOR_TOP_TIER}: every upgrade adds one more research or craft slot, and a tier N blueprint needs the lab at level N to research it and the Fabricator at level N to craft it. Research is the front of the whole production chain: research a blueprint here, craft it at the Fabricator, then use the result to build ships or install their systems, combat gear included.`,
+    body: `The Research Lab, in Facilities, is where you unlock blueprints. Each research project takes time and credits and permanently unlocks something you can build, from component recipes to ship-system and combat-gear blueprints (weapons, shield emitters, hull plating, and drone pods). Combat gear is researched here just like other ship systems: unlock a weapon, shield, plating, or drone-pod blueprint, then craft it at the Fabricator. Projects are organized in tiers gated by the lab's own level, so upgrading the lab opens deeper research. The lab and the Fabricator each upgrade to level ${LAB_FABRICATOR_TOP_TIER}: every upgrade adds one more research or craft slot, and a tier N blueprint needs the lab at level N to research it and the Fabricator at level N to craft it. Research is the front of the whole production chain: research a blueprint here, craft it at the Fabricator, then use the result to build ships or install their systems, combat gear included. The Lab's Data study tab studies the research data your expeditions bring home on a lane of its own, banking boosts that speed up research (see the Research Data and Data Study topic).`,
   },
   {
     // Exploration 0.14.0 (E4c). No ladder thresholds or bonus sizes in the prose (they are tunable
@@ -434,7 +586,7 @@ On the order form, This order uses lists the qualities the order will draw, and 
     id: "groundOperations",
     title: "Ground Operations",
     body: [
-      "Ground Operations is how your ground teams work a system on an expedition (the Ops tab, under Exploration). The ship scans the system's bodies from orbit, one at a time. When a body's scan finishes, its objectives appear, already assigned to your teams by the default plan, and the teams start on them while the ship scans the rest. The expedition heads home once every body is scanned, no objective is left and every team is back aboard.",
+      "Ground Operations is how your ground teams work a system on an expedition (the Ops tab, under Exploration). The ship scans the system's bodies from orbit, one at a time. When a body's scan finishes, its objectives appear, already assigned to your teams by the default plan, and the teams start on them while the ship scans the rest. The expedition heads home once every body is scanned, no objective is left, every ship study is done and every team is back aboard. A Gas Giant has no ground objectives: the ship studies it from orbit (see the Gas Giants and Nebulae topic).",
       'OBJECTIVES: each objective has a progress bar marked with fight points. Science fieldwork moves the bar, and at each fight point the team\'s Security members must win a fight to go on. An objective with no fight points is quiet survey work, though a crew can still be ambushed there (see the Risk Factors topic). An objective that needs more squads than one team brings reads "Needs a partner": two teams work it together as one crew, fight as one side, and it pays once. Objectives can also carry affixes (see the Objective Affixes topic).',
       `PROGRESS IS KEPT: a lost fight sends the team back to the ship, but the objective keeps its progress, and the team resumes at the fight that stopped it, against a fresh enemy. Each finished stretch of the bar banks its share of the haul, kept even if a later fight is lost, so nothing is earned twice. A relic, if the site holds one, is rolled only when the objective reaches 100%. Within one trip the survivors carry their wounds from fight to fight, and a member who goes down sits out the rest of that objective until the medical bay (see the Return Trip and Medical Bay topic).`,
       "THE QUEUES: the expedition card lists each body's objectives, with a column of odds for each team.\n- Assigned: pick a crew, then Apply.\n- Queue: move an objective up or down its team's queue.\n- Skip: set an objective aside with its progress kept; Re-queue brings it back.\n- Default plan: the hardest objective to the strongest team, on down. A team working alone takes its objectives easiest first.\n- Auto-assign randomly: hands the body's queued objectives out at random.\nEdits apply from now on: nothing already resolved changes. You can also pick a larger crew than an objective needs (for example Alpha and Bravo together on a hard one): more punch and more fieldwork, but the ship then works one objective where it could work two, so the run goes slower. The plan never picks one for you.",
@@ -505,7 +657,7 @@ On the order form, This order uses lists the qualities the order will draw, and 
       `Every expedition system is rated on four risk factors, each graded ${orList(RISK_GRADE_NAMES)}. Farther regions roll higher grades, and known enemy territory adds a step of ${RISK_FACTOR_NAMES.combat}. Each body has its own grades: the system's, or one step lower.`,
       `- ${RISK_FACTOR_NAMES.combat}: more fight points on every objective (fewer at ${RISK_GRADE_NAMES[0]} and ${RISK_GRADE_NAMES[1]}). At ${firstRollingGrade(CLEARING_SITE_RULES.clearHostiles.permilleByGrade)} or worse it can add a ${site("clearHostiles")} objective, Security work only.\n- ${RISK_FACTOR_NAMES.fauna}: more fight points at life sites (${LIFE_SITES.map(site).join(", ")}). At ${firstRollingGrade(CLEARING_SITE_RULES.secureLandingZone.permilleByGrade)} or worse it can add a ${site("secureLandingZone")} objective, also Security work only. ${planets(LIFELESS_PLANET_TYPES)} worlds hold no life.\n- ${RISK_FACTOR_NAMES.flora}: slows the fieldwork (${pct(FLORA_WORK_SLOW_PER_GRADE)} longer per grade) and puts Poison on the enemies' attacks in that body's fights. Thick growth also brings more ${site("xenoFloraBloom")} sites. It reads ${RISK_GRADE_NAMES[0]} on lifeless worlds and on ${planets(FLORALESS_PLANET_TYPES)} ones.\n- ${RISK_FACTOR_NAMES.hazard}: the body's own hazard. It slows scans and fieldwork, and a very hazardous world adds a fight point to its objectives.`,
       `AMBUSHES: an objective with no fight points can still be ambushed, more often where ${RISK_FACTOR_NAMES.combat} or ${RISK_FACTOR_NAMES.fauna} runs high (${pct(AMBUSH_CHANCE_BY_GRADE[1])} a trip at ${RISK_GRADE_NAMES[1]}, up to ${pct(AMBUSH_CHANCE_BY_GRADE[AMBUSH_CHANCE_BY_GRADE.length - 1])} at ${RISK_GRADE_NAMES[RISK_GRADE_NAMES.length - 1]}; at most ${SURVEY_AMBUSH_MAX_PER_TASK} times per objective). A crew with a Security member standing fights where it stands: a win and the work goes on, a loss counts like any other. A crew with no Security member retreats with light injuries, keeps its progress and comes back after the medical bay. A Shroud Emitter or a Lure Beacon on the crew changes the chance (see the Field Kits topic).`,
-      `HOSTILE SITES: from ${tier(HOSTILE_SITE_RULES.enemyColony.minTier)}, a body at ${firstRollingGrade(HOSTILE_SITE_RULES.enemyColony.permilleByCombat)} ${RISK_FACTOR_NAMES.combat} or worse can hold an ${site("enemyColony")}, and from ${tier(HOSTILE_SITE_RULES.enemyFortification.minTier)} a body at ${firstRollingGrade(HOSTILE_SITE_RULES.enemyFortification.permilleByCombat)} ${RISK_FACTOR_NAMES.combat} or worse can hold an ${site("enemyFortification")}. A hostile site becomes an objective only when your deployed squads can take it on and still keep a Science squad.`,
+      `HOSTILE SITES: from ${tier(HOSTILE_SITE_RULES.enemyColony.minTier)}, a body at ${firstRollingGrade(HOSTILE_SITE_RULES.enemyColony.permilleByCombat)} ${RISK_FACTOR_NAMES.combat} or worse can hold an ${site("enemyColony")}, and from ${tier(HOSTILE_SITE_RULES.enemyFortification.minTier)} a body at ${firstRollingGrade(HOSTILE_SITE_RULES.enemyFortification.permilleByCombat)} ${RISK_FACTOR_NAMES.combat} or worse can hold an ${site("enemyFortification")}. A hostile site becomes an objective only when your deployed squads can take it on and still keep a Science squad. A ${GAS_GIANT} never holds a hostile site or a clearing objective (see the Gas Giants and Nebulae topic).`,
       `HAZARD RESIST: it comes from relics in the Museum, installed ship systems, your Science squads' fieldwork, Hazard Resist on Security gear (for objective work only) and, for the scan only, the Science officer's Integrity with a share of the XO's. Every source is added together before the diminishing curve, so several sources come to slightly less than their separate readouts suggest, and a hazardous world always keeps over ${pct(1 - MUSEUM_HAZARD_RESIST_MAX)} of its hazard. Resist makes the work easier; it never makes the haul poorer.`,
       TRAINING_RUNS_PARAGRAPH,
     ].join("\n\n"),
@@ -528,11 +680,47 @@ On the order form, This order uses lists the qualities the order will draw, and 
     title: "Scan Events",
     body: [
       "While the ship scans a body from orbit, things happen. Nobody is on the ground for these: the ship and its officers deal with them, and each shows as a pip on that body's scan track (hover, tap or focus it to read what happened).",
-      `- Debris field: the pilot's evasion steers through. A miss costs a detour of ${span(DEBRIS_DELAY_SECONDS)} and light hull damage.\n- Hostile probe: a quick ship battle, fought with the ship's installed combat gear and its officers. Tougher on hazardous worlds, softened by your Security officer's Cunning. Win: salvage. Loss: the scan pauses ${span(PROBE_REPAIR_SECONDS)} for repairs, with light hull damage.\n- Sensor ghost: the ship's sensors (the Science officer and crew included) read it. A true read finds a bonus discovery on this body; a false one costs a re-scan of ${span(GHOST_RESCAN_SECONDS)}.\n- Cloaked vessel: ${pct(GHOST_CLOAKED_CHANCE)} of sensor ghosts are a cloaked ship, a tougher fight than a probe. Good sensors let the ship strike first; poor ones let it strike you first. Win: richer salvage. Loss: a repair pause of ${span(CLOAKED_REPAIR_SECONDS)} and more hull damage.\n- Radiation storm: shields and Engineering ride it out. If they do not, the scan slows for ${span(STORM_SLOW_SECONDS)}.\n- Supply cache: a small find, no check needed.\nA better ship and crew raise every check, each step a little less than the last, but nothing is ever certain. A Lure Beacon on the expedition raises the salvage of a won ship battle (see the Field Kits topic).`,
+      `- Debris field: the pilot's evasion steers through. A miss costs a detour of ${span(DEBRIS_DELAY_SECONDS)} and light hull damage.\n- Hostile probe: a quick ship battle, fought with the ship's installed combat gear and its officers. Tougher on hazardous worlds, softened by your Security officer's Cunning. Win: salvage. Loss: the scan pauses ${span(PROBE_REPAIR_SECONDS)} for repairs, with light hull damage.\n- Sensor ghost: the ship's sensors (the Science officer and crew included) read it. A true read finds a bonus discovery on this body; a false one costs a re-scan of ${span(GHOST_RESCAN_SECONDS)}.\n- Cloaked vessel: ${pct(GHOST_CLOAKED_CHANCE)} of sensor ghosts are a cloaked ship, a tougher fight than a probe. Good sensors let the ship strike first; poor ones let it strike you first. Win: richer salvage. Loss: a repair pause of ${span(CLOAKED_REPAIR_SECONDS)} and more hull damage.\n- Radiation storm: shields and Engineering ride it out. If they do not, the scan slows for ${span(STORM_SLOW_SECONDS)}.\n- Supply cache: a small find, no check needed (never at a ${GAS_GIANT}).\nA better ship and crew raise every check, each step a little less than the last, but nothing is ever certain. A Lure Beacon on the expedition raises the salvage of a won ship battle (see the Field Kits topic).`,
       `BOARDING: a hostile probe or cloaked vessel may try to board (${pct(BOARDING_ATTEMPT_CHANCE)} of those encounters). Boarding Defense, from the Security crew and the Ossir, decides whether the crew repels them. Repelled: nothing is lost. Not repelled: the scan pauses ${span(BOARDING_PAUSE_SECONDS)} more, and the boarders take ${pct(BOARDING_CREDIT_LOSS_SHARE)} of the credits the expedition has found so far, never from your bank.`,
       `HULL DAMAGE AND FIELD REPAIR: light hull damage adds up over the run. Once it reaches ${pct(FIELD_REPAIR_DAMAGE_SHARE)} of the hull, the ship sets down on the nearest ${planets(FIELD_REPAIR_PLANET_TYPES)} world to repair (${FIELD_REPAIR_TIME_MULT === 2 ? "twice" : `${FIELD_REPAIR_TIME_MULT} times`} the Shipyard's time), or repairs in orbit where there is none (${ORBIT_REPAIR_TIME_MULT === 3 ? "three times" : `${ORBIT_REPAIR_TIME_MULT} times`}). The repair pauses the scan, as a pickup does, while your teams keep working. Any damage left when the ship gets home goes to the Shipyard, and a damaged ship cannot launch another expedition until it is repaired.`,
       "The Subspace Telescope cannot forecast a sensor ghost's bonus discovery (see the Subspace Telescope topic).",
     ].join("\n\n"),
+  },
+  {
+    // 0.14.0 Gas Giant Study GG-8: the ship-side study, the nebula sweep and the giant classes (gasGiantStudy.ts).
+    id: "gasGiants",
+    title: "Gas Giants and Nebulae",
+    body: GAS_GIANT_PARAGRAPHS.join("\n\n"),
+  },
+  {
+    // 0.14.0 Gas Giant Study GG-8: the probe's three lines on a study (gasGiantStudy.ts studyProbe, the dive).
+    id: "galileoProbe",
+    title: GALILEO,
+    body: GALILEO_PARAGRAPHS.join("\n\n"),
+  },
+  {
+    // 0.14.0 Gas Giant Study GG-8: the six canisters, their bands, prices and recipes (ITEMS, BLUEPRINTS).
+    id: "gasCanisters",
+    title: "Gas Storage Canisters",
+    body: GAS_CANISTER_PARAGRAPHS.join("\n\n"),
+  },
+  {
+    // 0.14.0 Gas Giant Study GG-8: research data and the Research Lab's data study lane (dataStudy.ts).
+    id: "dataStudy",
+    title: "Research Data and Data Study",
+    body: DATA_STUDY_PARAGRAPHS.join("\n\n"),
+  },
+  {
+    // 0.14.0 Gas Giant Study GG-8: the Ancient Data Fragment, the decode gate and the special blueprints (GG-7).
+    id: "ancientData",
+    title: "Ancient Data and Special Blueprints",
+    body: ANCIENT_DATA_PARAGRAPHS.join("\n\n"),
+  },
+  {
+    // 0.14.0 Gas Giant Study GG-8: the Archive's Survey Log tab (SurveyLogPanel, gasGiantStudyDisplay.ts).
+    id: "surveyLog",
+    title: "Survey Log",
+    body: SURVEY_LOG_PARAGRAPHS.join("\n\n"),
   },
   {
     id: "shipyard",
@@ -582,7 +770,7 @@ On the order form, This order uses lists the qualities the order will draw, and 
   {
     id: "storage",
     title: "Storage",
-    body: "Your stock lives on the Logistics tab. Materials holds your raw ores, refined goods, components, and salvaged materials, grouped into themed sections (Ores and Metals, Volatiles, Organic Compounds, Recovered Tech, Refined, Components, and Salvaged Materials) and split by tier. Ship Equipment holds your spare ship systems (crafted combat gear such as weapons and drone pods, and crafted modules, included) and your field kits (see the Field Kits topic), and Crafted Blanks holds unrolled crafts waiting to be inspected. Each item shows a fill gauge for how full its cap is. Storage has caps, so producers automatically pause when a material is full instead of wasting output, and you can raise a cap with a timed upgrade at the Warehouse, in Facilities. Your spare ship systems have their own cap, shown at the top of Ship Equipment, which you raise with a timed Systems Bay upgrade. Gear in an Armory loadout does not count against it.",
+    body: "Your stock lives on the Logistics tab. Materials holds your raw ores, refined goods, components, and salvaged materials, grouped into themed sections (Ores and Metals, Volatiles, Organic Compounds, Recovered Tech, Refined, Components, Gas Storage Canisters, and Salvaged Materials) and split by tier. Research data has no shelf here: the Research Lab's Data study tab holds it (see the Research Data and Data Study topic). Ship Equipment holds your spare ship systems (crafted combat gear such as weapons and drone pods, and crafted modules, included) and your field kits (see the Field Kits topic), and Crafted Blanks holds unrolled crafts waiting to be inspected. Each item shows a fill gauge for how full its cap is. Storage has caps, so producers automatically pause when a material is full instead of wasting output, and you can raise a cap with a timed upgrade at the Warehouse, in Facilities. Your spare ship systems have their own cap, shown at the top of Ship Equipment, which you raise with a timed Systems Bay upgrade. Gear in an Armory loadout does not count against it.",
   },
   {
     id: "salvage",
