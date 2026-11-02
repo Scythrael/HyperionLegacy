@@ -127,3 +127,7 @@ babysitting.
 **Facility list (fact):** refinery, fuelStorage, missionControl, research, fabricator, shipyard, salvageBay,
 subspaceTelescope. There is no mining or medical facility, so backgrounds map onto these eight (e.g. refiner, fuel
 handler, dispatcher, scholar, machinist, shipwright, salvager, stargazer) [PROPOSAL].
+
+## APPROVED (user, 2026-11-02)
+
+"Approve, start the mockup (Recommended)". Next: a mockup of the facility Posts row + the Personnel waiting list for sign-off, then the build plan.
