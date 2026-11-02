@@ -33,6 +33,7 @@ export const FIELD_ROLES: Readonly<Record<string, Readonly<Record<string, FieldR
     basePowerOutput: "effect", // E-MOD EM-1 (P1): the hull's own power output
     complementCap: "effect", // Complement plan CP-5: the hull's own crew berths
     complementDivisionWeights: "effect", // CP-5: the hull's own division mix
+    leanDivisions: "effect", // CP-5: the divisions auto-crew seats first
     buildRecipe: "gate",
     requiresBlueprint: "gate",
     awayTeams: "gate",

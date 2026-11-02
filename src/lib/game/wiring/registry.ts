@@ -144,7 +144,7 @@ import {
 import { shortRangeRelicMicrosPerHour } from "../relicBlanks";
 // Relics v2 R2-10: the minigame's relic boost table (one-way; the audit reads it, no gameplay file does).
 import { RELIC_BOOSTS } from "../../secret/config";
-import { CREW_PROFESSIONS, complementTotalCap } from "../commandStructure";
+import { CREW_PROFESSIONS, complementTotalCap, divisionCap } from "../commandStructure";
 import { BRIDGE_MODULES, CREW_MODULE_LINE_KNEE, CREW_STATIONS_BERTH_KNEE, CREW_STATIONS_BERTH_SCALE, QUARTERS_MODULES, moduleEffectScale } from "../crewModules";
 // E-MOD EM-7: the v1 universal module roster (each module's registry row reads its def through CATALOGS).
 import { UNIVERSAL_MODULES, bonusHaulUnits, type UniversalModuleDef } from "../shipModules";
@@ -2379,6 +2379,19 @@ function hullEntries(): WiringEntry[] {
           },
           base: () => wiringBase(hull),
           note: "the auto-crew fill seats the leading division's share of the hull's berths",
+        }),
+      );
+    }
+    // CP-5 (user 2026-11-02 "Fill the lean division first (Recommended)"): the lean divisions seat first, so a normal
+    // full fill reaches every one of their seats even where the division caps add up past the total.
+    if (SHIP_TYPES[hull].leanDivisions !== undefined) {
+      out.push(
+        hullEntry(hull, "leanDivisions", {
+          probe: "autoCrewLeanDivisionSeats",
+          contexts: ["sheet"],
+          magnitude: (c) => (c.SHIP_TYPES[hull].leanDivisions ?? []).reduce((a, p) => a + divisionCap(hull, p), 0),
+          base: () => wiringBase(hull),
+          note: "the auto-crew fill seats every lean division to its cap before the other divisions",
         }),
       );
     }

@@ -165,6 +165,14 @@ function hullDivisionWeights(hullType: ShipTypeKey): Record<CrewProfession, numb
   return SPEC_DIVISION_WEIGHTS[def.spec];
 }
 
+// CP-5 (user 2026-11-02, "Fill the lean division first (Recommended)"): the divisions a fill seats first, in order (the
+// hull's own SHIP_TYPES leanDivisions; none with the switch off, so the pre-CP-5 fill order is reproduced). Pure.
+const NO_LEAN: readonly CrewProfession[] = [];
+export function hullLeanDivisions(hullType: ShipTypeKey): readonly CrewProfession[] {
+  if (!HULL_CREW_CAPS_SWITCH.live) return NO_LEAN;
+  return SHIP_TYPES[hullType].leanDivisions ?? NO_LEAN;
+}
+
 const capsKey = (hullType: ShipTypeKey): string => `${hullType}|${HULL_CREW_CAPS_SWITCH.live ? 1 : 0}`;
 
 // Build (or fetch the cached) command structure for a hull. Total = the spec base scaled by tier;

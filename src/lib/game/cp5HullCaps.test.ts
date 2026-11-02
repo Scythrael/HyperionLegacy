@@ -12,6 +12,7 @@ import {
   complementTotalCap,
   countInDivision,
   divisionCap,
+  hullLeanDivisions,
   inclusiveRankCap,
   remainingCapacityForSignature,
 } from "./commandStructure";
@@ -188,5 +189,55 @@ describe("CP-5 over cap (OC-6: never evict)", () => {
     expect(over.totalOver).toBe(0);
     expect(over.any).toBe(true);
     expect(complementOverCap(fullCrewmen("destroyer"), "destroyer").any).toBe(false);
+  });
+});
+
+// User 2026-11-02, "Fill the lean division first (Recommended)": where a hull's division caps add up past its total, the
+// lean is real in practice. Auto-crew (resolveCrew) and roster fills (autoCrewShip) seat SHIP_TYPES leanDivisions first.
+describe("CP-5 lean fill order (leanDivisions)", () => {
+  const LEANS: Partial<Record<ShipTypeKey, CrewProfession[]>> = {
+    carrier: ["flightDeck"],
+    battleship: ["security", "engineering"],
+    aurora: ["science"],
+    eir: ["medical", "science"],
+  };
+  const leanHulls = HULLS.filter((h) => SHIP_TYPES[h].leanDivisions !== undefined);
+
+  it("the leans are per-hull data: Carrier Flight Deck; Battleship Security, then Engineering; Aurora Science; Eir Medical, then Science", () => {
+    expect([...leanHulls].sort()).toEqual(Object.keys(LEANS).sort());
+    for (const h of leanHulls) expect([...SHIP_TYPES[h].leanDivisions!], h).toEqual(LEANS[h]);
+    expect(withHullCrewCapsOff(() => hullLeanDivisions("carrier"))).toEqual([]);
+  });
+
+  for (const h of Object.keys(LEANS) as ShipTypeKey[]) {
+    it(`${h}: a normal full auto-fill reaches every seat of its lean division(s), and fills to its total`, () => {
+      const s = resolveCrew(withShip(h, [], { crewPool: deepPool() }));
+      const after = ship1(s).complement!.buckets;
+      for (const p of LEANS[h]!) expect(countInDivision(after, p), `${h} ${p}`).toBe(divisionCap(h, p));
+      expect(totalCrew(after), h).toBe(complementTotalCap(h));
+    });
+    it(`${h}: a roster / auto-crew fill with a quarters bonus (0, 12, 113) seats the lean division(s) to their caps`, () => {
+      for (const b of [0, 12, 113]) {
+        const { complement } = autoCrewShip(deepPool(), h, undefined, b);
+        for (const p of LEANS[h]!) expect(countInDivision(complement.buckets, p), `${h} ${p} bonus ${b}`).toBe(divisionCap(h, p, b));
+        expect(totalCrew(complement.buckets), `${h} bonus ${b}`).toBe(complementTotalCap(h, b));
+      }
+    });
+  }
+
+  it("the Carrier's lean is real: its divisions add up past 160, and the Flight Deck still seats all 56", () => {
+    expect(CREW_PROFESSIONS.reduce((a, p) => a + divisionCap("carrier", p), 0)).toBeGreaterThan(complementTotalCap("carrier"));
+    const { complement } = autoCrewShip(deepPool(), "carrier", undefined);
+    expect(countInDivision(complement.buckets, "flightDeck")).toBe(56);
+  });
+
+  it("only the ORDER of new seats changes: crew already aboard are never moved or evicted", () => {
+    for (const h of Object.keys(LEANS) as ShipTypeKey[]) {
+      const old = withHullCrewCapsOff(() => fullCrewmen(h));
+      const s = resolveCrew(withShip(h, old, { crewPool: deepPool() }));
+      const after = ship1(s).complement!.buckets;
+      for (const p of CREW_PROFESSIONS) expect(countInDivision(after, p), `${h} ${p}`).toBeGreaterThanOrEqual(countInDivision(old, p));
+      expect(totalCrew(after), h).toBeGreaterThanOrEqual(totalCrew(old));
+    }
   });
 });

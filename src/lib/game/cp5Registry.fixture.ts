@@ -5,7 +5,8 @@
 //   flipped : crew:audit:commandCaps (pending "CP-5, CP-7", no probe) is live, measured on the auto-crew fill
 //             (probe autoCrewHeadcount: an Eir seats 150 more than an Orion), with its claim rewritten to the rule.
 //   added   : the hull rows of the two new SHIP_TYPES fields, live on the same fill: ship:SHIP_TYPES:eir:complementCap
-//             and ship:SHIP_TYPES:<hull>:complementDivisionWeights for the Battleship, Carrier, Aurora and Eir.
+//             and ship:SHIP_TYPES:<hull>:complementDivisionWeights and :leanDivisions for the Battleship, Carrier, Aurora
+//             and Eir.
 // cp5ReadBack drops the added rows and puts the flipped row's claim, status, contexts and probe back as they stood, so a
 // pin taken before CP-5 is reproduced exactly.
 
@@ -23,6 +24,7 @@ export const CP5_ADDED_IDS: ReadonlySet<string> = new Set(
   (Object.keys(SHIP_TYPES) as ShipTypeKey[]).flatMap((h) => [
     ...(SHIP_TYPES[h].complementCap !== undefined ? [`ship:SHIP_TYPES:${h}:complementCap`] : []),
     ...(SHIP_TYPES[h].complementDivisionWeights !== undefined ? [`ship:SHIP_TYPES:${h}:complementDivisionWeights`] : []),
+    ...(SHIP_TYPES[h].leanDivisions !== undefined ? [`ship:SHIP_TYPES:${h}:leanDivisions`] : []),
   ]),
 );
 

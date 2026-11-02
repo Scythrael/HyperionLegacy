@@ -265,6 +265,11 @@ export interface ShipTypeDef {
   // keeps every crewmember; it simply takes no more until it is under (OC-6).
   complementCap?: number;
   complementDivisionWeights?: Record<CrewProfession, number>;
+  // CP-5 (user 2026-11-02, "Fill the lean division first (Recommended)"): the divisions auto-crew and roster fills seat
+  // FIRST, in this order, before every other division (autoCrew.ts autoCrewShip), so where the division caps add up past
+  // the total the lean's extra seats are really filled. It changes only the ORDER new crew are seated in: totals and
+  // caps are unchanged, and crew already aboard are never moved or evicted. Absent: one pass over every division.
+  leanDivisions?: readonly CrewProfession[];
   // FORWARD (not populated this pass): reactorTier?: number  // reactorTier <= tier; gates equip/module tiers
 }
 
@@ -1404,6 +1409,8 @@ export const SHIP_TYPES: Record<ShipTypeKey, ShipTypeDef> = {
     // seats go to the boarding defense and the damage control crews (Security 48 -> 56, Engineering 40 -> 48; the 160
     // total binds). Weights [PROVISIONAL].
     complementDivisionWeights: { security: 0.35, engineering: 0.3, science: 0.05, medical: 0.1, operations: 0.1, flightDeck: 0.2 },
+    // CP-5 (user 2026-11-02 "Fill the lean division first"): Security seats first, then Engineering, then the rest.
+    leanDivisions: ["security", "engineering"],
     // SF-6 review (user 2026-10-27, Recommended): the explorers out-shield it, so "shields" is no longer "the most".
     description: "A slow capital hull. The most armor and guns the fleet fields, with heavy shields.",
   },
@@ -1438,6 +1445,8 @@ export const SHIP_TYPES: Record<ShipTypeKey, ShipTypeDef> = {
     // shrinks"): the same 160 berths, every division keeps its tactician seats, and the extra division seats go to the
     // Flight Deck that tends its squadrons (32 -> 56; the 160 total binds). Weights [PROVISIONAL].
     complementDivisionWeights: { security: 0.3, engineering: 0.25, science: 0.05, medical: 0.1, operations: 0.1, flightDeck: 0.35 },
+    // CP-5 (user 2026-11-02 "Fill the lean division first"): the Flight Deck seats first, then the rest.
+    leanDivisions: ["flightDeck"],
     description: "A drone platform. Few guns, but launches squadrons that fight for it.",
   },
 
@@ -1534,6 +1543,8 @@ export const SHIP_TYPES: Record<ShipTypeKey, ShipTypeDef> = {
     // shrinks"): the explorer 750 berths kept, every division keeps its explorer seats, and the extra division seats go
     // to Science (225 -> 270; the 750 total binds). Weights [PROVISIONAL].
     complementDivisionWeights: { security: 0.1, engineering: 0.25, science: 0.36, medical: 0.2, operations: 0.1, flightDeck: 0.05 },
+    // CP-5 (user 2026-11-02 "Fill the lean division first"): Science seats first, then the rest.
+    leanDivisions: ["science"],
     description: "Heavy cruiser. A survey scout: the most module slots and the fastest cruise of the explorer hulls, at the cost of frame and hold.",
   },
   eir: {
@@ -1566,6 +1577,10 @@ export const SHIP_TYPES: Record<ShipTypeKey, ShipTypeDef> = {
     // 234 / 81 / 40, summing to 900.
     complementCap: 900,
     complementDivisionWeights: { security: 0.086, engineering: 0.21, science: 0.31, medical: 0.26, operations: 0.09, flightDeck: 0.044 },
+    // CP-5 (user 2026-11-02 "Fill the lean division first"): Medical, then Science (the OC-5 lean, in its stated order)
+    // seat first. Its caps sum to exactly its 900 total, so the order only matters once a quarters module floors a
+    // division up.
+    leanDivisions: ["medical", "science"],
     // Safe first runs SF-6 (user 2026-10-27, call 13 "Approve as drafted"; the review answer, Recommended: "away teams",
     // since its complement then tied the other explorers'). CP-5 (OC-5: "Eir's text becomes 'the largest explorer
     // crew'") adds that clause now that it is true; the approved hold and away teams clause is kept.

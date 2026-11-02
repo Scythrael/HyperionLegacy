@@ -225,6 +225,10 @@ const swap = (pre: string[], post: Record<string, string>): string[] => pre.map(
 // structure rows (its bonus 0 and 6 rows, fill and transfer are unchanged). The Carrier transfer is back on its PRE
 // row: the picks fill Security to Operations first, the 160 total binds before the Flight Deck, and no division before
 // it moved.
+// CP-5 lean fill order (user 2026-11-02, "Fill the lean division first (Recommended)"): the fill rows of the four hulls
+// with leanDivisions moved again (the PRE rows above still return with CP-5 off). The Carrier now seats its Flight Deck
+// first, so it takes different crew (its pool row moved too). The Battleship, Aurora and Eir take the same crew in a
+// new order (only the complement's bucket order moved; their pool rows are unchanged). Transfer is not a fill: unchanged.
 export const STRUCTURE_POST = swap(STRUCTURE_PRE, {
   battleship: "battleship:433cdbe6/355bc4f3/822395fb/935ee028/800ad426",
   carrier: "carrier:36d56148/d7100fff/319ed78f/fadf77fd/7b4a10fd",
@@ -232,10 +236,10 @@ export const STRUCTURE_POST = swap(STRUCTURE_PRE, {
   eir: "eir:a9fc80f7/36ff4102/a72168c3/66a662ee/bebd5449",
 });
 export const FILL_POST = swap(FILL_PRE, {
-  battleship: "battleship:160:d8edf8fd/30e55963",
-  carrier: "carrier:160:f5a06861/da9c559b",
-  aurora: "aurora:750:15ff392e/11545fc4",
-  eir: "eir:900:4b33ff58/20add6cc",
+  battleship: "battleship:160:a58ae03b/30e55963",
+  carrier: "carrier:160:7458a323/11372d87",
+  aurora: "aurora:750:de77be44/11545fc4",
+  eir: "eir:900:e1cc1832/20add6cc",
 });
 export const TRANSFER_POST = swap(TRANSFER_PRE, {
   battleship: "battleship:160:9e051c01",

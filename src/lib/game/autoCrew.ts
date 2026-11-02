@@ -21,7 +21,7 @@
 import type { CrewBucket, ShipComplement, ShipTypeKey } from "./model";
 import { CREW_RANK_ORDER } from "./crewRank";
 import { moveBetweenBucketLists } from "./crew";
-import { remainingCapacityForSignature } from "./commandStructure";
+import { hullLeanDivisions, remainingCapacityForSignature } from "./commandStructure";
 
 // Auto-fill a ship's complement from the pool, TOP-RANK-DOWN, within the hull's caps.
 //
@@ -42,35 +42,47 @@ export function autoCrewShip(
   let pool = complementPool.map((b) => ({ ...b }));
   let buckets = (existingComplement?.buckets ?? []).map((b) => ({ ...b }));
 
-  // Iterate ranks from the TOP (8, Lt Commander) down to the bottom (1, Crewman). Within each rank,
-  // walk the pool buckets in their stable order and pull as many as the caps allow. We re-scan the
-  // pool per rank because moves above have shrunk it; that keeps the loop simple and correct.
-  for (let i = CREW_RANK_ORDER.length - 1; i >= 0; i -= 1) {
-    const rank = CREW_RANK_ORDER[i];
-    // Snapshot the pool bucket signatures at this rank; moves mutate `pool`'s reference below.
-    const atRank = pool.filter((b) => b.rank === rank);
-    for (const bucket of atRank) {
-      const complement: ShipComplement = { buckets, mode };
-      const room = remainingCapacityForSignature(complement, hullType, bucket, bonusCapacity);
-      if (room <= 0) continue;
-      // How many of THIS signature are still in the pool (a move above may have taken some).
-      const available = pool
-        .filter(
-          (b) =>
-            b.profession === bucket.profession &&
-            b.rarity === bucket.rarity &&
-            b.rank === bucket.rank &&
-            b.race === bucket.race &&
-            b.buff1Id === bucket.buff1Id &&
-            (b.buff2Id ?? null) === (bucket.buff2Id ?? null) &&
-            (b.buff3Id ?? null) === (bucket.buff3Id ?? null),
-        )
-        .reduce((sum, b) => sum + b.count, 0);
-      const moveCount = Math.min(room, available);
-      if (moveCount <= 0) continue;
-      const moved = moveBetweenBucketLists(pool, buckets, bucket, moveCount);
-      pool = moved.from;
-      buckets = moved.to;
+  // CP-5 (user 2026-11-02, "Fill the lean division first (Recommended)"): one pass per lean division of the hull, in its
+  // order (SHIP_TYPES leanDivisions), then one pass over every other division, so where the division caps add up past
+  // the total the lean's extra seats are seated before the total binds. A hull with no lean is the single pass over
+  // every division it always was (the same moves, byte for byte). Only the ORDER of new seats changes: nothing aboard
+  // moves.
+  const lean = hullLeanDivisions(hullType);
+  const passes: ((b: CrewBucket) => boolean)[] = [
+    ...lean.map((p) => (b: CrewBucket) => b.profession === p),
+    (b: CrewBucket) => !lean.includes(b.profession),
+  ];
+  for (const inPass of passes) {
+    // Iterate ranks from the TOP (8, Lt Commander) down to the bottom (1, Crewman). Within each rank,
+    // walk the pool buckets in their stable order and pull as many as the caps allow. We re-scan the
+    // pool per rank because moves above have shrunk it; that keeps the loop simple and correct.
+    for (let i = CREW_RANK_ORDER.length - 1; i >= 0; i -= 1) {
+      const rank = CREW_RANK_ORDER[i];
+      // Snapshot the pool bucket signatures at this rank; moves mutate `pool`'s reference below.
+      const atRank = pool.filter((b) => b.rank === rank && inPass(b));
+      for (const bucket of atRank) {
+        const complement: ShipComplement = { buckets, mode };
+        const room = remainingCapacityForSignature(complement, hullType, bucket, bonusCapacity);
+        if (room <= 0) continue;
+        // How many of THIS signature are still in the pool (a move above may have taken some).
+        const available = pool
+          .filter(
+            (b) =>
+              b.profession === bucket.profession &&
+              b.rarity === bucket.rarity &&
+              b.rank === bucket.rank &&
+              b.race === bucket.race &&
+              b.buff1Id === bucket.buff1Id &&
+              (b.buff2Id ?? null) === (bucket.buff2Id ?? null) &&
+              (b.buff3Id ?? null) === (bucket.buff3Id ?? null),
+          )
+          .reduce((sum, b) => sum + b.count, 0);
+        const moveCount = Math.min(room, available);
+        if (moveCount <= 0) continue;
+        const moved = moveBetweenBucketLists(pool, buckets, bucket, moveCount);
+        pool = moved.from;
+        buckets = moved.to;
+      }
     }
   }
 
