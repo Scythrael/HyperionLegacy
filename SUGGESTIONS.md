@@ -2022,3 +2022,9 @@ should not roll on ship crew (no dead rolls).
 - **SCIENCE BATTLE PROCS (user, 2026-10-17, future).** Tools that give the Science team a chance to "proc" in battle,
   adding a random effect to the battle party without directly fighting; the dormant Science gambit actions (Shield
   Ally, Analyze, Secure Objective, Take Cover) stay in the code, disabled, for this.
+
+- **Chunked offline catch-up on load (logged 2026-11-02, user: "keep that noted for later on").** The load-time catch-up
+  runs synchronously in onMount (App.svelte, tick() up to 345,600 economyTick calls at the 4-day cap). The 0.13.11.3
+  review measured a busy desktop save at 4.4 s for 4 days (3.2 s at 2 days); a weak phone may freeze 10 to 20 s after a
+  long absence. Fix idea: run the catch-up in slices with a progress screen (the minigame's catch-up already slices),
+  keeping offline == live and the one-deterministic-call invariant.
