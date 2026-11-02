@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { FIELD_DEVICES_PARAGRAPH, HELP_TOPICS, TRAINING_RUNS_PARAGRAPH } from "./helpTopics";
+import { FIELD_DEVICES_PARAGRAPH, HELP_TOPICS, TRAINING_RUNS_PARAGRAPH, TRAINING_WEAR_SENTENCE } from "./helpTopics";
+import { gatheringTrainingStamp } from "./game/gearWearEngine";
 import {
   FIRST_PATROL_WAVES,
   FIRST_RUN_ENEMY_SCALE,
@@ -222,6 +223,16 @@ describe("HELP_TOPICS", () => {
       expect(p).toContain("already at full strength for that run type");
       // The Objective Difficulty topic points to it.
       expect(topic("objectiveDifficulty").body).toMatch(/see the Risk Factors topic, under Training runs and rising risk/);
+    });
+
+    // Safe first runs SF-7 (user OC-W9 "No wear on training"): the wear sentence, each clause read against the engine
+    // (the live proofs: gearWearEngine.test.ts expedition and short-range training, gearWearCombat.test.ts the training
+    // patrol cycle, gatheringTrainingWearGoldens.test.ts the first gathering delivery).
+    it("training runs and wear: the sentence is in the paragraph and the first gathering dispatch is marked", () => {
+      expect(TRAINING_RUNS_PARAGRAPH).toContain(TRAINING_WEAR_SENTENCE);
+      expect(TRAINING_WEAR_SENTENCE).toMatch(/no wear on a training run, nor on the first delivery of your first gathering mission/);
+      expect(gatheringTrainingStamp(freshState(), { version: 1 })).toEqual({ version: 1, training: 1 });
+      expect(TRAINING_WEAR_SENTENCE).not.toMatch(/\u2014|-{2}|\bfit/);
     });
 
     it("telescope: every detail level, the ship's lift, blind launches, the ghost caveat", () => {

@@ -80,10 +80,15 @@ combatRulesOffForThisFile();
 // runs with the lift off, so its pins keep proving the wear engine and nothing else.
 import { reactorLiftOffForThisFile } from "./emodEm4Switch.fixture";
 import { wr11OffForThisFile } from "./wr11Switch.fixture";
+import { gatheringTrainingOffForThisFile } from "./gatheringTrainingSwitch.fixture";
 reactorLiftOffForThisFile();
 // Wiring WR-11 came after every pin here: the whole file runs with WR-11 off (wr11Switch.fixture.ts), so its pins keep
 // proving their own slice moved nothing else (WR-11's own moves are pinned in wr11Goldens.test.ts).
 wr11OffForThisFile();
+// Safe first runs SF-7 came after every pin here and spares a fresh save's first gathering delivery its wear: the file
+// dispatches as before SF-7 (gatheringTrainingSwitch.fixture.ts), so its pins keep proving the wear engine alone
+// (SF-7's own moves are pinned in gatheringTrainingWearGoldens.test.ts).
+gatheringTrainingOffForThisFile();
 
 // ===== shared helpers =====
 

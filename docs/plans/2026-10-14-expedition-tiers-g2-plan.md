@@ -112,7 +112,7 @@ something like this. We'd hav eto balance it, because we'd want to ensure that i
 | Recall | None. Ground Ops has the pieces: the window end (`groundOps.ts checkRunEnd` sets `endedAt`), in-system legs (`IN_SYSTEM_LEG_SECONDS` 300), the shared pickup, the medical bay on the return trip, a team `recalled` flag for live edits (GO-7d) | No player recall of the SHIP; no cancel mid-transit |
 | Annihilation Core burn | Antimatter Containment Cell is designed (gas giant 15b), not built; no maintenance process (`TimedProcessKind` has `shipRepair`, model.ts ~3990) | Everything; depends on 15b's canister items |
 | Help | `helpTopics.ts` `subspaceTelescope` ("REGIONS AND RANGE ... from Tier I ... out to Tier VII"), `riskFactors`, `objectiveDifficulty` | Lines describe content that cannot occur (GO-19 item 4: land G2 or trim) |
-| Body hazard vs tier | Hazard comes from planet type only (`planetTypeHazard`) | Ground Ops BALANCE FINDING (2026-10-14): Tier I runs can roll unwinnable vault sites; options pending the user (G2 is the natural place to tie hazard to tier, see open call 18) |
+| Body hazard vs tier | Hazard comes from planet type only (`planetTypeHazard`) | Ground Ops BALANCE FINDING (2026-10-14): Tier I runs can roll unwinnable vault sites. RESOLVED: open call 18 answered "Cap by tier" (SF7), built by safe first runs SF-3 (a fight's hazard ceiling per tier) |
 
 ## 3. Slices
 
@@ -594,6 +594,9 @@ names in game text (the Wolf 359 nod stays original).
     Alt: 1 to 3 everywhere.
 18. **Hazard by tier (Ground Ops balance finding).** [PROPOSAL] G2 caps Tier I and II body hazard so the unwinnable
     vault rolls cannot occur in the practice tiers. Alt: leave hazard to planet type and solve it in the ground fight.
+    **ANSWERED** (safe first runs plan, USER ANSWERS 2026-10-16, SF7): "Cap by tier (Recommended)": enemies read hazard
+    at most 0.1 at Tier I and 0.5 at Tier II, uncapped from Tier III; scans and the risk grade keep the real hazard.
+    Built by SF-3 (runDifficulty.ts `encounterHazard`), not in G2. Marked at the SF-7 close-out (2026-11-02).
 19. **Set and forget.** [PROPOSAL] no "Repeat in this region" in 0.14.0 (your #8: "needs additional figuring out").
     Alt: Repeat for Tiers I and II only.
 20. **Drive class wording.** [PROPOSAL] "Class IV drive", Roman numerals, no franchise "warp" term. Alt: a decimal

@@ -173,6 +173,7 @@ import { FKR8_ADDED_IDS, FKR8_FLIPPED_LIVE, WIRING_REGISTRY } from "./wiring/reg
 import { wr11ReadBack } from "./wr11Registry.fixture";
 import { wr9ReadBack } from "./wr9Registry.fixture";
 import { cp5ReadBack } from "./cp5Registry.fixture"; // CP-5: its registry move read back (cp5Registry.fixture.ts)
+import { sf7ReadBack } from "./sf7Registry.fixture"; // Safe first runs SF-7: its registry move read back (sf7Registry.fixture.ts)
 // E-MOD EM-8 came after every registry pin here: its added rows, the Precursor Lens relic flip and the dropped Precursor
 // Circuit reserve are read back (emodEm8Registry.fixture.ts).
 import { em8ReadBack } from "./emodEm8Registry.fixture";
@@ -754,7 +755,7 @@ const OC_D8_LIFTS_SLICE: RegistrySlice = { added: PATROL_LEG_LIFTS_ADDED_IDS };
 const CP3_SLICE: RegistrySlice = { added: CP3_ADDED_IDS, flipped: CP3_FLIPPED_IDS, was: "pending" };
 function registryPin(...given: readonly RegistrySlice[]): [number, string] {
   const slices = [RX_SLICE, RR_SLICE, FUSE_SLICE, ML2_SLICE, OC15_SLICE, R2_2_SLICE, R2_3_SLICE, R2_4_SLICE, R2_10_SLICE, G16_SLICE, ...G2_4_SLICES, ...G2_6_SLICES, ML3_SLICE, GG_STUDY_SLICE, EM7_SLICE, FKR11_SLICE, FKR8_SLICE, GW4_SLICE, OC_D5_SLICE, OC_D8_SLICE, OC_D8_LIFTS_SLICE, CP3_SLICE, ...given];
-  const rows = siReadBack(em4ReadBack(em3ReadBack(wr8ReadBack(wr11ReadBack(wr9ReadBack(em8ReadBack(cp5ReadBack(WIRING_REGISTRY))))))).map((e) => ({ id: e.id, kind: e.status.kind as string })), (r) => r.id, (row) => ({ id: row[0], kind: row[1].kind as string }));
+  const rows = siReadBack(em4ReadBack(em3ReadBack(wr8ReadBack(wr11ReadBack(wr9ReadBack(em8ReadBack(cp5ReadBack(sf7ReadBack(WIRING_REGISTRY)))))))).map((e) => ({ id: e.id, kind: e.status.kind as string })), (r) => r.id, (row) => ({ id: row[0], kind: row[1].kind as string }));
   const lines = rows.filter((e) => !slices.some((sl) => sl.added?.has(e.id))).map((e) => {
     const flip = slices.find((sl) => sl.flipped?.has(e.id));
     return `${e.id}|${flip ? (flip.was ?? "pending") : e.kind}`;

@@ -1,5 +1,6 @@
 // Safe first runs SF-7 (docs/plans/2026-10-15-safe-first-runs-plan.md section 4 SF-7): golden hashes of a save's FIRST
-// gathering run under the gear wear engine, captured on the code BEFORE the SF-7 edit (the SF-0 / CP-0 pattern).
+// gathering run under the gear wear engine, captured on the code BEFORE the SF-7 edit (the SF-0 / CP-0 pattern), then
+// the SF-7 rule itself (its moves re-pinned in AFTER, its proof below; the switch: gatheringTrainingSwitch.fixture.ts).
 //
 // Why: the user locked (capture 2026-10-15, section 7) that the safe first runs cover "captain missions (first gathering
 // run and first combat mission)", and answered (gear wear OC-W9, 2026-10-16, "No wear on training", restated by the user
@@ -16,11 +17,13 @@ import { describe, expect, it } from "vitest";
 import { writeFileSync } from "node:fs";
 import Decimal from "break_infinity.js";
 import { MISSIONS, freshState, type GameState, type MissionKey } from "./model";
-import { dispatchCaptainOnMission, economyTick } from "./tick";
+import { dispatchCaptainOnMission, economyTick, tick } from "./tick";
 import { hash, stateHash } from "./firstRunsGoldens.fixture";
 import { pieceCondition } from "./gearWear";
+import { gatheringTrainingStamp } from "./gearWearEngine";
+import { withGatheringTrainingOff } from "./gatheringTrainingSwitch.fixture";
 
-const CAPTURE = Boolean(process.env.SF7_CAPTURE);
+const CAPTURE = Boolean(import.meta.env.SF7_CAPTURE);
 
 function lcg(seed: number): () => number {
   let s = seed >>> 0;
@@ -87,24 +90,119 @@ const GOLDEN: Record<string, string[]> = {
   "veteran:cometIceHarvest": ["93a660a3","1200:cargoBay:986,ftlDrive:986,reactorCore:980,specUtility:986","1200:c61d611a","2400:cargoBay:979,ftlDrive:979,reactorCore:966,specUtility:979","2400:d4e1b68f","3600:cargoBay:972,ftlDrive:972,reactorCore:952,specUtility:972","3600:bbb8cd39"],
 };
 
-describe("SF-7 goldens: the first gathering run under gear wear (captured before SF-7)", () => {
+// RE-PINNED BY SF-7 (the one move, on purpose): every `fresh:<key>` row. The save's first gathering run is marked at
+// dispatch (its dispatch record gains `gearWear.training`), its first delivered cycle wears nothing, and every later
+// cycle wears as before, so each condition line reads one cycle's wear less (the state hashes follow). With the switch
+// off every fresh row reproduces GOLDEN above; `veteran:*` is unchanged with the switch on.
+const AFTER: Record<string, string[]> = {
+  "fresh:localFuelRun": ["88517fde","1200:cargoBay:955,ftlDrive:1000,reactorCore:988,specUtility:955","1200:85d790f8","2400:cargoBay:919,ftlDrive:1000,reactorCore:979,specUtility:919","2400:209c1bc4","3600:cargoBay:890,ftlDrive:1000,reactorCore:971,specUtility:890","3600:d49c34fc"],
+  "fresh:shortOreRun": ["a56128bd","1200:cargoBay:979,ftlDrive:995,reactorCore:986,specUtility:979","1200:314c66a1","2400:cargoBay:963,ftlDrive:995,reactorCore:978,specUtility:963","2400:129cb51a","3600:cargoBay:947,ftlDrive:995,reactorCore:970,specUtility:947","3600:ff887d67"],
+  "fresh:longOreRun": ["85816bc1","1200:cargoBay:992,ftlDrive:970,reactorCore:978,specUtility:992","1200:b16b98dc","2400:cargoBay:992,ftlDrive:948,reactorCore:963,specUtility:992","2400:c5b04352","3600:cargoBay:992,ftlDrive:929,reactorCore:951,specUtility:992","3600:e8356d22"],
+  "fresh:salvageWreckage": ["9d51f93a","1200:cargoBay:989,ftlDrive:984,reactorCore:979,specUtility:989","1200:5650fd06","2400:cargoBay:985,ftlDrive:974,reactorCore:963,specUtility:985","2400:9a1b21d6","3600:cargoBay:980,ftlDrive:962,reactorCore:947,specUtility:980","3600:a9ed35c9"],
+  "fresh:forageFlora": ["1ccc6916","1200:cargoBay:991,ftlDrive:979,reactorCore:983,specUtility:991","1200:73450ca6","2400:cargoBay:991,ftlDrive:961,reactorCore:971,specUtility:991","2400:dacb559e","3600:cargoBay:991,ftlDrive:947,reactorCore:959,specUtility:991","3600:bcad3d7f"],
+  "fresh:surveyMineralAnomaly": ["eb52323","1200:cargoBay:992,ftlDrive:968,reactorCore:977,specUtility:992","1200:a9042a2f","2400:cargoBay:992,ftlDrive:943,reactorCore:961,specUtility:992","2400:63a26de7","3600:cargoBay:992,ftlDrive:918,reactorCore:946,specUtility:992","3600:bf1171ad"],
+  "fresh:surveyStellarPhenomena": ["ed4c8a30","1200:cargoBay:992,ftlDrive:964,reactorCore:976,specUtility:992","1200:4aac38b","2400:cargoBay:992,ftlDrive:935,reactorCore:959,specUtility:992","2400:4a7dded4","3600:cargoBay:992,ftlDrive:912,reactorCore:946,specUtility:992","3600:6a38601"],
+  "fresh:frontierSupplyRun": ["c6c33a5d","1200:cargoBay:1000,ftlDrive:1000,reactorCore:1000,specUtility:1000","1200:7db27c55","2400:cargoBay:1000,ftlDrive:1000,reactorCore:1000,specUtility:1000","2400:9d0a6866","3600:cargoBay:1000,ftlDrive:1000,reactorCore:1000,specUtility:1000","3600:37ff11b2"],
+  "fresh:colonySupplyLift": ["67766ad2","1200:cargoBay:1000,ftlDrive:1000,reactorCore:1000,specUtility:1000","1200:4196ac97","2400:cargoBay:1000,ftlDrive:1000,reactorCore:1000,specUtility:1000","2400:9bce7b59","3600:cargoBay:1000,ftlDrive:1000,reactorCore:1000,specUtility:1000","3600:36d2df1b"],
+  "fresh:cometIceHarvest": ["d2932e6e","1200:cargoBay:987,ftlDrive:987,reactorCore:982,specUtility:987","1200:cbe31dcc","2400:cargoBay:980,ftlDrive:980,reactorCore:968,specUtility:980","2400:4111c6df","3600:cargoBay:973,ftlDrive:973,reactorCore:954,specUtility:973","3600:9ee2da49"],
+};
+
+const at = (s: GameState): string => conditions(s);
+const marked = (s: GameState): boolean => s.captains.some((c) => c.mission !== null && c.mission.kind === "extraction" && c.mission.gearWear?.training === 1);
+const deliveries = (s: GameState): number =>
+  Object.keys(MISSIONS).reduce((n, k) => n + Number(String(s.lifetimeStats.missionsCompleted[k] ?? 0)), 0);
+
+describe("SF-7 goldens: the first gathering run under gear wear", () => {
   it("the fixture flies several gathering missions (vacuity guard)", () => {
     expect(GATHERING_KEYS.length).toBeGreaterThanOrEqual(3);
   });
   const captured: Record<string, string[]> = {};
   for (const key of GATHERING_KEYS) {
-    it(`fresh:${key}`, () => {
+    it(`before: fresh:${key} and veteran:${key} reproduce their pre-SF-7 capture with the switch off`, () => {
+      expect(withGatheringTrainingOff(() => gatheringRun(freshState(), key))).toEqual(GOLDEN[`fresh:${key}`]);
+      expect(withGatheringTrainingOff(() => gatheringRun(gatheringVeteran(freshState()), key))).toEqual(GOLDEN[`veteran:${key}`]);
+    });
+    it(`veteran:${key} is unchanged by SF-7`, () => {
+      expect(gatheringRun(gatheringVeteran(freshState()), key)).toEqual(GOLDEN[`veteran:${key}`]);
+    });
+    it(`fresh:${key} (re-pinned by SF-7)`, () => {
       const v = gatheringRun(freshState(), key);
       captured[`fresh:${key}`] = v;
-      if (!CAPTURE) expect(v).toEqual(GOLDEN[`fresh:${key}`]);
-    });
-    it(`veteran:${key}`, () => {
-      const v = gatheringRun(gatheringVeteran(freshState()), key);
-      captured[`veteran:${key}`] = v;
-      if (!CAPTURE) expect(v).toEqual(GOLDEN[`veteran:${key}`]);
+      if (!CAPTURE) expect(v).toEqual(AFTER[`fresh:${key}`]);
     });
   }
   it("writes", () => {
-    if (CAPTURE) writeFileSync(process.env.SF7_CAPTURE!, JSON.stringify(captured, null, 2));
+    if (CAPTURE) writeFileSync(String(import.meta.env.SF7_CAPTURE), JSON.stringify(captured, null, 2));
+  });
+});
+
+describe("SF-7: the first gathering run takes no gear wear (user OC-W9 \"No wear on training\")", () => {
+  const PRISTINE = (s: GameState) => s.equipment.filter((e) => e.fittedToShipId === "ship-1").every((e) => e.condition === undefined);
+
+  it("on every mission: pristine through the first delivery, worn from the second, and the mark is gone after the first", () => {
+    for (const key of GATHERING_KEYS) {
+      // Credits so a transport run is funded (an unfunded transport cycle idles and delivers nothing).
+      const r = dispatchCaptainOnMission(levelled({ ...freshState(), credits: new Decimal(1_000_000) }), 1, key);
+      expect(marked(r.next), key).toBe(true);
+      let s = r.next;
+      let i = 0;
+      while (deliveries(s) < 1 && i < 20_000) {
+        s = economyTick(s, 1, () => 0.5);
+        i += 1;
+      }
+      expect(deliveries(s), key).toBe(1);
+      expect(PRISTINE(s), `${key}: ${at(s)}`).toBe(true);
+      expect(marked(s), key).toBe(false);
+      while (deliveries(s) < 2 && i < 40_000) {
+        s = economyTick(s, 1, () => 0.5);
+        i += 1;
+      }
+      expect(deliveries(s), key).toBe(2);
+      expect(PRISTINE(s), key).toBe(false);
+    }
+  });
+
+  it("the veteran's first delivery wears (the vacuity guard: the rule is what kept the fresh run pristine)", () => {
+    let s = dispatchCaptainOnMission(levelled(gatheringVeteran(freshState())), 1, "shortOreRun").next;
+    expect(marked(s)).toBe(false);
+    const start = deliveries(s);
+    while (deliveries(s) === start) s = economyTick(s, 1, () => 0.5);
+    expect(PRISTINE(s)).toBe(false);
+  });
+
+  // A captain mission draws its transit berths from a per-call budget, so its offline proof is tick() (the catch-up,
+  // gearWearEngine.test.ts precedent), never one long economyTick call; the mark is written at dispatch only.
+  it("offline == live: tick() (the offline catch-up) equals the live 1 s steps through the training delivery and after", () => {
+    for (const key of GATHERING_KEYS) {
+      const s0 = dispatchCaptainOnMission(levelled(freshState()), 1, key).next;
+      const rng = () => 0.5;
+      let steps = s0;
+      for (let t = 0; t < 3600; t++) steps = economyTick(steps, 1, rng);
+      const offline = tick(3600, s0, rng);
+      expect(offline.equipment, key).toEqual(steps.equipment);
+      expect(stateHash(offline), key).toBe(stateHash(steps));
+    }
+  });
+
+  it("one training run at a time; a recalled one hands the mark to the next dispatch; a veteran or a wear-less build is never marked", () => {
+    const fresh = freshState();
+    const stamp = { version: 1 as const };
+    expect(gatheringTrainingStamp(fresh, stamp)).toEqual({ version: 1, training: 1 });
+    expect(gatheringTrainingStamp(fresh, undefined)).toBeUndefined();
+    expect(gatheringTrainingStamp(gatheringVeteran(fresh), stamp)).toBe(stamp);
+    const flying = dispatchCaptainOnMission(levelled(fresh), 1, "shortOreRun").next;
+    expect(marked(flying)).toBe(true);
+    expect(gatheringTrainingStamp(flying, stamp)).toBe(stamp);
+    const recalled = { ...flying, captains: flying.captains.map((c) => (c.id === 1 ? { ...c, mission: null } : c)) };
+    expect(gatheringTrainingStamp(recalled, stamp)).toEqual({ version: 1, training: 1 });
+    expect(withGatheringTrainingOff(() => gatheringTrainingStamp(fresh, stamp))).toBe(stamp);
+  });
+
+  it("a run dispatched before SF-7 (unmarked) flies on byte-identical to the pre-SF-7 game", () => {
+    const key = GATHERING_KEYS[0];
+    const old = withGatheringTrainingOff(() => dispatchCaptainOnMission(levelled(freshState()), 1, key).next);
+    expect(marked(old)).toBe(false);
+    const rng = () => 0.5;
+    expect(stateHash(economyTick(old, 3600, rng))).toBe(withGatheringTrainingOff(() => stateHash(economyTick(old, 3600, rng))));
   });
 });

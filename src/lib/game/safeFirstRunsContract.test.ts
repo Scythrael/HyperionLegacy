@@ -45,6 +45,7 @@ import { dispatchCaptainOnShortRange, shortRangeBoardSlots } from "./shortRangeB
 import { resolveCrew } from "./crewOverlay";
 import { onHull } from "./firstRunsGoldens.fixture";
 import { WIRING_CAPTAIN_ID, editShip, installPiece, wiringBase } from "./wiring/probes";
+import { WIRING_REGISTRY } from "./wiring/registry";
 
 const HULLS = Object.keys(SHIP_TYPES) as ShipTypeKey[];
 const MISSION_KEYS = Object.keys(MISSIONS) as MissionKey[];
@@ -272,5 +273,17 @@ describe("SF-5 the G1 contract: every live short-range template stamps the share
       expect(runCountsOf(s).shortRange[template]?.completed ?? 0, template).toBe(0);
       expect(isFirstRun(s, "shortRange", template), template).toBe(false);
     }
+  });
+});
+
+// SF-7 close-out (the release gate): no wiring registry row waits on a safe first runs slice. Every SF row is live with
+// a consumer, or deferred on the user's own words (away:audit:difficultyTiers: the objective affixes capture, 2026-10-14).
+describe("SF-7: no registry row waits on a safe first runs slice", () => {
+  it("no pending row names an SF slice as its owner", () => {
+    const waiting = WIRING_REGISTRY.filter((e) => e.status.kind === "pending" && /SF-?d/.test(e.status.owner)).map((e) => e.id);
+    expect(waiting).toEqual([]);
+    const tiers = WIRING_REGISTRY.find((e) => e.id === "away:audit:difficultyTiers")!;
+    expect(tiers.status.kind).toBe("deferred");
+    expect(tiers.status.kind === "deferred" && tiers.status.userRef).toMatch(/not focusing on higher difficulty tiers/);
   });
 });

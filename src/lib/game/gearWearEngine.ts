@@ -100,6 +100,7 @@ import {
   type RepairRateBonus,
 } from "./gearWear";
 import type { ShortRangeWearEvents } from "./shortRangeCycle";
+import { isFirstGatheringRun } from "./runDifficulty";
 import { studyDiveEvents } from "./gasGiantStudy";
 
 // ============================================================================
@@ -111,6 +112,22 @@ import { studyDiveEvents } from "./gasGiantStudy";
 // Pure (reads the catalog at call time).
 export function gearWearLive(): boolean {
   return WEAR_SOURCES.some((s) => s.mode === "use" && s.raw > 0);
+}
+
+// Safe first runs SF-7: the test-only seam golden files use to dispatch as before SF-7 (gatheringTrainingSwitch
+// .fixture.ts). Live in the game.
+export const GATHERING_TRAINING_WEAR_SWITCH = { live: true };
+
+// Safe first runs SF-7 (user OC-W9 "No wear on training"; the safe first runs include "the first gathering run",
+// capture 2026-10-15 section 7): the stamp a captain mission is dispatched with, marked `training` when this dispatch
+// is the save's first gathering run: no gathering cycle delivered yet (runDifficulty.ts isFirstGatheringRun, the same
+// read the "First run" line uses) and no other captain already flying the marked run (one training run at a time; a
+// recalled one hands the mark to the next dispatch, SF16 "Training carries over"). Its first delivered cycle wears
+// nothing (tick.ts economyTick); the mark is decided at dispatch only, so one call == chunks == 1 s steps. Pure.
+export function gatheringTrainingStamp(state: GameState, stamp: RunWearStamp | undefined): RunWearStamp | undefined {
+  if (stamp === undefined || !GATHERING_TRAINING_WEAR_SWITCH.live || !isFirstGatheringRun(state)) return stamp;
+  const flying = state.captains.some((c) => c.mission !== null && c.mission.kind === "extraction" && c.mission.gearWear?.training === 1);
+  return flying ? stamp : { ...stamp, training: 1 };
 }
 
 // The stamp a captain mission or short-range run is dispatched with (undefined while no source is live): its ship's

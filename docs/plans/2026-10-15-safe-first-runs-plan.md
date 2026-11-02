@@ -1004,3 +1004,45 @@ veterans "for that run type", asserted against `runDifficultyAt`. The timeline l
 contract test's never-lost check is an allow-list (stop reasons, no patrol ending, no `damaged`, no `repairDamage`).
 The in-progress "First run" line shows on ONE card: `firstGatheringCardCaptainId` (the run closest to its first
 delivery; a gathering run stores no start time and SF-6 is display only). One shared `TrainingRunChip.svelte`.
+
+## SF-7 CARRY NOTE (2026-11-02, the close-out, built on a9b3de6; goldens first in its own commit)
+
+**Reconciled against later notes before building:** the capture (2026-10-15, section 7: the safe first runs cover all
+four types, "captain missions (first gathering run and first combat mission)"), gear wear W9 "No wear on training"
+(2026-10-16, restated 2026-11-02: no gear wear on safe first runs or tutorials), the SF-4 pacing answer, the SF-6 text
+answers, the G2 plan, the Ground Ops finding and SUGGESTIONS. No user-locked requirement was compressed.
+
+**No gear wear on safe first runs (the one engine change).** Already true and tested: the expedition training run is
+never wear-stamped, the training patrol cycle carries no battle stamp (no battle wear, no Damage Control fire; patrols
+record no use wear yet), a short-range template's training cycle makes no wear event. Gap: the save's first gathering
+run wore the ship on its first delivery. Built: a captain mission dispatched as the save's first gathering run is
+stamped `RunWearStamp.training` (gearWearEngine.ts `gatheringTrainingStamp`: `isFirstGatheringRun`, and no other
+captain flying the marked run; a recalled one hands the mark on, SF16); its first delivered cycle records no use wear
+(tick.ts economyTick), and the stamp re-frozen at that delivery drops the mark, so later cycles wear as usual (the
+first cycle is the training one, as for patrols and short-range). Decided at dispatch only, so tick() == 1 s steps.
+Old saves and runs in flight carry no mark and wear exactly as before; no SAVE_VERSION move. The "First run" card line
+now follows the mark (`firstGatheringCardCaptainId`), the phase order as the fallback.
+**Goldens:** `gatheringTrainingWearGoldens.test.ts` captured on a9b3de6 before the edit (every mission a fresh
+freighter flies, fresh and veteran); with the switch off (`gatheringTrainingSwitch.fixture.ts`) every row reproduces;
+moved on purpose: the `fresh:*` rows only (re-pinned in AFTER); `veteran:*` unchanged. `gearWearGoldens.test.ts` and
+`wr9Goldens.test.ts` (its fresh-save `mission shortOreRun` row) run with the switch off; `gearWearEngine.test.ts`'s fixture flies as a gathering veteran (`afterGatheringTraining`).
+
+**Help.** The Risk Factors paragraph gains `TRAINING_WEAR_SENTENCE` ("Your gear takes no wear on a training run, nor
+on the first delivery of your first gathering mission. On Repeat, a patrol's later routes and a mission's later
+deliveries wear as usual."), tested against the engine in helpTopics.test.ts. Every other number still reads its
+constant (SF-6 tests).
+
+**Registry.** The one SF row, `away:audit:difficultyTiers` (pending "SF-3 follow-up"), is DEFERRED on the user's own
+words (objective affixes capture 2026-10-14: "build anything that might be needed in the future to implement a
+difficulty system for this, but we're not focusing on higher difficulty tiers over the actual unlockable tiers"). The
+hook is built; no difficulty tier exists to consume it. Read back for the earlier pins by `sf7Registry.fixture.ts`
+(emodGoldens, shortRangeGoldens). `safeFirstRunsContract.test.ts` asserts no pending row names an SF slice. Release
+gate pending count 38 -> 37.
+
+**Docs closed:** the Ground Ops BALANCE FINDING marked resolved by SF-3; G2 open call 18 marked answered (SF7 "Cap by
+tier"); a gear wear design note (SF-7, plus the step 5 flag: patrol use wear must skip the training cycle). QA sheet:
+`docs/qa/2026-11-02-safe-first-runs-qa.html` (section 6, updated to the built game: freighters no longer fly the
+training run, the patrol and gathering wear checks).
+
+**Not done here:** the plan's holistic review by a separate bug-check agent (the builder ran the targeted and full
+suites instead; the coordinator may still run one). Staging stays gated on the wiring check and the user's go (S15).

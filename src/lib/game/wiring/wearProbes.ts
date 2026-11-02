@@ -32,6 +32,7 @@ import {
   type PatrolMissionState,
   type ShortRangeMissionState,
 } from "../model";
+import Decimal from "break_infinity.js";
 import { dispatchCaptainOnPatrol, economyTick, installMissingCombatBaselines, processShipRepairs, shipRepairGear } from "../tick";
 import { replayPatrol, type PatrolReplay } from "../combat/patrolReplay";
 import { resolveBattle } from "../combat/resolveBattle";
@@ -123,6 +124,13 @@ function asPathfinder(s: GameState): GameState {
 export function afterExpeditionTraining(s: GameState): GameState {
   const c = runCountsOf(s);
   return { ...s, runCounts: { ...c, expedition: { ...c.expedition, trainingDone: true } } };
+}
+
+// Safe first runs SF-7: a save whose first gathering run is behind it (one gathering cycle delivered), so a captain
+// mission dispatched here is an ordinary run whose first delivery wears (gearWearEngine.ts gatheringTrainingStamp).
+export function afterGatheringTraining(s: GameState): GameState {
+  const done = s.lifetimeStats.missionsCompleted;
+  return { ...s, lifetimeStats: { ...s.lifetimeStats, missionsCompleted: { ...done, shortOreRun: new Decimal(1) } } };
 }
 
 // ============================================================================

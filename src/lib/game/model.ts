@@ -3955,9 +3955,15 @@ export interface CaptainMissionState {
 // gearWearEngine.ts projectRunStamp), read by the run sheet for that cycle (runShipStats), so the gear a cycle reads is
 // constant however the span is chunked and the wear the run takes shows from its next cycle. Absent when every piece
 // was pristine. Plain data.
+// Safe first runs SF-7 (user OC-W9 "No wear on training", 2026-10-16; the safe first runs cover "the first gathering
+// run", capture 2026-10-15 section 7): `training` marks a captain mission dispatched as the save's FIRST gathering run
+// (gearWearEngine.ts gatheringTrainingStamp): its first delivered cycle records no use wear, and the stamp re-frozen
+// at that delivery drops the mark, so every later cycle wears as usual. Absent on every other run (a run in flight from
+// before SF-7 included), which wears exactly as before. Optional, no SAVE bump.
 export interface RunWearStamp {
   version: 1;
   frozen?: Record<string, number>;
+  training?: 1;
 }
 
 // --- Combat Patrol mission (Combat 0.13.0, Phase 9b.5a, design §S14) -----------
