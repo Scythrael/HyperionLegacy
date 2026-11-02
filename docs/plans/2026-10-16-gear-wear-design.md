@@ -545,3 +545,9 @@ and in-flight behavior are unchanged. The 200-cycle "never defeated" test is dro
 gearWearCombat.test.ts now proves that no relaunched worn cycle's projection breaks and that every pause's held-back
 cycle would have. **Measured:** Repeat Sweep pauses per 100 cycles: destroyer 28 before, 10 after; battleship 8 before,
 3 after.
+
+## USER ANSWER (2026-11-02): step 5 UI mockup APPROVED
+
+The §8 mockup (https://claude.ai/artifact/HRa9zUf1XRrPoh9tuinhEF, published 2026-10-16) is approved as drawn. User
+(verbatim): "The mockup is approved as well. 10/10. I like all of it. Let's make it so, number one." §8 is no longer a
+[PROPOSAL]; gear wear step 5 (wear UI, Quick Service, Overtime on repair, patrol use wear) can be built.
