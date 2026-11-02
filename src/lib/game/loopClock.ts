@@ -14,7 +14,7 @@
 //      (newStartMs = startMs + cycles * barMs). Nothing is ever thrown away.
 //   2. planPoll wraps that with the pause rules and the speed rule, and decides HOW to pay the
 //      cycles: a normal poll (a cycle or two) steps them live exactly as before, a large gap
-//      becomes one offline-style catch-up through tick(), with its 2-day cap.
+//      becomes one offline-style catch-up through tick(), with its offline cap (4 days by default).
 //   3. runPollEconomy executes that plan against the state.
 //
 // Kept free of the DOM and of Date.now() so every schedule (jitter, throttling, sleep, pause) is
@@ -142,16 +142,34 @@ export function paidThroughMs(clock: LoopClock, nowMs: number): number {
 
 // The span a return-from-away recap should cover. With no recap open it is just this absence.
 // With one still open (the player never pressed Continue), the new recap must not replace it, so
-// it starts from the OPEN recap's snapshot and spans everything since: the open recap's absence
-// plus the time since it was shown. The before/after diff then sums both sets of gains.
+// it starts from the OPEN recap's snapshot and spans everything since: the open recap's span, the
+// live play between it being shown and this absence starting, and what this absence PAID. The
+// before/after diff then sums both sets of gains.
+//
+// HOTFIX 0.13.11.3, TRUTHFUL LABELS: `paidSeconds` is what this absence actually paid (a capped or
+// budget-cut catch-up pays less than the raw gap), never the raw gap, and the open recap is
+// extended up to `awayStartMs`, not to now, so the raw gap is never added back in by the back
+// door. `cappedAwaySeconds` is the full length of an absence that ran past the offline cap (null:
+// the cap was not reached); an open recap's note survives an extension that did not hit the cap.
+export interface AwayRecapSpan {
+  before: GameState;
+  secondsAway: number;
+  cappedAwaySeconds: number | null;
+}
+
 export function awayRecapSpan(
-  open: { before: GameState; secondsAway: number; shownAtMs: number } | null,
+  open: { before: GameState; secondsAway: number; shownAtMs: number; cappedAwaySeconds?: number | null } | null,
   before: GameState,
-  secondsAway: number,
-  nowMs: number
-): { before: GameState; secondsAway: number } {
-  if (open === null) return { before, secondsAway };
-  return { before: open.before, secondsAway: open.secondsAway + Math.max(0, nowMs - open.shownAtMs) / 1000 };
+  paidSeconds: number,
+  awayStartMs: number,
+  cappedAwaySeconds: number | null = null
+): AwayRecapSpan {
+  if (open === null) return { before, secondsAway: paidSeconds, cappedAwaySeconds };
+  return {
+    before: open.before,
+    secondsAway: open.secondsAway + Math.max(0, awayStartMs - open.shownAtMs) / 1000 + paidSeconds,
+    cappedAwaySeconds: cappedAwaySeconds ?? open.cappedAwaySeconds ?? null,
+  };
 }
 
 // 0.13.11.1 clock protection. A reload whose catch-up had part of its absence HELD (the device
@@ -185,11 +203,18 @@ export interface HeldRelease {
 // drop in held time since the last poll) is limited by the budget; the rest of the poll, an honest
 // background gap for instance, is paid in full. The budget falls by what the release was paid, and
 // the release disarms (null) once nothing is held any more.
-export function releaseHeld(plan: AdvancePlan, arm: HeldRelease | null, heldNowSeconds: number): { plan: AdvancePlan; arm: HeldRelease | null } {
-  if (arm === null) return { plan, arm };
+// `capped` (HOTFIX 0.13.11.3) is true when the budget cut the release, i.e. the absence ran past
+// its offline cap, so the recap can say so.
+export function releaseHeld(
+  plan: AdvancePlan,
+  arm: HeldRelease | null,
+  heldNowSeconds: number
+): { plan: AdvancePlan; arm: HeldRelease | null; capped: boolean } {
+  if (arm === null) return { plan, arm, capped: false };
   const held = Math.max(0, heldNowSeconds);
   let next = plan;
   let budget = arm.budgetSeconds;
+  let capped = false;
   if (plan.mode === "catchUp" && plan.cycles > 0) {
     const speed = plan.gameSeconds / (plan.cycles * plan.barSeconds);
     const planGame = plan.gameSeconds;
@@ -197,14 +222,35 @@ export function releaseHeld(plan: AdvancePlan, arm: HeldRelease | null, heldNowS
     const releasedPaid = Math.min(releasedGame, Math.max(0, budget));
     next = clampCatchUp(plan, planGame - releasedGame + releasedPaid);
     budget -= releasedPaid;
+    capped = releasedPaid < releasedGame;
   }
-  return { plan: next, arm: held <= 0 ? null : { budgetSeconds: budget, heldSeconds: held } };
+  return { plan: next, arm: held <= 0 ? null : { budgetSeconds: budget, heldSeconds: held }, capped };
 }
 
 // Game ticks a planned poll actually pays: a catch-up beyond the offline cap pays only the cap.
 export function paidTicks(plan: AdvancePlan, state: GameState): number {
   const raw = plan.cycles * plan.ticksPerCycle;
   return plan.mode === "catchUp" ? Math.min(raw, offlineCapTicks(state)) : raw;
+}
+
+// HOTFIX 0.13.11.3: the REAL seconds a planned poll actually pays (what a recap may claim), from
+// the paid ticks, so a catch-up past the offline cap or a release cut by its budget is labeled
+// with what it paid, never with the raw gap. A step pays cycles x barSeconds exactly.
+export function paidRealSeconds(plan: AdvancePlan, state: GameState): number {
+  if (plan.mode === "none" || plan.cycles <= 0 || !(plan.ticksPerCycle > 0)) return 0;
+  return (paidTicks(plan, state) / plan.ticksPerCycle) * plan.barSeconds;
+}
+
+// An absence of `awaySeconds` (paid plus held) that ran past the cap: its length for the recap's
+// "cap reached" line, else null. A minute of slack keeps clock drift at the edge from raising it.
+export const CAP_NOTE_SLACK_SECONDS = 60;
+export function cappedAbsence(awaySeconds: number, capSeconds: number): number | null {
+  return awaySeconds > capSeconds + CAP_NOTE_SLACK_SECONDS ? awaySeconds : null;
+}
+
+// True when a planned catch-up asks for more than the offline cap (tick() discards the excess).
+export function exceedsOfflineCap(plan: AdvancePlan, state: GameState): boolean {
+  return plan.mode === "catchUp" && plan.cycles * plan.ticksPerCycle > offlineCapTicks(state);
 }
 
 // The fuel-runway EMA blend, weighted. Live play takes one sample per bar cycle, so a poll that

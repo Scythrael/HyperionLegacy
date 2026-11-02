@@ -36,6 +36,7 @@ import type { GameState, CaptainState, CaptainStopReason, ShipInstance } from ".
 // tick(), just reading catalog data the same way the Warehouse/Operations UI already does.
 import { MISSIONS, PATROLS, xpForNextLevel, xpForNextFleetAdminLevel, shipDisplayLabel } from "./model";
 import { itemTotal } from "./inventory";
+import { formatDuration } from "./format";
 
 // One material whose on-hand total rose across the offline advance. `qty` is the
 // POSITIVE delta (after - before) as a Decimal, so the UI can format it with the
@@ -363,5 +364,44 @@ export function summarizeOfflineProgress(
     captainsProgressed,
     materialsGained,
     shipsInRepair,
+  };
+}
+
+// ============================================================================
+// HOTFIX 0.13.11.3: the recap's time lines, truthful and cap-aware.
+//
+// User, 2026-11-02: "we should note the current cap (which should be upgradable through talents at
+// some point), and when the cap is hit, the popup should easily reflect this."
+//
+// `paidSeconds` is what the catch-up actually PAID (never the raw gap), `capSeconds` is the save's
+// own cap (offlineCapSeconds(state), so a future talent shows here unchanged), and
+// `cappedAwaySeconds` is the full absence when it ran past the cap (null: it did not). PURE.
+// ============================================================================
+
+// A cap reads as a plain length ("4d"), not an estimate ("~4d").
+export function formatOfflineCap(capSeconds: number): string {
+  return formatDuration(capSeconds, 1).replace(/^~/, "");
+}
+
+export interface OfflineRecapText {
+  lead: string; // the opening sentence: how long the fleet ran
+  capLine: string; // one short line naming the cap, or saying it was reached
+  capHit: boolean;
+}
+
+export function offlineRecapText(paidSeconds: number, capSeconds: number, cappedAwaySeconds: number | null): OfflineRecapText {
+  const cap = formatOfflineCap(capSeconds);
+  const paid = formatDuration(paidSeconds, 1);
+  if (cappedAwaySeconds !== null) {
+    return {
+      lead: `Your fleet ran for ${paid} while you were away. Here is what it got done.`,
+      capLine: `You were away ${formatDuration(cappedAwaySeconds, 1)}. Offline progress pays up to ${cap}.`,
+      capHit: true,
+    };
+  }
+  return {
+    lead: `You were away for ${paid}. Here is what your fleet got done.`,
+    capLine: `Offline progress pays up to ${cap} per absence.`,
+    capHit: false,
   };
 }

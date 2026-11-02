@@ -14,7 +14,7 @@ import {
 } from "./runtime";
 import Decimal from "break_infinity.js";
 import { achievementQueue, clearAchievements } from "../achievements";
-import { resetTrustedTimeForTests } from "../trustedTime";
+import { resetTrustedTimeForTests, UNVERIFIED_ALLOWANCE_MS } from "../trustedTime";
 import { SECRET_SAVE_KEY, SECRET_BACKUP_KEY, deserializeSecret, freshSecretState, serializeSecret, type SecretState } from "./state";
 import { buyTier } from "./engine";
 import { installMemoryStorage, installBlockedStorage, restoreStorage } from "./testStorage";
@@ -226,7 +226,8 @@ describe("0.13.11.1: clock protection", () => {
       vi.advanceTimersByTime(1000);
     }
     const paidMs = get(secretGame).lastTickAt - start;
-    expect(paidMs).toBeLessThanOrEqual(2 * 86400 * 1000 + 60 * 1000);
+    // HOTFIX 0.13.11.3: the allowance follows the main game's 4-day cap (this pin read 2 days).
+    expect(paidMs).toBeLessThanOrEqual(UNVERIFIED_ALLOWANCE_MS + 60 * 1000);
     expect(get(secretGame).lastTickAt).toBeGreaterThanOrEqual(start);
   });
 

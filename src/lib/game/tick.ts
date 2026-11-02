@@ -9,6 +9,7 @@
 // fleet bookkeeping, not tied to any single captain's production).
 
 import Decimal from "break_infinity.js";
+import { OFFLINE_CAP_DAYS_BASE, SECONDS_PER_DAY } from "./offlineCap";
 import {
   requiredTicksForPhase,
   effectiveMissionDef,
@@ -4022,13 +4023,14 @@ export function economyTick(
 // statistically equivalent (a constant rng makes them bit-identical, see the test).
 //
 // INTENTIONAL behavior CHANGE (design decision, user-confirmed): a span longer than
-// offlineCapTicks(state) (2 real days at the default cadence) advances only 2 days;
-// the excess is DISCARDED. Pre-B3 tick() advanced the FULL span uncapped. This is the
-// deliberate offline cap, an extensible/derived value (see offlineCapTicks).
+// offlineCapTicks(state) (4 real days at the default cadence since HOTFIX 0.13.11.3, was 2)
+// advances only the capped days; the excess is DISCARDED. Pre-B3 tick() advanced the FULL
+// span uncapped. This is the deliberate offline cap, an extensible/derived value (see
+// offlineCapTicks).
 //
-// PERFORMANCE: up to floor(offlineCapTicks) iterations (~172,800 at the 1s cadence),
-// each a full economyTick. Per the design (§2.3) a tight no-render loop handles this
-// well under a second; the 2-day cap BOUNDS it. Deliberately NOT hoisting economyTick's
+// PERFORMANCE: up to floor(offlineCapTicks) iterations (~345,600 at the 1s cadence),
+// each a full economyTick. Per the design (§2.3) a tight no-render loop handles this;
+// the cap BOUNDS it. Deliberately NOT hoisting economyTick's
 // per-captain bonus/ship resolution out of the loop even though it recomputes
 // call-constant values each tick: doing so would require a SEPARATE offline code path
 // that bypasses economyTick, re-introducing the exact live-vs-offline drift the
@@ -4055,9 +4057,9 @@ export function economyTick(
 //
 // ACCURACY LIMITS, stated rather than implied:
 //   1. THE OFFLINE CAP DOMINATES A LONG ABSENCE. A span longer than offlineCapTicks
-//      advances only the capped ticks and the rest is discarded (the deliberate 2-day
-//      limit above), and the reconstruction anchors at the END. So after a week away, the
-//      2 days of simulated work are dated inside the 2 days BEFORE the player returned,
+//      advances only the capped ticks and the rest is discarded (the deliberate cap
+//      above), and the reconstruction anchors at the END. So after a week away, the
+//      capped days of simulated work are dated inside the days just BEFORE the player returned,
 //      not spread across the week. That is the honest reading: the discarded span was
 //      never simulated, so there are no events in it to date.
 //   2. THE CADENCE IS SAMPLED ONCE, from the incoming state. Nothing can change
@@ -7165,10 +7167,11 @@ export function buyFuel(state: GameState, units: number): GameState {
 // (docs/plans/2026-07-13-phase-2-warehouse-refine-economy-design.md §2).
 //
 // The MAX number of ticks an offline catch-up will step forward, no matter how
-// long the player was away. Derived (never stored) from a base of 2 real days,
+// long the player was away. Derived (never stored) from a base of
+// OFFLINE_CAP_DAYS_BASE real days (offlineCap.ts: 4 since HOTFIX 0.13.11.3, was 2),
 // converted to ticks via the fleet's shared tickDurationSeconds, the SAME
 // deltaSeconds<->ticks cadence tick()/economyTick use everywhere else. At the
-// default 1s cadence this is 172,800 ticks (2 * 86,400). Any elapsed span beyond
+// default 1s cadence this is 345,600 ticks (4 * 86,400). Any elapsed span beyond
 // this is DISCARDED by tick() (the excess simply does not accrue).
 //
 // EXTENSIBLE BY DESIGN: the cap is a FUNCTION of state, not a bare constant, so a
@@ -7177,11 +7180,13 @@ export function buyFuel(state: GameState, units: number): GameState {
 // upgrades` seam below is where such a bonus plugs in (NO such upgrade source
 // exists yet, per the no-placeholder rule we do NOT invent one now).
 // ============================================================================
-export const OFFLINE_CAP_DAYS_BASE = 2;
+export { OFFLINE_CAP_DAYS_BASE };
 
-// Seconds in one real day, named rather than an inline 86400 magic number, so the
-// day->seconds conversion reads plainly at the one place it is used.
-const SECONDS_PER_DAY = 86_400;
+// The same cap in real seconds (the cap ticks at this save's cadence), for every reader that
+// talks about time rather than ticks: the held-release budget and the While You Were Away popup.
+export function offlineCapSeconds(state: GameState): number {
+  return offlineCapTicks(state) * state.tickDurationSeconds;
+}
 
 export function offlineCapTicks(state: GameState): number {
   // Base days, with room for future upgrade bonuses to add on. Kept as its own

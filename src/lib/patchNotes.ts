@@ -15,7 +15,7 @@
 // left untouched (never rewrite patch-note history), so this deliberately reads
 // as "0.2.0 newer than 0.9.0" once, only here.
 
-export const APP_VERSION = "0.13.11.2";
+export const APP_VERSION = "0.13.11.3";
 
 // ---------------------------------------------------------------------------
 // SHAPE. 0.13.5 introduced a STRUCTURED entry (marquee features + category
@@ -63,6 +63,28 @@ export function isStructuredNote(n: PatchNote): n is PatchNoteStructured {
 }
 
 export const PATCH_NOTES: PatchNote[] = [
+  {
+    // 0.13.11.3 (user, 2026-11-02): "Let's change the cap to 4 days by default. I think that's fairer."
+    // [PROPOSAL] wording for the user's sign-off; short and player-facing.
+    version: "0.13.11.3",
+    lede: "Offline progress is more generous, and the While You Were Away recap tells it straight.",
+    categories: [
+      {
+        title: "Additional Improvements",
+        bullets: [
+          { lead: "Offline progress now pays up to 4 days (was 2).", text: "A long weekend away now counts in full." },
+        ],
+      },
+      {
+        title: "Bug Fixes",
+        tone: "fixes",
+        bullets: [
+          { lead: "An honest recap.", text: "The While You Were Away popup now shows the time actually paid and tells you when the cap was reached. A second popup no longer appears claiming time that was not paid." },
+        ],
+      },
+    ],
+    save: "Your save carries over untouched.",
+  },
   {
     // 0.13.11.2 wording approved by the user (2026-10-26): spoiler-free, it says nothing about what changed.
     version: "0.13.11.2",

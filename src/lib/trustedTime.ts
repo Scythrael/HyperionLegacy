@@ -13,7 +13,7 @@
 //   2. FORWARD JUMPS. When the server's time is known (a same-origin no-store HEAD request, read the
 //      Date header; never the Age header, see syncServerTime), trusted time is at most server time +
 //      SERVER_TOLERANCE_MS. When it is not (offline, or the request failed), at most a fixed base +
-//      UNVERIFIED_ALLOWANCE_MS (2 days, the main game's own offline cap). The base is the last time
+//      UNVERIFIED_ALLOWANCE_MS (the main game's own base offline cap, 4 days since 0.13.11.3). The base is the last time
 //      the SERVER confirmed (`verifiedMs`, never a device reading), or, before any server reading,
 //      a one-time anchor (`anchorMs`: the newest save stamp, or a brand-new device's first reading).
 //      Neither moves with reloads, so the allowance is paid once, never per reload. Anything the
@@ -39,9 +39,12 @@
 // browser.
 
 import { safeGetItem, safeSetItem } from "./safeStorage";
+import { OFFLINE_CAP_SECONDS_BASE } from "./game/offlineCap";
 
 export const SERVER_TOLERANCE_MS = 10 * 60 * 1000;
-export const UNVERIFIED_ALLOWANCE_MS = 2 * 24 * 60 * 60 * 1000;
+// The main game's base offline cap (offlineCap.ts), so a returning player within the cap is paid
+// every second at load, before any server check (HOTFIX 0.13.11.3: follows the constant, 4 days).
+export const UNVERIFIED_ALLOWANCE_MS = OFFLINE_CAP_SECONDS_BASE * 1000;
 const SYNC_MIN_GAP_MS = 30 * 1000;
 // While time is held the checks back off: 30 s, 1 min, 2 min ... up to 10 min (final re-check), so a
 // device clock left fast does not send a HEAD every 30 seconds forever.

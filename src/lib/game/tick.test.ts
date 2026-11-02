@@ -4661,46 +4661,47 @@ describe("economyTick, mission auto-stop when the primary material is at cap (Ta
 });
 
 describe("tick, offline catch-up is clamped to offlineCapTicks then stepped (Task B3)", () => {
-  it("offlineCapTicks derives 2 days of ticks from the base days and the tick cadence", () => {
+  it("offlineCapTicks derives 4 days of ticks from the base days and the tick cadence (HOTFIX 0.13.11.3, was 2)", () => {
     const s = freshState(); // tickDurationSeconds 1
-    expect(OFFLINE_CAP_DAYS_BASE).toBe(2);
-    // 2 days * 86,400 s/day / 1 s/tick = 172,800 ticks at the default cadence.
-    expect(offlineCapTicks(s)).toBe(172_800);
-    // The cap scales with the cadence: a coarser tick means fewer ticks span 2 days.
-    expect(offlineCapTicks({ ...s, tickDurationSeconds: 2 })).toBe(86_400);
+    expect(OFFLINE_CAP_DAYS_BASE).toBe(4);
+    // 4 days * 86,400 s/day / 1 s/tick = 345,600 ticks at the default cadence.
+    expect(offlineCapTicks(s)).toBe(345_600);
+    // The cap scales with the cadence: a coarser tick means fewer ticks span 4 days.
+    expect(offlineCapTicks({ ...s, tickDurationSeconds: 2 })).toBe(172_800);
   });
 
-  it("a 5-day absence yields the SAME result as a 2-day absence, the excess span is discarded", () => {
-    // Use a coarse 1-day tick cadence so offlineCapTicks is a tiny 2, this keeps the
-    // stepped loop cheap (2 iterations) while still exercising the real clamp path;
-    // at the default 1s cadence the cap would be 172,800 steps, needlessly slow here.
+  it("a 7-day absence yields the SAME result as a 4-day absence, the excess span is discarded", () => {
+    // Use a coarse 1-day tick cadence so offlineCapTicks is a tiny 4, this keeps the
+    // stepped loop cheap (4 iterations) while still exercising the real clamp path;
+    // at the default 1s cadence the cap would be 345,600 steps, needlessly slow here.
+    // (HOTFIX 0.13.11.3 moved the cap from 2 to 4 days, so the pins below moved with it.)
     const makeS = () => {
       const s = freshState();
-      s.tickDurationSeconds = 86_400; // 1 day/tick -> offlineCapTicks = 2*86400/86400 = 2
+      s.tickDurationSeconds = 86_400; // 1 day/tick -> offlineCapTicks = 4*86400/86400 = 4
       s.captains[0].mission = missionCaptain("shortOreRun");
       return s;
     };
-    expect(offlineCapTicks(makeS())).toBe(2);
+    expect(offlineCapTicks(makeS())).toBe(4);
 
     // Constant rng into tick() so the stepped loot is exactly reproducible.
-    const fiveDays = tick(5 * 86_400, makeS(), () => 0); // rawTicks 5, clamped to 2
-    const twoDays = tick(2 * 86_400, makeS(), () => 0); // rawTicks 2, clamped to 2
+    const sevenDays = tick(7 * 86_400, makeS(), () => 0); // rawTicks 7, clamped to 4
+    const fourDays = tick(4 * 86_400, makeS(), () => 0); // rawTicks 4, clamped to 4
 
-    // Both advanced exactly 2 ticks -> identical across every economy field.
-    expect(fiveDays.captains[0].xp.equals(twoDays.captains[0].xp)).toBe(true);
-    expect((fiveDays.captains[0].mission as CaptainMissionState).phase).toBe((twoDays.captains[0].mission as CaptainMissionState).phase);
-    expect((fiveDays.captains[0].mission as CaptainMissionState).phaseProgressTicks).toBeCloseTo(
-      (twoDays.captains[0].mission as CaptainMissionState).phaseProgressTicks,
+    // Both advanced exactly 4 ticks -> identical across every economy field.
+    expect(sevenDays.captains[0].xp.equals(fourDays.captains[0].xp)).toBe(true);
+    expect((sevenDays.captains[0].mission as CaptainMissionState).phase).toBe((fourDays.captains[0].mission as CaptainMissionState).phase);
+    expect((sevenDays.captains[0].mission as CaptainMissionState).phaseProgressTicks).toBeCloseTo(
+      (fourDays.captains[0].mission as CaptainMissionState).phaseProgressTicks,
       9
     );
-    expect(itemTotal(fiveDays.inventory, "commonOre").equals(itemTotal(twoDays.inventory, "commonOre"))).toBe(true);
-    expect(fiveDays.credits.equals(twoDays.credits)).toBe(true);
-    expect(fiveDays.fleetAdminXp.equals(twoDays.fleetAdminXp)).toBe(true);
+    expect(itemTotal(sevenDays.inventory, "commonOre").equals(itemTotal(fourDays.inventory, "commonOre"))).toBe(true);
+    expect(sevenDays.credits.equals(fourDays.credits)).toBe(true);
+    expect(sevenDays.fleetAdminXp.equals(fourDays.fleetAdminXp)).toBe(true);
 
-    // Pin the ABSOLUTE clamp: 2 whole ticks -> 2 XP, NOT the 5 an unclamped span
+    // Pin the ABSOLUTE clamp: 4 whole ticks -> 4 XP, NOT the 7 an unclamped span
     // would have accrued. This is the load-bearing assertion that the excess was
     // discarded, not merely that the two inputs happened to match.
-    expect(fiveDays.captains[0].xp.equals(2)).toBe(true);
+    expect(sevenDays.captains[0].xp.equals(4)).toBe(true);
   });
 });
 

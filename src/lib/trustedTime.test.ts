@@ -68,7 +68,7 @@ describe("an honest clock is returned exactly", () => {
     }
   });
 
-  it("a returning player within two days is paid every second at load, before any server check", () => {
+  it("a returning player within the allowance is paid every second at load, before any server check", () => {
     const d = new Device();
     const stamp = REAL0;
     d.real += 47 * H;
@@ -195,7 +195,7 @@ describe("farming loops pay no more than real time (plus the allowance once, off
     let st = initTrustState({ floorMs: stamp, verifiedMs: stamp }, [stamp], d.perf);
     const first = read(st, d);
     expect(first.nowMs - stamp).toBe(UNVERIFIED_ALLOWANCE_MS);
-    expect(first.heldMs).toBe(5 * D);
+    expect(first.heldMs).toBe(7 * D - UNVERIFIED_ALLOWANCE_MS); // 3 days held at the 4-day allowance (HOTFIX 0.13.11.3; was 5 at 2)
     st = withServerTime(first.state, d.real, d.perf); // the network comes back
     d.real += 1000;
     const later = read(st, d);
@@ -305,7 +305,8 @@ describe("review H1: nothing read before the clock starts can become the mark", 
     initTrustedTime([save, save - H]);
     const t = trustedNow();
     expect(t).toBeLessThanOrEqual(save + UNVERIFIED_ALLOWANCE_MS + 1000);
-    expect(trustedHeldMs()).toBeGreaterThan(27 * D);
+    // HOTFIX 0.13.11.3: the allowance follows the 4-day cap (was 2 days, so this read 27 * D), same margin.
+    expect(trustedHeldMs()).toBeGreaterThan(30 * D - UNVERIFIED_ALLOWANCE_MS - D);
     // and the next load does not get a second allowance from the first one's reading
     resetTrustedTimeForTests();
     initTrustedTime([t]);
@@ -356,7 +357,7 @@ describe("review H2: a suspended device (performance.now() stopped) is paid in f
     installMemoryStorage();
     (globalThis as { location?: unknown }).location = { origin: "https://hl.test" };
     vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
-    initTrustedTime([Date.now() - 3 * D]);
+    initTrustedTime([Date.now() - 5 * D]); // past the 4-day allowance (HOTFIX 0.13.11.3; was 3 days at 2)
     trustedNow();
     expect(trustedHeldMs()).toBeGreaterThan(SERVER_TOLERANCE_MS);
     const pending = confirmTrustedTime(3000, () => new Promise<Response>(() => {}));
@@ -382,9 +383,10 @@ describe("review M1: a mark far in the future heals once the server answers", ()
     expect(frozen.nowMs).toBe(REAL0 + 30 * D); // offline: held at the mark, nothing paid
     const healed = withServerTime(frozen.state, REAL0, 0);
     expect(readTrusted(healed, REAL0, 0).nowMs).toBe(REAL0);
-    // three days later (a new session, the server not answered yet): paid, not frozen
+    // five days later (a new session, the server not answered yet): paid up to the allowance, not
+    // frozen (HOTFIX 0.13.11.3: was three days against a 2-day allowance; the allowance is now 4 days)
     const later = initTrustState({ floorMs: REAL0, verifiedMs: REAL0, anchorMs: null }, [REAL0], 0);
-    expect(readTrusted(later, REAL0 + 3 * D, 0).nowMs - REAL0).toBe(UNVERIFIED_ALLOWANCE_MS);
+    expect(readTrusted(later, REAL0 + 5 * D, 0).nowMs - REAL0).toBe(UNVERIFIED_ALLOWANCE_MS);
   });
 
   it("a mark within the allowance is left alone (an honest player is never stepped back)", () => {

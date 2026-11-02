@@ -284,14 +284,14 @@ describe("runPollEconomy: live play matches offline catch-up", () => {
 
   it("a catch-up honors the offline cap, exactly like a reload would", () => {
     const s = missionState();
-    s.tickDurationSeconds = 86_400; // cap = 2 ticks, keeps this cheap
+    s.tickDurationSeconds = 86_400; // cap = 4 ticks (HOTFIX 0.13.11.3: 4 days, was 2), keeps this cheap
     const fiveDays = 5 * 86_400 * 1000;
     const { plan } = planPoll(clockAt(T0), T0 + fiveDays, s.tickDurationSeconds, 1);
     if (plan.kind !== "advance") throw new Error("expected an advance plan");
     expect(plan.mode).toBe("catchUp");
     const live = runPollEconomy(s, plan, ZERO_RNG, UNKNOWN_COMPLETION_TIME_MS);
     expect(withoutClock(live)).toEqual(withoutClock(tick(5 * 86_400, s, ZERO_RNG)));
-    expect(live.captains[0].xp.equals(2)).toBe(true);
+    expect(live.captains[0].xp.equals(4)).toBe(true);
   });
 });
 
@@ -343,13 +343,15 @@ describe("awayRecapSpan: a recap never replaces one that is still open", () => {
   const b = missionState();
 
   it("with nothing open, the recap covers just this absence", () => {
-    expect(awayRecapSpan(null, b, 300, T0)).toEqual({ before: b, secondsAway: 300 });
+    expect(awayRecapSpan(null, b, 300, T0)).toEqual({ before: b, secondsAway: 300, cappedAwaySeconds: null });
   });
 
   it("with a recap open, the new one starts from the open recap's snapshot and spans both", () => {
-    // Opened at T0 for a 600 s absence; the player left it open, hid the tab, came back 900 s later.
+    // Opened at T0 for a 600 s absence; the player left it open, hid the tab 600 s later and came
+    // back after a 300 s absence that paid 300 s. (HOTFIX 0.13.11.3: the extension is the live play
+    // up to the new absence plus what that absence PAID, so the call takes the absence start.)
     const open = { before: a, secondsAway: 600, shownAtMs: T0 };
-    expect(awayRecapSpan(open, b, 300, T0 + 900_000)).toEqual({ before: a, secondsAway: 1500 });
+    expect(awayRecapSpan(open, b, 300, T0 + 600_000)).toEqual({ before: a, secondsAway: 1500, cappedAwaySeconds: null });
   });
 });
 
@@ -362,10 +364,10 @@ describe("paidTicks / blendRunwayEma: the runway EMA weighs a catch-up by what i
 
   it("a catch-up beyond the offline cap pays only the capped ticks", () => {
     const s = missionState();
-    s.tickDurationSeconds = 86_400; // cap = 2 ticks
+    s.tickDurationSeconds = 86_400; // cap = 4 ticks (HOTFIX 0.13.11.3: 4 days, was 2)
     const { plan } = planPoll(clockAt(T0), T0 + 5 * 86_400 * 1000, s.tickDurationSeconds, 1);
     if (plan.kind !== "advance") throw new Error("expected an advance plan");
-    expect(paidTicks(plan, s)).toBe(2);
+    expect(paidTicks(plan, s)).toBe(4);
   });
 
   it("weight 1 is the old blend exactly; the first sample seeds; a heavy weight converges", () => {
