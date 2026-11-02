@@ -2018,3 +2018,16 @@ with it off. No SAVE_VERSION bump: every new field is optional and stamped at di
 - OC-J4: the safety rows stay, each covered by a test. Status `color`: deleted.
 - OC-H1: the Museum's Science team power is frozen on the run (museumSciencePower) and scales each named Science
   member's own fieldwork. OC-H2: the stat reads "salvage yield (recycling and hull teardown)".
+
+## USER ANSWERS (2026-10-31): WR-9 review calls
+
+- Pilot Cunning reach: "Missions, short-range, patrols (Recommended)". Every run with a trip home rolls it, each run
+  type stamping it at dispatch (like Fast Return on patrols).
+- Operations Integrity on expeditions: "Faster full offloads (as built)" (an offload carrying >= 90% of the haul
+  unloads faster).
+- Third buff for existing crew: "Yes, grant on load (Recommended)". Crew already at the 3-buff ranks (Lieutenant,
+  Lieutenant Commander) roll their third buff once, the first time the save loads in 0.14.0. Both ranks confirmed by
+  the question as asked.
+- Pilot Cunning cut size: "Keep 1 tick, tune later (Recommended)" [PROVISIONAL].
+- Logged, not in WR-9: buff2 and buff3 are not shown anywhere in the UI (ComplementPanel shows buff1 only); belongs
+  with the CP-9 complement table.
