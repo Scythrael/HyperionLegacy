@@ -442,7 +442,8 @@ import {
   cunningStream,
   departmentFacet,
   pilotCunningStamp,
-  pilotCutReturnLeg,
+  captainReturnLegTicks,
+  pilotCutPatrolLegs,
 } from "./officerStats";
 import { CREW_STAT_KEYS } from "./crewBuffs";
 // Exploration 0.14.0 (Phase E2a): the per-tick EXPEDITION engine, run once per whole tick at the tail
@@ -2452,7 +2453,8 @@ export function tickCaptainMission(
   // WR-9 (OC-E4, user 2026-10-15 "Quicker trips home"): the Pilot's Cunning, STAMPED on the run at dispatch
   // (CaptainMissionState.pilotCunning, carried to every repeated cycle), so it is constant for the whole run. Each
   // cycle's return leg rolls it once on the Flight Deck's private stream of that cycle's key (the lifetime counter
-  // below, which steps at delivery, so the roll is the same however the leg is chunked). Absent = no roll.
+  // below, which steps at delivery, so the roll is the same however the leg is chunked; a stamped dispatch steps it
+  // too, so a recalled and re-dispatched run never replays a roll). Absent = no roll.
   const pilotCunning = Math.max(0, captain.mission?.kind === "extraction" ? captain.mission.pilotCunning ?? 0 : 0);
   const cunningLive = opsCunning > 0 || sciCunning > 0 || pilotCunning > 0;
   // The captain's LIFETIME Cunning cycle counter (CaptainState.cunningCycles): one step per delivered cycle
@@ -2532,12 +2534,12 @@ export function tickCaptainMission(
     // ordersReceived phases add 0. `?? 0` tolerates a pre-F3 in-flight mission (field absent).
     // E-CREW (Task 21): missionPhaseTicks = requiredTicksForPhase, except a packed hold's faster unload
     // (Operations Integrity); the cargo is fixed while unloading, so the length is constant in the phase.
-    // WR-9 (OC-E4): on the return leg of a cycle whose Pilot roll lands, the leg runs a tick shorter (pilotCutReturnLeg).
+    // WR-9 (OC-E4): on the return leg of a cycle whose Pilot roll lands, the leg runs a tick shorter (pilotCutReturnLeg),
+    // through the same helper the in-flight readouts read (officerStats.ts captainReturnLegTicks).
     const phaseTicks = missionPhaseTicks(mission.phase, missionDef, mission.cargo);
     const requiredTicks =
-      (mission.phase === "transitBack" && pilotCunning > 0 && cunningProc(captainCycleMissionSeed(captain.id, cunningCycles ?? 0), "pilot", pilotCunning)
-        ? pilotCutReturnLeg(phaseTicks)
-        : phaseTicks) + (mission.phase === "ordersReceived" ? mission.refuelDelayTicks ?? 0 : 0);
+      (mission.phase === "transitBack" ? captainReturnLegTicks(phaseTicks, captain.id, cunningCycles ?? 0, pilotCunning) : phaseTicks) +
+      (mission.phase === "ordersReceived" ? mission.refuelDelayTicks ?? 0 : 0);
     const ticksLeftInPhase = requiredTicks - mission.phaseProgressTicks;
     let ticksToApply = skipping ? ticksLeftInPhase : Math.min(remaining, ticksLeftInPhase);
 
@@ -3904,7 +3906,15 @@ export function tickCaptainPatrol(
           // WR-7 follow-up OC-D8: the new cycle freezes its legs at the ship's transit speed now (economyTick's live read;
           // absent = the route's legs, a test call), and its Constitution cut and clock read that cycle's route.
           // OC-D8 follow-up: each leg at its own speed (Fast Departure out, Fast Return home).
-          const nextLegs = patrolLegTicksFor(def, officerEffects.transitSpeed, { out: officerEffects.transitOutLegMult, back: officerEffects.transitBackLegMult });
+          // WR-9 fix round (user 2026-10-31 "Missions, short-range, patrols"): a run stamped with the Pilot's Cunning
+          // rolls it for the new cycle on newSeed and folds a landed cut into the leg home (officerStats.ts
+          // pilotCutPatrolLegs); an unstamped run (every run in flight from before) freezes its legs as it did.
+          const nextLegs = pilotCutPatrolLegs(
+            def,
+            patrolLegTicksFor(def, officerEffects.transitSpeed, { out: officerEffects.transitOutLegMult, back: officerEffects.transitBackLegMult }),
+            newSeed,
+            cur.pilotCunning ?? 0,
+          );
           const nextRoute = patrolRouteOf({ patrolKey: cur.patrolKey, legTicks: nextLegs });
           const nextConditions = relaunchCycleConditions(installedGear, gearWearEvents, offsetNow(), nextDifficulty, officerEffects.gearWear, pauseWindows);
           const nextGear = nextConditions !== undefined && installedGear ? combatGearView(installedGear, nextConditions) : installedGear;
@@ -3952,6 +3962,8 @@ export function tickCaptainPatrol(
             combatRules: officerEffects.combatRules,
             // WR-7 follow-up (OC-D5): the run's favored-spec stamp rides every relaunched cycle (absent stays absent).
             favoredSpec: cur.favoredSpec,
+            // WR-9 fix round: and the run's Pilot Cunning stamp (absent stays absent).
+            pilotCunning: cur.pilotCunning,
           });
           return { mission: minted, gear: nextGear };
         })()
@@ -6070,6 +6082,10 @@ export function dispatchCaptainOnMission(
       ...(favoredSpec !== undefined ? { favoredSpec } : {}),
       ...(pilotCunning !== undefined ? { pilotCunning } : {}),
     },
+    // WR-9 fix round (review: "recall replays the Pilot roll"): a stamped dispatch steps the captain's lifetime Cunning
+    // counter, so every dispatch rolls its first return leg on a key no earlier run rolled, whatever a recall did to the
+    // run before. An unstamped dispatch (no Pilot Cunning, or WR-9 off) leaves the counter alone, exactly as before.
+    ...(pilotCunning !== undefined ? { cunningCycles: (captains[idx].cunningCycles ?? 0) + 1 } : {}),
     // Combat 0.13.0 (offline recap): CLEAR any stale wall-stop reason on a fresh dispatch, so a
     // captain re-dispatched after a prior cargo/defeat stop never shows the old reason.
     lastStopReason: undefined,
@@ -6192,7 +6208,11 @@ function freshPatrolMission(args: {
   favoredSpec?: 1;
   // WR-7 follow-up OC-D8: the cycle's frozen legs (patrolLegTicksFor at the ship's transit speed when the cycle starts).
   // Stored only when present (they differ from the route's); the wave schedule is planned on the route they make.
+  // WR-9 fix round: with the Pilot's landed cut already folded in by the caller (officerStats.ts pilotCutPatrolLegs).
   legTicks?: PatrolLegTicks;
+  // WR-9 fix round (user 2026-10-31): the run's Pilot Cunning stamp (dispatch: pilotCunningStamp; relaunch: the run's
+  // own). Stored only when present.
+  pilotCunning?: number;
 }): PatrolMissionState {
   const { patrolKey, stance, masterSeed, repeatDispatch, shipDef, hullType, installedGear, officerCombat, captainCombat } = args;
   const deckHandling = args.deckHandling ?? 0;
@@ -6279,6 +6299,7 @@ function freshPatrolMission(args: {
     repeatDispatch,
     ...(args.favoredSpec === 1 ? { favoredSpec: 1 as const } : {}),
     ...(args.legTicks !== undefined ? { legTicks: { ...args.legTicks } } : {}),
+    ...(args.pilotCunning !== undefined ? { pilotCunning: args.pilotCunning } : {}),
   };
 }
 
@@ -6652,7 +6673,13 @@ export function dispatchCaptainOnPatrol(
   // exactly officerCombatMods (the 0-hour fold).
   // WR-7 follow-up OC-D8: the first cycle freezes its legs at the ship's transit speed now (its sheet, crew included, as
   // the combat rules stamp below reads it); the cycle's clock and Constitution cut read the route those legs make.
-  const { route, legTicks } = patrolDispatchRoute(state, ship, patrolKey);
+  // WR-9 fix round (user 2026-10-31 "Missions, short-range, patrols"): the run stamps the Pilot's Cunning, and the first
+  // cycle rolls it on its masterSeed: a landed cut is folded into the leg home it freezes (officerStats.ts
+  // pilotCutPatrolLegs), so its clock, waves and Constitution cut read the route it really flies.
+  const pilotCunning = pilotCunningStamp(state, ship);
+  const dispatchLegs = patrolDispatchRoute(state, ship, patrolKey).legTicks;
+  const legTicks = pilotCutPatrolLegs(PATROLS[patrolKey], dispatchLegs, masterSeed, pilotCunning ?? 0);
+  const route = patrolRouteOf({ patrolKey, legTicks });
   const officerCombat = officerCombatModsFromProfile(officerCombatProfile(state, ship), patrolCycleOneRampHours(route, state.tickDurationSeconds));
   // E-CREW (Task 21): the first cycle's Engineering Cunning roll, keyed on its masterSeed (0 hours: no ramp).
   const freeRepairTicks = cunningProc(masterSeed, "engineering", departmentFacet(state, ship, "engineering", "cunning"))
@@ -6696,6 +6723,8 @@ export function dispatchCaptainOnPatrol(
     favoredSpec: favoredSpecStamp(installedGear, ship.typeKey),
     // WR-7 follow-up OC-D8: read above.
     legTicks,
+    // WR-9 fix round: read above.
+    pilotCunning,
   });
 
   const captains = [...state.captains];

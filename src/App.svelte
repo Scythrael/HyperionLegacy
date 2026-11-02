@@ -65,6 +65,8 @@
   import GambitEditorPanel from "./lib/GambitEditorPanel.svelte";
   import { GAMBIT_PRESETS } from "./lib/game/gambit";
   import type { GambitRule } from "./lib/game/model";
+  // WR-9 fix round: the in-flight phase length the engine flies (a landed Pilot Cunning cut included).
+  import { captainMissionPhaseTicks } from "./lib/game/officerStats";
   import {
     addMemberGambitRule,
     applyMemberGambitPreset,
@@ -128,7 +130,6 @@
     PATROLS,
     FACTIONS,
     requiredTicksForPhase,
-    missionPhaseTicks,
     // 0.13.9: the dispatch popup's per-phase TIMING rows + total, one source so they add up.
     missionCycleTiming,
     // Fuel Economy v2 (F4 UI): effectiveMissionDef rescales a base mission's transit
@@ -17790,7 +17791,8 @@
                     {@const missionDef = missionShip
                       ? effectiveMissionDef(MISSIONS[mission.missionKey], missionRunSheet(state, missionShip, mission))
                       : missionDefWithoutShip(MISSIONS[mission.missionKey])}
-                    {@const requiredTicks = missionPhaseTicks(mission.phase, missionDef, mission.cargo)}
+                    <!-- WR-9 fix round: the leg the engine flies, a landed Pilot Cunning cut included (captainMissionPhaseTicks). -->
+                    {@const requiredTicks = captainMissionPhaseTicks(captain, mission, missionDef)}
                     {@const progress = Math.min(1, mission.phaseProgressTicks / requiredTicks)}
                     {@const remainingTicks = Math.max(0, Math.ceil(requiredTicks - mission.phaseProgressTicks))}
                     <div class="mission-card">

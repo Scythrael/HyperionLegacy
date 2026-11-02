@@ -49,10 +49,13 @@ const BEFORE_CREW: Record<string, string> = {
 // Crew (OC-E12): every Lieutenant and Lieutenant Commander in a batch now carries a third profession buff (buff3Id),
 //   drawn after every earlier draw, so each batch hash moves (every other field of every crewmember is unchanged:
 //   wr9.test.ts proves it).
+// The WR-9 fix round (review "recall replays the Pilot roll") moved all three again: a stamped dispatch now steps the
+//   captain's lifetime Cunning counter (cunningCycles starts at 1), so every cycle's roll keys one step later. The
+//   WR-9 build's pins were shortOreRun d7172350, surveyMineralAnomaly ce29b119, frontierSupplyRun 7d936e01.
 const GOLDEN_MISSIONS: Record<string, string> = {
-  shortOreRun: "d7172350",
-  surveyMineralAnomaly: "ce29b119",
-  frontierSupplyRun: "7d936e01",
+  shortOreRun: "b8289591",
+  surveyMineralAnomaly: "b06c40a",
+  frontierSupplyRun: "1335f873",
 };
 const GOLDEN_EXPEDITIONS: Record<string, string[]> = {
   "1234": ["34a4915", "9585929f", "23392cc7"],
@@ -86,9 +89,23 @@ describe("WR-9 off reproduces every capture (BEFORE)", () => {
 // with a Cunning 20 Pilot (the Pilot's Cunning did not reach them yet), and a save written with two-buff Lieutenants and
 // Lieutenant Commanders, loaded (no third buff was granted on load yet).
 const FIX_BEFORE = { shortRange: "ead3b698", patrol: "877dcbfd", load: "c1d3160d" };
+// The pins today, each moved by the fix round, and each back to FIX_BEFORE with WR-9 off:
+//   shortRange: the dispatch stamps the Pilot's Cunning and each cycle start rolls it on its job seed; a landed cycle's
+//               plan flies home a tick sooner, so later cycles start sooner and every count and payout shifts.
+//   patrol    : the dispatch stamps it and each cycle (dispatch and relaunch) rolls it on its masterSeed; a landed cut is
+//               folded into the cycle's frozen legs (legTicks), so its route, clock and later cycles shift.
+//   load      : the save's two-buff Lieutenants and Lieutenant Commanders (complement, pool, notable) roll their third
+//               buff on load, each on its own identity's seed; the exclusive-buff bucket splits by the buff it rolled.
+const GOLDEN_FIX = { shortRange: "d397ce48", patrol: "b913e855", load: "2f0b3c19" };
 
 describe("WR-9 fix round goldens", () => {
-  it("short-range run", () => expect(wr9MissionHash(wr9ShortRangeRun())).toBe(FIX_BEFORE.shortRange));
-  it("patrol run", () => expect(wr9MissionHash(wr9PatrolRun())).toBe(FIX_BEFORE.patrol));
-  it("legacy crew save, loaded", () => expect(wr9Hash(wr9LoadedCrew())).toBe(FIX_BEFORE.load));
+  it("short-range run", () => expect(wr9MissionHash(wr9ShortRangeRun())).toBe(GOLDEN_FIX.shortRange));
+  it("patrol run", () => expect(wr9MissionHash(wr9PatrolRun())).toBe(GOLDEN_FIX.patrol));
+  it("legacy crew save, loaded", () => expect(wr9Hash(wr9LoadedCrew())).toBe(GOLDEN_FIX.load));
+});
+
+describe("WR-9 fix round off reproduces every capture (FIX_BEFORE)", () => {
+  it("short-range run", () => expect(withWr9Off(() => wr9MissionHash(wr9ShortRangeRun()))).toBe(FIX_BEFORE.shortRange));
+  it("patrol run", () => expect(withWr9Off(() => wr9MissionHash(wr9PatrolRun()))).toBe(FIX_BEFORE.patrol));
+  it("legacy crew save, loaded", () => expect(withWr9Off(() => wr9Hash(wr9LoadedCrew()))).toBe(FIX_BEFORE.load));
 });

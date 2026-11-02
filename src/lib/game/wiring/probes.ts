@@ -218,7 +218,7 @@ import { canFitEquipment, equippedFor, fitEquipment } from "../equipment";
 // E-MOD EM-7: the v1 module roster (the install-gate slot count probe installs it piece by piece).
 import { UNIVERSAL_MODULES } from "../shipModules";
 import { effectiveShipStats, officerCombatMods, officerRepairSpeedBonus, resolveCrew, shipCrewContribution, shipMissionOutputBonus, shipRepairSpeedBonus } from "../crewOverlay";
-import { departmentFacet, seatFacet } from "../officerStats";
+import { departmentFacet, pilotCunningStamp, seatFacet } from "../officerStats";
 import { RELICS, museumBonuses, type MuseumStat } from "../relics";
 import { hullTeardownFraction, salvageSalvagedMaterial, salvageShip, salvageTalentBonus, salvageTierReach, salvageYieldMult } from "../salvage";
 import { alertResetSeconds, escalationAt, extraBattleChance, longRangeCover, maxExtraBattles } from "../affixes";
@@ -1610,7 +1610,11 @@ export const PROBES = {
   },
   // WR-9 (OC-E6): one whole Long Ore Run cycle's ticks on the sheet (missionCycleTiming of effectiveMissionDef).
   missionCycleTicks: { label: "missionCycleTiming(effectiveMissionDef(longOreRun)).total", read: (s) => missionCycleTiming(missionDefFor(s, "longOreRun")).total },
-  missionReturnTicks: { label: `a Short Ore Run's return-leg ticks over its first ${PILOT_PROBE_CYCLES} cycles (economyTick, 1 s steps)`, read: (s) => missionReturnTicks(s) },
+  // WR-9 fix round (user 2026-10-31 "Missions, short-range, patrols"): the same count on each run type the roll reaches.
+  missionReturnTicks: {
+    label: `a Short Ore Run's return-leg ticks over its first ${PILOT_PROBE_CYCLES} cycles (economyTick, 1 s steps; mission:shortRange: the legs home of ${PILOT_PROBE_CYCLES} short-range cycle starts on a stamped run; patrol: the frozen legs home of ${PILOT_PROBE_CYCLES} patrol dispatches)`,
+    read: (s, ctx) => (ctx === "mission:shortRange" ? shortRangeReturnTicks(s) : ctx === "patrol" ? patrolReturnTicks(s) : missionReturnTicks(s)),
+  },
   missionCycleOutput: { label: "one whole shortOreRun cycle (economyTick): the credits and Titanium Ore delivered", read: (s) => cycleOutput(s) },
   missionOreQuality: { label: "one whole shortOreRun cycle (economyTick): the average quality of the ore delivered (quality-weighted units over units)", read: (s) => cycleOreQuality(s) },
   // == the captain secondary tree (WR-5a) ==
@@ -2821,6 +2825,32 @@ function missionReturnTicks(s: GameState): number {
     st = economyTick(st, 1, () => 0.5);
   }
   throw new Error("wiring mission probe: the run never finished its cycles");
+}
+
+// WR-9 fix round: the legs home of PILOT_PROBE_CYCLES short-range cycles of slot 0, each started through the board's one
+// cycle-start seam (startShortRangeCycle, which dispatch and the cycle engine both call) on a run stamped as a dispatch
+// stamps it now (pilotCunningStamp), cycle indices 0 up.
+function shortRangeReturnTicks(s: GameState): number {
+  const ship = shipOf(s);
+  const stamp = pilotCunningStamp(s, ship) ?? 0;
+  const lift = newReactorLiftFlag(equippedFor(s, ship.id)) !== undefined;
+  const favored = favoredSpecStamp(equippedFor(s, ship.id), ship.typeKey) === 1;
+  let ticks = 0;
+  for (let i = 0; i < PILOT_PROBE_CYCLES; i++) ticks += startShortRangeCycle(s, ship, SHORT_RANGE_PROBE_SLOT, i, undefined, lift, true, favored, stamp).plan.transitBackTicks;
+  return ticks;
+}
+
+// WR-9 fix round: the frozen legs home of PILOT_PROBE_CYCLES patrol dispatches (dispatchCaptainOnPatrol, consecutive
+// master seeds), on ship-1 made a destroyer with its Standard Issue combat gear (the officers aboard are kept).
+function patrolReturnTicks(s: GameState): number {
+  const base = installMissingCombatBaselines(editShip(s, { typeKey: "destroyer" }));
+  let ticks = 0;
+  for (let i = 0; i < PILOT_PROBE_CYCLES; i++) {
+    const r = dispatchCaptainOnPatrol({ ...base, nextPatrolSeed: base.nextPatrolSeed + i }, WIRING_CAPTAIN_ID, "crimsonReaverSweep", "balanced", false);
+    if (!r.success) throw new Error(`wiring patrol refused: ${r.reason}`);
+    ticks += patrolRouteOf(captainOf(r.next).mission as PatrolMissionState).transitBackTicks;
+  }
+  return ticks;
 }
 
 function missionFieldValue(s: GameState, field: string, key: MissionKey): number {

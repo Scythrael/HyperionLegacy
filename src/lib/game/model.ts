@@ -3834,6 +3834,11 @@ export interface ShortRangeMissionState {
   // hull favors its spec and carried to every later cycle; only a stamped run's sheet reads the favored lines, so a
   // run in flight at the update reads its pieces as it did. Optional, no SAVE bump.
   favoredSpec?: 1;
+  // WR-9 fix round (user 2026-10-31 "Missions, short-range, patrols"): the Flight Deck's Cunning facet at dispatch
+  // (officerStats.ts pilotCunningStamp), carried to every later cycle. Each cycle start rolls it on the cycle's job seed
+  // and folds a landed cut into the plan's leg home (pilotCutShortRangePlan). Written only when non-zero; a run in
+  // flight from before has none and flies as it did. Optional, no SAVE bump.
+  pilotCunning?: number;
 }
 
 // The board's per-slot cycle cursor (GameState.shortRangeBoard): slot id -> the cycle index its NEXT roll reads
@@ -4188,6 +4193,12 @@ export interface PatrolMissionState {
   // cycle at speed 1 and every cycle in flight from before OC-D8 fly the route's legs exactly as before, and a cycle in
   // flight from before the follow-up keeps the legs it froze (no SAVE_VERSION bump).
   legTicks?: PatrolLegTicks;
+  // WR-9 fix round (user 2026-10-31 "Missions, short-range, patrols"): the Flight Deck's Cunning facet at dispatch
+  // (officerStats.ts pilotCunningStamp), carried to every relaunched cycle. Each cycle (dispatch, and again at each
+  // relaunch) rolls it on its masterSeed and folds a landed cut (PILOT_CUNNING_RETURN_CUT_TICKS) into the leg home it
+  // freezes (legTicks). Written only when non-zero; a patrol in flight from before has none and flies as it did (no
+  // SAVE_VERSION bump).
+  pilotCunning?: number;
   // OC-D8 follow-up (review finding, the Constitution run clock): the route ticks this RUN has flown over its completed
   // cycles, each cycle counting its own route (patrolRouteTicks of its frozen legs) less, on a cycle stamped cutFlown,
   // the ticks its return cut skipped; carried across relaunches like routesCompletedThisRun. It is the Constitution

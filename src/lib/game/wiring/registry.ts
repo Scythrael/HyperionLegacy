@@ -514,7 +514,7 @@ function pending(owner: string, contexts?: readonly ContextId[]): WiringStatus {
 // it (owners "G2-6 (the region picker ...)" and "G2-6 (the recall button ...)") are live, each with its own check
 // (auditRowWiring below; expeditionConsoleRegistry.fixture.ts G2_6_FLIPPED_BEFORE holds the flips apart in the pins).
 // WR-9 (OC-E4, user 2026-10-15 "Quicker trips home"): the Pilot's Cunning went live (a chance per mission cycle to fly
-// home a tick sooner), so every seat facet is live; its facet probe reads the Flight Deck's Cunning and the mission
+// home a tick sooner; the fix round, user 2026-10-31, reached short-range runs and patrols too), so every seat facet is live; its facet probe reads the Flight Deck's Cunning and the mission
 // cycles probe (no-dead-stats) and crew:audit:pilotCunningReturn prove the consumer moves.
 // Gear wear (0.14.0, design docs/plans/2026-10-16-gear-wear-design.md section 11) owners: step 3 wires the use wear
 // sources, the repair contexts and the economy / ground efficiency; step 4 the combat half (battle wear, the
@@ -3949,7 +3949,8 @@ const AUDIT_ROWS: readonly { id: string; system: WiringSystem; claim: string; st
   { id: "crew:audit:commandPresenceExpedition", system: "crew", claim: "Command Presence grows every Ground Ops objective's haul (frozen at dispatch)", status: LIVE },
   { id: "crew:audit:opsIntegrityOffload", system: "crew", claim: "Operations Integrity speeds a Ground Ops offload carrying at least 90% of an objective's haul (frozen at dispatch)", status: LIVE },
   // WR-9 (OC-E4, user 2026-10-15 "Quicker trips home"): the Pilot's Cunning, measured on the mission engine.
-  { id: "crew:audit:pilotCunningReturn", system: "crew", claim: "The Pilot's Cunning: each mission cycle, a chance the return leg is one tick shorter (stamped at dispatch)", status: LIVE },
+  // WR-9 fix round (user 2026-10-31 "Missions, short-range, patrols"): every run with a trip home.
+  { id: "crew:audit:pilotCunningReturn", system: "crew", claim: "The Pilot's Cunning: each cycle of a mission, short-range run or patrol, a chance the return leg is one tick shorter (stamped at dispatch)", status: LIVE },
   // F. Away team and ground
   { id: "away:audit:shroudLureGroundOps", system: "away", claim: "Shroud Emitter and Lure Beacon work on the ground (OC-F1): they scale a crew's ambush chance on a calm objective, rolled per use", status: LIVE },
   { id: "away:audit:neuralBackupClaim", system: "away", claim: "Neural Backup revives the FIRST downed ally; its flavor says the wearer (B13)", status: pending("WR-10, OC-F2") },
@@ -4295,10 +4296,11 @@ function wr9AuditWiring(): Readonly<Record<string, Partial<EntryInput>>> {
       on: (s) => seatOfficer(s, "operations", [], { stats: { ...neutral, integrity: FACET_HIGH } }),
       off: (s) => seatOfficer(s, "operations", [], { stats: neutral }),
     },
-    // A Pilot with Cunning 20 against one at 10: the return legs of the first cycles are shorter by at least a tick.
+    // A Pilot with Cunning 20 against one at 10: the return legs of the first cycles are shorter by at least a tick (the
+    // WR-9 fix round adds patrols here and short-range runs through the mission:shortRange sweep below).
     "crew:audit:pilotCunningReturn": {
       probe: "missionReturnTicks",
-      contexts: ["mission:extraction"],
+      contexts: ["mission:extraction", "patrol"],
       direction: "down",
       curve: { kind: "event", metric: `return-leg ticks over a Short Ore Run's first ${PILOT_PROBE_CYCLES} cycles` },
       magnitude: () => 1,
@@ -5273,6 +5275,8 @@ const SHORT_RANGE_SWEEP_LIVE: ReadonlySet<string> = new Set([
   "captain:SECONDARY_CAPTAIN_TALENTS:extraction4",
   "captain:SECONDARY_CAPTAIN_TALENTS:extraction5",
   ...TRANSIT_BERTH_RUNGS.map((_, i) => `facility:TRANSIT_BERTH_RUNGS:${i}`),
+  // WR-9 fix round (user 2026-10-31 "Missions, short-range, patrols"): the Pilot's quicker trip home.
+  "crew:audit:pilotCunningReturn",
 ]);
 // The mission-claim sources a short-range cycle has nothing for, and why. [PROPOSAL, the user's to confirm: the
 // extraction-roll talents stay with extraction missions.]
@@ -5302,9 +5306,6 @@ const SHORT_RANGE_SWEEP_OUT_OF_SCOPE: Readonly<Record<string, string>> = {
   // Rarity readiness RR-5: the Transmuter's Seal legendary affix rides the same line, so the same reason.
   "ship:LUMINOUS_AFFIXES:transmutersSeal": "a Prospecting Rig's ore quality is an extraction line; a short-range pickup's ore takes the deposit's own quality roll",
   "relic:MUSEUM_STATS:rareMaterialChance": NO_EXTRACTING,
-  // WR-9 (OC-E4) [PROPOSAL, the user's to confirm]: like the Operations and Science Cunning rolls, the Pilot's quicker
-  // trip home rolls on captain missions only.
-  "crew:audit:pilotCunningReturn": "the officers' Cunning over-deliveries (Operations, Science, the Pilot's quicker trip home) roll on captain missions only; a short-range board run rolls none",
 };
 // The Trade margin talents pay a drop-off's margin in whole credits (shortRangeCycle.ts shortRangeDropOffMargin rounds
 // once after the bonus), so at mission:shortRange their outcome is an integer: one rounding step of tolerance.

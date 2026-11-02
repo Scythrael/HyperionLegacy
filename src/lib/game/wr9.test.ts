@@ -65,7 +65,8 @@ describe("OC-E4 Pilot Cunning: a quicker trip home", () => {
     expect(stamped.ticks).toBeLessThan(plain.ticks);
     // at most one tick per cycle, and the counter stepped once per delivered cycle
     expect(plain.ticks - stamped.ticks).toBeLessThanOrEqual(60);
-    expect(stamped.captain.cunningCycles).toBe(60);
+    // the fix round: the stamped dispatch stepped it once too
+    expect(stamped.captain.cunningCycles).toBe(61);
     expect(plain.captain.cunningCycles).toBeUndefined();
   });
 
@@ -76,6 +77,8 @@ describe("OC-E4 Pilot Cunning: a quicker trip home", () => {
       captains: old.captains.map((c) => (c.id === 1 && c.mission?.kind === "extraction" ? { ...c, mission: { ...c.mission, pilotCunning: undefined } } : c)),
     };
     delete (unstamped.captains[0].mission as { pilotCunning?: number }).pilotCunning;
+    // a dispatch from before WR-9 never stepped the captain's Cunning counter either (the fix round's stamped step)
+    delete (unstamped.captains[0] as { cunningCycles?: number }).cunningCycles;
     const viaOld = wr9MissionHash(withWr9Off(() => wr9MissionRun("shortOreRun")));
     // the same run from the unstamped dispatch, on live WR-9 code
     const r = makeRng(0x9e9);
