@@ -474,6 +474,9 @@ export const ICON_PATHS = {
   moduleSurge: ["M12 3l8 3v6c0 4.5-3.4 8-8 9-4.6-1-8-4.5-8-9V6z", "M12 16V9", "M9 11.5l3-3 3 3"],
   // Signal Integrator: a waveform through a vertical tick (a signal being read).
   moduleSignal: ["M3 12c1.5-3 3-3 4.5 0s3 3 4.5 0 3-3 4.5 0 3 3 4.5 0", "M12 3v4M12 17v4"],
+  // Gas Giant Study GG-7 (EM-8 fix round, SVG only, never emoji): the Ramscoop Collector, a gas-scoop intake funnel. A
+  // wide elliptical mouth tapering into a feed pipe, with three streamlines of gas flowing into the mouth.
+  moduleRamscoop: ["M8.5 5a1.5 7 0 1 0 0 14a1.5 7 0 1 0 0-14", "M8.5 5l7.5 5M8.5 19l7.5-5", "M16 10h5M16 14h5", "M2 8.5h2.5M1.5 12h3M2 15.5h2.5"],
   // E-MOD EM-10: the Ship Systems Power bar and Modules row headings (the same mockup, section C, its own paths).
   // Module: a chip with pins top and bottom and a die in the middle (a slot-in accessory).
   module: ["M5 6h14v12H5z", "M8 6V3.5M12 6V3.5M16 6V3.5M8 20.5V18M12 20.5V18M16 20.5V18", "M9 10h6v4H9z"],

@@ -798,7 +798,8 @@ discovery) on the EM-6 engine (frozen at dispatch on `Expedition.moduleScanProcs
 MODULE_SCALE_ON); [PROVISIONAL] `PRECURSOR_LENS_NUMBERS` chance 0.2, draw 9 (the signed-off mockup's sample). The
 blueprint `model.ts precursorLensBp` (`requiresRelicDiscovery: "precursorLens"`, masked and refused until identified;
 the reveal's "Research unlocked" names it), [PROPOSAL] tier 2 (the E4d relic payoffs' tier) at the module tier 2 costs,
-[PROPOSAL] recipe = the recipe realism audit section 10 row (Precursor Circuit 1, Photonic Gel 2, Iridium Catalyst 1).
+[PROPOSAL] recipe Precursor Circuit 1, Photonic Gel 2, Polysilicate Wafer 1 (the tier 2 modules' Material Lines mix; the
+audit section 10 row's Iridium Catalyst dropped in the EM-8 fix round, since M7 puts the catalyst on the top tier only).
 The Precursor Circuit's reserve marker dropped (its hint names the module); no item is reserved now, so the ITEMS
 `reserved` field role is gone (fieldRoles.ts). UI: the card's effect line shows the piece's real chance
 (`moduleScaledChance`), the mockup's unlock line (`moduleGateText`, "Unlocked: you identified a Precursor Lens relic."),
@@ -809,7 +810,7 @@ Long-Baseline Array's dish); Help "Power and modules" gains the Special line (nu
 `facility:ITEMS:precursorCircuit:reserved` row gone; `emodEm8Registry.fixture.ts em8ReadBack` holds the move apart in
 emodGoldens and shortRangeGoldens. No save step, no salt, no stamp change. QA sheet
 `docs/qa/2026-11-02-em8-precursor-lens-qa.html`. **Open calls for the user:** the chance (20% [PROVISIONAL]); the tier
-and recipe [PROPOSAL] (an Iridium Catalyst at tier 2, where M7 put the catalyst on the top tier).
+and recipe [PROPOSAL] (no Iridium Catalyst at tier 2, per M7).
 
 **EM-9 Salvage-exclusive loop (call M2).** Salvage drops a damaged module precursor [PROPOSAL item], a repair process
 rolls a chance at an exclusive module with a visible pity counter, set iLevel per item type (SUGGESTIONS decision). Its

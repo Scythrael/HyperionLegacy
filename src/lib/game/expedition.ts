@@ -2032,20 +2032,8 @@ function assignDiscoveriesAndActivities(
   // body's discovery stream, so every discovery above is untouched; a landed extraDiscovery adds `count` discoveries,
   // last, each drawn like the ghost's (the pool when both have candidates, then the site). A run without the field
   // (every run today) takes no draw here.
-  const scanProcs = exp.moduleScanProcs;
-  if (scanProcs !== undefined && scanProcs.length > 0) {
-    const stream = makeRng(moduleScanSeed(exp.seed, bodyIndex));
-    for (const proc of scanProcs) {
-      if (!rollModuleChance(stream, proc.chanceUnits)) continue;
-      for (let k = 0; k < proc.count; k++) {
-        const both = pools.surface.length > 0 && pools.underground.length > 0;
-        const surface = both ? stream.nextInt(2) === 0 : pools.surface.length > 0;
-        const pool = surface ? pools.surface : pools.underground;
-        if (pool.length === 0) continue;
-        const poi = pickWeightedPoi(stream, pool).poi;
-        discoveries.push({ id: `${exp.id}-${body.id}-disc-${discoveries.length}`, kind: surface ? "landmark" : "underground", poiId: poi.id });
-      }
-    }
+  for (const extra of moduleScanExtras(exp.moduleScanProcs, exp.seed, bodyIndex, pools)) {
+    discoveries.push({ id: `${exp.id}-${body.id}-disc-${discoveries.length}`, kind: extra.surface ? "landmark" : "underground", poiId: extra.poiId });
   }
   body.discoveries = discoveries;
   body.activities = discoveries.map((d, k) => ({
@@ -2054,6 +2042,32 @@ function assignDiscoveriesAndActivities(
     poiId: d.poiId,
     done: false,
   }));
+}
+
+// E-MOD EM-6 / EM-8: the extra discoveries the frozen body-scan procs give one body, in order (each { surface, poiId }).
+// EM-8 fix round: a body with no hidden discovery left in EITHER pool rolls NOTHING (no chance roll, no proc), so a
+// landed roll always adds the "one extra hidden discovery" the card promises. Byte-identical to the earlier engine for
+// every run, in flight or new: the stream is this body's own (moduleScanSeed) and is discarded after, and with both
+// pools empty the earlier engine's landed rolls added nothing either. Pure.
+export function moduleScanExtras(
+  scanProcs: Expedition["moduleScanProcs"],
+  seed: number,
+  bodyIndex: number,
+  pools: { surface: WeightedPoi[]; underground: WeightedPoi[] },
+): { surface: boolean; poiId: string }[] {
+  const out: { surface: boolean; poiId: string }[] = [];
+  if (scanProcs === undefined || scanProcs.length === 0) return out;
+  if (pools.surface.length === 0 && pools.underground.length === 0) return out;
+  const both = pools.surface.length > 0 && pools.underground.length > 0;
+  const stream = makeRng(moduleScanSeed(seed, bodyIndex));
+  for (const proc of scanProcs) {
+    if (!rollModuleChance(stream, proc.chanceUnits)) continue;
+    for (let k = 0; k < proc.count; k++) {
+      const surface = both ? stream.nextInt(2) === 0 : pools.surface.length > 0;
+      out.push({ surface, poiId: pickWeightedPoi(stream, surface ? pools.surface : pools.underground).poi.id });
+    }
+  }
+  return out;
 }
 
 // The per-attempt discovery odds of each pool, in permille, on a planet type: the base odds + the planet type's pool

@@ -163,6 +163,8 @@
     // E-MOD EM-8: the Precursor Lens module draws its relic's glyph (the signed-off modules mockup's own choice: the
     // optical tripod telescope, apart from the Long-Baseline Array's radio dish).
     precursorLens: "relicPrecursorLens",
+    // Gas Giant Study GG-7 (EM-8 fix round): the Ramscoop Collector, a gas-scoop intake funnel (it fell back to an emoji).
+    ramscoopCollector: "moduleRamscoop",
     // E-MOD EM-10 review (SVG only, never emoji): every Spec Utility variety, drawn on the Modules row, its picker, the
     // card header, the Logistics bay and the Armory.
     yieldRig: "rigYield",
@@ -185,6 +187,12 @@
     droneBay: "🛸",
   };
 
+  // EM-8 fix round (SVG only, never emoji): the SVG glyph a slot draws when its variety has no SVG glyph of its own. A
+  // module slot draws the Modules row's chip glyph, so a module added later without a glyph never falls back to an emoji.
+  const SLOT_SVG_FALLBACK: Partial<Record<string, IconName>> = {
+    module: "module",
+  };
+
   // Resolve a piece's VARIETY key: a crafted piece from its blueprint's equipmentOutput,
   // a Standard-Issue baseline from the slot's blessed default variety.
   function resolveVarietyKey(piece: EquipmentInstance): string | null {
@@ -203,6 +211,7 @@
   function iconFor(varietyKey: string | null, slotType: string): string {
     if (isMemberSlotType(slotType)) return "";
     if (varietyKey !== null && EQUIPMENT_VARIETY_SVG_ICON[varietyKey] !== undefined) return ""; // G1-1: drawn as SVG
+    if (SLOT_SVG_FALLBACK[slotType] !== undefined) return ""; // EM-8 fix round: the slot's SVG fallback draws instead
     if (varietyKey !== null && EQUIPMENT_VARIETY_ICON[varietyKey] !== undefined) return EQUIPMENT_VARIETY_ICON[varietyKey];
     return SLOT_ICON_FALLBACK[slotType] ?? "🛰️";
   }
@@ -211,12 +220,14 @@
     return iconFor(resolveVarietyKey(piece), piece.slotType);
   }
 
-  // G1-1: the SVG glyph a variety draws with (EQUIPMENT_VARIETY_SVG_ICON), or null for an emoji-glyph variety.
-  export function varietySvgIcon(varietyKey: string | null): IconName | null {
-    return varietyKey === null ? null : EQUIPMENT_VARIETY_SVG_ICON[varietyKey] ?? null;
+  // G1-1: the SVG glyph a variety draws with (EQUIPMENT_VARIETY_SVG_ICON), or null for an emoji-glyph variety. Given
+  // its slot, an unmapped variety takes the slot's SVG fallback (SLOT_SVG_FALLBACK: every module draws SVG).
+  export function varietySvgIcon(varietyKey: string | null, slotType?: string): IconName | null {
+    const own = varietyKey === null ? undefined : EQUIPMENT_VARIETY_SVG_ICON[varietyKey];
+    return own ?? (slotType === undefined ? undefined : SLOT_SVG_FALLBACK[slotType]) ?? null;
   }
   export function equipmentSvgIcon(piece: EquipmentInstance): IconName | null {
-    return varietySvgIcon(resolveVarietyKey(piece));
+    return varietySvgIcon(resolveVarietyKey(piece), piece.slotType);
   }
 
   // Crafted Blanks 0.13.7: the glyph for an UNROLLED blank, keyed off its BLUEPRINT (a blank
@@ -503,7 +514,7 @@
     | null;
 
   // G1-1: the header's SVG glyph for a variety that draws one (the Guest Wing), else null (the emoji `icon` draws).
-  $: svgIcon = view === null ? null : view.kind === "equipment" ? equipmentSvgIcon(view.piece) : view.kind === "craft" ? varietySvgIcon(view.preview?.varietyKey ?? null) : null;
+  $: svgIcon = view === null ? null : view.kind === "equipment" ? equipmentSvgIcon(view.piece) : view.kind === "craft" ? varietySvgIcon(view.preview?.varietyKey ?? null, view.preview?.slotType) : null;
 
   const NEUTRAL = "var(--color-text-secondary)";
   const DIM = "var(--color-text-dim)";

@@ -257,6 +257,25 @@ describe("EM-10 review fixes", () => {
       expect(equipmentSvgIcon(piece), v.key).toBe(ic);
     }
   });
+
+  it("2b. every module variety draws an SVG glyph (never an emoji), and the module slot's own fallback is SVG too", () => {
+    const base = { ...fittedInSlot(freshState(), SHIP, "specUtility")!, slotType: "module" as const };
+    expect(EQUIPMENT_SLOTS.module.varieties.map((v) => v.key)).toContain("ramscoopCollector");
+    for (const v of EQUIPMENT_SLOTS.module.varieties) {
+      const ic = varietySvgIcon(v.key, "module");
+      expect(ic, v.key).not.toBeNull();
+      expect(ICON_PATHS[ic!], v.key).toBeDefined();
+      expect(ICON_SEMANTICS[ic!], v.key).toBe("subject");
+      const piece = { ...base, moduleVariant: v.key };
+      expect(equipmentIcon(piece), v.key).toBe("");
+      expect(equipmentSvgIcon(piece), v.key).toBe(ic);
+    }
+    expect(varietySvgIcon("ramscoopCollector")).toBe("moduleRamscoop");
+    // A module variety with no glyph of its own still draws SVG (the slot's chip), never an emoji.
+    const unmapped = { ...base, moduleVariant: "notAModuleYet" };
+    expect(equipmentIcon(unmapped)).toBe("");
+    expect(equipmentSvgIcon(unmapped)).toBe("module");
+  });
 });
 
 describe("Help topic: Power and modules", () => {

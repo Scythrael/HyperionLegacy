@@ -22,7 +22,8 @@ import {
 } from "./model";
 import { canFabricate, canResearch, installMissingCombatBaselines, startFabricateJob } from "./tick";
 import { canFitEquipment, equippedFor, fitEquipment, unfitEquipmentInstance } from "./equipment";
-import { advanceExpedition, expeditionCandidates } from "./expedition";
+import { advanceExpedition, expeditionCandidates, moduleScanExtras } from "./expedition";
+import { PLANET_TYPES, poisForPlanetType } from "./expeditionContent";
 import { generateEquipment } from "./itemgen";
 import { addItemQuality } from "./inventory";
 import { undiscoveredResearchMask } from "./relics";
@@ -89,9 +90,9 @@ describe("masked until identified; the Precursor Circuit crafts it", () => {
     expect(canResearch(open, "precursorLensBp")).toEqual({ ok: true });
   });
 
-  it("researched, it fabricates from a Precursor Circuit, Photonic Gel and an Iridium Catalyst, and refuses without the circuit", () => {
+  it("researched, it fabricates from a Precursor Circuit, Photonic Gel and a Polysilicate Wafer (no Iridium Catalyst: M7 keeps it on the top tier), and refuses without the circuit", () => {
     const inputs = BLUEPRINTS.precursorLensBp.recipe.inputs;
-    expect(inputs).toEqual({ precursorCircuit: 1, photonicGel: 2, iridiumCatalyst: 1 });
+    expect(inputs).toEqual({ precursorCircuit: 1, photonicGel: 2, polysilicateWafer: 1 });
     const base = freshState();
     let s: GameState = { ...base, researchedBlueprints: [...base.researchedBlueprints, "precursorLensBp"], facilities: { ...base.facilities, [FABRICATOR_FACILITY_KEY]: { level: 2 } } };
     const stocked = (st: GameState, skip?: string) => {
@@ -203,6 +204,21 @@ describe("the proc acts (the real catalog, the EM-6 body-scanned engine)", () =>
     } finally {
       catalog[i] = saved;
     }
+  });
+});
+
+describe("a landed roll always adds the promised discovery (EM-8 fix round)", () => {
+  const sure = [{ moduleId: PRECURSOR_LENS_MODULE, chanceUnits: MODULE_CHANCE_UNITS, count: 1 }];
+  const pools = poisForPlanetType(PLANET_TYPES[0].id);
+  it("a body with no hidden discovery left in either pool rolls nothing (no proc), even at a sure chance", () => {
+    expect(moduleScanExtras(sure, 12345, 0, { surface: [], underground: [] })).toEqual([]);
+  });
+  it("a body with a hidden discovery left: a sure roll adds exactly one from whichever pool remains", () => {
+    expect(pools.surface.length + pools.underground.length).toBeGreaterThan(0);
+    for (let i = 0; i < 20; i++) expect(moduleScanExtras(sure, 777, i, pools)).toHaveLength(1);
+    const onlyUnder = moduleScanExtras(sure, 777, 0, { surface: [], underground: pools.underground });
+    expect(onlyUnder.map((e) => e.surface)).toEqual([false]);
+    expect(moduleScanExtras(undefined, 777, 0, pools)).toEqual([]);
   });
 });
 

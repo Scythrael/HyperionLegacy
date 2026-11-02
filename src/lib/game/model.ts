@@ -12151,9 +12151,11 @@ export const BLUEPRINTS: Record<string, BlueprintDef> = {
   // PRECURSOR LENS module, the Special universal module (shipModules.ts PRECURSOR_LENS_MODULE). Discovery-gated like
   // its E4d siblings, so the Research card stays MASKED until a Precursor Lens relic is identified, and the
   // identification reveal names it under "Research unlocked". [PROPOSAL] tier 2 (the E4d relic payoffs' tier; the relic
-  // first turns up at Tier II) at the module tier 2 costs (MODULE_BLUEPRINT_COSTS, [PROVISIONAL]). [PROPOSAL] recipe:
-  // the recipe realism audit section 10 row ("optics on an ancient circuit"): the Precursor Circuit (its first
-  // consumer: the salvage exotic was reserved for this module), Photonic Gel for the optics and an Iridium Catalyst.
+  // first turns up at Tier II) at the module tier 2 costs (MODULE_BLUEPRINT_COSTS, [PROVISIONAL]). [PROPOSAL] recipe
+  // ("optics on an ancient circuit"): the Precursor Circuit (its first consumer: the salvage exotic was reserved for
+  // this module), Photonic Gel for the optics and a Polysilicate Wafer for the lens substrate, the same Material Lines
+  // mix as the other tier 2 modules. No Iridium Catalyst: M7 puts the catalyst on the TOP tier only, and the user's
+  // 2026-10-26 answer applied it to the tier 4 Shield Surge alone.
   precursorLensBp: {
     key: "precursorLensBp",
     label: "Precursor Lens Blueprint",
@@ -12163,7 +12165,7 @@ export const BLUEPRINTS: Record<string, BlueprintDef> = {
     craftDurationTicks: MODULE_BLUEPRINT_COSTS[2].craft,
     equipmentOutput: { slotType: "module", varietyKey: PRECURSOR_LENS_MODULE },
     requiresRelicDiscovery: "precursorLens",
-    recipe: { inputs: { precursorCircuit: 1, photonicGel: 2, iridiumCatalyst: 1 } },
+    recipe: { inputs: { precursorCircuit: 1, photonicGel: 2, polysilicateWafer: 1 } },
     flavor: "Optics ground onto an ancient circuit. Through it, a scanned world shows the writing that used to be there.",
     unlockHint: "Identify a Precursor Lens to unlock this research; crafted at the Fabricator; installed in a ship's module slot.",
   },

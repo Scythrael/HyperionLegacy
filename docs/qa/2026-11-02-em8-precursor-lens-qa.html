@@ -144,7 +144,7 @@
 <div class="wrap">
   <p class="eyebrow">Hyperion Legacy · QA · 0.14.0 feature pass</p>
   <h1><span class="v">0.14.0</span> Precursor Lens module (EM-8)</h1>
-  <p class="sub">Curated checklist for E-MOD EM-8 (plan docs/plans/2026-10-17-material-lines-and-emod-plan.md section 4 EM-8): the Precursor Lens, the Special universal module. Identifying a Precursor Lens relic opens its research; it crafts from a Precursor Circuit, Photonic Gel and an Iridium Catalyst; installed, every body an expedition scans has a chance to uncover one extra hidden discovery. <b>Run this on staging</b> (devpreview.crystalisoft.com, the staging branch) with your migrated save, once 0.14.0 is deployed there (0.14.0 stays off staging until the wiring gate passes and you say go). Run each check once at <b>1280 px</b> (desktop) and once at <b>375 px</b> (mobile), in both <b>light and dark</b> themes.</p>
+  <p class="sub">Curated checklist for E-MOD EM-8 (plan docs/plans/2026-10-17-material-lines-and-emod-plan.md section 4 EM-8): the Precursor Lens, the Special universal module. Identifying a Precursor Lens relic opens its research; it crafts from a Precursor Circuit, Photonic Gel and a Polysilicate Wafer; installed, every body an expedition scans has a chance to uncover one extra hidden discovery. <b>Run this on staging</b> (devpreview.crystalisoft.com, the staging branch) with your migrated save, once 0.14.0 is deployed there (0.14.0 stays off staging until the wiring gate passes and you say go). Run each check once at <b>1280 px</b> (desktop) and once at <b>375 px</b> (mobile), in both <b>light and dark</b> themes.</p>
 
   <div class="progress-card">
     <div class="progress-top">
@@ -201,7 +201,7 @@ const SECTIONS = [
     { t: "The project now shows unmasked at Lab tier 2 with its flavor line and hint, and starts like any research.", c: true, how: "relic-unlocks.test.ts (the lineup walk: locked, then researchable and started)." },
   ]},
   { n: "2", title: "Craft", items: [
-    { t: "Fabricator, Modules group: the Precursor Lens recipe asks for 1 Precursor Circuit, 2 Photonic Gel and 1 Iridium Catalyst, and refuses without the circuit.", c: true, how: "emodEm8.test.ts (canFabricate materials; startFabricateJob spends the circuit)." },
+    { t: "Fabricator, Modules group: the Precursor Lens recipe asks for 1 Precursor Circuit, 2 Photonic Gel and 1 Polysilicate Wafer, and refuses without the circuit.", c: true, how: "emodEm8.test.ts (canFabricate materials; startFabricateJob spends the circuit)." },
     { t: "The Precursor Circuit's tooltip now says it crafts the Precursor Lens module (no more \"reserved for a future recipe\"); it still sells at the Quartermaster for 300.", c: true, how: "model.test.ts (the honest hint); emodEm8Goldens.test.ts (the sale held)." },
     { t: "The crafted piece shows in Logistics, Ship Equipment, Modules, with the Lens glyph (an optical telescope on a tripod).", tag: "theme" },
   ]},
