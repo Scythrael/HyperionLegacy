@@ -2061,3 +2061,8 @@ flown-tick run clock by the OC-D8 follow-up. Nothing left of those.
   third buff counts in the contribution, the crew-key guard and the signature key (a two-buff key is unchanged).
 - Registry: facet:pilot:cunning and six crew audit rows live; added crew:audit:pilotCunningReturn and
   crew:audit:opsIntegrityOffload (each measured on its consumer). Registry pins read WR-9 back (wr9Registry.fixture.ts).
+
+## USER ANSWER (2026-11-02): extraction-roll talents stay with extraction
+
+The registry note "extraction-roll talents stay with extraction missions" is APPROVED. User (verbatim): "Yes. Locking
+specific stats to certain game modes makes sense." Drop its [PROPOSAL] tag.
