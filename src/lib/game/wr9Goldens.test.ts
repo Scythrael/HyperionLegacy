@@ -7,7 +7,19 @@
 // WR-9 switched off (wr9Switch.fixture.ts withWr9Off): every fixture then reproduces its capture (BEFORE).
 
 import { describe, expect, it } from "vitest";
-import { WR9_CREW_SEEDS, WR9_EXP_SEEDS, WR9_MISSIONS, wr9CrewBatch, wr9ExpeditionRun, wr9MissionHash, wr9MissionRun } from "./wr9.fixture";
+import {
+  WR9_CREW_SEEDS,
+  WR9_EXP_SEEDS,
+  WR9_MISSIONS,
+  wr9CrewBatch,
+  wr9ExpeditionRun,
+  wr9Hash,
+  wr9LoadedCrew,
+  wr9MissionHash,
+  wr9MissionRun,
+  wr9PatrolRun,
+  wr9ShortRangeRun,
+} from "./wr9.fixture";
 import { withWr9Off } from "./wr9Switch.fixture";
 
 // Captured on the code BEFORE the engine edit (1e6a40a).
@@ -67,4 +79,16 @@ describe("WR-9 off reproduces every capture (BEFORE)", () => {
     it(`expedition ${seed.toString(16)}`, { timeout: 120_000 }, () => expect(withWr9Off(() => wr9ExpeditionRun(seed).out)).toEqual(BEFORE_EXPEDITIONS[seed.toString(16)]));
   }
   for (const seed of WR9_CREW_SEEDS) it(`crew batch ${seed.toString(16)}`, () => expect(withWr9Off(() => wr9CrewBatch(seed))).toBe(BEFORE_CREW[seed.toString(16)]));
+});
+
+// ===== The WR-9 fix round (user answers 2026-10-31) =====
+// Captured on the WR-9 build (cdfd2bd) BEFORE the fix round's engine edit: a short-range run and a Repeat patrol flown
+// with a Cunning 20 Pilot (the Pilot's Cunning did not reach them yet), and a save written with two-buff Lieutenants and
+// Lieutenant Commanders, loaded (no third buff was granted on load yet).
+const FIX_BEFORE = { shortRange: "ead3b698", patrol: "877dcbfd", load: "c1d3160d" };
+
+describe("WR-9 fix round goldens", () => {
+  it("short-range run", () => expect(wr9MissionHash(wr9ShortRangeRun())).toBe(FIX_BEFORE.shortRange));
+  it("patrol run", () => expect(wr9MissionHash(wr9PatrolRun())).toBe(FIX_BEFORE.patrol));
+  it("legacy crew save, loaded", () => expect(wr9Hash(wr9LoadedCrew())).toBe(FIX_BEFORE.load));
 });
