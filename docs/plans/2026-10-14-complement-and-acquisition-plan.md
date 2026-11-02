@@ -849,3 +849,4 @@ display: A a line per panel and a lock on each sub-tab; (9) benched list home: A
   its total berths (Carrier, likely Battleship), auto-crew seats the hull's specialty division(s) first (Carrier:
   Flight Deck; Battleship: Security, Engineering; Aurora: Science; Eir per its lean) before the rest, so the lean is
   real in practice. Totals stay the OC-5 numbers. Existing crew are never moved or evicted.
+- Eir lean order (2026-11-02): Medical, then Science [PROVISIONAL], matching its approved "medical transport" description; only matters once a quarters bonus raises a division.
