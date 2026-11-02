@@ -131,3 +131,13 @@ handler, dispatcher, scholar, machinist, shipwright, salvager, stargazer) [PROPO
 ## APPROVED (user, 2026-11-02)
 
 "Approve, start the mockup (Recommended)". Next: a mockup of the facility Posts row + the Personnel waiting list for sign-off, then the build plan.
+
+## MOCKUP APPROVED (user, 2026-11-02)
+
+docs/mockups/2026-11-02-e5-refugee-posts-mockup.html. User: "I like the mockup as it is now!" All 14 open calls were
+answered by pop-up as DRAWN (option A): Posts strip on every facility pane; a small popover on a filled post; each
+person's share plus the total; Mission Control posts on the Operations tab; phone faces with name lines; the picker
+lists waiting AND posted people; gain plus new total; the waiting list in its own Refugees tab under Personnel; the
+slow-arrivals line in words only; "Post..." on a full facility offers a swap; a one-tap Post on the arrival card
+(suggests the best match); a neutral line for an evacuation that brings nobody home; the Refugees tab hidden until
+the first arrival; a one-time first-arrival hint.

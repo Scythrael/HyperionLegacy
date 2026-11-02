@@ -1,0 +1,674 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Refugee Posts</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Orbitron:wght@500;700&family=Space+Grotesk:wght@400;500;600&family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+  /* Tokens copied from src/app.css (default cyan theme), same set as the CP-9 / CP-10 mockups. */
+  :root {
+    color-scheme: dark;
+    --corner: 2px;
+    --color-bg-deep: #060a12; --color-bg-mid: #0a1120; --color-bg-raised: #0c1626;
+    --color-panel-bg: rgba(20, 40, 60, 0.32); --color-panel-bg-strong: rgba(103, 232, 249, 0.06);
+    --color-border: rgba(103, 232, 249, 0.18); --color-border-strong: rgba(103, 232, 249, 0.4);
+    --color-accent: #67e8f9; --color-accent-bright: #8ff0e0; --color-accent-rgb: 103, 232, 249;
+    --color-text-primary: #e6f4f8; --color-text-secondary: #8fa3ad; --color-text-dim: #628591;
+    --color-warning: #fbbf24; --color-warning-rgb: 251, 191, 36; --color-danger: #f87171; --color-success: #34d399;
+    --font-display: "Orbitron", sans-serif; --font-body: "Space Grotesk", "Inter", sans-serif; --font-mono: "JetBrains Mono", monospace;
+    --text-3xs: 9px; --text-2xs: 10px; --text-xs: 11px; --text-sm: 12px; --text-md: 13px;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; }
+  body { background: var(--color-bg-deep); color: var(--color-text-primary); font-family: var(--font-body); font-size: 13px; line-height: 1.45; padding: 24px 16px 60px; overflow-x: hidden; }
+  .wrap { max-width: 1340px; margin: 0 auto; display: grid; gap: 30px; min-width: 0; }
+  h1 { font-family: var(--font-display); font-size: 20px; letter-spacing: .08em; margin: 0 0 6px; }
+  .intro { margin: 0; color: var(--color-text-secondary); max-width: 96ch; }
+  .prop { color: var(--color-warning); font-family: var(--font-mono); font-size: 10.5px; }
+  .label { font-family: var(--font-display); font-size: 12px; letter-spacing: .18em; color: var(--color-accent); text-transform: uppercase; margin: 0 0 8px; }
+  .note { color: var(--color-text-secondary); font-size: 12px; margin: 8px 0 0; max-width: 100ch; }
+  .stage { border: 1px solid var(--color-border); border-radius: var(--corner); background: radial-gradient(900px 400px at 70% -10%, rgba(103,232,249,.07), transparent 60%), var(--color-bg-mid); padding: 18px 12px; overflow-x: auto; }
+  .frames { display: flex; gap: 18px; flex-wrap: wrap; align-items: flex-start; }
+  .frame-cap { font-family: var(--font-mono); font-size: 11px; color: var(--color-text-dim); margin: 0 0 6px; }
+  svg.g { width: 14px; height: 14px; flex: 0 0 auto; vertical-align: -2px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+
+  /* App shell */
+  .shell { background: var(--color-bg-deep); border: 1px solid var(--color-border-strong); border-radius: var(--corner); box-shadow: 0 20px 60px rgba(0,0,0,.5); overflow: hidden; }
+  .shell.desk { width: 1280px; }
+  .shell.phone { width: 375px; max-width: 100%; }
+  .topbar { display: flex; justify-content: space-between; align-items: center; padding: 10px 16px; border-bottom: 1px solid var(--color-border); font-family: var(--font-display); font-size: 12px; letter-spacing: .14em; gap: 8px; }
+  .topbar .res { font-family: var(--font-mono); font-size: 11px; color: var(--color-text-secondary); letter-spacing: 0; }
+  .crumb { padding: 8px 16px 0; font-family: var(--font-mono); font-size: 10.5px; letter-spacing: .12em; color: var(--color-text-dim); text-transform: uppercase; }
+  .crumb b { color: var(--color-accent-bright); font-weight: 600; }
+  .subtabs { display: flex; gap: 4px; padding: 8px 16px; border-bottom: 1px solid var(--color-border); flex-wrap: wrap; }
+  .tab { font-family: var(--font-display); font-size: 10.5px; letter-spacing: .1em; padding: 6px 10px; border: 1px solid var(--color-border); border-radius: var(--corner); color: var(--color-text-secondary); display: inline-flex; gap: 6px; align-items: center; }
+  .tab.on { color: var(--color-text-primary); border-color: var(--color-accent-bright); background: rgba(var(--color-accent-rgb), .12); }
+  .tab .pill { font-family: var(--font-mono); font-size: 9.5px; letter-spacing: 0; padding: 0 5px; border: 1px solid var(--color-border-strong); border-radius: var(--corner); color: var(--color-accent-bright); }
+  .content { padding: 14px 16px 18px; display: flex; flex-direction: column; gap: 10px; background: var(--color-panel-bg); }
+  .phone .content { padding: 12px; }
+  .phone .topbar { padding: 9px 12px; }
+  .phone .subtabs { padding: 8px 12px; flex-wrap: nowrap; overflow-x: auto; }
+  .phone .crumb { padding: 8px 12px 0; }
+
+  /* Real .fpane classes from App.svelte (Facilities dashboard) */
+  .fwrap { display: flex; flex-direction: column; }
+  .fpane { display: grid; grid-template-columns: 172px minmax(0, 1fr) 78px; align-items: center; gap: 16px; width: 100%; text-align: left; border: 1px solid var(--color-border-strong); background: var(--color-panel-bg-strong); border-radius: var(--corner); padding: 10px 14px; }
+  .fwrap.hasposts .fpane { border-bottom-left-radius: 0; border-bottom-right-radius: 0; }
+  .fpane-id { display: flex; align-items: center; gap: 10px; min-width: 0; }
+  .fpane-glyph { width: 32px; height: 32px; flex: 0 0 32px; display: grid; place-items: center; border: 1px solid var(--color-border-strong); border-radius: var(--corner); background: rgba(var(--color-accent-rgb), 0.05); color: var(--color-accent); }
+  .fpane-glyph svg.g { width: 18px; height: 18px; }
+  .fpane-stack { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+  .fpane-name { font-size: var(--text-sm); font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .fpane-sub { font-family: var(--font-mono); font-size: var(--text-2xs); color: var(--color-text-dim); }
+  .fpane-mid { display: flex; flex-direction: column; gap: 5px; min-width: 0; }
+  .fprow { display: grid; grid-template-columns: 168px minmax(0, 1fr) 44px; align-items: center; gap: 9px; }
+  .fprow-lbl { font-size: var(--text-2xs); color: var(--color-text-secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .fprow-track { height: 6px; border-radius: var(--corner); background: rgba(255,255,255,.07); border: 1px solid var(--color-border); overflow: hidden; }
+  .fprow-track > i { display: block; height: 100%; background: var(--color-accent); }
+  .fprow-pct { font-family: var(--font-mono); font-size: var(--text-2xs); color: var(--color-text-dim); text-align: right; }
+  .fpane-idle { font-size: var(--text-xs); color: var(--color-text-secondary); }
+  .fpane-cta { font-family: var(--font-mono); font-size: var(--text-2xs); letter-spacing: .1em; text-transform: uppercase; color: var(--color-accent); text-align: right; }
+
+  /* NEW: the Posts row, a strip attached under the pane (a sibling, since the pane itself is a button) */
+  .fposts { border: 1px solid var(--color-border-strong); border-top: 1px dashed rgba(var(--color-accent-rgb), .28); border-radius: 0 0 var(--corner) var(--corner); background: rgba(var(--color-accent-rgb), .025); padding: 8px 14px 9px; display: grid; grid-template-columns: 172px minmax(0, 1fr) 230px; gap: 16px; align-items: center; position: relative; }
+  .fp-hd { display: flex; flex-direction: column; gap: 2px; }
+  .fp-tag { font-family: var(--font-mono); font-size: var(--text-2xs); letter-spacing: .12em; text-transform: uppercase; color: var(--color-accent-bright); display: flex; gap: 6px; align-items: center; }
+  .fp-tag .ct { color: var(--color-text-primary); letter-spacing: 0; }
+  .fp-next { font-family: var(--font-mono); font-size: var(--text-3xs); color: var(--color-text-dim); letter-spacing: .04em; }
+  .slots { display: flex; gap: 8px; flex-wrap: wrap; min-width: 0; }
+  .slot { display: grid; grid-template-columns: 34px minmax(0, 1fr); gap: 1px 8px; align-items: center; padding: 4px 9px 4px 4px; border: 1px solid rgba(var(--color-accent-rgb), .18); border-radius: var(--corner); background: rgba(var(--color-accent-rgb), .04); min-width: 0; position: relative; }
+  .slot .pt { grid-row: 1 / 3; }
+  .slot .sn { font-size: 12px; font-weight: 600; white-space: nowrap; }
+  .slot .sb { font-size: 10.5px; color: var(--color-text-secondary); display: flex; gap: 5px; align-items: center; white-space: nowrap; }
+  .slot.sel { border-color: var(--color-accent-bright); background: rgba(var(--color-accent-rgb), .1); }
+  .slot.empty { border-style: dashed; border-color: rgba(var(--color-accent-rgb), .35); background: transparent; grid-template-columns: 34px auto; color: var(--color-accent); }
+  .slot.empty .ph { grid-row: 1 / 3; width: 34px; height: 34px; border: 1px dashed rgba(var(--color-accent-rgb), .4); border-radius: var(--corner); display: grid; place-items: center; }
+  .slot.empty .sn { color: var(--color-accent); font-weight: 500; }
+  .slot.empty .sb { color: var(--color-text-dim); font-family: var(--font-mono); font-size: 10px; }
+  .slot.locked { border-style: dashed; border-color: rgba(98,133,145,.35); background: transparent; color: var(--color-text-dim); grid-template-columns: 34px auto; }
+  .slot.locked .ph { grid-row: 1 / 3; width: 34px; height: 34px; border: 1px dashed rgba(98,133,145,.35); border-radius: var(--corner); display: grid; place-items: center; }
+  .slot.locked .sn { font-weight: 500; color: var(--color-text-dim); }
+  .slot.locked .sb { font-family: var(--font-mono); font-size: 10px; color: var(--color-text-dim); }
+  .match { font-family: var(--font-mono); font-size: 9.5px; letter-spacing: .06em; padding: 0 5px; border-radius: var(--corner); border: 1px solid; text-transform: uppercase; white-space: nowrap; }
+  .match.ok { color: var(--color-success); border-color: rgba(52,211,153,.45); }
+  .match.off { color: var(--color-text-dim); border-color: rgba(98,133,145,.45); }
+  .readout { font-family: var(--font-mono); font-size: 10.5px; color: var(--color-text-secondary); display: grid; gap: 2px; justify-items: end; text-align: right; }
+  .readout .tot { color: var(--color-success); font-size: 12px; }
+  .readout .ln { display: flex; gap: 6px; }
+  .readout .ln b { color: var(--color-text-primary); font-weight: 400; }
+  .readout .dim { color: var(--color-text-dim); font-size: 9.5px; }
+
+  /* Portraits: SVG silhouettes, colored per person (CSS custom properties reach into <use>) */
+  svg.pt { width: 34px; height: 34px; border-radius: var(--corner); display: block; flex: 0 0 auto; border: 1px solid rgba(var(--color-accent-rgb), .3); }
+  svg.pt.sm { width: 28px; height: 28px; }
+  svg.pt.lg { width: 56px; height: 56px; }
+  .p1 { --pb: #12304a; --ps: #c99a76; --ph: #2b1b14; --pc: #2f7f8f; }
+  .p2 { --pb: #24203f; --ps: #8a5a3c; --ph: #0e0d12; --pc: #6f5bb5; }
+  .p3 { --pb: #13352c; --ps: #e3bf9f; --ph: #b88a3c; --pc: #3a8f6e; }
+  .p4 { --pb: #3a2418; --ps: #6b4430; --ph: #d9d4cc; --pc: #a66a3a; }
+  .p5 { --pb: #1a2c3c; --ps: #d6a985; --ph: #7a2e1e; --pc: #4f86c6; }
+  .p6 { --pb: #2c2a17; --ps: #b07d5a; --ph: #3d3a33; --pc: #9a8b3a; }
+  .p7 { --pb: #301a2a; --ps: #f0cfb2; --ph: #1d1d24; --pc: #a24f78; }
+  .p8 { --pb: #172636; --ps: #9c6a4c; --ph: #5c5c64; --pc: #5a7a8a; }
+
+  /* Background chips */
+  .bg { display: inline-flex; gap: 4px; align-items: center; font-size: 11px; color: var(--color-text-secondary); white-space: nowrap; }
+  .bg svg.g { width: 12px; height: 12px; color: var(--color-accent); }
+  .skill { font-family: var(--font-mono); font-size: 11px; color: var(--color-text-primary); white-space: nowrap; }
+  .skill span { color: var(--color-text-dim); }
+
+  /* Buttons, chips, popovers (from CP-10) */
+  button { font: inherit; font-size: 12px; color: var(--color-accent); background: rgba(var(--color-accent-rgb), .06); border: 1px solid var(--color-border-strong); border-radius: var(--corner); padding: 5px 11px; cursor: pointer; min-height: 32px; display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
+  button.pri { background: rgba(var(--color-accent-rgb), .18); color: var(--color-text-primary); }
+  button.ghost { background: transparent; border-color: var(--color-border); color: var(--color-text-secondary); }
+  button.sm { min-height: 28px; padding: 3px 9px; font-size: 11.5px; }
+  .chip { font-family: var(--font-mono); font-size: 11px; padding: 5px 9px; border: 1px solid var(--color-border); border-radius: var(--corner); color: var(--color-text-secondary); white-space: nowrap; display: inline-flex; gap: 4px; align-items: center; }
+  .chip.on { color: var(--color-text-primary); border-color: var(--color-accent-bright); background: rgba(var(--color-accent-rgb), .14); }
+  .pop { position: absolute; z-index: 5; min-width: 230px; border: 1px solid var(--color-border-strong); border-radius: var(--corner); background: var(--color-bg-raised); box-shadow: 0 12px 28px rgba(0,0,0,.55); padding: 8px; display: grid; gap: 6px; font-size: 11.5px; color: var(--color-text-secondary); }
+  .pop .ph { display: flex; gap: 8px; align-items: center; }
+  .pop .ph b { color: var(--color-text-primary); font-size: 12.5px; }
+  .pop .kv { display: grid; grid-template-columns: auto 1fr; gap: 2px 10px; font-family: var(--font-mono); font-size: 10.5px; }
+  .pop .kv span:nth-child(odd) { color: var(--color-text-dim); }
+  .pop .kv span:nth-child(even) { color: var(--color-text-primary); }
+  .pop .acts { display: flex; gap: 6px; flex-wrap: wrap; }
+
+  /* Modal / sheet (from CP-10) */
+  .dim { background: rgba(2,5,10,.7); padding: 30px; display: flex; justify-content: center; align-items: flex-start; }
+  .modal { width: 640px; max-width: 100%; border: 1px solid var(--color-border-strong); border-radius: var(--corner); background: var(--color-bg-raised); box-shadow: 0 20px 60px rgba(0,0,0,.6); }
+  .mh { display: flex; align-items: center; gap: 8px; padding: 12px 14px; border-bottom: 1px solid var(--color-border); font-family: var(--font-display); font-size: 12px; letter-spacing: .12em; text-transform: uppercase; }
+  .mh .x { margin-left: auto; color: var(--color-text-dim); }
+  .mh .meta { font-family: var(--font-mono); font-size: 11px; letter-spacing: 0; color: var(--color-text-dim); text-transform: none; }
+  .mb { padding: 12px 14px; display: grid; gap: 10px; font-size: 12.5px; color: var(--color-text-secondary); }
+  .mf { display: flex; gap: 8px; justify-content: flex-end; padding: 10px 14px; border-top: 1px solid var(--color-border); flex-wrap: wrap; align-items: center; }
+  .colh { font-family: var(--font-mono); font-size: 10px; letter-spacing: .12em; text-transform: uppercase; color: var(--color-accent-bright); display: flex; justify-content: space-between; gap: 8px; }
+  .colh span { color: var(--color-text-dim); letter-spacing: .02em; text-transform: none; }
+  .sheet { border-top: 1px solid var(--color-border-strong); background: var(--color-bg-raised); border-radius: 6px 6px 0 0; box-shadow: 0 -12px 40px rgba(0,0,0,.6); }
+  .sheet .grab { width: 40px; height: 4px; border-radius: 2px; background: var(--color-border-strong); margin: 8px auto 0; }
+  .phonedim { background: rgba(2,5,10,.72); display: flex; flex-direction: column; justify-content: flex-end; min-height: 620px; }
+
+  /* Picker rows */
+  .plist { border: 1px solid rgba(var(--color-accent-rgb), .16); border-radius: var(--corner); background: rgba(var(--color-accent-rgb), .03); }
+  .prow { display: grid; grid-template-columns: 34px minmax(0, 1.3fr) minmax(0, 1fr) auto; gap: 4px 12px; align-items: center; padding: 8px 10px; border-bottom: 1px solid rgba(var(--color-accent-rgb), .08); }
+  .prow:last-child { border-bottom: 0; }
+  .prow .pn { font-weight: 600; font-size: 12.5px; color: var(--color-text-primary); display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+  .prow .ps { font-size: 11px; color: var(--color-text-secondary); display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+  .prow .gain { font-family: var(--font-mono); font-size: 11.5px; }
+  .prow .gain.ok { color: var(--color-success); }
+  .prow .gain.off { color: var(--color-text-secondary); }
+  .prow .gain small { display: block; color: var(--color-text-dim); font-size: 9.5px; }
+  .prow.top { background: rgba(52,211,153,.05); }
+  .prow .where { font-family: var(--font-mono); font-size: 10px; color: var(--color-text-dim); }
+  .sep { padding: 6px 10px; font-family: var(--font-mono); font-size: 10px; letter-spacing: .1em; text-transform: uppercase; color: var(--color-text-dim); background: rgba(var(--color-accent-rgb), .04); border-bottom: 1px solid rgba(var(--color-accent-rgb), .08); display: flex; justify-content: space-between; gap: 8px; }
+  .sep span { text-transform: none; letter-spacing: 0; }
+  .sum { font-size: 12px; color: var(--color-text-secondary); padding: 8px 10px; border: 1px solid var(--color-border); border-radius: var(--corner); background: rgba(0,0,0,.2); }
+  .sum b { color: var(--color-text-primary); font-family: var(--font-mono); font-weight: 400; }
+  .phone .prow { grid-template-columns: 34px minmax(0, 1fr) auto; }
+  .phone .prow .ps { grid-column: 2 / 3; }
+  .phone .prow .gain { grid-column: 2 / 3; }
+  .phone .prow .pa { grid-column: 3; grid-row: 1 / 4; align-self: center; }
+  .phone .prow .pt { grid-row: 1 / 4; align-self: start; }
+
+  /* Waiting list */
+  .calm { display: flex; gap: 10px; align-items: flex-start; padding: 10px 12px; border: 1px solid rgba(var(--color-accent-rgb), .18); border-radius: var(--corner); background: rgba(var(--color-accent-rgb), .05); font-size: 12px; color: var(--color-text-secondary); }
+  .calm svg.g { color: var(--color-accent); margin-top: 2px; }
+  .calm b { color: var(--color-text-primary); font-weight: 500; }
+  .statrow { display: flex; gap: 8px; flex-wrap: wrap; }
+  .st { padding: 7px 10px; border: 1px solid rgba(var(--color-accent-rgb), .14); border-radius: var(--corner); background: rgba(var(--color-accent-rgb), .04); min-width: 120px; }
+  .st .k { font-family: var(--font-mono); font-size: 10px; letter-spacing: .1em; text-transform: uppercase; color: var(--color-accent); }
+  .st .v { font-family: var(--font-mono); font-size: 18px; }
+  .st .v small { font-size: 11px; color: var(--color-text-dim); }
+  .tools { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+  .tools .lbl { font-family: var(--font-mono); font-size: 10px; letter-spacing: .1em; text-transform: uppercase; color: var(--color-text-dim); }
+  .spacer { flex: 1; }
+  .gtw { border: 1px solid rgba(var(--color-accent-rgb), .16); border-radius: var(--corner); background: rgba(var(--color-accent-rgb), .03); }
+  table.gt { width: 100%; border-collapse: collapse; }
+  .gt th { text-align: left; font-family: var(--font-mono); font-weight: 400; font-size: 10px; letter-spacing: .1em; text-transform: uppercase; color: var(--color-accent-bright); padding: 8px 10px; border-bottom: 1px solid var(--color-border); white-space: nowrap; }
+  .gt th.sorted::after { content: " \25BE"; color: var(--color-accent); }
+  .gt td { padding: 7px 10px; border-bottom: 1px solid rgba(var(--color-accent-rgb), .08); vertical-align: middle; font-size: 12.5px; }
+  .gt td.num, .gt th.num { text-align: right; font-family: var(--font-mono); }
+  .gt td.act { text-align: right; width: 1%; }
+  .gt .sub { color: var(--color-text-dim); font-size: 11px; }
+  .who { display: flex; gap: 9px; align-items: center; }
+  .who b { font-weight: 600; }
+  .tier { font-family: var(--font-mono); font-size: 9.5px; padding: 0 5px; border: 1px solid var(--color-border-strong); border-radius: var(--corner); color: var(--color-accent-bright); }
+  .best { font-size: 11.5px; color: var(--color-text-secondary); display: flex; gap: 6px; align-items: center; }
+  .best .open { font-family: var(--font-mono); font-size: 10px; color: var(--color-success); }
+  .best .full { font-family: var(--font-mono); font-size: 10px; color: var(--color-text-dim); }
+  .wcard { border: 1px solid rgba(var(--color-accent-rgb), .16); border-radius: var(--corner); background: rgba(var(--color-accent-rgb), .04); padding: 9px 10px; display: grid; grid-template-columns: 34px minmax(0, 1fr) auto; gap: 3px 9px; align-items: start; }
+  .wcard .nm { font-weight: 600; font-size: 13px; }
+  .wcard .meta { font-size: 11px; color: var(--color-text-secondary); display: flex; gap: 8px; flex-wrap: wrap; align-items: center; grid-column: 2 / 4; }
+  .wcard .or { font-family: var(--font-mono); font-size: 10px; color: var(--color-text-dim); grid-column: 2 / 4; }
+  .wcard .pt { grid-row: 1 / 4; }
+
+  /* Log and completion */
+  .result { border: 1px solid rgba(52,211,153,.5); background: rgba(52,211,153,.06); border-radius: var(--corner); padding: 10px 12px; display: grid; gap: 8px; font-size: 12px; color: var(--color-text-secondary); }
+  .result .rh { color: var(--color-success); font-weight: 600; display: flex; gap: 6px; align-items: center; font-size: 12.5px; }
+  .result .rl { display: grid; grid-template-columns: minmax(0,1fr) auto; gap: 8px; font-family: var(--font-mono); font-size: 11px; }
+  .result .rl b { color: var(--color-text-primary); font-weight: 400; }
+  .arrive { display: grid; grid-template-columns: 56px minmax(0, 1fr); gap: 4px 12px; align-items: center; padding: 10px; border: 1px solid rgba(var(--color-accent-rgb), .22); border-radius: var(--corner); background: rgba(var(--color-accent-rgb), .04); }
+  .arrive .big { font-family: var(--font-display); font-size: 14px; letter-spacing: .05em; color: var(--color-text-primary); }
+  .arrive .line { font-size: 11.5px; color: var(--color-text-secondary); display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+  .arrive .acts { grid-column: 1 / 3; display: flex; gap: 6px; flex-wrap: wrap; }
+  .log { border: 1px solid rgba(var(--color-accent-rgb), .16); border-radius: var(--corner); background: rgba(0,0,0,.25); font-size: 12px; }
+  .log .lh { padding: 7px 10px; border-bottom: 1px solid var(--color-border); font-family: var(--font-mono); font-size: 10px; letter-spacing: .12em; text-transform: uppercase; color: var(--color-accent-bright); }
+  .log .le { display: grid; grid-template-columns: 62px 18px minmax(0, 1fr); gap: 8px; padding: 6px 10px; border-bottom: 1px solid rgba(var(--color-accent-rgb), .06); align-items: start; color: var(--color-text-secondary); }
+  .log .le:last-child { border-bottom: 0; }
+  .log .le .t { font-family: var(--font-mono); font-size: 10.5px; color: var(--color-text-dim); padding-top: 1px; }
+  .log .le b { color: var(--color-text-primary); font-weight: 600; }
+  .log .le.hi { background: rgba(52,211,153,.05); }
+  .log .le.hi svg.g { color: var(--color-success); }
+  .log .le.bye { background: rgba(var(--color-accent-rgb), .05); }
+  .log .le.bye svg.g { color: var(--color-accent-bright); }
+  .phone .log .le { grid-template-columns: 18px minmax(0, 1fr); }
+  .phone .log .le .t { grid-column: 2; grid-row: 2; padding: 0; }
+  .toast { display: flex; gap: 10px; align-items: center; padding: 9px 12px; border: 1px solid rgba(52,211,153,.5); border-left: 3px solid var(--color-success); border-radius: var(--corner); background: var(--color-bg-raised); box-shadow: 0 12px 28px rgba(0,0,0,.55); font-size: 12px; color: var(--color-text-secondary); max-width: 420px; }
+  .toast b { color: var(--color-text-primary); }
+  .toast.bye { border-color: rgba(var(--color-accent-rgb), .45); border-left-color: var(--color-accent-bright); }
+
+  /* Empty state */
+  .ghostnote { border: 1px dashed rgba(98,133,145,.4); border-radius: var(--corner); padding: 9px 12px; font-size: 11.5px; color: var(--color-text-dim); display: flex; gap: 8px; align-items: flex-start; }
+
+  /* Open-call callouts (from CP-10) */
+  .oc { border: 1px dashed rgba(var(--color-warning-rgb), .65); background: rgba(var(--color-warning-rgb), .06); border-radius: var(--corner); padding: 8px 10px; font-size: 12px; color: var(--color-text-secondary); max-width: 520px; }
+  .oc .t { font-family: var(--font-mono); font-size: 10.5px; letter-spacing: .1em; color: var(--color-warning); text-transform: uppercase; margin-bottom: 4px; }
+  .oc .ab { display: grid; grid-template-columns: 18px 1fr; gap: 2px 6px; }
+  .oc .ab b { font-family: var(--font-mono); color: var(--color-warning); }
+  .oc .drawn { font-family: var(--font-mono); font-size: 10px; color: var(--color-text-dim); margin-top: 4px; }
+  .ocrow { display: flex; gap: 12px; flex-wrap: wrap; margin-top: 12px; }
+  ol.calls { margin: 0; padding-left: 20px; display: grid; gap: 7px; color: var(--color-text-secondary); max-width: 104ch; }
+  ol.calls b { color: var(--color-text-primary); }
+
+  /* Phone variants of the facility pane + posts strip */
+  .phone .fpane { grid-template-columns: 120px minmax(0, 1fr); gap: 10px; padding: 9px 10px; }
+  .phone .fpane-cta { display: none; }
+  .phone .fprow { grid-template-columns: 70px minmax(0, 1fr) 34px; gap: 6px; }
+  .phone .fposts { grid-template-columns: minmax(0, 1fr); gap: 7px; padding: 8px 10px; }
+  .phone .fp-hd { flex-direction: row; justify-content: space-between; align-items: baseline; }
+  .phone .slots { flex-direction: column; flex-wrap: nowrap; gap: 5px; }
+  .phone .slot { grid-template-columns: 28px minmax(0, 1fr) auto; padding: 3px 8px 3px 3px; }
+  .phone .slot .pt { width: 28px; height: 28px; }
+  .phone .slot .tail { grid-column: 3; grid-row: 1 / 3; }
+  .phone .slot.empty, .phone .slot.locked { grid-template-columns: 28px minmax(0,1fr) auto; }
+  .phone .slot.empty .ph, .phone .slot.locked .ph { width: 28px; height: 28px; }
+  .phone .readout { justify-items: start; text-align: left; border-top: 1px solid rgba(var(--color-accent-rgb), .1); padding-top: 6px; }
+  .tail { font-family: var(--font-mono); font-size: 10.5px; color: var(--color-success); text-align: right; }
+  .tail.off { color: var(--color-text-secondary); }
+  .slot:not(.phoneonly) .tail { display: none; }
+  .phone .slot .tail { display: block; }
+</style>
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <defs>
+    <!-- Portrait silhouettes: 4 hair shapes over one head + shoulders. Colors come from the .p1 to .p8 classes. -->
+    <symbol id="pt-a" viewBox="0 0 32 32"><rect width="32" height="32" fill="var(--pb)"/><path d="M5 32c0-6.5 4.8-10 11-10s11 3.5 11 10z" fill="var(--pc)"/><path d="M13.5 19h5v4h-5z" fill="var(--ps)"/><ellipse cx="16" cy="13.5" rx="5.6" ry="6.4" fill="var(--ps)"/><path d="M10.2 13c-.4-5 2.5-7.6 5.8-7.6s6.3 2.4 5.8 7.6c-1-2.6-3-3.6-5.8-3.6s-4.8 1-5.8 3.6z" fill="var(--ph)"/></symbol>
+    <symbol id="pt-b" viewBox="0 0 32 32"><rect width="32" height="32" fill="var(--pb)"/><path d="M5 32c0-6.5 4.8-10 11-10s11 3.5 11 10z" fill="var(--pc)"/><path d="M9.6 12.5c0-5 2.9-7.5 6.4-7.5s6.4 2.5 6.4 7.5v8.5c-1 .6-1.8.8-2.4.8V14H12v7.8c-.6 0-1.4-.2-2.4-.8z" fill="var(--ph)"/><path d="M13.5 19h5v4h-5z" fill="var(--ps)"/><ellipse cx="16" cy="13.8" rx="5.2" ry="6.2" fill="var(--ps)"/><path d="M10.6 12c.8-3.4 3-5 5.4-5s4.8 1.6 5.4 5c-1.8-1.6-3.6-2.2-5.4-2.2s-3.6.6-5.4 2.2z" fill="var(--ph)"/></symbol>
+    <symbol id="pt-c" viewBox="0 0 32 32"><rect width="32" height="32" fill="var(--pb)"/><path d="M5 32c0-6.5 4.8-10 11-10s11 3.5 11 10z" fill="var(--pc)"/><path d="M13.5 19h5v4h-5z" fill="var(--ps)"/><ellipse cx="16" cy="13.5" rx="5.6" ry="6.4" fill="var(--ps)"/><circle cx="16" cy="6.2" r="3" fill="var(--ph)"/><path d="M10.4 12.4c.4-3.8 2.8-5.2 5.6-5.2s5.2 1.4 5.6 5.2c-1.6-1.4-3.4-2-5.6-2s-4 .6-5.6 2z" fill="var(--ph)"/></symbol>
+    <symbol id="pt-d" viewBox="0 0 32 32"><rect width="32" height="32" fill="var(--pb)"/><path d="M5 32c0-6.5 4.8-10 11-10s11 3.5 11 10z" fill="var(--pc)"/><path d="M13.5 19h5v4h-5z" fill="var(--ps)"/><ellipse cx="16" cy="13.5" rx="5.6" ry="6.4" fill="var(--ps)"/><path d="M11.2 16.4c1.2 3.2 2.8 4.4 4.8 4.4s3.6-1.2 4.8-4.4c.4 3.4-1.6 5.6-4.8 5.6s-5.2-2.2-4.8-5.6z" fill="var(--ph)"/><path d="M10.6 11.2c.6-3 2.6-4.6 5.4-4.6s4.8 1.6 5.4 4.6c-1.8-.8-3.6-1.2-5.4-1.2s-3.6.4-5.4 1.2z" fill="var(--ph)"/></symbol>
+
+    <!-- Background glyphs, one per facility family [PROPOSAL] -->
+    <symbol id="bg-refiner" viewBox="0 0 24 24"><path d="M9 3h6M10 3v6L4.5 19a1.5 1.5 0 0 0 1.3 2h12.4a1.5 1.5 0 0 0 1.3-2L14 9V3"/><path d="M7 15h10"/></symbol>
+    <symbol id="bg-fuel" viewBox="0 0 24 24"><path d="M5 21V5a2 2 0 0 1 2-2h6a2 2 0 0 1 2 2v16zM3 21h14M15 9h2a2 2 0 0 1 2 2v6a1.5 1.5 0 0 0 3 0V8l-3-3"/><path d="M8 7h4"/></symbol>
+    <symbol id="bg-dispatch" viewBox="0 0 24 24"><path d="M12 13v8M8 21h8"/><circle cx="12" cy="11" r="2"/><path d="M8.5 7.5a5 5 0 0 0 0 7M15.5 7.5a5 5 0 0 1 0 7M5.6 4.6a9 9 0 0 0 0 12.8M18.4 4.6a9 9 0 0 1 0 12.8"/></symbol>
+    <symbol id="bg-scholar" viewBox="0 0 24 24"><path d="M3 5c3-1.5 6-1.5 9 1 3-2.5 6-2.5 9-1v14c-3-1.5-6-1.5-9 1-3-2.5-6-2.5-9-1z"/><path d="M12 6v14"/></symbol>
+    <symbol id="bg-machinist" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M4.9 19.1L7 17M17 7l2.1-2.1"/></symbol>
+    <symbol id="bg-shipwright" viewBox="0 0 24 24"><path d="M12 2l4 9v8l-4 3-4-3v-8z"/><path d="M8 13l-4 4v3l4-1M16 13l4 4v3l-4-1"/></symbol>
+    <symbol id="bg-salvager" viewBox="0 0 24 24"><path d="M7 19H4l3-5M17 19h3l-3-5M9 5l3-2 3 5"/><path d="M4 19l3.5-6M20 19l-3.5-6M9.5 5.5L12 3l2.5 5.5M7 19h10"/></symbol>
+    <symbol id="bg-stargazer" viewBox="0 0 24 24"><path d="M3 14l11-6 2 4-11 6zM14 8l5-3 2 4-5 3M9 17l-2 4M11 16l2 5"/></symbol>
+
+    <symbol id="i-plus" viewBox="0 0 24 24"><path d="M5 12h14M12 5v14"/></symbol>
+    <symbol id="i-x" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></symbol>
+    <symbol id="i-check" viewBox="0 0 24 24"><path d="M5 12l5 5 9-10"/></symbol>
+    <symbol id="i-lock" viewBox="0 0 24 24"><rect x="5" y="11" width="14" height="10" rx="1"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></symbol>
+    <symbol id="i-up" viewBox="0 0 24 24"><path d="M12 19V5M6 11l6-6 6 6"/></symbol>
+    <symbol id="i-people" viewBox="0 0 24 24"><circle cx="8" cy="9" r="2.5"/><circle cx="16" cy="9" r="2.5"/><circle cx="12" cy="6" r="2.5"/><path d="M3 19c0-3 2.5-5 5-5M21 19c0-3-2.5-5-5-5M7 20c0-3.5 2.2-6 5-6s5 2.5 5 6"/></symbol>
+    <symbol id="i-home" viewBox="0 0 24 24"><path d="M3 11l9-7 9 7M5 10v10h14V10M10 20v-6h4v6"/></symbol>
+    <symbol id="i-leaf" viewBox="0 0 24 24"><path d="M5 19c0-8 5-14 15-15-1 10-7 15-15 15zM5 19l8-8"/></symbol>
+    <symbol id="i-info" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 11v6M12 7.5v.5"/></symbol>
+    <symbol id="i-move" viewBox="0 0 24 24"><path d="M4 8h14l-4-4M20 16H6l4 4"/></symbol>
+    <symbol id="i-sort" viewBox="0 0 24 24"><path d="M7 4v16M3 8l4-4 4 4M17 20V4M13 16l4 4 4-4"/></symbol>
+    <symbol id="i-ship" viewBox="0 0 24 24"><path d="M12 2l4 9v8l-4 3-4-3v-8z"/><path d="M8 13l-4 4v3l4-1M16 13l4 4v3l-4-1"/></symbol>
+  </defs>
+</svg>
+
+<div class="wrap">
+  <div>
+    <h1>E5: Refugee Posts</h1>
+    <p class="intro">Hyperion Legacy 0.14.0, phase E5, for sign-off before the build. Drawn from the approved design (docs/plans/2026-11-02-refugee-posts-e5-design.md): evacuations bring home one named refugee; each facility has posts that grow with its level; a refugee whose background <b>matches</b> the facility gives a strong buff, anywhere else a small one; moving people is free; nobody is ever lost. Every number is a <span class="prop">[PROPOSAL]</span> for the balance pass: skill 20 to 50 from Tier I, 40 to 75 from Tier II; a matched post gives skill / 10 percent, an unmatched one a quarter of that; posts open at Levels 1, 4, 7, 10 and so on; several on one facility stack on the D23 curve. Amber dashed boxes are open calls; the drawn option is marked.</p>
+    <p class="note">Background to facility mapping <span class="prop">[PROPOSAL]</span>: <b>Refiner</b> Refinery (refine speed) · <b>Fuel handler</b> Fuel Depot (fleet reach) · <b>Dispatcher</b> Mission Control (short-range run speed) · <b>Scholar</b> Research Lab (research speed) · <b>Machinist</b> Fabricator (craft speed) · <b>Shipwright</b> Shipyard (build speed) · <b>Salvager</b> Salvage Bay (salvage yield) · <b>Stargazer</b> Subspace Telescope (scan range).</p>
+  </div>
+
+  <!-- ===================== 1 ===================== -->
+  <section>
+    <p class="label">1. Facility cards with the new Posts row (desktop 1280 px)</p>
+    <div class="stage">
+      <div class="shell desk">
+        <div class="topbar"><span>HYPERION LEGACY</span><span class="res">Credits 4.82M · FA 31 · Day 214</span></div>
+        <div class="crumb">Facilities / <b>Dashboard</b></div>
+        <div class="content">
+          <!-- Refinery: 2 filled + 1 empty -->
+          <div class="fwrap hasposts">
+            <div class="fpane">
+              <span class="fpane-id"><span class="fpane-glyph"><svg class="g"><use href="#bg-refiner"/></svg></span><span class="fpane-stack"><span class="fpane-name">Refinery</span><span class="fpane-sub">Level 7</span></span></span>
+              <span class="fpane-mid"><span class="fprow"><span class="fprow-lbl">Refining → Titanium Plate</span><span class="fprow-track"><i style="width:62%"></i></span><span class="fprow-pct">62%</span></span></span>
+              <span class="fpane-cta">Manage</span>
+            </div>
+            <div class="fposts">
+              <div class="fp-hd"><span class="fp-tag"><svg class="g"><use href="#i-people"/></svg>Posts <span class="ct">2 / 3</span></span><span class="fp-next">4th post at Level 10</span></div>
+              <div class="slots">
+                <div class="slot sel"><svg class="pt p1"><use href="#pt-a"/></svg><span class="sn">Mira Talven</span><span class="sb"><span class="bg"><svg class="g"><use href="#bg-refiner"/></svg>Refiner</span><span class="match ok">match</span></span>
+                  <div class="pop" style="top:46px;left:0">
+                    <div class="ph"><svg class="pt sm p1"><use href="#pt-a"/></svg><b>Mira Talven</b><span class="match ok">match</span></div>
+                    <div class="kv"><span>Background</span><span>Refiner</span><span>Skill</span><span>42</span><span>Here</span><span style="color:var(--color-success)">+4.2% refine speed</span><span>From</span><span>Calder's Rest · Tier I</span></div>
+                    <div class="acts"><button class="sm"><svg class="g"><use href="#i-move"/></svg>Move to another post</button><button class="sm ghost">Back to waiting list</button></div>
+                    <div style="font-size:10.5px;color:var(--color-text-dim)">Moving is free, any time.</div>
+                  </div>
+                </div>
+                <div class="slot"><svg class="pt p4"><use href="#pt-d"/></svg><span class="sn">Orrin Vale</span><span class="sb"><span class="bg"><svg class="g"><use href="#bg-refiner"/></svg>Refiner</span><span class="match ok">match</span></span></div>
+                <div class="slot empty"><span class="ph"><svg class="g"><use href="#i-plus"/></svg></span><span class="sn">Post someone</span><span class="sb">5 waiting · 2 refiners</span></div>
+              </div>
+              <div class="readout"><span class="tot">+7.4% refine speed</span><span class="ln">Mira <b>+4.2</b> · Orrin <b>+3.6</b></span><span class="dim">stacked on the diminishing curve</span></div>
+            </div>
+          </div>
+
+          <!-- Research Lab: 1 matched + 1 unmatched, full -->
+          <div class="fwrap hasposts">
+            <div class="fpane">
+              <span class="fpane-id"><span class="fpane-glyph"><svg class="g"><use href="#bg-scholar"/></svg></span><span class="fpane-stack"><span class="fpane-name">Research Lab</span><span class="fpane-sub">Level 4</span></span></span>
+              <span class="fpane-mid"><span class="fprow"><span class="fprow-lbl">Researching → Hull Plating II</span><span class="fprow-track"><i style="width:28%"></i></span><span class="fprow-pct">28%</span></span></span>
+              <span class="fpane-cta">Manage</span>
+            </div>
+            <div class="fposts">
+              <div class="fp-hd"><span class="fp-tag"><svg class="g"><use href="#i-people"/></svg>Posts <span class="ct">2 / 2</span></span><span class="fp-next">3rd post at Level 7</span></div>
+              <div class="slots">
+                <div class="slot"><svg class="pt p2"><use href="#pt-b"/></svg><span class="sn">Kesia Lunde</span><span class="sb"><span class="bg"><svg class="g"><use href="#bg-scholar"/></svg>Scholar</span><span class="match ok">match</span></span></div>
+                <div class="slot"><svg class="pt p6"><use href="#pt-c"/></svg><span class="sn">Dov Hasker</span><span class="sb"><span class="bg"><svg class="g"><use href="#bg-machinist"/></svg>Machinist</span><span class="match off">other</span></span></div>
+              </div>
+              <div class="readout"><span class="tot">+6.6% research speed</span><span class="ln">Kesia <b>+5.8</b> · Dov <b>+0.9</b></span><span class="dim">Dov would give +3.7% craft speed at the Fabricator</span></div>
+            </div>
+          </div>
+
+          <!-- Fuel Depot: one empty post -->
+          <div class="fwrap hasposts">
+            <div class="fpane">
+              <span class="fpane-id"><span class="fpane-glyph"><svg class="g"><use href="#bg-fuel"/></svg></span><span class="fpane-stack"><span class="fpane-name">Fuel Depot</span><span class="fpane-sub">Level 2</span></span></span>
+              <span class="fpane-mid"><span class="fpane-idle">Fleet reach +8%</span></span>
+              <span class="fpane-cta">Manage</span>
+            </div>
+            <div class="fposts">
+              <div class="fp-hd"><span class="fp-tag"><svg class="g"><use href="#i-people"/></svg>Posts <span class="ct">0 / 1</span></span><span class="fp-next">2nd post at Level 4</span></div>
+              <div class="slots">
+                <div class="slot empty"><span class="ph"><svg class="g"><use href="#i-plus"/></svg></span><span class="sn">Post someone</span><span class="sb">5 waiting · no fuel handlers yet</span></div>
+              </div>
+              <div class="readout"><span class="dim">Empty posts give nothing; anyone posted here helps a little.</span></div>
+            </div>
+          </div>
+
+          <!-- Shipyard: compact variant B preview -->
+          <div class="fwrap">
+            <div class="fpane">
+              <span class="fpane-id"><span class="fpane-glyph"><svg class="g"><use href="#bg-shipwright"/></svg></span><span class="fpane-stack"><span class="fpane-name">Shipyard</span><span class="fpane-sub">Level 5</span></span></span>
+              <span class="fpane-mid"><span class="fpane-idle">Idle</span></span>
+              <span class="fpane-cta">Manage</span>
+            </div>
+          </div>
+          <p class="note" style="margin:0">The Shipyard above is drawn the way option B of open call 1 would show every card: no strip, only the pane. Under A it gets a strip like the three above.</p>
+        </div>
+      </div>
+      <div class="ocrow">
+        <div class="oc"><div class="t">Open call 1 · where the Posts row lives</div><div class="ab"><b>A</b><span>A strip attached under each facility pane on the dashboard, as drawn. It sits outside the pane's button, so tapping a face or an empty post never opens the console by accident.</span><b>B</b><span>The pane gets a small "Posts 2 / 3" chip only; the full row with faces lives on each facility console's Overview tab.</span></div><div class="drawn">Drawn: A</div></div>
+        <div class="oc"><div class="t">Open call 2 · tapping a filled post</div><div class="ab"><b>A</b><span>A small popover with the person's details, "Move to another post" and "Back to waiting list", as drawn on Mira.</span><b>B</b><span>It opens the post picker straight away, with the current person at the top and a "Leave empty" row.</span></div><div class="drawn">Drawn: A</div></div>
+        <div class="oc"><div class="t">Open call 3 · the buff readout</div><div class="ab"><b>A</b><span>Combined total plus each person's share, as drawn, with a hint when someone would do more elsewhere.</span><b>B</b><span>Combined total only; each person's share shows in the popover.</span></div><div class="drawn">Drawn: A</div></div>
+        <div class="oc"><div class="t">Open call 4 · Mission Control's posts</div><div class="ab"><b>A</b><span>Mission Control has no Facilities card, so its Posts row sits on the Operations, Mission Control tab, under its level readout.</span><b>B</b><span>Add a Mission Control pane to the Facilities dashboard for its posts and upgrade.</span></div><div class="drawn">Not drawn; A suggested</div></div>
+      </div>
+      <p class="note">Locked future posts are not drawn as slots; the "4th post at Level 10" line says it in one place. Dispatchers would be the only background with no card on this dashboard under 4A.</p>
+    </div>
+  </section>
+
+  <!-- 1 phone -->
+  <section>
+    <p class="label">1. Facility cards with the Posts row (phone 375 px)</p>
+    <div class="stage"><div class="frames">
+      <div>
+        <p class="frame-cap">Phone · Facilities dashboard</p>
+        <div class="shell phone">
+          <div class="topbar"><span>HYPERION</span><span class="res">4.82M cr · Day 214</span></div>
+          <div class="crumb">Facilities / <b>Dashboard</b></div>
+          <div class="content">
+            <div class="fwrap hasposts">
+              <div class="fpane">
+                <span class="fpane-id"><span class="fpane-glyph"><svg class="g"><use href="#bg-refiner"/></svg></span><span class="fpane-stack"><span class="fpane-name">Refinery</span><span class="fpane-sub">Level 7</span></span></span>
+                <span class="fpane-mid"><span class="fprow"><span class="fprow-lbl">Refining</span><span class="fprow-track"><i style="width:62%"></i></span><span class="fprow-pct">62%</span></span></span>
+              </div>
+              <div class="fposts">
+                <div class="fp-hd"><span class="fp-tag"><svg class="g"><use href="#i-people"/></svg>Posts <span class="ct">2 / 3</span></span><span class="fp-next">4th at Level 10</span></div>
+                <div class="slots">
+                  <div class="slot"><svg class="pt p1"><use href="#pt-a"/></svg><span class="sn">Mira Talven</span><span class="tail">+4.2%</span><span class="sb"><span class="bg"><svg class="g"><use href="#bg-refiner"/></svg>Refiner</span><span class="match ok">match</span></span></div>
+                  <div class="slot"><svg class="pt p4"><use href="#pt-d"/></svg><span class="sn">Orrin Vale</span><span class="tail">+3.6%</span><span class="sb"><span class="bg"><svg class="g"><use href="#bg-refiner"/></svg>Refiner</span><span class="match ok">match</span></span></div>
+                  <div class="slot empty"><span class="ph"><svg class="g"><use href="#i-plus"/></svg></span><span class="sn">Post someone</span><span class="tail" style="color:var(--color-accent)">Pick</span><span class="sb">5 waiting · 2 refiners</span></div>
+                </div>
+                <div class="readout"><span class="tot">+7.4% refine speed</span><span class="dim">stacked on the diminishing curve</span></div>
+              </div>
+            </div>
+            <div class="fwrap hasposts">
+              <div class="fpane">
+                <span class="fpane-id"><span class="fpane-glyph"><svg class="g"><use href="#bg-scholar"/></svg></span><span class="fpane-stack"><span class="fpane-name">Research Lab</span><span class="fpane-sub">Level 4</span></span></span>
+                <span class="fpane-mid"><span class="fprow"><span class="fprow-lbl">Research</span><span class="fprow-track"><i style="width:28%"></i></span><span class="fprow-pct">28%</span></span></span>
+              </div>
+              <div class="fposts">
+                <div class="fp-hd"><span class="fp-tag"><svg class="g"><use href="#i-people"/></svg>Posts <span class="ct">2 / 2</span></span><span class="fp-next">3rd at Level 7</span></div>
+                <div class="slots">
+                  <div class="slot"><svg class="pt p2"><use href="#pt-b"/></svg><span class="sn">Kesia Lunde</span><span class="tail">+5.8%</span><span class="sb"><span class="bg"><svg class="g"><use href="#bg-scholar"/></svg>Scholar</span><span class="match ok">match</span></span></div>
+                  <div class="slot"><svg class="pt p6"><use href="#pt-c"/></svg><span class="sn">Dov Hasker</span><span class="tail off">+0.9%</span><span class="sb"><span class="bg"><svg class="g"><use href="#bg-machinist"/></svg>Machinist</span><span class="match off">other</span></span></div>
+                </div>
+                <div class="readout"><span class="tot">+6.6% research speed</span></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div style="max-width:375px">
+        <div class="oc" style="margin-top:22px"><div class="t">Open call 5 · phone post rows</div><div class="ab"><b>A</b><span>One line per post, stacked, each with its own share on the right, as drawn.</span><b>B</b><span>Faces only in one row (no names); tap a face for its details.</span></div><div class="drawn">Drawn: A</div></div>
+        <p class="note">On phone the readout drops each person's share into their own row and keeps just the total underneath.</p>
+      </div>
+    </div></div>
+  </section>
+
+  <!-- ===================== 2 ===================== -->
+  <section>
+    <p class="label">2. The post picker, opened from the Refinery's empty post</p>
+    <div class="stage"><div class="frames">
+      <div>
+        <p class="frame-cap">Desktop (modal over the Facilities dashboard)</p>
+        <div class="shell" style="width:760px">
+          <div class="dim">
+            <div class="modal">
+              <div class="mh"><svg class="g" style="color:var(--color-accent)"><use href="#i-people"/></svg>Post someone at the Refinery<span class="meta">post 3 of 3 · Level 7</span><span class="x"><svg class="g"><use href="#i-x"/></svg></span></div>
+              <div class="mb">
+                <div class="sum">Refiners give the most here. Now <b>+7.4%</b> refine speed; one tap posts, and you can move anyone again later for free.</div>
+                <div class="colh">Waiting at home <span>sorted by what they'd give here</span></div>
+                <div class="plist">
+                  <div class="prow top"><svg class="pt p5"><use href="#pt-b"/></svg><div><div class="pn">Tamsin Corr <span class="match ok">match</span></div><div class="ps"><span class="bg"><svg class="g"><use href="#bg-refiner"/></svg>Refiner</span><span class="skill"><span>skill</span> 61</span><span class="where">Sabine Reach · Tier II</span></div></div><div class="gain ok">+6.1% refine speed<small>total becomes +12.6%</small></div><button class="sm pri">Post</button></div>
+                  <div class="prow"><svg class="pt p8"><use href="#pt-a"/></svg><div><div class="pn">Ansel Rook <span class="match ok">match</span></div><div class="ps"><span class="bg"><svg class="g"><use href="#bg-refiner"/></svg>Refiner</span><span class="skill"><span>skill</span> 27</span><span class="where">Hollow Marsh IV · Tier I</span></div></div><div class="gain ok">+2.7% refine speed<small>total becomes +9.8%</small></div><button class="sm">Post</button></div>
+                  <div class="prow"><svg class="pt p3"><use href="#pt-c"/></svg><div><div class="pn">Juno Pirelle <span class="match off">other</span></div><div class="ps"><span class="bg"><svg class="g"><use href="#bg-stargazer"/></svg>Stargazer</span><span class="skill"><span>skill</span> 68</span><span class="where">Sabine Reach · Tier II</span></div></div><div class="gain off">+1.7% refine speed<small>+6.8% scan range at the Telescope</small></div><button class="sm">Post</button></div>
+                  <div class="prow"><svg class="pt p7"><use href="#pt-d"/></svg><div><div class="pn">Neve Ardent <span class="match off">other</span></div><div class="ps"><span class="bg"><svg class="g"><use href="#bg-salvager"/></svg>Salvager</span><span class="skill"><span>skill</span> 44</span><span class="where">Calder's Rest · Tier I</span></div></div><div class="gain off">+1.1% refine speed<small>+4.4% salvage yield at the Salvage Bay</small></div><button class="sm">Post</button></div>
+                  <div class="sep">Posted elsewhere <span>moving is free · their old post goes empty</span></div>
+                  <div class="prow"><svg class="pt p6"><use href="#pt-c"/></svg><div><div class="pn">Dov Hasker <span class="match off">other</span></div><div class="ps"><span class="bg"><svg class="g"><use href="#bg-machinist"/></svg>Machinist</span><span class="skill"><span>skill</span> 37</span><span class="where">now at Research Lab (+0.9%)</span></div></div><div class="gain off">+0.9% refine speed<small>same as where he is</small></div><button class="sm ghost">Move here</button></div>
+                </div>
+              </div>
+              <div class="mf"><span style="font-size:11px;color:var(--color-text-dim);margin-right:auto">5 waiting · 1 more posted elsewhere</span><button class="ghost">Close</button></div>
+            </div>
+          </div>
+        </div>
+        <div class="ocrow">
+          <div class="oc"><div class="t">Open call 6 · posted people in the picker</div><div class="ab"><b>A</b><span>Listed under "Posted elsewhere" with a "Move here" button, as drawn; moving empties their old post.</span><b>B</b><span>Waiting list only; to move someone, use their post's popover (open call 2A).</span></div><div class="drawn">Drawn: A</div></div>
+          <div class="oc"><div class="t">Open call 7 · the "what they'd give" line</div><div class="ab"><b>A</b><span>The gain here plus what the facility's total becomes, or for an unmatched person, what they'd give at their own facility, as drawn.</span><b>B</b><span>Only the gain here.</span></div><div class="drawn">Drawn: A</div></div>
+        </div>
+      </div>
+      <div>
+        <p class="frame-cap">Phone (bottom sheet)</p>
+        <div class="shell phone">
+          <div class="phonedim">
+            <div class="sheet">
+              <div class="grab"></div>
+              <div class="mh" style="border:0;padding-bottom:4px"><svg class="g" style="color:var(--color-accent)"><use href="#i-people"/></svg>Refinery post 3<span class="x"><svg class="g"><use href="#i-x"/></svg></span></div>
+              <div style="padding:0 12px 8px;font-size:11.5px;color:var(--color-text-secondary)">Now +7.4% refine speed. Tap Post; moving later is free.</div>
+              <div class="plist" style="border-left:0;border-right:0;border-radius:0">
+                <div class="prow top"><svg class="pt p5"><use href="#pt-b"/></svg><div class="pn">Tamsin Corr <span class="match ok">match</span></div><div class="ps"><span class="bg"><svg class="g"><use href="#bg-refiner"/></svg>Refiner</span><span class="skill"><span>skill</span> 61</span></div><div class="gain ok">+6.1% here</div><span class="pa"><button class="sm pri">Post</button></span></div>
+                <div class="prow"><svg class="pt p8"><use href="#pt-a"/></svg><div class="pn">Ansel Rook <span class="match ok">match</span></div><div class="ps"><span class="bg"><svg class="g"><use href="#bg-refiner"/></svg>Refiner</span><span class="skill"><span>skill</span> 27</span></div><div class="gain ok">+2.7% here</div><span class="pa"><button class="sm">Post</button></span></div>
+                <div class="prow"><svg class="pt p3"><use href="#pt-c"/></svg><div class="pn">Juno Pirelle <span class="match off">other</span></div><div class="ps"><span class="bg"><svg class="g"><use href="#bg-stargazer"/></svg>Stargazer</span><span class="skill"><span>skill</span> 68</span></div><div class="gain off">+1.7% here · +6.8% at Telescope</div><span class="pa"><button class="sm">Post</button></span></div>
+                <div class="prow"><svg class="pt p7"><use href="#pt-d"/></svg><div class="pn">Neve Ardent <span class="match off">other</span></div><div class="ps"><span class="bg"><svg class="g"><use href="#bg-salvager"/></svg>Salvager</span><span class="skill"><span>skill</span> 44</span></div><div class="gain off">+1.1% here · +4.4% at Salvage Bay</div><span class="pa"><button class="sm">Post</button></span></div>
+                <div class="sep">Posted elsewhere <span>1</span></div>
+                <div class="prow"><svg class="pt p6"><use href="#pt-c"/></svg><div class="pn">Dov Hasker <span class="match off">other</span></div><div class="ps"><span class="bg"><svg class="g"><use href="#bg-machinist"/></svg>Machinist</span><span class="where">at Research Lab</span></div><div class="gain off">+0.9% here</div><span class="pa"><button class="sm ghost">Move</button></span></div>
+              </div>
+              <div class="mf" style="display:grid;grid-template-columns:1fr"><button class="ghost" style="justify-content:center">Close</button></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div></div>
+  </section>
+
+  <!-- ===================== 3 ===================== -->
+  <section>
+    <p class="label">3. The waiting list, under Personnel (desktop 1280 px)</p>
+    <div class="stage">
+      <div class="shell desk">
+        <div class="topbar"><span>HYPERION LEGACY</span><span class="res">Credits 4.82M · FA 31 · Day 214</span></div>
+        <div class="crumb">Personnel / <b>Refugees</b></div>
+        <div class="subtabs"><span class="tab">Senior Staff</span><span class="tab">Recruitment</span><span class="tab">Rosters</span><span class="tab on">Refugees <span class="pill">5</span></span></div>
+        <div class="content">
+          <div class="statrow">
+            <div class="st"><div class="k">Waiting</div><div class="v">5</div></div>
+            <div class="st"><div class="k">Posted</div><div class="v">4</div></div>
+            <div class="st"><div class="k">Open posts</div><div class="v">2 <small>of 13</small></div></div>
+          </div>
+          <div class="calm"><svg class="g"><use href="#i-home"/></svg><span>Everyone here is safe at home and stays as long as you like. <b>Evacuations keep bringing people home</b>, a little less often while this list is longer than your open posts. Upgrading facilities opens more posts, and Refugee Relocation runs take one person along to lead each new camp.</span></div>
+          <div class="tools"><span class="lbl">Show</span><span class="chip on">Waiting 5</span><span class="chip">Posted 4</span><span class="chip">Everyone 9</span><span class="spacer"></span><span class="lbl">Sort</span><span class="chip on"><svg class="g"><use href="#i-sort"/></svg>Skill</span><span class="chip">Background</span><span class="chip">Arrived</span></div>
+          <div class="gtw">
+            <table class="gt">
+              <thead><tr><th>Refugee</th><th>Background</th><th class="num sorted">Skill</th><th>Origin</th><th>Best post</th><th></th></tr></thead>
+              <tbody>
+                <tr><td><span class="who"><svg class="pt sm p3"><use href="#pt-c"/></svg><b>Juno Pirelle</b></span></td><td><span class="bg"><svg class="g"><use href="#bg-stargazer"/></svg>Stargazer</span></td><td class="num">68</td><td>Sabine Reach <span class="tier">Tier II</span></td><td><span class="best">Subspace Telescope <span class="full">no open post</span></span></td><td class="act"><button class="sm">Post...</button></td></tr>
+                <tr><td><span class="who"><svg class="pt sm p5"><use href="#pt-b"/></svg><b>Tamsin Corr</b></span></td><td><span class="bg"><svg class="g"><use href="#bg-refiner"/></svg>Refiner</span></td><td class="num">61</td><td>Sabine Reach <span class="tier">Tier II</span></td><td><span class="best">Refinery <span class="open">1 open · +6.1%</span></span></td><td class="act"><button class="sm pri">Post...</button></td></tr>
+                <tr><td><span class="who"><svg class="pt sm p7"><use href="#pt-d"/></svg><b>Neve Ardent</b></span></td><td><span class="bg"><svg class="g"><use href="#bg-salvager"/></svg>Salvager</span></td><td class="num">44</td><td>Calder's Rest <span class="tier">Tier I</span></td><td><span class="best">Salvage Bay <span class="full">no open post</span></span></td><td class="act"><button class="sm">Post...</button></td></tr>
+                <tr><td><span class="who"><svg class="pt sm p8"><use href="#pt-a"/></svg><b>Ansel Rook</b></span></td><td><span class="bg"><svg class="g"><use href="#bg-refiner"/></svg>Refiner</span></td><td class="num">27</td><td>Hollow Marsh IV <span class="tier">Tier I</span></td><td><span class="best">Refinery <span class="open">1 open · +2.7%</span></span></td><td class="act"><button class="sm">Post...</button></td></tr>
+                <tr><td><span class="who"><svg class="pt sm p2"><use href="#pt-a"/></svg><b>Bex Haddow</b></span></td><td><span class="bg"><svg class="g"><use href="#bg-dispatch"/></svg>Dispatcher</span></td><td class="num">24</td><td>Hollow Marsh IV <span class="tier">Tier I</span></td><td><span class="best">Mission Control <span class="full">no open post</span></span></td><td class="act"><button class="sm">Post...</button></td></tr>
+              </tbody>
+            </table>
+          </div>
+          <p class="note" style="margin:0">"Post..." opens a facility chooser: every facility with an open post, sorted by what this person would give there; a full facility can still be picked to swap with someone already posted.</p>
+        </div>
+      </div>
+      <div class="ocrow">
+        <div class="oc"><div class="t">Open call 8 · where the list lives in Personnel</div><div class="ab"><b>A</b><span>Its own Refugees sub-tab with a waiting count, as drawn.</span><b>B</b><span>A Refugees section inside Personnel Rosters, beside the crew pool.</span></div><div class="drawn">Drawn: A</div></div>
+        <div class="oc"><div class="t">Open call 9 · the slowing arrivals line</div><div class="ab"><b>A</b><span>Words only, as drawn: calm, no number.</span><b>B</b><span>Words plus the current chance ("Next evacuation: 71% chance someone comes home").</span></div><div class="drawn">Drawn: A</div></div>
+        <div class="oc"><div class="t">Open call 10 · "Post..." on a full best facility</div><div class="ab"><b>A</b><span>Allowed; the chooser offers a swap that sends the posted person back to waiting.</span><b>B</b><span>Only facilities with an open post are listed.</span></div><div class="drawn">Described: A</div></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 3 phone -->
+  <section>
+    <p class="label">3. The waiting list (phone 375 px)</p>
+    <div class="stage"><div class="frames">
+      <div>
+        <p class="frame-cap">Phone · Personnel, Refugees</p>
+        <div class="shell phone">
+          <div class="topbar"><span>HYPERION</span><span class="res">4.82M cr · Day 214</span></div>
+          <div class="crumb">Personnel / <b>Refugees</b></div>
+          <div class="subtabs"><span class="tab">Staff</span><span class="tab">Recruit</span><span class="tab">Rosters</span><span class="tab on">Refugees <span class="pill">5</span></span></div>
+          <div class="content">
+            <div class="calm"><svg class="g"><use href="#i-home"/></svg><span><b>5 waiting, 2 open posts.</b> Everyone is safe here. Evacuations keep bringing people home, a little less often while this list outgrows your open posts.</span></div>
+            <div class="tools"><span class="chip on">Waiting 5</span><span class="chip">Posted 4</span><span class="spacer"></span><span class="chip"><svg class="g"><use href="#i-sort"/></svg>Skill</span></div>
+            <div class="wcard"><svg class="pt p3"><use href="#pt-c"/></svg><span class="nm">Juno Pirelle</span><button class="sm">Post...</button><span class="meta"><span class="bg"><svg class="g"><use href="#bg-stargazer"/></svg>Stargazer</span><span class="skill"><span>skill</span> 68</span></span><span class="or">Sabine Reach · Tier II · Telescope full</span></div>
+            <div class="wcard"><svg class="pt p5"><use href="#pt-b"/></svg><span class="nm">Tamsin Corr</span><button class="sm pri">Post...</button><span class="meta"><span class="bg"><svg class="g"><use href="#bg-refiner"/></svg>Refiner</span><span class="skill"><span>skill</span> 61</span></span><span class="or">Sabine Reach · Tier II · <span style="color:var(--color-success)">Refinery open, +6.1%</span></span></div>
+            <div class="wcard"><svg class="pt p7"><use href="#pt-d"/></svg><span class="nm">Neve Ardent</span><button class="sm">Post...</button><span class="meta"><span class="bg"><svg class="g"><use href="#bg-salvager"/></svg>Salvager</span><span class="skill"><span>skill</span> 44</span></span><span class="or">Calder's Rest · Tier I · Salvage Bay full</span></div>
+            <div class="wcard"><svg class="pt p8"><use href="#pt-a"/></svg><span class="nm">Ansel Rook</span><button class="sm">Post...</button><span class="meta"><span class="bg"><svg class="g"><use href="#bg-refiner"/></svg>Refiner</span><span class="skill"><span>skill</span> 27</span></span><span class="or">Hollow Marsh IV · Tier I · <span style="color:var(--color-success)">Refinery open, +2.7%</span></span></div>
+            <div class="wcard"><svg class="pt p2"><use href="#pt-a"/></svg><span class="nm">Bex Haddow</span><button class="sm">Post...</button><span class="meta"><span class="bg"><svg class="g"><use href="#bg-dispatch"/></svg>Dispatcher</span><span class="skill"><span>skill</span> 24</span></span><span class="or">Hollow Marsh IV · Tier I · Mission Control full</span></div>
+          </div>
+        </div>
+      </div>
+    </div></div>
+  </section>
+
+  <!-- ===================== 4 + 5 ===================== -->
+  <section>
+    <p class="label">4 and 5. An evacuation completes, and a relocation farewell</p>
+    <div class="stage"><div class="frames">
+      <div style="width:620px;max-width:100%">
+        <p class="frame-cap">Desktop · Operations, Short-Range: the finished run's card</p>
+        <div class="result">
+          <div class="rh"><svg class="g"><use href="#i-check"/></svg>Evacuate Sabine Reach · complete <span class="tier" style="margin-left:auto">Tier II</span></div>
+          <div class="rl"><span>Halden's Promise (Eir) · 84 evacuees carried home</span><b>+1,840 cr · +96 XP</b></div>
+          <div class="arrive">
+            <svg class="pt lg p5"><use href="#pt-b"/></svg>
+            <div>
+              <div class="big">Tamsin Corr joins your homeworld</div>
+              <div class="line"><span class="bg"><svg class="g"><use href="#bg-refiner"/></svg>Refiner</span><span class="skill"><span>skill</span> 61</span><span class="match ok">suits Refinery</span></div>
+            </div>
+            <div class="acts"><button class="sm pri">Post at the Refinery (+6.1%)</button><button class="sm ghost">Leave on the waiting list</button></div>
+          </div>
+        </div>
+        <div class="log" style="margin-top:12px">
+          <div class="lh">Fleet log</div>
+          <div class="le hi"><span class="t">Day 214</span><svg class="g"><use href="#i-home"/></svg><span>Evacuation complete: <b>Tamsin Corr</b>, a refiner, joins your homeworld.</span></div>
+          <div class="le bye"><span class="t">Day 213</span><svg class="g"><use href="#i-leaf"/></svg><span><b>Silas Wren</b> leaves to lead the new camp on Harrow's Field.</span></div>
+          <div class="le"><span class="t">Day 213</span><svg class="g"><use href="#i-ship"/></svg><span>Refugee Relocation to Harrow's Field complete: 52 settlers delivered. +1,210 cr.</span></div>
+          <div class="le"><span class="t">Day 211</span><svg class="g"><use href="#i-check"/></svg><span>Evacuate Hollow Marsh IV complete. Everyone aboard reached the camps; nobody new came home this time.</span></div>
+        </div>
+        <div class="ocrow">
+          <div class="oc"><div class="t">Open call 11 · the arrival moment</div><div class="ab"><b>A</b><span>The run card shows the person with a one-tap "Post at" their best open post, as drawn, plus the fleet log line.</span><b>B</b><span>A toast and the log line only; posting happens later from the Posts row or Personnel.</span></div><div class="drawn">Drawn: A</div></div>
+          <div class="oc"><div class="t">Open call 12 · a run that brings nobody home</div><div class="ab"><b>A</b><span>A neutral line, as drawn on Day 211 (the taper's miss reads as a quiet outcome, never a failure).</span><b>B</b><span>No mention at all; the run reads like any other completion.</span></div><div class="drawn">Drawn: A</div></div>
+        </div>
+      </div>
+      <div>
+        <p class="frame-cap">Phone · arrival toast, then the log</p>
+        <div class="shell phone">
+          <div class="topbar"><span>HYPERION</span><span class="res">4.82M cr · Day 214</span></div>
+          <div class="content">
+            <div class="toast"><svg class="pt sm p5"><use href="#pt-b"/></svg><span>Evacuation complete: <b>Tamsin Corr</b>, a refiner, joins your homeworld.</span></div>
+            <div class="toast bye"><svg class="g" style="color:var(--color-accent-bright)"><use href="#i-leaf"/></svg><span><b>Silas Wren</b> leaves to lead the new camp on Harrow's Field.</span></div>
+            <div class="arrive" style="grid-template-columns:44px minmax(0,1fr)">
+              <svg class="pt p5" style="width:44px;height:44px"><use href="#pt-b"/></svg>
+              <div><div class="big" style="font-size:12.5px">Tamsin Corr joins your homeworld</div><div class="line"><span class="bg"><svg class="g"><use href="#bg-refiner"/></svg>Refiner</span><span class="skill"><span>skill</span> 61</span></div></div>
+              <div class="acts" style="display:grid;grid-template-columns:1fr 1fr"><button class="sm pri" style="justify-content:center">Post at Refinery</button><button class="sm ghost" style="justify-content:center">Later</button></div>
+            </div>
+            <div class="log">
+              <div class="lh">Fleet log</div>
+              <div class="le hi"><svg class="g"><use href="#i-home"/></svg><span>Evacuation complete: <b>Tamsin Corr</b>, a refiner, joins your homeworld.</span><span class="t">Day 214</span></div>
+              <div class="le bye"><svg class="g"><use href="#i-leaf"/></svg><span><b>Silas Wren</b> leaves to lead the new camp on Harrow's Field.</span><span class="t">Day 213</span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <p class="note">The farewell only ever names someone from the waiting list; posted people never leave. With nobody waiting, a relocation run logs exactly as it does today.</p>
+    </div>
+  </section>
+
+  <!-- ===================== 6 ===================== -->
+  <section>
+    <p class="label">6. The empty state on a new save (no refugees yet)</p>
+    <div class="stage"><div class="frames">
+      <div style="width:760px;max-width:100%">
+        <p class="frame-cap">Desktop · Facilities dashboard: panes exactly as today, no Posts rows</p>
+        <div class="shell" style="width:760px;max-width:100%">
+          <div class="crumb">Facilities / <b>Dashboard</b></div>
+          <div class="content">
+            <div class="fwrap"><div class="fpane" style="grid-template-columns:172px minmax(0,1fr)"><span class="fpane-id"><span class="fpane-glyph"><svg class="g"><use href="#bg-refiner"/></svg></span><span class="fpane-stack"><span class="fpane-name">Refinery</span><span class="fpane-sub">Level 1</span></span></span><span class="fpane-mid"><span class="fpane-idle">Idle · 1 slot free</span></span></div></div>
+            <div class="fwrap"><div class="fpane" style="grid-template-columns:172px minmax(0,1fr)"><span class="fpane-id"><span class="fpane-glyph"><svg class="g"><use href="#bg-scholar"/></svg></span><span class="fpane-stack"><span class="fpane-name">Research Lab</span><span class="fpane-sub">Level 1</span></span></span><span class="fpane-mid"><span class="fpane-idle">Idle · 1 slot free</span></span></div></div>
+            <div class="fwrap"><div class="fpane" style="grid-template-columns:172px minmax(0,1fr)"><span class="fpane-id"><span class="fpane-glyph"><svg class="g"><use href="#bg-stargazer"/></svg></span><span class="fpane-stack"><span class="fpane-name">Subspace Telescope</span><span class="fpane-sub">Level 1</span></span></span><span class="fpane-mid"><span class="fpane-idle">Range 40 ly</span></span></div></div>
+          </div>
+        </div>
+        <p class="frame-cap" style="margin-top:14px">Desktop · Personnel tabs: no Refugees tab yet</p>
+        <div class="shell" style="width:760px;max-width:100%"><div class="subtabs" style="border:0"><span class="tab on">Senior Staff</span><span class="tab">Recruitment</span><span class="tab">Rosters</span></div></div>
+        <div class="ocrow">
+          <div class="oc"><div class="t">Open call 13 · Personnel before the first arrival</div><div class="ab"><b>A</b><span>No Refugees tab until the first person arrives, as drawn; it appears with them.</span><b>B</b><span>The tab is there from the start with one calm line: "Evacuation runs on the short-range board bring people home. They'll wait here."</span></div><div class="drawn">Drawn: A</div></div>
+        </div>
+      </div>
+      <div>
+        <p class="frame-cap">Phone · the moment the first refugee arrives</p>
+        <div class="shell phone">
+          <div class="crumb">Facilities / <b>Dashboard</b></div>
+          <div class="content">
+            <div class="ghostnote"><svg class="g" style="color:var(--color-accent)"><use href="#i-info"/></svg><span>New: <b>Posts</b>. Rescued people can work at your facilities. Post Ansel Rook at the Refinery for the strongest boost.</span></div>
+            <div class="fwrap hasposts">
+              <div class="fpane"><span class="fpane-id"><span class="fpane-glyph"><svg class="g"><use href="#bg-refiner"/></svg></span><span class="fpane-stack"><span class="fpane-name">Refinery</span><span class="fpane-sub">Level 2</span></span></span><span class="fpane-mid"><span class="fpane-idle">Idle · 1 slot free</span></span></div>
+              <div class="fposts"><div class="fp-hd"><span class="fp-tag"><svg class="g"><use href="#i-people"/></svg>Posts <span class="ct">0 / 1</span></span><span class="fp-next">2nd at Level 4</span></div><div class="slots"><div class="slot empty"><span class="ph"><svg class="g"><use href="#i-plus"/></svg></span><span class="sn">Post someone</span><span class="tail" style="color:var(--color-accent)">Pick</span><span class="sb">1 waiting · a refiner</span></div></div></div>
+            </div>
+            <div class="fwrap hasposts">
+              <div class="fpane"><span class="fpane-id"><span class="fpane-glyph"><svg class="g"><use href="#bg-scholar"/></svg></span><span class="fpane-stack"><span class="fpane-name">Research Lab</span><span class="fpane-sub">Level 1</span></span></span><span class="fpane-mid"><span class="fpane-idle">Idle · 1 slot free</span></span></div>
+              <div class="fposts"><div class="fp-hd"><span class="fp-tag"><svg class="g"><use href="#i-people"/></svg>Posts <span class="ct">0 / 1</span></span><span class="fp-next">2nd at Level 4</span></div></div>
+            </div>
+          </div>
+        </div>
+        <div class="oc" style="margin-top:12px;max-width:375px"><div class="t">Open call 14 · first-arrival hint</div><div class="ab"><b>A</b><span>A one-time dismissible hint above the panes, as drawn.</span><b>B</b><span>No hint; the Posts rows simply appear, and Help explains them.</span></div><div class="drawn">Drawn: A</div></div>
+      </div>
+    </div></div>
+  </section>
+
+  <section>
+    <p class="label">Open calls, in one list</p>
+    <ol class="calls">
+      <li><b>Posts row placement:</b> A strip under each dashboard pane (drawn) or B a chip on the pane with the row on the console's Overview.</li>
+      <li><b>Tapping a filled post:</b> A details popover with Move and Back to waiting list (drawn) or B straight to the picker.</li>
+      <li><b>Buff readout:</b> A total plus each share (drawn) or B total only.</li>
+      <li><b>Mission Control's posts:</b> A on its Operations tab (suggested) or B a new Facilities pane.</li>
+      <li><b>Phone post rows:</b> A one line per post (drawn) or B faces only.</li>
+      <li><b>Posted people in the picker:</b> A "Posted elsewhere" with Move here (drawn) or B waiting list only.</li>
+      <li><b>Gain line:</b> A gain plus new total or their home facility's gain (drawn) or B gain only.</li>
+      <li><b>Waiting list home:</b> A a Refugees sub-tab (drawn) or B a section in Personnel Rosters.</li>
+      <li><b>Slowing arrivals:</b> A words only (drawn) or B words plus the chance.</li>
+      <li><b>Post... on a full facility:</b> A allow a swap or B open posts only.</li>
+      <li><b>Arrival moment:</b> A run card with one-tap Post (drawn) or B toast and log only.</li>
+      <li><b>A run with no arrival:</b> A a neutral log line (drawn) or B no mention.</li>
+      <li><b>Personnel before the first arrival:</b> A no tab (drawn) or B the tab with a calm line.</li>
+      <li><b>First-arrival hint:</b> A one-time hint (drawn) or B none.</li>
+    </ol>
+    <p class="note">Portraits are simple SVG silhouettes (four hair shapes, eight color sets), not the officer art; that keeps refugees visibly distinct from Senior Staff. All names are original samples; the build draws them from the seeded crew name generator.</p>
+  </section>
+</div>
+</body>
+</html>
