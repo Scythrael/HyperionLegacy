@@ -254,6 +254,22 @@ export interface ShipTypeDef {
   // over budget; the budget binds on modules and higher drive classes. Explorers run well above their census, the
   // power-rich identity (B.4). shipDerivedStats folds it into ShipDerivedStats.powerOutput.
   basePowerOutput: number;
+  // Complement plan CP-5 (Task 24; user 2026-10-16 OC-5 "Eir 900, Orion/Aurora 750 (Recommended)", OC-6 "Never evict
+  // (Recommended)"): a hull's own crew capacity and division mix, read by commandStructure.ts (buildStructure). OPTIONAL:
+  // absent, the hull keeps the spec template (the spec base total x tier, the spec's role weights) exactly.
+  //   complementCap            , the hull's TOTAL berths before any quarters module (a physical limit, not a bonus).
+  //   complementDivisionWeights, each division's cap as a share of that total. A row may sum past 1.0: with the total
+  //                              unchanged, a lean is extra division seats and the total binds (review 2026-11-02).
+  // Every division and rank keeps at least the spec template's seats (commandStructure.ts buildStructure floors to it,
+  // user 2026-11-02 "No division ever shrinks"), so no ship turns over cap from these. A complement already over a cap
+  // keeps every crewmember; it simply takes no more until it is under (OC-6).
+  complementCap?: number;
+  complementDivisionWeights?: Record<CrewProfession, number>;
+  // CP-5 (user 2026-11-02, "Fill the lean division first (Recommended)"): the divisions auto-crew and roster fills seat
+  // FIRST, in this order, before every other division (autoCrew.ts autoCrewShip), so where the division caps add up past
+  // the total the lean's extra seats are really filled. It changes only the ORDER new crew are seated in: totals and
+  // caps are unchanged, and crew already aboard are never moved or evicted. Absent: one pass over every division.
+  leanDivisions?: readonly CrewProfession[];
   // FORWARD (not populated this pass): reactorTier?: number  // reactorTier <= tier; gates equip/module tiers
 }
 
@@ -1388,6 +1404,13 @@ export const SHIP_TYPES: Record<ShipTypeKey, ShipTypeDef> = {
       { teamType: "science", size: 3 },
       { teamType: "prospecting", size: 3 },
     ],
+    // Complement plan CP-5 (OC-5 "Battleship Security / Engineering lean", user 2026-10-16; review 2026-11-02 "No
+    // division ever shrinks"): the same 160 berths, every division keeps its tactician seats, and the extra division
+    // seats go to the boarding defense and the damage control crews (Security 48 -> 56, Engineering 40 -> 48; the 160
+    // total binds). Weights [PROVISIONAL].
+    complementDivisionWeights: { security: 0.35, engineering: 0.3, science: 0.05, medical: 0.1, operations: 0.1, flightDeck: 0.2 },
+    // CP-5 (user 2026-11-02 "Fill the lean division first"): Security seats first, then Engineering, then the rest.
+    leanDivisions: ["security", "engineering"],
     // SF-6 review (user 2026-10-27, Recommended): the explorers out-shield it, so "shields" is no longer "the most".
     description: "A slow capital hull. The most armor and guns the fleet fields, with heavy shields.",
   },
@@ -1418,6 +1441,12 @@ export const SHIP_TYPES: Record<ShipTypeKey, ShipTypeDef> = {
       { teamType: "science", size: 3 },
       { teamType: "prospecting", size: 3 },
     ],
+    // Complement plan CP-5 (OC-5 "Carrier Flight Deck lean", user 2026-10-16; review 2026-11-02 "No division ever
+    // shrinks"): the same 160 berths, every division keeps its tactician seats, and the extra division seats go to the
+    // Flight Deck that tends its squadrons (32 -> 56; the 160 total binds). Weights [PROVISIONAL].
+    complementDivisionWeights: { security: 0.3, engineering: 0.25, science: 0.05, medical: 0.1, operations: 0.1, flightDeck: 0.35 },
+    // CP-5 (user 2026-11-02 "Fill the lean division first"): the Flight Deck seats first, then the rest.
+    leanDivisions: ["flightDeck"],
     description: "A drone platform. Few guns, but launches squadrons that fight for it.",
   },
 
@@ -1510,13 +1539,19 @@ export const SHIP_TYPES: Record<ShipTypeKey, ShipTypeDef> = {
     // fleet's most); its cruise is the fastest of the explorer hulls (1.3), not of the fleet (the Runner's 1.5).
     // Safe first runs SF-6 (user 2026-10-27, call 13 "Approve as drafted", "keep whichever text is true of the built
     // hull"): the approved line with OC-D13's "of the explorer hulls" kept, since "the fastest cruise" alone is false.
+    // Complement plan CP-5 (OC-5 "Aurora 750 (Science lean)", user 2026-10-16; review 2026-11-02 "No division ever
+    // shrinks"): the explorer 750 berths kept, every division keeps its explorer seats, and the extra division seats go
+    // to Science (225 -> 270; the 750 total binds). Weights [PROVISIONAL].
+    complementDivisionWeights: { security: 0.1, engineering: 0.25, science: 0.36, medical: 0.2, operations: 0.1, flightDeck: 0.05 },
+    // CP-5 (user 2026-11-02 "Fill the lean division first"): Science seats first, then the rest.
+    leanDivisions: ["science"],
     description: "Heavy cruiser. A survey scout: the most module slots and the fastest cruise of the explorer hulls, at the cost of frame and hold.",
   },
   eir: {
     label: "Eir", spec: "explorer", tier: 2, // FIRST-PASS TUNABLE
     requiresBlueprint: "eirHullBp",
-    // The crew-landing / evac TRANSPORT: the BIGGEST cargo (supplies + refugees) and, via the
-    // explorer complement band, the biggest CREW capacity, with modest everything else. Still a
+    // The crew-landing / evac TRANSPORT: the BIGGEST cargo (supplies + refugees) and the biggest
+    // explorer CREW capacity (CP-5 complementCap below), with modest everything else. Still a
     // glass tank. FIRST-PASS TUNABLE.
     cargoCapacity: 220, transitSpeedMult: 0.9, extractionYieldMult: 1.0, // FIRST-PASS TUNABLE: biggest hold, slower heavy transport
     fuelCapacity: 300, engineEfficiency: 0.3, // FIRST-PASS TUNABLE: still highest-tier range, modest among explorers
@@ -1536,9 +1571,20 @@ export const SHIP_TYPES: Record<ShipTypeKey, ShipTypeDef> = {
       { teamType: "science", size: 4 },
       { teamType: "prospecting", size: 3 },
     ],
+    // Complement plan CP-5 (OC-5 "Eir 900, Orion/Aurora 750 (Recommended)", user 2026-10-16): the largest explorer crew,
+    // 900 berths, weighted to Medical and Science; every division holds at least the explorer template's seats (the
+    // Andromeda's 1,017, a later hull tier, stays the fleet's largest). Weights [PROVISIONAL]; caps 77 / 189 / 279 /
+    // 234 / 81 / 40, summing to 900.
+    complementCap: 900,
+    complementDivisionWeights: { security: 0.086, engineering: 0.21, science: 0.31, medical: 0.26, operations: 0.09, flightDeck: 0.044 },
+    // CP-5 (user 2026-11-02 "Fill the lean division first"): Medical, then Science (the OC-5 lean, in its stated order)
+    // seat first. Its caps sum to exactly its 900 total, so the order only matters once a quarters module floors a
+    // division up.
+    leanDivisions: ["medical", "science"],
     // Safe first runs SF-6 (user 2026-10-27, call 13 "Approve as drafted"; the review answer, Recommended: "away teams",
-    // since its complement ties the other explorers').
-    description: "Heavy cruiser. A medical transport: the largest hold and away teams the fleet fields, for supplies and evacuations.",
+    // since its complement then tied the other explorers'). CP-5 (OC-5: "Eir's text becomes 'the largest explorer
+    // crew'") adds that clause now that it is true; the approved hold and away teams clause is kept.
+    description: "Heavy cruiser. A medical transport with the largest explorer crew: the largest hold and away teams the fleet fields, for supplies and evacuations.",
   },
 };
 

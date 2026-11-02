@@ -25,10 +25,15 @@ import { describe, expect, it, vi } from "vitest";
 import { gearWearOffInThisFile } from "./gearWearSwitch.fixture";
 import { patrolLegsOffForThisFile } from "./patrolLegsSwitch.fixture";
 import { wr9OffForThisFile } from "./wr9Switch.fixture";
+import { hullCrewCapsOffForThisFile } from "./hullCrewCapsSwitch.fixture";
 
 // Wiring WR-9: this file's pins are about other slices and were captured before WR-9; it runs with WR-9 off (the
 // WR-9 moves are pinned and proven in wr9Goldens.test.ts), so every pin here keeps proving its own slice exactly.
 wr9OffForThisFile();
+// Complement plan CP-5 (per-hull crew caps): every pin here was captured on the spec templates and fills complements to
+// the caps (the structure and full-complement sheets of the Battleship, Carrier, Aurora and Eir move with CP-5), so the
+// file runs with the per-hull caps off; cp5Goldens.test.ts pins what CP-5 moved and proves the switch returns it.
+hullCrewCapsOffForThisFile();
 
 // WR-7 follow-up OC-D8 (patrol legs scale with transit speed): every pin here predates the legs and is about the complement slices;
 // with the legs off each one returns (checked when the legs were wired), so the file runs with them off and keeps

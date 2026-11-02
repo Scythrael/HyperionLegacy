@@ -33,12 +33,16 @@
 
   import Toggle from "./Toggle.svelte";
   import type { GameState, CrewProfession, CrewRank } from "./game/model";
+  import { SHIP_TYPES } from "./game/model";
   import {
     CREW_PROFESSIONS,
+    complementOverCap,
+    type ComplementOverCap,
     complementTotalCap,
     divisionCap,
     rankAllocation,
   } from "./game/commandStructure";
+  import { notableSignature } from "./game/crew";
   import { crewRankLabel } from "./game/crewRank";
   import { quartersCapacityBonus, installedQuartersModule } from "./game/crewModules";
   import { CREW_RACES } from "./game/crewRaces";
@@ -101,12 +105,19 @@
   $: modeGate = ship ? canSetComplementMode(state, shipId, autoCrewOn ? "active" : "passive") : null;
   $: modeLocked = modeGate !== null && !modeGate.ok && modeGate.reason === "onMission";
 
-  // Per-(division,rank) headcount from the complement buckets, precomputed as a real reactive so
-  // the chart's dependency on `state` is visible to the compiler (reading it inline would hide it
-  // and go stale after a mode flip / tick).
+  // CP-5 (OC-6 "Never evict"): the ship's OCCUPANCY, the bulk plus every notable assigned here: the count every cap
+  // gate (auto-crew, transfer, rosters) and complementOverCap read, so every number below matches the gate.
+  $: occupancy = [
+    ...complement.buckets,
+    ...state.notableCrew.filter((n) => (n.assignedShipId ?? null) === shipId).map((n) => ({ ...notableSignature(n), count: 1 })),
+  ];
+
+  // Per-(division,rank) headcount from the occupancy (CP-5 review: notables count, as the gates count them),
+  // precomputed as a real reactive so the chart's dependency on `state` is visible to the compiler (reading it inline
+  // would hide it and go stale after a mode flip / tick).
   $: countByKey = (() => {
     const map = new Map<string, number>();
-    for (const b of complement.buckets) {
+    for (const b of occupancy) {
       const key = `${b.profession}:${b.rank}`;
       map.set(key, (map.get(key) ?? 0) + b.count);
     }
@@ -118,17 +129,26 @@
 
   // --- Capacity header --------------------------------------------------------
   // Total berths = the hull's LOCKED base cap (commandStructure) + the installed quarters module's
-  // capacity bonus (0 with no module). used = total headcount across every division.
+  // capacity bonus (0 with no module). used = the occupancy across every division (bulk plus notables aboard, the
+  // count the add gates read; CP-5 review: 234 bulk + 1 notable Medical on the Eir reads 235 / 234).
   $: baseCap = hullType ? complementTotalCap(hullType, 0) : 0;
   $: moduleBonus = ship ? quartersCapacityBonus(state, ship) : 0;
   $: totalCap = baseCap + moduleBonus;
-  $: usedBerths = complement.buckets.reduce((sum, b) => sum + b.count, 0);
+  $: usedBerths = occupancy.reduce((sum, b) => sum + b.count, 0);
   $: capFillPct = totalCap > 0 ? Math.min(100, Math.round((usedBerths / totalCap) * 100)) : 0;
   // The installed quarters module (for the "Base N + <module> +M" contribution line).
   $: quartersModule = ship ? installedQuartersModule(state, ship) : null;
 
+  // CP-5: the hull's display name for the berths line (the physical limit).
+  $: hullLabel = hullType ? SHIP_TYPES[hullType].label : "";
+
   // Whether this ship has any complement at all (a fresh ship's crew arrives via transports).
   $: isEmpty = usedBerths === 0;
+
+  // CP-5 (OC-6 "Never evict"): how far the ship sits over its caps, read on the same occupancy the fill uses (the bulk
+  // plus every notable assigned here). Nothing removes crew for being over; the fill just takes no more.
+  $: overCap = hullType ? complementOverCap(occupancy, hullType, moduleBonus) : null;
+  $: notablesAboard = occupancy.length - complement.buckets.length;
 
   // --- The double-layer clamped division charts -------------------------------
   // One column's resolved geometry: heights are % of the clamped axis; `fill` is the graph-palette
@@ -150,6 +170,8 @@
     label: string;
     total: number; // headcount in the division (all ranks)
     cap: number; // the division's total cap
+    over: number; // CP-5: crew over the division's caps (its cap, or a rank cap); 0 when within
+    overText: string | null; // CP-5: the over-cap explanation, null when within
     axisMax: number; // the clamped axis ceiling (label "N+")
     columns: ChartColumn[];
   }
@@ -164,7 +186,7 @@
 
   // Build one division's chart. axisMax clamps to just above the largest FINITE cap so the officer
   // ranks stay legible; the uncapped Crewman is clamped to the axis top and labeled "N+".
-  function buildDivision(profession: CrewProfession, hull: NonNullable<typeof hullType>, bonus: number): DivisionChart {
+  function buildDivision(profession: CrewProfession, hull: NonNullable<typeof hullType>, bonus: number, oc: ComplementOverCap | null): DivisionChart {
     const finiteCaps = FINITE_RANKS.map((r) => rankAllocation(hull, profession, r, bonus));
     const axisMax = Math.max(1, Math.max(...finiteCaps) + 1);
 
@@ -205,14 +227,27 @@
     });
 
     const total = columns.reduce((sum, c) => sum + c.cur, 0);
+    const over = oc?.divisions[profession] ?? 0;
     return {
       profession,
       label: DIVISION_LABEL[profession],
       total,
       cap: divisionCap(hull, profession, bonus),
+      over,
+      overText: divisionOverText(profession, over, oc?.divisionOver[profession] ?? 0),
       axisMax,
       columns,
     };
+  }
+
+  // CP-5 (OC-6): the over-cap line under a division's header. A division past its own cap takes no more crew at all;
+  // one past a rank cap takes none at that rank or higher (lower ranks still fill).
+  function divisionOverText(profession: CrewProfession, over: number, overDivision: number): string | null {
+    if (over <= 0) return null;
+    const crew = over === 1 ? "1 crewmember" : `${over} crew`;
+    return overDivision > 0
+      ? `Over cap by ${crew}. No one is removed; ${DIVISION_LABEL[profession]} takes no new crew until it is back under its cap.`
+      : `Over a rank cap by ${crew}: more senior crew than its rank caps allow. No one is removed; it takes no new crew at those ranks until they are back under.`;
   }
 
   // NOTE the explicit `countByKey` reference: `buildDivision` reads headcount/countByKey inside a
@@ -220,7 +255,7 @@
   // `divisions` would only recompute when `hullType` changes (never, for a given ship) and the charts
   // would stay stale as crew arrive. Referencing countByKey (always a truthy Map) makes the dep visible.
   $: divisions = hullType && countByKey
-    ? CREW_PROFESSIONS.map((p) => buildDivision(p, hullType as NonNullable<typeof hullType>, moduleBonus))
+    ? CREW_PROFESSIONS.map((p) => buildDivision(p, hullType as NonNullable<typeof hullType>, moduleBonus, overCap))
     : [];
 
   // --- Notable crew (assigned to this ship) -----------------------------------
@@ -277,7 +312,20 @@
         {autoCrewOn
           ? "Auto-crew fills this ship top-rank-down from the pool, within its caps."
           : "Manual: this ship's complement is player-curated and will not auto-fill."}
+        The {hullLabel} has berths for {baseCap} crew before any quarters module.
       </div>
+      {#if overCap !== null && overCap.any}
+        <!-- CP-5 (OC-6 "Never evict"): the over-cap state, explained. -->
+        <p class="comp-over" role="note">
+          {#if overCap.totalOver > 0}
+            Over capacity by {overCap.totalOver}: this ship holds more crew than its {totalCap} berths{notablesAboard > 0 ? " (its notable crew count too)" : ""}.
+          {:else}
+            Some divisions are over their caps (marked below).
+          {/if}
+          No one is removed, and it takes no new crew where it is over until it is back under. This happens when a quarters
+          module comes off or is swapped for one with fewer berths.
+        </p>
+      {/if}
     </div>
 
     <!-- DIVISION GRID: one double-layer clamped chart per division. -->
@@ -287,11 +335,13 @@
     </div>
     <div class="comp-divgrid">
       {#each divisions as d (d.profession)}
-        <div class="comp-div">
+        <div class="comp-div" class:is-over={d.over > 0}>
           <div class="comp-dvh">
             <span class="comp-dv-name">{d.label}</span>
+            {#if d.over > 0}<span class="comp-dv-over">Over cap</span>{/if}
             <span class="comp-dv-count">{d.total}<span class="comp-of"> / {d.cap} cap</span></span>
           </div>
+          {#if d.overText !== null}<p class="comp-dv-overnote">{d.overText}</p>{/if}
           <div class="comp-chart">
             <div class="comp-yaxis">
               <span>{d.axisMax}+</span>
@@ -530,6 +580,34 @@
     font-size: var(--text-xs);
     color: var(--color-text-primary);
     font-variant-numeric: tabular-nums;
+  }
+  /* CP-5 (OC-6): the over-cap state. Warning hue plus words ("Over cap", the note), so color is never the only signal. */
+  .comp-over {
+    margin: 8px 0 0;
+    font-size: var(--text-xs);
+    line-height: 1.4;
+    color: var(--color-warning);
+  }
+  .comp-div.is-over {
+    border-color: var(--color-warning);
+  }
+  .comp-dv-over {
+    margin-left: auto;
+    padding: 1px 6px;
+    border: 1px solid var(--color-warning);
+    border-radius: var(--corner);
+    font-family: var(--font-mono);
+    font-size: var(--text-2xs);
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--color-warning);
+    white-space: nowrap;
+  }
+  .comp-dv-overnote {
+    margin: -4px 0 8px;
+    font-size: var(--text-2xs);
+    line-height: 1.4;
+    color: var(--color-warning);
   }
 
   /* THE CHART: bars sit on a baseline, y-axis labels float in a fixed left gutter. */

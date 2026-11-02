@@ -16,6 +16,10 @@
 //   7. forecast : the dispatch card's Threat Assessment wins of 64.
 
 import { describe, expect, it } from "vitest";
+import { hullCrewCapsOffForThisFile } from "./hullCrewCapsSwitch.fixture";
+// Complement plan CP-5 (per-hull crew caps): every pin here predates CP-5 and is about another slice, so the file runs
+// with the per-hull caps off (hullCrewCapsSwitch.fixture.ts); cp5Goldens.test.ts pins what CP-5 moved.
+hullCrewCapsOffForThisFile();
 import Decimal from "break_infinity.js";
 import { PATROLS, SHIP_TYPES, type GameState, type MissionKey, type PatrolKey, type PatrolMissionState, type ShipTypeKey } from "./model";
 import { dispatchCaptainOnMission, dispatchCaptainOnPatrol, economyTick } from "./tick";

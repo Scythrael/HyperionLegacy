@@ -64,11 +64,13 @@ describe("command structure - totals + role weighting", () => {
     expect(complementTotalCap("destroyer", -10)).toBe(base);
   });
 
+  // CP-5 review (2026-11-02): read on the Destroyer, a tactician with the spec template. The Battleship now carries its
+  // own lean (extra Security / Engineering division seats past its 160 total; cp5HullCaps.test.ts covers it).
   it("division caps sum to (about) the total and never exceed it per division", () => {
-    const total = complementTotalCap("battleship");
+    const total = complementTotalCap("destroyer");
     let sum = 0;
     for (const p of CREW_PROFESSIONS) {
-      const cap = divisionCap("battleship", p);
+      const cap = divisionCap("destroyer", p);
       expect(cap).toBeLessThanOrEqual(total);
       sum += cap;
     }

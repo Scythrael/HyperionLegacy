@@ -18,6 +18,10 @@
 //   registry : the wiring registry snapshot (id, status, contexts, probe) and the E-MOD owned rows by name.
 
 import { describe, expect, it } from "vitest";
+import { hullCrewCapsOffForThisFile } from "./hullCrewCapsSwitch.fixture";
+// Complement plan CP-5 (per-hull crew caps): every pin here predates CP-5 and is about another slice, so the file runs
+// with the per-hull caps off (hullCrewCapsSwitch.fixture.ts); cp5Goldens.test.ts pins what CP-5 moved.
+hullCrewCapsOffForThisFile();
 // GEAR WEAR step 3: this file's pins were captured before the use wear engine; it runs with the use sources off
 // (gearWearSwitch.fixture.ts), so they keep proving nothing else moved. gearWearGoldens.test.ts pins the wear.
 import { gearWearOffInThisFile } from "./gearWearSwitch.fixture";
@@ -111,6 +115,7 @@ import { cp3ReadBack } from "./cp3Registry.fixture";
 // Wiring WR-11 came after every registry pin here: its flips, added and removed rows are read back (wr11Registry.fixture.ts).
 import { wr11ReadBack } from "./wr11Registry.fixture";
 import { wr9ReadBack } from "./wr9Registry.fixture";
+import { cp5ReadBack } from "./cp5Registry.fixture"; // CP-5: its registry move read back (cp5Registry.fixture.ts)
 // E-MOD EM-8 came after every registry pin here: its added rows, the Precursor Lens relic flip and the dropped Precursor
 // Circuit reserve are read back (emodEm8Registry.fixture.ts).
 import { em8ReadBack } from "./emodEm8Registry.fixture";
@@ -742,7 +747,7 @@ function fkr11ReadBack(rows: readonly WiringEntry[]): WiringEntry[] {
   });
 }
 const BEFORE_RX: WiringEntry[] = siReadBack(
-  em4ReadBack(em3ReadBack(em5ReadBack(wr8ReadBack(gw3RegistryBack(em7ReadBack(fkr11ReadBack(gw4ReadBack(favorsSpecReadBack(patrolLegsReadBack(patrolLegLiftsReadBack(cp3ReadBack(wr11ReadBack(wr9ReadBack(em8ReadBack(WIRING_REGISTRY))))))))))))))).filter(
+  em4ReadBack(em3ReadBack(em5ReadBack(wr8ReadBack(gw3RegistryBack(em7ReadBack(fkr11ReadBack(gw4ReadBack(favorsSpecReadBack(patrolLegsReadBack(patrolLegLiftsReadBack(cp3ReadBack(wr11ReadBack(wr9ReadBack(em8ReadBack(cp5ReadBack(WIRING_REGISTRY)))))))))))))))).filter(
     (e) =>
       !RX_ADDED_ENTRY_IDS.has(e.id) && !RR_ADDED_ENTRY_IDS.has(e.id) && !FUSE_ADDED_ENTRY_IDS.has(e.id) && !R2_2_ADDED_ENTRY_IDS.has(e.id) && !R2_3_ADDED_ENTRY_IDS.has(e.id) && !R2_10_ADDED_ENTRY_IDS.has(e.id) && !R2_4_ADDED_ENTRY_IDS.has(e.id) && !G16_ADDED_IDS.has(e.id) &&
       !G2_4_ADDED_ENTRY_IDS.has(e.id) && !OC15_ADDED_ENTRY_IDS.has(e.id) && !GG_STUDY_ADDED_ENTRY_IDS.has(e.id) && !G2_6_ADDED_ENTRY_IDS.has(e.id),
@@ -907,7 +912,7 @@ describe("EM-0 goldens (re-pinned by EM-1 where named)", () => {
     // Merged onto feat (0.14.0 integration): the slices BEFORE_RX holds apart (the timed grenades, R2-2, the SI read-back)
     // and G2-4's additions are held apart here the same way, so the comparison sees G1-6's move alone. E-MOD EM-5's move is
     // read back first (em5ReadBack), as BEFORE_RX does; Gas Giant Study GG-3's added seam is held apart too.
-    const live = em4ReadBack(em3ReadBack(em5ReadBack(wr8ReadBack(gw3RegistryBack(em7ReadBack(gw4ReadBack(patrolLegsReadBack(patrolLegLiftsReadBack(cp3ReadBack(wr11ReadBack(wr9ReadBack(em8ReadBack(WIRING_REGISTRY))))))))))))).filter(
+    const live = em4ReadBack(em3ReadBack(em5ReadBack(wr8ReadBack(gw3RegistryBack(em7ReadBack(gw4ReadBack(patrolLegsReadBack(patrolLegLiftsReadBack(cp3ReadBack(wr11ReadBack(wr9ReadBack(em8ReadBack(cp5ReadBack(WIRING_REGISTRY)))))))))))))).filter(
       (e) => !FKR8_ADDED_IDS.has(e.id) && !RX_ADDED_ENTRY_IDS.has(e.id) && !RR_ADDED_ENTRY_IDS.has(e.id) && !FUSE_ADDED_ENTRY_IDS.has(e.id) && !R2_2_ADDED_ENTRY_IDS.has(e.id) && !R2_3_ADDED_ENTRY_IDS.has(e.id) && !R2_10_ADDED_ENTRY_IDS.has(e.id) && !R2_4_ADDED_ENTRY_IDS.has(e.id) && !G2_4_ADDED_ENTRY_IDS.has(e.id) && !OC15_ADDED_ENTRY_IDS.has(e.id) && !GG_STUDY_ADDED_ENTRY_IDS.has(e.id) && !G2_6_ADDED_ENTRY_IDS.has(e.id),
     );
     const rung = live.filter((e) => G16_ADDED_IDS.has(e.id)).map((e) => [e.id, e.status, e.contexts, e.probe ?? null]);
