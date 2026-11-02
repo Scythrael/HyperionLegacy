@@ -44,6 +44,7 @@ import {
   type CaptainMissionState,
   type CaptainState,
   type CrewBucket,
+  type CrewRank,
   type CrewProfession,
   type CrewRace,
   type EquipmentInstance,
@@ -1106,6 +1107,28 @@ function fabricatorBonusShare(s: GameState): number {
   return (blanks - FABRICATOR_SAMPLE_JOBS) / FABRICATOR_SAMPLE_JOBS;
 }
 
+// CP-5: ship-1 emptied and passive, the pool replaced by 1,000 of every division at every rank (more than any hull
+// seats), one resolveCrew: ship-1's headcount after.
+function autoCrewFill(s: GameState): CrewBucket[] {
+  const pool: CrewBucket[] = [];
+  for (const profession of CREW_PROFESSIONS) {
+    for (let rank = 1 as CrewRank; rank <= 8; rank = (rank + 1) as CrewRank) {
+      pool.push({ profession, rarity: "standard", rank, race: "earthBorn", buff1Id: "wiring.none", buff2Id: null, count: 1000 });
+    }
+  }
+  const ready = editShip({ ...s, crewPool: pool }, { complement: { buckets: [], mode: "passive" } });
+  return shipOf(resolveCrew(ready)).complement?.buckets ?? [];
+}
+function autoCrewHeadcount(s: GameState): number {
+  return autoCrewFill(s).reduce((a, b) => a + b.count, 0);
+}
+function autoCrewLeanSeats(s: GameState): number {
+  const w = SHIP_TYPES[shipOf(s).typeKey].complementDivisionWeights;
+  if (!w) return -1;
+  const lead = CREW_PROFESSIONS.reduce((best, p) => (w[p] > w[best] ? p : best), CREW_PROFESSIONS[0]);
+  return autoCrewFill(s).reduce((a, b) => a + (b.profession === lead ? b.count : 0), 0);
+}
+
 // WR-6: the crew one transport window delivers into the fleet (the pool and every complement it auto-fills).
 function crewHeads(s: GameState): number {
   const count = (buckets: readonly { count: number }[]) => buckets.reduce((a, b) => a + b.count, 0);
@@ -1918,6 +1941,19 @@ export const PROBES = {
       for (const profession of CREW_PROFESSIONS) room += remainingCapacityForSignature(empty, ship.typeKey, { profession, rank: 1 } as CrewSignature, bonus);
       return Math.min(complementTotalCap(ship.typeKey, bonus), room);
     },
+  },
+  // Complement plan CP-5 (per-hull crew caps): the crew the auto-crew fill (resolveCrew, the passive tick path) actually
+  // seats on ship-1, passive and empty, from a deep pool holding every division at every rank: the hull's own total,
+  // division and rank caps decide it.
+  autoCrewHeadcount: {
+    label: "crew resolveCrew seats on an empty passive ship-1 from a deep pool (every division at every rank)",
+    read: (s) => autoCrewHeadcount(s),
+  },
+  // CP-5: the same fill, counting only the hull's LEADING division (its largest complementDivisionWeights share; -1 for a
+  // hull with no division mix of its own).
+  autoCrewLeanSeats: {
+    label: "crew resolveCrew seats in ship-1's leading division (its hull's largest complementDivisionWeights share), from a deep pool",
+    read: (s) => autoCrewLeanSeats(s),
   },
   // == expedition dispatch snapshot and its consumers ==
   expSquadTriage: { label: "dispatch: Expedition.squadTriage", read: (s) => dispatchRun(s).squadTriage ?? 0 },

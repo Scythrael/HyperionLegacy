@@ -144,7 +144,7 @@ import {
 import { shortRangeRelicMicrosPerHour } from "../relicBlanks";
 // Relics v2 R2-10: the minigame's relic boost table (one-way; the audit reads it, no gameplay file does).
 import { RELIC_BOOSTS } from "../../secret/config";
-import { CREW_PROFESSIONS } from "../commandStructure";
+import { CREW_PROFESSIONS, complementTotalCap } from "../commandStructure";
 import { BRIDGE_MODULES, CREW_MODULE_LINE_KNEE, CREW_STATIONS_BERTH_KNEE, CREW_STATIONS_BERTH_SCALE, QUARTERS_MODULES, moduleEffectScale } from "../crewModules";
 // E-MOD EM-7: the v1 universal module roster (each module's registry row reads its def through CATALOGS).
 import { UNIVERSAL_MODULES, bonusHaulUnits, type UniversalModuleDef } from "../shipModules";
@@ -2355,6 +2355,33 @@ function hullEntries(): WiringEntry[] {
         }),
       );
     }
+    // Complement plan CP-5 (OC-5): a hull's own crew berths and division mix, read through the auto-crew fill
+    // (resolveCrew seating an empty passive ship from a deep pool; commandStructure.ts buildStructure).
+    if (SHIP_TYPES[hull].complementCap !== undefined) {
+      out.push(
+        hullEntry(hull, "complementCap", {
+          probe: "autoCrewHeadcount",
+          contexts: ["sheet"],
+          magnitude: (c) => c.SHIP_TYPES[hull].complementCap ?? 0,
+          base: () => wiringBase(hull),
+          note: "the auto-crew fill seats exactly the hull's berths",
+        }),
+      );
+    }
+    if (SHIP_TYPES[hull].complementDivisionWeights !== undefined) {
+      out.push(
+        hullEntry(hull, "complementDivisionWeights", {
+          probe: "autoCrewLeanSeats",
+          contexts: ["sheet"],
+          magnitude: (c) => {
+            const w = c.SHIP_TYPES[hull].complementDivisionWeights!;
+            return Math.round(Math.max(...CREW_PROFESSIONS.map((p) => w[p])) * complementTotalCap(hull));
+          },
+          base: () => wiringBase(hull),
+          note: "the auto-crew fill seats the leading division's share of the hull's berths",
+        }),
+      );
+    }
   }
   // G1-1: the General hull family's quarters perk, "guest quarters +10% for passenger runs": a Crew Quarters module
   // (here a Utilitarian, which carries no guest line) on the General Freighter multiplies its base berths.
@@ -3933,7 +3960,9 @@ const AUDIT_ROWS: readonly { id: string; system: WiringSystem; claim: string; st
   { id: "crew:audit:enlisted", system: "crew", claim: "The crew rank enlisted flag: deleted (identity only)", status: LIVE },
   // WR-9 (OC-E12, user 2026-10-15 "Roll a third buff"): a rank carrying 3 buffs rolls a third from its profession pool.
   { id: "crew:audit:thirdBuff", system: "crew", claim: "buffCountForRank 3: a Lieutenant or Lieutenant Commander rolls a third buff from its profession pool, and it counts", status: LIVE },
-  { id: "crew:audit:commandCaps", system: "crew", claim: "Command structure caps (passive ships only; not enforced on load)", status: pending("CP-5, CP-7") },
+  // Complement plan CP-5 (OC-5 "Eir 900, Orion/Aurora 750", the division leans; OC-6 "Never evict"): each hull's own
+  // caps bound the fill (auto-crew, transfer, rosters); a complement over a cap keeps its crew and takes no more.
+  { id: "crew:audit:commandCaps", system: "crew", claim: "Per-hull crew caps: each hull's own total, division and rank caps bound what auto-crew, transfer and rosters seat (the Eir seats 900, the Orion 750); a complement over a cap keeps everyone and takes no more", status: LIVE },
   // WR-9 (OC-E6, user 2026-10-15 "Ground Ops reload only, the text says so"): the Help's reload line says so.
   { id: "crew:audit:rapidLoadoutScope", system: "crew", claim: "Rapid Loadout speeds the Ground Ops reload only (missions have no load step; the Help says so)", status: LIVE },
   // WR-9 (OC-E7, user 2026-10-15 "Drop that half"): Morale Anchor's text names only its Fear resist.
@@ -4418,6 +4447,19 @@ function auditRowWiring(): Readonly<Record<string, Partial<EntryInput>>> {
     ...wr7AuditWiring(),
     ...wr11AuditWiring(),
     ...wr9AuditWiring(),
+    // Complement plan CP-5: the same empty passive ship as an Eir against as an Orion, auto-crewed by resolveCrew from a
+    // deep pool: it seats exactly the difference of the two hulls' own totals (900 against 750).
+    "crew:audit:commandCaps": {
+      probe: "autoCrewHeadcount",
+      contexts: ["sheet"],
+      direction: "up",
+      curve: { kind: "linearAbsolute" },
+      magnitude: () => complementTotalCap("eir") - complementTotalCap("orion"),
+      base: () => wiringBase("orion"),
+      on: (s) => editShip(s, { typeKey: "eir" }),
+      off: identity,
+      note: "the hull's own caps reach the fill: the Eir seats 150 more than the Orion",
+    },
     // E-MOD EM-4: a Reactor Core of REACTOR_LIFT_PROBE_OUTPUT power against the same core (same mass) supplying none, on a
     // bare hull (the hull's own power covers its draw, so the whole output is surplus): the sheet's transit speed and
     // the Ground Ops voyage's frozen outbound speed rise by exactly the lift.

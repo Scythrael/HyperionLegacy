@@ -356,6 +356,24 @@ byte-identical (CP-0 `commandStructureForHull` golden for those hulls); an over-
 tick; rank caps still cascade. **UI:** over-cap column styling only; CMR-10 says "Per-hull crew sizes ... the Eir
 (largest crew) finally out-crews the Orion" (covered).
 
+**Carry note (2026-11-02, CP-5 landed on 673cba2; two commits: goldens, then the caps; no SAVE bump):** `ShipTypeDef`
+gained `complementCap?` / `complementDivisionWeights?`; `commandStructure.ts` `buildStructure` reads them (else the spec
+template), cached per (hull, `HULL_CREW_CAPS_SWITCH`), the switch a test seam (`hullCrewCapsSwitch.fixture.ts`). Data:
+Eir 900 (Security 77, Engineering 189, Science 279, Medical 234, Operations 81, Flight Deck 40; every division at or
+above the explorer template's), Aurora 750 Science lean (60 / 173 / 270 / 135 / 75 / 38), Carrier 160 Flight Deck lean
+(32 / 32 / 8 / 16 / 16 / 56), Battleship 160 Security / Engineering lean (56 / 48 / 8 / 16 / 16 / 16); every weight
+[PROVISIONAL], the totals the user's. Enforced where crew is added, through the one gate
+`remainingCapacityForSignature`: auto-crew (`resolveCrew` / `autoCrewShip`), transfer (`crewTransfer.ts`) and roster
+apply (`personnelRosters.ts`). The WR-7 rule holds on the new templates (`atLeastInclusive` against the hull's own
+template; swept bonus 1 to 200). OC-6: nothing ever removes crew for being over; `complementOverCap` (total, division
+and inclusive rank excess, on the bulk plus assigned notables) drives the Complement panel's "Over capacity" note and
+the per-division "Over cap" tag and line; the header states the hull's berths as a physical limit. The Shipyard build
+card shows "N crew berths". Eir description gains "with the largest explorer crew" (OC-5 answer; the SF-6 hold and away
+teams clause kept). Registry: `crew:audit:commandCaps` LIVE, probe `autoCrewHeadcount` (an Eir seats 150 more than an
+Orion), read back by `cp5Registry.fixture.ts`. Goldens: `cp5Goldens.test.ts` (structure / fill / transfer of the four
+overridden hulls moved, each returning with the switch off; the over-cap runs unchanged); earlier golden files that
+fill to the caps run with the switch off. QA: docs/qa/2026-11-02-cp5-crew-caps-qa.html.
+
 ### CP-6: One crew lock + salvage benching + orphan repair (Task 27 engine)
 
 **Files:** `awayTeam.ts` (`shipCrewLocked` stays the one predicate; add `crewLockReason(state, shipId)` returning

@@ -6,6 +6,7 @@
 import { describe, it, expect } from "vitest";
 import type { CrewBucket, CrewProfession, CrewSignature, ShipComplement, ShipTypeKey } from "./model";
 import { autoCrewShip } from "./autoCrew";
+import { withHullCrewCapsOff } from "./hullCrewCapsSwitch.fixture";
 import { totalCrew } from "./crew";
 import { CREW_RANK_ORDER } from "./crewRank";
 import {
@@ -33,7 +34,9 @@ function expectWithinCaps(complement: ShipComplement, hull: ShipTypeKey): void {
 }
 
 describe("auto-crew - fill order + caps", () => {
-  it("fills TOP-RANK-DOWN: senior seats claim their inclusive headroom before juniors cascade in", () => {
+  // CP-5 gave the Battleship its own Security lean (56 seats, one at rank 8); this test is about the fill ORDER on the
+  // spec template it was written against, so it reads the pre-CP-5 template (hullCrewCapsSwitch.fixture.ts).
+  it("fills TOP-RANK-DOWN: senior seats claim their inclusive headroom before juniors cascade in", () => withHullCrewCapsOff(() => {
     // battleship security template (first-pass): allocations by rank 1..8 = [17,12,8,5,3,2,1,0].
     // So inclusive caps: >=Lt(7) == 1, >=Ensign(6) == 3. A pool oversupplied at every rank must seat
     // the 1 Lieutenant FIRST (top-down), then only 2 Ensigns (3 total at rank>=6), then Crewmen fill
@@ -56,7 +59,7 @@ describe("auto-crew - fill order + caps", () => {
     expect(totalCrew(nextPool) + totalCrew(complement.buckets)).toBe(totalCrew(pool));
     // The rank-8 crew had no seats and stay in the pool; excess juniors stay too.
     expect(countAtRankOrHigher(nextPool, "security", 8)).toBe(4);
-  });
+  }));
 
   it("never breaches any cap even when the pool floods every division", () => {
     const hull: ShipTypeKey = "destroyer";

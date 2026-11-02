@@ -585,6 +585,8 @@
   } from "./lib/game/personnelRosters";
   // CP-6: the one crew lock (the accurate lock words, and the complement mode toggle's engine fn).
   import { canSetComplementMode, complementModeBlockText, crewLockText, crewLockTextAmong, setComplementMode } from "./lib/game/crewLock";
+  // CP-5 (per-hull crew caps): the build card names the hull's crew berths.
+  import { complementTotalCap } from "./lib/game/commandStructure";
   // S1 / S2 (user 2026-10-17, both "Lock it"): the gear lock and the captain lock read the same crew lock, and these
   // name the real reason (a mission, a patrol, a short-range run, or an expedition until it is claimed).
   import {
@@ -14987,7 +14989,8 @@
                       <!-- Safe first runs SF-6 (user call 13, "Build card + ship header"): the hull's description,
                            "Heavy cruiser" on the explorers. -->
                       <div class="hull-desc">{def.description}</div>
-                      <div class="research-cost">{def.cargoCapacity} cargo · {def.spec}</div>
+                      <!-- CP-5: the hull's crew berths (its physical limit), so the Eir's 900 shows before it is built. -->
+                      <div class="research-cost">{def.cargoCapacity} cargo · {complementTotalCap(typeKey as ShipTypeKey)} crew berths · {def.spec}</div>
 
                       <!-- REQUIRES box: each BOM component + its reservation-aware FREE stock
                            (freeItemForState, inventory minus what craft lines reserve, the

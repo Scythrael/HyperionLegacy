@@ -31,6 +31,10 @@
 // compared as dispatched before SF-2 (awayTeamTestFixtures.ts asPreSafeFirstRunsDispatch: no stamp, the shakedown).
 
 import { describe, expect, it } from "vitest";
+import { hullCrewCapsOffForThisFile } from "./hullCrewCapsSwitch.fixture";
+// Complement plan CP-5 (per-hull crew caps): every pin here predates CP-5 and is about another slice, so the file runs
+// with the per-hull caps off (hullCrewCapsSwitch.fixture.ts); cp5Goldens.test.ts pins what CP-5 moved.
+hullCrewCapsOffForThisFile();
 // GEAR WEAR step 3: this file's pins were captured before the use wear engine; it runs with the use sources off
 // (gearWearSwitch.fixture.ts), so they keep proving nothing else moved. gearWearGoldens.test.ts pins the wear.
 import { gearWearOffInThisFile } from "./gearWearSwitch.fixture";

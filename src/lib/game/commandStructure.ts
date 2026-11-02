@@ -18,7 +18,9 @@
 // numbers are FIRST-PASS + TUNABLE launch placeholders, the same posture as SHIP_TYPES' other stats.
 // A crew-quarters module RAISES the total via the bonusCapacity hook (crewModules.ts quartersCapacityBonus: the
 // module's own berths plus its Crew Stations line); since WR-7 (OC-D7) the bonus also spreads across the division and
-// rank caps by the hull's role weights (commandStructureWithBonus). Every reader defaults it to 0. See
+// rank caps by the hull's role weights (commandStructureWithBonus). Every reader defaults it to 0. CP-5 (Task 24): a hull
+// may carry its own total and division mix (SHIP_TYPES complementCap / complementDivisionWeights; the Eir's 900 berths and
+// the leans), and a complement over any cap keeps its crew and takes no more (complementOverCap reads that state). See
 // docs/plans/2026-09-22-crew-0.14.0-plan.md ("Rank ladder + command structure", Phase 2).
 
 import type {
@@ -133,7 +135,31 @@ function allocateRanks(divisionCap: number): Record<CrewRank, number> {
 // above, so caching is safe and keeps the readers cheap; the module-scoped cache is never mutated
 // after a first compute per hull. The quarters-module capacity bonus is applied at READ time (see
 // complementTotalCap), never baked into the cached base.
-const STRUCTURE_CACHE = new Map<ShipTypeKey, CommandStructure>();
+// CP-5: keyed by the hull AND the per-hull caps switch (below), so a test that turns the switch off never reads a template
+// cached with it on (and the reverse).
+const STRUCTURE_CACHE = new Map<string, CommandStructure>();
+
+// Complement plan CP-5 (per-hull crew caps; user 2026-10-16 OC-5 "Eir 900, Orion/Aurora 750 (Recommended)" and the
+// division leans, OC-6 "Never evict (Recommended)"): a hull's own SHIP_TYPES complementCap / complementDivisionWeights
+// replace the spec template's total / role weights. `live` is a test seam only (the golden files' *Switch.fixture.ts
+// turn it off to prove what CP-5 moved); the game never writes it.
+export const HULL_CREW_CAPS_SWITCH = { live: true };
+
+// The hull's TOTAL berths before any quarters module: its own complementCap (CP-5), else the spec base x tier. Pure.
+function hullBaseTotal(hullType: ShipTypeKey): number {
+  const def = SHIP_TYPES[hullType];
+  if (HULL_CREW_CAPS_SWITCH.live && def.complementCap !== undefined) return Math.max(0, Math.round(def.complementCap));
+  return Math.max(0, Math.round(SPEC_BASE_TOTAL[def.spec] * tierMultiplier(def.tier)));
+}
+
+// The hull's division mix: its own complementDivisionWeights (CP-5), else the spec's role weights. Pure.
+function hullDivisionWeights(hullType: ShipTypeKey): Record<CrewProfession, number> {
+  const def = SHIP_TYPES[hullType];
+  if (HULL_CREW_CAPS_SWITCH.live && def.complementDivisionWeights !== undefined) return def.complementDivisionWeights;
+  return SPEC_DIVISION_WEIGHTS[def.spec];
+}
+
+const capsKey = (hullType: ShipTypeKey): string => `${hullType}|${HULL_CREW_CAPS_SWITCH.live ? 1 : 0}`;
 
 // Build (or fetch the cached) command structure for a hull. Total = the spec base scaled by tier;
 // division caps = round(weight * total); per-rank allocations = the pyramid within each division cap.
@@ -141,19 +167,20 @@ const STRUCTURE_CACHE = new Map<ShipTypeKey, CommandStructure>();
 // simply makes the ship-total cap the (mild) binding ceiling: you cannot fill every division to its
 // rounded cap at once. Pure (returns the shared cached instance; callers must not mutate it).
 export function commandStructureForHull(hullType: ShipTypeKey): CommandStructure {
-  const cached = STRUCTURE_CACHE.get(hullType);
+  const key = capsKey(hullType);
+  const cached = STRUCTURE_CACHE.get(key);
   if (cached) return cached;
   const structure = buildStructure(hullType, 0);
-  STRUCTURE_CACHE.set(hullType, structure);
+  STRUCTURE_CACHE.set(key, structure);
   return structure;
 }
 
 // The template on `total` = the hull base + `bonus`: the division caps are the role weights of that total, each split
 // into ranks by the pyramid. Pure.
+// CP-5: the hull's own total and division mix when SHIP_TYPES gives them (hullBaseTotal / hullDivisionWeights).
 function buildStructure(hullType: ShipTypeKey, bonus: number): CommandStructure {
-  const def = SHIP_TYPES[hullType];
-  const total = Math.max(0, Math.round(SPEC_BASE_TOTAL[def.spec] * tierMultiplier(def.tier))) + bonus;
-  const weights = SPEC_DIVISION_WEIGHTS[def.spec];
+  const total = hullBaseTotal(hullType) + bonus;
+  const weights = hullDivisionWeights(hullType);
 
   // WR-7 review (OC-D7): the pyramid's floors are not monotone in the cap (a bigger cap can floor a high rank lower),
   // so a bonus template keeps, at every rank, at least the seats the hull's own template has (never fewer).
@@ -199,7 +226,7 @@ const BONUS_STRUCTURE_CACHE = new Map<string, CommandStructure>();
 export function commandStructureWithBonus(hullType: ShipTypeKey, bonusCapacity = 0): CommandStructure {
   const bonus = Math.max(0, Math.round(Number.isFinite(bonusCapacity) ? bonusCapacity : 0));
   if (bonus === 0) return commandStructureForHull(hullType);
-  const key = `${hullType}:${bonus}`;
+  const key = `${capsKey(hullType)}:${bonus}`;
   const cached = BONUS_STRUCTURE_CACHE.get(key);
   if (cached) return cached;
   const structure = buildStructure(hullType, bonus);
@@ -334,4 +361,43 @@ export function canAddToComplement(
 ): boolean {
   if (count <= 0) return true;
   return remainingCapacityForSignature(complement, hullType, signature, bonusCapacity) >= count;
+}
+
+// ============================================================================
+// Over cap (CP-5, OC-6 "Never evict")
+// ============================================================================
+
+// How far a complement sits over its caps. Nothing in the game removes crew for being over: a cap only stops the fill
+// (auto-crew, transfer, rosters), so a complement can be over after its hull's caps change (CP-5) or a quarters module
+// comes off, and it stays over until crew leave by the player's hand.
+//   totalOver     : headcount past the ship's total berths (0 when within).
+//   divisions[p]  : the division's excess, the larger of its headcount past the division cap and its worst inclusive
+//                   rank threshold (crew at a rank or higher past that threshold's cap); 0 when within.
+//   divisionOver[p]: just the headcount past the division cap (so a reader can tell a full division from a rank).
+export interface ComplementOverCap {
+  totalOver: number;
+  divisions: Record<CrewProfession, number>;
+  divisionOver: Record<CrewProfession, number>;
+  any: boolean;
+}
+
+// The over-cap reading for `buckets` on `hullType` with a quarters bonus. Callers pass the ship's OCCUPANCY (its bulk
+// plus every notable assigned to it, the fill rule). Pure.
+export function complementOverCap(buckets: CrewBucket[], hullType: ShipTypeKey, bonusCapacity = 0): ComplementOverCap {
+  const totalOver = Math.max(0, totalHeadcount(buckets) - complementTotalCap(hullType, bonusCapacity));
+  const divisions = {} as Record<CrewProfession, number>;
+  const divisionOver = {} as Record<CrewProfession, number>;
+  let any = totalOver > 0;
+  for (const p of CREW_PROFESSIONS) {
+    const over = Math.max(0, countInDivision(buckets, p) - divisionCap(hullType, p, bonusCapacity));
+    let worst = over;
+    for (const r of CREW_RANK_ORDER) {
+      const rankOver = countAtRankOrHigher(buckets, p, r) - inclusiveRankCap(hullType, p, r, bonusCapacity);
+      if (rankOver > worst) worst = rankOver;
+    }
+    divisions[p] = worst;
+    divisionOver[p] = over;
+    if (worst > 0) any = true;
+  }
+  return { totalOver, divisions, divisionOver, any };
 }

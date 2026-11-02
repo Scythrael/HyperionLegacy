@@ -27,6 +27,7 @@ import { signatureKey, totalCrew } from "./crew";
 import { tick } from "./tick";
 import { TRANSPORT_WINDOW_SECONDS } from "./transports";
 import { goldenJson, fnv } from "./firstRunsGoldens.fixture";
+import { withHullCrewCapsOff } from "./hullCrewCapsSwitch.fixture";
 
 const hash = (v: unknown): string => fnv(goldenJson(v));
 const HULLS = Object.keys(SHIP_TYPES) as ShipTypeKey[];
@@ -178,26 +179,94 @@ export const OVER_CAP_PRE: Record<string, string> = {
   orion: "orion:780:4dfc6770/d37aa99c",
 };
 
+// The over-cap pins' starting complements are built from the hull's template, so each is built with CP-5 off to
+// reproduce its capture (the template moved for the Aurora).
+const overCapPre = (hull: ShipTypeKey): CrewBucket[] => withHullCrewCapsOff(() => overCapComplement(hull));
+
 describe("CP-5 goldens (captured before the per-hull caps)", () => {
-  it("structure: every hull at bonus 0, 6, 12, 40, 113", () => {
-    expect(structureRows()).toEqual(STRUCTURE_PRE);
+  // With CP-5 switched off every pin returns: the per-hull caps are the only thing CP-5 moved here.
+  it("structure: every hull at bonus 0, 6, 12, 40, 113 (CP-5 off)", () => {
+    expect(withHullCrewCapsOff(structureRows)).toEqual(STRUCTURE_PRE);
   });
-  it("fill: a passive empty ship of every hull auto-crewed from a deep pool", () => {
-    expect(fillRows()).toEqual(FILL_PRE);
+  it("fill: a passive empty ship of every hull auto-crewed from a deep pool (CP-5 off)", () => {
+    expect(withHullCrewCapsOff(fillRows)).toEqual(FILL_PRE);
   });
-  it("transfer: 1,000 Crewmen of each division to an empty manual ship of every hull", () => {
-    expect(transferRows()).toEqual(TRANSFER_PRE);
+  it("transfer: 1,000 Crewmen of each division to an empty manual ship of every hull (CP-5 off)", () => {
+    expect(withHullCrewCapsOff(transferRows)).toEqual(TRANSFER_PRE);
   });
   for (const hull of ["aurora", "orion"] as ShipTypeKey[]) {
-    it(`overCap ${hull}: one call == 1 s steps == chunks, nobody removed, pinned`, () => {
-      const buckets = overCapComplement(hull);
+    it(`overCap ${hull}: one call == 1 s steps == chunks, nobody removed, pinned (CP-5 off)`, () => {
+      withHullCrewCapsOff(() => {
+        const buckets = overCapComplement(hull);
+        const { one, steps, chunks } = overCapPaths(hull, buckets);
+        expect(goldenJson(steps)).toBe(goldenJson(one));
+        expect(goldenJson(chunks)).toBe(goldenJson(one));
+        const after = one.ships.find((sh) => sh.id === "ship-1")!.complement!.buckets;
+        for (const p of CREW_PROFESSIONS) expect(countInDivision(after, p), p).toBeGreaterThanOrEqual(countInDivision(buckets, p));
+        expect(totalCrew(after)).toBeGreaterThanOrEqual(totalCrew(buckets));
+        expect(overCapRow(hull, buckets)).toBe(OVER_CAP_PRE[hull]);
+      });
+    });
+  }
+});
+
+// ===== CP-5 live (re-pinned on the wiring commit) =====
+
+// The hulls CP-5 gives their own caps (SHIP_TYPES complementCap / complementDivisionWeights). Every other hull's rows
+// must equal its pre-CP-5 row byte for byte.
+const OVERRIDDEN: ReadonlySet<ShipTypeKey> = new Set<ShipTypeKey>(["battleship", "carrier", "aurora", "eir"]);
+const swap = (pre: string[], post: Record<string, string>): string[] => pre.map((row) => post[row.slice(0, row.indexOf(":"))] ?? row);
+
+// Moved by CP-5 (each returns to its PRE row with CP-5 off, above): the four overridden hulls' templates, what an
+// empty passive ship of each takes from the deep pool (the Eir 900, the leans), and what a transfer moves.
+export const STRUCTURE_POST = swap(STRUCTURE_PRE, {
+  battleship: "battleship:ff825651/4f209936/e8d16144/defd789a/86475590",
+  carrier: "carrier:b3c2f324/8e4cfc82/f9fcbbca/f1e44531/3a7deccc",
+  aurora: "aurora:bae5c035/90dc8b6c/9a85cfdf/bd7a37ef/c877d841",
+  eir: "eir:a9fc80f7/36ff4102/9e83e9a3/e0536ab8/8dafbb53",
+});
+export const FILL_POST = swap(FILL_PRE, {
+  battleship: "battleship:160:9d09a236/ad7eae69",
+  carrier: "carrier:160:ae006845/c3fc4be3",
+  aurora: "aurora:750:5f7a38d4/7eb82775",
+  eir: "eir:900:4b33ff58/20add6cc",
+});
+export const TRANSFER_POST = swap(TRANSFER_PRE, {
+  battleship: "battleship:160:9e051c01",
+  carrier: "carrier:160:805b23c0",
+  aurora: "aurora:750:7bc031bc",
+  eir: "eir:900:94cc5e5",
+});
+// The pre-CP-5 over-cap complements run with CP-5 live: byte-identical to their capture. Both are over their total, so
+// neither takes the transport's crew, and nobody is removed (the Aurora's start is now further over in Security too).
+export const OVER_CAP_POST: Record<string, string> = { ...OVER_CAP_PRE };
+
+describe("CP-5 live: per-hull crew caps", () => {
+  it("every hull without an override is byte-identical; the four with one moved", () => {
+    expect(OVERRIDDEN.size).toBe(HULLS.filter((h) => SHIP_TYPES[h].complementCap !== undefined || SHIP_TYPES[h].complementDivisionWeights !== undefined).length);
+    for (const h of HULLS) if (!OVERRIDDEN.has(h)) expect(SHIP_TYPES[h].complementCap ?? SHIP_TYPES[h].complementDivisionWeights, h).toBeUndefined();
+    const rows = structureRows();
+    HULLS.forEach((h, i) => (OVERRIDDEN.has(h) ? expect(rows[i], h).not.toBe(STRUCTURE_PRE[i]) : expect(rows[i], h).toBe(STRUCTURE_PRE[i])));
+  });
+  it("structure", () => {
+    expect(structureRows()).toEqual(STRUCTURE_POST);
+  });
+  it("fill: the Eir auto-crews 900, every hull fills to its own total", () => {
+    expect(fillRows()).toEqual(FILL_POST);
+  });
+  it("transfer", () => {
+    expect(transferRows()).toEqual(TRANSFER_POST);
+  });
+  for (const hull of ["aurora", "orion"] as ShipTypeKey[]) {
+    it(`overCap ${hull}: an old save over its caps keeps every crewmember; one call == 1 s steps == chunks`, () => {
+      const buckets = overCapPre(hull);
       const { one, steps, chunks } = overCapPaths(hull, buckets);
       expect(goldenJson(steps)).toBe(goldenJson(one));
       expect(goldenJson(chunks)).toBe(goldenJson(one));
       const after = one.ships.find((sh) => sh.id === "ship-1")!.complement!.buckets;
       for (const p of CREW_PROFESSIONS) expect(countInDivision(after, p), p).toBeGreaterThanOrEqual(countInDivision(buckets, p));
       expect(totalCrew(after)).toBeGreaterThanOrEqual(totalCrew(buckets));
-      expect(overCapRow(hull, buckets)).toBe(OVER_CAP_PRE[hull]);
+      expect(overCapRow(hull, buckets)).toBe(OVER_CAP_POST[hull]);
     });
   }
 });
