@@ -515,6 +515,21 @@ the Manifest button). The manifest LIST layout and paging for 750 rows are not m
 the manifest view only. Verify in preview (`?dev`): graduate from a full ship, see the notable strip update; open the
 manifest; 375 px no horizontal scroll.
 
+**Carry note (2026-11-02, CP-9 built to the signed mockup and the user's eight A picks; no SAVE bump, no golden
+moved):** the display logic lives in a new tested `src/lib/complementTableDisplay.ts` (group rows, every buff as a chip
+with profession / exclusive / held kinds, sorts, division filter and counts, the selection summary, the manifest page
+with group headers and notables first, the pager); `ComplementPanel.svelte` draws it in one DOM (a table on a wide
+panel, cards plus two sideways chip rows plus a sticky bottom selection bar under 700 px of container width). The
+Graduate confirm and the read-only Manifest are `ActionModal`s (a bottom sheet on a phone). Send back sits on each
+notable card. App handlers `doGraduate` (returns the new notable id for the "just graduated" card) and
+`doSendBackNotable`. Engine: `manifestRows` gained an optional `profession` filter (names unchanged by it; the CP-8
+call shape is untouched). Glyphs `graduate`, `manifest`, `transfer`, `sort`, `diamond`, `chevronLeft` (icons.ts +
+ICON_SEMANTICS); the notable star is now the SVG star. Deviations: the mockup's cap message "Send one back ... to make
+room" was untrue (OC-8: the 50 counts every notable, assigned or not), so it reads "The fleet already has 50 notable
+crew" and the confirm says every notable counts; the "Lt. Cmdr." name prefix is not built (no short rank titles
+exist); Transfer shows greyed ("Crew transfer is not built yet") until CP-10 wires it. OPEN (user's call): at 50
+notables nothing can make room (no dismiss / retire action). QA: docs/qa/2026-11-02-cp9-complement-manifest-qa.html.
+
 ### CP-10: Transfer, the crew pool, lock badges, the benched list (Tasks 25 / 27 UI part 2) [needs a sketch]
 
 **Files:** `ComplementPanel.svelte` (Transfer N selected... opens a target picker: another ship or the pool, per-row

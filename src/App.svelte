@@ -585,6 +585,8 @@
   } from "./lib/game/personnelRosters";
   // CP-6: the one crew lock (the accurate lock words, and the complement mode toggle's engine fn).
   import { canSetComplementMode, complementModeBlockText, crewLockText, crewLockTextAmong, setComplementMode } from "./lib/game/crewLock";
+  // CP-9: the Complement tab's Graduate one and Send back (the CP-8 engine).
+  import { graduateGateText, graduateStandout, sendBackGateText, canSendBackNotable, sendBackNotable } from "./lib/game/crewGraduation";
   // CP-5 (per-hull crew caps): the build card names the hull's crew berths.
   import { complementTotalCap } from "./lib/game/commandStructure";
   // S1 / S2 (user 2026-10-17, both "Lock it"): the gear lock and the captain lock read the same crew lock, and these
@@ -6191,6 +6193,36 @@
     state = next;
     doSave();
     pushLog(`[${devShipLabel(shipId)}] Complement set to ${mode === "passive" ? "auto-crew" : "manual"}.`);
+  }
+
+  // CP-9: "Graduate one" on a Complement crew group. crewGraduation.ts graduateStandout refuses with the SAME state
+  // (a crew-locked ship, the fleet's notable cap, a group that is gone); the panel disables the button for those, so a
+  // refusal here is a race and is logged with the reason. Returns the new notable's id for the "just graduated" card.
+  function doGraduate(shipId: string, signatureKey: string): string | null {
+    const { next, gate, notable } = graduateStandout(state, shipId, signatureKey);
+    if (next === state || notable === null) {
+      const why = graduateGateText(state, shipId, gate);
+      if (why) pushLog(`[${devShipLabel(shipId)}] Could not graduate: ${why}.`);
+      return null;
+    }
+    state = next;
+    doSave();
+    pushLog(`[${devShipLabel(shipId)}] ${notable.name} graduated to the notable crew.`);
+    return notable.id;
+  }
+
+  // CP-9 (OC-9): "Send back" on a notable card: unassign it from its ship; it keeps its name.
+  function doSendBackNotable(notableId: string) {
+    const before = state.notableCrew.find((n) => n.id === notableId);
+    const next = sendBackNotable(state, notableId);
+    if (next === state) {
+      const why = sendBackGateText(state, notableId, canSendBackNotable(state, notableId));
+      if (why) pushLog(`Could not send back: ${why}.`);
+      return;
+    }
+    state = next;
+    doSave();
+    if (before) pushLog(`[${devShipLabel(before.assignedShipId ?? "")}] ${before.name} was sent back and is no longer assigned to a ship.`);
   }
 
   // ── Expeditions (Exploration 0.14.0 phase E2c) ──────────────────────────────
@@ -17045,6 +17077,8 @@
           shipId={ship.id}
           onSetMode={doSetComplementMode}
           onToggleFavorite={doToggleNotableFavorite}
+          onGraduate={doGraduate}
+          onSendBack={doSendBackNotable}
         />
         {/if}
         {/if}

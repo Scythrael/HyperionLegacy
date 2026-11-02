@@ -227,6 +227,19 @@ describe("CP-8 manifest (pure paged generator)", () => {
     expect(manifestRows(s, "ship-1", 50, 10).rows).toEqual([]);
   });
 
+  it("CP-9: a division filter narrows the rows and the total, and every name stays the unfiltered one", () => {
+    const whole = manifestRows(s, "ship-1", 0, 100).rows;
+    const eng = manifestRows(s, "ship-1", 0, 100, "engineering");
+    expect(eng.total).toBe(4);
+    expect(eng.rows.map((r) => r.index)).toEqual([0, 1, 2, 3]);
+    expect(eng.rows.map((r) => [r.signatureKey, r.rowInBucket, r.name])).toEqual(
+      whole.filter((r) => r.profession === "engineering").map((r) => [r.signatureKey, r.rowInBucket, r.name]),
+    );
+    expect(manifestRows(s, "ship-1", 1, 2, "engineering").rows.map((r) => r.rowInBucket)).toEqual([1, 2]);
+    expect(manifestRows(s, "ship-1", 0, 100, "medical")).toEqual({ rows: [], total: 0 });
+    expect(manifestRows(s, "ship-1", 0, 100, null)).toEqual(manifestRows(s, "ship-1", 0, 100));
+  });
+
   it("a 750-head manifest pages fast", () => {
     const big = withComplement([bucket("operations", 400), bucket("engineering", 350, 1, "eng.range")]);
     const t0 = performance.now();

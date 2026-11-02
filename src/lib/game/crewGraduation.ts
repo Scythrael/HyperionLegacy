@@ -224,8 +224,18 @@ export interface ManifestPage {
 // stable: the same state gives the same rows on every call, and a row keeps its name while its bucket holds it.
 // Notables are not rows (they carry their own persisted names). Cost is O(buckets + limit). An unknown ship, a
 // negative offset (read as 0) or a limit below 1 give what they can (possibly no rows).
-export function manifestRows(state: GameState, shipId: string, offset: number, limit: number): ManifestPage {
-  const buckets = state.ships.find((s) => s.id === shipId)?.complement?.buckets ?? [];
+// CP-9: an optional `profession` narrows the manifest to one division (the Manifest's division chips). Indexes and the
+// total then count that division only; every name is unchanged, since a name hangs on the ship, the bucket and the row
+// within the bucket, never on the row's place in the list. Omitted, the manifest is exactly the CP-8 one.
+export function manifestRows(
+  state: GameState,
+  shipId: string,
+  offset: number,
+  limit: number,
+  profession?: CrewSignature["profession"] | null,
+): ManifestPage {
+  const all = state.ships.find((s) => s.id === shipId)?.complement?.buckets ?? [];
+  const buckets = profession === undefined || profession === null ? all : all.filter((b) => b.profession === profession);
   const total = buckets.reduce((n, b) => n + Math.max(0, b.count), 0);
   const rows: ManifestRow[] = [];
   const start = Math.max(0, Math.floor(offset));
