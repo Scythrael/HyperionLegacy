@@ -868,3 +868,11 @@ display: A a line per panel and a lock on each sub-tab; (9) benched list home: A
   Flight Deck; Battleship: Security, Engineering; Aurora: Science; Eir per its lean) before the rest, so the lean is
   real in practice. Totals stay the OC-5 numbers. Existing crew are never moved or evicted.
 - Eir lean order (2026-11-02): Medical, then Science [PROVISIONAL], matching its approved "medical transport" description; only matters once a quarters bonus raises a division.
+
+## USER ANSWERS (2026-11-02): CP-9 build calls
+
+- Notable cap (50) with nothing removing a notable: "Allow Retire (Recommended)": a notable can be retired with a
+  farewell line, no penalty; it frees a notable slot. The player chooses when.
+- Rank prefix on names: "No, keep names clean (Recommended)": rank stays its own chip.
+- The notable marquee (2026-10-16 note): "Add a slow auto-scroll (Recommended)": the strip drifts gently on its own,
+  pauses on hover or touch, and stays still with Reduce motion on.
