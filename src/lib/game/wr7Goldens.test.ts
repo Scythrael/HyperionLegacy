@@ -284,6 +284,9 @@ const PINS: Record<string, string> = {
   "rolls:module:signalIntegrator:luminous": "ce9a841d",
   "rolls:module:ramscoopCollector:standard": "795ebacd",
   "rolls:module:ramscoopCollector:luminous": "795ebacd",
+  // E-MOD EM-8 (added, no pin moved): the Precursor Lens is a new module variety (empty statRatios like its siblings).
+  "rolls:module:precursorLens:standard": "74a935dd",
+  "rolls:module:precursorLens:luminous": "74a935dd",
   "sheet:generalFreighter:prospectorHoldBp": "e3f3e1aa",
   "sheet:generalFreighter:yieldRigBp": "3d568b41",
   "sheet:generalFreighter:damageControlSuiteBp": "d1342ae6",

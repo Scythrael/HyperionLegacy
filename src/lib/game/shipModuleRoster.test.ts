@@ -101,7 +101,11 @@ describe("the roster (user M6 'Approve all': the eight rows as named, with those
       ["signalIntegrator", "Signal Integrator", "set", "scanSpeedBonus"],
       // Gas Giant Study GG-7 (user call 11, "Three now"): the Ramscoop Collector, a special blueprint's module.
       ["ramscoopCollector", "Ramscoop Collector", "passive", "nebulaSweep"],
+      // E-MOD EM-8 (M6's ninth row): the Precursor Lens, the Special.
+      ["precursorLens", "Precursor Lens", "special", "extraDiscovery"],
     ]);
+    // M6: "each body scanned, a chance to uncover one extra hidden discovery", on expeditions; a discovery's payoff.
+    expect(def("precursorLens")).toMatchObject({ trigger: { kind: "bodyScanned" }, contexts: ["expedition"], effect: { key: "extraDiscovery", magnitude: 1 }, source: "discovery" });
     expect(validateUniversalModuleCatalog()).toEqual([]);
     // The approved shapes: on a hit taken; each extraction cycle; below 25% hull; once per battle below 50% hull.
     expect(def("arcDischarger").trigger).toEqual({ kind: "onHit" });
@@ -119,7 +123,9 @@ describe("the roster (user M6 'Approve all': the eight rows as named, with those
     // so the EM-7 roster rows below are the others.
     const all = Object.values(BLUEPRINTS).filter((b) => b.equipmentOutput?.slotType === "module");
     expect(all.map((b) => b.equipmentOutput!.varietyKey).sort()).toEqual(UNIVERSAL_MODULES.map((d) => d.id).sort());
-    const bps = all.filter((b) => b.key !== "ramscoopCollectorBp");
+    // EM-8: the Precursor Lens's blueprint is discovery-gated (relic-unlocks.test.ts, emodEm8.test.ts), so it is not an
+    // EM-7 roster row either.
+    const bps = all.filter((b) => b.key !== "ramscoopCollectorBp" && b.key !== "precursorLensBp");
     for (const b of bps) {
       expect(b).toBe(MODULE_BLUEPRINTS[b.key]);
       expect([2, 3, 4], b.key).toContain(b.tier);
@@ -231,12 +237,22 @@ describe("the mint, the player path and the item card", () => {
 
   it("the item card says what each module does at the piece's own scale (the mockup's words)", () => {
     const lines = (id: string, rarity: EquipmentRarity = "standard", q = 0) => pieceModuleLines(mint(id, rarity, q))!;
-    expect(lines("auxiliaryCapacitor")).toEqual({ kind: "Passive · Everywhere", effect: "Adds 8 power output.", rule: null, when: "Always on, everywhere the ship goes.", draw: "Power draw 0, adds 8 power", condition: null });
+    expect(lines("auxiliaryCapacitor")).toEqual({ kind: "Passive · Everywhere", effect: "Adds 8 power output.", rule: null, when: "Always on, everywhere the ship goes.", draw: "Power draw 0, adds 8 power", condition: null, gate: null });
     expect(lines("structuralBracing").effect).toBe("+6% hull integrity in combat.");
     expect(lines("arcDischarger")).toMatchObject({ kind: "Proc · Combat", effect: "When the ship takes a hit: a 15% chance to arc 8 damage back at the attacker." });
     expect(lines("prospectorsEcho")).toMatchObject({ kind: "Proc · Missions", effect: "Each extraction cycle: a 10% chance of a bonus haul, +50% of that cycle's common material." });
     expect(lines("lastStandProtocol").effect).toBe("While hull is below 25%: +12% weapon damage.");
-    expect(lines("shieldSurge")).toEqual({ kind: "Active · Combat", effect: "Restores 30% shields.", rule: "Auto-cast, preset rule: once per battle, when hull falls below 50%.", when: "Acts in combat once the ship's hull falls below 50%.", draw: "Power draw 6", condition: null });
+    expect(lines("shieldSurge")).toEqual({ kind: "Active · Combat", effect: "Restores 30% shields.", rule: "Auto-cast, preset rule: once per battle, when hull falls below 50%.", when: "Acts in combat once the ship's hull falls below 50%.", draw: "Power draw 6", condition: null, gate: null });
+    // EM-8: the Precursor Lens, the signed-off mockup's card (Special · Expeditions, its unlock line).
+    expect(lines("precursorLens")).toEqual({
+      kind: "Special · Expeditions",
+      effect: "Each body scanned: a 20% chance to uncover one extra hidden discovery.",
+      rule: null,
+      when: "Acts on each body an expedition scans.",
+      draw: "Power draw 9",
+      condition: null,
+      gate: "Unlocked: you identified a Precursor Lens relic.",
+    });
     expect(lines("longBaselineArray")).toMatchObject({ kind: "Set · Expeditions", effect: "With a Signal Integrator installed: +8% scan speed on expeditions (the pair's bonus averages both pieces)." });
     expect(lines("signalIntegrator").effect).toBe("With a Long-Baseline Array installed: +8% scan speed on expeditions (the pair's bonus averages both pieces).");
     // EM-7 review: installed as a pair (the host passes the ship's pieces), the card shows the REAL pair bonus, the mean

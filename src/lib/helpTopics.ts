@@ -148,6 +148,7 @@ const TOP_Q = `Q${MAX_MATERIAL_QUALITY}`;
 // first Lab tier from the engine (no typed number).
 import { DRIVE_CLASS_POWER_DRAW_MULT, MODULE_BLUEPRINTS } from "./game/model";
 import { POWER_SUPPLY_FLOOR_PERCENT } from "./game/combat/power";
+import { PRECURSOR_LENS_NUMBERS } from "./game/shipModules";
 // Field Kits FKR-11: the Field Kits and Enemy Ranks topics read every number, name and list from the engine (the kit
 // catalog, the grenade varieties, the condition rows, the inflictors, the rank table and its placement) and every
 // control name from the screen's own display module, so a retune or a relabel cannot make the manual lie.
@@ -244,6 +245,8 @@ function tier(t: number): string {
 }
 // E-MOD EM-10: the lowest Research Lab tier any module blueprint sits on.
 const FIRST_MODULE_TIER = Math.min(...Object.values(MODULE_BLUEPRINTS).map((bp) => bp.tier));
+// E-MOD EM-8: the Precursor Lens's numbers (chance at Standard quality 0, power draw).
+const LENS = PRECURSOR_LENS_NUMBERS;
 function site(id: string): string {
   return groundSiteLabel(id) ?? id;
 }
@@ -759,6 +762,8 @@ On the order form, This order uses lists the qualities the order will draw, and 
       "- Install a module from an empty tile in the Modules row, or with Install on... from the piece itself. Remove takes one off and leaves the slot empty.",
       "- A ship carries one of each module, and its modules change only while it is home, like all ship gear.",
       "- Passive modules are always on. A Proc has a chance each time its trigger happens (a hit taken, an extraction cycle). A Conditional acts while its condition holds (the hull running low). An Active casts itself by its one preset rule, with no editor. A Set acts while both pieces of its pair are installed on the same ship.",
+      // E-MOD EM-8: the Special (the Precursor Lens), every number read from the engine.
+      `- A Special is a discovery's payoff. Identifying a Precursor Lens relic opens the Precursor Lens blueprint (crafted with a Precursor Circuit). Installed, it gives each body an expedition scans a ${pct(LENS.chance)} chance to uncover one extra hidden discovery; better rarity and quality raise that chance. It draws ${LENS.powerDraw} power.`,
       "- Tap a module tile for what it does, when it acts and its power draw.",
     ].join("\n"),
   },

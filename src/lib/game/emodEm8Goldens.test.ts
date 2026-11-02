@@ -33,6 +33,7 @@ import { sellItem } from "./quartermaster";
 import { PLANET_TYPES } from "./expeditionContent";
 import { dispatchRun, holding, syntheticBody, wiringBase, withFacilityLevel } from "./wiring/probes";
 import { hash } from "./firstRunsGoldens.fixture";
+import { withoutEm8Content } from "./emodEm8Switch.fixture";
 
 const CAPTURE = Boolean(import.meta.env.EM8_CAPTURE);
 const SHIP = "ship-1";
@@ -83,6 +84,19 @@ function computePins(): { held: Record<string, string>; moved: Record<string, st
   return { held, moved };
 }
 
+// The by-design readings after EM-8 (pinned so a later slice cannot move one unexplained).
+const MOVED_AFTER: Record<string, string> = {
+  "unlock:relic": "d409324c",
+  "unlock:researchable:undiscovered": "45b79745",
+  "unlock:researchable:discovered": "39881208",
+  "catalog:tier:2": "146bb51",
+  "catalog:fabricator:2": "11449f17",
+  "catalog:research:2": "d7773872",
+  "catalog:archive": "96eef5d1",
+  "slot:module": "79c34827",
+  "item:precursorCircuit": "6b43be67",
+};
+
 // Captured on the pre-EM-8 engine (feat/crew-0.14.0 7c553ac).
 const HELD: Record<string, string> = {
   "dispatch:orion": "e69c87e0",
@@ -124,8 +138,19 @@ describe("E-MOD EM-8 goldens (captured before the Precursor Lens)", () => {
     expect(Object.keys(HELD).length).toBeGreaterThan(10);
     for (const [k, v] of Object.entries(HELD)) expect(pins.held[k], k).toBe(v);
   });
-  it("the by-design readings are the pre-EM-8 capture", () => {
+  // EM-8 moved the by-design readings. With its additions held apart (emodEm8Switch.fixture.ts) every one is the
+  // pre-EM-8 capture: the proof that the Lens, its blueprint and the circuit's recipe are the whole move.
+  it("the by-design readings: with EM-8's additions held apart, every one is the pre-EM-8 capture", () => {
     expect(Object.keys(MOVED_BEFORE).length).toBeGreaterThan(8);
-    for (const [k, v] of Object.entries(MOVED_BEFORE)) expect(pins.moved[k], k).toBe(v);
+    const pre = withoutEm8Content(() => computePins());
+    for (const [k, v] of Object.entries(MOVED_BEFORE)) expect(pre.moved[k], k).toBe(v);
+    for (const [k, v] of Object.entries(HELD)) expect(pre.held[k], k).toBe(v);
+  });
+  it("the by-design readings: EM-8 moves exactly the named ones", () => {
+    const moved = Object.keys(MOVED_BEFORE).filter((k) => pins.moved[k] !== MOVED_BEFORE[k]).sort();
+    // Unmoved: the researchable list before any Precursor Lens is identified (the project stays masked and locked).
+    expect(moved).toEqual(Object.keys(MOVED_BEFORE).filter((k) => k !== "unlock:researchable:undiscovered").sort());
+    expect(Object.keys(MOVED_AFTER).sort()).toEqual(Object.keys(MOVED_BEFORE).sort());
+    for (const [k, v] of Object.entries(MOVED_AFTER)) expect(pins.moved[k], k).toBe(v);
   });
 });

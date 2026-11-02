@@ -26,7 +26,7 @@
 // combat/resolveBattle.ts (the six combat triggers), tick.ts tickCaptainMission (the mission cycle) and expedition.ts
 // assignDiscoveriesAndActivities (the body scan). EM-7 authors the v1 roster below and its blueprints (model.ts
 // MODULE_BLUEPRINTS), the Set engine (the Survey Pair, a set of the shared gear set engine, gearSets.ts) and flips
-// UNIVERSAL_MODULES_LIVE; EM-8 adds the Precursor Lens.
+// UNIVERSAL_MODULES_LIVE; EM-8 adds the Precursor Lens (the Special, its blueprint model.ts precursorLensBp).
 //
 // A LEAF MODULE: it imports nothing but types and the leaf specialBlueprints.ts (GG-7), so model.ts (equipmentStatMods,
 // the power output fold) and the combat sim can read the catalog without an import cycle. Pure: no state, no clock; the only random draws are on the
@@ -149,7 +149,7 @@ export interface UniversalModuleDef {
 
 // ============================================================================
 // EM-7: the v1 roster (user M6, 2026-10-19, "Approve all": the eight rows of plan section 5 call 12, as named, with
-// those effects; the Precursor Lens, the ninth, is EM-8's)
+// those effects; the Precursor Lens, the ninth, is EM-8's, below them)
 // ============================================================================
 
 // The Survey Pair's set id (gearSets.ts GEAR_SETS reads it, so the set and its two modules share one key).
@@ -173,6 +173,14 @@ export const MODULE_V1_NUMBERS = {
   longBaselineArray: { powerDraw: 6 },
   signalIntegrator: { powerDraw: 5 },
 } as const;
+
+// E-MOD EM-8: the Precursor Lens (the ninth row of call M6). Its catalog id (the module slot's variety key and the
+// piece's stamped moduleVariant) shares the relic's id: the relic opens it, the module carries its name.
+export const PRECURSOR_LENS_MODULE = "precursorLens";
+// [PROVISIONAL] (no answer names a number): the chance per body scanned at Standard quality 0 (the piece's rarity and
+// quality lift it, MODULE_SCALE_ON), the discoveries a landed roll adds (one: the M6 row's "one extra hidden
+// discovery") and the power draw (9: the signed-off modules mockup's sample, section C).
+export const PRECURSOR_LENS_NUMBERS = { chance: 0.2, extraDiscovery: 1, powerDraw: 9 } as const;
 
 const N = MODULE_V1_NUMBERS;
 const EVERYWHERE: readonly ModuleContext[] = MODULE_CONTEXTS;
@@ -202,6 +210,12 @@ export const UNIVERSAL_MODULES: readonly UniversalModuleDef[] = [
   // bigger and faster ([PROVISIONAL] magnitude and draw in specialBlueprints.ts GG7_NUMBERS). Never a gate: a ship
   // without one sweeps exactly as before.
   { id: RAMSCOOP_COLLECTOR_MODULE, label: "Ramscoop Collector", category: "passive", contexts: ["expedition"], effect: { key: "nebulaSweep", magnitude: GG7_NUMBERS.ramscoopCollector.nebulaSweep }, powerDraw: GG7_NUMBERS.ramscoopCollector.powerDraw, source: "craft" },
+  // E-MOD EM-8 (user M6 "Approve all": "each body scanned, a chance to uncover one extra hidden discovery"; E4d: the
+  // Precursor Lens relic's first find opens it, model.ts precursorLensBp): the SPECIAL module, its own unique proc.
+  // Each body an expedition scans rolls its chance once (the EM-6 body-scanned engine, frozen at dispatch on
+  // Expedition.moduleScanProcs); a landed roll adds one more discovery. The piece's rarity and quality lift the chance
+  // (MODULE_SCALE_ON), never the count. One per ship like every module (user M8 "One per ship; the Precursor Lens too").
+  { id: PRECURSOR_LENS_MODULE, label: "Precursor Lens", category: "special", contexts: ["expedition"], trigger: { kind: "bodyScanned" }, chance: PRECURSOR_LENS_NUMBERS.chance, effect: { key: "extraDiscovery", magnitude: PRECURSOR_LENS_NUMBERS.extraDiscovery }, powerDraw: PRECURSOR_LENS_NUMBERS.powerDraw, source: "discovery" },
 ];
 
 // The effect keys each category's engine reads TODAY. A category absent here has no engine yet, so no catalog entry of

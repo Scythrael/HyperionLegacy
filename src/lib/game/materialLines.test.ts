@@ -11,8 +11,8 @@
 //     nowhere yet is not offered (refineRecipeOffered: canStartLine, the Refinery dropdown, the dashboard scan), and
 //     the gate lifts by itself when ML-2 / EM-8 drop the reserve marker.
 // ML-2 (0.14.0) gave the six reserved goods their blueprints and dropped their markers in the same commit, so every
-// recipe here is offered now; the gate is still exercised by putting a marker back (withMarkersAdded). Only the
-// Precursor Circuit (EM-8) stays reserved.
+// recipe here is offered now; the gate is still exercised by putting a marker back (withMarkersAdded). E-MOD EM-8 gave
+// the last one, the Precursor Circuit, its recipe (the Precursor Lens module) and dropped its marker: none is reserved.
 
 import { describe, expect, it } from "vitest";
 import {
@@ -62,8 +62,8 @@ const ML1_ITEMS: Record<string, string> = {
 };
 
 const COMPOUNDS = Object.keys(ML1_RECIPES).filter((k) => ML1_RECIPES[k].inputs.length > 1);
-// ML-2 lifted the six ML-1 reserves; only EM-8's Precursor Circuit is still reserved.
-const RESERVED_TODAY = ["precursorCircuit"];
+// ML-2 lifted the six ML-1 reserves and EM-8 the Precursor Circuit's: nothing is reserved today.
+const RESERVED_TODAY: string[] = [];
 const ML2_LIFTED = ["reclaimedCircuit", "iridiumCatalyst", "cobaltCoil", "osmiumPlate", "photonicGel", "biocatalyst"];
 
 // Runs `fn` with the reserve marker lifted from `ids` (as ML-2 / EM-8 will when they add the consumer), then restores
@@ -333,7 +333,8 @@ describe("ML-1 sink rule: every material has a consumer or a typed reserve", () 
 
   it("every raw, salvaged, refined and component item has a consumer XOR a reserve", () => {
     // Wiring WR-11 (OC-J3 "Sell now, recipes later"): a Quartermaster sale is the interim sink of an item whose recipe
-    // is still reserved for its slice (Precursor Circuit: EM-8), so a sale alone never counts against the reserve.
+    // is still reserved for its slice (the Precursor Circuit was, until EM-8), so a sale alone never counts against the
+    // reserve.
     const recipeUsed = (id: string, reserved: boolean) => (reserved ? (used.get(id) ?? []).some((k) => k !== "sell") : used.has(id));
     const bad = materials
       .filter(([id, d]) => recipeUsed(id, d.reserved !== undefined) === (d.reserved !== undefined))

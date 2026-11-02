@@ -174,6 +174,8 @@ describe("the module card's trigger in plain words (EM-10)", () => {
       signalIntegrator: "Acts on expeditions while both pieces of its pair are installed on the same ship.",
       // Gas Giant Study GG-7: the Ramscoop Collector (a special blueprint).
       ramscoopCollector: "Acts on each expedition's nebula sweep.",
+      // E-MOD EM-8: the Precursor Lens (the Special).
+      precursorLens: "Acts on each body an expedition scans.",
     };
     for (const d of UNIVERSAL_MODULES) {
       expect(moduleWhenText(d), d.id).toBe(expected[d.id]);

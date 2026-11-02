@@ -31,7 +31,7 @@
   // RR-8 (rarity readiness): a Luminous piece's legendary affix and a Constellar piece's set, one line each.
   import { pieceLegendaryAffixText, pieceSetText } from "./ui/rarityPieceText";
   // E-MOD EM-7: what a universal module does (its effect at this piece's scale, an Active's preset rule).
-  import { MODULE_CARD_NOTE, moduleEffectSentence, moduleKindText, moduleRuleText, moduleWhenText, pieceModuleLines, type PieceModuleLines } from "./ui/moduleEffectText";
+  import { MODULE_CARD_NOTE, moduleEffectSentence, moduleGateText, moduleKindText, moduleRuleText, moduleWhenText, pieceModuleLines, type PieceModuleLines } from "./ui/moduleEffectText";
   import { universalModuleDef } from "./game/shipModules";
   import { pieceMaterialQualityText, shipMaterialQualityText } from "./ui/materialQualityText";
   // WR-7 follow-up (OC-D5): a favored-variety piece's "+10% on its ship type" line, and its lines as a favored hull reads them.
@@ -160,6 +160,9 @@
     shieldSurge: "moduleSurge",
     longBaselineArray: "telescope",
     signalIntegrator: "moduleSignal",
+    // E-MOD EM-8: the Precursor Lens module draws its relic's glyph (the signed-off modules mockup's own choice: the
+    // optical tripod telescope, apart from the Long-Baseline Array's radio dish).
+    precursorLens: "relicPrecursorLens",
     // E-MOD EM-10 review (SVG only, never emoji): every Spec Utility variety, drawn on the Modules row, its picker, the
     // card header, the Logistics bay and the Armory.
     yieldRig: "rigYield",
@@ -494,7 +497,7 @@
         // signature range) adds to the base damage; base damage is shown so the range reads in context.
         weaponBase: { label: string; value: string }[] | null;
         // E-MOD EM-7: a module craft's effect at Standard quality 0 (the roll scales it), or null. EM-10: when it acts.
-        moduleLines: { kind: string; effect: string; rule: string | null; when: string } | null;
+        moduleLines: { kind: string; effect: string; rule: string | null; when: string; gate: string | null } | null;
         flavor: string | null;
       }
     | null;
@@ -607,7 +610,7 @@
       slotLabel: preview ? slotLabelFor(preview.slotType, preview.varietyKey) : "",
       preview,
       weaponBase,
-      moduleLines: craftModule ? { kind: moduleKindText(craftModule), effect: `${moduleEffectSentence(craftModule, 1)} (Standard; better rarity and quality do more.)`, rule: moduleRuleText(craftModule), when: moduleWhenText(craftModule) } : null,
+      moduleLines: craftModule ? { kind: moduleKindText(craftModule), effect: `${moduleEffectSentence(craftModule, 1)} (Standard; better rarity and quality do more.)`, rule: moduleRuleText(craftModule), when: moduleWhenText(craftModule), gate: moduleGateText(craftModule) } : null,
       flavor: bp?.flavor ?? null,
     };
   })();
@@ -736,6 +739,10 @@
         {#if view.moduleLines.condition}
           <div class="et-detail">{view.moduleLines.condition}</div>
         {/if}
+        <!-- E-MOD EM-8: a discovery module's unlock line (the mockup's card: "Unlocked: you identified a Precursor Lens relic."). -->
+        {#if view.moduleLines.gate}
+          <div class="et-detail">{view.moduleLines.gate}</div>
+        {/if}
         <div class="et-detail">{MODULE_CARD_NOTE}</div>
       {/if}
     {:else if view.kind === "ship"}
@@ -766,6 +773,9 @@
         <div class="et-detail">{view.moduleLines.when}</div>
         {#if view.moduleLines.rule}
           <div class="et-detail"><b>{view.moduleLines.rule}</b></div>
+        {/if}
+        {#if view.moduleLines.gate}
+          <div class="et-detail">{view.moduleLines.gate}</div>
         {/if}
       {/if}
       {#if view.preview}

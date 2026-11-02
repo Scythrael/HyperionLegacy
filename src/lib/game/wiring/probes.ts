@@ -1051,6 +1051,20 @@ function moduleBonusHaul(s: GameState): number {
   }
   return extra / MODULE_HAUL_BATCH;
 }
+// E-MOD EM-8 (the Precursor Lens, the body-scanned trigger): ship-1 dispatched (the run freezes its body-scan procs,
+// Expedition.moduleScanProcs), then the real discovery roll (expedition.ts rollBodyDiscoveries) over MODULE_SCAN_BODIES
+// synthetic bodies, every planet type in turn, body index 0 to MODULE_SCAN_BODIES - 1 (each its own key of the private
+// body-scan stream): the mean discoveries per body.
+export const MODULE_SCAN_BODIES = 2000;
+function moduleScanDiscoveries(s: GameState): number {
+  const run = dispatchRun(s);
+  let n = 0;
+  for (let i = 0; i < MODULE_SCAN_BODIES; i++) {
+    const p = PLANET_IDS[i % PLANET_IDS.length];
+    n += rollBodyDiscoveries(run, { ...syntheticBody(p, 0), id: `wiring-scan-${i}` }, i).length;
+  }
+  return n / MODULE_SCAN_BODIES;
+}
 
 // The Security squad as a dispatched run fields it (the run's frozen officer care rides along).
 function runMember(s: GameState, memberId: string): GroundCombatant | undefined {
@@ -1742,6 +1756,10 @@ export const PROBES = {
   moduleBonusHaul: {
     label: `economyTick deliveries: the mean extra Titanium Ore over ${MODULE_HAUL_BATCH} real 10-ore shortOreRun deliveries, the captain's lifetime module counter 0 to ${MODULE_HAUL_BATCH - 1}`,
     read: (s) => moduleBonusHaul(s),
+  },
+  moduleScanDiscoveries: {
+    label: `rollBodyDiscoveries on the dispatched run: the mean discoveries per body over ${MODULE_SCAN_BODIES} synthetic bodies (every planet type, body index 0 to ${MODULE_SCAN_BODIES - 1})`,
+    read: (s) => moduleScanDiscoveries(s),
   },
   battleDroneHp: { label: "the first squadron's droneHp: the patrol cycle's seed / the ship-event combatant", read: (s, ctx) => battleDrones(s, ctx)[0]?.droneHp ?? 0 },
   battleDroneReplenish: {

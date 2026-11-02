@@ -5,12 +5,14 @@
 // so without them a crafted module would read as nothing.
 //
 // Every number shown is the one the engine uses: the same rounding (whole power and arc damage points, shield restore
-// in per-mille), the same unscaled chance (the scale acts on the effect's size, shipModules.ts MODULE_SCALE_ON).
+// in per-mille), the same chance (the scale acts on the effect's size, or on the chance where the size is a whole count
+// of things: the Precursor Lens, shipModules.ts MODULE_SCALE_ON).
 // Pure presentation, node-testable (no Svelte harness); no game rules live here.
 
-import { moduleEffectScale, shipGearSetBonusLines, type EquipmentInstance } from "../game/model";
+import { BLUEPRINTS, moduleEffectScale, shipGearSetBonusLines, type EquipmentInstance } from "../game/model";
 import { activeGearSetTiers, gearSetDef } from "../game/gearSets";
-import { UNIVERSAL_MODULES, modulePowerOutput, pieceModuleDef, type ModuleContext, type UniversalModuleDef } from "../game/shipModules";
+import { MODULE_CHANCE_UNITS, MODULE_SCALE_ON, UNIVERSAL_MODULES, moduleChanceUnits, modulePowerOutput, pieceModuleDef, type ModuleContext, type UniversalModuleDef } from "../game/shipModules";
+import { getRelicById } from "../game/relics";
 import { CONDITION_FULL, pieceCondition } from "../game/gearWear";
 
 // A fraction as a percent with at most one decimal ("12%", "6.7%").
@@ -67,12 +69,32 @@ export function moduleEffectSentence(def: UniversalModuleDef, scale: number): st
       const partners = UNIVERSAL_MODULES.filter((d) => d.category === "set" && d.setId === def.setId && d.id !== def.id).map((d) => d.label);
       return `With ${partners.length === 1 ? `a ${partners[0]}` : partners.join(" and ")} installed: +${pct(m)} scan speed on expeditions (the pair's bonus averages both pieces).`;
     }
-    case "extraDiscovery":
-      return `Each body scanned: a chance to uncover ${Math.round(def.effect.magnitude)} extra hidden discovery.`;
+    case "extraDiscovery": {
+      // E-MOD EM-8 (the Precursor Lens): the count is whole, so the piece's scale lifts the CHANCE (MODULE_SCALE_ON), at
+      // the engine's own rounding (shipModules.ts procChanceUnits).
+      const n = Math.round(def.effect.magnitude);
+      return `Each body scanned: a ${pct(moduleScaledChance(def, scale))} chance to uncover ${n === 1 ? "one extra hidden discovery" : `${n} extra hidden discoveries`}.`;
+    }
     case "nebulaSweep":
       // GG-7: the Ramscoop Collector, at the engine's own per-mille stamp (gasGiantStudy.ts gearPermilleStamp).
       return `Nebula sweeps: +${pct(Math.round(m * 1000) / 1000)} canisters, and the sweep runs that much faster. Nebulae stay gatherable without it.`;
   }
+}
+
+// A proc's chance at effect scale `scale`, as the engine rolls it: lifted by the scale only where the scale acts on the
+// chance (MODULE_SCALE_ON), in the engine's integer units. Pure.
+export function moduleScaledChance(def: UniversalModuleDef, scale: number): number {
+  const chance = def.chance ?? 0;
+  return moduleChanceUnits(MODULE_SCALE_ON[def.effect.key] === "chance" ? chance * scale : chance) / MODULE_CHANCE_UNITS;
+}
+
+// E-MOD EM-8: how a DISCOVERY module is opened (the signed-off modules mockup's details card: "Unlocked: you identified a
+// Precursor Lens relic."), read from its blueprint's relic gate; null for every crafted module. Pure.
+export function moduleGateText(def: UniversalModuleDef): string | null {
+  if (def.source !== "discovery") return null;
+  const bp = Object.values(BLUEPRINTS).find((b) => b.equipmentOutput?.slotType === "module" && b.equipmentOutput.varietyKey === def.id && b.requiresRelicDiscovery !== undefined);
+  const relic = bp?.requiresRelicDiscovery !== undefined ? getRelicById(bp.requiresRelicDiscovery) : undefined;
+  return relic !== undefined ? `Unlocked: you identified a ${relic.label} relic.` : null;
 }
 
 // An Active's one preset rule (user M3, "One preset rule"), or null for any other category. Pure.
@@ -147,6 +169,7 @@ export interface PieceModuleLines {
   when: string;
   draw: string;
   condition: string | null;
+  gate: string | null; // EM-8: a discovery module's unlock line (moduleGateText)
 }
 export function pieceModuleLines(piece: EquipmentInstance, shipPieces?: readonly EquipmentInstance[]): PieceModuleLines | null {
   const def = pieceModuleDef(piece);
@@ -158,6 +181,7 @@ export function pieceModuleLines(piece: EquipmentInstance, shipPieces?: readonly
     when: moduleWhenText(def),
     draw: moduleDrawText(piece),
     condition: moduleConditionText(piece),
+    gate: moduleGateText(def),
   };
 }
 
