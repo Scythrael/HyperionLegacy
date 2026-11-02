@@ -65,7 +65,7 @@ export function isStructuredNote(n: PatchNote): n is PatchNoteStructured {
 export const PATCH_NOTES: PatchNote[] = [
   {
     // 0.13.11.3 (user, 2026-11-02): "Let's change the cap to 4 days by default. I think that's fairer."
-    // [PROPOSAL] wording for the user's sign-off; short and player-facing.
+    // Wording approved by the user (2026-11-02, "Promote now").
     version: "0.13.11.3",
     lede: "Offline progress is more generous, and the While You Were Away recap tells it straight.",
     categories: [
