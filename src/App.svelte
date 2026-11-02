@@ -1053,7 +1053,8 @@
     identifyStudiedRelic,
     museumResearchDurationTicks,
     // 0.13.11.1 clock protection: a held absence is released under this same offline cap.
-    offlineCapTicks,
+    // HOTFIX 0.13.11.3: read in seconds (the save's own cap) by the release budget and the recap.
+    offlineCapSeconds,
   } from "./lib/game/tick";
   // Exploration 0.14.0 (E4c): the relic catalog + museum readers (pure) the Relics/Museum host code reads.
   import { museumBonuses, getRelicById, getRelicSetById, RELIC_SETS, undiscoveredResearchMask, withSoftCapSnapshot } from "./lib/game/relics";
@@ -1220,7 +1221,7 @@
   // twin of the old scalar `inventory[item] ?? new Decimal(0)`. addItemQuality deposits
   // into a quality bucket (dev-grant handler uses quality 0). See src/lib/game/inventory.ts.
   import { itemTotal, addItemQuality, QUALITY_TIERS } from "./lib/game/inventory";
-  import { summarizeOfflineProgress, type OfflineSummary } from "./lib/game/offlineSummary";
+  import { summarizeOfflineProgress, offlineRecapText, type OfflineSummary } from "./lib/game/offlineSummary";
   // HOTFIX 0.13.10: the live loop's clock (whole cycles from real time, leftover carried forward,
   // large gaps paid by the same catch-up a reload runs). See src/lib/game/loopClock.ts.
   import {
@@ -1229,6 +1230,11 @@
     paidThroughMs,
     startLoopClock,
     awayRecapSpan,
+    tallyAwayPoll,
+    type AwayTally,
+    paidRealSeconds,
+    exceedsOfflineCap,
+    cappedAbsence,
     releaseHeld,
     type HeldRelease,
     type LoopClock,
@@ -3438,6 +3444,9 @@
   // reload (what it may still pay, the rest of that absence's offline cap; null: nothing held).
   let timeSyncHandle: ReturnType<typeof setInterval> | undefined;
   let heldRelease: HeldRelease | null = null;
+  // HOTFIX 0.13.11.3: the full length of the held reload's absence when it ran past the offline cap
+  // (null: it did not), so a release recap raised after the load recap was closed still says so.
+  let heldReleaseCappedAwaySeconds: number | null = null;
   let saveHandle: ReturnType<typeof setInterval>;
   // The live loop's clock (HOTFIX 0.13.10): the current cycle's start with any leftover carried
   // forward, the previous poll's time for the fleet clock, and the pause flag. Driven ONLY by
@@ -3448,7 +3457,10 @@
   // hidden we remember the state and the time, and when it is shown again the time away is paid
   // and, past AWAY_SUMMARY_MIN_SECONDS, the same "While you were away" summary a reload shows is
   // raised from the pure before/after diff. Loop bookkeeping only; no markup reads it.
-  let awayFrom: { atMs: number; snapshot: GameState } | null = null;
+  // HOTFIX 0.13.11.3: it also sums what the polls while away actually PAID (paidSeconds) and keeps
+  // the full length of any absence that ran past the offline cap, so the recap is labeled with the
+  // time paid, never the raw gap.
+  let awayFrom: ({ atMs: number; snapshot: GameState } & AwayTally) | null = null;
   // Two minutes (user decision, 2026-10-16): "If the tab is idle in the background, or minimized,
   // or something to that end, we want to make sure that progress is not lost." The progress is
   // paid either way; this only gates the recap modal, so a quick tab flip raises nothing.
@@ -3456,7 +3468,10 @@
   // What the OPEN recap covers (its before snapshot, span and when it was shown), so a later
   // recap extends it instead of replacing it (see awayRecapSpan). Set wherever offlineSummary is,
   // cleared by dismissOfflineSummary. Loop bookkeeping only; no markup reads it.
-  let offlineSummaryBasis: { before: GameState; secondsAway: number; shownAtMs: number } | null = null;
+  let offlineSummaryBasis: { before: GameState; secondsAway: number; shownAtMs: number; cappedAwaySeconds: number | null } | null = null;
+  // HOTFIX 0.13.11.3: the open recap's "cap reached" note (the full absence when it ran past the
+  // offline cap; null: it did not). The markup reads it with the save's cap (offlineRecapText).
+  let offlineSummaryCappedAwaySeconds: number | null = null;
 
   // Fleet-wide tick cycle (collapsed from a per-captain-id-keyed map during
   // the UI Redesign, Task 4, see docs/plans/2026-07-07-ui-redesign-plan.md
@@ -3690,8 +3705,14 @@
       paidThroughAtLoadMs = offlineSeconds > 5 ? returnedAtMs : Math.min(loadedSave.lastSavedAt, returnedAtMs);
       // 0.13.11.1: part of this absence was held (the device clock is ahead of what is trusted). It is
       // paid when the clock is confirmed, under what is left of this absence's own offline cap.
+      // HOTFIX 0.13.11.3: what this reload actually pays (tick() stops at the save's cap), and the
+      // whole absence (paid plus held) when it ran past that cap, for the recap's truthful lines.
+      const loadCapSeconds = offlineCapSeconds(loadedSave.state);
+      const loadPaidSeconds = Math.min(offlineSeconds, loadCapSeconds);
+      const loadCappedAwaySeconds = cappedAbsence(offlineSeconds + trustedHeldMs() / 1000, loadCapSeconds);
       if (trustedHeldMs() > 0) {
-        heldRelease = { budgetSeconds: Math.max(0, offlineCapTicks(loadedSave.state) * loadedSave.state.tickDurationSeconds - offlineSeconds), heldSeconds: trustedHeldMs() / 1000 };
+        heldRelease = { budgetSeconds: Math.max(0, loadCapSeconds - offlineSeconds), heldSeconds: trustedHeldMs() / 1000 };
+        heldReleaseCappedAwaySeconds = loadCappedAwaySeconds;
       }
       // ⚠️ INVARIANT: the offline advance is this ONE deterministic call. offline == live
       // hinges on it being byte-identical to the live loop, so we ONLY read state around it
@@ -3718,7 +3739,7 @@
       }
       state = offlineSeconds > 5 ? tick(offlineSeconds, beforeSnapshot, Math.random, returnedAtMs) : beforeSnapshot;
       if (offlineSeconds > 5) {
-        pushLog(`Welcome back. Advanced ${formatNumber(offlineSeconds)}s offline.`);
+        pushLog(`Welcome back. Advanced ${formatNumber(loadPaidSeconds)}s offline.`);
         // RR-7 (rarity readiness): a set completed while away (a relic study, or gear the catch-up changed) gets its
         // shoutout on return, from the same before / after pair the summary reads. Pushed AFTER the welcome line so it
         // reads above it in the newest-first log (only a catch-up can complete a set here).
@@ -3729,11 +3750,12 @@
         // modal. This runs on the SUCCESSFUL-load path only; the corrupt-recovery branch
         // below (which suppresses save) is never reached from here, so the summary can never
         // pop over a corrupt save or a fresh game.
-        if (offlineSeconds >= OFFLINE_SUMMARY_MIN_SECONDS) {
-          const summary = summarizeOfflineProgress(beforeSnapshot, state, offlineSeconds);
+        if (loadPaidSeconds >= OFFLINE_SUMMARY_MIN_SECONDS) {
+          const summary = summarizeOfflineProgress(beforeSnapshot, state, loadPaidSeconds);
           if (summary.hasContent) {
             offlineSummary = summary;
-            offlineSummaryBasis = { before: beforeSnapshot, secondsAway: offlineSeconds, shownAtMs: returnedAtMs };
+            offlineSummaryBasis = { before: beforeSnapshot, secondsAway: loadPaidSeconds, shownAtMs: returnedAtMs, cappedAwaySeconds: loadCappedAwaySeconds };
+            offlineSummaryCappedAwaySeconds = loadCappedAwaySeconds;
           }
         }
       }
@@ -3813,12 +3835,17 @@
       const polled = planPoll(loopClock, now, state.tickDurationSeconds, speed);
       loopClock = polled.clock;
       let plan = polled.plan;
+      // HOTFIX 0.13.11.3: the full absence behind this poll when it ran past the offline cap (a
+      // release cut by its budget, or a catch-up beyond the cap); null when the cap was not reached.
+      let pollCappedAwaySeconds: number | null = null;
       // 0.13.11.1: the release of a held absence is paid under the same offline cap as its reload;
       // only the released part is limited (releaseHeld), any other gap in the same poll is paid.
       if (heldRelease !== null && plan.kind === "advance") {
         const released = releaseHeld(plan, heldRelease, trustedHeldMs() / 1000);
         plan = released.plan;
         heldRelease = released.arm;
+        if (released.capped) pollCappedAwaySeconds = heldReleaseCappedAwaySeconds;
+        if (heldRelease === null) heldReleaseCappedAwaySeconds = null;
       }
 
       // Paused (speed 0): the poll clock is frozen and nothing advances.
@@ -3867,8 +3894,18 @@
           // A large gap seen while the tab is VISIBLE (a sleep the browser never reported as
           // hidden) gets its recap here. A gap paid while hidden is recapped by the visibility
           // handler instead, once, over the whole time away.
-          if (plan.mode === "catchUp" && awayFrom === null && !document.hidden) {
-            welcomeBack(beforeEconomy, plan.realElapsedSeconds);
+          //
+          // ⚠️ HOTFIX 0.13.11.3: labeled with what this poll PAID (paidRealSeconds: the cut plan,
+          // bounded by tick()'s cap), never plan.realElapsedSeconds. A held release cut to its last
+          // ~30 s of budget used to raise a second popup claiming the whole raw gap ("~1d 1h").
+          const pollPaidSeconds = paidRealSeconds(plan, beforeEconomy);
+          if (exceedsOfflineCap(plan, beforeEconomy)) pollCappedAwaySeconds = plan.realElapsedSeconds;
+          if (awayFrom !== null) {
+            // Paid and away accumulate over the SAME polls (tallyAwayPoll), so live hidden play
+            // followed by a long sleep never shows more paid than away.
+            awayFrom = { ...awayFrom, ...tallyAwayPoll(awayFrom, pollPaidSeconds, pollCappedAwaySeconds) };
+          } else if (plan.mode === "catchUp" && !document.hidden) {
+            welcomeBack(beforeEconomy, pollPaidSeconds, now - plan.realElapsedSeconds * 1000, pollCappedAwaySeconds);
           }
         }
 
@@ -3888,15 +3925,19 @@
     // while the corrupt-save recovery modal is up (never stacked over it). A recap still open from
     // earlier is EXTENDED, never replaced: the new one starts from the open one's snapshot and
     // spans both absences (awayRecapSpan), so no reported gains are lost.
-    const welcomeBack = (before: GameState, secondsAway: number) => {
-      if (loopClock.paused || saveCorruptModalOpen || secondsAway < AWAY_SUMMARY_MIN_SECONDS) return;
-      pushLog(`Welcome back. Advanced ${formatNumber(secondsAway)}s while away.`);
+    // HOTFIX 0.13.11.3: `paidSeconds` is what the absence actually PAID (never the raw gap), so a
+    // release that paid less than the threshold raises nothing; `awayStartMs` is when the absence
+    // began, so an open recap is extended by the live play before it plus what this one paid.
+    const welcomeBack = (before: GameState, paidSeconds: number, awayStartMs: number, cappedAwaySeconds: number | null) => {
+      if (loopClock.paused || saveCorruptModalOpen || paidSeconds < AWAY_SUMMARY_MIN_SECONDS) return;
+      pushLog(`Welcome back. Advanced ${formatNumber(paidSeconds)}s while away.`);
       const nowMs = trustedNow();
-      const span = awayRecapSpan(offlineSummary !== null ? offlineSummaryBasis : null, before, secondsAway, nowMs);
+      const span = awayRecapSpan(offlineSummary !== null ? offlineSummaryBasis : null, before, paidSeconds, awayStartMs, cappedAwaySeconds);
       const summary = summarizeOfflineProgress(span.before, state, span.secondsAway);
       if (summary.hasContent) {
         offlineSummary = summary;
-        offlineSummaryBasis = { before: span.before, secondsAway: span.secondsAway, shownAtMs: nowMs };
+        offlineSummaryBasis = { before: span.before, secondsAway: span.secondsAway, shownAtMs: nowMs, cappedAwaySeconds: span.cappedAwaySeconds };
+        offlineSummaryCappedAwaySeconds = span.cappedAwaySeconds;
       }
     };
 
@@ -3906,7 +3947,7 @@
     // period later, and recap the whole hidden stretch once. Hiding only remembers where we were.
     const onVisibilityChange = () => {
       if (document.hidden) {
-        if (awayFrom === null) awayFrom = { atMs: trustedNow(), snapshot: state };
+        if (awayFrom === null) awayFrom = { atMs: trustedNow(), snapshot: state, paidSeconds: 0, awaySeconds: 0, cappedAwaySeconds: null };
         return;
       }
       pollGameLoop();
@@ -3919,7 +3960,8 @@
         pollGameLoop();
         const away = awayFrom;
         awayFrom = null;
-        if (away !== null) welcomeBack(away.snapshot, (trustedNow() - away.atMs) / 1000);
+        // HOTFIX 0.13.11.3: labeled with what the polls while away PAID, never the raw time away.
+        if (away !== null) welcomeBack(away.snapshot, away.paidSeconds, away.atMs, away.cappedAwaySeconds);
       };
       if (trustedHeldMs() > SERVER_TOLERANCE_MS) {
         void confirmTrustedTime(3000).then(finish);
@@ -3931,7 +3973,7 @@
     document.addEventListener("visibilitychange", onVisibilityChange);
     // A tab opened in the background never fires a "hidden" change, so start the away clock here;
     // the first time it is shown, the hidden stretch is recapped like any other.
-    if (document.hidden) awayFrom = { atMs: trustedNow(), snapshot: state };
+    if (document.hidden) awayFrom = { atMs: trustedNow(), snapshot: state, paidSeconds: 0, awaySeconds: 0, cappedAwaySeconds: null };
 
     // 0.13.11.1: check the server's clock now and every ten minutes while shown (and on returns, above).
     void syncServerTime();
@@ -5000,8 +5042,13 @@
     // duration (verifiable numbers, screenshot-able). Unlike the real onMount path it does NOT
     // gate on hasContent, so pressing the button always shows what that duration produced (an
     // empty recap = nothing was running), giving clear QA feedback that the trigger fired.
-    offlineSummary = summarizeOfflineProgress(before, state, secondsAway);
-    offlineSummaryBasis = { before, secondsAway, shownAtMs: trustedNow() };
+    // HOTFIX 0.13.11.3: labeled like the real path, with what tick() paid and the cap note.
+    const devCapSeconds = offlineCapSeconds(before);
+    const devPaidSeconds = Math.min(secondsAway, devCapSeconds);
+    const devCappedAwaySeconds = cappedAbsence(secondsAway, devCapSeconds);
+    offlineSummary = summarizeOfflineProgress(before, state, devPaidSeconds);
+    offlineSummaryBasis = { before, secondsAway: devPaidSeconds, shownAtMs: trustedNow(), cappedAwaySeconds: devCappedAwaySeconds };
+    offlineSummaryCappedAwaySeconds = devCappedAwaySeconds;
     pushLog(`[DEV] Simulated ${hours}h offline for the whole fleet.`);
   }
 
@@ -5590,6 +5637,7 @@
   function dismissOfflineSummary() {
     offlineSummary = null;
     offlineSummaryBasis = null;
+    offlineSummaryCappedAwaySeconds = null;
   }
   // The current CaptainState for the open combat view, re-resolved from state each
   // render, or null when the view should auto-close via the {#if combatViewCaptain
@@ -21480,12 +21528,17 @@
          of the diff is non-empty, so the modal is never padded with empty rows.
          Copy is sentence case throughout (no ALL CAPS, no exclamation marks). -->
     {@const sum = offlineSummary}
+    {@const recapText = offlineRecapText(sum.secondsAway, offlineCapSeconds(state), offlineSummaryCappedAwaySeconds)}
     <ActionModal title="While you were away" ariaLabel="While you were away" onClose={dismissOfflineSummary}>
 
         <!-- Time away: formatDuration renders a real-seconds span by passing a
              seconds-per-tick of 1 (ticks * 1 = the seconds we already hold), reusing
              the ONE span helper rather than hand-formatting. -->
-        <p class="offline-summary-lead">You were away for {formatDuration(sum.secondsAway, 1)}. Here is what your fleet got done.</p>
+        <!-- HOTFIX 0.13.11.3: sum.secondsAway is the time actually PAID, the cap is the save's own
+             (offlineCapSeconds, so a future talent shows unchanged), and an absence that ran past
+             the cap says so in the cap line (offlineRecapText). -->
+        <p class="offline-summary-lead">{recapText.lead}</p>
+        <p class="offline-summary-cap-note" class:offline-summary-cap-hit={recapText.capHit}>{recapText.capLine}</p>
 
         <div class="offline-summary-scroll">
           <!-- Missions completed, broken down by type (Combat / Gathering / Short-Range / Other). One row per
@@ -22188,6 +22241,16 @@
     line-height: 1.5;
     color: var(--color-text);
     margin: 0 0 12px;
+  }
+  /* HOTFIX 0.13.11.3: the one-line offline cap note under the lead; amber when the cap was reached. */
+  .offline-summary-cap-note {
+    font-size: var(--text-sm);
+    line-height: 1.4;
+    color: var(--color-text-secondary);
+    margin: -6px 0 12px;
+  }
+  .offline-summary-cap-note.offline-summary-cap-hit {
+    color: var(--color-warning);
   }
   /* Internal scroll: cap the section stack's height so the modal never grows past the
      viewport; overflow scrolls the rows, not the page (scroll-containment invariant). */

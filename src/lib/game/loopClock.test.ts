@@ -8,12 +8,16 @@ import {
   LIVE_STEP_MAX_CYCLES,
   paidThroughMs,
   awayRecapSpan,
+  tallyAwayPoll,
+  paidRealSeconds,
+  exceedsOfflineCap,
+  paidTicks,
   startLoopClock,
   type LoopClock,
   clampCatchUp,
   releaseHeld,
 } from "./loopClock";
-import { tick, UNKNOWN_COMPLETION_TIME_MS } from "./tick";
+import { tick, UNKNOWN_COMPLETION_TIME_MS, offlineCapSeconds } from "./tick";
 import { freshState, type CaptainMissionState, type GameState } from "./model";
 
 // ===========================================================================
@@ -285,14 +289,14 @@ describe("runPollEconomy: live play matches offline catch-up", () => {
 
   it("a catch-up honors the offline cap, exactly like a reload would", () => {
     const s = missionState();
-    s.tickDurationSeconds = 86_400; // cap = 2 ticks, keeps this cheap
+    s.tickDurationSeconds = 86_400; // cap = 4 ticks (HOTFIX 0.13.11.3: 4 days, was 2), keeps this cheap
     const fiveDays = 5 * 86_400 * 1000;
     const { plan } = planPoll(clockAt(T0), T0 + fiveDays, s.tickDurationSeconds, 1);
     if (plan.kind !== "advance") throw new Error("expected an advance plan");
     expect(plan.mode).toBe("catchUp");
     const live = runPollEconomy(s, plan, ZERO_RNG, UNKNOWN_COMPLETION_TIME_MS);
     expect(withoutClock(live)).toEqual(withoutClock(tick(5 * 86_400, s, ZERO_RNG)));
-    expect(live.captains[0].xp.equals(2)).toBe(true);
+    expect(live.captains[0].xp.equals(4)).toBe(true);
   });
 });
 
@@ -347,13 +351,31 @@ describe("awayRecapSpan: a recap never replaces one that is still open", () => {
   const b = missionState();
 
   it("with nothing open, the recap covers just this absence", () => {
-    expect(awayRecapSpan(null, b, 300, T0)).toEqual({ before: b, secondsAway: 300 });
+    expect(awayRecapSpan(null, b, 300, T0)).toEqual({ before: b, secondsAway: 300, cappedAwaySeconds: null });
   });
 
   it("with a recap open, the new one starts from the open recap's snapshot and spans both", () => {
-    // Opened at T0 for a 600 s absence; the player left it open, hid the tab, came back 900 s later.
+    // Opened at T0 for a 600 s absence; the player left it open, hid the tab 600 s later and came
+    // back after a 300 s absence that paid 300 s. (HOTFIX 0.13.11.3: the extension is the live play
+    // up to the new absence plus what that absence PAID, so the call takes the absence start.)
     const open = { before: a, secondsAway: 600, shownAtMs: T0 };
-    expect(awayRecapSpan(open, b, 300, T0 + 900_000)).toEqual({ before: a, secondsAway: 1500 });
+    expect(awayRecapSpan(open, b, 300, T0 + 600_000)).toEqual({ before: a, secondsAway: 1500, cappedAwaySeconds: null });
+  });
+});
+
+describe("paidTicks: a catch-up pays at most the offline cap", () => {
+  it("a step pays cycles times ticks per cycle", () => {
+    const { plan } = planPoll(clockAt(T0), T0 + 2000, 1, 10);
+    if (plan.kind !== "advance") throw new Error("expected an advance plan");
+    expect(paidTicks(plan, missionState())).toBe(20);
+  });
+
+  it("a catch-up beyond the offline cap pays only the capped ticks", () => {
+    const s = missionState();
+    s.tickDurationSeconds = 86_400; // cap = 4 ticks (HOTFIX 0.13.11.3: 4 days, was 2)
+    const { plan } = planPoll(clockAt(T0), T0 + 5 * 86_400 * 1000, s.tickDurationSeconds, 1);
+    if (plan.kind !== "advance") throw new Error("expected an advance plan");
+    expect(paidTicks(plan, s)).toBe(4);
   });
 });
 
@@ -430,5 +452,48 @@ describe("releaseHeld (0.13.11.1 review M2: only the released part is limited)",
   it("steady polls pass through and nothing armed means nothing changes", () => {
     expect(releaseHeld(plan(1), { budgetSeconds: 0, heldSeconds: 50 }, 50).plan).toEqual(plan(1));
     expect(releaseHeld(plan(5000), null, 0).plan).toEqual(plan(5000));
+  });
+});
+
+describe("tallyAwayPoll: hidden play then a long sleep never shows more paid than away", () => {
+  it("away covers the same polls as paid, so away >= paid after live hidden play and a sleep past the cap", () => {
+    const state = freshState();
+    const cap = offlineCapSeconds(state);
+    const t0 = 1_000_000_000_000;
+    let clock: LoopClock = { cycleStartMs: t0, lastPollMs: t0, paused: false };
+    let tally = { paidSeconds: 0, awaySeconds: 0, cappedAwaySeconds: null as number | null };
+    const poll = (atMs: number) => {
+      const polled = planPoll(clock, atMs, state.tickDurationSeconds, 1);
+      clock = polled.clock;
+      const plan = polled.plan;
+      if (plan.kind !== "advance") return;
+      const capped = exceedsOfflineCap(plan, state) ? plan.realElapsedSeconds : null;
+      tally = tallyAwayPoll(tally, paidRealSeconds(plan, state), capped);
+    };
+    // An hour of throttled hidden play (one poll a minute), then a 5-day sleep.
+    let t = t0;
+    for (let i = 0; i < 60; i++) poll((t += 60_000));
+    const liveHidden = tally.paidSeconds;
+    expect(liveHidden).toBeGreaterThan(3000);
+    expect(tally.cappedAwaySeconds).toBeNull();
+    poll((t += 5 * 86_400_000));
+
+    expect(tally.paidSeconds).toBeCloseTo(liveHidden + cap, 0);
+    expect(tally.cappedAwaySeconds).not.toBeNull();
+    expect(tally.cappedAwaySeconds!).toBeGreaterThanOrEqual(tally.paidSeconds);
+    // The away line spans the hidden play AND the sleep, not the sleep alone.
+    expect(tally.cappedAwaySeconds!).toBeCloseTo(liveHidden + 5 * 86_400, -1);
+
+    // Further live polls after the cap keep both figures moving together.
+    poll((t += 60_000));
+    expect(tally.cappedAwaySeconds!).toBeGreaterThanOrEqual(tally.paidSeconds);
+    expect(tally.cappedAwaySeconds).toBe(tally.awaySeconds);
+  });
+
+  it("no cap reached: away tracks paid and the cap note stays null", () => {
+    let tally = { paidSeconds: 0, awaySeconds: 0, cappedAwaySeconds: null as number | null };
+    tally = tallyAwayPoll(tally, 60, null);
+    tally = tallyAwayPoll(tally, 120, null);
+    expect(tally).toEqual({ paidSeconds: 180, awaySeconds: 180, cappedAwaySeconds: null });
   });
 });
