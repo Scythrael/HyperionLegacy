@@ -2650,9 +2650,9 @@ function relicEntries(): WiringEntry[] {
         tolerance: 1e-12,
         on: (s) => withMuseum(s, { [r.id]: 1 }),
         off: (s) => withMuseum(s, {}),
-        status: r.id === "precursorLens" ? pending("E-MOD (the first find unlocks a special module, deferred to E-MOD by decision)", ["craft"]) : LIVE,
-        // Its first find (the relic identified) unlocks nothing to make yet: no blueprint is gated on it.
-        ...(r.id === "precursorLens" ? { flatChecks: { craft: { probe: "researchableBlueprints", on: discovered(r.id), off: identity } } } : {}),
+        // E-MOD EM-8: every relic row is LIVE. The Precursor Lens's first find, pending on E-MOD until EM-8, now opens the
+        // Precursor Lens module's research (its own row: relic:em8:precursorLensFirstFind).
+        status: LIVE,
         note: "each copy in the Museum adds its set's per-copy share",
       }),
     );
@@ -3823,8 +3823,9 @@ const AUDIT_ROWS: readonly { id: string; system: WiringSystem; claim: string; st
   // the shortRangeSlots probe), and this row checks their 50-completion gate (auditRowWiring).
   { id: "facility:audit:missionControlUnlock", system: "facility", claim: "MISSION_CONTROL_UNLOCK_COMPLETIONS 50: the Mission Control board rung that opens the Tier II short-range slot (MISSION_CONTROL_BOARD_RUNGS[0], level 2) waits on 50 completions of each ore run", status: LIVE },
   { id: "facility:audit:itemEquipStats", system: "facility", claim: "ItemDef.equipStats (no item fills it)", status: pending("WR-4, OC-C4") },
-  // WR-11 (OC-J3 "Sell now, recipes later"): it sells at the Quartermaster; its recipe stays EM-8's (facility:ITEMS:precursorCircuit:reserved).
-  { id: "facility:audit:precursorCircuit", system: "facility", claim: "Precursor Circuit: salvage drops it and the Quartermaster buys it (its recipe is the Precursor Lens, EM-8)", status: LIVE },
+  // WR-11 (OC-J3 "Sell now, recipes later"): it sells at the Quartermaster. E-MOD EM-8 gave it its recipe (the Precursor
+  // Lens module, precursorLensBp) and dropped its reserve; the craft is the blueprint's own row.
+  { id: "facility:audit:precursorCircuit", system: "facility", claim: "Precursor Circuit: salvage drops it and the Quartermaster buys it (it also crafts the Precursor Lens module)", status: LIVE },
   // D. Ship
   // WR-7 (OC-D6, user 2026-10-15 "Unlisted = never rolls"; B11 fixed): itemgen.ts varietyStatBias.
   { id: "ship:audit:statRatios", system: "ship", claim: "Variety statRatios list what a crafted piece rolls: a stat its variety does not list never rolls (a Hauler Hold, \"none into mass\", rolls no mass relief)", status: LIVE },
@@ -4831,6 +4832,23 @@ function reactorOutput(points: number, mass = 0): Transform {
 function emodAuditEntries(): WiringEntry[] {
   const draw = SLOT_BASE_PHYSICALS.ftlDrive.powerDraw;
   return [
+    // E-MOD EM-8 (E4d, "ships WITH the module phase as its first content"): a Precursor Lens identified (its first find,
+    // state.relicDiscovered) opens the Precursor Lens module's research: a top-level Research Lab can start one more
+    // project. (The relic's Museum copies are its own row, relic:RELICS:precursorLens.)
+    entry({
+      id: "relic:em8:precursorLensFirstFind",
+      system: "relic",
+      source: { catalog: "AUDIT", key: "relic:em8:precursorLensFirstFind" },
+      claim: "Precursor Lens first find: identifying one opens the Precursor Lens module's research",
+      probe: "researchableBlueprints",
+      contexts: ["craft"],
+      curve: { kind: "gate" },
+      magnitude: (c) => Object.values(c.BLUEPRINTS).filter((bp) => bp.requiresRelicDiscovery === "precursorLens").length,
+      base: () => wiringBase(),
+      on: discovered("precursorLens"),
+      off: identity,
+      note: "blueprintRelicLocked masks and refuses the project until the relic is identified (canResearch's undiscovered reason)",
+    }),
     // E-MOD EM-4 (WR-8 hand-off: combat speed reads the sheet's transit speed): the reactor surplus lift reaches the
     // combat speed a run starting now freezes in its stamp (a patrol cycle, an expedition's ship events). Whole speed
     // units, so one rounding step of tolerance.
@@ -5768,6 +5786,9 @@ function moduleSetPieces(setId: string, k: number, except?: string): Transform {
 // The restore is floored to a whole point: in per-mille of the Destroyer's Standard-Issue pool that is under 1000 / pool.
 const MODULE_SHIELD_RESTORE_TOLERANCE = 4;
 const MODULE_BONUS_HAUL_TOLERANCE = 0.15; // three standard deviations of the 1,000-delivery sample at a 10% chance of +5
+// E-MOD EM-8: three standard deviations of the 2,000-body sample (probes.ts MODULE_SCAN_BODIES) at the Lens's 20% chance of
+// one more discovery: 3 x sqrt(0.2 x 0.8 / 2000) = 0.027.
+const MODULE_SCAN_DISCOVERY_TOLERANCE = 0.027;
 function universalModuleEntries(): WiringEntry[] {
   const std = moduleEffectScale("standard", 0, "none");
   const pct = (f: number): number => Math.round(f * 1000) / 10;
@@ -5876,8 +5897,25 @@ function universalModuleEntries(): WiringEntry[] {
           base: () => withAwayTeam(wiringBase()),
           note: "the dispatch to a nebula system freezes the module's boost (Expedition.nebula.ramscoop, whole per mille)",
         });
+      case "extraDiscovery":
+        // E-MOD EM-8: the Precursor Lens. The dispatch freezes its body-scan proc; each scanned body rolls it on its own
+        // private stream, so the body's other discoveries are untouched and the lift is exactly the landed rolls.
+        return entry({
+          ...common,
+          claim: `${def.label}: each body scanned, a ${pct(def.chance ?? 0)}% chance to uncover ${def.effect.magnitude} extra hidden discovery`,
+          probe: "moduleScanDiscoveries",
+          contexts: ["expedition:groundOps"],
+          magnitude: (c) => {
+            const d = defOf(c, def.id);
+            // MODULE_SCALE_ON: the scale lifts the chance (1 at Standard quality 0), the count stays whole.
+            return Math.min(1, (d.chance ?? 0) * std) * d.effect.magnitude;
+          },
+          base: () => withAwayTeam(wiringBase()),
+          tolerance: MODULE_SCAN_DISCOVERY_TOLERANCE,
+          note: "the mean discoveries per scanned body rise by the chance times the count (expedition.ts assignDiscoveriesAndActivities, the private body-scan stream)",
+        });
       default:
-        return entry({ ...common, claim: def.label, status: pending(`EM-8 (the ${def.effect.key} engine's registry row arrives with the Precursor Lens)`) });
+        return entry({ ...common, claim: def.label, status: pending(`the ${def.effect.key} engine's registry row (no module carried this key before)`) });
     }
   });
 }

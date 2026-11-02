@@ -15,6 +15,8 @@
 
 import { describe, expect, it } from "vitest";
 import { withoutGg7Content } from "./gasGiantSpecials.fixture";
+// E-MOD EM-8 came after this capture: the Precursor Lens's blueprint, variety and the circuit's recipe held apart.
+import { EM8_BLUEPRINT_KEYS, withoutEm8Content } from "./emodEm8Switch.fixture";
 import { hash } from "./firstRunsGoldens.fixture";
 import { BLUEPRINTS, isMemberSlotType } from "./model";
 import { withSiMemberGearOff } from "./siMemberGearSwitch.fixture";
@@ -121,7 +123,7 @@ const drawsOf = (rows: unknown): string[] => (rows as [string, string][]).map(([
 describe("ML-2 goldens: the capture, read back, and ML-2's moves", () => {
   it("recipes: the untouched table holds (the two new refines held apart)", () => {
     // Gas Giant Study GG-7 (after this capture): its four NEW blueprints held apart (no existing recipe moved).
-    expect(hash(withoutGg7Content(() => untouchedRows(ML2_NEW_REFINES)))).toBe(ML2_GOLDEN.recipesUntouched);
+    expect(hash(withoutGg7Content(() => withoutEm8Content(() => untouchedRows(ML2_NEW_REFINES))))).toBe(ML2_GOLDEN.recipesUntouched);
   });
 
   it("recipes: with the old inputs put back, every reworked row reproduces the capture; today each has moved", () => {

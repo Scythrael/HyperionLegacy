@@ -31,7 +31,7 @@
   // RR-8 (rarity readiness): a Luminous piece's legendary affix and a Constellar piece's set, one line each.
   import { pieceLegendaryAffixText, pieceSetText } from "./ui/rarityPieceText";
   // E-MOD EM-7: what a universal module does (its effect at this piece's scale, an Active's preset rule).
-  import { MODULE_CARD_NOTE, moduleEffectSentence, moduleKindText, moduleRuleText, moduleWhenText, pieceModuleLines, type PieceModuleLines } from "./ui/moduleEffectText";
+  import { MODULE_CARD_NOTE, moduleEffectSentence, moduleGateText, moduleKindText, moduleRuleText, moduleWhenText, pieceModuleLines, type PieceModuleLines } from "./ui/moduleEffectText";
   import { universalModuleDef } from "./game/shipModules";
   import { pieceMaterialQualityText, shipMaterialQualityText } from "./ui/materialQualityText";
   // WR-7 follow-up (OC-D5): a favored-variety piece's "+10% on its ship type" line, and its lines as a favored hull reads them.
@@ -160,6 +160,11 @@
     shieldSurge: "moduleSurge",
     longBaselineArray: "telescope",
     signalIntegrator: "moduleSignal",
+    // E-MOD EM-8: the Precursor Lens module draws its relic's glyph (the signed-off modules mockup's own choice: the
+    // optical tripod telescope, apart from the Long-Baseline Array's radio dish).
+    precursorLens: "relicPrecursorLens",
+    // Gas Giant Study GG-7 (EM-8 fix round): the Ramscoop Collector, a gas-scoop intake funnel (it fell back to an emoji).
+    ramscoopCollector: "moduleRamscoop",
     // E-MOD EM-10 review (SVG only, never emoji): every Spec Utility variety, drawn on the Modules row, its picker, the
     // card header, the Logistics bay and the Armory.
     yieldRig: "rigYield",
@@ -182,6 +187,12 @@
     droneBay: "🛸",
   };
 
+  // EM-8 fix round (SVG only, never emoji): the SVG glyph a slot draws when its variety has no SVG glyph of its own. A
+  // module slot draws the Modules row's chip glyph, so a module added later without a glyph never falls back to an emoji.
+  const SLOT_SVG_FALLBACK: Partial<Record<string, IconName>> = {
+    module: "module",
+  };
+
   // Resolve a piece's VARIETY key: a crafted piece from its blueprint's equipmentOutput,
   // a Standard-Issue baseline from the slot's blessed default variety.
   function resolveVarietyKey(piece: EquipmentInstance): string | null {
@@ -200,6 +211,7 @@
   function iconFor(varietyKey: string | null, slotType: string): string {
     if (isMemberSlotType(slotType)) return "";
     if (varietyKey !== null && EQUIPMENT_VARIETY_SVG_ICON[varietyKey] !== undefined) return ""; // G1-1: drawn as SVG
+    if (SLOT_SVG_FALLBACK[slotType] !== undefined) return ""; // EM-8 fix round: the slot's SVG fallback draws instead
     if (varietyKey !== null && EQUIPMENT_VARIETY_ICON[varietyKey] !== undefined) return EQUIPMENT_VARIETY_ICON[varietyKey];
     return SLOT_ICON_FALLBACK[slotType] ?? "🛰️";
   }
@@ -208,12 +220,14 @@
     return iconFor(resolveVarietyKey(piece), piece.slotType);
   }
 
-  // G1-1: the SVG glyph a variety draws with (EQUIPMENT_VARIETY_SVG_ICON), or null for an emoji-glyph variety.
-  export function varietySvgIcon(varietyKey: string | null): IconName | null {
-    return varietyKey === null ? null : EQUIPMENT_VARIETY_SVG_ICON[varietyKey] ?? null;
+  // G1-1: the SVG glyph a variety draws with (EQUIPMENT_VARIETY_SVG_ICON), or null for an emoji-glyph variety. Given
+  // its slot, an unmapped variety takes the slot's SVG fallback (SLOT_SVG_FALLBACK: every module draws SVG).
+  export function varietySvgIcon(varietyKey: string | null, slotType?: string): IconName | null {
+    const own = varietyKey === null ? undefined : EQUIPMENT_VARIETY_SVG_ICON[varietyKey];
+    return own ?? (slotType === undefined ? undefined : SLOT_SVG_FALLBACK[slotType]) ?? null;
   }
   export function equipmentSvgIcon(piece: EquipmentInstance): IconName | null {
-    return varietySvgIcon(resolveVarietyKey(piece));
+    return varietySvgIcon(resolveVarietyKey(piece), piece.slotType);
   }
 
   // Crafted Blanks 0.13.7: the glyph for an UNROLLED blank, keyed off its BLUEPRINT (a blank
@@ -494,13 +508,13 @@
         // signature range) adds to the base damage; base damage is shown so the range reads in context.
         weaponBase: { label: string; value: string }[] | null;
         // E-MOD EM-7: a module craft's effect at Standard quality 0 (the roll scales it), or null. EM-10: when it acts.
-        moduleLines: { kind: string; effect: string; rule: string | null; when: string } | null;
+        moduleLines: { kind: string; effect: string; rule: string | null; when: string; gate: string | null } | null;
         flavor: string | null;
       }
     | null;
 
   // G1-1: the header's SVG glyph for a variety that draws one (the Guest Wing), else null (the emoji `icon` draws).
-  $: svgIcon = view === null ? null : view.kind === "equipment" ? equipmentSvgIcon(view.piece) : view.kind === "craft" ? varietySvgIcon(view.preview?.varietyKey ?? null) : null;
+  $: svgIcon = view === null ? null : view.kind === "equipment" ? equipmentSvgIcon(view.piece) : view.kind === "craft" ? varietySvgIcon(view.preview?.varietyKey ?? null, view.preview?.slotType) : null;
 
   const NEUTRAL = "var(--color-text-secondary)";
   const DIM = "var(--color-text-dim)";
@@ -607,7 +621,7 @@
       slotLabel: preview ? slotLabelFor(preview.slotType, preview.varietyKey) : "",
       preview,
       weaponBase,
-      moduleLines: craftModule ? { kind: moduleKindText(craftModule), effect: `${moduleEffectSentence(craftModule, 1)} (Standard; better rarity and quality do more.)`, rule: moduleRuleText(craftModule), when: moduleWhenText(craftModule) } : null,
+      moduleLines: craftModule ? { kind: moduleKindText(craftModule), effect: `${moduleEffectSentence(craftModule, 1)} (Standard; better rarity and quality do more.)`, rule: moduleRuleText(craftModule), when: moduleWhenText(craftModule), gate: moduleGateText(craftModule) } : null,
       flavor: bp?.flavor ?? null,
     };
   })();
@@ -736,6 +750,10 @@
         {#if view.moduleLines.condition}
           <div class="et-detail">{view.moduleLines.condition}</div>
         {/if}
+        <!-- E-MOD EM-8: a discovery module's unlock line (the mockup's card: "Unlocked: you identified a Precursor Lens relic."). -->
+        {#if view.moduleLines.gate}
+          <div class="et-detail">{view.moduleLines.gate}</div>
+        {/if}
         <div class="et-detail">{MODULE_CARD_NOTE}</div>
       {/if}
     {:else if view.kind === "ship"}
@@ -766,6 +784,9 @@
         <div class="et-detail">{view.moduleLines.when}</div>
         {#if view.moduleLines.rule}
           <div class="et-detail"><b>{view.moduleLines.rule}</b></div>
+        {/if}
+        {#if view.moduleLines.gate}
+          <div class="et-detail">{view.moduleLines.gate}</div>
         {/if}
       {/if}
       {#if view.preview}

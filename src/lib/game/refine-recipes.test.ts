@@ -6,11 +6,13 @@
 // into `titaniumIngot` (the sole refined-titanium item). The guard block at the bottom
 // asserts that retirement stays complete (no recipe/blueprint/ITEMS reference survives).
 import { describe, it, expect } from "vitest";
-import { REFINE_RECIPES, BLUEPRINTS, ITEMS } from "./model";
+import { REFINE_RECIPES, BLUEPRINTS, ITEMS, SALVAGE_LOOT_POOLS } from "./model";
 
 describe("Refinery produces the Fabricator's blueprint inputs (chain connects)", () => {
   const refineOutputs = new Set(Object.values(REFINE_RECIPES).map((r) => r.output.itemId));
   const blueprintOutputs = new Set(Object.values(BLUEPRINTS).map((b) => b.recipe.outputItem));
+  // Every item id a salvage loot pool can drop (the pools' nested { itemId } entries).
+  const salvageDrops = new Set([...JSON.stringify(SALVAGE_LOOT_POOLS).matchAll(/"itemId":"([^"]+)"/g)].map((m) => m[1]));
 
   it("the two new recipes produce titaniumIngot and polysilicateWafer", () => {
     expect(refineOutputs.has("titaniumIngot")).toBe(true);
@@ -33,8 +35,9 @@ describe("Refinery produces the Fabricator's blueprint inputs (chain connects)",
     for (const bp of Object.values(BLUEPRINTS)) {
       for (const inputId of Object.keys(bp.recipe.inputs)) {
         if (ITEMS[inputId]?.category !== "refined") continue; // component inputs come from other blueprints
-        // A refined input must be obtainable: from the Refinery, or (defensively) as a blueprint output.
-        expect(refineOutputs.has(inputId) || blueprintOutputs.has(inputId)).toBe(true);
+        // A refined input must be obtainable: from the Refinery, or (defensively) as a blueprint output. E-MOD EM-8: the
+        // Precursor Circuit (a "refined" salvage-exclusive exotic) feeds the Precursor Lens; salvage is its source.
+        expect(refineOutputs.has(inputId) || blueprintOutputs.has(inputId) || salvageDrops.has(inputId), `${bp.key}: ${inputId}`).toBe(true);
       }
     }
   });

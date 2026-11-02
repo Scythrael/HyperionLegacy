@@ -260,7 +260,8 @@ export const ML2_DROPPED_RESERVE_IDS: readonly string[] = ["reclaimedCircuit", "
 );
 // The pending owner every one of those entries named before ML-2 (model.ts ML2_RECIPE_REWORK, retired by ML-2).
 const ML2_OWNER_BEFORE = "ML-2 (Material Lines recipe rework: the cargo, FTL, reactor, utility, shield and plating blueprints)";
-// The dropped reserves sat together, just before the Precursor Circuit's (EM-8), which stays.
+// The dropped reserves sat together, just before the Precursor Circuit's (EM-8 dropped it too; em8ReadBack puts it back
+// in place for every pin taken before EM-8, so this anchor still holds there).
 const ML2_RESERVES_SAT_BEFORE = "facility:ITEMS:precursorCircuit:reserved";
 
 // Registry snapshot rows ([id, status, contexts, probe], registry order) with ML-2 read back: its added entries left out,

@@ -101,8 +101,9 @@ export const FIELD_ROLES: Readonly<Record<string, Readonly<Record<string, FieldR
     subCategory: "identity",
     tier: "identity", // which warehouse cap holds it
     rarity: "identity", // which salvage multiplier times it
-    // ML-1: a produced item with no consumer yet; each one is a pending registry entry owned by the named slice.
-    reserved: "effect",
+    // ML-1: `reserved`, a produced item with no consumer yet, was an "effect" field (each one a pending registry entry
+    // owned by the named slice). ML-2 and E-MOD EM-8 (the Precursor Circuit) gave every reserved item its consumer, so no
+    // def sets it and its role is gone; an item reserved again must classify it here again ("effect").
     sellValue: "effect",
     // Gas Giant Study GG-1: the quality band a gas canister belongs to (which band draw files it, GG-3).
     band: "identity",

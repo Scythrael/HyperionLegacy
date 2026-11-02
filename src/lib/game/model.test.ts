@@ -1822,17 +1822,21 @@ describe("Task A3, salvaged-material category + exclusive salvage items", () => 
 
   // Each exclusive exotic carries an HONEST reserved-tone hint (no invented source),
   // in the same spirit as denseOre's "no source yet" placeholder.
-  it("each exclusive exotic still waiting on its recipe has an honest 'recovered from salvage, reserved' hint and the typed marker", () => {
+  it("no exclusive exotic still waits on its recipe: none carries the typed reserve marker", () => {
     // Exploration 0.14.0 (E4d): Anomalous Alloy got its first recipe (the discovery-gated Damage Control
     // Suite), so it left the "reserved" set; its hint now names that recipe instead (asserted below).
-    // ML-1: the reserve is the typed ItemDef.reserved marker (owner EM-8 for the Precursor Circuit); Intact Data Core
-    // left the set when the Neural Backup took it (asserted below).
-    for (const id of ["precursorCircuit"]) {
-      const hint = ITEMS[id].unlockHint.toLowerCase();
-      expect(hint).toContain("salvage");
-      expect(hint).toContain("reserved for a future recipe");
-      expect(ITEMS[id].reserved).toMatch(/^EM-8/);
-    }
+    // ML-1: the reserve is the typed ItemDef.reserved marker; Intact Data Core left the set when the Neural Backup took
+    // it, and the Precursor Circuit when E-MOD EM-8 gave it the Precursor Lens module (both asserted below).
+    for (const id of ["anomalousAlloy", "precursorCircuit", "intactDataCore"]) expect(ITEMS[id].reserved, id).toBeUndefined();
+  });
+
+  it("EM-8: Precursor Circuit's hint is honest about its use (salvage source, the sale and the Precursor Lens module)", () => {
+    const hint = ITEMS.precursorCircuit.unlockHint.toLowerCase();
+    expect(hint).toContain("salvage");
+    expect(hint).toContain("quartermaster");
+    expect(hint).not.toContain("reserved");
+    expect(hint).toContain("precursor lens");
+    expect(Object.values(BLUEPRINTS).some((bp) => (bp.recipe.inputs.precursorCircuit ?? 0) > 0)).toBe(true);
   });
 
   it("ML-1: Intact Data Core's hint is honest about its use (salvage source + the Neural Backup)", () => {
@@ -2272,8 +2276,10 @@ describe("Equipment BLUEPRINTS (0.11.0 Task 18)", () => {
     "lastStandProtocolBp", "longBaselineArrayBp", "signalIntegratorBp", "shieldSurgeBp",
     // Gas Giant Study GG-7: the three special blueprints and the Lab tier III Elite Quarters.
     "pressureForgedPlatingBp", "ramscoopCollectorBp", "resonanceSensorArrayBp", "eliteQuartersBp",
+    // E-MOD EM-8: the Precursor Lens module (discovery-gated on the Precursor Lens relic).
+    "precursorLensBp",
   ];
-  const EQUIP_BP_COUNT = 52 + (FIELD_KITS_PLAYER_LIVE ? 1 : 0) + 8 + 4;
+  const EQUIP_BP_COUNT = 52 + (FIELD_KITS_PLAYER_LIVE ? 1 : 0) + 8 + 4 + 1;
 
   // Every equipment blueprint = a BLUEPRINTS entry carrying `equipmentOutput`. Expedition Tiers G2-4: a CLASSED drive
   // (driveClass set: the Class II Drive today) is a class line on a Class I variety, counted apart (its own test below).
@@ -2287,7 +2293,7 @@ describe("Equipment BLUEPRINTS (0.11.0 Task 18)", () => {
     for (const bp of classed) expect(bp.equipmentOutput).toEqual({ slotType: "ftlDrive", varietyKey: "balancedDrive" });
   });
 
-  it("defines exactly 52 equipment blueprints (53 once the Impact Grenade's is live, 61 with EM-7's modules, 65 with GG-7's), one per (equipmentOutput slot × variety)", () => {
+  it("defines exactly 52 equipment blueprints (53 once the Impact Grenade's is live, 61 with EM-7's modules, 65 with GG-7's, 66 with EM-8's), one per (equipmentOutput slot × variety)", () => {
     expect(equipmentBlueprints).toHaveLength(EQUIP_BP_COUNT);
     // The named set matches the derived key list (no missing / extra entry).
     const keys = equipmentBlueprints.map((bp) => bp.key).sort();

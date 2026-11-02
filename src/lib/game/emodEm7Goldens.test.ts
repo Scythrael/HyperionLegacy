@@ -18,6 +18,8 @@
 
 import { describe, expect, it } from "vitest";
 import { withoutGg7Content } from "./gasGiantSpecials.fixture";
+// E-MOD EM-8 came after this capture: the Precursor Lens's blueprint, variety and the circuit's recipe held apart.
+import { EM8_BLUEPRINT_KEYS, withoutEm8Content } from "./emodEm8Switch.fixture";
 import { writeFileSync } from "node:fs";
 import {
   BLUEPRINTS,
@@ -262,14 +264,14 @@ describe("E-MOD EM-7 goldens (captured before the v1 roster)", () => {
   // the Lab tiers, the Archive) hold GG-7's blueprints and varieties apart (gasGiantSpecials.fixture.ts), so EM-7 stays
   // the only move named there.
   const pins = computePins();
-  const catalogPins = withoutGg7Content(() => computePins());
+  const catalogPins = withoutGg7Content(() => withoutEm8Content(() => computePins()));
   it("every module-free reading holds (sheets, the player combatant, expedition dispatch, the set engine)", () => {
     expect(Object.keys(HELD).length).toBeGreaterThan(30);
     for (const [k, v] of Object.entries(HELD)) expect(pins.held[k], k).toBe(v);
   });
   it("the by-design readings: with EM-7's additions held apart, every one is the pre-EM-7 capture", () => {
     expect(Object.keys(MOVED_BEFORE).length).toBeGreaterThan(20);
-    const pre = withoutGg7Content(() => computePins(true));
+    const pre = withoutGg7Content(() => withoutEm8Content(() => computePins(true)));
     for (const [k, v] of Object.entries(MOVED_BEFORE)) expect(pre.moved[k], k).toBe(v);
   });
   it("the by-design readings: EM-7 moves exactly the named ones (every hull's Armory slot set, Lab tiers 2 to 4, the Archive)", () => {

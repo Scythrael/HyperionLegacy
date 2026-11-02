@@ -13,6 +13,8 @@
 
 import { describe, expect, it } from "vitest";
 import { GG7_BLUEPRINT_KEYS } from "./gasGiantSpecials.fixture";
+// E-MOD EM-8 came after this capture: the Precursor Lens's blueprint, variety and the circuit's recipe held apart.
+import { EM8_BLUEPRINT_KEYS, withoutEm8Content } from "./emodEm8Switch.fixture";
 // GEAR WEAR step 3: this file's pins were captured before the use wear engine; it runs with the use sources off
 // (gearWearSwitch.fixture.ts), so they keep proving nothing else moved. gearWearGoldens.test.ts pins the wear.
 import { gearWearOffInThisFile } from "./gearWearSwitch.fixture";
@@ -238,6 +240,6 @@ describe("G2-4 goldens first: a veteran Aurora at every tier, and the blueprint 
     expect(keys.slice(keys.indexOf("balancedDriveBp") + 1, keys.indexOf("balancedDriveBp") + 1 + classed.length)).toEqual(classed);
     // E-MOD EM-7 (named move): its eight module blueprints follow the Bio-Resonance Array; held apart here.
     // Gas Giant Study GG-7 (named move): its four blueprints follow EM-7's; held apart here too.
-    expect(hash(keys.filter((k) => !classed.includes(k) && !EM7_BLUEPRINT_KEYS.has(k) && !GG7_BLUEPRINT_KEYS.has(k)))).toBe(GOLDEN_CATALOG);
+    expect(hash(keys.filter((k) => !classed.includes(k) && !EM7_BLUEPRINT_KEYS.has(k) && !GG7_BLUEPRINT_KEYS.has(k) && !EM8_BLUEPRINT_KEYS.has(k)))).toBe(GOLDEN_CATALOG);
   });
 });

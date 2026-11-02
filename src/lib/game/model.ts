@@ -26,7 +26,7 @@ import { constitutionRamp, RAMP_SECONDS_PER_TICK } from "./constitutionRamp";
 import { reactorCoreFuel } from "./reactorTech";
 // E-MOD EM-5 (0.14.0): the universal module catalog leaf (imports only types; no cycle), read by equipmentStatMods for
 // a Passive module's power output.
-import { UNIVERSAL_MODULES, modulePowerOutput, type ModuleScanProc } from "./shipModules";
+import { PRECURSOR_LENS_MODULE, UNIVERSAL_MODULES, modulePowerOutput, type ModuleScanProc } from "./shipModules";
 // Gas Giant Study GG-7 (0.14.0): the special blueprints' table (a leaf with no imports, so no cycle).
 import { GG7_NUMBERS, PRESSURE_FORGED_PLATING_VARIETY, RAMSCOOP_COLLECTOR_MODULE, RESONANCE_SENSOR_ARRAY, SPECIAL_BLUEPRINT_TIER, type SpecialBlueprintKey } from "./specialBlueprints";
 // RARITY READINESS RR-6: the one set engine (a leaf: model.ts types and shipModules.ts only).
@@ -10158,8 +10158,8 @@ export interface ItemDef {
 // their phase. The model.test.ts drift guard asserts every live storage key has
 // an entry here, so this table cannot silently fall out of sync with storage.
 // ML-1: the owners named by ItemDef.reserved (each becomes a pending wiring registry entry with this text as owner). ML-2
-// gave its six goods their blueprints and dropped their markers in the same commit.
-const EM8_PRECURSOR_LENS = "EM-8 (the Precursor Lens special module is crafted with it)";
+// gave its six goods their blueprints and dropped their markers in the same commit; EM-8 gave the Precursor Circuit its
+// recipe (the Precursor Lens module, precursorLensBp) and dropped its marker the same way. No item is reserved today.
 // Gas Giant Study GG-1 (values approved by the user 2026-10-21): credits per canister at the Quartermaster's Sell counter.
 // Deuterium Ice at the Quartermaster's Sell counter, credits per unit. User 2026-10-21 (merge batch answers, "Comet
 // economy bug": "Cut ice to ~4 credits (Recommended)"): a crafting input, not a money run. It was 40 (the retired Fuel
@@ -10167,8 +10167,8 @@ const EM8_PRECURSOR_LENS = "EM-8 (the Precursor Lens special module is crafted w
 export const DEUTERIUM_ICE_SELL_VALUE = 4;
 
 // Wiring WR-11 (OC-J3 "Sell now, recipes later"): two salvage drops sell at the Quartermaster (credits per unit).
-// Salvaged Circuitry is also a refine input (refineReclaimedCircuit); the Precursor Circuit has no recipe until the
-// content pass gives it one. [PROVISIONAL] prices for 0.16.0.
+// Salvaged Circuitry is also a refine input (refineReclaimedCircuit); the Precursor Circuit crafts the Precursor Lens
+// module (E-MOD EM-8, precursorLensBp). [PROVISIONAL] prices for 0.16.0.
 export const SALVAGE_DROP_SELL_VALUE = { salvagedCircuitry: 12, precursorCircuit: 300 } as const;
 
 // The Deuterium Canister anchors the scale (450 cr); the Standard band sells under it and each band up roughly doubles.
@@ -10599,10 +10599,10 @@ export const ITEMS: Record<string, ItemDef> = {
     category: "refined",
     tier: 1,
     rarity: "epic",
-    unlockHint: "Recovered only from salvage. Sells at the Quartermaster; reserved for a future recipe not yet built.",
+    // E-MOD EM-8: its first recipe is the discovery-gated Precursor Lens module (precursorLensBp); the reserve is gone.
+    unlockHint: "Recovered only from salvage. Sells at the Quartermaster; used to craft the Precursor Lens module.",
     flavor: "An impossibly fine circuit lattice from a hull far older than the fleet, still faintly warm to the touch.",
     sellValue: SALVAGE_DROP_SELL_VALUE.precursorCircuit,
-    reserved: EM8_PRECURSOR_LENS,
   },
   intactDataCore: {
     label: "Intact Data Core",
@@ -11127,8 +11127,8 @@ export interface BlueprintDef {
   // has been IDENTIFIED at least once (state.relicDiscovered contains it, the FIRST FIND that a relic
   // study's completion records). canResearch refuses it with the `undiscovered` reason, and the Research
   // catalog shows the card MASKED (it names the relic's SET, never the relic) until then. ABSENT on every
-  // pre-E4d blueprint, so their research gate is byte-identical. Adding a gated project later (the
-  // deferred Precursor Lens module, Heart of the Archive's Neural Backup) is a pure DATA change: author the
+  // pre-E4d blueprint, so their research gate is byte-identical. Adding a gated project later (as the
+  // Precursor Lens module and Heart of the Archive's Neural Backup did) is a pure DATA change: author the
   // blueprint with this field and the gate, the mask and the reveal's "Research unlocked" line all follow.
   // Typed as a plain string (not a relic-id union) because model.ts must not import relics.ts (relics.ts
   // imports model.ts); a test asserts every value names a real relic.
@@ -12090,10 +12090,10 @@ export const BLUEPRINTS: Record<string, BlueprintDef> = {
   //   Ancient Drive Coil  -> Damage Control Suite  (combat utility, tactician hulls)   [Anomalous Alloy]
   //   Deep-Vein Compass   -> Pathfinder Suite      (explorer utility, explorer hulls)  [refined metals]
   //   Leviathan Scale     -> Bio-Resonance Array   (relic-hunter scanning array)       [organics]
-  // DEFERRED (not authored here, by decision): Precursor Lens's special module ships with the module phase
-  // (E-MOD); its first find still gets the normal discovery moment, and adding its project later is a data
-  // change (a blueprint carrying requiresRelicDiscovery). Heart of the Archive's Neural Backup is now authored
-  // with the away-team member gear (E-CREW Task 7, neuralBackupBp below).
+  //   Precursor Lens      -> Precursor Lens module (the Special universal module)     [Precursor Circuit]
+  // The Precursor Lens's module shipped with the module phase (E-MOD EM-8, the E4d resolution of 2026-10-01: "ships
+  // WITH the module phase as its first content"). Heart of the Archive's Neural Backup is authored with the away-team
+  // member gear (E-CREW Task 7, neuralBackupBp below).
   //
   // RAW INPUTS, deliberately (judgment call, flagged): Anomalous Alloy is a `raw`-category salvage exotic and
   // two forage organics stay raw. (WR-4, OC-C3: Purified Biomass is refined now, so it replaced the raw Fibrous
@@ -12146,6 +12146,28 @@ export const BLUEPRINTS: Record<string, BlueprintDef> = {
     recipe: { inputs: { purifiedBiomass: 2, volatileResin: 6, exoticSporeCluster: 2, polysilicateWafer: 2 } },
     flavor: "A living membrane tuned to the hum of very old things. It sweeps slowly, and it listens for relics.",
     unlockHint: "Identify a Leviathan Scale to unlock this research; crafted at the Fabricator.",
+  },
+  // E-MOD EM-8 (plan section 4 EM-8; user M6 "Approve all", M7 "Material Lines items", M8 "One per ship"): the
+  // PRECURSOR LENS module, the Special universal module (shipModules.ts PRECURSOR_LENS_MODULE). Discovery-gated like
+  // its E4d siblings, so the Research card stays MASKED until a Precursor Lens relic is identified, and the
+  // identification reveal names it under "Research unlocked". [PROPOSAL] tier 2 (the E4d relic payoffs' tier; the relic
+  // first turns up at Tier II) at the module tier 2 costs (MODULE_BLUEPRINT_COSTS, [PROVISIONAL]). [PROPOSAL] recipe
+  // ("optics on an ancient circuit"): the Precursor Circuit (its first consumer: the salvage exotic was reserved for
+  // this module), Photonic Gel for the optics and a Polysilicate Wafer for the lens substrate, the same Material Lines
+  // mix as the other tier 2 modules. No Iridium Catalyst: M7 puts the catalyst on the TOP tier only, and the user's
+  // 2026-10-26 answer applied it to the tier 4 Shield Surge alone.
+  precursorLensBp: {
+    key: "precursorLensBp",
+    label: "Precursor Lens Blueprint",
+    tier: 2,
+    researchDurationTicks: MODULE_BLUEPRINT_COSTS[2].ticks,
+    researchCreditCost: MODULE_BLUEPRINT_COSTS[2].credits,
+    craftDurationTicks: MODULE_BLUEPRINT_COSTS[2].craft,
+    equipmentOutput: { slotType: "module", varietyKey: PRECURSOR_LENS_MODULE },
+    requiresRelicDiscovery: "precursorLens",
+    recipe: { inputs: { precursorCircuit: 1, photonicGel: 2, polysilicateWafer: 1 } },
+    flavor: "Optics ground onto an ancient circuit. Through it, a scanned world shows the writing that used to be there.",
+    unlockHint: "Identify a Precursor Lens to unlock this research; crafted at the Fabricator; installed in a ship's module slot.",
   },
 
   // E-MOD EM-7: the v1 universal module blueprints (MODULE_BLUEPRINTS above), Lab tiers 2 to 4.
@@ -12686,8 +12708,8 @@ function withReactorFuel(bp: BlueprintDef): BlueprintDef {
 for (const key of Object.keys(BLUEPRINTS)) BLUEPRINTS[key] = withReactorFuel(BLUEPRINTS[key]);
 
 // Exploration 0.14.0 (E4d): the blueprints a relic's FIRST FIND unlocks (requiresRelicDiscovery ===
-// relicId), in BLUEPRINTS declaration order. Empty for a relic that gates nothing (most relics, and the
-// deferred Precursor Lens / Heart of the Archive today). Pure over the static table; the identification
+// relicId), in BLUEPRINTS declaration order. Empty for a relic that gates nothing (most relics). Pure over the static
+// table; the identification
 // reveal reads it for its "Research unlocked" line.
 export function blueprintsUnlockedByRelic(relicId: string): BlueprintDef[] {
   return Object.values(BLUEPRINTS).filter((bp) => bp.requiresRelicDiscovery === relicId);

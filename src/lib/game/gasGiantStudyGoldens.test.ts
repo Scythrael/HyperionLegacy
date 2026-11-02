@@ -25,6 +25,7 @@
 
 import { describe, expect, it } from "vitest";
 import { GG7_BLUEPRINT_KEYS } from "./gasGiantSpecials.fixture";
+import { EM8_BLUEPRINT_KEYS } from "./emodEm8Switch.fixture";
 // GEAR WEAR step 3: this file's pins were captured before the use wear engine; it runs with the use sources off
 // (gearWearSwitch.fixture.ts), so they keep proving nothing else moved. gearWearGoldens.test.ts pins the wear.
 import { gearWearOffInThisFile } from "./gearWearSwitch.fixture";
@@ -540,7 +541,7 @@ describe("GG-0 golden 5: the item census", () => {
 
   it("item ids, counts by category, refine recipes and blueprint count (GG-1's additions held apart)", () => {
     const before = census(Object.keys(ITEMS).filter((id) => !gg1.has(id) && !ML2_NEW_ITEMS.has(id)), Object.keys(REFINE_RECIPES).filter((k) => k !== GG1_RECIPE && !ML2_NEW_REFINES.has(k)));
-    expect({ items: hash(before.ids), byCategory: before.byCategory, refineRecipes: before.refineRecipes, blueprints: Object.keys(BLUEPRINTS).filter((k) => !(k in FIELD_KITS_HIDDEN_BLUEPRINTS) && BLUEPRINTS[k].driveClass === undefined && !EM7_BLUEPRINT_KEYS.has(k) && !GG7_BLUEPRINT_KEYS.has(k)).length }).toEqual(CENSUS_GOLDEN); // E-MOD EM-7's module blueprints and GG-7's four held apart
+    expect({ items: hash(before.ids), byCategory: before.byCategory, refineRecipes: before.refineRecipes, blueprints: Object.keys(BLUEPRINTS).filter((k) => !(k in FIELD_KITS_HIDDEN_BLUEPRINTS) && BLUEPRINTS[k].driveClass === undefined && !EM7_BLUEPRINT_KEYS.has(k) && !GG7_BLUEPRINT_KEYS.has(k) && !EM8_BLUEPRINT_KEYS.has(k)).length }).toEqual(CENSUS_GOLDEN); // E-MOD EM-7's module blueprints, GG-7's four and EM-8's Precursor Lens held apart
     // Field Kits FKR-9 / FKR-10 (the switch-on): the hidden Impact Grenade blueprint merges in, the one named move of the
     // blueprint count (78 to 79), counted apart as in materialLinesGoldens.test.ts.
     for (const k of Object.keys(FIELD_KITS_HIDDEN_BLUEPRINTS)) expect(BLUEPRINTS[k], k).toBe(FIELD_KITS_HIDDEN_BLUEPRINTS[k]);

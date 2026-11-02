@@ -7811,7 +7811,7 @@
   // variety that draws an SVG glyph (a universal module, the Guest Wing) returns it too, so its blank tile is never blank.
   function blueprintMemberIcon(key: string): IconName | null {
     const out = BLUEPRINTS[key]?.equipmentOutput;
-    return out ? memberSlotIcon(out.slotType) ?? varietySvgIcon(out.varietyKey) : null;
+    return out ? memberSlotIcon(out.slotType) ?? varietySvgIcon(out.varietyKey, out.slotType) : null;
   }
 
   // ── Crafted Blanks 0.13.7: the Product Inspection panel state ──────────────

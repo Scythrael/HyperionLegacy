@@ -786,6 +786,32 @@ the eight new module blueprints each add an Archive slot (display only, nothing 
 Precursor Circuit, one per fleet or per ship per call M8, its unique proc per call M6. Registry: the Precursor Lens
 first-find row LIVE. Tests: masked until identified; mints; proc acts.
 
+*Carry note (EM-8 built 2026-11-02, on feat 7c553ac).* Goldens first: `emodEm8Goldens.test.ts` (own commit): 14 HELD
+pins (module-free Orion / Aurora dispatch and their discoveries, runs in flight with a frozen body-scan proc at three
+chances, the Precursor set Museum bonuses, the Precursor Circuit sale, the Aurora sheet and power budget) never moved;
+8 of 9 by-design pins moved (the Lens first-find unlock, the researchable list once identified, Lab tier 2's keys,
+Fabricator groups and Research sections, the Archive, the module slot varieties, the circuit's ItemDef; the list before
+any Lens is identified held), and with EM-8's additions held apart (`emodEm8Switch.fixture.ts withoutEm8Content`) every
+one reproduces the capture. Built (user M6 ninth row, M8 "One per ship; the Precursor Lens too", E4d): the def
+`shipModules.ts PRECURSOR_LENS_MODULE` ("precursorLens", Special, expedition, bodyScanned, extraDiscovery 1, source
+discovery) on the EM-6 engine (frozen at dispatch on `Expedition.moduleScanProcs`; the scale lifts the CHANCE,
+MODULE_SCALE_ON); [PROVISIONAL] `PRECURSOR_LENS_NUMBERS` chance 0.2, draw 9 (the signed-off mockup's sample). The
+blueprint `model.ts precursorLensBp` (`requiresRelicDiscovery: "precursorLens"`, masked and refused until identified;
+the reveal's "Research unlocked" names it), [PROPOSAL] tier 2 (the E4d relic payoffs' tier) at the module tier 2 costs,
+[PROPOSAL] recipe Precursor Circuit 1, Photonic Gel 2, Polysilicate Wafer 1 (the tier 2 modules' Material Lines mix; the
+audit section 10 row's Iridium Catalyst dropped in the EM-8 fix round, since M7 puts the catalyst on the top tier only).
+The Precursor Circuit's reserve marker dropped (its hint names the module); no item is reserved now, so the ITEMS
+`reserved` field role is gone (fieldRoles.ts). UI: the card's effect line shows the piece's real chance
+(`moduleScaledChance`), the mockup's unlock line (`moduleGateText`, "Unlocked: you identified a Precursor Lens relic."),
+the relic's SVG glyph (`relicPrecursorLens`, the mockup's choice; checked at 16 / 28 / 56 px, distinct from the
+Long-Baseline Array's dish); Help "Power and modules" gains the Special line (numbers read from the engine). Registry:
+`ship:UNIVERSAL_MODULES:precursorLens` LIVE (probe `moduleScanDiscoveries`, 2,000 bodies, tolerance 3 sd),
+`relic:em8:precursorLensFirstFind` LIVE (researchableBlueprints, gate), `relic:RELICS:precursorLens` wholly LIVE, the
+`facility:ITEMS:precursorCircuit:reserved` row gone; `emodEm8Registry.fixture.ts em8ReadBack` holds the move apart in
+emodGoldens and shortRangeGoldens. No save step, no salt, no stamp change. QA sheet
+`docs/qa/2026-11-02-em8-precursor-lens-qa.html`. **Open calls for the user:** the chance (20% [PROVISIONAL]); the tier
+and recipe [PROPOSAL] (no Iridium Catalyst at tier 2, per M7).
+
 **EM-9 Salvage-exclusive loop (call M2).** Salvage drops a damaged module precursor [PROPOSAL item], a repair process
 rolls a chance at an exclusive module with a visible pity counter, set iLevel per item type (SUGGESTIONS decision). Its
 own short design first (venue, pity, ceiling interaction). **0.14.x candidate** (recommended there).
