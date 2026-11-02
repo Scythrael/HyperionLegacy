@@ -280,7 +280,7 @@ describe("SF-5 the G1 contract: every live short-range template stamps the share
 // a consumer, or deferred on the user's own words (away:audit:difficultyTiers: the objective affixes capture, 2026-10-14).
 describe("SF-7: no registry row waits on a safe first runs slice", () => {
   it("no pending row names an SF slice as its owner", () => {
-    const waiting = WIRING_REGISTRY.filter((e) => e.status.kind === "pending" && /SF-?d/.test(e.status.owner)).map((e) => e.id);
+    const waiting = WIRING_REGISTRY.filter((e) => e.status.kind === "pending" && /\bSF-?\d/.test(e.status.owner)).map((e) => e.id);
     expect(waiting).toEqual([]);
     const tiers = WIRING_REGISTRY.find((e) => e.id === "away:audit:difficultyTiers")!;
     expect(tiers.status.kind).toBe("deferred");

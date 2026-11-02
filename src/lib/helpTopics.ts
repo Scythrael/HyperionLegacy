@@ -17,7 +17,7 @@
 // combatGear, queues, craftingLevels, autoSalvage, quartermaster, relics, and the 0.14.0 ground set:
 // groundTeams, groundOperations, returnTrip, objectiveDifficulty, affixes, reinforcing, riskFactors,
 // subspaceTelescope, scanEvents, Field Kits FKR-11's enemyRanks and fieldKits, and Gas Giant Study GG-8's gasGiants,
-// galileoProbe, gasCanisters, dataStudy, ancientData and surveyLog) are welcome and
+// galileoProbe, gasCanisters, dataStudy, ancientData and surveyLog, and Short-Range Missions G1-7's shortRange) are welcome and
 // help orient a new player, but the nine above must always be present.
 //
 // ⚠️ THIS MANUAL IS PART OF A RELEASE, NOT A ONE-TIME WRITE-UP. Crafting 0.13.3
@@ -501,6 +501,125 @@ export const SURVEY_LOG_PARAGRAPHS: readonly string[] = [
   "The Survey Log is a record: it changes nothing in play.",
 ];
 
+// ===== Short-Range Missions (0.14.0 G1-7, docs/plans/2026-10-17-short-range-missions-plan.md) =====
+// The board, the sheets, the jobs, a cycle, Repeat and Recall, the waits, the training run and the slow start, and every
+// bonus that acts on a short-range run (the registry's mission:shortRange sweep, wiring/registry.ts, and WR-9's Pilot
+// Cunning). Every number, name and label is read from its owner, never typed.
+import {
+  SHORT_RANGE_CREW_RATING,
+  SHORT_RANGE_SHEETS,
+  SHORT_RANGE_TEMPLATES,
+  SHORT_RANGE_TEMPLATE_KEYS,
+  SHORT_RANGE_WORK,
+  shortRangeTemplateUses,
+  type ShortRangeTier,
+} from "./game/shortRange";
+import { SHORT_RANGE_BASE_SLOT_TIERS } from "./game/shortRangeBoard";
+import { SHORT_RANGE_CATEGORY_VIEW, SHORT_RANGE_TRAINING_NOTE, shortRangeTierNumeral } from "./shortRangeBoardDisplay";
+import { GENERAL_QUARTERS_GUEST_PERK, HULL_GUEST_QUARTERS, MISSIONS, MISSION_CONTROL_BOARD_RUNGS, SECONDARY_CAPTAIN_TALENTS } from "./game/model";
+import { LY_PER_TICK } from "./game/fuel";
+import { PILOT_CUNNING_RETURN_CUT_TICKS } from "./game/officerStats";
+import { crewBuffLabel } from "./game/crewBuffs";
+import { SENIOR_STAFF_BONUSES } from "./game/seniorStaffBonuses";
+import { EXPEDITION_RELIC_BLANKS_PER_HOUR, SHORT_RANGE_RELIC_RATE_MULT } from "./game/relicBlanks";
+// Whole numbers with thousands separators ("2,500"), never the abbreviated "2.50K".
+const formatWhole = (n: number): string => Math.round(n).toLocaleString("en-US");
+
+const SR_TIERS = Object.keys(SHORT_RANGE_SHEETS).map(Number) as ShortRangeTier[];
+const srTier = (t: ShortRangeTier): string => `Tier ${shortRangeTierNumeral(t)}`;
+const NUMBER_WORDS = ["no", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten"];
+const countWords = (n: number): string => NUMBER_WORDS[n] ?? String(n);
+const officerLabel = (id: string): string => SENIOR_STAFF_BONUSES.find((b) => b.id === id)?.label ?? id;
+const talentLabel = (k: keyof typeof SECONDARY_CAPTAIN_TALENTS): string => SECONDARY_CAPTAIN_TALENTS[k].label;
+const itemLabel = (id: string): string => ITEMS[id]?.label ?? id;
+const GUEST_WING = EQUIPMENT_SLOTS.quarters.varieties.find((v) => v.key === "quartersGuestWing")?.label ?? "Guest Wing";
+const QUARTERS_SLOT = EQUIPMENT_SLOTS.quarters.label;
+const GENERAL_HULLS = orList(Object.values(SHIP_TYPES).filter((d) => d.spec === "general").map((d) => d.label));
+const HULL_GUESTS = andList(
+  (Object.entries(HULL_GUEST_QUARTERS) as [keyof typeof SHIP_TYPES, number][])
+    .sort((a, b) => b[1] - a[1])
+    .map(([k, n]) => `${SHIP_TYPES[k].label} ${n}`),
+);
+// The base slots by tier ("two Tier I slots"), and each board rung's slot, level, gate and price.
+const BASE_SLOTS_TEXT = andList(
+  SR_TIERS.filter((t) => SHORT_RANGE_BASE_SLOT_TIERS.includes(t)).map((t) => {
+    const n = SHORT_RANGE_BASE_SLOT_TIERS.filter((x) => x === t).length;
+    return `${countWords(n)} ${srTier(t)} slot${n === 1 ? "" : "s"}`;
+  }),
+);
+const RUNG_LINES = MISSION_CONTROL_BOARD_RUNGS.map((rung, i) => {
+  const effect = rung.effect;
+  const slotTier = "addShortRangeSlot" in effect ? effect.addShortRangeSlot : null;
+  const gate = rung.requiresMissionCompletions
+    ? Object.entries(rung.requiresMissionCompletions).map(([key, n]) => ({ label: MISSIONS[key as keyof typeof MISSIONS]?.label ?? key, n }))
+    : [];
+  const gateText = gate.length > 0 ? ` once you have completed ${andList(gate.map((g) => `${g.label}`))} ${formatWhole(gate[0].n)} times each,` : "";
+  return `- Mission Control level ${i + 2} opens a ${slotTier !== null ? srTier(slotTier as ShortRangeTier) : "new"} slot. The upgrade can be built${gateText} for ${formatWhole(rung.credits?.toNumber() ?? 0)} credits.`;
+}).join("\n");
+// One sheet line per tier, in the board's own category names and units.
+const SHEET_LINES = SR_TIERS.map((t) => {
+  const s = SHORT_RANGE_SHEETS[t];
+  const parts = (Object.keys(SHORT_RANGE_CATEGORY_VIEW) as (keyof typeof SHORT_RANGE_CATEGORY_VIEW)[]).map((c) => `${SHORT_RANGE_CATEGORY_VIEW[c].label} ${formatWhole(s[c])}${SHORT_RANGE_CATEGORY_VIEW[c].unit}`);
+  return `- ${srTier(t)}: ${parts.join(", ")}.`;
+}).join("\n");
+// A span across tiers: "15 to 45 at Tier I, 30 to 65 at Tier II".
+const spanText = (get: (t: ShortRangeTier) => readonly [number, number] | undefined, unit = ""): string =>
+  SR_TIERS.map((t) => {
+    const s = get(t);
+    return s ? `${s[0] === s[1] ? `${s[0]}` : `${s[0]} to ${s[1]}`}${unit} at ${srTier(t)}` : null;
+  })
+    .filter((x): x is string => x !== null)
+    .join(", ");
+// "3 credits a unit" when every tier pays the same, else "50 at Tier I, 80 at Tier II" before the unit.
+const byTier = (r: Readonly<Record<ShortRangeTier, number>>, unit: string): string =>
+  new Set(SR_TIERS.map((t) => r[t])).size === 1 ? `${formatWhole(r[SR_TIERS[0]])} ${unit}` : `${SR_TIERS.map((t) => `${formatWhole(r[t])} at ${srTier(t)}`).join(", ")} ${unit}`;
+const DISTANCES = new Set(SHORT_RANGE_TEMPLATE_KEYS.map((k) => SR_TIERS.map((t) => SHORT_RANGE_TEMPLATES[k].rolls[t].distanceLy.join("-")).join("/")));
+const DISTANCE_TEXT = DISTANCES.size === 1 ? spanText((t) => SHORT_RANGE_TEMPLATES[SHORT_RANGE_TEMPLATE_KEYS[0]].rolls[t].distanceLy, " ly") : "set by the job";
+function jobLine(key: (typeof SHORT_RANGE_TEMPLATE_KEYS)[number]): string {
+  const def = SHORT_RANGE_TEMPLATES[key];
+  const uses = shortRangeTemplateUses(key).map((c) => SHORT_RANGE_CATEGORY_VIEW[c].short);
+  const r = def.reward;
+  const rolls = (k: "guests" | "units" | "scan" | "engineering" | "security", unit = "") => spanText((t) => def.rolls[t][k], unit);
+  let what: string;
+  switch (r.kind) {
+    case "passengers":
+      what = `carries people in guest quarters (${rolls("guests", " people")})${def.rolls[SR_TIERS[0]].security ? `, needs a Security crew rating (${rolls("security")})` : ""}, and is paid by the headcount and the distance, plus captain XP`;
+      break;
+    case "supplyLoop":
+      what = `buys supplies as it leaves (${rolls("units", " units")}, ${byTier(r.supplyCostPerUnit, "credits a unit")}) and is paid that back on delivery with a ${pct(r.margin)} margin`;
+      break;
+    case "pickup":
+      what = `brings home ${itemLabel(r.material)} for the Warehouse (${rolls("units", " units")}), plus credits`;
+      break;
+    case "survey":
+      what = `scans a nearby phenomenon (the scan needs Sensors of ${rolls("scan")}) for credits and ${itemLabel(r.material)}, more of it with stronger Sensors`;
+      break;
+    case "contract":
+      what = `hauls parts (${rolls("units", " units")}), needs an Engineering crew rating (${rolls("engineering")}), and pays a flat fee (${byTier(r.credits, "credits")}) plus captain XP`;
+      break;
+  }
+  return `- ${def.label} (uses ${andList(uses)}): ${what}.`;
+}
+const JOB_LINES = SHORT_RANGE_TEMPLATE_KEYS.map(jobLine).join("\n");
+const relicHours = (t: ShortRangeTier): number => Math.round(1 / (EXPEDITION_RELIC_BLANKS_PER_HOUR * SHORT_RANGE_RELIC_RATE_MULT[t]));
+const RELIC_TEXT = SR_TIERS.map((t) => `1 every ${relicHours(t)} hours of mission time at ${srTier(t)}`).join(" and ");
+const CUT_TEXT = PILOT_CUNNING_RETURN_CUT_TICKS === 1 ? "one tick" : `${PILOT_CUNNING_RETURN_CUT_TICKS} ticks`;
+const TICKS_PER_LY = 1 / LY_PER_TICK;
+
+export const SHORT_RANGE_HELP_PARAGRAPHS: readonly string[] = [
+  `Short-Range Missions are set-and-forget jobs close to home, run from the Ops tab under Short-Range. Each job is different: bring refugees to a new camp, drop off or pick up supplies, survey a phenomenon, repair a space telescope, build a comm booster, or move prisoners. A job can never fail.`,
+  `THE BOARD: every save starts with ${BASE_SLOTS_TEXT}. Mission Control adds more:\n${RUNG_LINES}\nA slot is flown by one captain and their assigned ship (the captain is busy while it runs). The board shows each free slot's next job before you send it, and pre-picks the ready captain whose ship meets the sheet by the widest margin: Send dispatches them, or Choose captain opens the picker.`,
+  `THE SHEET: each tier has one requirement sheet, and a ship must meet all of it, even the parts a job does not use. Every job a slot draws stays inside its sheet, so a ship that qualifies once can take any job that slot rolls.\n${SHEET_LINES}\nRange is the round trip the ship can reach. The Engineering and Security crew ratings come from the strength of the ship's Engineering crew (with its Engineering officer) and its Security crew: ${SHORT_RANGE_CREW_RATING.perDoubling} x log2(1 + strength / ${SHORT_RANGE_CREW_RATING.referenceStrength}), so each doubling of the crew adds about ${SHORT_RANGE_CREW_RATING.perDoubling}. The board's bars show your ship against the sheet, with the categories this job uses highlighted.`,
+  `GUEST QUARTERS carry people: refugees and prisoners ride in them, never in the cargo hold, and goods never ride in guest quarters. Guests are not crew and take no crew stations. A ship's guest quarters come from its hull (${HULL_GUESTS}), from a ${GUEST_WING} or a guest quarters line on a ${QUARTERS_SLOT}, and on a ${GENERAL_HULLS} with any ${QUARTERS_SLOT} installed they rise ${pct(GENERAL_QUARTERS_GUEST_PERK)}. Ship Systems shows the line once a ship has any.`,
+  `THE JOBS: every cycle the slot rolls a new job of any type, flying ${DISTANCE_TEXT} each way (Range on the sheet is the longest round trip).\n${JOB_LINES}`,
+  `A CYCLE: the ship flies out (${TICKS_PER_LY} ticks a lightyear before its transit speed), does the job on site, flies home, and turns around at home, where it uses a transit berth like a mission unload. On site, passengers and goods take longer the more there are; a scan is shorter with stronger Sensors (the scan divides by 1 + Sensors / ${SHORT_RANGE_WORK.sensorsReference}) and a repair or a build is shorter with a better Engineering crew rating (1 + rating / ${SHORT_RANGE_WORK.engineeringReference}). The pay arrives when the ship is home, and the captain and your Fleet Admiral earn XP for every tick the run is underway.`,
+  `REPEAT AND RECALL: Repeat until recalled is on by default, so the slot runs job after job. Turn Repeat off and the ship finishes this cycle and stops; turn it back on before then and it carries on. Recall does the same, and a run that has not left home yet ends at once and spends nothing.`,
+  `WAITING AT HOME: a Supply Pickup waits while its ${itemLabel("commonOre")} is at its Warehouse cap, and a Supply Drop-off waits until the fleet has the credits for its load. Either leaves on its own once it can, and nothing is lost while it waits.`,
+  `TRAINING RUNS AND THE SLOW START: ${SHORT_RANGE_TRAINING_NOTE} A job's training run is marked with the "${TRAINING_RUN_CHIP}" chip. The slow start counts the completed jobs of each type on its own; the training run does not count.`,
+  `WHAT HELPS: the bonuses that speed or grow a mission work here too.\n- The ship's transit speed, ${crewBuffLabel("flight.transitOut")} crew on the leg out, and ${crewBuffLabel("flight.transitBack")} crew or the Flight Deck's Constitution on the leg home.\n- The Pilot's Cunning: each cycle, the Flight Deck's Cunning is the chance that the leg home runs ${CUT_TEXT} shorter. The chance is set when the ship is sent, so a new Pilot counts from the next dispatch.\n- ${crewBuffLabel("ops.unloadSpeed")} crew and the ${officerLabel("any.veteranInstincts")} officer bonus speed the passengers and goods on site and the turnaround at home; the Operations officer's Integrity speeds a hold at least ${pct(FULL_HOLD_FRACTION)} full.\n- ${officerLabel("xo.commandOutput")} and the ${crewBuffLabel("excl.crewOutputMult")} grow the credits and materials a job pays.\n- ${talentLabel("trade1")} and ${talentLabel("trade3")} raise a Supply Drop-off's margin, and ${talentLabel("trade2")} cuts the price of its load.\n- ${talentLabel("extraction4")} raises the quality of the ore a job brings home, and ${talentLabel("extraction5")} can double it.\n- Officers aboard earn promotion progress for their hours out, as on any mission.\nTalents that act on extracting (the Prospector tree's extraction talents, ${talentLabel("extraction2")} and ${talentLabel("extraction3")}) and rare-find bonuses do not act here: a job pays what it rolled.`,
+  `RELICS: a short-range mission turns up an unidentified relic now and then, about ${RELIC_TEXT}, rarer than on expeditions. Finds go to your vault as the job is delivered; see the Relics and the Museum topic.`,
+];
+
 // HOTFIX 0.13.11.3: the offline topic names the cap, so it is built FROM the constant (never typed
 // as a number), which keeps the rule above: a retune of the cap changes this text with it.
 import { OFFLINE_CAP_SECONDS_BASE } from "./game/offlineCap";
@@ -526,7 +645,13 @@ export const HELP_TOPICS: HelpTopic[] = [
   {
     id: "operations",
     title: "Operations and Mission Control",
-    body: "Operations, the Ops tab, is where you run missions. Gathering and Combat Patrols are where you send captains out, the Overview shows every mission in progress, and Mission Control is the facility that tracks which missions are available and how many times you have completed each one. New missions unlock through Mission Control as you progress, so check back there as your fleet grows.",
+    body: "Operations, the Ops tab, is where you run missions. Gathering, Combat Patrols, Exploration and Short-Range are where you send captains out (see the Short-Range Missions topic), the Overview shows every mission in progress, and Mission Control is the facility that tracks which missions are available and how many times you have completed each one. New missions unlock through Mission Control as you progress, and its upgrades open more Short-Range slots, so check back there as your fleet grows.",
+  },
+  {
+    // 0.14.0 G1-7: Short-Range Missions (SHORT_RANGE_HELP_PARAGRAPHS above; every number read from the engine).
+    id: "shortRange",
+    title: "Short-Range Missions",
+    body: SHORT_RANGE_HELP_PARAGRAPHS.join("\n"),
   },
   {
     id: "patrols",

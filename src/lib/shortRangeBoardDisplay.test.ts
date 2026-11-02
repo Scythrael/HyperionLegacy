@@ -4,12 +4,15 @@
 // pre-pick, the six bars, the picker order, the calm waiting line, the collapsed job types list).
 
 import { describe, expect, it } from "vitest";
+import { readFileSync } from "node:fs";
+import { N_FULL } from "./game/runDifficulty";
 import Decimal from "break_infinity.js";
 import { MISSION_CONTROL_BOARD_RUNGS, MISSIONS, type CaptainState, type GameState, type RunDifficultyStamp } from "./game/model";
 import {
   SHORT_RANGE_CATEGORIES,
   SHORT_RANGE_SHEETS,
   SHORT_RANGE_TEMPLATE_KEYS,
+  SHORT_RANGE_TUTORIAL_TICKS_SCALE,
   shortRangeCyclePlan,
   shortRangeShipEngineering,
   shortRangeTemplateUses,
@@ -27,6 +30,9 @@ import {
   SHORT_RANGE_PREPICK_RULE,
   SHORT_RANGE_SHEET_MARK,
   SHORT_RANGE_TEMPLATE_ICON,
+  SHORT_RANGE_TRAINING_NOTE,
+  shortRangeFullSizeRun,
+  shortRangeRunShare,
   missionControlRungSlotText,
   shortRangeBars,
   shortRangeBestReady,
@@ -363,6 +369,41 @@ describe("G1-6 the collapsed job types list", () => {
     expect(at(1, 0)).toBe("Run 2, size up to 35%");
     expect(at(5, 4)).toBe("Run 6, size up to 54%");
     expect(at(30, 29)).toBe("Full size");
+  });
+});
+
+describe("G1-7 the training and slow start note reads the engine (the board's list and the Help topic print it)", () => {
+  const statusAt = (run: number) => {
+    const s = wiringBase();
+    const counts = { ...s.runCounts!, shortRange: { refugeeRelocation: { dispatched: run - 1, completed: Math.max(0, run - 2) } } };
+    return shortRangeTypeRows({ ...s, runCounts: counts }).find((r) => r.template === "refugeeRelocation")!.status;
+  };
+  it("each anchor's share is the share the list shows for that run, and the full-size run is the first at 100%", () => {
+    for (const run of [2, 6, 9]) {
+      const p = Math.round(shortRangeRunShare(run) * 100);
+      expect(statusAt(run)).toBe(`Run ${run}, size up to ${p}%`);
+      expect(SHORT_RANGE_TRAINING_NOTE).toContain(`run ${run} ${run === 2 ? "at" : "about"} ${p}%`);
+    }
+    const full = shortRangeFullSizeRun();
+    expect(statusAt(full)).toBe("Full size");
+    expect(statusAt(full - 1)).not.toBe("Full size");
+    expect(SHORT_RANGE_TRAINING_NOTE).toContain(`full from run ${full})`);
+    // The SF-3 review smoothed the top of the curve: full from run 12, not the SF4 "run 11" the old typed note kept.
+    expect(full).toBe(N_FULL + 1);
+  });
+  it("Tier II is full size from the start, and the training run is the smallest job at normal length", () => {
+    expect(shortRangeRunShare(2, 2)).toBe(1);
+    expect(shortRangeRunShare(1)).toBe(0);
+    expect(SHORT_RANGE_TUTORIAL_TICKS_SCALE).toBe(1);
+    expect(SHORT_RANGE_TRAINING_NOTE).toContain("the smallest job, no gear wear, normal length");
+    expect(SHORT_RANGE_TRAINING_NOTE).toContain("Tier I jobs grow on the slow start");
+    expect(SHORT_RANGE_TRAINING_NOTE).toContain("Tier II jobs are full size from the start.");
+  });
+  it("the board's job types list prints the note, never a typed copy", () => {
+    const src = readFileSync("src/lib/ShortRangePanel.svelte", "utf-8");
+    expect(src).toContain("{SHORT_RANGE_TRAINING_NOTE}");
+    expect(src).not.toMatch(/full from run \d/);
+    expect(src).toContain('onOpenHelp?.("shortRange")');
   });
 });
 
