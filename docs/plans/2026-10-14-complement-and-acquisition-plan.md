@@ -838,3 +838,10 @@ what will move; (3) per-row amount: A minus, count, plus, ALL; (4) result: A row
 A two steps; (6) crew pool: A its own tab in Personnel Rosters; (7) take from pool: A only from the pool view; (8) lock
 display: A a line per panel and a lock on each sub-tab; (9) benched list home: A every ship's Away Team tab (built);
 (10) benched list name: "Unassigned".
+
+## USER ANSWERS (2026-11-02): CP-5 review calls
+
+- Division mixes: "No division ever shrinks (Recommended)": every division on every hull keeps at least today's seats;
+  a hull's lean comes only from where the extra seats go. No existing ship turns "Over cap" from the new caps.
+- Eir description: "Approve as written": "Heavy cruiser. A medical transport with the largest explorer crew: the
+  largest hold and away teams the fleet fields, for supplies and evacuations."
