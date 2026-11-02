@@ -17,7 +17,7 @@ import { describe, expect, it } from "vitest";
 import { writeFileSync } from "node:fs";
 import Decimal from "break_infinity.js";
 import { MISSIONS, freshState, type GameState, type MissionKey } from "./model";
-import { dispatchCaptainOnMission, economyTick, tick } from "./tick";
+import { dispatchCaptainOnMission, economyTick, recallCaptain, tick } from "./tick";
 import { hash, stateHash } from "./firstRunsGoldens.fixture";
 import { pieceCondition } from "./gearWear";
 import { gatheringTrainingStamp } from "./gearWearEngine";
@@ -184,7 +184,7 @@ describe("SF-7: the first gathering run takes no gear wear (user OC-W9 \"No wear
     }
   });
 
-  it("one training run at a time; a recalled one hands the mark to the next dispatch; a veteran or a wear-less build is never marked", () => {
+  it("one training run at a time; a veteran or a wear-less build is never marked", () => {
     const fresh = freshState();
     const stamp = { version: 1 as const };
     expect(gatheringTrainingStamp(fresh, stamp)).toEqual({ version: 1, training: 1 });
@@ -193,9 +193,42 @@ describe("SF-7: the first gathering run takes no gear wear (user OC-W9 \"No wear
     const flying = dispatchCaptainOnMission(levelled(fresh), 1, "shortOreRun").next;
     expect(marked(flying)).toBe(true);
     expect(gatheringTrainingStamp(flying, stamp)).toBe(stamp);
-    const recalled = { ...flying, captains: flying.captains.map((c) => (c.id === 1 ? { ...c, mission: null } : c)) };
-    expect(gatheringTrainingStamp(recalled, stamp)).toEqual({ version: 1, training: 1 });
     expect(withGatheringTrainingOff(() => gatheringTrainingStamp(fresh, stamp))).toBe(stamp);
+  });
+
+  // The real recall (tick.ts recallCaptain) flies the ship home and the unload counts as a delivery, even with an empty
+  // hold, so the recalled run uses up the training delivery itself (pristine) and the next dispatch is not marked.
+  it("a recalled training run spends the exemption itself: it flies home, its delivery wears nothing, the next run is not marked", () => {
+    const stamp = { version: 1 as const };
+    let s = recallCaptain(dispatchCaptainOnMission(levelled(freshState()), 1, "shortOreRun").next, 1).next;
+    expect(marked(s)).toBe(true);
+    let i = 0;
+    while (s.captains[0].mission !== null && i < 20_000) {
+      s = economyTick(s, 1, () => 0.5);
+      i += 1;
+    }
+    expect(s.captains[0].mission).toBeNull();
+    expect(deliveries(s)).toBe(1);
+    expect(PRISTINE(s)).toBe(true);
+    expect(gatheringTrainingStamp(s, stamp)).toBe(stamp);
+  });
+
+  // The one case the mark passes on: a recalled transport whose cycle idles unfunded delivers nothing.
+  it("a recalled transport that idles unfunded delivers nothing, so the next dispatch is the marked training run", () => {
+    const key = (Object.keys(MISSIONS) as MissionKey[]).find((k) => MISSIONS[k].missionType === "transport");
+    expect(key).toBeDefined();
+    const stamp = { version: 1 as const };
+    const r = dispatchCaptainOnMission(levelled(freshState()), 1, key as MissionKey);
+    expect(r.success, r.reason).toBe(true);
+    let s = recallCaptain({ ...r.next, credits: new Decimal(0) }, 1).next;
+    let i = 0;
+    while (s.captains[0].mission !== null && i < 40_000) {
+      s = economyTick(s, 1, () => 0.5);
+      i += 1;
+    }
+    expect(s.captains[0].mission).toBeNull();
+    expect(deliveries(s)).toBe(0);
+    expect(gatheringTrainingStamp(s, stamp)).toEqual({ version: 1, training: 1 });
   });
 
   it("a run dispatched before SF-7 (unmarked) flies on byte-identical to the pre-SF-7 game", () => {

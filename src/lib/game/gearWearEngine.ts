@@ -121,9 +121,11 @@ export const GATHERING_TRAINING_WEAR_SWITCH = { live: true };
 // Safe first runs SF-7 (user OC-W9 "No wear on training"; the safe first runs include "the first gathering run",
 // capture 2026-10-15 section 7): the stamp a captain mission is dispatched with, marked `training` when this dispatch
 // is the save's first gathering run: no gathering cycle delivered yet (runDifficulty.ts isFirstGatheringRun, the same
-// read the "First run" line uses) and no other captain already flying the marked run (one training run at a time; a
-// recalled one hands the mark to the next dispatch, SF16 "Training carries over"). Its first delivered cycle wears
-// nothing (tick.ts economyTick); the mark is decided at dispatch only, so one call == chunks == 1 s steps. Pure.
+// read the "First run" line uses) and no other captain already flying the marked run (one training run at a time).
+// A recalled run flies home (tick.ts recallCaptain) and its unload counts as a delivery even with an empty hold, so it
+// uses up the exemption itself; the mark passes to the next dispatch only when a recalled transport idles unfunded
+// (nothing delivered). Its first delivered cycle wears nothing (tick.ts economyTick); the mark is decided at dispatch
+// only, so one call == chunks == 1 s steps. Pure.
 export function gatheringTrainingStamp(state: GameState, stamp: RunWearStamp | undefined): RunWearStamp | undefined {
   if (stamp === undefined || !GATHERING_TRAINING_WEAR_SWITCH.live || !isFirstGatheringRun(state)) return stamp;
   const flying = state.captains.some((c) => c.mission !== null && c.mission.kind === "extraction" && c.mission.gearWear?.training === 1);

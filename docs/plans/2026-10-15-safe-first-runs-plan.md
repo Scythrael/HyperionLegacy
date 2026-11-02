@@ -1017,11 +1017,19 @@ never wear-stamped, the training patrol cycle carries no battle stamp (no battle
 record no use wear yet), a short-range template's training cycle makes no wear event. Gap: the save's first gathering
 run wore the ship on its first delivery. Built: a captain mission dispatched as the save's first gathering run is
 stamped `RunWearStamp.training` (gearWearEngine.ts `gatheringTrainingStamp`: `isFirstGatheringRun`, and no other
-captain flying the marked run; a recalled one hands the mark on, SF16); its first delivered cycle records no use wear
+captain flying the marked run); its first delivered cycle records no use wear
 (tick.ts economyTick), and the stamp re-frozen at that delivery drops the mark, so later cycles wear as usual (the
 first cycle is the training one, as for patrols and short-range). Decided at dispatch only, so tick() == 1 s steps.
 Old saves and runs in flight carry no mark and wear exactly as before; no SAVE_VERSION move. The "First run" card line
 now follows the mark (`firstGatheringCardCaptainId`), the phase order as the fallback.
+**Recall.** A recalled training run does not hand the mark on: the real recall (tick.ts `recallCaptain`) flies
+the ship home, and the unload counts as a delivery even with an empty hold (tick.ts economyTick), so the recalled run
+uses up the exemption itself (that delivery wears nothing, the next dispatch is not marked). The mark passes to the
+next dispatch only when a recalled transport idles unfunded (nothing delivered). Tested on the real recall path.
+**Two captains at once (rare).** With two captains dispatched on a fresh save, the mark goes to the first-dispatched
+one, and that captain's first delivery is the exempt one, even if the other captain delivers first (the other's
+delivery wears as usual and ends the save's first gathering run for later dispatches). The "First run" card line
+follows the marked run, not whichever captain delivers first. No behavior change; documented as is.
 **Goldens:** `gatheringTrainingWearGoldens.test.ts` captured on a9b3de6 before the edit (every mission a fresh
 freighter flies, fresh and veteran); with the switch off (`gatheringTrainingSwitch.fixture.ts`) every row reproduces;
 moved on purpose: the `fresh:*` rows only (re-pinned in AFTER); `veteran:*` unchanged. `gearWearGoldens.test.ts` and
