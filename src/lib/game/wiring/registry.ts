@@ -4030,7 +4030,19 @@ const AUDIT_ROWS: readonly { id: string; system: WiringSystem; claim: string; st
   { id: "away:audit:tierDormant", system: "away", claim: "The tier rows a deeper launch reads: RISK_TIER_ODDS II to VII, enemy territory (the homeworld's fixed sectors), hostile sites, SCIENCE_HEAVY, affix rows above Tier I, the deeper famous systems", status: LIVE },
   { id: "away:audit:tierHaulMult", system: "away", claim: "The tier haul TIER_HAUL_MULT II to VII: every objective's haul of a deeper run, x1.25 to x3.3 (user G16)", status: LIVE },
   { id: "expedition:audit:tierBodyCount", system: "expedition", claim: "TIER_BODY_COUNT II to VII: deeper systems hold more bodies, up to 3 to 5 at Tiers VI and VII (user G17)", status: LIVE },
-  { id: "away:audit:difficultyTiers", system: "away", claim: "DIFFICULTY_TIER_ROLL_MULT above the base difficulty tier (the future difficulty tiers hook: one row today)", status: pending("SF-3 follow-up (the future difficulty tiers: nothing designed; objective affixes capture 2026-10-14)") },
+  // Safe first runs SF-7 close-out: deferred on the user's own words. The hook (the affix pool's difficulty-tier input,
+  // one base row) is built as asked; the higher difficulty tiers themselves are not designed or scheduled.
+  {
+    id: "away:audit:difficultyTiers",
+    system: "away",
+    claim: "DIFFICULTY_TIER_ROLL_MULT above the base difficulty tier (the future difficulty tiers hook: one row today)",
+    status: {
+      kind: "deferred",
+      owner: "the future difficulty tiers (not designed or scheduled; objective affixes capture 2026-10-14)",
+      userRef:
+        'objective affixes capture (user 2026-10-14): "build anything that might be needed in the future to implement a difficulty system for this, but we\'re not focusing on higher difficulty tiers over the actual unlockable tiers" (timing answer: the affix system plus hooks for future difficulty tiers in 0.14.0)',
+    },
+  },
   { id: "away:audit:objectiveHooks", system: "away", claim: "taskChainFollowUp, calmObjective, affix weightFor (no caller)", status: pending("OC-C4") },
   // G. Expedition content
   // WR-11: rendered on the objective card and the queue row (expeditionContent.ts groundSiteFlavor).

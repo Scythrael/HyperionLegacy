@@ -21,7 +21,7 @@ const G2_6_AUDIT_LIVE = [
 ];
 
 describe("G2-6 the wiring registry: the console's rows are live", () => {
-  it("every row G2-6 flips or adds is live at Ground Ops with a probe (the future difficulty tiers stay pending on their owner)", () => {
+  it("every row G2-6 flips or adds is live at Ground Ops with a probe (the future difficulty tiers deferred, SF-7)", () => {
     const rows = WIRING_REGISTRY.filter((e) => G2_6_AUDIT_LIVE.includes(e.id));
     expect(rows.map((e) => e.id).sort()).toEqual([...G2_6_AUDIT_LIVE].sort());
     for (const e of rows) {
@@ -29,8 +29,9 @@ describe("G2-6 the wiring registry: the console's rows are live", () => {
       expect(e.probe, e.id).toBeDefined();
       expect(e.contexts, e.id).toContain("expedition:groundOps");
     }
+    // Safe first runs SF-7: deferred on the user's words (the hooks built, the higher difficulty tiers not designed).
     const difficulty = WIRING_REGISTRY.find((e) => e.id === "away:audit:difficultyTiers")!;
-    expect(difficulty.status.kind).toBe("pending");
+    expect(difficulty.status.kind).toBe("deferred");
     expect([...G2_6_ADDED_ENTRY_IDS].every((id) => WIRING_REGISTRY.some((e) => e.id === id))).toBe(true);
   });
 

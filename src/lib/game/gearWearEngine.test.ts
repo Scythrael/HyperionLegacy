@@ -18,7 +18,7 @@ import { shortRangeBoardSlots, shortRangeNextCycle, startShortRangeCycle } from 
 import { advanceExpedition, expeditionCandidates, startExpedition } from "./expedition";
 import { deserialize, migrate, serialize } from "./save";
 import { WIRING_SHIP_ID, installPiece, onMission, playerCombatant, seatOfficer, shipOf, wiringBase, withAwayTeam } from "./wiring/probes";
-import { afterExpeditionTraining, inShipyardBay, wearPieceIdFor, withFixtureCondition } from "./wiring/wearProbes";
+import { afterExpeditionTraining, afterGatheringTraining, inShipyardBay, wearPieceIdFor, withFixtureCondition } from "./wiring/wearProbes";
 import { withGearWearOff } from "./gearWearSwitch.fixture";
 
 const RNG = () => 0.5;
@@ -34,8 +34,10 @@ function shipPieces(s: GameState): EquipmentInstance[] {
 }
 
 // A Standard-Issue freighter (combat baselines in), crew aboard, Mission Control open, credits to spare.
+// Safe first runs SF-7: its first gathering run behind it (afterGatheringTraining), so a mission dispatched here wears
+// from its first delivery as these tests expect (the training delivery: gatheringTrainingWearGoldens.test.ts).
 function fleetBase(): GameState {
-  const s = installMissingCombatBaselines(seatOfficer(wiringBase(), "operations", []));
+  const s = installMissingCombatBaselines(seatOfficer(afterGatheringTraining(wiringBase()), "operations", []));
   return { ...s, captains: s.captains.map((c) => ({ ...c, level: 10 })) };
 }
 
@@ -218,7 +220,9 @@ describe("gear wear step 3: a Repeat run re-reads its gear at each cycle start (
     expect((s.captains[0].mission as CaptainMissionState).gearWear).toEqual({ version: 1 });
     const ship = shipOf(s);
     const sheet0 = runShipStats(s, ship, { version: 1 }, true);
-    for (let i = 0; i < 2000 && Number(s.lifetimeStats.missionsCompleted.shortOreRun ?? 0) < 1; i++) s = economyTick(s, 1, RNG);
+    // SF-7: the fixture's record already holds one delivery (afterGatheringTraining), so wait for the run's own.
+    const before = Number(s.lifetimeStats.missionsCompleted.shortOreRun ?? 0);
+    for (let i = 0; i < 2000 && Number(s.lifetimeStats.missionsCompleted.shortOreRun ?? 0) < before + 1; i++) s = economyTick(s, 1, RNG);
     const stamp = (s.captains[0].mission as CaptainMissionState).gearWear!;
     expect(Object.keys(stamp.frozen ?? {}).length).toBeGreaterThan(0);
     const hold = shipPieces(s).find((e) => e.slotType === "cargoBay")!;

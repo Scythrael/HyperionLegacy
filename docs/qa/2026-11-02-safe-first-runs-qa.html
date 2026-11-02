@@ -1,0 +1,321 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>0.14.0 QA: Safe First Runs</title>
+<style>
+  :root {
+    --bg: #070b12;
+    --bg-2: #0d1420;
+    --panel: #111a29;
+    --panel-2: #0b1220;
+    --line: #1f2c40;
+    --line-2: #2a3a54;
+    --text: #dce6f3;
+    --dim: #8497af;
+    --faint: #5d6d86;
+    --accent: #38e0ff;
+    --accent-2: #7cf6c9;
+    --claude: #b98bff;
+    --desk: #38e0ff;
+    --mob: #ffcc66;
+    --warn: #ffcc66;
+    --save: #ff9a6b;
+    --device: #7fb2ff;
+    --good: #6ff2b0;
+    --danger: #ff7a7a;
+    --shadow: 0 0 0 1px var(--line), 0 18px 40px -24px #000;
+  }
+  * { box-sizing: border-box; }
+  html { color-scheme: dark; }
+  body {
+    margin: 0;
+    background:
+      radial-gradient(1200px 600px at 78% -10%, rgba(56,224,255,0.10), transparent 60%),
+      radial-gradient(900px 500px at 8% 8%, rgba(185,139,255,0.08), transparent 55%),
+      var(--bg);
+    color: var(--text);
+    font: 14px/1.55 ui-sans-serif, system-ui, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    padding: env(safe-area-inset-top, 0) 0 calc(env(safe-area-inset-bottom, 0) + 48px);
+  }
+  .wrap { max-width: 980px; margin: 0 auto; padding: 28px 18px 0; }
+  a { color: var(--accent); }
+
+  .eyebrow { font-size: 11px; letter-spacing: 3px; text-transform: uppercase; color: var(--accent); opacity: 0.85; margin: 0 0 6px; }
+  h1 { font-size: clamp(22px, 4.4vw, 34px); line-height: 1.1; margin: 0 0 4px; text-wrap: balance; font-weight: 750; letter-spacing: 0.3px; }
+  h1 .v { color: var(--accent); }
+  .sub { color: var(--dim); margin: 0 0 20px; font-size: 13px; }
+
+  .progress-card {
+    background: linear-gradient(180deg, var(--panel), var(--panel-2));
+    border: 1px solid var(--line-2); border-radius: 16px; padding: 20px 22px; box-shadow: var(--shadow); margin-bottom: 20px;
+  }
+  .progress-top { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+  .pct { font-size: clamp(30px, 8vw, 52px); font-weight: 800; line-height: 1; letter-spacing: -1px; color: var(--accent);
+    text-shadow: 0 0 24px rgba(56,224,255,0.45); font-variant-numeric: tabular-nums; }
+  .pct small { font-size: 15px; font-weight: 600; color: var(--dim); margin-left: 8px; letter-spacing: 0; }
+  .rowcount { color: var(--text); font-size: 15px; font-weight: 650; font-variant-numeric: tabular-nums; }
+  .rowcount b { color: var(--accent-2); }
+  .bar { margin-top: 16px; height: 16px; border-radius: 999px; background: #0a1220; border: 1px solid var(--line-2); overflow: hidden; }
+  .bar > i { display: block; height: 100%; width: 0%; background: linear-gradient(90deg, #2bd0ff, #7cf6c9);
+    box-shadow: 0 0 18px rgba(56,224,255,0.6); border-radius: 999px; transition: width .35s cubic-bezier(.2,.8,.2,1); }
+  .substats { display: flex; gap: 18px; flex-wrap: wrap; margin-top: 14px; font-size: 12.5px; color: var(--dim); }
+  .substats .dot { display: inline-block; width: 9px; height: 9px; border-radius: 3px; margin-right: 7px; vertical-align: middle; }
+  .substats b { color: var(--text); font-variant-numeric: tabular-nums; }
+  .d-claude { background: var(--claude); box-shadow: 0 0 10px var(--claude); }
+  .d-desk { background: var(--desk); box-shadow: 0 0 10px var(--desk); }
+  .d-mob { background: var(--mob); box-shadow: 0 0 10px var(--mob); }
+
+  .legend { background: var(--panel-2); border: 1px solid var(--line); border-radius: 12px; padding: 14px 16px; margin-bottom: 26px; font-size: 12.5px; color: var(--dim); }
+  .legend p { margin: 0 0 8px; }
+  .legend p:last-child { margin-bottom: 0; }
+  .legend b { color: var(--text); }
+  .chip { display: inline-block; padding: 1px 8px; border-radius: 999px; font-size: 11px; font-weight: 650; letter-spacing: 0.3px; vertical-align: middle; }
+  .chip.save { color: var(--save); background: rgba(255,154,107,0.12); border: 1px solid rgba(255,154,107,0.4); }
+  .chip.device { color: var(--device); background: rgba(127,178,255,0.12); border: 1px solid rgba(127,178,255,0.4); }
+  .chip.theme { color: var(--accent-2); background: rgba(124,246,201,0.10); border: 1px solid rgba(124,246,201,0.35); }
+  .chip.later { color: var(--danger); background: rgba(255,122,122,0.10); border: 1px solid rgba(255,122,122,0.4); }
+  .toolbar { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-bottom: 22px; }
+  .btn { background: var(--panel); color: var(--text); border: 1px solid var(--line-2); border-radius: 8px; padding: 7px 13px; font-size: 12.5px; cursor: pointer; font-weight: 600; }
+  .btn:hover { border-color: var(--accent); color: var(--accent); }
+  .toolbar .note { color: var(--faint); font-size: 12px; }
+
+  section { margin-bottom: 26px; }
+  .sec-head { display: flex; align-items: center; gap: 12px; margin: 0 0 6px; }
+  .sec-num { font-variant-numeric: tabular-nums; font-weight: 800; color: var(--accent); font-size: 13px; letter-spacing: 1px;
+    background: rgba(56,224,255,0.08); border: 1px solid rgba(56,224,255,0.3); border-radius: 7px; padding: 3px 9px; min-width: 34px; text-align: center; }
+  .sec-title { font-size: 16px; font-weight: 700; letter-spacing: 0.2px; }
+  .sec-line { flex: 1; height: 1px; background: linear-gradient(90deg, var(--line-2), transparent); }
+  .sec-done { font-size: 11.5px; color: var(--faint); font-variant-numeric: tabular-nums; }
+  .sec-note { color: var(--dim); font-size: 12.5px; font-style: italic; margin: 0 0 10px; border-left: 2px solid var(--line-2); padding: 2px 0 2px 12px; }
+
+  .items { display: flex; flex-direction: column; gap: 2px; }
+  .col-head, .item { display: grid; grid-template-columns: 52px 52px 52px 1fr; gap: 10px; }
+  .col-head { align-items: center; padding: 4px 12px; font-size: 10.5px; letter-spacing: 1px; text-transform: uppercase; color: var(--faint); }
+  .col-head .ch { text-align: center; }
+  .col-head .ch.claude { color: var(--claude); }
+  .col-head .ch.desk { color: var(--desk); }
+  .col-head .ch.mob { color: var(--mob); }
+  .item { align-items: start; padding: 10px 12px; border-radius: 10px; border: 1px solid transparent; }
+  .item:nth-child(odd) { background: rgba(255,255,255,0.014); }
+  .item.done { background: rgba(124,246,201,0.05); border-color: rgba(124,246,201,0.18); }
+  .cell { display: flex; justify-content: center; padding-top: 1px; }
+
+  .cb { position: relative; width: 22px; height: 22px; }
+  .cb input { position: absolute; inset: 0; opacity: 0; margin: 0; cursor: pointer; }
+  .cb .box { width: 22px; height: 22px; border-radius: 6px; border: 2px solid var(--line-2); display: grid; place-items: center; transition: .12s; background: #0a1220; }
+  .cb .box svg { width: 13px; height: 13px; opacity: 0; transform: scale(.5); transition: .12s; }
+  .cb input:checked + .box svg { opacity: 1; transform: scale(1); }
+  .cb input:focus-visible + .box { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .cb.claude input:checked + .box { background: rgba(185,139,255,0.18); border-color: var(--claude); }
+  .cb.claude .box svg { color: var(--claude); }
+  .cb.desk input:checked + .box { background: rgba(56,224,255,0.18); border-color: var(--desk); }
+  .cb.desk .box svg { color: var(--desk); }
+  .cb.mob input:checked + .box { background: rgba(255,204,102,0.18); border-color: var(--mob); }
+  .cb.mob .box svg { color: var(--mob); }
+  .cb.desk input:not(:disabled):hover + .box { border-color: var(--desk); }
+  .cb.mob input:not(:disabled):hover + .box { border-color: var(--mob); }
+  .cb input:disabled { cursor: default; }
+  .cb.claude.empty .box { border-style: dashed; opacity: 0.5; }
+
+  .body .t { color: var(--text); }
+  .body .t .k { color: var(--accent-2); font-weight: 600; }
+  .meta { margin-top: 5px; display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+  .how { color: var(--dim); font-size: 12px; font-style: italic; margin-top: 4px; }
+  .how::before { content: "how: "; font-style: normal; color: var(--claude); opacity: 0.85; font-weight: 650; }
+
+  .findings { background: linear-gradient(180deg, rgba(124,246,201,0.06), transparent); border: 1px solid rgba(124,246,201,0.25); border-radius: 14px; padding: 18px 20px; margin-top: 12px; }
+  .findings h2 { margin: 0 0 6px; font-size: 15px; color: var(--good); letter-spacing: 0.3px; }
+  .findings ol { margin: 8px 0 0; padding-left: 20px; }
+  .findings li { margin-bottom: 10px; color: var(--dim); }
+  .findings li b { color: var(--text); }
+  .foot { margin-top: 26px; color: var(--faint); font-size: 11.5px; text-align: center; }
+
+  @media (max-width: 520px) {
+    .col-head, .item { grid-template-columns: 34px 34px 34px 1fr; gap: 6px; }
+    .item { padding: 10px 8px; }
+    .col-head { padding: 4px 8px; font-size: 9.5px; letter-spacing: 0.5px; }
+    .wrap { padding-left: 14px; padding-right: 14px; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <p class="eyebrow">Hyperion Legacy · QA · 0.14.0 feature pass</p>
+  <h1><span class="v">0.14.0</span> Safe first runs (SF-0 to SF-7)</h1>
+  <p class="sub">Curated checklist for the safe first runs plan (docs/plans/2026-10-15-safe-first-runs-plan.md, sections 4 and 6), closed out by SF-7: the first expedition from an explorer and the first patrol are training runs that cannot fail, the first job of each short-range type is its smallest, gathering can never be lost, difficulty then rises on a gentle curve at Tier I, and Tier II and up are at full strength. No safe first run wears your gear (your W9 answer; SF-7 added the first gathering delivery). <b>Run this on staging</b> (devpreview.crystalisoft.com, the staging branch) once 0.14.0 is deployed there (0.14.0 stays off staging until the wiring gate passes and you say go). Run each check once at <b>1280 px</b> (desktop) and once at <b>375 px</b> (mobile), in both <b>light and dark</b> themes.</p>
+
+  <div class="progress-card">
+    <div class="progress-top">
+      <div class="pct" id="pct">0%<small id="pctlabel">ready</small></div>
+      <div class="rowcount"><b id="doneCount">0</b> / <span id="totalCount">0</span> checks complete</div>
+    </div>
+    <div class="bar"><i id="barFill"></i></div>
+    <div class="substats">
+      <span><span class="dot d-claude"></span>Claude (tests) <b id="claudeCount">0</b></span>
+      <span><span class="dot d-desk"></span>You at 1280 px <b id="deskCount">0</b></span>
+      <span><span class="dot d-mob"></span>You at 375 px <b id="mobCount">0</b></span>
+      <span style="color:var(--faint)">A row is complete when both of your columns are ticked.</span>
+    </div>
+  </div>
+
+  <div class="legend">
+    <p><b>Where to test.</b> Staging, <b>devpreview.crystalisoft.com</b>, on the 0.14.0 build. Sections 1 to 4 need a NEW save (a training run happens once per save); section 5 uses your own migrated save.</p>
+    <p><b>The three columns.</b> <b style="color:var(--claude)">Claude</b> is pre-filled and read-only: a tick means the engine or display test suite proves that rule (the "how" line names the test file). Nothing here was clicked through in a browser for this sheet, so every on-screen check is yours. <b style="color:var(--desk)">1280</b> and <b style="color:var(--mob)">375</b> are your desktop and mobile passes; your ticks are saved in this browser.</p>
+    <p><b>Progress rule.</b> A row counts as complete once BOTH of your columns are ticked.</p>
+    <p>Tags: <span class="chip save">needs real save</span> needs your migrated save or a ship you already own. <span class="chip device">needs device</span> touch, a real phone, or a visual call. <span class="chip theme">light + dark</span> look at it in both themes.</p>
+  </div>
+
+  <div class="toolbar">
+    <button class="btn" type="button" id="resetBtn">Reset my columns</button>
+    <span class="note">Claude's column is read-only (it records what the tests prove).</span>
+  </div>
+
+  <div id="sections"></div>
+
+  <div class="findings">
+    <h2>Builder notes (SF-7, 2026-11-02)</h2>
+    <ol>
+      <li><b>Gear wear on safe first runs (your answer: none).</b> Checked: the expedition training run, the training patrol cycle and a short-range type's first job already took no wear. The save's first gathering run did wear on its first delivery; SF-7 fixed it: that delivery now takes none, and later deliveries wear as usual. Old saves and runs in flight are unchanged.</li>
+      <li><b>Which delivery is "first".</b> The first gathering run you dispatch is marked at dispatch; its first delivery is the free one, matching the training patrol and short-range, where the first cycle is the training one. A recalled one hands the mark to your next dispatch.</li>
+      <li><b>Release gate.</b> The one safe first runs registry row (the future difficulty tiers hook) is deferred on your own words from the objective affixes capture: build the hooks, not the higher difficulty tiers.</li>
+      <li><b>Closed in the docs.</b> The Ground Ops vault balance finding is marked resolved by SF-3, and G2 open call 18 is marked answered (your "Cap by tier").</li>
+      <li><b>For gear wear step 5.</b> Patrols record no use wear yet; when step 5 adds it, the training patrol cycle must skip it (noted in the gear wear design).</li>
+    </ol>
+  </div>
+
+  <p class="foot">0.14.0 safe first runs QA · boxes persist in this browser only.</p>
+</div>
+
+<script>
+const TICK = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>';
+// c: a test proves it (how names the file). tag: "save" | "device" | "theme" | "later" | null.
+const SECTIONS = [
+  { n: "0", title: "Setup on staging", note: "Staging only: devpreview.crystalisoft.com on the 0.14.0 build. Use a NEW save for sections 1 to 4 and your migrated save for section 5.", items: [
+    { t: "Start a new save on staging. No console errors opening Ships, the Shipyard, Operations (Gathering, Patrols, Ground Ops) and Help." },
+    { t: "Load your migrated save in another browser profile: it loads clean, and no training run or \"First run\" line shows anywhere (you already flew those run types).", c: true, tag: "save", how: "firstRunsGoldens.test.ts (old:v69: a v69 save migrates as a veteran) and safeFirstRamp.test.ts (a veteran reads full strength)." },
+  ]},
+  { n: "1", title: "The first expedition (training run)", note: "Research and build an Orion, hire one Security and one Science member, change nothing else, dispatch.", items: [
+    { t: 'The dispatch card shows the "Training run" chip with the line "This training run cannot fail. From the next one on, the risk rises slowly."; the run view header shows the chip too.', c: true, tag: "theme", how: "trainingRunDisplay.test.ts (the approved text) and safeFirstExpedition.test.ts (the first explorer run is the training run)." },
+    { t: "The launch forecast reads Guaranteed and leaves nothing unfinished.", c: true, how: "safeFirstExpedition.test.ts (every fresh candidate's forecast at Guaranteed, and the run finishes)." },
+    { t: "The run completes 100%: no Skip needed, no hull damage, no failed scan event, no affixes or ambushes. A fight the crew loses reads \"guards fell back\" with the training line, never a held loss.", c: true, how: "safeFirstExpedition.test.ts (no affixes or ambushes; events always pass; a crew that cannot fight still finishes 100%) and safeFirstExpedition.sweep.test.ts (the full proof matrix)." },
+    { t: "Repeat with an Aurora and an Eir on fresh saves: same chip, same guarantee.", c: true, how: "safeFirstExpedition.test.ts (each explorer hull: the first run is the training run)." },
+    { t: "The ship's gear and the members' gear come home pristine (no condition loss shown anywhere once the wear UI lands).", c: true, how: "gearWearEngine.test.ts (the training run is never wear-stamped)." },
+  ]},
+  { n: "2", title: "After the training run", items: [
+    { t: "The second expedition shows no chip; it is slightly tougher (a lost fight is possible) and still completes with a full rank 1 crew in the free Standard-Issue set; its forecast agrees with the result.", c: true, how: "safeFirstRamp.test.ts (the curve's anchors: run 2 at 35%) and safeFirstRamp.sweep.test.ts (rank1si: full strength 193 of 200 runs)." },
+    { t: "Over about ten more Tier I runs the difficulty rises gently; a Buried Vault or Subterranean site at Tier I is winnable by a full rank 1 team in the free set.", c: true, how: "safeFirstRamp.test.ts (the hazard ceiling, Tier I at most 0.1) and safeFirstRamp.sweep.test.ts (356 of 365 vault objectives at full strength)." },
+    { t: "A Tier II run never shows the chip and is at full strength from its first run.", c: true, how: "safeFirstRamp.test.ts (Tier I only: Tier II and up read full strength)." },
+    { t: "Recall the first expedition before it finishes: the next explorer run is still the training run.", c: true, how: "safeFirstExpedition.test.ts (a recalled training run carries over, SF16)." },
+  ]},
+  { n: "3", title: "The first patrol", items: [
+    { t: 'Dispatch a fresh save\'s first patrol (a Runner on the Sweep, then on another fresh save the Warband): the dispatch card and popup show the "Training run" chip and the Threat Assessment reads Guaranteed.', c: true, tag: "theme", how: "safeFirstPatrol.test.ts (Guaranteed on every combat hull and both routes)." },
+    { t: "The patrol flies at most 2 waves of one raider each, is won, and comes home with no damage. A wave the ship would lose breaks off instead.", c: true, how: "safeFirstPatrol.test.ts (the training cycle; an unarmed Orion's training patrol still ends won, undamaged) and safeFirstPatrol.sweep.test.ts (40,000 first patrols)." },
+    { t: "The second patrol shows no chip and reads its real threat band; on Repeat, each patrol run (not each route) is one step up the curve.", c: true, how: "safeFirstPatrol.test.ts (one curve step per patrol run; the next patrol reads its real band)." },
+    { t: "The training patrol's gear takes no wear.", c: true, how: "gearWearCombat.test.ts (the training cycle is not stamped and wears nothing)." },
+  ]},
+  { n: "4", title: "The first gathering run and short-range missions", items: [
+    { t: 'The Gathering list shows "First run: see how a mission works." and, once dispatched, the line shows on ONE in-progress card (the run you dispatched first).', c: true, tag: "theme", how: "trainingRunDisplay.test.ts (the line on one card; SF-7: the marked run carries it)." },
+    { t: "NEW (SF-7): the first gathering run's first delivery takes no gear wear; its second delivery wears as usual. Once the wear UI lands, the hold and drive read pristine after delivery one.", c: true, how: "gatheringTrainingWearGoldens.test.ts (pristine through the first delivery on every mission, worn from the second; tick() == 1 s steps)." },
+    { t: 'After the first delivery the "First run" line is gone everywhere.', c: true, how: "safeFirstRunsContract.test.ts (the first-run marker turns false at the first delivery)." },
+    { t: "A gathering run can never be lost on any mission or hull: recall it half way, let it run out of fuel at a relaunch, or let it deliver on Repeat; never a defeat or hull damage.", c: true, how: "safeFirstRunsContract.test.ts (every MISSIONS key x every hull x three stop paths)." },
+    { t: "The first job of each short-range mission type is its smallest, takes no gear wear, and cannot be lost.", c: true, how: "safeFirstRunsContract.test.ts (the G1 contract) and gearWearEngine.test.ts (a short-range training cycle wears nothing)." },
+  ]},
+  { n: "5", title: "Text, Help and your migrated save", items: [
+    { t: 'Shipyard build cards and ship headers show the heavy cruiser descriptions: Orion "Heavy cruiser. A long-range explorer: ...", Aurora "Heavy cruiser. A survey scout: ...", Eir "Heavy cruiser. A medical transport with the largest explorer crew: ...".', c: true, tag: "theme", how: "trainingRunDisplay.test.ts (the approved text, each claim checked against the built hull)." },
+    { t: "Help, Risk Factors: the TRAINING RUNS AND RISING RISK paragraph reads true, including the new line \"Your gear takes no wear on a training run, nor on the first delivery of your first gathering mission. On Repeat, a patrol's later routes and a mission's later deliveries wear as usual.\" No em dash, no \"task\", no \"fit\".", c: true, how: "helpTopics.test.ts (every number read from runDifficulty.ts; the wear sentence checked against the engine)." },
+    { t: "On your migrated save: an expedition and a patrol in flight from before the update finish exactly as they would have.", c: true, tag: "save", how: "safeFirstExpedition.test.ts (a run from before SF-2 keeps its shakedown) and safeFirstPatrol.test.ts (an in-flight patrol from before SF-4 relaunches without a stamp)." },
+    { t: "Regression at Tier I on your save: Ground Ops, affixes, field repair, the telescope card, the recommendation and the forecast all behave as before; patrol balance numbers unchanged for a veteran.", c: true, tag: "save", how: "firstRunsGoldens.test.ts and patrol-balance.test.ts (veteran numbers kept)." },
+  ]},
+  { n: "6", title: "Layout", items: [
+    { t: "At 375 px the chip and its line wrap cleanly on the expedition dispatch card, the run view header, the patrol card and its popup, and the gathering card; no horizontal scroll.", tag: "device" },
+    { t: "The chip's glyph is the SVG check, never an emoji, and reads at a glance in both themes.", tag: "theme" },
+    { t: "Release gate: no wiring registry row waits on a safe first runs slice (the future difficulty tiers row is deferred on your own words).", c: true, how: "safeFirstRunsContract.test.ts and RELEASE_GATE=1 wiring.completeness.test.ts." },
+  ]},
+];
+
+const STORE = "hl-qa-0140-safe-first-runs-v1";
+let userState = {};
+try { userState = JSON.parse(localStorage.getItem(STORE) || "{}"); } catch (e) { userState = {}; }
+function save() { try { localStorage.setItem(STORE, JSON.stringify(userState)); } catch (e) {} }
+
+const CHIP = {
+  save: '<span class="chip save">needs real save</span>',
+  device: '<span class="chip device">needs device</span>',
+  theme: '<span class="chip theme">light + dark</span>',
+  later: '<span class="chip later">not in this build</span>',
+};
+
+function cb(kind, id, checked, disabled, label) {
+  const empty = (kind === "claude" && !checked) ? " empty" : "";
+  return '<span class="cb ' + kind + empty + '"><input type="checkbox" id="' + id + '" ' + (checked ? "checked " : "") + (disabled ? "disabled " : "") +
+    'aria-label="' + label + '"><span class="box">' + TICK + "</span></span>";
+}
+
+const secWrap = document.getElementById("sections");
+SECTIONS.forEach((sec, si) => {
+  const el = document.createElement("section");
+  let html = '<div class="sec-head"><span class="sec-num">' + sec.n + '</span><span class="sec-title">' + sec.title +
+    '</span><span class="sec-line"></span><span class="sec-done" id="secdone-' + si + '"></span></div>';
+  if (sec.note) html += '<p class="sec-note">' + sec.note + "</p>";
+  html += '<div class="items"><div class="col-head"><span class="ch claude">Claude</span><span class="ch desk">1280</span><span class="ch mob">375</span><span></span></div>';
+  sec.items.forEach((it, ii) => {
+    const key = si + "-" + ii;
+    const meta = it.tag ? '<div class="meta">' + (CHIP[it.tag] || "") + "</div>" : "";
+    const how = it.how ? '<div class="how">' + it.how + "</div>" : "";
+    html += '<div class="item" data-key="' + key + '">' +
+      '<div class="cell">' + cb("claude", "c-" + key, !!it.c, true, "Claude: covered by tests") + "</div>" +
+      '<div class="cell">' + cb("desk", "d-" + key, !!userState["d-" + key], false, "Checked at 1280 px") + "</div>" +
+      '<div class="cell">' + cb("mob", "m-" + key, !!userState["m-" + key], false, "Checked at 375 px") + "</div>" +
+      '<div class="body"><span class="t">' + it.t + "</span>" + meta + how + "</div></div>";
+  });
+  html += "</div>";
+  el.innerHTML = html;
+  secWrap.appendChild(el);
+});
+
+function isDone(key) { return !!userState["d-" + key] && !!userState["m-" + key]; }
+function recompute() {
+  let total = 0, done = 0, claude = 0, desk = 0, mob = 0;
+  SECTIONS.forEach((sec, si) => {
+    let secTotal = 0, secDone = 0;
+    sec.items.forEach((it, ii) => {
+      const key = si + "-" + ii;
+      total++; secTotal++;
+      if (it.c) claude++;
+      if (userState["d-" + key]) desk++;
+      if (userState["m-" + key]) mob++;
+      if (isDone(key)) { done++; secDone++; }
+      const row = secWrap.querySelector('.item[data-key="' + key + '"]');
+      if (row) row.classList.toggle("done", isDone(key));
+    });
+    const sd = document.getElementById("secdone-" + si);
+    if (sd) sd.textContent = secDone + " / " + secTotal;
+  });
+  const pctVal = total ? Math.round((done / total) * 100) : 0;
+  document.getElementById("pct").firstChild.textContent = pctVal + "%";
+  document.getElementById("barFill").style.width = pctVal + "%";
+  document.getElementById("doneCount").textContent = done;
+  document.getElementById("totalCount").textContent = total;
+  document.getElementById("claudeCount").textContent = claude;
+  document.getElementById("deskCount").textContent = desk;
+  document.getElementById("mobCount").textContent = mob;
+  document.getElementById("pctlabel").textContent = pctVal >= 100 ? "launch-ready" : (pctVal >= 60 ? "closing in" : "in progress");
+}
+
+secWrap.addEventListener("change", (e) => {
+  const inp = e.target;
+  if (!inp.id || (inp.id[0] !== "d" && inp.id[0] !== "m")) return;
+  if (inp.checked) userState[inp.id] = true; else delete userState[inp.id];
+  save(); recompute();
+});
+document.getElementById("resetBtn").addEventListener("click", () => {
+  userState = {}; save();
+  secWrap.querySelectorAll('input[id^="d-"], input[id^="m-"]').forEach((i) => (i.checked = false));
+  recompute();
+});
+recompute();
+</script>
+</body>
+</html>

@@ -21,6 +21,12 @@ import {
   wr9ShortRangeRun,
 } from "./wr9.fixture";
 import { withWr9Off } from "./wr9Switch.fixture";
+import { gatheringTrainingOffForThisFile } from "./gatheringTrainingSwitch.fixture";
+
+// Safe first runs SF-7 came after every pin here: its mission row is a fresh save's first gathering run, whose first
+// delivery now wears nothing. The file dispatches as before SF-7 (gatheringTrainingSwitch.fixture.ts), so its pins keep
+// proving WR-9 alone (SF-7's own moves: gatheringTrainingWearGoldens.test.ts).
+gatheringTrainingOffForThisFile();
 
 // Captured on the code BEFORE the engine edit (1e6a40a).
 const BEFORE_MISSIONS: Record<string, string> = {

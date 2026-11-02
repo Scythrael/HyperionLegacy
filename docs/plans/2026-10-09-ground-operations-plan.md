@@ -2219,3 +2219,10 @@ Setup: `?dev`, Debug grants, a ship with a hired Security + Science squad, Offli
   rank 1) 28 bare, 64 at 50 points. (20 points ~ iLevel 10 Standard, 50 ~ iLevel 25, 100 ~ iLevel 50.)
 - Not reachable by players yet (Ground Ops is not on main). Raised with the user as a balance / peace item; options
   pending the user's call.
+- **RESOLVED by safe first runs SF-3 (marked at the SF-7 close-out, 2026-11-02).** The user's answers (safe first runs
+  plan, 2026-10-16): SF7 "Cap by tier (Recommended)" (a fight reads hazard at most 0.1 at Tier I, 0.5 at Tier II;
+  runDifficulty.ts `TIER_ENCOUNTER_HAZARD_CEILING`, groundFight.ts `encounterHazard`), the gentle Tier I curve (SF4,
+  SF6) and, after the SF-3 review (2026-10-21), the Quartermaster's Standard-Issue member gear. Measured at full
+  strength (SF-3 carry note, `safeFirstRamp.sweep.test.ts` `rank1si`): a full rank 1 team in the free set wins 356 of
+  365 Vault / Subterranean objectives and completes 193 of 200 runs; runs 2 to 8 win every vault. The first expedition
+  is the training run and cannot stall (SF-2).

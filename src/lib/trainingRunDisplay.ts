@@ -24,8 +24,13 @@ export const FIRST_GATHERING_LINE = "First run: see how a mission works.";
 // phase, then the most progress in it): the one whose delivery ends the first run. Ties go to the lowest captain id.
 // Null once the save has delivered a gathering cycle, or when nobody is gathering. Pure.
 const PHASE_ORDER: readonly MissionPhase[] = ["ordersReceived", "transitOut", "extracting", "transitBack", "unloading"];
+// Safe first runs SF-7: a run dispatched as the save's first gathering run carries the engine's mark (RunWearStamp
+// `training`, its first delivery wears no gear): that run's card carries the line. The phase order is the fallback for a
+// run with no mark (one in flight from before SF-7, or a build with gear wear off).
 export function firstGatheringCardCaptainId(state: Pick<GameState, "captains" | "lifetimeStats">): number | null {
   if (!isFirstGatheringRun(state)) return null;
+  const marked = state.captains.find((c) => extractionMissionOf(c)?.gearWear?.training === 1);
+  if (marked) return marked.id;
   let best: { id: number; phase: number; progress: number } | null = null;
   for (const c of state.captains) {
     const m = extractionMissionOf(c);

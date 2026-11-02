@@ -551,3 +551,20 @@ cycle would have. **Measured:** Repeat Sweep pauses per 100 cycles: destroyer 28
 The §8 mockup (https://claude.ai/artifact/HRa9zUf1XRrPoh9tuinhEF, published 2026-10-16) is approved as drawn. User
 (verbatim): "The mockup is approved as well. 10/10. I like all of it. Let's make it so, number one." §8 is no longer a
 [PROPOSAL]; gear wear step 5 (wear UI, Quick Service, Overtime on repair, patrol use wear) can be built.
+
+## SAFE FIRST RUNS SF-7 NOTE (2026-11-02): no wear on any safe first run (W9)
+
+Audited at the safe first runs close-out against W9 "No wear on training" (restated by the user 2026-11-02: no gear
+wear on safe first runs or tutorials). Already true and tested: the expedition training run is never wear-stamped
+(expedition.ts; gearWearEngine.test.ts), the training patrol cycle carries no `cycleStartCondition`, so no battle wear
+and no Damage Control fire (gearWearCombat.test.ts), and a short-range template's training cycle makes no wear event
+(gearWearEngine.test.ts). **Gap closed:** the safe first runs include "the first gathering run" (capture 2026-10-15,
+section 7), but its first delivery wore the ship. Now a captain mission dispatched as the save's first gathering run is
+stamped `RunWearStamp.training` (gearWearEngine.ts `gatheringTrainingStamp`: no gathering cycle delivered yet, and no
+other captain flying the marked run), its first delivered cycle records no use wear, and the stamp re-frozen at that
+delivery drops the mark, so later cycles wear as usual (the training patrol and short-range precedent: the first cycle
+is the training one). Goldens first (`gatheringTrainingWearGoldens.test.ts`, the switch
+`gatheringTrainingSwitch.fixture.ts`); `gearWearGoldens.test.ts` runs with the switch off.
+**For step 5 (patrol use wear):** a patrol records no use event today. When step 5 adds one, skip the training cycle
+(`isTrainingPatrol`), as the battle sources do. Tutorials do not exist yet (the quests patch); their practice runs
+take no wear by W9 when built.

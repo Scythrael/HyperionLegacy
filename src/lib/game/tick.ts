@@ -398,6 +398,7 @@ import {
 import {
   emptyWearEvents,
   runWearStamp,
+  gatheringTrainingStamp,
   missionCycleWear,
   pushShipWear,
   recordExpeditionWear,
@@ -5119,11 +5120,16 @@ export function economyTick(
     // pieces as the call's deliveries so far leave them (projectRunStamp: the arithmetic the tail pass writes).
     const missionWear: TimedWear<ShipUseWear>[] = [];
     const missionCrewed = ship ? shipCrewAboard(state, ship) : false;
+    // Safe first runs SF-7 (user OC-W9 "No wear on training"): a run marked as the save's first gathering run records no
+    // use wear for its FIRST delivered cycle; the stamp re-frozen at that delivery (projectRunStamp) carries no mark, so
+    // the next cycle, in this call or a later one, wears as usual.
+    let trainingCycle = wearStamp?.training === 1;
     const onCycleDelivered =
       wearStamp && ship
         ? (endTicks: number, stats: ShipDerivedStats | null) => {
             const at = state.gameTimeSeconds + endTicks * state.tickDurationSeconds;
-            if (stats) missionWear.push({ at, wear: missionCycleWear(missionKey, stats, state.tickDurationSeconds, missionCrewed) });
+            if (stats && !trainingCycle) missionWear.push({ at, wear: missionCycleWear(missionKey, stats, state.tickDurationSeconds, missionCrewed) });
+            trainingCycle = false;
             const gearWear = projectRunStamp(state, ship.id, missionWear, at);
             return { gearWear, stats: runShipStats(state, ship, gearWear, reactorLift, moduleLines, favored) };
           }
@@ -6056,7 +6062,8 @@ export function dispatchCaptainOnMission(
   // and refuelDelayTicks is always 0.
   const captains = [...state.captains];
   const wearShip = state.ships.find((s) => s.assignedCaptainId === captainId);
-  const wearStamp = wearShip ? runWearStamp(state, wearShip.id) : undefined;
+  // Safe first runs SF-7: marked `training` when this is the save's first gathering run (its first delivery wears nothing).
+  const wearStamp = wearShip ? gatheringTrainingStamp(state, runWearStamp(state, wearShip.id)) : undefined;
   // E-MOD EM-4 (reactorSurplus.ts): a run dispatched now on a ship with a powered Reactor Core flies with the reactor
   // surplus drive lift.
   const reactorLift = newReactorLiftFlag(wearShip ? equippedFor(state, wearShip.id) : []);

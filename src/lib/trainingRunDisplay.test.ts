@@ -73,4 +73,14 @@ describe("SF-6 the gathering line shows on one in-progress card", () => {
     expect(firstGatheringCardCaptainId(withCaptains([{ ...freshState().captains[0], mission: null }]))).toBeNull();
     expect(firstGatheringCardCaptainId(withCaptains([gathering(1, "extracting", 3)], { shortOreRun: new Decimal(1) }))).toBeNull();
   });
+
+  // SF-7: the engine's mark (the run whose first delivery wears no gear) decides the card when a run carries it.
+  it("SF-7: the run the engine marked as the first gathering run carries the line, wherever it is", () => {
+    const marked = (id: number, phase: MissionPhase): CaptainState => {
+      const c = gathering(id, phase, 0);
+      return { ...c, mission: { ...(c.mission as object), gearWear: { version: 1, training: 1 } } } as CaptainState;
+    };
+    expect(firstGatheringCardCaptainId(withCaptains([gathering(1, "unloading", 9), marked(3, "transitOut")]))).toBe(3);
+    expect(firstGatheringCardCaptainId(withCaptains([marked(3, "transitOut")], { shortOreRun: new Decimal(1) }))).toBeNull();
+  });
 });
