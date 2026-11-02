@@ -510,6 +510,44 @@ calls are answered; build waits for sign-off.
 A Help page (Operations > Short-Range Missions), the 0.14.0 patch note lines, the wiring release gate green
 (`RELEASE_GATE=1`, no G1 entry `pending`), and the desktop + mobile QA sheet (section 6). Inventory rows closed.
 
+**Carry note (G1-7, built 2026-11-02 on `b8aef8b`):**
+- No engine change (so no goldens moved and no switch fixture): Help, one board text fix, a Help link, tests and docs.
+- Help: a new topic "Short-Range Missions" (`shortRange`, helpTopics.ts `SHORT_RANGE_HELP_PARAGRAPHS`): the board and its
+  Mission Control rungs, the sheet per tier, the crew rating curve, guest quarters, the seven jobs, a cycle, Repeat and
+  Recall, the waits, the training run and slow start, what helps (WR-9's Pilot Cunning included) and what does not,
+  relics. Every number and name is read from its owner; helpTopics.test.ts checks each against the engine, and checks
+  every bonus it names is LIVE at `mission:shortRange` in the registry (and that the ones it rules out are out of
+  scope there). The Operations topic now names the Exploration and Short-Range tabs and links the new topic.
+- Text bug fixed: the board's job types note was typed and said "full from run 11"; the curve is full from run 12
+  since the SF-3 review (2026-10-21, "Smooth the last steps"; runDifficulty.ts N_FULL 11). The note is now
+  `SHORT_RANGE_TRAINING_NOTE` (shortRangeBoardDisplay.ts, read from shortRangeSpanShare / runRamp), printed by the
+  board and the Help topic alike, tested against the job types list's own "Run N, size up to X%" chips.
+- The board's job types list gained a "How short-range missions work" link (App.svelte `openHelpTopic`, the EM-10
+  "Power and modules" precedent).
+- Release gate: pending 37 before and 37 after. No row is owned by a G1 slice; every row that claims
+  `mission:shortRange` (65) and every short-range or guest quarters row is LIVE (shortRangeCloseOut.test.ts). The one
+  pending row that mentions G1, `relic:audit:generalPick`, is owned by the Relics v2 R2-3 follow-up.
+- Also fixed: safeFirstRunsContract.test.ts's SF-7 owner check read `/SF-?d/` (a literal "d", so it matched nothing);
+  it now reads `/\bSF-?\d/` and still passes (no pending row names an SF slice).
+- QA sheet: `docs/qa/2026-11-02-short-range-missions-qa.html` (desktop 1280 px and mobile 375 px, staging).
+- Inventory: S4-I09 and S2-09 marked BUILT (docs/inventory/2026-09-30). S1-06 / S4-C30 / S4-EX23 (E5, refugees to
+  facility crews) stay open: the user's 2026-10-17 answer was "Relocate now, crews loop right after", i.e. E5 gets its
+  own short design right after G1, still 0.14.0. No E5 design exists yet: that is the next step, not a G1-7 item.
+- Not built here, as before: the Guest Wing has no blueprint yet (`ship:EQUIPMENT_SLOTS:bridge+quarters:obtainable`,
+  pending CP-11 / CP-12), so today a ship meets the Tier I guest line on an Eir's hull base (80 against 60) or with a
+  guest quarters affix line on a Crew Quarters Module (the Elite Quarters special blueprint, GG-7, is the one quarters
+  module with a blueprint). Flag for the balance pass, not a G1 decision.
+
+> **Patch note lines [PROPOSAL, the wording is the user's]:** "Short-Range Missions: a new Ops tab, Short-Range. Send a
+> captain to a board slot and it runs job after job close to home, a new job every cycle: refugee relocation, supply
+> drop-offs and pickups, phenomenon surveys, telescope repairs, comm booster builds and prisoner transport. Each slot's
+> tier has one requirement sheet (range, cargo, guest quarters, sensors, and Engineering and Security crew ratings);
+> meet it once and the ship can take any job the slot draws. No job can fail. The first job of each type is a
+> training run, and Tier I jobs grow slowly after it. Mission Control upgrades open more slots, including Tier II.
+> Ships now have guest quarters for passengers (hull bases on the Eir, Orion, Aurora and General Freighter, the new
+> Guest Wing, and a guest quarters line on Crew Quarters Modules). Short-range missions can turn up an unidentified
+> relic now and then. See Help, Short-Range Missions."
+
 ## 5. OPEN CALLS for the user (multiple-choice ready; recommended first)
 
 1. **What re-rolls each run?** (a) The whole job: a slot draws any template each run (Recommended; your "handle all

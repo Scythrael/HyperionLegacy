@@ -23,6 +23,7 @@ import {
   SHORT_RANGE_SHEETS,
   SHORT_RANGE_TEMPLATES,
   SHORT_RANGE_TEMPLATE_KEYS,
+  SHORT_RANGE_TUTORIAL_TICKS_SCALE,
   drawShortRangeJob,
   meetsSheet,
   shortRangeBoardSeed,
@@ -56,7 +57,7 @@ import { effectiveShipStats, shipMissionOutputBonus } from "./game/crewOverlay";
 import { captainTransportTerms } from "./game/captainSecondaryEffects";
 import { missionPhaseStatus } from "./game/berths";
 import { materialAtCap } from "./game/tick";
-import { runCountsOf, runDifficultyAt } from "./game/runDifficulty";
+import { RAMP_MAX_TIER, runCountsOf, runDifficultyAt, runRamp } from "./game/runDifficulty";
 import { makeRng } from "./game/combat/rng";
 import { formatNumber } from "./game/format";
 import type { IconName } from "./ui/icons";
@@ -118,6 +119,29 @@ const TIER_NUMERAL: Readonly<Record<ShortRangeTier, string>> = { 1: "I", 2: "II"
 export function shortRangeTierNumeral(tier: ShortRangeTier): string {
   return TIER_NUMERAL[tier];
 }
+
+// G1-7: the training run and the slow start in the player's words, every number read from the engine (the share of
+// each range a job of that type may reach, shortRangeSpanShare over runRamp; the tutorial length hook). The board's
+// job types note and the Help topic both print it, so the two can never disagree with each other or the engine. The
+// anchors are the user's SF4 runs (2, 6 and 9); the run where a job first reaches its full range is found, not typed
+// (the SF-3 review moved it from run 11 to run 12, which the board's old typed note had missed).
+export function shortRangeRunShare(run: number, tier: ShortRangeTier = RAMP_MAX_TIER as ShortRangeTier): number {
+  if (run <= 1) return 0; // the training run: the smallest job
+  return shortRangeSpanShare({ firstRun: false, ramp: runRamp(run - 2, tier) });
+}
+export function shortRangeFullSizeRun(tier: ShortRangeTier = RAMP_MAX_TIER as ShortRangeTier): number {
+  let run = 2;
+  while (shortRangeRunShare(run, tier) < 1 && run < 1000) run += 1;
+  return run;
+}
+const sharePct = (run: number): string => `${Math.round(shortRangeRunShare(run) * 100)}%`;
+const RAMP_TIERS = (Object.keys(SHORT_RANGE_SHEETS).map(Number) as ShortRangeTier[]).filter((t) => t <= RAMP_MAX_TIER);
+const FULL_TIERS = (Object.keys(SHORT_RANGE_SHEETS).map(Number) as ShortRangeTier[]).filter((t) => t > RAMP_MAX_TIER);
+const tierWords = (tiers: readonly ShortRangeTier[]): string => tiers.map((t) => `Tier ${TIER_NUMERAL[t]}`).join(" and ");
+export const SHORT_RANGE_TRAINING_NOTE =
+  `Every job type's first run is a training run: the smallest job, no gear wear, ${SHORT_RANGE_TUTORIAL_TICKS_SCALE === 1 ? "normal length" : SHORT_RANGE_TUTORIAL_TICKS_SCALE < 1 ? "a shorter trip" : "a longer trip"}. ` +
+  `After it, ${tierWords(RAMP_TIERS)} jobs grow on the slow start (run 2 at ${sharePct(2)}, run 6 about ${sharePct(6)}, run 9 about ${sharePct(9)}, full from run ${shortRangeFullSizeRun()}).` +
+  (FULL_TIERS.length > 0 ? ` ${tierWords(FULL_TIERS)} jobs are full size from the start.` : "");
 
 // A whole or fractional value as the board prints it. Pure.
 function fmt(value: number, decimals: number): string {

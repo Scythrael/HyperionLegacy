@@ -68,6 +68,18 @@ import { TIER_HAUL_MULT } from "./game/riskFactors";
 import { BLUEPRINTS, ITEMS, REFINE_RECIPES } from "./game/model";
 import { NEBULA_STAGES, SURVEY_LOG_HELP, archiveSubTabs } from "./gasGiantStudyDisplay";
 import { decodeLockText } from "./dataStudyDisplay";
+// Short-Range Missions G1-7.
+import { SHORT_RANGE_CATEGORIES, SHORT_RANGE_CREW_RATING, SHORT_RANGE_SHEETS, SHORT_RANGE_TEMPLATES, SHORT_RANGE_TEMPLATE_KEYS, SHORT_RANGE_WORK, shortRangeTemplateUses } from "./game/shortRange";
+import { SHORT_RANGE_BASE_SLOT_TIERS } from "./game/shortRangeBoard";
+import { SHORT_RANGE_CATEGORY_VIEW, SHORT_RANGE_TRAINING_NOTE } from "./shortRangeBoardDisplay";
+import { FULL_HOLD_FRACTION, GENERAL_QUARTERS_GUEST_PERK, HULL_GUEST_QUARTERS, MISSIONS, MISSION_CONTROL_BOARD_RUNGS, SECONDARY_CAPTAIN_TALENTS, SHIP_TYPES } from "./game/model";
+import { LY_PER_TICK } from "./game/fuel";
+import { PILOT_CUNNING_RETURN_CUT_TICKS } from "./game/officerStats";
+import { crewBuffLabel } from "./game/crewBuffs";
+import { SENIOR_STAFF_BONUSES } from "./game/seniorStaffBonuses";
+import { EXPEDITION_RELIC_BLANKS_PER_HOUR, SHORT_RANGE_RELIC_RATE_MULT } from "./game/relicBlanks";
+import { wiringEntry } from "./game/wiring/registry";
+const officer = (id: string): string => SENIOR_STAFF_BONUSES.find((x) => x.id === id)!.label;
 
 describe("HELP_TOPICS", () => {
   it("covers the core systems", () => {
@@ -561,6 +573,141 @@ describe("HELP_TOPICS", () => {
       expect(b).toContain(`hydrogen-fusion line (about ${HYDROGEN_FUSION_MILLI_J / 1000} Jupiter masses`);
       for (const s of NEBULA_STAGES) expect(b).toContain(s);
       expect(b).toMatch(/On a phone, the card of the selected entry shows first/);
+    });
+  });
+
+  describe("Short-Range Missions (0.14.0 G1-7)", () => {
+    const topic = (id: string) => {
+      const t = HELP_TOPICS.find((x) => x.id === id);
+      expect(t, `missing help topic: ${id}`).toBeDefined();
+      return t!;
+    };
+    const b = () => topic("shortRange").body;
+    const lines = () => b().split("\n");
+    const whole = (n: number) => Math.round(n).toLocaleString("en-US");
+    const tierName = (t: 1 | 2) => `Tier ${t === 1 ? "I" : "II"}`;
+
+    it("has the topic, linked from Operations", () => {
+      expect(topic("shortRange").title).toBe("Short-Range Missions");
+      expect(topic("operations").body).toContain("see the Short-Range Missions topic");
+      expect(topic("operations").body).toContain("open more Short-Range slots");
+      expect(b()).toContain("run from the Ops tab under Short-Range");
+      expect(b()).toContain("A job can never fail.");
+    });
+
+    it("the board: the base slots and each Mission Control rung's slot, gate and price, from the engine", () => {
+      expect(SHORT_RANGE_BASE_SLOT_TIERS).toEqual([1, 1]);
+      expect(b()).toContain("every save starts with two Tier I slots");
+      MISSION_CONTROL_BOARD_RUNGS.forEach((rung, i) => {
+        const slot = "addShortRangeSlot" in rung.effect ? rung.effect.addShortRangeSlot : 0;
+        const line = lines().find((l) => l.startsWith(`- Mission Control level ${i + 2} opens a ${tierName(slot as 1 | 2)} slot.`)) ?? "";
+        expect(line, `rung ${i}`).toContain(`for ${whole(rung.credits?.toNumber() ?? 0)} credits.`);
+        for (const [key, n] of Object.entries(rung.requiresMissionCompletions ?? {})) {
+          expect(line).toContain(MISSIONS[key as keyof typeof MISSIONS].label);
+          expect(line).toContain(`${whole(n as number)} times each`);
+        }
+      });
+      expect(b()).toContain("pre-picks the ready captain whose ship meets the sheet by the widest margin");
+    });
+
+    it("the sheet: every tier's six numbers in the board's own names, and the crew rating curve", () => {
+      for (const t of [1, 2] as const) {
+        const sheet = SHORT_RANGE_SHEETS[t];
+        const line = lines().find((l) => l.startsWith(`- ${tierName(t)}: `)) ?? "";
+        for (const c of SHORT_RANGE_CATEGORIES) expect(line, `${t} ${c}`).toContain(`${SHORT_RANGE_CATEGORY_VIEW[c].label} ${whole(sheet[c])}${SHORT_RANGE_CATEGORY_VIEW[c].unit}`);
+      }
+      expect(b()).toContain(`${SHORT_RANGE_CREW_RATING.perDoubling} x log2(1 + strength / ${SHORT_RANGE_CREW_RATING.referenceStrength})`);
+      expect(b()).toContain("a ship must meet all of it, even the parts a job does not use");
+    });
+
+    it("guest quarters: the hull bases, the Guest Wing, the General perk", () => {
+      for (const [k, n] of Object.entries(HULL_GUEST_QUARTERS)) expect(b()).toContain(`${SHIP_TYPES[k as keyof typeof SHIP_TYPES].label} ${n}`);
+      expect(b()).toContain("Guest Wing");
+      expect(b()).toContain(`installed they rise ${Math.round(GENERAL_QUARTERS_GUEST_PERK * 100)}%`);
+      expect(b()).toContain("Guests are not crew and take no crew stations.");
+    });
+
+    it("the jobs: every template's label, the categories it uses, its sizes and its pay, from the catalog", () => {
+      for (const key of SHORT_RANGE_TEMPLATE_KEYS) {
+        const def = SHORT_RANGE_TEMPLATES[key];
+        const line = lines().find((l) => l.startsWith(`- ${def.label} (uses `)) ?? "";
+        expect(line, key).not.toBe("");
+        for (const c of shortRangeTemplateUses(key)) expect(line, `${key} ${c}`).toContain(SHORT_RANGE_CATEGORY_VIEW[c].short);
+        for (const size of ["guests", "units", "scan", "engineering", "security"] as const) {
+          for (const t of [1, 2] as const) {
+            const span = def.rolls[t][size];
+            if (span) expect(line, `${key} ${size} ${t}`).toContain(span[0] === span[1] ? `${span[0]}` : `${span[0]} to ${span[1]}`);
+          }
+        }
+        const r = def.reward;
+        if (r.kind === "supplyLoop") expect(line).toContain(`${Math.round(r.margin * 100)}% margin`);
+        if (r.kind === "contract") expect(line).toContain(`${r.credits[1]} at Tier I, ${r.credits[2]} at Tier II credits`);
+        if (r.kind === "pickup" || r.kind === "survey") expect(line).toContain(ITEMS[r.material].label);
+      }
+      const d1 = SHORT_RANGE_TEMPLATES.refugeeRelocation.rolls[1].distanceLy;
+      expect(b()).toContain(`flying ${d1[0]} to ${d1[1]} ly at Tier I`);
+    });
+
+    it("a cycle: the travel rate, the scan and work references, the berth", () => {
+      expect(b()).toContain(`(${1 / LY_PER_TICK} ticks a lightyear before its transit speed)`);
+      expect(b()).toContain(`1 + Sensors / ${SHORT_RANGE_WORK.sensorsReference}`);
+      expect(b()).toContain(`1 + rating / ${SHORT_RANGE_WORK.engineeringReference}`);
+      expect(b()).toContain("uses a transit berth like a mission unload");
+    });
+
+    it("Repeat, Recall and the waits say what the engine does", () => {
+      expect(b()).toContain("Repeat until recalled is on by default");
+      expect(b()).toContain("a run that has not left home yet ends at once and spends nothing");
+      expect(b()).toContain(`a Supply Pickup waits while its ${ITEMS.commonOre.label} is at its Warehouse cap`);
+      expect(b()).toContain("nothing is lost while it waits");
+    });
+
+    it("training runs and the slow start: the board's own note, the chip, the training run excluded", () => {
+      expect(b()).toContain(SHORT_RANGE_TRAINING_NOTE);
+      expect(b()).toContain(`"${TRAINING_RUN_CHIP}" chip`);
+      expect(b()).toContain("the training run does not count");
+    });
+
+    it("what helps: every bonus it names is live on a short-range run in the wiring registry, and what it rules out is out of scope there", () => {
+      const live = (id: string) => {
+        const e = wiringEntry(id);
+        expect(e, id).toBeDefined();
+        expect(e!.status.kind, id).toBe("live");
+        expect(e!.contexts, id).toContain("mission:shortRange");
+      };
+      const named: [string, string][] = [
+        ["crew:audit:pilotCunningReturn", "The Pilot's Cunning"],
+        ["officer:officer.shipOutputMult", officer("xo.commandOutput")],
+        ["crew:crew.crewOutputMult", crewBuffLabel("excl.crewOutputMult")],
+        ["captain:SECONDARY_CAPTAIN_TALENTS:trade1", SECONDARY_CAPTAIN_TALENTS.trade1.label],
+        ["captain:SECONDARY_CAPTAIN_TALENTS:trade2:shortRange", SECONDARY_CAPTAIN_TALENTS.trade2.label],
+        ["captain:SECONDARY_CAPTAIN_TALENTS:trade3", SECONDARY_CAPTAIN_TALENTS.trade3.label],
+        ["captain:SECONDARY_CAPTAIN_TALENTS:extraction4", SECONDARY_CAPTAIN_TALENTS.extraction4.label],
+        ["captain:SECONDARY_CAPTAIN_TALENTS:extraction5", SECONDARY_CAPTAIN_TALENTS.extraction5.label],
+        ["captain:SECONDARY_CAPTAIN_TALENTS:commandCrew3", "promotion progress"],
+      ];
+      for (const [id, words] of named) {
+        live(id);
+        expect(b(), id).toContain(words);
+      }
+      expect(b()).toContain(`runs ${PILOT_CUNNING_RETURN_CUT_TICKS === 1 ? "one tick" : `${PILOT_CUNNING_RETURN_CUT_TICKS} ticks`} shorter`);
+      for (const k of ["extraction2", "extraction3"] as const) {
+        const e = wiringEntry(`captain:SECONDARY_CAPTAIN_TALENTS:${k}`)!;
+        expect(e.outOfScope?.some((o) => o.context === "mission:shortRange"), k).toBe(true);
+        expect(b()).toContain(SECONDARY_CAPTAIN_TALENTS[k].label);
+      }
+      for (const id of ["officer:officer.rareFindMult", "crew:crew.rareFindChance"]) expect(wiringEntry(id)!.outOfScope?.some((o) => o.context === "mission:shortRange"), id).toBe(true);
+      for (const id of ["flight.transitOut", "flight.transitBack", "ops.unloadSpeed"]) expect(b()).toContain(crewBuffLabel(id));
+      expect(b()).toContain(officer("any.veteranInstincts"));
+      expect(b()).toContain(`at least ${Math.round(FULL_HOLD_FRACTION * 100)}% full`);
+    });
+
+    it("relics: the per-hour rate per tier, from relicBlanks.ts", () => {
+      for (const t of [1, 2] as const) {
+        const hours = Math.round(1 / (EXPEDITION_RELIC_BLANKS_PER_HOUR * SHORT_RANGE_RELIC_RATE_MULT[t]));
+        expect(b()).toContain(`1 every ${hours} hours of mission time at ${tierName(t)}`);
+      }
+      expect(b()).toContain("see the Relics and the Museum topic");
     });
   });
 

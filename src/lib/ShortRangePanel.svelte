@@ -32,6 +32,7 @@
     shortRangeBestReady,
     shortRangeJobView,
     shortRangeTierNumeral,
+    SHORT_RANGE_TRAINING_NOTE,
     type ShortRangeJobView,
     type ShortRangeBarView,
     type ShortRangeRunView,
@@ -45,6 +46,8 @@
   export let onRecall: (captainId: number) => void;
   export let onSetRepeat: (captainId: number, repeat: boolean) => void;
   export let onOpenMissionControl: () => void;
+  // G1-7: opens the Help center on a topic (App.svelte openHelpTopic); the job types list links the Short-Range topic.
+  export let onOpenHelp: ((topicId: string) => void) | undefined = undefined;
 
   $: board = shortRangeBoardView(state);
   $: typeRows = shortRangeTypeRows(state);
@@ -248,7 +251,8 @@
         <span class="sr-uses">Uses: {#each t.uses as u, i (u.category)}<Icon name={u.icon} size={13} /> {u.label}{i < t.uses.length - 1 ? ", " : ""}{/each}</span>
       </div>
     {/each}
-    <p class="sr-note">Every job type's first run is a training run: the smallest job, no gear wear, normal length. After it, Tier I jobs grow on the slow start (run 2 at 35%, run 6 about 54%, run 9 about 80%, full from run 11). Tier II jobs are full size from the start.</p>
+    <p class="sr-note">{SHORT_RANGE_TRAINING_NOTE}</p>
+    {#if onOpenHelp}<button type="button" class="sr-btn ghost sr-help" on:click={() => onOpenHelp?.("shortRange")}>How short-range missions work <Icon name="chevronRight" size={14} /></button>{/if}
   </details>
 </div>
 
@@ -344,6 +348,7 @@
     max-width: 72ch;
     margin: 4px 0;
   }
+  .sr-help { margin: 4px 0 2px; }
   .sr-dim { color: var(--color-text-dim); }
   .sr-sec { color: var(--color-text-secondary); font-size: var(--text-sm); margin: 0; }
   .sr-xs { font-size: var(--text-xs); margin: 0; }

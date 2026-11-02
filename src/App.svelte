@@ -18535,6 +18535,7 @@
           onDispatch={doDispatchShortRange}
           onRecall={doRecallCaptain}
           onSetRepeat={doSetShortRangeRepeat}
+          onOpenHelp={openHelpTopic}
           onOpenMissionControl={() => {
             activeOperationsTab = "missionControl";
             activeMissionControlSubTab = "upgrades";
