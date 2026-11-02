@@ -845,3 +845,7 @@ display: A a line per panel and a lock on each sub-tab; (9) benched list home: A
   a hull's lean comes only from where the extra seats go. No existing ship turns "Over cap" from the new caps.
 - Eir description: "Approve as written": "Heavy cruiser. A medical transport with the largest explorer crew: the
   largest hold and away teams the fleet fields, for supplies and evacuations."
+- Lean fill (2026-11-02): "Fill the lean division first (Recommended)": where a hull's divisions add up to more than
+  its total berths (Carrier, likely Battleship), auto-crew seats the hull's specialty division(s) first (Carrier:
+  Flight Deck; Battleship: Security, Engineering; Aurora: Science; Eir per its lean) before the rest, so the lean is
+  real in practice. Totals stay the OC-5 numbers. Existing crew are never moved or evicted.
