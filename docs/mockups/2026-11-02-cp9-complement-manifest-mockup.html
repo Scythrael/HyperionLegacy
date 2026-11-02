@@ -1,0 +1,546 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Complement Table and Manifest</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Orbitron:wght@500;700&family=Space+Grotesk:wght@400;500;600&family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+  /* Tokens copied from src/app.css (default cyan theme). */
+  :root {
+    color-scheme: dark;
+    --corner: 2px;
+    --color-bg-deep: #060a12; --color-bg-mid: #0a1120; --color-bg-raised: #0c1626;
+    --color-panel-bg: rgba(20, 40, 60, 0.32);
+    --color-border: rgba(103, 232, 249, 0.18); --color-border-strong: rgba(103, 232, 249, 0.4);
+    --color-accent: #67e8f9; --color-accent-bright: #8ff0e0; --color-accent-rgb: 103, 232, 249;
+    --color-text-primary: #e6f4f8; --color-text-secondary: #8fa3ad; --color-text-dim: #628591;
+    --color-warning: #fbbf24; --color-warning-rgb: 251, 191, 36; --color-danger: #f87171; --color-success: #34d399;
+    --rarity-derelict: #6b7280; --rarity-standard: #a9b7c8; --rarity-augmented: #34d399; --rarity-stellar: #4fa3f2;
+    --font-display: "Orbitron", sans-serif; --font-body: "Space Grotesk", "Inter", sans-serif; --font-mono: "JetBrains Mono", monospace;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; }
+  body { background: var(--color-bg-deep); color: var(--color-text-primary); font-family: var(--font-body); font-size: 13px; line-height: 1.45; padding: 24px 16px 60px; }
+  .wrap { max-width: 1340px; margin: 0 auto; display: grid; gap: 30px; }
+  h1 { font-family: var(--font-display); font-size: 20px; letter-spacing: .08em; margin: 0 0 6px; }
+  .intro { margin: 0; color: var(--color-text-secondary); max-width: 96ch; }
+  .prop { color: var(--color-warning); font-family: var(--font-mono); font-size: 11px; }
+  .label { font-family: var(--font-display); font-size: 12px; letter-spacing: .18em; color: var(--color-accent); text-transform: uppercase; margin: 0 0 8px; }
+  .note { color: var(--color-text-secondary); font-size: 12px; margin: 8px 0 0; max-width: 100ch; }
+  .stage { border: 1px solid var(--color-border); border-radius: var(--corner); background: radial-gradient(900px 400px at 70% -10%, rgba(103,232,249,.07), transparent 60%), var(--color-bg-mid); padding: 18px 12px; overflow-x: auto; }
+  .frames { display: flex; gap: 18px; flex-wrap: wrap; align-items: flex-start; }
+  .frame-cap { font-family: var(--font-mono); font-size: 11px; color: var(--color-text-dim); margin: 0 0 6px; }
+  svg.g { width: 14px; height: 14px; flex: 0 0 auto; vertical-align: -2px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+
+  /* App shell (desktop 1280 / phone 375) */
+  .shell { background: var(--color-bg-deep); border: 1px solid var(--color-border-strong); border-radius: var(--corner); box-shadow: 0 20px 60px rgba(0,0,0,.5); overflow: hidden; }
+  .shell.desk { width: 1280px; }
+  .shell.phone { width: 375px; }
+  .topbar { display: flex; justify-content: space-between; align-items: center; padding: 10px 16px; border-bottom: 1px solid var(--color-border); font-family: var(--font-display); font-size: 12px; letter-spacing: .14em; }
+  .topbar .res { font-family: var(--font-mono); font-size: 11px; color: var(--color-text-secondary); letter-spacing: 0; }
+  .crumb { padding: 8px 16px 0; font-family: var(--font-mono); font-size: 10.5px; letter-spacing: .12em; color: var(--color-text-dim); text-transform: uppercase; }
+  .crumb b { color: var(--color-accent-bright); font-weight: 600; }
+  .subtabs { display: flex; gap: 4px; padding: 8px 16px; border-bottom: 1px solid var(--color-border); flex-wrap: wrap; }
+  .tab { font-family: var(--font-display); font-size: 10.5px; letter-spacing: .1em; padding: 6px 10px; border: 1px solid var(--color-border); border-radius: var(--corner); color: var(--color-text-secondary); }
+  .tab.on { color: var(--color-text-primary); border-color: var(--color-accent-bright); background: rgba(var(--color-accent-rgb), .12); }
+  .content { padding: 14px 16px 18px; display: flex; flex-direction: column; gap: 12px; background: var(--color-panel-bg); }
+  .phone .content { padding: 12px; }
+  .phone .topbar { padding: 9px 12px; }
+
+  /* Real ComplementPanel classes, trimmed */
+  .comp-section-tag { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; font-family: var(--font-mono); font-size: 10px; letter-spacing: .12em; text-transform: uppercase; color: var(--color-accent-bright); }
+  .comp-section-hint { color: var(--color-text-dim); letter-spacing: .02em; text-transform: none; }
+  .comp-cap { padding: 11px 12px; background: rgba(var(--color-accent-rgb), .05); border: 1px solid rgba(var(--color-accent-rgb), .16); border-radius: var(--corner); }
+  .comp-caprow { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 9px; }
+  .comp-capnums { display: flex; flex-direction: column; gap: 3px; }
+  .comp-bignum { font-family: var(--font-mono); font-size: 22px; font-variant-numeric: tabular-nums; }
+  .comp-of { color: var(--color-text-dim); font-size: 12px; }
+  .comp-modline { font-family: var(--font-mono); font-size: 10px; color: var(--color-warning); }
+  .comp-autoc { display: flex; align-items: center; gap: 8px; }
+  .comp-autoc-label { font-family: var(--font-mono); font-size: 10px; letter-spacing: .08em; text-transform: uppercase; color: var(--color-text-secondary); }
+  .tog { width: 40px; height: 22px; border-radius: 11px; border: 1px solid var(--color-border-strong); background: rgba(0,0,0,.4); position: relative; display: inline-block; }
+  .tog::after { content: ""; position: absolute; top: 2px; left: 2px; width: 16px; height: 16px; border-radius: 50%; background: var(--color-text-dim); }
+  .tog.on { background: rgba(var(--color-accent-rgb), .25); }
+  .tog.on::after { left: 20px; background: var(--color-accent-bright); }
+  .comp-bar { height: 9px; border-radius: var(--corner); background: rgba(255,255,255,.06); overflow: hidden; position: relative; }
+  .comp-bar > span { display: block; height: 100%; background: linear-gradient(90deg, var(--color-accent), var(--color-accent-bright)); }
+  .comp-bar.over > span { background: repeating-linear-gradient(135deg, var(--color-warning), var(--color-warning) 5px, rgba(var(--color-warning-rgb), .55) 5px, rgba(var(--color-warning-rgb), .55) 10px); }
+  .comp-mode-note { margin-top: 7px; font-size: 10px; color: var(--color-text-dim); font-family: var(--font-mono); line-height: 1.5; }
+  .overtag { font-family: var(--font-mono); font-size: 10px; letter-spacing: .1em; color: var(--color-bg-deep); background: var(--color-warning); padding: 1px 5px; border-radius: var(--corner); vertical-align: 2px; }
+  .overline { color: var(--color-warning); font-size: 11px; margin-top: 6px; display: flex; gap: 6px; align-items: flex-start; }
+
+  .comp-divgrid { display: grid; grid-template-columns: repeat(6, 1fr); gap: 8px; }
+  .comp-div { padding: 9px 10px; background: rgba(var(--color-accent-rgb), .04); border: 1px solid rgba(var(--color-accent-rgb), .14); border-radius: var(--corner); position: relative; }
+  .comp-div.over { border-color: rgba(var(--color-warning-rgb), .55); }
+  .comp-dvh { display: flex; align-items: baseline; justify-content: space-between; gap: 6px; margin-bottom: 7px; }
+  .comp-dv-name { font-family: var(--font-mono); font-size: 10px; letter-spacing: .1em; text-transform: uppercase; color: var(--color-accent); }
+  .comp-dv-count { font-family: var(--font-mono); font-size: 11px; font-variant-numeric: tabular-nums; }
+  .comp-div.over .comp-dv-count { color: var(--color-warning); }
+  .chart { display: flex; align-items: flex-end; gap: 3px; height: 62px; }
+  .col { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 2px; position: relative; }
+  .trk { width: 100%; height: 50px; position: relative; border-bottom: 1px solid rgba(var(--color-accent-rgb), .2); }
+  .capb { position: absolute; left: 0; right: 0; bottom: 0; background: linear-gradient(180deg, #4c5666, #333b48); }
+  .capb.unc { background: repeating-linear-gradient(180deg, #4a5568, #4a5568 3px, transparent 3px, transparent 5px); }
+  .utb { position: absolute; left: 0; right: 0; bottom: 0; }
+  .utb.over { background: repeating-linear-gradient(135deg, var(--color-warning), var(--color-warning) 3px, rgba(var(--color-warning-rgb), .45) 3px, rgba(var(--color-warning-rgb), .45) 6px) !important; outline: 1px solid var(--color-warning); }
+  .xl { font-family: var(--font-mono); font-size: 8px; color: var(--color-text-dim); text-transform: uppercase; }
+  .xl.over { color: var(--color-warning); }
+  .btip { position: absolute; z-index: 5; top: -6px; right: -6px; transform: translateY(-100%); min-width: 190px; border: 1px solid rgba(var(--color-warning-rgb), .6); border-radius: var(--corner); background: var(--color-bg-raised); box-shadow: 0 12px 28px rgba(0,0,0,.55); padding: 8px 10px; font-family: var(--font-mono); font-size: 10px; color: var(--color-text-secondary); }
+  .btip .r { color: var(--color-warning); letter-spacing: .08em; text-transform: uppercase; margin-bottom: 4px; }
+  .btip .row { display: flex; justify-content: space-between; gap: 10px; }
+  .btip b { color: var(--color-text-primary); }
+  .btip .w { color: var(--color-warning); margin-top: 4px; font-family: var(--font-body); font-size: 11px; line-height: 1.35; }
+
+  /* New: crew groups table */
+  .tools { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+  .tools .grp { display: inline-flex; align-items: center; gap: 4px; flex-wrap: wrap; }
+  .tools .lbl { font-family: var(--font-mono); font-size: 10px; letter-spacing: .1em; text-transform: uppercase; color: var(--color-text-dim); margin-right: 2px; }
+  .chip { font-family: var(--font-mono); font-size: 11px; padding: 5px 9px; border: 1px solid var(--color-border); border-radius: var(--corner); color: var(--color-text-secondary); white-space: nowrap; display: inline-flex; gap: 4px; align-items: center; }
+  .chip.on { color: var(--color-text-primary); border-color: var(--color-accent-bright); background: rgba(var(--color-accent-rgb), .14); }
+  .chip .n { color: var(--color-text-dim); }
+  button { font: inherit; font-size: 12px; color: var(--color-accent); background: rgba(var(--color-accent-rgb), .06); border: 1px solid var(--color-border-strong); border-radius: var(--corner); padding: 5px 11px; cursor: pointer; min-height: 32px; display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
+  button.pri { background: rgba(var(--color-accent-rgb), .18); color: var(--color-text-primary); }
+  button.ghost { background: transparent; border-color: var(--color-border); color: var(--color-text-secondary); }
+  button.sm { min-height: 28px; padding: 3px 9px; font-size: 11.5px; }
+  button[disabled] { opacity: .45; cursor: default; }
+  .spacer { flex: 1; }
+  .gtw { border: 1px solid rgba(var(--color-accent-rgb), .16); border-radius: var(--corner); background: rgba(var(--color-accent-rgb), .03); }
+  table.gt { width: 100%; border-collapse: collapse; }
+  .gt th { text-align: left; font-family: var(--font-mono); font-weight: 400; font-size: 10px; letter-spacing: .1em; text-transform: uppercase; color: var(--color-accent-bright); padding: 8px 10px; border-bottom: 1px solid var(--color-border); white-space: nowrap; }
+  .gt th.sorted::after { content: " \25BE"; color: var(--color-accent); }
+  .gt td { padding: 8px 10px; border-bottom: 1px solid rgba(var(--color-accent-rgb), .08); vertical-align: middle; font-size: 12.5px; }
+  .gt tr.sel td { background: rgba(var(--color-accent-rgb), .06); }
+  .gt td.num, .gt th.num { text-align: right; font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+  .gt td.act { text-align: right; width: 1%; }
+  .gt .sub { color: var(--color-text-dim); font-size: 11px; }
+  .cb { width: 16px; height: 16px; border-radius: var(--corner); border: 1px solid var(--color-border-strong); display: inline-grid; place-items: center; vertical-align: -3px; }
+  .cb.on { background: var(--color-accent); border-color: var(--color-accent); color: var(--color-bg-deep); }
+  .cb.mixed { background: rgba(var(--color-accent-rgb), .35); }
+  .cb svg { width: 11px; height: 11px; stroke-width: 3; }
+  .rar { font-family: var(--font-mono); font-size: 11.5px; display: inline-flex; align-items: center; gap: 5px; }
+  .rar i { width: 7px; height: 7px; border-radius: 50%; display: inline-block; background: currentColor; }
+  .buffs { display: flex; flex-wrap: wrap; gap: 4px; }
+  .bf { font-family: var(--font-mono); font-size: 10.5px; color: var(--color-success); border: 1px solid rgba(52,211,153,.32); border-radius: var(--corner); padding: 1px 6px; white-space: nowrap; display: inline-flex; gap: 4px; align-items: center; }
+  .bf .k { color: var(--color-text-dim); }
+  .bf.ex { color: var(--color-accent-bright); border-color: rgba(var(--color-accent-rgb), .4); }
+  .bf.held { color: var(--color-text-dim); border-style: dashed; border-color: rgba(98,133,145,.5); font-style: italic; white-space: normal; }
+  .foot { display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap; padding: 8px 10px; font-family: var(--font-mono); font-size: 10.5px; color: var(--color-text-dim); }
+  .selbar { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; padding: 8px 10px; border-bottom: 1px solid var(--color-border); background: rgba(var(--color-accent-rgb), .07); font-size: 12px; }
+  .selbar b { font-family: var(--font-mono); }
+  .later { font-family: var(--font-mono); font-size: 9.5px; color: var(--color-text-dim); letter-spacing: .06em; }
+
+  /* Notable strip, now with every buff */
+  .comp-nstrip { display: flex; gap: 8px; overflow-x: auto; padding-bottom: 4px; }
+  .comp-ncard { flex: 0 0 auto; min-width: 190px; padding: 8px 10px; background: rgba(var(--color-accent-rgb), .05); border: 1px solid rgba(var(--color-accent-rgb), .16); border-left: 2px solid var(--color-accent); border-radius: var(--corner); }
+  .comp-ncard.new { border-color: rgba(52,211,153,.6); border-left-color: var(--color-success); box-shadow: 0 0 0 1px rgba(52,211,153,.2); }
+  .comp-nc-name { display: flex; justify-content: space-between; gap: 6px; font-size: 13px; }
+  .comp-nc-sub { font-size: 10px; color: var(--color-text-secondary); margin: 1px 0 5px; }
+  .star { color: var(--color-text-dim); } .star.on { color: var(--color-warning); }
+  .star svg { width: 13px; height: 13px; }
+  .star.on svg { fill: currentColor; }
+
+  /* Phone cards */
+  .pcard { border: 1px solid rgba(var(--color-accent-rgb), .16); border-radius: var(--corner); background: rgba(var(--color-accent-rgb), .04); padding: 9px 10px; display: grid; grid-template-columns: 22px minmax(0,1fr) auto; gap: 4px 8px; align-items: start; }
+  .pcard.sel { background: rgba(var(--color-accent-rgb), .09); border-color: rgba(var(--color-accent-rgb), .4); }
+  .pcard .nm { font-weight: 600; font-size: 13px; }
+  .pcard .meta { font-size: 11px; color: var(--color-text-secondary); display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+  .pcard .cnt { font-family: var(--font-mono); font-size: 16px; text-align: right; }
+  .pcard .cnt span { display: block; font-size: 9px; color: var(--color-text-dim); letter-spacing: .1em; }
+  .pcard .buffs, .pcard .pa { grid-column: 2 / 4; }
+  .pcard .pa { display: flex; justify-content: flex-end; }
+  .hscroll { display: flex; gap: 4px; overflow-x: auto; padding-bottom: 2px; }
+  .stickybar { position: sticky; bottom: 0; display: flex; gap: 8px; align-items: center; padding: 10px 12px; border-top: 1px solid var(--color-border-strong); background: var(--color-bg-raised); font-size: 12px; }
+  .collapsed { border: 1px dashed rgba(var(--color-accent-rgb), .25); border-radius: var(--corner); padding: 8px 10px; font-family: var(--font-mono); font-size: 10.5px; color: var(--color-text-dim); display: flex; justify-content: space-between; }
+
+  /* Modal / sheet */
+  .dim { background: rgba(2,5,10,.7); padding: 30px; display: flex; justify-content: center; align-items: flex-start; border-radius: var(--corner); }
+  .modal { width: 480px; max-width: 100%; border: 1px solid var(--color-border-strong); border-radius: var(--corner); background: var(--color-bg-raised); box-shadow: 0 20px 60px rgba(0,0,0,.6); }
+  .modal.wide { width: 860px; }
+  .mh { display: flex; align-items: center; gap: 8px; padding: 12px 14px; border-bottom: 1px solid var(--color-border); font-family: var(--font-display); font-size: 12px; letter-spacing: .12em; text-transform: uppercase; }
+  .mh .x { margin-left: auto; color: var(--color-text-dim); }
+  .mb { padding: 12px 14px; display: grid; gap: 10px; font-size: 12.5px; color: var(--color-text-secondary); }
+  .mb b { color: var(--color-text-primary); font-weight: 600; }
+  .mf { display: flex; gap: 8px; justify-content: flex-end; padding: 10px 14px; border-top: 1px solid var(--color-border); flex-wrap: wrap; }
+  .namecard { border: 1px solid rgba(52,211,153,.45); background: rgba(52,211,153,.06); border-radius: var(--corner); padding: 10px 12px; }
+  .namecard .big { font-family: var(--font-display); font-size: 15px; letter-spacing: .06em; color: var(--color-text-primary); }
+  .kv { display: grid; grid-template-columns: auto 1fr; gap: 3px 12px; font-family: var(--font-mono); font-size: 11px; }
+  .kv span:nth-child(odd) { color: var(--color-text-dim); }
+  .kv span:nth-child(even) { color: var(--color-text-primary); }
+  .delta { font-family: var(--font-mono); font-size: 12px; }
+  .delta s { color: var(--color-text-dim); }
+  .warnline { color: var(--color-warning); font-size: 11.5px; display: flex; gap: 6px; }
+  .sheet { border-top: 1px solid var(--color-border-strong); background: var(--color-bg-raised); border-radius: 6px 6px 0 0; box-shadow: 0 -12px 40px rgba(0,0,0,.6); }
+  .sheet .grab { width: 40px; height: 4px; border-radius: 2px; background: var(--color-border-strong); margin: 8px auto 0; }
+  .phonedim { background: rgba(2,5,10,.72); display: flex; flex-direction: column; justify-content: flex-end; min-height: 560px; }
+
+  /* Manifest */
+  .mrow { display: grid; grid-template-columns: 52px minmax(160px, 1.4fr) 110px 100px 110px 90px minmax(0, 1.6fr); gap: 8px; align-items: center; padding: 6px 10px; border-bottom: 1px solid rgba(var(--color-accent-rgb), .07); font-size: 12px; }
+  .mrow.h { font-family: var(--font-mono); font-size: 10px; letter-spacing: .1em; text-transform: uppercase; color: var(--color-accent-bright); border-bottom: 1px solid var(--color-border); position: sticky; top: 0; background: var(--color-bg-raised); }
+  .mrow .i { font-family: var(--font-mono); font-size: 10.5px; color: var(--color-text-dim); }
+  .mrow.grp { background: rgba(var(--color-accent-rgb), .05); font-family: var(--font-mono); font-size: 10.5px; color: var(--color-text-secondary); grid-template-columns: 1fr auto; }
+  .mrow.not { background: rgba(var(--color-warning-rgb), .05); }
+  .mlist { max-height: 380px; overflow: hidden; position: relative; }
+  .mlist::after { content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: 40px; background: linear-gradient(transparent, var(--color-bg-raised)); }
+  .pager { display: flex; gap: 4px; align-items: center; flex-wrap: wrap; }
+  .pager .pg { font-family: var(--font-mono); font-size: 11px; min-width: 28px; height: 28px; display: inline-grid; place-items: center; border: 1px solid var(--color-border); border-radius: var(--corner); color: var(--color-text-secondary); }
+  .pager .pg.on { border-color: var(--color-accent-bright); color: var(--color-text-primary); background: rgba(var(--color-accent-rgb), .14); }
+  .pmrow { padding: 7px 10px; border-bottom: 1px solid rgba(var(--color-accent-rgb), .08); display: grid; grid-template-columns: 34px 1fr auto; gap: 2px 8px; }
+  .pmrow .i { font-family: var(--font-mono); font-size: 10px; color: var(--color-text-dim); padding-top: 2px; }
+  .pmrow .n { font-size: 13px; }
+  .pmrow .s { grid-column: 2 / 4; font-size: 10.5px; color: var(--color-text-secondary); }
+  .acc { border: 1px solid rgba(var(--color-accent-rgb), .16); border-radius: var(--corner); }
+  .acc .ah { display: flex; justify-content: space-between; align-items: center; padding: 7px 10px; font-family: var(--font-mono); font-size: 11px; color: var(--color-text-secondary); }
+  .acc .ah b { color: var(--color-text-primary); font-weight: 600; }
+  .acc + .acc { margin-top: 6px; }
+
+  /* Open-call callouts */
+  .oc { border: 1px dashed rgba(var(--color-warning-rgb), .65); background: rgba(var(--color-warning-rgb), .06); border-radius: var(--corner); padding: 8px 10px; font-size: 12px; color: var(--color-text-secondary); max-width: 520px; }
+  .oc .t { font-family: var(--font-mono); font-size: 10.5px; letter-spacing: .1em; color: var(--color-warning); text-transform: uppercase; margin-bottom: 4px; }
+  .oc .ab { display: grid; grid-template-columns: 18px 1fr; gap: 2px 6px; }
+  .oc .ab b { font-family: var(--font-mono); color: var(--color-warning); }
+  .oc .drawn { font-family: var(--font-mono); font-size: 10px; color: var(--color-text-dim); margin-top: 4px; }
+  .ocrow { display: flex; gap: 12px; flex-wrap: wrap; }
+  ol.calls { margin: 0; padding-left: 20px; display: grid; gap: 7px; color: var(--color-text-secondary); max-width: 104ch; }
+  ol.calls b { color: var(--color-text-primary); }
+</style>
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <defs>
+    <symbol id="i-lock" viewBox="0 0 24 24"><rect x="5" y="11" width="14" height="10" rx="1"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></symbol>
+    <symbol id="i-transfer" viewBox="0 0 24 24"><path d="M4 8h14l-4-4M20 16H6l4 4"/></symbol>
+    <symbol id="i-manifest" viewBox="0 0 24 24"><rect x="5" y="4" width="14" height="17" rx="1"/><path d="M9 4V3h6v1M8.5 9h7M8.5 13h7M8.5 17h4"/></symbol>
+    <symbol id="i-grad" viewBox="0 0 24 24"><path d="M2 9l10-5 10 5-10 5z"/><path d="M6 11v5c3 2.5 9 2.5 12 0v-5M22 9v6"/></symbol>
+    <symbol id="i-star" viewBox="0 0 24 24"><path d="M12 3l2.7 5.6 6.1.8-4.5 4.2 1.1 6.1L12 16.8 6.6 19.7l1.1-6.1L3.2 9.4l6.1-.8z"/></symbol>
+    <symbol id="i-check" viewBox="0 0 24 24"><path d="M5 12l5 5 9-10"/></symbol>
+    <symbol id="i-x" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></symbol>
+    <symbol id="i-warn" viewBox="0 0 24 24"><path d="M12 3l10 18H2z"/><path d="M12 10v5M12 18v.5"/></symbol>
+    <symbol id="i-sort" viewBox="0 0 24 24"><path d="M7 4v16M3 8l4-4 4 4M17 20V4M13 16l4 4 4-4"/></symbol>
+    <symbol id="i-chev-l" viewBox="0 0 24 24"><path d="M15 5l-7 7 7 7"/></symbol>
+    <symbol id="i-chev-r" viewBox="0 0 24 24"><path d="M9 5l7 7-7 7"/></symbol>
+    <symbol id="i-chev-d" viewBox="0 0 24 24"><path d="M5 9l7 7 7-7"/></symbol>
+    <symbol id="i-diamond" viewBox="0 0 24 24"><path d="M12 3l8 9-8 9-8-9z"/></symbol>
+    <symbol id="i-pause" viewBox="0 0 24 24"><path d="M9 5v14M15 5v14"/></symbol>
+  </defs>
+</svg>
+
+<div class="wrap">
+  <div>
+    <h1>CP-9: Complement table, Graduate, Manifest</h1>
+    <p class="intro">Hyperion Legacy 0.14.0, Tasks 25 and 26 UI part 1, for sign-off. The Complement sub-tab of a ship keeps its capacity header and division charts, and gains a <b>Crew groups</b> table under them (every buff shown, sort, division filter, row checkboxes), a <b>Graduate one</b> confirm, and a <b>Manifest</b> of generated names. Sample ship: <b>Vesper Reach</b>, an Aurora (base 750), manual crew, Elite Quarters installed (no added berths), so it sits 18 over cap after an Efficient Quarters swap. Never evict (OC-6): it just takes no more crew. Amber dashed boxes are open calls; the drawn option is marked.</p>
+  </div>
+
+  <!-- 1 -->
+  <section>
+    <p class="label">1. Complement tab with the crew groups table (desktop, 1280 px)</p>
+    <div class="stage">
+      <div class="shell desk">
+        <div class="topbar"><span>HYPERION LEGACY</span><span class="res">Credits 4.82M · FA 31 · Day 214</span></div>
+        <div class="crumb">Ships / <b>Vesper Reach</b> · Aurora class · docked</div>
+        <div class="subtabs"><span class="tab">Loadout</span><span class="tab">Senior Staff</span><span class="tab">Away Team</span><span class="tab on">Complement</span></div>
+        <div class="content">
+          <div class="comp-cap">
+            <div class="comp-caprow">
+              <div class="comp-capnums">
+                <span class="comp-bignum">768<span class="comp-of"> / 750 berths</span> <span class="overtag">OVER CAP</span></span>
+                <span class="comp-modline">Base 750 + Elite Quarters +0</span>
+              </div>
+              <label class="comp-autoc"><span class="comp-autoc-label">Auto-crew</span><span class="tog" aria-label="Auto-crew off"></span></label>
+            </div>
+            <div class="comp-bar over"><span style="width:100%"></span></div>
+            <div class="overline"><svg class="g"><use href="#i-warn"/></svg>18 over cap. Nobody is removed; this ship takes no more crew until it is under its cap. Transfer some out or install bigger quarters.</div>
+            <div class="comp-mode-note">Manual: this ship's complement is player-curated and will not auto-fill.</div>
+          </div>
+
+          <div class="comp-section-tag"><span>Division Ranks</span><span class="comp-section-hint">tap or hover a bar for rank detail · unchanged except the over-cap marking (CP-5)</span></div>
+          <div class="comp-divgrid" id="dk-charts"></div>
+
+          <div class="comp-section-tag" style="margin-top:4px"><span>Crew Groups</span><span class="comp-section-hint">crew with the same origin, division, rank, rarity and buffs travel together</span></div>
+          <div class="tools">
+            <span class="grp"><span class="lbl"><svg class="g"><use href="#i-sort"/></svg> Sort</span><span class="chip on">Rank</span><span class="chip">Rarity</span><span class="chip">Division</span><span class="chip">Count</span></span>
+            <span class="grp"><span class="lbl">Division</span><span class="chip on">All <span class="n">41</span></span><span class="chip">Security <span class="n">6</span></span><span class="chip">Engineering <span class="n">7</span></span><span class="chip">Science <span class="n">11</span></span><span class="chip">Medical <span class="n">6</span></span><span class="chip">Operations <span class="n">6</span></span><span class="chip">Flight Deck <span class="n">5</span></span></span>
+            <span class="spacer"></span>
+            <button class="ghost"><svg class="g"><use href="#i-manifest"/></svg>Manifest</button>
+          </div>
+          <div class="ocrow">
+            <div class="oc"><div class="t">Open call 1 · sort and filter control</div><div class="ab"><b>A</b><span>Chips, as drawn. One tap, all options visible; the plan names "sort chips, filter chips".</span><b>B</b><span>Two dropdowns (the CMR-8 sketch). Narrower, but two taps each. View-only, so a select may act on change.</span></div><div class="drawn">Drawn: A</div></div>
+          </div>
+          <div class="gtw">
+            <div class="selbar"><span class="cb on"><svg class="g"><use href="#i-check"/></svg></span><span><b>2 groups</b> selected · <b>3</b> crew</span><button class="sm" disabled title="Arrives with CP-10"><svg class="g"><use href="#i-transfer"/></svg>Transfer 3 selected...</button><span class="later">CP-10, see the transfer mockup</span><span class="spacer"></span><button class="sm ghost">Clear</button></div>
+            <table class="gt">
+              <thead><tr><th style="width:34px"><span class="cb mixed"></span></th><th>Group</th><th>Division</th><th class="sorted">Rank</th><th>Rarity</th><th>Buffs</th><th class="num">Count</th><th></th></tr></thead>
+              <tbody id="dk-rows"></tbody>
+            </table>
+            <div class="foot"><span>Showing 9 of 41 groups · 768 crew</span><span>Show 25 more</span></div>
+          </div>
+          <div class="ocrow">
+            <div class="oc"><div class="t">Open call 2 · how buffs show in a row</div><div class="ab"><b>A</b><span>Every buff as its own chip, wrapping, as drawn. Profession buffs green, second-level exclusive buffs cyan with a diamond, held ones dashed.</span><b>B</b><span>One comma line ("Keen Analysis, Mission Turnaround, Survey Aptitude"), color only on the exclusive one. Denser, harder to scan.</span></div><div class="drawn">Drawn: A</div></div>
+            <div class="oc"><div class="t">Open call 3 · where Graduate lives</div><div class="ab"><b>A</b><span>"Graduate one" on every row, as drawn.</span><b>B</b><span>A "Graduate one" button in the selection bar, live only when exactly one group is ticked. Quieter table, one more tap.</span></div><div class="drawn">Drawn: A</div></div>
+          </div>
+
+          <div class="comp-section-tag"><span>Notable Crew</span><span class="comp-section-hint">standouts assigned here · fleet 38 / 50</span></div>
+          <div class="comp-nstrip" id="dk-notables"></div>
+          <p class="note" style="margin:0">The notable strip now lists every buff (today it shows buff1 only). Buff2 and buff3 were never shown anywhere; this table and strip are where they appear.</p>
+        </div>
+      </div>
+      <p class="note">Graduating is allowed in either crew mode (the engine does not care). "Graduate one" is greyed with the reason when the ship is crew-locked ("Ship is on an expedition") or the fleet holds 50 notables ("The fleet already has 50 notable crew"). The over-cap tooltip on Science Lieutenant shows the CP-5 column marking.</p>
+    </div>
+  </section>
+
+  <!-- 2 -->
+  <section>
+    <p class="label">2. The same tab on a phone (375 px): groups become cards</p>
+    <div class="stage"><div class="frames">
+      <div>
+        <p class="frame-cap">Phone, scrolled to Crew Groups</p>
+        <div class="shell phone">
+          <div class="topbar"><span>HL</span><span class="res">Day 214</span></div>
+          <div class="crumb">Ships / <b>Vesper Reach</b></div>
+          <div class="subtabs"><span class="tab">Loadout</span><span class="tab">Staff</span><span class="tab">Away</span><span class="tab on">Crew</span></div>
+          <div class="content">
+            <div class="comp-cap">
+              <div class="comp-caprow" style="margin-bottom:6px">
+                <span class="comp-bignum" style="font-size:18px">768<span class="comp-of"> / 750</span> <span class="overtag">OVER CAP</span></span>
+                <label class="comp-autoc"><span class="comp-autoc-label">Auto</span><span class="tog"></span></label>
+              </div>
+              <div class="comp-bar over"><span style="width:100%"></span></div>
+            </div>
+            <div class="collapsed"><span>Division Ranks · 6 charts</span><span>stacked above, unchanged</span></div>
+            <div class="comp-section-tag"><span>Crew Groups</span><span class="comp-section-hint">41</span></div>
+            <div class="hscroll"><span class="chip on">Rank</span><span class="chip">Rarity</span><span class="chip">Division</span><span class="chip">Count</span><span class="chip"><svg class="g"><use href="#i-manifest"/></svg>Manifest</span></div>
+            <div class="hscroll"><span class="chip on">All</span><span class="chip">Security</span><span class="chip">Engineering</span><span class="chip">Science</span><span class="chip">Medical</span><span class="chip">Operations</span><span class="chip">Flight Deck</span></div>
+            <div id="ph-cards" style="display:grid;gap:6px"></div>
+          </div>
+          <div class="stickybar"><span class="cb on"><svg class="g"><use href="#i-check"/></svg></span><span><b>2</b> groups · <b>3</b> crew</span><span class="spacer"></span><button class="sm" disabled><svg class="g"><use href="#i-transfer"/></svg>Transfer...</button></div>
+        </div>
+      </div>
+      <div style="display:grid;gap:12px;max-width:420px">
+        <div class="oc"><div class="t">Open call 4 · phone filter rows</div><div class="ab"><b>A</b><span>Two chip rows that scroll sideways inside themselves, as drawn (the page itself never scrolls sideways).</span><b>B</b><span>One "Sort and filter" button that opens a small sheet with both groups of chips.</span></div><div class="drawn">Drawn: A</div></div>
+        <div class="oc"><div class="t">Open call 5 · selection bar on a phone</div><div class="ab"><b>A</b><span>Sticky at the bottom while anything is ticked, as drawn (thumb reach).</span><b>B</b><span>Inline above the cards, scrolls away with them.</span></div><div class="drawn">Drawn: A</div></div>
+        <p class="note">Each card: tick box, group name, rank and rarity, count on the right, every buff as a chip, then Graduate one. Cards keep the table's sort and filter.</p>
+      </div>
+    </div></div>
+  </section>
+
+  <!-- 3 -->
+  <section>
+    <p class="label">3. Graduate one: the confirm, and the cap-reached state</p>
+    <div class="stage"><div class="frames">
+      <div>
+        <p class="frame-cap">Desktop modal over the table</p>
+        <div class="dim" style="width:620px">
+          <div class="modal">
+            <div class="mh"><svg class="g" style="color:var(--color-success)"><use href="#i-grad"/></svg>Graduate a standout<span class="x"><svg class="g"><use href="#i-x"/></svg></span></div>
+            <div class="mb">
+              <div>One crew member of the <b>Vael science group</b> becomes a named notable, assigned to <b>Vesper Reach</b>.</div>
+              <div class="namecard">
+                <div class="big">Lt. Cmdr. Aluun Suvei</div>
+                <div class="kv" style="margin-top:6px"><span>Rank</span><span>Lieutenant Commander</span><span>Division</span><span>Science</span><span>Origin</span><span>Vael</span><span>Rarity</span><span style="color:var(--rarity-stellar)">Stellar</span></div>
+                <div class="buffs" style="margin-top:8px"><span class="bf">Keen Analysis</span><span class="bf ex"><svg class="g"><use href="#i-diamond"/></svg>Mission Turnaround</span><span class="bf">Survey Aptitude</span></div>
+              </div>
+              <div class="delta">Group <s>2</s> &rarr; <b>1</b> · Notables in the fleet <s>37</s> &rarr; <b>38</b> / 50</div>
+              <div>Identity only: the ship's caps and buffs do not change. You can send a notable back at any time; they keep their name.</div>
+            </div>
+            <div class="mf"><button class="ghost">Cancel</button><button class="pri"><svg class="g"><use href="#i-grad"/></svg>Graduate</button></div>
+          </div>
+        </div>
+      </div>
+      <div>
+        <p class="frame-cap">Phone bottom sheet</p>
+        <div class="shell phone">
+          <div class="phonedim">
+            <div class="sheet">
+              <div class="grab"></div>
+              <div class="mh" style="border:0;padding-bottom:4px"><svg class="g" style="color:var(--color-success)"><use href="#i-grad"/></svg>Graduate a standout</div>
+              <div class="mb">
+                <div>One of the <b>Vael science group</b> becomes a named notable aboard <b>Vesper Reach</b>.</div>
+                <div class="namecard"><div class="big">Lt. Cmdr. Aluun Suvei</div><div style="font-size:11px;margin-top:2px">Science · Vael · <span style="color:var(--rarity-stellar)">Stellar</span></div><div class="buffs" style="margin-top:6px"><span class="bf">Keen Analysis</span><span class="bf ex"><svg class="g"><use href="#i-diamond"/></svg>Mission Turnaround</span><span class="bf">Survey Aptitude</span></div></div>
+                <div class="delta">Group 2 &rarr; <b>1</b> · Notables 38 / 50</div>
+              </div>
+              <div class="mf" style="display:grid;grid-template-columns:1fr 1fr"><button class="ghost" style="justify-content:center">Cancel</button><button class="pri" style="justify-content:center">Graduate</button></div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div style="display:grid;gap:12px;max-width:340px">
+        <p class="frame-cap">At the cap (50 / 50)</p>
+        <div class="modal" style="width:340px">
+          <div class="mb"><div class="warnline"><svg class="g"><use href="#i-warn"/></svg><span>The fleet already has 50 notable crew. Send one back on its ship's Complement tab to make room.</span></div></div>
+        </div>
+        <p class="frame-cap">The row button at the cap</p>
+        <div><button class="sm ghost" disabled title="The fleet already has 50 notable crew"><svg class="g"><use href="#i-grad"/></svg>Graduate one</button></div>
+        <div class="oc"><div class="t">Open call 6 · send back</div><div class="ab"><b>A</b><span>A small "Send back" on each notable card in the strip (unassigns; the name stays, per OC-9).</span><b>B</b><span>Only in Personnel Rosters, beside the roster pins.</span></div><div class="drawn">Not drawn; CP-9 has no send-back slot in the plan</div></div>
+      </div>
+    </div></div>
+    <p class="note">The name shown is the one the notable will get (the engine's preview of the next graduate). A Lieutenant Commander graduates into "Lt. Cmdr."; rank abbreviations follow the game's rank labels.</p>
+  </section>
+
+  <!-- 4 -->
+  <section>
+    <p class="label">4. Manifest (sketch sign-off needed): 768 names, generated on open, never saved</p>
+    <div class="stage"><div class="frames">
+      <div>
+        <p class="frame-cap">Desktop, Option A: one paged list, 50 rows a page, in group order</p>
+        <div class="dim" style="width:940px;padding:24px">
+          <div class="modal wide">
+            <div class="mh"><svg class="g" style="color:var(--color-accent)"><use href="#i-manifest"/></svg>Manifest · Vesper Reach<span style="font-family:var(--font-mono);font-size:11px;letter-spacing:0;color:var(--color-text-dim);text-transform:none">768 aboard · 3 notables</span><span class="x"><svg class="g"><use href="#i-x"/></svg></span></div>
+            <div class="mb" style="gap:8px">
+              <div class="tools"><span class="grp"><span class="lbl">Division</span><span class="chip on">All</span><span class="chip">Security</span><span class="chip">Engineering</span><span class="chip">Science</span><span class="chip">Medical</span><span class="chip">Operations</span><span class="chip">Flight Deck</span></span></div>
+              <div class="gtw mlist">
+                <div class="mrow h"><span>#</span><span>Name</span><span>Rank</span><span>Division</span><span>Origin</span><span>Rarity</span><span>Buffs (shared by the group)</span></div>
+                <div id="dk-manifest"></div>
+              </div>
+              <div class="foot" style="padding:0"><span>Rows 1 to 50 of 765 crew · notables listed first</span><span class="pager"><span class="pg"><svg class="g"><use href="#i-chev-l"/></svg></span><span class="pg on">1</span><span class="pg">2</span><span class="pg">3</span><span class="pg">...</span><span class="pg">16</span><span class="pg"><svg class="g"><use href="#i-chev-r"/></svg></span></span></div>
+              <div style="font-size:11px;color:var(--color-text-dim)">Names are made up when you open this list and are never saved. The same crew member always gets the same name.</div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div>
+        <p class="frame-cap">Phone, Option A</p>
+        <div class="shell phone">
+          <div class="mh" style="background:var(--color-bg-raised)"><svg class="g" style="color:var(--color-accent)"><use href="#i-manifest"/></svg>Manifest<span style="font-family:var(--font-mono);font-size:10px;letter-spacing:0;color:var(--color-text-dim);text-transform:none">768</span><span class="x"><svg class="g"><use href="#i-x"/></svg></span></div>
+          <div style="padding:8px 12px;background:var(--color-bg-raised)"><div class="hscroll"><span class="chip on">All</span><span class="chip">Security</span><span class="chip">Engineering</span><span class="chip">Science</span><span class="chip">Medical</span><span class="chip">Ops</span></div></div>
+          <div id="ph-manifest" style="background:var(--color-bg-raised)"></div>
+          <div class="foot" style="background:var(--color-bg-raised);border-top:1px solid var(--color-border)"><span>1 to 50 of 765</span><span class="pager"><span class="pg"><svg class="g"><use href="#i-chev-l"/></svg></span><span class="pg on">1</span><span class="pg">/ 16</span><span class="pg"><svg class="g"><use href="#i-chev-r"/></svg></span></span></div>
+        </div>
+      </div>
+      <div style="display:grid;gap:12px;max-width:420px">
+        <p class="frame-cap">Option B: grouped, each group opens on tap</p>
+        <div class="modal" style="width:420px">
+          <div class="mb" style="gap:0">
+            <div class="acc"><div class="ah"><span><svg class="g"><use href="#i-chev-d"/></svg> <b>Vael science group</b> · Lt Cmdr · 1</span></div>
+              <div class="pmrow"><span class="i">1</span><span class="n">Ommen Tash-Vire</span><span></span></div>
+              
+            </div>
+            <div class="acc"><div class="ah"><span><svg class="g"><use href="#i-chev-r"/></svg> <b>Earth-born science group</b> · Lt · 3</span></div></div>
+            <div class="acc"><div class="ah"><span><svg class="g"><use href="#i-chev-r"/></svg> <b>Ossir security group</b> · Master Chief · 4</span></div></div>
+            <div class="acc"><div class="ah"><span><svg class="g"><use href="#i-chev-d"/></svg> <b>Spacer science group</b> · Crewman · 131</span></div>
+              <div class="pmrow"><span class="i">1</span><span class="n">Juno Arrabal</span><span></span></div>
+              <div class="pmrow"><span class="i">2</span><span class="n">Calder Ivesson</span><span></span></div>
+              <div class="pmrow"><span class="i">...</span><span class="n" style="color:var(--color-text-dim)">Show 25 more (2 of 131)</span><span></span></div>
+            </div>
+          </div>
+        </div>
+        <div class="oc"><div class="t">Open call 7 · manifest layout</div><div class="ab"><b>A</b><span>One flat list in group order, 50 a page with page numbers (drawn left). Reads like a ship's roster; buffs repeat on each row.</span><b>B</b><span>Collapsed groups, each opening to its names, "Show 25 more" inside a big group. Faster to find a group; never a 768-row page.</span></div><div class="drawn">Drawn: A in full, B as a sketch</div></div>
+        <div class="oc"><div class="t">Open call 8 · graduate from the manifest</div><div class="ab"><b>A</b><span>Manifest is read-only; Graduate stays on the table (drawn). Today the manifest name and the graduate name come from different seeds, so a "graduate this one" button would hand out a different name.</span><b>B</b><span>A "Graduate" on a manifest row that keeps that row's name. Nicer, but needs a small engine change to CP-8.</span></div><div class="drawn">Drawn: A</div></div>
+      </div>
+    </div></div>
+    <p class="note">Notables sit at the top with their saved names and a star (they are not manifest rows; they carry their own name). Rows are generated only for the page in view, so 750 or 1,017 crew open as fast as 50. No search box: searching names would mean generating all of them.</p>
+  </section>
+
+  <section>
+    <p class="label">Open calls, in one list</p>
+    <ol class="calls">
+      <li><b>Sort and filter:</b> A chips (drawn) or B two dropdowns.</li>
+      <li><b>Buffs in a row:</b> A one chip per buff (drawn) or B one comma line.</li>
+      <li><b>Graduate placement:</b> A a button per row (drawn) or B one button in the selection bar for a single ticked group.</li>
+      <li><b>Phone filter rows:</b> A two sideways-scrolling chip rows (drawn) or B a "Sort and filter" sheet.</li>
+      <li><b>Phone selection bar:</b> A sticky at the bottom (drawn) or B inline.</li>
+      <li><b>Send back:</b> A on each notable card here, or B only in Personnel Rosters. (Not in the CP-9 file list; say if you want it now.)</li>
+      <li><b>Manifest layout:</b> A one paged list (drawn) or B collapsed groups.</li>
+      <li><b>Graduate from the manifest:</b> A read-only manifest (drawn) or B graduate a named row, keeping its name (small CP-8 change).</li>
+    </ol>
+  </section>
+</div>
+
+<script>
+  const RAR = { derelict: ["Derelict", "var(--rarity-derelict)"], standard: ["Standard", "var(--rarity-standard)"], augmented: ["Augmented", "var(--rarity-augmented)"], stellar: ["Stellar", "var(--rarity-stellar)"] };
+  // [race, division, rank, rarity, buffs, count, selected]  buff prefix: "x:" exclusive, "h:" held
+  const GROUPS = [
+    ["Vael", "Science", "Lieutenant Commander", "stellar", ["Keen Analysis", "x:Mission Turnaround", "Survey Aptitude"], 1, true],
+    ["Earth-born", "Science", "Lieutenant", "augmented", ["Survey Aptitude", "h:Craft Duplicate Chance (Held for homeworld staffing)", "Extraction Yield"], 3, false],
+    ["Ossir", "Security", "Master Chief", "stellar", ["Away-Team Protection", "Boarding Defense"], 2, true],
+    ["Stheni", "Medical", "Ensign", "augmented", ["Triage", "Crew Effectiveness"], 5, false],
+    ["Martian", "Engineering", "Cadet", "standard", ["Damage Control", "Engine Tuning"], 6, false],
+    ["Draell", "Medical", "Chief", "standard", ["Reduced Crew Losses", "Triage"], 9, false],
+    ["Belter", "Operations", "Petty Officer", "standard", ["Efficient Unloading"], 22, false],
+    ["Station-born", "Flight Deck", "Crewman", "standard", ["Deck Handling"], 48, false],
+    ["Spacer", "Science", "Crewman", "derelict", ["Extraction Yield"], 131, false],
+  ];
+  const CHK = '<svg class="g"><use href="#i-check"/></svg>';
+  function chips(b) {
+    return '<div class="buffs">' + b.map(function (x) {
+      if (x.indexOf("x:") === 0) return '<span class="bf ex" title="Second-level exclusive buff"><svg class="g"><use href="#i-diamond"/></svg>' + x.slice(2) + '</span>';
+      if (x.indexOf("h:") === 0) return '<span class="bf held" title="Does nothing on ship crew">' + x.slice(2) + '</span>';
+      return '<span class="bf">' + x + '</span>';
+    }).join("") + '</div>';
+  }
+  function rar(k) { return '<span class="rar" style="color:' + RAR[k][1] + '"><i></i>' + RAR[k][0] + '</span>'; }
+  function grpName(g) { return g[0] + ' ' + g[1].toLowerCase() + ' group'; }
+  document.getElementById("dk-rows").innerHTML = GROUPS.map(function (g) {
+    return '<tr class="' + (g[6] ? 'sel' : '') + '"><td><span class="cb' + (g[6] ? ' on' : '') + '">' + (g[6] ? CHK : '') + '</span></td>' +
+      '<td><b style="font-weight:600">' + grpName(g) + '</b></td><td>' + g[1] + '</td><td>' + g[2] + '</td><td>' + rar(g[3]) + '</td><td>' + chips(g[4]) + '</td>' +
+      '<td class="num">' + g[5] + '</td><td class="act"><button class="sm' + (g[6] ? '' : ' ghost') + '"><svg class="g"><use href="#i-grad"/></svg>Graduate one</button></td></tr>';
+  }).join("");
+  document.getElementById("ph-cards").innerHTML = GROUPS.slice(0, 5).map(function (g) {
+    return '<div class="pcard' + (g[6] ? ' sel' : '') + '"><span class="cb' + (g[6] ? ' on' : '') + '">' + (g[6] ? CHK : '') + '</span>' +
+      '<div><div class="nm">' + grpName(g) + '</div><div class="meta">' + g[2] + ' · ' + rar(g[3]) + '</div></div>' +
+      '<div class="cnt">' + g[5] + '<span>CREW</span></div>' + chips(g[4]) +
+      '<div class="pa"><button class="sm ghost"><svg class="g"><use href="#i-grad"/></svg>Graduate one</button></div></div>';
+  }).join("");
+
+  // Division charts: caps for Lt Cmdr..PO then Crewman (uncapped)
+  const DIVS = [
+    ["Security", 118, 120, [1,2,3,5,8,12,18], [1,2,3,5,8,12,18], 69],
+    ["Engineering", 124, 125, [1,2,3,5,8,12,18], [1,2,2,5,8,11,17], 78],
+    ["Science", 268, 240, [2,3,5,9,14,20,30], [2,4,5,9,14,20,30], 184],
+    ["Medical", 96, 100, [1,2,3,4,7,10,14], [0,1,3,4,7,10,13], 58],
+    ["Operations", 92, 95, [1,2,3,4,6,9,13], [1,1,3,4,6,9,13], 55],
+    ["Flight Deck", 70, 70, [1,1,2,3,5,7,10], [0,1,2,3,5,0,10], 49],
+  ];
+  const ABBR = ["LtC","Lt","En","Cd","MC","Ch","PO","Crew"];
+  function util(p) { const h = Math.max(0, Math.min(1, p)) * 120; return 'linear-gradient(180deg, hsl(' + h + ',80%,62%), hsla(' + h + ',72%,42%,0.4))'; }
+  document.getElementById("dk-charts").innerHTML = DIVS.map(function (d) {
+    const caps = d[3], cur = d[4]; const axis = Math.max.apply(null, caps) + 1;
+    const over = d[1] > d[2];
+    let cols = caps.map(function (c, i) {
+      const o = cur[i] > c; const p = c ? cur[i] / c : 0;
+      const tip = (over && i === 1) ? '<div class="btip"><div class="r">Lieutenant · over cap</div><div class="row"><span>Assigned</span><b>4</b></div><div class="row"><span>Capacity</span><b>3</b></div><div class="w">Takes no more crew. Nobody is removed.</div></div>' : '';
+      return '<div class="col">' + tip + '<div class="trk"><div class="capb" style="height:' + Math.round(c / axis * 100) + '%"></div><div class="utb' + (o ? ' over' : '') + '" style="height:' + Math.min(100, Math.round(cur[i] / axis * 100)) + '%;background:' + util(p) + '"></div></div><div class="xl' + (o ? ' over' : '') + '">' + ABBR[i] + '</div></div>';
+    }).join("");
+    const fr = Math.min(1, d[5] / axis / 3);
+    cols += '<div class="col"><div class="trk"><div class="capb unc" style="height:100%"></div><div class="utb" style="height:' + Math.round(fr * 100) + '%;background:' + util(fr) + '"></div></div><div class="xl">' + ABBR[7] + '</div></div>';
+    return '<div class="comp-div' + (over ? ' over' : '') + '"><div class="comp-dvh"><span class="comp-dv-name">' + d[0] + '</span><span class="comp-dv-count">' + d[1] + '<span class="comp-of"> / ' + d[2] + '</span></span></div><div class="chart">' + cols + '</div></div>';
+  }).join("");
+
+  const NOTABLES = [
+    ["Lt. Cmdr. Aluun Suvei", "Lieutenant Commander · Science · Vael", ["Keen Analysis", "x:Mission Turnaround", "Survey Aptitude"], true, true],
+    ["Chief Imre Halloway", "Chief · Medical · Earth-born", ["Triage", "Reduced Crew Losses"], false, false],
+    ["Ens. Teodora Vask", "Ensign · Engineering · Martian", ["Damage Control", "Power Discipline"], true, false],
+  ];
+  document.getElementById("dk-notables").innerHTML = NOTABLES.map(function (n) {
+    return '<div class="comp-ncard' + (n[4] ? ' new' : '') + '"><div class="comp-nc-name"><span>' + n[0] + '</span><span class="star' + (n[3] ? ' on' : '') + '"><svg class="g"><use href="#i-star"/></svg></span></div><div class="comp-nc-sub">' + n[1] + (n[4] ? ' · <span style="color:var(--color-success)">just graduated</span>' : '') + '</div>' + chips(n[2]) + '</div>';
+  }).join("");
+
+  // Manifest rows
+  const MROWS = [
+    ["Vael", "Science", "Lt Cmdr", "stellar", ["Keen Analysis", "x:Mission Turnaround", "Survey Aptitude"], ["Ommen Tash-Vire"]],
+    ["Earth-born", "Science", "Lieutenant", "augmented", ["Survey Aptitude", "h:Craft Duplicate (held)", "Extraction Yield"], ["Maren Okafor-Lind", "Desh Corvanne", "Talia Brennagh"]],
+    ["Ossir", "Security", "Master Chief", "stellar", ["Away-Team Protection", "Boarding Defense"], ["Ossek Druum", "Kreth Ul-Vann"]],
+    ["Stheni", "Medical", "Ensign", "augmented", ["Triage", "Crew Effectiveness"], ["Sisska Ren", "Thessa Oruun", "Ivash Kel"]],
+  ];
+  const NOT_ROWS = [["Lt. Cmdr. Aluun Suvei", "Lt Cmdr", "Science", "Vael", "stellar"], ["Chief Imre Halloway", "Chief", "Medical", "Earth-born", "standard"], ["Ens. Teodora Vask", "Ensign", "Engineering", "Martian", "standard"]];
+  let html = '<div class="mrow grp"><span>NOTABLE CREW · saved names</span><span>3</span></div>';
+  html += NOT_ROWS.map(function (n) { return '<div class="mrow not"><span class="i"><span class="star on"><svg class="g"><use href="#i-star"/></svg></span></span><span><b style="font-weight:600">' + n[0] + '</b></span><span>' + n[1] + '</span><span>' + n[2] + '</span><span>' + n[3] + '</span><span>' + rar(n[4]) + '</span><span class="sub" style="font-size:11px;color:var(--color-text-dim)">see the notable card</span></div>'; }).join("");
+  let idx = 1;
+  MROWS.forEach(function (g) {
+    html += '<div class="mrow grp"><span>' + (g[0] + ' ' + g[1].toLowerCase() + ' group').toUpperCase() + ' · ' + g[2] + '</span><span>' + g[5].length + '</span></div>';
+    g[5].forEach(function (nm) {
+      html += '<div class="mrow"><span class="i">' + idx + '</span><span>' + nm + '</span><span>' + g[2] + '</span><span>' + g[1] + '</span><span>' + g[0] + '</span><span>' + rar(g[3]) + '</span>' + chips(g[4]) + '</div>';
+      idx += 1;
+    });
+  });
+  document.getElementById("dk-manifest").innerHTML = html;
+  let ph = '<div class="mrow grp" style="grid-template-columns:1fr auto"><span>NOTABLES</span><span>3</span></div>';
+  ph += NOT_ROWS.slice(0, 2).map(function (n) { return '<div class="pmrow" style="background:rgba(var(--color-warning-rgb),.05)"><span class="i"><span class="star on"><svg class="g"><use href="#i-star"/></svg></span></span><span class="n"><b style="font-weight:600">' + n[0] + '</b></span><span></span><span class="s">' + n[2] + ' · ' + n[3] + ' · ' + RAR[n[4]][0] + '</span></div>'; }).join("");
+  let pidx = 1;
+  MROWS.slice(0, 3).forEach(function (g) {
+    ph += '<div class="mrow grp" style="grid-template-columns:1fr auto"><span>' + (g[0] + ' ' + g[1].toLowerCase()).toUpperCase() + ' · ' + g[2] + '</span><span>' + g[5].length + '</span></div>';
+    g[5].forEach(function (nm) { ph += '<div class="pmrow"><span class="i">' + pidx + '</span><span class="n">' + nm + '</span><span>' + rar(g[3]) + '</span><span class="s">' + g[4].map(function (b) { return b.replace(/^[xh]:/, ""); }).join(" · ") + '</span></div>'; pidx += 1; });
+  });
+  document.getElementById("ph-manifest").innerHTML = ph;
+</script>
+</body>
+</html>

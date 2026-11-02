@@ -823,3 +823,18 @@ User 2026-10-21 (merge-batch answers, late calls): "Build them in 0.14.0 (Recomm
 - CP-20 / OC-24: "Default, Colorblind, Mono (Recommended)": three presets for the complement graph: Default (gray cap,
   red/yellow/green), Colorblind-safe (Okabe-Ito vermillion/orange/bluish green), Monochrome (gray ramp). Per-device
   preference (localStorage, one key per graph), never in the save.
+
+## USER ANSWERS (2026-11-02): CP-9 and CP-10 mockups APPROVED
+
+Mockups: docs/mockups/2026-11-02-cp9-complement-manifest-mockup.html and
+docs/mockups/2026-11-02-cp10-transfer-picker-mockup.html. User: "The 2 mockups look fantastic." A nitpick pass may
+change any of these later ("Depends on how my eyes perceive the final product").
+CP-9: (1) sort and filter: A chips ("we can pivot to B if I like that better"); (2) buffs: A one chip per buff;
+(3) Graduate: A a button per row; (4) phone filters: A two sideways-scrolling chip rows; (5) phone selection bar: A
+sticky at the bottom; (6) send back: A on each notable card (added to CP-9's scope); (7) manifest: A one paged list;
+(8) graduate from the manifest: A read-only manifest.
+CP-10: (1) destination: A ship cards with room and reasons; (2) over-asking: A allow it, warn per row, the button shows
+what will move; (3) per-row amount: A minus, count, plus, ALL; (4) result: A row by row in the modal; (5) phone picker:
+A two steps; (6) crew pool: A its own tab in Personnel Rosters; (7) take from pool: A only from the pool view; (8) lock
+display: A a line per panel and a lock on each sub-tab; (9) benched list home: A every ship's Away Team tab (built);
+(10) benched list name: "Unassigned".
