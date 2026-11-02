@@ -492,6 +492,11 @@ export const SURVEY_LOG_PARAGRAPHS: readonly string[] = [
   "The Survey Log is a record: it changes nothing in play.",
 ];
 
+// HOTFIX 0.13.11.3: the offline topic names the cap, so it is built FROM the constant (never typed
+// as a number), which keeps the rule above: a retune of the cap changes this text with it.
+import { OFFLINE_CAP_SECONDS_BASE } from "./game/offlineCap";
+import { formatOfflineCap } from "./game/offlineSummary";
+
 export interface HelpTopic {
   id: string;
   title: string;
@@ -786,6 +791,11 @@ On the order form, This order uses lists the qualities the order will draw, and 
     id: "fuel",
     title: "Fuel",
     body: `Fuel is no longer something you mine, refine, or buy. Refueling is instant and free, so the only thing fuel decides is REACH: how far a ship can fly on one round trip, measured in lightyears (LY). Each hull has its own reach, set by its fuel capacity and engine efficiency, and an installed FTL Drive with Fuel Capacity or Fuel Efficiency stats extends it. Every mission and patrol has a round-trip distance in LY, and a ship can only be dispatched on a trip its reach covers. Mission and patrol cards show the trip distance, the dispatch windows show it next to the ship's range (installed gear included), and a trip beyond a ship's reach is flagged before you send it, with the reason. The old fuel tank, Buy Fuel and the Local Deuterium Skim run are retired, and Deuterium Ice is no longer FTL fuel: the Cometary Ice Harvest brings it in, the Refinery presses it into Deuterium Canisters for Reactor Core blueprints, and it still sells at the Quartermaster's Sell counter. The Fuel Depot, in Facilities, now extends REACH instead: every level it is upgraded adds ${Math.round(FUEL_DEPOT_REACH_PER_RUNG * 100)}% to the reach of every ship in the fleet, missions and patrols alike.`,
+  },
+  {
+    id: "offline",
+    title: "Offline Progress",
+    body: `Your fleet keeps working while the game is closed, the tab is in the background, or your device is asleep. When you come back, the time you were away is paid exactly as if you had been watching: missions finish, queues run, and captains earn XP. Offline progress pays up to ${formatOfflineCap(OFFLINE_CAP_SECONDS_BASE)} per absence; anything past that is not counted, so check in at least that often to keep everything running. After a longer absence, the While You Were Away recap shows how long your fleet actually ran, names the cap, and tells you plainly when the cap was reached. The game also checks the time with the server, so a device clock set forward pays nothing extra: any time it cannot confirm yet is held and paid once the clock is confirmed, still within the same cap.`,
   },
   {
     id: "homeworld",
