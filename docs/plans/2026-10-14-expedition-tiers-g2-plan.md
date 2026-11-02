@@ -699,3 +699,9 @@ names in game text (the Wolf 359 nod stays original).
 ## USER ANSWER (2026-10-22): G2-6 drive glyph
 
 "Keep the upright one" (the builder redrew the mockup drive glyph upright because sideways it read as a loudspeaker). G2-6 merged as 62fbf39.
+
+## USER ANSWERS (2026-11-02): the Wolf 359 nod (G10 / OC-10)
+
+"Quiet derelict field (Recommended)": a one-time Survey Log entry. Many old, unmarked hulls drift in loose formation;
+the crew holds a moment of silence. Unnamed and original (the Captain's Sigil rule): no franchise names, no named
+ships or people. Triggers once.

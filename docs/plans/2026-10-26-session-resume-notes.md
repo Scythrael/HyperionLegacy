@@ -216,3 +216,10 @@ gate pending 80 -> 47). WR-11 [PROVISIONAL] numbers for the balance pass (pre-re
 x2 and materials x1.25; Ocean surface x1.25; anomaly sensor reference 40, haul scale 0.5; salvage tilt 0.5, knee 1;
 sell prices Salvaged Circuitry 12 cr, Precursor Circuit 300 cr. Open (non-blocking): should the reserved FA 20 row
 also tilt the salvage odds? Next: GG-8, then alternates (EM-8, CP-5, SF-7, G1-7, ...), WR-9 and WR-10 now unblocked.
+
+## Hub note (2026-11-02): user calls closed
+
+ANSWERED 2026-11-02: CP-19 (Personnel Rosters track), telescope cycles name ("Deep Field Refinement"), Wolf 359 nod
+(quiet derelict field), CP-20 (Default / Colorblind / Mono). Gear wear step 5 UI: NOT approved yet; mockup
+https://claude.ai/artifact/HRa9zUf1XRrPoh9tuinhEF shown to the user for sign-off. Relic name sheets and the CP-9 /
+CP-10 mockups are being drafted. PROD is 0.13.11.3 @ eaf1fb8 (offline cap 4 days), merged into feat 7c553ac.

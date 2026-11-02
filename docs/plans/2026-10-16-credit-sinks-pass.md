@@ -313,3 +313,9 @@ tutorial patch and the tutorial / quests patch (tested in processSpeed.test.ts; 
 **Open calls, ANSWERED (user, 2026-10-17):** OC-S1 to OC-S3 "3 steps, 10/min x tier" as built (3 steps; 10 per job
 minute x tier x step; refused on a job's last tick); OC-S4 and OC-S5 "uninspected gear, not counted as earned" as
 built; OC-S6 "up to 30 days" as built.
+
+## USER ANSWERS (2026-11-02)
+
+- OC-C4 (candidate board expansion cost): answered with CP-19, "Personnel Rosters track (Recommended)", credits + time,
+  3,000 x rung (see the complement plan's 2026-11-02 answers).
+- Endless telescope cycles past level 8: named "Deep Field Refinement" (levels shown as "Refinement N").

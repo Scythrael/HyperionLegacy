@@ -814,3 +814,12 @@ User 2026-10-21 (merge-batch answers, late calls): "Build them in 0.14.0 (Recomm
   toward the existing 0.9 per-status cap (smoothly, never a hard clamp, D23); members already near 0.9 gain little.
 - Away-Team Protection rounding: "Round up (Recommended)": any holder gives a Security member at least +1 max HP;
   larger crews scale as before (ceil, not round).
+
+## USER ANSWERS (2026-11-02): CP-19 and CP-20
+
+- CP-19 / OC-17 + credit sinks OC-C4: "Personnel Rosters track (Recommended)": an upgrade track on the existing
+  Personnel Rosters card, 5 rungs, +2 candidate slots each (10 -> 20, both boards), 3,000 x rung credits + time; the
+  Recruiter captain talent (candidateRosterSize, currently dead) is wired to +1 slot on the D23 curve. No new facility.
+- CP-20 / OC-24: "Default, Colorblind, Mono (Recommended)": three presets for the complement graph: Default (gray cap,
+  red/yellow/green), Colorblind-safe (Okabe-Ito vermillion/orange/bluish green), Monochrome (gray ramp). Per-device
+  preference (localStorage, one key per graph), never in the save.
