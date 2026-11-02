@@ -50,8 +50,8 @@ export function bonusRollWeight(def: SeniorStaffBonusDef): number {
 // exported as one flat array. Ids are seat-prefixed to stay globally unique.
 export const SENIOR_STAFF_BONUSES: SeniorStaffBonusDef[] = [
   // Executive Officer: fleet-wide command multipliers.
-  { id: "xo.commandOutput", label: "Command Presence", seat: "executive", statKey: "officer.shipOutputMult", magnitude: 0.06, rollTier: "rare", description: "Grows the materials and credits every one of the ship's runs brings home (missions and patrols)." },
-  { id: "xo.moraleAnchor", label: "Morale Anchor", seat: "executive", statKey: "officer.crewRetention", magnitude: 0.08, rollTier: "uncommon", description: "Steadies the away team: every member resists Fear. (Complement attrition, if that system ever lands.)" },
+  { id: "xo.commandOutput", label: "Command Presence", seat: "executive", statKey: "officer.shipOutputMult", magnitude: 0.06, rollTier: "rare", description: "Grows the materials and credits every one of the ship's runs brings home (missions, patrols and expedition objectives)." },
+  { id: "xo.moraleAnchor", label: "Morale Anchor", seat: "executive", statKey: "officer.crewRetention", magnitude: 0.08, rollTier: "uncommon", description: "Steadies the away team: every member resists Fear." },
 
   // Pilot: transit and evasion.
   { id: "pilot.transitCut", label: "Ace Navigator", seat: "pilot", statKey: "officer.transitTimeCut", magnitude: 0.08, rollTier: "common", description: "Shaves a sweeping cut off both legs of a mission's transit." },

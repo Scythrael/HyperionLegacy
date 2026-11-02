@@ -17,10 +17,9 @@ describe("crewRank: ladder", () => {
     ]);
   });
 
-  it("marks ranks 1-4 enlisted and 5-8 officer-track", () => {
-    for (const r of CREW_RANK_ORDER) {
-      expect(CREW_RANKS[r].enlisted).toBe(r <= 4);
-    }
+  // Wiring WR-9 (OC-E11): the never-read `enlisted` flag is deleted (identity only).
+  it("carries no enlisted flag (OC-E11: deleted)", () => {
+    for (const r of CREW_RANK_ORDER) expect("enlisted" in CREW_RANKS[r]).toBe(false);
   });
 
   it("keys each def to its own id", () => {

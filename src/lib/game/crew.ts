@@ -26,14 +26,18 @@ import { makeRng } from "./combat/rng";
 // key round-trips uniquely. `count` is deliberately NOT part of the key (it is the value, not the
 // identity). buff2Id is optional (null at low ranks); the empty string is a safe sentinel for null
 // because a real buff id is never empty, so a null-buff2 bucket never collides with a real-buff2 one.
+// Wiring WR-9 (OC-E12): a third buff joins the key only when present, so every key of a two-buff signature (every
+// bucket rolled before WR-9) is exactly what it was (its manifest names included).
 export function signatureKey(sig: CrewSignature): string {
-  return [sig.profession, sig.rarity, String(sig.rank), sig.race, sig.buff1Id, sig.buff2Id ?? ""].join("|");
+  const parts = [sig.profession, sig.rarity, String(sig.rank), sig.race, sig.buff1Id, sig.buff2Id ?? ""];
+  if (sig.buff3Id !== undefined) parts.push(sig.buff3Id);
+  return parts.join("|");
 }
 
 // The signature a notable crew member carries (the bucket it graduated from). A notable assigned to a ship holds ONE
 // complement slot of exactly this signature (its rank and division) on top of the fungible bulk. Pure.
 export function notableSignature(n: NotableCrewMember): CrewSignature {
-  return { profession: n.profession, rarity: n.rarity, rank: n.rank, race: n.race, buff1Id: n.buff1Id, buff2Id: n.buff2Id };
+  return { profession: n.profession, rarity: n.rarity, rank: n.rank, race: n.race, buff1Id: n.buff1Id, buff2Id: n.buff2Id, ...(n.buff3Id !== undefined ? { buff3Id: n.buff3Id } : {}) };
 }
 
 // Returns true when two signatures are the same bucket identity.
@@ -51,6 +55,7 @@ function signatureOf(sig: CrewSignature): CrewSignature {
     race: sig.race,
     buff1Id: sig.buff1Id,
     buff2Id: sig.buff2Id,
+    ...(sig.buff3Id !== undefined ? { buff3Id: sig.buff3Id } : {}),
   };
 }
 
@@ -191,6 +196,7 @@ export function contributionForSignature(sig: CrewSignature): Record<string, num
   };
   applyBuff(sig.buff1Id);
   applyBuff(sig.buff2Id);
+  applyBuff(sig.buff3Id ?? null); // WR-9 (OC-E12): a top rank's third buff
 
   // Racial per-head (complement) magnitude, scaled the same way.
   const raceDef = CREW_RACES[sig.race];

@@ -13,7 +13,8 @@
 //   - rank follows a pyramid (many low ranks, few high), locked at generation (no leveling).
 //   - buff COUNT follows buffCountForRank(rank): 1 buff -> buff2Id null; 2 buffs -> a 2nd DISTINCT
 //     profession buff; 3-eligible ranks (Lieutenant / Lt Commander) may instead draw the 2nd buff
-//     from the sweeping exclusive pool (ROLLABLE_SECOND_LEVEL_EXCLUSIVE: craft duplicate is held, D14).
+//     from the sweeping exclusive pool (ROLLABLE_SECOND_LEVEL_EXCLUSIVE: craft duplicate is held, D14), and (WR-9,
+//     OC-E12) roll a third buff from the profession pool, drawn last.
 //
 // The PRNG is the shared combat mulberry32 (combat/rng.ts), never Math.random (which would break the
 // offline == live determinism the transport accumulator relies on). Buffs are drawn from the Phase
@@ -28,6 +29,7 @@ import { CREW_RACE_IDS } from "./crewRaces";
 import { clampCrewRarity } from "./crewRarity";
 import { buffCountForRank } from "./crewRank";
 import { CREW_PROFESSIONS } from "./commandStructure";
+import { WR9_SWITCH } from "./model";
 
 // The rarities the generator can mint, in ascending order, ALL at or below the crew cap (stellar).
 // A parallel weight table biases the roll toward the common tiers. FIRST-PASS + TUNABLE.
@@ -114,5 +116,15 @@ export function generateComplementCrew(
     }
   }
 
+  // buff3 (Wiring WR-9, OC-E12, user 2026-10-15 "Roll a third buff"): a rank that carries 3 buffs rolls a third from
+  // its PROFESSION pool, distinct from the profession buffs it already holds. Drawn LAST, so every earlier draw (and so
+  // every field above) is exactly what it was; a pool with nothing left to give rolls none (no pool is that small).
+  if (buffCount >= 3 && WR9_SWITCH.live) {
+    const left = pool.filter((b) => b.id !== buff1Id && b.id !== buff2Id);
+    if (left.length > 0) {
+      const buff3Id = left[rng.nextInt(left.length)].id;
+      return { profession, rarity, rank, race, buff1Id, buff2Id, buff3Id };
+    }
+  }
   return { profession, rarity, rank, race, buff1Id, buff2Id };
 }

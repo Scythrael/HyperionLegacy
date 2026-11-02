@@ -255,6 +255,8 @@ import {
   SHORT_RANGE_RELIC_PROBE_HOURS,
   relicV2ProbeExpectedExceptional,
   RECALL_PROBE_SHARE,
+  PILOT_PROBE_CYCLES,
+  wr9TopRankCount,
   launchedAndAt,
   type ContextId,
   type ProbeId,
@@ -511,7 +513,9 @@ function pending(owner: string, contexts?: readonly ContextId[]): WiringStatus {
 // Expedition Tiers G2-6 (the dispatch console's region picker and recall): the tier-gated sources G2-2 to G2-5 left to
 // it (owners "G2-6 (the region picker ...)" and "G2-6 (the recall button ...)") are live, each with its own check
 // (auditRowWiring below; expeditionConsoleRegistry.fixture.ts G2_6_FLIPPED_BEFORE holds the flips apart in the pins).
-const PILOT_CUNNING = "pending user decision (officerStats.ts CUNNING_PENDING_SEATS)";
+// WR-9 (OC-E4, user 2026-10-15 "Quicker trips home"): the Pilot's Cunning went live (a chance per mission cycle to fly
+// home a tick sooner; the fix round, user 2026-10-31, reached short-range runs and patrols too), so every seat facet is live; its facet probe reads the Flight Deck's Cunning and the mission
+// cycles probe (no-dead-stats) and crew:audit:pilotCunningReturn prove the consumer moves.
 // Gear wear (0.14.0, design docs/plans/2026-10-16-gear-wear-design.md section 11) owners: step 3 wires the use wear
 // sources, the repair contexts and the economy / ground efficiency; step 4 the combat half (battle wear, the
 // true-condition pools, shield / plating / pod efficiency); step 5 the UI and the optional paid repair. Each step
@@ -804,7 +808,6 @@ function facetEntries(): WiringEntry[] {
   for (const seat of SEATS) {
     for (const stat of OFFICER_STAT_KEYS) {
       const dept = DEPARTMENT_OF_SEAT[seat];
-      const pendingOwner = seat === "pilot" && stat === "cunning" ? PILOT_CUNNING : undefined;
       // The XO's facet reaches every department at XO_DEPARTMENT_SHARE (read here on Operations).
       const probe: ProbeId = dept === "all" ? `facet:operations:${stat}` : `facet:${dept}:${stat}`;
       out.push(
@@ -814,12 +817,12 @@ function facetEntries(): WiringEntry[] {
           source: { catalog: "OFFICER_STAT_FACETS", key: `${seat}:${stat}` },
           claim: `${seat} ${stat} (department: ${dept})`,
           liveness: true,
-          probe: pendingOwner ? undefined : probe,
-          contexts: pendingOwner ? [] : ["sheet"],
+          probe,
+          contexts: ["sheet"],
           magnitude: () => officerStatFacet(FACET_HIGH) * (dept === "all" ? XO_DEPARTMENT_SHARE : 1),
           on: (s) => seatOfficer(s, seat, [], { stats: { ...neutral, [stat]: FACET_HIGH } }),
           off: (s) => seatOfficer(s, seat, [], { stats: neutral }),
-          status: pendingOwner ? pending(pendingOwner) : LIVE,
+          status: LIVE,
           note: "the facet each consumer reads; the liveness level proves the consumers move",
         }),
       );
@@ -3925,11 +3928,15 @@ const AUDIT_ROWS: readonly { id: string; system: WiringSystem; claim: string; st
   { id: "ship:audit:patrolRepairPause", system: "ship", claim: "A Repeat patrol whose next cycle would break a worn system goes home to repair first, then resumes", status: LIVE },
   { id: "ship:audit:podDurability", system: "ship", claim: "DRONE_POD_BASE_DURABILITY and QUALITY_DURABILITY_BONUS on non-weapons: a pod (and every piece) is as tough as its durability, so a tougher one wears slower in battle", status: LIVE },
   // E. Crew
-  { id: "crew:audit:enlisted", system: "crew", claim: "The crew rank enlisted flag (never read)", status: pending("WR-9, OC-E11") },
-  { id: "crew:audit:thirdBuff", system: "crew", claim: "buffCountForRank 3 (only gates the exclusive pick)", status: pending("WR-9, OC-E12") },
+  // WR-9 (OC-E11, user 2026-10-15 "delete (identity only)"): the never-read flag is gone.
+  { id: "crew:audit:enlisted", system: "crew", claim: "The crew rank enlisted flag: deleted (identity only)", status: LIVE },
+  // WR-9 (OC-E12, user 2026-10-15 "Roll a third buff"): a rank carrying 3 buffs rolls a third from its profession pool.
+  { id: "crew:audit:thirdBuff", system: "crew", claim: "buffCountForRank 3: a Lieutenant or Lieutenant Commander rolls a third buff from its profession pool, and it counts", status: LIVE },
   { id: "crew:audit:commandCaps", system: "crew", claim: "Command structure caps (passive ships only; not enforced on load)", status: pending("CP-5, CP-7") },
-  { id: "crew:audit:rapidLoadoutScope", system: "crew", claim: "Rapid Loadout acts on Ground Ops only", status: pending("WR-9, OC-E6") },
-  { id: "crew:audit:moraleAttrition", system: "crew", claim: "Morale Anchor's \"complement attrition\" half (no system)", status: pending("WR-9, OC-E7") },
+  // WR-9 (OC-E6, user 2026-10-15 "Ground Ops reload only, the text says so"): the Help's reload line says so.
+  { id: "crew:audit:rapidLoadoutScope", system: "crew", claim: "Rapid Loadout speeds the Ground Ops reload only (missions have no load step; the Help says so)", status: LIVE },
+  // WR-9 (OC-E7, user 2026-10-15 "Drop that half"): Morale Anchor's text names only its Fear resist.
+  { id: "crew:audit:moraleAttrition", system: "crew", claim: "Morale Anchor's text names only its Fear resist (the complement attrition half dropped)", status: LIVE },
   // The inert racials (0.14.0): the Spacer racial went live on the transit speed (user 2026-10-20 "+Transit speed"); the
   // long-haul ramp it was first named for stays the user's 0.14.x deferral, kept visible here.
   {
@@ -3938,7 +3945,12 @@ const AUDIT_ROWS: readonly { id: string; system: WiringSystem; claim: string; st
     claim: "The Spacer long-haul ramp (crew.endurance: a complement build-up like Constitution, D23 curve; no source in 0.14.0)",
     status: { kind: "deferred", owner: "Task 23: complement long-haul ramp (D26)", userRef: `${T3}: the Spacer long-haul ramp` },
   },
-  { id: "crew:audit:commandPresenceExpedition", system: "crew", claim: "Command Presence and Operations Integrity do not reach expeditions", status: pending("WR-9, OC-E9") },
+  // WR-9 (OC-E9, user 2026-10-15 "Expeditions too"): both reach Ground Ops, each frozen at dispatch.
+  { id: "crew:audit:commandPresenceExpedition", system: "crew", claim: "Command Presence grows every Ground Ops objective's haul (frozen at dispatch)", status: LIVE },
+  { id: "crew:audit:opsIntegrityOffload", system: "crew", claim: "Operations Integrity speeds a Ground Ops offload carrying at least 90% of an objective's haul (frozen at dispatch)", status: LIVE },
+  // WR-9 (OC-E4, user 2026-10-15 "Quicker trips home"): the Pilot's Cunning, measured on the mission engine.
+  // WR-9 fix round (user 2026-10-31 "Missions, short-range, patrols"): every run with a trip home.
+  { id: "crew:audit:pilotCunningReturn", system: "crew", claim: "The Pilot's Cunning: each cycle of a mission, short-range run or patrol, a chance the return leg is one tick shorter (stamped at dispatch)", status: LIVE },
   // F. Away team and ground
   { id: "away:audit:shroudLureGroundOps", system: "away", claim: "Shroud Emitter and Lure Beacon work on the ground (OC-F1): they scale a crew's ambush chance on a calm objective, rolled per use", status: LIVE },
   { id: "away:audit:neuralBackupClaim", system: "away", claim: "Neural Backup revives the FIRST downed ally; its flavor says the wearer (B13)", status: pending("WR-10, OC-F2") },
@@ -4239,6 +4251,65 @@ function wr7AuditWiring(): Readonly<Record<string, Partial<EntryInput>>> {
 
 // Wiring WR-11: the checks of the audit rows it made live (probes.ts wr11AuditValue and the content probes), each read
 // through the consumer that makes the row true.
+// Wiring WR-9 (the OC-E answers): each crew row it made live, measured on its consumer.
+function wr9AuditWiring(): Readonly<Record<string, Partial<EntryInput>>> {
+  const neutral: OfficerStats = { strength: OFFICER_STAT_NEUTRAL, integrity: OFFICER_STAT_NEUTRAL, cunning: OFFICER_STAT_NEUTRAL, constitution: OFFICER_STAT_NEUTRAL };
+  const content = (key: string, magnitude: () => number): Partial<EntryInput> => ({
+    probe: `content:wr9:${key}` as ProbeId,
+    contexts: ["sheet"],
+    direction: "none",
+    curve: { kind: "equals" },
+    magnitude,
+  });
+  return {
+    "crew:audit:enlisted": content("noEnlisted", () => 1),
+    "crew:audit:moraleAttrition": content("noAttrition", () => 1),
+    // Every crewmember of the probe batch whose rank carries 3 buffs (the catalog count) carries a third that counts.
+    "crew:audit:thirdBuff": { ...content("thirdBuff", () => wr9TopRankCount()), note: "a generated batch: every 3-buff rank's third buff reaches its contribution" },
+    // Rapid Loadout on a mission: a whole cycle is exactly as long with it as without (a move of 0); its Ground Ops reload
+    // is proven by crew:crew.loadSpeed (expReloadMult).
+    "crew:audit:rapidLoadoutScope": {
+      probe: "missionCycleTicks",
+      contexts: ["sheet"],
+      direction: "none",
+      magnitude: () => 0,
+      on: (s) => withBuckets(s, [bucketOf("operations", "ops.loadSpeed")]),
+      off: (s) => withBuckets(s, [bucketOf("operations", "wiring.none")]),
+      note: "a move of 0: missions have no load step",
+    },
+    // Command Presence (the XO's) against an XO without it: the objective haul grows (rollHaul rounds each amount).
+    "crew:audit:commandPresenceExpedition": {
+      probe: "runObjectiveHaul",
+      contexts: ["expedition:groundOps"],
+      curve: { kind: "event", metric: "credits plus material units of one objective's haul" },
+      magnitude: () => 1,
+      on: (s) => seatOfficer(s, "executive", ["xo.commandOutput"]),
+      off: (s) => seatOfficer(s, "executive", []),
+    },
+    // An Operations officer with Integrity 20 against one at 10: a whole objective's offload divides by (1 + the facet).
+    "crew:audit:opsIntegrityOffload": {
+      probe: "runPackedOffloadSeconds",
+      contexts: ["expedition:groundOps"],
+      direction: "down",
+      curve: { kind: "divisor" },
+      magnitude: () => officerStatFacet(FACET_HIGH),
+      on: (s) => seatOfficer(s, "operations", [], { stats: { ...neutral, integrity: FACET_HIGH } }),
+      off: (s) => seatOfficer(s, "operations", [], { stats: neutral }),
+    },
+    // A Pilot with Cunning 20 against one at 10: the return legs of the first cycles are shorter by at least a tick (the
+    // WR-9 fix round adds patrols here and short-range runs through the mission:shortRange sweep below).
+    "crew:audit:pilotCunningReturn": {
+      probe: "missionReturnTicks",
+      contexts: ["mission:extraction", "patrol"],
+      direction: "down",
+      curve: { kind: "event", metric: `return-leg ticks over a Short Ore Run's first ${PILOT_PROBE_CYCLES} cycles` },
+      magnitude: () => 1,
+      on: (s) => seatOfficer(s, "pilot", [], { stats: { ...neutral, cunning: FACET_HIGH } }),
+      off: (s) => seatOfficer(s, "pilot", [], { stats: neutral }),
+    },
+  };
+}
+
 function wr11AuditWiring(): Readonly<Record<string, Partial<EntryInput>>> {
   const flagged = (key: string, metric: string): Partial<EntryInput> => ({
     probe: `content:wr11:${key}` as ProbeId,
@@ -4345,6 +4416,7 @@ function auditRowWiring(): Readonly<Record<string, Partial<EntryInput>>> {
     ...wr8AuditWiring(),
     ...wr7AuditWiring(),
     ...wr11AuditWiring(),
+    ...wr9AuditWiring(),
     // E-MOD EM-4: a Reactor Core of REACTOR_LIFT_PROBE_OUTPUT power against the same core (same mass) supplying none, on a
     // bare hull (the hull's own power covers its draw, so the whole output is surplus): the sheet's transit speed and
     // the Ground Ops voyage's frozen outbound speed rise by exactly the lift.
@@ -5075,7 +5147,6 @@ function speedSeamEntries(): WiringEntry[] {
 const OFFICER_DORMANT = "dormant by design until its system lands (crewOverlay.ts OFFICER_BONUSES_PENDING_IN_RELEASE)";
 const ALLOW_LIST_REASONS: Readonly<Record<string, string>> = {
   ...Object.fromEntries(Object.keys(OFFICER_BONUSES_PENDING_IN_RELEASE).map((k) => [`officer:${k}`, OFFICER_DORMANT])),
-  "facet:pilot:cunning": "the Flight Deck has no over-delivery of its own yet (design section 7 names none)",
 };
 
 // ============================================================================
@@ -5204,6 +5275,8 @@ const SHORT_RANGE_SWEEP_LIVE: ReadonlySet<string> = new Set([
   "captain:SECONDARY_CAPTAIN_TALENTS:extraction4",
   "captain:SECONDARY_CAPTAIN_TALENTS:extraction5",
   ...TRANSIT_BERTH_RUNGS.map((_, i) => `facility:TRANSIT_BERTH_RUNGS:${i}`),
+  // WR-9 fix round (user 2026-10-31 "Missions, short-range, patrols"): the Pilot's quicker trip home.
+  "crew:audit:pilotCunningReturn",
 ]);
 // The mission-claim sources a short-range cycle has nothing for, and why. [PROPOSAL, the user's to confirm: the
 // extraction-roll talents stay with extraction missions.]

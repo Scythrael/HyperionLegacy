@@ -39,6 +39,7 @@ import { RELIC_BLANKS_VERSION, RELIC_STAGGER_VERSION, newRunRelicBlanksFlag } fr
 import { newReactorLiftFlag, reactorLiftFlagged } from "./reactorSurplus";
 import { crewModuleLinesStamp } from "./crewModules";
 import { equippedFor } from "./equipmentQueries";
+import { pilotCunningStamp, pilotCutShortRangePlan } from "./officerStats";
 
 // ===== the board =====
 
@@ -118,11 +119,28 @@ export interface ShortRangeCycleStart {
 // runWearStamp at dispatch, projectRunStamp at each later cycle start), so the plan reads the gear the cycle froze; without one (a run from before step 3, a
 // preview) it reads the stored sheet. E-MOD EM-4: `reactorLift` is whether the run carries the reactor surplus drive
 // lift flag (reactorSurplus.ts; a run dispatched before EM-4 plans its later cycles without the lift). Pure.
-export function startShortRangeCycle(state: GameState, ship: ShipInstance, slot: ShortRangeSlotRef, cycleIndex: number, wear: RunWearStamp | undefined, reactorLift: boolean, moduleLines = true, favored = true): ShortRangeCycleStart {
+export function startShortRangeCycle(
+  state: GameState,
+  ship: ShipInstance,
+  slot: ShortRangeSlotRef,
+  cycleIndex: number,
+  wear: RunWearStamp | undefined,
+  reactorLift: boolean,
+  moduleLines = true,
+  favored = true,
+  pilotCunning = 0,
+): ShortRangeCycleStart {
   const roll = rollShortRangeJob(state, slot, cycleIndex);
   // WR-7 (OC-D3): `moduleLines` is whether the run carries the crew module lines stamp (true for a preview).
   // WR-7 follow-up (OC-D5): `favored` likewise, the favored-spec stamp (true for a preview).
-  const plan = shortRangeCyclePlan(roll, runShipStats(state, ship, wear, reactorLift, moduleLines, favored), shortRangeShipEngineering(state, ship));
+  // WR-9 fix round (user 2026-10-31 "Missions, short-range, patrols"): `pilotCunning` is the run's Pilot Cunning stamp
+  // (0 for a run without one and for a preview); the cycle rolls it on its job seed and a landed roll cuts the leg home
+  // (officerStats.ts pilotCutShortRangePlan).
+  const plan = pilotCutShortRangePlan(
+    shortRangeCyclePlan(roll, runShipStats(state, ship, wear, reactorLift, moduleLines, favored), shortRangeShipEngineering(state, ship)),
+    roll.seed,
+    pilotCunning,
+  );
   return { roll, plan, runCounts: countShortRangeCycleStart(runCountsOf(state), roll.template) };
 }
 
@@ -239,7 +257,9 @@ export function dispatchCaptainOnShortRange(state: GameState, captainId: number,
   const moduleLines = crewModuleLinesStamp(state, ship);
   // WR-7 follow-up (OC-D5): and its favored pieces' bonus (stamped only when a piece favors the hull's spec).
   const favoredSpec = favoredSpecStamp(equippedFor(state, ship.id), ship.typeKey);
-  const start = startShortRangeCycle(state, ship, slot, shortRangeNextCycle(state, slotId), wear, reactorLift !== undefined, moduleLines === 1, favoredSpec === 1);
+  // WR-9 fix round (user 2026-10-31): and the Pilot's Cunning (stamped only when the Flight Deck's facet is non-zero).
+  const pilotCunning = pilotCunningStamp(state, ship);
+  const start = startShortRangeCycle(state, ship, slot, shortRangeNextCycle(state, slotId), wear, reactorLift !== undefined, moduleLines === 1, favoredSpec === 1, pilotCunning ?? 0);
   const mission: ShortRangeMissionState = {
     kind: "shortRange",
     slotId,
@@ -256,6 +276,7 @@ export function dispatchCaptainOnShortRange(state: GameState, captainId: number,
     ...(reactorLift !== undefined ? { reactorLift } : {}),
     ...(moduleLines !== undefined ? { moduleLines } : {}),
     ...(favoredSpec !== undefined ? { favoredSpec } : {}),
+    ...(pilotCunning !== undefined ? { pilotCunning } : {}),
   };
   const captains = [...state.captains];
   captains[idx] = { ...captains[idx], mission, lastStopReason: undefined };
@@ -324,5 +345,6 @@ export function isWellFormedShortRangeMission(m: unknown): m is ShortRangeMissio
   if (s.reactorLift !== undefined && !reactorLiftFlagged(s.reactorLift)) return false;
   if (s.moduleLines !== undefined && s.moduleLines !== 1) return false; // WR-7 (OC-D3): the module lines stamp
   if (s.favoredSpec !== undefined && s.favoredSpec !== 1) return false; // WR-7 follow-up (OC-D5): the favored-spec stamp
+  if (s.pilotCunning !== undefined && !(isFiniteNonNegative(s.pilotCunning) && s.pilotCunning <= 1)) return false; // WR-9 fix round
   return true;
 }

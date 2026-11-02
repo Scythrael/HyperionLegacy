@@ -62,12 +62,13 @@ import {
   missionDefWithoutShip,
   PATROL_PHASE_LABEL,
   requiredTicksForPhase,
-  missionPhaseTicks,
   extractionMissionOf,
   shipDisplayLabel,
 } from "./model";
 // 0.13.4 Phase 4: the transit-berth read model, so the In Progress board can report a hold.
 import { missionPhaseStatus } from "./berths";
+// WR-9 fix round: the in-flight phase length the engine flies (a landed Pilot Cunning cut included).
+import { captainMissionPhaseTicks } from "./officerStats";
 import { shortRangeMissionLabel } from "./shortRangeBoard";
 
 // The game's REAL "can I start this?" gates (Unit 2). Each is the single source of truth
@@ -725,8 +726,9 @@ function rowForExtraction(
   // E-MOD EM-4 review: the run's own sheet (gearWearEngine.ts missionRunSheet: its frozen gear and its reactor lift
   // flag), the one the engine flies it on.
   const missionDef = ship ? effectiveMissionDef(rawMissionDef, missionRunSheet(state, ship, mission)) : missionDefWithoutShip(rawMissionDef);
-  // E-CREW (Task 21): the same phase length the engine advances on (a packed hold unloads faster).
-  const requiredTicks = missionPhaseTicks(mission.phase, missionDef, mission.cargo);
+  // E-CREW (Task 21): the same phase length the engine advances on (a packed hold unloads faster). WR-9 fix round: and a
+  // return leg cut by a landed Pilot Cunning roll (officerStats.ts captainMissionPhaseTicks), so the bar never jumps.
+  const requiredTicks = captainMissionPhaseTicks(captain, mission, missionDef);
   const progress = Math.min(1, mission.phaseProgressTicks / requiredTicks);
   const remainingTicks = Math.max(0, Math.ceil(requiredTicks - mission.phaseProgressTicks));
   return {

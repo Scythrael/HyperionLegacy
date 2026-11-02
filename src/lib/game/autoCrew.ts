@@ -62,7 +62,8 @@ export function autoCrewShip(
             b.rank === bucket.rank &&
             b.race === bucket.race &&
             b.buff1Id === bucket.buff1Id &&
-            (b.buff2Id ?? null) === (bucket.buff2Id ?? null),
+            (b.buff2Id ?? null) === (bucket.buff2Id ?? null) &&
+            (b.buff3Id ?? null) === (bucket.buff3Id ?? null),
         )
         .reduce((sum, b) => sum + b.count, 0);
       const moveCount = Math.min(room, available);

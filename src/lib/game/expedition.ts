@@ -57,7 +57,7 @@ import type {
   ExpeditionScanEvent,
   SnapshotMember,
 } from "./model";
-import { SHIP_TYPES, WR11_SWITCH, commandingCaptain, moduleEffectScale, shipGearSetBonusLines, withFavoredLines } from "./model";
+import { SHIP_TYPES, WR11_SWITCH, WR9_SWITCH, commandingCaptain, moduleEffectScale, shipGearSetBonusLines, withFavoredLines } from "./model";
 // E-MOD EM-6: the body-scanned module trigger (its frozen procs and private stream).
 import { moduleNebulaSweep, moduleScanProcs, moduleScanSeed, rollModuleChance } from "./shipModules";
 import { makeRng, type Rng } from "./combat/rng";
@@ -67,7 +67,7 @@ import { pathfinderEffect } from "./utilityGear";
 import { equippedFor } from "./equipment";
 import { battleWearLive, viewPieceEfficiency, wornGearView } from "./gearWear";
 import { gearWearLive } from "./gearWearEngine";
-import { effectiveShipStats, foldOfficerPromotionCounters, officerBonusTotal, type PromotionIncrements, shipAwayTeamProtection, shipCounterInfiltration, shipCrewContribution, shipCrewTriage, shipSurveyAptitude } from "./crewOverlay";
+import { effectiveShipStats, foldOfficerPromotionCounters, officerBonusTotal, officerMissionOutputBonus, type PromotionIncrements, shipAwayTeamProtection, shipCounterInfiltration, shipCrewContribution, shipCrewTriage, shipSurveyAptitude } from "./crewOverlay";
 import { CREW_STAT_KEYS } from "./crewBuffs";
 import { fieldworkHazardResist, fieldworkSpeedMult } from "./fieldwork";
 import { ACTIVITY_SECONDS } from "./groundTasks";
@@ -1635,6 +1635,9 @@ function buildExpedition(
   const squadFearResist = officerBonusTotal(state, ship, "officer.crewRetention");
   const squadHpBonus = shipAwayTeamProtection(state, ship);
   const squadDebuffResist = shipCounterInfiltration(state, ship);
+  // Wiring WR-9 (OC-E9 "Expeditions too"): Command Presence on every Ground Ops objective's haul (officers only: the
+  // complement's Crew Output Multiplier stays missions and patrols, OC-E3).
+  const groundOutputShare = WR9_SWITCH.live ? officerMissionOutputBonus(state, ship) : 0;
   const encounterEvasion = officerBonusTotal(state, ship, "officer.evasion");
   const crewRareFind = shipCrewContribution(state, ship)[CREW_STAT_KEYS.rareFindChance] ?? 0;
   // Survey Aptitude + the Vael and Outer-Colony racials (complement plan CP-3, OC-4 "Faster scans"): the crew's share
@@ -1747,6 +1750,8 @@ function buildExpedition(
     // CP-3: the complement's two Security squad buffs, each only when non-zero.
     ...(squadHpBonus > 0 ? { squadHpBonus } : {}),
     ...(squadDebuffResist > 0 ? { squadDebuffResist } : {}),
+    // WR-9: Command Presence on the objective hauls, only when non-zero.
+    ...(groundOutputShare > 0 ? { groundOutputShare } : {}),
     // E-CREW (Task 21): the officer stat facets (see above), each only when non-zero.
     ...(ambushSoften > 0 ? { ambushSoften } : {}),
     ...(quickRecovery > 0 ? { quickRecovery } : {}),

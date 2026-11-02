@@ -31,6 +31,11 @@ import { withPatrolLegLiftsOff, withPatrolRunClockOff } from "./patrolLegLiftsSw
 // The crewHours determinism fix (2026-10-30) came after these pins, which are about the patrol slices: the rows are
 // read with the float crewHours counter (crewHoursMs.test.ts traces that move). The offline == live check runs live.
 import { withCrewHoursFloat } from "./crewHoursSwitch.fixture";
+import { wr9OffForThisFile } from "./wr9Switch.fixture";
+
+// Wiring WR-9: this file's pins are about other slices and were captured before WR-9; it runs with WR-9 off (the
+// WR-9 moves are pinned and proven in wr9Goldens.test.ts), so every pin here keeps proving its own slice exactly.
+wr9OffForThisFile();
 
 const CAPTURE = import.meta.env.LIFTS_CAPTURE as string | undefined;
 // FLOWN_CAPTURE = an output path: record the count-only-flown rows instead of asserting.

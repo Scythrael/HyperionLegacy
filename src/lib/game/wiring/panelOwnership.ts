@@ -414,9 +414,15 @@ const ADAPTERS: Readonly<Record<string, Adapter>> = {
 };
 
 function crewBuff(v: GameState, key: string): Owned {
-  if (!bucketsAboard(v).some((b) => b.buff1Id === key || b.buff2Id === key)) return NOT_OWNED;
+  if (!bucketsAboard(v).some((b) => b.buff1Id === key || b.buff2Id === key || b.buff3Id === key)) return NOT_OWNED;
   if (key === "flight.droneHandling" && fieldsNoDrones(v)) return { ownership: "owned", measure: false, note: DRONELESS_NOTE };
-  return owned(editBuckets(v, (b) => ({ ...b, buff1Id: b.buff1Id === key ? NONE_ID : b.buff1Id, buff2Id: b.buff2Id === key ? null : b.buff2Id })));
+  return owned(
+    editBuckets(v, (b) => {
+      const next = { ...b, buff1Id: b.buff1Id === key ? NONE_ID : b.buff1Id, buff2Id: b.buff2Id === key ? null : b.buff2Id };
+      if (b.buff3Id === key) delete next.buff3Id;
+      return next;
+    }),
+  );
 }
 
 function moduleOn(v: GameState, slotType: string, variant: string): Owned {

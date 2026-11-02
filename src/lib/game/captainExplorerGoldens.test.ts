@@ -22,6 +22,11 @@ import { describe, expect, it } from "vitest";
 // GEAR WEAR step 3: this file's pins were captured before the use wear engine; it runs with the use sources off
 // (gearWearSwitch.fixture.ts), so they keep proving nothing else moved. gearWearGoldens.test.ts pins the wear.
 import { gearWearOffInThisFile } from "./gearWearSwitch.fixture";
+import { wr9OffForThisFile } from "./wr9Switch.fixture";
+
+// Wiring WR-9: this file's pins are about other slices and were captured before WR-9; it runs with WR-9 off (the
+// WR-9 moves are pinned and proven in wr9Goldens.test.ts), so every pin here keeps proving its own slice exactly.
+wr9OffForThisFile();
 gearWearOffInThisFile();
 import { goldenJson } from "./firstRunsGoldens.fixture"; // gear wear: hashes with the retired durability put back
 // E-MOD EM-1: sheets pinned before the power budget engine are hashed with it switched off (emodGoldens.test.ts pins

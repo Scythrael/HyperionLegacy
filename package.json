@@ -9,6 +9,7 @@
     "preview": "vite preview",
     "check": "svelte-check --tsconfig ./tsconfig.app.json && tsc -p tsconfig.node.json",
     "test": "vitest run",
+    "test:perf": "vitest run --mode perf --no-file-parallelism --maxWorkers=1",
     "test:sweep": "vitest run --mode sweep src/lib/game/firstRunsGoldens",
     "test:sweep:training": "vitest run --mode sweep src/lib/game/safeFirstExpedition",
     "test:sweep:si": "vitest run --mode sweep src/lib/game/siMemberGear.sweep",

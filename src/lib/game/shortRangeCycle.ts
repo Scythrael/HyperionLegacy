@@ -456,7 +456,8 @@ export function tickCaptainShortRange(input: ShortRangeTickInput): ShortRangeTic
     const cycleStamp =
       wearStamp === undefined ? undefined : projectRunStamp(state, ship.id, timedWear, state.gameTimeSeconds + (ticksElapsed - remaining) * state.tickDurationSeconds);
     if (cycleStamp !== undefined) stats = runShipStats(state, ship, cycleStamp, reactorLift, moduleLines, favored);
-    const start = startShortRangeCycle({ ...state, runCounts }, ship, slot, roll.cycleIndex + 1, cycleStamp, reactorLift, moduleLines, favored);
+    // WR-9 fix round: the run's Pilot Cunning stamp rolls again for the new cycle (absent: no roll, as before).
+    const start = startShortRangeCycle({ ...state, runCounts }, ship, slot, roll.cycleIndex + 1, cycleStamp, reactorLift, moduleLines, favored, mission.pilotCunning ?? 0);
     runCounts = start.runCounts;
     mission = {
       kind: "shortRange",
@@ -477,6 +478,8 @@ export function tickCaptainShortRange(input: ShortRangeTickInput): ShortRangeTic
       ...(mission.moduleLines !== undefined ? { moduleLines: mission.moduleLines } : {}),
       // WR-7 follow-up (OC-D5): and the favored-spec stamp.
       ...(mission.favoredSpec !== undefined ? { favoredSpec: mission.favoredSpec } : {}),
+      // WR-9 fix round: and the Pilot's Cunning stamp.
+      ...(mission.pilotCunning !== undefined ? { pilotCunning: mission.pilotCunning } : {}),
     };
   }
 

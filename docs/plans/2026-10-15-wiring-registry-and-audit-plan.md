@@ -2031,3 +2031,33 @@ with it off. No SAVE_VERSION bump: every new field is optional and stamped at di
 - Pilot Cunning cut size: "Keep 1 tick, tune later (Recommended)" [PROVISIONAL].
 - Logged, not in WR-9: buff2 and buff3 are not shown anywhere in the UI (ComplementPanel shows buff1 only); belongs
   with the CP-9 complement table.
+## WR-9 BUILT (2026-10-31)
+
+Goldens first (wr9Goldens.test.ts on b5c0eab), test switch WR9_SWITCH (wr9Switch.fixture.ts); every moved pin returns
+with it off. No SAVE_VERSION bump: every new field is optional and stamped at dispatch (or rolled at generation).
+Reconciled first: OC-E1, OC-E2 (and the CP-3 review calls: the 0.9 x tanh share, the combined resist under 90%, the
+rounded-up HP) were built by CP-3; OC-E3, OC-E5 (missions), OC-E8 and OC-E13 by CP-2; OC-E5 on patrol legs and the
+flown-tick run clock by the OC-D8 follow-up. Nothing left of those.
+
+- OC-E4 "Quicker trips home": a captain mission dispatch stamps the Flight Deck's Cunning facet
+  (CaptainMissionState.pilotCunning, carried to every repeated cycle); each cycle's return leg rolls it once on the
+  Flight Deck's private Cunning stream of the captain's lifetime cycle key and, on a proc, runs
+  PILOT_CUNNING_RETURN_CUT_TICKS (1) shorter, never below one tick [PROVISIONAL size]. A run in flight from before WR-9
+  has no stamp and flies as it did. Captain missions only: short-range board runs roll no Cunning (out of scope with a
+  reason, [PROPOSAL, the user's to confirm]). The XO keeps no over-delivery of its own (its share raises the others).
+- OC-E6: Rapid Loadout already acted on the Ground Ops reload only; the Return Trip Help now says missions have no load
+  step. Audit: a mission cycle is unchanged by it (a move of 0).
+- OC-E7: Morale Anchor's text drops the attrition half ("Steadies the away team: every member resists Fear.").
+- OC-E9 "Expeditions too": Command Presence (the officers' officer.shipOutputMult only; Crew Output Multiplier stays
+  missions and patrols per OC-E3) is frozen on the run (Expedition.groundOutputShare) and scales every objective's haul
+  through rollHaul's scale (the same draws). Operations Integrity is frozen in the Ground Ops factors (offloadSteady):
+  an offload whose batch carries at least FULL_HOLD_FRACTION (90%) of its objective's segments runs x (1 + facet)
+  faster, the twin of a mission's full-hold unload [interpretation of "steadies the offload", flagged for the user].
+  Command Presence and Help text updated.
+- OC-E11: the `enlisted` flag is deleted (identity only).
+- OC-E12 "Roll a third buff": a rank whose buffCountForRank is 3 (Lieutenant, Lieutenant Commander) rolls a third buff
+  (CrewSignature.buff3Id) from its profession pool, distinct from its profession buffs, drawn after every earlier draw
+  (every other field of every crewmember is unchanged). Crew rolled before WR-9 keep two buffs (no backfill). The
+  third buff counts in the contribution, the crew-key guard and the signature key (a two-buff key is unchanged).
+- Registry: facet:pilot:cunning and six crew audit rows live; added crew:audit:pilotCunningReturn and
+  crew:audit:opsIntegrityOffload (each measured on its consumer). Registry pins read WR-9 back (wr9Registry.fixture.ts).

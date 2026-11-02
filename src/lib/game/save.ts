@@ -64,6 +64,7 @@ import {
   isWellFormedV68ShipGroundTeams,
   v68ShipGroundTeamsFromV67,
 } from "./groundTeams";
+import { withThirdBuffGrantedV70 } from "./crewThirdBuff";
 
 // SAVE v70 (0.14.0). WHAT v70 CONTAINS (one shared bump for the unreleased 0.14.0 schema; a later 0.14.0 slice that
 // needs a schema change APPENDS its own step to MIGRATIONS[69] below, documented beside this list, rather than
@@ -3038,6 +3039,9 @@ export function migrate(save: SaveFile, homeworldEntropy?: number): GameState {
   state = dropRetiredDurabilityV70(state);
   // Member gear (0.14.0): old Science Sidearms / Field Suits get the D26 lines; Standard-Issue pieces gain their stats.
   state = withStandardIssueMemberLinesV70(state);
+  // Wiring WR-9 fix round (user 2026-10-31 "Yes, grant on load"): crew at a three-buff rank rolled before WR-9 roll
+  // their third buff once, from their own identity's seed (crewThirdBuff.ts); identity once every such crewmember holds one.
+  state = withThirdBuffGrantedV70(state);
   // Hydrate the SHAPE first (Decimals, quality buckets), THEN reconcile any over-cap stack
   // down to its warehouse cap. clampInventoryToCaps needs the hydrated Decimal inventory +
   // the facility levels (both present after hydrateDecimals) to resolve each item's cap. It

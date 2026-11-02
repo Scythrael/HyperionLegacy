@@ -94,6 +94,15 @@ describe("crewBuffs: held buffs (D14, craft duplicate)", () => {
     const s = withShip(held);
     expect(effectiveShipStats(s, s.ships[0])).toEqual(effectiveShipStats(withShip({ ...held, buff2Id: null }), withShip({ ...held, buff2Id: null }).ships[0]));
     const loaded = migrate(deserialize(serialize(s, 0)) as SaveFile);
-    expect(loaded.ships[0].complement!.buckets).toEqual([held]);
+    // The held id survives the load. WR-9 fix round (user 2026-10-31 "Yes, grant on load"): a Lieutenant Commander rolled
+    // before WR-9 also rolls its third buff on load, each member on its own seed, so the bucket may split by that buff.
+    const buckets = loaded.ships[0].complement!.buckets;
+    expect(buckets.reduce((n, b) => n + b.count, 0)).toBe(5);
+    for (const b of buckets) {
+      const { buff3Id, count: _count, ...sig } = b;
+      const { count: _held, ...heldSig } = held;
+      expect(sig).toEqual(heldSig);
+      expect(buff3Id === "eng.hullRepair" || buff3Id === "eng.power").toBe(true);
+    }
   });
 });

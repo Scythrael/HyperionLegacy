@@ -126,6 +126,7 @@ export function graduateStandout(state: GameState, shipId: string, key: string):
     race: bucket.race,
     buff1Id: bucket.buff1Id,
     buff2Id: bucket.buff2Id,
+    ...(bucket.buff3Id !== undefined ? { buff3Id: bucket.buff3Id } : {}),
     name: identity.name,
     gender: identity.gender,
     assignedShipId: shipId,
@@ -208,6 +209,7 @@ export interface ManifestRow {
   race: CrewSignature["race"];
   buff1Id: CrewSignature["buff1Id"];
   buff2Id: CrewSignature["buff2Id"];
+  buff3Id?: CrewSignature["buff3Id"];
   name: string;
   gender: string;
 }
@@ -250,6 +252,7 @@ export function manifestRows(state: GameState, shipId: string, offset: number, l
         race: b.race,
         buff1Id: b.buff1Id,
         buff2Id: b.buff2Id,
+        ...(b.buff3Id !== undefined ? { buff3Id: b.buff3Id } : {}),
         name: identity.name,
         gender: identity.gender,
       });

@@ -201,7 +201,14 @@ import { FIELD_DEVICES_VERSION, FIELD_KITS, FIELD_KITS_CATALOG_VERSION, FIELD_KI
 import { withThrownGrenades } from "../fieldKitsGrenades";
 import { FIELD_KITS_BATTLE, withFieldKitsDefaultProgram } from "../fieldKitsBattle";
 import { fieldworkEffect, fieldworkHazardResist, fieldworkSpeedMult } from "../fieldwork";
-import { taskSecurityHazardResist } from "../groundTasks";
+import { taskFullHaul, taskSecurityHazardResist } from "../groundTasks";
+// Wiring WR-9: the Ground Ops offload step, the complement generator and a signature's contribution.
+import { groundOffloadSeconds } from "../groundOps";
+import { contributionForSignature } from "../crew";
+import { generateComplementCrew } from "../crewGeneration";
+import { CREW_RANKS, buffCountForRank } from "../crewRank";
+import { getCrewBuffById } from "../crewBuffs";
+import { missionCycleTiming } from "../model";
 import { awayRecruitCandidates, snapshotMembers } from "../awayTeam";
 import { officerPromotionCounter, seniorStaffCandidates } from "../seniorStaff";
 import { applyExpeditionInjuries, injuryRecoverySeconds, shipInjuryFactors } from "../injuries";
@@ -211,7 +218,7 @@ import { canFitEquipment, equippedFor, fitEquipment } from "../equipment";
 // E-MOD EM-7: the v1 module roster (the install-gate slot count probe installs it piece by piece).
 import { UNIVERSAL_MODULES } from "../shipModules";
 import { effectiveShipStats, officerCombatMods, officerRepairSpeedBonus, resolveCrew, shipCrewContribution, shipMissionOutputBonus, shipRepairSpeedBonus } from "../crewOverlay";
-import { departmentFacet, seatFacet } from "../officerStats";
+import { departmentFacet, pilotCunningStamp, seatFacet } from "../officerStats";
 import { RELICS, museumBonuses, type MuseumStat } from "../relics";
 import { hullTeardownFraction, salvageSalvagedMaterial, salvageShip, salvageTalentBonus, salvageTierReach, salvageYieldMult } from "../salvage";
 import { alertResetSeconds, escalationAt, extraBattleChance, longRangeCover, maxExtraBattles } from "../affixes";
@@ -228,7 +235,7 @@ import { newReactorLiftFlag } from "../reactorSurplus";
 import { RELIC_BLANKS_VERSION } from "../relicBlanks";
 import { rollShortRangeJob, shortRangeCycleReward, shortRangeShipRatings, type ShortRangeCyclePlan, type ShortRangeRoll, type ShortRangeTemplateKey } from "../shortRange";
 import { blindLaunchCount, telescopeReading } from "../telescope";
-import { getSeniorStaffBonusById } from "../seniorStaffBonuses";
+import { SENIOR_STAFF_BONUSES, getSeniorStaffBonusById } from "../seniorStaffBonuses";
 import { CREW_STAT_KEYS } from "../crewBuffs";
 import {
   CLEARING_SITE_CATALOG,
@@ -328,6 +335,8 @@ export type ContextId = (typeof CONTEXT_IDS)[number];
 
 export const WIRING_SHIP_ID = "ship-1";
 export const WIRING_CAPTAIN_ID = 1;
+// WR-9 (OC-E4): the cycles the missionReturnTicks probe counts.
+export const PILOT_PROBE_CYCLES = 40;
 export const NO_OFFICER_BONUS = { id: "wiring.none", magnitude: 0 };
 
 export type Transform = (s: GameState) => GameState;
@@ -1599,6 +1608,13 @@ export const PROBES = {
     label: "shipMissionOutputBonus (the share economyTick applies to mission deliveries and to patrol wave loot; mission:shortRange: the share one delivered short-range cycle applied)",
     read: (s, ctx) => (ctx === "mission:shortRange" ? shortRangeOutputShare(s) : shipMissionOutputBonus(s, shipOf(s))),
   },
+  // WR-9 (OC-E6): one whole Long Ore Run cycle's ticks on the sheet (missionCycleTiming of effectiveMissionDef).
+  missionCycleTicks: { label: "missionCycleTiming(effectiveMissionDef(longOreRun)).total", read: (s) => missionCycleTiming(missionDefFor(s, "longOreRun")).total },
+  // WR-9 fix round (user 2026-10-31 "Missions, short-range, patrols"): the same count on each run type the roll reaches.
+  missionReturnTicks: {
+    label: `a Short Ore Run's return-leg ticks over its first ${PILOT_PROBE_CYCLES} cycles (economyTick, 1 s steps; mission:shortRange: the legs home of ${PILOT_PROBE_CYCLES} short-range cycle starts on a stamped run; patrol: the frozen legs home of ${PILOT_PROBE_CYCLES} patrol dispatches)`,
+    read: (s, ctx) => (ctx === "mission:shortRange" ? shortRangeReturnTicks(s) : ctx === "patrol" ? patrolReturnTicks(s) : missionReturnTicks(s)),
+  },
   missionCycleOutput: { label: "one whole shortOreRun cycle (economyTick): the credits and Titanium Ore delivered", read: (s) => cycleOutput(s) },
   missionOreQuality: { label: "one whole shortOreRun cycle (economyTick): the average quality of the ore delivered (quality-weighted units over units)", read: (s) => cycleOreQuality(s) },
   // == the captain secondary tree (WR-5a) ==
@@ -2029,6 +2045,22 @@ export const PROBES = {
     read: (s) => {
       const ops = dispatchRun(readyForRun(s)).groundOps;
       return ops ? memberBaySeconds(["fracture"], [], groundOpsBayCare(ops.factors)) : 0;
+    },
+  },
+  // WR-9 (OC-E9): the dispatched run's objective haul (taskFullHaul on a hazard-0.4 terrestrial body, the first PoI, no
+  // team): its credits plus material units, and the offload step's seconds for a batch carrying a whole objective.
+  runObjectiveHaul: {
+    label: "the dispatched run's objective haul (taskFullHaul, hazard-0.4 terrestrial, credits + material units)",
+    read: (s) => {
+      const h = taskFullHaul(dispatchRun(readyForRun(s)), [{ securityIds: [], scienceIds: [], scienceShare: 1 }], syntheticBody("terrestrial", 0.4), POI_CATALOG[0].id, 0);
+      return h.credits + Object.values(h.materials).reduce((a, b) => a + b, 0);
+    },
+  },
+  runPackedOffloadSeconds: {
+    label: "the dispatched run's offload step for a batch carrying a whole objective (groundOffloadSeconds, 4 of 4 segments)",
+    read: (s) => {
+      const ops = dispatchRun(readyForRun(s)).groundOps;
+      return ops ? groundOffloadSeconds(ops.factors, 4, 4) : 0;
     },
   },
   runBayHealthSeconds: {
@@ -2778,6 +2810,49 @@ function oneCycle(s: GameState, key: MissionKey): { before: GameState; after: Ga
   return { before, after };
 }
 
+// WR-9 (OC-E4): the ticks a Short Ore Run dispatched now spends on its RETURN legs over its first
+// PILOT_PROBE_CYCLES cycles, stepped one tick at a time through economyTick (the Pilot's Cunning cuts a leg by a tick
+// on a cycle whose roll lands; the rolls are keyed on the captain's lifetime cycle counter, so the count is fixed).
+function missionReturnTicks(s: GameState): number {
+  const r = dispatchCaptainOnMission(s, WIRING_CAPTAIN_ID, "shortOreRun");
+  if (!r.success) throw new Error(`wiring mission dispatch refused: ${r.reason}`);
+  let st = r.next;
+  let ticks = 0;
+  for (let guard = 0; guard < 100_000; guard++) {
+    if (Number(st.lifetimeStats.missionsCompleted.shortOreRun ?? 0) >= PILOT_PROBE_CYCLES) return ticks;
+    const m = st.captains.find((c) => c.id === WIRING_CAPTAIN_ID)?.mission;
+    if (m?.kind === "extraction" && m.phase === "transitBack") ticks += 1;
+    st = economyTick(st, 1, () => 0.5);
+  }
+  throw new Error("wiring mission probe: the run never finished its cycles");
+}
+
+// WR-9 fix round: the legs home of PILOT_PROBE_CYCLES short-range cycles of slot 0, each started through the board's one
+// cycle-start seam (startShortRangeCycle, which dispatch and the cycle engine both call) on a run stamped as a dispatch
+// stamps it now (pilotCunningStamp), cycle indices 0 up.
+function shortRangeReturnTicks(s: GameState): number {
+  const ship = shipOf(s);
+  const stamp = pilotCunningStamp(s, ship) ?? 0;
+  const lift = newReactorLiftFlag(equippedFor(s, ship.id)) !== undefined;
+  const favored = favoredSpecStamp(equippedFor(s, ship.id), ship.typeKey) === 1;
+  let ticks = 0;
+  for (let i = 0; i < PILOT_PROBE_CYCLES; i++) ticks += startShortRangeCycle(s, ship, SHORT_RANGE_PROBE_SLOT, i, undefined, lift, true, favored, stamp).plan.transitBackTicks;
+  return ticks;
+}
+
+// WR-9 fix round: the frozen legs home of PILOT_PROBE_CYCLES patrol dispatches (dispatchCaptainOnPatrol, consecutive
+// master seeds), on ship-1 made a destroyer with its Standard Issue combat gear (the officers aboard are kept).
+function patrolReturnTicks(s: GameState): number {
+  const base = installMissingCombatBaselines(editShip(s, { typeKey: "destroyer" }));
+  let ticks = 0;
+  for (let i = 0; i < PILOT_PROBE_CYCLES; i++) {
+    const r = dispatchCaptainOnPatrol({ ...base, nextPatrolSeed: base.nextPatrolSeed + i }, WIRING_CAPTAIN_ID, "crimsonReaverSweep", "balanced", false);
+    if (!r.success) throw new Error(`wiring patrol refused: ${r.reason}`);
+    ticks += patrolRouteOf(captainOf(r.next).mission as PatrolMissionState).transitBackTicks;
+  }
+  return ticks;
+}
+
 function missionFieldValue(s: GameState, field: string, key: MissionKey): number {
   const def = MISSIONS[key];
   switch (field) {
@@ -3261,8 +3336,47 @@ function readContent(id: string, s: GameState): number {
     }
     case "wr11":
       return wr11AuditValue(s, a, on);
+    case "wr9":
+      return wr9AuditValue(a);
     default:
       throw new Error(`unknown content probe ${id}`);
+  }
+}
+
+// WR-9: the generated complement batch the third-buff check reads (seed WR9_CREW_PROBE_SEED, rows 0 to WR9_CREW_PROBE_ROWS - 1).
+export const WR9_CREW_PROBE_SEED = 0x3b0ff;
+export const WR9_CREW_PROBE_ROWS = 600;
+// The crew in that batch whose rank carries 3 buffs (buffCountForRank, the catalog's count): the check's magnitude. Pure.
+export function wr9TopRankCount(): number {
+  let n = 0;
+  for (let i = 0; i < WR9_CREW_PROBE_ROWS; i++) if (buffCountForRank(generateComplementCrew(WR9_CREW_PROBE_SEED, i).rank) >= 3) n++;
+  return n;
+}
+
+// Wiring WR-9's content audit rows. Pure.
+function wr9AuditValue(key: string): number {
+  switch (key) {
+    case "noEnlisted":
+      // OC-E11: the rank ladder carries no enlisted flag (1 = deleted).
+      return Object.values(CREW_RANKS).every((r) => !("enlisted" in r)) ? 1 : 0;
+    case "noAttrition":
+      // OC-E7: Morale Anchor's text names only its Fear resist (1 = the attrition half is gone).
+      return SENIOR_STAFF_BONUSES.filter((d) => d.id === "xo.moraleAnchor").every((d) => !/attrition/i.test(d.description)) ? 1 : 0;
+    case "thirdBuff": {
+      // OC-E12: the crew of the batch that carry a third buff its contribution counts (the buff's key holds at least the
+      // buff's own magnitude scaled by rarity and rank, so a third buff the rollup dropped would not count).
+      let n = 0;
+      for (let i = 0; i < WR9_CREW_PROBE_ROWS; i++) {
+        const sig = generateComplementCrew(WR9_CREW_PROBE_SEED, i);
+        const def = sig.buff3Id !== undefined ? getCrewBuffById(sig.buff3Id) : undefined;
+        if (!def) continue;
+        const without = contributionForSignature({ ...sig, buff3Id: undefined })[def.statKey] ?? 0;
+        if ((contributionForSignature(sig)[def.statKey] ?? 0) > without) n++;
+      }
+      return n;
+    }
+    default:
+      throw new Error(`unknown WR-9 content probe ${key}`);
   }
 }
 

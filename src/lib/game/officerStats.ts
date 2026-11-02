@@ -42,7 +42,14 @@
 //                               enemies at (1 - CUNNING_AMBUSH_SOFTEN) health and power (rolled at dispatch)
 //                   Medical     a quicker recovery: the expedition's injured come home with
 //                               CUNNING_QUICK_RECOVERY added to their care (rolled at dispatch)
-//                   Flight Deck + XO: NO decided effect yet (see CUNNING_PENDING_SEATS).
+//                   Flight Deck a quicker trip home (WR-9, OC-E4, user 2026-10-15 "Quicker trips home"; the fix
+//                               round, user 2026-10-31, "Missions, short-range, patrols"): each cycle of a
+//                               captain mission, short-range run or patrol, a chance (= the facet) that the return
+//                               leg runs PILOT_CUNNING_RETURN_CUT_TICKS shorter. The chance is stamped at dispatch
+//                               (pilotCunning on each run type), so a run in flight from before WR-9 never rolls.
+//                               Keys: a mission cycle, the captain's lifetime cycle counter; a short-range cycle,
+//                               its job seed; a patrol cycle, its masterSeed (folded into its frozen legs)
+//                   XO: NO over-delivery of its own (see CUNNING_PENDING_SEATS); its share raises the others.
 //   CONSTITUTION  the long-haul RAMP: the department's in-run buffs grow by facet * diminishing(hours out,
 //                 CONSTITUTION_RAMP_KNEE_HOURS). The plan's first pass said "capped 5 hours"; D23 (user,
 //                 2026-10-08: diminishing returns, never hard caps) supersedes the cap, so 5 hours is the
@@ -66,8 +73,21 @@
 // run; expedition and patrol values are FROZEN at dispatch / relaunch, and every random draw is a private
 // keyed stream. Nothing reads Date.now() or Math.random.
 
-import type { CrewProfession, GameState, OfficerStats, SeniorStaffOfficer, SeniorStaffSeat, ShipInstance } from "./model";
-import { FULL_HOLD_FRACTION } from "./model";
+import type {
+  CaptainMissionState,
+  CaptainState,
+  CrewProfession,
+  GameState,
+  OfficerStats,
+  PatrolDef,
+  PatrolLegTicks,
+  RunMissionDef,
+  SeniorStaffOfficer,
+  SeniorStaffSeat,
+  ShipInstance,
+} from "./model";
+import { FULL_HOLD_FRACTION, WR9_SWITCH, missionPhaseTicks } from "./model";
+import type { ShortRangeCyclePlan } from "./shortRange";
 import { officerStats, OFFICER_STAT_INFO, SENIOR_STAFF_SEATS } from "./seniorStaff";
 import { CONSTITUTION_RAMP_KNEE_HOURS, constitutionRamp } from "./constitutionRamp";
 import { makeRng, type Rng } from "./combat/rng";
@@ -176,11 +196,68 @@ export const CUNNING_FREE_REPAIR_TICKS = 1; // Engineering: one repair tick off 
 export const CUNNING_AMBUSH_SOFTEN = 0.25; // Security: scan-encounter enemies at 75% health and power
 export const CUNNING_QUICK_RECOVERY = 0.5; // Medical: +0.5 on the run's injury care divisor
 
-// TODO(user decision pending, asked 2026-10-09): the Flight Deck officer (Pilot) and the XO have NO decided
-// Cunning over-delivery yet. Until the user names one, a Pilot's Cunning does nothing on its own and the XO's
-// Cunning only reaches the other departments through its XO_DEPARTMENT_SHARE. Listed so the Task 22 "no dead
-// stats" pass and the Help topic can name the gap honestly.
-export const CUNNING_PENDING_SEATS: readonly SeniorStaffSeat[] = ["pilot", "executive"];
+// The XO has no Cunning over-delivery of its OWN: its Cunning reaches the other departments through its
+// XO_DEPARTMENT_SHARE (live that way). Listed so the "no dead stats" pass and the tooltips name it honestly. The Pilot
+// left this list with WR-9 (OC-E4, user 2026-10-15 "Quicker trips home": PILOT_CUNNING_RETURN_CUT_TICKS below).
+export const CUNNING_PENDING_SEATS: readonly SeniorStaffSeat[] = ["executive"];
+
+// WR-9 (OC-E4): the Flight Deck's over-delivery. On a proc the cycle's return leg runs this many ticks shorter, never
+// below one tick (a one-tick leg cannot be cut). FIRST-PASS, TUNABLE.
+export const PILOT_CUNNING_RETURN_CUT_TICKS = 1;
+
+// The Pilot's Cunning stamp a captain mission dispatched now carries: the Flight Deck's Cunning facet (the Pilot's own
+// plus the XO's share), or undefined when it is 0 (nothing is written) or the WR-9 test switch is off. Pure.
+export function pilotCunningStamp(state: GameState, ship: ShipInstance): number | undefined {
+  if (!WR9_SWITCH.live) return undefined;
+  const chance = departmentFacet(state, ship, "flightDeck", "cunning");
+  return chance > 0 ? chance : undefined;
+}
+
+// A return leg of `ticks` after the Pilot's over-delivery: PILOT_CUNNING_RETURN_CUT_TICKS shorter, never below one
+// tick (a leg already at or below one tick is unchanged). Pure.
+export function pilotCutReturnLeg(ticks: number): number {
+  return ticks <= 1 ? ticks : Math.max(1, ticks - PILOT_CUNNING_RETURN_CUT_TICKS);
+}
+
+// WR-9 fix round (user 2026-10-31 "Missions, short-range, patrols"): every run with a trip home rolls the Pilot's
+// Cunning, each run type stamping the chance at dispatch (pilotCunningStamp) and rolling it per cycle on the Flight
+// Deck's private stream (cunningProc's "pilot" seat) of that cycle's own key. A run without the stamp (every run in
+// flight from before) never rolls, so it flies exactly as it did.
+
+// A captain mission cycle's return leg of `phaseTicks`: cut when the stamped chance lands on the cycle's key (the
+// captain's lifetime Cunning cycle counter, which steps at each delivery and at each stamped dispatch). Pure.
+export function captainReturnLegTicks(phaseTicks: number, captainId: number, lifetimeCycle: number, pilotCunning: number): number {
+  return pilotCunning > 0 && cunningProc(captainCycleMissionSeed(captainId, lifetimeCycle), "pilot", pilotCunning) ? pilotCutReturnLeg(phaseTicks) : phaseTicks;
+}
+
+// The length of a captain mission's CURRENT phase as the engine flies it (tick.ts tickCaptainMission): missionPhaseTicks,
+// with the return leg cut on a cycle whose Pilot roll landed, so every in-flight readout (the captain card, the Home
+// row) shows the leg the ship actually flies. The refuel delay is the readouts' own business. Pure.
+export function captainMissionPhaseTicks(
+  captain: Pick<CaptainState, "id" | "cunningCycles">,
+  mission: Pick<CaptainMissionState, "phase" | "cargo" | "pilotCunning">,
+  missionDef: RunMissionDef,
+): number {
+  const ticks = missionPhaseTicks(mission.phase, missionDef, mission.cargo);
+  return mission.phase === "transitBack" ? captainReturnLegTicks(ticks, captain.id, captain.cunningCycles ?? 0, Math.max(0, mission.pilotCunning ?? 0)) : ticks;
+}
+
+// A patrol cycle's frozen legs after the Pilot's roll on the cycle's masterSeed: on a landed roll the leg home is cut,
+// folded into the legs the cycle freezes (undefined = the route's own legs, kept so when the cut changes nothing). Pure.
+export function pilotCutPatrolLegs(def: PatrolDef, legs: PatrolLegTicks | undefined, masterSeed: number, pilotCunning: number): PatrolLegTicks | undefined {
+  if (!(pilotCunning > 0) || !cunningProc(masterSeed, "pilot", pilotCunning)) return legs;
+  const out = legs?.out ?? def.transitOutTicks;
+  const back = pilotCutReturnLeg(legs?.back ?? def.transitBackTicks);
+  return out === def.transitOutTicks && back === def.transitBackTicks ? undefined : { out, back };
+}
+
+// A short-range cycle's plan after the Pilot's roll on the cycle's job seed (ShortRangeRoll.seed, one per slot cycle):
+// on a landed roll the leg home is cut and the total follows. The same plan otherwise (the same object). Pure.
+export function pilotCutShortRangePlan(plan: ShortRangeCyclePlan, rollSeed: number, pilotCunning: number): ShortRangeCyclePlan {
+  if (!(pilotCunning > 0) || !cunningProc(rollSeed, "pilot", pilotCunning)) return plan;
+  const transitBackTicks = pilotCutReturnLeg(plan.transitBackTicks);
+  return transitBackTicks === plan.transitBackTicks ? plan : { ...plan, transitBackTicks, totalTicks: plan.totalTicks - (plan.transitBackTicks - transitBackTicks) };
+}
 
 // A seat's index in SENIOR_STAFF_SEATS (the "seat index" of the roll key). Pure.
 export function seatIndex(seat: SeniorStaffSeat): number {
@@ -240,6 +317,7 @@ export const CUNNING_EDGE_BY_DEPARTMENT: Readonly<Partial<Record<CrewProfession,
   engineering: "a free repair tick when a patrol ends in defeat",
   security: `a softened ambush: an expedition's random battles field enemies at ${Math.round((1 - CUNNING_AMBUSH_SOFTEN) * 100)}% strength`,
   medical: "a quicker recovery for the expedition's injured",
+  flightDeck: "a quicker trip home: each cycle of a mission, short-range run or patrol, a chance the return leg is one tick shorter",
 };
 
 // What each department's Constitution touches: the ramp's in-run buffs, and for the three departments that
@@ -262,7 +340,7 @@ export const INTEGRITY_DETAIL_BY_DEPARTMENT: Readonly<Record<CrewProfession, str
   engineering: "Below half hull in a patrol battle: the shields recharge faster",
   science: "While scanning a hazardous world: the hazard slows the scan less",
   medical: "When away-team members come home injured: they recover sooner",
-  operations: `With the hold at least ${Math.round(FULL_HOLD_FRACTION * 100)}% full: unloading at home is faster`,
+  operations: `With the hold at least ${Math.round(FULL_HOLD_FRACTION * 100)}% full: unloading at home is faster. On an expedition: a team's offload carrying at least ${Math.round(FULL_HOLD_FRACTION * 100)}% of an objective's haul is faster`,
 };
 
 // The stats whose facet also reaches the XO's OWN bonuses in full (seatFacet's "all" branch): Integrity and
