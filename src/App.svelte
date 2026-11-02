@@ -884,6 +884,8 @@
     paidThroughMs,
     startLoopClock,
     awayRecapSpan,
+    tallyAwayPoll,
+    type AwayTally,
     paidTicks,
     paidRealSeconds,
     exceedsOfflineCap,
@@ -2966,7 +2968,7 @@
   // HOTFIX 0.13.11.3: it also sums what the polls while away actually PAID (paidSeconds) and keeps
   // the full length of any absence that ran past the offline cap, so the recap is labeled with the
   // time paid, never the raw gap.
-  let awayFrom: { atMs: number; snapshot: GameState; paidSeconds: number; cappedAwaySeconds: number | null } | null = null;
+  let awayFrom: ({ atMs: number; snapshot: GameState } & AwayTally) | null = null;
   // Two minutes (user decision, 2026-10-16): "If the tab is idle in the background, or minimized,
   // or something to that end, we want to make sure that progress is not lost." The progress is
   // paid either way; this only gates the recap modal, so a quick tab flip raises nothing.
@@ -3412,8 +3414,9 @@
           const pollPaidSeconds = paidRealSeconds(plan, beforeEconomy);
           if (exceedsOfflineCap(plan, beforeEconomy)) pollCappedAwaySeconds = plan.realElapsedSeconds;
           if (awayFrom !== null) {
-            awayFrom.paidSeconds += pollPaidSeconds;
-            if (pollCappedAwaySeconds !== null) awayFrom.cappedAwaySeconds = pollCappedAwaySeconds;
+            // Paid and away accumulate over the SAME polls (tallyAwayPoll), so live hidden play
+            // followed by a long sleep never shows more paid than away.
+            awayFrom = { ...awayFrom, ...tallyAwayPoll(awayFrom, pollPaidSeconds, pollCappedAwaySeconds) };
           } else if (plan.mode === "catchUp" && !document.hidden) {
             welcomeBack(beforeEconomy, pollPaidSeconds, now - plan.realElapsedSeconds * 1000, pollCappedAwaySeconds);
           }
@@ -3456,7 +3459,7 @@
     // period later, and recap the whole hidden stretch once. Hiding only remembers where we were.
     const onVisibilityChange = () => {
       if (document.hidden) {
-        if (awayFrom === null) awayFrom = { atMs: trustedNow(), snapshot: state, paidSeconds: 0, cappedAwaySeconds: null };
+        if (awayFrom === null) awayFrom = { atMs: trustedNow(), snapshot: state, paidSeconds: 0, awaySeconds: 0, cappedAwaySeconds: null };
         return;
       }
       pollGameLoop();
@@ -3482,7 +3485,7 @@
     document.addEventListener("visibilitychange", onVisibilityChange);
     // A tab opened in the background never fires a "hidden" change, so start the away clock here;
     // the first time it is shown, the hidden stretch is recapped like any other.
-    if (document.hidden) awayFrom = { atMs: trustedNow(), snapshot: state, paidSeconds: 0, cappedAwaySeconds: null };
+    if (document.hidden) awayFrom = { atMs: trustedNow(), snapshot: state, paidSeconds: 0, awaySeconds: 0, cappedAwaySeconds: null };
 
     // 0.13.11.1: check the server's clock now and every ten minutes while shown (and on returns, above).
     void syncServerTime();

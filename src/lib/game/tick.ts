@@ -4083,7 +4083,7 @@ export function tick(
 ): GameState {
   if (deltaSeconds <= 0) return state;
   // Same deltaSeconds -> ticksElapsed conversion as before, then clamp to the cap.
-  // Math.min discards any excess span beyond the cap (the intentional 2-day limit).
+  // Math.min discards any excess span beyond the cap (the offlineCapTicks limit: OFFLINE_CAP_DAYS_BASE, 4 days by default).
   const rawTicksElapsed = deltaSeconds / state.tickDurationSeconds;
   const clampedTicks = Math.min(rawTicksElapsed, offlineCapTicks(state));
 

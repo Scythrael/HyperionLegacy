@@ -248,6 +248,24 @@ export function cappedAbsence(awaySeconds: number, capSeconds: number): number |
   return awaySeconds > capSeconds + CAP_NOTE_SLACK_SECONDS ? awaySeconds : null;
 }
 
+// HOTFIX 0.13.11.3: the running totals of a hidden-tab absence, one poll at a time. `paidSeconds`
+// sums what every poll paid; `awaySeconds` sums the SAME polls' spans (a poll past the cap counts
+// its full absence, any other poll what it paid), so the "You were away" figure covers exactly the
+// span the paid figure covers and is never smaller. `cappedAwaySeconds` is that total once any
+// poll ran past the cap, else null.
+export interface AwayTally {
+  paidSeconds: number;
+  awaySeconds: number;
+  cappedAwaySeconds: number | null;
+}
+
+export function tallyAwayPoll(tally: AwayTally, pollPaidSeconds: number, pollCappedAwaySeconds: number | null): AwayTally {
+  const paidSeconds = tally.paidSeconds + pollPaidSeconds;
+  const awaySeconds = tally.awaySeconds + Math.max(pollPaidSeconds, pollCappedAwaySeconds ?? 0);
+  const capped = pollCappedAwaySeconds !== null || tally.cappedAwaySeconds !== null;
+  return { paidSeconds, awaySeconds, cappedAwaySeconds: capped ? awaySeconds : null };
+}
+
 // True when a planned catch-up asks for more than the offline cap (tick() discards the excess).
 export function exceedsOfflineCap(plan: AdvancePlan, state: GameState): boolean {
   return plan.mode === "catchUp" && plan.cycles * plan.ticksPerCycle > offlineCapTicks(state);
