@@ -313,3 +313,19 @@ the plan's per-culture "lore line" (see structural question 4).
   the bare name.
 - Culture lore lines: "Ship in 0.14.0 (Recommended)": shown once a culture is identified, no gameplay effect.
 - The names themselves: AWAITING the user's read (approve all, rename some, or partial).
+
+## USER (2026-11-02, verbatim): the names, lore and homages
+
+"The name and lore of the relics are actually pretty amazing. I love them. I was actually thinking of the Keelsong
+concept a little bit. A nice bit of an homage to the Ogier in Wheel of Time. Treesongs. If we do go with the ember court
+set, I have an idea for that. It's a reference to the same thing in WoW. So we should 100% have a few references for
+that. The Shadowlands feature. Perhaps we can make mention of the Ember Court teapot and so forth. I think that'd be
+neat."
+Reading: the user loves the sheet. Keelsong stays and leans into the treesinging homage (shipwrights who sing hulls into
+shape, the way the Ogier sing wood). The Ember Court set stays and its flavor lines get a few affectionate nods to the
+WoW Shadowlands Ember Court (e.g. a teapot with opinions, guests, a party that must go just right). These are homages
+the USER chose, kept to flavor text (no copied text, no gameplay copied). Exact new flavor lines go back to the user
+for sign-off. NOTE for the general rule: the user decides when a franchise nod is welcome; the drafting default stays
+"original".
+STILL OPEN from this exchange (unanswered, built behavior holds until answered): gear wear use floor (built 60% vs
+"no floor" said 2026-11-02) and Quick Service (Oct 16 "paid rush" vs "None, always automatic" said 2026-11-02).
