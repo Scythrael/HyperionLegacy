@@ -105,12 +105,19 @@
   $: modeGate = ship ? canSetComplementMode(state, shipId, autoCrewOn ? "active" : "passive") : null;
   $: modeLocked = modeGate !== null && !modeGate.ok && modeGate.reason === "onMission";
 
-  // Per-(division,rank) headcount from the complement buckets, precomputed as a real reactive so
-  // the chart's dependency on `state` is visible to the compiler (reading it inline would hide it
-  // and go stale after a mode flip / tick).
+  // CP-5 (OC-6 "Never evict"): the ship's OCCUPANCY, the bulk plus every notable assigned here: the count every cap
+  // gate (auto-crew, transfer, rosters) and complementOverCap read, so every number below matches the gate.
+  $: occupancy = [
+    ...complement.buckets,
+    ...state.notableCrew.filter((n) => (n.assignedShipId ?? null) === shipId).map((n) => ({ ...notableSignature(n), count: 1 })),
+  ];
+
+  // Per-(division,rank) headcount from the occupancy (CP-5 review: notables count, as the gates count them),
+  // precomputed as a real reactive so the chart's dependency on `state` is visible to the compiler (reading it inline
+  // would hide it and go stale after a mode flip / tick).
   $: countByKey = (() => {
     const map = new Map<string, number>();
-    for (const b of complement.buckets) {
+    for (const b of occupancy) {
       const key = `${b.profession}:${b.rank}`;
       map.set(key, (map.get(key) ?? 0) + b.count);
     }
@@ -122,11 +129,12 @@
 
   // --- Capacity header --------------------------------------------------------
   // Total berths = the hull's LOCKED base cap (commandStructure) + the installed quarters module's
-  // capacity bonus (0 with no module). used = total headcount across every division.
+  // capacity bonus (0 with no module). used = the occupancy across every division (bulk plus notables aboard, the
+  // count the add gates read; CP-5 review: 234 bulk + 1 notable Medical on the Eir reads 235 / 234).
   $: baseCap = hullType ? complementTotalCap(hullType, 0) : 0;
   $: moduleBonus = ship ? quartersCapacityBonus(state, ship) : 0;
   $: totalCap = baseCap + moduleBonus;
-  $: usedBerths = complement.buckets.reduce((sum, b) => sum + b.count, 0);
+  $: usedBerths = occupancy.reduce((sum, b) => sum + b.count, 0);
   $: capFillPct = totalCap > 0 ? Math.min(100, Math.round((usedBerths / totalCap) * 100)) : 0;
   // The installed quarters module (for the "Base N + <module> +M" contribution line).
   $: quartersModule = ship ? installedQuartersModule(state, ship) : null;
@@ -139,10 +147,6 @@
 
   // CP-5 (OC-6 "Never evict"): how far the ship sits over its caps, read on the same occupancy the fill uses (the bulk
   // plus every notable assigned here). Nothing removes crew for being over; the fill just takes no more.
-  $: occupancy = [
-    ...complement.buckets,
-    ...state.notableCrew.filter((n) => (n.assignedShipId ?? null) === shipId).map((n) => ({ ...notableSignature(n), count: 1 })),
-  ];
   $: overCap = hullType ? complementOverCap(occupancy, hullType, moduleBonus) : null;
   $: notablesAboard = occupancy.length - complement.buckets.length;
 
@@ -308,7 +312,7 @@
         {autoCrewOn
           ? "Auto-crew fills this ship top-rank-down from the pool, within its caps."
           : "Manual: this ship's complement is player-curated and will not auto-fill."}
-        The {hullLabel} has berths for {baseCap} crew; no ship can carry more than its berths.
+        The {hullLabel} has berths for {baseCap} crew before any quarters module.
       </div>
       {#if overCap !== null && overCap.any}
         <!-- CP-5 (OC-6 "Never evict"): the over-cap state, explained. -->
@@ -319,7 +323,7 @@
             Some divisions are over their caps (marked below).
           {/if}
           No one is removed, and it takes no new crew where it is over until it is back under. This happens when a quarters
-          module comes off or a hull's crew caps change.
+          module comes off or is swapped for one with fewer berths.
         </p>
       {/if}
     </div>

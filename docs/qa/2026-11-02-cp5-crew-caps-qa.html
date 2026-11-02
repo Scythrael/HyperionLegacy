@@ -144,7 +144,7 @@
 <div class="wrap">
   <p class="eyebrow">Hyperion Legacy · QA · 0.14.0 feature pass</p>
   <h1><span class="v">0.14.0</span> Per-hull crew caps (CP-5)</h1>
-  <p class="sub">Curated checklist for complement plan CP-5 (docs/plans/2026-10-14-complement-and-acquisition-plan.md section 3 CP-5): each hull's own crew berths and division mix. The Eir carries the largest explorer crew, 900 berths, leaning Medical and Science; the Orion and Aurora keep 750 (the Aurora leans Science); the Carrier leans Flight Deck and the Battleship leans Security and Engineering, with the same 160 berths. No hull's total shrinks. A complement over a cap keeps every crewmember and takes no more (never evict). <b>Run this on staging</b> (devpreview.crystalisoft.com, the staging branch) with your migrated save, once 0.14.0 is deployed there (0.14.0 stays off staging until the wiring gate passes and you say go). Run each check once at <b>1280 px</b> (desktop) and once at <b>375 px</b> (mobile), in both <b>light and dark</b> themes.</p>
+  <p class="sub">Curated checklist for complement plan CP-5 (docs/plans/2026-10-14-complement-and-acquisition-plan.md section 3 CP-5): each hull's own crew berths and division mix. The Eir carries the largest explorer crew, 900 berths, leaning Medical and Science; the Orion and Aurora keep 750 (the Aurora leans Science); the Carrier leans Flight Deck and the Battleship leans Security and Engineering, with the same 160 berths. No hull's total shrinks, and no division ever shrinks. A complement over a cap keeps every crewmember and takes no more (never evict). <b>Run this on staging</b> (devpreview.crystalisoft.com, the staging branch) with your migrated save, once 0.14.0 is deployed there (0.14.0 stays off staging until the wiring gate passes and you say go). Run each check once at <b>1280 px</b> (desktop) and once at <b>375 px</b> (mobile), in both <b>light and dark</b> themes.</p>
 
   <div class="progress-card">
     <div class="progress-top">
@@ -177,8 +177,10 @@
   <div class="findings">
     <h2>Builder notes (CP-5, 2026-11-02)</h2>
     <ol>
-      <li><b>The totals are yours; the mixes are provisional.</b> Eir 900 and Orion / Aurora 750 are your OC-5 answer. The exact division weights (for example the Eir's 77 / 189 / 279 / 234 / 81 / 40, the Battleship's Security 56 and Engineering 48, the Carrier's Flight Deck 56) are a first pass that follows the leans you approved; every Eir division keeps at least the seats it had.</li>
-      <li><b>Leans move seats between divisions.</b> On the Aurora, Battleship and Carrier some divisions now have fewer seats than before (the total is the same). A ship already full in those divisions keeps everyone and shows "Over cap" there; the freed room fills the leaning divisions instead.</li>
+      <li><b>The totals are yours; the mixes are provisional.</b> Eir 900 and Orion / Aurora 750 are your OC-5 answer. The exact division weights (for example the Eir's 77 / 189 / 279 / 234 / 81 / 40, the Battleship's Security 56 and Engineering 48, the Carrier's Flight Deck 56) are a first pass that follows the leans you approved; the Aurora's Science cap is 270.</li>
+      <li><b>No division ever shrinks (your 2026-11-02 answer).</b> Every division on every hull keeps at least the seats it had, at every rank, with or without a quarters module. On the Aurora, Battleship and Carrier the total is unchanged, so the lean is extra division seats: the leaning division can take more of the same total. No existing ship turns "Over cap" from the new caps.</li>
+      <li><b>Notables count.</b> The header, each division's "N / cap" and the fill bar count notables aboard, the same count every add uses (234 bulk + 1 notable Medical on the Eir reads 235 / 234).</li>
+      <li><b>Roster pins.</b> A pin already aboard now holds its seat before any other pin is placed, so applying a roster can never put a ship over its cap.</li>
       <li><b>A passive Eir grows.</b> An auto-crewed Eir takes up to 150 more crew from the pool on its next fill (worth a patch note line). A ship out on a run takes none until it is home or claimed, as before.</li>
       <li><b>No save step.</b> Old saves load unchanged and no run in flight changes.</li>
     </ol>
@@ -198,7 +200,7 @@ const SECTIONS = [
   { n: "1", title: "The caps by hull", items: [
     { t: "Shipyard build cards show each hull's crew berths: Eir 900, Orion 750, Aurora 750, Battleship 160, Carrier 160, Destroyer 120, prospectors 50, General Freighter 30.", c: true, tag: "theme", how: "cp5HullCaps.test.ts (the totals; every hull below the Andromeda's 1,017)." },
     { t: 'The Eir\'s description reads "Heavy cruiser. A medical transport with the largest explorer crew: the largest hold and away teams the fleet fields, for supplies and evacuations." on the build card and the ship header.', c: true, how: "trainingRunDisplay.test.ts (the text, and the claim checked against the built hull)." },
-    { t: 'An Eir\'s Complement tab reads "/ 900 berths" and "The Eir has berths for 900 crew; no ship can carry more than its berths." Its division caps read Security 77, Engineering 189, Science 279, Medical 234, Operations 81, Flight Deck 40.', tag: "save" },
+    { t: 'An Eir\'s Complement tab reads "/ 900 berths" and "The Eir has berths for 900 crew before any quarters module." Its division caps read Security 77, Engineering 189, Science 279, Medical 234, Operations 81, Flight Deck 40.', tag: "save" },
     { t: "A Battleship's Security and Engineering caps are larger than a Destroyer would suggest (56 and 48); a Carrier's Flight Deck cap is 56. Every other hull's Complement tab is unchanged.", c: true, how: "cp5Goldens.test.ts (every hull without an override is byte-identical; cp5HullCaps.test.ts the leans)." },
   ]},
   { n: "2", title: "Filling to the new caps", items: [
@@ -207,8 +209,10 @@ const SECTIONS = [
     { t: "Installing a quarters module on an Eir or Aurora still adds berths across the divisions, and never removes a seat at any rank.", c: true, how: "cp5HullCaps.test.ts (bonus 1 to 200 on every hull, every division and rank)." },
   ]},
   { n: "3", title: "Over cap: never evict", items: [
-    { t: 'An Aurora, Battleship or Carrier that was full before this build shows "Over cap" on the divisions that lost seats, with a line saying no one is removed and that division takes no new crew until it is back under.', c: true, tag: "theme", how: "cp5HullCaps.test.ts (the Aurora full to its old mix: over by 15 in Security, Engineering and Medical, nobody removed, nothing added there)." },
-    { t: 'Uninstall a quarters module from a full ship: the header says "Over capacity by N", the ship keeps every crewmember, and nothing is added while it is over. Reinstall it and the warning clears.', c: true, tag: "save", how: "cp5HullCaps.test.ts (a quarters module coming off: over by its berths, nothing removed or added)." },
+    { t: 'An Aurora, Battleship or Carrier that was full before this build shows no "Over cap" anywhere; its leaning division shows the larger cap (Aurora Science 270, Battleship Security 56 and Engineering 48, Carrier Flight Deck 56).', c: true, tag: "save", how: "cp5HullCaps.test.ts (no hull full to its old template reads over cap; every division and rank keeps its seats, bonus 0 to 200)." },
+    { t: "A ship with notable crew aboard: the header and each division's \"N / cap\" include the notables (for example 235 / 234 when a division holds 234 bulk and 1 notable).", tag: "save" },
+    { t: "Apply a roster whose first pin is not aboard and whose second pin already is, onto a ship one seat from full: the pin aboard stays, the other is skipped, and the ship is not over cap.", c: true, tag: "save", how: "personnelRosters.test.ts (a pin already aboard keeps its seat first)." },
+    { t: 'Uninstall a quarters module from a full ship: the header says "Over capacity by N", the line says this happens when a quarters module comes off or is swapped for one with fewer berths, the ship keeps every crewmember, and nothing is added while it is over. Reinstall it and the warning clears.', c: true, tag: "save", how: "cp5HullCaps.test.ts (a quarters module coming off: over by its berths, nothing removed or added)." },
     { t: "The over-cap warning is readable without color: the words \"Over cap\" and the explanation are always shown, in both themes.", tag: "theme" },
     { t: "Leave the game closed for a while with an over-cap ship: on return it still holds every crewmember.", c: true, tag: "save", how: "cp5Goldens.test.ts (600 s across a transport window: one call == 1 s steps == chunks, no crew removed)." },
   ]},

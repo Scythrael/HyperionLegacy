@@ -80,12 +80,17 @@ describe("CP-5 per-hull caps (OC-5)", () => {
     expect(commandStructureWithBonus("eir", 12).total).toBe(912);
   });
 
-  it("each override's division mix sums to 1, and the leans point where OC-5 says", () => {
-    for (const h of HULLS) {
-      const w = SHIP_TYPES[h].complementDivisionWeights;
-      if (!w) continue;
-      expect(CREW_PROFESSIONS.reduce((a, p) => a + w[p], 0), h).toBeCloseTo(1, 9);
+  it("the leans point where OC-5 says; a hull with an unchanged total leans by extra division seats (the total binds)", () => {
+    const w = SHIP_TYPES.eir.complementDivisionWeights!;
+    expect(CREW_PROFESSIONS.reduce((a, p) => a + w[p], 0)).toBeCloseTo(1, 9);
+    for (const h of ["aurora", "carrier", "battleship"] as ShipTypeKey[]) {
+      expect(complementTotalCap(h), h).toBe(withHullCrewCapsOff(() => complementTotalCap(h)));
+      expect(CREW_PROFESSIONS.reduce((a, p) => a + divisionCap(h, p), 0), h).toBeGreaterThan(complementTotalCap(h));
     }
+    expect(divisionCap("aurora", "science")).toBe(270);
+    expect(divisionCap("carrier", "flightDeck")).toBe(56);
+    expect(divisionCap("battleship", "security")).toBe(56);
+    expect(divisionCap("battleship", "engineering")).toBe(48);
     const lean = (h: ShipTypeKey, p: CrewProfession) => divisionCap(h, p) - withHullCrewCapsOff(() => divisionCap(h, p));
     expect(lean("eir", "medical")).toBeGreaterThan(0);
     expect(lean("eir", "science")).toBeGreaterThan(0);
@@ -101,6 +106,26 @@ describe("CP-5 per-hull caps (OC-5)", () => {
       expect(divisionCap("eir", p), p).toBeGreaterThanOrEqual(before.divisions[p].cap);
     }
     expect(CREW_PROFESSIONS.reduce((a, p) => a + divisionCap("eir", p), 0)).toBe(900);
+  });
+
+  // User 2026-11-02, "No division ever shrinks (Recommended)": every division of every hull keeps at least today's seats
+  // (and every rank threshold inside it), with no quarters module and with one (bonus 1 to 200), so no existing ship
+  // turns over cap from the new caps.
+  it("no division ever shrinks: every hull, every division, every rank, bonus 0 to 200, new seats >= old seats", () => {
+    for (const h of HULLS) {
+      for (let b = 0; b <= 200; b++) {
+        const before = withHullCrewCapsOff(() => commandStructureWithBonus(h, b));
+        expect(complementTotalCap(h, b), `${h} total bonus ${b}`).toBeGreaterThanOrEqual(withHullCrewCapsOff(() => complementTotalCap(h, b)));
+        for (const p of CREW_PROFESSIONS) {
+          if (divisionCap(h, p, b) < before.divisions[p].cap) throw new Error(`${h} ${p} bonus ${b}: division shrank`);
+          let old = 0;
+          for (const r of [...CREW_RANK_ORDER].reverse()) {
+            old += before.divisions[p].rankAllocations[r];
+            if (inclusiveRankCap(h, p, r, b) < old) throw new Error(`${h} ${p} rank ${r} bonus ${b}: rank shrank`);
+          }
+        }
+      }
+    }
   });
 
   it("WR-7 rule holds on the new templates: a quarters bonus never removes a seat (bonus 1 to 200, every hull)", () => {
@@ -131,20 +156,19 @@ describe("CP-5 over cap (OC-6: never evict)", () => {
     for (const p of CREW_PROFESSIONS) expect(countInDivision(after, p), p).toBeGreaterThanOrEqual(countInDivision(old, p));
   });
 
-  it("an Aurora full to its old mix is over in three divisions: it keeps everyone, takes nothing there, and says so", () => {
+  it("no hull full to its old template turns over cap from the new caps (user 2026-11-02)", () => {
+    for (const h of HULLS) {
+      const old = withHullCrewCapsOff(() => fullCrewmen(h));
+      expect(complementOverCap(old, h).any, h).toBe(false);
+    }
+  });
+
+  it("an Aurora full to its old mix keeps everyone and has no room left: its 750 total binds", () => {
     const old = withHullCrewCapsOff(() => fullCrewmen("aurora"));
-    const over = complementOverCap(old, "aurora");
-    expect(over.any).toBe(true);
-    expect(over.totalOver).toBe(0);
-    expect(over.divisionOver.security).toBe(15);
-    expect(over.divisionOver.engineering).toBe(15);
-    expect(over.divisionOver.medical).toBe(15);
-    expect(over.divisions.science).toBe(0);
-    expect(canAddToComplement({ buckets: old, mode: "passive" }, "aurora", bucket("security", 1, 1))).toBe(false);
+    expect(totalCrew(old)).toBe(750);
+    expect(canAddToComplement({ buckets: old, mode: "passive" }, "aurora", bucket("science", 1, 1))).toBe(false);
     const s = resolveCrew(withShip("aurora", old, { crewPool: deepPool() }));
-    const after = ship1(s).complement!.buckets;
-    for (const p of CREW_PROFESSIONS) expect(countInDivision(after, p), p).toBeGreaterThanOrEqual(countInDivision(old, p));
-    expect(countInDivision(after, "security")).toBe(countInDivision(old, "security"));
+    expect(ship1(s).complement!.buckets).toEqual(old);
   });
 
   it("a quarters module coming off leaves the complement over its berths: nobody is removed, nothing is added", () => {

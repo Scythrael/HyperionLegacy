@@ -149,6 +149,12 @@ export const HULL_CREW_CAPS_SWITCH = { live: true };
 function hullBaseTotal(hullType: ShipTypeKey): number {
   const def = SHIP_TYPES[hullType];
   if (HULL_CREW_CAPS_SWITCH.live && def.complementCap !== undefined) return Math.max(0, Math.round(def.complementCap));
+  return specBaseTotal(hullType);
+}
+
+// The spec template's total before any quarters module: the spec base x tier (the pre-CP-5 total). Pure.
+function specBaseTotal(hullType: ShipTypeKey): number {
+  const def = SHIP_TYPES[hullType];
   return Math.max(0, Math.round(SPEC_BASE_TOTAL[def.spec] * tierMultiplier(def.tier)));
 }
 
@@ -178,18 +184,28 @@ export function commandStructureForHull(hullType: ShipTypeKey): CommandStructure
 // The template on `total` = the hull base + `bonus`: the division caps are the role weights of that total, each split
 // into ranks by the pyramid. Pure.
 // CP-5: the hull's own total and division mix when SHIP_TYPES gives them (hullBaseTotal / hullDivisionWeights).
-function buildStructure(hullType: ShipTypeKey, bonus: number): CommandStructure {
-  const total = hullBaseTotal(hullType) + bonus;
-  const weights = hullDivisionWeights(hullType);
+// CP-5 review (user 2026-11-02, "No division ever shrinks (Recommended)"): a hull with its own caps also keeps, in every
+// division and at every rank, at least the seats the spec template gives it at the same quarters bonus, so no existing
+// ship turns over cap from the new caps (with a quarters module installed too). The lean comes only from where the
+// extra seats go.
+function buildStructure(hullType: ShipTypeKey, bonus: number, hullCaps: boolean = HULL_CREW_CAPS_SWITCH.live): CommandStructure {
+  const def = SHIP_TYPES[hullType];
+  const own = hullCaps && (def.complementCap !== undefined || def.complementDivisionWeights !== undefined);
+  const total = (own ? hullBaseTotal(hullType) : specBaseTotal(hullType)) + bonus;
+  const weights = own ? hullDivisionWeights(hullType) : SPEC_DIVISION_WEIGHTS[def.spec];
 
   // WR-7 review (OC-D7): the pyramid's floors are not monotone in the cap (a bigger cap can floor a high rank lower),
   // so a bonus template keeps, at every rank, at least the seats the hull's own template has (never fewer).
-  const base = bonus > 0 ? commandStructureForHull(hullType) : null;
+  const base = bonus > 0 ? (hullCaps === HULL_CREW_CAPS_SWITCH.live ? commandStructureForHull(hullType) : buildStructure(hullType, 0, hullCaps)) : null;
+  const spec = own ? buildStructure(hullType, bonus, false) : null;
   const divisions = {} as Record<CrewProfession, DivisionTemplate>;
   for (const profession of CREW_PROFESSIONS) {
-    const cap = Math.max(0, Math.round(total * weights[profession]));
-    const alloc = allocateRanks(cap);
-    divisions[profession] = { cap, rankAllocations: base ? atLeastInclusive(alloc, base.divisions[profession].rankAllocations) : alloc };
+    let alloc = allocateRanks(Math.max(0, Math.round(total * weights[profession])));
+    if (base) alloc = atLeastInclusive(alloc, base.divisions[profession].rankAllocations);
+    if (spec) alloc = atLeastInclusive(alloc, spec.divisions[profession].rankAllocations);
+    let cap = 0;
+    for (const r of CREW_RANK_ORDER) cap += alloc[r];
+    divisions[profession] = { cap, rankAllocations: alloc };
   }
   return { hullType, total, divisions };
 }
@@ -368,8 +384,9 @@ export function canAddToComplement(
 // ============================================================================
 
 // How far a complement sits over its caps. Nothing in the game removes crew for being over: a cap only stops the fill
-// (auto-crew, transfer, rosters), so a complement can be over after its hull's caps change (CP-5) or a quarters module
-// comes off, and it stays over until crew leave by the player's hand.
+// (auto-crew, transfer, rosters), so a complement can be over after a quarters module comes off (or is swapped for one
+// with fewer berths), and it stays over until crew leave by the player's hand. The CP-5 hull caps never shrink a seat
+// (buildStructure floors them to the spec template), so they put no ship over.
 //   totalOver     : headcount past the ship's total berths (0 when within).
 //   divisions[p]  : the division's excess, the larger of its headcount past the division cap and its worst inclusive
 //                   rank threshold (crew at a rank or higher past that threshold's cap); 0 when within.

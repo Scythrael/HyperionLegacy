@@ -1108,10 +1108,11 @@ function fabricatorBonusShare(s: GameState): number {
 }
 
 // CP-5: ship-1 emptied and passive, the pool replaced by 1,000 of every division at every rank (more than any hull
-// seats), one resolveCrew: ship-1's headcount after.
-function autoCrewFill(s: GameState): CrewBucket[] {
+// seats), one resolveCrew: ship-1's headcount after. `only` keeps one division in the pool (the lean probe).
+function autoCrewFill(s: GameState, only?: CrewProfession): CrewBucket[] {
   const pool: CrewBucket[] = [];
   for (const profession of CREW_PROFESSIONS) {
+    if (only !== undefined && profession !== only) continue;
     for (let rank = 1 as CrewRank; rank <= 8; rank = (rank + 1) as CrewRank) {
       pool.push({ profession, rarity: "standard", rank, race: "earthBorn", buff1Id: "wiring.none", buff2Id: null, count: 1000 });
     }
@@ -1126,7 +1127,10 @@ function autoCrewLeanSeats(s: GameState): number {
   const w = SHIP_TYPES[shipOf(s).typeKey].complementDivisionWeights;
   if (!w) return -1;
   const lead = CREW_PROFESSIONS.reduce((best, p) => (w[p] > w[best] ? p : best), CREW_PROFESSIONS[0]);
-  return autoCrewFill(s).reduce((a, b) => a + (b.profession === lead ? b.count : 0), 0);
+  // CP-5 review (2026-11-02 "No division ever shrinks"): a hull whose total is unchanged leans by extra division seats
+  // and its total binds, so a fill from every division can run out of berths before the lean division (the Carrier's
+  // Flight Deck fills last). The pool holds only the leading division, so the read is that division's own seats.
+  return autoCrewFill(s, lead).reduce((a, b) => a + (b.profession === lead ? b.count : 0), 0);
 }
 
 // WR-6: the crew one transport window delivers into the fleet (the pool and every complement it auto-fills).
@@ -1949,10 +1953,10 @@ export const PROBES = {
     label: "crew resolveCrew seats on an empty passive ship-1 from a deep pool (every division at every rank)",
     read: (s) => autoCrewHeadcount(s),
   },
-  // CP-5: the same fill, counting only the hull's LEADING division (its largest complementDivisionWeights share; -1 for a
-  // hull with no division mix of its own).
+  // CP-5: the same fill from a pool of only the hull's LEADING division (its largest complementDivisionWeights share; -1
+  // for a hull with no division mix of its own), counting the seats it takes.
   autoCrewLeanSeats: {
-    label: "crew resolveCrew seats in ship-1's leading division (its hull's largest complementDivisionWeights share), from a deep pool",
+    label: "crew resolveCrew seats in ship-1's leading division (its hull's largest complementDivisionWeights share), from a deep pool of that division",
     read: (s) => autoCrewLeanSeats(s),
   },
   // == expedition dispatch snapshot and its consumers ==

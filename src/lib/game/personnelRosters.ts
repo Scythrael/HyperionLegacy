@@ -468,13 +468,13 @@ function applyRosterSteps(state: GameState, rosterId: string, shipId: string, wi
   const existingBulk = (ship.complement?.buckets ?? []).map((b) => ({ ...b }));
 
   // (b) NOTABLES -> the ship, in priority order, cap-aware. The occupancy that gates each pin is the
-  // ship's existing bulk PLUS the notables already assigned to this ship that are NOT roster pins
-  // (they hold their slots too), PLUS the pins accepted so far.
-  const pinnedIds = new Set(roster.pinnedNotableCrew);
+  // ship's existing bulk PLUS EVERY notable already assigned to this ship (CP-5 review 2026-11-02: pinned ones too, so
+  // a pin not yet aboard can never take a seat a pin already aboard holds and push the ship over its cap), PLUS the
+  // pins accepted so far. A pin already aboard stays (it already holds its seat); only a pin not aboard is gated.
   let occupancy: CrewBucket[] = coalesceBuckets([
     ...existingBulk,
     ...next.notableCrew
-      .filter((n) => (n.assignedShipId ?? null) === shipId && !pinnedIds.has(n.id))
+      .filter((n) => (n.assignedShipId ?? null) === shipId)
       .map((n) => ({ ...notableSignature(n), count: 1 })),
   ]);
 
@@ -482,6 +482,7 @@ function applyRosterSteps(state: GameState, rosterId: string, shipId: string, wi
   for (const notableId of roster.pinnedNotableCrew) {
     const notable = next.notableCrew.find((n) => n.id === notableId);
     if (!notable) continue; // missing: skip safely
+    if ((notable.assignedShipId ?? null) === shipId) continue; // already aboard: counted above, nothing to add
     const sig = notableSignature(notable);
     const complement: ShipComplement = { buckets: occupancy, mode };
     if (remainingCapacityForSignature(complement, hullType, sig, bonusCapacity) >= 1) {

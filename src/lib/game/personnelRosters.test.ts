@@ -303,6 +303,27 @@ describe("applyRoster", () => {
     }
   });
 
+  // CP-5 review (2026-11-02): a pin already aboard holds its seat BEFORE any pin not yet aboard is gated, so pin B (not
+  // aboard) can never take the last seat while pin A (aboard) stays and the ship goes over its cap through an add.
+  it("a pin already aboard keeps its seat first: a later-aboard pin never pushes the ship over its cap", () => {
+    const cap = divisionCap(HULL, "security");
+    // Bulk fills the division to one under its cap; pin A is already aboard (so the ship is exactly full).
+    const ship1Bulk = [bucket({ profession: "security", rank: 1, count: cap - 1 })];
+    const a = notable({ id: "nA", profession: "security", rank: 1, assignedShipId: "ship-1" });
+    const b = notable({ id: "nB", profession: "security", rank: 1 });
+    let s = createRoster(stateWith({ notableCrew: [a, b] }), { name: "R" }).next;
+    s = { ...s, ships: s.ships.map((x) => (x.id === "ship-1" ? { ...x, complement: { buckets: ship1Bulk, mode: "active" as const } } : x)) };
+    s = pinNotable(s, "roster-1", "nB"); // B first in priority
+    s = pinNotable(s, "roster-1", "nA");
+
+    const applied = applyRoster(s, "roster-1", "ship-1");
+    expect(applied.notableCrew.find((n) => n.id === "nA")!.assignedShipId).toBe("ship-1");
+    expect(applied.notableCrew.find((n) => n.id === "nB")!.assignedShipId ?? null).toBeNull();
+    const ship = applied.ships.find((x) => x.id === "ship-1")!;
+    const aboard = applied.notableCrew.filter((n) => n.assignedShipId === "ship-1").length;
+    expect(countInDivision(ship.complement!.buckets, "security") + aboard).toBe(cap);
+  });
+
   it("auto-fills the remaining berths with bulk from the pool without exceeding cap; the pinned notable keeps its slot", () => {
     const cap = divisionCap(HULL, "security");
     const notables = [notable({ id: "n1", profession: "security", rank: 1 })];

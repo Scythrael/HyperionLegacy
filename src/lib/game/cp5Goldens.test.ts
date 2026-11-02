@@ -219,26 +219,31 @@ const swap = (pre: string[], post: Record<string, string>): string[] => pre.map(
 
 // Moved by CP-5 (each returns to its PRE row with CP-5 off, above): the four overridden hulls' templates, what an
 // empty passive ship of each takes from the deep pool (the Eir 900, the leans), and what a transfer moves.
+// CP-5 review (user 2026-11-02 "No division ever shrinks"): the Aurora / Carrier / Battleship mixes were rebuilt so every
+// division keeps its old seats, and every hull with its own caps is floored, division and rank, to the spec template at
+// the same quarters bonus. That moved the Battleship / Carrier / Aurora rows, and the Eir's bonus 12 / 40 / 113
+// structure rows (its bonus 0 and 6 rows, fill and transfer are unchanged). The Carrier transfer is back on its PRE
+// row: the picks fill Security to Operations first, the 160 total binds before the Flight Deck, and no division before
+// it moved.
 export const STRUCTURE_POST = swap(STRUCTURE_PRE, {
-  battleship: "battleship:ff825651/4f209936/e8d16144/defd789a/86475590",
-  carrier: "carrier:b3c2f324/8e4cfc82/f9fcbbca/f1e44531/3a7deccc",
-  aurora: "aurora:bae5c035/90dc8b6c/9a85cfdf/bd7a37ef/c877d841",
-  eir: "eir:a9fc80f7/36ff4102/9e83e9a3/e0536ab8/8dafbb53",
+  battleship: "battleship:433cdbe6/355bc4f3/822395fb/935ee028/800ad426",
+  carrier: "carrier:36d56148/d7100fff/319ed78f/fadf77fd/7b4a10fd",
+  aurora: "aurora:78877f0b/4dadb5ab/335ddd36/e07a17e3/5a73f31f",
+  eir: "eir:a9fc80f7/36ff4102/a72168c3/66a662ee/bebd5449",
 });
 export const FILL_POST = swap(FILL_PRE, {
-  battleship: "battleship:160:9d09a236/ad7eae69",
-  carrier: "carrier:160:ae006845/c3fc4be3",
-  aurora: "aurora:750:5f7a38d4/7eb82775",
+  battleship: "battleship:160:d8edf8fd/30e55963",
+  carrier: "carrier:160:f5a06861/da9c559b",
+  aurora: "aurora:750:15ff392e/11545fc4",
   eir: "eir:900:4b33ff58/20add6cc",
 });
 export const TRANSFER_POST = swap(TRANSFER_PRE, {
   battleship: "battleship:160:9e051c01",
-  carrier: "carrier:160:805b23c0",
-  aurora: "aurora:750:7bc031bc",
+  aurora: "aurora:750:6763de70",
   eir: "eir:900:94cc5e5",
 });
 // The pre-CP-5 over-cap complements run with CP-5 live: byte-identical to their capture. Both are over their total, so
-// neither takes the transport's crew, and nobody is removed (the Aurora's start is now further over in Security too).
+// neither takes the transport's crew, and nobody is removed.
 export const OVER_CAP_POST: Record<string, string> = { ...OVER_CAP_PRE };
 
 describe("CP-5 live: per-hull crew caps", () => {

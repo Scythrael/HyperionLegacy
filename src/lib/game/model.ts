@@ -258,8 +258,11 @@ export interface ShipTypeDef {
   // (Recommended)"): a hull's own crew capacity and division mix, read by commandStructure.ts (buildStructure). OPTIONAL:
   // absent, the hull keeps the spec template (the spec base total x tier, the spec's role weights) exactly.
   //   complementCap            , the hull's TOTAL berths before any quarters module (a physical limit, not a bonus).
-  //   complementDivisionWeights, how that total splits across the six divisions (each row sums to 1.0).
-  // A complement already over a new cap keeps every crewmember; it simply takes no more until it is under (OC-6).
+  //   complementDivisionWeights, each division's cap as a share of that total. A row may sum past 1.0: with the total
+  //                              unchanged, a lean is extra division seats and the total binds (review 2026-11-02).
+  // Every division and rank keeps at least the spec template's seats (commandStructure.ts buildStructure floors to it,
+  // user 2026-11-02 "No division ever shrinks"), so no ship turns over cap from these. A complement already over a cap
+  // keeps every crewmember; it simply takes no more until it is under (OC-6).
   complementCap?: number;
   complementDivisionWeights?: Record<CrewProfession, number>;
   // FORWARD (not populated this pass): reactorTier?: number  // reactorTier <= tier; gates equip/module tiers
@@ -1396,9 +1399,11 @@ export const SHIP_TYPES: Record<ShipTypeKey, ShipTypeDef> = {
       { teamType: "science", size: 3 },
       { teamType: "prospecting", size: 3 },
     ],
-    // Complement plan CP-5 (OC-5 "Battleship Security / Engineering lean", user 2026-10-16): the same 160 berths
-    // (no total shrinks), weighted to the boarding defense and the damage control crews. Weights [PROVISIONAL].
-    complementDivisionWeights: { security: 0.35, engineering: 0.3, science: 0.05, medical: 0.1, operations: 0.1, flightDeck: 0.1 },
+    // Complement plan CP-5 (OC-5 "Battleship Security / Engineering lean", user 2026-10-16; review 2026-11-02 "No
+    // division ever shrinks"): the same 160 berths, every division keeps its tactician seats, and the extra division
+    // seats go to the boarding defense and the damage control crews (Security 48 -> 56, Engineering 40 -> 48; the 160
+    // total binds). Weights [PROVISIONAL].
+    complementDivisionWeights: { security: 0.35, engineering: 0.3, science: 0.05, medical: 0.1, operations: 0.1, flightDeck: 0.2 },
     // SF-6 review (user 2026-10-27, Recommended): the explorers out-shield it, so "shields" is no longer "the most".
     description: "A slow capital hull. The most armor and guns the fleet fields, with heavy shields.",
   },
@@ -1429,9 +1434,10 @@ export const SHIP_TYPES: Record<ShipTypeKey, ShipTypeDef> = {
       { teamType: "science", size: 3 },
       { teamType: "prospecting", size: 3 },
     ],
-    // Complement plan CP-5 (OC-5 "Carrier Flight Deck lean", user 2026-10-16): the same 160 berths (no total shrinks),
-    // weighted to the Flight Deck that tends its squadrons. Weights [PROVISIONAL].
-    complementDivisionWeights: { security: 0.2, engineering: 0.2, science: 0.05, medical: 0.1, operations: 0.1, flightDeck: 0.35 },
+    // Complement plan CP-5 (OC-5 "Carrier Flight Deck lean", user 2026-10-16; review 2026-11-02 "No division ever
+    // shrinks"): the same 160 berths, every division keeps its tactician seats, and the extra division seats go to the
+    // Flight Deck that tends its squadrons (32 -> 56; the 160 total binds). Weights [PROVISIONAL].
+    complementDivisionWeights: { security: 0.3, engineering: 0.25, science: 0.05, medical: 0.1, operations: 0.1, flightDeck: 0.35 },
     description: "A drone platform. Few guns, but launches squadrons that fight for it.",
   },
 
@@ -1524,9 +1530,10 @@ export const SHIP_TYPES: Record<ShipTypeKey, ShipTypeDef> = {
     // fleet's most); its cruise is the fastest of the explorer hulls (1.3), not of the fleet (the Runner's 1.5).
     // Safe first runs SF-6 (user 2026-10-27, call 13 "Approve as drafted", "keep whichever text is true of the built
     // hull"): the approved line with OC-D13's "of the explorer hulls" kept, since "the fastest cruise" alone is false.
-    // Complement plan CP-5 (OC-5 "Aurora 750 (Science lean)", user 2026-10-16): the explorer 750 berths kept, weighted
-    // to Science. Weights [PROVISIONAL].
-    complementDivisionWeights: { security: 0.08, engineering: 0.23, science: 0.36, medical: 0.18, operations: 0.1, flightDeck: 0.05 },
+    // Complement plan CP-5 (OC-5 "Aurora 750 (Science lean)", user 2026-10-16; review 2026-11-02 "No division ever
+    // shrinks"): the explorer 750 berths kept, every division keeps its explorer seats, and the extra division seats go
+    // to Science (225 -> 270; the 750 total binds). Weights [PROVISIONAL].
+    complementDivisionWeights: { security: 0.1, engineering: 0.25, science: 0.36, medical: 0.2, operations: 0.1, flightDeck: 0.05 },
     description: "Heavy cruiser. A survey scout: the most module slots and the fastest cruise of the explorer hulls, at the cost of frame and hold.",
   },
   eir: {
