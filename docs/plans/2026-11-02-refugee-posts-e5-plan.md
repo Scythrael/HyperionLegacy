@@ -600,3 +600,7 @@ Off-match Dispatcher (~1.2%) was swallowed by tick rounding on short phases. Use
 (Recommended)": keep partial ticks and let them add up across cycles, so even small buffs always act over time.
 Also check (hub): the approved mockup says a swap lets the player "pick who they replace"; the engine's default
 (lowest share, last posted on a tie) must only apply when no target is chosen.
+
+## USER ANSWER (2026-11-03): phone arrival toast
+
+"Auto-tuck after a few seconds (Recommended)": the toast shows briefly, then tucks into the Refugees tab count badge; the arrival waits there; it never blocks the header.
