@@ -553,12 +553,18 @@ cg- prefixed) so the ship and the pool share them. `manifestRows` / `manifestVie
 (`MANIFEST_POOL_ID` = `CREW_POOL`; display only, names seeded the same way). App: `doTransferCrew` (log line, save;
 a refusal is logged with the gate text), the facility sub-tab `activePersonnelRostersSubTab`, the ship sub-tabs'
 `crewLock` mark (SubTabs gained an optional `crewLock` field: an SVG lock and the words as a title; the tab stays
-live). Lock lines: Away Team gained a panel line; Complement's reads "crew changes are locked ... Favorites and the
+live). Lock lines: Away Team gained one panel line (it replaced the ground teams' own lock line, which the controls now point at); Complement's reads "crew changes are locked ... Favorites and the
 Manifest still work" and its toggle "(paused while out)". Unassigned shows the member's worn gear
 (`awayTeamDisplay.ts unassignedGearText`). Glyphs `crewPool`, `minus`, `plus`. Deviations: ALL also shows on the
 phone rows (pick 3 names it; the phone frame omitted it); the hull badge hides when it equals the ship's name; twin
 groups (same name, rank, rarity) name their buffs; the row warning names the exact cap that bound (berths, division,
 or rank and above) instead of "nearly full". QA: docs/qa/2026-11-02-cp10-transfer-pool-qa.html.
+Fix round (review minors): a short row's reason reads the state when that row was applied (the rows above it and
+itself), not after later rows; the pool note names the specialty-division-first pass; a division change from any
+source resets "Show more". **Known minor follow-ups (logged, not built):** (a) the preview sums moved crew by
+signature, so a legacy save holding two buckets with the same signature at the source can show a row's willMove
+that differs from the engine's per-bucket result; (b) the live preview runs one `transferCrew` per tick plus one probe
+per row (and one per short row), which could cost noticeable time with hundreds of picked rows.
 
 ### CP-11: Crew module and early sensor blueprints (Task 28 engine)
 

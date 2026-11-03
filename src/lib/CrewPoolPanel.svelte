@@ -54,7 +54,7 @@
       <button type="button" class="cg-btn ghost sm" on:click={() => (manifestOpen = true)} disabled={waiting === 0}><Icon name="manifest" size={14} /> Manifest</button>
     </div>
     <div class="pool-note">
-      <span class="pool-wide">Transports bring new crew here. Auto-crew ships fill from the pool, highest rank first, within their caps. Manual ships only take what you send them.</span>
+      <span class="pool-wide">Transports bring new crew here. Auto-crew ships fill from the pool: their specialty divisions first, then highest rank first, within their caps. Manual ships only take what you send them.</span>
       <span class="pool-narrow">Auto-crew ships fill from here. Manual ships take what you send.</span>
     </div>
   </div>

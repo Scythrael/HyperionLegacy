@@ -55,6 +55,12 @@
     shown = GROUP_PAGE_STEP;
     selected = new Set();
   }
+  // A division change from any source (these chips, or the pool's phone chips through the binding) resets the paging.
+  let seenDivision = division;
+  $: if (division !== seenDivision) {
+    seenDivision = division;
+    shown = GROUP_PAGE_STEP;
+  }
 
   $: divisionCounts = divisionGroupCounts(rows);
   $: viewRows = sortCrewGroups(filterCrewGroups(rows, division), sort);

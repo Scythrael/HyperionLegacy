@@ -651,8 +651,9 @@
     <div class="away-hint">Ship not found.</div>
   {:else}
     {#if awayLockReason !== null}
-      <p class="away-lock" role="note">
-        <Icon name="lock" /> {crewLockReasonText(awayLockReason)}: away members, slots and gear are locked {crewLockUntilText(awayLockReason)}.
+      <!-- The ONE lock line for the panel (pick 8); the ground-team controls point at it (aria-describedby). -->
+      <p class="away-lock" role="note" id="gt-lock-{shipId}">
+        <Icon name="lock" /> {crewLockReasonText(awayLockReason)}: away members, slots{gv !== null && gv.teams.length > 0 ? ", team types" : ""} and gear are locked {crewLockUntilText(awayLockReason)}.{gv !== null && gv.teams.length > 0 ? " Renaming and the help setting still work." : ""}
       </p>
     {/if}
     {#if squads.length === 0}
@@ -669,11 +670,6 @@
           <h3 class="gt-title" id="gt-h-{shipId}"><Icon name="groundTeam" size={20} /> Ground teams</h3>
           <p class="gt-intro">{GROUND_TEAMS_INTRO}</p>
         </div>
-        {#if gv.locked}
-          <p class="gt-lock" id={lockId}>
-            <Icon name="lock" /> {gv.lockText}: slots and team types are locked {gv.lockUntil}. Renaming and the help setting still work.
-          </p>
-        {/if}
 
         <div class="gt-comp">
           <div class="gt-comp-top">
@@ -1984,14 +1980,6 @@
     align-items: flex-start;
     font-size: var(--text-xs);
     line-height: 1.4;
-    color: var(--color-warning);
-  }
-  .gt-lock {
-    margin: 0;
-    display: flex;
-    gap: 6px;
-    align-items: center;
-    font-size: var(--text-xs);
     color: var(--color-warning);
   }
   .gt-comp,

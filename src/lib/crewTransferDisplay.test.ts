@@ -238,6 +238,37 @@ describe("transferPreview", () => {
     expect(p.willMove).toBe(engine.moved);
   });
 
+  it("a short row's reason reads the berths when that row was applied, not after later rows fill the ship", () => {
+    const total = complementTotalCap(HULL);
+    const sciCap = divisionCap(HULL, "science");
+    // ship-2: Science has room for 2; the ship has 5 berths left, so row 2 (Engineering) takes the last 3 after row 1.
+    const held: CrewBucket[] = [bucket("science", sciCap - 2, 1, "science.held")];
+    let need = total - 5 - (sciCap - 2);
+    for (const prof of ["engineering", ...CREW_PROFESSIONS.filter((x) => x !== "science" && x !== "engineering")] as CrewProfession[]) {
+      if (need <= 0) break;
+      const room = divisionCap(HULL, prof) - (prof === "engineering" ? 3 : 0);
+      const n = Math.min(need, room);
+      if (n > 0) held.push(bucket(prof, n, 1, `${prof}.held`));
+      need -= n;
+    }
+    expect(need).toBe(0);
+    let s = withComplement(fleet(), "ship-2", held);
+    const sci = bucket("science", 4, 1, "science.a");
+    const eng = bucket("engineering", 3, 1, "engineering.a");
+    s = withComplement(s, "ship-1", [sci, eng]);
+    const picks = [
+      { signatureKey: k(sci), count: 4 },
+      { signatureKey: k(eng), count: 3 },
+    ];
+    const engine = transferCrew(s, "ship-1", "ship-2", picks);
+    expect(engine.results.map((r) => r.moved)).toEqual([2, 3]);
+    const p = transferPreview(s, "ship-1", "ship-2", picks);
+    expect(p.rows[0].note).toBe("short");
+    expect(p.rows[0].noteText).toContain("Science division is full");
+    expect(p.rows[0].noteText).not.toContain("no berths left");
+    expect(p.rows[1].note).toBe("ok");
+  });
+
   it("two groups that read the same name their buffs; a lone group does not", () => {
     const a = bucket("science", 2, 1, "science.a");
     const b = bucket("science", 3, 1, "science.b2");

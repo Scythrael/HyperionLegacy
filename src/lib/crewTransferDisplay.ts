@@ -335,8 +335,12 @@ export function transferPreview(
       } else {
         note = "short";
         const left = count - moved;
-        const after = preview && preview.gate.ok && targetShip ? shipOf(preview.next, targetShip.id) : undefined;
-        const why = after && preview ? boundCapText(preview.next, after, b.profession, b.rank) : `${toName} has no more room for that crew`;
+        // The reason reads the state at the moment this row was applied (the rows above it and this one), never
+        // after later rows, which could fill berths this row did not hit.
+        const upToHere = picks.slice(0, i + 1).filter((p) => p.count >= 1);
+        const atRow = preview && preview.gate.ok && targetShip ? transferCrew(state, from, to, upToHere) : null;
+        const after = atRow && atRow.gate.ok && targetShip ? shipOf(atRow.next, targetShip.id) : undefined;
+        const why = after && atRow ? boundCapText(atRow.next, after, b.profession, b.rank) : `${toName} has no more room for that crew`;
         const stays = from === CREW_POOL ? `The other ${fmtCount(left)} stay in the pool.` : `The other ${fmtCount(left)} stay aboard ${sourceName}.`;
         noteText = moved > 0 ? `Room for ${fmtCount(moved)}: ${why}. ${stays}` : `No room: ${why}. ${from === CREW_POOL ? `All ${fmtCount(count)} stay in the pool.` : `All ${fmtCount(count)} stay aboard ${sourceName}.`}`;
         shortNoteText = moved > 0 ? `Room for ${fmtCount(moved)}. The other ${fmtCount(left)} stay.` : "No room. They all stay.";
