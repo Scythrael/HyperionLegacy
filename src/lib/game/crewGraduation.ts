@@ -1,5 +1,5 @@
 // CP-8 (0.14.0, docs/plans/2026-10-14-complement-and-acquisition-plan.md, E-CREW Task 26 engine): GRADUATE, SEND BACK,
-// and the MANIFEST.
+// RETIRE (CP-9) and the MANIFEST.
 //
 // Crew spec 255 to 258: names are "generated lazily and deterministically (seed = bucket signature + index) only when
 // a manifest view is opened. Never persisted." "Standouts graduate into notableCrew (bounded list) with a persisted
@@ -77,7 +77,7 @@ export function graduateBlockText(reason: GraduateBlockReason): string {
     case "noBucket":
       return "No crew of that group are aboard";
     case "notableCap":
-      return `The fleet already has ${NOTABLE_CREW_CAP} notable crew`;
+      return `The fleet already has ${NOTABLE_CREW_CAP} notable crew. Retire one to make room`;
   }
 }
 
@@ -196,6 +196,65 @@ export function sendBackNotable(state: GameState, notableId: string): GameState 
 }
 
 // ============================================================================
+// Retire (CP-9 user call 2026-11-02 "Allow Retire (Recommended)")
+// ============================================================================
+// A notable leaves the fleet with a farewell line, no penalty, and frees one slot under NOTABLE_CREW_CAP. It works
+// aboard a ship or not; aboard, the ship's crew count drops by that one (a passive ship refills the berth from the pool
+// on a later tick, the same as after Send back). Refused while its ship is crew-locked, the same as Send back. Only a
+// player action calls it (never the tick), so no golden and no offline path moves, and no save field is added.
+
+//   noNotable: no notable with that id
+//   onMission: it is aboard a crew-locked ship
+export type RetireBlockReason = "noNotable" | "onMission";
+export type RetireGate = { ok: true } | { ok: false; reason: RetireBlockReason };
+
+export function retireBlockText(reason: RetireBlockReason): string {
+  switch (reason) {
+    case "noNotable":
+      return "That crew member is no longer on the roster";
+    case "onMission":
+      return "Ship is out on a mission";
+  }
+}
+
+export function canRetireNotable(state: GameState, notableId: string): RetireGate {
+  const notable = state.notableCrew.find((n) => n.id === notableId);
+  if (!notable) return { ok: false, reason: "noNotable" };
+  const shipId = notable.assignedShipId ?? null;
+  if (shipId !== null && shipCrewLocked(state, shipId)) return { ok: false, reason: "onMission" };
+  return { ok: true };
+}
+
+// The player text for a gate, naming the real lock; undefined when it is open. Pure.
+export function retireGateText(state: GameState, notableId: string, gate: RetireGate): string | undefined {
+  if (gate.ok) return undefined;
+  if (gate.reason === "onMission") {
+    const shipId = state.notableCrew.find((n) => n.id === notableId)?.assignedShipId ?? null;
+    return (shipId === null ? null : crewLockText(state, shipId)) ?? retireBlockText(gate.reason);
+  }
+  return retireBlockText(gate.reason);
+}
+
+// Retire a notable: its record leaves state.notableCrew and its id leaves every Personnel roster's pins (a roster
+// skips an unknown id anyway; dropping it keeps the pin lists truthful). nextNotableId does not move, so an id is
+// never reused. The SAME state when refused. Pure.
+export function retireNotable(state: GameState, notableId: string): GameState {
+  if (!canRetireNotable(state, notableId).ok) return state;
+  const pinned = state.personnelRosters.some((r) => r.pinnedNotableCrew.includes(notableId));
+  return {
+    ...state,
+    notableCrew: state.notableCrew.filter((n) => n.id !== notableId),
+    ...(pinned
+      ? {
+          personnelRosters: state.personnelRosters.map((r) =>
+            r.pinnedNotableCrew.includes(notableId) ? { ...r, pinnedNotableCrew: r.pinnedNotableCrew.filter((id) => id !== notableId) } : r,
+          ),
+        }
+      : {}),
+  };
+}
+
+// ============================================================================
 // The manifest (a pure paged generator, never stored)
 // ============================================================================
 
@@ -224,8 +283,18 @@ export interface ManifestPage {
 // stable: the same state gives the same rows on every call, and a row keeps its name while its bucket holds it.
 // Notables are not rows (they carry their own persisted names). Cost is O(buckets + limit). An unknown ship, a
 // negative offset (read as 0) or a limit below 1 give what they can (possibly no rows).
-export function manifestRows(state: GameState, shipId: string, offset: number, limit: number): ManifestPage {
-  const buckets = state.ships.find((s) => s.id === shipId)?.complement?.buckets ?? [];
+// CP-9: an optional `profession` narrows the manifest to one division (the Manifest's division chips). Indexes and the
+// total then count that division only; every name is unchanged, since a name hangs on the ship, the bucket and the row
+// within the bucket, never on the row's place in the list. Omitted, the manifest is exactly the CP-8 one.
+export function manifestRows(
+  state: GameState,
+  shipId: string,
+  offset: number,
+  limit: number,
+  profession?: CrewSignature["profession"] | null,
+): ManifestPage {
+  const all = state.ships.find((s) => s.id === shipId)?.complement?.buckets ?? [];
+  const buckets = profession === undefined || profession === null ? all : all.filter((b) => b.profession === profession);
   const total = buckets.reduce((n, b) => n + Math.max(0, b.count), 0);
   const rows: ManifestRow[] = [];
   const start = Math.max(0, Math.floor(offset));

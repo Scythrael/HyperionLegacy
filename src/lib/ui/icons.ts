@@ -519,6 +519,21 @@ export const ICON_PATHS = {
   gear: ["M12 8.8a3.2 3.2 0 1 0 0 6.4 3.2 3.2 0 0 0 0-6.4z", "M19.4 15a1.6 1.6 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.6 1.6 0 0 0-1.8-.3 1.6 1.6 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1A1.6 1.6 0 0 0 9 19.4a1.6 1.6 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.6 1.6 0 0 0 .3-1.8 1.6 1.6 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1A1.6 1.6 0 0 0 4.6 9a1.6 1.6 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.6 1.6 0 0 0 1.8.3H9a1.6 1.6 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.6 1.6 0 0 0 1 1.5 1.6 1.6 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.6 1.6 0 0 0-.3 1.8V9a1.6 1.6 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.6 1.6 0 0 0-1.5 1z"],
   // Chart: three rising bars on a baseline, the minigame's Stats button.
   chart: ["M4 20h16", "M7 16v-5", "M12 16V7", "M17 16v-8"],
+
+  // --- 0.14.0 CP-9: the complement crew groups table, Graduate and the Manifest ---
+
+  // Graduate: a mortarboard (the board, its crown and the tassel), the "Graduate one" action.
+  graduate: ["M2.5 9.5L12 5l9.5 4.5L12 14z", "M6.5 11.5v4.5c3 2.4 8 2.4 11 0v-4.5", "M21.5 9.5v5.5"],
+  // Manifest: a clipboard with listed lines, the ship's roster of generated names.
+  manifest: ["M6 4.5h12V21H6z", "M9.5 4.5V3h5v1.5", "M9 9.5h6M9 13h6M9 16.5h3.5"],
+  // Transfer: two opposed arrows, moving crew between ships (wired by CP-10).
+  transfer: ["M4 8.5h14l-3.5-3.5", "M20 15.5H6l3.5 3.5"],
+  // Sort: an up arrow beside a down arrow, the sort chips' label.
+  sort: ["M7.5 19V5", "M4 8.5l3.5-3.5L11 8.5", "M16.5 5v14", "M13 15.5l3.5 3.5 3.5-3.5"],
+  // Diamond: the mark of a second-level exclusive crew buff.
+  diamond: ["M12 3.5l7.5 8.5-7.5 8.5-7.5-8.5z"],
+  // Chevron left: the manifest pager's previous page (chevronRight is its next).
+  chevronLeft: ["M15 6l-6 6 6 6"],
 } as const satisfies Record<string, readonly string[]>;
 
 /**

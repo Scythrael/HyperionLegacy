@@ -254,6 +254,15 @@ export const ICON_SEMANTICS: Record<IconName, IconSemantic> = {
   help: "action",
   gear: "action",
   chart: "action",
+
+  // 0.14.0 CP-9: graduate, manifest, transfer and sort are actions the player takes; the diamond marks a kind of buff
+  // (a thing); the left chevron is structure.
+  graduate: "action",
+  manifest: "action",
+  transfer: "action",
+  sort: "action",
+  diamond: "subject",
+  chevronLeft: "ornament",
 };
 
 // ---------------------------------------------------------------------------
