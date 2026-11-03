@@ -36,6 +36,15 @@
 //             taken out, both equal the old pins.
 //   golden 3  unchanged (no consumer reads a refugee yet); its cycle plans sample a fresh board's rolls, so it reads
 //             them with the draw off (the draw's move is golden 1's).
+//
+// E5-3 (a delivered Refugee Relocation takes the longest-waiting refugee along): the `e5-2:` pins keep their values and
+// are checked with the farewell OFF (refugeeFarewellSwitch.fixture.ts withRefugeeFarewellOff: the game before E5-3
+// exactly), which traces every move; beside each moved pin an `e5-3:` pin records the new value with it ON.
+//   golden 2  the fleet's Evacuations bring people home and slot 0's Repeat Relocations then take them along
+//             (`e5-3:fleet`); the board and the previews do not move (no draw is taken).
+//   golden 5  the same from each slot's stamp on (`e5-3:old`); hour 0 and the previews unchanged. The draw-off pins
+//             (`fleet`, `old`) do not move: with no Evacuation nobody is ever waiting, so a Relocation runs as before.
+//   goldens 1, 3, 4 and 6 unchanged.
 
 import { describe, expect, it } from "vitest";
 import { writeFileSync } from "node:fs";
@@ -57,6 +66,8 @@ import { shortRangeTypeRows } from "../shortRangeBoardDisplay";
 import { hash, withoutEvacuationStamp } from "./firstRunsGoldens.fixture";
 // E5-2: the Evacuation draw's test-only off switch (the pre-E5-2 game), tracing every moved pin.
 import { withEvacuationDrawOff } from "./evacuationDrawSwitch.fixture";
+// E5-3: the Relocation farewell's test-only off switch (the pre-E5-3 game), tracing every moved pin.
+import { withRefugeeFarewellOff } from "./refugeeFarewellSwitch.fixture";
 import { E5_2_ADDED_ENTRY_IDS } from "./refugeeRegistry.fixture";
 
 // The wiring registry entries E5 adds (E5-4 fills it). Held apart from golden 4, so that pin proves nothing else moved.
@@ -286,6 +297,9 @@ const GOLDEN: Record<string, unknown> = {
     "prisonerTransport|Prisoner Transport|security|Training run next|range,guests,security",
     "evacuation|Evacuation|home|Training run next|range,guests",
   ],
+  // E5-3 (the Relocation farewell): the moved pins' new values, captured with the farewell on (see the header).
+  "e5-3:fleet": ["766005", "49335167", "77602096", "562044af", "cb3fb2c1", "d6c0aba7", "a75266bd"],
+  "e5-3:old": ["766005", "49335167", "77602096", "562044af", "cb3fb2c1", "d6c0aba7", "a75266bd"],
 };
 
 const CAPTURE = Boolean(import.meta.env.E5_CAPTURE);
@@ -358,12 +372,20 @@ describe("E5-0 golden 2: a short-range fleet on Repeat on every slot, six hours"
     pin("fleet", old.hours);
     pin("fleet:previews", old.previews);
     pin("fleet:board", old.board);
-    // E5-2: the fleet's fresh board draws the overlay, so Evacuations join its cycles and bring people home.
+    // E5-2: the fleet's fresh board draws the overlay, so Evacuations join its cycles and bring people home. Traced with
+    // the E5-3 farewell off (the game before E5-3).
+    const e52 = withRefugeeFarewellOff(fleetHours);
+    pin("e5-2:fleet", e52.hours);
+    pin("e5-2:fleet:previews", e52.previews);
+    pin("e5-2:fleet:board", e52.board);
+    expect(e52.s.completionLog.some((e) => e.kind === "refugeeArrival")).toBe(true);
+    // E5-3: slot 0's Repeat Relocations take the waiting people along; no draw is taken, so the board and the previews
+    // stay the E5-2 pins.
     const now = fleetHours();
-    pin("e5-2:fleet", now.hours);
-    pin("e5-2:fleet:previews", now.previews);
-    pin("e5-2:fleet:board", now.board);
-    expect(now.s.completionLog.some((e) => e.kind === "refugeeArrival")).toBe(true);
+    pin("e5-3:fleet", now.hours);
+    expect(now.previews).toEqual(e52.previews);
+    expect(now.board).toEqual(e52.board);
+    expect(now.s.completionLog.some((e) => e.kind === "refugeeFarewell")).toBe(true);
   });
 });
 
@@ -426,8 +448,15 @@ describe("E5-0 golden 5: the fleet's v70 save through deserialize + migrate, the
       }
     }
     expect(now.hours[0]).toBe(old.hours[0]);
-    pin("e5-2:old", now.hours);
-    pin("e5-2:old:previews", now.previews);
+    // E5-2, traced with the E5-3 farewell off (the game before E5-3).
+    const e52 = withRefugeeFarewellOff(oldSaveHours);
+    pin("e5-2:old", e52.hours);
+    pin("e5-2:old:previews", e52.previews);
+    // E5-3: the farewell moves the hours after the first Relocation that finds someone waiting; hour 0 and the previews
+    // do not move.
+    expect(now.hours[0]).toBe(e52.hours[0]);
+    expect(now.previews).toEqual(e52.previews);
+    pin("e5-3:old", now.hours);
   });
 });
 

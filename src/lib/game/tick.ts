@@ -1517,13 +1517,13 @@ function refugeeOpenPostsAt(state: GameState, ticksElapsed: number): number | ((
 }
 
 // E5-2: one completion log entry for an Evacuation's outcome: "refugeeArrival" names who came home, "refugeeNoArrival"
-// is the calm line (homeDashboard.ts refugeeCompletionLine words both). A farewell (E5-3) writes nothing yet. Pure.
+// is the calm line (homeDashboard.ts refugeeCompletionLine words both). E5-3: "refugeeFarewell" names who left with a
+// Refugee Relocation to lead the new camp, and `refugeeOrigin` is that run's tier and destination. Pure.
 function appendRefugeeEvent(state: GameState, event: RefugeeEvent, nowMs: number): GameState {
-  if (event.kind === "farewell") return state;
   const nextId = state.nextCompletionLogId ?? 1;
   const log = pushCompletionEntry(state.completionLog ?? [], {
     id: `done-${nextId}`,
-    kind: event.kind === "arrival" ? "refugeeArrival" : "refugeeNoArrival",
+    kind: event.kind === "arrival" ? "refugeeArrival" : event.kind === "farewell" ? "refugeeFarewell" : "refugeeNoArrival",
     reward: "nothing",
     atMs: nowMs,
     startedAtMs: nowMs,
@@ -1535,7 +1535,7 @@ function appendRefugeeEvent(state: GameState, event: RefugeeEvent, nowMs: number
     fuelAmount: null,
     creditsAmount: null,
     stale: false,
-    ...(event.kind === "arrival" && event.refugeeId !== undefined && event.name !== undefined && event.background !== undefined
+    ...(event.kind !== "noArrival" && event.refugeeId !== undefined && event.name !== undefined && event.background !== undefined
       ? { refugee: { id: event.refugeeId, name: event.name, background: event.background } }
       : {}),
     refugeeOrigin: { tier: event.tier, destinationIndex: event.destinationIndex },

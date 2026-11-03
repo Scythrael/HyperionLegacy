@@ -353,6 +353,20 @@ off-match 25% of a skill 42 refugee, about 1.05%, needs T >= 97).
   does after E5-2, the move is traced to this rule in the golden's comment).
 - [ ] **Step 5: Commit** `feat: E5-3 Refugee Relocation takes one waiting refugee`.
 
+#### E5-3 carry note (built 2026-11-02 on `999809f`)
+
+- Who: `refugeeFarewellPick`, the lowest id among the waiting (ids are minted in arrival order, so the longest-waiting).
+  When: at delivery, inside `applyRefugeeDeliveries` in the (atTick, slotId) order; no draw. The leaver also leaves
+  `greet`; `arrivedTotal` never drops. Log kind `refugeeFarewell` (`refugee` + `refugeeOrigin`), line "{name} leaves to
+  lead the new camp on {destination}." Icon "home" until E5-6 adds the leaf glyph [PROVISIONAL].
+- Goldens: `e5-2:fleet` and `e5-2:old` moved (slot 0's Repeat Relocations take the people Evacuations brought); traced
+  with `refugeeFarewellSwitch.fixture.ts` `withRefugeeFarewellOff`, new values in `e5-3:fleet` / `e5-3:old`; previews,
+  boards and the draw-off pins unchanged. Two E5-2 test assertions traced (the capped log's first lines, the list size).
+- Found, not fixed (pre-existing on `999809f`, short-range engine): two captains on Repeat while a template is still in
+  its slow-start ramp diverge between one long call and 1 s steps (board cursor and `runCounts`), apparently because the
+  captain map threads `runCounts` captain by captain across the whole call. The E5-3 determinism tests use a veteran
+  fleet, as E5-2's did. For the controller.
+
 ### Task E5-4: Posts, actions and facility buffs, with registry rows [large]
 
 **Files:**

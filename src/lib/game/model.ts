@@ -7018,7 +7018,16 @@ export type CompletionSalvageSubject =
 // (rare, a per-hour chance), so a live Repeat run's finds show before it is recalled.
 // E5-2 (Refugee Posts): "refugeeArrival", one entry per delivered Evacuation that brought someone home (`refugee`), and
 // "refugeeNoArrival", the calm line for one that brought nobody new (`refugeeOrigin` names where it went).
-export type CompletionLogKind = TimedProcessKind | "patrolRun" | "shortRangeRun" | "shortRangeRelicFind" | "refugeeArrival" | "refugeeNoArrival";
+// E5-3: "refugeeFarewell", one entry per delivered Refugee Relocation that took a waiting refugee along to lead the new
+// camp (`refugee` is who left, `refugeeOrigin` the run's tier and destination).
+export type CompletionLogKind =
+  | TimedProcessKind
+  | "patrolRun"
+  | "shortRangeRun"
+  | "shortRangeRelicFind"
+  | "refugeeArrival"
+  | "refugeeNoArrival"
+  | "refugeeFarewell";
 
 export interface CompletionLogEntry {
   id: string;               // "done-N", minted from state.nextCompletionLogId (mirrors "proc-N" / "q-N")
@@ -7070,9 +7079,9 @@ export interface CompletionLogEntry {
   // pool tier's rarity name and quality bucket), so the row can say "Standard quality". Absent everywhere else.
   salvageRoll?: { tier: EquipmentRarity; quality: number };
   // E5-2 (Refugee Posts): on a "refugeeArrival" entry, who came home (their id, name and background, as they arrived).
-  // Absent everywhere else.
+  // E5-3: on a "refugeeFarewell" entry, who left to lead the new camp. Absent everywhere else.
   refugee?: { id: number; name: string; background: RefugeeBackground };
-  // E5-2: on both refugee entries, the Evacuation's tier and destination (the label is derived,
+  // E5-2: on every refugee entry, the Evacuation's (E5-3: or the Relocation's) tier and destination (the label is derived,
   // shortRangeDestinationLabel). Absent everywhere else.
   refugeeOrigin?: { tier: 1 | 2; destinationIndex: number };
 }

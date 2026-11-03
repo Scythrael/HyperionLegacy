@@ -24,7 +24,7 @@ import {
 } from "./shortRange";
 import { shortRangeBoardSlots, shortRangeNextCycle, startShortRangeCycle } from "./shortRangeBoard";
 import { tickCaptainShortRange } from "./shortRangeCycle";
-import { REFUGEE_TAPER_K, applyRefugeeDeliveries, refugeeArrivalChance, refugeeArrives, rollRefugee, type RefugeeDelivery } from "./refugeeArrival";
+import { REFUGEE_TAPER_K, applyRefugeeDeliveries, refugeeArrivalChance, refugeeArrives, refugeeFarewellPick, rollRefugee, type RefugeeDelivery } from "./refugeeArrival";
 import { REFUGEE_BACKGROUND_KEYS, REFUGEE_SKILL_SPANS, refugeeOpenPosts, refugeesOf, type RefugeeRecord, type RefugeeState } from "./refugees";
 import { economyTick, installMissingCombatBaselines, tick } from "./tick";
 import { runCountsOf } from "./runDifficulty";
@@ -288,10 +288,11 @@ describe("E5-2 the taper and the seeded refugee roll", () => {
     const e = applyRefugeeDeliveries(refugeesOf(fresh), 1000, deliveries, call);
     expect(e.events.every((x) => x.kind === "arrival")).toBe(true);
     expect(e.refugees.list.map((r) => r.id)).toEqual(Array.from({ length: 30 }, (_, i) => i + 1));
-    // Relocations do nothing yet (E5-3), and no delivery returns the same reference.
+    // A Relocation with nobody waiting does nothing (E5-3 owns the farewell), and returns the same reference.
     const relocation = { ...training, template: "refugeeRelocation" as const };
-    const r = applyRefugeeDeliveries(crowd, 0, [{ kind: "relocation", atTick: 1, slotId: 0, roll: relocation }], call);
-    expect(r.refugees).toBe(crowd);
+    const empty = refugeesOf(fresh);
+    const r = applyRefugeeDeliveries(empty, 0, [{ kind: "relocation", atTick: 1, slotId: 0, roll: relocation }], call);
+    expect(r.refugees).toBe(empty);
     expect(r.events).toEqual([]);
   });
 });
@@ -394,7 +395,10 @@ describe("E5-2 determinism (Review Focus 4): two Evacuations delivered on the sa
     expect(json(view(chunks))).toBe(json(view(steps)));
     expect(json(view(once))).toBe(json(view(steps)));
     // The same-tick pair lands in slot order, and the span saw both outcomes.
-    const first = refugeeLog(steps).slice(0, 2);
+    // E5-3 trace: read at the pair's own delivery tick, not as the 6 h log's first two lines. The Repeat runs also roll
+    // Refugee Relocations, whose farewell lines (E5-3) fill the capped log, so its oldest surviving lines are later ones.
+    const unload = (s0.captains[0].mission as ShortRangeMissionState).plan.unloadTicks;
+    const first = refugeeLog(stepped(s0, unload)).slice(0, 2);
     expect(first.map((e) => e.subjectKey)).toEqual(["slot-0", "slot-2"]);
     const kinds = new Set(refugeeLog(steps).map((e) => e.kind));
     expect(kinds).toEqual(new Set(["refugeeArrival", "refugeeNoArrival"]));
@@ -409,7 +413,8 @@ describe("E5-2 determinism (Review Focus 4): two Evacuations delivered on the sa
     const N = 2 * 3600;
     const live = stepped(s0, N);
     const offline = tick(N, roundTrip(s0), RNG);
-    expect(refugeesOf(live).list.length).toBeGreaterThan(6);
+    // E5-3 trace: people arrived (arrivedTotal); the list itself can shrink now, as Relocations take people along.
+    expect(refugeesOf(live).arrivedTotal).toBeGreaterThan(6);
     expect(json(offline.refugees)).toBe(json(live.refugees));
     expect(json(refugeeLog(offline))).toBe(json(refugeeLog(live)));
   });
@@ -484,5 +489,162 @@ describe("E5-2 a malformed evacuation stamp drops alone; the board's cursor is k
     expect(loadWithBoard({ version: 1, nextCycle: { 0: 3 }, evacuationFrom: "soon" }).shortRangeBoard).toEqual({ version: 1, nextCycle: { 0: 3 } });
     expect(loadWithBoard({ version: 1, nextCycle: { 0: 3 }, evacuationFrom: { 0: 4 } }).shortRangeBoard).toEqual({ version: 1, nextCycle: { 0: 3 }, evacuationFrom: { 0: 4 } });
     expect(loadWithBoard({ version: 1, nextCycle: { 0: -1 }, evacuationFrom: { 0: 4 } }).shortRangeBoard).toBeUndefined();
+  });
+});
+
+// ===== E5-3: a Refugee Relocation takes one waiting refugee =====
+
+// Captain `captainId` on Repeat on `slotId`, starting at that slot's next `template` roll (the onEvacuation seam, any
+// template). `atHome`: the run starts at the beginning of its home turnaround.
+function onTemplate(s: GameState, template: ShortRangeTemplateKey, captainId: number, slotId: number, atHome = false): GameState {
+  const idx = cycleFor(s, template, slotId);
+  const board = { ...(s.shortRangeBoard ?? { version: 1 as const, nextCycle: {} }), nextCycle: { ...(s.shortRangeBoard?.nextCycle ?? {}), [slotId]: idx } };
+  const withBoard = { ...s, shortRangeBoard: board };
+  const ship = withBoard.ships.find((sh) => sh.assignedCaptainId === captainId)!;
+  const slot = shortRangeBoardSlots(withBoard)[slotId];
+  const start = startShortRangeCycle(withBoard, ship, slot, idx, undefined, false);
+  expect(start.roll.template).toBe(template);
+  const mission: ShortRangeMissionState = {
+    kind: "shortRange",
+    slotId,
+    roll: start.roll,
+    plan: start.plan,
+    phase: atHome ? "unloading" : "transitOut",
+    phaseProgressTicks: 0,
+    recalled: false,
+  };
+  return { ...withBoard, captains: withBoard.captains.map((c) => (c.id === captainId ? { ...c, mission } : c)), runCounts: start.runCounts };
+}
+
+const farewellLog = (g: GameState) => g.completionLog.filter((e) => e.kind === "refugeeFarewell");
+const peopleLog = (g: GameState) => g.completionLog.filter((e) => e.kind === "refugeeArrival" || e.kind === "refugeeNoArrival" || e.kind === "refugeeFarewell");
+
+describe("E5-3 a delivered Refugee Relocation takes the longest-waiting refugee along to lead the new camp", () => {
+  const call = { gameTimeSeconds: 0, tickDurationSeconds: 1 };
+  const relocationRoll = (): ShortRangeRoll => {
+    const fresh = withMissionControl(freshState(), 3);
+    return rollShortRangeJob(fresh, shortRangeBoardSlots(fresh)[0], cycleFor(fresh, "refugeeRelocation", 0));
+  };
+
+  it("refugeeFarewellPick: the lowest id among the waiting, never a posted refugee, null when nobody waits", () => {
+    const base = refugeesOf(withWaiting(freshState(), 4));
+    const posted: RefugeeState = { ...base, list: base.list.map((r) => (r.id <= 2 ? { ...r, posting: "refinery" } : r)) };
+    expect(refugeeFarewellPick(base)?.id).toBe(1);
+    expect(refugeeFarewellPick(posted)?.id).toBe(3);
+    // List order does not matter: the id does (ids are minted in arrival order).
+    expect(refugeeFarewellPick({ ...posted, list: [...posted.list].reverse() })?.id).toBe(3);
+    expect(refugeeFarewellPick({ ...base, list: base.list.map((r) => ({ ...r, posting: "shipyard" as const })) })).toBeNull();
+    expect(refugeeFarewellPick(refugeesOf(freshState()))).toBeNull();
+  });
+
+  it("with three waiting (and one posted) it removes the lowest-id waiting refugee only and emits one farewell", () => {
+    const base = refugeesOf(withWaiting(freshState(), 4));
+    const r0: RefugeeState = { ...base, list: base.list.map((r) => (r.id === 1 ? { ...r, posting: "research" } : r)), greet: [3, 4] };
+    const roll = relocationRoll();
+    const out = applyRefugeeDeliveries(r0, 0, [{ kind: "relocation", atTick: 7, slotId: 0, roll }], call);
+    expect(out.refugees.list.map((r) => r.id)).toEqual([1, 3, 4]);
+    expect(out.refugees.list[0].posting).toBe("research");
+    expect([out.refugees.arrivedTotal, out.refugees.nextId]).toEqual([r0.arrivedTotal, r0.nextId]);
+    expect(out.refugees.greet).toEqual([3, 4]);
+    expect(out.events).toEqual([
+      { kind: "farewell", atTick: 7, slotId: 0, refugeeId: 2, name: "Waiting 2", background: "scholar", destinationIndex: roll.destinationIndex, tier: roll.tier },
+    ]);
+    // A leaver still queued for an arrival card leaves the queue too.
+    const queued = applyRefugeeDeliveries({ ...r0, greet: [2, 4] }, 0, [{ kind: "relocation", atTick: 1, slotId: 0, roll }], call);
+    expect(queued.refugees.greet).toEqual([4]);
+    // Two relocations take two people, oldest first; a third with nobody left waiting does nothing.
+    const three = applyRefugeeDeliveries(r0, 0, [1, 2, 3, 4].map((t) => ({ kind: "relocation" as const, atTick: t, slotId: 1, roll })), call);
+    expect(three.events.map((e) => e.refugeeId)).toEqual([2, 3, 4]);
+    expect(three.refugees.list.map((r) => r.id)).toEqual([1]);
+    expect(three.refugees.arrivedTotal).toBe(r0.arrivedTotal);
+  });
+
+  it("the farewell writes a refugeeFarewell entry and the mockup's line", () => {
+    let s0 = withWaiting(veteran(qualified()), 3);
+    s0 = onTemplate(s0, "refugeeRelocation", WIRING_CAPTAIN_ID, 0);
+    const m = s0.captains[0].mission as ShortRangeMissionState;
+    const s = economyTick(s0, m.plan.totalTicks, RNG);
+    expect(refugeesOf(s).list.map((r) => r.id)).toEqual([2, 3]);
+    expect(refugeesOf(s).arrivedTotal).toBe(3);
+    const log = farewellLog(s);
+    expect(log).toHaveLength(1);
+    expect(log[0]).toMatchObject({ refugee: { id: 1, name: "Waiting 1", background: "scholar" }, refugeeOrigin: { tier: m.roll.tier, destinationIndex: m.roll.destinationIndex } });
+    const where = SHORT_RANGE_DESTINATIONS.surface[m.roll.destinationIndex];
+    const line = refugeeCompletionLine(log[0]);
+    expect(line).toBe(`Waiting 1 leaves to lead the new camp on ${where}.`);
+    expect(line).not.toMatch(/—|--|\bfit/);
+  });
+
+  it("Review Focus 2: with nobody waiting (everyone posted, or no refugees) the run delivers and logs exactly as before", () => {
+    const run = (s0: GameState) => {
+      const s = onTemplate(s0, "refugeeRelocation", WIRING_CAPTAIN_ID, 0);
+      const m = s.captains[0].mission as ShortRangeMissionState;
+      return { s, out: economyTick(s, m.plan.totalTicks + 5, RNG) };
+    };
+    // No refugees at all: no refugees key is written, and the whole state equals the same run with the E5 field absent.
+    const none = run(veteran(qualified()));
+    expect(none.out.refugees).toBeUndefined();
+    expect(farewellLog(none.out)).toEqual([]);
+    // Everyone posted: the same refugees object, and every other field as the run with no refugees.
+    const all = withWaiting(veteran(qualified()), 2);
+    const allPosted: GameState = { ...all, refugees: { ...all.refugees!, list: all.refugees!.list.map((r) => ({ ...r, posting: "refinery" as const })) } };
+    const posted = run(allPosted);
+    expect(posted.out.refugees).toBe(posted.s.refugees);
+    expect(json({ ...posted.out, refugees: undefined })).toBe(json({ ...none.out, refugees: undefined }));
+    expect(peopleLog(posted.out)).toEqual([]);
+  });
+});
+
+describe("E5-3 determinism: an Evacuation and a Relocation delivered on the same tick resolve in slotId order", () => {
+  // Two identical hulls at the start of their home turnaround, so both deliver on the same tick. Nobody waiting at the
+  // start, so the order decides the outcome: an Evacuation on the lower slot brings someone home and the Relocation then
+  // takes them along; the other way round the Relocation finds nobody and the newcomer stays.
+  // A veteran fleet, as the E5-2 pair: with two captains still in a template's slow-start ramp, a long call already
+  // diverged from 1 s steps on 999809f before E5-3 (the board's cycle cursor and runCounts, not the refugee pass).
+  function pair(evacSlot: number, relocSlot: number): GameState {
+    let s = veteran(withSecondCaptain(qualified()));
+    s = onTemplate(s, "evacuation", 1, evacSlot, true);
+    s = onTemplate(s, "refugeeRelocation", 2, relocSlot, true);
+    const [a, b] = s.captains.map((c) => c.mission as ShortRangeMissionState);
+    expect(a.plan.unloadTicks).toBe(b.plan.unloadTicks);
+    expect(refugeeArrivalChance(0, refugeeOpenPosts(s))).toBe(1); // nobody waiting: this Evacuation brings someone home
+    return s;
+  }
+
+  for (const [evacSlot, relocSlot, leaves] of [[0, 2, true], [2, 0, false]] as const) {
+    it(`Evacuation on slot ${evacSlot}, Relocation on slot ${relocSlot}: one call == 997 s chunks == 1 s steps (${leaves ? "the newcomer leaves" : "the newcomer stays"})`, () => {
+      const s0 = pair(evacSlot, relocSlot);
+      const m = s0.captains[0].mission as ShortRangeMissionState;
+      const firstDelivery = m.plan.unloadTicks;
+      const once1 = economyTick(s0, firstDelivery, RNG);
+      const r = refugeesOf(once1);
+      expect(r.arrivedTotal).toBe(1);
+      expect(r.list.map((x) => x.id)).toEqual(leaves ? [] : [1]);
+      expect(r.greet).toEqual(leaves ? [] : [1]);
+      const kinds = peopleLog(once1).map((e) => [e.kind, e.subjectKey]);
+      expect(kinds).toEqual(
+        leaves ? [["refugeeArrival", `slot-${evacSlot}`], ["refugeeFarewell", `slot-${relocSlot}`]] : [["refugeeArrival", `slot-${evacSlot}`]]
+      );
+      // Over 6 h (more Evacuations and Relocations on Repeat), however the span is cut.
+      const N = 6 * 3600;
+      const once = economyTick(s0, N, RNG);
+      const chunks = chunked(s0, N);
+      const steps = stepped(s0, N);
+      const view = (g: GameState) => ({ refugees: g.refugees, log: peopleLog(g), board: g.shortRangeBoard, counts: g.runCounts });
+      expect(json(view(chunks))).toBe(json(view(steps)));
+      expect(json(view(once))).toBe(json(view(steps)));
+      expect(farewellLog(steps).length).toBeGreaterThan(0);
+    });
+  }
+
+  it("offline == live: a 2 h offline replay through the save equals live 1 s steps, farewells included", () => {
+    const roundTrip = (g: GameState) => migrate(deserialize(serialize(g, 0, 1_790_000_000_000)) as SaveFile, 1);
+    const s0 = roundTrip(withWaiting(pair(0, 2), 3));
+    const N = 2 * 3600;
+    const live = stepped(s0, N);
+    const offline = tick(N, roundTrip(s0), RNG);
+    expect(farewellLog(live).length).toBeGreaterThan(0);
+    expect(json(offline.refugees)).toBe(json(live.refugees));
+    expect(json(peopleLog(offline))).toBe(json(peopleLog(live)));
   });
 });
