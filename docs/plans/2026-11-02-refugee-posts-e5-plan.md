@@ -366,6 +366,16 @@ off-match 25% of a skill 42 refugee, about 1.05%, needs T >= 97).
   its slow-start ramp diverge between one long call and 1 s steps (board cursor and `runCounts`), apparently because the
   captain map threads `runCounts` captain by captain across the whole call. The E5-3 determinism tests use a veteran
   fleet, as E5-2's did. For the controller.
+- FIXED (slow-start parity fix, on `739b49a`): root cause tick.ts's short-range arm ran each captain's whole call
+  through `tickCaptainShortRange` in captain order, so a cycle start (shortRangeCycle.ts, the delivery's
+  `countShortRangeCycleComplete` and the next `startShortRangeCycle` roll) saw this captain's later cycles but none of
+  a later captain's earlier deliveries. Now the run is a generator over its sync points (departure gate, berth claim,
+  delivery) and `tickShortRangeFleet` serves a long call's runs in (whole tick, captain order, instant) order, the
+  order 1 s steps produce. Only calls longer than one tick with two or more runs take it; production only ever steps
+  economyTick(state, 1), so no live or offline trajectory moves (no stamp needed). Goldens 2 and 5 moved (one-hour
+  calls), traced with `shortRangeFleetSwitch.fixture.ts`, new values in `srfix:*`. The E5-2/E5-3 determinism blocks now
+  run a fresh fleet as well as the veteran one. Left as is: the first-seen key order of `lifetimeStats` maps and of
+  `discovered` within one multi-captain call follows the captain map (values identical; readers use membership).
 
 ### Task E5-4: Posts, actions and facility buffs, with registry rows [large]
 
