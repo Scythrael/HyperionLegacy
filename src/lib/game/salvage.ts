@@ -134,6 +134,7 @@ import { museumBonuses } from "./relics";
 // (see salvageRoundingStream). rng.ts has no imports, so this adds no cycle.
 import { makeRng } from "./combat/rng";
 import { diminishing } from "./diminishing";
+import { refugeeFacilityBonus } from "./refugeeBuffs";
 // RARITY READINESS RR-4: the ascension order (keep-best tie-break) and the Celestial auto-salvage exemption.
 import { ascensionOrder, isCelestialPiece } from "./ascension";
 
@@ -205,7 +206,11 @@ export function salvageTalentBonus(state: GameState): {
 // salvages is untouched (the timed salvageJob stays offline == live). Empty museum -> exactly 1, and
 // x * 1 === x in IEEE math, so every fraction (and every floored amount) is bit-identical.
 export function salvageYieldMult(state: GameState): number {
-  return 1 + museumBonuses(state).salvageYield;
+  const museum = 1 + museumBonuses(state).salvageYield;
+  // E5-4 (the Salvager): the Salvage Bay's refugee buff, its own x (1 + b) factor on the same multiplier (a live read,
+  // as the museum's; no draw). The museum's value, bit for bit, with nobody posted at the Salvage Bay.
+  const refugees = refugeeFacilityBonus(state, "salvageBay");
+  return refugees > 0 ? museum * (1 + refugees) : museum;
 }
 
 // ----------------------------------------------------------------------------

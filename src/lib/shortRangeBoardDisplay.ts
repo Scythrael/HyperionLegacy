@@ -60,6 +60,7 @@ import { missionPhaseStatus } from "./game/berths";
 import { materialAtCap } from "./game/tick";
 import { RAMP_MAX_TIER, runCountsOf, runDifficultyAt, runRamp } from "./game/runDifficulty";
 import { formatNumber } from "./game/format";
+import { refugeeShortRangePlan } from "./game/refugeeBuffs";
 import type { IconName } from "./ui/icons";
 
 // ===== vocabulary =====
@@ -440,7 +441,8 @@ export function shortRangeCostPreview(state: GameState, captainId: number, slot:
   const stats = effectiveShipStats(state, ship);
   const eng = shortRangeShipEngineering(state, ship);
   const roll = shortRangeSlotPreview(state, slot);
-  const plan = shortRangeCyclePlan(roll, stats, eng);
+  // E5-4: the preview re-plans the cycle as the cycle start will (Mission Control's refugee buff folded in).
+  const plan = refugeeShortRangePlan(state, shortRangeCyclePlan(roll, stats, eng));
   const reward = shortRangeCycleReward(roll, stats);
   const terms = captainTransportTerms(captain);
   const drop = SHORT_RANGE_TEMPLATES.supplyDropOff;
@@ -458,7 +460,7 @@ export function shortRangeCostPreview(state: GameState, captainId: number, slot:
     // E5-2: on the slot's own draw version at that cycle, so the estimate samples the jobs the board will roll.
     const r = drawShortRangeJobAt(s, slot, from + i, () => ({ version: 1, firstRun: false, ramp: 1, tier: slot.tier }), shortRangeDrawVersion(state, slot.id, from + i));
     credits += cycleCredits(state, captain, ship, r);
-    ticks += shortRangeCyclePlan(r, stats, eng).totalTicks;
+    ticks += refugeeShortRangePlan(state, shortRangeCyclePlan(r, stats, eng)).totalTicks;
   }
   const secondsPerTick = state.tickDurationSeconds > 0 ? state.tickDurationSeconds : 1;
   return {

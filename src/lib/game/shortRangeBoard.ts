@@ -40,6 +40,8 @@ import { newReactorLiftFlag, reactorLiftFlagged } from "./reactorSurplus";
 import { crewModuleLinesStamp } from "./crewModules";
 import { equippedFor } from "./equipmentQueries";
 import { pilotCunningStamp, pilotCutShortRangePlan } from "./officerStats";
+// E5-4 (the Dispatcher): Mission Control's refugee buff on each phase of the plan, frozen at the cycle start.
+import { refugeeShortRangePlan } from "./refugeeBuffs";
 
 // ===== the board =====
 
@@ -139,8 +141,11 @@ export function startShortRangeCycle(
   // WR-9 fix round (user 2026-10-31 "Missions, short-range, patrols"): `pilotCunning` is the run's Pilot Cunning stamp
   // (0 for a run without one and for a preview); the cycle rolls it on its job seed and a landed roll cuts the leg home
   // (officerStats.ts pilotCutShortRangePlan).
+  // E5-4 (the Dispatcher): Mission Control's refugee buff shortens each phase, max(1, ceil(t / (1 + b))), read HERE at
+  // the cycle start and frozen with the plan, so a posting changes only the next cycle (the same plan with nobody
+  // posted). Before the Pilot's cut, which then reads the shortened leg home.
   const plan = pilotCutShortRangePlan(
-    shortRangeCyclePlan(roll, runShipStats(state, ship, wear, reactorLift, moduleLines, favored), shortRangeShipEngineering(state, ship)),
+    refugeeShortRangePlan(state, shortRangeCyclePlan(roll, runShipStats(state, ship, wear, reactorLift, moduleLines, favored), shortRangeShipEngineering(state, ship))),
     roll.seed,
     pilotCunning,
   );

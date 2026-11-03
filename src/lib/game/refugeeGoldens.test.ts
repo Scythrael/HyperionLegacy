@@ -52,6 +52,12 @@
 // checked with the fix OFF (shortRangeFleetSwitch.fixture.ts withShortRangeFleetOff: the game before the fix exactly);
 // the `srfix:` pins record the new values with it ON. No production path moves: live play and the offline catch-up
 // both step economyTick(state, 1), which never takes the joint path. Goldens 1, 3, 4 and 6 unchanged.
+//
+// E5-4 (the facility buffs a posted refugee gives): NO existing pin moves. Nothing on the tick posts anyone, so every
+// fixture here (and every old save) has nobody posted, every buff reads 0 and each seam takes its old path. Golden 4
+// holds the sixteen new registry rows apart (E5_ADDED_ENTRY_IDS). The new `e5-4:consumers:*` pins (golden 3b) read the
+// eight seams with every refugee facility staffed; traced with the buffs OFF (refugeeBuffsSwitch.fixture.ts
+// withRefugeeBuffsOff), where they read the unstaffed values, which are golden 3's own pins.
 
 import { describe, expect, it } from "vitest";
 import { writeFileSync } from "node:fs";
@@ -75,13 +81,20 @@ import { hash, withoutEvacuationStamp } from "./firstRunsGoldens.fixture";
 import { withEvacuationDrawOff } from "./evacuationDrawSwitch.fixture";
 // E5-3: the Relocation farewell's test-only off switch (the pre-E5-3 game), tracing every moved pin.
 import { withRefugeeFarewellOff } from "./refugeeFarewellSwitch.fixture";
-import { E5_2_ADDED_ENTRY_IDS } from "./refugeeRegistry.fixture";
+import { E5_2_ADDED_ENTRY_IDS, E5_4_ADDED_ENTRY_IDS } from "./refugeeRegistry.fixture";
 // The short-range slow-start parity fix: its test-only off switch (the game before the fix), tracing every moved pin.
 import { withShortRangeFleetOff } from "./shortRangeFleetSwitch.fixture";
+// E5-4: the facility buffs' test-only off switch (the pre-E5-4 game), the posting fixture and the seams golden 3b reads.
+import { withRefugeeBuffsOff } from "./refugeeBuffsSwitch.fixture";
+import { REFUGEE_BACKGROUNDS, REFUGEE_BACKGROUND_KEYS } from "./refugees";
+import { refugeeShortRangePlan } from "./refugeeBuffs";
+import { fabricateDurationTicks, researchSpeedFor, startProcess } from "./tick";
+import { dispatchRun, withRefugeePosted } from "./wiring/probes";
 
 // The wiring registry entries E5 adds (E5-4 fills it). Held apart from golden 4, so that pin proves nothing else moved.
 // E5-2: the Evacuation template's three rows (the template catalog loop, registry.ts; refugeeRegistry.fixture.ts).
-export const E5_ADDED_ENTRY_IDS: readonly string[] = [...E5_2_ADDED_ENTRY_IDS];
+// E5-4: the sixteen refugee post rows (refugeeRegistry.fixture.ts).
+export const E5_ADDED_ENTRY_IDS: readonly string[] = [...E5_2_ADDED_ENTRY_IDS, ...E5_4_ADDED_ENTRY_IDS];
 
 const RNG = (): number => 0.5;
 const HOUR = 3600;
@@ -316,6 +329,10 @@ const GOLDEN: Record<string, unknown> = {
   "srfix:fleet:board": {"version": 1, "nextCycle": {"0": 154, "1": 150, "2": 85, "3": 91}},
   "srfix:old": ["766005", "595b2ef0", "aeb9c2c4", "2ce48141", "92f4c0ff", "7437f00f", "585cc328"],
   "srfix:old:previews": ["ce47edc0", "deaf482e", "d0fe0d97", "6680b6d7"],
+  // E5-4 (golden 3b): the eight seams with every refugee facility staffed (one matched person each, skill 50).
+  "e5-4:consumers:low": {"refineExtra": 8, "research": "a9803a86", "relicStudy": [573, 860, 1146, 1719, 1719, 1719], "fabricate": "d96eec13", "build": [286.3353450309967, 668.1158050723257, 429.503017546495, 524.9481325568273, 572.6706900619934, 1145.3413801239867, 1097.6188226188206, 954.4511501033223, 906.7285925981562, 1049.8962651136546], "salvage": [1.047722557505166, 0.31431676725154983, 0.340509831189179, 0.3667028951268081, 0.3928959590644373, 0.41898425074631596], "fleetReachBonus": 0.09772255750516612, "range": "3753dbec", "discoveryBias": [0.047722557505166116, 0.047722557505166116], "cyclePlans": "a071a4f4"},
+  "e5-4:consumers:mid": {"refineExtra": 8, "research": "a9803a86", "relicStudy": [573, 860, 1146, 1719, 1719, 1719], "fabricate": "d96eec13", "build": [95.44511501033223, 222.70526835744187, 143.16767251549834, 174.98271085227574, 190.89023002066446, 381.7804600413289, 365.8729408729402, 318.15038336777405, 302.2428641993854, 349.9654217045515], "salvage": [1.047722557505166, 0.31431676725154983, 0.340509831189179, 0.3667028951268081, 0.3928959590644373, 0.41898425074631596], "fleetReachBonus": 0.24772255750516614, "range": "27515647", "discoveryBias": [0.047722557505166116, 0.047722557505166116], "cyclePlans": "a071a4f4"},
+  "e5-4:consumers:top": {"refineExtra": 8, "research": "a9803a86", "relicStudy": [573, 860, 1146, 1719, 1719, 1719], "fabricate": "d96eec13", "build": [95.44511501033223, 222.70526835744187, 143.16767251549834, 174.98271085227574, 190.89023002066446, 381.7804600413289, 365.8729408729402, 318.15038336777405, 302.2428641993854, 349.9654217045515], "salvage": [1.047722557505166, 0.31431676725154983, 0.340509831189179, 0.3667028951268081, 0.3928959590644373, 0.41898425074631596], "fleetReachBonus": 0.4977225575051661, "range": "c0d4f00e", "discoveryBias": [0.047722557505166116, 0.047722557505166116], "cyclePlans": "a071a4f4"},
 };
 
 const CAPTURE = Boolean(import.meta.env.E5_CAPTURE);
@@ -439,6 +456,73 @@ describe("E5-0 golden 3: every facility stat the eight backgrounds will touch", 
     const top = FACILITIES.subspaceTelescope.upgrades.length;
     pin("telescope:levels", Array.from({ length: top + 1 }, (_, L) => telescopeReadingAtLevel(L).rangeLy));
   });
+});
+
+// E5-4 (the facility buffs): golden 3 read through the eight seams E5-4 folds a posted refugee into, on the same three
+// fixtures, with every refugee facility staffed (one matched person each, skill 50, the facility built). Traced: with the
+// buffs OFF (refugeeBuffsSwitch.fixture.ts withRefugeeBuffsOff, the game before E5-4) the staffed fixture reads exactly
+// the unstaffed one, and the unstaffed one reads golden 3's own pinned values (the seams are the identity at b = 0).
+function staffedFixture(kind: LevelFixture): GameState {
+  let s = facilityFixture(kind); // every refugee facility is at Level 1 or above in all three fixtures
+  for (const f of REFUGEE_FACILITIES) {
+    const bg = REFUGEE_BACKGROUND_KEYS.find((b) => REFUGEE_BACKGROUNDS[b].facility === f)!;
+    s = withRefugeePosted(s, bg, f, 50);
+  }
+  return s;
+}
+
+function consumersE54(s: GameState): Record<string, unknown> {
+  const museumSpeed = museumBonuses(s).researchSpeed;
+  const vet = veteranCounts(s);
+  const ship = { ...vet.ships[0], typeKey: "generalFreighter" as ShipTypeKey };
+  const vetShip = { ...vet, ships: [ship, ...vet.ships.slice(1)] };
+  const stats = effectiveShipStats(vetShip, ship);
+  const eng = shortRangeShipEngineering(vetShip, ship);
+  const plans = [0, 2].flatMap((slotId) =>
+    Array.from({ length: 10 }, (_, c) => {
+      const roll = rollShortRangeJob(vetShip, { id: slotId, tier: slotId === 0 ? 1 : 2 }, c);
+      return [roll.template, refugeeShortRangePlan(vetShip, shortRangeCyclePlan(roll, stats, eng))];
+    }),
+  );
+  // The Refiner: 200 real refine jobs from process 1 (startProcess stamps), the extra batches they deliver.
+  let jobs: GameState = { ...s, activeProcesses: [], nextProcessId: 1 };
+  let extra = 0;
+  for (let i = 0; i < 200; i++) {
+    const r = startProcess(jobs, "refineJob", {}, 12, { type: "addItem", itemId: "titaniumIngot", amount: new Decimal(1) });
+    if (r.next.activeProcesses.at(-1)?.bonusOutput) extra += 1;
+    jobs = { ...r.next, activeProcesses: [] };
+  }
+  return {
+    refineExtra: extra,
+    research: hash(Object.entries(BLUEPRINTS).map(([k, bp]) => [k, museumResearchDurationTicks(bp.researchDurationTicks, researchSpeedFor(s, museumSpeed))])),
+    relicStudy: STUDY_TIERS.map((t) => museumResearchDurationTicks(relicStudyDurationTicks(t), researchSpeedFor(s, museumSpeed))),
+    fabricate: hash(Object.entries(BLUEPRINTS).map(([k, bp]) => [k, fabricateDurationTicks(s, bp.craftDurationTicks)])),
+    build: HULLS.map((h) => shipBuildDurationTicks(s, h)),
+    salvage: [salvageYieldMult(s), ...[0, 0.25, 0.5, 0.75, 0.999].map((d) => hullTeardownFraction(s, d))],
+    fleetReachBonus: fleetReachBonus(s),
+    range: hash(HULLS.map((h) => shipRangeLightYears(s, { ...s.ships[0], typeKey: h }))),
+    discoveryBias: [dispatchRun(s).scanParams.landmarkOddsBias, dispatchRun(s).scanParams.undergroundPoiOddsBias],
+    cyclePlans: hash(plans),
+  };
+}
+
+describe("E5-4 golden 3b: the consumers with every refugee facility staffed", () => {
+  for (const kind of ["low", "mid", "top"] as const) {
+    it(`the staffed consumers at the ${kind} fixture`, () => {
+      // Golden 3's cycle plans sample a fresh board's rolls with the Evacuation draw off; so do these.
+      const staffed = withEvacuationDrawOff(() => consumersE54(staffedFixture(kind)));
+      const bare = withEvacuationDrawOff(() => consumersE54(facilityFixture(kind)));
+      // The trace: the buffs off read the unstaffed values, and those are golden 3's own pins.
+      expect(withRefugeeBuffsOff(() => withEvacuationDrawOff(() => consumersE54(staffedFixture(kind))))).toEqual(bare);
+      if (!CAPTURE) {
+        const old = GOLDEN[`consumers:${kind}`] as Record<string, unknown>;
+        for (const k of ["research", "relicStudy", "fabricate", "build", "salvage", "fleetReachBonus", "range", "cyclePlans"] as const) expect(bare[k], k).toEqual(old[k]);
+        expect(bare.refineExtra).toBe(0);
+        expect(bare.discoveryBias).toEqual([0, 0]);
+      }
+      pin(`e5-4:consumers:${kind}`, staffed);
+    });
+  }
 });
 
 describe("E5-0 golden 4: the wiring registry's ids and statuses", () => {

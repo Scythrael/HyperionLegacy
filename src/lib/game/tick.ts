@@ -519,6 +519,8 @@ import {
 } from "./shortRangeCycle";
 import { applyRefugeeDeliveries, type RefugeeDelivery, type RefugeeEvent } from "./refugeeArrival";
 import { refugeeOpenPosts, refugeesOf } from "./refugees";
+// E5-4: the facility buffs posted refugees give (each fold the identity with nobody posted).
+import { refugeeDurationTicks, refugeeFacilityBonus, refugeeRefineBonus, withRefugeeSpeed } from "./refugeeBuffs";
 import { isWellFormedShortRangeBoard } from "./shortRangeBoard";
 
 // Must stay in sync with MissionPhase and requiredTicksForPhase's switch --
@@ -7341,6 +7343,12 @@ export function startProcess(
     ...(kind === "fabricateJob" && worksDirectorateBonus(worksDirectorateSaveSeed(state), state.nextProcessId, fabricatorBonusOutputChance(state))
       ? { bonusOutput: true as const }
       : {}),
+    // E5-4 (the Refiner, the user's E5-0 call "Extra output"): a refine job's chance of one extra batch of its output
+    // is the Refinery's refugee buff, decided NOW on the job's own keyed roll (refugeeBuffs.ts refugeeRefineBonus, its
+    // own salt) and stamped like Works Directorate's. No draw and no key with nobody posted at the Refinery.
+    ...(kind === "refineJob" && refugeeRefineBonus(worksDirectorateSaveSeed(state), state.nextProcessId, refugeeFacilityBonus(state, "refinery"))
+      ? { bonusOutput: true as const }
+      : {}),
   };
 
   return {
@@ -7991,6 +7999,15 @@ export function refineJobDurationTicks(state: GameState, baseDurationTicks: numb
   return Math.max(1, Math.ceil(baseDurationTicks / mult));
 }
 
+// E5-4 (the Machinist): a fabricate job's duration, max(1, ceil(craftDurationTicks / (1 + b))) with b the Fabricator's
+// refugee buff, decided ONCE at the job START (a line job and a one-off craft both read it) and then fixed on the
+// TimedProcess, so a posting never re-times a job in flight. The crafting XP award reads the stored duration, as the
+// Refinery speed rung's does (a faster job pays proportionally less, XP per tick unchanged). `craftDurationTicks`
+// itself, bit for bit, with nobody posted at the Fabricator. Pure.
+export function fabricateDurationTicks(state: Pick<GameState, "refugees">, craftDurationTicks: number): number {
+  return refugeeDurationTicks(craftDurationTicks, refugeeFacilityBonus(state, "fabricator"));
+}
+
 // Research SLOT count (Research Task R2), how many concurrent research projects the
 // Research Lab can run RIGHT NOW. Derived (not stored) by SUMMING every { addResearchSlots }
 // grant on the rungs the lab has ALREADY reached, the EXACT same reached-rungs loop
@@ -8534,7 +8551,10 @@ export function shipBuildSpeedMult(state: GameState): number {
       mult *= effect.buildSpeedMult;
     }
   }
-  return mult;
+  // E5-4 (the Shipwright): the Shipyard's refugee buff multiplies the build speed, read when a build STARTS (its
+  // duration is fixed on the process then).
+  const refugees = refugeeFacilityBonus(state, SHIPYARD_FACILITY_KEY);
+  return refugees > 0 ? mult * (1 + refugees) : mult;
 }
 
 // A hull's effective build time RIGHT NOW = its base buildRecipe.durationTicks DIVIDED by
@@ -9025,7 +9045,8 @@ export function startResearch(
     if (spentBoosts === undefined) delete afterCredits.researchBoosts;
     else afterCredits.researchBoosts = spentBoosts;
   }
-  const museumTicks = museumResearchDurationTicks(bp.researchDurationTicks, museumBonuses(state).researchSpeed);
+  // E5-4 (the Scholar): the Research Lab's refugee buff multiplies into the museum's speed, at the START.
+  const museumTicks = museumResearchDurationTicks(bp.researchDurationTicks, researchSpeedFor(state, museumBonuses(state).researchSpeed));
   // No MATERIAL inputs (locked design #3: research costs TIME + CREDITS, not materials), so
   // the inputs map is empty, startProcess's gate/deduct loops no-op over it. It pushes the
   // "researchProject" TimedProcess (remainingTicks = researchDurationTicks) whose completion
@@ -9060,6 +9081,13 @@ export function museumResearchDurationTicks(baseTicks: number, researchSpeedBonu
   if (!(researchSpeedBonus > 0) || !Number.isFinite(researchSpeedBonus)) return baseTicks;
   if (!(baseTicks > 0) || !Number.isFinite(baseTicks)) return baseTicks;
   return Math.max(1, Math.ceil(baseTicks / (1 + researchSpeedBonus)));
+}
+
+// E5-4 (the Scholar): a research speed bonus with the Research Lab's refugee buff multiplied in ((1 + speed) x (1 + b)
+// - 1, refugeeBuffs.ts withRefugeeSpeed), the ONE fold blueprint research and relic study both read at their start.
+// `speed` itself, bit for bit, with nobody posted at the Research Lab. Pure.
+export function researchSpeedFor(state: Pick<GameState, "refugees">, speed: number): number {
+  return withRefugeeSpeed(speed, refugeeFacilityBonus(state, "research"));
 }
 
 // ============================================================================
@@ -9120,7 +9148,8 @@ export function relicStudyDurationFor(state: GameState, museumV2: MuseumV2, toke
   const museumSpeed = museumBonuses(museumV2 === state.museumV2 ? state : { ...state, museumV2 }).researchSpeed;
   const own = token.studySpeed !== undefined && token.studySpeed > 0 && Number.isFinite(token.studySpeed) ? token.studySpeed : 0;
   const speed = own > 0 ? (1 + Math.max(0, museumSpeed)) * (1 + own) - 1 : museumSpeed;
-  return museumResearchDurationTicks(relicStudyDurationTicks(token.tier), speed);
+  // E5-4 (the Scholar): the Research Lab's refugee buff, its own x (1 + b) factor (the identity with nobody posted).
+  return museumResearchDurationTicks(relicStudyDurationTicks(token.tier), researchSpeedFor(state, speed));
 }
 
 // START a relic study: a thin wrapper over canStartRelicStudy (the single source of truth for every
@@ -9690,7 +9719,9 @@ export function fleetReachBonus(state: GameState): number {
     const effect = upgrades[i].effect;
     if ("fleetReachBonus" in effect) bonus += effect.fleetReachBonus;
   }
-  return bonus;
+  // E5-4 (the Fuel handler): the Fuel Depot's refugee buff adds to the same share (a live read, as the rungs are).
+  const refugees = refugeeFacilityBonus(state, "fuelStorage");
+  return refugees > 0 ? bonus + refugees : bonus;
 }
 
 // ============================================================================
@@ -9849,7 +9880,8 @@ function lineJobSpec(state: GameState, line: CraftLine): CraftLineJobSpec | null
     inputs,
     outputItemId,
     outputAmount,
-    durationTicks: bp.craftDurationTicks,
+    // E5-4 (the Machinist): the Fabricator's refugee buff, at the job START (fabricateDurationTicks).
+    durationTicks: fabricateDurationTicks(state, bp.craftDurationTicks),
     jobKind: "fabricateJob",
     effect: isEquipment
       // ITEM LIFECYCLE 0.13.6: a finished equipment/weapon/drone craft now deposits a stackable
@@ -12225,7 +12257,7 @@ export function startFabricateJob(
       ? { type: "addBlank", blueprintKey }
       : { type: "addItem", itemId: bp.recipe.outputItem ?? "", amount: new Decimal(bp.recipe.outputQty ?? 1) };
 
-  return startProcess(state, "fabricateJob", inputs, bp.craftDurationTicks, effect);
+  return startProcess(state, "fabricateJob", inputs, fabricateDurationTicks(state, bp.craftDurationTicks), effect);
 }
 
 // The standing single-order model for the Fabricator (startFabricateOrder /

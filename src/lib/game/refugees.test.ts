@@ -7,7 +7,11 @@ import {
   REFUGEE_BACKGROUNDS,
   REFUGEE_BACKGROUND_KEYS,
   REFUGEE_FACILITY_KEYS,
+  dismissRefugeeHint,
+  greetRefugee,
   hydrateRefugees,
+  postRefugee,
+  unpostRefugee,
   isWellFormedRefugeeRecord,
   refugeeOpenPosts,
   refugeePostCount,
@@ -48,9 +52,9 @@ describe("E5-1 backgrounds", () => {
     expect(new Set(REFUGEE_BACKGROUND_KEYS.map((b) => REFUGEE_BACKGROUNDS[b].facility))).toEqual(new Set(REFUGEE_FACILITY_KEYS));
     expect(Object.keys(REFUGEE_BACKGROUNDS).sort()).toEqual([...REFUGEE_BACKGROUND_KEYS].sort());
   });
-  it("the user's two E5-0 calls: the Refiner gives extra output, the Stargazer rare aspect spotting", () => {
+  it("the user's two E5-0 calls: the Refiner gives extra output, the Stargazer discovery odds (2026-11-03, in place of rare aspect spotting)", () => {
     expect(REFUGEE_BACKGROUNDS.refiner).toEqual({ label: "Refiner", facility: "refinery", statLabel: "extra output chance" });
-    expect(REFUGEE_BACKGROUNDS.stargazer).toEqual({ label: "Stargazer", facility: "subspaceTelescope", statLabel: "rare aspect spotting" });
+    expect(REFUGEE_BACKGROUNDS.stargazer).toEqual({ label: "Stargazer", facility: "subspaceTelescope", statLabel: "discovery odds" });
   });
   it("labels avoid em dashes, double hyphens and the word fit", () => {
     for (const b of REFUGEE_BACKGROUND_KEYS) {
@@ -154,5 +158,94 @@ describe("E5-1 hydrateRefugees", () => {
       const h = hydrateRefugees({ ...freshState(), refugees: bad as unknown as RefugeeState });
       expect("refugees" in h).toBe(false);
     }
+  });
+});
+
+// ===== E5-4: the posting actions =====
+
+describe("E5-4 postRefugee / unpostRefugee (free, any time; posted people stay; a full facility swaps)", () => {
+  // Refinery Level 4 (two posts), research Level 1 (one post), shipyard unbuilt (level 0).
+  function home(list: RefugeeRecord[]): GameState {
+    return withRefugees(withLevel(withLevel(withLevel(freshState(), "refinery", 4), "research", 1), "shipyard", 0), list);
+  }
+  const ids = (s: GameState, f: RefugeeFacilityKey | null) => refugeesOf(s).list.filter((r) => r.posting === f).map((r) => r.id);
+  // Everything but the refugee record: an action never costs, times or touches anything else.
+  const rest = (s: GameState) => JSON.stringify({ ...s, refugees: undefined });
+
+  it("posts into an open post; the newcomer goes after everyone already posted there", () => {
+    const s = home([person(1, "refinery"), person(2), person(3)]);
+    const r = postRefugee(s, 3, "refinery");
+    expect(r.success).toBe(true);
+    expect(r.swappedOutId).toBeUndefined();
+    expect(ids(r.next, "refinery")).toEqual([1, 3]);
+    expect(ids(r.next, null)).toEqual([2]);
+    expect(rest(r.next)).toBe(rest(s));
+  });
+
+  it("a full facility swaps: the lowest share goes back to waiting (the last posted among equals), the newcomer takes the post", () => {
+    const s = home([person(1, "refinery", { skill: 30 }), person(2, "refinery", { skill: 60 }), person(3, null, { skill: 50 })]);
+    const r = postRefugee(s, 3, "refinery");
+    expect(r).toMatchObject({ success: true, swappedOutId: 1 });
+    expect(ids(r.next, "refinery")).toEqual([2, 3]);
+    expect(ids(r.next, null)).toEqual([1]);
+    // Equal shares: the last posted returns.
+    const tie = home([person(1, "refinery"), person(2, "refinery"), person(3)]);
+    expect(postRefugee(tie, 3, "refinery").swappedOutId).toBe(2);
+    // The share counts the match: an off-match person (a quarter) is swapped before a matched one of lower skill.
+    const off = home([person(1, "refinery", { skill: 30 }), person(2, "refinery", { background: "scholar", skill: 80 }), person(3)]);
+    expect(postRefugee(off, 3, "refinery").swappedOutId).toBe(2);
+  });
+
+  it("posting where they already are returns the same state; an unbuilt facility, an unknown person or key fails", () => {
+    const s = home([person(1, "refinery"), person(2)]);
+    expect(postRefugee(s, 1, "refinery")).toEqual({ next: s, success: true });
+    expect(postRefugee(s, 1, "refinery").next).toBe(s);
+    expect(postRefugee(s, 2, "shipyard")).toEqual({ next: s, success: false });
+    expect(postRefugee(s, 99, "refinery")).toEqual({ next: s, success: false });
+    expect(postRefugee(s, 2, "warehouseT1" as RefugeeFacilityKey)).toEqual({ next: s, success: false });
+    expect(postRefugee(freshState(), 1, "refinery").success).toBe(false);
+  });
+
+  it("moving a posted person empties their old post (Review Focus 5); a move into a full facility swaps the other to waiting", () => {
+    const s = home([person(1, "refinery"), person(2, "research")]);
+    const moved = postRefugee(s, 1, "research");
+    expect(moved).toMatchObject({ success: true, swappedOutId: 2 });
+    expect(ids(moved.next, "refinery")).toEqual([]);
+    expect(ids(moved.next, "research")).toEqual([1]);
+    expect(ids(moved.next, null)).toEqual([2]);
+  });
+
+  it("unpostRefugee returns them to waiting in arrival order and never removes a record; a waiting person is a no-op", () => {
+    const s = home([person(2), person(1, "refinery"), person(3), person(4, "research")]);
+    const r = unpostRefugee(s, 1);
+    expect(r.success).toBe(true);
+    expect(refugeeWaiting(r.next).map((x) => x.id)).toEqual([1, 2, 3]);
+    const again = unpostRefugee(unpostRefugee(r.next, 4).next, 4);
+    expect(again.success).toBe(true);
+    expect(refugeeWaiting(again.next).map((x) => x.id)).toEqual([1, 2, 3, 4]);
+    expect(refugeesOf(again.next).list).toHaveLength(4);
+    expect(unpostRefugee(s, 3)).toEqual({ next: s, success: true });
+    expect(unpostRefugee(s, 99)).toEqual({ next: s, success: false });
+    expect(rest(again.next)).toBe(rest(s));
+  });
+
+  it("the posting order survives a save's load: a posted person and a re-post keep their places", () => {
+    const s = home([person(1, "refinery"), person(2), person(3)]);
+    const posted = postRefugee(postRefugee(s, 2, "refinery").next, 3, "refinery");
+    expect(posted.swappedOutId).toBe(2); // equal shares: the last posted returns
+    expect(hydrateRefugees(posted.next)).toBe(posted.next);
+  });
+
+  it("greetRefugee removes the id from greet; dismissRefugeeHint sets hintSeen once; both return the same state on a no-op", () => {
+    const s = withRefugees(freshState(), [person(1), person(2)], { greet: [1, 2] });
+    const g = greetRefugee(s, 1);
+    expect(refugeesOf(g).greet).toEqual([2]);
+    expect(greetRefugee(g, 1)).toBe(g);
+    const h = dismissRefugeeHint(g);
+    expect(refugeesOf(h).hintSeen).toBe(true);
+    expect(dismissRefugeeHint(h)).toBe(h);
+    const fresh = freshState();
+    expect(dismissRefugeeHint(fresh)).toBe(fresh);
+    expect(greetRefugee(fresh, 1)).toBe(fresh);
   });
 });

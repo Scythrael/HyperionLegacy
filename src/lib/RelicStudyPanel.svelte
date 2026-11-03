@@ -32,6 +32,7 @@
     relicStudiesInFlight,
     relicStudySlotCount,
     museumResearchDurationTicks,
+    researchSpeedFor,
     type RelicStudyBlockReason,
   } from "./game/tick";
   import { relicStudyDurationTicks, museumBonuses } from "./game/relics";
@@ -75,7 +76,7 @@
 
   $: studies = relicStudiesInFlight(state);
   $: lanes = relicStudySlotCount(state);
-  $: researchSpeed = museumBonuses(state).researchSpeed;
+  $: researchSpeed = researchSpeedFor(state, museumBonuses(state).researchSpeed); // E5-4: plus the Research Lab refugee buff
   $: gate = selected ? canStartRelicStudy(state, selected.id) : null;
 
   // The REAL study time a token would take if started now: the tier-scaled base, shortened by the
