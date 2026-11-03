@@ -1692,10 +1692,11 @@ const REFUGEE_SEAMS: Readonly<Record<RefugeeFacilityKey, { probe: ProbeId; conte
   // the matched chance (0.0034 x 3.5); the off-match row has its own (0.0017 x 3.5, REFUGEE_OFF_MATCH_REFINE_TOLERANCE).
   refinery: { probe: "refugeeRefineBonus", context: "facility", curve: { kind: "chanceAbsolute" }, direction: "up", tolerance: 0.012, note: "an extra batch of output per finished refine job, stamped at the job start (the user's E5-0 call)" },
   fuelStorage: { probe: "fleetReach", context: "sheet", curve: { kind: "linearAbsolute" }, direction: "up", note: "added to the Fuel Depot's fleet reach share (shipReachDef)" },
-  // Each phase is ceil'd to whole ticks: one tick of rounding on the longest phase.
-  missionControl: { probe: "refugeeShortRangePhase", context: "mission:shortRange", curve: { kind: "divisor" }, direction: "down", tolerance: 1, note: "each phase of a short-range cycle plan, frozen at the cycle start" },
-  research: { probe: "refugeeResearchTicks", context: "research", curve: { kind: "divisor" }, direction: "down", tolerance: 1, note: "research and relic study durations, at the start" },
-  fabricator: { probe: "refugeeFabricateTicks", context: "craft", curve: { kind: "divisor" }, direction: "down", tolerance: 1, note: "fabricate durations (line jobs and one-off crafts), at the start" },
+  // The three duration rows sum a sustained run of real starts with the carried fractions threaded (the user's "Carry
+  // the fractions"): the summed whole ticks sit within one tick of the summed ideal durations / (1 + b).
+  missionControl: { probe: "refugeeShortRangePhase", context: "mission:shortRange", curve: { kind: "divisor" }, direction: "down", tolerance: 1, note: "each phase of a short-range cycle plan, frozen at the cycle start, its rounding carried across the run's cycles" },
+  research: { probe: "refugeeResearchTicks", context: "research", curve: { kind: "divisor" }, direction: "down", tolerance: 1, note: "research and relic study durations, at the start, their rounding carried to the next start" },
+  fabricator: { probe: "refugeeFabricateTicks", context: "craft", curve: { kind: "divisor" }, direction: "down", tolerance: 1, note: "fabricate durations (line jobs and one-off crafts), at the start, their rounding carried to the next start" },
   shipyard: { probe: "shipBuildTicks", context: "shipyard", curve: { kind: "divisor" }, direction: "down", note: "the Shipyard build speed, at the build start (fractional ticks, exact)" },
   salvageBay: { probe: "salvageYield", context: "salvage", curve: { kind: "linearRelative" }, direction: "up", note: "its own x (1 + b) on salvageYieldMult (recycle and teardown)" },
   subspaceTelescope: { probe: "expLandmarkBias", context: "expedition:groundOps", curve: { kind: "linearAbsolute" }, direction: "up", note: "added to both discovery pools' biases, frozen at dispatch (the user's call 2026-11-03, \"Discovery odds now\")" },

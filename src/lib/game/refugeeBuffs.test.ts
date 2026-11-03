@@ -20,12 +20,17 @@ import {
   REFUGEE_MATCH_SHARE_PER_SKILL,
   REFUGEE_OFF_MATCH_RATIO,
   REFUGEE_STACK_KNEE,
+  carriedTicks,
+  cleanRefugeeCarry,
   refugeeBonusIfPosted,
+  refugeeCarryOf,
+  refugeeDurationCarried,
   refugeeDurationTicks,
   refugeeFacilityBonus,
   refugeeRefineBonus,
   refugeeShare,
   refugeeShortRangePlan,
+  withRefugeeCarry,
 } from "./refugeeBuffs";
 import {
   canResearch,
@@ -39,6 +44,7 @@ import {
   shipRangeLightYears,
   startLine,
   startProcess,
+  queueRelicStudy,
   startResearch,
   tick,
 } from "./tick";
@@ -151,7 +157,8 @@ describe("E5-4 the folds are the identity with nobody posted", () => {
     expect(json(read(waiting))).toBe(json(read(s)));
     expect(refugeeDurationTicks(320, 0)).toBe(320);
     const plan = startShortRangeCycle(s, shipOf(s), { id: 0, tier: 1 }, 3, undefined, false).plan;
-    expect(refugeeShortRangePlan(s, plan)).toBe(plan);
+    expect(refugeeShortRangePlan(s, plan).plan).toBe(plan);
+    expect(refugeeShortRangePlan(s, plan, 0.25).carry).toBe(0.25); // a run's carry passes through untouched
   });
 
   it("a refine job without a Refinery refugee carries no bonusOutput key (no draw taken)", () => {
@@ -340,6 +347,208 @@ describe("E5-4 determinism: every facility staffed, a short-range run on Repeat 
     expect("refugees" in fresh).toBe(false);
     for (const f of REFUGEE_FACILITY_KEYS) expect(refugeeFacilityBonus(fresh, f)).toBe(0);
     expect(wiringBase().refugees).toBeUndefined();
+  });
+});
+
+// ===== E5-4 fix round: the swap's target, and the carried fractions (the user's 2026-11-03 "Carry the fractions") =====
+
+describe("E5-4 fix round: the bonus preview takes the swap's target", () => {
+  it("replacing the stronger person previews the lower total; an invalid target previews no gain", () => {
+    // Refinery Level 4: two posts, both taken.
+    const base = { ...refugeeBase(), facilities: { ...refugeeBase().facilities, refinery: { level: 4 } } };
+    const s = withPeople(base, [person(1, "refiner", 30, "refinery"), person(2, "refiner", 70, "refinery"), person(3, "refiner", 50, null)]);
+    const now = refugeeFacilityBonus(s, "refinery");
+    const fallback = refugeeBonusIfPosted(s, 3, "refinery");
+    const stronger = refugeeBonusIfPosted(s, 3, "refinery", 2);
+    expect(fallback.total).toBe(diminishing(0.07 + 0.05, REFUGEE_STACK_KNEE));
+    expect(stronger.total).toBe(diminishing(0.03 + 0.05, REFUGEE_STACK_KNEE));
+    expect(stronger.gain).toBeLessThan(0);
+    expect(refugeeBonusIfPosted(s, 3, "refinery", 3)).toEqual({ gain: 0, total: now });
+    expect(refugeeBonusIfPosted(s, 3, "refinery", 99)).toEqual({ gain: 0, total: now });
+  });
+});
+
+describe("E5-4 fix round: carried fractions (small buffs always act over time)", () => {
+  it("a carry never appears with nobody posted (relic queue, research, fabricate starts)", () => {
+    const tokens = Array.from({ length: 3 }, (_, i) => ({ id: `plain-${i}`, tier: "standard" as const, quality: 0 }));
+    let s: GameState = { ...refugeeBase(), facilities: { ...refugeeBase().facilities, research: { level: 1 } }, relicVault: tokens, relicQueue: [] };
+    s = withPeople(s, [person(1, "scholar", 60, null)]);
+    for (const t of tokens) s = queueRelicStudy(s, t.id).next;
+    const after = stepped(s, 3000);
+    expect(after.refugees?.carry).toBeUndefined();
+  });
+
+  // The smallest real share: an off-match refugee at the lowest skill an evacuation brings (Tier I: 20).
+  const LOW_SKILL = 20;
+  const offMatch = (s: GameState, f: RefugeeFacilityKey) =>
+    withRefugeePosted(s, REFUGEE_BACKGROUND_KEYS.find((b) => REFUGEE_BACKGROUNDS[b].facility !== f)!, f, LOW_SKILL);
+
+  it("carriedTicks: the first duration is ceil(ideal); a run of them sums within one tick of the ideal; the carry stays in [0, 1)", () => {
+    expect(carriedTicks(59.4, 0)).toEqual({ ticks: 60, carry: 60 - 59.4 });
+    for (const ideal of [59.70149253731343, 119.4, 0.4, 1, 7.25, 1000 / 1.0477]) {
+      let c = 0;
+      let sum = 0;
+      for (let i = 0; i < 500; i++) {
+        const r = carriedTicks(ideal, c);
+        expect(Number.isInteger(r.ticks) && r.ticks >= 1).toBe(true);
+        expect(r.carry >= 0 && r.carry < 1).toBe(true);
+        sum += r.ticks;
+        c = r.carry;
+      }
+      // Within one tick (a float hair either side: the ideal itself is not exact in binary).
+      if (ideal >= 1) {
+        expect(sum - ideal * 500).toBeGreaterThanOrEqual(-1e-6);
+        expect(sum - ideal * 500).toBeLessThan(1 + 1e-6);
+      }
+    }
+    expect(refugeeDurationCarried(60, 0, 0.5)).toEqual({ ticks: 60, carry: 0.5 }); // b = 0: untouched
+    expect(cleanRefugeeCarry(1)).toBe(0);
+    expect(cleanRefugeeCarry(Number.NaN)).toBe(0);
+  });
+
+  it("withRefugeeCarry: a 0 removes the key (and an empty record); no change is the same state; no refugee record is untouched", () => {
+    const s = withPeople(refugeeBase(), [person(1, "scholar", 20, "research")]);
+    const a = withRefugeeCarry(s, "research", 0.25);
+    expect(refugeeCarryOf(a, "research")).toBe(0.25);
+    expect(withRefugeeCarry(a, "research", 0.25)).toBe(a);
+    const back = withRefugeeCarry(a, "research", 0);
+    expect("carry" in back.refugees!).toBe(false);
+    expect(withRefugeeCarry(s, "fabricator", 0)).toBe(s);
+    const fresh = freshState();
+    expect(withRefugeeCarry(fresh, "research", 0.5)).toBe(fresh);
+  });
+
+  it("Scholar: an off-match skill-20 refugee rounds away on one 60-tick project, but real research starts in a row save ticks", () => {
+    const ready: GameState = { ...refugeeBase(), facilities: { ...refugeeBase().facilities, research: { level: 9 } }, credits: new Decimal(1e15) };
+    const on0 = offMatch(ready, "research");
+    const b = refugeeFacilityBonus(on0, "research");
+    expect(Math.ceil(60 / (1 + b))).toBe(60); // the old rounding swallowed it
+    const run = (start: GameState) => {
+      let s = start;
+      const durations: number[] = [];
+      for (let i = 0; i < 40; i++) {
+        const key = Object.keys(BLUEPRINTS).find((k) => canResearch(s, k).ok && BLUEPRINTS[k].researchDurationTicks === 60);
+        if (key === undefined) break;
+        const r = startResearch(s, key);
+        durations.push(r.next.activeProcesses.at(-1)!.durationTicks);
+        // The project is taken as done (its completion is not what is measured), so the next 60-tick one can start.
+        s = { ...r.next, researchedBlueprints: [...(r.next.researchedBlueprints ?? []), key], activeProcesses: [] };
+      }
+      return { durations, s };
+    };
+    const off = run(ready);
+    const on = run(on0);
+    expect(off.durations.every((d) => d === 60)).toBe(true);
+    expect(on.durations.length).toBe(off.durations.length);
+    expect(on.durations.length).toBeGreaterThanOrEqual(8);
+    const sum = on.durations.reduce((a, d) => a + d, 0);
+    const ideal = (60 * on.durations.length) / (1 + b);
+    expect(sum).toBeLessThan(60 * on.durations.length);
+    expect(sum - ideal).toBeGreaterThanOrEqual(-1e-9);
+    expect(sum - ideal).toBeLessThan(1);
+    // Nobody posted: the carry key never appears.
+    expect(off.s.refugees?.carry).toBeUndefined();
+  });
+
+  it("Machinist: a 120-tick fabricate line with an off-match skill-20 refugee finishes sooner; offline == live", () => {
+    const b0 = refugeeBase();
+    const base: GameState = {
+      ...b0,
+      inventory: { ...b0.inventory, titaniumIngot: [new Decimal(4 * 40)] },
+      researchedBlueprints: [...new Set([...(b0.researchedBlueprints ?? []), "frameSegmentBp"])],
+    };
+    const run = (s: GameState) => startLine(s, "fabricate", "frameSegmentBp", { kind: "batch", remaining: 40 }).next;
+    const made = (g: GameState) => Number((g.inventory.frameSegment ?? []).reduce((a, d) => a.plus(d), new Decimal(0)));
+    const finishTick = (start: GameState) => {
+      let s = start;
+      for (let t = 1; t <= 40 * 125; t++) {
+        s = economyTick(s, 1, RNG);
+        if (made(s) >= 40) return t;
+      }
+      return -1;
+    };
+    const offStart = run(base);
+    const onStart = run(offMatch(base, "fabricator"));
+    expect(Math.ceil(120 / (1 + refugeeFacilityBonus(onStart, "fabricator")))).toBe(120); // one job alone rounds away
+    const offAt = finishTick(offStart);
+    const onAt = finishTick(onStart);
+    expect(offAt).toBeGreaterThan(0);
+    expect(onAt).toBeGreaterThan(0);
+    expect(offAt - onAt).toBeGreaterThanOrEqual(10); // about 40 x 120 x b / (1 + b) = 24 ticks over the batch
+    // Offline == live (tick steps whole ticks), the carry included.
+    const N = 2000;
+    const live = stepped(onStart, N);
+    const offline = tick(N, onStart, RNG);
+    expect(json(offline.refugees)).toBe(json(live.refugees));
+    expect(json(offline.activeProcesses)).toBe(json(live.activeProcesses));
+    expect(json(offline.inventory)).toBe(json(live.inventory));
+    expect(refugeeCarryOf(live, "fabricator")).toBeGreaterThan(0);
+  });
+
+  it("Dispatcher: a run carries its rounding from cycle to cycle; one call == 997 s chunks == 1 s steps == offline", () => {
+    const s0 = offMatch(qualifiedRun(qualified()), "missionControl");
+    const N = 6 * 3600;
+    const steps = stepped(s0, N);
+    expect(canon(chunked(s0, N))).toBe(canon(steps));
+    expect(canon(economyTick(s0, N, RNG))).toBe(canon(steps));
+    expect(json(tick(N, s0, RNG).captains)).toBe(json(steps.captains));
+    // Some cycle on the way carried a fraction (the run stores it); the plain run never has the key.
+    let seen = false;
+    let s = s0;
+    for (let h = 0; h < 6 && !seen; h++) {
+      s = stepped(s, 3600);
+      const m = s.captains[0].mission as ShortRangeMissionState | null;
+      if (m?.refugeeCarry !== undefined) seen = true;
+    }
+    expect(seen).toBe(true);
+    const plain = withRefugeeBuffsOff(() => stepped(s0, N));
+    expect(json(plain.captains).includes("refugeeCarry")).toBe(false);
+    expect(json(plain.captains)).not.toBe(json(steps.captains));
+  });
+
+  it("the three duration probes read real content and move at a low off-match share, within one tick of ideal", () => {
+    expect(BLUEPRINTS.frameSegmentBp.researchDurationTicks).toBe(60);
+    expect(BLUEPRINTS.classVIIDriveBp.researchDurationTicks).toBe(480);
+    expect(BLUEPRINTS.frameSegmentBp.craftDurationTicks).toBe(120);
+    expect(BLUEPRINTS.classVIIDriveBp.craftDurationTicks).toBe(1080);
+    const rows = [
+      ["refugeeResearchTicks", "research", "research"],
+      ["refugeeFabricateTicks", "fabricator", "craft"],
+      ["refugeeShortRangePhase", "missionControl", "mission:shortRange"],
+    ] as const;
+    for (const [probe, f, ctx] of rows) {
+      const s = offMatch(refugeeBase(), f);
+      const off = readProbe(probe, refugeeBase(), ctx) as number;
+      const on = readProbe(probe, s, ctx) as number;
+      const b = refugeeFacilityBonus(s, f);
+      expect(on, probe).toBeLessThan(off);
+      expect(Math.abs(on - off / (1 + b)), probe).toBeLessThan(1);
+    }
+  });
+
+  it("relic study: the player start and the queue chain store the carry; one call == 1 s steps == offline; nobody posted adds no key", () => {
+    const tokens = Array.from({ length: 10 }, (_, i) => ({ id: `carry-${i}`, tier: "standard" as const, quality: 0 }));
+    const lab = { ...refugeeBase(), facilities: { ...refugeeBase().facilities, research: { level: 1 } } };
+    // The player queues all ten (queueRelicStudy: the first starts at once through startRelicStudy, the rest wait for
+    // the chain to start them at each completion tick).
+    let s0: GameState = { ...offMatch(lab, "research"), relicVault: tokens, relicQueue: [] };
+    for (const t of tokens) s0 = queueRelicStudy(s0, t.id).next;
+    expect(s0.activeProcesses.filter((p) => p.kind === "relicStudy")).toHaveLength(1);
+    expect(refugeeCarryOf(s0, "relicStudy")).toBeGreaterThan(0);
+    const N = 8000;
+    const steps = stepped(s0, N);
+    const one = economyTick(s0, N, RNG);
+    const offline = tick(N, s0, RNG);
+    for (const g of [one, offline]) {
+      expect(json(g.refugees)).toBe(json(steps.refugees));
+      expect(json(g.activeProcesses)).toBe(json(steps.activeProcesses));
+      expect(json(g.relicQueue)).toBe(json(steps.relicQueue));
+    }
+    expect(refugeeCarryOf(steps, "relicStudy")).toBeGreaterThan(0);
+    // With the buff off the carry is neither read nor written: the player start's carry stays as it was.
+    const plain = withRefugeeBuffsOff(() => stepped(s0, N));
+    expect(plain.refugees?.carry).toEqual(s0.refugees?.carry);
+    expect(json(steps.refugees?.carry)).not.toBe(json(s0.refugees?.carry));
   });
 });
 

@@ -86,7 +86,9 @@ import {
 import { applyRelicIdentification, identifyRelicV2 } from "../relicIdentify";
 // E5-4 (Refugee Posts): the record, the posting fixture's readers and the buff seams the refugee probes read.
 import { REFUGEE_BACKGROUNDS, REFUGEE_FACILITY_KEYS, type RefugeeBackground, type RefugeeFacilityKey, type RefugeeRecord } from "../refugees";
-import { completedOutputAmount, fabricateDurationTicks, researchSpeedFor } from "../tick";
+import { completedOutputAmount, fabricateDurationCarried, researchDurationCarried } from "../tick";
+// E5-4 fix round: the probes thread the carried fractions exactly as the real starts store them.
+import { withRefugeeCarry } from "../refugeeBuffs";
 import {
   canBuildShip,
   canBuildFacilityUpgrade,
@@ -1155,21 +1157,56 @@ function refineBonusShare(s: GameState): number {
   return (delivered - REFINE_SAMPLE_JOBS) / REFINE_SAMPLE_JOBS;
 }
 
-// The Dispatcher: the longest phase of the cycle plans captain 1 on ship-1 would start on a Tier II slot over its
-// first REFUGEE_PLAN_CYCLES cycles (startShortRangeCycle, the cycle-start seam the engine freezes), every template a
-// veteran (full-size jobs, past the training run and the slow start). Each phase is ceil'd to whole ticks, so a share b
-// moves a phase only from about 1 / b ticks: the matched share (about 4.8% at skill 50) moves Tier I legs too, the
-// off-match one (about 1.2%) only phases of about 82 ticks and up, which full-size Tier II legs are (100 to 150).
+// The Dispatcher: the summed ticks of the cycle plans captain 1 on ship-1 starts on the Tier II slot (slot id 2) over
+// one run's first REFUGEE_PLAN_CYCLES cycles (startShortRangeCycle, the cycle-start seam the engine freezes), the run's
+// carry threaded from cycle to cycle exactly as the cycle engine stores it (ShortRangeMissionState.refugeeCarry), every
+// template a veteran (full-size jobs, past the training run and the slow start). With the carried fractions (the user's
+// "Carry the fractions") the summed ticks sit within one tick of the summed ideal phases / (1 + b), so even the
+// off-match share (about 1.2% at skill 50), which rounds away on any one short phase, moves the run.
 export const REFUGEE_PLAN_CYCLES = 32;
-function longestShortRangePhase(state: GameState): number {
+function shortRangeRunTicks(state: GameState): number {
   const veteran = Object.fromEntries(Object.keys(SHORT_RANGE_TEMPLATES).map((k) => [k, { dispatched: 20, completed: 20 }]));
   const s: GameState = { ...state, runCounts: { ...runCountsOf(state), shortRange: veteran } };
-  let best = 0;
+  let total = 0;
+  let carry = 0;
   for (let c = 0; c < REFUGEE_PLAN_CYCLES; c++) {
-    const p = startShortRangeCycle(s, shipOf(s), { id: 2, tier: 2 }, c, undefined, false).plan;
-    best = Math.max(best, p.transitOutTicks, p.onSiteTicks, p.transitBackTicks, p.unloadTicks);
+    const start = startShortRangeCycle(s, shipOf(s), { id: 2, tier: 2 }, c, undefined, false, true, true, 0, carry);
+    total += start.plan.totalTicks;
+    carry = start.refugeeCarry ?? 0;
   }
-  return best;
+  return total;
+}
+
+// The Scholar and the Machinist: a sustained run of REFUGEE_SUSTAINED_JOBS starts of REAL recipes, alternating the
+// shortest and the longest real duration (research: frameSegmentBp 60 ticks, classVIIDriveBp 480; fabricate:
+// frameSegmentBp 120, classVIIDriveBp 1080), each start reading the duration seam the real start reads
+// (researchDurationCarried for startResearch, fabricateDurationCarried for line jobs and one-off crafts) and storing the
+// carry it leaves (withRefugeeCarry), as the start does. The summed ticks: within one tick of the summed ideal
+// durations / (1 + b), so a small share that rounds away on one 60-tick project still acts over the run.
+export const REFUGEE_SUSTAINED_JOBS = 64;
+const REFUGEE_SHORT_RECIPE = "frameSegmentBp";
+const REFUGEE_LONG_RECIPE = "classVIIDriveBp";
+function sustainedResearchTicks(state: GameState): number {
+  let s = state;
+  let total = 0;
+  for (let i = 0; i < REFUGEE_SUSTAINED_JOBS; i++) {
+    const bp = BLUEPRINTS[i % 2 === 0 ? REFUGEE_SHORT_RECIPE : REFUGEE_LONG_RECIPE];
+    const d = researchDurationCarried(s, bp.researchDurationTicks, museumBonuses(s).researchSpeed, "research");
+    total += d.ticks;
+    s = withRefugeeCarry(s, "research", d.carry);
+  }
+  return total;
+}
+function sustainedFabricateTicks(state: GameState): number {
+  let s = state;
+  let total = 0;
+  for (let i = 0; i < REFUGEE_SUSTAINED_JOBS; i++) {
+    const bp = BLUEPRINTS[i % 2 === 0 ? REFUGEE_SHORT_RECIPE : REFUGEE_LONG_RECIPE];
+    const d = fabricateDurationCarried(s, bp.craftDurationTicks);
+    total += d.ticks;
+    s = withRefugeeCarry(s, "fabricator", d.carry);
+  }
+  return total;
 }
 function fabricatorBonusShare(s: GameState): number {
   let st: GameState = { ...s, activeProcesses: [], blanks: {} };
@@ -1999,16 +2036,16 @@ export const PROBES = {
     read: (s) => refineBonusShare(s),
   },
   refugeeShortRangePhase: {
-    label: "the longest phase of slot 0's first 32 cycle plans at the cycle start (startShortRangeCycle)",
-    read: (s) => longestShortRangePhase(s),
+    label: "the summed ticks of one run's first 32 cycle plans on the Tier II slot (slot id 2), the run's carry threaded (startShortRangeCycle)",
+    read: (s) => shortRangeRunTicks(s),
   },
   refugeeResearchTicks: {
-    label: "a long project's research ticks through researchSpeedFor (startResearch and relic study; 1000x a blueprint's)",
-    read: (s) => museumResearchDurationTicks(Object.values(BLUEPRINTS)[0].researchDurationTicks * RESEARCH_PROBE_SCALE, researchSpeedFor(s, museumBonuses(s).researchSpeed)),
+    label: "the summed ticks of 64 research starts alternating real 60- and 480-tick blueprints, the carry threaded (researchDurationCarried: startResearch and relic study)",
+    read: (s) => sustainedResearchTicks(s),
   },
   refugeeFabricateTicks: {
-    label: "a 1,000-tick fabricate job's duration (fabricateDurationTicks: line jobs and one-off crafts)",
-    read: (s) => fabricateDurationTicks(s, RUNNING_JOB_TICKS),
+    label: "the summed ticks of 64 fabricate starts alternating real 120- and 1,080-tick recipes, the carry threaded (fabricateDurationCarried: line jobs and one-off crafts)",
+    read: (s) => sustainedFabricateTicks(s),
   },
   captainCount: { label: "captains (count)", read: (s) => s.captains.length },
   researchableBlueprints: { label: "blueprints a top-level Research Lab can start (blueprintResearchable)", read: (s) => researchableCount(s) },

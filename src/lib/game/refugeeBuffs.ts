@@ -61,10 +61,16 @@ export function refugeeFacilityBonus(state: Pick<GameState, "refugees">, facilit
 }
 
 // For the picker (E5-5): the facility's total if `refugeeId` were posted there now (a full facility swaps, as
-// postRefugee does), and the gain over today's total. A post that would fail gains 0. Pure.
-export function refugeeBonusIfPosted(state: GameState, refugeeId: number, facility: RefugeeFacilityKey): { gain: number; total: number } {
+// postRefugee does: `replaceId` is the person the player picked to replace, else the lowest share is the fallback),
+// and the gain over today's total. A post that would fail (an invalid `replaceId` included) gains 0. Pure.
+export function refugeeBonusIfPosted(
+  state: GameState,
+  refugeeId: number,
+  facility: RefugeeFacilityKey,
+  replaceId?: number,
+): { gain: number; total: number } {
   const now = refugeeFacilityBonus(state, facility);
-  const r = postRefugee(state, refugeeId, facility);
+  const r = postRefugee(state, refugeeId, facility, replaceId);
   if (!r.success) return { gain: 0, total: now };
   const total = refugeeFacilityBonus(r.next, facility);
   return { gain: total - now, total };
@@ -78,23 +84,97 @@ export function withRefugeeSpeed(speed: number, b: number): number {
   return b > 0 ? (1 + Math.max(0, speed)) * (1 + b) - 1 : speed;
 }
 
-// A whole-tick duration shortened by the buff: max(1, ceil(ticks / (1 + b))). `ticks` itself at b <= 0, or when it is
-// not a positive finite number (a 0-tick phase stays 0). Pure.
+// ===== carried fractions (the user's 2026-11-03 call "Carry the fractions") =====
+//
+// A whole-tick duration shortened by a small buff used to round back up (ceil(60 / 1.01) = 60): the buff never acted.
+// Now each consumer keeps the fraction it rounded up by, the CARRY c in [0, 1), and the next duration it decides pays
+// it back: ticks = max(1, ceil(ideal - c)), new c = ticks - (ideal - c). Over a run of jobs the summed ticks track the
+// summed ideal durations within one tick, so even a small buff always acts over time. The first duration (c = 0) is
+// ceil(ideal), exactly the old value. A consumer folds its carry only while its buff is live (b > 0); at b = 0 it
+// takes its old path and its carry is neither read nor written, so a save without refugees is byte-identical.
+// Where each carry lives (absent = 0; RefugeeState.carry or the run):
+//   missionControl  ShortRangeMissionState.refugeeCarry, per run (each run's cycles start in its own time order);
+//   research        RefugeeState.carry.research (blueprint research starts);
+//   relicStudy      RefugeeState.carry.relicStudy (relic study starts, the player's and the queue's);
+//   fabricator      RefugeeState.carry.fabricator (line jobs and one-off crafts).
+// Every start that consumes a carry happens at a whole-tick boundary (tick() steps economyTick(_, 1)) or as a player
+// action, in a fixed order, so one call == 997 s chunks == 1 s steps and offline == live hold by construction.
+
+// A stored carry as the engine reads it: a finite number in [0, 1), else 0. Pure.
+export function cleanRefugeeCarry(v: unknown): number {
+  return typeof v === "number" && Number.isFinite(v) && v > 0 && v < 1 ? v : 0;
+}
+
+// `ideal` ticks (a positive real) as a whole-tick duration with the carried fraction `carry` paid back: the ticks and
+// the new carry (see the header above). Pure.
+export function carriedTicks(ideal: number, carry: number): { ticks: number; carry: number } {
+  const c = cleanRefugeeCarry(carry);
+  const d = ideal - c;
+  // Nothing left to round up (an ideal under the carry): the 1-tick floor, the carry kept as it was.
+  if (!(d > 0)) return { ticks: 1, carry: c };
+  const ticks = Math.max(1, Math.ceil(d));
+  return { ticks, carry: cleanRefugeeCarry(ticks - d) };
+}
+
+// A whole-tick duration shortened by the buff b with the carry paid back: ideal ticks / (1 + b) through carriedTicks.
+// `ticks` and the carry untouched at b <= 0, or when `ticks` is not a positive finite number (a 0-tick phase stays 0).
+// Pure.
+export function refugeeDurationCarried(ticks: number, b: number, carry: number): { ticks: number; carry: number } {
+  if (!(b > 0) || !(ticks > 0) || !Number.isFinite(ticks)) return { ticks, carry };
+  return carriedTicks(ticks / (1 + b), carry);
+}
+
+// The duration alone with no carry: max(1, ceil(ticks / (1 + b))), the first job's value. Pure.
 export function refugeeDurationTicks(ticks: number, b: number): number {
-  if (!(b > 0) || !(ticks > 0) || !Number.isFinite(ticks)) return ticks;
-  return Math.max(1, Math.ceil(ticks / (1 + b)));
+  return refugeeDurationCarried(ticks, b, 0).ticks;
+}
+
+// The state-held carries (RefugeeState.carry): which consumer.
+export type RefugeeCarryKey = "research" | "relicStudy" | "fabricator";
+
+// The carry `key` holds now (0 when absent). Pure.
+export function refugeeCarryOf(state: Pick<GameState, "refugees">, key: RefugeeCarryKey): number {
+  return cleanRefugeeCarry(state.refugees?.carry?.[key]);
+}
+
+// `state` with carry `key` set to `carry`: a 0 removes the key (and an empty carry record), and the SAME state comes
+// back when nothing changes (and with no refugee record at all, where no buff can be live). Pure.
+export function withRefugeeCarry<S extends Pick<GameState, "refugees">>(state: S, key: RefugeeCarryKey, carry: number): S {
+  const refugees = state.refugees;
+  if (refugees === undefined) return state;
+  const c = cleanRefugeeCarry(carry);
+  if (cleanRefugeeCarry(refugees.carry?.[key]) === c && (c > 0 || refugees.carry?.[key] === undefined)) return state;
+  const nextCarry = { ...(refugees.carry ?? {}) };
+  if (c > 0) nextCarry[key] = c;
+  else delete nextCarry[key];
+  const { carry: _old, ...rest } = refugees;
+  return { ...state, refugees: Object.keys(nextCarry).length > 0 ? { ...rest, carry: nextCarry } : rest };
 }
 
 // The Dispatcher's fold on a short-range cycle plan: every phase shortened by the Mission Control buff (frozen with the
-// plan at the cycle start). The same plan object at b = 0. Pure.
-export function refugeeShortRangePlan(state: Pick<GameState, "refugees">, plan: ShortRangeCyclePlan): ShortRangeCyclePlan {
+// plan at the cycle start), in phase order through the run's carry `carry` (absent = 0). The same plan object and
+// carry at b = 0. Pure.
+export function refugeeShortRangePlan(
+  state: Pick<GameState, "refugees">,
+  plan: ShortRangeCyclePlan,
+  carry = 0,
+): { plan: ShortRangeCyclePlan; carry: number } {
   const b = refugeeFacilityBonus(state, "missionControl");
-  if (!(b > 0)) return plan;
-  const transitOutTicks = refugeeDurationTicks(plan.transitOutTicks, b);
-  const onSiteTicks = refugeeDurationTicks(plan.onSiteTicks, b);
-  const transitBackTicks = refugeeDurationTicks(plan.transitBackTicks, b);
-  const unloadTicks = refugeeDurationTicks(plan.unloadTicks, b);
-  return { transitOutTicks, onSiteTicks, transitBackTicks, unloadTicks, totalTicks: transitOutTicks + onSiteTicks + transitBackTicks + unloadTicks };
+  if (!(b > 0)) return { plan, carry };
+  let c = carry;
+  const phase = (t: number): number => {
+    const r = refugeeDurationCarried(t, b, c);
+    c = r.carry;
+    return r.ticks;
+  };
+  const transitOutTicks = phase(plan.transitOutTicks);
+  const onSiteTicks = phase(plan.onSiteTicks);
+  const transitBackTicks = phase(plan.transitBackTicks);
+  const unloadTicks = phase(plan.unloadTicks);
+  return {
+    plan: { transitOutTicks, onSiteTicks, transitBackTicks, unloadTicks, totalTicks: transitOutTicks + onSiteTicks + transitBackTicks + unloadTicks },
+    carry: c,
+  };
 }
 
 // The keyed stream seed of the refine job minted as process number `processNumber` in the save keyed by `saveSeed`

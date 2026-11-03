@@ -236,6 +236,66 @@ describe("E5-4 postRefugee / unpostRefugee (free, any time; posted people stay; 
     expect(hydrateRefugees(posted.next)).toBe(posted.next);
   });
 
+  it("the swap takes a target: the player may replace the STRONGER person; the lowest share is only the fallback", () => {
+    const s = home([person(1, "refinery", { skill: 30 }), person(2, "refinery", { skill: 60 }), person(3, null, { skill: 50 })]);
+    const r = postRefugee(s, 3, "refinery", 2);
+    expect(r).toMatchObject({ success: true, swappedOutId: 2 });
+    expect(r.returnedIds).toBeUndefined();
+    expect(ids(r.next, "refinery")).toEqual([1, 3]);
+    expect(ids(r.next, null)).toEqual([2]);
+    expect(rest(r.next)).toBe(rest(s));
+    // No target: the fallback (the lowest share) as before.
+    expect(postRefugee(s, 3, "refinery").swappedOutId).toBe(1);
+    // A move from another facility can name its target too.
+    const move = home([person(1, "refinery", { skill: 30 }), person(2, "refinery", { skill: 60 }), person(3, "research")]);
+    const moved = postRefugee(move, 3, "refinery", 2);
+    expect(moved).toMatchObject({ success: true, swappedOutId: 2 });
+    expect(ids(moved.next, "research")).toEqual([]);
+    // With a free post nobody is swapped out (the target is not needed).
+    const open = home([person(1, "refinery"), person(2)]);
+    const free = postRefugee(open, 2, "refinery", 1);
+    expect(free.swappedOutId).toBeUndefined();
+    expect(ids(free.next, "refinery")).toEqual([1, 2]);
+  });
+
+  it("an invalid target is refused (the same state): not posted here, waiting, unknown, or the newcomer", () => {
+    const s = home([person(1, "refinery"), person(2, "refinery"), person(3), person(4, "research")]);
+    for (const target of [3, 4, 99, 5]) expect(postRefugee(s, 3, "refinery", target)).toEqual({ next: s, success: false });
+    expect(postRefugee(s, 3, "refinery", 3)).toEqual({ next: s, success: false });
+    expect(postRefugee(s, 4, "refinery", 4)).toEqual({ next: s, success: false });
+  });
+
+  it("posting into a facility over its post count (a save not yet trimmed) leaves it AT its posts; nobody is removed", () => {
+    // Research Level 1: one post, three posted (as a save that skipped the load trim would hold).
+    const over = home([person(1, "research", { skill: 70 }), person(2, "research", { skill: 20 }), person(3, "research", { skill: 50 }), person(4)]);
+    const r = postRefugee(over, 4, "research");
+    expect(r.success).toBe(true);
+    expect(ids(r.next, "research")).toEqual([4]);
+    expect(r.swappedOutId).toBe(2); // the fallback: the lowest share
+    expect(r.returnedIds).toEqual([3, 1]); // the overflow: the last posted first
+    expect(ids(r.next, null)).toEqual([1, 2, 3]); // back in arrival order
+    expect(refugeesOf(r.next).list).toHaveLength(4);
+    // With a target: that person goes, the overflow goes too, and the facility ends at its posts.
+    const t = postRefugee(over, 4, "research", 1);
+    expect(t).toMatchObject({ success: true, swappedOutId: 1, returnedIds: [3, 2] });
+    expect(ids(t.next, "research")).toEqual([4]);
+    expect(refugeesOf(t.next).list).toHaveLength(4);
+    // A facility AT its posts swaps exactly one (no overflow to return).
+    const full = home([person(1, "research"), person(2)]);
+    expect(postRefugee(full, 2, "research").returnedIds).toBeUndefined();
+  });
+
+  it("hydration keeps the carried fractions in (0, 1) for the three known keys and drops anything else", () => {
+    const clean = withRefugees(freshState(), [person(1)], { carry: { research: 0.25, fabricator: 0.5 } });
+    expect(hydrateRefugees(clean)).toBe(clean);
+    const junk = withRefugees(freshState(), [person(1)], { carry: { research: 1, relicStudy: 0.75, fabricator: -0.1, other: 0.5 } as never });
+    expect(refugeesOf(hydrateRefugees(junk)).carry).toEqual({ relicStudy: 0.75 });
+    const allBad = withRefugees(freshState(), [person(1)], { carry: { research: Number.NaN } as never });
+    expect("carry" in refugeesOf(hydrateRefugees(allBad))).toBe(false);
+    const notObject = withRefugees(freshState(), [person(1)], { carry: 3 as never });
+    expect("carry" in refugeesOf(hydrateRefugees(notObject))).toBe(false);
+  });
+
   it("greetRefugee removes the id from greet; dismissRefugeeHint sets hintSeen once; both return the same state on a no-op", () => {
     const s = withRefugees(freshState(), [person(1), person(2)], { greet: [1, 2] });
     const g = greetRefugee(s, 1);

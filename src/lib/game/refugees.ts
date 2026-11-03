@@ -115,6 +115,10 @@ export interface RefugeeState {
   arrivedTotal: number;
   greet: number[];
   hintSeen?: true;
+  // E5-4 fix round (the user's "Carry the fractions"): the fraction of a tick each duration buff last rounded up by,
+  // paid back by its next start (refugeeBuffs.ts carriedTicks). Each value in (0, 1); absent = 0 (and the whole field
+  // absent until a buff first rounds), so a save with nobody posted never gains the key.
+  carry?: { research?: number; relicStudy?: number; fabricator?: number };
 }
 
 // A save without the field: nobody yet.
@@ -291,7 +295,22 @@ export function hydrateRefugees(state: GameState): GameState {
   }
   const hintSeenOk = stored.hintSeen === undefined || stored.hintSeen === true;
   if (!hintSeenOk) changed = true;
-  const extraKeys = Object.keys(stored).some((k) => !["version", "list", "nextId", "arrivedTotal", "greet", "hintSeen"].includes(k));
+  // 4. The carried fractions (E5-4 fix round): only the three known keys, each a finite number in (0, 1); anything
+  // else is dropped (it reads as 0, the value it would carry anyway), and an empty record is dropped whole.
+  let carry: RefugeeState["carry"];
+  if (stored.carry !== undefined) {
+    const inCarry = stored.carry;
+    const kept: NonNullable<RefugeeState["carry"]> = {};
+    if (inCarry && typeof inCarry === "object" && !Array.isArray(inCarry)) {
+      for (const [k, v] of Object.entries(inCarry as Record<string, unknown>)) {
+        if ((k === "research" || k === "relicStudy" || k === "fabricator") && typeof v === "number" && Number.isFinite(v) && v > 0 && v < 1) kept[k] = v;
+        else changed = true;
+      }
+    } else changed = true;
+    if (Object.keys(kept).length > 0) carry = kept;
+    else changed = true;
+  }
+  const extraKeys = Object.keys(stored).some((k) => !["version", "list", "nextId", "arrivedTotal", "greet", "hintSeen", "carry"].includes(k));
   if (extraKeys) changed = true;
   if (!changed) return state;
 
@@ -302,6 +321,7 @@ export function hydrateRefugees(state: GameState): GameState {
     arrivedTotal,
     greet,
     ...(stored.hintSeen === true ? { hintSeen: true as const } : {}),
+    ...(carry !== undefined ? { carry } : {}),
   };
   return { ...state, refugees };
 }
@@ -333,14 +353,23 @@ function returnToWaiting(list: readonly RefugeeRecord[], r: RefugeeRecord): Refu
 
 // Post refugee `refugeeId` at `facility`. Fails (same state) for an unknown person, a key that is not one of the
 // eight, or a facility with no posts (unbuilt, level 0). Posting someone where they already are is a no-op (same
-// state, success). A posted person moving here leaves their old post empty. When every post here is taken, the
-// person with the LOWEST share here (the last posted among equals) returns to the waiting list (`swappedOutId`) and
-// the newcomer takes the post (design call 10 A). [PROPOSAL] tie-break. Pure.
+// state, success). A posted person moving here leaves their old post empty. When every post here is taken, someone
+// posted here returns to the waiting list (`swappedOutId`) and the newcomer takes the post (design call 10 A):
+//   - `replaceId`, when given, names that person (the player's pick: anyone posted here, the strongest included).
+//     It must be someone posted at `facility`, else the post fails (same state);
+//   - with no `replaceId`, the fallback is the person with the LOWEST share here (the last posted among equals;
+//     [PROPOSAL] tie-break).
+// With a free post nobody is swapped out (a `replaceId` is then not needed and is ignored).
+// A facility holding MORE people than its posts (a save state that skipped hydrateRefugees' overflow trim, or a
+// future level loss) never stays over after a post: besides the one swapped out, the extra people return to the
+// waiting list too, the last posted first (hydrateRefugees' overflow rule), listed in `returnedIds`. Nobody is ever
+// removed. Pure.
 export function postRefugee(
   state: GameState,
   refugeeId: number,
   facility: RefugeeFacilityKey,
-): { next: GameState; success: boolean; swappedOutId?: number } {
+  replaceId?: number,
+): { next: GameState; success: boolean; swappedOutId?: number; returnedIds?: number[] } {
   const list = refugeesOf(state).list;
   const who = list.find((r) => r.id === refugeeId);
   if (!who || !isRefugeeFacilityKey(facility)) return { next: state, success: false };
@@ -348,16 +377,29 @@ export function postRefugee(
   if (posts < 1) return { next: state, success: false };
   if (who.posting === facility) return { next: state, success: true };
   let working: RefugeeRecord[] = list.filter((r) => r.id !== refugeeId);
-  let swappedOutId: number | undefined;
-  const here = working.filter((r) => r.posting === facility);
-  if (here.length >= posts) {
-    let out = here[0];
+  let here = working.filter((r) => r.posting === facility);
+  if (here.length < posts) return { next: withList(state, [...working, { ...who, posting: facility }]), success: true };
+  let out: RefugeeRecord | undefined;
+  if (replaceId !== undefined) {
+    out = here.find((r) => r.id === replaceId);
+    if (out === undefined) return { next: state, success: false };
+  } else {
+    out = here[0];
     for (const r of here) if (refugeeShare(r, facility) <= refugeeShare(out, facility)) out = r;
-    swappedOutId = out.id;
-    working = returnToWaiting(working, out);
+  }
+  const swappedOutId = out.id;
+  working = returnToWaiting(working, out);
+  here = here.filter((r) => r.id !== swappedOutId);
+  // The overflow (only a facility over its posts has any): the last posted return first, until the newcomer fits.
+  const returnedIds: number[] = [];
+  while (here.length > posts - 1) {
+    const extra = here[here.length - 1];
+    here = here.slice(0, -1);
+    returnedIds.push(extra.id);
+    working = returnToWaiting(working, extra);
   }
   const next = withList(state, [...working, { ...who, posting: facility }]);
-  return swappedOutId === undefined ? { next, success: true } : { next, success: true, swappedOutId };
+  return returnedIds.length > 0 ? { next, success: true, swappedOutId, returnedIds } : { next, success: true, swappedOutId };
 }
 
 // Return refugee `refugeeId` to the waiting list. Fails (same state) for an unknown person; someone already waiting is
