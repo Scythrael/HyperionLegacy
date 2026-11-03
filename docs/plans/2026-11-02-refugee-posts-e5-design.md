@@ -141,3 +141,12 @@ lists waiting AND posted people; gain plus new total; the waiting list in its ow
 slow-arrivals line in words only; "Post..." on a full facility offers a swap; a one-tap Post on the arrival card
 (suggests the best match); a neutral line for an evacuation that brings nobody home; the Refugees tab hidden until
 the first arrival; a one-time first-arrival hint.
+
+## USER (2026-11-03, verbatim): rare franchise nods among refugees
+
+"The refugees and such are great places to have a rare chance of a reference to someone from some of my favorite
+franchises! From Star Wars, and Stargate. Babylon 5. Wheel of Time. Final Fantasy. Dragon Ball Z, My Hero Academia.
+Etc."
+Reading: a RARE arrival is an affectionate nod to a character from one of the user's favorite franchises (the user
+chose this; see the relic sheet's homage note: the user decides when a franchise nod is welcome). Shape questions
+asked the same day (directness, rarity, presentation); answers below when given.
