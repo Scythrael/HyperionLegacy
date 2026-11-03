@@ -1488,6 +1488,34 @@ function appendShortRangeLog(
   return out;
 }
 
+// E5-2 (Refugee Posts): the open posts a delivery on the call's whole tick `atTick` (1 = the first) sees. A 1 s step on
+// tick t reads its incoming state, which holds every facility upgrade that completed on ticks 1..t-1 (resolveProcesses
+// runs after the refugee pass, so an upgrade completing ON tick t is not yet seen). One call reproduces that: an upgrade
+// process counts once `remainingTicks - (atTick - 1) <= MISSION_TICK_EPSILON` (resolveProcesses' own closed-form test
+// for t-1 ticks). Postings never change inside a call. No upgrade completing in the window: the incoming state's count,
+// a constant. Pure.
+function refugeeOpenPostsAt(state: GameState, ticksElapsed: number): number | ((atTick: number) => number) {
+  const ups = state.activeProcesses.filter(
+    (p) => p.effect.type === "facilityLevelUp" && p.remainingTicks - ticksElapsed <= MISSION_TICK_EPSILON
+  );
+  const base = refugeeOpenPosts(state);
+  if (ups.length === 0) return base;
+  const memo = new Map<number, number>();
+  return (atTick: number) => {
+    const hit = memo.get(atTick);
+    if (hit !== undefined) return hit;
+    let facilities = state.facilities;
+    for (const p of ups) {
+      if (p.effect.type !== "facilityLevelUp" || p.remainingTicks - (atTick - 1) > MISSION_TICK_EPSILON) continue;
+      const current = facilities[p.effect.facility] ?? { level: 0 };
+      facilities = { ...facilities, [p.effect.facility]: { ...current, level: current.level + 1 } };
+    }
+    const open = facilities === state.facilities ? base : refugeeOpenPosts({ refugees: state.refugees, facilities });
+    memo.set(atTick, open);
+    return open;
+  };
+}
+
 // E5-2: one completion log entry for an Evacuation's outcome: "refugeeArrival" names who came home, "refugeeNoArrival"
 // is the calm line (homeDashboard.ts refugeeCompletionLine words both). A farewell (E5-3) writes nothing yet. Pure.
 function appendRefugeeEvent(state: GameState, event: RefugeeEvent, nowMs: number): GameState {
@@ -5481,14 +5509,14 @@ export function economyTick(
   // G1-4: read back through explicit types (the captain map's callback assigns them, which TS cannot follow).
   const srCountsAfter = shortRangeCounts as RunCounts | null;
   const srCursorAfter = shortRangeCursor as Readonly<Record<number, number>> | null;
-  // E5-2 (Refugee Posts): the call's Evacuations bring people home, against the open posts of the INCOMING state (a
-  // constant of the call: the posts change only with a facility level or a posting, never inside the captain map).
-  // No delivery: nothing is read and nothing is written.
+  // E5-2 (Refugee Posts): the call's Evacuations bring people home, against the open posts AS OF EACH DELIVERY'S TICK
+  // (refugeeOpenPostsAt: the incoming state plus every facility upgrade completing on an earlier tick of this call, what
+  // a 1 s step on that tick reads, so one call == chunked == 1 s steps). No delivery: nothing is read and nothing is written.
   const refugeesIn = refugeeDeliveries.length > 0 ? refugeesOf(state) : null;
   const refugeePass =
     refugeesIn === null
       ? null
-      : applyRefugeeDeliveries(refugeesIn, refugeeOpenPosts(state), refugeeDeliveries, {
+      : applyRefugeeDeliveries(refugeesIn, refugeeOpenPostsAt(state, ticksElapsed), refugeeDeliveries, {
           gameTimeSeconds: state.gameTimeSeconds,
           tickDurationSeconds: state.tickDurationSeconds,
         });

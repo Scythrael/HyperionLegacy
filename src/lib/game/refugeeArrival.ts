@@ -5,16 +5,16 @@
 // - Each delivered Evacuation may bring home ONE named refugee, with a background and a skill (a harder tier rolls a
 //   stronger skill, REFUGEE_SKILL_SPANS).
 // - Arrivals TAPER against open posts: while the waiting list fits the empty posts an Evacuation always brings someone;
-//   past that the chance falls smoothly and never reaches zero (refugeeArrivalChance). A miss is a calm line ("settled
-//   safely elsewhere"), never a loss.
+//   past that the chance falls smoothly and never reaches zero (refugeeArrivalChance). A miss is a calm line ("...nobody
+//   new came home this time."), never a loss.
 // - Safe first runs: the training run (the template's first cycle) always brings someone home.
 //
 // Determinism: every draw comes from the delivering roll's own stream, makeRng(roll.seed ^ REFUGEE_SALT), with a FIXED
 // layout of six draws (arrival, background, skill, name, hair, palette), all six always taken; the name itself comes
 // from the seeded crew name generator on its own stream. Never the shared economy rng, never the clock. economyTick
 // (tick.ts) collects the call's deliveries, sorts them by (atTick, slotId) and threads the refugee state through them
-// here with `openPosts` read from the INCOMING state (a constant of the call, the board-slot precedent), so one call ==
-// chunked == 1 s steps.
+// here with `openPosts` read at each delivery's own tick (the incoming state plus every facility upgrade completing on an
+// EARLIER tick of the call, exactly what a 1 s step on that tick reads), so one call == chunked == 1 s steps.
 //
 // Relocation deliveries are carried through but do nothing yet (E5-3 adds the farewell).
 //
@@ -118,13 +118,14 @@ export function refugeeArrives(roll: ShortRangeRoll, waiting: number, openPosts:
 }
 
 // The refugee state after this call's deliveries, and what each did. The deliveries are taken in (atTick, slotId) order
-// (sorted here, stable); each Evacuation reads the waiting list as the earlier ones left it, against `openPosts` (the
-// incoming state's, a constant of the call). An arrival joins the waiting list (posting null) with the next id, counts
+// (sorted here, stable); each Evacuation reads the waiting list as the earlier ones left it, against `openPosts`: a
+// number (a constant of the call) or the open posts as of a delivery's own `atTick` (tick.ts: facility upgrades that
+// complete earlier in the call count from the next tick on, as 1 s steps see them). An arrival joins the waiting list (posting null) with the next id, counts
 // in `arrivedTotal` and is queued for its arrival card (`greet`). A miss mints no id. Relocations do nothing yet (E5-3).
 // No arrival: the same `refugees` reference. Pure.
 export function applyRefugeeDeliveries(
   refugees: RefugeeState,
-  openPosts: number,
+  openPosts: number | ((atTick: number) => number),
   deliveries: readonly RefugeeDelivery[],
   call: { gameTimeSeconds: number; tickDurationSeconds: number },
 ): { refugees: RefugeeState; events: RefugeeEvent[] } {
@@ -136,7 +137,8 @@ export function applyRefugeeDeliveries(
   for (const d of ordered) {
     if (d.kind !== "evacuation") continue;
     const base = { atTick: d.atTick, slotId: d.slotId, destinationIndex: d.roll.destinationIndex, tier: d.roll.tier };
-    if (!refugeeArrives(d.roll, waiting, openPosts)) {
+    const open = typeof openPosts === "number" ? openPosts : openPosts(d.atTick);
+    if (!refugeeArrives(d.roll, waiting, open)) {
       events.push({ kind: "noArrival", ...base });
       continue;
     }

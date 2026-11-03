@@ -24,8 +24,8 @@ import {
 } from "./shortRange";
 import { shortRangeBoardSlots, shortRangeNextCycle, startShortRangeCycle } from "./shortRangeBoard";
 import { tickCaptainShortRange } from "./shortRangeCycle";
-import { REFUGEE_TAPER_K, applyRefugeeDeliveries, refugeeArrivalChance, rollRefugee, type RefugeeDelivery } from "./refugeeArrival";
-import { REFUGEE_BACKGROUND_KEYS, REFUGEE_SKILL_SPANS, refugeesOf, type RefugeeRecord, type RefugeeState } from "./refugees";
+import { REFUGEE_TAPER_K, applyRefugeeDeliveries, refugeeArrivalChance, refugeeArrives, rollRefugee, type RefugeeDelivery } from "./refugeeArrival";
+import { REFUGEE_BACKGROUND_KEYS, REFUGEE_SKILL_SPANS, refugeeOpenPosts, refugeesOf, type RefugeeRecord, type RefugeeState } from "./refugees";
 import { economyTick, installMissingCombatBaselines, tick } from "./tick";
 import { runCountsOf } from "./runDifficulty";
 import { refugeeCompletionLine } from "./homeDashboard";
@@ -412,6 +412,58 @@ describe("E5-2 determinism (Review Focus 4): two Evacuations delivered on the sa
     expect(refugeesOf(live).list.length).toBeGreaterThan(6);
     expect(json(offline.refugees)).toBe(json(live.refugees));
     expect(json(refugeeLog(offline))).toBe(json(refugeeLog(live)));
+  });
+});
+
+describe("E5-2 determinism: a facility upgrade completing mid-span counts for an Evacuation delivered after it", () => {
+  // One captain on an Evacuation (a veteran fleet, so not the training run); the Refinery at Level 0 with its Level 1
+  // upgrade in flight, completing halfway through the run, so the delivery sees one more open post than the call's
+  // incoming state. The waiting list is sized so that one post decides the arrival draw.
+  function midSpanUpgrade(): { s0: GameState; deliverAt: number; arrivesWithUpgrade: boolean } {
+    let base = veteran(qualified());
+    base = { ...base, facilities: { ...base.facilities, refinery: { ...base.facilities.refinery, level: 0 } } };
+    base = onEvacuation(base, WIRING_CAPTAIN_ID, 0);
+    const m = base.captains.find((c) => c.id === WIRING_CAPTAIN_ID)!.mission as ShortRangeMissionState;
+    expect(m.roll.difficulty.firstRun).toBe(false);
+    const open = refugeeOpenPosts(base);
+    let waiting = -1;
+    for (let w = open + 1; w < open + 4000; w++) {
+      if (refugeeArrives(m.roll, w, open) !== refugeeArrives(m.roll, w, open + 1)) {
+        waiting = w;
+        break;
+      }
+    }
+    expect(waiting).toBeGreaterThan(0);
+    const upAt = Math.floor(m.plan.totalTicks / 2);
+    const s0: GameState = {
+      ...withWaiting(base, waiting),
+      activeProcesses: [
+        ...base.activeProcesses,
+        { id: "proc-refinery-up", kind: "facilityUpgrade", remainingTicks: upAt, durationTicks: upAt + 100, effect: { type: "facilityLevelUp", facility: "refinery" } },
+      ],
+    };
+    expect(refugeeOpenPosts({ ...s0, facilities: { ...s0.facilities, refinery: { ...s0.facilities.refinery, level: 1 } } })).toBe(open + 1);
+    return { s0, deliverAt: m.plan.totalTicks, arrivesWithUpgrade: refugeeArrives(m.roll, waiting, open + 1) };
+  }
+
+  it("one call == 997 s chunks == 1 s steps == offline catch-up (identical state and arrivals)", () => {
+    const roundTrip = (g: GameState) => migrate(deserialize(serialize(g, 0, 1_790_000_000_000)) as SaveFile, 1);
+    const { s0: raw, deliverAt, arrivesWithUpgrade } = midSpanUpgrade();
+    const s0 = roundTrip(raw);
+    expect(s0.activeProcesses.some((p) => p.id === "proc-refinery-up")).toBe(true);
+    const N = deliverAt + 5;
+    const once = economyTick(s0, N, RNG);
+    const chunks = chunked(s0, N);
+    const steps = stepped(s0, N);
+    const offline = tick(N, roundTrip(s0), RNG);
+    const view = (g: GameState) => ({ refugees: g.refugees, log: refugeeLog(g), facilities: g.facilities, processes: g.activeProcesses });
+    expect(json(view(chunks))).toBe(json(view(steps)));
+    expect(json(view(once))).toBe(json(view(steps)));
+    expect(json(view(offline))).toBe(json(view(steps)));
+    expect(json(once)).toBe(json(steps));
+    // The upgrade landed, and the delivery's outcome is the one the upgraded post count decides.
+    expect(steps.facilities.refinery.level).toBe(1);
+    expect(refugeeLog(steps).map((e) => e.kind)).toEqual([arrivesWithUpgrade ? "refugeeArrival" : "refugeeNoArrival"]);
   });
 });
 
