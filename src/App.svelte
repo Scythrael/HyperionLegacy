@@ -12374,6 +12374,8 @@
             <div class="refugee-hint" role="note">
               <Icon name="info" size={16} />
               <span>New: <b>Posts</b>. {refugeeHint.text}</span>
+              <!-- E5-7: the hint links the Refugees Help topic (helpTopics.ts). -->
+              <button type="button" class="refugee-hint-x" on:click={() => openHelpTopic("refugees")}>How it works</button>
               <button type="button" class="refugee-hint-x" on:click={doDismissRefugeeHint}>Got it</button>
             </div>
           {/if}
@@ -17331,7 +17333,7 @@
 
         {#if activePersonnelTab === "refugees"}
         <!-- E5-6 (Refugee Posts, mockup section 3): everyone at home, the waiting list first. -->
-        <RefugeesPanel {state} onPost={doPostRefugee} />
+        <RefugeesPanel {state} onPost={doPostRefugee} onOpenHelp={openHelpTopic} />
         {/if}
 
         {#if activePersonnelTab === "admiral"}
@@ -23617,9 +23619,9 @@
   .fwrap.hasposts > .fpane { border-bottom-left-radius: 0; border-bottom-right-radius: 0; }
   .mc-posts { margin-top: 8px; }
   /* E5-6: the one-time first-arrival hint above the Facilities panes (mockup section 6). */
-  .refugee-hint { display: flex; gap: 10px; align-items: center; padding: 9px 12px; margin-bottom: 10px; border: 1px dashed rgba(var(--color-accent-rgb), 0.45); border-radius: var(--corner); background: rgba(var(--color-accent-rgb), 0.05); color: var(--color-text-secondary); font-size: var(--text-sm); }
+  .refugee-hint { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; padding: 9px 12px; margin-bottom: 10px; border: 1px dashed rgba(var(--color-accent-rgb), 0.45); border-radius: var(--corner); background: rgba(var(--color-accent-rgb), 0.05); color: var(--color-text-secondary); font-size: var(--text-sm); }
   .refugee-hint :global(svg) { color: var(--color-accent); flex: 0 0 auto; }
-  .refugee-hint > span { flex: 1 1 auto; min-width: 0; }
+  .refugee-hint > span { flex: 1 1 240px; min-width: 0; }
   .refugee-hint b { color: var(--color-text-primary); }
   .refugee-hint-x { font: inherit; font-size: var(--text-sm); flex: 0 0 auto; color: var(--color-accent); background: transparent; border: 1px solid var(--color-border-strong); border-radius: var(--corner); padding: 3px 10px; min-height: 32px; cursor: pointer; white-space: nowrap; }
   .refugee-hint-x:hover { border-color: var(--color-accent-bright); }

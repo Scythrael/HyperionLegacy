@@ -79,6 +79,12 @@ import { crewBuffLabel } from "./game/crewBuffs";
 import { SENIOR_STAFF_BONUSES } from "./game/seniorStaffBonuses";
 import { EXPEDITION_RELIC_BLANKS_PER_HOUR, SHORT_RANGE_RELIC_RATE_MULT } from "./game/relicBlanks";
 import { wiringEntry } from "./game/wiring/registry";
+// Refugee Posts E5-7.
+import { REFUGEE_BACKGROUNDS, REFUGEE_BACKGROUND_KEYS, REFUGEE_MATCH_SHARE_PER_SKILL, REFUGEE_OFF_MATCH_RATIO, REFUGEE_POSTS_EVERY, REFUGEE_SKILL_SPANS, refugeePostsAt, refugeeShare } from "./game/refugees";
+import { REFUGEE_TAPER_K, refugeeArrivalChance } from "./game/refugeeArrival";
+import { REFUGEE_FACILITY_LABELS } from "./refugeeDisplay";
+import { REFUGEE_BUFF_HELP } from "./helpTopics";
+const articleFor = (word: string): string => (/^[AEIOU]/i.test(word) ? "an" : "a");
 const officer = (id: string): string => SENIOR_STAFF_BONUSES.find((x) => x.id === id)!.label;
 
 describe("HELP_TOPICS", () => {
@@ -711,6 +717,108 @@ describe("HELP_TOPICS", () => {
     });
   });
 
+  describe("Refugees (0.14.0 E5-7)", () => {
+    const topic = (id: string) => {
+      const t = HELP_TOPICS.find((x) => x.id === id);
+      expect(t, `missing help topic: ${id}`).toBeDefined();
+      return t!;
+    };
+    const b = () => topic("refugees").body;
+    const lines = () => b().split("\n");
+    const tierName = (t: 1 | 2) => `Tier ${t === 1 ? "I" : "II"}`;
+    const onePct = (f: number) => `${Number((f * 100).toFixed(1))}%`;
+
+    it("has the topic, linked from the Short-Range and Homeworld (Facilities) topics", () => {
+      expect(topic("refugees").title).toBe("Refugees");
+      expect(b()).toContain("on the Crew tab under Refugees, which appears once the first person arrives");
+      expect(b()).toContain("nobody is ever lost");
+      expect(topic("shortRange").body).toContain("see the Refugees topic");
+      expect(topic("homeworld").body).toContain("see the Refugees topic");
+      expect(topic("homeworld").body).toContain("each facility shows a Posts row");
+    });
+
+    it("the Short-Range topic lists eight jobs and says an evacuation can bring someone home", () => {
+      expect(SHORT_RANGE_TEMPLATE_KEYS.length).toBe(8);
+      const jobLines = topic("shortRange").body.split("\n").filter((l) => SHORT_RANGE_TEMPLATE_KEYS.some((k) => l.startsWith(`- ${SHORT_RANGE_TEMPLATES[k].label} (uses `)));
+      expect(jobLines.length).toBe(8);
+      expect(topic("shortRange").body).toContain("evacuate people from a nearby world");
+      expect(topic("shortRange").body).toContain("an evacuation can bring one named refugee home");
+    });
+
+    it("evacuations: the training run, the pay, and each tier's skill span from REFUGEE_SKILL_SPANS", () => {
+      const label = SHORT_RANGE_TEMPLATES.evacuation.label;
+      expect(b()).toContain(`The first ${label} is a training run and always brings someone.`);
+      expect(b()).toContain("it pays the board's normal credits and XP either way");
+      for (const t of [1, 2] as const) {
+        const [lo, hi] = REFUGEE_SKILL_SPANS[t];
+        expect(b(), `tier ${t}`).toContain(`${lo} to ${hi} from a ${tierName(t)} evacuation`);
+      }
+    });
+
+    it("the taper in words, its halving and quartering read from REFUGEE_TAPER_K and true of the curve", () => {
+      expect(b()).toContain("while there are at least as many open posts as people waiting, an evacuation always brings someone home");
+      expect(b()).toContain(`${REFUGEE_TAPER_K} more people waiting than open posts halve it, ${3 * REFUGEE_TAPER_K} more quarter it, and it never reaches zero`);
+      expect(refugeeArrivalChance(REFUGEE_TAPER_K, 0)).toBe(0.5);
+      expect(refugeeArrivalChance(3 * REFUGEE_TAPER_K, 0)).toBe(0.25);
+      expect(refugeeArrivalChance(5, 5)).toBe(1);
+      expect(refugeeArrivalChance(1e6, 0)).toBeGreaterThan(0);
+      expect(b()).toContain("is not a failure");
+    });
+
+    it("backgrounds and matches: every background's label, facility and stat, the share per skill and the off-match ratio", () => {
+      for (const bg of REFUGEE_BACKGROUND_KEYS) {
+        const def = REFUGEE_BACKGROUNDS[bg];
+        const line = lines().find((l) => l.startsWith(`- ${def.label}: `)) ?? "";
+        expect(line, bg).toContain(`matches ${def.facility === "missionControl" ? "" : "the "}${REFUGEE_FACILITY_LABELS[def.facility]} (${def.statLabel})`);
+        expect(line, bg).toContain(REFUGEE_BUFF_HELP[bg]);
+      }
+      expect(b()).toContain(`a refugee gives ${onePct(REFUGEE_MATCH_SHARE_PER_SKILL)} per point of skill (skill 42 gives +${onePct(42 * REFUGEE_MATCH_SHARE_PER_SKILL)})`);
+      expect(refugeeShare({ background: "refiner", skill: 42 }, "refinery")).toBeCloseTo(42 * REFUGEE_MATCH_SHARE_PER_SKILL, 12);
+      expect(b()).toContain(`they give ${Math.round(REFUGEE_OFF_MATCH_RATIO * 100)}% of that to the facility they are at`);
+    });
+
+    it("every buff the topic names is LIVE in the wiring registry (matched and off match)", () => {
+      for (const bg of REFUGEE_BACKGROUND_KEYS) {
+        const e = wiringEntry(`facility:REFUGEE_BACKGROUNDS:${bg}`);
+        expect(e, bg).toBeDefined();
+        expect(e!.status.kind, bg).toBe("live");
+        const f = REFUGEE_BACKGROUNDS[bg].facility;
+        const off = wiringEntry(`facility:REFUGEE_OFF_MATCH:${f}`);
+        expect(off, f).toBeDefined();
+        expect(off!.status.kind, f).toBe("live");
+      }
+    });
+
+    it("posts by facility level from refugeePostsAt, the curve with no cap, and where the rows live", () => {
+      const levels: number[] = [];
+      for (let lv = 1; levels.length < 4; lv++) if (refugeePostsAt(lv) > refugeePostsAt(lv - 1)) levels.push(lv);
+      expect(refugeePostsAt(0)).toBe(0);
+      expect(b()).toContain(`opens one post at Level ${levels[0]} and one more every ${REFUGEE_POSTS_EVERY} levels after it (Levels ${levels.slice(0, -1).join(", ")} and ${levels[levels.length - 1]} open the first four)`);
+      expect(b()).toContain("A facility that is not built yet has no posts.");
+      expect(b()).toContain("Mission Control's posts are on the Ops tab under Mission Control");
+      expect(b()).toContain("there is never a cap");
+    });
+
+    it("moving is free, swaps pick who, relocations take only the waiting, posted people stay", () => {
+      const reloc = SHORT_RANGE_TEMPLATES.refugeeRelocation.label;
+      expect(b()).toContain("no cost, no cooldown and no timer");
+      expect(b()).toContain("Posting at a full facility is a swap, and you pick who goes back to the waiting list.");
+      expect(b()).toContain("Move here");
+      expect(b()).toContain("Leave all on the waiting list");
+      expect(b()).toContain(`${articleFor(reloc)} ${reloc} job takes one person from the waiting list along to lead the new camp, the one who has waited longest`);
+      expect(b()).toContain("With nobody waiting it runs exactly as before.");
+      expect(b()).toContain("POSTED PEOPLE ALWAYS STAY: nothing ever takes a posted refugee away.");
+    });
+
+    it("says match, never fit, and has no em dash or double hyphen", () => {
+      for (const id of ["refugees", "shortRange", "homeworld"]) {
+        expect(/\b(fit|fits|fitting|fitted)\b/i.test(topic(id).body), id).toBe(false);
+        expect(/—|–|-{2}/.test(topic(id).body), id).toBe(false);
+      }
+      expect(b()).toContain("a match counts");
+    });
+  });
+
   // Player-facing text rules (user, standing): objective never task; no em dash or double hyphen; install never fit;
   // never name the DBDs; never the Impossible-tier intent line or the Intact Data Core easter egg.
   it("follows the text rules in every title and body", () => {
@@ -748,7 +856,10 @@ describe("HELP_TOPICS", () => {
     const retiredNames = /fuel depot|deuterium skim/i;
     const oldEconomy = /burns? (round-trip )?fuel|fuel cost|refines? deuterium|auto-bought|fuel gauge|gauge in the top bar/i;
     for (const t of HELP_TOPICS) {
-      if (t.id !== "fuel") expect(retiredNames.test(t.body), `retired fuel facility named in: ${t.id}`).toBe(false);
+      // The Fuel Depot came back as a reach facility (the fuel topic says so), and the Refugees topic names it as
+      // the Fuel handler's match; the retired skim stays banned there too.
+      if (t.id === "refugees") expect(/deuterium skim/i.test(t.body), t.id).toBe(false);
+      else if (t.id !== "fuel") expect(retiredNames.test(t.body), `retired fuel facility named in: ${t.id}`).toBe(false);
       expect(oldEconomy.test(t.body), `old fuel-economy wording in: ${t.id}`).toBe(false);
     }
     const fuel = HELP_TOPICS.find((t) => t.id === "fuel")!;

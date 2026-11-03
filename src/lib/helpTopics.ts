@@ -17,7 +17,7 @@
 // combatGear, queues, craftingLevels, autoSalvage, quartermaster, relics, and the 0.14.0 ground set:
 // groundTeams, groundOperations, returnTrip, objectiveDifficulty, affixes, reinforcing, riskFactors,
 // subspaceTelescope, scanEvents, Field Kits FKR-11's enemyRanks and fieldKits, and Gas Giant Study GG-8's gasGiants,
-// galileoProbe, gasCanisters, dataStudy, ancientData and surveyLog, and Short-Range Missions G1-7's shortRange) are welcome and
+// galileoProbe, gasCanisters, dataStudy, ancientData and surveyLog, Short-Range Missions G1-7's shortRange, and Refugee Posts E5-7's refugees) are welcome and
 // help orient a new player, but the nine above must always be present.
 //
 // ⚠️ THIS MANUAL IS PART OF A RELEASE, NOT A ONE-TIME WRITE-UP. Crafting 0.13.3
@@ -607,7 +607,7 @@ const CUT_TEXT = PILOT_CUNNING_RETURN_CUT_TICKS === 1 ? "one tick" : `${PILOT_CU
 const TICKS_PER_LY = 1 / LY_PER_TICK;
 
 export const SHORT_RANGE_HELP_PARAGRAPHS: readonly string[] = [
-  `Short-Range Missions are set-and-forget jobs close to home, run from the Ops tab under Short-Range. Each job is different: bring refugees to a new camp, drop off or pick up supplies, survey a phenomenon, repair a space telescope, build a comm booster, or move prisoners. A job can never fail.`,
+  `Short-Range Missions are set-and-forget jobs close to home, run from the Ops tab under Short-Range. Each job is different: bring refugees to a new camp, evacuate people from a nearby world, drop off or pick up supplies, survey a phenomenon, repair a space telescope, build a comm booster, or move prisoners. A job can never fail.`,
   `THE BOARD: every save starts with ${BASE_SLOTS_TEXT}. Mission Control adds more:\n${RUNG_LINES}\nA slot is flown by one captain and their assigned ship (the captain is busy while it runs). The board shows each free slot's next job before you send it, and pre-picks the ready captain whose ship meets the sheet by the widest margin: Send dispatches them, or Choose captain opens the picker.`,
   `THE SHEET: each tier has one requirement sheet, and a ship must meet all of it, even the parts a job does not use. Every job a slot draws stays inside its sheet, so a ship that qualifies once can take any job that slot rolls.\n${SHEET_LINES}\nRange is the round trip the ship can reach. The Engineering and Security crew ratings come from the strength of the ship's Engineering crew (with its Engineering officer) and its Security crew: ${SHORT_RANGE_CREW_RATING.perDoubling} x log2(1 + strength / ${SHORT_RANGE_CREW_RATING.referenceStrength}), so each doubling of the crew adds about ${SHORT_RANGE_CREW_RATING.perDoubling}. The board's bars show your ship against the sheet, with the categories this job uses highlighted.`,
   `GUEST QUARTERS carry people: refugees and prisoners ride in them, never in the cargo hold, and goods never ride in guest quarters. Guests are not crew and take no crew stations. A ship's guest quarters come from its hull (${HULL_GUESTS}), from a ${GUEST_WING} or a guest quarters line on a ${QUARTERS_SLOT}, and on a ${GENERAL_HULLS} with any ${QUARTERS_SLOT} installed they rise ${pct(GENERAL_QUARTERS_GUEST_PERK)}. Ship Systems shows the line once a ship has any.`,
@@ -617,7 +617,68 @@ export const SHORT_RANGE_HELP_PARAGRAPHS: readonly string[] = [
   `WAITING AT HOME: a Supply Pickup waits while its ${itemLabel("commonOre")} is at its Warehouse cap, and a Supply Drop-off waits until the fleet has the credits for its load. Either leaves on its own once it can, and nothing is lost while it waits.`,
   `TRAINING RUNS AND THE SLOW START: ${SHORT_RANGE_TRAINING_NOTE} A job's training run is marked with the "${TRAINING_RUN_CHIP}" chip. The slow start counts the completed jobs of each type on its own; the training run does not count.`,
   `WHAT HELPS: the bonuses that speed or grow a mission work here too.\n- The ship's transit speed, ${crewBuffLabel("flight.transitOut")} crew on the leg out, and ${crewBuffLabel("flight.transitBack")} crew or the Flight Deck's Constitution on the leg home.\n- The Pilot's Cunning: each cycle, the Flight Deck's Cunning is the chance that the leg home runs ${CUT_TEXT} shorter. The chance is set when the ship is sent, so a new Pilot counts from the next dispatch.\n- ${crewBuffLabel("ops.unloadSpeed")} crew and the ${officerLabel("any.veteranInstincts")} officer bonus speed the passengers and goods on site and the turnaround at home; the Operations officer's Integrity speeds a hold at least ${pct(FULL_HOLD_FRACTION)} full.\n- ${officerLabel("xo.commandOutput")} and the ${crewBuffLabel("excl.crewOutputMult")} grow the credits and materials a job pays.\n- ${talentLabel("trade1")} and ${talentLabel("trade3")} raise a Supply Drop-off's margin, and ${talentLabel("trade2")} cuts the price of its load.\n- ${talentLabel("extraction4")} raises the quality of the ore a job brings home, and ${talentLabel("extraction5")} can double it.\n- Officers aboard earn promotion progress for their hours out, as on any mission.\nTalents that act on extracting (the Prospector tree's extraction talents, ${talentLabel("extraction2")} and ${talentLabel("extraction3")}) and rare-find bonuses do not act here: a job pays what it rolled.`,
+  `REFUGEES: an evacuation can bring one named refugee home to work at your facilities, and a relocation takes one waiting refugee along to lead the new camp; see the Refugees topic.`,
   `RELICS: a short-range mission turns up an unidentified relic now and then, about ${RELIC_TEXT}, rarer than on expeditions. Finds go to your vault as the job is delivered; see the Relics and the Museum topic.`,
+];
+
+// ===== Refugee Posts (0.14.0 E5-7, docs/plans/2026-11-02-refugee-posts-e5-plan.md) =====
+// Evacuations, arrivals and the taper (in words), backgrounds and matches, posts by facility level, moving and swaps,
+// relocation leaders, and the guarantee that posted people stay. Every number, name and label is read from its owner
+// (refugees.ts, refugeeArrival.ts, refugeeDisplay.ts, the short-range catalog), never typed, and every buff the topic
+// names is a LIVE wiring registry row (facility:REFUGEE_BACKGROUNDS:<background>, helpTopics.test.ts holds it).
+import {
+  REFUGEE_BACKGROUNDS,
+  REFUGEE_BACKGROUND_KEYS,
+  REFUGEE_MATCH_SHARE_PER_SKILL,
+  REFUGEE_OFF_MATCH_RATIO,
+  REFUGEE_POSTS_EVERY,
+  REFUGEE_SKILL_SPANS,
+  refugeePostsAt,
+  type RefugeeBackground,
+} from "./game/refugees";
+import { REFUGEE_TAPER_K } from "./game/refugeeArrival";
+import { REFUGEE_FACILITY_LABELS } from "./refugeeDisplay";
+
+// What each background's buff does at its match, in the player's words (the consumer seams of refugeeBuffs.ts; the
+// stat names are REFUGEE_BACKGROUNDS' own statLabel).
+export const REFUGEE_BUFF_HELP: Readonly<Record<RefugeeBackground, string>> = {
+  refiner: "each refine job has a chance to deliver one extra batch",
+  fuelHandler: "every ship's reach grows, read live, so a move acts at once",
+  dispatcher: "every phase of a short-range cycle runs shorter, set when the cycle starts; partial ticks carry over to the next phase, so even a small buff acts over time",
+  scholar: "blueprint research and relic study run faster, set when each one starts",
+  machinist: "Fabricator crafts run faster, set when each one starts",
+  shipwright: "Shipyard builds run faster, set when each one starts",
+  salvager: "more materials come back from every salvage",
+  stargazer: "raises the odds an expedition finds something on the surface and underground, set when the ship is sent",
+};
+const REFUGEE_EXAMPLE_SKILL = 42;
+// "+4.2%": one decimal, the readout the Posts strip shows.
+const sharePct = (fraction: number): string => `${Number((fraction * 100).toFixed(1))}%`;
+const REFUGEE_SKILL_TEXT = SR_TIERS.map((t) => `${REFUGEE_SKILL_SPANS[t][0]} to ${REFUGEE_SKILL_SPANS[t][1]} from a ${srTier(t)} evacuation`).join(" and ");
+// The first four levels that open a post (1, 4, 7, 10 with REFUGEE_POSTS_EVERY 3), found by walking refugeePostsAt.
+const REFUGEE_POST_LEVELS: number[] = [];
+for (let level = 1; REFUGEE_POST_LEVELS.length < 4 && level < 1000; level++) {
+  if (refugeePostsAt(level) > refugeePostsAt(level - 1)) REFUGEE_POST_LEVELS.push(level);
+}
+// "the Refinery", but "Mission Control" (a proper name, no article).
+const facilityName = (f: keyof typeof REFUGEE_FACILITY_LABELS): string => (f === "missionControl" ? REFUGEE_FACILITY_LABELS[f] : `the ${REFUGEE_FACILITY_LABELS[f]}`);
+const REFUGEE_BACKGROUND_LINES = REFUGEE_BACKGROUND_KEYS.map((bg) => {
+  const def = REFUGEE_BACKGROUNDS[bg];
+  return `- ${def.label}: matches ${facilityName(def.facility)} (${def.statLabel}): ${REFUGEE_BUFF_HELP[bg]}.`;
+}).join("\n");
+const EVACUATION_LABEL = SHORT_RANGE_TEMPLATES.evacuation.label;
+const RELOCATION_LABEL = SHORT_RANGE_TEMPLATES.refugeeRelocation.label;
+
+export const REFUGEES_HELP_PARAGRAPHS: readonly string[] = [
+  `Refugees are named people your ${EVACUATION_LABEL} runs bring home. Each one has a name, a background and a skill, all fixed when they arrive (there is no leveling). Post them at a facility and they make it better. They never fly, fight or take a crew seat, they cost nothing to keep, and nobody is ever lost. You find them on the Crew tab under Refugees, which appears once the first person arrives.`,
+  `EVACUATIONS: ${article(EVACUATION_LABEL)} ${EVACUATION_LABEL} is one of the short-range board's jobs, drawn at random like the others (see the Short-Range Missions topic). Each one delivered can bring one person home, and it pays the board's normal credits and XP either way. The first ${EVACUATION_LABEL} is a training run and always brings someone. Harder evacuations bring more capable people: skill ${REFUGEE_SKILL_TEXT}.`,
+  `ARRIVALS AND THE TAPER: while there are at least as many open posts as people waiting, an evacuation always brings someone home. Once more people wait than there are open posts, the chance falls smoothly: ${REFUGEE_TAPER_K} more people waiting than open posts halve it, ${3 * REFUGEE_TAPER_K} more quarter it, and it never reaches zero. Upgrading facilities opens posts and raises it again. An evacuation that brings nobody home is not a failure: everyone aboard reached the camps, and the log says so.`,
+  `ARRIVING: a new arrival shows a card on the short-range board that offers a one-tap post at their best open post (Choose a post when every post is full), or leaves them on the waiting list; with several cards queued (after time away, for example), Leave all on the waiting list answers every card at once. On a phone, a short notice shows for a few seconds and then tucks into the Refugees tab's count, where the arrival waits for you. Offline time brings people home exactly as if you had been watching.`,
+  `BACKGROUNDS AND MATCHES: each background matches one facility. Posted at their match, a refugee gives ${sharePct(REFUGEE_MATCH_SHARE_PER_SKILL)} per point of skill (skill ${REFUGEE_EXAMPLE_SKILL} gives +${sharePct(REFUGEE_EXAMPLE_SKILL * REFUGEE_MATCH_SHARE_PER_SKILL)}). Posted anywhere else, they give ${pct(REFUGEE_OFF_MATCH_RATIO)} of that to the facility they are at, so a match counts, but nobody is wasted.\n${REFUGEE_BACKGROUND_LINES}`,
+  `POSTS: a facility opens one post at Level ${REFUGEE_POST_LEVELS[0]} and one more every ${REFUGEE_POSTS_EVERY} levels after it (Levels ${andList(REFUGEE_POST_LEVELS.map(String))} open the first ${countWords(REFUGEE_POST_LEVELS.length)}). A facility that is not built yet has no posts. The Posts row under each facility on the Facilities tab shows who is posted there, each person's share and the facility's total; Mission Control's posts are on the Ops tab under Mission Control. Several people at one facility stack on a diminishing curve: each one adds a little less than the last, but there is never a cap.`,
+  `MOVING IS FREE, ANY TIME: post, move or return anyone to the waiting list with no cost, no cooldown and no timer. Pick a filled post to move that person or send them back to waiting. The picker lists the people waiting, sorted by what they would add here, and the people posted elsewhere, with Move here. Posting at a full facility is a swap, and you pick who goes back to the waiting list. A buff that times a job is set when the job starts, so a move changes the next job, never one already running.`,
+  `RELOCATION LEADERS: a ${RELOCATION_LABEL} job takes one person from the waiting list along to lead the new camp, the one who has waited longest, and the log says goodbye. With nobody waiting it runs exactly as before.`,
+  "POSTED PEOPLE ALWAYS STAY: nothing ever takes a posted refugee away. Relocations take only people who are waiting, and a refugee never leaves on their own.",
 ];
 
 // HOTFIX 0.13.11.3: the offline topic names the cap, so it is built FROM the constant (never typed
@@ -652,6 +713,12 @@ export const HELP_TOPICS: HelpTopic[] = [
     id: "shortRange",
     title: "Short-Range Missions",
     body: SHORT_RANGE_HELP_PARAGRAPHS.join("\n"),
+  },
+  {
+    // 0.14.0 E5-7: Refugee Posts (REFUGEES_HELP_PARAGRAPHS above; every number read from the engine).
+    id: "refugees",
+    title: "Refugees",
+    body: REFUGEES_HELP_PARAGRAPHS.join("\n"),
   },
   {
     id: "patrols",
@@ -936,7 +1003,7 @@ On the order form, This order uses lists the qualities the order will draw, and 
   {
     id: "homeworld",
     title: "Homeworld",
-    body: "Homeworld talents are your fleet-wide upgrades, opened with the Talents button on the Crew tab's Admiral page. They unlock and improve capabilities across the whole fleet, such as extra captain slots, deeper order queues, and better salvage odds. Your production facilities (the Refinery, Fabricator, and Research Lab) live in Facilities. As the game grows, more of your empire management will be anchored at the Homeworld.",
+    body: "Homeworld talents are your fleet-wide upgrades, opened with the Talents button on the Crew tab's Admiral page. They unlock and improve capabilities across the whole fleet, such as extra captain slots, deeper order queues, and better salvage odds. Your production facilities (the Refinery, Fabricator, and Research Lab) live in Facilities. Once your first refugee arrives, each facility shows a Posts row where the people your evacuations bring home work to make it better (see the Refugees topic). As the game grows, more of your empire management will be anchored at the Homeworld.",
   },
   {
     id: "combat",

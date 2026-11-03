@@ -1,0 +1,341 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>0.14.0 QA: Refugee Posts</title>
+<style>
+  :root {
+    --bg: #070b12;
+    --bg-2: #0d1420;
+    --panel: #111a29;
+    --panel-2: #0b1220;
+    --line: #1f2c40;
+    --line-2: #2a3a54;
+    --text: #dce6f3;
+    --dim: #8497af;
+    --faint: #5d6d86;
+    --accent: #38e0ff;
+    --accent-2: #7cf6c9;
+    --claude: #b98bff;
+    --desk: #38e0ff;
+    --mob: #ffcc66;
+    --warn: #ffcc66;
+    --save: #ff9a6b;
+    --device: #7fb2ff;
+    --good: #6ff2b0;
+    --danger: #ff7a7a;
+    --shadow: 0 0 0 1px var(--line), 0 18px 40px -24px #000;
+  }
+  * { box-sizing: border-box; }
+  html { color-scheme: dark; }
+  body {
+    margin: 0;
+    background:
+      radial-gradient(1200px 600px at 78% -10%, rgba(56,224,255,0.10), transparent 60%),
+      radial-gradient(900px 500px at 8% 8%, rgba(185,139,255,0.08), transparent 55%),
+      var(--bg);
+    color: var(--text);
+    font: 14px/1.55 ui-sans-serif, system-ui, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    padding: env(safe-area-inset-top, 0) 0 calc(env(safe-area-inset-bottom, 0) + 48px);
+  }
+  .wrap { max-width: 980px; margin: 0 auto; padding: 28px 18px 0; }
+  a { color: var(--accent); }
+
+  .eyebrow { font-size: 11px; letter-spacing: 3px; text-transform: uppercase; color: var(--accent); opacity: 0.85; margin: 0 0 6px; }
+  h1 { font-size: clamp(22px, 4.4vw, 34px); line-height: 1.1; margin: 0 0 4px; text-wrap: balance; font-weight: 750; letter-spacing: 0.3px; }
+  h1 .v { color: var(--accent); }
+  .sub { color: var(--dim); margin: 0 0 20px; font-size: 13px; }
+
+  .progress-card {
+    background: linear-gradient(180deg, var(--panel), var(--panel-2));
+    border: 1px solid var(--line-2); border-radius: 16px; padding: 20px 22px; box-shadow: var(--shadow); margin-bottom: 20px;
+  }
+  .progress-top { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+  .pct { font-size: clamp(30px, 8vw, 52px); font-weight: 800; line-height: 1; letter-spacing: -1px; color: var(--accent);
+    text-shadow: 0 0 24px rgba(56,224,255,0.45); font-variant-numeric: tabular-nums; }
+  .pct small { font-size: 15px; font-weight: 600; color: var(--dim); margin-left: 8px; letter-spacing: 0; }
+  .rowcount { color: var(--text); font-size: 15px; font-weight: 650; font-variant-numeric: tabular-nums; }
+  .rowcount b { color: var(--accent-2); }
+  .bar { margin-top: 16px; height: 16px; border-radius: 999px; background: #0a1220; border: 1px solid var(--line-2); overflow: hidden; }
+  .bar > i { display: block; height: 100%; width: 0%; background: linear-gradient(90deg, #2bd0ff, #7cf6c9);
+    box-shadow: 0 0 18px rgba(56,224,255,0.6); border-radius: 999px; transition: width .35s cubic-bezier(.2,.8,.2,1); }
+  .substats { display: flex; gap: 18px; flex-wrap: wrap; margin-top: 14px; font-size: 12.5px; color: var(--dim); }
+  .substats .dot { display: inline-block; width: 9px; height: 9px; border-radius: 3px; margin-right: 7px; vertical-align: middle; }
+  .substats b { color: var(--text); font-variant-numeric: tabular-nums; }
+  .d-claude { background: var(--claude); box-shadow: 0 0 10px var(--claude); }
+  .d-desk { background: var(--desk); box-shadow: 0 0 10px var(--desk); }
+  .d-mob { background: var(--mob); box-shadow: 0 0 10px var(--mob); }
+
+  .legend { background: var(--panel-2); border: 1px solid var(--line); border-radius: 12px; padding: 14px 16px; margin-bottom: 26px; font-size: 12.5px; color: var(--dim); }
+  .legend p { margin: 0 0 8px; }
+  .legend p:last-child { margin-bottom: 0; }
+  .legend b { color: var(--text); }
+  .chip { display: inline-block; padding: 1px 8px; border-radius: 999px; font-size: 11px; font-weight: 650; letter-spacing: 0.3px; vertical-align: middle; }
+  .chip.save { color: var(--save); background: rgba(255,154,107,0.12); border: 1px solid rgba(255,154,107,0.4); }
+  .chip.device { color: var(--device); background: rgba(127,178,255,0.12); border: 1px solid rgba(127,178,255,0.4); }
+  .chip.theme { color: var(--accent-2); background: rgba(124,246,201,0.10); border: 1px solid rgba(124,246,201,0.35); }
+  .chip.later { color: var(--danger); background: rgba(255,122,122,0.10); border: 1px solid rgba(255,122,122,0.4); }
+  .toolbar { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-bottom: 22px; }
+  .btn { background: var(--panel); color: var(--text); border: 1px solid var(--line-2); border-radius: 8px; padding: 7px 13px; font-size: 12.5px; cursor: pointer; font-weight: 600; }
+  .btn:hover { border-color: var(--accent); color: var(--accent); }
+  .toolbar .note { color: var(--faint); font-size: 12px; }
+
+  section { margin-bottom: 26px; }
+  .sec-head { display: flex; align-items: center; gap: 12px; margin: 0 0 6px; }
+  .sec-num { font-variant-numeric: tabular-nums; font-weight: 800; color: var(--accent); font-size: 13px; letter-spacing: 1px;
+    background: rgba(56,224,255,0.08); border: 1px solid rgba(56,224,255,0.3); border-radius: 7px; padding: 3px 9px; min-width: 34px; text-align: center; }
+  .sec-title { font-size: 16px; font-weight: 700; letter-spacing: 0.2px; }
+  .sec-line { flex: 1; height: 1px; background: linear-gradient(90deg, var(--line-2), transparent); }
+  .sec-done { font-size: 11.5px; color: var(--faint); font-variant-numeric: tabular-nums; }
+  .sec-note { color: var(--dim); font-size: 12.5px; font-style: italic; margin: 0 0 10px; border-left: 2px solid var(--line-2); padding: 2px 0 2px 12px; }
+
+  .items { display: flex; flex-direction: column; gap: 2px; }
+  .col-head, .item { display: grid; grid-template-columns: 52px 52px 52px 1fr; gap: 10px; }
+  .col-head { align-items: center; padding: 4px 12px; font-size: 10.5px; letter-spacing: 1px; text-transform: uppercase; color: var(--faint); }
+  .col-head .ch { text-align: center; }
+  .col-head .ch.claude { color: var(--claude); }
+  .col-head .ch.desk { color: var(--desk); }
+  .col-head .ch.mob { color: var(--mob); }
+  .item { align-items: start; padding: 10px 12px; border-radius: 10px; border: 1px solid transparent; }
+  .item:nth-child(odd) { background: rgba(255,255,255,0.014); }
+  .item.done { background: rgba(124,246,201,0.05); border-color: rgba(124,246,201,0.18); }
+  .cell { display: flex; justify-content: center; padding-top: 1px; }
+
+  .cb { position: relative; width: 22px; height: 22px; }
+  .cb input { position: absolute; inset: 0; opacity: 0; margin: 0; cursor: pointer; }
+  .cb .box { width: 22px; height: 22px; border-radius: 6px; border: 2px solid var(--line-2); display: grid; place-items: center; transition: .12s; background: #0a1220; }
+  .cb .box svg { width: 13px; height: 13px; opacity: 0; transform: scale(.5); transition: .12s; }
+  .cb input:checked + .box svg { opacity: 1; transform: scale(1); }
+  .cb input:focus-visible + .box { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .cb.claude input:checked + .box { background: rgba(185,139,255,0.18); border-color: var(--claude); }
+  .cb.claude .box svg { color: var(--claude); }
+  .cb.desk input:checked + .box { background: rgba(56,224,255,0.18); border-color: var(--desk); }
+  .cb.desk .box svg { color: var(--desk); }
+  .cb.mob input:checked + .box { background: rgba(255,204,102,0.18); border-color: var(--mob); }
+  .cb.mob .box svg { color: var(--mob); }
+  .cb.desk input:not(:disabled):hover + .box { border-color: var(--desk); }
+  .cb.mob input:not(:disabled):hover + .box { border-color: var(--mob); }
+  .cb input:disabled { cursor: default; }
+  .cb.claude.empty .box { border-style: dashed; opacity: 0.5; }
+
+  .body .t { color: var(--text); }
+  .body .t .k { color: var(--accent-2); font-weight: 600; }
+  .meta { margin-top: 5px; display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+  .how { color: var(--dim); font-size: 12px; font-style: italic; margin-top: 4px; }
+  .how::before { content: "how: "; font-style: normal; color: var(--claude); opacity: 0.85; font-weight: 650; }
+
+  .findings { background: linear-gradient(180deg, rgba(124,246,201,0.06), transparent); border: 1px solid rgba(124,246,201,0.25); border-radius: 14px; padding: 18px 20px; margin-top: 12px; }
+  .findings h2 { margin: 0 0 6px; font-size: 15px; color: var(--good); letter-spacing: 0.3px; }
+  .findings ol { margin: 8px 0 0; padding-left: 20px; }
+  .findings li { margin-bottom: 10px; color: var(--dim); }
+  .findings li b { color: var(--text); }
+  .foot { margin-top: 26px; color: var(--faint); font-size: 11.5px; text-align: center; }
+
+  @media (max-width: 520px) {
+    .col-head, .item { grid-template-columns: 34px 34px 34px 1fr; gap: 6px; }
+    .item { padding: 10px 8px; }
+    .col-head { padding: 4px 8px; font-size: 9.5px; letter-spacing: 0.5px; }
+    .wrap { padding-left: 14px; padding-right: 14px; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <p class="eyebrow">Hyperion Legacy · QA · 0.14.0 feature pass</p>
+  <h1><span class="v">0.14.0</span> Refugee Posts (E5-0 to E5-7)</h1>
+  <p class="sub">Curated checklist for the refugee posts plan (docs/plans/2026-11-02-refugee-posts-e5-plan.md), closed out by E5-7: the Evacuation short-range job and the people it brings home, the taper against open posts, relocation farewells, the Posts rows under each facility, posting, moving and swapping (you pick who), the popover and the picker, the Crew tab's Refugees list, the arrival card, the phone toast and Leave all, the first-arrival hint, every background's buff, offline catch-up, an old save, and the new Help topic. <b>Run this on staging</b> (devpreview.crystalisoft.com, the staging branch) once 0.14.0 is deployed there (0.14.0 stays off staging until the wiring gate passes and you say go). Run each check once at <b>1280 px</b> (desktop) and once at <b>375 px</b> (mobile), in both <b>light and dark</b> themes.</p>
+
+  <div class="progress-card">
+    <div class="progress-top">
+      <div class="pct" id="pct">0%<small id="pctlabel">ready</small></div>
+      <div class="rowcount"><b id="doneCount">0</b> / <span id="totalCount">0</span> checks complete</div>
+    </div>
+    <div class="bar"><i id="barFill"></i></div>
+    <div class="substats">
+      <span><span class="dot d-claude"></span>Claude (tests) <b id="claudeCount">0</b></span>
+      <span><span class="dot d-desk"></span>You at 1280 px <b id="deskCount">0</b></span>
+      <span><span class="dot d-mob"></span>You at 375 px <b id="mobCount">0</b></span>
+      <span style="color:var(--faint)">A row is complete when both of your columns are ticked.</span>
+    </div>
+  </div>
+
+  <div class="legend">
+    <p><b>Where to test.</b> Staging, <b>devpreview.crystalisoft.com</b>, on the 0.14.0 build. Sections 1 to 6 and 8 want a NEW save (the first Evacuation is a training run once per save); section 7 uses your own migrated save.</p>
+    <p><b>The three columns.</b> <b style="color:var(--claude)">Claude</b> is pre-filled and read-only: a tick means the engine or display test suite proves that rule (the "how" line names the test file). Nothing here was clicked through in a browser for this sheet, so every on-screen check is yours. <b style="color:var(--desk)">1280</b> and <b style="color:var(--mob)">375</b> are your desktop and mobile passes; your ticks are saved in this browser.</p>
+    <p><b>Progress rule.</b> A row counts as complete once BOTH of your columns are ticked.</p>
+    <p>Tags: <span class="chip save">needs real save</span> needs your migrated save or a ship you already own. <span class="chip device">needs device</span> touch, a real phone, or a visual call. <span class="chip theme">light + dark</span> look at it in both themes.</p>
+  </div>
+
+  <div class="toolbar">
+    <button class="btn" type="button" id="resetBtn">Reset my columns</button>
+    <span class="note">Claude's column is read-only (it records what the tests prove).</span>
+  </div>
+
+  <div id="sections"></div>
+
+  <div class="findings">
+    <h2>Builder notes (E5-7, 2026-11-03)</h2>
+    <ol>
+      <li><b>Help.</b> A new topic, Refugees: evacuations, arrivals and the taper in words, backgrounds and matches, posts by facility level, moving freely, swaps, relocation leaders, and posted people always staying. Every number on it is read from the game's own constants and checked by a test, and every buff it names is proven live in the wiring registry. The Short-Range Missions and Homeworld topics link to it, and so do the Refugees tab ("How refugees work") and the first-arrival hint ("How it works").</li>
+      <li><b>Release gate.</b> 37 rows pending before and after; none is owned by an E5 slice. All 19 E5 rows (16 refugee posts, 3 Evacuation template) are live.</li>
+      <li><b>Not tested in a browser for this sheet.</b> Every on-screen check is yours; the Claude column only records what the engine and display tests prove. The toast tuck, Leave all and the two Help links have no automated test (App.svelte wiring).</li>
+      <li><b>For the balance pass.</b> Every refugee number is provisional (see the plan's E5-7 close-out): skill spans, the share per skill, the off-match ratio, the stacking knee, posts every 3 levels, and the taper.</li>
+      <li><b>Still open.</b> The franchise echo refugees (E5-6b) wait for your name sign-off, and the Stargazer may move to rare planet aspects once those exist.</li>
+      <li><b>Patch note lines</b> are drafted in the plan's E5-7 close-out for your wording.</li>
+    </ol>
+  </div>
+
+  <p class="foot">0.14.0 refugee posts QA · boxes persist in this browser only.</p>
+</div>
+
+<script>
+const TICK = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>';
+// c: a test proves it (how names the file). tag: "save" | "device" | "theme" | "later" | null.
+const SECTIONS = [
+  { n: "0", title: "Setup on staging", note: "Staging only: devpreview.crystalisoft.com on the 0.14.0 build, once you say go (0.14.0 stays off staging until the wiring gate passes). Use a NEW save for sections 1 to 6 and your own migrated save for section 7.", items: [
+    { t: "Start a new save on staging. No console errors opening Facilities, Crew (Admiral, Captain Roster), Ops (Short-Range, Mission Control) and Help." },
+    { t: "A fresh save shows no Posts rows under any facility, no Refugees tab under Crew, and no first-arrival hint.", c: true, how: "refugeeDisplay.test.ts (postsStripView: is null on a fresh save and for a level-0 facility; refugeesTabVisible: hidden until the first arrival) and refugees.test.ts (a fresh state has no refugees key)." },
+    { t: "Help lists a Refugees topic. The Short-Range Missions topic lists eight jobs (Evacuation among them) and links it; the Homeworld topic names the Posts row and links it.", c: true, how: "helpTopics.test.ts (Refugees (0.14.0 E5-7): has the topic, linked from the Short-Range and Homeworld topics; the Short-Range topic lists eight jobs)." },
+  ]},
+  { n: "1", title: "Evacuation arrivals and the taper", note: "Ops tab, Short-Range. Repeat on a slot until an Evacuation is drawn (1 in 8, at random like the other jobs).", items: [
+    { t: "Evacuation appears among the board's job types and as a slot's next job (\"N people to bring out of ...\"). Its first run is marked as a training run.", c: true, how: "refugeeArrival.test.ts (version 2: the Evacuation share is 1/8; Evacuation follows short-range's rules: its first roll is a training run)." },
+    { t: "The first Evacuation brings someone home: the log reads \"Evacuation complete: {name}, a {background}, joins your homeworld.\", with a person-in-a-house glyph. It pays credits and XP like a Refugee Relocation.", c: true, how: "refugeeArrival.test.ts (a delivered training Evacuation brings one named refugee home and writes the arrival line; applyRefugeeDeliveries: a training run always arrives)." },
+    { t: "A Tier I evacuation brings a skill of 20 to 50; a Tier II one 40 to 75.", c: true, how: "refugeeArrival.test.ts (rollRefugee: the skill sits in the tier's span) and helpTopics.test.ts (each tier's skill span from REFUGEE_SKILL_SPANS)." },
+    { t: "The taper: with more people waiting than open posts, some evacuations bring nobody home. That log line is calm and neutral (a check glyph, \"Everyone aboard reached the camps; nobody new came home this time.\"), never a failure.", c: true, how: "refugeeArrival.test.ts (refugeeArrivalChance: 1 while the waiting list fits the open posts, then smoothly down, never 0; a miss writes the calm line and mints nobody) and refugeeDisplay.test.ts (an evacuation that brings nobody home is a neutral line)." },
+    { t: "While more people wait than there are open posts, the Refugees tab's calm line says arrivals are slowing, in words only (no number, no percent).", c: true, how: "refugeeDisplay.test.ts (slowArrivalsLine: appears only while the waiting list is longer than the open posts, and holds no number)." },
+    { t: "Two evacuations landing on the same tick on different slots: both people arrive, in slot order, with no duplicate or skipped id.", c: true, how: "refugeeArrival.test.ts (one 6 h call, 997 s chunks and 1 s steps give the same refugees, ids, order and log)." },
+  ]},
+  { n: "2", title: "Relocation farewells", note: "Let a Refugee Relocation deliver while people are waiting, then while everyone is posted.", items: [
+    { t: "With people waiting, a delivered Refugee Relocation takes the longest-waiting one: \"{name} leaves to lead the new camp on {destination}.\" with a leaf glyph. They leave the Refugees list.", c: true, how: "refugeeArrival.test.ts (E5-3: with three waiting (and one posted) it removes the lowest-id waiting refugee only; the farewell writes a refugeeFarewell entry and the mockup's line)." },
+    { t: "Nobody posted ever leaves. With nobody waiting, a Relocation delivers and logs exactly as before (no farewell line).", c: true, how: "refugeeArrival.test.ts (refugeeFarewellPick: never a posted refugee; Review Focus 2: with nobody waiting the run delivers and logs exactly as before)." },
+    { t: "After relocations empty the list, the Refugees tab stays visible and shows a calm empty line.", c: true, how: "refugeeDisplay.test.ts (refugeesTabVisible: stays once anyone has arrived, even with the list empty)." },
+  ]},
+  { n: "3", title: "Posting, moving, swapping, the popover and the picker", note: "Facilities tab (each pane's Posts row) and Ops, Mission Control (its own Posts row).", items: [
+    { t: "Once someone has arrived, every built facility of the eight shows a Posts row under its pane (outside the pane's button): \"Posts 1 / 1\" at Level 1, the next post's level (4, 7, 10), each filled post's face, name, background chip, match or other, and share, plus the curved total.", c: true, tag: "theme", how: "refugeeDisplay.test.ts (postsStripView: reads the posts, the next post and each filled post; reads the curved total)." },
+    { t: "Mission Control's Posts row is on the Ops tab, Mission Control, under its level readout.", tag: "theme" },
+    { t: "An empty post opens the picker: the waiting people sorted by what they would add here, each with the new total, then \"Posted elsewhere\" with Move here. Desktop: a modal. 375 px: a bottom sheet.", c: true, tag: "device", how: "refugeeDisplay.test.ts (postPickerView: sorts the waiting by the gain here and shows what the total becomes; lists people posted elsewhere under their own heading)." },
+    { t: "A filled post opens a small popover with Move to another post, Back to waiting list and \"Moving is free, any time.\" Both work, cost nothing, and set no timer.", c: true, how: "refugees.test.ts (E5-4 postRefugee / unpostRefugee: moving a posted person empties their old post; unpostRefugee returns them to waiting in arrival order and never removes a record)." },
+    { t: "A full facility's picker offers a swap and lets you PICK who goes back to waiting (the strongest included); the preview shows the real new total for that pick.", c: true, how: "refugees.test.ts (the swap takes a target: the player may replace the STRONGER person) and refugeeDisplay.test.ts (offers a swap on a full facility, following the player's pick; shows the real result of each Replace)." },
+    { t: "An off-match person shows a hint like \"Dov would give +3.7% craft speed at the Fabricator\" only when another facility gives more.", c: true, how: "refugeeDisplay.test.ts (hints at an off-match person only when another facility gives more)." },
+    { t: "An unbuilt facility (Level 0) has no Posts row; building it to Level 1 opens one post.", c: true, how: "refugeeDisplay.test.ts (postsStripView: null for a level-0 facility) and refugees.test.ts (posts per level: opens at Levels 1, 4, 7, 10)." },
+  ]},
+  { n: "4", title: "The Refugees tab, the arrival card, the toast, Leave all and the hint", items: [
+    { t: "Crew, Refugees (third tab, with a waiting-count pill): Waiting, Posted and \"Open posts N of M\"; Show (Waiting, Posted, Everyone) and Sort (Skill, Background, Arrived) work. Each row's Best post reads e.g. \"Refinery 1 open +6.1%\" or \"no open post\".", c: true, tag: "theme", how: "refugeeDisplay.test.ts (refugeesTabView: counts waiting, posted and the open posts; each waiting row's best post; filters and sorts)." },
+    { t: "Post... on a row whose best facility is full offers the swap. \"How refugees work\" at the bottom opens the Refugees Help topic.", c: true, how: "refugeeDisplay.test.ts (a row whose best facility is full reads no open post, and Post... offers the swap). The Help link is a manual check." },
+    { t: "Desktop: an arrival shows a card above the Short-Range board with \"Post at the {facility} (+x%)\" for the best open post and \"Leave on the waiting list\"; with no open post it reads Choose a post... Either answer clears the card for good.", c: true, how: "refugeeDisplay.test.ts (arrivalCardView: offers a one-tap post at the best open post; offers the chooser when no post is open, and greeting removes the id; posting by any path greets the person)." },
+    { t: "With two or more cards queued, \"Leave all on the waiting list (N)\" clears every card at once and leaves everyone waiting." },
+    { t: "375 px: an arrival shows a toast at the top (\"Post at {facility}\" and \"Later\") for a few seconds, then tucks into the Refugees tab's count badge. It never blocks the header, and several arrivals after time away tuck as one.", tag: "device" },
+    { t: "Facilities: the one-time hint (\"New: Posts.\") names a waiting person and the open post with the strongest gain. How it works opens the Refugees Help topic; Got it hides it for good (also after a reload).", c: true, tag: "device", how: "refugeeDisplay.test.ts (firstArrivalHintView: shows once after the first arrival and never after it is dismissed). The How it works link and the wrap at 375 px are manual checks." },
+    { t: "Log rows for arrival and farewell open the Refugees tab." },
+  ]},
+  { n: "5", title: "Every background's buff", note: "Post one person at their match and look at the stat (the Posts row's total reads the percent). Each buff is a live wiring registry row with a measuring audit.", items: [
+    { t: "Refiner at the Refinery: some refine jobs deliver one extra batch (double output).", c: true, how: "refugeeBuffs.test.ts (Refiner: a real refine batch of 200 (1 s steps) delivers about b extra batches; offline == live)." },
+    { t: "Fuel handler at the Fuel Depot: every ship's reach grows at once (dispatch windows show the longer range).", c: true, how: "refugeeBuffs.test.ts (Fuel handler: fleet reach adds b)." },
+    { t: "Dispatcher at Mission Control: the next short-range cycle runs shorter; a run in progress keeps its times. Small buffs still act over several cycles (carried fractions).", c: true, how: "refugeeBuffs.test.ts (Dispatcher: frozen at the cycle start; a run carries its rounding from cycle to cycle)." },
+    { t: "Scholar at the Research Lab: the next research project and relic study start shorter.", c: true, how: "refugeeBuffs.test.ts (Scholar: a real research start and the relic study fold divide by (1 + b) at the start)." },
+    { t: "Machinist at the Fabricator: the next craft starts shorter (line jobs and one-off crafts).", c: true, how: "refugeeBuffs.test.ts (Machinist: a fabricate job's duration divides by (1 + b) at the start)." },
+    { t: "Shipwright at the Shipyard: the next hull build is shorter.", c: true, how: "refugeeBuffs.test.ts (Shipwright: build speed times (1 + b))." },
+    { t: "Salvager at the Salvage Bay: salvage returns more materials (recycle and teardown).", c: true, how: "refugeeBuffs.test.ts (Salvager: the recovery fraction times (1 + b), recycle and teardown)." },
+    { t: "Stargazer at the Subspace Telescope: expeditions sent afterwards find more on the surface and underground; one already in flight keeps its odds.", c: true, how: "refugeeBuffs.test.ts (Stargazer: both discovery pools' odds rise by b at dispatch, a run in flight keeps its odds)." },
+    { t: "Off match, each facility still gains a quarter of the share; several people stack on the diminishing curve with no cap.", c: true, how: "refugeeBuffs.test.ts (refugeeShare: a quarter of it anywhere else; D23: strictly increasing as people stack, and unbounded) and RELEASE_GATE=1 wiring.completeness.test.ts (16 refugee rows live)." },
+  ]},
+  { n: "6", title: "Offline catch-up and reloads", items: [
+    { t: "Close the tab with an Evacuation on Repeat, come back after 2 hours: the same people arrive as if you had watched, the While You Were Away recap reads true, and the arrival cards (or the phone toast) wait for you.", c: true, tag: "device", how: "refugeeArrival.test.ts (offline == live: a 2 h offline replay through the save equals live 1 s steps, farewells included; a facility upgrade completing mid-span counts)." },
+    { t: "Reload: every refugee, their posts, the greet queue and the hint state come back unchanged.", c: true, how: "refugees.test.ts (the posting order survives a save's load) and refugeeBuffs.test.ts (offline == live: a 1 h offline catch-up through the save equals live 1 s steps)." },
+  ]},
+  { n: "7", title: "An old save", note: "Your own migrated save from before 0.14.0's E5.", items: [
+    { t: "It loads with zero refugees: no Refugees tab, no Posts rows, no hint, and every facility stat as before.", c: true, tag: "save", how: "refugees.test.ts (a save without the field reads as nobody yet) and refugeeBuffs.test.ts (every consumer reads bit-identically with no refugees at all)." },
+    { t: "The Short-Range board's visible next jobs are the same as before the update; Evacuations can appear only from the job after each slot's shown next job.", c: true, tag: "save", how: "save.test.ts (migrate, v70 -> v71 evacuation stamp) and refugeeGoldens.test.ts (golden 5: the fleet's v70 save through deserialize + migrate, then six hours)." },
+  ]},
+  { n: "8", title: "Text, glyphs and layout", items: [
+    { t: "Player text says match (never fit), US English, no em dashes or double hyphens, on the tab, strips, picker, cards and Help.", c: true, how: "helpTopics.test.ts (says match, never fit) and refugees.test.ts (labels avoid em dashes, double hyphens and the word fit)." },
+    { t: "Portraits (four hair shapes, eight color sets) and the background, arrival and farewell glyphs are SVG and read at 16, 28 and 56 px in both themes.", tag: "theme" },
+    { t: "375 px: no horizontal scroll on Facilities, Crew Refugees, the picker sheet and Mission Control.", tag: "device" },
+  ]},
+];
+
+const STORE = "hl-qa-0140-refugee-posts-v1";
+let userState = {};
+try { userState = JSON.parse(localStorage.getItem(STORE) || "{}"); } catch (e) { userState = {}; }
+function save() { try { localStorage.setItem(STORE, JSON.stringify(userState)); } catch (e) {} }
+
+const CHIP = {
+  save: '<span class="chip save">needs real save</span>',
+  device: '<span class="chip device">needs device</span>',
+  theme: '<span class="chip theme">light + dark</span>',
+  later: '<span class="chip later">not in this build</span>',
+};
+
+function cb(kind, id, checked, disabled, label) {
+  const empty = (kind === "claude" && !checked) ? " empty" : "";
+  return '<span class="cb ' + kind + empty + '"><input type="checkbox" id="' + id + '" ' + (checked ? "checked " : "") + (disabled ? "disabled " : "") +
+    'aria-label="' + label + '"><span class="box">' + TICK + "</span></span>";
+}
+
+const secWrap = document.getElementById("sections");
+SECTIONS.forEach((sec, si) => {
+  const el = document.createElement("section");
+  let html = '<div class="sec-head"><span class="sec-num">' + sec.n + '</span><span class="sec-title">' + sec.title +
+    '</span><span class="sec-line"></span><span class="sec-done" id="secdone-' + si + '"></span></div>';
+  if (sec.note) html += '<p class="sec-note">' + sec.note + "</p>";
+  html += '<div class="items"><div class="col-head"><span class="ch claude">Claude</span><span class="ch desk">1280</span><span class="ch mob">375</span><span></span></div>';
+  sec.items.forEach((it, ii) => {
+    const key = si + "-" + ii;
+    const meta = it.tag ? '<div class="meta">' + (CHIP[it.tag] || "") + "</div>" : "";
+    const how = it.how ? '<div class="how">' + it.how + "</div>" : "";
+    html += '<div class="item" data-key="' + key + '">' +
+      '<div class="cell">' + cb("claude", "c-" + key, !!it.c, true, "Claude: covered by tests") + "</div>" +
+      '<div class="cell">' + cb("desk", "d-" + key, !!userState["d-" + key], false, "Checked at 1280 px") + "</div>" +
+      '<div class="cell">' + cb("mob", "m-" + key, !!userState["m-" + key], false, "Checked at 375 px") + "</div>" +
+      '<div class="body"><span class="t">' + it.t + "</span>" + meta + how + "</div></div>";
+  });
+  html += "</div>";
+  el.innerHTML = html;
+  secWrap.appendChild(el);
+});
+
+function isDone(key) { return !!userState["d-" + key] && !!userState["m-" + key]; }
+function recompute() {
+  let total = 0, done = 0, claude = 0, desk = 0, mob = 0;
+  SECTIONS.forEach((sec, si) => {
+    let secTotal = 0, secDone = 0;
+    sec.items.forEach((it, ii) => {
+      const key = si + "-" + ii;
+      total++; secTotal++;
+      if (it.c) claude++;
+      if (userState["d-" + key]) desk++;
+      if (userState["m-" + key]) mob++;
+      if (isDone(key)) { done++; secDone++; }
+      const row = secWrap.querySelector('.item[data-key="' + key + '"]');
+      if (row) row.classList.toggle("done", isDone(key));
+    });
+    const sd = document.getElementById("secdone-" + si);
+    if (sd) sd.textContent = secDone + " / " + secTotal;
+  });
+  const pctVal = total ? Math.round((done / total) * 100) : 0;
+  document.getElementById("pct").firstChild.textContent = pctVal + "%";
+  document.getElementById("barFill").style.width = pctVal + "%";
+  document.getElementById("doneCount").textContent = done;
+  document.getElementById("totalCount").textContent = total;
+  document.getElementById("claudeCount").textContent = claude;
+  document.getElementById("deskCount").textContent = desk;
+  document.getElementById("mobCount").textContent = mob;
+  document.getElementById("pctlabel").textContent = pctVal >= 100 ? "launch-ready" : (pctVal >= 60 ? "closing in" : "in progress");
+}
+
+secWrap.addEventListener("change", (e) => {
+  const inp = e.target;
+  if (!inp.id || (inp.id[0] !== "d" && inp.id[0] !== "m")) return;
+  if (inp.checked) userState[inp.id] = true; else delete userState[inp.id];
+  save(); recompute();
+});
+document.getElementById("resetBtn").addEventListener("click", () => {
+  userState = {}; save();
+  secWrap.querySelectorAll('input[id^="d-"], input[id^="m-"]').forEach((i) => (i.checked = false));
+  recompute();
+});
+recompute();
+</script>
+</body>
+</html>
