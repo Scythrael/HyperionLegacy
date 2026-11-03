@@ -33,7 +33,8 @@
 //
 // THE PARITY ARGUMENT. Everything a cycle reads is frozen at its start (the roll and its plan) or is a constant of the
 // call (the ship's stats, its crew's output share, the captain's terms); the counters and the board cursor are
-// threaded through the loop, and every phase boundary is crossed at the same whole tick however the span is chunked,
+// threaded through the loop (across the fleet's runs in time order: tickShortRangeFleet, the slow-start parity fix),
+// and every phase boundary is crossed at the same whole tick however the span is chunked,
 // so one economyTick(state, N) equals N calls of economyTick(state, 1) for a run (shortRangeCycle.test.ts proves one
 // call == 997 s chunks == 1 s steps over 20 cycles). Like tickCaptainMission, the shared budgets (credits for a load,
 // transit berths) are drawn from the incoming state: a credit or a berth another captain frees within one call is
@@ -274,8 +275,118 @@ export interface ShortRangeTickResult {
   refugeeDeliveries: RefugeeDelivery[];
 }
 
+// THE SYNC POINTS (the slow-start parity fix, docs/plans/2026-11-02-refugee-posts-e5-plan.md, the E5-3 carry note):
+// every read of a value shared with the fleet's other short-range runs (the departure gate's credits, a berth claim,
+// a delivery's counters and the next cycle start's roll against them) is a yield. The run hands over what it has
+// changed so far (its counters, the cursor, its own net draw and berth claims) and resumes with the fleet's view at
+// that instant. Alone (tickCaptainShortRange) every yield is answered with the run's own values, so nothing changes;
+// the fleet scheduler (tickShortRangeFleet) answers in the order 1 s steps produce.
+export interface ShortRangeSync {
+  atTicks: number; // the instant into the call
+  runCounts: RunCounts;
+  nextCycle: Readonly<Record<number, number>>;
+  drawn: number; // this run's net credits draw so far, max(0, paid out - paid in)
+  claimed: number; // this run's shared berth claims so far
+}
+
+export interface ShortRangeShared {
+  runCounts: RunCounts;
+  nextCycle: Readonly<Record<number, number>>;
+  othersDrawn: number; // what the call's other short-range runs have drawn from the credits budget so far
+  othersClaimed: number; // and the berths they have claimed
+}
+
 // Advance one captain's short-range run by `ticksElapsed`. See the header for the rules and the parity argument.
 export function tickCaptainShortRange(input: ShortRangeTickInput): ShortRangeTickResult {
+  const run = shortRangeRun(input);
+  let step = run.next();
+  while (!step.done) step = run.next({ runCounts: step.value.runCounts, nextCycle: step.value.nextCycle, othersDrawn: 0, othersClaimed: 0 });
+  return step.value;
+}
+
+// The fleet's short-range runs of ONE call, advanced together (inputs in state.captains order; every budget field is
+// the budget at the call's first short-range captain). One long call must equal 1 s steps, and in 1 s steps captain
+// B's cycle start in whole tick k sees every delivery of every captain before tick k and those of the captains before
+// B in tick k (the cycle start reads its template's slow-start ramp off the counters). So the runs' sync points are
+// served in (whole tick, captain order, instant) order: within one whole tick, captain order, exactly as one 1 s step
+// runs them. A call of at most one tick is a single whole tick, so it is captain order, the sequential threading.
+// The budgets go the same way: a run sees the credits and berths the others drew before its sync point (a credit or a
+// berth another run frees still waits for the next call, the header's rule). Pure.
+// TEST-ONLY switch (shortRangeFleetSwitch.fixture.ts): off, economyTick threads the runs one captain at a time across
+// the whole call, the game before the fix, so a golden computed inside it is the pre-fix value.
+export const SHORT_RANGE_FLEET_SWITCH: { live: boolean } = { live: true };
+
+export interface ShortRangeFleetResult {
+  results: ShortRangeTickResult[]; // per input, in input order
+  runCounts: RunCounts; // the same reference when nothing changed
+  nextCycle: Readonly<Record<number, number>>; // the same reference when nothing changed
+  budgetDraw: number; // summed over the runs (each its own max(0, paid out - paid in))
+  berthsClaimed: number;
+}
+
+export function tickShortRangeFleet(
+  inputs: readonly ShortRangeTickInput[],
+  runCounts: RunCounts,
+  nextCycle: Readonly<Record<number, number>>,
+): ShortRangeFleetResult {
+  const runs = inputs.map((input) => shortRangeRun({ ...input, runCounts, nextCycle }));
+  const drawn = inputs.map(() => 0);
+  const claimed = inputs.map(() => 0);
+  const results: (ShortRangeTickResult | null)[] = inputs.map(() => null);
+  const pending: (ShortRangeSync | null)[] = inputs.map(() => null);
+  let counts = runCounts;
+  let cursor = nextCycle;
+  // Every run goes to its first sync point (nothing shared is read or changed before one).
+  for (let i = 0; i < runs.length; i++) {
+    const step = runs[i].next();
+    if (step.done) results[i] = step.value;
+    else pending[i] = step.value;
+  }
+  const wholeTick = (at: number): number => Math.max(1, Math.ceil(at - TICK_EPSILON));
+  for (;;) {
+    let pick = -1;
+    for (let i = 0; i < runs.length; i++) {
+      const p = pending[i];
+      if (p === null) continue;
+      // Captain order breaks a whole-tick tie (i > pick here), so only an earlier whole tick takes over.
+      if (pick === -1 || wholeTick(p.atTicks) < wholeTick((pending[pick] as ShortRangeSync).atTicks)) pick = i;
+    }
+    if (pick === -1) break;
+    let othersDrawn = 0;
+    let othersClaimed = 0;
+    for (let j = 0; j < runs.length; j++) {
+      if (j === pick) continue;
+      othersDrawn += drawn[j];
+      othersClaimed += claimed[j];
+    }
+    // The run's changes since its last sync point were made AT that point, so they are adopted before any later one.
+    const step = runs[pick].next({ runCounts: counts, nextCycle: cursor, othersDrawn, othersClaimed });
+    if (step.done) {
+      results[pick] = step.value;
+      pending[pick] = null;
+      counts = step.value.runCounts;
+      cursor = step.value.nextCycle;
+      drawn[pick] = step.value.budgetDraw;
+      claimed[pick] = step.value.berthsClaimed;
+    } else {
+      pending[pick] = step.value;
+      counts = step.value.runCounts;
+      cursor = step.value.nextCycle;
+      drawn[pick] = step.value.drawn;
+      claimed[pick] = step.value.claimed;
+    }
+  }
+  let budgetDraw = 0;
+  let berthsClaimed = 0;
+  for (let i = 0; i < runs.length; i++) {
+    budgetDraw += drawn[i];
+    berthsClaimed += claimed[i];
+  }
+  return { results: results as ShortRangeTickResult[], runCounts: counts, nextCycle: cursor, budgetDraw, berthsClaimed };
+}
+
+// The run itself, a generator over its sync points (ShortRangeSync).
+function* shortRangeRun(input: ShortRangeTickInput): Generator<ShortRangeSync, ShortRangeTickResult, ShortRangeShared> {
   const { ticksElapsed, captain, state, ship } = input;
   const idle: ShortRangeTickResult = {
     captain,
@@ -348,6 +459,23 @@ export function tickCaptainShortRange(input: ShortRangeTickInput): ShortRangeTic
   const relics: ShortRangeRelicFind[] = [];
   const relicCycles: ShortRangeTickResult["relicCycles"] = [];
   const refugeeDeliveries: RefugeeDelivery[] = [];
+  // The fleet's view at a sync point: the others' draws and claims since the last one come off this run's budgets
+  // (alone they are always 0, so the arithmetic is untouched).
+  let seenDrawn = 0;
+  let seenClaimed = 0;
+  const sync = function* (): Generator<ShortRangeSync, void, ShortRangeShared> {
+    const shared = yield { atTicks: ticksElapsed - remaining, runCounts, nextCycle, drawn: Math.max(0, paidOut - paidIn), claimed: sharedClaims };
+    runCounts = shared.runCounts;
+    nextCycle = shared.nextCycle;
+    if (shared.othersDrawn !== seenDrawn) {
+      credits -= shared.othersDrawn - seenDrawn;
+      seenDrawn = shared.othersDrawn;
+    }
+    if (shared.othersClaimed !== seenClaimed) {
+      berths -= shared.othersClaimed - seenClaimed;
+      seenClaimed = shared.othersClaimed;
+    }
+  };
 
   // 0.14.0 SPEED SEAM (processSpeed.ts applyTimeSkip): while the CURRENT cycle carries speed.instantComplete, each
   // phase is applied whole without spending the call's own ticks, so the cycle runs through to its delivery inside
@@ -357,6 +485,7 @@ export function tickCaptainShortRange(input: ShortRangeTickInput): ShortRangeTic
     const skipping: boolean = mission.speed?.instantComplete === true;
     // THE DEPARTURE GATE (cycle start): a pickup with a full Warehouse waits; a drop-off pays its load or waits.
     if (!shortRangeHasDeparted(mission)) {
+      yield* sync();
       if (shortRangeDepartureHold(mission, captain, credits, input.atCap) !== null) break;
       const load = shortRangeLoadToPay(mission.roll, captain);
       if (load > 0) {
@@ -386,6 +515,7 @@ export function tickCaptainShortRange(input: ShortRangeTickInput): ShortRangeTic
       // Progress banks at the end of the return leg and the loop breaks (berths.ts isAwaitingBerth reads it); the
       // unloading phase itself is never gated (the softlock proof).
       if (next === "unloading") {
+        if (ownFree === 0) yield* sync();
         if (ownFree > 0) ownFree -= 1;
         else if (berths < 1) break;
         else {
@@ -398,6 +528,7 @@ export function tickCaptainShortRange(input: ShortRangeTickInput): ShortRangeTic
     }
 
     // ===== THE DELIVERY: the home turnaround is done =====
+    yield* sync();
     ownFree += 1;
     const roll = mission.roll;
     const base = shortRangeCycleReward(roll, stats);

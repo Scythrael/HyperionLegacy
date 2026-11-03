@@ -508,7 +508,15 @@ import { countPatrolDispatch, countPatrolRuns, isTrainingPatrol, nextPatrolCycle
 import { patrolBattleOptions, patrolCycleEnemies, patrolCycleWaveTicks, patrolWaveBreaksOff, patrolWaveEnemyParams } from "./combat/patrolProfile";
 import type { CombatRulesStamp } from "./combat/combatRules";
 // G1-4: the short-range cycle engine and the board's stored-cursor shape check.
-import { shortRangeHasDeparted, shortRangeVaultDeposit, tickCaptainShortRange, type ShortRangeRelicFind } from "./shortRangeCycle";
+import {
+  SHORT_RANGE_FLEET_SWITCH,
+  shortRangeHasDeparted,
+  shortRangeVaultDeposit,
+  tickCaptainShortRange,
+  tickShortRangeFleet,
+  type ShortRangeRelicFind,
+  type ShortRangeTickResult,
+} from "./shortRangeCycle";
 import { applyRefugeeDeliveries, type RefugeeDelivery, type RefugeeEvent } from "./refugeeArrival";
 import { refugeeOpenPosts, refugeesOf } from "./refugees";
 import { isWellFormedShortRangeBoard } from "./shortRangeBoard";
@@ -4773,6 +4781,9 @@ export function economyTick(
   // null with no short-range run, so such a call writes neither field (byte-identical).
   let shortRangeCounts: RunCounts | null = null;
   let shortRangeCursor: Readonly<Record<number, number>> | null = null;
+  // The slow-start parity fix: the joint results of a long call's short-range runs, keyed by captain id (computed at
+  // the first short-range captain; empty when the call takes the one-captain path).
+  let shortRangeFleet: Map<number, ShortRangeTickResult> | null = null;
   // GEAR WEAR step 3: the use wear events this call's runs made (a delivered mission or short-range cycle, an
   // expedition coming home), applied once at the tail (gearWearEngine.ts resolveGearWear). Empty without one.
   const wearEvents = emptyWearEvents();
@@ -5012,23 +5023,43 @@ export function economyTick(
         const srShip = state.ships.find((s) => s.assignedCaptainId === captain.id);
         const counts = shortRangeCounts ?? runCountsOf(state);
         const cursor = shortRangeCursor ?? (isWellFormedShortRangeBoard(state.shortRangeBoard) ? state.shortRangeBoard.nextCycle : {});
-        const sr = tickCaptainShortRange({
+        const srInput = (c: CaptainState): Parameters<typeof tickCaptainShortRange>[0] => ({
           ticksElapsed,
-          captain,
+          captain: c,
           state,
-          ship: srShip,
+          ship: state.ships.find((s) => s.assignedCaptainId === c.id),
           creditsBudget: creditsBudgetRemaining,
           berthBudget: berthBudgetRemaining,
           runCounts: counts,
           nextCycle: cursor,
           atCap: (itemId) => materialAtCap(state, itemId),
         });
-        berthBudgetRemaining -= sr.berthsClaimed;
-        creditsBudgetRemaining -= sr.budgetDraw;
+        // The slow-start parity fix (shortRangeCycle.ts tickShortRangeFleet): a call longer than one tick with two or
+        // more short-range runs advances them together, at the first one's place in the captain map, so each cycle
+        // start reads the counters as 1 s steps would have left them (every captain's earlier deliveries, not just
+        // the captains listed before it). A call of at most one tick (every production call: live and offline both
+        // step economyTick(state, 1)) and a lone run keep the one-captain path, byte-identical.
+        if (shortRangeFleet === null && ticksElapsed > 1 && SHORT_RANGE_FLEET_SWITCH.live) {
+          const fleet = state.captains.filter((c) => c.mission?.kind === "shortRange");
+          if (fleet.length >= 2) {
+            const joint = tickShortRangeFleet(fleet.map(srInput), counts, cursor);
+            shortRangeFleet = new Map(fleet.map((c, i) => [c.id, joint.results[i]]));
+            berthBudgetRemaining -= joint.berthsClaimed;
+            creditsBudgetRemaining -= joint.budgetDraw;
+            if (joint.runCounts !== counts) shortRangeCounts = joint.runCounts;
+            if (joint.nextCycle !== cursor) shortRangeCursor = joint.nextCycle;
+          } else shortRangeFleet = new Map();
+        }
+        const joint = shortRangeFleet?.get(captain.id);
+        const sr = joint ?? tickCaptainShortRange(srInput(captain));
+        if (joint === undefined) {
+          berthBudgetRemaining -= sr.berthsClaimed;
+          creditsBudgetRemaining -= sr.budgetDraw;
+          if (sr.runCounts !== counts) shortRangeCounts = sr.runCounts;
+          if (sr.nextCycle !== cursor) shortRangeCursor = sr.nextCycle;
+        }
         creditsDelta += sr.creditsDelta;
         fleetAdminXpDelta += sr.fleetAdminXpDelta;
-        if (sr.runCounts !== counts) shortRangeCounts = sr.runCounts;
-        if (sr.nextCycle !== cursor) shortRangeCursor = sr.nextCycle;
         // The deliveries go through the one deposit fold below (the Warehouse cap clamp and the quality roll), WR-5a's
         // Assayer grading this captain's own share exactly as it grades an extraction delivery.
         const srQuality = captainDeliveryQualityBonus(captain);

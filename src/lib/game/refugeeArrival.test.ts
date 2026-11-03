@@ -373,11 +373,15 @@ describe("E5-2 the cycle engine reports deliveries; economyTick brings people ho
 
 // ===== determinism =====
 
-describe("E5-2 determinism (Review Focus 4): two Evacuations delivered on the same tick on slots 0 and 2", () => {
+// The slow-start parity fix (shortRangeCycle.ts tickShortRangeFleet): each determinism block runs on a veteran fleet
+// AND on a fresh one (every template still on its slow-start ramp), which a long call used to split from 1 s steps.
+const FLEETS = { veteran, fresh: (s: GameState): GameState => s } as const;
+
+for (const [fleetName, fleet] of Object.entries(FLEETS)) describe(`E5-2 determinism (Review Focus 4): two Evacuations delivered on the same tick on slots 0 and 2 (a ${fleetName} fleet)`, () => {
   // Captains 1 and 2 (identical hulls) on Repeat on slots 0 and 2, each at the start of its home turnaround, so both
   // deliver on the same tick; a crowd waiting past the open posts, so arrivals and misses both happen over the span.
   function pair(): GameState {
-    let s = withWaiting(veteran(withSecondCaptain(qualified())), 6);
+    let s = withWaiting(fleet(withSecondCaptain(qualified())), 6);
     s = onEvacuation(s, 1, 0, true);
     s = onEvacuation(s, 2, 2, true);
     const [a, b] = s.captains.map((c) => c.mission as ShortRangeMissionState);
@@ -595,14 +599,14 @@ describe("E5-3 a delivered Refugee Relocation takes the longest-waiting refugee 
   });
 });
 
-describe("E5-3 determinism: an Evacuation and a Relocation delivered on the same tick resolve in slotId order", () => {
+for (const [fleetName, fleet] of Object.entries(FLEETS)) describe(`E5-3 determinism: an Evacuation and a Relocation delivered on the same tick resolve in slotId order (a ${fleetName} fleet)`, () => {
   // Two identical hulls at the start of their home turnaround, so both deliver on the same tick. Nobody waiting at the
   // start, so the order decides the outcome: an Evacuation on the lower slot brings someone home and the Relocation then
   // takes them along; the other way round the Relocation finds nobody and the newcomer stays.
-  // A veteran fleet, as the E5-2 pair: with two captains still in a template's slow-start ramp, a long call already
-  // diverged from 1 s steps on 999809f before E5-3 (the board's cycle cursor and runCounts, not the refugee pass).
+  // Veteran and fresh: with two captains still in a template's slow-start ramp, a long call diverged from 1 s steps
+  // before the slow-start parity fix (the board's cycle cursor and runCounts); the fresh fleet now proves it holds.
   function pair(evacSlot: number, relocSlot: number): GameState {
-    let s = veteran(withSecondCaptain(qualified()));
+    let s = fleet(withSecondCaptain(qualified()));
     s = onTemplate(s, "evacuation", 1, evacSlot, true);
     s = onTemplate(s, "refugeeRelocation", 2, relocSlot, true);
     const [a, b] = s.captains.map((c) => c.mission as ShortRangeMissionState);

@@ -45,6 +45,13 @@
 //   golden 5  the same from each slot's stamp on (`e5-3:old`); hour 0 and the previews unchanged. The draw-off pins
 //             (`fleet`, `old`) do not move: with no Evacuation nobody is ever waiting, so a Relocation runs as before.
 //   goldens 1, 3, 4 and 6 unchanged.
+//
+// The short-range slow-start parity fix (shortRangeCycle.ts tickShortRangeFleet: a call longer than one tick advances
+// two or more short-range runs together, so each cycle start reads the counters 1 s steps would have left): goldens 2
+// and 5 step four captains on a fresh ramp in one-HOUR calls, so they move. Every earlier pin keeps its value and is
+// checked with the fix OFF (shortRangeFleetSwitch.fixture.ts withShortRangeFleetOff: the game before the fix exactly);
+// the `srfix:` pins record the new values with it ON. No production path moves: live play and the offline catch-up
+// both step economyTick(state, 1), which never takes the joint path. Goldens 1, 3, 4 and 6 unchanged.
 
 import { describe, expect, it } from "vitest";
 import { writeFileSync } from "node:fs";
@@ -69,6 +76,8 @@ import { withEvacuationDrawOff } from "./evacuationDrawSwitch.fixture";
 // E5-3: the Relocation farewell's test-only off switch (the pre-E5-3 game), tracing every moved pin.
 import { withRefugeeFarewellOff } from "./refugeeFarewellSwitch.fixture";
 import { E5_2_ADDED_ENTRY_IDS } from "./refugeeRegistry.fixture";
+// The short-range slow-start parity fix: its test-only off switch (the game before the fix), tracing every moved pin.
+import { withShortRangeFleetOff } from "./shortRangeFleetSwitch.fixture";
 
 // The wiring registry entries E5 adds (E5-4 fills it). Held apart from golden 4, so that pin proves nothing else moved.
 // E5-2: the Evacuation template's three rows (the template catalog loop, registry.ts; refugeeRegistry.fixture.ts).
@@ -300,6 +309,13 @@ const GOLDEN: Record<string, unknown> = {
   // E5-3 (the Relocation farewell): the moved pins' new values, captured with the farewell on (see the header).
   "e5-3:fleet": ["766005", "49335167", "77602096", "562044af", "cb3fb2c1", "d6c0aba7", "a75266bd"],
   "e5-3:old": ["766005", "49335167", "77602096", "562044af", "cb3fb2c1", "d6c0aba7", "a75266bd"],
+  // The slow-start parity fix: the moved pins' new values, captured with the fix on (see the header). Slot 0's cursor
+  // reads 154 (157 before): its cycle starts now see the other three runs' earlier deliveries on the shared ramp.
+  "srfix:fleet": ["766005", "595b2ef0", "aeb9c2c4", "2ce48141", "92f4c0ff", "7437f00f", "585cc328"],
+  "srfix:fleet:previews": ["ce47edc0", "deaf482e", "d0fe0d97", "6680b6d7"],
+  "srfix:fleet:board": {"version": 1, "nextCycle": {"0": 154, "1": 150, "2": 85, "3": 91}},
+  "srfix:old": ["766005", "595b2ef0", "aeb9c2c4", "2ce48141", "92f4c0ff", "7437f00f", "585cc328"],
+  "srfix:old:previews": ["ce47edc0", "deaf482e", "d0fe0d97", "6680b6d7"],
 };
 
 const CAPTURE = Boolean(import.meta.env.E5_CAPTURE);
@@ -368,24 +384,46 @@ describe("E5-0 golden 2: a short-range fleet on Repeat on every slot, six hours"
 
   it("the whole state every hour, then every slot's preview", () => {
     // The pins, traced: the game before E5-2 (the Evacuation draw off).
-    const old = withEvacuationDrawOff(fleetHours);
+    // Every pin before the slow-start parity fix is traced with the fix off (the header).
+    const preFix = <T,>(run: () => T): T => withShortRangeFleetOff(run);
+    const old = preFix(() => withEvacuationDrawOff(fleetHours));
     pin("fleet", old.hours);
     pin("fleet:previews", old.previews);
     pin("fleet:board", old.board);
     // E5-2: the fleet's fresh board draws the overlay, so Evacuations join its cycles and bring people home. Traced with
     // the E5-3 farewell off (the game before E5-3).
-    const e52 = withRefugeeFarewellOff(fleetHours);
+    const e52 = preFix(() => withRefugeeFarewellOff(fleetHours));
     pin("e5-2:fleet", e52.hours);
     pin("e5-2:fleet:previews", e52.previews);
     pin("e5-2:fleet:board", e52.board);
     expect(e52.s.completionLog.some((e) => e.kind === "refugeeArrival")).toBe(true);
     // E5-3: slot 0's Repeat Relocations take the waiting people along; no draw is taken, so the board and the previews
     // stay the E5-2 pins.
-    const now = fleetHours();
+    const now = preFix(fleetHours);
     pin("e5-3:fleet", now.hours);
     expect(now.previews).toEqual(e52.previews);
     expect(now.board).toEqual(e52.board);
     expect(now.s.completionLog.some((e) => e.kind === "refugeeFarewell")).toBe(true);
+    // The slow-start parity fix: the four runs share the fresh ramp, so the hour calls now read the counters in the
+    // order 1 s steps do; hour 0 is the same state.
+    const fixed = fleetHours();
+    expect(fixed.hours[0]).toBe(now.hours[0]);
+    pin("srfix:fleet", fixed.hours);
+    pin("srfix:fleet:previews", fixed.previews);
+    pin("srfix:fleet:board", fixed.board);
+    // ...and the new hour-1 state IS the live game's: 3600 one-second steps land on the same values. Compared with
+    // object keys sorted and `discovered` as a set: within one call an item's FIRST-SEEN key order follows the captain
+    // map (the per-call delivery fold), not time, for any multi-captain fleet; no reader depends on that order.
+    const canon = (g: GameState): string =>
+      JSON.stringify({ ...g, discovered: [...g.discovered].sort() }, (_k, v: unknown) =>
+        v !== null && typeof v === "object" && !Array.isArray(v) && Object.getPrototypeOf(v) === Object.prototype
+          ? Object.fromEntries(Object.keys(v as object).sort().map((k) => [k, (v as Record<string, unknown>)[k]]))
+          : v,
+      );
+    let live = shortRangeFleet();
+    for (let t = 0; t < HOUR; t++) live = economyTick(live, 1, RNG);
+    expect(canon(live)).toBe(canon(economyTick(shortRangeFleet(), HOUR, RNG)));
+    expect(canon(live)).not.toBe(canon(preFix(() => economyTick(shortRangeFleet(), HOUR, RNG))));
   });
 });
 
@@ -435,12 +473,14 @@ describe("E5-0 golden 5: the fleet's v70 save through deserialize + migrate, the
 
   it("the state every hour and every slot's preview", () => {
     // The pins, traced: the game before E5-2 (the Evacuation draw off).
-    const old = withEvacuationDrawOff(oldSaveHours);
+    // Every pin before the slow-start parity fix is traced with the fix off (the header).
+    const preFix = <T,>(run: () => T): T => withShortRangeFleetOff(run);
+    const old = preFix(() => withEvacuationDrawOff(oldSaveHours));
     pin("old", old.hours);
     pin("old:previews", old.previews);
     // E5-2: every roll before a slot's stamp is the old roll (the job in flight and, for slot 0, its cursor's preview),
     // so the loaded state is unchanged; the overlay starts at each stamp, so the later hours move.
-    const now = oldSaveHours();
+    const now = preFix(oldSaveHours);
     const stamps = now.loaded.shortRangeBoard!.evacuationFrom!;
     for (const slot of shortRangeBoardSlots(now.loaded)) {
       for (let c = 0; c < stamps[slot.id]; c++) {
@@ -449,7 +489,7 @@ describe("E5-0 golden 5: the fleet's v70 save through deserialize + migrate, the
     }
     expect(now.hours[0]).toBe(old.hours[0]);
     // E5-2, traced with the E5-3 farewell off (the game before E5-3).
-    const e52 = withRefugeeFarewellOff(oldSaveHours);
+    const e52 = preFix(() => withRefugeeFarewellOff(oldSaveHours));
     pin("e5-2:old", e52.hours);
     pin("e5-2:old:previews", e52.previews);
     // E5-3: the farewell moves the hours after the first Relocation that finds someone waiting; hour 0 and the previews
@@ -457,6 +497,11 @@ describe("E5-0 golden 5: the fleet's v70 save through deserialize + migrate, the
     expect(now.hours[0]).toBe(e52.hours[0]);
     expect(now.previews).toEqual(e52.previews);
     pin("e5-3:old", now.hours);
+    // The slow-start parity fix: the loaded save (hour 0) is the same state; the hour calls move as golden 2's do.
+    const fixed = oldSaveHours();
+    expect(fixed.hours[0]).toBe(now.hours[0]);
+    pin("srfix:old", fixed.hours);
+    pin("srfix:old:previews", fixed.previews);
   });
 });
 
