@@ -1,8 +1,12 @@
 <script lang="ts">
   import { onMount, afterUpdate } from "svelte";
+  import Icon from "./ui/Icon.svelte";
 
   // badge (0.13.11): an optional short tag after the label, such as the Codes sub-tab's "NEW".
-  export let tabs: { key: string; label: string; locked?: boolean; badge?: string }[];
+  // crewLock (CP-10, user pick 8 2026-11-02): the words of a crew lock on what the tab edits; the tab stays live and
+  // wears a small SVG lock before its label (the panel says the same in its lock line). Not `locked`, which means a
+  // tab that is not built yet.
+  export let tabs: { key: string; label: string; locked?: boolean; badge?: string; crewLock?: string }[];
   export let active: string;
   export let onSelect: (key: string) => void;
 
@@ -53,12 +57,12 @@
         class:active={active === tab.key}
         class:locked={tab.locked}
         aria-disabled={tab.locked ? true : undefined}
-        title={tab.locked ? "Coming soon, not yet available" : undefined}
+        title={tab.locked ? "Coming soon, not yet available" : tab.crewLock}
         on:click={() => {
           if (!tab.locked) onSelect(tab.key);
         }}
       >
-        {#if tab.locked}🔒 {/if}{tab.label}
+        {#if tab.locked}🔒 {/if}{#if tab.crewLock}<span class="sub-tab-lock"><Icon name="lock" size={11} /></span><span class="sub-tab-sr">Crew locked: </span>{/if}{tab.label}
         {#if tab.badge}<span class="sub-tab-badge">{tab.badge}</span>{/if}
       </button>
     {/each}
@@ -142,6 +146,20 @@
     color: var(--color-bg-deep);
     background: var(--color-accent);
     vertical-align: 1px;
+  }
+  /* CP-10: the crew lock mark (warning hue, the SVG lock), and its words for screen readers. */
+  .sub-tab-lock {
+    display: inline-flex;
+    vertical-align: -1px;
+    margin-right: 4px;
+    color: var(--color-warning);
+  }
+  .sub-tab-sr {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
   }
   .sub-tab.active {
     background: rgba(var(--color-accent-rgb), 0.14);

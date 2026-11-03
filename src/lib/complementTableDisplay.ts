@@ -13,7 +13,7 @@ import { signatureKey } from "./game/crew";
 import { crewRankLabel } from "./game/crewRank";
 import { CREW_RACES } from "./game/crewRaces";
 import { crewBuffLabel, isHeldCrewBuff, SECOND_LEVEL_EXCLUSIVE } from "./game/crewBuffs";
-import { manifestRows } from "./game/crewGraduation";
+import { MANIFEST_POOL_ID, manifestRows } from "./game/crewGraduation";
 
 // Division display labels (US English), keyed by CrewProfession.
 export const DIVISION_LABEL: Record<CrewProfession, string> = {
@@ -263,7 +263,8 @@ export function manifestPageCount(total: number, size: number = MANIFEST_PAGE_SI
 // generated names in complement order, a group header before each group's first row on the page. Only the page in view
 // is generated (crewGraduation.ts manifestRows), so a 900-crew ship opens as fast as a 50-crew one.
 export function manifestView(state: GameState, shipId: string, page: number, division: CrewProfession | null): ManifestView {
-  const buckets = state.ships.find((s) => s.id === shipId)?.complement?.buckets ?? [];
+  // CP-10: the crew pool's manifest reads the pool (crewGraduation.ts MANIFEST_POOL_ID); the pool holds no notables.
+  const buckets = shipId === MANIFEST_POOL_ID ? state.crewPool : (state.ships.find((s) => s.id === shipId)?.complement?.buckets ?? []);
   const countByKey = new Map<string, number>();
   for (const b of buckets) if (b.count > 0) countByKey.set(signatureKey(b), (countByKey.get(signatureKey(b)) ?? 0) + b.count);
   const total = manifestRows(state, shipId, 0, 0, division).total;
@@ -296,7 +297,7 @@ export function manifestView(state: GameState, shipId: string, page: number, div
     });
   }
   const shipNotables = state.notableCrew.filter(
-    (n) => (n.assignedShipId ?? null) === shipId && (division === null || n.profession === division),
+    (n) => shipId !== MANIFEST_POOL_ID && (n.assignedShipId ?? null) === shipId && (division === null || n.profession === division),
   );
   return {
     page: p,

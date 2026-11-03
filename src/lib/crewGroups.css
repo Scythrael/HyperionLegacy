@@ -1,0 +1,392 @@
+/* crewGroups.css: the CREW GROUPS controls and table, shared by the ship's Complement tab (ComplementPanel.svelte,
+   CP-9) and the crew pool tab (CrewPoolPanel.svelte, CP-10) through CrewGroupsTable.svelte, plus the chips, buttons,
+   tick boxes and buff chips the Graduate, Manifest and Transfer windows use. Global on purpose: one look in every
+   place, and slot content from either panel styled the same. Every class is prefixed cg- so nothing else matches.
+   Container queries key off the nearest container (the panel, or an ActionModal dialog). */
+
+/* CP-9: SHARED CONTROLS (chips, buttons, tick boxes, buff chips) */
+.cg-chip {
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  padding: 5px 9px;
+  min-height: 28px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--corner);
+  background: transparent;
+  color: var(--color-text-secondary);
+  white-space: nowrap;
+  display: inline-flex;
+  gap: 4px;
+  align-items: center;
+  cursor: pointer;
+  flex: 0 0 auto;
+}
+.cg-chip.on {
+  color: var(--color-text-primary);
+  border-color: var(--color-accent-bright);
+  background: rgba(var(--color-accent-rgb), 0.14);
+}
+.cg-n {
+  color: var(--color-text-dim);
+}
+.cg-btn {
+  font-family: var(--font-body);
+  font-size: var(--text-xs);
+  color: var(--color-accent);
+  background: rgba(var(--color-accent-rgb), 0.06);
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--corner);
+  padding: 5px 11px;
+  min-height: 32px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.cg-btn.sm {
+  min-height: 28px;
+  padding: 3px 9px;
+}
+.cg-btn.pri {
+  background: rgba(var(--color-accent-rgb), 0.18);
+  color: var(--color-text-primary);
+}
+.cg-btn.ghost {
+  background: transparent;
+  border-color: var(--color-border);
+  color: var(--color-text-secondary);
+}
+.cg-btn:not(:disabled):hover {
+  border-color: var(--color-accent-bright);
+  color: var(--color-text-primary);
+}
+.cg-btn:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+.cg-link {
+  background: none;
+  border: none;
+  padding: 4px 0;
+  font: inherit;
+  color: var(--color-accent);
+  cursor: pointer;
+}
+.cg-cb {
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border-radius: var(--corner);
+  border: 1px solid var(--color-border-strong);
+  background: transparent;
+  display: inline-grid;
+  place-items: center;
+  color: var(--color-bg-deep);
+  cursor: pointer;
+  flex: 0 0 auto;
+}
+.cg-cb.on {
+  background: var(--color-accent);
+  border-color: var(--color-accent);
+}
+.cg-cb.mixed {
+  background: rgba(var(--color-accent-rgb), 0.35);
+  border-color: var(--color-accent);
+}
+/* The header box's mixed state (some groups shown are ticked): a bar, read as aria-checked="mixed". */
+.cg-cb-dash {
+  display: block;
+  width: 9px;
+  height: 2px;
+  border-radius: 1px;
+  background: var(--color-accent-bright);
+}
+.cg-cb svg {
+  stroke-width: 3;
+}
+.cg-buffchips,
+.cg-buffs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.cg-bf {
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  color: var(--color-success);
+  border: 1px solid rgba(52, 211, 153, 0.32);
+  border-radius: var(--corner);
+  padding: 1px 6px;
+  white-space: nowrap;
+  display: inline-flex;
+  gap: 4px;
+  align-items: center;
+}
+.cg-bf.exclusive {
+  color: var(--color-accent-bright);
+  border-color: rgba(var(--color-accent-rgb), 0.4);
+}
+.cg-bf.held {
+  color: var(--color-text-dim);
+  border-style: dashed;
+  border-color: rgba(98, 133, 145, 0.5);
+  font-style: italic;
+  white-space: normal;
+}
+.cg-rarity {
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+.cg-rarity i {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  display: inline-block;
+  background: currentColor;
+}
+.cg-sr {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+}
+
+/* CP-9: CREW GROUPS (a table on a wide panel, cards on a phone; one DOM) */
+.comp-groups {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.cg-hint-narrow {
+  display: none;
+}
+.cg-tools {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+.cg-chiprow {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex-wrap: wrap;
+  min-width: 0;
+}
+.cg-lbl {
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--color-text-dim);
+  margin-right: 2px;
+  display: inline-flex;
+  gap: 4px;
+  align-items: center;
+}
+.cg-manifest {
+  margin-left: auto;
+}
+.cg-onlynotables {
+  font-size: var(--text-xs);
+  color: var(--color-text-dim);
+}
+.cg-wrap {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid rgba(var(--color-accent-rgb), 0.16);
+  border-radius: var(--corner);
+  background: rgba(var(--color-accent-rgb), 0.03);
+}
+/* The wide row's fixed tracks (34 + 110 + 96 + 136 + 96 + 56) plus the Graduate button (about 125) need about 650 px,
+   under the 700 px card switch below, so a row never overflows at any width (CP-9 review: it needed about 713). */
+.cg-row {
+  display: grid;
+  grid-template-columns: 34px minmax(110px, 1.2fr) 96px 136px 96px minmax(0, 2fr) 56px auto;
+  align-items: center;
+  border-bottom: 1px solid rgba(var(--color-accent-rgb), 0.08);
+  font-size: var(--text-xs);
+}
+.cg-row.sel {
+  background: rgba(var(--color-accent-rgb), 0.06);
+}
+.cg-c {
+  padding: 8px 10px;
+  min-width: 0;
+}
+.cg-head {
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--color-accent-bright);
+  border-bottom: 1px solid var(--color-border);
+}
+.cg-head .sorted::after {
+  content: " \25BE";
+  color: var(--color-accent);
+}
+.cg-name b {
+  font-weight: 600;
+}
+.cg-meta {
+  display: none;
+}
+.cg-count {
+  text-align: right;
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+.cg-count-u {
+  display: none;
+}
+.cg-act {
+  text-align: right;
+}
+.cg-foot {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding: 6px 10px;
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  color: var(--color-text-dim);
+}
+.cg-selbar {
+  order: -1;
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--color-border);
+  background: rgba(var(--color-accent-rgb), 0.07);
+  font-size: var(--text-xs);
+}
+.cg-selbar b {
+  font-family: var(--font-mono);
+}
+.cg-spacer {
+  flex: 1;
+}
+
+/* Phone-narrow panel: chip rows scroll sideways inside themselves (the page never does), the rows become cards,
+   and the selection bar sticks to the bottom of the screen (user picks 4 and 5, 2026-11-02). */
+@container (max-width: 700px) {
+  .cg-hint-wide,
+  .cg-lbl,
+  .cg-n,
+  .cg-wide-only {
+    display: none;
+  }
+  .cg-hint-narrow {
+    display: inline;
+  }
+  .cg-tools {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 6px;
+  }
+  .cg-chiprow {
+    display: flex;
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    padding-bottom: 2px;
+  }
+  .cg-divrow {
+    grid-column: 1 / -1;
+    grid-row: 2;
+  }
+  .cg-manifest {
+    margin-left: 0;
+    min-height: 28px;
+    padding: 3px 9px;
+  }
+  .cg-wrap {
+    border: none;
+    background: none;
+  }
+  .cg-table {
+    display: grid;
+    gap: 6px;
+  }
+  .cg-head {
+    display: none;
+  }
+  .cg-row {
+    grid-template-columns: 26px minmax(0, 1fr) auto;
+    grid-template-areas:
+      "tick name count"
+      "tick meta count"
+      ".    buffs buffs"
+      ".    act   act";
+    gap: 4px 8px;
+    align-items: start;
+    padding: 9px 10px;
+    border: 1px solid rgba(var(--color-accent-rgb), 0.16);
+    border-radius: var(--corner);
+    background: rgba(var(--color-accent-rgb), 0.04);
+  }
+  .cg-row.sel {
+    background: rgba(var(--color-accent-rgb), 0.09);
+    border-color: rgba(var(--color-accent-rgb), 0.4);
+  }
+  .cg-c {
+    padding: 0;
+  }
+  .cg-tick { grid-area: tick; }
+  .cg-name { grid-area: name; font-size: var(--text-sm); }
+  .cg-meta {
+    grid-area: meta;
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+    align-items: center;
+    font-size: var(--text-2xs);
+    color: var(--color-text-secondary);
+  }
+  .cg-div,
+  .cg-rank,
+  .cg-rar {
+    display: none;
+  }
+  .cg-buffs { grid-area: buffs; }
+  .cg-count {
+    grid-area: count;
+    font-size: var(--text-lg);
+    line-height: 1.1;
+  }
+  .cg-count-u {
+    display: block;
+    font-size: 9px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--color-text-dim);
+  }
+  .cg-act {
+    grid-area: act;
+    display: flex;
+    justify-content: flex-end;
+  }
+  .cg-foot {
+    padding: 6px 0;
+  }
+  .cg-selbar {
+    order: 0;
+    position: sticky;
+    bottom: 0;
+    z-index: 20;
+    flex-wrap: nowrap;
+    padding: 10px 12px;
+    border: 1px solid var(--color-border-strong);
+    background: var(--color-bg-raised, #0c1626);
+    box-shadow: 0 -8px 24px rgba(0, 0, 0, 0.45);
+  }
+}

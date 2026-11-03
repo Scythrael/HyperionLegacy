@@ -534,6 +534,21 @@ export const ICON_PATHS = {
   diamond: ["M12 3.5l7.5 8.5-7.5 8.5-7.5-8.5z"],
   // Chevron left: the manifest pager's previous page (chevronRight is its next).
   chevronLeft: ["M15 6l-6 6 6 6"],
+
+  // --- 0.14.0 CP-10: the transfer picker and the crew pool ---
+
+  // Crew pool: three heads and shoulders, the crew waiting at home for a ship (the pool tab and its destination card).
+  crewPool: [
+    "M12 4.5a2.5 2.5 0 1 1 0 5 2.5 2.5 0 0 1 0-5z",
+    "M6 7.5a2.2 2.2 0 1 1 0 4.4 2.2 2.2 0 0 1 0-4.4z",
+    "M18 7.5a2.2 2.2 0 1 1 0 4.4 2.2 2.2 0 0 1 0-4.4z",
+    "M7 19.5c0-3.2 2.2-5.5 5-5.5s5 2.3 5 5.5",
+    "M2.5 18.5c0-2.6 1.5-4.4 3.5-4.6",
+    "M21.5 18.5c0-2.6-1.5-4.4-3.5-4.6",
+  ],
+  // Minus and plus: the transfer stepper's one less and one more.
+  minus: ["M5.5 12h13"],
+  plus: ["M5.5 12h13", "M12 5.5v13"],
 } as const satisfies Record<string, readonly string[]>;
 
 /**
