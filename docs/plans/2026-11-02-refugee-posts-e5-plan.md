@@ -134,6 +134,68 @@ Stat each background improves (the consumer seam; E5-0 confirms each):
 - [ ] **Step 4: Gates** (Global Constraints), then commit
   `test: E5-0 refugee posts goldens and study`.
 
+#### E5-0 carry note (built 2026-11-02 on `19e5ac4`)
+
+**Goldens** (`src/lib/game/refugeeGoldens.test.ts`, its own commit before any engine edit; `E5_CAPTURE=<path>`
+recaptures): (1) `draws:<seed>:<counters>:slot<n>`, 64 cycles per slot for the fresh board seed (which IS
+`SHORT_RANGE_DEFAULT_SEED`, asserted), a fixed homeworld's seed and the default seed, each with fresh counters and with
+every template a veteran (full size); (2) `fleet`, `fleet:previews`, `fleet:board`: four General Freighters on all four
+slots, slot 0 starting on its first Refugee Relocation, six hours at 1 h calls; (3) `consumers:low|mid|top` and
+`telescope:levels`; (4) `registry` [1728, bf47b0ce] with `E5_ADDED_ENTRY_IDS` (exported, empty) held apart;
+(5) `old`, `old:previews` (the fleet saved at v70, migrated with fixed entropy, six hours: identical to golden 2, as a
+v70 save runs no migration today; E5-1's v71 step must keep it so); (6) `help:shortRange`, `types:fresh`.
+Deviations from Step 1: golden 2 starts each run through `startShortRangeCycle` (the G1-4 golden 7 precedent), since a
+bare General Freighter fails the sheet at the dispatch gate; and the fleet buys every transit berth rung
+(`transitBerthCapacity: 8`, the shortRangeCycle.test.ts parity fleet's). Without it the hour-long calls let slots 0
+and 1 reclaim their own freed berth all hour and slots 2 and 3 never docked in six hours (by design: a berth freed in a
+call is reclaimable only by that run, and production steps 1 s; noted, not changed).
+
+**Study: does +5% on each facility stat measurably act?** Measured with a throwaway probe (not committed), applying
+the plan's formula for each row at b = 0.05, on today's content (PROVISIONAL_HOMEWORLD bands for the telescope).
+The general rule for every ceil'd integer duration T: it moves at b only when b >= 1 / (T - 1) (5% needs T >= 21; the
+off-match 25% of a skill 42 refugee, about 1.05%, needs T >= 97).
+
+| Facility | Stat (seam) | Consumer file:line | Measured effect of +5% |
+|---|---|---|---|
+| refinery | refine duration, `refineJobDurationTicks` (start-time, frozen on the process) | tick.ts:7855, read at tick.ts:9691 (line job start) | **Does not act at Levels 1 to 3**: the 14 recipes are 12 or 20 ticks and `ceil(20 / 1.05) = 20`, `ceil(12 / 1.05) = 12`, so 0 of 14 shorten (needs b >= 5.3% for the 20-tick, 9.1% for the 12-tick). At Level 4 (x1.5) 12 of 14 shorten (14 -> 13 ticks), total 184 -> 172 (6.5%); the 12-tick pair (8 ticks) still holds. **Game question below.** |
+| fuelStorage | fleet reach, `fleetReachBonus + b` in `shipReachDef` (live read) | tick.ts:5870 (bonus tick.ts:9555) | Acts on every hull: e.g. General Freighter 105.0 -> 110.0 ly at Level 1, Orion 241.0 -> 252.5 ly; missions in reach move at the gate edge (Prospector Miner 9 -> 10 of 10, Destroyer 7 -> 8 at Level 1). Continuous. |
+| missionControl | each phase of `shortRangeCyclePlan`, `max(1, ceil(t / (1 + b)))` (frozen at cycle start) | shortRangeBoard.ts:140 (startShortRangeCycle; plan shortRange.ts:470); the cost preview re-plans at shortRangeBoardDisplay.ts:439 and :456, which must read the same fold | Acts: 49 of 80 phases shorten over 20 veteran rolls (both legs always; the 3-tick home unload and small on-site phases never), total 4053 -> 3893 ticks (3.95%). |
+| research | `museumResearchDurationTicks` (start-time) | blueprint research tick.ts:8898 (startResearch tick.ts:8867); relic study tick.ts:8993 (relicStudyDurationFor), started at tick.ts:9018 and the queue at tick.ts:9245 | Acts: 98 of 98 blueprints shorten (60 to 480 ticks), total 14330 -> 13707 (4.35%); relic study 600 -> 572, 900 -> 858, 1200 -> 1143, 1800 -> 1715. |
+| fabricator | `ceil(craftDurationTicks / (1 + b))` (start-time) | tick.ts:9722 (line job plan) and tick.ts:12098 (one-off fabricate); both read `bp.craftDurationTicks` raw today, so E5-4 adds the one seam both call | Acts: 93 of 98 blueprints shorten (the 1-tick ones cannot), total 27875 -> 26581 (4.64%). |
+| shipyard | `shipBuildSpeedMult x (1 + b)` (start-time, fractional is parity-safe) | tick.ts:8419 (shipBuildDurationTicks), started at tick.ts:8560 | Acts fully (no rounding): General Freighter 300 -> 285.71 ticks at Level 1, 100 -> 95.24 at Level 3+; Battleship 1200 -> 1142.86. |
+| salvageBay | `salvageYieldMult x (1 + b)` (live read, no extra draw) | salvage.ts:207, read by recycle salvage.ts:447 and teardown salvage.ts:825 | Acts: the fraction 0.35 -> 0.3675 at the band's middle (0.30 -> 0.315 to 0.3999 -> 0.4199); expected recovery of 10 units 3.50 -> 3.675 (chance-rounded on the private stream, so the shared one-draw contract holds). |
+| subspaceTelescope | `telescopeReading().rangeLy x (1 + b)` (live read) | telescope.ts:142; readers: readSystem telescope.ts:259 (inRange, then detail and risk view), expedition.ts:1092 (console candidates) and :1562 (the blind-launch count), expeditionConsoleDisplay.ts:198 (`band.far <= rangeLy`); the Facilities card reads telescopeReadingAtLevel (telescopeCardDisplay.ts:136), not telescopeReading | **Acts only on a sliver, display only.** The range is a region band's far edge, so +5% reaches only the next region's nearest systems: T2 0 -> 4 of 2000 at Level 1, T3/T4 0 -> 55 at Levels 2 and 3, T5 0 -> 152 at Levels 4 and 5, T6 0 -> 115 at Level 6, T7 0 -> 1689 at Level 7 (T7's band is narrow), nothing at Level 8. What moves is the candidate's reading (detail and risk preview instead of blind) and the blind-launch counter; no run outcome reads it. A non-tier range also breaks `farRegionsText`'s `far === rangeLy` (telescopeCardDisplay.ts:63: the region names go blank) and `sameRange` (:151). `expeditionConsoleDisplay`'s `<=` stays right. **Game question below.** |
+
+**Game questions for the user (before E5-4):**
+1. **Refiner.** A percent refine speed cannot act at Refinery Levels 1 to 3 on today's 12 and 20 tick recipes (the
+   integer ceil the crafting XP needs swallows it), and one post opens at Level 1. Options: (a) keep speed and accept it
+   acts only from about 5.3% (a Tier II refiner of skill 53 and up) or Level 4; (b) the refiner raises refine OUTPUT
+   instead (a chance-rounded extra unit on a private stream, the salvage precedent; acts at every level); (c) speed
+   with a carried fractional tick (keeps the XP integer but is new engine work).
+2. **Stargazer.** The telescope has no continuous stat today (its rungs set a region reach and a detail level). A
+   percent range acts only on the few next-region systems just past the edge, and only on what the console shows.
+   Options: (a) keep the range (and fix the card's `far === rangeLy` names); (b) lower the ship lift threshold
+   (`TELESCOPE_SHIP_LIFT_SENSORS` = 40, telescope.ts:60) by the share, so a ship with fewer sensors gets the detail
+   lift (also display only); (c) point the Stargazer at a stat that changes runs (for example the expedition scan, a
+   sensors-read stat), which is a design change for the user to name.
+
+**The rest of Step 3:**
+- Start-time freeze vs live read: as the table says; the four duration seams freeze on the TimedProcess or the cycle
+  plan, so a posting never re-times work in flight; reach, salvage and telescope are live reads.
+- Crafting XP: the refine award is `floor(durationTicks x rate x weight)` on the stored (shortened) duration
+  (craftingProgress.ts:201), as the speed rung already does, so a faster job pays proportionally less XP, XP per tick
+  unchanged. Fabricate reads the same stored duration, so a Machinist seam behaves the same.
+- Every site that writes `shortRangeBoard`: tick.ts:5509 (`{ version: 1, nextCycle: { ...srCursorAfter } }`, which
+  would drop a stamp, as the plan says) and save.ts:209 to 211 (`withWellFormedShortRangeBoard` drops a malformed board
+  whole). No other writer outside tests.
+- Completion log order: `appendShortRangeLog` (tick.ts:1460) sorts this call's finds and run endings by atTick, finds
+  before endings in a tick, then appends, allocating `done-<nextCompletionLogId>` in that order. E5-2's farewell and
+  arrival lines must join that same sort to stay chunk-free.
+- Template keys: `runCounts.shortRange` hydration (runDifficulty.ts:260 to 261) checks only the counts' shape, never the
+  key, so an `evacuation` key needs no save change; `countShortRangeCycleStart` creates a key on first use.
+- The human name pool: `generateCrewIdentity("earthBorn", seed, index)` (crew.ts:217); `earthBorn` is the CrewRace id
+  (model.ts:7545, crewRaces.ts:62). Confirmed as the plan writes it.
+
 ### Task E5-1: Data and save [medium]
 
 **Files:**
