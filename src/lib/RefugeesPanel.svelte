@@ -21,6 +21,8 @@
 
   export let state: GameState;
   export let onPost: (refugeeId: number, facility: RefugeeFacilityKey, replaceId?: number) => void;
+  // E5-7: opens the Help center on the Refugees topic (App.svelte openHelpTopic); without a host handler no link is drawn.
+  export let onOpenHelp: ((topicId: string) => void) | undefined = undefined;
 
   let filter: RefugeesTabFilter = "waiting";
   let sort: RefugeesTabSort = "skill";
@@ -86,6 +88,7 @@
     </div>
     <p class="rfp-note">"Post..." opens a facility chooser: every facility with a post, sorted by what this person would give there. A full facility can still be picked, to swap with someone already posted. Moving is free, any time.</p>
   {/if}
+  {#if onOpenHelp}<button type="button" class="rfp-help" on:click={() => onOpenHelp?.("refugees")}>How refugees work <Icon name="chevronRight" size={14} /></button>{/if}
 </div>
 
 {#if pickerFor !== null}
@@ -101,6 +104,9 @@
   .rfp-v small { font-size: var(--text-xs); color: var(--color-text-dim); }
   .rfp-calm { display: flex; gap: 10px; align-items: flex-start; padding: 10px 12px; border: 1px solid rgba(52, 211, 153, 0.3); border-radius: var(--corner); background: rgba(52, 211, 153, 0.05); color: var(--color-text-secondary); }
   .rfp-calm :global(svg) { color: var(--color-success); flex: 0 0 auto; margin-top: 1px; }
+  .rfp-help { justify-self: start; font: inherit; font-size: var(--text-sm); display: inline-flex; gap: 4px; align-items: center; min-height: 32px; padding: 4px 10px; color: var(--color-accent); background: transparent; border: 1px solid var(--color-border); border-radius: var(--corner); cursor: pointer; }
+  .rfp-help:hover { border-color: var(--color-accent-bright); }
+  .rfp-help:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 2px; }
   .rfp-tools { display: flex; flex-wrap: wrap; gap: 8px 18px; align-items: center; justify-content: space-between; }
   .rfp-group { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
   .rfp-lbl { font-family: var(--font-mono); font-size: var(--text-2xs); letter-spacing: 0.1em; text-transform: uppercase; color: var(--color-text-dim); }

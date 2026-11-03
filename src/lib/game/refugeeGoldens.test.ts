@@ -309,6 +309,7 @@ const GOLDEN: Record<string, unknown> = {
   "e5-2:old": ["766005", "4c2952ef", "cb8490a6", "6fd8464d", "932b0371", "e7bb5a0a", "9331e17a"],
   "e5-2:old:previews": ["867fc47a", "deaf482e", "d0fe0d97", "6680b6d7"],
   "e5-2:help:shortRange": "48fd5726",
+  "e5-7:help:shortRange": "8960cfe1",
   "e5-2:types:fresh": [
     "refugeeRelocation|Refugee Relocation|team|Training run next|range,guests",
     "supplyDropOff|Supply Drop-off|offload|Training run next|range,cargo",
@@ -598,11 +599,19 @@ describe("E5-0 golden 6: the short-range Help topic and the board's job types li
     const types = shortRangeTypeRows(freshState()).map((r) => `${r.template}|${r.label}|${r.icon}|${r.status}|${r.uses.map((u) => u.category).join(",")}`);
     // The pins, traced: E5-2 adds the Evacuation job line to the topic and the eighth row to the job types; with them
     // taken out, both are the old pins.
-    const evacLine = topic!.body.split("\n").find((l) => l.startsWith("- Evacuation ("));
+    // E5-7 adds the evacuation to the topic's opening job list and a REFUGEES paragraph (the cross-link to the
+    // Refugees topic); with both taken out, the body is the E5-2 pin.
+    const e57Added = ", evacuate people from a nearby world";
+    const refugeesLine = topic!.body.split("\n").find((l) => l.startsWith("REFUGEES: "));
+    expect(topic!.body).toContain(e57Added);
+    expect(refugeesLine).toBeDefined();
+    const e52Body = topic!.body.replace(e57Added, "").replace(`\n${refugeesLine}`, "");
+    const evacLine = e52Body.split("\n").find((l) => l.startsWith("- Evacuation ("));
     expect(evacLine).toBeDefined();
-    pin("help:shortRange", hash({ ...topic, body: topic!.body.replace(`\n${evacLine}`, "") }));
+    pin("help:shortRange", hash({ ...topic, body: e52Body.replace(`\n${evacLine}`, "") }));
     pin("types:fresh", types.filter((t) => !t.startsWith("evacuation|")));
-    pin("e5-2:help:shortRange", hash(topic));
+    pin("e5-2:help:shortRange", hash({ ...topic, body: e52Body }));
+    pin("e5-7:help:shortRange", hash(topic));
     pin("e5-2:types:fresh", types);
   });
 });

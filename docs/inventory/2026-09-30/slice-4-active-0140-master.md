@@ -68,7 +68,7 @@ Flag key: GAP / DRIFT / DECIDE / OK (OK-recorded = known deviation already recor
 | S4-C27 | Crew leveling + rank-up 1-10 | saga:308-309 | 0.14.0 | superseded | SUPERSEDED by crew:123-126 (rank locked at generation) | OK-recorded | |
 | S4-C28 | Crew augmentation / cybernetics | saga:309-310 | 0.14.0 | cut (crew:34-37), revived for ground teams (expl:276-283) | NOT BUILT | OK-recorded | |
 | S4-C29 | crewCapacity / maxCapacity stats that evac/transport/colony missions gate on | saga:310-311 | 0.14.0 | locked | PARTIAL: crewStations live via quarters; no mission gates on it yet | OK | E5 pending. |
-| S4-C30 | Refugees -> posted at facilities as mini Senior Staff | saga:317-321; expl E5:296-299 | 0.14.0 (E5) | locked, planned | NOT BUILT | OK | Planned phase not started. |
+| S4-C30 | Refugees -> posted at facilities as mini Senior Staff | saga:317-321; expl E5:296-299 | 0.14.0 (E5) | built | BUILT in 0.14.0 E5 (Refugee Posts; E5-7 close-out 2026-11-03) | OK | docs/plans/2026-11-02-refugee-posts-e5-plan.md. |
 | S4-C31 | Espionage / infiltrator content layer (sensors flag, Security runs it down) | saga:323-331 | later / 2.0 | deferred hook | NOT BUILT | OK | |
 | S4-C32 | Data-scale: aggregate rollups + notable roster + lazy seeded generation | saga:333-340, 604 | 0.14.0 | locked | BUILT: crew.ts bucket histogram | OK | |
 | S4-C33 | Senior Staff "Crew & Command" vocabulary: officer STATS (Strength/Integrity/Cunning/Constitution), stations, Recruiter's Office, TRAITS, Weapons officer specializing in a weapon type | saga:284-289 | 0.14.0 | listed as "ties in" | NOT BUILT: officers carry 2 bonuses + racial only | DRIFT | Crew plan locked a 2-bonus model without recording that the 4-stat block, traits, and weapon-type specialization were dropped. |
@@ -209,7 +209,7 @@ Flag key: GAP / DRIFT / DECIDE / OK (OK-recorded = known deviation already recor
 | S4-EX20 | FULL CYBERNETICS in 0.14.0 (implant system + starting catalog; per-member; Security combat vs Science overworld implants) | expl:276-294 (2026-10-01) | 0.14.0 | locked | NOT BUILT | OK-recorded | Recorded as a decision, but there is no numbered phase for it in the plan's phase list. |
 | S4-EX21 | Equipment-icon SVG migration pass after E4 | expl:283 | 0.14.0 | planned | NOT CHECKED | OK | |
 | S4-EX22 | Squad split: CONTACT (Security-only battle, in-fight medic skills + kit) then FIELDWORK (Science strength + implants + Museum Science power drive speed/yield/relic odds) | expl:284-294 | 0.14.0 | locked | NOT BUILT (Science still fights, has `secureObjective`) | OK-recorded | |
-| S4-EX23 | E5 refugees -> facility crews via an E1 transport variant | expl:296-299 | 0.14.0 | planned | NOT BUILT | OK | Same as S4-C30. |
+| S4-EX23 | E5 refugees -> facility crews via an E1 transport variant | expl:296-299 | 0.14.0 | built | BUILT in 0.14.0 E5 (the Evacuation short-range template; E5-7 close-out 2026-11-03) | OK | Same as S4-C30. |
 | S4-EX24 | E-MOD universal modules, same slot-activation pattern as crew modules + sensors | expl:301-309 | 0.14.0 | planned | NOT BUILT | OK | Same as S4-H02..H05. |
 | S4-EX25 | E-CAP wires to crew/officer + objective-gated promotion | expl:311-314 | 0.14.0 | planned | NOT BUILT | OK | |
 | S4-EX26 | Sensor-array install tile | known-gap list (caller); ShipSystemsPanel.svelte working tree comment | 0.14.0 | known gap | PARTIAL (working tree adds `{ slotType: "sensor" }`, uncommitted) | OK-recorded | Acquisition gap is separate: S4-I12. |

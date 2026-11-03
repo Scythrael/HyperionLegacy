@@ -559,6 +559,58 @@ off-match 25% of a skill 42 refugee, about 1.05%, needs T >= 97).
 - [ ] **Step 4: Gates**, including the RELEASE_GATE run (no E5 row pending), then commit
   `docs: E5-7 refugee posts Help, QA sheet, close-out`.
 
+#### E5-7 close-out (built 2026-11-03 on `89998f0`)
+
+**What shipped (E5-0 to E5-7).** The Evacuation short-range template behind a versioned draw (old boards' upcoming
+draws byte-identical through the v71 stamp); one named refugee per delivered Evacuation, seeded off the roll, tapered
+against open posts, the first Evacuation a training run that always arrives; Refugee Relocation taking the
+longest-waiting refugee along as the new camp's leader; posts per facility level; post, move, unpost and swap (the
+player picks who goes back; the lowest share is only the fallback), all free; eight facility buffs through their real
+consumers with carried fractions for the duration seams; the Posts strips, popover and picker; the Crew tab's Refugees
+list, the arrival card, Leave all, the auto-tucking phone toast, the log lines and the first-arrival hint; and now Help.
+- Help: a new `refugees` topic (REFUGEES_HELP_PARAGRAPHS, helpTopics.ts): evacuations, arrivals and the taper in words
+  (its halving and quartering read from REFUGEE_TAPER_K), backgrounds and matches (each background's label, facility,
+  stat and REFUGEE_BUFF_HELP line), the share per skill and the off-match ratio, posts by level (walked from
+  refugeePostsAt), moving freely, swaps, relocation leaders, posted people always staying. Every number reads its
+  constant; every buff it names is a LIVE row (helpTopics.test.ts, "Refugees (0.14.0 E5-7)"). Cross-links: the
+  Short-Range Missions topic (the opening job list gains the evacuation, plus a REFUGEES paragraph) and the Homeworld
+  topic (the Facilities overview: the Posts row). The Refugees tab ("How refugees work") and the hint ("How it works")
+  open the topic (plan Step 2).
+- Goldens: golden 6 (`help:shortRange`) moved only by those two Short-Range edits, traced in the test (both taken out
+  reproduce the E5-2 pin), new pin `e5-7:help:shortRange`. No engine pin moved.
+- One test narrowed: the 0.13.9 "retired fuel facility" check banned the words "Fuel Depot" outside the fuel topic,
+  but the Fuel Depot is a live reach facility (the fuel topic says so) and the Fuel handler's match; the Refugees topic
+  is now allowed to name it (the Deuterium Skim stays banned there).
+- Registry: release gate pending 37 before and 37 after; none owned by E5. All 19 E5 rows live (16 refugee post rows,
+  3 Evacuation template rows), each with its consumer probe and measuring audit.
+- Inventory: S1-06, S4-C30 and S4-EX23 marked BUILT.
+- QA sheet: `docs/qa/2026-11-03-refugee-posts-qa.html` (staging, 1280 px and 375 px, each check naming its test).
+
+**Provisional numbers for the balance pass** (each one named constant):
+- `REFUGEE_SKILL_SPANS` Tier I [20, 50], Tier II [40, 75]; `REFUGEE_MATCH_SHARE_PER_SKILL` 0.001;
+  `REFUGEE_OFF_MATCH_RATIO` 0.25; `REFUGEE_STACK_KNEE` 0.5 (skill 50 matched = 4.77% after the curve, off match 1.23%);
+  `REFUGEE_POSTS_EVERY` 3 (Levels 1, 4, 7, 10); `REFUGEE_TAPER_K` 4; background roll uniform over the eight.
+- `SHORT_RANGE_TEMPLATES.evacuation` (the Refugee Relocation sizes and pay; draw weight 1 in 8); the Evacuation uses the
+  "home" icon.
+- Stat shapes: the Refiner's extra output (one batch, chance b), the Stargazer's additive points on both discovery
+  pools, the swap tie-break (the last posted among equals), the farewell pick (the lowest id among the waiting).
+- Wording [PROPOSAL]: the hint, the arrival card, the no-arrival line (placeholder destinations), the Help topic.
+
+**Open items.**
+1. Echo refugees (E5-6b): the rare franchise nods (`docs/plans/2026-11-03-refugee-echo-roster-DRAFT.md`) wait for the
+   user's name sign-off; not built, not in Help.
+2. The Stargazer may move to rare planet aspects once those exist (user 2026-11-03); it raises the discovery odds now.
+3. Known, not E5's: the pre-existing release gate rows (37 pending, none E5) and the short-range parity fix's test-only
+   gaps (above).
+
+**Patch note lines [PROPOSAL, the wording is the user's]:** "Refugee Posts: Evacuation joins the Short-Range board.
+Each evacuation can bring one named refugee home, with a background and a skill (harder evacuations bring more capable
+people), and your first evacuation always does. Post refugees at your facilities to make them better: each background
+matches one facility for a strong buff, and anyone helps a little anywhere. Facilities open more posts as they level
+up, and moving people is free, any time; posting at a full facility lets you pick who steps back. Everyone not posted
+waits on the new Refugees tab under Crew, and a Refugee Relocation now takes one waiting refugee along to lead the new
+camp. Nobody posted ever leaves. See Help, Refugees."
+
 ## Size (honest)
 
 Eight slices: E5-0 small, E5-1 medium, E5-2 large (the versioned draw, the post-pass and the traced golden moves),
