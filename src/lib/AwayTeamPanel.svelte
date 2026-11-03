@@ -119,6 +119,7 @@
     awayMoveControl,
     crewLockText,
   } from "./awayTeamDisplay";
+  import { crewLockReason, crewLockReasonText, crewLockUntilText } from "./game/crewLock";
 
   // --- Props ------------------------------------------------------------------
   export let state: GameState;
@@ -204,6 +205,8 @@
 
   // --- Derived reads ----------------------------------------------------------
   $: ship = state.ships.find((s) => s.id === shipId) ?? null;
+  // CP-10 (user pick 8): the panel's one lock line while the ship is out (the sub-tab wears a lock too).
+  $: awayLockReason = ship ? crewLockReason(state, shipId) : null;
   $: squads = ship ? buildSquads(state, shipId) : [];
 
   function buildSquads(s: GameState, id: string): SquadView[] {
@@ -647,6 +650,11 @@
   {#if ship === null}
     <div class="away-hint">Ship not found.</div>
   {:else}
+    {#if awayLockReason !== null}
+      <p class="away-lock" role="note">
+        <Icon name="lock" /> {crewLockReasonText(awayLockReason)}: away members, slots and gear are locked {crewLockUntilText(awayLockReason)}.
+      </p>
+    {/if}
     {#if squads.length === 0}
       <div class="away-hint">
         The {SHIP_TYPES[ship.typeKey]?.label ?? "ship"} fields no away team.
@@ -1129,6 +1137,10 @@
                   on:click={() => (confirmFireId = m.id)}
                 >Fire</button>
               </div>
+              {#if u.gearText !== null}
+                <!-- CP-10 (signed mockup section 5, option A): they keep their gear. -->
+                <div class="mem-gearline">{u.gearText}</div>
+              {/if}
               {#if !u.join.ok}
                 <div class="mem-why" id={whyId}>{u.joinText}</div>
               {/if}
@@ -1958,6 +1970,21 @@
     font-size: var(--text-xs);
     color: var(--color-text-secondary);
     line-height: 1.45;
+  }
+  /* CP-10: the panel's lock line (warning hue + the lock glyph + words, as on Senior Staff and Complement). */
+  .mem-gearline {
+    font-family: var(--font-mono);
+    font-size: var(--text-2xs);
+    color: var(--color-text-dim);
+  }
+  .away-lock {
+    margin: 0 0 10px;
+    display: flex;
+    gap: 6px;
+    align-items: flex-start;
+    font-size: var(--text-xs);
+    line-height: 1.4;
+    color: var(--color-warning);
   }
   .gt-lock {
     margin: 0;

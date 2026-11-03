@@ -170,6 +170,7 @@ export interface UnassignedMemberView {
   join: AwayCrewGate; // canReassignAwayMember onto the viewed ship (its squad cap and lock)
   joinText: string | undefined; // why join is refused (the accurate lock, crewLockText), undefined when ok
   fire: AwayCrewGate; // canFireAwayMember (an unassigned member is never locked)
+  gearText: string | null; // CP-10: what they still wear (unassignedGearText), null for nothing
 }
 
 // CP-6: the accurate words for a crew-locked ship (mission vs expedition) live with the one lock in
@@ -221,6 +222,21 @@ export function unassignedMembersView(state: GameState, shipId: string): Unassig
     .map((member) => {
       const join = canReassignAwayMember(state, member.id, shipId);
       const joinText = awayGateText(state, join, [shipId]);
-      return { member, join, joinText, fire: canFireAwayMember(state, member.id) };
+      return { member, join, joinText, fire: canFireAwayMember(state, member.id), gearText: unassignedGearText(state, member.id) };
     });
+}
+
+// CP-10 (signed mockup section 5, option A): the gear an unassigned member still wears, in one line ("Armor, Weapon,
+// Tool installed · 1 implant"; "Tool installed"; "1 implant"), or null when they wear nothing. They keep their gear.
+export function unassignedGearText(state: GameState, memberId: string): string | null {
+  const worn = state.equipment.filter((e) => e.fittedToMemberId === memberId);
+  const named: string[] = [];
+  if (worn.some((e) => e.slotType === "memberArmor")) named.push("Armor");
+  if (worn.some((e) => e.slotType === "memberWeapon")) named.push("Weapon");
+  if (worn.some((e) => e.slotType === "memberTool")) named.push("Tool");
+  const implants = worn.filter((e) => e.slotType === "implant").length;
+  const parts: string[] = [];
+  if (named.length > 0) parts.push(`${named.join(", ")} installed`);
+  if (implants > 0) parts.push(implants === 1 ? "1 implant" : `${implants} implants`);
+  return parts.length > 0 ? parts.join(" · ") : null;
 }

@@ -36,6 +36,10 @@
   // Crew 0.14.0 (phase 4d): the Personnel Rosters facility screen (saved PEOPLE loadouts). Same
   // posture as the two panels above: reads live state, routes every mutation to the do* handlers.
   import PersonnelRostersPanel from "./lib/PersonnelRostersPanel.svelte";
+  // CP-10: the Personnel Rosters facility's Crew Pool tab, and the one transfer engine every picker routes to.
+  import CrewPoolPanel from "./lib/CrewPoolPanel.svelte";
+  import { transferCrew, crewTransferGateText, type CrewTransferEndpoint, type CrewTransferPick, type CrewTransferResult } from "./lib/game/crewTransfer";
+  import { transferLogLine } from "./lib/crewTransferDisplay";
   // Exploration 0.14.0 (phase E2c): the Expedition Console, the headline "Expeditions" section of the
   // Exploration Ops tab. Same posture as the crew panels above: reads live state through the pure
   // expedition.ts engine (candidates + foreknowledge + phase readers), routes Launch / Claim to the
@@ -2595,6 +2599,11 @@
   type ArchiveSubTab = "archive" | "museum" | "surveyLog";
   let activeArchiveSubTab: ArchiveSubTab = "archive";
 
+  // CP-10 (user pick 6, 2026-11-02): Personnel Rosters gains a "Crew Pool" tab beside its saved rosters (CrewPoolPanel).
+  // Defaults to "rosters" so the facility opens as it always has.
+  type PersonnelRostersSubTab = "rosters" | "crewPool";
+  let activePersonnelRostersSubTab: PersonnelRostersSubTab = "rosters";
+
   // Ground Ops GO-17 UI: the Armory's TWO-tab axis. "ship" is the existing ship loadout console (unchanged);
   // "squad" is the Squad Loadouts tab (SquadLoadoutsPanel), one loadout per ground team. Both count against
   // the one shared cap. Defaults to "ship" so the Armory opens as it always has.
@@ -3606,6 +3615,7 @@
       activeSalvageBaySubTab,
       activeArchiveSubTab,
       activeArmorySubTab,
+      activePersonnelRostersSubTab,
       activeSystemSubTab,
     ].join("/");
     if (navKey !== navScroll.lastKey) {
@@ -6193,6 +6203,25 @@
     state = next;
     doSave();
     pushLog(`[${devShipLabel(shipId)}] Complement set to ${mode === "passive" ? "auto-crew" : "manual"}.`);
+  }
+
+  // CP-10: Transfer from a ship's Complement tab or the crew pool tab. crewTransfer.ts transferCrew moves up to each
+  // asked count through the one cap gate (remainingCapacityForSignature, the notables aboard counted), never evicts,
+  // refuses a crew-locked ship or an auto-crew one (OC-7) with the SAME state, and returns a row per pick. The picker
+  // shows that result row by row, so the result goes back to it whether or not anything moved.
+  function doTransferCrew(from: CrewTransferEndpoint, to: CrewTransferEndpoint, picks: CrewTransferPick[]): CrewTransferResult | null {
+    const before = state;
+    const res = transferCrew(state, from, to, picks);
+    if (!res.gate.ok) {
+      const why = crewTransferGateText(state, res.gate);
+      if (why) pushLog(`Could not transfer crew: ${why}.`);
+      return res;
+    }
+    if (res.next === state) return res; // nothing moved (every destination berth was taken)
+    state = res.next;
+    doSave();
+    pushLog(transferLogLine(before, from, to, res));
+    return res;
   }
 
   // CP-9: "Graduate one" on a Complement crew group. crewGraduation.ts graduateStandout refuses with the SAME state
@@ -11230,6 +11259,12 @@
           { key: "ship", label: "Ship Loadouts" },
           { key: "squad", label: "Squad Loadouts" },
         ], active: activeArmorySubTab, onSelect: (key) => (activeArmorySubTab = key as ArmorySubTab) };
+      // CP-10: the saved rosters and the crew pool.
+      case "personnelRosters":
+        return { tabs: [
+          { key: "rosters", label: "Rosters" },
+          { key: "crewPool", label: "Crew Pool" },
+        ], active: activePersonnelRostersSubTab, onSelect: (key) => (activePersonnelRostersSubTab = key as PersonnelRostersSubTab) };
       default:
         return null;
     }
@@ -16137,6 +16172,10 @@
                 {/each}
               </div>
             </Panel>
+          {:else if activeFoundryFacility === "personnelRosters" && activePersonnelRostersSubTab === "crewPool"}
+            <!-- CP-10 (user pick 6): the CREW POOL tab. The crew waiting at home, the same Crew Groups table as a ship,
+                 a Manifest, and "Send N to a ship..." (pick 7: the only place crew are taken from the pool). -->
+            <CrewPoolPanel {state} onTransfer={doTransferCrew} onSetMode={doSetComplementMode} />
           {:else if activeFoundryFacility === "personnelRosters"}
             <!-- CREW 0.14.0 (phase 4d): the Personnel Rosters facility. Saved PEOPLE loadouts (the
                  personnel counterpart to the Armory's gear loadouts): a named, priority-ordered set
@@ -16994,12 +17033,14 @@
              page gains a SubTabs strip splitting the body into Loadout / Senior Staff /
              Complement. It sits directly under the header row, above whichever body pane the
              active tab selects. All three are LIVE as of phase 4b (Complement unlocked). -->
+        <!-- CP-10 (user pick 8): while the ship is out, the three crew sub-tabs wear a small lock (each panel's lock
+             line says why). The Loadout keeps its own gear lock words. -->
         <SubTabs
           tabs={[
             { key: "loadout", label: "Loadout" },
-            { key: "seniorStaff", label: "Senior Staff" },
-            { key: "awayTeam", label: "Away Team" },
-            { key: "complement", label: "Complement" },
+            { key: "seniorStaff", label: "Senior Staff", crewLock: crewLockText(state, ship.id) ?? undefined },
+            { key: "awayTeam", label: "Away Team", crewLock: crewLockText(state, ship.id) ?? undefined },
+            { key: "complement", label: "Complement", crewLock: crewLockText(state, ship.id) ?? undefined },
           ]}
           active={activeShipDetailTab}
           onSelect={(k) => (activeShipDetailTab = k as "loadout" | "seniorStaff" | "awayTeam" | "complement")}
@@ -17105,6 +17146,7 @@
           onGraduate={doGraduate}
           onSendBack={doSendBackNotable}
           onRetire={doRetireNotable}
+          onTransfer={doTransferCrew}
           {reducedMotion}
         />
         {/if}

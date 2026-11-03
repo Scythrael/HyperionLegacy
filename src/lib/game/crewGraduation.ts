@@ -286,6 +286,9 @@ export interface ManifestPage {
 // CP-9: an optional `profession` narrows the manifest to one division (the Manifest's division chips). Indexes and the
 // total then count that division only; every name is unchanged, since a name hangs on the ship, the bucket and the row
 // within the bucket, never on the row's place in the list. Omitted, the manifest is exactly the CP-8 one.
+// The id manifestRows reads as the crew pool (equal to crewTransfer.ts CREW_POOL).
+export const MANIFEST_POOL_ID = "pool";
+
 export function manifestRows(
   state: GameState,
   shipId: string,
@@ -293,7 +296,9 @@ export function manifestRows(
   limit: number,
   profession?: CrewSignature["profession"] | null,
 ): ManifestPage {
-  const all = state.ships.find((s) => s.id === shipId)?.complement?.buckets ?? [];
+  // CP-10: the crew pool has a manifest too. "pool" is crewTransfer.ts CREW_POOL (not imported: no module needs this
+  // one to know transfers), and no ship id is ever "pool". Its names seed the same way, under the pool's own id.
+  const all = shipId === MANIFEST_POOL_ID ? state.crewPool : (state.ships.find((s) => s.id === shipId)?.complement?.buckets ?? []);
   const buckets = profession === undefined || profession === null ? all : all.filter((b) => b.profession === profession);
   const total = buckets.reduce((n, b) => n + Math.max(0, b.count), 0);
   const rows: ManifestRow[] = [];

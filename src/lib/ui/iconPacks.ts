@@ -263,6 +263,11 @@ export const ICON_SEMANTICS: Record<IconName, IconSemantic> = {
   sort: "action",
   diamond: "subject",
   chevronLeft: "ornament",
+
+  // 0.14.0 CP-10: the crew pool names a thing (the crew waiting at home); minus and plus are the stepper's actions.
+  crewPool: "subject",
+  minus: "action",
+  plus: "action",
 };
 
 // ---------------------------------------------------------------------------

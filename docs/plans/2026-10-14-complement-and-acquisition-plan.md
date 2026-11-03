@@ -541,6 +541,25 @@ ship and Fire, OC-12], App handlers.
 "Transfer 12 selected..." button and the lock line). Verify in preview: transfer 12 from pool to a manual ship; a
 locked ship disables every crew control with the reason; salvage a hull with members and find them in the list.
 
+**Carry note (2026-11-02, CP-10 built to the signed mockup and the user's ten A picks; no SAVE bump, no golden
+moved, no engine rule changed):** the picker's numbers live in a new tested `src/lib/crewTransferDisplay.ts`
+(destination cards, the source block, each row's willMove / warning / "up to", the summary and button, the result,
+the log line, "Transfer more", the pool's division stats), every count from ONE `transferCrew` preview on the live
+state, so the picker cannot promise what the engine would not do. New components: `CrewTransferModal.svelte` (desktop
+two columns; phone two steps in one DOM via the ActionModal container), `CrewPoolPanel.svelte` (the Personnel Rosters
+"Crew Pool" tab: headcount, six division tiles, the table, Manifest, "Send N to a ship..."), and the CP-9 table and
+manifest extracted to `CrewGroupsTable.svelte` / `CrewManifestModal.svelte` (their CSS to the global `crewGroups.css`,
+cg- prefixed) so the ship and the pool share them. `manifestRows` / `manifestView` read the pool for the id "pool"
+(`MANIFEST_POOL_ID` = `CREW_POOL`; display only, names seeded the same way). App: `doTransferCrew` (log line, save;
+a refusal is logged with the gate text), the facility sub-tab `activePersonnelRostersSubTab`, the ship sub-tabs'
+`crewLock` mark (SubTabs gained an optional `crewLock` field: an SVG lock and the words as a title; the tab stays
+live). Lock lines: Away Team gained a panel line; Complement's reads "crew changes are locked ... Favorites and the
+Manifest still work" and its toggle "(paused while out)". Unassigned shows the member's worn gear
+(`awayTeamDisplay.ts unassignedGearText`). Glyphs `crewPool`, `minus`, `plus`. Deviations: ALL also shows on the
+phone rows (pick 3 names it; the phone frame omitted it); the hull badge hides when it equals the ship's name; twin
+groups (same name, rank, rarity) name their buffs; the row warning names the exact cap that bound (berths, division,
+or rank and above) instead of "nearly full". QA: docs/qa/2026-11-02-cp10-transfer-pool-qa.html.
+
 ### CP-11: Crew module and early sensor blueprints (Task 28 engine)
 
 **Files:** `model.ts` `BLUEPRINTS` (15 new `equipmentOutput` blueprints: 3 bridge, 9 quarters, Wide-Beam /

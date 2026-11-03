@@ -2,6 +2,7 @@
 
 import { describe, it, expect } from "vitest";
 import { AWAY_TEAM_TYPES, freshState } from "./game/model";
+import type { GameState } from "./game/model";
 import { AUGMENT_AFFINITY_RACES, canReassignAwayMember, implantSlotsFor, specsFor } from "./game/awayTeam";
 import { plainAwayMember } from "./game/awayTeamTestFixtures";
 import { AWAY_TRAITS, traitDisplayText } from "./game/awayTraits";
@@ -25,6 +26,7 @@ import {
   RANK_TEXT,
   UNASSIGNED_INTRO,
   unassignedMembersView,
+  unassignedGearText,
   crewLockText,
   awayGateText,
   awayMoveControl,
@@ -184,6 +186,13 @@ describe("unassignedMembersView (CP-6)", () => {
 
   it("is empty when everyone has a ship, and the intro reads cleanly", () => {
     expect(unassignedMembersView(freshState(), "ship-1")).toEqual([]);
+    // CP-10: a member with nothing installed reads no gear line.
+    expect(unassignedGearText(freshState(), "member-x")).toBeNull();
+    const piece = (id: string, slotType: string) => ({ id, slotType, fittedToMemberId: "member-x" }) as unknown as GameState["equipment"][number];
+    const geared = { ...freshState(), equipment: [piece("e1", "memberArmor"), piece("e2", "memberTool"), piece("e3", "implant"), piece("e4", "memberWeapon")] };
+    expect(unassignedGearText(geared, "member-x")).toBe("Armor, Weapon, Tool installed · 1 implant");
+    const toolOnly = { ...freshState(), equipment: [piece("e2", "memberTool")] };
+    expect(unassignedGearText(toolOnly, "member-x")).toBe("Tool installed");
     expect(UNASSIGNED_INTRO).toMatch(/^[A-Z].{10,}\.$/);
     expect(UNASSIGNED_INTRO).not.toContain(String.fromCharCode(0x2014));
     expect(UNASSIGNED_INTRO).not.toContain("--");
