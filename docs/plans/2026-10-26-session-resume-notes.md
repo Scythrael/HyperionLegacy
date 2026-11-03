@@ -223,3 +223,19 @@ ANSWERED 2026-11-02: CP-19 (Personnel Rosters track), telescope cycles name ("De
 (quiet derelict field), CP-20 (Default / Colorblind / Mono). Gear wear step 5 UI: NOT approved yet; mockup
 https://claude.ai/artifact/HRa9zUf1XRrPoh9tuinhEF shown to the user for sign-off. Relic name sheets and the CP-9 /
 CP-10 mockups are being drafted. PROD is 0.13.11.3 @ eaf1fb8 (offline cap 4 days), merged into feat 7c553ac.
+
+## Hub handoff (2026-11-02 ~23:40 UTC), feat @ 94e27b3
+
+PROD 0.13.11.3 @ eaf1fb8 (offline cap 4 days). Merged into feat since 2026-10-30, each tagged slice/<id> in the
+backup remote: OC-D8 patrol legs + follow-up, CP-3, WR-11, GG-8, WR-9 (+ catchUp perf split: full gates = suite +
+`npm run test:perf` + check), hotfix 0.13.11.3, EM-8, CP-5, SF-7, G1-7, CP-9. 10,848 green. Release gate pending 37.
+Systems DONE since the v12 card: gas giants, safe first runs, short-range missions (card update pending the user's
+call).
+Approved, ready to build: CP-10 (mockup + A/B picks in the complement plan), E5 Refugee Posts (design, mockup, plan
+docs/plans/2026-11-02-refugee-posts-e5-plan.md, slices E5-0..E5-7), gear wear step 5 UI (mockup approved), CP-19
+(Personnel Rosters track), CP-20 (graph presets), telescope "Deep Field Refinement", Wolf 359 quiet derelict field.
+OPEN user calls: gear wear use floor (built 60% vs "no floor") and Quick Service (Oct 16 paid rush vs "none") block
+gear wear step 5; relic names: structure answered, user loves the sheet, the Keelsong and Ember Court homage flavor
+lines need drafting for sign-off, then "approve all".
+Queue: CP-10 -> E5-0..E5-7 -> CP-11/12/13, CP-14, CP-16, CP-17/18, CP-19, CP-20, ML-5, ML-6 verify, WR-10, OT-UI,
+G2-7, R2-5..R2-9 after names, completion tracking, close-outs, wiring gate, then staging on the user's go.
