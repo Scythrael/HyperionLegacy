@@ -101,3 +101,13 @@ merged, with the Fast Departure / Fast Return patrol follow-up building. Designe
 Build % = (20 + 13 / 2) / 34 = 77.9%, shown as 78%; to release = 0.70 x 77.9% = 54.6%, shown as 55%. Landed items on
 the card, in fan language: ship systems wiring pass, gear that suits its ship, speed-aware patrols, crew on patrol
 (building).
+
+## 2026-11-03 (v13): 35 systems, 25 done, 9 building, 1 designed = 84% built, 59% to release
+
+Done (25): the v12 twenty plus gas giant study (GG-8), safe first runs (SF-7), short-range missions (G1-7), universal
+modules / power (EM-8 the last 0.14.0 slice; EM-9 moved to 0.14.x), tutorial hooks (nothing left for 0.14.0; the
+tutorial wiring belongs to the tutorial patch). Building (9): wiring framework (WR-7, WR-9, WR-11 merged; WR-10,
+WR-12 left), crew complement (CP-3, CP-5, CP-9, CP-10 merged), expedition tiers, gear wear, Overtime and credit sinks,
+Relics v2, Material Lines, recipe realism, plus the NEW refugee posts (E5-0 to E5-3 merged; it was in the locked saga
+design C.3 but never counted). Designed (1): completion tracking. Build % = (25 + 9 / 2) / 35 = 84.3%; to release =
+0.70 x 84.3% = 59.0%. Card note: five more systems finished, a new one joined (rescued refugees).
