@@ -1248,6 +1248,9 @@ const COMPLETION_KIND_VIEW: Record<
   // only its fallback. Opens the board until the Refugees tab exists (E5-6). [PROVISIONAL]
   refugeeArrival:          { verb: "Evacuation complete", icon: "home", source: "Short-Range Missions", jumpTarget: "shortRange" },
   refugeeNoArrival:        { verb: "Evacuation complete", icon: "home", source: "Short-Range Missions", jumpTarget: "shortRange" },
+  // E5-3: a waiting refugee left with a Refugee Relocation to lead the new camp. The mockup's leaf glyph joins with the
+  // E5-6 log icons; "home" until then. [PROVISIONAL]
+  refugeeFarewell:         { verb: "Relocation complete", icon: "home", source: "Short-Range Missions", jumpTarget: "shortRange" },
 };
 
 // 0.13.4 Phase 2 Unit 2.2 (design §6.2): the EXHAUSTIVE wording table for patrol endings.
@@ -1456,7 +1459,7 @@ function completionDetail(entry: CompletionLogEntry): string | null {
 
 // E5-2 (Refugee Posts): the log line of an Evacuation's outcome (the signed mockup's words), or null for any other entry.
 // Arrival: "Evacuation complete: Tamsin Corr, a refiner, joins your homeworld." No arrival: "Evacuate Body II, desert
-// world complete. Everyone aboard reached the camps; nobody new came home this time." Pure.
+// world complete. Everyone aboard reached the camps; nobody new came home this time." E5-3 adds the farewell. Pure.
 export function refugeeCompletionLine(entry: Pick<CompletionLogEntry, "kind" | "refugee" | "refugeeOrigin">): string | null {
   if (entry.kind === "refugeeArrival") {
     const r = entry.refugee;
@@ -1469,6 +1472,13 @@ export function refugeeCompletionLine(entry: Pick<CompletionLogEntry, "kind" | "
     const origin = entry.refugeeOrigin;
     const where = origin === undefined ? "" : ` ${shortRangeDestinationLabel({ template: "evacuation", destinationIndex: origin.destinationIndex })}`;
     return `Evacuate${where} complete. Everyone aboard reached the camps; nobody new came home this time.`;
+  }
+  // E5-3: "Silas Wren leaves to lead the new camp on Body II, desert world." (the mockup's farewell line).
+  if (entry.kind === "refugeeFarewell") {
+    const who = entry.refugee?.name ?? "Someone from your homeworld";
+    const origin = entry.refugeeOrigin;
+    const where = origin === undefined ? "" : ` on ${shortRangeDestinationLabel({ template: "refugeeRelocation", destinationIndex: origin.destinationIndex })}`;
+    return `${who} leaves to lead the new camp${where}.`;
   }
   return null;
 }

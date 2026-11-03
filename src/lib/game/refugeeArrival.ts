@@ -16,7 +16,11 @@
 // here with `openPosts` read at each delivery's own tick (the incoming state plus every facility upgrade completing on an
 // EARLIER tick of the call, exactly what a 1 s step on that tick reads), so one call == chunked == 1 s steps.
 //
-// Relocation deliveries are carried through but do nothing yet (E5-3 adds the farewell).
+// E5-3 (design section 7, plan Task E5-3): a delivered Refugee Relocation takes ONE waiting refugee along as the new
+// camp's leader whenever anyone is waiting (refugeeFarewellPick: the longest-waiting, the lowest id among the waiting).
+// A posted refugee is never taken, and with nobody waiting the run delivers exactly as before (no event, the same
+// `refugees` reference). The pick takes no draw, so no stream moves. It happens at DELIVERY, in the same (atTick, slotId)
+// order as the Evacuations, so a farewell and an arrival on one tick resolve in slot order however the span is cut.
 //
 // Every number here is a [PROPOSAL] or [PROVISIONAL] in one named constant.
 
@@ -61,7 +65,8 @@ export interface RefugeeDelivery {
   roll: ShortRangeRoll;
 }
 
-// What a delivery did, for the completion log: someone arrived, nobody came home this time, or (E5-3) a farewell.
+// What a delivery did, for the completion log: someone arrived, nobody came home this time, or (E5-3) a waiting refugee
+// left with a Refugee Relocation to lead the new camp (the farewell names them and the run's destination).
 export interface RefugeeEvent {
   kind: "arrival" | "noArrival" | "farewell";
   atTick: number;
@@ -117,12 +122,25 @@ export function refugeeArrives(roll: ShortRangeRoll, waiting: number, openPosts:
   return roll.difficulty.firstRun || arrival < refugeeArrivalChance(waiting, openPosts);
 }
 
+// E5-3: who a Refugee Relocation takes along, the longest-waiting refugee (the lowest id among those with no posting;
+// ids are minted in arrival order), or null when nobody is waiting. Never a posted refugee. Pure.
+// E5-3: the TEST-ONLY off switch (refugeeFarewellSwitch.fixture.ts): with `live` false a Relocation takes nobody, the
+// game before E5-3 exactly, so a golden captured before it can be traced. Never written by app code.
+export const REFUGEE_FAREWELL_SWITCH: { live: boolean } = { live: true };
+
+export function refugeeFarewellPick(refugees: RefugeeState): RefugeeRecord | null {
+  let pick: RefugeeRecord | null = null;
+  for (const r of refugees.list) if (r.posting === null && (pick === null || r.id < pick.id)) pick = r;
+  return pick;
+}
+
 // The refugee state after this call's deliveries, and what each did. The deliveries are taken in (atTick, slotId) order
 // (sorted here, stable); each Evacuation reads the waiting list as the earlier ones left it, against `openPosts`: a
 // number (a constant of the call) or the open posts as of a delivery's own `atTick` (tick.ts: facility upgrades that
 // complete earlier in the call count from the next tick on, as 1 s steps see them). An arrival joins the waiting list (posting null) with the next id, counts
-// in `arrivedTotal` and is queued for its arrival card (`greet`). A miss mints no id. Relocations do nothing yet (E5-3).
-// No arrival: the same `refugees` reference. Pure.
+// in `arrivedTotal` and is queued for its arrival card (`greet`). A miss mints no id. A Relocation (E5-3) takes the
+// farewell pick off the list (and off `greet`, so no card waits for someone who left); `arrivedTotal` never drops, and
+// nobody waiting means no event. No arrival and no farewell: the same `refugees` reference. Pure.
 export function applyRefugeeDeliveries(
   refugees: RefugeeState,
   openPosts: number | ((atTick: number) => number),
@@ -135,8 +153,15 @@ export function applyRefugeeDeliveries(
   let out = refugees;
   let waiting = refugees.list.reduce((n, r) => n + (r.posting === null ? 1 : 0), 0);
   for (const d of ordered) {
-    if (d.kind !== "evacuation") continue;
     const base = { atTick: d.atTick, slotId: d.slotId, destinationIndex: d.roll.destinationIndex, tier: d.roll.tier };
+    if (d.kind === "relocation") {
+      const leaving = REFUGEE_FAREWELL_SWITCH.live ? refugeeFarewellPick(out) : null;
+      if (leaving === null) continue;
+      out = { ...out, list: out.list.filter((r) => r.id !== leaving.id), greet: out.greet.filter((id) => id !== leaving.id) };
+      waiting -= 1;
+      events.push({ kind: "farewell", ...base, refugeeId: leaving.id, name: leaving.name, background: leaving.background });
+      continue;
+    }
     const open = typeof openPosts === "number" ? openPosts : openPosts(d.atTick);
     if (!refugeeArrives(d.roll, waiting, open)) {
       events.push({ kind: "noArrival", ...base });
