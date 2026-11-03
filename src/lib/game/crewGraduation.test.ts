@@ -11,12 +11,16 @@ import {
   MANIFEST_NAME_SALT,
   NOTABLE_NAME_SALT,
   canGraduate,
+  canRetireNotable,
   canSendBackNotable,
   graduateBlockText,
   graduateGateText,
   graduateStandout,
   manifestRows,
   nextGraduateIdentity,
+  retireBlockText,
+  retireGateText,
+  retireNotable,
   sendBackBlockText,
   sendBackGateText,
   sendBackNotable,
@@ -140,7 +144,7 @@ describe("CP-8 graduate", () => {
     for (const r of ["noShip", "onMission", "noBucket", "notableCap"] as const) {
       for (const b of banned) expect(graduateBlockText(r).includes(b)).toBe(false);
     }
-    expect(graduateBlockText("notableCap")).toBe("The fleet already has 50 notable crew");
+    expect(graduateBlockText("notableCap")).toBe("The fleet already has 50 notable crew. Retire one to make room");
   });
 
   it("uses its own odd salts", () => {
@@ -177,6 +181,75 @@ describe("CP-8 send back (OC-9: unassign, stays named)", () => {
     }
     expect(sendBackGateText(onExpedition(aboard), "notable-1", canSendBackNotable(onExpedition(aboard), "notable-1"))).toBe("Ship is on an expedition");
     for (const r of ["noNotable", "notAboard", "onMission"] as const) expect(sendBackBlockText(r).length).toBeGreaterThan(0);
+  });
+});
+
+describe("CP-9 retire (user call 2026-11-02)", () => {
+  it("removes an aboard notable: the ship's crew drops by that one, a cap slot frees, ids are never reused", () => {
+    const ops = bucket("operations", 5);
+    const s = graduateStandout(withComplement([ops], "active"), "ship-1", signatureKey(ops)).next;
+    const id = s.notableCrew[0].id;
+    expect(canRetireNotable(s, id)).toEqual({ ok: true });
+    const out = retireNotable(s, id);
+    expect(out.notableCrew).toEqual([]);
+    expect(out.ships).toBe(s.ships);
+    expect(bulk(out)[0].count).toBe(4);
+    expect(out.nextNotableId).toBe(s.nextNotableId);
+    expect(out.personnelRosters).toBe(s.personnelRosters);
+    // the input is never mutated
+    expect(s.notableCrew.length).toBe(1);
+  });
+
+  it("works for an unassigned notable and frees a slot under the fleet cap", () => {
+    const ops = bucket("operations", 5);
+    const full: GameState = { ...withComplement([ops]), notableCrew: Array.from({ length: NOTABLE_CREW_CAP }, (_, i) => notable(`notable-x${i}`, ops, null)) };
+    expect(canGraduate(full, "ship-1", signatureKey(ops))).toEqual({ ok: false, reason: "notableCap" });
+    const out = retireNotable(full, "notable-x7");
+    expect(out.notableCrew.length).toBe(NOTABLE_CREW_CAP - 1);
+    expect(out.notableCrew.some((n) => n.id === "notable-x7")).toBe(false);
+    expect(canGraduate(out, "ship-1", signatureKey(ops))).toEqual({ ok: true });
+  });
+
+  it("drops the id from every roster's pins, leaving other pins in order", () => {
+    const ops = bucket("operations", 5);
+    const base = withComplement([ops]);
+    const roster = (id: string, pins: string[]) => ({ id, name: id, linkedLoadoutId: null, includePeople: true, seatAssignments: {}, pinnedNotableCrew: pins });
+    const s: GameState = {
+      ...base,
+      notableCrew: [notable("notable-1", ops, null), notable("notable-2", ops, null)],
+      personnelRosters: [roster("roster-1", ["notable-2", "notable-1"]), roster("roster-2", ["notable-2"])],
+    };
+    const out = retireNotable(s, "notable-1");
+    expect(out.personnelRosters[0].pinnedNotableCrew).toEqual(["notable-2"]);
+    expect(out.personnelRosters[1]).toBe(s.personnelRosters[1]);
+  });
+
+  it("a passive ship refills the freed berth on the tick, the same as after Send back", () => {
+    const ops = bucket("operations", 3);
+    const s: GameState = { ...withComplement([ops], "passive", [bucket("operations", 100)]), notableCrew: [notable("notable-1", ops, "ship-1")] };
+    const filled = resolveCrew(s);
+    const retired = resolveCrew(retireNotable(filled, "notable-1"));
+    const sentBack = resolveCrew(sendBackNotable(filled, "notable-1"));
+    expect(bulk(retired)).toEqual(bulk(sentBack));
+    expect(totalCrew(bulk(retired))).toBe(totalCrew(bulk(filled)) + 1);
+  });
+
+  it("refuses with the SAME reference: unknown, or aboard a crew-locked ship (an unassigned one still retires)", () => {
+    const ops = bucket("operations", 5);
+    const aboard = { ...withComplement([ops]), notableCrew: [notable("notable-1", ops, "ship-1"), notable("notable-2", ops, null)] };
+    const cases: [GameState, string, string][] = [
+      [aboard, "notable-9", "noNotable"],
+      [onMission(aboard), "notable-1", "onMission"],
+      [onExpedition(aboard), "notable-1", "onMission"],
+    ];
+    for (const [state, id, reason] of cases) {
+      expect(canRetireNotable(state, id)).toEqual({ ok: false, reason });
+      expect(retireNotable(state, id)).toBe(state);
+    }
+    expect(canRetireNotable(onMission(aboard), "notable-2")).toEqual({ ok: true });
+    expect(retireGateText(onExpedition(aboard), "notable-1", canRetireNotable(onExpedition(aboard), "notable-1"))).toBe("Ship is on an expedition");
+    expect(retireGateText(aboard, "notable-1", canRetireNotable(aboard, "notable-1"))).toBeUndefined();
+    for (const r of ["noNotable", "onMission"] as const) expect(retireBlockText(r).length).toBeGreaterThan(0);
   });
 });
 

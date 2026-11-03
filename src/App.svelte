@@ -586,7 +586,7 @@
   // CP-6: the one crew lock (the accurate lock words, and the complement mode toggle's engine fn).
   import { canSetComplementMode, complementModeBlockText, crewLockText, crewLockTextAmong, setComplementMode } from "./lib/game/crewLock";
   // CP-9: the Complement tab's Graduate one and Send back (the CP-8 engine).
-  import { graduateGateText, graduateStandout, sendBackGateText, canSendBackNotable, sendBackNotable } from "./lib/game/crewGraduation";
+  import { graduateGateText, graduateStandout, sendBackGateText, canSendBackNotable, sendBackNotable, canRetireNotable, retireGateText, retireNotable } from "./lib/game/crewGraduation";
   // CP-5 (per-hull crew caps): the build card names the hull's crew berths.
   import { complementTotalCap } from "./lib/game/commandStructure";
   // S1 / S2 (user 2026-10-17, both "Lock it"): the gear lock and the captain lock read the same crew lock, and these
@@ -6216,13 +6216,38 @@
     const before = state.notableCrew.find((n) => n.id === notableId);
     const next = sendBackNotable(state, notableId);
     if (next === state) {
-      const why = sendBackGateText(state, notableId, canSendBackNotable(state, notableId));
+      // A stale second click (the notable is gone or already off its ship) is a silent no-op; only a real refusal
+      // (the ship is crew-locked) is logged.
+      const gate = canSendBackNotable(state, notableId);
+      if (gate.ok || gate.reason !== "onMission") return;
+      const why = sendBackGateText(state, notableId, gate);
       if (why) pushLog(`Could not send back: ${why}.`);
       return;
     }
     state = next;
     doSave();
     if (before) pushLog(`[${devShipLabel(before.assignedShipId ?? "")}] ${before.name} was sent back and is no longer assigned to a ship.`);
+  }
+
+  // CP-9 (user call 2026-11-02 "Allow Retire"): "Retire" on a notable card, after the panel's confirm. The notable
+  // leaves the fleet with a farewell line, no penalty, and frees a slot under the notable cap. A stale click (already
+  // retired) is a silent no-op; a crew-locked ship is logged with the reason.
+  function doRetireNotable(notableId: string) {
+    const before = state.notableCrew.find((n) => n.id === notableId);
+    const next = retireNotable(state, notableId);
+    if (next === state) {
+      const gate = canRetireNotable(state, notableId);
+      if (gate.ok || gate.reason !== "onMission") return;
+      const why = retireGateText(state, notableId, gate);
+      if (why) pushLog(`Could not retire: ${why}.`);
+      return;
+    }
+    state = next;
+    doSave();
+    if (before) {
+      const where = (before.assignedShipId ?? null) === null ? "" : `[${devShipLabel(before.assignedShipId ?? "")}] `;
+      pushLog(`${where}Farewell, ${before.name}. They retire from the fleet with your thanks.`);
+    }
   }
 
   // ── Expeditions (Exploration 0.14.0 phase E2c) ──────────────────────────────
@@ -17079,6 +17104,8 @@
           onToggleFavorite={doToggleNotableFavorite}
           onGraduate={doGraduate}
           onSendBack={doSendBackNotable}
+          onRetire={doRetireNotable}
+          {reducedMotion}
         />
         {/if}
         {/if}

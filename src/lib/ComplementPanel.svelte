@@ -57,7 +57,8 @@
   import Icon from "./ui/Icon.svelte";
   import ActionModal from "./ActionModal.svelte";
   import { NOTABLE_CREW_CAP, shipDisplayLabel } from "./game/model";
-  import { canGraduate, canSendBackNotable, graduateGateText, nextGraduateIdentity, sendBackGateText } from "./game/crewGraduation";
+  import { canGraduate, canRetireNotable, canSendBackNotable, graduateGateText, nextGraduateIdentity, retireGateText, sendBackGateText } from "./game/crewGraduation";
+  import { marquee } from "./ui/marquee";
   import {
     DIVISION_LABEL,
     GROUP_PAGE_STEP,
@@ -91,6 +92,11 @@
   export let onGraduate: (shipId: string, signatureKey: string) => string | null;
   // CP-9 (OC-9): send a notable back (host: doSendBackNotable, crewGraduation.ts sendBackNotable + doSave).
   export let onSendBack: (notableId: string) => void;
+  // CP-9 (user call 2026-11-02 "Allow Retire"): retire a notable after the confirm (host: doRetireNotable,
+  // crewGraduation.ts retireNotable + doSave).
+  export let onRetire: (notableId: string) => void = () => {};
+  // The game's Reduce motion setting (the one the backgrounds use): the notable strip stays still while it is on.
+  export let reducedMotion = false;
 
   // --- Static display metadata ------------------------------------------------
   // Division display labels (US English): complementTableDisplay.ts DIVISION_LABEL, shared with the table.
@@ -313,6 +319,7 @@
     justGraduatedId = null;
     graduateKey = null;
     manifestOpen = false;
+    retireId = null;
   }
 
   $: groupRows = crewGroupRows(complement.buckets);
@@ -363,6 +370,20 @@
   const SEND_BACK_TITLE = "Unassign from this ship. They keep their name, and a Personnel roster can assign them to a ship again.";
   function sendBackTitle(id: string, s: GameState): string {
     return sendBackGateText(s, id, canSendBackNotable(s, id)) ?? SEND_BACK_TITLE;
+  }
+
+  // --- CP-9: retire (the confirm) ---------------------------------------------------
+  let retireId: string | null = null;
+  $: retireTarget = retireId === null ? null : (state.notableCrew.find((n) => n.id === retireId) ?? null);
+  $: retireBlock = retireId === null ? undefined : retireGateText(state, retireId, canRetireNotable(state, retireId));
+  const RETIRE_TITLE = "Retire from the fleet with your thanks. No penalty, and it frees a notable slot.";
+  function retireTitle(id: string, s: GameState): string {
+    return retireGateText(s, id, canRetireNotable(s, id)) ?? RETIRE_TITLE;
+  }
+  function confirmRetire(): void {
+    if (retireId === null) return;
+    onRetire(retireId);
+    retireId = null;
   }
 
   // --- CP-9: the manifest (read-only, one paged list) ----------------------------
@@ -513,7 +534,7 @@
     {/if}
 
     <!-- CP-9: CREW GROUPS. One row per bucket (crew with the same origin, division, rank, rarity and buffs). -->
-    {#if groupRows.length > 0}
+    {#if usedBerths > 0}
       <div class="comp-groups">
         <div class="comp-section-tag">
           <span>Crew Groups</span>
@@ -521,6 +542,7 @@
           <span class="comp-section-hint cg-hint-narrow">{groupRows.length}</span>
         </div>
         <div class="cg-tools">
+          {#if groupRows.length > 0}
           <div class="cg-chiprow cg-sortrow" role="group" aria-label="Sort crew groups">
             <span class="cg-lbl"><Icon name="sort" size={13} /> Sort</span>
             {#each GROUP_SORTS as so (so.id)}
@@ -534,21 +556,27 @@
               <button type="button" class="cg-chip" class:on={groupDivision === p} aria-pressed={groupDivision === p} on:click={() => setDivision(p)}>{DIVISION_LABEL[p]} <span class="cg-n">{divisionCounts.byDivision[p]}</span></button>
             {/each}
           </div>
+          {:else}
+          <span class="cg-onlynotables">Every crew member aboard is a notable.</span>
+          {/if}
           <button type="button" class="cg-btn ghost cg-manifest" on:click={openManifest}><Icon name="manifest" size={14} /> Manifest</button>
         </div>
 
+        {#if groupRows.length > 0}
         <div class="cg-wrap">
           <div class="cg-table" role="table" aria-label="Crew groups">
             <div class="cg-row cg-head" role="row">
               <span class="cg-c cg-tick" role="columnheader">
                 <button
                   type="button"
+                  role="checkbox"
                   class="cg-cb"
                   class:on={headerTick === "all"}
                   class:mixed={headerTick === "some"}
+                  aria-checked={headerTick === "all" ? "true" : headerTick === "some" ? "mixed" : "false"}
                   aria-label={headerTick === "all" ? "Untick every group shown" : "Tick every group shown"}
                   on:click={toggleAllInView}
-                >{#if headerTick === "all"}<Icon name="check" size={11} />{/if}</button>
+                >{#if headerTick === "all"}<Icon name="check" size={11} />{:else if headerTick === "some"}<span class="cg-cb-dash" aria-hidden="true"></span>{/if}</button>
               </span>
               <span class="cg-c cg-name" role="columnheader">Group</span>
               <span class="cg-c cg-div" role="columnheader" class:sorted={groupSort === "division"}>Division</span>
@@ -612,6 +640,7 @@
             </div>
           {/if}
         </div>
+        {/if}
       </div>
     {/if}
 
@@ -627,7 +656,7 @@
           aboard this ship.
         </div>
       {:else}
-        <div class="comp-nstrip">
+        <div class="comp-nstrip" use:marquee={{ still: reducedMotion, key: shipNotables.length }}>
           {#each shipNotables as n (n.id)}
             {@const sendGate = canSendBackNotable(state, n.id)}
             <div class="comp-ncard" class:new={justGraduatedId === n.id}>
@@ -659,6 +688,13 @@
                   title={sendBackTitle(n.id, state)}
                   on:click={() => onSendBack(n.id)}
                 >Send back</button>
+                <button
+                  type="button"
+                  class="cg-btn sm ghost"
+                  disabled={!canRetireNotable(state, n.id).ok}
+                  title={retireTitle(n.id, state)}
+                  on:click={() => (retireId = n.id)}
+                >Retire</button>
               </div>
             </div>
           {/each}
@@ -697,6 +733,25 @@
     <svelte:fragment slot="footer">
       <button type="button" class="cg-btn ghost gm-fbtn" on:click={() => (graduateKey = null)}>Cancel</button>
       <button type="button" class="cg-btn pri gm-fbtn" disabled={graduateBlock !== undefined} on:click={confirmGraduate}><Icon name="graduate" size={14} /> Graduate</button>
+    </svelte:fragment>
+  </ActionModal>
+{/if}
+
+{#if retireId !== null && retireTarget !== null}
+  <!-- CP-9 (user call 2026-11-02 "Allow Retire"): the Retire confirm. No penalty; it frees a notable slot. -->
+  <ActionModal title="Retire a notable" onClose={() => (retireId = null)}>
+    <div class="gm">
+      <p class="gm-lead">Retire <b>{retireTarget.name}</b>? They leave the fleet with your thanks.</p>
+      <div class="gm-delta">Notables in the fleet <s>{fleetNotables}</s> &rarr; <b>{fleetNotables - 1}</b> / {NOTABLE_CREW_CAP}</div>
+      {#if retireBlock !== undefined}
+        <p class="gm-warn"><Icon name="warning" size={14} /> <span>{retireBlock}.</span></p>
+      {:else}
+        <p class="gm-note">No penalty. {(retireTarget.assignedShipId ?? null) === null ? "They are not aboard a ship." : autoCrewOn ? "Their berth aboard opens, and auto-crew refills it from the pool." : "Their berth aboard opens."} This cannot be undone.</p>
+      {/if}
+    </div>
+    <svelte:fragment slot="footer">
+      <button type="button" class="cg-btn ghost gm-fbtn" on:click={() => (retireId = null)}>Cancel</button>
+      <button type="button" class="cg-btn pri gm-fbtn" disabled={retireBlock !== undefined} on:click={confirmRetire}>Retire</button>
     </svelte:fragment>
   </ActionModal>
 {/if}
@@ -1178,6 +1233,7 @@
   }
   .comp-nc-act {
     display: flex;
+    gap: 6px;
     justify-content: flex-end;
     margin-top: auto;
   }
@@ -1270,6 +1326,15 @@
   }
   .cg-cb.mixed {
     background: rgba(var(--color-accent-rgb), 0.35);
+    border-color: var(--color-accent);
+  }
+  /* The header box's mixed state (some groups shown are ticked): a bar, read as aria-checked="mixed". */
+  .cg-cb-dash {
+    display: block;
+    width: 9px;
+    height: 2px;
+    border-radius: 1px;
+    background: var(--color-accent-bright);
   }
   .cg-cb :global(svg) {
     stroke-width: 3;
@@ -1361,6 +1426,10 @@
   .cg-manifest {
     margin-left: auto;
   }
+  .cg-onlynotables {
+    font-size: var(--text-xs);
+    color: var(--color-text-dim);
+  }
   .cg-wrap {
     display: flex;
     flex-direction: column;
@@ -1368,9 +1437,11 @@
     border-radius: var(--corner);
     background: rgba(var(--color-accent-rgb), 0.03);
   }
+  /* The wide row's fixed tracks (34 + 110 + 96 + 136 + 96 + 56) plus the Graduate button (about 125) need about 650 px,
+     under the 700 px card switch below, so a row never overflows at any width (CP-9 review: it needed about 713). */
   .cg-row {
     display: grid;
-    grid-template-columns: 34px minmax(150px, 1.2fr) 96px 150px 104px minmax(0, 2fr) 56px auto;
+    grid-template-columns: 34px minmax(110px, 1.2fr) 96px 136px 96px minmax(0, 2fr) 56px auto;
     align-items: center;
     border-bottom: 1px solid rgba(var(--color-accent-rgb), 0.08);
     font-size: var(--text-xs);

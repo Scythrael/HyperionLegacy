@@ -184,7 +184,8 @@
       <li><b>Transfer shows, greyed.</b> The selection bar's Transfer button is drawn as in the mockup but is disabled ("Crew transfer is not built yet") until CP-10 wires it.</li>
       <li><b>The manifest list scrolls inside its box</b> so the pager under it stays in view, as the mockup draws it. Names are generated for the page in view only and never saved.</li>
       <li><b>No save step and no rule change.</b> Graduate and Send back are the CP-8 engine, already tested; this slice only adds the screens, the App handlers and a division filter for the manifest (names unchanged by the filter).</li>
-      <li><b>Open question (yours):</b> at 50 notables there is no way to make room, since no action removes a notable. Should a notable ever be dismissable or retired, or is 50 a lifetime ceiling?</li>
+      <li><b>Answered (2026-11-02):</b> "Allow Retire". A notable can now be retired from its card, which frees a slot, and the cap line says so.</li>
+      <li><b>Fix round minors:</b> crew group rows no longer overflow between 700 and 720 px; the Manifest button shows on a ship whose crew are all notables; the header tick box shows a mixed bar when some groups are ticked; a stale second Send back click no longer logs an error.</li>
     </ol>
   </div>
 
@@ -211,12 +212,16 @@ const SECTIONS = [
     { t: "Press Graduate: the group's count drops by one, the new notable card appears in Notable Crew outlined green with \"just graduated\", and the ship's header and division counts do not change. The log says who graduated.", c: true, tag: "save", how: "crewGraduation.test.ts (identity only: headcount and the crew map unchanged; the notable keeps the group's signature)." },
     { t: "The name the confirm showed is the name the notable has.", c: true, how: "crewGraduation.test.ts (nextGraduateIdentity names the next graduate)." },
     { t: 'On a ship that is out on a mission or an unclaimed expedition, every "Graduate one" is greyed and its tooltip names why.', c: true, tag: "save", how: "crewGraduation.test.ts (refusal text names the real lock)." },
-    { t: 'With 50 notables in the fleet, "Graduate one" is greyed with "The fleet already has 50 notable crew".', c: true, how: "crewGraduation.test.ts (the cap is 50 fleet-wide)." },
+    { t: 'With 50 notables in the fleet, "Graduate one" is greyed with "The fleet already has 50 notable crew. Retire one to make room".', c: true, how: "crewGraduation.test.ts (the cap is 50 fleet-wide)." },
   ]},
   { n: "3", title: "Notable cards and Send back", items: [
     { t: 'Each notable card shows its name, a star (filled when a favorite), rank, division and origin, every buff as a chip, and a "Send back" button. The section header reads "fleet N / 50".', tag: "theme" },
     { t: "Send back removes the notable from this ship's strip; the log says they are no longer assigned to a ship. They keep their name and can be assigned again with a Personnel roster.", c: true, tag: "save", how: "crewGraduation.test.ts (send back unassigns and keeps the record)." },
     { t: "On a crew-locked ship Send back is greyed with the reason.", c: true, how: "crewGraduation.test.ts (send back refuses while crew-locked)." },
+    { t: 'Fix round: "Retire" on a notable card opens "Retire <Name>? They leave the fleet with your thanks." with the fleet count going down by one. Confirm: the card leaves, "fleet N / 50" drops by one, and the log says farewell. No penalty.', c: true, tag: "save", how: "crewGraduation.test.ts (CP-9 retire: removes the record, frees a cap slot, drops roster pins, a passive ship refills the berth)." },
+    { t: "Fix round: on a crew-locked ship Retire is greyed with the reason. A notable not aboard any ship can still be retired.", c: true, how: "crewGraduation.test.ts (CP-9 retire refuses while crew-locked)." },
+    { t: "Fix round: with more notables than the screen shows at once, the strip drifts slowly on its own, rests at each end and drifts back. It stops while the pointer is over it, while a card button has focus, and for a moment after a touch.", tag: "device" },
+    { t: "Fix round: turn on Settings, UI, Accessibility, Reduce motion: the strip stays still (it still scrolls by hand).", how: "ui/marquee.test.ts tests the drift; the setting gate was checked in headless Chrome." },
   ]},
   { n: "4", title: "Manifest (read-only)", items: [
     { t: 'The Manifest button opens "Manifest, <ship>" with "N aboard, M notables", division chips, then the notables first (star, saved names), then groups with a header row and 50 numbered names a page.', c: true, tag: "save", how: "complementTableDisplay.test.ts (page of 50 with group headers; names match the engine)." },
