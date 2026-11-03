@@ -363,7 +363,9 @@ function returnToWaiting(list: readonly RefugeeRecord[], r: RefugeeRecord): Refu
 // A facility holding MORE people than its posts (a save state that skipped hydrateRefugees' overflow trim, or a
 // future level loss) never stays over after a post: besides the one swapped out, the extra people return to the
 // waiting list too, the last posted first (hydrateRefugees' overflow rule), listed in `returnedIds`. Nobody is ever
-// removed. Pure.
+// removed. A successful post also GREETS the newcomer (their id leaves `greet`, greetRefugee): posting by any path (the
+// strip, the tab, a picker, the arrival card) answers the arrival, so a later unpost or swap never brings the
+// "joins your homeworld" card back. `greet` only ever shrinks, so an old save loads identically. Pure.
 export function postRefugee(
   state: GameState,
   refugeeId: number,
@@ -378,7 +380,7 @@ export function postRefugee(
   if (who.posting === facility) return { next: state, success: true };
   let working: RefugeeRecord[] = list.filter((r) => r.id !== refugeeId);
   let here = working.filter((r) => r.posting === facility);
-  if (here.length < posts) return { next: withList(state, [...working, { ...who, posting: facility }]), success: true };
+  if (here.length < posts) return { next: greetRefugee(withList(state, [...working, { ...who, posting: facility }]), refugeeId), success: true };
   let out: RefugeeRecord | undefined;
   if (replaceId !== undefined) {
     out = here.find((r) => r.id === replaceId);
@@ -398,7 +400,7 @@ export function postRefugee(
     returnedIds.push(extra.id);
     working = returnToWaiting(working, extra);
   }
-  const next = withList(state, [...working, { ...who, posting: facility }]);
+  const next = greetRefugee(withList(state, [...working, { ...who, posting: facility }]), refugeeId);
   return returnedIds.length > 0 ? { next, success: true, swappedOutId, returnedIds } : { next, success: true, swappedOutId };
 }
 

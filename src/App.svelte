@@ -1650,7 +1650,61 @@
   $: if (!showRefugeesTab && activePersonnelTab === "refugees") activePersonnelTab = "roster";
   // E5-6: the first-arrival hint (Facilities dashboard) and the newest arrival still to greet (the phone toast).
   $: refugeeHint = firstArrivalHintView(state);
-  $: refugeeToastId = arrivalCardIds(state)[0] ?? null;
+  $: refugeeArrivalIds = arrivalCardIds(state);
+  // E5-6 fix round (user 2026-11-03, "Auto-tuck after a few seconds"): the phone toast shows for a few seconds of
+  // VISIBLE time, then tucks into the Refugees tab's count badge. The tuck is session-only (never saved): the arrival
+  // still waits in refugees.greet (the board's card) and on the waiting list, so nothing is lost. It never counts down
+  // while hidden (a desktop width, the board, any modal or sheet, its own chooser) or while a finger or focus is on it,
+  // and one tuck takes the whole queue (an offline catch-up never plays N toasts in a row).
+  const REFUGEE_TOAST_MS = 5000;
+  const REFUGEE_TOAST_STEP_MS = 250;
+  const REFUGEE_TOAST_TUCK_MS = 320;
+  // Every modal or sheet the toast hides under (the shared ActionModal, the .modal-backdrop idiom, any aria-modal
+  // dialog, the secret game, any role=dialog popover such as the Posts strip's).
+  const REFUGEE_TOAST_BLOCKERS = ".am-backdrop, .modal-backdrop, .sg-backdrop, [aria-modal='true'], [role='dialog']";
+  let refugeeToastTucked = new Set<number>();
+  let refugeeToastVisibleMs = 0;
+  let refugeeToastBlocked = false;
+  let refugeeToastHeld = false;
+  let refugeeToastChoosing = false;
+  let refugeeToastTucking = false;
+  let refugeeToastLastId: number | null = null;
+  let refugeeToastHandle: ReturnType<typeof setInterval> | null = null;
+  $: refugeeToastId = refugeeArrivalIds.find((id) => !refugeeToastTucked.has(id)) ?? null;
+  $: refugeeToastShown = refugeeToastId !== null && !(activeTab === "fleetOperations" && activeOperationsTab === "shortRange");
+  $: if (refugeeToastId !== refugeeToastLastId) {
+    refugeeToastLastId = refugeeToastId;
+    refugeeToastVisibleMs = 0;
+    refugeeToastTucking = false;
+    refugeeToastChoosing = false;
+    refugeeToastHeld = false;
+  }
+  $: if (refugeeToastShown && refugeeToastHandle === null && typeof window !== "undefined") {
+    refugeeToastHandle = setInterval(refugeeToastTick, REFUGEE_TOAST_STEP_MS);
+  } else if (!refugeeToastShown && refugeeToastHandle !== null) {
+    clearInterval(refugeeToastHandle);
+    refugeeToastHandle = null;
+  }
+  function refugeeToastTick() {
+    if (!refugeeToastShown || refugeeToastTucking) return;
+    const phone = window.matchMedia?.("(max-width: 720px)").matches ?? false;
+    refugeeToastBlocked = document.querySelector(REFUGEE_TOAST_BLOCKERS) !== null;
+    if (!phone || refugeeToastBlocked || refugeeToastChoosing || refugeeToastHeld) return;
+    refugeeToastVisibleMs += REFUGEE_TOAST_STEP_MS;
+    if (refugeeToastVisibleMs >= REFUGEE_TOAST_MS) tuckRefugeeToast();
+  }
+  // Tuck every arrival queued now (a later arrival toasts afresh). Reduce motion (the setting or the OS) skips the
+  // slide into the tab and simply hides it.
+  function tuckRefugeeToast() {
+    const ids = refugeeArrivalIds;
+    const finish = () => {
+      refugeeToastTucked = new Set([...refugeeToastTucked, ...ids]);
+      refugeeToastTucking = false;
+    };
+    if (reducedMotion || prefersReducedMotion) { finish(); return; }
+    refugeeToastTucking = true;
+    setTimeout(finish, REFUGEE_TOAST_TUCK_MS);
+  }
 
   // Captain Roster inner view (0.12.0 Console, Phase 1). The roster is NOT a
   // nested tab row (that would re-introduce the tab depth the console redesign
@@ -4055,6 +4109,7 @@
     if (timeSyncHandle !== undefined) clearInterval(timeSyncHandle);
     clearInterval(saveHandle);
     clearInterval(needsTickerHandle);
+    if (refugeeToastHandle !== null) clearInterval(refugeeToastHandle);
   });
 
   function doDispatchCaptainOnMission(captainId: number, missionKey: MissionKey) {
@@ -9565,6 +9620,14 @@
   // first-arrival hint was dismissed. Both pure, both the same state on a no-op.
   function doGreetRefugee(refugeeId: number) {
     const next = greetRefugee(state, refugeeId);
+    if (next === state) return;
+    state = next;
+    doSave();
+  }
+  // E5-6 fix round: "Leave all on the waiting list" on the board (two or more arrival cards queued), one save.
+  function doGreetAllRefugees(refugeeIds: number[]) {
+    let next = state;
+    for (const id of refugeeIds) next = greetRefugee(next, id);
     if (next === state) return;
     state = next;
     doSave();
@@ -18736,6 +18799,7 @@
           }}
           onPostRefugee={doPostRefugee}
           onGreetRefugee={doGreetRefugee}
+          onGreetAllRefugees={doGreetAllRefugees}
         />
       </div>
       {/if}
@@ -21357,10 +21421,23 @@
   <!-- E5-6 (mockup section 4 phone frame): the arrival toast on a phone, the newest person an Evacuation brought home
        with "Post at {facility}" and "Later". Phone widths only, and not while the board (which draws the full card)
        is open. Answering it greets them, so it shows once. -->
-  {#if refugeeToastId !== null && !(activeTab === "fleetOperations" && activeOperationsTab === "shortRange")}
-    <div class="refugee-toast" aria-live="polite">
+  <!-- Fix round (user 2026-11-03): it auto-tucks into the Refugees tab's count after a few seconds (refugeeToastTick),
+       and hides (still mounted, so its chooser stays open) under any modal or sheet. -->
+  {#if refugeeToastShown && refugeeToastId !== null}
+    <div
+      class="refugee-toast"
+      class:blocked={refugeeToastBlocked || refugeeToastChoosing}
+      class:tucking={refugeeToastTucking}
+      role="status"
+      aria-live="polite"
+      on:pointerdown={() => (refugeeToastHeld = true)}
+      on:pointerleave={() => (refugeeToastHeld = false)}
+      on:pointercancel={() => (refugeeToastHeld = false)}
+      on:focusin={() => (refugeeToastHeld = true)}
+      on:focusout={() => (refugeeToastHeld = false)}
+    >
       {#key refugeeToastId}
-        <RefugeeArrivalCard {state} refugeeId={refugeeToastId} toast onPost={doPostRefugee} onGreet={doGreetRefugee} />
+        <RefugeeArrivalCard {state} refugeeId={refugeeToastId} toast onPost={doPostRefugee} onGreet={doGreetRefugee} onChoosingChange={(open) => (refugeeToastChoosing = open)} />
       {/key}
     </div>
   {/if}
@@ -23547,10 +23624,20 @@
   .refugee-hint-x { font: inherit; font-size: var(--text-sm); flex: 0 0 auto; color: var(--color-accent); background: transparent; border: 1px solid var(--color-border-strong); border-radius: var(--corner); padding: 3px 10px; min-height: 32px; cursor: pointer; white-space: nowrap; }
   .refugee-hint-x:hover { border-color: var(--color-accent-bright); }
   .refugee-hint-x:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 2px; }
-  /* E5-6: the arrival toast, phone widths only (mockup section 4 phone frame); the board draws the full card. */
+  /* E5-6: the arrival toast, phone widths only (mockup section 4 phone frame); the board draws the full card.
+     Fix round: z-index 90 sits over the page and the top bar (inside .frame's z-index:1) but UNDER every modal layer
+     (.modal-backdrop 100, the 110 tooltips, ActionModal / HelpTip / MultiSelect 1000), and it hides outright while a
+     modal or sheet is open (.blocked, set by refugeeToastTick; the :has() rule hides it on the same frame). The tuck
+     slides it up toward the header and fades it; Reduce motion skips the slide (tuckRefugeeToast). */
   .refugee-toast { display: none; }
   @media (max-width: 720px) {
-    .refugee-toast { display: block; position: fixed; top: 12px; left: 50%; transform: translateX(-50%); width: min(420px, calc(100% - 32px)); z-index: 1850; }
+    .refugee-toast { display: block; position: fixed; top: 12px; left: 50%; transform: translateX(-50%); width: min(420px, calc(100% - 32px)); z-index: 90; transition: transform 300ms ease-in, opacity 300ms ease-in; }
+    .refugee-toast.tucking { transform: translateX(-50%) translateY(-48px) scale(0.5); opacity: 0; pointer-events: none; }
+    .refugee-toast.blocked { visibility: hidden; pointer-events: none; }
+    :global(body:has(.am-backdrop, .modal-backdrop, .sg-backdrop, [aria-modal="true"], [role="dialog"])) .refugee-toast { visibility: hidden; pointer-events: none; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .refugee-toast { transition: none; }
   }
   .fpane.attn { border-color: rgba(var(--color-warning-rgb), 0.55); }
   .fpane:hover { border-color: rgba(var(--color-accent-rgb), 0.6); }

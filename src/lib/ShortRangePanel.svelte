@@ -55,6 +55,8 @@
   // Without them the board draws no arrival cards.
   export let onPostRefugee: ((refugeeId: number, facility: RefugeeFacilityKey, replaceId?: number) => void) | undefined = undefined;
   export let onGreetRefugee: ((refugeeId: number) => void) | undefined = undefined;
+  // E5-6 fix round: "Leave all on the waiting list" (two or more cards queued, e.g. after an offline catch-up), one save.
+  export let onGreetAllRefugees: ((refugeeIds: number[]) => void) | undefined = undefined;
 
   // E5-6: the people an Evacuation just brought home, not yet greeted (newest first; the first three as cards).
   const ARRIVAL_CARDS_SHOWN = 3;
@@ -202,6 +204,11 @@
       {/each}
       {#if arrivals.length > ARRIVAL_CARDS_SHOWN}
         <p class="sr-dim sr-xs">{arrivals.length - ARRIVAL_CARDS_SHOWN} more {arrivals.length - ARRIVAL_CARDS_SHOWN === 1 ? "arrival waits" : "arrivals wait"} on the Personnel Refugees list.</p>
+      {/if}
+      {#if onGreetAllRefugees && arrivals.length >= 2}
+        <div class="sr-arrivals-all">
+          <button type="button" class="sr-leave-all" on:click={() => onGreetAllRefugees?.(arrivals)}>Leave all on the waiting list ({arrivals.length})</button>
+        </div>
       {/if}
     </div>
   {/if}
@@ -387,6 +394,10 @@
 
   /* E5-6: the arrival cards, one under another above the board. */
   .sr-arrivals { display: grid; gap: 8px; min-width: 0; }
+  .sr-arrivals-all { display: flex; justify-content: flex-end; }
+  .sr-leave-all { font: inherit; font-size: var(--text-sm); color: var(--color-text-secondary); background: transparent; border: 1px solid var(--color-border); border-radius: var(--corner); padding: 4px 10px; min-height: 32px; cursor: pointer; }
+  .sr-leave-all:hover { border-color: var(--color-accent-bright); }
+  .sr-leave-all:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 2px; }
 
   /* The board: one column on a phone, two in a wide container (the mockup's grid). */
   .sr-grid {

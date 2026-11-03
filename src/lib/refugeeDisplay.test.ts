@@ -3,7 +3,7 @@
 
 import { describe, expect, it } from "vitest";
 import { freshState, type CompletionLogEntry, type GameState } from "./game/model";
-import { dismissRefugeeHint, greetRefugee, postRefugee, refugeeShare, type RefugeeBackground, type RefugeeFacilityKey, type RefugeeRecord } from "./game/refugees";
+import { dismissRefugeeHint, greetRefugee, postRefugee, unpostRefugee, refugeeShare, type RefugeeBackground, type RefugeeFacilityKey, type RefugeeRecord } from "./game/refugees";
 import { refugeeBonusIfPosted, refugeeFacilityBonus } from "./game/refugeeBuffs";
 import { buildHomeDashboard } from "./game/homeDashboard";
 import {
@@ -443,6 +443,21 @@ describe("arrivalCardView (call 11 A)", () => {
     const posted = postRefugee(g, 7, "refinery").next;
     expect(arrivalCardIds(posted)).toEqual([]);
     expect(arrivalCardView(posted, 7)).toBeNull();
+  });
+
+  it("posting by any path greets the person, so an unpost or a swap never brings the arrival card back", () => {
+    const base = tabState();
+    const s = { ...base, refugees: { ...base.refugees!, greet: [7, 9] } };
+    // Arrive, post from the strip (the same engine call every path runs), then unpost: no card returns.
+    const posted = postRefugee(s, 7, "refinery").next;
+    expect(posted.refugees!.greet).toEqual([9]);
+    const back = unpostRefugee(posted, 7).next;
+    expect(back.refugees!.list.find((r) => r.id === 7)!.posting).toBeNull();
+    expect(arrivalCardIds(back)).toEqual([9]);
+    // A failed post greets nobody.
+    const failed = postRefugee(s, 9, "nope" as RefugeeFacilityKey);
+    expect(failed.success).toBe(false);
+    expect(failed.next.refugees!.greet).toEqual([7, 9]);
   });
 });
 

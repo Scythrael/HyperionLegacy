@@ -6,8 +6,8 @@
   //
   // The arrival moment: the person who just came home, with a one-tap Post at their best OPEN post (the largest
   // refugeeBonusIfPosted gain, arrivalCardView) and "Leave on the waiting list". Either one greets them (the id leaves
-  // refugees.greet), so the card shows once. With no open post anywhere the primary opens the chooser (the shared
-  // RefugeePostPicker in person mode, which lists the swaps). PURE PRESENTATION over refugeeDisplay.ts.
+  // refugees.greet; a successful post greets inside postRefugee, by any path), so the card shows once. With no open
+  // post anywhere the primary opens the chooser (the shared RefugeePostPicker in person mode, which lists the swaps). PURE PRESENTATION over refugeeDisplay.ts.
   // ONE DOM: `toast` draws the compact phone toast (the log sentence, then "Post at {facility}" and "Later"); the card
   // switches to its phone layout on its own width (a container query).
   // ============================================================================
@@ -26,20 +26,19 @@
   export let onGreet: (refugeeId: number) => void;
 
   $: view = arrivalCardView(state, refugeeId);
+  // The chooser is open (the phone toast hides while it is, App.svelte, and keeps the card mounted so the picker stays).
+  export let onChoosingChange: ((open: boolean) => void) | undefined = undefined;
   let choosing = false;
+  $: onChoosingChange?.(choosing);
 
+  // A post greets the person in the engine itself (postRefugee, on success only), so a failed post leaves the card.
   function postBest() {
     if (view === null) return;
     if (view.post === null) { choosing = true; return; }
     onPost(refugeeId, view.post.facility);
-    onGreet(refugeeId);
   }
   function later() {
     onGreet(refugeeId);
-  }
-  function postChosen(id: number, facility: RefugeeFacilityKey, replaceId?: number) {
-    onPost(id, facility, replaceId);
-    onGreet(id);
   }
 </script>
 
@@ -75,7 +74,7 @@
     </section>
   </div>
   {#if choosing}
-    <RefugeePostPicker {state} mode={{ kind: "person", refugeeId }} onPost={postChosen} onClose={() => (choosing = false)} />
+    <RefugeePostPicker {state} mode={{ kind: "person", refugeeId }} onPost={onPost} onClose={() => (choosing = false)} />
   {/if}
 {/if}
 
