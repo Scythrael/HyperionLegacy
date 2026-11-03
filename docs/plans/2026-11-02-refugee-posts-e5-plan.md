@@ -521,3 +521,10 @@ runs long; the split line is after the refine, research, craft and build seams.
 - Stargazer (Subspace Telescope): "Rare-aspect spotting (Recommended)": raise the chance to spot rare planet aspects
   (the same lever Deep Field Refinement improves), instead of a percent scan range (which only touched edge systems
   and was display-only).
+
+## E5-2 provisional items for the balance/polish pass (hub, 2026-11-03)
+
+Evacuation uses the "home" icon and Relocation's pay row; job line "N people to bring out of {dest}"; the Help topic
+gained one Evacuation job line; the no-arrival line uses placeholder destinations (as short-range does today); taper
+K = 4 [PROPOSAL]. Review minor (accepted, corrupted saves only): a malformed stamp is dropped, so that save's slots
+move to the v2 draw.
