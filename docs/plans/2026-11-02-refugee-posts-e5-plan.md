@@ -561,3 +561,11 @@ Production only calls economyTick with delta <= 1 (review-verified), so no playe
 needed. Known test-only gaps (multi-tick calls only, never production): a non-short-range captain listed between
 short-range runs draws credits/berths after both; another run's income reaches a departure gate only up to that run's
 own draw when credits are tight; record key order differs by path (values equal).
+
+## USER ANSWERS (2026-11-03): Stargazer lever (supersedes the 2026-11-02 "rare-aspect spotting" call)
+
+The E5-4 builder found that rare planet aspects and Deep Field Refinement are NOT built (only named), so the earlier
+call had no lever. User: "Discovery odds now (Recommended)": the Stargazer raises expedition discovery odds (the
+sensor arrays' landmark and underground-find biases, expedition.ts ~2081-2082), which act today. When rare aspects are
+built later, the Stargazer may move to them (logged). And: "Yes, build all eight now (Recommended)".
+Hub note: the earlier option text described rare-aspect spotting as existing; that was the hub's error.
