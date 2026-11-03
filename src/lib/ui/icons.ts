@@ -549,6 +549,32 @@ export const ICON_PATHS = {
   // Minus and plus: the transfer stepper's one less and one more.
   minus: ["M5.5 12h13"],
   plus: ["M5.5 12h13", "M12 5.5v13"],
+
+  // --- 0.14.0 E5-5: Refugee Posts (the signed mockup docs/mockups/2026-11-02-e5-refugee-posts-mockup.html) ---
+
+  // Posts: a staff badge on its clip with a head and shoulders, a person holding a post at a facility.
+  refugeePosts: ["M6.5 7.5h11V21h-11z", "M10 3.5h4v4h-4z", "M12 10.5a2 2 0 1 1 0 4 2 2 0 0 1 0-4z", "M9 18.5c.6-1.7 1.7-2.5 3-2.5s2.4.8 3 2.5"],
+  // The eight backgrounds, one per facility family. Each differs from its facility's own glyph, so a chip reads as a
+  // person's trade, not as the building.
+  // Refiner: a crucible tipped over a pour, a drop falling (the furnace is the Refinery's own).
+  refugeeRefiner: ["M4.5 6.5h11l-1.3 8.2a2 2 0 0 1-2 1.8H7.8a2 2 0 0 1-2-1.8z", "M15.5 9h2.5l2-2.5", "M18.5 13v2", "M18.5 18.5v.5"],
+  // Fuel handler: a jerrycan with its spout and a cross stamp.
+  refugeeFuelHandler: ["M6 7.5h9.5l3 3V21H6z", "M8.5 4h4v3.5", "M9 12.5l6 6", "M15 12.5l-6 6"],
+  // Dispatcher: a routing fork, one line from a hub splitting three ways, an arrowhead on each branch. Kept apart
+  // from `commBooster`/`rigSurvey` (masts with arcs), `transfer` (two opposed arrows) and `arrowUp` (one shaft).
+  refugeeDispatcher: ["M12 17v-5", "M12 12L6.5 6.5", "M12 12l5.5-5.5", "M12 12V3.5", "M6.5 10.5v-4h4", "M13.5 6.5h4v4", "M9.5 6L12 3.5 14.5 6", "M12 17.5a2 2 0 1 1 0 4 2 2 0 0 1 0-4z"],
+  // Scholar: an open book with its spine.
+  refugeeScholar: ["M3 5.5c3-1.5 6-1.5 9 1 3-2.5 6-2.5 9-1v13.5c-3-1.5-6-1.5-9 1-3-2.5-6-2.5-9-1z", "M12 6.5v13.5"],
+  // Machinist: an open-end wrench whose jaw grips a hex nut, its head to the upper LEFT. Kept apart from `tool` (a
+  // closed-outline wrench, head upper right, no nut), `gear`/`equipment` (cogs) and `component` (a nut alone).
+  refugeeMachinist: ["M9.4 2.3L13 5.9A5 5 0 0 1 13.8 11.8L19.4 17.4A1.4 1.4 0 0 1 17.4 19.4L11.8 13.8A5 5 0 0 1 5.9 13L2.3 9.4L4 7.8L8.3 12.1L12.1 8.3L7.8 4z", "M5.9 5.9L5.3 8.3L7 10L9.4 9.4L10 7L8.3 5.3z"],
+  // Shipwright: a hammer (its head and handle).
+  refugeeShipwright: ["M13.5 3.5l6 6-2.5 2.5-6-6z", "M12.5 8.5L4 17l3 3 8.5-8.5"],
+  // Salvager: a horseshoe magnet with its pole marks.
+  refugeeSalvager: ["M6 4v8a6 6 0 0 0 12 0V4", "M10 4v8a2 2 0 0 0 4 0V4", "M6 7.5h4", "M14 7.5h4"],
+  // Stargazer: an eye looking up a sightline to a four-point star. Kept apart from `relicPrecursorLens` and
+  // `telescope` (instruments), `blindLaunch` (an eye struck through) and `discovery` (sparkles alone).
+  refugeeStargazer: ["M18 2.5l1.1 3.1 3.1 1.1-3.1 1.1L18 10.9l-1.1-3.1-3.1-1.1 3.1-1.1z", "M1.8 16c1.8-3 4-4.5 6.7-4.5s4.9 1.5 6.7 4.5c-1.8 3-4 4.5-6.7 4.5S3.6 19 1.8 16z", "M8.5 14.3a1.7 1.7 0 1 1 0 3.4 1.7 1.7 0 0 1 0-3.4z", "M12.6 11.6l1.6-1.6"],
 } as const satisfies Record<string, readonly string[]>;
 
 /**

@@ -268,6 +268,19 @@ export const ICON_SEMANTICS: Record<IconName, IconSemantic> = {
   crewPool: "subject",
   minus: "action",
   plus: "action",
+
+  // 0.14.0 E5-5: Refugee Posts. The posts badge and the eight backgrounds name things (a post, a person's trade).
+  // Dispatcher (a routing fork), Machinist (a wrench on a nut) and Stargazer (an eye on a star) were redrawn in the
+  // E5-5 review round to stay apart from commBooster, gear/equipment/tool and relicPrecursorLens; still subjects.
+  refugeePosts: "subject",
+  refugeeRefiner: "subject",
+  refugeeFuelHandler: "subject",
+  refugeeDispatcher: "subject",
+  refugeeScholar: "subject",
+  refugeeMachinist: "subject",
+  refugeeShipwright: "subject",
+  refugeeSalvager: "subject",
+  refugeeStargazer: "subject",
 };
 
 // ---------------------------------------------------------------------------
