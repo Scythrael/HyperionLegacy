@@ -569,3 +569,10 @@ call had no lever. User: "Discovery odds now (Recommended)": the Stargazer raise
 sensor arrays' landmark and underground-find biases, expedition.ts ~2081-2082), which act today. When rare aspects are
 built later, the Stargazer may move to them (logged). And: "Yes, build all eight now (Recommended)".
 Hub note: the earlier option text described rare-aspect spotting as existing; that was the hub's error.
+
+## USER ANSWER (2026-11-03): Dispatcher fractions
+
+Off-match Dispatcher (~1.2%) was swallowed by tick rounding on short phases. User: "Carry the fractions
+(Recommended)": keep partial ticks and let them add up across cycles, so even small buffs always act over time.
+Also check (hub): the approved mockup says a swap lets the player "pick who they replace"; the engine's default
+(lowest share, last posted on a tie) must only apply when no target is chosen.

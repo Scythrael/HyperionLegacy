@@ -59,3 +59,17 @@ Balancing method (user 2026-10-23: "Then we will build off of this for our balan
 "I'm thinking ~2 years of content from start to finish for 1.0 overall." (Said about relic collection pacing: "we will
 be able to handle the proper balancing to ensure that the game doesn't take 700 years to complete.") The 0.16.0
 balancing pass tunes drop rates and pacing toward about 2 years from start to finish for 1.0.
+
+## 0.14.x CLEANUP PASS (user, 2026-11-03, verbatim)
+
+"I think that we should also have a 0.14.x pass where we do a check through the code for culling redundancy and do
+some optimization without causing issues with the overall game, making sure that any changes we plan on making cause
+no changes whatsoever to the actual operation of the game. To ensure that everything is AOK and won't come back to bite
+us later."
+Hub reading for the plan (when 0.14.x starts): a behavior-PRESERVING pass only. Every change must leave the game's
+operation identical, proven the way this codebase already proves it: all goldens and pins unchanged (no re-pins
+allowed in this pass), offline == live and chunked == 1 s steps suites green, save round trips byte-identical, the
+perf suite equal or faster. Scope ideas: duplicate helpers and dead code (the switch fixtures and *ReadBack layers
+that only serve finished slices), large files split (App.svelte, model.ts, tick.ts), the per-tick costs noted in
+reviews (e.g. the CP-10 transfer preview, the chunked catch-up on phones in SUGGESTIONS.md). Done as small reviewed
+slices, each tagged in the dev repo so any one can be rolled back.
