@@ -53,6 +53,7 @@ import { makeRng } from "./combat/rng";
 import { relicBlanksStaggered, rollShortRangeRelicBlanks } from "./relicBlanks";
 import { reactorLiftFlagged } from "./reactorSurplus";
 import { formatNumber } from "./format";
+import type { RefugeeDelivery } from "./refugeeArrival";
 
 // The float-snap epsilon of a phase boundary (tickCaptainMission's MISSION_TICK_EPSILON).
 const TICK_EPSILON = 1e-9;
@@ -268,6 +269,9 @@ export interface ShortRangeTickResult {
   // listed: the run's own completion entry names its finds.
   // `atTick`: the call's whole tick the cycle was delivered on (the vault's ShortRangeRelicFind tick).
   relicCycles: { slotId: number; cycles: number; relics: number; atTick: number }[];
+  // E5-2 (Refugee Posts): every Evacuation and Refugee Relocation cycle delivered this call, in delivery order, with the
+  // call's whole tick it landed on (the relic find's `atTick`). economyTick rolls the arrivals (refugeeArrival.ts).
+  refugeeDeliveries: RefugeeDelivery[];
 }
 
 // Advance one captain's short-range run by `ticksElapsed`. See the header for the rules and the parity argument.
@@ -291,6 +295,7 @@ export function tickCaptainShortRange(input: ShortRangeTickInput): ShortRangeTic
     endedAtTicks: null,
     relics: [],
     relicCycles: [],
+    refugeeDeliveries: [],
   };
   const startMission = captain.mission;
   // A run always flies a hull (the crew lock keeps it aboard); a hull-less one holds still rather than guessing stats.
@@ -342,6 +347,7 @@ export function tickCaptainShortRange(input: ShortRangeTickInput): ShortRangeTic
   let endedAtTicks: number | null = null;
   const relics: ShortRangeRelicFind[] = [];
   const relicCycles: ShortRangeTickResult["relicCycles"] = [];
+  const refugeeDeliveries: RefugeeDelivery[] = [];
 
   // 0.14.0 SPEED SEAM (processSpeed.ts applyTimeSkip): while the CURRENT cycle carries speed.instantComplete, each
   // phase is applied whole without spending the call's own ticks, so the cycle runs through to its delivery inside
@@ -440,6 +446,9 @@ export function tickCaptainShortRange(input: ShortRangeTickInput): ShortRangeTic
     const found = shortRangeCycleRelics(mission, state.tickDurationSeconds);
     const atTick = Math.max(1, Math.ceil(ticksElapsed - remaining - TICK_EPSILON));
     for (const token of found) relics.push({ token, atTick });
+    // E5-2: a cycle that moves people (a recalled run's last one included).
+    if (roll.template === "evacuation") refugeeDeliveries.push({ kind: "evacuation", atTick, slotId: mission.slotId, roll });
+    else if (roll.template === "refugeeRelocation") refugeeDeliveries.push({ kind: "relocation", atTick, slotId: mission.slotId, roll });
     const relicsThisRun = (mission.relicsThisRun ?? 0) + found.length;
     const slot = shortRangeSlotById(state, mission.slotId);
     // Recall finishes the cycle, then the run ends. A slot that no longer exists (a hand-edited save) ends the same way.
@@ -501,6 +510,7 @@ export function tickCaptainShortRange(input: ShortRangeTickInput): ShortRangeTic
     endedAtTicks,
     relics,
     relicCycles,
+    refugeeDeliveries,
   };
 }
 

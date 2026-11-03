@@ -216,8 +216,19 @@ function hydratedShortRangeMission(captain: any): ShortRangeMissionState | null 
 
 // G1-3: the stored board, kept only when well formed; a malformed one is dropped (absent reads as every slot at cycle
 // 0). A state without one is returned as is (no key is added).
+// E5-2 (the E5-1 review): a board whose ONLY fault is its evacuation stamp keeps its cursor and loses the stamp alone
+// (every slot then draws with the Evacuation overlay, shortRangeDrawVersion), so a bad stamp never resets every slot's
+// cursor to cycle 0.
 function withWellFormedShortRangeBoard<T extends { shortRangeBoard?: unknown }>(state: T): T {
   if (state.shortRangeBoard === undefined || isWellFormedShortRangeBoard(state.shortRangeBoard)) return state;
+  const board = state.shortRangeBoard as Record<string, unknown> | null;
+  if (board && typeof board === "object" && !Array.isArray(board) && "evacuationFrom" in board) {
+    const { evacuationFrom: _badStamp, ...withoutStamp } = board;
+    if (isWellFormedShortRangeBoard(withoutStamp)) {
+      console.warn("Load: the short-range board's evacuation stamp was unreadable and was dropped (the cursor is kept).");
+      return { ...state, shortRangeBoard: withoutStamp };
+    }
+  }
   const { shortRangeBoard: _dropped, ...rest } = state;
   return rest as T;
 }

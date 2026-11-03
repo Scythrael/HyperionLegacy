@@ -87,6 +87,9 @@ import {
 } from "./tick";
 // G1-6: the calm waiting line of a short-range run (the engine's own departure gate, worded once).
 import { shortRangeWaitText } from "./shortRangeCycle";
+// E5-2: an Evacuation's log line names the refugee's background and the destination.
+import { REFUGEE_BACKGROUNDS } from "./refugees";
+import { shortRangeDestinationLabel } from "./shortRange";
 
 // The queue's OWN pure view model (Crafting 0.13.3, Unit 4.6). The board learns about
 // QUEUED orders by asking the module that already answers every queue question, exactly as
@@ -1241,6 +1244,10 @@ const COMPLETION_KIND_VIEW: Record<
   shortRangeRun:           { verb: "Completed",   icon: "shortRange", source: "Short-Range Missions", jumpTarget: "shortRange" },
   // G1-5 review follow-up: relics a live run's cycle found (they went to the vault), so the row opens the Relics tab.
   shortRangeRelicFind:     { verb: "Found",       icon: "relic",      source: "Short-Range Missions", jumpTarget: "relics" },
+  // E5-2 (Refugee Posts): an Evacuation's outcome. The row reads as one sentence (refugeeCompletionLine); the verb is
+  // only its fallback. Opens the board until the Refugees tab exists (E5-6). [PROVISIONAL]
+  refugeeArrival:          { verb: "Evacuation complete", icon: "home", source: "Short-Range Missions", jumpTarget: "shortRange" },
+  refugeeNoArrival:        { verb: "Evacuation complete", icon: "home", source: "Short-Range Missions", jumpTarget: "shortRange" },
 };
 
 // 0.13.4 Phase 2 Unit 2.2 (design §6.2): the EXHAUSTIVE wording table for patrol endings.
@@ -1447,6 +1454,25 @@ function completionDetail(entry: CompletionLogEntry): string | null {
   return null;
 }
 
+// E5-2 (Refugee Posts): the log line of an Evacuation's outcome (the signed mockup's words), or null for any other entry.
+// Arrival: "Evacuation complete: Tamsin Corr, a refiner, joins your homeworld." No arrival: "Evacuate Body II, desert
+// world complete. Everyone aboard reached the camps; nobody new came home this time." Pure.
+export function refugeeCompletionLine(entry: Pick<CompletionLogEntry, "kind" | "refugee" | "refugeeOrigin">): string | null {
+  if (entry.kind === "refugeeArrival") {
+    const r = entry.refugee;
+    if (r === undefined) return "Evacuation complete: someone new joins your homeworld.";
+    const label = (REFUGEE_BACKGROUNDS[r.background]?.label ?? "newcomer").toLowerCase();
+    const article = /^[aeiou]/.test(label) ? "an" : "a";
+    return `Evacuation complete: ${r.name}, ${article} ${label}, joins your homeworld.`;
+  }
+  if (entry.kind === "refugeeNoArrival") {
+    const origin = entry.refugeeOrigin;
+    const where = origin === undefined ? "" : ` ${shortRangeDestinationLabel({ template: "evacuation", destinationIndex: origin.destinationIndex })}`;
+    return `Evacuate${where} complete. Everyone aboard reached the camps; nobody new came home this time.`;
+  }
+  return null;
+}
+
 // Build one row from one stored record. PURE: static registry lookups plus the ship roster,
 // no state mutation, no formatting of clocks or numbers (both stay the UI's job).
 function rowForCompletion(entry: CompletionLogEntry, state: GameState): CompletionRow {
@@ -1454,7 +1480,8 @@ function rowForCompletion(entry: CompletionLogEntry, state: GameState): Completi
   const subject = completionSubjectLabel(entry, state);
   // "Refined, Titanium Ingot" mirrors IN PROGRESS's own "Refining, Titanium Ingot" comma
   // phrasing, so the two sections read as one board rather than two conventions.
-  const primaryLabel = subject !== null ? `${view.verb}, ${subject}` : view.verb;
+  // E5-2: an Evacuation's outcome reads as its own sentence (the signed mockup's log lines).
+  const primaryLabel = refugeeCompletionLine(entry) ?? (subject !== null ? `${view.verb}, ${subject}` : view.verb);
   return {
     id: entry.id,
     icon: view.icon,

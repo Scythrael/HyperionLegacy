@@ -27,7 +27,9 @@ import {
   SHORT_RANGE_SHEETS,
   SHORT_RANGE_TEMPLATES,
   SHORT_RANGE_TEMPLATE_KEYS,
+  SHORT_RANGE_DRAW_V1_KEYS,
   drawShortRangeJob,
+  drawShortRangeTemplateJob,
   isTrainingRoll,
   meetsSheet,
   rollShortRangeJob,
@@ -100,8 +102,15 @@ function referenceStats(tier: ShortRangeTier): ShipDerivedStats {
   return { ...shipDerivedStats({ id: "ref", typeKey: "generalFreighter", assignedCaptainId: null }), cargoCapacity: sheet.cargo, sensors: sheet.sensors, colonistCapacity: sheet.guests };
 }
 
+// E5-2: an Evacuation is drawn the overlay's way (one draw, then the job with the template fixed), so it reads the same
+// stream positions as the seven.
 function rollOf(template: ShortRangeTemplateKey, tier: ShortRangeTier, seed: number, stamp: RunDifficultyStamp = FULL(tier)): ShortRangeRoll {
-  return drawShortRangeJob(countingRng(seed, SHORT_RANGE_TEMPLATE_KEYS.indexOf(template)), seed, { id: 1, tier }, 0, () => stamp);
+  if (template === "evacuation") {
+    const rng = countingRng(seed);
+    rng.nextInt(8);
+    return drawShortRangeTemplateJob(rng, "evacuation", seed, { id: 1, tier }, 0, () => stamp);
+  }
+  return drawShortRangeJob(countingRng(seed, SHORT_RANGE_DRAW_V1_KEYS.indexOf(template)), seed, { id: 1, tier }, 0, () => stamp);
 }
 
 // A ship-1 of `hull` with its passive complement delivered for `hours` (a normally crewed ship).
@@ -111,8 +120,9 @@ function crewed(hull: ShipTypeKey, hours = 6): GameState {
 }
 
 describe("G1-2 catalog and sheets", () => {
-  it("seven templates in the frozen draw order, the plan's labels plus Prisoner Transport", () => {
-    expect(SHORT_RANGE_TEMPLATE_KEYS).toEqual(["refugeeRelocation", "supplyDropOff", "supplyPickup", "phenomenonSurvey", "telescopeRepair", "commBoosterBuild", "prisonerTransport"]);
+  it("seven templates in the frozen draw order, the plan's labels plus Prisoner Transport, then E5-2's Evacuation", () => {
+    expect(SHORT_RANGE_DRAW_V1_KEYS).toEqual(["refugeeRelocation", "supplyDropOff", "supplyPickup", "phenomenonSurvey", "telescopeRepair", "commBoosterBuild", "prisonerTransport"]);
+    expect(SHORT_RANGE_TEMPLATE_KEYS).toEqual([...SHORT_RANGE_DRAW_V1_KEYS, "evacuation"]);
     expect(SHORT_RANGE_TEMPLATE_KEYS.map((k) => SHORT_RANGE_TEMPLATES[k].label)).toEqual([
       "Refugee Relocation",
       "Supply Drop-off",
@@ -121,6 +131,7 @@ describe("G1-2 catalog and sheets", () => {
       "Telescope Repair",
       "Comm Booster Build",
       "Prisoner Transport",
+      "Evacuation",
     ]);
     for (const k of SHORT_RANGE_TEMPLATE_KEYS) expect(SHORT_RANGE_TEMPLATES[k].key).toBe(k);
   });
@@ -133,6 +144,7 @@ describe("G1-2 catalog and sheets", () => {
       phenomenonSurvey: ["range", "sensors"],
       telescopeRepair: ["range", "cargo", "engineering"],
       commBoosterBuild: ["range", "cargo", "engineering"],
+      evacuation: ["range", "guests"],
       prisonerTransport: ["range", "guests", "security"],
     });
   });
@@ -166,7 +178,7 @@ describe("G1-2 catalog and sheets", () => {
 describe("G1-2 the roll: fixed draw layout and determinism", () => {
   it("every roll makes exactly six draws, whatever the template and tier", () => {
     for (const tier of TIERS) {
-      SHORT_RANGE_TEMPLATE_KEYS.forEach((k, i) => {
+      SHORT_RANGE_DRAW_V1_KEYS.forEach((k, i) => {
         for (const stamp of [FULL(tier), TRAINING(tier)]) {
           const rng = countingRng(1234 + i, i);
           const roll = drawShortRangeJob(rng, 0, { id: 1, tier }, 0, () => stamp);
@@ -174,6 +186,13 @@ describe("G1-2 the roll: fixed draw layout and determinism", () => {
           expect(rng.calls, `${k} tier ${tier}`).toBe(6);
         }
       });
+      // E5-2: the Evacuation overlay's stream: its one draw, then the job's five.
+      for (const stamp of [FULL(tier), TRAINING(tier)]) {
+        const rng = countingRng(99);
+        rng.nextInt(8);
+        expect(drawShortRangeTemplateJob(rng, "evacuation", 0, { id: 1, tier }, 0, () => stamp).template).toBe("evacuation");
+        expect(rng.calls, `evacuation tier ${tier}`).toBe(6);
+      }
     }
   });
 

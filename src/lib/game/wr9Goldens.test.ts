@@ -27,6 +27,11 @@ import { gatheringTrainingOffForThisFile } from "./gatheringTrainingSwitch.fixtu
 // delivery now wears nothing. The file dispatches as before SF-7 (gatheringTrainingSwitch.fixture.ts), so its pins keep
 // proving WR-9 alone (SF-7's own moves: gatheringTrainingWearGoldens.test.ts).
 gatheringTrainingOffForThisFile();
+// E5-2 (Refugee Posts) came after every pin here: its short-range runs fly a fresh board, which now draws the
+// Evacuation overlay. The file draws the seven-template board (evacuationDrawSwitch.fixture.ts), so its pins keep proving
+// their own slice (E5-2's moves: refugeeGoldens.test.ts and refugeeArrival.test.ts).
+import { evacuationDrawOffForThisFile } from "./evacuationDrawSwitch.fixture";
+evacuationDrawOffForThisFile();
 
 // Captured on the code BEFORE the engine edit (1e6a40a).
 const BEFORE_MISSIONS: Record<string, string> = {

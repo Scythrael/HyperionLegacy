@@ -24,6 +24,11 @@ import { wr9OffForThisFile } from "./wr9Switch.fixture";
 // WR-9 moves are pinned and proven in wr9Goldens.test.ts), so every pin here keeps proving its own slice exactly.
 wr9OffForThisFile();
 gearWearOffInThisFile();
+// E5-2 (Refugee Posts): these runs fly a fresh board, which now draws the Evacuation overlay; the pins are about G1-5,
+// so the file draws the seven-template board (evacuationDrawSwitch.fixture.ts). refugeeGoldens.test.ts and
+// refugeeArrival.test.ts pin and trace the draw's move.
+import { evacuationDrawOffForThisFile } from "./evacuationDrawSwitch.fixture";
+evacuationDrawOffForThisFile();
 import { type GameState } from "./model";
 import { dispatchCaptainOnShortRange } from "./shortRangeBoard";
 import { economyTick, recallCaptain } from "./tick";

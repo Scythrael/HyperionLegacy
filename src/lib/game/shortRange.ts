@@ -13,6 +13,8 @@
 //   at Tier I so a normally crewed ship passes).
 // - SEVEN templates: the six of plan section 3.2 (labels kept, call 17) plus Prisoner Transport, which reads Guest
 //   quarters + Security and pays about 20% more credits per hour than Refugee Relocation, still in the band.
+// - E5-2 (Refugee Posts, 2026-11-02): an EIGHTH template, Evacuation, drawn at random 1 in 8 behind a versioned draw
+//   (shortRangeDrawVersion: an existing save's boards keep the seven until each slot's v71 stamp).
 // - After the training run, Tier I rolls grow on the slow-start curve (SF4: run 2 at 35%, run 6 about 54%, run 9
 //   about 80%, full from run 11); no failure ever (call 9). Tier II rolls the full range from its first run (SF6).
 // - The training run (the first roll of each template per save) is the template's smallest roll, carries the
@@ -54,8 +56,12 @@ export type ShortRangeTemplateKey =
   | "phenomenonSurvey"
   | "telescopeRepair"
   | "commBoosterBuild"
-  | "prisonerTransport";
-export const SHORT_RANGE_TEMPLATE_KEYS: readonly ShortRangeTemplateKey[] = [
+  | "prisonerTransport"
+  | "evacuation";
+// The FROZEN seven-template draw (draw version 1): the roll's first draw indexes this list, so it never changes. Every
+// cycle before a slot's v71 evacuation stamp draws from it (shortRangeDrawVersion), which keeps an existing save's
+// boards byte-identical.
+export const SHORT_RANGE_DRAW_V1_KEYS: readonly ShortRangeTemplateKey[] = [
   "refugeeRelocation",
   "supplyDropOff",
   "supplyPickup",
@@ -64,6 +70,9 @@ export const SHORT_RANGE_TEMPLATE_KEYS: readonly ShortRangeTemplateKey[] = [
   "commBoosterBuild",
   "prisonerTransport",
 ];
+// E5-2 (Refugee Posts): every template, the eighth (Evacuation) last. Lists, Help and the job types read this; the
+// draw reads SHORT_RANGE_DRAW_V1_KEYS plus the versioned Evacuation overlay (drawShortRangeJobAt).
+export const SHORT_RANGE_TEMPLATE_KEYS: readonly ShortRangeTemplateKey[] = [...SHORT_RANGE_DRAW_V1_KEYS, "evacuation"];
 
 // The sheet categories (call 4 plus Security).
 export type ShortRangeCategory = "range" | "cargo" | "guests" | "sensors" | "engineering" | "security";
@@ -203,6 +212,17 @@ export const SHORT_RANGE_TEMPLATES: Readonly<Record<ShortRangeTemplateKey, Short
     work: { site: "passengers", siteTicks: 20, homeUnload: "none" },
     reward: { kind: "passengers", creditsPerPersonLy: { 1: 0.0504, 2: 0.0275 }, ...XP_JOB },
   },
+  // E5-2 (Refugee Posts, design section 7 "Random, like the others"; hub call: the board's normal credits and XP for its
+  // tier PLUS one named refugee, refugeeArrival.ts): the Refugee Relocation row's sizes, work and pay, so board income
+  // holds. [PROVISIONAL] (the balance pass)
+  evacuation: {
+    key: "evacuation",
+    label: "Evacuation",
+    destinations: "surface",
+    rolls: { 1: { distanceLy: TIER_I_DISTANCE, guests: [30, 60] }, 2: { distanceLy: TIER_II_DISTANCE, guests: [60, 100] } },
+    work: { site: "passengers", siteTicks: 16, homeUnload: "none" },
+    reward: { kind: "passengers", creditsPerPersonLy: { 1: 0.0285, 2: 0.016 }, ...XP_JOB },
+  },
 };
 
 // The requirement sheet per tier (call 3: one per tier, every category; user 2026-10-20: Range "90 / 130 ly" real
@@ -256,6 +276,15 @@ export const SHORT_RANGE_ROUNDING_SALT = 0x7d3b16e9;
 export const SHORT_RANGE_OUTPUT_SALT = 0x4b9e2c57;
 // The board seed of a save with no stored homeworld (the EXPEDITION_DEFAULT_SEED precedent).
 export const SHORT_RANGE_DEFAULT_SEED = 0x0c1a55e5;
+// E5-2: the Evacuation overlay's stream (draw version 2), keyed off the roll's seed so it never shifts the seven-template
+// stream.
+export const SHORT_RANGE_EVACUATION_SALT = 0x3ec9a7d1;
+// E5-2: one roll in this many is an Evacuation at draw version 2 (design "Random, like the others": uniform with the
+// seven, 1 in 8).
+export const SHORT_RANGE_EVACUATION_ODDS = 8;
+// E5-2: the TEST-ONLY off switch (evacuationDrawSwitch.fixture.ts): with `live` false every cycle draws version 1, the
+// game before E5-2 exactly, so a golden captured before it can be traced. Never written by app code.
+export const EVACUATION_DRAW_SWITCH: { live: boolean } = { live: true };
 // The slot mix in the roll seed (odd, so distinct slots land on distinct streams).
 const SLOT_MIX = 0x9e3779b1;
 
@@ -311,8 +340,8 @@ export function spanTop(span: ShortRangeSpan, share: number): number {
 
 // The roll from an explicit stream: SIX draws, always in this order, whatever the template (a template change never
 // shifts a later draw): template, destination, distance, primary size, secondary size (drawn and discarded when the
-// template has none), flavor. `stampOf` gives the template's difficulty stamp (the training run and the curve). Pure
-// with respect to the passed rng.
+// template has none), flavor. The template draw indexes the FROZEN seven (SHORT_RANGE_DRAW_V1_KEYS). `stampOf` gives the
+// template's difficulty stamp (the training run and the curve). Pure with respect to the passed rng.
 export function drawShortRangeJob(
   rng: Rng,
   seed: number,
@@ -320,7 +349,21 @@ export function drawShortRangeJob(
   cycleIndex: number,
   stampOf: (template: ShortRangeTemplateKey) => RunDifficultyStamp,
 ): ShortRangeRoll {
-  const template = SHORT_RANGE_TEMPLATE_KEYS[rng.nextInt(SHORT_RANGE_TEMPLATE_KEYS.length)];
+  const template = SHORT_RANGE_DRAW_V1_KEYS[rng.nextInt(SHORT_RANGE_DRAW_V1_KEYS.length)];
+  return drawShortRangeTemplateJob(rng, template, seed, slot, cycleIndex, stampOf);
+}
+
+// The five draws after the template (the fixed layout's destination, distance, primary, secondary and flavor) for a
+// known `template` (drawShortRangeJob after its template draw, and the Evacuation overlay after its one draw). Pure with
+// respect to the passed rng.
+export function drawShortRangeTemplateJob(
+  rng: Rng,
+  template: ShortRangeTemplateKey,
+  seed: number,
+  slot: ShortRangeSlotRef,
+  cycleIndex: number,
+  stampOf: (template: ShortRangeTemplateKey) => RunDifficultyStamp,
+): ShortRangeRoll {
   const def = SHORT_RANGE_TEMPLATES[template];
   const spans = def.rolls[slot.tier];
   const difficulty = stampOf(template);
@@ -341,12 +384,45 @@ export function drawShortRangeJob(
   return { version: 1, seed, slotId: slot.id, cycleIndex, template, tier: slot.tier, destinationIndex, distanceLy, ...sizes, flavorIndex, difficulty };
 }
 
+// E5-2: which draw a slot's cycle reads. 1: the frozen seven (every cycle before the slot's v71 evacuation stamp, so an
+// existing save's upcoming jobs never change). 2: the seven plus the Evacuation overlay (every cycle at or after the
+// stamp, and every cycle of a slot with no stamp: a new save, or a slot opened after the v71 migration, whose jobs
+// nobody has seen). A stamp that is not a whole count is ignored (hydration drops it alone, save.ts). With the test-only
+// EVACUATION_DRAW_SWITCH off, 1 everywhere. Pure.
+export function shortRangeDrawVersion(state: Pick<GameState, "shortRangeBoard">, slotId: number, cycleIndex: number): 1 | 2 {
+  if (!EVACUATION_DRAW_SWITCH.live) return 1;
+  const stamps = state.shortRangeBoard?.evacuationFrom;
+  const stamp = stamps && typeof stamps === "object" ? (stamps as Record<number, unknown>)[slotId] : undefined;
+  if (typeof stamp === "number" && Number.isInteger(stamp) && stamp >= 0 && cycleIndex < stamp) return 1;
+  return 2;
+}
+
+// One slot's roll at one cycle under draw `version`. Version 1 is drawShortRangeJob on the roll's own stream, exactly
+// as before E5-2. Version 2 first draws ONE number on a second stream, makeRng(seed ^ SHORT_RANGE_EVACUATION_SALT): on 0
+// (1 in SHORT_RANGE_EVACUATION_ODDS) the whole job is drawn on that stream with the template fixed to Evacuation (the
+// same layout, the template draw skipped); otherwise the version 1 roll, byte-identical, so the overlay never shifts a
+// non-Evacuation job. Pure.
+export function drawShortRangeJobAt(
+  seed: number,
+  slot: ShortRangeSlotRef,
+  cycleIndex: number,
+  stampOf: (template: ShortRangeTemplateKey) => RunDifficultyStamp,
+  version: 1 | 2,
+): ShortRangeRoll {
+  if (version === 2) {
+    const evac = makeRng((seed ^ SHORT_RANGE_EVACUATION_SALT) >>> 0);
+    if (evac.nextInt(SHORT_RANGE_EVACUATION_ODDS) === 0) return drawShortRangeTemplateJob(evac, "evacuation", seed, slot, cycleIndex, stampOf);
+  }
+  return drawShortRangeJob(makeRng(seed), seed, slot, cycleIndex, stampOf);
+}
+
 // The size keys, in the order a template's spans are searched (each template has exactly one primary).
 const PRIMARY_SIZES = ["guests", "units", "scan"] as const;
 const SECONDARY_SIZES = ["engineering", "security"] as const;
 
 // A slot's roll at `cycleIndex` (the board shows the next one before dispatch): the template's training run and curve
-// position read from the save's per-template counters (runDifficultyAt "shortRange", keyed by template). Pure.
+// position read from the save's per-template counters (runDifficultyAt "shortRange", keyed by template), on the slot's
+// draw version at that cycle (E5-2, shortRangeDrawVersion). Pure.
 export function rollShortRangeJob(
   state: GameState,
   slot: ShortRangeSlotRef,
@@ -354,7 +430,9 @@ export function rollShortRangeJob(
   boardSeed: number = shortRangeBoardSeed(state),
 ): ShortRangeRoll {
   const seed = shortRangeRollSeed(boardSeed, slot.id, cycleIndex);
-  return drawShortRangeJob(makeRng(seed), seed, slot, cycleIndex, (template) => runDifficultyAt(state, "shortRange", slot.tier, template));
+  // E5-2: the slot's draw version at this cycle (the v71 stamp keeps an existing save's boards on the seven).
+  const version = shortRangeDrawVersion(state, slot.id, cycleIndex);
+  return drawShortRangeJobAt(seed, slot, cycleIndex, (template) => runDifficultyAt(state, "shortRange", slot.tier, template), version);
 }
 
 // Whether a roll is a template's training run (the "Training run" chip, no wear). Pure.
