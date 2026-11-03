@@ -54,7 +54,7 @@ import { telescopeCardView, telescopeMapView } from "../telescopeCardDisplay";
 import { asPreG2Candidate as asPreG2CandidateFixture, asPreG2NamesDispatch, asPreRanksDispatch, asPreSafeFirstRunsDispatch, dispatchPastPropulsion, plainAwayMember, withSlottedAwayTeams } from "./awayTeamTestFixtures";
 import { PRE_G2_STORED_RUNS } from "./expeditionTiersGoldens.fixture";
 import { PRE_RX_MISSION_KEYS } from "./reactorFuelGoldens.fixture";
-import { withV1Museum } from "./firstRunsGoldens.fixture";
+import { withV1Museum, withoutEvacuationStamp } from "./firstRunsGoldens.fixture";
 // WR-8 (0.14.0): every pin in this file was taken before the combat rules (combatRulesSwitch.fixture.ts), so the file
 // runs with them switched off and its pins keep proving WR-8 moved nothing else here (the rules stamp new patrol
 // cycles and runs; combatDescriptorGoldens.test.ts pins the combat rules themselves).
@@ -102,7 +102,8 @@ function withoutG2Run(exp: Expedition): Expedition {
 // Relics v2 R2-1: and with the Museum v2 record in its v1 form (withV1Museum: the v69 save's `relicMuseum`, which
 // the v69 -> v70 step moves back), so the claim hashes and the restored save are the pre-R2-1 ones.
 function withoutG2State(state: GameState): GameState {
-  const rest = { ...withV1Museum(state) } as Record<string, unknown>;
+  // E5-1: and without the board stamp the v70 -> v71 step writes (firstRunsGoldens.fixture withoutEvacuationStamp).
+  const rest = { ...withoutEvacuationStamp(withV1Museum(state)) } as Record<string, unknown>;
   delete rest.homeworld;
   delete rest.runCounts;
   return { ...(rest as unknown as GameState), expeditions: state.expeditions.map(withoutG2Run) };

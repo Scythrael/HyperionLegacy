@@ -342,6 +342,10 @@ export const UNREAD_CONSTANTS: Readonly<Record<string, string>> = {
   OFFICER_BONUSES_PENDING_IN_RELEASE: "bookkeeping: read by the wiring registry (the officer bonuses whose system lands later)",
   NEUTRAL_SHIP_EVENT_PROFILE: "seam: the profile a pre-GO-8 flagged run carries (OC-G1, the legacy path)",
   STAT_KEYS: "identity: the stat vocabulary bundle (LIVE / RESERVED / ground)",
+  // E5-1 Refugee Posts (data only): read by E5-2's refugee roll (refugeeArrival.ts rollRefugee: the background draw
+  // and the tier's skill span).
+  REFUGEE_BACKGROUND_KEYS: "pending E5-2: the background roll order (refugeeArrival.ts rollRefugee)",
+  REFUGEE_SKILL_SPANS: "pending E5-2: each evacuation tier's skill span (refugeeArrival.ts rollRefugee)",
   // Gas Giant Study GG-1 (data only): read by the engine slices that wire them (GG-3 reads ITEM_BANDS: the study's band
   // draw, gasGiantStudy.ts rollCanister).
   GAS_STUDY_SOURCE_OWNER: "bookkeeping: the slice that gives the source-pending study items their source (GG-3, GG-4)",

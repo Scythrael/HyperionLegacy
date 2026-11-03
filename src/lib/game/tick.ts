@@ -5506,7 +5506,17 @@ export function economyTick(
     // neither moved.
     ...(patrolCurveRuns > 0 || srCountsAfter !== null ? { runCounts: countPatrolRuns(srCountsAfter ?? runCountsOf(state), patrolCurveRuns) } : {}),
     // G1-4: the board's cycle cursor, written only when a short-range cycle was delivered this call.
-    ...(srCursorAfter !== null ? { shortRangeBoard: { version: 1 as const, nextCycle: { ...srCursorAfter } } } : {}),
+    // E5-1: the stored board is spread first, so its evacuation stamp (written once at the v71 migration) rides
+    // through as the same object; a board without one writes exactly the G1-4 shape.
+    ...(srCursorAfter !== null
+      ? {
+          shortRangeBoard: {
+            ...(isWellFormedShortRangeBoard(state.shortRangeBoard) ? state.shortRangeBoard : {}),
+            version: 1 as const,
+            nextCycle: { ...srCursorAfter },
+          },
+        }
+      : {}),
     // G1-5: the relic blanks short-range cycles found, into the vault (written only when there were any).
     ...(shortRangeRelics.length > 0 ? { relicVault: shortRangeVaultDeposit(state, shortRangeRelics) } : {}),
   };

@@ -1,7 +1,10 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import Decimal from "break_infinity.js";
 import LZString from "lz-string";
-import { migrate, serialize, deserialize, importRawSave, loadFromLocalStorage, SAVE_KEY, SAVE_VERSION, dropRetiredFuelV70, dropRetiredDurabilityV70, V70_FUEL_REFUND_CREDITS_PER_UNIT, V70_FREE_STARTER_TANK, type SaveFile } from "./save";
+import { migrate, serialize, deserialize, importRawSave, loadFromLocalStorage, SAVE_KEY, SAVE_VERSION, dropRetiredFuelV70, dropRetiredDurabilityV70, withEvacuationStampV71, V70_FUEL_REFUND_CREDITS_PER_UNIT, V70_FREE_STARTER_TANK, type SaveFile } from "./save";
+// E5-1: the board's evacuation stamp and the refugee record.
+import { isWellFormedShortRangeBoard, shortRangeBoardSlots, shortRangeNextCycle } from "./shortRangeBoard";
+import { refugeesOf, type RefugeeState } from "./refugees";
 // SF-1: the run counters the v69 -> v70 step derives (handed to a "no step" load so the comparisons below isolate their step).
 import { veteranRunCountsV70 } from "./runDifficulty";
 import { itemTotal } from "./inventory"; // Task 9a: read item TOTAL across quality buckets
@@ -92,7 +95,7 @@ function creditsBeforeFuelRefund(migrated: any): Decimal {
 
 describe("SAVE_VERSION", () => {
   it("is pinned to its expected value (the only literal pin in the suite)", () => {
-    expect(SAVE_VERSION).toBe(70); // WR-4: v70 (the shared 0.14.0 bump; save.ts lists what it contains)
+    expect(SAVE_VERSION).toBe(71); // E5-1: v71 (the board's evacuation stamp; save.ts lists what v70 and v71 contain)
   });
 });
 
@@ -6651,6 +6654,8 @@ describe("migrate, v66 -> v67 ground-team slots (Ground Ops GO-1)", () => {
     seeded.runCounts = veteranRunCountsV70(seeded);
     // G2-1: and the homeworld the v69 -> v70 step seeds (its value is homeworldMigration.test.ts's business).
     seeded.homeworld = viaStep.homeworld;
+    // E5-1: and the board the v70 -> v71 step stamps (its value is the E5-1 block's business below).
+    seeded.shortRangeBoard = viaStep.shortRangeBoard;
     const noStep = migrateFrom(SAVE_VERSION, seeded);
     expect(noStep.ships[0].groundTeams).toBeUndefined();
     expect(viaStep.ships[0].groundTeams).toBeDefined();
@@ -6832,7 +6837,8 @@ describe("migrate, v67 -> v68 squad composition + the founding telescope (Squads
     const viaStep = migrateFrom(67, JSON.parse(JSON.stringify(raw)));
     // SF-1: the "no step" load is handed the run counters the v69 -> v70 step derives from the same history.
     // G2-1: and the homeworld the v69 -> v70 step seeds (its value is homeworldMigration.test.ts's business).
-    const noStep = migrateFrom(SAVE_VERSION, { ...JSON.parse(JSON.stringify(raw)), runCounts: veteranRunCountsV70(raw), homeworld: viaStep.homeworld });
+    // E5-1: plus the board the v70 -> v71 step stamps (its value is the E5-1 block's business below).
+    const noStep = migrateFrom(SAVE_VERSION, { ...JSON.parse(JSON.stringify(raw)), runCounts: veteranRunCountsV70(raw), homeworld: viaStep.homeworld, shortRangeBoard: viaStep.shortRangeBoard });
     expect(viaStep.ships[0].groundTeams).toHaveLength(2);
     expect(noStep.ships[0].groundTeams).toHaveLength(1); // the raw v67 list, read through the normalizer
     // the step only ADDS the SQ-1 fields: take them off and the two loads are byte-identical
@@ -7019,5 +7025,91 @@ describe("serialize: last_saved_at can be stamped with the paid-through time", (
     const save = deserialize(serialize(freshState(), 1000));
     expect(save?.last_saved_at).toBeGreaterThanOrEqual(before);
     expect(save?.last_saved_at).toBeLessThanOrEqual(Date.now());
+  });
+});
+
+// E5-1 (Refugee Posts, plan 2026-11-02 Task E5-1): the v70 -> v71 board stamp, the board shape check, and the refugee
+// record's round trip. (The tick's cursor write carrying the stamp as the same object through six hours of delivered
+// cycles is asserted in refugeeGoldens.test.ts golden 5.)
+describe("migrate, v70 -> v71 evacuation stamp (E5-1)", () => {
+  const ENTROPY = 0x0e5e0e51;
+  // The save a v70 build wrote: the same state under version 70.
+  function v70Save(state: GameState): SaveFile {
+    return { ...(deserialize(serialize(state, 0)) as SaveFile), version: 70 };
+  }
+  function withBoard(state: GameState, level: number, nextCycle: Record<number, number> | undefined): GameState {
+    const s: GameState = { ...state, facilities: { ...state.facilities, missionControl: { level } } };
+    return nextCycle === undefined ? s : { ...s, shortRangeBoard: { version: 1, nextCycle } };
+  }
+
+  it("stamps every board slot at nextCycle + 1", () => {
+    const m = migrate(v70Save(withBoard(freshState(), 3, { 0: 12, 2: 5 })), ENTROPY);
+    expect(m.shortRangeBoard).toEqual({ version: 1, nextCycle: { 0: 12, 2: 5 }, evacuationFrom: { 0: 13, 1: 1, 2: 6, 3: 1 } });
+    for (const slot of shortRangeBoardSlots(m)) {
+      expect(m.shortRangeBoard!.evacuationFrom![slot.id]).toBe(shortRangeNextCycle(m, slot.id) + 1);
+    }
+  });
+
+  it("a save without a board gets one at cycle 0 everywhere, stamped 1, for the slots its Mission Control opens", () => {
+    const m = migrate(v70Save(withBoard(freshState(), 1, undefined)), ENTROPY);
+    expect(m.shortRangeBoard).toEqual({ version: 1, nextCycle: {}, evacuationFrom: { 0: 1, 1: 1 } });
+    const m2 = migrate(v70Save(withBoard(freshState(), 2, undefined)), ENTROPY);
+    expect(m2.shortRangeBoard!.evacuationFrom).toEqual({ 0: 1, 1: 1, 2: 1 });
+  });
+
+  it("a malformed board counts as cycle 0 everywhere and is written fresh", () => {
+    const bad = { ...withBoard(freshState(), 1, undefined), shortRangeBoard: { version: 1, nextCycle: { 0: -3 } } } as unknown as GameState;
+    expect(withEvacuationStampV71(bad).shortRangeBoard).toEqual({ version: 1, nextCycle: {}, evacuationFrom: { 0: 1, 1: 1 } });
+  });
+
+  it("old saves load with zero refugees", () => {
+    const m = migrate(v70Save(freshState()), ENTROPY);
+    expect("refugees" in m).toBe(false);
+    expect(refugeesOf(m).list).toEqual([]);
+  });
+
+  it("a fresh v71 state has no stamp, and loads without one", () => {
+    const fresh = freshState();
+    expect(fresh.shortRangeBoard?.evacuationFrom).toBeUndefined();
+    const loaded = migrate(deserialize(serialize(fresh, 0)) as SaveFile, ENTROPY);
+    expect(loaded.shortRangeBoard?.evacuationFrom).toBeUndefined();
+  });
+
+  it("a v71 save round-trips the stamp and the refugees unchanged", () => {
+    const refugees: RefugeeState = {
+      version: 1,
+      list: [
+        { id: 1, name: "Ada Okafor", background: "scholar", skill: 44, origin: { tier: 1, destinationIndex: 2 }, portrait: { hair: 2, palette: 5 }, arrivedAtSeconds: 3600, posting: "research" },
+        { id: 2, name: "Ren Ito", background: "salvager", skill: 61, origin: { tier: 2, destinationIndex: 0 }, portrait: { hair: 0, palette: 7 }, arrivedAtSeconds: 7200, posting: null },
+      ],
+      nextId: 3,
+      arrivedTotal: 3,
+      greet: [2],
+      hintSeen: true,
+    };
+    const board = { version: 1 as const, nextCycle: { 0: 4, 1: 9 }, evacuationFrom: { 0: 3, 1: 2 } };
+    const s: GameState = { ...freshState(), shortRangeBoard: board, refugees };
+    const loaded = migrate(deserialize(serialize(s, 0)) as SaveFile, ENTROPY);
+    expect(loaded.shortRangeBoard).toEqual(board);
+    expect(loaded.refugees).toEqual(refugees);
+  });
+
+  it("the migration is the v70 save plus the stamp, nothing else", () => {
+    const s = withBoard(freshState(), 3, { 1: 7 });
+    const viaV71 = migrate(v70Save(s), ENTROPY);
+    const asIfCurrent = migrate(deserialize(serialize(s, 0)) as SaveFile, ENTROPY);
+    const { evacuationFrom, ...boardRest } = viaV71.shortRangeBoard!;
+    expect(evacuationFrom).toEqual({ 0: 1, 1: 8, 2: 1, 3: 1 });
+    expect(JSON.stringify({ ...viaV71, shortRangeBoard: boardRest })).toBe(JSON.stringify(asIfCurrent));
+  });
+});
+
+describe("isWellFormedShortRangeBoard, the evacuation stamp (E5-1)", () => {
+  it("accepts a whole-count stamp and rejects a negative or fractional one", () => {
+    expect(isWellFormedShortRangeBoard({ version: 1, nextCycle: { 0: 2 }, evacuationFrom: { 0: 3, 1: 1 } })).toBe(true);
+    expect(isWellFormedShortRangeBoard({ version: 1, nextCycle: { 0: 2 }, evacuationFrom: {} })).toBe(true);
+    expect(isWellFormedShortRangeBoard({ version: 1, nextCycle: { 0: 2 }, evacuationFrom: { 0: -1 } })).toBe(false);
+    expect(isWellFormedShortRangeBoard({ version: 1, nextCycle: { 0: 2 }, evacuationFrom: { 0: 1.5 } })).toBe(false);
+    expect(isWellFormedShortRangeBoard({ version: 1, nextCycle: { 0: 2 }, evacuationFrom: [1] })).toBe(false);
   });
 });

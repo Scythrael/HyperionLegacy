@@ -75,11 +75,14 @@ function isWholeCount(v: unknown): v is number {
 export function isWellFormedShortRangeBoard(v: unknown): v is ShortRangeBoardState {
   if (!v || typeof v !== "object") return false;
   const b = v as Record<string, unknown>;
-  const next = b.nextCycle;
+  return b.version === 1 && isWholeCountMap(b.nextCycle) && (b.evacuationFrom === undefined || isWholeCountMap(b.evacuationFrom));
+}
+
+// slot id -> whole count (the cursor, and E5-1's evacuation stamp). Pure.
+function isWholeCountMap(v: unknown): v is Record<number, number> {
   return (
-    b.version === 1 &&
-    !!next && typeof next === "object" && !Array.isArray(next) &&
-    Object.entries(next as Record<string, unknown>).every(([k, n]) => isWholeCount(Number(k)) && isWholeCount(n))
+    !!v && typeof v === "object" && !Array.isArray(v) &&
+    Object.entries(v as Record<string, unknown>).every(([k, n]) => isWholeCount(Number(k)) && isWholeCount(n))
   );
 }
 

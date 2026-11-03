@@ -65,6 +65,7 @@ import type { OfficerCombatEntry } from "./crewOverlay";
 import type { FieldKitId } from "./fieldKits";
 // G1-3: the short-range mission arm stores a roll and its cycle plan (types only; shortRange.ts imports this file).
 import type { ShortRangeCyclePlan, ShortRangeRoll, ShortRangeTier } from "./shortRange";
+import type { RefugeeState } from "./refugees";
 // Gas Giant Study GG-2: an orbital body's giant class id (type only; gasGiantContent.ts imports this module).
 // GG-4 / GG-5: a nebula kind id and a research data family (types only).
 import type { GiantClassId, NebulaKindId, ResearchFamily } from "./gasGiantContent";
@@ -3893,6 +3894,12 @@ export interface ShortRangeMissionState {
 export interface ShortRangeBoardState {
   version: 1;
   nextCycle: Record<number, number>;
+  // E5-1 (Refugee Posts, plan 2026-11-02 Task E5-1): slot id -> the first cycle index whose roll may draw the
+  // Evacuation template (E5-2's versioned draw: a cycle below the stamp reads the frozen seven-template draw, so a
+  // board an existing save already showed keeps its upcoming jobs). Written ONCE, by the v70 -> v71 migration, at each
+  // slot's nextCycle + 1 (save.ts withEvacuationStampV71); never on a new game (no entry reads the new draw from cycle
+  // 0). The tick's cursor write carries it unchanged. OPTIONAL: absent means no slot is stamped.
+  evacuationFrom?: Record<number, number>;
 }
 
 // The EXTRACTION arm of the CaptainState.mission discriminated union (Combat 0.13.0,
@@ -9859,6 +9866,11 @@ export interface GameState {
   // reads as every slot at cycle 0 (shortRangeNextCycle, shortRangeBoard.ts), so no save needs a step; written by
   // the cycle engine (G1-4) when a cycle delivers. A malformed value reads as absent (save.ts hydration). Plain data.
   shortRangeBoard?: ShortRangeBoardState;
+  // E5-1 (Refugee Posts): the refugees at home, waiting or posted at a facility (refugees.ts RefugeeState). OPTIONAL:
+  // absent reads as nobody yet (refugeesOf), which is every new game and every old save; written from E5-2's first
+  // arrival on. Hydrated on load (refugees.ts hydrateRefugees: an overflowing facility returns its extra people to
+  // the waiting list). Plain data.
+  refugees?: RefugeeState;
   // Expedition Tiers G2-1: the per-save homeworld seed (HomeworldState above; placement in galaxy.ts). freshState
   // stores the seed it is given (every new game: App.svelte passes a fresh draw); SAVE v70 seeds it on an older save
   // (save.ts withHomeworldV70, which every load also runs, so a save already at v70 from before G2-1 gets one too).

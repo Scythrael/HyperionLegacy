@@ -65,7 +65,7 @@ describe("G2-1: SAVE v70 step 3 seeds the homeworld", () => {
   });
 
   it("v70 stays the shared bump (no v71)", () => {
-    expect(SAVE_VERSION).toBe(70);
+    expect(SAVE_VERSION).toBe(71); // E5-1 took v71 (the board evacuation stamp); this feature added no bump
   });
 
   it("a v69 save gets { version: 1, seed: entropy }; everything else is byte-identical", () => {
@@ -110,10 +110,12 @@ describe("G2-1: SAVE v70 step 3 seeds the homeworld", () => {
     const claimHeld = claimExpedition({ ...held, expeditions: [doneHeld] }, doneHeld.id);
     const claimRestored = claimExpedition({ ...restored, expeditions: [doneRestored] }, doneRestored.id);
     expect(claimRestored.success).toBe(true);
-    // Everything the claim wrote matches, apart from the homeworld and SF-1's derived run counters (step 2's business).
+    // Everything the claim wrote matches, apart from the homeworld, SF-1's derived run counters (step 2's business) and
+    // the board E5-1's v70 -> v71 step stamps (save.test.ts's business).
     const norm = (s: GameState): Record<string, unknown> => {
       const out = withoutHomeworld(migrate(deserialize(serialize(s, 0))!));
       delete out.runCounts;
+      delete out.shortRangeBoard;
       return out;
     };
     expect(norm(claimRestored.next)).toEqual(norm(claimHeld.next));
