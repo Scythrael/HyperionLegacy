@@ -542,3 +542,12 @@ Evacuation uses the "home" icon and Relocation's pay row; job line "N people to 
 gained one Evacuation job line; the no-arrival line uses placeholder destinations (as short-range does today); taper
 K = 4 [PROPOSAL]. Review minor (accepted, corrupted saves only): a malformed stamp is dropped, so that save's slots
 move to the v2 draw.
+
+## Short-range fleet parity fix (137c5b4, 2026-11-03)
+
+Root cause: tick.ts ran each captain's whole multi-tick call in captain order, so cycle starts missed later captains'
+earlier deliveries. Fixed with run generators served in (tick, captain, instant) order (tickShortRangeFleet).
+Production only calls economyTick with delta <= 1 (review-verified), so no player trajectory changed and no stamp was
+needed. Known test-only gaps (multi-tick calls only, never production): a non-short-range captain listed between
+short-range runs draws credits/berths after both; another run's income reaches a departure gate only up to that run's
+own draw when credits are tight; record key order differs by path (values equal).
