@@ -281,6 +281,11 @@ export const ICON_SEMANTICS: Record<IconName, IconSemantic> = {
   refugeeShipwright: "subject",
   refugeeSalvager: "subject",
   refugeeStargazer: "subject",
+  // 0.14.0 E5-6: the arrival (a person come home) and the farewell (a leaf) name events about people; the info mark is
+  // a note to read, an attention meaning a pack must keep readable.
+  refugeeArrival: "subject",
+  refugeeFarewell: "subject",
+  info: "alert",
 };
 
 // ---------------------------------------------------------------------------

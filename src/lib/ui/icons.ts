@@ -575,6 +575,16 @@ export const ICON_PATHS = {
   // Stargazer: an eye looking up a sightline to a four-point star. Kept apart from `relicPrecursorLens` and
   // `telescope` (instruments), `blindLaunch` (an eye struck through) and `discovery` (sparkles alone).
   refugeeStargazer: ["M18 2.5l1.1 3.1 3.1 1.1-3.1 1.1L18 10.9l-1.1-3.1-3.1-1.1 3.1-1.1z", "M1.8 16c1.8-3 4-4.5 6.7-4.5s4.9 1.5 6.7 4.5c-1.8 3-4 4.5-6.7 4.5S3.6 19 1.8 16z", "M8.5 14.3a1.7 1.7 0 1 1 0 3.4 1.7 1.7 0 0 1 0-3.4z", "M12.6 11.6l1.6-1.6"],
+
+  // --- 0.14.0 E5-6: the Refugees tab, the arrival card and the log lines ---
+
+  // Arrival: a house with someone standing in it, a person come home (the arrival log line and the Refugees tab).
+  // Kept apart from `home` (an empty house with a door) by the head and shoulders inside.
+  refugeeArrival: ["M3.5 11L12 4l8.5 7", "M5.5 9.5V20h13V9.5", "M12 10.8a1.9 1.9 0 1 1 0 3.8 1.9 1.9 0 0 1 0-3.8z", "M8.6 20c.4-2.3 1.7-3.6 3.4-3.6s3 1.3 3.4 3.6"],
+  // Farewell: a leaf with its vein, someone gone on to lead a new camp (the mockup's leaf).
+  refugeeFarewell: ["M5 19c0-8 5-14 15-15-1 10-7 15-15 15z", "M5 19l8-8"],
+  // Info: a circled i, a one-time note (the first-arrival hint).
+  info: ["M12 3a9 9 0 1 1 0 18 9 9 0 0 1 0-18z", "M12 11v6", "M12 7.5v.5"],
 } as const satisfies Record<string, readonly string[]>;
 
 /**

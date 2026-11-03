@@ -39,6 +39,9 @@
   } from "./shortRangeBoardDisplay";
   import { shortRangeBoardSlots, shortRangeSlotPreview } from "./game/shortRangeBoard";
   import { shortRangeTemplateUses } from "./game/shortRange";
+  import type { RefugeeFacilityKey } from "./game/refugees";
+  import RefugeeArrivalCard from "./RefugeeArrivalCard.svelte";
+  import { arrivalCardIds } from "./refugeeDisplay";
 
   export let state: GameState;
   export let showTickCounts: boolean = false;
@@ -48,6 +51,14 @@
   export let onOpenMissionControl: () => void;
   // G1-7: opens the Help center on a topic (App.svelte openHelpTopic); the job types list links the Short-Range topic.
   export let onOpenHelp: ((topicId: string) => void) | undefined = undefined;
+  // E5-6 (Refugee Posts): the arrival cards' one-tap post and their greeting (App.svelte doPostRefugee / doGreetRefugee).
+  // Without them the board draws no arrival cards.
+  export let onPostRefugee: ((refugeeId: number, facility: RefugeeFacilityKey, replaceId?: number) => void) | undefined = undefined;
+  export let onGreetRefugee: ((refugeeId: number) => void) | undefined = undefined;
+
+  // E5-6: the people an Evacuation just brought home, not yet greeted (newest first; the first three as cards).
+  const ARRIVAL_CARDS_SHOWN = 3;
+  $: arrivals = arrivalCardIds(state);
 
   $: board = shortRangeBoardView(state);
   $: typeRows = shortRangeTypeRows(state);
@@ -182,6 +193,18 @@
   <div class="sr-legend">
     <span><Icon name="check" size={12} /> green: meets the sheet</span><span>amber: short</span><span>bold: used by this job</span><span>standby: not used by this job, still required</span><span>tick: the sheet line</span>
   </div>
+
+  {#if onPostRefugee && onGreetRefugee && arrivals.length > 0}
+    <!-- E5-6 (mockup section 4, call 11 A): the people finished Evacuations brought home, each with a one-tap Post. -->
+    <div class="sr-arrivals">
+      {#each arrivals.slice(0, ARRIVAL_CARDS_SHOWN) as id (id)}
+        <RefugeeArrivalCard {state} refugeeId={id} onPost={onPostRefugee} onGreet={onGreetRefugee} />
+      {/each}
+      {#if arrivals.length > ARRIVAL_CARDS_SHOWN}
+        <p class="sr-dim sr-xs">{arrivals.length - ARRIVAL_CARDS_SHOWN} more {arrivals.length - ARRIVAL_CARDS_SHOWN === 1 ? "arrival waits" : "arrivals wait"} on the Personnel Refugees list.</p>
+      {/if}
+    </div>
+  {/if}
 
   <div class="sr-grid">
     {#each board.cards as card (card.slotId)}
@@ -361,6 +384,9 @@
     font-size: var(--text-xs);
     color: var(--color-text-dim);
   }
+
+  /* E5-6: the arrival cards, one under another above the board. */
+  .sr-arrivals { display: grid; gap: 8px; min-width: 0; }
 
   /* The board: one column on a phone, two in a wide container (the mockup's grid). */
   .sr-grid {
