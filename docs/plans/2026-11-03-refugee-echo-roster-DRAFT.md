@@ -133,3 +133,11 @@ the roll can pick an echo uniformly, or pick within the arrival's already-rolled
 2. [PROPOSAL] Include the optional "Etc." rows, and which franchises.
 3. [PROPOSAL] Can the same echo arrive twice in one save? Suggested: no, each echo arrives at most once per save.
 4. [PROPOSAL] The unique mark: one shared small glyph for all echoes (suggested), or one per franchise.
+
+## USER ANSWERS (2026-11-03)
+
+- Optional extras: "Yes, include them (Recommended)": 59 echoes total.
+- Repeats: "No, once per save (Recommended)": each echo arrives at most once per save; when all have arrived, rare
+  rolls become normal refugees.
+- Mark: "One shared mark (Recommended)": one subtle original glyph for all echoes, no franchise logos.
+- The rows themselves: AWAITING the user's read (keep, cut or rename any).
