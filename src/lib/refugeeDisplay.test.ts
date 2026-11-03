@@ -2,10 +2,18 @@
 // Every number is checked against the engine (refugeeShare, refugeeFacilityBonus, refugeeBonusIfPosted, postRefugee).
 
 import { describe, expect, it } from "vitest";
-import { freshState, type GameState } from "./game/model";
-import { postRefugee, refugeeShare, type RefugeeBackground, type RefugeeFacilityKey, type RefugeeRecord } from "./game/refugees";
+import { freshState, type CompletionLogEntry, type GameState } from "./game/model";
+import { dismissRefugeeHint, greetRefugee, postRefugee, unpostRefugee, refugeeShare, type RefugeeBackground, type RefugeeFacilityKey, type RefugeeRecord } from "./game/refugees";
 import { refugeeBonusIfPosted, refugeeFacilityBonus } from "./game/refugeeBuffs";
+import { buildHomeDashboard } from "./game/homeDashboard";
 import {
+  arrivalCardIds,
+  arrivalCardView,
+  firstArrivalHintView,
+  refugeeBestOpenPost,
+  refugeesTabView,
+  refugeesTabVisible,
+  slowArrivalsLine,
   percentText,
   personPostView,
   postPickerView,
@@ -281,5 +289,214 @@ describe("refugeeBestPost and personPostView", () => {
     );
     const open = withPeople(withLevels(freshState(1), { refinery: 1 }), [person(1, "Ansel Rook", "refiner", 27, null)]);
     expect(personPostView(open, 1)!.summary).toBe("Waiting at home. Moving is free, any time; an old post goes empty.");
+  });
+});
+
+// ===== E5-6: the Personnel Refugees tab, the arrival card, the log lines and the first-arrival hint =====
+
+// The mockup's section 3 homeworld: 11 posts, 5 posted, 5 waiting, 6 open; the Telescope, the Salvage Bay and Mission
+// Control are full.
+function tabState(): GameState {
+  const s = withLevels(freshState(1), {
+    refinery: 4, research: 4, fabricator: 1, fuelStorage: 1, subspaceTelescope: 1, salvageBay: 1, missionControl: 1, shipyard: 4,
+  });
+  return withPeople(s, [
+    person(1, "Mira Talven", "refiner", 42, "refinery"),
+    person(2, "Kesia Lunde", "scholar", 58, "research"),
+    person(3, "Oriel Vance", "stargazer", 50, "subspaceTelescope"),
+    person(4, "Hale Brennick", "salvager", 39, "salvageBay"),
+    person(5, "Pell Okafor", "dispatcher", 33, "missionControl"),
+    person(6, "Juno Pirelle", "stargazer", 68, null),
+    person(7, "Tamsin Corr", "refiner", 61, null),
+    person(8, "Neve Ardent", "salvager", 44, null),
+    person(9, "Ansel Rook", "refiner", 27, null),
+    person(10, "Bex Haddow", "dispatcher", 24, null),
+  ]);
+}
+
+// Every facility full: one post each at the Refinery, Research Lab, Telescope, Salvage Bay and Mission Control.
+function fullState(): GameState {
+  return withLevels(tabState(), { shipyard: 0, refinery: 1, fabricator: 0, research: 1, fuelStorage: 0 });
+}
+
+function logEntry(kind: CompletionLogEntry["kind"], extra: Partial<CompletionLogEntry>): CompletionLogEntry {
+  return {
+    id: "done-1", kind, reward: "nothing", atMs: 0, startedAtMs: 0, iterations: 1, items: [], pieces: 0,
+    subjectKey: "slot-0", level: null, fuelAmount: null, creditsAmount: null, stale: false, ...extra,
+  };
+}
+
+describe("refugeesTabVisible (call 13 A, Review Focus 3)", () => {
+  it("is hidden until the first arrival and stays once anyone has arrived, even with the list empty", () => {
+    expect(refugeesTabVisible(freshState(1))).toBe(false);
+    const emptied = { ...freshState(1), refugees: { version: 1 as const, list: [], nextId: 3, arrivedTotal: 2, greet: [] } };
+    expect(refugeesTabVisible(emptied)).toBe(true);
+    const v = refugeesTabView(emptied, "waiting", "skill");
+    expect(v.rows).toEqual([]);
+    expect(v.emptyText).toBe("Nobody is here right now. Evacuations on the short-range board bring people home, and they wait here.");
+  });
+});
+
+describe("refugeesTabView", () => {
+  it("counts waiting, posted and the open posts of every post", () => {
+    const v = refugeesTabView(tabState(), "waiting", "skill");
+    expect([v.waiting, v.posted, v.everyone]).toEqual([5, 5, 10]);
+    expect(v.totalPosts).toBe(11);
+    expect(v.openPosts).toBe(6);
+    const fewer = refugeesTabView(withLevels(tabState(), { shipyard: 0, fuelStorage: 0 }), "everyone", "skill");
+    expect(`${fewer.openPosts} of ${fewer.totalPosts}`).toBe("3 of 8");
+  });
+
+  it("each waiting row's best post is the engine's best real gain, open or full", () => {
+    const s = tabState();
+    const v = refugeesTabView(s, "waiting", "skill");
+    expect(v.rows.map((r) => r.name)).toEqual(["Juno Pirelle", "Tamsin Corr", "Neve Ardent", "Ansel Rook", "Bex Haddow"]);
+    for (const row of v.rows) {
+      const best = refugeeBestPost(s, row.id)!;
+      expect(row.bestFacility).toBe(best.facility);
+      expect(row.bestOpen).toBe(best.open);
+      if (best.open) expect(row.bestText.endsWith(` open · ${percentText(best.gain)}`)).toBe(true);
+      else expect(row.bestText).toBe("no open post");
+    }
+    const gain = refugeeBonusIfPosted(s, 7, "refinery").gain;
+    const tamsin = v.rows.find((r) => r.name === "Tamsin Corr")!;
+    expect(tamsin.bestLabel).toBe("Refinery");
+    expect(tamsin.bestText).toBe(`1 open · ${percentText(gain)}`);
+    expect(tamsin.bestShort).toBe(`Refinery open, ${percentText(gain)}`);
+    expect(tamsin.primary).toBe(true);
+    expect(v.rows.filter((r) => r.primary)).toHaveLength(1);
+  });
+
+  it("a row whose best facility is full reads no open post, and Post... offers the swap (call 10 A)", () => {
+    const s = fullState();
+    const v = refugeesTabView(s, "waiting", "skill");
+    const juno = v.rows.find((r) => r.name === "Juno Pirelle")!;
+    expect(juno.bestFacility).toBe("subspaceTelescope");
+    expect(juno.bestText).toBe("no open post");
+    expect(juno.bestShort).toBe("Telescope full");
+    expect(juno.actionLabel).toBe("Post...");
+    const telescope = personPostView(s, 6)!.choices.find((c) => c.facility === "subspaceTelescope")!;
+    expect(telescope.open).toBe(false);
+    expect(telescope.swaps.map((w) => w.id)).toEqual([3]);
+    expect(v.rows.some((r) => r.primary)).toBe(false);
+  });
+
+  it("filters and sorts", () => {
+    const s = tabState();
+    expect(refugeesTabView(s, "posted", "skill").rows.map((r) => r.id)).toEqual([2, 3, 1, 4, 5]);
+    expect(refugeesTabView(s, "everyone", "arrived").rows.map((r) => r.id)).toEqual([10, 9, 8, 7, 6, 5, 4, 3, 2, 1]);
+    expect(refugeesTabView(s, "waiting", "background").rows.map((r) => r.backgroundLabel)).toEqual(["Dispatcher", "Refiner", "Refiner", "Salvager", "Stargazer"]);
+    const mira = refugeesTabView(s, "posted", "skill").rows.find((r) => r.id === 1)!;
+    expect(mira.action).toBe("move");
+    expect(mira.actionLabel).toBe("Move...");
+    expect(mira.bestText).toBe(`posted · ${percentText(refugeeShare({ background: "refiner", skill: 42 }, "refinery"))} extra output chance`);
+  });
+
+  it("shows a calm line when everyone is posted", () => {
+    const s = withPeople(withLevels(freshState(1), { refinery: 1 }), [person(1, "Mira Talven", "refiner", 42, "refinery")]);
+    expect(refugeesTabView(s, "waiting", "skill").emptyText).toBe("Nobody is waiting: everyone at home is posted.");
+  });
+});
+
+describe("slowArrivalsLine (call 9 A)", () => {
+  it("appears only while the waiting list is longer than the open posts, and holds no number", () => {
+    const s = tabState(); // 5 waiting, 6 open
+    expect(slowArrivalsLine(s)).toBe("");
+    expect(refugeesTabView(s, "waiting", "skill").calm).toContain("Evacuations keep bringing people home.");
+    const slow = fullState(); // 5 waiting, 0 open
+    const line = slowArrivalsLine(slow);
+    expect(line).not.toBe("");
+    expect(line).not.toMatch(/\d/);
+    const v = refugeesTabView(slow, "waiting", "skill");
+    expect(v.calm).toContain(line);
+    expect(v.calmShort).toBe("5 waiting, 0 open posts. Everyone is safe here. Evacuations keep bringing people home, a little less often while this list outgrows your open posts.");
+  });
+});
+
+describe("arrivalCardView (call 11 A)", () => {
+  it("offers a one-tap post at the best open post, with the engine's gain", () => {
+    const s = tabState();
+    const v = arrivalCardView(s, 7)!; // Tamsin, a refiner; the Refinery has an open post
+    const best = refugeeBestOpenPost(s, 7)!;
+    expect(best.facility).toBe("refinery");
+    expect(best.gain).toBe(refugeeBonusIfPosted(s, 7, "refinery").gain);
+    expect(v.headline).toBe("Tamsin Corr joins your homeworld");
+    expect(v.matchText).toBe("suits Refinery");
+    expect(v.matched).toBe(true);
+    expect(v.post).toEqual({ facility: "refinery", gain: best.gain, label: `Post at the Refinery (${percentText(best.gain)})`, shortLabel: "Post at Refinery" });
+    expect(v.laterLabel).toBe("Leave on the waiting list");
+    expect(v.toastLine).toBe("Evacuation complete: Tamsin Corr, a refiner, joins your homeworld.");
+    for (const f of ["fabricator", "shipyard", "research", "fuelStorage"] as RefugeeFacilityKey[]) {
+      expect(refugeeBonusIfPosted(s, 7, f).gain).toBeLessThanOrEqual(best.gain);
+    }
+  });
+
+  it("offers the chooser when no post is open, and greeting removes the id from greet", () => {
+    expect(arrivalCardView(fullState(), 6)!.post).toBeNull();
+    const base = tabState();
+    const s = { ...base, refugees: { ...base.refugees!, greet: [7, 9] } };
+    expect(arrivalCardIds(s)).toEqual([9, 7]);
+    const g = greetRefugee(s, 9);
+    expect(g.refugees!.greet).toEqual([7]);
+    expect(arrivalCardIds(g)).toEqual([7]);
+    // After a one-tap post the card leaves (the person is no longer waiting).
+    const posted = postRefugee(g, 7, "refinery").next;
+    expect(arrivalCardIds(posted)).toEqual([]);
+    expect(arrivalCardView(posted, 7)).toBeNull();
+  });
+
+  it("posting by any path greets the person, so an unpost or a swap never brings the arrival card back", () => {
+    const base = tabState();
+    const s = { ...base, refugees: { ...base.refugees!, greet: [7, 9] } };
+    // Arrive, post from the strip (the same engine call every path runs), then unpost: no card returns.
+    const posted = postRefugee(s, 7, "refinery").next;
+    expect(posted.refugees!.greet).toEqual([9]);
+    const back = unpostRefugee(posted, 7).next;
+    expect(back.refugees!.list.find((r) => r.id === 7)!.posting).toBeNull();
+    expect(arrivalCardIds(back)).toEqual([9]);
+    // A failed post greets nobody.
+    const failed = postRefugee(s, 9, "nope" as RefugeeFacilityKey);
+    expect(failed.success).toBe(false);
+    expect(failed.next.refugees!.greet).toEqual([7, 9]);
+  });
+});
+
+describe("the refugee log lines (calls 11 A and 12 A)", () => {
+  it("wears the final glyphs, and an evacuation that brings nobody home is a neutral line", () => {
+    const s: GameState = {
+      ...freshState(1),
+      completionLog: [
+        logEntry("refugeeNoArrival", { id: "done-1", refugeeOrigin: { tier: 1, destinationIndex: 0 } }),
+        logEntry("refugeeArrival", { id: "done-2", refugee: { id: 1, name: "Tamsin Corr", background: "refiner" }, refugeeOrigin: { tier: 2, destinationIndex: 0 } }),
+        logEntry("refugeeFarewell", { id: "done-3", refugee: { id: 2, name: "Silas Wren", background: "scholar" }, refugeeOrigin: { tier: 1, destinationIndex: 0 } }),
+      ],
+    };
+    const rows = buildHomeDashboard(s).recentlyCompleted;
+    const by = (id: string) => rows.find((r) => r.id === id)!;
+    expect(by("done-2").icon).toBe("refugeeArrival");
+    expect(by("done-2").primaryLabel).toBe("Evacuation complete: Tamsin Corr, a refiner, joins your homeworld.");
+    expect(by("done-2").jumpTarget).toBe("refugees");
+    expect(by("done-3").icon).toBe("refugeeFarewell");
+    expect(by("done-3").jumpTarget).toBe("refugees");
+    const miss = by("done-1");
+    expect(miss.icon).toBe("refugeeNoArrival");
+    expect(miss.primaryLabel).toMatch(/^Evacuate .* complete\. Everyone aboard reached the camps; nobody new came home this time\.$/);
+    expect(miss.primaryLabel).not.toMatch(/fail|lost|missed/i);
+    expect(miss.secondaryLabel).toBeNull();
+  });
+});
+
+describe("firstArrivalHintView (call 14 A)", () => {
+  it("shows once after the first arrival and never after it is dismissed", () => {
+    expect(firstArrivalHintView(freshState(1))).toBeNull();
+    const s = withPeople(withLevels(freshState(1), { refinery: 2, research: 1 }), [person(1, "Ansel Rook", "refiner", 27, null)]);
+    expect(firstArrivalHintView(s)!.text).toBe("Rescued people can work at your facilities. Post Ansel Rook at the Refinery for the strongest boost.");
+    const dismissed = dismissRefugeeHint(s);
+    expect(dismissed.refugees!.hintSeen).toBe(true);
+    expect(firstArrivalHintView(dismissed)).toBeNull();
+    // A later arrival never brings it back.
+    const r = dismissed.refugees!;
+    const later = { ...dismissed, refugees: { ...r, list: [...r.list, person(2, "Bex Haddow", "dispatcher", 24, null)], arrivedTotal: 2 } };
+    expect(firstArrivalHintView(later)).toBeNull();
   });
 });

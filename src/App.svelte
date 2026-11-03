@@ -1087,8 +1087,11 @@
   // E5-5 Refugee Posts: the Posts strip under each facility pane (and on Mission Control's Overview), and the posting
   // actions behind it (pure engine fns behind doPostRefugee / doUnpostRefugee).
   import RefugeePostsStrip from "./lib/RefugeePostsStrip.svelte";
-  import { postRefugee, unpostRefugee, isRefugeeFacilityKey, refugeesOf, type RefugeeFacilityKey } from "./lib/game/refugees";
-  import { postsStripShown, REFUGEE_FACILITY_LABELS } from "./lib/refugeeDisplay";
+  import { postRefugee, unpostRefugee, greetRefugee, dismissRefugeeHint, isRefugeeFacilityKey, refugeesOf, type RefugeeFacilityKey } from "./lib/game/refugees";
+  import { postsStripShown, REFUGEE_FACILITY_LABELS, refugeesTabVisible, arrivalCardIds, firstArrivalHintView } from "./lib/refugeeDisplay";
+  // E5-6: the Personnel Refugees tab, the arrival card (the phone toast) and the first-arrival hint.
+  import RefugeesPanel from "./lib/RefugeesPanel.svelte";
+  import RefugeeArrivalCard from "./lib/RefugeeArrivalCard.svelte";
   // Crafted Blanks 0.13.7: the display order for a bulk inspect-reveal (rarity -> quality -> iLevel).
   import { sortRolledPieces } from "./lib/game/inspectSort";
   // ITEM LIFECYCLE 0.13.6 (Armory, Phase 3): the loadout lifecycle, pure over GameState.
@@ -1639,7 +1642,69 @@
   //   - "roster"   , the Captain Roster. Built out now.
   // Defaults to "roster" so Personnel opens on the captains (the FA view is the
   // stub for now, so landing there would show nothing useful).
-  let activePersonnelTab: "admiral" | "roster" = "roster";
+  // E5-6 (Refugee Posts, call 8 A): "refugees", the waiting list, a third tab after the Captain Roster. Shown only once
+  // anyone has ever arrived (refugeesTabVisible, call 13 A).
+  let activePersonnelTab: "admiral" | "roster" | "refugees" = "roster";
+  $: showRefugeesTab = refugeesTabVisible(state);
+  // A save with nobody yet never lands on the hidden tab.
+  $: if (!showRefugeesTab && activePersonnelTab === "refugees") activePersonnelTab = "roster";
+  // E5-6: the first-arrival hint (Facilities dashboard) and the newest arrival still to greet (the phone toast).
+  $: refugeeHint = firstArrivalHintView(state);
+  $: refugeeArrivalIds = arrivalCardIds(state);
+  // E5-6 fix round (user 2026-11-03, "Auto-tuck after a few seconds"): the phone toast shows for a few seconds of
+  // VISIBLE time, then tucks into the Refugees tab's count badge. The tuck is session-only (never saved): the arrival
+  // still waits in refugees.greet (the board's card) and on the waiting list, so nothing is lost. It never counts down
+  // while hidden (a desktop width, the board, any modal or sheet, its own chooser) or while a finger or focus is on it,
+  // and one tuck takes the whole queue (an offline catch-up never plays N toasts in a row).
+  const REFUGEE_TOAST_MS = 5000;
+  const REFUGEE_TOAST_STEP_MS = 250;
+  const REFUGEE_TOAST_TUCK_MS = 320;
+  // Every modal or sheet the toast hides under (the shared ActionModal, the .modal-backdrop idiom, any aria-modal
+  // dialog, the secret game, any role=dialog popover such as the Posts strip's).
+  const REFUGEE_TOAST_BLOCKERS = ".am-backdrop, .modal-backdrop, .sg-backdrop, [aria-modal='true'], [role='dialog']";
+  let refugeeToastTucked = new Set<number>();
+  let refugeeToastVisibleMs = 0;
+  let refugeeToastBlocked = false;
+  let refugeeToastHeld = false;
+  let refugeeToastChoosing = false;
+  let refugeeToastTucking = false;
+  let refugeeToastLastId: number | null = null;
+  let refugeeToastHandle: ReturnType<typeof setInterval> | null = null;
+  $: refugeeToastId = refugeeArrivalIds.find((id) => !refugeeToastTucked.has(id)) ?? null;
+  $: refugeeToastShown = refugeeToastId !== null && !(activeTab === "fleetOperations" && activeOperationsTab === "shortRange");
+  $: if (refugeeToastId !== refugeeToastLastId) {
+    refugeeToastLastId = refugeeToastId;
+    refugeeToastVisibleMs = 0;
+    refugeeToastTucking = false;
+    refugeeToastChoosing = false;
+    refugeeToastHeld = false;
+  }
+  $: if (refugeeToastShown && refugeeToastHandle === null && typeof window !== "undefined") {
+    refugeeToastHandle = setInterval(refugeeToastTick, REFUGEE_TOAST_STEP_MS);
+  } else if (!refugeeToastShown && refugeeToastHandle !== null) {
+    clearInterval(refugeeToastHandle);
+    refugeeToastHandle = null;
+  }
+  function refugeeToastTick() {
+    if (!refugeeToastShown || refugeeToastTucking) return;
+    const phone = window.matchMedia?.("(max-width: 720px)").matches ?? false;
+    refugeeToastBlocked = document.querySelector(REFUGEE_TOAST_BLOCKERS) !== null;
+    if (!phone || refugeeToastBlocked || refugeeToastChoosing || refugeeToastHeld) return;
+    refugeeToastVisibleMs += REFUGEE_TOAST_STEP_MS;
+    if (refugeeToastVisibleMs >= REFUGEE_TOAST_MS) tuckRefugeeToast();
+  }
+  // Tuck every arrival queued now (a later arrival toasts afresh). Reduce motion (the setting or the OS) skips the
+  // slide into the tab and simply hides it.
+  function tuckRefugeeToast() {
+    const ids = refugeeArrivalIds;
+    const finish = () => {
+      refugeeToastTucked = new Set([...refugeeToastTucked, ...ids]);
+      refugeeToastTucking = false;
+    };
+    if (reducedMotion || prefersReducedMotion) { finish(); return; }
+    refugeeToastTucking = true;
+    setTimeout(finish, REFUGEE_TOAST_TUCK_MS);
+  }
 
   // Captain Roster inner view (0.12.0 Console, Phase 1). The roster is NOT a
   // nested tab row (that would re-introduce the tab depth the console redesign
@@ -4044,6 +4109,7 @@
     if (timeSyncHandle !== undefined) clearInterval(timeSyncHandle);
     clearInterval(saveHandle);
     clearInterval(needsTickerHandle);
+    if (refugeeToastHandle !== null) clearInterval(refugeeToastHandle);
   });
 
   function doDispatchCaptainOnMission(captainId: number, missionKey: MissionKey) {
@@ -4158,6 +4224,9 @@
       case "dataStudy":
       case "facilities":
         return "facilities";
+      // E5-6: the Refugees tab is a Personnel tab.
+      case "refugees":
+        return "personnel";
       default: {
         // Exhaustiveness guard: a JumpTarget added to the union without a case above makes
         // `target` fail to narrow to `never`, a COMPILE error, so this map can never silently
@@ -4187,6 +4256,11 @@
       // G1-6: a short-range run's in-progress and completed rows open its board.
       case "shortRange":
         activeOperationsTab = "shortRange";
+        break;
+      // E5-6: an arrival or a farewell row opens the Personnel Refugees tab (a board row before the first arrival
+      // cannot exist, so the tab is always shown when this is reached).
+      case "refugees":
+        activePersonnelTab = "refugees";
         break;
       // Facilities bucket: the console view + the specific foundry facility + its action
       // sub-tab. (The tab itself is set above; Home is a different program than the dashboard
@@ -4336,6 +4410,7 @@
       case "gathering":
       case "combat":
       case "shortRange":
+      case "refugees":
         return null;
       default: {
         const _exhaustive: never = target;
@@ -4460,6 +4535,11 @@
     relic: "relic",
     // Short-Range Missions 0.14.0 (G1-6): a short-range run's in-progress and completed rows wear the hop glyph.
     shortRange: "shortRange",
+    // E5-6 (Refugee Posts): an arrival (a person come home), an Evacuation that brought nobody home (the neutral check,
+    // call 12 A, never a failure mark) and a farewell (the mockup's leaf).
+    refugeeArrival: "refugeeArrival",
+    refugeeNoArrival: "check",
+    refugeeFarewell: "refugeeFarewell",
   };
 
   // The registry icon for a hint, or null when the sweep has not reached it yet.
@@ -9536,6 +9616,28 @@
     pushLog(`${refugeesOf(next).list.find((r) => r.id === refugeeId)?.name ?? "Someone"} is back on the waiting list.`);
     doSave();
   }
+  // E5-6: an arrival card was answered (posted or left on the waiting list), so it shows once; and the one-time
+  // first-arrival hint was dismissed. Both pure, both the same state on a no-op.
+  function doGreetRefugee(refugeeId: number) {
+    const next = greetRefugee(state, refugeeId);
+    if (next === state) return;
+    state = next;
+    doSave();
+  }
+  // E5-6 fix round: "Leave all on the waiting list" on the board (two or more arrival cards queued), one save.
+  function doGreetAllRefugees(refugeeIds: number[]) {
+    let next = state;
+    for (const id of refugeeIds) next = greetRefugee(next, id);
+    if (next === state) return;
+    state = next;
+    doSave();
+  }
+  function doDismissRefugeeHint() {
+    const next = dismissRefugeeHint(state);
+    if (next === state) return;
+    state = next;
+    doSave();
+  }
 
   function doStartFacilityUpgrade(facilityKey: string) {
     const { next, started } = startFacilityUpgrade(state, facilityKey);
@@ -12266,6 +12368,15 @@
               <span class="fpane-cta" aria-hidden="true">Manage</span>
             </button>
           {/snippet}
+          {#if refugeeHint}
+            <!-- E5-6 (mockup section 6, call 14 A): the one-time first-arrival hint above the panes, once per save
+                 (refugees.hintSeen). -->
+            <div class="refugee-hint" role="note">
+              <Icon name="info" size={16} />
+              <span>New: <b>Posts</b>. {refugeeHint.text}</span>
+              <button type="button" class="refugee-hint-x" on:click={doDismissRefugeeHint}>Got it</button>
+            </div>
+          {/if}
           <div class="facility-panes">
             {#each facilityPanes as p (p.key)}
               <!-- E5-5: the Posts strip sits UNDER the pane, outside its button (mockup call 1 A), once the first
@@ -17210,11 +17321,18 @@
         tabs={[
           { key: "admiral", label: "Admiral" },
           { key: "roster", label: "Captain Roster" },
+          // E5-6: the Refugees tab with its waiting count, once anyone has arrived.
+          ...(showRefugeesTab ? [{ key: "refugees", label: "Refugees", count: refugeesOf(state).list.filter((r) => r.posting === null).length }] : []),
         ]}
         active={activePersonnelTab}
-        onSelect={(key) => (activePersonnelTab = key as "admiral" | "roster")}
+        onSelect={(key) => (activePersonnelTab = key as "admiral" | "roster" | "refugees")}
       />
       <div class="tab-scroll-area">
+
+        {#if activePersonnelTab === "refugees"}
+        <!-- E5-6 (Refugee Posts, mockup section 3): everyone at home, the waiting list first. -->
+        <RefugeesPanel {state} onPost={doPostRefugee} />
+        {/if}
 
         {#if activePersonnelTab === "admiral"}
         <!-- ADMIRAL page (0.12.0 Console, Phase 1 / CN2b). The Fleet Admiral is a
@@ -18679,6 +18797,9 @@
             activeOperationsTab = "missionControl";
             activeMissionControlSubTab = "upgrades";
           }}
+          onPostRefugee={doPostRefugee}
+          onGreetRefugee={doGreetRefugee}
+          onGreetAllRefugees={doGreetAllRefugees}
         />
       </div>
       {/if}
@@ -21297,6 +21418,30 @@
   <!-- 0.13.11.1: the achievement popup, ONE mount above everything (the minigame overlay too). -->
   <AchievementToasts />
 
+  <!-- E5-6 (mockup section 4 phone frame): the arrival toast on a phone, the newest person an Evacuation brought home
+       with "Post at {facility}" and "Later". Phone widths only, and not while the board (which draws the full card)
+       is open. Answering it greets them, so it shows once. -->
+  <!-- Fix round (user 2026-11-03): it auto-tucks into the Refugees tab's count after a few seconds (refugeeToastTick),
+       and hides (still mounted, so its chooser stays open) under any modal or sheet. -->
+  {#if refugeeToastShown && refugeeToastId !== null}
+    <div
+      class="refugee-toast"
+      class:blocked={refugeeToastBlocked || refugeeToastChoosing}
+      class:tucking={refugeeToastTucking}
+      role="status"
+      aria-live="polite"
+      on:pointerdown={() => (refugeeToastHeld = true)}
+      on:pointerleave={() => (refugeeToastHeld = false)}
+      on:pointercancel={() => (refugeeToastHeld = false)}
+      on:focusin={() => (refugeeToastHeld = true)}
+      on:focusout={() => (refugeeToastHeld = false)}
+    >
+      {#key refugeeToastId}
+        <RefugeeArrivalCard {state} refugeeId={refugeeToastId} toast onPost={doPostRefugee} onGreet={doGreetRefugee} onChoosingChange={(open) => (refugeeToastChoosing = open)} />
+      {/key}
+    </div>
+  {/if}
+
   {#if refineConfirmModalOpen}
     <!-- Start-a-craft confirmation modal (Crafting Allocation Redesign, Task C4, reuses the
          Phase-2 refine-confirm pref + modal). The "Don't show this again" checkbox disables the
@@ -23471,6 +23616,29 @@
   .fwrap { display: flex; flex-direction: column; min-width: 0; }
   .fwrap.hasposts > .fpane { border-bottom-left-radius: 0; border-bottom-right-radius: 0; }
   .mc-posts { margin-top: 8px; }
+  /* E5-6: the one-time first-arrival hint above the Facilities panes (mockup section 6). */
+  .refugee-hint { display: flex; gap: 10px; align-items: center; padding: 9px 12px; margin-bottom: 10px; border: 1px dashed rgba(var(--color-accent-rgb), 0.45); border-radius: var(--corner); background: rgba(var(--color-accent-rgb), 0.05); color: var(--color-text-secondary); font-size: var(--text-sm); }
+  .refugee-hint :global(svg) { color: var(--color-accent); flex: 0 0 auto; }
+  .refugee-hint > span { flex: 1 1 auto; min-width: 0; }
+  .refugee-hint b { color: var(--color-text-primary); }
+  .refugee-hint-x { font: inherit; font-size: var(--text-sm); flex: 0 0 auto; color: var(--color-accent); background: transparent; border: 1px solid var(--color-border-strong); border-radius: var(--corner); padding: 3px 10px; min-height: 32px; cursor: pointer; white-space: nowrap; }
+  .refugee-hint-x:hover { border-color: var(--color-accent-bright); }
+  .refugee-hint-x:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 2px; }
+  /* E5-6: the arrival toast, phone widths only (mockup section 4 phone frame); the board draws the full card.
+     Fix round: z-index 90 sits over the page and the top bar (inside .frame's z-index:1) but UNDER every modal layer
+     (.modal-backdrop 100, the 110 tooltips, ActionModal / HelpTip / MultiSelect 1000), and it hides outright while a
+     modal or sheet is open (.blocked, set by refugeeToastTick; the :has() rule hides it on the same frame). The tuck
+     slides it up toward the header and fades it; Reduce motion skips the slide (tuckRefugeeToast). */
+  .refugee-toast { display: none; }
+  @media (max-width: 720px) {
+    .refugee-toast { display: block; position: fixed; top: 12px; left: 50%; transform: translateX(-50%); width: min(420px, calc(100% - 32px)); z-index: 90; transition: transform 300ms ease-in, opacity 300ms ease-in; }
+    .refugee-toast.tucking { transform: translateX(-50%) translateY(-48px) scale(0.5); opacity: 0; pointer-events: none; }
+    .refugee-toast.blocked { visibility: hidden; pointer-events: none; }
+    :global(body:has(.am-backdrop, .modal-backdrop, .sg-backdrop, [aria-modal="true"], [role="dialog"])) .refugee-toast { visibility: hidden; pointer-events: none; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .refugee-toast { transition: none; }
+  }
   .fpane.attn { border-color: rgba(var(--color-warning-rgb), 0.55); }
   .fpane:hover { border-color: rgba(var(--color-accent-rgb), 0.6); }
   .fpane:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 2px; }

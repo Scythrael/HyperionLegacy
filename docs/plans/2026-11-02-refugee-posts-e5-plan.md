@@ -523,6 +523,21 @@ off-match 25% of a skill 42 refugee, about 1.05%, needs T >= 97).
 - [ ] **Step 4: Visual check** at 1280 px and 375 px as in E5-5.
 - [ ] **Step 5: Gates**, then commit `feat: E5-6 Refugees tab, arrival card and log lines`.
 
+#### E5-6 carry note (built 2026-11-03 on `7dce6c9`)
+
+- Refugees tab: the third Personnel tab (after Admiral and Captain Roster; the real Personnel rail, not the mockup's
+  Senior Staff / Recruitment / Rosters labels), with a waiting-count pill (ConsoleTabs gained an optional `count`).
+  Hidden until `arrivedTotal > 0`. "Post..." / "Move..." opens RefugeePostPicker in person mode.
+- Arrival card: RefugeeArrivalCard.svelte, shown above the Short-Range board (not inside the slot's run card: a
+  refugee record carries no slot, and the run's credits/XP line is not on the record, so the card omits it). One card per
+  `greet` id, newest first, three at most. The one-tap Post is the best OPEN post by refugeeBonusIfPosted
+  (refugeeBestOpenPost); with no open post anywhere it reads "Choose a post..." and opens the chooser (swaps live
+  there). Post or Leave greets. Phone toast: the same card fixed at the top, phone widths only, hidden on the board.
+- Log glyphs: arrival `refugeeArrival` (a person in a house), no arrival the neutral `check`, farewell
+  `refugeeFarewell` (leaf). Arrival and farewell rows open the Refugees tab (new JumpTarget "refugees").
+- Hint: above the Facilities panes until "Got it" (`dismissRefugeeHint`); it names the waiting person and open post
+  with the strongest real gain. [PROPOSAL] wording.
+
 ### Task E5-7: Help, QA sheet, close-out [small]
 
 **Files:**

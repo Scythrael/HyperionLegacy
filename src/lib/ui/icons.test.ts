@@ -110,6 +110,12 @@ describe("Ground Operations glyphs (0.14.0 GO-10)", () => {
     for (const name of required) expect(ICON_NAMES, `missing icon: ${name}`).toContain(name);
   });
 
+  // Refugee Posts E5-6: the arrival and farewell log glyphs and the hint's info mark.
+  it("covers the refugee log and hint glyphs", () => {
+    const required: IconName[] = ["refugeeArrival", "refugeeFarewell", "info"];
+    for (const name of required) expect(ICON_NAMES, `missing icon: ${name}`).toContain(name);
+  });
+
   // One concept, one glyph: no two names may share the same drawing (a copy-paste slip would make two
   // different things read the same).
   it("never draws two names identically", () => {

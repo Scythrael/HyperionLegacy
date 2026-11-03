@@ -11,6 +11,7 @@ import { FACILITIES } from "./game/model";
 import {
   REFUGEE_BACKGROUNDS,
   REFUGEE_FACILITY_KEYS,
+  refugeeOpenPosts,
   refugeePostCount,
   refugeePostsAt,
   refugeesOf,
@@ -538,4 +539,229 @@ export function personPostView(state: GameState, refugeeId: number): PersonPostV
     summary,
     choices: choices.map(({ order: _order, ...rest }) => rest),
   };
+}
+
+// ===== E5-6: the Personnel Refugees tab, the arrival card and the first-arrival hint (mockup sections 3 to 6) =====
+
+// The Refugees tab exists once anyone has ever arrived (call 13 A), and stays even after relocations empty the list
+// (Review Focus 3). Pure.
+export function refugeesTabVisible(state: GameState): boolean {
+  return refugeesOf(state).arrivedTotal > 0;
+}
+
+// Every post on the homeworld (the eight facilities at their levels). Pure.
+export function refugeeTotalPosts(state: GameState): number {
+  let total = 0;
+  for (const facility of REFUGEE_FACILITY_KEYS) total += refugeePostCount(state, facility);
+  return total;
+}
+
+// The best OPEN post for `refugeeId`: among facilities with a free post (not the one they hold), the largest
+// refugeeBonusIfPosted gain (ties: the facility order). Null when no facility has a free post. Pure.
+export function refugeeBestOpenPost(state: GameState, refugeeId: number): { facility: RefugeeFacilityKey; gain: number } | null {
+  const who = refugeesOf(state).list.find((r) => r.id === refugeeId);
+  if (!who) return null;
+  let best: { facility: RefugeeFacilityKey; gain: number } | null = null;
+  for (const facility of REFUGEE_FACILITY_KEYS) {
+    if (facility === who.posting) continue;
+    const posts = refugeePostCount(state, facility);
+    if (posts < 1 || refugeesPostedAt(state, facility).length >= posts) continue;
+    const { gain } = refugeeBonusIfPosted(state, refugeeId, facility);
+    if (best === null || gain > best.gain + 1e-12) best = { facility, gain };
+  }
+  return best;
+}
+
+// The slowing-arrivals line (call 9 A): words only, never a number or a chance, and only while the waiting list is
+// longer than the open posts (exactly when the engine's taper, refugeeArrivalChance, is below 1). Empty otherwise. Pure.
+export function slowArrivalsLine(state: GameState): string {
+  if (refugeeWaiting(state).length <= refugeeOpenPosts(state)) return "";
+  return "Evacuations keep bringing people home, a little less often while this list is longer than your open posts.";
+}
+
+export type RefugeesTabFilter = "waiting" | "posted" | "everyone";
+export type RefugeesTabSort = "skill" | "background" | "arrived";
+
+export interface RefugeesTabRow extends RefugeePersonView {
+  // Waiting: where they would add the most (refugeeBestPost). Posted: where they are.
+  bestFacility: RefugeeFacilityKey | null;
+  bestLabel: string | null; // "Refinery"
+  bestOpen: boolean;
+  bestText: string; // "1 open · +6.1%", "no open post", or posted: "posted · +4.2% extra output chance"
+  bestShort: string; // phone: "Refinery open, +6.1%", "Telescope full", or "at Refinery, +4.2%"
+  bestGood: boolean; // an open best post (drawn in the success color)
+  action: "post" | "move";
+  actionLabel: string; // "Post..." or "Move..."
+  primary: boolean; // the waiting row whose best open post gains the most (the highlighted button)
+}
+
+export interface RefugeesTabView {
+  waiting: number;
+  posted: number;
+  everyone: number;
+  openPosts: number;
+  totalPosts: number;
+  calm: string; // the desktop calm line
+  calmShort: string; // the phone calm line
+  filter: RefugeesTabFilter;
+  sort: RefugeesTabSort;
+  rows: RefugeesTabRow[];
+  emptyText: string | null; // the calm empty line when the filter lists nobody
+}
+
+function shortFacilityLabel(facility: RefugeeFacilityKey): string {
+  return facility === "subspaceTelescope" ? "Telescope" : REFUGEE_FACILITY_LABELS[facility];
+}
+
+// The Personnel Refugees tab (mockup section 3). Every gain is refugeeBonusIfPosted (through refugeeBestPost); every
+// posted share is refugeeShare. `filter` picks who is listed; `sort` the order: skill (highest first), background (the
+// trade's name, then skill), arrived (newest first). Pure.
+export function refugeesTabView(state: GameState, filter: RefugeesTabFilter, sort: RefugeesTabSort): RefugeesTabView {
+  const list = refugeesOf(state).list;
+  const waitingRecs = list.filter((r) => r.posting === null);
+  const postedRecs = list.filter((r) => r.posting !== null);
+  const openPosts = refugeeOpenPosts(state);
+  const totalPosts = refugeeTotalPosts(state);
+  const slowing = slowArrivalsLine(state);
+
+  const shown = filter === "waiting" ? waitingRecs : filter === "posted" ? postedRecs : list;
+  const gains = new Map<number, number>();
+  const rows: RefugeesTabRow[] = shown.map((r) => {
+    const person = refugeePersonView(r);
+    if (r.posting !== null) {
+      const share = refugeeShare(r, r.posting);
+      return {
+        ...person,
+        bestFacility: r.posting,
+        bestLabel: REFUGEE_FACILITY_LABELS[r.posting],
+        bestOpen: false,
+        bestText: `posted · ${percentText(share)} ${refugeeStatLabel(r.posting)}`,
+        bestShort: `at ${shortFacilityLabel(r.posting)}, ${percentText(share)}`,
+        bestGood: false,
+        action: "move",
+        actionLabel: "Move...",
+        primary: false,
+      };
+    }
+    const best = refugeeBestPost(state, r.id);
+    if (best === null) {
+      return { ...person, bestFacility: null, bestLabel: null, bestOpen: false, bestText: "no post yet", bestShort: "no post yet", bestGood: false, action: "post", actionLabel: "Post...", primary: false };
+    }
+    if (best.open) gains.set(r.id, best.gain);
+    const free = refugeePostCount(state, best.facility) - refugeesPostedAt(state, best.facility).length;
+    return {
+      ...person,
+      bestFacility: best.facility,
+      bestLabel: REFUGEE_FACILITY_LABELS[best.facility],
+      bestOpen: best.open,
+      bestText: best.open ? `${free} open · ${percentText(best.gain)}` : "no open post",
+      bestShort: best.open ? `${shortFacilityLabel(best.facility)} open, ${percentText(best.gain)}` : `${shortFacilityLabel(best.facility)} full`,
+      bestGood: best.open,
+      action: "post",
+      actionLabel: "Post...",
+      primary: false,
+    };
+  });
+
+  const bySkill = (a: RefugeesTabRow, b: RefugeesTabRow) => b.skill - a.skill || a.id - b.id;
+  if (sort === "skill") rows.sort(bySkill);
+  else if (sort === "background") rows.sort((a, b) => a.backgroundLabel.localeCompare(b.backgroundLabel) || bySkill(a, b));
+  else rows.sort((a, b) => b.id - a.id);
+
+  // The highlighted Post...: the waiting row whose best post is open with the largest real gain (the first such row
+  // in the shown order among equals).
+  let top: RefugeesTabRow | null = null;
+  let topGain = 0;
+  for (const row of rows) {
+    const gain = gains.get(row.id);
+    if (gain !== undefined && gain > topGain + 1e-12) { top = row; topGain = gain; }
+  }
+  if (top !== null) top.primary = true;
+
+  const calm = `Everyone here is safe at home and stays as long as you like. ${slowing || "Evacuations keep bringing people home."} Upgrading facilities opens more posts, and Refugee Relocation runs take one person along to lead each new camp.`;
+  const calmShort = `${waitingRecs.length} waiting, ${openPosts} open ${openPosts === 1 ? "post" : "posts"}. Everyone is safe here. ${slowing ? "Evacuations keep bringing people home, a little less often while this list outgrows your open posts." : "Evacuations keep bringing people home."}`;
+
+  let emptyText: string | null = null;
+  if (rows.length === 0) {
+    emptyText = list.length === 0
+      ? "Nobody is here right now. Evacuations on the short-range board bring people home, and they wait here."
+      : filter === "waiting"
+        ? "Nobody is waiting: everyone at home is posted."
+        : "Nobody is posted yet. Post someone from the waiting list.";
+  }
+
+  return { waiting: waitingRecs.length, posted: postedRecs.length, everyone: list.length, openPosts, totalPosts, calm, calmShort, filter, sort, rows, emptyText };
+}
+
+// ===== the arrival card (mockup sections 4 and 5, call 11 A) =====
+
+export interface ArrivalCardView {
+  person: RefugeePersonView;
+  headline: string; // "Tamsin Corr joins your homeworld"
+  runText: string; // "Evacuate Body II, desert world · complete"
+  tierText: string; // "Tier II"
+  matched: boolean; // the one-tap post is their background's own facility
+  matchText: string; // "suits Refinery"
+  // The one-tap post: the best OPEN post by refugeeBonusIfPosted. Null when no facility has a free post; the card then
+  // offers the chooser (personPostView), which lists the swaps.
+  post: { facility: RefugeeFacilityKey; gain: number; label: string; shortLabel: string } | null;
+  laterLabel: string; // "Leave on the waiting list"
+  laterShort: string; // "Later"
+  toastLine: string; // the phone toast: the arrival's log sentence
+}
+
+// The arrival card for `refugeeId`, or null for an unknown or already posted person. Pure.
+export function arrivalCardView(state: GameState, refugeeId: number): ArrivalCardView | null {
+  const who = refugeesOf(state).list.find((r) => r.id === refugeeId);
+  if (!who || who.posting !== null) return null;
+  const home = REFUGEE_BACKGROUNDS[who.background].facility;
+  const best = refugeeBestOpenPost(state, refugeeId);
+  const label = REFUGEE_BACKGROUNDS[who.background].label.toLowerCase();
+  const article = /^[aeiou]/.test(label) ? "an" : "a";
+  return {
+    person: refugeePersonView(who),
+    headline: `${who.name} joins your homeworld`,
+    runText: `Evacuate ${shortRangeDestinationLabel({ template: "evacuation", destinationIndex: who.origin.destinationIndex })} · complete`,
+    tierText: `Tier ${shortRangeTierNumeral(who.origin.tier)}`,
+    matched: best !== null && best.facility === home,
+    matchText: `suits ${REFUGEE_FACILITY_LABELS[home]}`,
+    post: best === null ? null : {
+      facility: best.facility,
+      gain: best.gain,
+      label: `Post at the ${REFUGEE_FACILITY_LABELS[best.facility]} (${percentText(best.gain)})`,
+      shortLabel: `Post at ${shortFacilityLabel(best.facility)}`,
+    },
+    laterLabel: "Leave on the waiting list",
+    laterShort: "Later",
+    toastLine: `Evacuation complete: ${who.name}, ${article} ${label}, joins your homeworld.`,
+  };
+}
+
+// The arrival cards still to greet, newest first: the ids in `greet` whose person is at home and waiting. Pure.
+export function arrivalCardIds(state: GameState): number[] {
+  const refugees = refugeesOf(state);
+  const waiting = new Set(refugees.list.filter((r) => r.posting === null).map((r) => r.id));
+  return refugees.greet.filter((id) => waiting.has(id)).sort((a, b) => b - a);
+}
+
+// ===== the one-time first-arrival hint (mockup section 6, call 14 A) =====
+
+export interface FirstArrivalHintView {
+  text: string; // "Rescued people can work at your facilities. Post Ansel Rook at the Refinery for the strongest boost."
+}
+
+// The hint above the Facilities panes: once anyone has arrived, until dismissed (refugees.hintSeen, once per save).
+// It names the waiting person and the open post with the strongest real gain (refugeeBestOpenPost; the
+// longest-waiting among equals). Null before the first arrival and after the dismissal. Pure.
+export function firstArrivalHintView(state: GameState): FirstArrivalHintView | null {
+  const refugees = refugeesOf(state);
+  if (refugees.arrivedTotal <= 0 || refugees.hintSeen === true) return null;
+  const lead = "Rescued people can work at your facilities.";
+  let pick: { name: string; facility: RefugeeFacilityKey; gain: number } | null = null;
+  for (const r of refugeeWaiting(state)) {
+    const best = refugeeBestOpenPost(state, r.id);
+    if (best !== null && best.gain > 0 && (pick === null || best.gain > pick.gain + 1e-12)) pick = { name: r.name, facility: best.facility, gain: best.gain };
+  }
+  if (pick !== null) return { text: `${lead} Post ${pick.name} at the ${REFUGEE_FACILITY_LABELS[pick.facility]} for the strongest boost.` };
+  return { text: `${lead} Each facility's Posts row shows who works there and what they add.` };
 }

@@ -14,7 +14,8 @@
   // `onSelect` (called with a tab's key when tapped; locked tabs never call it).
   import { onMount } from "svelte";
 
-  export let tabs: { key: string; label: string; locked?: boolean }[] = [];
+  // `count` (E5-6, optional): a small number pill after the label (the Refugees tab's waiting count).
+  export let tabs: { key: string; label: string; locked?: boolean; count?: number }[] = [];
   export let active: string;
   export let onSelect: (key: string) => void;
 
@@ -62,7 +63,7 @@
       {#if t.locked}
         <div class="ctab locked" title="Coming soon, not yet available">🔒 {t.label}</div>
       {:else}
-        <button class="ctab" class:active={active === t.key} on:click={() => onSelect(t.key)}>{t.label}</button>
+        <button class="ctab" class:active={active === t.key} on:click={() => onSelect(t.key)}>{t.label}{#if t.count !== undefined}<span class="ctab-count">{t.count}</span>{/if}</button>
       {/if}
     {/each}
   </div>
@@ -134,6 +135,20 @@
     border-color: var(--color-accent);
     background: rgba(var(--color-accent-rgb), 0.15);
     box-shadow: 0 0 10px rgba(var(--color-accent-rgb), 0.45), inset 0 0 7px rgba(var(--color-accent-rgb), 0.12);
+  }
+  /* E5-6: a tab's count pill (the Refugees tab's waiting count, mockup section 3). */
+  .ctab-count {
+    display: inline-block;
+    margin-left: 7px;
+    padding: 0 6px;
+    border-radius: 999px;
+    font-family: var(--font-mono);
+    font-size: var(--text-2xs);
+    line-height: 1.6;
+    color: var(--color-text-primary);
+    background: rgba(var(--color-accent-rgb), 0.22);
+    border: 1px solid rgba(var(--color-accent-rgb), 0.4);
+    letter-spacing: 0;
   }
   /* Reserved meta tabs, inert (same honest "coming soon" role as the System /
      Battlespace locked slots). */

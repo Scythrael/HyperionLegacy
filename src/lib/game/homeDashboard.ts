@@ -162,7 +162,9 @@ export type JumpTarget =
   | "shortRange"
   // Gas Giant Study GG-6: the Research facility's DATA STUDY sub-tab (the signed-off v3 mockup: its own Research Lab tab),
   // where a running or just-finished data study's rows land.
-  | "dataStudy";
+  | "dataStudy"
+  // E5-6 (Refugee Posts): the Personnel Refugees tab (the waiting list), where an arrival or a farewell row lands.
+  | "refugees";
 
 // Which FLAVOR of in-progress row this is. Drives how the UI reads the optional
 // fields: a "patrol" row is the only kind that carries `combat` (and has a null ETA,
@@ -1245,12 +1247,13 @@ const COMPLETION_KIND_VIEW: Record<
   // G1-5 review follow-up: relics a live run's cycle found (they went to the vault), so the row opens the Relics tab.
   shortRangeRelicFind:     { verb: "Found",       icon: "relic",      source: "Short-Range Missions", jumpTarget: "relics" },
   // E5-2 (Refugee Posts): an Evacuation's outcome. The row reads as one sentence (refugeeCompletionLine); the verb is
-  // only its fallback. Opens the board until the Refugees tab exists (E5-6). [PROVISIONAL]
-  refugeeArrival:          { verb: "Evacuation complete", icon: "home", source: "Short-Range Missions", jumpTarget: "shortRange" },
-  refugeeNoArrival:        { verb: "Evacuation complete", icon: "home", source: "Short-Range Missions", jumpTarget: "shortRange" },
-  // E5-3: a waiting refugee left with a Refugee Relocation to lead the new camp. The mockup's leaf glyph joins with the
-  // E5-6 log icons; "home" until then. [PROVISIONAL]
-  refugeeFarewell:         { verb: "Relocation complete", icon: "home", source: "Short-Range Missions", jumpTarget: "shortRange" },
+  // only its fallback. E5-6: an arrival wears the homecoming glyph and opens the Personnel Refugees tab (where the
+  // newcomer waits); a run that brought nobody home is a NEUTRAL line (call 12 A), the plain check, opening the board.
+  refugeeArrival:          { verb: "Evacuation complete", icon: "refugeeArrival",   source: "Short-Range Missions", jumpTarget: "refugees" },
+  refugeeNoArrival:        { verb: "Evacuation complete", icon: "refugeeNoArrival", source: "Short-Range Missions", jumpTarget: "shortRange" },
+  // E5-3: a waiting refugee left with a Refugee Relocation to lead the new camp. E5-6: the mockup's leaf glyph, and the
+  // row opens the Refugees tab (the list they left).
+  refugeeFarewell:         { verb: "Relocation complete", icon: "refugeeFarewell",  source: "Short-Range Missions", jumpTarget: "refugees" },
 };
 
 // 0.13.4 Phase 2 Unit 2.2 (design §6.2): the EXHAUSTIVE wording table for patrol endings.
