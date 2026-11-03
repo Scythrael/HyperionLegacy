@@ -89,6 +89,11 @@ wr11OffForThisFile();
 // dispatches as before SF-7 (gatheringTrainingSwitch.fixture.ts), so its pins keep proving the wear engine alone
 // (SF-7's own moves are pinned in gatheringTrainingWearGoldens.test.ts).
 gatheringTrainingOffForThisFile();
+// E5-2 (Refugee Posts) came after every pin here: its short-range runs fly a fresh board, which now draws the
+// Evacuation overlay. The file draws the seven-template board (evacuationDrawSwitch.fixture.ts), so its pins keep proving
+// their own slice (E5-2's moves: refugeeGoldens.test.ts and refugeeArrival.test.ts).
+import { evacuationDrawOffForThisFile } from "./evacuationDrawSwitch.fixture";
+evacuationDrawOffForThisFile();
 
 // ===== shared helpers =====
 

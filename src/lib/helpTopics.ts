@@ -583,7 +583,7 @@ function jobLine(key: (typeof SHORT_RANGE_TEMPLATE_KEYS)[number]): string {
   let what: string;
   switch (r.kind) {
     case "passengers":
-      what = `carries people in guest quarters (${rolls("guests", " people")})${def.rolls[SR_TIERS[0]].security ? `, needs a Security crew rating (${rolls("security")})` : ""}, and is paid by the headcount and the distance, plus captain XP`;
+      what = `carries people in guest quarters (${rolls("guests", " people")})${def.rolls[SR_TIERS[0]].security ? `, needs a Security crew rating (${rolls("security")})` : ""}, and is paid by the headcount and the distance, plus captain XP${key === "evacuation" ? ", and may bring one named refugee home" : ""}`;
       break;
     case "supplyLoop":
       what = `buys supplies as it leaves (${rolls("units", " units")}, ${byTier(r.supplyCostPerUnit, "credits a unit")}) and is paid that back on delivery with a ${pct(r.margin)} margin`;

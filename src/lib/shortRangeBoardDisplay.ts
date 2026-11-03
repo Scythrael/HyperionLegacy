@@ -24,12 +24,13 @@ import {
   SHORT_RANGE_TEMPLATES,
   SHORT_RANGE_TEMPLATE_KEYS,
   SHORT_RANGE_TUTORIAL_TICKS_SCALE,
-  drawShortRangeJob,
+  drawShortRangeJobAt,
   meetsSheet,
   shortRangeBoardSeed,
   shortRangeCycleReward,
   shortRangeCyclePlan,
   shortRangeDestinationLabel,
+  shortRangeDrawVersion,
   shortRangePhenomenonLabel,
   shortRangeRollSeed,
   shortRangeShipEngineering,
@@ -58,7 +59,6 @@ import { captainTransportTerms } from "./game/captainSecondaryEffects";
 import { missionPhaseStatus } from "./game/berths";
 import { materialAtCap } from "./game/tick";
 import { RAMP_MAX_TIER, runCountsOf, runDifficultyAt, runRamp } from "./game/runDifficulty";
-import { makeRng } from "./game/combat/rng";
 import { formatNumber } from "./game/format";
 import type { IconName } from "./ui/icons";
 
@@ -74,6 +74,8 @@ export const SHORT_RANGE_TEMPLATE_ICON: Readonly<Record<ShortRangeTemplateKey, I
   telescopeRepair: "telescope",
   commBoosterBuild: "commBooster",
   prisonerTransport: "security",
+  // E5-2: the people come home. [PROVISIONAL] (E5-5/E5-6 own the board's look)
+  evacuation: "home",
 };
 
 export interface ShortRangeCategoryView {
@@ -224,6 +226,8 @@ export function shortRangeJobLine(roll: ShortRangeRoll): string {
       return `${roll.units ?? 0} units of parts to the telescope at ${dest}, ${out}`;
     case "commBoosterBuild":
       return `${roll.units ?? 0} units of components to the relay at ${dest}, ${out}`;
+    case "evacuation":
+      return `${roll.guests ?? 0} people to bring out of ${dest}, ${out}`;
   }
 }
 
@@ -451,7 +455,8 @@ export function shortRangeCostPreview(state: GameState, captainId: number, slot:
   let ticks = 0;
   for (let i = 0; i < PER_HOUR_SAMPLE; i++) {
     const s = shortRangeRollSeed(seed, slot.id, from + i);
-    const r = drawShortRangeJob(makeRng(s), s, slot, from + i, () => ({ version: 1, firstRun: false, ramp: 1, tier: slot.tier }));
+    // E5-2: on the slot's own draw version at that cycle, so the estimate samples the jobs the board will roll.
+    const r = drawShortRangeJobAt(s, slot, from + i, () => ({ version: 1, firstRun: false, ramp: 1, tier: slot.tier }), shortRangeDrawVersion(state, slot.id, from + i));
     credits += cycleCredits(state, captain, ship, r);
     ticks += shortRangeCyclePlan(r, stats, eng).totalTicks;
   }

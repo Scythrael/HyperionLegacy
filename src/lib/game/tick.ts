@@ -509,6 +509,8 @@ import { patrolBattleOptions, patrolCycleEnemies, patrolCycleWaveTicks, patrolWa
 import type { CombatRulesStamp } from "./combat/combatRules";
 // G1-4: the short-range cycle engine and the board's stored-cursor shape check.
 import { shortRangeHasDeparted, shortRangeVaultDeposit, tickCaptainShortRange, type ShortRangeRelicFind } from "./shortRangeCycle";
+import { applyRefugeeDeliveries, type RefugeeDelivery, type RefugeeEvent } from "./refugeeArrival";
+import { refugeeOpenPosts, refugeesOf } from "./refugees";
 import { isWellFormedShortRangeBoard } from "./shortRangeBoard";
 
 // Must stay in sync with MissionPhase and requiredTicksForPhase's switch --
@@ -1457,19 +1459,60 @@ function appendShortRangeRelicFinds(state: GameState, finds: readonly { slotId: 
 // tick each landed on (a stable sort: captain order inside a tick, and a tick's finds before its ends, exactly as 1 s
 // steps append them), so the log reads the same however the span is cut (offline == live). No lines: the state by
 // reference.
+// E5-2 (Refugee Posts): and each Evacuation's outcome (refugeeArrival.ts events, already in (atTick, slotId) order),
+// joined into the same sort after a tick's finds and ends, exactly where 1 s steps append them (the refugee post-pass
+// runs after the captain map), so the log stays chunk-free.
 function appendShortRangeLog(
   state: GameState,
   finds: readonly { slotId: number; cycles: number; relics: number; atTick: number }[],
   endings: readonly { slotId: number; cycles: number; relics: number; atTick: number }[],
-  nowMs: number
+  nowMs: number,
+  refugeeEvents: readonly RefugeeEvent[] = []
 ): GameState {
-  if (finds.length === 0 && endings.length === 0) return state;
-  const lines = [...finds.map((f) => ({ end: false, line: f })), ...endings.map((e) => ({ end: true, line: e }))].sort(
-    (a, b) => a.line.atTick - b.line.atTick || Number(a.end) - Number(b.end)
-  );
+  if (finds.length === 0 && endings.length === 0 && refugeeEvents.length === 0) return state;
+  type Line =
+    | { rank: 0; atTick: number; line: (typeof finds)[number] }
+    | { rank: 1; atTick: number; line: (typeof endings)[number] }
+    | { rank: 2; atTick: number; line: RefugeeEvent };
+  const lines: Line[] = [
+    ...finds.map((f): Line => ({ rank: 0, atTick: f.atTick, line: f })),
+    ...endings.map((e): Line => ({ rank: 1, atTick: e.atTick, line: e })),
+    ...refugeeEvents.map((r): Line => ({ rank: 2, atTick: r.atTick, line: r })),
+  ].sort((a, b) => a.atTick - b.atTick || a.rank - b.rank);
   let out = state;
-  for (const { end, line } of lines) out = end ? appendShortRangeRunEndings(out, [line], nowMs) : appendShortRangeRelicFinds(out, [line], nowMs);
+  for (const l of lines) {
+    if (l.rank === 0) out = appendShortRangeRelicFinds(out, [l.line], nowMs);
+    else if (l.rank === 1) out = appendShortRangeRunEndings(out, [l.line], nowMs);
+    else out = appendRefugeeEvent(out, l.line, nowMs);
+  }
   return out;
+}
+
+// E5-2: one completion log entry for an Evacuation's outcome: "refugeeArrival" names who came home, "refugeeNoArrival"
+// is the calm line (homeDashboard.ts refugeeCompletionLine words both). A farewell (E5-3) writes nothing yet. Pure.
+function appendRefugeeEvent(state: GameState, event: RefugeeEvent, nowMs: number): GameState {
+  if (event.kind === "farewell") return state;
+  const nextId = state.nextCompletionLogId ?? 1;
+  const log = pushCompletionEntry(state.completionLog ?? [], {
+    id: `done-${nextId}`,
+    kind: event.kind === "arrival" ? "refugeeArrival" : "refugeeNoArrival",
+    reward: "nothing",
+    atMs: nowMs,
+    startedAtMs: nowMs,
+    iterations: 1,
+    items: [],
+    pieces: 0,
+    subjectKey: `slot-${event.slotId}`,
+    level: null,
+    fuelAmount: null,
+    creditsAmount: null,
+    stale: false,
+    ...(event.kind === "arrival" && event.refugeeId !== undefined && event.name !== undefined && event.background !== undefined
+      ? { refugee: { id: event.refugeeId, name: event.name, background: event.background } }
+      : {}),
+    refugeeOrigin: { tier: event.tier, destinationIndex: event.destinationIndex },
+  });
+  return { ...state, completionLog: log, nextCompletionLogId: nextId + 1 };
 }
 
 function appendShortRangeRunEndings(state: GameState, endings: readonly { slotId: number; cycles: number; relics: number }[], nowMs: number): GameState {
@@ -4714,6 +4757,9 @@ export function economyTick(
   // cut (appendShortRangeLog; the vault's shortRangeVaultDeposit rule).
   const shortRangeRelicCycles: { captainId: number; slotId: number; cycles: number; relics: number; atTick: number }[] = [];
   const shortRangeEndTicks: number[] = [];
+  // E5-2 (Refugee Posts): every Evacuation and Refugee Relocation cycle delivered this call (refugeeArrival.ts rolls the
+  // arrivals after the captain map, in (atTick, slotId) order).
+  const refugeeDeliveries: RefugeeDelivery[] = [];
   const captains = state.captains.map((captain) => {
     if (captain.mission === null) return captain;
     // UNKNOWN-KEY INERT GUARD (fix: a removed/renamed mission/patrol key hard-crashed every tick,
@@ -5002,6 +5048,7 @@ export function economyTick(
         }
         for (const find of sr.relics) shortRangeRelics.push(find);
         for (const c of sr.relicCycles) shortRangeRelicCycles.push({ captainId: captain.id, ...c });
+        for (const d of sr.refugeeDeliveries) refugeeDeliveries.push(d);
         return srCaptain;
       }
       default:
@@ -5434,6 +5481,17 @@ export function economyTick(
   // G1-4: read back through explicit types (the captain map's callback assigns them, which TS cannot follow).
   const srCountsAfter = shortRangeCounts as RunCounts | null;
   const srCursorAfter = shortRangeCursor as Readonly<Record<number, number>> | null;
+  // E5-2 (Refugee Posts): the call's Evacuations bring people home, against the open posts of the INCOMING state (a
+  // constant of the call: the posts change only with a facility level or a posting, never inside the captain map).
+  // No delivery: nothing is read and nothing is written.
+  const refugeesIn = refugeeDeliveries.length > 0 ? refugeesOf(state) : null;
+  const refugeePass =
+    refugeesIn === null
+      ? null
+      : applyRefugeeDeliveries(refugeesIn, refugeeOpenPosts(state), refugeeDeliveries, {
+          gameTimeSeconds: state.gameTimeSeconds,
+          tickDurationSeconds: state.tickDurationSeconds,
+        });
   const postMissionState: GameState = {
     ...state,
     captains,
@@ -5519,6 +5577,8 @@ export function economyTick(
       : {}),
     // G1-5: the relic blanks short-range cycles found, into the vault (written only when there were any).
     ...(shortRangeRelics.length > 0 ? { relicVault: shortRangeVaultDeposit(state, shortRangeRelics) } : {}),
+    // E5-2: the refugees, written only when someone arrived.
+    ...(refugeePass !== null && refugeePass.refugees !== refugeesIn ? { refugees: refugeePass.refugees } : {}),
   };
 
   // Phase 1, Task 9: resolve every in-flight timed process ONCE, fleet-wide (NOT
@@ -5561,7 +5621,8 @@ export function economyTick(
     appendPatrolCompletions(postProcessStateRaw, patrolEndings, nowMs),
     shortRangeRelicCycles,
     shortRangeEndings.map((e, i) => ({ ...e, atTick: shortRangeEndTicks[i] })),
-    nowMs
+    nowMs,
+    refugeePass?.events ?? []
   );
 
   // Crafting 0.13.3 (Phase 1 Unit 1.4, design §5.5): promote WAITING queued orders into

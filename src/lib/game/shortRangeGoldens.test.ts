@@ -181,6 +181,7 @@ import { FAVORS_SPEC_ROW } from "./favoredSpecRegistry.fixture";
 import { PATROL_LEGS_ADDED_IDS, PATROL_LEGS_FLIPPED_IDS } from "./patrolLegsRegistry.fixture";
 import { PATROL_LEG_LIFTS_ADDED_IDS } from "./patrolLegLiftsRegistry.fixture";
 import { CP3_ADDED_IDS, CP3_FLIPPED_IDS } from "./cp3Registry.fixture";
+import { E5_2_ADDED_ENTRY_IDS } from "./refugeeRegistry.fixture";
 import { EM7_ADDED_ENTRY_IDS, EM7_MODULE_SLOTS_IDS } from "./emodEm7Registry.fixture";
 // WR-8: every registry pin here was taken before WR-8, so its added entries are left out and its flips read back.
 import { wr8ReadBack } from "./combatDescriptorRegistry.fixture";
@@ -753,8 +754,11 @@ const OC_D8_LIFTS_SLICE: RegistrySlice = { added: PATROL_LEG_LIFTS_ADDED_IDS };
 // Complement plan CP-3 (the Ground Ops complement consumers), after every pin here: four crew keys and the Security and
 // Medical quarters wings flipped pending -> live, and one audit row added (cp3Registry.fixture.ts). Read back in EVERY pin.
 const CP3_SLICE: RegistrySlice = { added: CP3_ADDED_IDS, flipped: CP3_FLIPPED_IDS, was: "pending" };
+// E5-2 (Refugee Posts), after every pin here: the Evacuation template's three rows added, all live
+// (refugeeRegistry.fixture.ts). Read back in EVERY pin.
+const E5_2_SLICE: RegistrySlice = { added: E5_2_ADDED_ENTRY_IDS };
 function registryPin(...given: readonly RegistrySlice[]): [number, string] {
-  const slices = [RX_SLICE, RR_SLICE, FUSE_SLICE, ML2_SLICE, OC15_SLICE, R2_2_SLICE, R2_3_SLICE, R2_4_SLICE, R2_10_SLICE, G16_SLICE, ...G2_4_SLICES, ...G2_6_SLICES, ML3_SLICE, GG_STUDY_SLICE, EM7_SLICE, FKR11_SLICE, FKR8_SLICE, GW4_SLICE, OC_D5_SLICE, OC_D8_SLICE, OC_D8_LIFTS_SLICE, CP3_SLICE, ...given];
+  const slices = [RX_SLICE, RR_SLICE, FUSE_SLICE, ML2_SLICE, OC15_SLICE, R2_2_SLICE, R2_3_SLICE, R2_4_SLICE, R2_10_SLICE, G16_SLICE, ...G2_4_SLICES, ...G2_6_SLICES, ML3_SLICE, GG_STUDY_SLICE, EM7_SLICE, FKR11_SLICE, FKR8_SLICE, GW4_SLICE, OC_D5_SLICE, OC_D8_SLICE, OC_D8_LIFTS_SLICE, CP3_SLICE, E5_2_SLICE, ...given];
   const rows = siReadBack(em4ReadBack(em3ReadBack(wr8ReadBack(wr11ReadBack(wr9ReadBack(em8ReadBack(cp5ReadBack(sf7ReadBack(WIRING_REGISTRY)))))))).map((e) => ({ id: e.id, kind: e.status.kind as string })), (r) => r.id, (row) => ({ id: row[0], kind: row[1].kind as string }));
   const lines = rows.filter((e) => !slices.some((sl) => sl.added?.has(e.id))).map((e) => {
     const flip = slices.find((sl) => sl.flipped?.has(e.id));

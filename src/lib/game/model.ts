@@ -65,7 +65,7 @@ import type { OfficerCombatEntry } from "./crewOverlay";
 import type { FieldKitId } from "./fieldKits";
 // G1-3: the short-range mission arm stores a roll and its cycle plan (types only; shortRange.ts imports this file).
 import type { ShortRangeCyclePlan, ShortRangeRoll, ShortRangeTier } from "./shortRange";
-import type { RefugeeState } from "./refugees";
+import type { RefugeeBackground, RefugeeState } from "./refugees";
 // Gas Giant Study GG-2: an orbital body's giant class id (type only; gasGiantContent.ts imports this module).
 // GG-4 / GG-5: a nebula kind id and a research data family (types only).
 import type { GiantClassId, NebulaKindId, ResearchFamily } from "./gasGiantContent";
@@ -7016,7 +7016,9 @@ export type CompletionSalvageSubject =
 // `iterations` the cycles delivered), never one per cycle, so a board on Repeat cannot evict the rest of the log.
 // G1-5 review follow-up: "shortRangeRelicFind", one entry per delivered cycle that found relics while its run goes on
 // (rare, a per-hour chance), so a live Repeat run's finds show before it is recalled.
-export type CompletionLogKind = TimedProcessKind | "patrolRun" | "shortRangeRun" | "shortRangeRelicFind";
+// E5-2 (Refugee Posts): "refugeeArrival", one entry per delivered Evacuation that brought someone home (`refugee`), and
+// "refugeeNoArrival", the calm line for one that brought nobody new (`refugeeOrigin` names where it went).
+export type CompletionLogKind = TimedProcessKind | "patrolRun" | "shortRangeRun" | "shortRangeRelicFind" | "refugeeArrival" | "refugeeNoArrival";
 
 export interface CompletionLogEntry {
   id: string;               // "done-N", minted from state.nextCompletionLogId (mirrors "proc-N" / "q-N")
@@ -7067,6 +7069,12 @@ export interface CompletionLogEntry {
   // Wiring WR-11 (OC-J2 "Show it"): a MATERIAL salvage started since WR-11 carries the loot tier its one drop rolled (the
   // pool tier's rarity name and quality bucket), so the row can say "Standard quality". Absent everywhere else.
   salvageRoll?: { tier: EquipmentRarity; quality: number };
+  // E5-2 (Refugee Posts): on a "refugeeArrival" entry, who came home (their id, name and background, as they arrived).
+  // Absent everywhere else.
+  refugee?: { id: number; name: string; background: RefugeeBackground };
+  // E5-2: on both refugee entries, the Evacuation's tier and destination (the label is derived,
+  // shortRangeDestinationLabel). Absent everywhere else.
+  refugeeOrigin?: { tier: 1 | 2; destinationIndex: number };
 }
 
 // The RUNNING accumulation for one line-backed order that has not finished yet.
