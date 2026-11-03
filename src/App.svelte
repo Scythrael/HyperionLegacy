@@ -1084,6 +1084,11 @@
   import { SHORT_RANGE_BOARD_LIVE } from "./lib/game/model";
   // G1-6: the Overview's short-range card and the Mission Control card's slot line (tested display decisions).
   import { shortRangeRunView, missionControlRungSlotText } from "./lib/shortRangeBoardDisplay";
+  // E5-5 Refugee Posts: the Posts strip under each facility pane (and on Mission Control's Overview), and the posting
+  // actions behind it (pure engine fns behind doPostRefugee / doUnpostRefugee).
+  import RefugeePostsStrip from "./lib/RefugeePostsStrip.svelte";
+  import { postRefugee, unpostRefugee, isRefugeeFacilityKey, refugeesOf, type RefugeeFacilityKey } from "./lib/game/refugees";
+  import { postsStripShown, REFUGEE_FACILITY_LABELS } from "./lib/refugeeDisplay";
   // Crafted Blanks 0.13.7: the display order for a bulk inspect-reveal (rarity -> quality -> iLevel).
   import { sortRolledPieces } from "./lib/game/inspectSort";
   // ITEM LIFECYCLE 0.13.6 (Armory, Phase 3): the loadout lifecycle, pure over GameState.
@@ -9511,6 +9516,27 @@
   // Start the NEXT upgrade rung for `facilityKey`. Backend gates on
   // canBuildFacilityUpgrade (materials + FA level + talents + no in-flight
   // upgrade for this facility); on any miss it is a no-op.
+  // E5-5 Refugee Posts: post (or move, or swap in) a refugee at a facility, and send one back to the waiting list.
+  // The pure engine actions return the SAME state on a no-op or a refusal, so the identity bail skips the log and save.
+  // Moving is free, any time (no cost, no timer).
+  function doPostRefugee(refugeeId: number, facility: RefugeeFacilityKey, replaceId?: number) {
+    const { next, success, swappedOutId } = postRefugee(state, refugeeId, facility, replaceId);
+    if (!success || next === state) return;
+    const list = refugeesOf(next).list;
+    const who = list.find((r) => r.id === refugeeId)?.name ?? "Someone";
+    const out = swappedOutId === undefined ? null : list.find((r) => r.id === swappedOutId)?.name ?? null;
+    state = next;
+    pushLog(out ? `${who} posted at the ${REFUGEE_FACILITY_LABELS[facility]}; ${out} is back on the waiting list.` : `${who} posted at the ${REFUGEE_FACILITY_LABELS[facility]}.`);
+    doSave();
+  }
+  function doUnpostRefugee(refugeeId: number) {
+    const { next, success } = unpostRefugee(state, refugeeId);
+    if (!success || next === state) return;
+    state = next;
+    pushLog(`${refugeesOf(next).list.find((r) => r.id === refugeeId)?.name ?? "Someone"} is back on the waiting list.`);
+    doSave();
+  }
+
   function doStartFacilityUpgrade(facilityKey: string) {
     const { next, started } = startFacilityUpgrade(state, facilityKey);
     if (!started) return;
@@ -12242,7 +12268,16 @@
           {/snippet}
           <div class="facility-panes">
             {#each facilityPanes as p (p.key)}
-              {@render facilityPane(p)}
+              <!-- E5-5: the Posts strip sits UNDER the pane, outside its button (mockup call 1 A), once the first
+                   refugee ever arrived and the facility has posts. -->
+              {#if isRefugeeFacilityKey(p.key) && postsStripShown(state, p.key)}
+                <div class="fwrap hasposts">
+                  {@render facilityPane(p)}
+                  <RefugeePostsStrip {state} facility={p.key} onPost={doPostRefugee} onUnpost={doUnpostRefugee} />
+                </div>
+              {:else}
+                {@render facilityPane(p)}
+              {/if}
             {/each}
           </div>
         {:else}
@@ -18687,6 +18722,13 @@
               <Panel>
                 <div class="panel-title">MISSION CONTROL</div>
                 <div class="research-cost">Level: {missionControlLevel}</div>
+                <!-- E5-5: Mission Control has no Facilities card, so its Posts strip sits here, under its level readout
+                     (mockup call 4 A). Renders nothing until the first refugee ever arrives. -->
+                {#if postsStripShown(state, "missionControl")}
+                  <div class="mc-posts">
+                    <RefugeePostsStrip {state} facility="missionControl" attached={false} onPost={doPostRefugee} onUnpost={doUnpostRefugee} />
+                  </div>
+                {/if}
 
                 <div class="research-name" style="margin-top: 10px;">Available missions</div>
                 {#each unlockedMissionKeys as mKey (mKey)}
@@ -23425,6 +23467,10 @@
     color: inherit;
     -webkit-tap-highlight-color: transparent;
   }
+  /* E5-5: a pane with its Posts strip attached underneath (RefugeePostsStrip draws the strip's own border). */
+  .fwrap { display: flex; flex-direction: column; min-width: 0; }
+  .fwrap.hasposts > .fpane { border-bottom-left-radius: 0; border-bottom-right-radius: 0; }
+  .mc-posts { margin-top: 8px; }
   .fpane.attn { border-color: rgba(var(--color-warning-rgb), 0.55); }
   .fpane:hover { border-color: rgba(var(--color-accent-rgb), 0.6); }
   .fpane:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 2px; }

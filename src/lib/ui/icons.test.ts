@@ -101,6 +101,15 @@ describe("Ground Operations glyphs (0.14.0 GO-10)", () => {
     for (const name of required) expect(ICON_NAMES, `missing icon: ${name}`).toContain(name);
   });
 
+  // Refugee Posts E5-5: the posts badge and the eight background glyphs the signed-off mockup added.
+  it("covers the refugee posts glyphs", () => {
+    const required: IconName[] = [
+      "refugeePosts", "refugeeRefiner", "refugeeFuelHandler", "refugeeDispatcher", "refugeeScholar",
+      "refugeeMachinist", "refugeeShipwright", "refugeeSalvager", "refugeeStargazer",
+    ];
+    for (const name of required) expect(ICON_NAMES, `missing icon: ${name}`).toContain(name);
+  });
+
   // One concept, one glyph: no two names may share the same drawing (a copy-paste slip would make two
   // different things read the same).
   it("never draws two names identically", () => {
