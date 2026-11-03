@@ -57,6 +57,7 @@ import { drawHomeworldSeed } from "../homeworldEntropy";
 // (FROZEN: reads only the raw save and V70_PATROL_KEYS). One-way import (runDifficulty.ts imports model.ts only).
 import { veteranRunCountsV70 } from "./runDifficulty";
 import { isWellFormedShortRangeBoard, isWellFormedShortRangeMission } from "./shortRangeBoard";
+import { hydrateRefugees } from "./refugees";
 import {
   backfillV67ShipGroundTeams,
   isWellFormedGroundTeamLoadout,
@@ -107,7 +108,16 @@ import { withThirdBuffGrantedV70 } from "./crewThirdBuff";
 //      counts, so the regular game reads exactly what it read before the load (same counts, same bonus) and the cap
 //      holds from there. Only branch and staging dev saves can be past the cap (0.13.x never had relics). See
 //      withSoftCapSnapshotV70, which migrate ALSO runs after the loop on every load.
-export const SAVE_VERSION = 70;
+//
+// SAVE v71 (0.14.0, E5-1 Refugee Posts, plan 2026-11-02 Task E5-1). Its own bump rather than a step appended to
+// MIGRATIONS[69]: the step it adds is NOT idempotent across loads (it stamps "from here on" on a save's board once,
+// and a new game must never get a stamp), so the version is the only marker that tells a pre-E5 board from an E5 one.
+//   1. The board's per-slot EVACUATION STAMP (`shortRangeBoard.evacuationFrom`, model.ts ShortRangeBoardState): every
+//      slot the save's board has gets nextCycle + 1, so E5-2's versioned draw keeps each slot's next job (its preview,
+//      or the run in flight) on the frozen seven-template draw and the Evacuation template joins only after it. A save
+//      with no board gets { version: 1, nextCycle: {}, evacuationFrom } (every slot at cycle 0, stamped 1). See
+//      withEvacuationStampV71. `refugees` needs no step: absent reads as nobody yet (refugees.ts refugeesOf).
+export const SAVE_VERSION = 71;
 export const SAVE_KEY = "fleet_admiral_save";
 
 export interface SaveFile {
@@ -213,7 +223,8 @@ function withWellFormedShortRangeBoard<T extends { shortRangeBoard?: unknown }>(
 }
 
 function hydrateDecimals(state: any): GameState {
-  return withWellFormedShortRangeBoard({
+  // E5-1: the refugees load after the board check (refugees.ts hydrateRefugees: identity on a clean save).
+  return hydrateRefugees(withWellFormedShortRangeBoard({
     ...state,
     // Hostile-input guard (cloud / import): tickDurationSeconds is the DIVISOR for offline
     // catch-up (tick() computes ticksElapsed = deltaSeconds / tickDurationSeconds, and
@@ -345,7 +356,7 @@ function hydrateDecimals(state: any): GameState {
       captainXpAwarded: toDecimal(state.lifetimeStats.captainXpAwarded),
       fleetAdminXpAwarded: toDecimal(state.lifetimeStats.fleetAdminXpAwarded),
     },
-  });
+  }));
 }
 
 // Migration table, keyed by the version a save is migrating FROM.
@@ -2628,7 +2639,36 @@ const MIGRATIONS: Record<number, Migration> = {
   // 6. Relics v2 R2-4: a museum tier already past the soft cap gets its snapshot (withSoftCapSnapshotV70).
   69: (state: any, ctx: MigrationContext): any =>
     dropRetiredDurabilityV70(withSoftCapSnapshotV70(withMuseumV2V70(withHomeworldV70(withRunCountsV70(dropRetiredFuelV70(state)), ctx.homeworldEntropy)))),
+  // v70 -> v71 (0.14.0 E5-1 Refugee Posts): the board's per-slot evacuation stamp (withEvacuationStampV71).
+  70: (state: any): any => withEvacuationStampV71(state),
 };
+
+// The v70 -> v71 E5-1 step: stamp every board slot the save has with `evacuationFrom[slot] = nextCycle(slot) + 1`
+// (plan Numbers, "Stamp offset" [PROPOSAL]): the cycle the slot shows now (its preview, or the job in flight) keeps the
+// seven-template draw, and the Evacuation template may appear from the cycle after it. The slots are the v70 board's:
+// the two base slots, one more at Mission Control Level 2 and one more at Level 3 (FROZEN here, never the live
+// shortRangeBoardSlots, so a later board rung cannot change what an old save migrates to), plus any slot the stored
+// cursor names. A slot opened later has no entry and draws the new way from its first cycle, since nobody saw it.
+// A board that is absent or malformed counts every slot at cycle 0 (the shortRangeNextCycle rule) and is written
+// fresh. Hardened: a non-object state passes through. Plain data.
+const V71_BASE_BOARD_SLOTS = 2; // FROZEN: SHORT_RANGE_BASE_SLOT_TIERS.length when v71 shipped
+const V71_BOARD_RUNG_SLOTS = 2; // FROZEN: MISSION_CONTROL_BOARD_RUNGS.length (one slot each, from Level 2) when v71 shipped
+export function withEvacuationStampV71(state: any): any {
+  if (!state || typeof state !== "object") return state;
+  const board = isWellFormedShortRangeBoard(state.shortRangeBoard) ? state.shortRangeBoard : null;
+  const nextCycle: Record<number, number> = board ? board.nextCycle : {};
+  const raw = state.facilities?.missionControl?.level;
+  const level = typeof raw === "number" && Number.isFinite(raw) ? Math.floor(raw) : 0;
+  const slotCount = V71_BASE_BOARD_SLOTS + Math.max(0, Math.min(V71_BOARD_RUNG_SLOTS, level - 1));
+  const slotIds = new Set<number>(Array.from({ length: slotCount }, (_, i) => i));
+  for (const k of Object.keys(nextCycle)) slotIds.add(Number(k));
+  const evacuationFrom: Record<number, number> = {};
+  for (const id of [...slotIds].sort((a, b) => a - b)) evacuationFrom[id] = (nextCycle[id] ?? 0) + 1;
+  return {
+    ...state,
+    shortRangeBoard: board ? { ...board, evacuationFrom } : { version: 1, nextCycle: {}, evacuationFrom },
+  };
+}
 
 // The v69 -> v70 WR-4 step: drop `fuel` and every `fuelRefineJob` process (its addFuel output names a field that no
 // longer exists; none can start since 0.13.9). The user (WR-4 review, "Only above the free tank"): refund as credits,

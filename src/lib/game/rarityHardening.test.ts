@@ -163,7 +163,7 @@ describe("RR-1: rarity normalization on every load", () => {
       expect(isEquipmentAscension(e.ascension), e.id).toBe(true);
       expect(Number.isFinite(itemScore(e))).toBe(true);
     }
-    expect(SAVE_VERSION).toBe(70);
+    expect(SAVE_VERSION).toBe(71); // E5-1 took v71 (the board evacuation stamp); this feature added no bump
   });
 
   it("normalizes an in-flight expedition's frozen battle gear, leaving the rest of the run alone", () => {

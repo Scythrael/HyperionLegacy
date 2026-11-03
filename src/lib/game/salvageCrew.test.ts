@@ -323,12 +323,13 @@ describe("migrate, v68 -> v69 orphaned ship references repaired (CP-6)", () => {
     const clean = raw(crewedFleet());
     // G2-1: the "at" load is handed the homeworld the v69 -> v70 step seeds (homeworldMigration.test.ts tests it).
     const via = migrateFrom(68, JSON.parse(JSON.stringify(clean)));
-    const at = migrateFrom(SAVE_VERSION, { ...JSON.parse(JSON.stringify(clean)), homeworld: via.homeworld });
+    // E5-1: and the board the v70 -> v71 step stamps (save.test.ts tests it).
+    const at = migrateFrom(SAVE_VERSION, { ...JSON.parse(JSON.stringify(clean)), homeworld: via.homeworld, shortRangeBoard: via.shortRangeBoard });
     expect(JSON.stringify(via)).toBe(JSON.stringify(at));
     const fresh = raw(freshState());
     const freshVia = migrateFrom(68, JSON.parse(JSON.stringify(fresh)));
     expect(JSON.stringify(freshVia)).toBe(
-      JSON.stringify(migrateFrom(SAVE_VERSION, { ...JSON.parse(JSON.stringify(fresh)), homeworld: freshVia.homeworld }))
+      JSON.stringify(migrateFrom(SAVE_VERSION, { ...JSON.parse(JSON.stringify(fresh)), homeworld: freshVia.homeworld, shortRangeBoard: freshVia.shortRangeBoard }))
     );
   });
 

@@ -294,7 +294,7 @@ describe("R2-1 migration: MIGRATIONS[69] moves the v1 museum into museumV2.gener
   const asV69 = (s: GameState): SaveFile => ({ ...(deserialize(serialize(withV1Museum(s), 0)) as SaveFile), version: 69 });
 
   it("SAVE_VERSION stays 70", () => {
-    expect(SAVE_VERSION).toBe(70);
+    expect(SAVE_VERSION).toBe(71); // E5-1 took v71 (the board evacuation stamp); this feature added no bump
   });
 
   it("the museum moves, relicMuseum is gone, the registry, vault and in-flight study are untouched, the bonuses identical", () => {

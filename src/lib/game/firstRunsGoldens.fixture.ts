@@ -58,11 +58,27 @@ export const hash = (v: unknown): string => fnv(goldenJson(v));
 // The whole state hashed WITHOUT the fields later slices add on purpose: SF-1's run counters (`runCounts`, plan
 // section 3.3) and G2-1's stored `homeworld` (the G2-0 withoutG2State precedent). A no-op today; it keeps every
 // whole-state golden byte-identical across those additions, so only a real behavior change moves one. Pure.
+// E5-1: and without the board's evacuation stamp the v70 -> v71 step writes on an old save.
 export function stateHash(state: GameState): string {
-  const rest = { ...withV1Museum(state) } as Record<string, unknown>;
+  const rest = { ...withoutEvacuationStamp(withV1Museum(state)) } as Record<string, unknown>;
   delete rest.runCounts;
   delete rest.homeworld;
   return hash(rest);
+}
+
+// E5-1 (Refugee Posts): a state without the short-range board's evacuation stamp (`shortRangeBoard.evacuationFrom`),
+// which the v70 -> v71 step writes ONCE on an old save, so every whole-state golden of a migrated old save keeps
+// proving that nothing ELSE moved. The stamp is taken off; a board left with an empty cursor is one the step created
+// on a save that had none (the engine writes the cursor only on a delivery, never empty), so it goes too. Any other
+// value is returned as it is. Pure: a shallow copy.
+export function withoutEvacuationStamp<T>(value: T): T {
+  const board = (value as { shortRangeBoard?: { evacuationFrom?: unknown; nextCycle?: object } } | null)?.shortRangeBoard;
+  if (!board || typeof board !== "object" || board.evacuationFrom === undefined) return value;
+  const { shortRangeBoard: _board, ...rest } = value as Record<string, unknown>;
+  const { evacuationFrom: _stamp, ...boardRest } = board;
+  const emptyCursor = !boardRest.nextCycle || Object.keys(boardRest.nextCycle).length === 0;
+  if (emptyCursor) return rest as T;
+  return { ...(value as object), shortRangeBoard: boardRest } as T;
 }
 
 // Relics v2 R2-1: a state with its Museum v2 record shown in the v1 form every whole-state golden captured before

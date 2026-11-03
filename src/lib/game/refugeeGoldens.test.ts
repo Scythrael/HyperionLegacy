@@ -39,7 +39,8 @@ import { deserialize, migrate, serialize, type SaveFile } from "./save";
 import { WIRING_REGISTRY } from "./wiring/registry";
 import { HELP_TOPICS } from "../helpTopics";
 import { shortRangeTypeRows } from "../shortRangeBoardDisplay";
-import { hash } from "./firstRunsGoldens.fixture";
+// E5-1: golden 5 hashes its migrated old save without the v71 board stamp (asserted beside the pin instead).
+import { hash, withoutEvacuationStamp } from "./firstRunsGoldens.fixture";
 
 // The wiring registry entries E5 adds (E5-4 fills it). Held apart from golden 4, so that pin proves nothing else moved.
 export const E5_ADDED_ENTRY_IDS: readonly string[] = [];
@@ -300,13 +301,18 @@ describe("E5-0 golden 4: the wiring registry's ids and statuses", () => {
 
 describe("E5-0 golden 5: the fleet's v70 save through deserialize + migrate, then six hours", () => {
   it("the state every hour and every slot's preview", () => {
-    const save = deserialize(serialize(shortRangeFleet(), 0, SAVED_AT_MS)) as SaveFile;
-    expect(save.version).toBe(70);
+    // E5-1: serialize writes v71 now; the save a v70 build wrote is the same state under version 70 (the fleet holds
+    // no field v71 added), so the v70 -> v71 step runs on it as it will on a player's save.
+    const save = { ...(deserialize(serialize(shortRangeFleet(), 0, SAVED_AT_MS)) as SaveFile), version: 70 };
     let s = migrate(save, MIGRATE_ENTROPY);
-    const hours = [hash(s)];
+    // E5-1: the v71 step stamps every slot at its cursor + 1, and the cursor writes carry the stamp unchanged.
+    const stampAtLoad = s.shortRangeBoard?.evacuationFrom;
+    expect(stampAtLoad).toEqual({ 0: shortRangeNextCycle(s, 0) + 1, 1: 1, 2: 1, 3: 1 });
+    const hours = [hash(withoutEvacuationStamp(s))];
     for (let h = 1; h <= 6; h++) {
       s = economyTick(s, HOUR, RNG);
-      hours.push(hash(s));
+      expect(s.shortRangeBoard?.evacuationFrom).toBe(stampAtLoad);
+      hours.push(hash(withoutEvacuationStamp(s)));
     }
     pin("old", hours);
     pin("old:previews", previews(s));
