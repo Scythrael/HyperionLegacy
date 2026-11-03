@@ -3886,6 +3886,11 @@ export interface ShortRangeMissionState {
   // and folds a landed cut into the plan's leg home (pilotCutShortRangePlan). Written only when non-zero; a run in
   // flight from before has none and flies as it did. Optional, no SAVE bump.
   pilotCunning?: number;
+  // E5-4 fix round (the user's 2026-11-03 "Carry the fractions"): the fraction of a tick Mission Control's refugee buff
+  // last rounded this run's phases up by (refugeeBuffs.ts refugeeShortRangePlan), paid back by its next cycle start.
+  // In (0, 1); absent = 0 (written only while the buff rounds), so a run with nobody posted never carries it.
+  // Optional, no SAVE bump.
+  refugeeCarry?: number;
 }
 
 // The board's per-slot cycle cursor (GameState.shortRangeBoard): slot id -> the cycle index its NEXT roll reads

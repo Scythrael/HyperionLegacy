@@ -519,6 +519,16 @@ import {
 } from "./shortRangeCycle";
 import { applyRefugeeDeliveries, type RefugeeDelivery, type RefugeeEvent } from "./refugeeArrival";
 import { refugeeOpenPosts, refugeesOf } from "./refugees";
+// E5-4: the facility buffs posted refugees give (each fold the identity with nobody posted).
+import {
+  carriedTicks,
+  refugeeCarryOf,
+  refugeeDurationCarried,
+  refugeeFacilityBonus,
+  refugeeRefineBonus,
+  withRefugeeCarry,
+  withRefugeeSpeed,
+} from "./refugeeBuffs";
 import { isWellFormedShortRangeBoard } from "./shortRangeBoard";
 
 // Must stay in sync with MissionPhase and requiredTicksForPhase's switch --
@@ -7341,6 +7351,12 @@ export function startProcess(
     ...(kind === "fabricateJob" && worksDirectorateBonus(worksDirectorateSaveSeed(state), state.nextProcessId, fabricatorBonusOutputChance(state))
       ? { bonusOutput: true as const }
       : {}),
+    // E5-4 (the Refiner, the user's E5-0 call "Extra output"): a refine job's chance of one extra batch of its output
+    // is the Refinery's refugee buff, decided NOW on the job's own keyed roll (refugeeBuffs.ts refugeeRefineBonus, its
+    // own salt) and stamped like Works Directorate's. No draw and no key with nobody posted at the Refinery.
+    ...(kind === "refineJob" && refugeeRefineBonus(worksDirectorateSaveSeed(state), state.nextProcessId, refugeeFacilityBonus(state, "refinery"))
+      ? { bonusOutput: true as const }
+      : {}),
   };
 
   return {
@@ -7991,6 +8007,22 @@ export function refineJobDurationTicks(state: GameState, baseDurationTicks: numb
   return Math.max(1, Math.ceil(baseDurationTicks / mult));
 }
 
+// E5-4 (the Machinist): a fabricate job's duration, craftDurationTicks / (1 + b) with b the Fabricator's refugee buff,
+// rounded up with the Fabricator's carried fraction paid back (refugeeBuffs.ts carriedTicks, the user's "Carry the
+// fractions"), decided ONCE at the job START (a line job and a one-off craft both read it) and then fixed on the
+// TimedProcess, so a posting never re-times a job in flight. Returns the ticks and the carry the start then stores
+// (withRefugeeCarry "fabricator"). The crafting XP award reads the stored duration, as the Refinery speed rung's does (a
+// faster job pays proportionally less, XP per tick unchanged). `craftDurationTicks` itself, bit for bit, and the carry
+// untouched, with nobody posted at the Fabricator. Pure.
+export function fabricateDurationCarried(state: Pick<GameState, "refugees">, craftDurationTicks: number): { ticks: number; carry: number } {
+  return refugeeDurationCarried(craftDurationTicks, refugeeFacilityBonus(state, "fabricator"), refugeeCarryOf(state, "fabricator"));
+}
+
+// The duration the NEXT fabricate job started now would take (fabricateDurationCarried's ticks). Pure.
+export function fabricateDurationTicks(state: Pick<GameState, "refugees">, craftDurationTicks: number): number {
+  return fabricateDurationCarried(state, craftDurationTicks).ticks;
+}
+
 // Research SLOT count (Research Task R2), how many concurrent research projects the
 // Research Lab can run RIGHT NOW. Derived (not stored) by SUMMING every { addResearchSlots }
 // grant on the rungs the lab has ALREADY reached, the EXACT same reached-rungs loop
@@ -8534,7 +8566,10 @@ export function shipBuildSpeedMult(state: GameState): number {
       mult *= effect.buildSpeedMult;
     }
   }
-  return mult;
+  // E5-4 (the Shipwright): the Shipyard's refugee buff multiplies the build speed, read when a build STARTS (its
+  // duration is fixed on the process then).
+  const refugees = refugeeFacilityBonus(state, SHIPYARD_FACILITY_KEY);
+  return refugees > 0 ? mult * (1 + refugees) : mult;
 }
 
 // A hull's effective build time RIGHT NOW = its base buildRecipe.durationTicks DIVIDED by
@@ -9025,7 +9060,11 @@ export function startResearch(
     if (spentBoosts === undefined) delete afterCredits.researchBoosts;
     else afterCredits.researchBoosts = spentBoosts;
   }
-  const museumTicks = museumResearchDurationTicks(bp.researchDurationTicks, museumBonuses(state).researchSpeed);
+  // E5-4 (the Scholar): the Research Lab's refugee buff multiplies into the museum's speed, at the START, and (fix
+  // round, "Carry the fractions") the rounding pays back the research carry, stored with the start.
+  const carried = researchDurationCarried(state, bp.researchDurationTicks, museumBonuses(state).researchSpeed, "research");
+  const museumTicks = carried.ticks;
+  const afterCarry = withRefugeeCarry(afterCredits, "research", carried.carry);
   // No MATERIAL inputs (locked design #3: research costs TIME + CREDITS, not materials), so
   // the inputs map is empty, startProcess's gate/deduct loops no-op over it. It pushes the
   // "researchProject" TimedProcess (remainingTicks = researchDurationTicks) whose completion
@@ -9033,7 +9072,7 @@ export function startResearch(
   // E4b: the museum's researchSpeed shortens the project, decided ONCE here at START (see
   // museumResearchDurationTicks), so an in-flight project is never re-timed.
   return startProcess(
-    afterCredits,
+    afterCarry,
     "researchProject",
     {},
     boosts > 0 ? museumResearchDurationTicks(museumTicks, researchBoostSpeed(boosts)) : museumTicks,
@@ -9060,6 +9099,33 @@ export function museumResearchDurationTicks(baseTicks: number, researchSpeedBonu
   if (!(researchSpeedBonus > 0) || !Number.isFinite(researchSpeedBonus)) return baseTicks;
   if (!(baseTicks > 0) || !Number.isFinite(baseTicks)) return baseTicks;
   return Math.max(1, Math.ceil(baseTicks / (1 + researchSpeedBonus)));
+}
+
+// E5-4 (the Scholar): a research speed bonus with the Research Lab's refugee buff multiplied in ((1 + speed) x (1 + b)
+// - 1, refugeeBuffs.ts withRefugeeSpeed), the ONE fold blueprint research and relic study both read at their start.
+// `speed` itself, bit for bit, with nobody posted at the Research Lab. Pure.
+export function researchSpeedFor(state: Pick<GameState, "refugees">, speed: number): number {
+  return withRefugeeSpeed(speed, refugeeFacilityBonus(state, "research"));
+}
+
+// E5-4 fix round (the user's "Carry the fractions"): a research or relic study duration at its START: `baseTicks`
+// shortened by `speed` with the Research Lab's refugee buff multiplied in (researchSpeedFor), rounded up with the carry
+// `carry` paid back (refugeeBuffs.ts carriedTicks), and the new carry the start stores. With nobody posted at the Research
+// Lab: museumResearchDurationTicks(baseTicks, speed) bit for bit, the carry handed back untouched. `carry` defaults to
+// the state's own carry `key`. Pure.
+export function researchDurationCarried(
+  state: Pick<GameState, "refugees">,
+  baseTicks: number,
+  speed: number,
+  key: "research" | "relicStudy",
+  carry: number = refugeeCarryOf(state, key),
+): { ticks: number; carry: number } {
+  if (!(refugeeFacilityBonus(state, "research") > 0) || !(baseTicks > 0) || !Number.isFinite(baseTicks)) {
+    return { ticks: museumResearchDurationTicks(baseTicks, speed), carry };
+  }
+  const total = researchSpeedFor(state, speed);
+  if (!Number.isFinite(total) || !(total > 0)) return { ticks: museumResearchDurationTicks(baseTicks, speed), carry };
+  return carriedTicks(baseTicks / (1 + total), carry);
 }
 
 // ============================================================================
@@ -9117,10 +9183,17 @@ export function canStartRelicStudy(
 // Preservationist speed (WR-5c, its own x (1 + s) factor on the speed, OC-A1 "Always multiply"; absent = the museum's
 // speed alone, bit for bit). THE duration seam: a player start and a queue start both read it at the start. Pure.
 export function relicStudyDurationFor(state: GameState, museumV2: MuseumV2, token: RelicVaultToken): number {
+  return relicStudyDurationCarried(state, museumV2, token, refugeeCarryOf(state, "relicStudy")).ticks;
+}
+
+// relicStudyDurationFor with the relic study carry `carry` paid back, and the new carry the start stores (E5-4 fix round,
+// "Carry the fractions": the queue chain threads its own carry through its starts in time order). Pure.
+function relicStudyDurationCarried(state: GameState, museumV2: MuseumV2, token: RelicVaultToken, carry: number): { ticks: number; carry: number } {
   const museumSpeed = museumBonuses(museumV2 === state.museumV2 ? state : { ...state, museumV2 }).researchSpeed;
   const own = token.studySpeed !== undefined && token.studySpeed > 0 && Number.isFinite(token.studySpeed) ? token.studySpeed : 0;
   const speed = own > 0 ? (1 + Math.max(0, museumSpeed)) * (1 + own) - 1 : museumSpeed;
-  return museumResearchDurationTicks(relicStudyDurationTicks(token.tier), speed);
+  // E5-4 (the Scholar): the Research Lab's refugee buff, its own x (1 + b) factor (the identity with nobody posted).
+  return researchDurationCarried(state, relicStudyDurationTicks(token.tier), speed, "relicStudy", carry);
 }
 
 // START a relic study: a thin wrapper over canStartRelicStudy (the single source of truth for every
@@ -9145,7 +9218,9 @@ export function startRelicStudy(
     nextRelicStudyIndex: studyIndex + 1,
     ...(queue !== undefined && queue.includes(vaultTokenId) ? { relicQueue: queue.filter((id) => id !== vaultTokenId) } : {}),
   };
-  return startProcess(afterVault, "relicStudy", {}, relicStudyDurationFor(state, state.museumV2, token), {
+  // E5-4 fix round: the study stores the relic study carry its duration left (the same state with nobody posted).
+  const duration = relicStudyDurationCarried(state, state.museumV2, token, refugeeCarryOf(state, "relicStudy"));
+  return startProcess(withRefugeeCarry(afterVault, "relicStudy", duration.carry), "relicStudy", {}, duration.ticks, {
     type: "identifyRelic",
     token: { ...token },
     studyIndex,
@@ -9327,6 +9402,8 @@ interface RelicStudyChain {
   queue: string[];
   nextRelicStudyIndex: number;
   nextProcessId: number;
+  // E5-4 fix round: the relic study carry after the chain's queue starts (threaded in their time order).
+  relicCarry: number;
 }
 
 // THE RELIC STUDY CHAIN over one resolve window of `ticksElapsed` (R2-3, plan "the queue starts the next queued token
@@ -9359,6 +9436,8 @@ function resolveRelicStudies(state: GameState, ticksElapsed: number): RelicStudy
   const queue = [...queue0];
   let nextRelicStudyIndex = state.nextRelicStudyIndex ?? 1;
   let nextProcessId = state.nextProcessId;
+  // E5-4 fix round: the relic study carry, paid back and renewed by each queue start below in start order.
+  let relicCarry = refugeeCarryOf(state, "relicStudy");
   let order = state.activeProcesses.length;
   let deposited = false;
   let queueTouched = false;
@@ -9372,7 +9451,9 @@ function resolveRelicStudies(state: GameState, ticksElapsed: number): RelicStudy
       const token = vault.find((t) => t.id === id);
       if (!token) continue; // stale: its token left the vault
       vault = vault.filter((t) => t.id !== id);
-      const durationTicks = relicStudyDurationFor(state, museum, token);
+      const carried = relicStudyDurationCarried(state, museum, token, relicCarry);
+      const durationTicks = carried.ticks;
+      relicCarry = carried.carry;
       const process: TimedProcess = {
         id: `proc-${nextProcessId}`,
         kind: "relicStudy",
@@ -9415,7 +9496,7 @@ function resolveRelicStudies(state: GameState, ticksElapsed: number): RelicStudy
     .filter((f) => f.chained)
     .sort((a, b) => a.order - b.order)
     .map((f) => ({ ...f.process, remainingTicks: f.at - ticksElapsed }));
-  return { completed, chained, survivors, museum, discovered, deposited, queueTouched, vault, queue, nextRelicStudyIndex, nextProcessId };
+  return { completed, chained, survivors, museum, discovered, deposited, queueTouched, vault, queue, nextRelicStudyIndex, nextProcessId, relicCarry };
 }
 
 // ============================================================================
@@ -9690,7 +9771,9 @@ export function fleetReachBonus(state: GameState): number {
     const effect = upgrades[i].effect;
     if ("fleetReachBonus" in effect) bonus += effect.fleetReachBonus;
   }
-  return bonus;
+  // E5-4 (the Fuel handler): the Fuel Depot's refugee buff adds to the same share (a live read, as the rungs are).
+  const refugees = refugeeFacilityBonus(state, "fuelStorage");
+  return refugees > 0 ? bonus + refugees : bonus;
 }
 
 // ============================================================================
@@ -9798,6 +9881,8 @@ interface CraftLineJobSpec {
   // EquipmentInstance is not an inventory item, so it has no stackable output to cap).
   effect: ProcessEffect;
   isEquipment: boolean;
+  // E5-4 fix round: the Fabricator carry a start of this job stores (fabricate jobs only; absent on a refine job).
+  refugeeCarry?: number;
 }
 // ⚠️ TAKES `state` AS OF 0.13.3 Unit 3.1b (FIX A). It used to be a pure function of the
 // line alone, because every job parameter came straight off the recipe. It no longer is:
@@ -9845,11 +9930,15 @@ function lineJobSpec(state: GameState, line: CraftLine): CraftLineJobSpec | null
   // is never read for equipment. For a material blueprint the fields are always present.
   const outputItemId = bp.recipe.outputItem ?? ""; // "" is inert: only the equipment path lacks it
   const outputAmount = new Decimal(bp.recipe.outputQty ?? 1); // 1 is inert: only the equipment path lacks it
+  // E5-4 (the Machinist): the Fabricator's refugee buff with its carried fraction, at the job START
+  // (fabricateDurationCarried). The carry is stored only when the job actually starts (stepCraftLine).
+  const duration = fabricateDurationCarried(state, bp.craftDurationTicks);
   return {
     inputs,
     outputItemId,
     outputAmount,
-    durationTicks: bp.craftDurationTicks,
+    durationTicks: duration.ticks,
+    refugeeCarry: duration.carry,
     jobKind: "fabricateJob",
     effect: isEquipment
       // ITEM LIFECYCLE 0.13.6: a finished equipment/weapon/drone craft now deposits a stackable
@@ -9933,7 +10022,7 @@ function stepCraftLine(state: GameState, line: CraftLine): { next: GameState; li
   // backstop (short inputs -> the line simply waits and retries). The completion effect
   // is the SAME shared addItem startRefineJob/startFabricateJob use, so resolveProcesses
   // grants the output + bumps itemsRefined/itemsCrafted with NO new branch.
-  const { next, started } = startProcess(
+  const { next: startedNext, started } = startProcess(
     state,
     spec.jobKind,
     spec.inputs,
@@ -9947,6 +10036,8 @@ function stepCraftLine(state: GameState, line: CraftLine): { next: GameState; li
     attachedOrder?.materialPreference ?? line.materialPreference
   );
   if (!started) return { next: state, line }; // unaffordable right now -> line waits
+  // E5-4 fix round: a started fabricate job stores the Fabricator's new carry (the same state with nobody posted).
+  const next = spec.refugeeCarry === undefined ? startedNext : withRefugeeCarry(startedNext, "fabricator", spec.refugeeCarry);
 
   // Job started -> one not-yet-started iteration has left the allocation basis. For a
   // BATCH line, decrement BOTH `remaining` and `mode.remaining` in ONE construction so
@@ -12225,7 +12316,11 @@ export function startFabricateJob(
       ? { type: "addBlank", blueprintKey }
       : { type: "addItem", itemId: bp.recipe.outputItem ?? "", amount: new Decimal(bp.recipe.outputQty ?? 1) };
 
-  return startProcess(state, "fabricateJob", inputs, bp.craftDurationTicks, effect);
+  // E5-4 fix round: the duration with the Fabricator's carried fraction; a start stores the new carry (the same state
+  // with nobody posted there, where the carry is untouched).
+  const duration = fabricateDurationCarried(state, bp.craftDurationTicks);
+  const result = startProcess(state, "fabricateJob", inputs, duration.ticks, effect);
+  return result.started ? { ...result, next: withRefugeeCarry(result.next, "fabricator", duration.carry) } : result;
 }
 
 // The standing single-order model for the Fabricator (startFabricateOrder /
@@ -13367,6 +13462,11 @@ export function resolveProcesses(
       // R2-3: a queue start (or a stale queued id dropped) moves the vault, the queue and the two id counters.
       ...(relicChain?.queueTouched
         ? { relicVault: relicChain.vault, relicQueue: relicChain.queue, nextRelicStudyIndex: relicChain.nextRelicStudyIndex, nextProcessId: relicChain.nextProcessId }
+        : {}),
+      // E5-4 fix round: the relic study carry the queue starts left (written only when it moved: never with nobody
+      // posted at the Research Lab).
+      ...(relicChain !== null && relicChain.relicCarry !== refugeeCarryOf(state, "relicStudy")
+        ? { refugees: withRefugeeCarry(state, "relicStudy", relicChain.relicCarry).refugees }
         : {}),
       // CP-6 review: a completed hull teardown's loadout + people writes (absent when none completed).
       ...(salvageWrites ?? {}),

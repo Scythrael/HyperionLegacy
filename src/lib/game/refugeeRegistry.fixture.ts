@@ -7,3 +7,10 @@ export const E5_2_ADDED_ENTRY_IDS: ReadonlySet<string> = new Set<string>([
   "mission:SHORT_RANGE_TEMPLATES:evacuation:work",
   "mission:SHORT_RANGE_TEMPLATES:evacuation:reward",
 ]);
+
+// E5-4: the sixteen refugee post rows (registry.ts refugeeEntries), all live: each background's matched buff and an
+// off-match refugee at each facility.
+export const E5_4_ADDED_ENTRY_IDS: ReadonlySet<string> = new Set<string>([
+  ...["refiner", "fuelHandler", "dispatcher", "scholar", "machinist", "shipwright", "salvager", "stargazer"].map((b) => `facility:REFUGEE_BACKGROUNDS:${b}`),
+  ...["refinery", "fuelStorage", "missionControl", "research", "fabricator", "shipyard", "salvageBay", "subspaceTelescope"].map((f) => `facility:REFUGEE_OFF_MATCH:${f}`),
+]);

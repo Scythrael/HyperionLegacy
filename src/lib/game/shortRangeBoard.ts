@@ -40,6 +40,8 @@ import { newReactorLiftFlag, reactorLiftFlagged } from "./reactorSurplus";
 import { crewModuleLinesStamp } from "./crewModules";
 import { equippedFor } from "./equipmentQueries";
 import { pilotCunningStamp, pilotCutShortRangePlan } from "./officerStats";
+// E5-4 (the Dispatcher): Mission Control's refugee buff on each phase of the plan, frozen at the cycle start.
+import { cleanRefugeeCarry, refugeeShortRangePlan } from "./refugeeBuffs";
 
 // ===== the board =====
 
@@ -112,6 +114,8 @@ export interface ShortRangeCycleStart {
   roll: ShortRangeRoll;
   plan: ShortRangeCyclePlan;
   runCounts: RunCounts;
+  // E5-4 fix round: the run's Mission Control carry after this cycle's plan (absent = 0; the run stores it).
+  refugeeCarry?: number;
 }
 
 // THE cycle-start seam: roll `slot`'s job at `cycleIndex` against the counters as they stand (the training run is the
@@ -132,6 +136,7 @@ export function startShortRangeCycle(
   moduleLines = true,
   favored = true,
   pilotCunning = 0,
+  refugeeCarry = 0,
 ): ShortRangeCycleStart {
   const roll = rollShortRangeJob(state, slot, cycleIndex);
   // WR-7 (OC-D3): `moduleLines` is whether the run carries the crew module lines stamp (true for a preview).
@@ -139,12 +144,19 @@ export function startShortRangeCycle(
   // WR-9 fix round (user 2026-10-31 "Missions, short-range, patrols"): `pilotCunning` is the run's Pilot Cunning stamp
   // (0 for a run without one and for a preview); the cycle rolls it on its job seed and a landed roll cuts the leg home
   // (officerStats.ts pilotCutShortRangePlan).
-  const plan = pilotCutShortRangePlan(
+  // E5-4 (the Dispatcher): Mission Control's refugee buff shortens each phase, max(1, ceil(t / (1 + b))), read HERE at
+  // the cycle start and frozen with the plan, so a posting changes only the next cycle (the same plan with nobody
+  // posted). Before the Pilot's cut, which then reads the shortened leg home.
+  // E5-4 fix round ("Carry the fractions"): the phases round up through the run's carry `refugeeCarry` (absent = 0),
+  // and the new carry rides back on the start (the run stores it; untouched with nobody posted).
+  const refugee = refugeeShortRangePlan(
+    state,
     shortRangeCyclePlan(roll, runShipStats(state, ship, wear, reactorLift, moduleLines, favored), shortRangeShipEngineering(state, ship)),
-    roll.seed,
-    pilotCunning,
+    refugeeCarry,
   );
-  return { roll, plan, runCounts: countShortRangeCycleStart(runCountsOf(state), roll.template) };
+  const plan = pilotCutShortRangePlan(refugee.plan, roll.seed, pilotCunning);
+  const carry = cleanRefugeeCarry(refugee.carry);
+  return { roll, plan, runCounts: countShortRangeCycleStart(runCountsOf(state), roll.template), ...(carry > 0 ? { refugeeCarry: carry } : {}) };
 }
 
 // ===== the dispatch gate =====
@@ -280,6 +292,8 @@ export function dispatchCaptainOnShortRange(state: GameState, captainId: number,
     ...(moduleLines !== undefined ? { moduleLines } : {}),
     ...(favoredSpec !== undefined ? { favoredSpec } : {}),
     ...(pilotCunning !== undefined ? { pilotCunning } : {}),
+    // E5-4 fix round: the run's Mission Control carry (absent with nobody posted there).
+    ...(start.refugeeCarry !== undefined ? { refugeeCarry: start.refugeeCarry } : {}),
   };
   const captains = [...state.captains];
   captains[idx] = { ...captains[idx], mission, lastStopReason: undefined };

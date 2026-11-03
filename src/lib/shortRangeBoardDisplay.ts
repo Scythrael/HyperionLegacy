@@ -60,6 +60,7 @@ import { missionPhaseStatus } from "./game/berths";
 import { materialAtCap } from "./game/tick";
 import { RAMP_MAX_TIER, runCountsOf, runDifficultyAt, runRamp } from "./game/runDifficulty";
 import { formatNumber } from "./game/format";
+import { refugeeShortRangePlan } from "./game/refugeeBuffs";
 import type { IconName } from "./ui/icons";
 
 // ===== vocabulary =====
@@ -440,7 +441,8 @@ export function shortRangeCostPreview(state: GameState, captainId: number, slot:
   const stats = effectiveShipStats(state, ship);
   const eng = shortRangeShipEngineering(state, ship);
   const roll = shortRangeSlotPreview(state, slot);
-  const plan = shortRangeCyclePlan(roll, stats, eng);
+  // E5-4: the preview re-plans the cycle as the cycle start will (Mission Control's refugee buff folded in).
+  const plan = refugeeShortRangePlan(state, shortRangeCyclePlan(roll, stats, eng)).plan;
   const reward = shortRangeCycleReward(roll, stats);
   const terms = captainTransportTerms(captain);
   const drop = SHORT_RANGE_TEMPLATES.supplyDropOff;
@@ -453,12 +455,16 @@ export function shortRangeCostPreview(state: GameState, captainId: number, slot:
   const from = shortRangeNextCycle(state, slot.id);
   let credits = 0;
   let ticks = 0;
+  // E5-4 fix round: the sampled cycles thread a fresh run's carry, as the run's own cycle starts will.
+  let carry = 0;
   for (let i = 0; i < PER_HOUR_SAMPLE; i++) {
     const s = shortRangeRollSeed(seed, slot.id, from + i);
     // E5-2: on the slot's own draw version at that cycle, so the estimate samples the jobs the board will roll.
     const r = drawShortRangeJobAt(s, slot, from + i, () => ({ version: 1, firstRun: false, ramp: 1, tier: slot.tier }), shortRangeDrawVersion(state, slot.id, from + i));
     credits += cycleCredits(state, captain, ship, r);
-    ticks += shortRangeCyclePlan(r, stats, eng).totalTicks;
+    const sampled = refugeeShortRangePlan(state, shortRangeCyclePlan(r, stats, eng), carry);
+    carry = sampled.carry;
+    ticks += sampled.plan.totalTicks;
   }
   const secondsPerTick = state.tickDurationSeconds > 0 ? state.tickDurationSeconds : 1;
   return {

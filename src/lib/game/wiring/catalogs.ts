@@ -69,6 +69,7 @@ import { LUMINOUS_AFFIXES } from "../legendaryAffixes";
 import { MODULE_RARITY_FACTOR } from "../model";
 import { GEAR_SETS } from "../gearSets";
 import { UNIVERSAL_MODULES } from "../shipModules";
+import { REFUGEE_BACKGROUND_KEYS, REFUGEE_FACILITY_KEYS } from "../refugees";
 
 // Field Kits FKR-5: the sources each grenade carries (its GrenadeTraits, as the registry measures them). Timed grenades
 // (user 2026-10-21): its fuse (the turns from the throw to the blast) and, on a timed one, the moved-clear chance.
@@ -198,6 +199,9 @@ export function enumerateEffectSources(): EffectSource[] {
   add("EQUIPMENT_STORAGE_RUNGS", EQUIPMENT_STORAGE_RUNGS.map((_, i) => String(i)));
   add("SHIP_DOCKS_RUNGS", SHIP_DOCKS_RUNGS.map((_, i) => String(i)));
   add("TRANSIT_BERTH_RUNGS", TRANSIT_BERTH_RUNGS.map((_, i) => String(i)));
+  // E5-4 (Refugee Posts): each background's matched buff, and an off-match refugee at each facility
+  add("REFUGEE_BACKGROUNDS", REFUGEE_BACKGROUND_KEYS);
+  add("REFUGEE_OFF_MATCH", REFUGEE_FACILITY_KEYS);
   add("REFINE_RECIPES", Object.keys(REFINE_RECIPES));
   add("BLUEPRINTS", Object.keys(BLUEPRINTS));
   // ship

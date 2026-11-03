@@ -1060,6 +1060,9 @@
     relicStudiesInFlight,
     identifyStudiedRelic,
     museumResearchDurationTicks,
+    // E5-4: the research speed with the Research Lab refugee buff folded in, and the fabricate duration seam.
+    researchSpeedFor,
+    fabricateDurationTicks,
     // 0.13.11.1 clock protection: a held absence is released under this same offline cap.
     // HOTFIX 0.13.11.3: read in seconds (the save's own cap) by the release budget and the recap.
     offlineCapSeconds,
@@ -6479,7 +6482,7 @@
 
   // E4c display honesty: the museum's research speed, read once per state for the research catalog's
   // duration labels (startResearch applies the same bonus through museumResearchDurationTicks).
-  $: museumResearchSpeed = museumBonuses(state).researchSpeed;
+  $: museumResearchSpeed = researchSpeedFor(state, museumBonuses(state).researchSpeed); // E5-4: plus the Research Lab refugee buff
 
   // ── Away-Team Gambits (Exploration 0.14.0 phase E3b; per member since Ground Operations GO-16) ─────────
   // The GambitEditorPanel's edits route here. LIVE PLAYER actions (never on the tick path): each calls a pure
@@ -9430,17 +9433,15 @@
 
   // XP a fabricate of `recipeKey` awards for ONE completed craft.
   //
-  // ⚠️ THE DURATION IS bp.craftDurationTicks AND THAT IS NOT AN APPROXIMATION. lineJobSpec
-  // (tick.ts) sets a fabricate job's durationTicks to exactly that field: unlike a refine job,
-  // whose duration is divided by the Refinery's refineSpeedMult rung, the Fabricator has no
-  // speed track, so there is no multiplier to miss here. If one is ever added, this call is
-  // the site that has to learn about it, which is why the reasoning is written down rather
-  // than left as a coincidence.
+  // ⚠️ THE DURATION IS fabricateDurationTicks(state, bp.craftDurationTicks), THE SAME SEAM lineJobSpec
+  // (tick.ts) stores on a fabricate job. The Fabricator has no speed rung; since E5-4 a refugee posted
+  // there shortens the job (and its duration-proportional XP), so this reads that one seam rather than
+  // the raw field. A future Fabricator speed source joins that seam, not this call.
   function fabricateXpPerCraft(recipeKey: string): number {
     const subject = fabricateXpSubject(recipeKey);
     const bp = BLUEPRINTS[recipeKey];
     if (subject === null || bp === undefined) return 0;
-    return craftingXpAwardFor(subject, bp.craftDurationTicks);
+    return craftingXpAwardFor(subject, fabricateDurationTicks(state, bp.craftDurationTicks));
   }
 
   // The COMPARISON ANCHOR the readout is really for: what a refine job pays per tick.

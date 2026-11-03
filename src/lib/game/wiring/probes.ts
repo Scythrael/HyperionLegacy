@@ -80,9 +80,15 @@ import {
   emptyMuseumV2,
   RELIC_DEFAULT_SEED,
   type RelicVaultToken,
+  type TimedProcess,
 } from "../model";
 // Relics v2 R2-3: identification v2 (the expected reveals the probe below is checked against).
 import { applyRelicIdentification, identifyRelicV2 } from "../relicIdentify";
+// E5-4 (Refugee Posts): the record, the posting fixture's readers and the buff seams the refugee probes read.
+import { REFUGEE_BACKGROUNDS, REFUGEE_FACILITY_KEYS, type RefugeeBackground, type RefugeeFacilityKey, type RefugeeRecord } from "../refugees";
+import { completedOutputAmount, fabricateDurationCarried, researchDurationCarried } from "../tick";
+// E5-4 fix round: the probes thread the carried fractions exactly as the real starts store them.
+import { withRefugeeCarry } from "../refugeeBuffs";
 import {
   canBuildShip,
   canBuildFacilityUpgrade,
@@ -234,7 +240,8 @@ import { transitBerthCount } from "../berths";
 import { shortRangeBoardSlots, startShortRangeCycle } from "../shortRangeBoard";
 import { newReactorLiftFlag } from "../reactorSurplus";
 import { RELIC_BLANKS_VERSION } from "../relicBlanks";
-import { rollShortRangeJob, shortRangeCycleReward, shortRangeShipRatings, type ShortRangeCyclePlan, type ShortRangeRoll, type ShortRangeTemplateKey } from "../shortRange";
+import { SHORT_RANGE_TEMPLATES, rollShortRangeJob, shortRangeCycleReward, shortRangeShipRatings, type ShortRangeCyclePlan, type ShortRangeRoll, type ShortRangeTemplateKey } from "../shortRange";
+import { runCountsOf } from "../runDifficulty";
 import { blindLaunchCount, telescopeReading } from "../telescope";
 import { SENIOR_STAFF_BONUSES, getSeniorStaffBonusById } from "../seniorStaffBonuses";
 import { CREW_STAT_KEYS } from "../crewBuffs";
@@ -1095,6 +1102,112 @@ export function teardownRecovered(s: GameState): number {
 // own process number), all resolved; the share that delivered a second blank.
 const FABRICATOR_SAMPLE_JOBS = 1000;
 const FABRICATOR_SAMPLE_KEY = "wiring-blank";
+
+// == E5-4: the refugee posts ==
+
+// The skill of the one refugee each refugee registry row posts (plan Task E5-4 Step 4: "one refugee of skill 50").
+export const REFUGEE_PROBE_SKILL = 50;
+
+// The refugee rows' fixture: the wiring base with every refugee facility built (level at least 1), so each has a post
+// and a row's on and off states differ only by the person posted.
+export function refugeeBase(): GameState {
+  let s = wiringBase();
+  for (const f of REFUGEE_FACILITY_KEYS) if ((s.facilities[f]?.level ?? 0) < 1) s = withFacilityLevel(s, f, 1);
+  return s;
+}
+
+// Post one refugee of `background` and `skill` at `facility` (appended after anyone already there; no post check: the
+// registry rows post one person at a built facility). Pure.
+export function withRefugeePosted(s: GameState, background: RefugeeBackground, facility: RefugeeFacilityKey, skill = REFUGEE_PROBE_SKILL): GameState {
+  const prior = s.refugees ?? { version: 1 as const, list: [], nextId: 1, arrivedTotal: 0, greet: [] };
+  const record: RefugeeRecord = {
+    id: prior.nextId,
+    name: `Wiring refugee ${prior.nextId}`,
+    background,
+    skill,
+    origin: { tier: 1, destinationIndex: 0 },
+    portrait: { hair: 0, palette: 0 },
+    arrivedAtSeconds: 0,
+    posting: facility,
+  };
+  return { ...s, refugees: { ...prior, list: [...prior.list, record], nextId: prior.nextId + 1, arrivedTotal: prior.arrivedTotal + 1 } };
+}
+
+// A background that does NOT match `facility` (the next facility's, in REFUGEE_FACILITY_KEYS order): the off-match rows'
+// person. Pure.
+export function offMatchBackground(facility: RefugeeFacilityKey): RefugeeBackground {
+  const next = REFUGEE_FACILITY_KEYS[(REFUGEE_FACILITY_KEYS.indexOf(facility) + 1) % REFUGEE_FACILITY_KEYS.length];
+  return (Object.keys(REFUGEE_BACKGROUNDS) as RefugeeBackground[]).find((b) => REFUGEE_BACKGROUNDS[b].facility === next)!;
+}
+
+// The Refiner: the share of REFINE_SAMPLE_JOBS real refine jobs (startProcess, the job's start-time stamp) whose
+// completion deposits one extra batch (completedOutputAmount, the amount resolveProcesses deposits), minus nothing:
+// (delivered - jobs) / jobs.
+export const REFINE_SAMPLE_JOBS = 4000;
+function refineBonusShare(s: GameState): number {
+  let st: GameState = { ...s, activeProcesses: [] };
+  const started: TimedProcess[] = [];
+  for (let i = 0; i < REFINE_SAMPLE_JOBS; i++) {
+    const r = startProcess(st, "refineJob", {}, 1, { type: "addItem", itemId: Object.values(REFINE_RECIPES)[0].output.itemId, amount: new Decimal(1) });
+    if (!r.started) return -1;
+    started.push(r.next.activeProcesses[r.next.activeProcesses.length - 1]);
+    st = { ...r.next, activeProcesses: [] };
+  }
+  const delivered = started.reduce((n, p) => n + Number(completedOutputAmount(p)), 0);
+  return (delivered - REFINE_SAMPLE_JOBS) / REFINE_SAMPLE_JOBS;
+}
+
+// The Dispatcher: the summed ticks of the cycle plans captain 1 on ship-1 starts on the Tier II slot (slot id 2) over
+// one run's first REFUGEE_PLAN_CYCLES cycles (startShortRangeCycle, the cycle-start seam the engine freezes), the run's
+// carry threaded from cycle to cycle exactly as the cycle engine stores it (ShortRangeMissionState.refugeeCarry), every
+// template a veteran (full-size jobs, past the training run and the slow start). With the carried fractions (the user's
+// "Carry the fractions") the summed ticks sit within one tick of the summed ideal phases / (1 + b), so even the
+// off-match share (about 1.2% at skill 50), which rounds away on any one short phase, moves the run.
+export const REFUGEE_PLAN_CYCLES = 32;
+function shortRangeRunTicks(state: GameState): number {
+  const veteran = Object.fromEntries(Object.keys(SHORT_RANGE_TEMPLATES).map((k) => [k, { dispatched: 20, completed: 20 }]));
+  const s: GameState = { ...state, runCounts: { ...runCountsOf(state), shortRange: veteran } };
+  let total = 0;
+  let carry = 0;
+  for (let c = 0; c < REFUGEE_PLAN_CYCLES; c++) {
+    const start = startShortRangeCycle(s, shipOf(s), { id: 2, tier: 2 }, c, undefined, false, true, true, 0, carry);
+    total += start.plan.totalTicks;
+    carry = start.refugeeCarry ?? 0;
+  }
+  return total;
+}
+
+// The Scholar and the Machinist: a sustained run of REFUGEE_SUSTAINED_JOBS starts of REAL recipes, alternating the
+// shortest and the longest real duration (research: frameSegmentBp 60 ticks, classVIIDriveBp 480; fabricate:
+// frameSegmentBp 120, classVIIDriveBp 1080), each start reading the duration seam the real start reads
+// (researchDurationCarried for startResearch, fabricateDurationCarried for line jobs and one-off crafts) and storing the
+// carry it leaves (withRefugeeCarry), as the start does. The summed ticks: within one tick of the summed ideal
+// durations / (1 + b), so a small share that rounds away on one 60-tick project still acts over the run.
+export const REFUGEE_SUSTAINED_JOBS = 64;
+const REFUGEE_SHORT_RECIPE = "frameSegmentBp";
+const REFUGEE_LONG_RECIPE = "classVIIDriveBp";
+function sustainedResearchTicks(state: GameState): number {
+  let s = state;
+  let total = 0;
+  for (let i = 0; i < REFUGEE_SUSTAINED_JOBS; i++) {
+    const bp = BLUEPRINTS[i % 2 === 0 ? REFUGEE_SHORT_RECIPE : REFUGEE_LONG_RECIPE];
+    const d = researchDurationCarried(s, bp.researchDurationTicks, museumBonuses(s).researchSpeed, "research");
+    total += d.ticks;
+    s = withRefugeeCarry(s, "research", d.carry);
+  }
+  return total;
+}
+function sustainedFabricateTicks(state: GameState): number {
+  let s = state;
+  let total = 0;
+  for (let i = 0; i < REFUGEE_SUSTAINED_JOBS; i++) {
+    const bp = BLUEPRINTS[i % 2 === 0 ? REFUGEE_SHORT_RECIPE : REFUGEE_LONG_RECIPE];
+    const d = fabricateDurationCarried(s, bp.craftDurationTicks);
+    total += d.ticks;
+    s = withRefugeeCarry(s, "fabricator", d.carry);
+  }
+  return total;
+}
 function fabricatorBonusShare(s: GameState): number {
   let st: GameState = { ...s, activeProcesses: [], blanks: {} };
   for (let i = 0; i < FABRICATOR_SAMPLE_JOBS; i++) {
@@ -1917,6 +2030,23 @@ export const PROBES = {
     read: (s, ctx) => (ctx === "salvage:topTier" ? topTierRolled(s) : salvageTalentBonus(s).ceilingBonus),
   },
   salvageYield: { label: "salvageYieldMult", read: (s) => salvageYieldMult(s) },
+  // == E5-4: the refugee posts (each through the consumer its facility stat feeds) ==
+  refugeeRefineBonus: {
+    label: "the share of 4,000 real refine jobs (startProcess stamp, completedOutputAmount) delivering one extra batch",
+    read: (s) => refineBonusShare(s),
+  },
+  refugeeShortRangePhase: {
+    label: "the summed ticks of one run's first 32 cycle plans on the Tier II slot (slot id 2), the run's carry threaded (startShortRangeCycle)",
+    read: (s) => shortRangeRunTicks(s),
+  },
+  refugeeResearchTicks: {
+    label: "the summed ticks of 64 research starts alternating real 60- and 480-tick blueprints, the carry threaded (researchDurationCarried: startResearch and relic study)",
+    read: (s) => sustainedResearchTicks(s),
+  },
+  refugeeFabricateTicks: {
+    label: "the summed ticks of 64 fabricate starts alternating real 120- and 1,080-tick recipes, the carry threaded (fabricateDurationCarried: line jobs and one-off crafts)",
+    read: (s) => sustainedFabricateTicks(s),
+  },
   captainCount: { label: "captains (count)", read: (s) => s.captains.length },
   researchableBlueprints: { label: "blueprints a top-level Research Lab can start (blueprintResearchable)", read: (s) => researchableCount(s) },
   legacyInjurySeconds: { label: "applyExpeditionInjuries on a legacy run: the downed Security member's recovery", read: (s) => legacyInjurySeconds(s) },

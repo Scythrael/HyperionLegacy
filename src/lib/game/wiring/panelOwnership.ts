@@ -31,6 +31,7 @@ import { EXCEPTIONAL_SETS, MUSEUM_COPY_LADDER, RELIC_SETS, museumActiveRecord, m
 import { OFFICER_STAT_NEUTRAL } from "../officerStats";
 import { CREW_RACES } from "../crewRaces";
 import { CREW_STAT_KEYS } from "../crewBuffs";
+import { REFUGEE_BACKGROUNDS, type RefugeeRecord } from "../refugees";
 
 // The subjects the probes read (probes.ts WIRING_SHIP_ID, WIRING_CAPTAIN_ID, WIRING_SECURITY_ID, WIRING_SCIENCE_ID;
 // repeated here so the panel never imports probes.ts statically; the test pins them equal).
@@ -235,6 +236,14 @@ function owned(withoutState: GameState, note?: string): Owned {
   return { ownership: "owned", withoutState, ...(note ? { note } : {}) };
 }
 
+// E5-4 (Refugee Posts): the save owns a refugee row when someone it names is posted; without = those people back on
+// the waiting list (unposted, never removed).
+function refugeesPosted(v: GameState, pick: (r: RefugeeRecord) => boolean, note: string): Owned {
+  const list = v.refugees?.list ?? [];
+  if (!list.some((r) => r.posting !== null && pick(r))) return NOT_OWNED;
+  return owned({ ...v, refugees: { ...v.refugees!, list: list.map((r) => (r.posting !== null && pick(r) ? { ...r, posting: null } : r)) } }, note);
+}
+
 // A rung of a level track: the save owns it when its level is past the rung; measured as the rung's own step (the
 // entry's on vs off on this save), so a higher rung is not counted in a lower one.
 function rung(e: WiringEntry, v: GameState, ownsIt: boolean): Owned {
@@ -336,6 +345,11 @@ const ADAPTERS: Readonly<Record<string, Adapter>> = {
     const [fkey, i] = key.split(":");
     return rung(e, v, (v.facilities[fkey]?.level ?? 0) > Number(i));
   },
+  // E5-4: a background posted at its match, or anyone posted off match at a facility.
+  REFUGEE_BACKGROUNDS: (_e, v, key) =>
+    refugeesPosted(v, (r) => r.background === key && r.posting === REFUGEE_BACKGROUNDS[r.background].facility, "without = them back on the waiting list"),
+  REFUGEE_OFF_MATCH: (_e, v, key) =>
+    refugeesPosted(v, (r) => r.posting === key && REFUGEE_BACKGROUNDS[r.background].facility !== key, "without = them back on the waiting list"),
   EQUIPMENT_STORAGE_RUNGS: (e, v, key) => rung(e, v, v.equipmentStorageLevel > Number(key)),
   TRANSIT_BERTH_RUNGS: (e, v, key) => rung(e, v, v.transitBerthCapacity > Number(key)),
   SUBSPACE_TELESCOPE_LEVELS: (e, v, key) => rung(e, v, (v.facilities[SUBSPACE_TELESCOPE_FACILITY_KEY]?.level ?? 0) >= Number(key.split(":")[0])),

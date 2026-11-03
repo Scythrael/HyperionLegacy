@@ -263,6 +263,10 @@ import {
   type Transform,
 } from "./probes";
 import { relicStudyLanesAt } from "../relicIdentify";
+// E5-4 (Refugee Posts): the backgrounds catalog and the buff a posted refugee gives (its magnitude reader).
+import { REFUGEE_BACKGROUNDS, REFUGEE_BACKGROUND_KEYS, REFUGEE_FACILITY_KEYS, type RefugeeBackground, type RefugeeFacilityKey } from "../refugees";
+import { refugeeFacilityBonus } from "../refugeeBuffs";
+import { offMatchBackground, refugeeBase, withRefugeePosted } from "./probes";
 
 // ============================================================================
 // Types (plan section 3.2)
@@ -437,6 +441,8 @@ export const CATALOGS = {
   GIANT_CLASSES,
   // Relics v2 R2-10: the minigame's relic boost table (its audit rows read A and the knee here).
   RELIC_BOOSTS,
+  // E5-4 (Refugee Posts): each background's matched facility (its rows read the facility here).
+  REFUGEE_BACKGROUNDS,
 } as const;
 export type Catalogs = typeof CATALOGS;
 
@@ -1675,6 +1681,60 @@ function buyChain(s: GameState, key: HomeworldTalentKey, exceptLast = false): Ga
 // ============================================================================
 // facility: facility rungs, storage / docks / berth tracks, telescope, recipes, blueprints, items
 // ============================================================================
+
+// E5-4 (Refugee Posts, plan Task E5-4 Step 4): sixteen rows, all live. `facility:REFUGEE_BACKGROUNDS:<background>` is a
+// refugee posted at their MATCH (the strong buff); `facility:REFUGEE_OFF_MATCH:<facility>` is a refugee of another
+// background posted there (REFUGEE_OFF_MATCH_RATIO of it). Each: on = one refugee of skill REFUGEE_PROBE_SKILL posted,
+// off = nobody (refugeeBase: every refugee facility built), the magnitude refugeeFacilityBonus on the on state (the
+// D23 curve of the share; never a literal), each read through the consumer its facility stat feeds.
+const REFUGEE_SEAMS: Readonly<Record<RefugeeFacilityKey, { probe: ProbeId; context: ContextId; curve: Curve; direction: Direction; tolerance?: number; note: string }>> = {
+  // The roll is a sample of 4,000 real jobs on their keyed streams: about 3.5 standard deviations of that sample at
+  // the matched chance (0.0034 x 3.5); the off-match row has its own (0.0017 x 3.5, REFUGEE_OFF_MATCH_REFINE_TOLERANCE).
+  refinery: { probe: "refugeeRefineBonus", context: "facility", curve: { kind: "chanceAbsolute" }, direction: "up", tolerance: 0.012, note: "an extra batch of output per finished refine job, stamped at the job start (the user's E5-0 call)" },
+  fuelStorage: { probe: "fleetReach", context: "sheet", curve: { kind: "linearAbsolute" }, direction: "up", note: "added to the Fuel Depot's fleet reach share (shipReachDef)" },
+  // The three duration rows sum a sustained run of real starts with the carried fractions threaded (the user's "Carry
+  // the fractions"): the summed whole ticks sit within one tick of the summed ideal durations / (1 + b).
+  missionControl: { probe: "refugeeShortRangePhase", context: "mission:shortRange", curve: { kind: "divisor" }, direction: "down", tolerance: 1, note: "each phase of a short-range cycle plan, frozen at the cycle start, its rounding carried across the run's cycles" },
+  research: { probe: "refugeeResearchTicks", context: "research", curve: { kind: "divisor" }, direction: "down", tolerance: 1, note: "research and relic study durations, at the start, their rounding carried to the next start" },
+  fabricator: { probe: "refugeeFabricateTicks", context: "craft", curve: { kind: "divisor" }, direction: "down", tolerance: 1, note: "fabricate durations (line jobs and one-off crafts), at the start, their rounding carried to the next start" },
+  shipyard: { probe: "shipBuildTicks", context: "shipyard", curve: { kind: "divisor" }, direction: "down", note: "the Shipyard build speed, at the build start (fractional ticks, exact)" },
+  salvageBay: { probe: "salvageYield", context: "salvage", curve: { kind: "linearRelative" }, direction: "up", note: "its own x (1 + b) on salvageYieldMult (recycle and teardown)" },
+  subspaceTelescope: { probe: "expLandmarkBias", context: "expedition:groundOps", curve: { kind: "linearAbsolute" }, direction: "up", note: "added to both discovery pools' biases, frozen at dispatch (the user's call 2026-11-03, \"Discovery odds now\")" },
+};
+
+const REFUGEE_OFF_MATCH_REFINE_TOLERANCE = 0.006;
+
+function refugeeEntries(): WiringEntry[] {
+  const row = (id: string, catalog: string, key: string, claim: string, facility: (c: Catalogs) => RefugeeFacilityKey, background: (c: Catalogs) => RefugeeBackground, seamOf: RefugeeFacilityKey, offMatch: boolean): WiringEntry => {
+    const seam = offMatch && seamOf === "refinery" ? { ...REFUGEE_SEAMS.refinery, tolerance: REFUGEE_OFF_MATCH_REFINE_TOLERANCE } : REFUGEE_SEAMS[seamOf];
+    const posted = (s: GameState) => withRefugeePosted(s, background(CATALOGS), facility(CATALOGS));
+    return entry({
+      id,
+      system: "facility",
+      source: { catalog, key },
+      claim,
+      probe: seam.probe,
+      contexts: [seam.context],
+      direction: seam.direction,
+      curve: seam.curve,
+      magnitude: (c) => refugeeFacilityBonus(withRefugeePosted(refugeeBase(), background(c), facility(c)), facility(c)),
+      on: posted,
+      off: identity,
+      base: refugeeBase,
+      ...(seam.tolerance !== undefined ? { tolerance: seam.tolerance } : {}),
+      note: seam.note,
+    });
+  };
+  const out: WiringEntry[] = [];
+  for (const bg of REFUGEE_BACKGROUND_KEYS) {
+    const def = REFUGEE_BACKGROUNDS[bg];
+    out.push(row(`facility:REFUGEE_BACKGROUNDS:${bg}`, "REFUGEE_BACKGROUNDS", bg, `${def.label}: ${def.statLabel} at the matched facility`, (c) => c.REFUGEE_BACKGROUNDS[bg].facility, () => bg, def.facility, false));
+  }
+  for (const f of REFUGEE_FACILITY_KEYS) {
+    out.push(row(`facility:REFUGEE_OFF_MATCH:${f}`, "REFUGEE_OFF_MATCH", f, `A refugee of another background at the ${FACILITIES[f].label}`, () => f, () => offMatchBackground(f), f, true));
+  }
+  return out;
+}
 
 function facilityRungEntries(): WiringEntry[] {
   const out: WiringEntry[] = [];
@@ -5446,6 +5506,7 @@ function build(): readonly WiringEntry[] {
     ...captainProgressionEntries(),
     ...homeworldEntries(),
     ...facilityRungEntries(),
+    ...refugeeEntries(),
     ...trackEntries(),
     ...recipeAndBlueprintEntries(),
     ...shipLineEntries(),

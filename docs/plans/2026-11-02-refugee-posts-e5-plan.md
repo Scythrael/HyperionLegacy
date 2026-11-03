@@ -431,6 +431,30 @@ off-match 25% of a skill 42 refugee, about 1.05%, needs T >= 97).
   4 move only by the added ids.
 - [ ] **Step 6: Commit** `feat: E5-4 refugee posts and facility buffs (16 registry rows)`.
 
+#### E5-4 carry note (built 2026-11-03 on `637f60a`)
+
+- Stats as built (the user's calls: Refiner "Extra output"; Stargazer "Discovery odds now" (2026-11-03), in place of
+  rare-aspect spotting, which has no lever until rare aspects exist; it may move there then; statLabel "discovery odds"):
+  b = diminishing(sum of shares, 0.5); skill 50 matched = 4.77%, off match = 1.23%.
+  - Refiner: chance b that a refine job delivers one extra batch, stamped at the job start on its own keyed stream
+    (`REFUGEE_REFINE_SALT`, the Works Directorate pattern; uses the existing `bonusOutput` flag). [PROPOSAL] extra = one
+    batch.
+  - Fuel handler: `fleetReachBonus + b` (live). Dispatcher: each plan phase `max(1, ceil(t / (1 + b)))` at the cycle start,
+    before the Pilot's cut; the cost preview folds the same. Scholar: `researchSpeedFor` = (1 + museum) x (1 + b) - 1 at the
+    start (research and relic study). Machinist: `fabricateDurationTicks` at the start (line and one-off). Shipwright:
+    `shipBuildSpeedMult x (1 + b)`. Salvager: `salvageYieldMult x (1 + b)` (live, as the museum's). Stargazer: + b to both
+    `landmarkOddsBias` and `undergroundPoiOddsBias` in `shipSensorSnapshot` (frozen at dispatch, previews read it).
+    [PROPOSAL] additive points on the 50% per-attempt base.
+- Actions (refugees.ts): post (a full facility swaps out the lowest share, the last posted among equals [PROPOSAL]),
+  unpost (back among the waiting in arrival order), greet, dismiss hint. Share constants live in refugees.ts (no import
+  cycle), re-exported from refugeeBuffs.ts.
+- Display seams kept truthful (no new UI): research and relic study durations and the fabricate XP readout read the new
+  seams.
+- Goldens: no existing pin moved (nobody is ever posted on the tick). New `e5-4:consumers:*` (golden 3b) traced with
+  `refugeeBuffsSwitch.fixture.ts`. Registry: 16 live rows (`E5_4_ADDED_ENTRY_IDS`, held apart in every registry pin).
+- Found: the off-match Dispatcher (about 1.2%) moves only phases of about 82 ticks and up (full-size Tier II legs); Tier I
+  and training phases are swallowed by the whole-tick ceil. The registry row measures a veteran Tier II plan.
+
 ### Task E5-5: UI, facility Posts strips and the post picker [medium-large]
 
 **Files:**

@@ -205,6 +205,8 @@ import { countClaimedExpedition, runCountsOf, runDifficultyAt } from "./runDiffi
 import { gearPermilleStamp, isStudyBody, nebulaStampFor, studyStampFor, sweepsNebula, withGiantProfiles } from "./gasGiantStudy";
 // Gas Giant Study GG-5: the Research Lab's held data queue (dataStudy.ts imports neither this file nor tick.ts).
 import { dataArrivals } from "./dataStudy";
+// E5-4 (the Stargazer): the Subspace Telescope's refugee buff (refugeeBuffs.ts imports neither this file nor tick.ts).
+import { refugeeFacilityBonus } from "./refugeeBuffs";
 
 // ============================================================================
 // FIRST-PASS TUNABLE constants
@@ -866,9 +868,19 @@ function shipSensorSnapshot(
   // WR-5c: the commanding captain's survey nodes (Cartographer, Anomaly Sense, Deep Scan) ride the scan params, so
   // the dispatch freezes them and every preview built from this snapshot reads them. {} without them.
   const captainSurvey = captainSurveyScanParams(commandingCaptain(state, ship));
+  const scanParams: ExpeditionScanParams = { ...(installed ? sensorArrayEffect(installed) : NEUTRAL_SCAN_PARAMS), ...captainSurvey };
+  // E5-4 (the Stargazer, the user's call "Discovery odds now"): the Subspace Telescope's refugee buff raises both
+  // discovery pools' odds, added to the array's landmark and underground-find biases. It rides the snapshot, so the
+  // dispatch freezes it on the run (a run in flight keeps its odds) and every preview built from it reads it. No key
+  // moves with nobody posted at the telescope.
+  const stargazer = refugeeFacilityBonus(state, "subspaceTelescope");
+  if (stargazer > 0) {
+    scanParams.landmarkOddsBias += stargazer;
+    scanParams.undergroundPoiOddsBias += stargazer;
+  }
   return {
     sensorArrayId: installed?.def.id ?? null,
-    scanParams: { ...(installed ? sensorArrayEffect(installed) : NEUTRAL_SCAN_PARAMS), ...captainSurvey },
+    scanParams,
     // effectiveShipStats folds equipment + crew (crewOverlay), so a Science officer / Science division /
     // a fitted sensor item all shape this by construction. 0 for a bare hull today.
     sensorPower: effectiveShipStats(gearView, ship).sensors,

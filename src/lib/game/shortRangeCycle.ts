@@ -55,6 +55,8 @@ import { relicBlanksStaggered, rollShortRangeRelicBlanks } from "./relicBlanks";
 import { reactorLiftFlagged } from "./reactorSurplus";
 import { formatNumber } from "./format";
 import type { RefugeeDelivery } from "./refugeeArrival";
+// E5-4 fix round: a run's stored Mission Control carry, read defensively.
+import { cleanRefugeeCarry } from "./refugeeBuffs";
 
 // The float-snap epsilon of a phase boundary (tickCaptainMission's MISSION_TICK_EPSILON).
 const TICK_EPSILON = 1e-9;
@@ -597,7 +599,8 @@ function* shortRangeRun(input: ShortRangeTickInput): Generator<ShortRangeSync, S
       wearStamp === undefined ? undefined : projectRunStamp(state, ship.id, timedWear, state.gameTimeSeconds + (ticksElapsed - remaining) * state.tickDurationSeconds);
     if (cycleStamp !== undefined) stats = runShipStats(state, ship, cycleStamp, reactorLift, moduleLines, favored);
     // WR-9 fix round: the run's Pilot Cunning stamp rolls again for the new cycle (absent: no roll, as before).
-    const start = startShortRangeCycle({ ...state, runCounts }, ship, slot, roll.cycleIndex + 1, cycleStamp, reactorLift, moduleLines, favored, mission.pilotCunning ?? 0);
+    // E5-4 fix round: the run's Mission Control carry pays back into the new cycle's phases.
+    const start = startShortRangeCycle({ ...state, runCounts }, ship, slot, roll.cycleIndex + 1, cycleStamp, reactorLift, moduleLines, favored, mission.pilotCunning ?? 0, cleanRefugeeCarry(mission.refugeeCarry));
     runCounts = start.runCounts;
     mission = {
       kind: "shortRange",
@@ -620,6 +623,8 @@ function* shortRangeRun(input: ShortRangeTickInput): Generator<ShortRangeSync, S
       ...(mission.favoredSpec !== undefined ? { favoredSpec: mission.favoredSpec } : {}),
       // WR-9 fix round: and the Pilot's Cunning stamp.
       ...(mission.pilotCunning !== undefined ? { pilotCunning: mission.pilotCunning } : {}),
+      // E5-4 fix round: and the Mission Control carry the new cycle left (absent = 0).
+      ...(start.refugeeCarry !== undefined ? { refugeeCarry: start.refugeeCarry } : {}),
     };
   }
 

@@ -2,8 +2,9 @@
 // docs/plans/2026-11-02-refugee-posts-e5-plan.md Task E5-1): the refugee record, the waiting list and the postings,
 // the eight backgrounds, the posts each facility opens per level, and the readers the later slices build on.
 //
-// E5-1 is data only: nothing on the tick reads or writes `GameState.refugees` yet (E5-2 adds the arrivals, E5-4 the
-// posting actions and the facility buffs). A save without the field reads as the empty state (refugeesOf), so a new
+// E5-1 is the data; E5-2 and E5-3 add the arrivals and farewells; E5-4 adds the posting actions (postRefugee,
+// unpostRefugee, greetRefugee, dismissRefugeeHint, below) and the share numbers its facility buffs read
+// (refugeeBuffs.ts). A save without the field reads as the empty state (refugeesOf), so a new
 // game and every old save start with zero refugees, and no key is added until the first arrival.
 //
 // Every number here the user did not give is a [PROPOSAL] (mine, the user's to change) or [PROVISIONAL] (a first-pass
@@ -50,8 +51,9 @@ export const REFUGEE_FACILITY_KEYS: readonly RefugeeFacilityKey[] = [
 // Each background, the facility it matches and the facility stat it improves there (as drawn in the signed mockup;
 // [PROPOSAL]). Two stats are the user's calls on the E5-0 study (plan "USER ANSWERS (2026-11-02)"): the Refiner gives
 // each finished refine batch a chance of extra output (a speed share is swallowed by tick rounding at Levels 1 to 3),
-// and the Stargazer raises the chance to spot rare planet aspects (a percent scan range only touched edge systems and
-// was display only). E5-4 wires each stat through its consumer; this table is the label and the match only.
+// and the Stargazer raises the expedition discovery odds (the user, 2026-11-03: "Discovery odds now", in place of
+// rare-aspect spotting, which has no lever until rare planet aspects exist; it may move there then). E5-4 wires each
+// stat through its consumer (refugeeBuffs.ts); this table is the label and the match only.
 export const REFUGEE_BACKGROUNDS: Readonly<
   Record<RefugeeBackground, { label: string; facility: RefugeeFacilityKey; statLabel: string }>
 > = {
@@ -62,7 +64,7 @@ export const REFUGEE_BACKGROUNDS: Readonly<
   machinist: { label: "Machinist", facility: "fabricator", statLabel: "craft speed" },
   shipwright: { label: "Shipwright", facility: "shipyard", statLabel: "build speed" },
   salvager: { label: "Salvager", facility: "salvageBay", statLabel: "salvage yield" },
-  stargazer: { label: "Stargazer", facility: "subspaceTelescope", statLabel: "rare aspect spotting" },
+  stargazer: { label: "Stargazer", facility: "subspaceTelescope", statLabel: "discovery odds" },
 };
 
 // The backgrounds in roll order (E5-2 rolls uniformly over these; [PROPOSAL]). Frozen: a roll's index reads this.
@@ -113,6 +115,10 @@ export interface RefugeeState {
   arrivedTotal: number;
   greet: number[];
   hintSeen?: true;
+  // E5-4 fix round (the user's "Carry the fractions"): the fraction of a tick each duration buff last rounded up by,
+  // paid back by its next start (refugeeBuffs.ts carriedTicks). Each value in (0, 1); absent = 0 (and the whole field
+  // absent until a buff first rounds), so a save with nobody posted never gains the key.
+  carry?: { research?: number; relicStudy?: number; fabricator?: number };
 }
 
 // A save without the field: nobody yet.
@@ -166,6 +172,24 @@ export function refugeeOpenPosts(state: Pick<GameState, "refugees" | "facilities
     open += Math.max(0, refugeePostCount(state, facility) - refugeesPostedAt(state, facility).length);
   }
   return open;
+}
+
+// ===== shares (E5-4; the buffs themselves are refugeeBuffs.ts) =====
+
+// A matched refugee's share per point of skill: skill 42 at their match = +4.2% (before the stacking curve). [PROPOSAL]
+// (mockup)
+export const REFUGEE_MATCH_SHARE_PER_SKILL = 0.001;
+// An off-match refugee gives this fraction of their matched share. [PROPOSAL] (design)
+export const REFUGEE_OFF_MATCH_RATIO = 0.25;
+// The D23 knee the summed shares at one facility pass through (refugeeBuffs.ts refugeeFacilityBonus). [PROPOSAL]
+export const REFUGEE_STACK_KNEE = 0.5;
+
+// One refugee's raw share at `facility`, before the stacking curve: skill x REFUGEE_MATCH_SHARE_PER_SKILL at their
+// match, times REFUGEE_OFF_MATCH_RATIO anywhere else. A non-finite or negative skill gives 0. Pure.
+export function refugeeShare(r: Pick<RefugeeRecord, "background" | "skill">, facility: RefugeeFacilityKey): number {
+  const skill = Number.isFinite(r.skill) && r.skill > 0 ? r.skill : 0;
+  const matched = skill * REFUGEE_MATCH_SHARE_PER_SKILL;
+  return REFUGEE_BACKGROUNDS[r.background]?.facility === facility ? matched : matched * REFUGEE_OFF_MATCH_RATIO;
 }
 
 // ===== shape checks and hydration =====
@@ -271,7 +295,22 @@ export function hydrateRefugees(state: GameState): GameState {
   }
   const hintSeenOk = stored.hintSeen === undefined || stored.hintSeen === true;
   if (!hintSeenOk) changed = true;
-  const extraKeys = Object.keys(stored).some((k) => !["version", "list", "nextId", "arrivedTotal", "greet", "hintSeen"].includes(k));
+  // 4. The carried fractions (E5-4 fix round): only the three known keys, each a finite number in (0, 1); anything
+  // else is dropped (it reads as 0, the value it would carry anyway), and an empty record is dropped whole.
+  let carry: RefugeeState["carry"];
+  if (stored.carry !== undefined) {
+    const inCarry = stored.carry;
+    const kept: NonNullable<RefugeeState["carry"]> = {};
+    if (inCarry && typeof inCarry === "object" && !Array.isArray(inCarry)) {
+      for (const [k, v] of Object.entries(inCarry as Record<string, unknown>)) {
+        if ((k === "research" || k === "relicStudy" || k === "fabricator") && typeof v === "number" && Number.isFinite(v) && v > 0 && v < 1) kept[k] = v;
+        else changed = true;
+      }
+    } else changed = true;
+    if (Object.keys(kept).length > 0) carry = kept;
+    else changed = true;
+  }
+  const extraKeys = Object.keys(stored).some((k) => !["version", "list", "nextId", "arrivedTotal", "greet", "hintSeen", "carry"].includes(k));
   if (extraKeys) changed = true;
   if (!changed) return state;
 
@@ -282,6 +321,107 @@ export function hydrateRefugees(state: GameState): GameState {
     arrivedTotal,
     greet,
     ...(stored.hintSeen === true ? { hintSeen: true as const } : {}),
+    ...(carry !== undefined ? { carry } : {}),
   };
   return { ...state, refugees };
+}
+
+// ===== the posting actions (E5-4) =====
+//
+// The design's rules: moving is free, any time (no cost, no cooldown, no timer); posted people always stay (only the
+// player moves them); "Post..." on a full facility offers a swap, and the replaced person returns to the waiting list.
+// Each action is pure and returns the SAME state on a no-op. They run between ticks (player actions), never on the
+// tick, so every facility buff is constant within one economyTick call (refugeeBuffs.ts header).
+//
+// List order: among the people posted at one facility, list order is the posting order (hydrateRefugees returns the
+// LAST of an overflow first), so a newly posted person moves to the END of the list, after everyone already posted
+// there. A person returning to the waiting list is put back among the waiting in arrival (id) order, so the waiting
+// list keeps reading in arrival order.
+
+function withList(state: GameState, list: RefugeeRecord[]): GameState {
+  return { ...state, refugees: { ...refugeesOf(state), list } };
+}
+
+// `list` with `r` taken out and put back on the waiting list in arrival order: before the first waiting person with a
+// higher id, else at the end. Pure.
+function returnToWaiting(list: readonly RefugeeRecord[], r: RefugeeRecord): RefugeeRecord[] {
+  const rest = list.filter((x) => x.id !== r.id);
+  const at = rest.findIndex((x) => x.posting === null && x.id > r.id);
+  const back: RefugeeRecord = { ...r, posting: null };
+  return at < 0 ? [...rest, back] : [...rest.slice(0, at), back, ...rest.slice(at)];
+}
+
+// Post refugee `refugeeId` at `facility`. Fails (same state) for an unknown person, a key that is not one of the
+// eight, or a facility with no posts (unbuilt, level 0). Posting someone where they already are is a no-op (same
+// state, success). A posted person moving here leaves their old post empty. When every post here is taken, someone
+// posted here returns to the waiting list (`swappedOutId`) and the newcomer takes the post (design call 10 A):
+//   - `replaceId`, when given, names that person (the player's pick: anyone posted here, the strongest included).
+//     It must be someone posted at `facility`, else the post fails (same state);
+//   - with no `replaceId`, the fallback is the person with the LOWEST share here (the last posted among equals;
+//     [PROPOSAL] tie-break).
+// With a free post nobody is swapped out (a `replaceId` is then not needed and is ignored).
+// A facility holding MORE people than its posts (a save state that skipped hydrateRefugees' overflow trim, or a
+// future level loss) never stays over after a post: besides the one swapped out, the extra people return to the
+// waiting list too, the last posted first (hydrateRefugees' overflow rule), listed in `returnedIds`. Nobody is ever
+// removed. Pure.
+export function postRefugee(
+  state: GameState,
+  refugeeId: number,
+  facility: RefugeeFacilityKey,
+  replaceId?: number,
+): { next: GameState; success: boolean; swappedOutId?: number; returnedIds?: number[] } {
+  const list = refugeesOf(state).list;
+  const who = list.find((r) => r.id === refugeeId);
+  if (!who || !isRefugeeFacilityKey(facility)) return { next: state, success: false };
+  const posts = refugeePostCount(state, facility);
+  if (posts < 1) return { next: state, success: false };
+  if (who.posting === facility) return { next: state, success: true };
+  let working: RefugeeRecord[] = list.filter((r) => r.id !== refugeeId);
+  let here = working.filter((r) => r.posting === facility);
+  if (here.length < posts) return { next: withList(state, [...working, { ...who, posting: facility }]), success: true };
+  let out: RefugeeRecord | undefined;
+  if (replaceId !== undefined) {
+    out = here.find((r) => r.id === replaceId);
+    if (out === undefined) return { next: state, success: false };
+  } else {
+    out = here[0];
+    for (const r of here) if (refugeeShare(r, facility) <= refugeeShare(out, facility)) out = r;
+  }
+  const swappedOutId = out.id;
+  working = returnToWaiting(working, out);
+  here = here.filter((r) => r.id !== swappedOutId);
+  // The overflow (only a facility over its posts has any): the last posted return first, until the newcomer fits.
+  const returnedIds: number[] = [];
+  while (here.length > posts - 1) {
+    const extra = here[here.length - 1];
+    here = here.slice(0, -1);
+    returnedIds.push(extra.id);
+    working = returnToWaiting(working, extra);
+  }
+  const next = withList(state, [...working, { ...who, posting: facility }]);
+  return returnedIds.length > 0 ? { next, success: true, swappedOutId, returnedIds } : { next, success: true, swappedOutId };
+}
+
+// Return refugee `refugeeId` to the waiting list. Fails (same state) for an unknown person; someone already waiting is
+// a no-op (same state, success). Never removes a record. Pure.
+export function unpostRefugee(state: GameState, refugeeId: number): { next: GameState; success: boolean } {
+  const list = refugeesOf(state).list;
+  const who = list.find((r) => r.id === refugeeId);
+  if (!who) return { next: state, success: false };
+  if (who.posting === null) return { next: state, success: true };
+  return { next: withList(state, returnToWaiting(list, who)), success: true };
+}
+
+// The arrival card for `refugeeId` has been seen: the id leaves `greet`. The same state when it is not there. Pure.
+export function greetRefugee(state: GameState, refugeeId: number): GameState {
+  const refugees = refugeesOf(state);
+  if (!refugees.greet.includes(refugeeId)) return state;
+  return { ...state, refugees: { ...refugees, greet: refugees.greet.filter((g) => g !== refugeeId) } };
+}
+
+// The one-time first-arrival hint has been dismissed. The same state when it already was, or with nobody ever arrived
+// (no refugee record to mark). Pure.
+export function dismissRefugeeHint(state: GameState): GameState {
+  if (state.refugees === undefined || state.refugees.hintSeen === true) return state;
+  return { ...state, refugees: { ...state.refugees, hintSeen: true } };
 }
