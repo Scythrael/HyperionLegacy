@@ -106,7 +106,7 @@
                 </div>
                 <div class="rpk-gain" class:ok={r.matched}>
                   <span class="rpk-long">{r.gainText}<small>{r.detail}</small></span>
-                  <span class="rpk-short">{r.gainShort}</span>
+                  <span class="rpk-short">{r.gainShort}{#if r.detailShort} · {r.detailShort}{/if}</span>
                 </div>
                 <span class="rpk-act">
                   <button class="rpk-btn ghost" on:click={() => post(r.id, fview.facility, fview.swap?.replaceId)}>
@@ -131,7 +131,7 @@
           </div>
         </div>
       </div>
-      <div class="rpk-sum">{pview.currentText ?? "Waiting at home."} Moving is free, any time; an old post goes empty.</div>
+      <div class="rpk-sum">{pview.summary}</div>
       <div class="rpk-colh">Posts <span>sorted by what they'd give</span></div>
       <div class="rpk-list">
         {#if pview.choices.length === 0}
@@ -155,8 +155,13 @@
             {:else}
               <div class="rpk-swaps" role="group" aria-label="Replace someone at the {c.facilityLabel}">
                 {#each c.swaps as w (w.id)}
-                  <button class="rpk-btn ghost" on:click={() => post(pview.person.id, c.facility, w.id)}>
-                    Replace {w.name.split(" ")[0]} <span class="rpk-dim">{w.shareText}</span>
+                  <button
+                    class="rpk-btn ghost rpk-swapbtn"
+                    aria-label="Replace {w.name}: {w.gainText}, {w.totalText}; {w.name.split(' ')[0]} goes back to waiting"
+                    on:click={() => post(pview.person.id, c.facility, w.id)}
+                  >
+                    <span>Replace {w.name.split(" ")[0]}</span>
+                    <span class="rpk-swapres" class:neg={w.gain < 0}>{w.gainText.split(" ")[0]} <span class="rpk-dim">· {w.totalText}</span></span>
                   </button>
                 {/each}
               </div>
@@ -209,6 +214,9 @@
   .rpk-none, .rpk-empty { padding: 8px 10px; color: var(--color-text-dim); font-size: var(--text-xs); margin: 0; }
   .rpk-person { display: flex; gap: 10px; align-items: center; }
   .rpk-swaps { display: flex; flex-wrap: wrap; gap: 6px; justify-content: flex-end; }
+  .rpk-swapbtn { flex-direction: column; align-items: flex-start; gap: 0; padding: 4px 9px; }
+  .rpk-swapres { font-family: var(--font-mono); font-size: var(--text-2xs); color: var(--color-success); }
+  .rpk-swapres.neg { color: var(--color-warning); }
   .rpk-btn { font: inherit; font-size: var(--text-sm); color: var(--color-accent); background: rgba(var(--color-accent-rgb), 0.06); border: 1px solid var(--color-border-strong); border-radius: var(--corner); padding: 3px 9px; min-height: 32px; cursor: pointer; display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
   .rpk-btn.pri { background: rgba(var(--color-accent-rgb), 0.18); color: var(--color-text-primary); }
   .rpk-btn.ghost { background: transparent; border-color: var(--color-border); color: var(--color-text-secondary); }

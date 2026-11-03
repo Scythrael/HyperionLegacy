@@ -30,6 +30,10 @@ function withPeople(s: GameState, list: RefugeeRecord[]): GameState {
 
 // The mockup's homeworld: a Research Lab at Level 4 (2 posts) holding a Scholar and an off-match Machinist, a
 // Refinery at Level 4 (2 posts) holding one Refiner, a Fabricator at Level 1 (1 open post), a waiting list of four.
+function refugeesWithout(s: GameState, id: number): RefugeeRecord[] {
+  return (s.refugees?.list ?? []).map((r) => (r.id === id ? { ...r, posting: null } : r));
+}
+
 function mockupState(): GameState {
   const s = withLevels(freshState(1), { refinery: 4, research: 4, fabricator: 1, fuelStorage: 1, subspaceTelescope: 1, salvageBay: 1 });
   return withPeople(s, [
@@ -171,6 +175,27 @@ describe("postPickerView", () => {
     expect(v.footText).toBe("4 waiting · 2 more posted elsewhere");
   });
 
+  it("compares an off-match person posted elsewhere with what they add where they are", () => {
+    const s = mockupState();
+    // The mockup's Dov: off match at the Refinery (beside Mira), posted at the Research Lab (beside Kesia): the same.
+    const dov = postPickerView(s, "refinery").posted.find((r) => r.name === "Dov Hasker")!;
+    const there = refugeeFacilityBonus(s, "research") - refugeeFacilityBonus(withPeople(s, refugeesWithout(s, 3)), "research");
+    expect(percentText(dov.gain)).toBe(percentText(there));
+    expect(dov.detail).toBe("same as where they are now");
+    expect(dov.detailShort).toBe("same as now");
+    // Alone at the Research Lab, offered a Refinery that a strong refiner already lifts high on the curve: he would
+    // add less there, and the row says what he adds now instead.
+    const st = withPeople(withLevels(freshState(1), { refinery: 4, research: 4 }), [
+      person(1, "Dov Hasker", "machinist", 37, "research"),
+      person(2, "Mira Talven", "refiner", 100, "refinery"),
+    ]);
+    const d = postPickerView(st, "refinery").posted.find((r) => r.id === 1)!;
+    const now = refugeeShare({ background: "machinist", skill: 37 }, "research");
+    expect(percentText(d.gain)).not.toBe(percentText(now));
+    expect(d.detail).toBe(`vs ${percentText(now)} research speed now`);
+    expect(d.detailShort).toBe(`vs ${percentText(now)} now`);
+  });
+
   it("offers a swap on a full facility, defaulting to the engine's pick and following the player's", () => {
     const s = mockupState();
     const v = postPickerView(s, "research");
@@ -212,7 +237,10 @@ describe("refugeeBestPost and personPostView", () => {
     expect(v.choices.map((c) => c.facility)).not.toContain("research");
     expect(v.choices[0].facility).toBe("fabricator");
     for (let i = 1; i < v.choices.length; i++) expect(v.choices[i - 1].gain).toBeGreaterThanOrEqual(v.choices[i].gain);
-    for (const c of v.choices) expect(c.gain).toBe(refugeeBonusIfPosted(s, 3, c.facility).gain);
+    for (const c of v.choices) {
+      if (c.open) expect(c.gain).toBe(refugeeBonusIfPosted(s, 3, c.facility).gain);
+      else expect(c.gain).toBe(Math.max(...c.swaps.map((w) => w.gain)));
+    }
     const tamsin = personPostView(s, 4)!;
     const research = tamsin.choices.find((c) => c.facility === "research")!;
     expect(research.open).toBe(false);
@@ -224,5 +252,34 @@ describe("refugeeBestPost and personPostView", () => {
     expect(research.swaps.find((w) => w.isDefault)!.id).toBe(3);
     expect(tamsin.title).toBe("Post Tamsin Corr");
     expect(personPostView(s, 999)).toBeNull();
+  });
+
+  it("shows the real result of each Replace: replacing the strongest person gains less, or loses", () => {
+    const s = mockupState();
+    const research = personPostView(s, 6)!.choices.find((c) => c.facility === "research")!; // Juno, a stargazer
+    expect(research.open).toBe(false);
+    const kesia = research.swaps.find((w) => w.id === 2)!; // the Scholar, the strongest share here
+    const dov = research.swaps.find((w) => w.id === 3)!;
+    const realKesia = refugeeBonusIfPosted(s, 6, "research", 2);
+    const realDov = refugeeBonusIfPosted(s, 6, "research", 3);
+    expect(kesia.gain).toBe(realKesia.gain);
+    expect(kesia.gain).toBeLessThan(0);
+    expect(kesia.gainText).toBe(`${percentText(realKesia.gain)} research speed`);
+    expect(kesia.totalText).toBe(`total becomes ${percentText(realKesia.total)}`);
+    expect(dov.gain).toBe(realDov.gain);
+    expect(dov.totalText).toBe(`total becomes ${percentText(realDov.total)}`);
+    expect(kesia.gain).toBeLessThan(dov.gain);
+    // The row itself never claims one swap's number as the result.
+    expect(research.gainText).toBe(`up to ${percentText(Math.max(realKesia.gain, realDov.gain))} research speed`);
+    expect(research.totalText).toBe("depends on who you replace");
+  });
+
+  it("says a Replace sends the replaced person back to waiting, only when a facility is full", () => {
+    const s = mockupState();
+    expect(personPostView(s, 4)!.summary).toBe(
+      "Waiting at home. Moving is free, any time; an old post goes empty. On a full facility, Replace sends the person you replace back to the waiting list.",
+    );
+    const open = withPeople(withLevels(freshState(1), { refinery: 1 }), [person(1, "Ansel Rook", "refiner", 27, null)]);
+    expect(personPostView(open, 1)!.summary).toBe("Waiting at home. Moving is free, any time; an old post goes empty.");
   });
 });

@@ -65,9 +65,36 @@
   function onKey(e: KeyboardEvent) {
     if (e.key === "Escape" && popId !== null && picker === null) closePop(true);
   }
-  function openPicker(mode: RefugeePickerMode) {
+  // Keyboard focus after the popover or the picker closes: back to the element that opened it. A person who left
+  // this facility (unposted, moved, swapped out) has no slot any more, so focus lands on the slot now in their place
+  // (the same position in the strip), else the strip's first button. Never left on a detached element.
+  let returnIndex = 0;
+  let returnTo: HTMLElement | null = null;
+  async function restoreFocus() {
+    await tick();
+    if (returnTo && returnTo.isConnected) { returnTo.focus(); return; }
+    const all = root ? Array.from(root.querySelectorAll<HTMLButtonElement>(".rps-slot")) : [];
+    (all[Math.min(returnIndex, all.length - 1)] ?? root?.querySelector<HTMLButtonElement>("button"))?.focus();
+  }
+  function rememberTrigger(el: HTMLElement | null | undefined) {
+    returnTo = el ?? null;
+    const all = root ? Array.from(root.querySelectorAll<HTMLElement>(".rps-slot")) : [];
+    returnIndex = Math.max(0, el ? all.indexOf(el) : 0);
+  }
+  function backToWaiting(id: number) {
+    rememberTrigger(slotButtons[id]);
+    onUnpost(id);
+    popId = null;
+    void restoreFocus();
+  }
+  function openPicker(mode: RefugeePickerMode, trigger?: HTMLElement | null) {
+    rememberTrigger(trigger ?? (popId !== null ? slotButtons[popId] : null));
     popId = null;
     picker = mode;
+  }
+  function closePicker() {
+    picker = null;
+    void restoreFocus();
   }
 </script>
 
@@ -116,7 +143,7 @@
               </div>
               <div class="rps-acts">
                 <button class="rps-btn" on:click={() => openPicker({ kind: "person", refugeeId: s.id })}><Icon name="transfer" size={14} />Move to another post</button>
-                <button class="rps-btn ghost" on:click={() => { onUnpost(s.id); closePop(false); }}>Back to waiting list</button>
+                <button class="rps-btn ghost" on:click={() => backToWaiting(s.id)}>Back to waiting list</button>
                 {#if view.full && view.candidates > 0}
                   <button class="rps-btn ghost" on:click={() => openPicker({ kind: "facility", facility, replaceId: s.id })}>Replace with someone else</button>
                 {/if}
@@ -127,7 +154,7 @@
         </div>
       {/each}
       {#each Array(view.emptyPosts) as _, i (i)}
-        <button class="rps-slot empty" on:click={() => openPicker({ kind: "facility", facility })}>
+        <button class="rps-slot empty" on:click={(e) => openPicker({ kind: "facility", facility }, e.currentTarget)}>
           <span class="rps-ph"><Icon name="plus" size={14} /></span>
           <span class="rps-sn">Post someone</span>
           <span class="rps-tail pick">Pick</span>
@@ -148,7 +175,7 @@
   </div>
 
   {#if picker}
-    <RefugeePostPicker {state} mode={picker} {onPost} onClose={() => (picker = null)} />
+    <RefugeePostPicker {state} mode={picker} {onPost} onClose={closePicker} />
   {/if}
 {/if}
 

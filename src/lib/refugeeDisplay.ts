@@ -378,6 +378,18 @@ export function postPickerView(state: GameState, facility: RefugeeFacilityKey, r
       }
     }
     const where = r.posting === null ? null : r.posting;
+    // Posted elsewhere, off match here (the mockup's Dov): compare with what they add where they are now (their real
+    // contribution there, curve included), "same as where they are now" when the two read alike.
+    if (!matched && where !== null) {
+      const there = contributionHere(state, r, where);
+      if (percentText(gain) === percentText(there)) {
+        detail = "same as where they are now";
+        detailShort = "same as now";
+      } else {
+        detail = `vs ${percentText(there)} ${refugeeStatLabel(where)} now`;
+        detailShort = `vs ${percentText(there)} now`;
+      }
+    }
     return {
       ...refugeePersonView(r),
       matched,
@@ -437,8 +449,10 @@ export interface PersonPostChoiceSwap {
   id: number;
   name: string;
   shareText: string;
-  gain: number;
-  gainText: string;
+  gain: number; // the REAL gain of replacing this person (refugeeBonusIfPosted with them as the target): can be negative
+  gainText: string; // "-1.4% research speed"
+  total: number; // the facility's total after this replace
+  totalText: string; // "total becomes +5.2%"
   isDefault: boolean;
 }
 
@@ -449,16 +463,17 @@ export interface PersonPostChoice {
   matched: boolean;
   open: boolean;
   openText: string; // "1 open" or "full · swap"
-  gain: number; // with the default swap on a full facility
-  gainText: string; // "+3.7% craft speed"
-  totalText: string; // "total becomes +4.1%"
-  swaps: PersonPostChoiceSwap[]; // a full facility: replace each posted person (the player picks)
+  gain: number; // an open post: the gain of posting here. A full facility: the best of its swaps (for sorting only)
+  gainText: string; // "+3.7% craft speed", or a full facility: "up to +3.7% craft speed" (each swap carries its own)
+  totalText: string; // "total becomes +4.1%", or a full facility: "depends on who you replace"
+  swaps: PersonPostChoiceSwap[]; // a full facility: replace each posted person (the player picks), each with its real result
 }
 
 export interface PersonPostView {
   person: RefugeePersonView;
   title: string; // "Move Mira Talven" or "Post Mira Talven"
   currentText: string | null; // "Now at the Refinery: +4.2% extra output chance"
+  summary: string; // the line under the person: where they are now, that moving is free, what a Replace does
   choices: PersonPostChoice[]; // sorted by gain
 }
 
@@ -476,12 +491,24 @@ export function personPostView(state: GameState, refugeeId: number): PersonPostV
     const here = refugeesPostedAt(state, facility);
     const open = here.length < posts;
     const statLabel = refugeeStatLabel(facility);
-    const { gain, total } = refugeeBonusIfPosted(state, refugeeId, facility);
     const fallback = open ? undefined : postRefugee(state, refugeeId, facility).swappedOutId;
     const swaps: PersonPostChoiceSwap[] = open ? [] : here.map((r) => {
-      const g = refugeeBonusIfPosted(state, refugeeId, facility, r.id).gain;
-      return { id: r.id, name: r.name, shareText: percentText(refugeeShare(r, facility)), gain: g, gainText: `${percentText(g)} ${statLabel}`, isDefault: r.id === fallback };
+      const res = refugeeBonusIfPosted(state, refugeeId, facility, r.id);
+      return {
+        id: r.id,
+        name: r.name,
+        shareText: percentText(refugeeShare(r, facility)),
+        gain: res.gain,
+        gainText: `${percentText(res.gain)} ${statLabel}`,
+        total: res.total,
+        totalText: `total becomes ${percentText(res.total)}`,
+        isDefault: r.id === fallback,
+      };
     });
+    // An open post: the one real result. A full facility: no single number is "the" result (it is whoever the player
+    // replaces), so the row says "up to" the best swap and every Replace button shows its own gain and total.
+    const openRes = open ? refugeeBonusIfPosted(state, refugeeId, facility) : null;
+    const gain = openRes ? openRes.gain : Math.max(...swaps.map((w) => w.gain));
     const free = posts - here.length;
     choices.push({
       facility,
@@ -491,19 +518,24 @@ export function personPostView(state: GameState, refugeeId: number): PersonPostV
       open,
       openText: open ? `${free} open` : "full · swap",
       gain,
-      gainText: `${percentText(gain)} ${statLabel}`,
-      totalText: `total becomes ${percentText(total)}`,
+      gainText: openRes ? `${percentText(gain)} ${statLabel}` : `up to ${percentText(gain)} ${statLabel}`,
+      totalText: openRes ? `total becomes ${percentText(openRes.total)}` : "depends on who you replace",
       swaps,
       order,
     });
   });
   choices.sort((a, b) => b.gain - a.gain || Number(b.open) - Number(a.open) || a.order - b.order);
   const person = refugeePersonView(who);
+  const currentText = who.posting === null ? null
+    : `Now at the ${REFUGEE_FACILITY_LABELS[who.posting]}: ${percentText(refugeeShare(who, who.posting))} ${refugeeStatLabel(who.posting)}.`;
+  const anyFull = choices.some((c) => !c.open);
+  const summary = `${currentText ?? "Waiting at home."} Moving is free, any time; an old post goes empty.`
+    + (anyFull ? " On a full facility, Replace sends the person you replace back to the waiting list." : "");
   return {
     person,
     title: who.posting === null ? `Post ${who.name}` : `Move ${who.name}`,
-    currentText: who.posting === null ? null
-      : `Now at the ${REFUGEE_FACILITY_LABELS[who.posting]}: ${percentText(refugeeShare(who, who.posting))} ${refugeeStatLabel(who.posting)}.`,
+    currentText,
+    summary,
     choices: choices.map(({ order: _order, ...rest }) => rest),
   };
 }
