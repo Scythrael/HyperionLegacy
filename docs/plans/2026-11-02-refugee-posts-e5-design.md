@@ -150,3 +150,9 @@ Etc."
 Reading: a RARE arrival is an affectionate nod to a character from one of the user's favorite franchises (the user
 chose this; see the relic sheet's homage note: the user decides when a franchise nod is welcome). Shape questions
 asked the same day (directness, rarity, presentation); answers below when given.
+Answers (2026-11-03): directness "A clear echo (Recommended)": an ORIGINAL name fans instantly recognize, plus a wink
+in the background/flavor line (no exact character names). Rarity "~1 in 50, quietly special (Recommended)": about 2%
+of arrivals, rolled on the arrival's seeded stream; the card shows a small unique mark and their own flavor line;
+they work like any refugee (no stronger buffs). Franchises named by the user: Star Wars, Stargate, Babylon 5, Wheel of
+Time, Final Fantasy, Dragon Ball Z, My Hero Academia, "Etc." The roster of echo names + flavor lines is drafted as a
+sheet for the user's sign-off BEFORE it ships (like the relic names). Build after E5-6 as a small slice (E5-6b).
