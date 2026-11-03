@@ -513,3 +513,11 @@ runs long; the split line is after the refine, research, craft and build seams.
    "upcoming draws" would need a larger offset. [PROPOSAL] as written.
 3. **Scan range as a percent**: the telescope's range is tiered today; E5-0 confirms that a continuous range is safe
    for its consumers, or brings an alternative stat for the Stargazer to the user.
+
+## USER ANSWERS (2026-11-02): E5-0 study calls
+
+- Refiner (Refinery): "Extra output (Recommended)": a chance for each finished batch to yield extra refined goods,
+  instead of a speed boost (speed under ~5% is swallowed by tick rounding at levels 1 to 3).
+- Stargazer (Subspace Telescope): "Rare-aspect spotting (Recommended)": raise the chance to spot rare planet aspects
+  (the same lever Deep Field Refinement improves), instead of a percent scan range (which only touched edge systems
+  and was display-only).
