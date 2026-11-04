@@ -916,3 +916,16 @@ display: A a line per panel and a lock on each sub-tab; (9) benched list home: A
 - Rank prefix on names: "No, keep names clean (Recommended)": rank stays its own chip.
 - The notable marquee (2026-10-16 note): "Add a slow auto-scroll (Recommended)": the strip drifts gently on its own,
   pauses on hover or touch, and stays still with Reduce motion on.
+
+## USER ANSWERS (2026-11-03): CP-11 build calls
+
+- Guest Wing tier: "Tier 1 (Recommended)".
+- The three quarters pairs with identical recipes (approved table): "Tell them apart (Recommended)": swap one
+  ingredient in one blueprint of each pair so every blueprint has its own recipe, realistic, marked [PROPOSAL] for the
+  user's sign-off. (The no-shared-recipe rule is a test convention from the material lines design, not a user rule;
+  the user chose distinct recipes anyway.)
+- Sensor array recipes (audit 4.8, previously [PROPOSAL]): "Approve as proposed".
+- Flag Command (tier 3 bridge): "No, keep it as built (Recommended)": no Iridium Catalyst (M7: top tier only), no
+  canister.
+- Logged (review): a save mid data-study can learn a different blueprint after CP-11 adds candidates (same precedent as
+  every earlier blueprint slice; draws and save bytes unchanged). CP-12 must flip the bridge+quarters:obtainable row.
