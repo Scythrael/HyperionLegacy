@@ -950,3 +950,11 @@ display: A a line per panel and a lock on each sub-tab; (9) benched list home: A
   canister.
 - Logged (review): a save mid data-study can learn a different blueprint after CP-11 adds candidates (same precedent as
   every earlier blueprint slice; draws and save bytes unchanged). CP-12 must flip the bridge+quarters:obtainable row.
+
+## USER ANSWERS (2026-11-04): CP-12 calls
+
+- Research list: "Add it to Research too (Recommended)": a Crew Modules section in Research (as the signed CMR-9 mockup
+  draws), plus the Fabricator group for crafting.
+- Naming: "\"Crew Quarters\" everywhere (Recommended)": display text only, no save change.
+- Hub (standing distinct-icon rule): every array variety and the Bio-Resonance Array get their OWN SVG glyph; no item
+  shares a relic's glyph unless a mockup signed it (the Precursor Lens precedent).
