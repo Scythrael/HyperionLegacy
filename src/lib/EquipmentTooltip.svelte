@@ -140,9 +140,7 @@
     efficientCore: "🔋",
     balancedCore: "⚖️",
     // Spec Utility rigs and suites: E-MOD EM-10 review moved all five to SVG (EQUIPMENT_VARIETY_SVG_ICON below).
-    // Exploration 0.14.0 (E4d): the relic-unlocked sensor (same placeholder-emoji surface as above; the game-wide SVG
-    // migration of this map is a separate pass).
-    sensorBioResonance: "🧬",
+    // Sensor arrays: Complement CP-12 moved the last emoji array (Bio-Resonance) to SVG as well.
   };
 
   // G1-1 (Short-Range Missions): the varieties that ship an SVG glyph (icons.ts, classified in ICON_SEMANTICS) in
@@ -172,11 +170,14 @@
     refineryFeedRig: "rigRefineryFeed",
     damageControlSuite: "suiteDamageControl",
     pathfinderSuite: "suitePathfinder",
-    // Complement CP-11: the three early sensor arrays its blueprints make (the slot's relic and special arrays keep
-    // their own glyphs, so the sensor slot takes no SVG fallback).
-    sensorWideBeam: "sensorArray",
-    sensorFocusedBeam: "sensorArray",
-    sensorBalanced: "sensorArray",
+    // Complement CP-12 fix round (the standing distinct-icon rule, user 2026-11-04: every array variety and the
+    // Bio-Resonance Array get their OWN glyph; no item shares a relic's glyph unless a mockup signed it): one family,
+    // the Sensor Suite's panel on its mast, each with its own mark (icons.ts).
+    sensorWideBeam: "sensorWideBeam",
+    sensorFocusedBeam: "sensorFocusedBeam",
+    sensorBalanced: "sensorBalanced",
+    sensorBioResonance: "sensorBioResonance",
+    sensorResonance: "sensorResonance",
   };
 
   // Fallback glyph per SLOT, used if a variety is unmapped OR a slot has no variety
@@ -200,6 +201,9 @@
     // the crew module blueprints' Research and Fabricator cards never fall back to an emoji.
     bridge: "bridge",
     quarters: "quarters",
+    // Complement CP-12 fix round: a sensor piece whose variety has no glyph of its own draws the Sensor Suite's glyph,
+    // so no sensor piece can ever fall back to the satellite emoji.
+    sensor: "sensorArray",
   };
 
   // Resolve a piece's VARIETY key: a crafted piece from its blueprint's equipmentOutput,

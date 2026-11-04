@@ -179,10 +179,14 @@ describe("awayGearDisplay: the Fabricator and Research shelves (Field Kits FKR-3
       if (kitKeys.includes(bp.key)) expect(g, bp.key).toBe("fieldKit");
       // E-MOD EM-10: a universal module craft files under its own "Modules" shelf.
       else if (bp.equipmentOutput?.slotType === "module") expect(g, bp.key).toBe("module");
+      // Complement CP-12: a bridge or quarters module craft files under its own "Crew Modules" shelf.
+      else if (bp.equipmentOutput?.slotType === "bridge" || bp.equipmentOutput?.slotType === "quarters") expect(g, bp.key).toBe("crewModule");
       else expect(g, bp.key).toBe(blueprintGearCategory(bp) ?? "material");
     }
     expect(FABRICATOR_GROUP_LABEL.module).toBe("Modules");
     expect(FABRICATOR_GROUP_ORDER.indexOf("module")).toBe(FABRICATOR_GROUP_ORDER.indexOf("ship") + 1);
+    expect(FABRICATOR_GROUP_LABEL.crewModule).toBe("Crew Modules");
+    expect(FABRICATOR_GROUP_ORDER.indexOf("crewModule")).toBe(FABRICATOR_GROUP_ORDER.indexOf("module") + 1);
     expect(Object.values(MODULE_BLUEPRINTS).every((bp) => fabricatorGroupOf(bp) === "module")).toBe(true);
     expect(FABRICATOR_GROUP_LABEL.fieldKit).toBe("Field Kits");
     expect(FABRICATOR_GROUP_LABEL.material).toBe("Materials");
@@ -214,13 +218,15 @@ describe("awayGearDisplay: the Fabricator and Research shelves (Field Kits FKR-3
     for (const bp of Object.values(BLUEPRINTS)) {
       const sec = researchSectionOf(bp);
       if (kitKeys.includes(bp.key)) expect(sec).toBe("fieldKit");
+      // Complement CP-12 fix round: a bridge or quarters blueprint files under its own "Crew Modules" section.
+      else if (!bp.unlockOnly && (bp.equipmentOutput?.slotType === "bridge" || bp.equipmentOutput?.slotType === "quarters")) expect(sec, bp.key).toBe("crewModule");
       else {
         const c = blueprintGearCategory(bp);
         expect(sec).toBe(c === "awayTeam" || c === "implant" ? c : "main");
       }
     }
-    expect(RESEARCH_SECTION_ORDER).toEqual(["main", "awayTeam", "implant", "fieldKit"]);
-    expect(RESEARCH_SECTION_LABEL).toEqual({ main: null, awayTeam: "Away-Team Gear", implant: "Implants", fieldKit: "Field Kits" });
+    expect(RESEARCH_SECTION_ORDER).toEqual(["main", "crewModule", "awayTeam", "implant", "fieldKit"]);
+    expect(RESEARCH_SECTION_LABEL).toEqual({ main: null, crewModule: "Crew Modules", awayTeam: "Away-Team Gear", implant: "Implants", fieldKit: "Field Kits" });
   });
 });
 

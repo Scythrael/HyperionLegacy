@@ -33,14 +33,19 @@ import { WIRING_REGISTRY } from "./wiring/registry";
 import { hash } from "./firstRunsGoldens.fixture";
 import { CP11_BLUEPRINT_KEYS, withoutCp11Content } from "./cp11BlueprintsSwitch.fixture";
 import { cp11ReadBack } from "./cp11Registry.fixture";
+// Complement CP-12 came after these pins: its Sensor Suite text, its Crew Modules shelf (withoutCp12) and its registry
+// flip (cp12ReadBack) are held apart, so every pin here still reads CP-11 alone.
+import { withoutCp12 } from "./cp12Switch.fixture";
+import { cp12ReadBack } from "./cp12Registry.fixture";
 
 const CAPTURE = Boolean(import.meta.env.CP11_CAPTURE);
 const SHIP = "ship-1";
 const HULLS: readonly ShipTypeKey[] = ["aurora", "eir", "generalFreighter"];
 const shipOf = (s: GameState) => s.ships.find((x) => x.id === SHIP)!;
+const REGISTRY = cp12ReadBack(WIRING_REGISTRY);
 
 function registryRows(): string[] {
-  return cp11ReadBack(WIRING_REGISTRY).map((e) => `${e.id}|${JSON.stringify(e.status)}|${e.probe ?? ""}|${e.contexts.join(",")}|${e.claim}`);
+  return cp11ReadBack(REGISTRY).map((e) => `${e.id}|${JSON.stringify(e.status)}|${e.probe ?? ""}|${e.contexts.join(",")}|${e.claim}`);
 }
 
 function computePins(): { held: Record<string, string>; moved: Record<string, string> } {
@@ -89,8 +94,8 @@ function computePins(): { held: Record<string, string>; moved: Record<string, st
   const fresh = withFacilityLevel({ ...freshState(), credits: new Decimal(1e6) }, "research", 1);
   moved["unlock:researchable:lab1"] = hash(Object.keys(BLUEPRINTS).filter((k) => blueprintResearchable(fresh, k)));
   // MOVED: the registry's obtainable row and its row count.
-  moved["registry:obtainable"] = hash(WIRING_REGISTRY.find((e) => e.id === "ship:EQUIPMENT_SLOTS:bridge+quarters:obtainable")?.status);
-  moved["registry:count"] = String(WIRING_REGISTRY.length);
+  moved["registry:obtainable"] = hash(REGISTRY.find((e) => e.id === "ship:EQUIPMENT_SLOTS:bridge+quarters:obtainable")?.status);
+  moved["registry:count"] = String(REGISTRY.length);
   return { held, moved };
 }
 
@@ -205,7 +210,7 @@ describe("Complement CP-11 goldens (captured before the crew module and array bl
     });
     return;
   }
-  const pins = computePins();
+  const pins = withoutCp12(() => computePins());
   it("every reading a player already owns holds (each module and array by hand, the existing mints, research verdicts, the registry)", () => {
     expect(Object.keys(HELD_CAPTURE).length).toBeGreaterThan(40);
     expect(Object.keys(pins.held).sort()).toEqual(Object.keys(HELD_CAPTURE).sort());
@@ -213,12 +218,12 @@ describe("Complement CP-11 goldens (captured before the crew module and array bl
   });
   it("the by-design readings: with CP-11's additions held apart, every one is the pre-CP-11 capture", () => {
     expect(Object.keys(MOVED_BEFORE).length).toBeGreaterThan(10);
-    const pre = withoutCp11Content(() => computePins());
+    const pre = withoutCp11Content(() => withoutCp12(() => computePins()));
     for (const [k, v] of Object.entries(MOVED_BEFORE)) {
       if (k === "registry:obtainable" || k === "registry:count") continue; // the registry is built once; read back below
       expect(pre.moved[k], k).toBe(v);
     }
-    const back = cp11ReadBack(WIRING_REGISTRY);
+    const back = cp11ReadBack(REGISTRY);
     expect(String(back.length)).toBe(MOVED_BEFORE["registry:count"]);
     expect(hash(back.find((e) => e.id === "ship:EQUIPMENT_SLOTS:bridge+quarters:obtainable")?.status)).toBe(MOVED_BEFORE["registry:obtainable"]);
   });

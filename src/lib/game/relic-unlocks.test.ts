@@ -350,7 +350,8 @@ describe("E4d items: generation + hull gating", () => {
     expect(equipmentSlotLabel("specUtility", "pathfinderSuite")).toBe("Spec Utility");
     expect(craftLineOutputLabel("fabricate", "damageControlSuiteBp")).toBe("Spec Utility · Damage Control Suite");
     expect(craftLineOutputLabel("fabricate", "yieldRigBp")).toBe("Prospecting Rig · Yield Rig");
-    expect(craftLineOutputLabel("fabricate", "bioResonanceArrayBp")).toBe("Sensor Array · Bio-Resonance Array");
+    // Complement CP-12 (OC-25): the slot reads "Sensor Suite"; the array keeps its own name.
+    expect(craftLineOutputLabel("fabricate", "bioResonanceArrayBp")).toBe("Sensor Suite · Bio-Resonance Array");
   });
 
   it("existing rigs are UNCHANGED: no moduleVariant, the slot's signature line", () => {

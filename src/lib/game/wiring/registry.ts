@@ -114,6 +114,7 @@ import { OFFICER_STAT_KEYS } from "../seniorStaff";
 import { DEPARTMENT_OF_SEAT, OFFICER_STAT_NEUTRAL, XO_DEPARTMENT_SHARE, officerStatFacet } from "../officerStats";
 import { CREW_EFFECTIVENESS_KNEE, OFFICER_BONUSES_PENDING_IN_RELEASE, POWER_EFFICIENCY_KNEE } from "../crewOverlay";
 import { patrolCycleOneRampHours } from "../tick";
+import { installFromShipSystemTile } from "../shipSystemTiles";
 import { constitutionRamp } from "../constitutionRamp";
 import { DRIVE_CLASS_REACH_MULT, FRONTIER_SENSORS } from "../propulsion";
 import { TIER_TRANSIT_HOURS, VOYAGE_BAND_SCALE_PERMILLE, voyageClassSteps } from "../voyage";
@@ -2584,10 +2585,19 @@ function moduleEntries(): WiringEntry[] {
       id: "ship:EQUIPMENT_SLOTS:bridge+quarters:obtainable",
       system: "ship",
       source: { catalog: "SHIP_SEAMS", key: "bridge+quarters:obtainable" },
-      claim: "Bridge and quarters modules can be built and installed",
+      claim: "Bridge and quarters modules can be built and installed: crafted at the Fabricator, installed from the Ships tab's Bridge Module and Crew Quarters tiles",
       // CP-11 built the blueprints (every bridge and quarters module is researched and crafted: ship:BLUEPRINTS:<key>:
-      // effect below); the Ships tab still has no Bridge Module or Crew Quarters tile to install one from.
-      status: pending("CP-12 (the Bridge Module and Crew Quarters install tiles; CP-11 built every blueprint)"),
+      // effect below); CP-12 added the Ships tab tiles (shipSystemTiles.ts SHIP_SYSTEM_TILES). Measured end to end: a
+      // crafted Utilitarian Quarters, installed from the Crew Quarters tile, adds the berths an empty complement can fill
+      // (with no tile for the slot the install is refused and nothing moves). The bridge tile's install is proven by
+      // cp12BridgeQuartersTiles.test.ts (a crafted Balanced Command lifts the seated officer's cargo line).
+      probe: "fillableBerths",
+      contexts: ["sheet"],
+      curve: { kind: "event", metric: "berths an empty complement can fill, a crafted Utilitarian Quarters installed from the Crew Quarters tile vs none" },
+      magnitude: () => 1,
+      on: craftedFromTile("utilitarianQuartersBp"),
+      note: "one blank inspected (the Fabricator's mint), installed through the Ships tab tile list",
+      status: LIVE,
     }),
   );
   out.push(...crewModuleBlueprintEntries());
@@ -2604,6 +2614,20 @@ function craftedOn(key: string): Transform {
     const minted = after.equipment.find((e) => !held.equipment.some((x) => x.id === e.id));
     if (minted === undefined) return s;
     return installPiece({ ...after, equipment: after.equipment.filter((e) => e.id !== minted.id) }, { ...minted, fittedToShipId: WIRING_SHIP_ID });
+  };
+}
+
+// Complement CP-12: the piece blueprint `key` mints (one blank inspected, as craftedOn), installed on ship-1 from its
+// Ships tab tile (shipSystemTiles.ts installFromShipSystemTile, the tile's own fitEquipment call). Unchanged when the
+// inspect is refused or the board has no tile for the piece's slot.
+function craftedFromTile(key: string): Transform {
+  return (s) => {
+    const held: GameState = { ...s, blanks: { ...s.blanks, [key]: new Decimal(1) } };
+    const after = inspectBlank(held, key);
+    const minted = after.equipment.find((e) => !held.equipment.some((x) => x.id === e.id));
+    if (minted === undefined) return s;
+    const installed = installFromShipSystemTile(after, WIRING_SHIP_ID, minted.slotType, minted.id);
+    return installed === after ? s : installed;
   };
 }
 

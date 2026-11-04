@@ -164,20 +164,29 @@ export function isFieldKitBlueprint(bp: Pick<BlueprintDef, "unlockOnly" | "weapo
 // EM-10's "Modules" group): Materials, Ship Systems, Modules, Away-Team Gear, Implants, Field Kits. A universal module
 // is ship gear (its blanks and its Research row stay with the ship systems), but it gets its own Fabricator shelf, the
 // EM-10 "Fabricator Modules group", next to the ship systems it is installed beside.
-export type FabricatorGroup = "material" | GearCategory | "module" | "fieldKit";
-export const FABRICATOR_GROUP_ORDER: readonly FabricatorGroup[] = ["material", "ship", "module", "awayTeam", "implant", "fieldKit"];
+// Complement CP-12 (plan CP-12 "the Fabricator group for crew modules"; mockup CMR-9 "Crew Modules"): bridge and quarters
+// blueprints get their own "Crew Modules" shelf after Modules, the same way (still ship gear: their Research rows and
+// blanks stay with the ship systems). Sensor arrays stay Ship Systems.
+export type FabricatorGroup = "material" | GearCategory | "module" | "crewModule" | "fieldKit";
+export const FABRICATOR_GROUP_ORDER: readonly FabricatorGroup[] = ["material", "ship", "module", "crewModule", "awayTeam", "implant", "fieldKit"];
 export const FABRICATOR_GROUP_LABEL: Readonly<Record<FabricatorGroup, string>> = {
   material: "Materials",
   ...GEAR_CATEGORY_LABEL,
   module: "Modules",
+  crewModule: "Crew Modules",
   fieldKit: "Field Kits",
 };
+// CP-12 test seam (the HULL_CREW_CAPS_SWITCH precedent): off, a crew module files under Ship Systems as it did before
+// CP-12, so the goldens captured before it read back (cp12Switch.fixture.ts). Always on in the game.
+export const CREW_MODULE_SHELF_SWITCH: { on: boolean } = { on: true };
 
-// The shelf a blueprint's craft files under: Modules for a universal module, its gear category, Field Kits for a kit,
-// else Materials. Pure.
+// The shelf a blueprint's craft files under: Modules for a universal module, Crew Modules for a bridge or quarters
+// module, its gear category, Field Kits for a kit, else Materials. Pure.
 export function fabricatorGroupOf(bp: Pick<BlueprintDef, "unlockOnly" | "weaponOutput" | "droneOutput" | "equipmentOutput" | "recipe">): FabricatorGroup {
   if (isFieldKitBlueprint(bp)) return "fieldKit";
   if (!bp.unlockOnly && bp.equipmentOutput?.slotType === "module") return "module";
+  const slot = bp.equipmentOutput?.slotType;
+  if (CREW_MODULE_SHELF_SWITCH.on && !bp.unlockOnly && (slot === "bridge" || slot === "quarters")) return "crewModule";
   return blueprintGearCategory(bp) ?? "material";
 }
 
@@ -200,18 +209,25 @@ export function fabricateKeyGroups(
 
 // The Research list's sections inside a tier (E-CREW Task 10, plus Field Kits FKR-3): every other blueprint first
 // (unlabeled, in its existing order), then the trailing "Away-Team Gear", "Implants" and "Field Kits" shelves.
-export type ResearchSection = "main" | "awayTeam" | "implant" | "fieldKit";
-export const RESEARCH_SECTION_ORDER: readonly ResearchSection[] = ["main", "awayTeam", "implant", "fieldKit"];
+// Complement CP-12 fix round (user 2026-11-04 "Add it to Research too"; signed mockup CMR-9 "Research · Crew Modules"):
+// bridge and quarters blueprints gather into a "Crew Modules" section right after the main list, the Fabricator's
+// Crew Modules group (fabricatorGroupOf) read the same way. Sensor arrays stay in the main list, as the mockup draws.
+export type ResearchSection = "main" | "crewModule" | "awayTeam" | "implant" | "fieldKit";
+export const RESEARCH_SECTION_ORDER: readonly ResearchSection[] = ["main", "crewModule", "awayTeam", "implant", "fieldKit"];
 export const RESEARCH_SECTION_LABEL: Readonly<Record<ResearchSection, string | null>> = {
   main: null,
+  crewModule: FABRICATOR_GROUP_LABEL.crewModule,
   awayTeam: GEAR_CATEGORY_LABEL.awayTeam,
   implant: GEAR_CATEGORY_LABEL.implant,
   fieldKit: FABRICATOR_GROUP_LABEL.fieldKit,
 };
 
 // The Research section a blueprint files under. Pure.
+// CP-12's Crew Modules section rides the same CREW_MODULE_SHELF_SWITCH as its Fabricator group (off: a crew module
+// files under the main list, as before CP-12, so the goldens captured before it read back).
 export function researchSectionOf(bp: Pick<BlueprintDef, "unlockOnly" | "weaponOutput" | "droneOutput" | "equipmentOutput" | "recipe">): ResearchSection {
   if (isFieldKitBlueprint(bp)) return "fieldKit";
+  if (fabricatorGroupOf(bp) === "crewModule") return "crewModule";
   const c = blueprintGearCategory(bp);
   return c === "awayTeam" || c === "implant" ? c : "main";
 }

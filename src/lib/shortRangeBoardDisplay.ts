@@ -106,8 +106,9 @@ export const SHORT_RANGE_SHEET_MARK = 0.7;
 export const SHORT_RANGE_WAY_IN: Readonly<Record<ShortRangeCategory, string>> = {
   range: "a faster or longer-range FTL Drive, or a Fuel Depot upgrade",
   cargo: "a bigger Cargo Bay",
-  guests: "a Guest Wing in the Crew Quarters Module",
-  sensors: "any Sensor Array",
+  guests: "a Guest Wing in the Crew Quarters",
+  // Complement CP-12: the slot's catalog name is the Sensor Suite (OC-25); the arrays are its varieties.
+  sensors: "any Sensor Suite",
   engineering: "more Engineering crew aboard",
   security: "more Security crew aboard",
 };

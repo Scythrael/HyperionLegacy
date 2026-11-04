@@ -598,6 +598,26 @@ export const ICON_PATHS = {
   // Sensor Array: a flat phased-array panel (its grid) on a mast, sending out three straight beams. Kept apart from
   // `telescope` (a curved dish with arcs) and `commBooster` / `rigSurvey` (masts with arcs) by the flat grid and rays.
   sensorArray: ["M3.5 4.5l9 2.5v8l-9-2.5z", "M3.5 8.5l9 2.5", "M8 5.75v8", "M8 14v6", "M5 20.5h6", "M15.5 8.5l5-2.5", "M15.5 11.5h5.5", "M15.5 14.5l5 2.5"],
+
+  // --- 0.14.0 CP-12 fix round: every sensor array variety draws its own glyph (the standing distinct-icon rule) ---
+  // One family: each keeps `sensorArray`'s phased-array panel on its mast (the left half, path for path) and swaps the
+  // three straight beams for its own mark on the right. `sensorArray` itself stays the slot's glyph (the Sensor Suite
+  // tile and SLOT_SVG_FALLBACK).
+  // Wide-Beam Array: a wide fan, two rays opening 100 degrees with the arc that closes them (slower passes, more ground).
+  sensorWideBeam: ["M3.5 4.5l9 2.5v8l-9-2.5z", "M3.5 8.5l9 2.5", "M8 5.75v8", "M8 14v6", "M5 20.5h6", "M14.5 11l5-6", "M14.5 11l5 6", "M19.5 5a7.8 7.8 0 0 1 0 12"],
+  // Focused-Beam Array: a narrow beam, the Wide-Beam's fan closed down to about 40 degrees (two long rays and the short
+  // arc that closes them). A first draft (two rays meeting at a target ring) read as scissors at every size.
+  sensorFocusedBeam: ["M3.5 4.5l9 2.5v8l-9-2.5z", "M3.5 8.5l9 2.5", "M8 5.75v8", "M8 14v6", "M5 20.5h6", "M14.5 11l7-2.5", "M14.5 11l7 2.5", "M21.5 8.5a7.4 7.4 0 0 1 0 5"],
+  // Balanced Array: a balanced, symmetric fan, two concentric arcs centered on the panel (mirror images above and below
+  // the center line), neither wide nor narrow.
+  sensorBalanced: ["M3.5 4.5l9 2.5v8l-9-2.5z", "M3.5 8.5l9 2.5", "M8 5.75v8", "M8 14v6", "M5 20.5h6", "M15.5 8.3a3.5 3.5 0 0 1 0 5.4", "M18 5.6a7 7 0 0 1 0 10.8"],
+  // Resonance Sensor Array: resonance waves, two stacked sine waves off the panel (it reads a giant by its resonances).
+  // Kept apart from `moduleSignal` (one waveform through a tick, no panel) by the panel and the second wave.
+  sensorResonance: ["M3.5 4.5l9 2.5v8l-9-2.5z", "M3.5 8.5l9 2.5", "M8 5.75v8", "M8 14v6", "M5 20.5h6", "M14.5 8.5c1-1.6 2-1.6 3 0s2 1.6 3 0", "M14.5 14c1-1.6 2-1.6 3 0s2 1.6 3 0"],
+  // Bio-Resonance Array: a leaf with its vein off the panel (the array that hears living things). Its own glyph, apart
+  // from the Leviathan Scale relic that unlocks it (`relicLeviathanScale`, overlapping scales) and from
+  // `refugeeFarewell` (a leaf alone, larger, no panel).
+  sensorBioResonance: ["M3.5 4.5l9 2.5v8l-9-2.5z", "M3.5 8.5l9 2.5", "M8 5.75v8", "M8 14v6", "M5 20.5h6", "M14.5 17.5c0-6 2.5-9.8 7-10.5-.4 6.2-3 9.8-7 10.5z", "M14.5 17.5l4.5-6"],
 } as const satisfies Record<string, readonly string[]>;
 
 /**

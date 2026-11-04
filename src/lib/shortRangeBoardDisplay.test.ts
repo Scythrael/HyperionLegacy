@@ -176,8 +176,8 @@ describe("G1-6 the board: open slots, then the Mission Control slots still to op
     if (card.kind !== "free") throw new Error("not free");
     expect(card.compare?.ready).toBe(false);
     expect(card.compare?.shortLines).toEqual(["guests", "sensors", "engineering", "security"].map((c) => shortRangeBlockText(c as never)));
-    expect(card.compare?.wayIn).toContain("a Guest Wing in the Crew Quarters Module");
-    expect(card.compare?.wayIn).toContain("any Sensor Array");
+    expect(card.compare?.wayIn).toContain("a Guest Wing in the Crew Quarters");
+    expect(card.compare?.wayIn).toContain("any Sensor Suite");
     expect(card.compare?.bars.filter((b) => b.short).map((b) => b.category)).toEqual(["guests", "sensors", "engineering", "security"]);
   });
 

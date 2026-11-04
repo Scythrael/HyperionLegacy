@@ -290,6 +290,12 @@ export const ICON_SEMANTICS: Record<IconName, IconSemantic> = {
   bridge: "subject",
   quarters: "subject",
   sensorArray: "subject",
+  // 0.14.0 CP-12 fix round: each sensor array variety's own glyph names a thing (one piece of the Sensor Suite slot).
+  sensorWideBeam: "subject",
+  sensorFocusedBeam: "subject",
+  sensorBalanced: "subject",
+  sensorResonance: "subject",
+  sensorBioResonance: "subject",
 };
 
 // ---------------------------------------------------------------------------
