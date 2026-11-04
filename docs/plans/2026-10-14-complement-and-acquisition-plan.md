@@ -975,3 +975,11 @@ display: A a line per panel and a lock on each sub-tab; (9) benched list home: A
 - Naming: "\"Crew Quarters\" everywhere (Recommended)": display text only, no save change.
 - Hub (standing distinct-icon rule): every array variety and the Bio-Resonance Array get their OWN SVG glyph; no item
   shares a relic's glyph unless a mockup signed it (the Precursor Lens precedent).
+
+## USER ANSWERS (2026-11-04): CP-13 calls
+
+- General guest perk: "Yes, grow like the rest (Recommended)": scales with rarity/quality like the other seven lines
+  (matches the SMS-1 mockup's "the hull bonus scales the same way").
+- Stat breakdown: "Add the rows (Recommended)": Sensors and Unload speed get breakdown rows showing every source.
+- Tactician injury perk: "Yes, both paths, new runs only (Recommended)": the non-Ground-Ops injury path too, stamped at
+  dispatch so runs in flight don't change.
