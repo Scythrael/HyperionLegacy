@@ -11475,6 +11475,80 @@ export const GAS_GIANT_BLUEPRINTS: Readonly<Record<string, BlueprintDef>> = Obje
   ].map((bp) => [bp.key, bp]),
 );
 
+// Complement CP-11 (plan docs/plans/2026-10-14-complement-and-acquisition-plan.md CP-11, Task 28 engine): the crew
+// module and early sensor array blueprints, every one an ordinary equipmentOutput blueprint on the shared mint
+// (generateEquipment stamps the variety key as moduleVariant for the bridge, quarters and sensor slots), so a crafted
+// piece is the catalog module its variety names (crewModules.ts QUARTERS_MODULES / BRIDGE_MODULES, sensorArrays.ts
+// SENSOR_ARRAYS) and acts through the live crew overlay and the expedition array reads. No relic and no decode gate.
+//   Tiers (SMS-2's table; complement OC-15 "Flag Command and Elite Quarters, tier 3 now that the rung exists"):
+//     tier 1, day one: Balanced Command, Utilitarian Quarters, the Wide-Beam and Balanced Arrays;
+//     tier 2: Focused Command, the six division quarters, Efficient Quarters, the Focused-Beam Array;
+//     tier 3: Flag Command (Elite Quarters is already GG-7's, GAS_GIANT_BLUEPRINTS above).
+//     The Guest Wing (G1-1's variety; "CP-11 must add a Guest Wing blueprint") at tier 1 [PROVISIONAL]: no answer names
+//     its tier; its recipe is Utilitarian's (audit section 5, passenger cabins).
+//   Recipes: the recipe realism audit section 5 (user call 13, "Component mixes (Recommended)"; Medical Quarters takes
+//     1 Purified Biomass, its one exception); existing components only (L2), no Material Lines input and no Iridium
+//     Catalyst (M7 keeps the catalyst on top-tier recipes alone). The arrays take audit section 4.8's [PROPOSAL] mixes.
+//     Flag Command takes no canister: call 14 places canisters in the tier 3+ quarters and sensor modules only.
+//   [PROVISIONAL] research and craft costs (CREW_MODULE_BLUEPRINT_COSTS): tier 1 the Spec Utility rigs', tier 2 the
+//     tier 2 economy systems', tier 3 the Elite Quarters' (GG7_NUMBERS.costs[3]), so Flag Command matches its sibling.
+// Flavor text carries no number: the module's effect line on its card does.
+export const CREW_MODULE_BLUEPRINT_COSTS: Readonly<Record<1 | 2 | 3, { ticks: number; credits: number; craft: number }>> = {
+  1: { ticks: 80, credits: 900, craft: 170 },
+  2: { ticks: 120, credits: 1_700, craft: 320 },
+  3: GG7_NUMBERS.costs[3],
+};
+const CREW_MODULE_SLOT_NAME: Readonly<Record<"bridge" | "quarters" | "sensor", string>> = {
+  bridge: "Bridge Module",
+  quarters: "Crew Quarters",
+  sensor: "Sensor Array",
+};
+function crewModuleBlueprint(
+  key: string,
+  label: string,
+  tier: 1 | 2 | 3,
+  slotType: "bridge" | "quarters" | "sensor",
+  varietyKey: string,
+  inputs: Record<string, number>,
+  flavor: string,
+): BlueprintDef {
+  const cost = CREW_MODULE_BLUEPRINT_COSTS[tier];
+  return {
+    key,
+    label: `${label} Blueprint`,
+    tier,
+    researchDurationTicks: cost.ticks,
+    researchCreditCost: cost.credits,
+    craftDurationTicks: cost.craft,
+    equipmentOutput: { slotType, varietyKey },
+    recipe: { inputs },
+    flavor,
+    unlockHint: `Researched at the Research Lab${tier > 1 ? " (needs a higher lab tier)" : ""}; crafted at the Fabricator; installed in a ship's ${CREW_MODULE_SLOT_NAME[slotType]} slot.`,
+  };
+}
+export const CREW_MODULE_BLUEPRINTS: Readonly<Record<string, BlueprintDef>> = Object.fromEntries(
+  [
+    // Bridge modules: consoles and displays on a frame.
+    crewModuleBlueprint("balancedCommandBp", "Balanced Command", 1, "bridge", "bridgeBalancedCommand", { frameSegment: 1, powerCoupling: 2, polysilicateWafer: 2 }, "A standard command deck: consoles for every seat, and every officer works a little better for it."),
+    crewModuleBlueprint("focusedCommandBp", "Focused Command", 2, "bridge", "bridgeFocusedCommand", { frameSegment: 1, powerCoupling: 2, polysilicateWafer: 3 }, "A denser console suite built around the seats this hull was made for. Its specialists shine; the rest get no lift."),
+    crewModuleBlueprint("flagCommandBp", "Flag Command", 3, "bridge", "bridgeFlagCommand", { structuralAssembly: 1, powerCoupling: 3, polysilicateWafer: 3 }, "A full flag deck. The higher an officer's rank, the more this bridge gets out of them."),
+    // Quarters modules: bunks on a frame, plus what each wing keeps beside them.
+    crewModuleBlueprint("utilitarianQuartersBp", "Utilitarian Quarters", 1, "quarters", "quartersUtilitarian", { frameSegment: 2, titaniumIngot: 2, powerCoupling: 1 }, "Plain bunks and a life support loop: a few more berths, and a small lift for every division."),
+    crewModuleBlueprint("efficientQuartersBp", "Efficient Quarters", 2, "quarters", "quartersEfficient", { frameSegment: 2, titaniumIngot: 1, powerCoupling: 2 }, "Compact bunks stacked deep on a heavier life support loop: many more berths, each crew member a little less comfortable."),
+    crewModuleBlueprint("securityQuartersBp", "Security Quarters", 2, "quarters", "quartersSecurityWing", { frameSegment: 2, titaniumIngot: 3 }, "Bunks beside an armory locker. Security works better; the other divisions give a little ground."),
+    crewModuleBlueprint("engineeringQuartersBp", "Engineering Quarters", 2, "quarters", "quartersEngineeringWing", { frameSegment: 2, powerCoupling: 2, titaniumIngot: 1 }, "Bunks beside a workshop. Engineering works better; the other divisions give a little ground."),
+    crewModuleBlueprint("scienceQuartersBp", "Science Quarters", 2, "quarters", "quartersScienceWing", { frameSegment: 2, polysilicateWafer: 2, powerCoupling: 1 }, "Bunks beside a lab bench. Science works better; the other divisions give a little ground."),
+    crewModuleBlueprint("medicalQuartersBp", "Medical Quarters", 2, "quarters", "quartersMedicalWing", { frameSegment: 2, polysilicateWafer: 1, titaniumIngot: 1, purifiedBiomass: 1 }, "Bunks beside a stocked sickbay. Medical works better; the other divisions give a little ground."),
+    crewModuleBlueprint("operationsQuartersBp", "Operations Quarters", 2, "quarters", "quartersOperationsWing", { frameSegment: 2, polysilicateWafer: 2, powerCoupling: 1 }, "Bunks beside an ops room. Operations works better; the other divisions give a little ground."),
+    crewModuleBlueprint("flightDeckQuartersBp", "Flight-Deck Quarters", 2, "quarters", "quartersFlightDeckWing", { frameSegment: 3, powerCoupling: 1 }, "Bunks a short run from the hangar. The Flight Deck works better; the other divisions give a little ground."),
+    crewModuleBlueprint("guestWingBp", "Guest Wing", 1, "quarters", "quartersGuestWing", { frameSegment: 2, titaniumIngot: 2, powerCoupling: 1 }, "Passenger cabins in place of crew bunks: berths for guests, and only a few for the crew."),
+    // Sensor arrays: receivers on wafers, a frame or couplings for the aperture.
+    crewModuleBlueprint("wideBeamArrayBp", "Wide-Beam Array", 1, "sensor", "sensorWideBeam", { polysilicateWafer: 4, frameSegment: 2 }, "A wide receiving aperture: slower passes that sweep more ground, with a better eye for surface landmarks."),
+    crewModuleBlueprint("focusedBeamArrayBp", "Focused-Beam Array", 2, "sensor", "sensorFocusedBeam", { polysilicateWafer: 3, powerCoupling: 2 }, "A narrow, hard-driven beam: quick looks that cover less ground, with a better eye for what lies underground."),
+    crewModuleBlueprint("balancedArrayBp", "Balanced Array", 1, "sensor", "sensorBalanced", { polysilicateWafer: 3, powerCoupling: 1, frameSegment: 1 }, "A general survey array: an even pace, even coverage, and a small eye for both landmarks and what lies underground."),
+  ].map((bp) => [bp.key, bp]),
+);
+
 // The classed drives whose tier BOTH facility tracks reach (a level-N facility serves tier N; a track's top level is
 // its rung count), keyed for BLUEPRINTS' spread. Hoisted: BLUEPRINTS below spreads it. Pure over the static tables.
 export function drivesWithinFacilityReach(): Readonly<Record<string, BlueprintDef>> {
@@ -12261,6 +12335,9 @@ export const BLUEPRINTS: Record<string, BlueprintDef> = {
 
   // Gas Giant Study GG-7: the special blueprints and the Lab tier III canister quarters (GAS_GIANT_BLUEPRINTS above).
   ...GAS_GIANT_BLUEPRINTS,
+
+  // Complement CP-11: the crew module and early sensor array blueprints (CREW_MODULE_BLUEPRINTS above), Lab tiers 1 to 3.
+  ...CREW_MODULE_BLUEPRINTS,
 
   // ══════════════════════════════════════════════════════════════════════════
   // AWAY-TEAM MEMBER GEAR BLUEPRINTS (E-CREW 0.14.0, Task 7) ─────────────────

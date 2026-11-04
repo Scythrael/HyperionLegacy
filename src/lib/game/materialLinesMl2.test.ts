@@ -184,6 +184,17 @@ describe("ML-2 standing rules", () => {
   // already shared "Wafer + Coupling" stacks (Reflex Booster, Targeting Optic and Synaptic Accelerator; Med-Nanite Swarm
   // and Cipher Wetware), and the audit's approved Archaeo-Scanner fix (Wafer 4 + Coupling 1, call 7) joins the second.
   // Implants are biocompatible electronics, so the shared stacks read true; telling them apart is 0.16.0's theming.
+  // Complement CP-11: three quarters pairs share a map in the recipe realism audit's section 5 table, which the user
+  // approved as written (call 13, "Component mixes (Recommended)"): Science and Operations Quarters (Frame 2 + Wafer 2 +
+  // Coupling 1: a lab bench and an ops room are both consoles), Efficient and Engineering Quarters (Frame 2 + Ti Ingot 1
+  // + Coupling 2: more life support, a workshop) and Utilitarian Quarters and the Guest Wing (Frame 2 + Ti Ingot 2 +
+  // Coupling 1: bunks and cabins). Held as named pairs (not the whole slot) and raised with the user as an open call:
+  // keep the shared maps, or tell them apart.
+  const APPROVED_SHARED_MAPS: ReadonlySet<string> = new Set([
+    "quarters: efficientQuartersBp = engineeringQuartersBp",
+    "quarters: scienceQuartersBp = operationsQuartersBp",
+    "quarters: utilitarianQuartersBp = guestWingBp",
+  ]);
   it("no two varieties of one slot share an identical input map (implants excepted, see above)", () => {
     const dupes: string[] = [];
     for (const slot of slotsWithBps.filter((s) => s !== "implant")) {
@@ -194,7 +205,9 @@ describe("ML-2 standing rules", () => {
         seen.set(map, bp.key);
       }
     }
-    expect(dupes).toEqual([]);
+    expect(dupes.filter((d) => !APPROVED_SHARED_MAPS.has(d))).toEqual([]);
+    // The approved pairs are exactly the two (a third shared map, or a pair the user splits, shows here).
+    expect(new Set(dupes.filter((d) => APPROVED_SHARED_MAPS.has(d)))).toEqual(APPROVED_SHARED_MAPS);
     // The six slots ML-2 reworked, explicitly.
     for (const slot of ["cargoBay", "ftlDrive", "reactorCore", "specUtility", "shieldEmitters", "hullPlating"]) expect(slotsWithBps, slot).toContain(slot);
   });
@@ -216,8 +229,8 @@ describe("ML-2 standing rules", () => {
       if (m.rareChance > 0) drops.add(m.lootTable.rare);
     }
     // Gas Giant Study GG-3: every gas giant study (an expedition's ship study, no squad needed) returns canisters of every
-    // gas; GG-7's Elite Quarters (the quarters slot's one blueprint until CP-11) takes Ammonia and Hydrogen, so the walk
-    // proves those inputs gatherable. The Deuterium Canister is left out: its day-one route (the Cometary Ice Harvest's
+    // gas; GG-7's Elite Quarters (Lab tier III; CP-11's quarters take components only) takes Ammonia and Hydrogen, so the
+    // walk proves those inputs gatherable. The Deuterium Canister is left out: its day-one route (the Cometary Ice Harvest's
     // ice through the Refinery) is the one the Reactor Core anchors must keep proving.
     for (const id of GAS_CANISTER_IDS) if (id !== "deuteriumCanister") drops.add(id);
     const reachable = (item: string, path: ReadonlySet<string>): boolean => {
@@ -230,12 +243,15 @@ describe("ML-2 standing rules", () => {
       ];
       return routes.some((inputs) => inputs.every((i) => reachable(i, next)));
     };
-    // A slot whose only blueprints are discovery payoffs (the sensor array today: a relic's and, since GG-7, a decoded
-    // ancient entry's; CP-11 authors its ordinary ones) has no ordinary variety to keep open; the Standard-Issue piece
-    // covers it. GG-7's special blueprints are discovery payoffs like a relic's (requiresDecode).
+    // A slot whose only blueprints are discovery payoffs (the sensor array was one until CP-11: a relic's and, since
+    // GG-7, a decoded ancient entry's) has no ordinary variety to keep open; the Standard-Issue piece covers it. GG-7's
+    // special blueprints are discovery payoffs like a relic's (requiresDecode).
     const ordinary = (bp: (typeof equipmentBps)[number]) => bp.requiresRelicDiscovery === undefined && bp.requiresDecode === undefined;
     const ordinarySlots = slotsWithBps.filter((slot) => equipmentBps.some((bp) => bp.equipmentOutput!.slotType === slot && ordinary(bp)));
     expect(ordinarySlots.length).toBeGreaterThan(8);
+    // Complement CP-11: the bridge, quarters and sensor slots gained ordinary, components-only blueprints, so the walk
+    // below now proves each keeps a no-wall variety too.
+    for (const slot of ["bridge", "quarters", "sensor"]) expect(ordinarySlots, slot).toContain(slot);
     for (const slot of ordinarySlots) {
       const open = equipmentBps.filter(
         (bp) => bp.equipmentOutput!.slotType === slot && ordinary(bp) && Object.keys(bp.recipe.inputs).every((i) => reachable(i, new Set())),
@@ -255,7 +271,8 @@ describe("ML-2 standing rules", () => {
 
   it("realism guard: Purified Biomass stays the food and medical feedstock (kits, the Med Kit, the living sensor)", () => {
     const users = Object.keys(BLUEPRINTS).filter((k) => BLUEPRINTS[k].recipe.inputs.purifiedBiomass !== undefined).sort();
-    expect(users).toEqual(["antitoxinBp", "bioResonanceArrayBp", "combatStimBp", "firstAidKitBp", "injuryKitBp", "medKitBp", "splintBp", "traumaKitBp"]);
+    // Complement CP-11: Medical Quarters' sickbay stock (audit call 13, user: "Medical Quarters takes 1 Purified Biomass").
+    expect(users).toEqual(["antitoxinBp", "bioResonanceArrayBp", "combatStimBp", "firstAidKitBp", "injuryKitBp", "medKitBp", "medicalQuartersBp", "splintBp", "traumaKitBp"]);
     // Its one Refinery use is the living Biocatalyst culture.
     expect(Object.keys(REFINE_RECIPES).filter((k) => REFINE_RECIPES[k].input.purifiedBiomass !== undefined)).toEqual(["synthBiocatalyst"]);
   });

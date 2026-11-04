@@ -286,6 +286,10 @@ export const ICON_SEMANTICS: Record<IconName, IconSemantic> = {
   refugeeArrival: "subject",
   refugeeFarewell: "subject",
   info: "alert",
+  // 0.14.0 CP-11: the crew module and sensor array glyphs name things (the bridge, quarters and sensor slots' pieces).
+  bridge: "subject",
+  quarters: "subject",
+  sensorArray: "subject",
 };
 
 // ---------------------------------------------------------------------------

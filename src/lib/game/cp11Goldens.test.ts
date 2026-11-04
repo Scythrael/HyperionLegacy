@@ -94,6 +94,24 @@ function computePins(): { held: Record<string, string>; moved: Record<string, st
   return { held, moved };
 }
 
+// The by-design readings after CP-11 (pinned so a later slice cannot move one unexplained).
+const MOVED_AFTER: Record<string, string> = {
+  "catalog:keys": "33bbfc86",
+  "catalog:tier:1": "32093649",
+  "catalog:fabricator:1": "f33d56eb",
+  "catalog:research:1": "6bcc7c83",
+  "catalog:tier:2": "1dc7a56b",
+  "catalog:fabricator:2": "b713c86d",
+  "catalog:research:2": "fa1b123f",
+  "catalog:tier:3": "102b1131",
+  "catalog:fabricator:3": "4d3c2ad0",
+  "catalog:research:3": "8fce850f",
+  "catalog:archive": "45c2d91",
+  "unlock:researchable:lab1": "32093649",
+  "registry:obtainable": "95a353a1",
+  "registry:count": "1777",
+};
+
 // Captured on the pre-CP-11 engine (feat/crew-0.14.0 05b5938).
 const HELD_CAPTURE: Record<string, string> = {
   "module:aurora:bridgeBalancedCommand": "3072fd3",
@@ -203,5 +221,13 @@ describe("Complement CP-11 goldens (captured before the crew module and array bl
     const back = cp11ReadBack(WIRING_REGISTRY);
     expect(String(back.length)).toBe(MOVED_BEFORE["registry:count"]);
     expect(hash(back.find((e) => e.id === "ship:EQUIPMENT_SLOTS:bridge+quarters:obtainable")?.status)).toBe(MOVED_BEFORE["registry:obtainable"]);
+  });
+  it("the by-design readings: CP-11 moves exactly the named ones (every one, each to its pinned value)", () => {
+    const moved = Object.keys(MOVED_BEFORE).filter((k) => pins.moved[k] !== MOVED_BEFORE[k]).sort();
+    expect(moved).toEqual(Object.keys(MOVED_BEFORE).sort());
+    expect(Object.keys(MOVED_AFTER).sort()).toEqual(Object.keys(MOVED_BEFORE).sort());
+    for (const [k, v] of Object.entries(MOVED_AFTER)) expect(pins.moved[k], k).toBe(v);
+    // Thirty registry rows: each blueprint's research row and its effect row.
+    expect(Number(MOVED_AFTER["registry:count"]) - Number(MOVED_BEFORE["registry:count"])).toBe(2 * CP11_BLUEPRINT_KEYS.size);
   });
 });
