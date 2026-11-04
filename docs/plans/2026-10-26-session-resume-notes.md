@@ -239,3 +239,18 @@ gear wear step 5; relic names: structure answered, user loves the sheet, the Kee
 lines need drafting for sign-off, then "approve all".
 Queue: CP-10 -> E5-0..E5-7 -> CP-11/12/13, CP-14, CP-16, CP-17/18, CP-19, CP-20, ML-5, ML-6 verify, WR-10, OT-UI,
 G2-7, R2-5..R2-9 after names, completion tracking, close-outs, wiring gate, then staging on the user's go.
+
+## Hub handoff (2026-11-04 ~03:20 UTC), feat @ 3c676c0
+
+Merged since fa44a97 (each tagged slice/<id> in backup): CP-10, E5-0..E5-7 (refugee posts complete except E5-6b echo
+refugees), the short-range fleet parity fix, CP-11. 11,085 green; release gate pending 37. Progress card v13 published
+(84% built / 59% to release; 25/9/1 of 35).
+OPEN for the user: (1) relic names: final read; Keelsong/Ember Court homage lines to draft; (2) echo roster names
+(docs/plans/2026-11-03-refugee-echo-roster-DRAFT.md): final read, structure answered (59, once per save, one mark);
+(3) gear wear use floor + Quick Service (block gear wear step 5); (4) CP-11 recipe swaps (Engineering/Science Quarters,
+Guest Wing) sign-off; (5) talent web light stopped on devpreview: hub diagnosis = Reduce motion (game setting) or
+device reduced-motion/battery saver; awaiting the user's check.
+NEXT: CP-12 (Bridge/Quarters install tiles, mockup CMR-9; flips bridge+quarters:obtainable), then CP-13, CP-14, CP-16,
+CP-17/18, CP-19, CP-20, ML-5, ML-6 verify, WR-10, OT-UI (Deep Field Refinement), G2-7 (Wolf 359 derelict field),
+E5-6b (echoes + a [DEV] grant-refugees button, then browser-check toast tuck / Leave all / Help links), R2-5..R2-9.
+0.14.x: the behavior-preserving cleanup pass (roadmap doc).
