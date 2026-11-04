@@ -178,9 +178,9 @@
     <h2>Builder notes (CP-12, 2026-11-03)</h2>
     <ol>
       <li><b>Built to CMR-9.</b> The Systems group now ends Sensor Suite, Bridge Module, Crew Quarters, each tile naming its piece on a line of its own and (for a crew module) what it does on this hull, read from the engine: "Focused Command · this hull's Science, Medical and Engineering officers +34.6%", "Utilitarian Quarters · +12 crew berths · every division +11.5%". Checked in a local build at 1280 and 375 px (no horizontal scroll; long lines wrap inside the tile).</li>
-      <li><b>Small differences from the mockup.</b> Tiles keep the board's existing row (rarity-bordered glyph, item level, Swap and Uninstall), so the rarity line stays under the variant line; the mockup's accent border only marked the new tiles in the mockup. The mockup's Research panel titled "Crew Modules" is the Fabricator's new Crew Modules group; Research rows stay where they are.</li>
+      <li><b>Small differences from the mockup.</b> Tiles keep the board's existing row (rarity-bordered glyph, item level, Swap and Uninstall), so the rarity line stays under the variant line; the mockup's accent border only marked the new tiles in the mockup. The mockup's Research panel titled "Crew Modules" is both a Crew Modules section in each Research tier (fix round, user 2026-11-04) and the Fabricator's Crew Modules group.</li>
       <li><b>Added for the plan's preview check.</b> The stat source popover gains a "Bridge Module" line (what the bridge adds to the officers' share), and the install comparison for a crew module shows each ship stat the seated officers move, plus Crew Berths for quarters.</li>
-      <li><b>SVG.</b> The empty-tile plus is now an SVG glyph on every Ship Systems tile. The Bio-Resonance Array draws its Leviathan Scale glyph and the Resonance Sensor Array the array glyph (both were emoji).</li>
+      <li><b>SVG.</b> The empty-tile plus is now an SVG glyph on every Ship Systems tile. Every array has its own glyph in one family (the panel on its mast plus a mark: Wide-Beam a wide fan, Focused-Beam a narrow beam, Balanced two symmetric arcs, Resonance two waves, Bio-Resonance a leaf); none uses a relic's glyph, and an unknown sensor piece draws the Sensor Suite glyph (fix round).</li>
       <li><b>Sensor Suite.</b> Display text only (your OC-25 call): the "sensor" slot type, every array key and every save byte are unchanged.</li>
     </ol>
   </div>
@@ -201,7 +201,7 @@ const SECTIONS = [
     { t: "A filled Sensor Suite tile names its array on its own line (\"Wide-Beam Array\") above the rarity and item level.", c: true, how: "cp12BridgeQuartersTiles.test.ts (crewModuleTileDisplay.ts shipSystemTileLine)." },
     { t: "A filled Bridge Module tile reads like the mockup: the module, then what it does on this hull (\"Balanced Command · every officer +10%\"; Focused Command names this hull's specialist seats; Flag Command \"more at higher ranks\").", c: true, how: "cp12BridgeQuartersTiles.test.ts (the numbers come from the engine's own bridge reader)." },
     { t: "A filled Crew Quarters tile names its berths and division lift (\"Utilitarian Quarters · +12 crew berths · every division +10%\"; Elite Quarters \"no added berths\").", c: true, how: "cp12BridgeQuartersTiles.test.ts (quartersCapacityBonus, quartersProfessionMultiplier)." },
-    { t: "Every tile glyph on the board is SVG: the command chair (bridge), the bunk bed (quarters), the array panel (sensor; the Bio-Resonance Array its Leviathan Scale), the plus on empty tiles. No emoji on these three tiles.", tag: "theme" },
+    { t: "Every tile glyph on the board is SVG: the command chair (bridge), the bunk bed (quarters), the array panel (sensor; each array its own mark, the Bio-Resonance Array a leaf, never the Leviathan Scale), the plus on empty tiles. No emoji on these three tiles.", tag: "theme" },
     { t: "At 375 px: the board has no horizontal scroll; a long variant line wraps inside its tile; Swap and Uninstall stay reachable.", tag: "device" },
   ]},
   { n: "2", title: "Install and uninstall", items: [
@@ -215,7 +215,7 @@ const SECTIONS = [
   { n: "3", title: "Sensor Suite, Fabricator, Logistics", items: [
     { t: "Everywhere the slot is named it reads <b>Sensor Suite</b>: the board tile, the install picker title, the item card's slot line, the Logistics group, a sensor blueprint's hint (\"installed in a ship's Sensor Suite slot\"). The arrays keep their names (Wide-Beam Array, Resonance Sensor Array).", c: true, how: "cp12BridgeQuartersTiles.test.ts; relic-unlocks.test.ts (\"Sensor Suite · Bio-Resonance Array\")." },
     { t: "Fabricator, Item list: bridge and quarters blueprints sit under their own <b>Crew Modules</b> group after Modules; sensor arrays stay under Ship Systems.", c: true, how: "cp12BridgeQuartersTiles.test.ts and awayGearDisplay.test.ts (the shelf); cp12Goldens.test.ts (the named move)." },
-    { t: "Logistics, Ship Equipment: crafted spares show under Bridge Module and Crew Quarters Module groups.", tag: "save" },
+    { t: "Logistics, Ship Equipment: crafted spares show under Bridge Module and Crew Quarters groups. "Crew Quarters" is the name on item cards, tooltips and Help too.", tag: "save" },
   ]},
   { n: "4", title: "Wiring", items: [
     { t: "The \"Bridge and quarters modules can be built and installed\" row is LIVE (Debug, wiring audit). The release gate pending count drops by one.", c: true, how: "RELEASE_GATE=1 no-dead-stats.test.ts and wiring.completeness.test.ts (37 pending before, 36 after)." },

@@ -16,6 +16,10 @@
 //     text    : the sensor slot's display name (OC-25 "Slot = Sensor Suite") and the sensor blueprints' install line and
 //               craft line label.
 //     shelf   : the Fabricator's Item groups per tier (bridge and quarters get a Crew Modules group).
+//     (fix round, user 2026-11-04) shelf: the Research list's sections per tier (a Crew Modules section, mockup CMR-9);
+//               text: the quarters slot's display name ("Crew Quarters" everywhere). Their before values are not new
+//               captures: the research ones are cp11Goldens' MOVED_AFTER catalog:research pins (CP-11's after is CP-12's
+//               before, the same formula), and the quarters text hashes ea653ec's label, "Crew Quarters Module".
 //     registry: the obtainable row flips live.
 //
 // CP12_CAPTURE = an output path: record every pin instead of asserting (the CP11_CAPTURE pattern).
@@ -30,7 +34,7 @@ import { resolveCrew } from "./crewOverlay";
 import { CREW_PROFESSIONS } from "./commandStructure";
 import { craftLineOutputLabel } from "./craftQueue";
 import { deserialize, migrate, serialize } from "./save";
-import { fabricateKeyGroups } from "../awayGearDisplay";
+import { fabricateKeyGroups, researchSectionOf } from "../awayGearDisplay";
 import { editShip, installPiece, seatOfficer, shipOf, wiringBase, WIRING_SHIP_ID } from "./wiring/probes";
 import { WIRING_REGISTRY, type WiringEntry } from "./wiring/registry";
 import { hash } from "./firstRunsGoldens.fixture";
@@ -113,6 +117,12 @@ function computePins(entries: readonly WiringEntry[]): { held: Record<string, st
   moved["text:sensorCraftLabels"] = hash(sensorBps.map((bp) => [bp.key, craftLineOutputLabel("fabricate", bp.key)]));
   // MOVED: the Fabricator's Item groups.
   for (const tier of [1, 2, 3]) moved[`shelf:fabricator:${tier}`] = hash(fabricateKeyGroups(Object.values(BLUEPRINTS), tier));
+  // MOVED (fix round): the Research list's sections (cp11Goldens' catalog:research formula) and the quarters slot's name.
+  for (const tier of [1, 2, 3]) {
+    const keys = Object.values(BLUEPRINTS).filter((bp) => bp.tier === tier).map((bp) => bp.key);
+    moved[`shelf:research:${tier}`] = hash(keys.map((k) => [k, researchSectionOf(BLUEPRINTS[k])]));
+  }
+  moved["text:quartersSlot"] = hash([EQUIPMENT_SLOTS.quarters.label, equipmentSlotLabel("quarters"), equipmentSlotLabel("quarters", "quartersGuestWing"), equipmentSlotGroupLabel("quarters")]);
   // MOVED: the obtainable row.
   const row = entries.find((e) => e.id === CP12_FLIPPED_ID);
   moved["registry:obtainable"] = hash(row === undefined ? null : rowLine(row));
@@ -180,6 +190,11 @@ const MOVED_BEFORE: Record<string, string> = {
   "shelf:fabricator:2": "b713c86d",
   "shelf:fabricator:3": "4d3c2ad0",
   "registry:obtainable": "c261096e",
+  // Fix round: cp11Goldens MOVED_AFTER catalog:research:1..3, and ea653ec's quarters label (see the header).
+  "shelf:research:1": "6bcc7c83",
+  "shelf:research:2": "fa1b123f",
+  "shelf:research:3": "8fce850f",
+  "text:quartersSlot": "6f2fe775",
 };
 // The by-design readings after CP-12 (pinned so a later slice cannot move one unexplained).
 const MOVED_AFTER: Record<string, string> = {
@@ -190,6 +205,10 @@ const MOVED_AFTER: Record<string, string> = {
   "shelf:fabricator:2": "c937cf0d",
   "shelf:fabricator:3": "57d238e0",
   "registry:obtainable": "ba584f7a",
+  "shelf:research:1": "11cb891f",
+  "shelf:research:2": "e335f0cf",
+  "shelf:research:3": "3095ba53",
+  "text:quartersSlot": "5b8c6245",
 };
 
 describe("Complement CP-12 goldens (captured before the Bridge Module and Crew Quarters tiles)", () => {

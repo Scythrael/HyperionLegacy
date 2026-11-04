@@ -2951,7 +2951,10 @@ export const EQUIPMENT_SLOTS: Record<string, EquipmentSlotDef> = {
   // stations in trade). A guest line's value is in BERTHS (itemgen.ts GUEST_QUARTERS_PER_POINT converts its budget).
   quarters: {
     slotType: "quarters",
-    label: "Crew Quarters Module",
+    // Complement CP-12 (user 2026-11-04: "Crew Quarters" everywhere): the slot's DISPLAY name, the name its Ships tab
+    // tile, item cards, Logistics group, tooltips and Help read. Display text only: the "quarters" slot type, every
+    // variety key and the save bytes are unchanged.
+    label: "Crew Quarters",
     implicitStats: ["crewStations"],
     affixPool: [
       { stat: "crewStations", weight: 5 },

@@ -218,13 +218,15 @@ describe("awayGearDisplay: the Fabricator and Research shelves (Field Kits FKR-3
     for (const bp of Object.values(BLUEPRINTS)) {
       const sec = researchSectionOf(bp);
       if (kitKeys.includes(bp.key)) expect(sec).toBe("fieldKit");
+      // Complement CP-12 fix round: a bridge or quarters blueprint files under its own "Crew Modules" section.
+      else if (!bp.unlockOnly && (bp.equipmentOutput?.slotType === "bridge" || bp.equipmentOutput?.slotType === "quarters")) expect(sec, bp.key).toBe("crewModule");
       else {
         const c = blueprintGearCategory(bp);
         expect(sec).toBe(c === "awayTeam" || c === "implant" ? c : "main");
       }
     }
-    expect(RESEARCH_SECTION_ORDER).toEqual(["main", "awayTeam", "implant", "fieldKit"]);
-    expect(RESEARCH_SECTION_LABEL).toEqual({ main: null, awayTeam: "Away-Team Gear", implant: "Implants", fieldKit: "Field Kits" });
+    expect(RESEARCH_SECTION_ORDER).toEqual(["main", "crewModule", "awayTeam", "implant", "fieldKit"]);
+    expect(RESEARCH_SECTION_LABEL).toEqual({ main: null, crewModule: "Crew Modules", awayTeam: "Away-Team Gear", implant: "Implants", fieldKit: "Field Kits" });
   });
 });
 

@@ -170,15 +170,14 @@
     refineryFeedRig: "rigRefineryFeed",
     damageControlSuite: "suiteDamageControl",
     pathfinderSuite: "suitePathfinder",
-    // Complement CP-11: the three early sensor arrays its blueprints make.
-    sensorWideBeam: "sensorArray",
-    sensorFocusedBeam: "sensorArray",
-    sensorBalanced: "sensorArray",
-    // Complement CP-12 (the Sensor Suite tile, SVG only): the relic-unlocked Bio-Resonance Array draws its relic's glyph
-    // (the EM-8 Precursor Lens precedent: the Leviathan Scale unlocks it), and the Resonance Sensor Array the array glyph
-    // (it fell back to the generic emoji).
-    sensorBioResonance: "relicLeviathanScale",
-    sensorResonance: "sensorArray",
+    // Complement CP-12 fix round (the standing distinct-icon rule, user 2026-11-04: every array variety and the
+    // Bio-Resonance Array get their OWN glyph; no item shares a relic's glyph unless a mockup signed it): one family,
+    // the Sensor Suite's panel on its mast, each with its own mark (icons.ts).
+    sensorWideBeam: "sensorWideBeam",
+    sensorFocusedBeam: "sensorFocusedBeam",
+    sensorBalanced: "sensorBalanced",
+    sensorBioResonance: "sensorBioResonance",
+    sensorResonance: "sensorResonance",
   };
 
   // Fallback glyph per SLOT, used if a variety is unmapped OR a slot has no variety
@@ -202,6 +201,9 @@
     // the crew module blueprints' Research and Fabricator cards never fall back to an emoji.
     bridge: "bridge",
     quarters: "quarters",
+    // Complement CP-12 fix round: a sensor piece whose variety has no glyph of its own draws the Sensor Suite's glyph,
+    // so no sensor piece can ever fall back to the satellite emoji.
+    sensor: "sensorArray",
   };
 
   // Resolve a piece's VARIETY key: a crafted piece from its blueprint's equipmentOutput,

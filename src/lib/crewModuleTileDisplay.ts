@@ -33,9 +33,10 @@ const SEAT_LABEL: Readonly<Record<SeniorStaffSeat, string>> = {
   engineering: "Engineering",
 };
 
-// "+10%", "-5%", "+10.4%": a multiplier's change, at most one decimal.
+// "+10%", "-5%", "+10.4%": a multiplier's change, at most one decimal. The change is snapped to a millionth first, so a
+// float like 1.1275 (stored as 1.12749999...) rounds half up to "+12.8%" as written, not down to "+12.7%".
 export function liftPercentText(mult: number): string {
-  const p = Math.round((mult - 1) * 1000) / 10;
+  const p = Math.round(Math.round((mult - 1) * 1e6) / 1000) / 10;
   return `${p > 0 ? "+" : ""}${p}%`;
 }
 
@@ -45,8 +46,8 @@ function listText(items: readonly string[]): string {
 }
 
 // A stand-in officer for the bridge reader: only the seat and the rank are read (an ensign's rank factor is 1).
-function probeOfficer(seat: SeniorStaffSeat): SeniorStaffOfficer {
-  return { seat, rank: "ensign" } as SeniorStaffOfficer;
+function probeOfficer(seat: SeniorStaffSeat, rank: SeniorStaffOfficer["rank"] = "ensign"): SeniorStaffOfficer {
+  return { seat, rank } as SeniorStaffOfficer;
 }
 
 // The state with `piece` installed in its slot on `ship` (any other piece of that slot on the ship set aside), for the
@@ -71,7 +72,9 @@ function bridgeEffect(piece: EquipmentInstance, ship: ShipInstance): string | nu
       return `this hull's ${listText(seats.map((s) => SEAT_LABEL[s]))} officers ${liftPercentText(bridgeOfficerMultiplier(mod, probeOfficer(seats[0]), spec))}`;
     }
     case "flag":
-      return `officers ${liftPercentText(bridgeOfficerMultiplier(mod, probeOfficer("executive"), spec))} at Ensign, more at higher ranks`;
+      // The Flag Command scales by the officer's rank factor (seniorStaff.ts): a Cadet gets less than an Ensign, every
+      // rank above more. Both numbers are the engine's own.
+      return `officers ${liftPercentText(bridgeOfficerMultiplier(mod, probeOfficer("executive"), spec))} at Ensign (${liftPercentText(bridgeOfficerMultiplier(mod, probeOfficer("executive", "cadet"), spec))} as a Cadet), more at higher ranks`;
   }
 }
 

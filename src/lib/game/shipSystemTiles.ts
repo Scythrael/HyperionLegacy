@@ -33,7 +33,7 @@ export const SHIP_SYSTEM_TILES: readonly ShipSystemTile[] = [
   { slotType: "specUtility", label: "Spec Utility" },
   { slotType: "sensor", label: EQUIPMENT_SLOTS.sensor.label },
   { slotType: "bridge", label: "Bridge Module" },
-  { slotType: "quarters", label: "Crew Quarters" },
+  { slotType: "quarters", label: EQUIPMENT_SLOTS.quarters.label },
 ];
 
 // The crew module tiles CP-12 added (the mockup's two "new" tiles).

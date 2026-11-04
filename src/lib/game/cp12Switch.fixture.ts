@@ -7,7 +7,11 @@
 //             stay its varieties): EQUIPMENT_SLOTS.sensor.label and the "installed in a ship's <slot> slot" line of every
 //             blueprint that makes a sensor piece. Identifiers (the "sensor" slot type, every variety key) are unchanged.
 //   shelf   : the Fabricator's Item list files bridge and quarters blueprints under their own "Crew Modules" group
-//             (awayGearDisplay.ts CREW_MODULE_SHELF_SWITCH), where they sat under Ship Systems.
+//             (awayGearDisplay.ts CREW_MODULE_SHELF_SWITCH), where they sat under Ship Systems; the fix round's Research
+//             list gives them a "Crew Modules" section on the same switch (researchSectionOf), where they sat in the
+//             main list.
+//   text    : (fix round, user 2026-11-04 "Crew Quarters" everywhere) the quarters slot's display name, "Crew Quarters
+//             Module" -> "Crew Quarters": EQUIPMENT_SLOTS.quarters.label. The "quarters" slot type is unchanged.
 //   registry: ship:EQUIPMENT_SLOTS:bridge+quarters:obtainable flips live (cp12Registry.fixture.ts reads it back).
 // withoutCp12 runs `fn` with the text and the shelf as they stood, and puts them back exactly in a finally.
 
@@ -16,13 +20,27 @@ import { CREW_MODULE_SHELF_SWITCH } from "../awayGearDisplay";
 
 export const CP12_SLOT_NAME_BEFORE = "Sensor Array";
 export const CP12_SLOT_NAME_AFTER = "Sensor Suite";
+export const CP12_QUARTERS_NAME_BEFORE = "Crew Quarters Module";
+
+// The fix round's Help text (built once at import, so the switch cannot reach it): the Short-Range topic's GUEST QUARTERS
+// paragraph names the quarters slot ("Crew Quarters" everywhere, with the articles it now takes). cp12HelpReadBack puts
+// a topic body back exactly as it read before, for the goldens that pin it (refugeeGoldens golden 6).
+export const CP12_HELP_EDITS: readonly (readonly [before: string, after: string])[] = [
+  ["guest quarters line on a Crew Quarters Module, and on a ", "guest quarters line on Crew Quarters, and on a "],
+  [" with any Crew Quarters Module installed they rise", " with Crew Quarters installed they rise"],
+];
+export function cp12HelpReadBack(body: string): string {
+  return CP12_HELP_EDITS.reduce((b, [before, after]) => b.replace(after, before), body);
+}
 
 export function withoutCp12<T>(fn: () => T): T {
   const label = EQUIPMENT_SLOTS.sensor.label;
+  const quarters = EQUIPMENT_SLOTS.quarters.label;
   const shelf = CREW_MODULE_SHELF_SWITCH.on;
   const hints: [string, BlueprintDef][] = [];
   try {
     EQUIPMENT_SLOTS.sensor.label = CP12_SLOT_NAME_BEFORE;
+    EQUIPMENT_SLOTS.quarters.label = CP12_QUARTERS_NAME_BEFORE;
     CREW_MODULE_SHELF_SWITCH.on = false;
     for (const [k, bp] of Object.entries(BLUEPRINTS)) {
       if (bp.equipmentOutput?.slotType !== "sensor" || bp.unlockHint === undefined) continue;
@@ -32,6 +50,7 @@ export function withoutCp12<T>(fn: () => T): T {
     return fn();
   } finally {
     EQUIPMENT_SLOTS.sensor.label = label;
+    EQUIPMENT_SLOTS.quarters.label = quarters;
     CREW_MODULE_SHELF_SWITCH.on = shelf;
     for (const [k, bp] of hints) BLUEPRINTS[k] = bp;
   }

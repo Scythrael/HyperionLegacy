@@ -1921,7 +1921,7 @@
               <span class="ss-group-cap">{moduleRow.used} / {moduleRow.slots} slots</span>
             </div>
             <p class="ss-mod-note">
-              {shipDef.label} hull: {moduleRow.slots} module slot{moduleRow.slots === 1 ? "" : "s"}.{hasSpecUtilitySlot ? " The Spec Utility counts here." : ""} The bridge, quarters and sensor keep their own slots.
+              {shipDef.label} hull: {moduleRow.slots} module slot{moduleRow.slots === 1 ? "" : "s"}.{hasSpecUtilitySlot ? " The Spec Utility counts here." : ""} The Bridge Module, Crew Quarters and Sensor Suite keep their own slots.
             </p>
             <div class="ss-mod-grid">
               {#each moduleRow.tiles as t (t.kind === "empty" ? `empty-${t.index}` : t.piece.id)}

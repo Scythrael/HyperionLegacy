@@ -415,7 +415,7 @@
         {autoCrewOn
           ? "Auto-crew fills this ship top-rank-down from the pool, within its caps."
           : "Manual: this ship's complement is player-curated and will not auto-fill."}
-        The {hullLabel} has berths for {baseCap} crew before any quarters module.
+        The {hullLabel} has berths for {baseCap} crew before any Crew Quarters are installed.
       </div>
       {#if overCap !== null && overCap.any}
         <!-- CP-5 (OC-6 "Never evict"): the over-cap state, explained. -->
@@ -425,8 +425,8 @@
           {:else}
             Some divisions are over their caps (marked below).
           {/if}
-          No one is removed, and it takes no new crew where it is over until it is back under. This happens when a quarters
-          module comes off or is swapped for one with fewer berths.
+          No one is removed, and it takes no new crew where it is over until it is back under. This happens when its Crew
+          Quarters come off or are swapped for one with fewer berths.
         </p>
       {/if}
     </div>
