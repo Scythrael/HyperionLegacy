@@ -117,6 +117,29 @@ export function bayCareFrom(
 
 const share = (v: number): number => Math.max(0, v);
 
+// The care divisor's share sum for a condition (`injury` its class is "injury"), exactly as conditionCureSeconds folds
+// it (the same terms in the same order, so the sum is bit-identical). Pure.
+export function bayCareTotal(care: BayCare, injury: boolean, treatmentShare: number = 0): number {
+  let total = share(care.medicalShare) + share(care.rapidRecoveryShare) + share(care.officerFacetShare) + share(treatmentShare);
+  if (injury) total += share(care.injurySteady);
+  if (injury && care.preventLossShare !== undefined) total += share(care.preventLossShare);
+  // CP-13: the hull-family perks (absent on every run dispatched before CP-13, so the sum is untouched).
+  if (injury && care.hullInjuryShare !== undefined) total += share(care.hullInjuryShare);
+  if (care.hullBayShare !== undefined) total += share(care.hullBayShare);
+  return total;
+}
+
+// CP-13 fix round (review: "the tile says 10% shorter, the bay can give 7%"): what ONE care share `extra` does when
+// the condition's other care sums to `others` (both from bayCareTotal). The bay divides by 1 + the sum, so the share
+// cuts the time by extra / (1 + others + extra) and speeds the recovery by extra / (1 + others): the same share saves
+// a little less the more care is already aboard (D23). With no other care these are the catalog's own numbers. Pure.
+export function careShareTimeCut(others: number, extra: number): number {
+  return share(extra) / (1 + share(others) + share(extra));
+}
+export function careShareSpeedUp(others: number, extra: number): number {
+  return share(extra) / (1 + share(others));
+}
+
 // How long one condition takes to cure in the bay, in whole seconds (see the header). `treatmentShare` is
 // the per-member Injury Kit hook (Task 16b); 0 today. Pure.
 export function conditionCureSeconds(
@@ -126,12 +149,7 @@ export function conditionCureSeconds(
   treatmentShare: number = 0,
 ): number {
   const injury = cond.cls === "injury";
-  let total = share(care.medicalShare) + share(care.rapidRecoveryShare) + share(care.officerFacetShare) + share(treatmentShare);
-  if (injury) total += share(care.injurySteady);
-  if (injury && care.preventLossShare !== undefined) total += share(care.preventLossShare);
-  // CP-13: the hull-family perks (absent on every run dispatched before CP-13, so the sum is untouched).
-  if (injury && care.hullInjuryShare !== undefined) total += share(care.hullInjuryShare);
-  if (care.hullBayShare !== undefined) total += share(care.hullBayShare);
+  const total = bayCareTotal(care, injury, treatmentShare);
   const mult = injury && perks.includes("stoneskin") ? STONESKIN_INJURY_MULT : 1;
   return Math.max(BAY_MIN_SECONDS, Math.round((cond.cureSeconds * mult) / (1 + total)));
 }

@@ -2090,7 +2090,11 @@
     // so this number agrees with the roster's "BR". BR / Holds / Range is one spread that reads for
     // all three hull roles (warship / hauler / explorer).
     const hullType = combatHullTypeOf(ship.typeKey);
-    const br = hullType ? battleRating(shipToCombatant({ id: ship.id, team: "player", stats: SHIP_TYPES[ship.typeKey], hullType, installedGear: gear })) : 0;
+    // Complement CP-13: with the Tactician bridge's weapon line, as the roster rates it.
+    const hullWeapon = hullFamilyWeaponLine(state, ship);
+    const br = hullType
+      ? battleRating(shipToCombatant({ id: ship.id, team: "player", stats: SHIP_TYPES[ship.typeKey], hullType, installedGear: gear, ...(hullWeapon > 0 ? { hullWeaponDamage: hullWeapon } : {}) }))
+      : 0;
     const parts = [`BR ${formatNumber(br)}`, `Hold ${formatNumber(stats.cargoCapacity)}`, `${formatNumber(Math.floor(reachLy))} LY`];
     if (ship.damaged) parts.push("Damaged");
     return parts.join(" · ");

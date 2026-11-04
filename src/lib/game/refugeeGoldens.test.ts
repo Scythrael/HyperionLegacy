@@ -95,6 +95,7 @@ import { CP11_BLUEPRINT_KEYS } from "./cp11BlueprintsSwitch.fixture";
 import { CP11_ADDED_ENTRY_IDS } from "./cp11Registry.fixture";
 import { cp12ReadBack } from "./cp12Registry.fixture";
 import { CP12_HELP_EDITS, cp12HelpReadBack } from "./cp12Switch.fixture";
+import { CP13_HELP_EDITS, cp13HelpReadBack } from "./cp13Switch.fixture";
 
 // The wiring registry entries E5 adds (E5-4 fills it). Held apart from golden 4, so that pin proves nothing else moved.
 // E5-2: the Evacuation template's three rows (the template catalog loop, registry.ts; refugeeRegistry.fixture.ts).
@@ -608,8 +609,10 @@ describe("E5-0 golden 6: the short-range Help topic and the board's job types li
     expect(live).toBeDefined();
     // Complement CP-12's fix round came after these pins: its "Crew Quarters" wording in the GUEST QUARTERS paragraph is
     // read back (cp12HelpReadBack), so every pin here still reads E5 alone. Both edits are in the live body.
+    // Complement CP-13's fix round likewise ("more with a better one": the General guest perk scales), read back first.
+    for (const [, after] of CP13_HELP_EDITS) expect(live!.body).toContain(after);
     for (const [, after] of CP12_HELP_EDITS) expect(live!.body).toContain(after);
-    const topic = { ...live!, body: cp12HelpReadBack(live!.body) };
+    const topic = { ...live!, body: cp12HelpReadBack(cp13HelpReadBack(live!.body)) };
     const types = shortRangeTypeRows(freshState()).map((r) => `${r.template}|${r.label}|${r.icon}|${r.status}|${r.uses.map((u) => u.category).join(",")}`);
     // The pins, traced: E5-2 adds the Evacuation job line to the topic and the eighth row to the job types; with them
     // taken out, both are the old pins.

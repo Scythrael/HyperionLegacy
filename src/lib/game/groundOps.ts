@@ -246,6 +246,19 @@ export function snapshotGroundOps(state: GameState, ship: ShipInstance, run: Gro
   return { teams, factors, shipEventProfile: snapshotShipEventProfile(state, ship) };
 }
 
+// Complement CP-13 fix round (review: "the tile says 10% shorter, the bay can give 7%"): the bay care a Ground Ops run
+// dispatched now on `ship` would freeze, read off the dispatch snapshot itself (so it can never drift from it), with
+// the expedition's Medical facets read exactly as its dispatch reads them (expedition.ts startExpedition) and the
+// Medical Cunning roll left out (it is rolled per dispatch, on the run's seed). Display only: the quarters tile reads it
+// to show what a hull-family bay perk does on this ship. Pure.
+export function shipBayCareNow(state: GameState, ship: ShipInstance): BayCare {
+  const run = {
+    recoveryTurnaround: departmentFacet(state, ship, "medical", "constitution"),
+    injurySteady: departmentFacet(state, ship, "medical", "integrity"),
+  };
+  return groundOpsBayCare(snapshotGroundOps(state, ship, run).factors);
+}
+
 // The bay care a run's frozen factors carry (GO-7b passes it to medicalBay.ts memberBaySeconds). CP-3: plus Prevent a
 // Crew Loss when the run froze one (absent on every other run, so its care reads exactly as before). Pure.
 export function groundOpsBayCare(factors: GroundOpsFactors): BayCare {

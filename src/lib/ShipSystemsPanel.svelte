@@ -147,7 +147,7 @@
   // Complement CP-12: the Systems tiles (shared with the wiring registry), the crew module readers the compare and the
   // Bridge Module source bucket use, and the tile's variant line.
   import { CREW_MODULE_TILE_SLOTS, SHIP_SYSTEM_TILES } from "./game/shipSystemTiles";
-  import { quartersCapacityBonus } from "./game/crewModules";
+  import { hullFamilyWeaponLine, quartersCapacityBonus } from "./game/crewModules";
   import { hullFamilyBonusLine, shipSystemTileLine } from "./crewModuleTileDisplay";
 
   // --- Props ------------------------------------------------------------------
@@ -592,12 +592,18 @@
   const STAT_DESCRIPTORS: StatDescriptor[] = [
     { key: "extractionYield", label: "Extraction Yield", kind: "pct", get: (s) => s.extractionYieldMult },
     { key: "cargoCapacity", label: "Cargo Capacity", kind: "flat", get: (s) => s.cargoCapacity },
+    // Complement CP-13 fix round (user 2026-11-04 "Add the rows (Recommended)"): Unload Speed and Sensors, each with every
+    // source in its popover (the General bridge's hull bonus included), read off the same engine folds as every row.
+    // Unload Speed is the multiplier the unload time divides by (1 with nothing aboard that moves it).
+    { key: "unloadSpeed", label: "Unload Speed", kind: "pct", get: (s) => s.unloadSpeedMult ?? 1 },
     { key: "ftlSpeed", label: "FTL Speed", kind: "pct", get: (s) => s.transitSpeedMult },
     // CP-2 (OC-E5): Fast Departure / Fast Return lift one leg each; these two rows show only when a leg differs from
     // the FTL Speed row (readoutRows below).
     { key: "outLeg", label: "Departure Speed", kind: "pct", get: outboundLegSpeed },
     { key: "backLeg", label: "Return Speed", kind: "pct", get: returnLegSpeed },
     { key: "range", label: "Range", kind: "ly", get: shipRangeLyOf },
+    // CP-13 fix round: the ship's sensors (shown only when it has any, readoutRows below).
+    { key: "sensors", label: "Sensors", kind: "flat", get: (s) => s.sensors },
     { key: "powerOutput", label: "Power Output", kind: "flat", get: (s) => s.powerOutput },
     { key: "powerDraw", label: "Power Draw", kind: "flat", get: (s) => s.powerDraw },
     { key: "mass", label: "Mass", kind: "flat", get: (s) => s.mass },
@@ -609,6 +615,8 @@
   const STAT_INFO: Record<string, string> = {
     extractionYield: "How much raw material a mining or salvage mission pulls in; higher yield means more resources per run.",
     cargoCapacity: "How much a ship can carry home in a single trip; a bigger hold means fewer runs to move the same haul.",
+    unloadSpeed: "How fast the ship unloads its hold at home and offloads a ground team's haul; the unload time is divided by it. Operations crew, some officers and a Bridge Module on a General hull raise it.",
+    sensors: "How well the ship scans: the sensor strength short-range jobs ask for and expeditions scan with. It comes from an installed Sensor Suite, and the museum, some officers, a captain's Keen Sensors and a Bridge Module on an Explorer hull raise it.",
     ftlSpeed: "How fast the ship crosses between sectors; higher speed shortens every mission's travel time. A crafted Reactor Core's unused power speeds the drive too, with diminishing returns. Powered systems use it only once they draw more than the hull's own power, and the core's own weight eats into it first, but a Reactor Core never makes the ship slower than the Standard-Issue one.",
     outLeg: "The ship's speed on the outbound leg of a mission or patrol: FTL Speed plus the Fast Departure crew aboard.",
     backLeg: "The ship's speed on the return leg of a mission or patrol: FTL Speed plus the Fast Return crew aboard.",
@@ -636,6 +644,8 @@
           // G1-1: Guest Quarters (and its (i) definition) shows only on a ship that has some, once Short-Range Missions
           // are in (model.ts GUEST_QUARTERS_DISPLAY_LIVE, user 2026-10-19).
           .filter((r) => r.key !== "guestQuarters" || guestQuartersShown(r.effective))
+          // CP-13 fix round: Sensors shows only on a ship that has any (a ship without a Sensor Suite has none).
+          .filter((r) => r.key !== "sensors" || r.effective > 1e-9 || r.base > 1e-9)
       : ([] as ReadoutRow[]);
   // CP-2: the two complement-fed shares that are not ship-sheet stats (each shown only when non-zero): the repair
   // speed-up every repair divides by (Damage Control, Mission Turnaround, Rapid Recovery, Veteran Instincts) and the
@@ -775,10 +785,19 @@
   // The ship's advisory Battle Rating: build the SAME player Combatant the dispatch
   // card + sim build (installed gear folded in) and score it. Null only if the hull
   // does not resolve to a combat class (a corrupt typeKey). Recomputes with the installed loadout.
+  // Complement CP-13: with the Tactician bridge's weapon line, as the patrol forecast and the roster rate it.
+  $: shipHullWeapon = ship ? hullFamilyWeaponLine(safeState, ship) : 0;
   $: battleRatingValue =
     ship && shipDef && combatHullType
       ? battleRating(
-          shipToCombatant({ id: ship.id, team: "player", stats: shipDef, hullType: combatHullType, installedGear: fittedPieces }),
+          shipToCombatant({
+            id: ship.id,
+            team: "player",
+            stats: shipDef,
+            hullType: combatHullType,
+            installedGear: fittedPieces,
+            ...(shipHullWeapon > 0 ? { hullWeaponDamage: shipHullWeapon } : {}),
+          }),
         )
       : null;
 

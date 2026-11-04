@@ -35,10 +35,9 @@ import type {
   SeniorStaffSeat,
   SeniorStaffOfficer,
 } from "./model";
-import { GENERAL_QUARTERS_GUEST_PERK, SHIP_TYPES, moduleEffectScale } from "./model";
+import { GENERAL_QUARTERS_GUEST_PERK, HULL_FAMILY_SWITCH, SHIP_TYPES, crewModuleEffectScale, crewModuleLinePoints as linePoints, moduleEffectScale } from "./model";
 import { equippedFor } from "./equipmentQueries";
 import { officerRankMagnitudeFactor } from "./seniorStaff";
-import { viewPieceEfficiency } from "./gearWear";
 import { diminishing } from "./diminishing";
 
 // ============================================================================
@@ -48,6 +47,10 @@ import { diminishing } from "./diminishing";
 // moduleEffectScale and its two steps MOVED to model.ts (E-MOD EM-5: the universal modules' power output folds in
 // equipmentStatMods there, which cannot import this file). Re-exported here unchanged, so every importer keeps working.
 export { MODULE_RARITY_STEP, MODULE_QUALITY_STEP, moduleEffectScale } from "./model";
+// The crew module effect scale (CREW_MODULE_LINE_KNEE, crewModuleLineScale, crewModuleEffectScale) and the CP-13 test
+// switch MOVED to model.ts in the CP-13 fix round (the General guest perk, folded in shipDerivedStats there, scales with
+// the module). Re-exported here unchanged, so every importer keeps working.
+export { CREW_MODULE_LINE_KNEE, HULL_FAMILY_SWITCH, crewModuleEffectScale, crewModuleLineScale } from "./model";
 
 // WR-7 (OC-D3, user 2026-10-15 "They scale the module (Recommended)", "Crew Stations also adds capacity"): a crew
 // module's rolled CREW STATIONS and CREW EFFICIENCY lines (the bridge's signature crewEfficiency; the quarters'
@@ -68,14 +71,9 @@ export { MODULE_RARITY_STEP, MODULE_QUALITY_STEP, moduleEffectScale } from "./mo
 // rounded to whole berths and never capped: 25 points 1, 50 points 2, 113 points 4 (the quarters' own berths stay the
 // main source). The Elite Quarters, with no berths of its own, takes none from its line (it only scales its effect).
 // [PROVISIONAL] the curve's two numbers.
-export const CREW_MODULE_LINE_KNEE = 100;
 export const CREW_STATIONS_BERTH_SCALE = 0.0416;
 export const CREW_STATIONS_BERTH_KNEE = 300;
 const CREW_MODULE_LINE_KEYS = ["crewStations", "crewEfficiency"] as const;
-
-function linePoints(piece: EquipmentInstance, stat: string): number {
-  return Math.max(0, (piece.implicitStats[stat] ?? 0) + (piece.rolledStats[stat] ?? 0));
-}
 
 const isCrewModule = (piece: EquipmentInstance): boolean => piece.slotType === "bridge" || piece.slotType === "quarters";
 const hasModuleLine = (piece: EquipmentInstance): boolean => isCrewModule(piece) && CREW_MODULE_LINE_KEYS.some((k) => linePoints(piece, k) > 0);
@@ -96,12 +94,6 @@ export function withoutCrewModuleLines<T extends { equipment: EquipmentInstance[
     return out;
   };
   return { ...state, equipment: state.equipment.map((p) => (hasModuleLine(p) ? { ...p, implicitStats: strip(p.implicitStats), rolledStats: strip(p.rolledStats) } : p)) };
-}
-
-// The x factor a crew module's Crew Stations + Crew Efficiency lines apply to its effect (1 without them). Pure.
-export function crewModuleLineScale(piece: EquipmentInstance): number {
-  const points = linePoints(piece, "crewStations") + linePoints(piece, "crewEfficiency");
-  return points > 0 ? 1 + diminishing(points, CREW_MODULE_LINE_KNEE) / CREW_MODULE_LINE_KNEE : 1;
 }
 
 // The berths a crew module's Crew Stations line adds (0 without it). Pure.
@@ -332,13 +324,8 @@ export function installedBridgeModule(state: GameState, ship: ShipInstance): Ins
 // Effect readers (pure)
 // ============================================================================
 
-// The scale a crew module's effect carries: its rarity, quality and ascension (moduleEffectScale), x its wear
-// efficiency where a run reads it (gearWear.ts viewPieceEfficiency, 1 on a stored piece), x its Crew Stations and Crew
-// Efficiency lines (WR-7 OC-D3, crewModuleLineScale). Its variant effect and its hull-family bonus (CP-13) both read
-// it, so a better module lifts both by the same share. Pure.
-export function crewModuleEffectScale(piece: EquipmentInstance): number {
-  return moduleEffectScale(piece.rarity, piece.quality, piece.ascension) * viewPieceEfficiency(piece) * crewModuleLineScale(piece);
-}
+// crewModuleEffectScale (the scale a crew module's effect and every hull-family line carry) lives in model.ts (the CP-13
+// fix round moved it there for the General guest perk) and is re-exported above.
 
 // The EFFECTIVENESS multiplier a quarters module applies to a given division's complement
 // contribution. 1.0 means no change. For a division module: focusBoost (scaled) on its own division,
@@ -411,8 +398,13 @@ export function hullSpecOf(ship: ShipInstance): ShipSpec {
 // and quarters module gives, on top of its variant effect, the bonus of the hull family (ShipSpec) it is INSTALLED ON.
 // Moving a module to another hull changes its bonus; there are no per-family variants. Each line scales with the
 // module exactly as its variant effect does (crewModuleEffectScale: rarity, quality, ascension, wear, its Crew
-// Stations / Crew Efficiency lines), except the General guest quarters perk, which G1-1 built and the user approved as
-// a flat +10% on the whole guest total (model.ts GENERAL_QUARTERS_GUEST_PERK; this catalog names it and reads it).
+// Stations / Crew Efficiency lines). The General guest quarters perk is G1-1's (model.ts GENERAL_QUARTERS_GUEST_PERK,
+// folded in shipDerivedStats; this catalog names it and reads it): G1-1 built it flat, and the CP-13 fix round (user
+// 2026-11-04 "Yes, grow like the rest (Recommended)") scales it like the other seven lines.
+// WEAR: each line reads the module exactly as the module's own effect does on the same path (one scale, one state), so
+// wear lowers a line only where it lowers the module's own effect: the sheet a captain mission, short-range run or
+// expedition flies on (their gear views). A patrol's sheet, combat records and weapon line, the rare-find roll, the
+// output share and the Ground Ops bay snapshot read the module at full condition, as its own effect does there.
 //
 //   family      bridge                                  quarters (two signature divisions +8%, and one perk)
 //   general     +6% FTL transit speed, +6% unload speed  Operations, Flight Deck; guest quarters +10%
@@ -433,7 +425,11 @@ export function hullSpecOf(ship: ShipInstance): ShipSpec {
 //   the weapon line        frozen per patrol cycle (PatrolMissionState.hullWeapon) and per expedition ship battle
 //                          (ShipEventBattle.hullWeapon), applied by combat/bridge.ts shipToCombatant.
 //   rare finds             tick.ts economyTick's mission arm (stamped runs) and missionDropChances.
-//   injury and bay perks   frozen at Ground Operations dispatch (GroundOpsFactors.hullInjuryShare / hullBayShare).
+//   injury and bay perks   frozen at Ground Operations dispatch (GroundOpsFactors.hullInjuryShare / hullBayShare); the
+//                          Tactician's injury share also at every expedition dispatch for the legacy (non-Ground-Ops)
+//                          claim (Expedition.hullInjuryShare, injuries.ts applyExpeditionInjuries). Each is a care share
+//                          that ADDS to the bay's other care, so with more care aboard it saves a little less time (the
+//                          tile shows the ship's own number: groundOps.ts shipBayCareNow).
 // [PROVISIONAL] every size (the SMS-1 first pass the user approved; the 0.16.0 balance pass owns the numbers).
 
 export type HullFamilyBridgeStat = "transitSpeed" | "unloadSpeed" | "extractionYield" | "weaponDamage" | "sensors";
@@ -447,36 +443,33 @@ export interface HullFamilyModuleBonus {
     divisionLift: number; // their effectiveness lift, inside the quarters multiplier
     perk: HullFamilyQuartersPerk;
     // The perk at a Standard quality 0 module: guestQuarters / rareFind / injuryRecovery a fractional lift (rare finds
-    // add it to the rare chance multiplier; injured crew recover that much faster, time / (1 + it)), bayTime the share
-    // of the bay time cut (10% shorter = time x 0.9).
+    // add it to the rare chance multiplier; injured crew recover that much faster, time / (1 + it), with no other care),
+    // bayTime the share of the bay time cut with no other care (10% shorter = time x 0.9). Every perk scales with the
+    // module (crewModuleEffectScale).
     perkSize: number;
-    // false only for the General guest perk (G1-1, a flat +10% on the whole guest total).
-    perkScales: boolean;
   };
 }
 
 export const HULL_FAMILY_MODULE_BONUS: Readonly<Record<ShipSpec, HullFamilyModuleBonus>> = {
   general: {
     bridge: { transitSpeed: 0.06, unloadSpeed: 0.06 },
-    quarters: { divisions: ["operations", "flightDeck"], divisionLift: 0.08, perk: "guestQuarters", perkSize: GENERAL_QUARTERS_GUEST_PERK, perkScales: false },
+    quarters: { divisions: ["operations", "flightDeck"], divisionLift: 0.08, perk: "guestQuarters", perkSize: GENERAL_QUARTERS_GUEST_PERK },
   },
   prospector: {
     bridge: { extractionYield: 0.06 },
-    quarters: { divisions: ["engineering", "science"], divisionLift: 0.08, perk: "rareFind", perkSize: 0.03, perkScales: true },
+    quarters: { divisions: ["engineering", "science"], divisionLift: 0.08, perk: "rareFind", perkSize: 0.03 },
   },
   tactician: {
     bridge: { weaponDamage: 0.05 },
-    quarters: { divisions: ["security", "engineering"], divisionLift: 0.08, perk: "injuryRecovery", perkSize: 0.15, perkScales: true },
+    quarters: { divisions: ["security", "engineering"], divisionLift: 0.08, perk: "injuryRecovery", perkSize: 0.15 },
   },
   explorer: {
     bridge: { sensors: 0.1 },
-    quarters: { divisions: ["science", "medical"], divisionLift: 0.08, perk: "bayTime", perkSize: 0.1, perkScales: true },
+    quarters: { divisions: ["science", "medical"], divisionLift: 0.08, perk: "bayTime", perkSize: 0.1 },
   },
 };
 
-// Test switch only (the FAVORED_SPEC_SWITCH pattern): off, no module gives a hull bonus and no run is stamped, so a
-// golden can show that the pins it moved return. Always live in the game.
-export const HULL_FAMILY_SWITCH = { live: true };
+// HULL_FAMILY_SWITCH (the test switch, the FAVORED_SPEC_SWITCH pattern) lives in model.ts and is re-exported above.
 
 // The family `hullSpec`'s raw division lift for `profession` (0 off its two divisions, or with the switch off). Pure.
 function hullFamilyDivisionLiftRaw(hullSpec: ShipSpec, profession: CrewProfession): number {
@@ -512,7 +505,7 @@ export function hullFamilyWeaponLine(state: GameState, ship: ShipInstance): numb
 //   injuryRecovery  a care share for INJURY-class conditions in the medical bay (recover 1 + it times as fast)
 //   bayTime         a care share for EVERY condition in the bay: cut / (1 - cut) at the module's scale, so a Standard
 //                   module's bay time is exactly `cut` shorter alone
-//   guestQuarters   the flat G1-1 perk (model.ts foldGuestQuarters applies it; read here for the readouts)
+//   guestQuarters   the G1-1 perk at the module's scale (model.ts foldGuestQuarters applies it; read here for the readouts)
 // Pure.
 export function hullFamilyQuartersPerk(state: GameState, ship: ShipInstance, perk: HullFamilyQuartersPerk): number {
   if (!HULL_FAMILY_SWITCH.live) return 0;
@@ -520,7 +513,7 @@ export function hullFamilyQuartersPerk(state: GameState, ship: ShipInstance, per
   if (q === undefined || q.perk !== perk) return 0;
   const mod = installedQuartersModule(state, ship);
   if (mod === null) return 0;
-  return hullFamilyPerkShare(q, q.perkScales ? crewModuleEffectScale(mod.instance) : 1);
+  return hullFamilyPerkShare(q, crewModuleEffectScale(mod.instance));
 }
 
 // The consumer's share of a family's quarters perk at module scale `scale` (see hullFamilyQuartersPerk). Pure.

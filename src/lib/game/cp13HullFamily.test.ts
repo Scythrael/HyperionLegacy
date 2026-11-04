@@ -4,10 +4,11 @@
 
 import { describe, expect, it } from "vitest";
 import Decimal from "break_infinity.js";
-import { PATROLS, SHIP_TYPES, type GameState, type PatrolKey, type ShipSpec, type ShipTypeKey } from "./model";
+import { GENERAL_QUARTERS_GUEST_PERK, PATROLS, SHIP_TYPES, shipDerivedStats, type Expedition, type GameState, type PatrolKey, type ShipSpec, type ShipTypeKey } from "./model";
 import { effectiveShipStats, shipCrewContribution } from "./crewOverlay";
 import {
   HULL_FAMILY_MODULE_BONUS,
+  crewModuleEffectScale,
   hullFamilyBridgeLines,
   hullFamilyQuartersPerk,
   hullFamilyStamp,
@@ -19,7 +20,12 @@ import {
 } from "./crewModules";
 import { dispatchCaptainOnMission, dispatchCaptainOnPatrol, economyTick, tick } from "./tick";
 import { replayPatrol } from "./combat/patrolReplay";
-import { installPiece, shipOf, wiringBase, withBuckets, bucketOf } from "./wiring/probes";
+import { installPiece, shipOf, wiringBase, withBuckets, bucketOf, withAwayTeam, dispatchRun, WIRING_SECURITY_ID } from "./wiring/probes";
+import { applyHullWeaponLine, combatHullTypeOf, shipToCombatant } from "./combat/bridge";
+import type { Combatant } from "./combat/types";
+import { battleRating } from "./combat/rating";
+import { applyExpeditionInjuries, INJURY_BASE_RECOVERY_SECONDS } from "./injuries";
+import { buildShipRoster } from "./shipRoster";
 import { onHull, stateHash } from "./firstRunsGoldens.fixture";
 import { asPatrolVeteran } from "./awayTeamTestFixtures";
 import { withCp13Kit } from "./cp13Goldens.fixture";
@@ -174,5 +180,101 @@ describe("CP-13 hull-family bonuses", () => {
     expect(help).toContain("Tactician: Security and Engineering crew +8%, and injured crew recover 15% faster in the medical bay");
     expect(help).toContain("Prospector: Engineering and Science crew +8%, and +3% rare finds on mining and survey hauls");
     expect(help).not.toMatch(/—|--|\bfit\b|fitting/);
+  });
+
+  // ===== CP-13 fix round =====
+
+  it("the General guest perk scales with the module like the other lines (switch off: G1-1's flat +10%)", () => {
+    const ship = shipOf(wiringBase("generalFreighter"));
+    const base = SHIP_TYPES.generalFreighter.colonistCapacity ?? 0;
+    expect(base).toBeGreaterThan(0);
+    const guests = (s: GameState) => shipDerivedStats(shipOf(s), s.equipment.filter((e) => e.fittedToShipId === ship.id)).colonistCapacity;
+    const standard = quarters(wiringBase("generalFreighter"));
+    expect(guests(standard)).toBe(Math.round(base * (1 + GENERAL_QUARTERS_GUEST_PERK)));
+    const better = installPiece(wiringBase("generalFreighter"), { id: "t-quarters", slotType: "quarters", moduleVariant: "quartersUtilitarian", rarity: "radiant", quality: 5, implicitStats: { crewStations: 40 } });
+    const piece = better.equipment.find((e) => e.id === "t-quarters")!;
+    const scale = crewModuleEffectScale(piece);
+    expect(scale).toBeGreaterThan(1.5);
+    expect(guests(better)).toBe(Math.round(base * (1 + GENERAL_QUARTERS_GUEST_PERK * scale)));
+    expect(guests(better)).toBeGreaterThan(guests(standard)!);
+    expect(hullFamilyQuartersPerk(better, shipOf(better), "guestQuarters")).toBeCloseTo(GENERAL_QUARTERS_GUEST_PERK * scale, 12);
+    // The switch off reads G1-1's flat perk again.
+    expect(withoutCp13(() => guests(better))).toBe(Math.round(base * (1 + GENERAL_QUARTERS_GUEST_PERK)));
+    expect(hullFamilyBonusLine(better, shipOf(better), piece)).toContain(`guest quarters +${Math.round(GENERAL_QUARTERS_GUEST_PERK * scale * 1000) / 10}%`);
+  });
+
+  it("the Tactician injury perk also acts on the legacy claim: frozen at dispatch, a run without it recovers as before", () => {
+    const at = withAwayTeam(quarters(withBuckets(wiringBase("destroyer"), [])));
+    const legacyRun = (run: Expedition): Expedition => ({
+      ...run,
+      groundOps: undefined,
+      risk: undefined,
+      scanEvents: [{ bodyIndex: 0, step: 1, kind: "encounter", outcome: "loss", downedMemberIds: [WIRING_SECURITY_ID] }],
+    });
+    const recovery = (run: Expedition) => applyExpeditionInjuries(at, legacyRun(run)).injuries.find((i) => i.memberId === WIRING_SECURITY_ID)?.recoverySeconds;
+    const fresh = dispatchRun(at);
+    expect(fresh.hullInjuryShare).toBeCloseTo(0.15, 12);
+    expect(fresh.hullInjuryShare).toBe(fresh.groundOps?.factors.hullInjuryShare);
+    expect(recovery(fresh)).toBe(Math.round(INJURY_BASE_RECOVERY_SECONDS / 1.15));
+    // A run dispatched before the fix round (no stamp) recovers exactly as before, though the module is installed now.
+    const before = withoutCp13(() => dispatchRun(at));
+    expect(before.hullInjuryShare).toBeUndefined();
+    expect(recovery(before)).toBe(INJURY_BASE_RECOVERY_SECONDS);
+    expect(recovery(before)).toBe(withoutCp13(() => recovery(before)));
+    // Off a Tactician hull nothing is stamped.
+    expect(dispatchRun(withAwayTeam(quarters(withBuckets(wiringBase("orion"), [])))).hullInjuryShare).toBeUndefined();
+  });
+
+  it("the bay perks show their real effect on the ship: other care makes them save less", () => {
+    const piece = (x: GameState) => x.equipment.find((e) => e.id === "t-quarters")!;
+    const medics = [{ ...bucketOf("medical", "med.reducedLosses"), count: 40 }];
+    const bare = quarters(withBuckets(wiringBase("aurora"), []));
+    expect(hullFamilyBonusLine(bare, shipOf(bare), piece(bare))).toContain("ground-team medical bay time 10% shorter");
+    const cared = quarters(withBuckets(wiringBase("aurora"), medics));
+    const shown = Number(/bay time ([\d.]+)% shorter/.exec(hullFamilyBonusLine(cared, shipOf(cared), piece(cared))!)![1]);
+    expect(shown).toBeGreaterThan(0);
+    expect(shown).toBeLessThan(10);
+    const d = quarters(withBuckets(wiringBase("destroyer"), []));
+    expect(hullFamilyBonusLine(d, shipOf(d), piece(d))).toContain("injured crew recover 15% faster");
+    const dc = quarters(withBuckets(wiringBase("destroyer"), medics));
+    const faster = Number(/recover ([\d.]+)% faster/.exec(hullFamilyBonusLine(dc, shipOf(dc), piece(dc))!)![1]);
+    expect(faster).toBeGreaterThan(0);
+    expect(faster).toBeLessThan(15);
+    const help = HELP_TOPICS.find((t) => t.id === "hullBonuses")!.body;
+    expect(help).not.toContain("wear lowers them the same way");
+    expect(help).toContain("Wear lowers a hull bonus only where it lowers the module's own effect");
+    expect(help).toContain("the more care a ship already has, the less time each perk saves");
+    expect(help).not.toMatch(/—|--|\bfit\b|fitting/);
+  });
+
+  it("the weapon line acts on every damaging weapon, small ones included, and is a no-op at 0", () => {
+    const band = (yieldMin: number, yieldMax: number) => ({ yieldMin, yieldMax });
+    const c = { weapons: [band(4, 8), band(6, 10), band(1, 1), band(0, 0), band(40, 60)] } as unknown as Combatant;
+    applyHullWeaponLine(c, 0.05);
+    expect(c.weapons.map((w) => [w.yieldMin, w.yieldMax])).toEqual([
+      [4, 9],
+      [6, 11],
+      [1, 2],
+      [0, 0],
+      [42, 63],
+    ]);
+    const same = { weapons: [band(4, 8)] } as unknown as Combatant;
+    const before = same.weapons;
+    applyHullWeaponLine(same, 0);
+    applyHullWeaponLine(same, undefined);
+    expect(same.weapons).toBe(before);
+  });
+
+  it("the Ships tab, roster and forecast Battle Rating fight with the weapon line", () => {
+    const s = bridge(onHull("destroyer"));
+    const ship = shipOf(s);
+    const line = hullFamilyWeaponLine(s, ship);
+    expect(line).toBeGreaterThan(0);
+    const gear = s.equipment.filter((e) => e.fittedToShipId === ship.id);
+    const args = { id: ship.id, team: "player" as const, stats: SHIP_TYPES[ship.typeKey], hullType: combatHullTypeOf(ship.typeKey)!, installedGear: gear };
+    const lined = battleRating(shipToCombatant({ ...args, hullWeaponDamage: line }));
+    expect(lined).toBeGreaterThan(battleRating(shipToCombatant(args)));
+    const rows = buildShipRoster(s, { sortKey: "name", filterKey: "all", searchText: "", favorites: new Set() }).groups.flatMap((g) => g.rows);
+    expect(rows.find((r) => r.id === ship.id)!.battleRating).toBe(lined);
   });
 });

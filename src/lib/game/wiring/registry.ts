@@ -2621,8 +2621,9 @@ function moduleEntries(): WiringEntry[] {
 //   division lifts      a Guest Wing (no crew boost of its own, so the move is the lift alone) on a crew of one
 //                       signature division carrying a live sheet key: the bonus part above the hull grows by the lift.
 //   perks               the rare-roll threshold of a stamped run; the Ground Ops bay's frozen care (a Fracture for the
-//                       Tactician's injuries-only share, a Health cure for the Explorer's every-condition share); the
-//                       General guest quarters on the sheet (G1-1's flat perk, rounded to whole berths).
+//                       Tactician's injuries-only share, a Health cure for the Explorer's every-condition share; the
+//                       Tactician's share also on the legacy claim, expedition:legacy); the General guest quarters on
+//                       the sheet (G1-1's perk, scaled like the rest since the CP-13 fix round, rounded to whole berths).
 // A line added to the catalog without a seam here throws at build, so nothing in it can hide unmeasured.
 const HULL_FAMILY_HULL: Readonly<Record<ShipSpec, ShipTypeKey>> = { general: "generalFreighter", prospector: "prospectorMiner", tactician: "destroyer", explorer: "orion" };
 const HULL_BRIDGE_PROBE: Readonly<Record<HullFamilyBridgeStat, { probe: ProbeId; contexts: ContextId[] }>> = {
@@ -2728,13 +2729,15 @@ function hullFamilyEntries(): WiringEntry[] {
             ...perkCommon,
             claim: `Crew Quarters on a ${label} hull: injured crew recover ${Math.round(fam.quarters.perkSize * 100)}% faster in the medical bay`,
             probe: "runBayFractureSeconds",
-            contexts: ["medbay"],
+            // CP-13 fix round (user 2026-11-04 "Yes, both paths, new runs only"): the legacy claim reads the share the run
+            // froze at dispatch (Expedition.hullInjuryShare, injuries.ts applyExpeditionInjuries).
+            contexts: ["medbay", "expedition:legacy"],
             direction: "down",
             curve: { kind: "divisor" },
             tolerance: 1,
             magnitude: (c) => c.HULL_FAMILY_MODULE_BONUS[spec].quarters.perkSize,
             base: () => withAwayTeam(bare(hull)),
-            note: "injury-class conditions only (a Fracture here); its Health twin is ship:audit:hullFamilyInjuriesOnly",
+            note: "injury-class conditions only (a Fracture here; the legacy claim's 2 hour injury); its Health twin is ship:audit:hullFamilyInjuriesOnly",
           }),
           entry({
             id: "ship:audit:hullFamilyInjuriesOnly",
@@ -2780,7 +2783,7 @@ function hullFamilyEntries(): WiringEntry[] {
             magnitude: (c) => c.HULL_FAMILY_MODULE_BONUS[spec].quarters.perkSize,
             base: () => bare(hull),
             on: quarters("quartersUtilitarian"),
-            note: "G1-1's flat perk on the whole guest total (whole berths; the Utilitarian Quarters add no guest line of their own)",
+            note: "G1-1's perk on the whole guest total, at the module's scale (whole berths; the Utilitarian Quarters add no guest line of their own)",
           }),
         );
         break;

@@ -30,3 +30,13 @@ export function cp13OffForThisFile(): void {
     HULL_FAMILY_SWITCH.live = was;
   });
 }
+
+// The CP-13 fix round's Help text (built once at import, so the switch cannot reach it): the Short-Range topic's GUEST
+// QUARTERS paragraph says the General guest perk now grows with the module. cp13HelpReadBack puts a topic body back
+// exactly as it read before, for the goldens that pin it (refugeeGoldens golden 6).
+export const CP13_HELP_EDITS: readonly (readonly [before: string, after: string])[] = [
+  [". Ship Systems shows the line once", " with a Standard module, more with a better one. Ship Systems shows the line once"],
+];
+export function cp13HelpReadBack(body: string): string {
+  return CP13_HELP_EDITS.reduce((b, [before, after]) => b.replace(after, before), body);
+}

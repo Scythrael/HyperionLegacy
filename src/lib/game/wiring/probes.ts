@@ -2314,8 +2314,10 @@ export const PROBES = {
     },
   },
   runBayFractureSeconds: {
-    label: "the dispatched run's medical bay: a Fracture's cure seconds on its frozen care (groundOpsBayCare; injuries only)",
-    read: (s) => {
+    label: "the dispatched run's medical bay: a Fracture's cure seconds on its frozen care (groundOpsBayCare; injuries only); expedition:legacy, the legacy claim's injury recovery",
+    read: (s, ctx) => {
+      // CP-13 fix round: the legacy (non-Ground-Ops) claim of the same dispatched run, on its frozen care.
+      if (ctx === "expedition:legacy") return legacyInjurySeconds(s);
       const ops = dispatchRun(readyForRun(s)).groundOps;
       return ops ? memberBaySeconds(["fracture"], [], groundOpsBayCare(ops.factors)) : 0;
     },

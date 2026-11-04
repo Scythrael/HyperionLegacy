@@ -1,9 +1,11 @@
 // Complement CP-13 GOLDENS (hull-family module bonuses; plan docs/plans/2026-10-14-complement-and-acquisition-plan.md
 // CP-13, OC-13 "One catalog, by hull (Recommended)"): every reading a bridge or quarters module's hull bonus can reach,
 // through the live engine (1 s economyTick steps), captured on the code BEFORE the bonus (CP13_PINS_PRE). Each mission,
-// short-range and patrol run is read twice: as dispatched (`fresh`), and with the run's CP-13 stamp removed right after
-// dispatch (`inFlight`: a run dispatched before the bonus). The stamp and the frozen weapon line are left out of every
-// hash (asPreCp13), so a pin moves only when the run plays differently. TEST-ONLY (imported by *.test.ts files only).
+// short-range and patrol run is read twice: as dispatched (`fresh`), and DISPATCHED with the bonus switched off, then
+// run with it on (`inFlight`: a run dispatched before the bonus, which carries no stamp and froze every record the old
+// way; cp13Rows takes that dispatch wrapper, cp13Switch.fixture.ts withoutCp13). The stamp and the frozen weapon line
+// are left out of every hash (asPreCp13), so a pin moves only when the run plays differently. TEST-ONLY (imported by
+// *.test.ts files only).
 //
 //   sheet        : the crew-inclusive sheet and the crew map on one hull of each family, a bridge and a quarters module
 //                  installed, a crew in every division and an Operations officer seated; the same ship with no module.

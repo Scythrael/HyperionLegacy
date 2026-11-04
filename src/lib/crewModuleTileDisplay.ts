@@ -25,6 +25,9 @@ import {
 } from "./game/crewModules";
 import { pieceVarietyDef, shipDerivedStats, type EquipmentInstance, type GameState, type SeniorStaffOfficer, type SeniorStaffSeat, type ShipInstance, type ShipSpec } from "./game/model";
 import { DEPARTMENT_LABEL } from "./game/officerStats";
+// CP-13 fix round: the bay care a Ground Ops dispatch would freeze now, and what one care share does on top of it.
+import { shipBayCareNow } from "./game/groundOps";
+import { bayCareTotal, careShareSpeedUp, careShareTimeCut, type BayCare } from "./game/medicalBay";
 
 // The seat names the Senior Staff panel uses (US English), as adjectives before "officers" ("Executive", not
 // "Executive Officer officers").
@@ -128,18 +131,37 @@ function sharePercentText(share: number): string {
   return liftPercentText(1 + share);
 }
 
+// "10%": a positive share as a percent without its sign.
+const plainPercentText = (share: number): string => sharePercentText(share).replace("+", "");
+
+// The ship's bay care without the hull-family perks (the care the perk joins).
+function careWithoutHullPerks(care: BayCare): BayCare {
+  const { hullInjuryShare: _i, hullBayShare: _b, ...rest } = care;
+  return rest;
+}
+
 // The quarters perk as the player reads it, its number read from the engine (`share` is hullFamilyQuartersPerk's).
-function perkText(perk: HullFamilyQuartersPerk, share: number): string {
+// CP-13 fix round (review: the bay perks are care shares, so "15% faster" / "10% shorter" hold only with no other care):
+// the bay perks show what they do on THIS ship, on top of the care a Ground Ops dispatch would freeze now
+// (groundOps.ts shipBayCareNow, the Medical Cunning roll left out) through the bay's own divisor (medicalBay.ts
+// bayCareTotal, careShareSpeedUp, careShareTimeCut). With no other care aboard they read the catalog's numbers.
+function perkText(state: GameState, ship: ShipInstance, perk: HullFamilyQuartersPerk, share: number): string {
   switch (perk) {
     case "guestQuarters":
       return `guest quarters ${sharePercentText(share)}`;
     case "rareFind":
       return `${sharePercentText(share)} rare finds on mining and survey hauls`;
-    case "injuryRecovery":
-      return `injured crew recover ${sharePercentText(share).replace("+", "")} faster`;
-    case "bayTime":
-      // The bay divides its time by 1 + share, so the cut alone is share / (1 + share).
-      return `ground-team medical bay time ${sharePercentText(share / (1 + share)).replace("+", "")} shorter`;
+    case "injuryRecovery": {
+      const others = bayCareTotal(careWithoutHullPerks(shipBayCareNow(state, ship)), true);
+      return `injured crew recover ${plainPercentText(careShareSpeedUp(others, share))} faster`;
+    }
+    case "bayTime": {
+      // Every condition takes the share, but an injury already carries the injury-only care, so it saves a little less.
+      const care = careWithoutHullPerks(shipBayCareNow(state, ship));
+      const all = plainPercentText(careShareTimeCut(bayCareTotal(care, false), share));
+      const injury = plainPercentText(careShareTimeCut(bayCareTotal(care, true), share));
+      return `ground-team medical bay time ${all} shorter${injury === all ? "" : ` (${injury} on injuries)`}`;
+    }
   }
 }
 
@@ -166,7 +188,7 @@ export function hullFamilyBonusText(state: GameState, ship: ShipInstance, piece:
     if (Math.abs(lift) < 1e-9) return null;
     const parts = [`${listText(q.divisions.map((d) => DEPARTMENT_LABEL[d]))} crew ${sharePercentText(lift)}`];
     const share = hullFamilyQuartersPerk(on, ship, q.perk);
-    if (share > 0) parts.push(perkText(q.perk, share));
+    if (share > 0) parts.push(perkText(on, ship, q.perk, share));
     return parts.join(", ");
   }
   return null;

@@ -1773,6 +1773,9 @@ function buildExpedition(
     ...(rampReturn > 0 ? { rampReturn } : {}),
     ...(hazardSteady > 0 ? { hazardSteady } : {}),
     ...(injurySteady > 0 ? { injurySteady } : {}),
+    // Complement CP-13 fix round: the Tactician quarters perk for the legacy claim's care, only when non-zero (the Ground
+    // Ops bay froze its own copy above, GroundOpsFactors.hullInjuryShare, at the same instant).
+    ...(groundSnapshot.factors.hullInjuryShare !== undefined ? { hullInjuryShare: groundSnapshot.factors.hullInjuryShare } : {}),
     // Ground Operations (GO-7b): the flag. This run resolves on the Ground Ops timeline (groundOps.ts).
     groundOps: newGroundOpsState(groundSnapshot),
     // Squads SQ-4: the risk-aware flag (see above).

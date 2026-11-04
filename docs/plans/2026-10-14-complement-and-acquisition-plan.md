@@ -645,8 +645,8 @@ weapon line; neutrality with no module. **UI:** the tile line is mocked (SMS-1).
 **Carry note (2026-11-03, CP-13 built; two commits: goldens, then the bonuses; no SAVE bump):** one catalog,
 `crewModules.ts HULL_FAMILY_MODULE_BONUS` (the SMS-1 lines as approved with OC-13), each line x the module's
 `crewModuleEffectScale` (rarity, quality, ascension, wear, its Crew Stations / Crew Efficiency lines: the mockup's "the
-hull bonus scales the same way"); the General guest perk is G1-1's flat `GENERAL_QUARTERS_GUEST_PERK`, named by the
-catalog (perkScales false). Readers: the bridge sheet lines in `crewOverlay.ts applyHullFamilyLines` (after the museum);
+hull bonus scales the same way"); the General guest perk is G1-1's `GENERAL_QUARTERS_GUEST_PERK`, named by the
+catalog (built flat; the fix round scales it like the rest, see the fix-round note below). Readers: the bridge sheet lines in `crewOverlay.ts applyHullFamilyLines` (after the museum);
 the division lifts inside `quartersProfessionMultiplier(mod, profession, hullSpec)`; the Tactician weapon line frozen per
 patrol cycle (`PatrolMissionState.hullWeapon`) and per expedition ship battle (`ShipEventBattle.hullWeapon`), applied by
 `combat/bridge.ts applyHullWeaponLine` (gear, so D12 holds; the forecast and Battle Rating fight it too); rare finds added
@@ -659,6 +659,20 @@ combat speed and the gear repair rates (`RepairContextIndex.hullBonusRun`); expe
 bonus" bucket in the source popover, Help topic "Hull bonuses". Registry: `hullFamilyEntries` enumerates every catalog
 line LIVE (pending 36 -> 36). Goldens: `cp13Goldens.test.ts` (captured first) through `cp13Switch.fixture.ts withoutCp13`.
 QA: docs/qa/2026-11-03-cp13-hull-family-qa.html.
+
+**Fix round (2026-11-04, the user's CP-13 calls plus the review's truthfulness fixes; no SAVE bump):** the General
+guest perk scales with the module (`model.ts foldGuestQuarters` reads `crewModuleEffectScale`, which moved to model.ts
+with `CREW_MODULE_LINE_KNEE`, `crewModuleLineScale` and `HULL_FAMILY_SWITCH`, all re-exported by crewModules.ts; read
+only at the short-range dispatch gate, so no run in flight moves; switch off = the flat +10%). The ship readout gains
+Unload Speed and Sensors rows with every source bucket. The Tactician injury perk also acts on the legacy
+(non-Ground-Ops) claim: frozen at every expedition dispatch (`Expedition.hullInjuryShare`, written only when non-zero),
+read by `injuries.ts applyExpeditionInjuries`; a run without it recovers as before. Help now says wear lowers a hull
+bonus only where it lowers the module's own effect (the run sheets of missions, short-range runs and expeditions); on
+patrols, the rare-find roll, mission output and the bay both read the module at full condition. The bay perks are
+worded as care shares, and the quarters tile shows each one's effect on that ship (`groundOps.ts shipBayCareNow`,
+`medicalBay.ts careShareSpeedUp / careShareTimeCut`). The weapon line lifts every damaging weapon's band top at least
+one point (`combat/bridge.ts applyHullWeaponLine`), so +5% never rounds away on a small weapon. The Ships tab, roster and
+swap-picker Battle Ratings fight with the weapon line, as the patrol forecast does.
 
 ### CP-14: Base hull sensors and Science amplification (G6 part 1) [blocked on OC-16, OC-20]
 
