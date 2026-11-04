@@ -423,7 +423,7 @@ import { CONDITION_FULL, battleWearLive, combatGearView, patrolCycleGear, repair
 import { addBattleWear, poolBattleWear, recordPatrolWear, waveBattleWear, type PatrolWearClock, type PatrolWearEvent } from "./gearWearCombat";
 // E-MOD EM-4: the reactor surplus drive lift's run flag (a leaf).
 import { newReactorLiftFlag, reactorLiftFlagged } from "./reactorSurplus";
-import { crewModuleLinesStamp } from "./crewModules";
+import { crewModuleLinesStamp, hullFamilyQuartersPerk, hullFamilyStamp, hullFamilyWeaponLine } from "./crewModules";
 // WR-5b (0.14.0): the commanding captain's Tactician talents (frozen per patrol cycle; the Shipyard repair).
 import {
   captainWaveRegenFraction,
@@ -1992,8 +1992,16 @@ function museumRareChance(talentScaledChance: number, museumMult: number | undef
 // the ship's crew rare find (crew.rareFindChance: the Science officer's Discovery Instinct plus the Science
 // division's Keen Analysis, the SAME one read the expedition relic roll freezes at dispatch). 0 for a non-survey
 // mission or a ship without either source. Shared by economyTick and missionDropChances below. Pure.
-function surveyRareFindFor(state: GameState, ship: ShipInstance | undefined, missionKey: MissionKey): number {
-  return ship && MISSIONS[missionKey].missionType === "survey" ? shipCrewContribution(state, ship)[CREW_STAT_KEYS.rareFindChance] ?? 0 : 0;
+// Complement CP-13 (OC-13): plus the Prospector quarters module's hull-family perk, "+3% rare finds on mining and survey
+// hauls" (crewModules.ts hullFamilyQuartersPerk "rareFind": every mission but a transport, which hauls no ore). Both
+// read only when `hullBonus` (a fresh reading, or a run stamped at dispatch: CaptainMissionState.hullBonus), so a run
+// in flight from before CP-13 rolls exactly as it did (its crew rare find without the quarters' division lift).
+function surveyRareFindFor(state: GameState, ship: ShipInstance | undefined, missionKey: MissionKey, hullBonus = true): number {
+  if (!ship) return 0;
+  const type = MISSIONS[missionKey].missionType;
+  const crew = type === "survey" ? shipCrewContribution(state, ship, museumBonuses(state), hullBonus)[CREW_STAT_KEYS.rareFindChance] ?? 0 : 0;
+  const hull = hullBonus && type !== "transport" ? hullFamilyQuartersPerk(state, ship, "rareFind") : 0;
+  return hull === 0 ? crew : crew + hull;
 }
 
 // WR-4 (B20): the per-tick uncommon and rare OCCURRENCE chances a captain's mission really rolls, the exact
@@ -2926,6 +2934,8 @@ export function tickCaptainMission(
               ...(mission!.moduleLines !== undefined ? { moduleLines: mission!.moduleLines } : {}),
               // WR-7 follow-up (OC-D5): and the favored-spec stamp.
               ...(mission!.favoredSpec !== undefined ? { favoredSpec: mission!.favoredSpec } : {}),
+              // Complement CP-13: and the hull-family stamp.
+              ...(mission!.hullBonus !== undefined ? { hullBonus: mission!.hullBonus } : {}),
               // WR-9 (OC-E4): and the Pilot's Cunning stamp.
               ...(mission!.pilotCunning !== undefined ? { pilotCunning: mission!.pilotCunning } : {}),
             };
@@ -3455,6 +3465,9 @@ export function tickCaptainPatrol(
     // leg of the new cycle. Absent = no lift on that leg.
     transitOutLegMult?: number;
     transitBackLegMult?: number;
+    // Complement CP-13: the Tactician bridge's weapon line now (crewModules.ts hullFamilyWeaponLine), which a relaunch of
+    // a stamped run (hullBonus) freezes onto its new cycle. Absent = none.
+    hullWeapon?: number;
   } = {},
 ): PatrolTickResult {
   const noOp: PatrolTickResult = {
@@ -3771,6 +3784,8 @@ export function tickCaptainPatrol(
         officerCombat: mission.officerCombat,
         // WR-5b: this cycle's FROZEN captain Tactician talents (absent = none).
         captainCombat: mission.captainCombat,
+        // Complement CP-13: this cycle's FROZEN Tactician bridge weapon line (absent = none).
+        ...(mission.hullWeapon !== undefined ? { hullWeapon: mission.hullWeapon } : {}),
         // WR-8: this cycle's combat rules (absent = the pre-WR-8 combatant) and the statuses the last wave left.
         combatRules: mission.combatRules,
         carryStatusEffects: mission.playerStatusEffects,
@@ -4053,6 +4068,9 @@ export function tickCaptainPatrol(
             combatRules: officerEffects.combatRules,
             // WR-7 follow-up (OC-D5): the run's favored-spec stamp rides every relaunched cycle (absent stays absent).
             favoredSpec: cur.favoredSpec,
+            // Complement CP-13: and the hull-family stamp; a stamped run's new cycle freezes the bridge's weapon line now.
+            hullBonus: cur.hullBonus,
+            hullWeapon: cur.hullBonus === 1 ? officerEffects.hullWeapon : undefined,
             // WR-9 fix round: and the run's Pilot Cunning stamp (absent stays absent).
             pilotCunning: cur.pilotCunning,
           });
@@ -4891,7 +4909,9 @@ export function economyTick(
         // WR-7 follow-up (OC-D5): a patrol stamped with the favored spec reads its favored pieces' bonus (the relaunch's
         // fuel here, its combat speed below); a patrol in flight from before reads them as stored.
         const patrolFavored = captain.mission.favoredSpec === 1;
-        const patrolStats = patrolShip && patrolGear ? effectiveShipStats(state, patrolShip, { favored: patrolFavored }) : null;
+        // Complement CP-13 (OC-13): likewise a patrol stamped with the hull-family stamp reads its crew modules' hull bonus.
+        const patrolHullBonus = captain.mission.hullBonus === 1;
+        const patrolStats = patrolShip && patrolGear ? effectiveShipStats(state, patrolShip, { favored: patrolFavored, hullBonus: patrolHullBonus }) : null;
         const patrolFuelPerCycle =
           patrolShip && patrolStats
             ? fuelForRoundTrip(patrolDef.transitOutTicks, patrolDef.transitBackTicks, {
@@ -4918,17 +4938,19 @@ export function economyTick(
           patrolShip
             ? {
                 // CP-2 (OC-E3): plus the complement's Crew Output Multiplier (shipMissionOutputBonus).
-                outputShare: shipMissionOutputBonus(state, patrolShip),
+                outputShare: shipMissionOutputBonus(state, patrolShip, patrolHullBonus),
                 relaunchCombatProfile: officerCombatProfile(state, patrolShip),
+                // CP-13: the bridge's weapon line a stamped run's relaunch freezes (0 off a Tactician hull).
+                hullWeapon: patrolHullBonus ? hullFamilyWeaponLine(state, patrolShip) : 0,
                 secondsPerTick: state.tickDurationSeconds,
                 freeRepairChance: departmentFacet(state, patrolShip, "engineering", "cunning"),
                 returnConstitution: departmentFacet(state, patrolShip, "flightDeck", "constitution"),
                 // WR-6: Home Guard, for the next cycle's frozen record (exactly 1 without the talent).
                 homeGuardShield: homeGuardPatrolShieldMult(state),
                 // 0.14.0 (CP-4): Deck Handling, for the next cycle's frozen record (0 without the key).
-                deckHandling: shipDeckHandling(state, patrolShip),
+                deckHandling: shipDeckHandling(state, patrolShip, patrolHullBonus),
                 // WR-8: the combat rules and combat speed, for the next cycle's frozen record.
-                combatRules: shipCombatRulesStamp(state, patrolShip, patrolFavored),
+                combatRules: shipCombatRulesStamp(state, patrolShip, patrolFavored, patrolHullBonus),
                 // WR-7 follow-up OC-D8: the transit speed the next cycle freezes its legs at (the sheet the fuel reads).
                 ...(patrolStats ? { transitSpeed: patrolStats.transitSpeedMult } : {}),
                 // OC-D8 follow-up: and its per-leg lifts (Fast Departure, Fast Return), each on its own leg.
@@ -4939,8 +4961,8 @@ export function economyTick(
                   startSeconds: state.gameTimeSeconds,
                   secondsPerTick: state.tickDurationSeconds,
                   // WR-7 follow-up (OC-D5): on the run's favored-spec stamp, as the tail pass reads it.
-                  underwayRate: repairRatePerMinute("underway", shipRepairBonuses(state, patrolShip, patrolFavored)),
-                  homeRate: repairRatePerMinute("home", shipRepairBonuses(state, patrolShip, patrolFavored)),
+                  underwayRate: repairRatePerMinute("underway", shipRepairBonuses(state, patrolShip, patrolFavored, patrolHullBonus)),
+                  homeRate: repairRatePerMinute("home", shipRepairBonuses(state, patrolShip, patrolFavored, patrolHullBonus)),
                 },
               }
             : {},
@@ -5140,6 +5162,8 @@ export function economyTick(
     const moduleLines = captain.mission.moduleLines === 1;
     // WR-7 follow-up (OC-D5): only a run stamped with the favored spec reads its favored pieces' bonus.
     const favored = captain.mission.favoredSpec === 1;
+    // Complement CP-13 (OC-13): only a run stamped with the hull-family stamp reads its crew modules' hull bonus.
+    const hullBonus = captain.mission.hullBonus === 1;
     // Phase 2 (Task B3, design §3.4): AUTO-STOP, when this mission's PRIMARY material is
     // already at its warehouse tier cap the run CANNOT usefully complete (its haul would
     // land over an already-full warehouse). Rather than leave the captain FROZEN in place
@@ -5230,7 +5254,7 @@ export function economyTick(
     // stamp (at dispatch, and again at each cycle start: onCycleDelivered below), so a worn hold, drive,
     // sensor array, prospecting rig or crew module acts on the run from its next cycle. It is constant within a cycle,
     // so the per-cycle guarantee holds as before. A run without a stamp (dispatched before step 3) reads the stored sheet.
-    const shipStats = ship ? runShipStats(state, ship, wearStamp, reactorLift, moduleLines, favored) : null;
+    const shipStats = ship ? runShipStats(state, ship, wearStamp, reactorLift, moduleLines, favored, hullBonus) : null;
     // GEAR WEAR step 3 (user 2026-10-21, "Re-read each cycle"): at each delivered cycle of a stamped run, its use wear at
     // its own instant (missionCycleWear on the sheet that cycle ran on), and the next cycle's gear re-read from the
     // pieces as the call's deliveries so far leave them (projectRunStamp: the arithmetic the tail pass writes).
@@ -5247,7 +5271,7 @@ export function economyTick(
             if (stats && !trainingCycle) missionWear.push({ at, wear: missionCycleWear(missionKey, stats, state.tickDurationSeconds, missionCrewed) });
             trainingCycle = false;
             const gearWear = projectRunStamp(state, ship.id, missionWear, at);
-            return { gearWear, stats: runShipStats(state, ship, gearWear, reactorLift, moduleLines, favored) };
+            return { gearWear, stats: runShipStats(state, ship, gearWear, reactorLift, moduleLines, favored, hullBonus) };
           }
         : undefined;
     // Mission Rework (Task 5): the fuel one round-trip cycle of THIS mission costs on
@@ -5271,7 +5295,8 @@ export function economyTick(
     // dispatch, so neither source is counted twice). Added to the captain's rareChanceMult, so the primary
     // AND the bonus roll read it, and the existing min(1, ...) bound still holds. Only the THRESHOLD moves:
     // the draw count per tick is unchanged. 0 for a non-survey mission or a ship without either source.
-    const surveyRareFind = surveyRareFindFor(state, ship, missionKey);
+    // CP-13: plus the Prospector quarters' rare finds, on a stamped run (surveyRareFindFor).
+    const surveyRareFind = surveyRareFindFor(state, ship, missionKey, hullBonus);
     const tradeTerms = captainTransportTerms(captain);
     const bonuses = {
       commonYieldMult: captainCommonYieldMult(captain),
@@ -5282,7 +5307,8 @@ export function economyTick(
       rareChanceMult: withDeepVeins(surveyRareFind === 0 ? captainRareChanceMult(captain) : captainRareChanceMult(captain) + surveyRareFind, captain),
       // E-CREW 0.14.0 (Task 20): Command Presence (the ship's mission output; 0 without the officer).
       // CP-2 (OC-E3): plus the complement's Crew Output Multiplier (0 without the buff).
-      missionOutputMult: ship ? shipMissionOutputBonus(state, ship) : 0,
+      // CP-13: a run dispatched before CP-13 reads it without the quarters' division lift (its stamp).
+      missionOutputMult: ship ? shipMissionOutputBonus(state, ship, hullBonus) : 0,
       // E-CREW 0.14.0 (Task 21): the Operations / Science departments' Cunning (0 without a facet).
       cunningOperationsChance: ship ? departmentFacet(state, ship, "operations", "cunning") : 0,
       cunningScienceChance: ship ? departmentFacet(state, ship, "science", "cunning") : 0,
@@ -6213,6 +6239,8 @@ export function dispatchCaptainOnMission(
   const favoredSpec = wearShip ? favoredSpecStamp(equippedFor(state, wearShip.id), wearShip.typeKey) : undefined;
   // WR-9 (OC-E4): and the Pilot's Cunning (stamped only when the Flight Deck's Cunning facet is non-zero).
   const pilotCunning = wearShip ? pilotCunningStamp(state, wearShip) : undefined;
+  // Complement CP-13 (OC-13): and its crew modules' hull-family bonus (stamped only when a bridge or quarters module is in).
+  const hullBonus = wearShip ? hullFamilyStamp(state, wearShip) : undefined;
   captains[idx] = {
     ...captains[idx],
     mission: {
@@ -6229,6 +6257,7 @@ export function dispatchCaptainOnMission(
       ...(reactorLift !== undefined ? { reactorLift } : {}),
       ...(moduleLines !== undefined ? { moduleLines } : {}),
       ...(favoredSpec !== undefined ? { favoredSpec } : {}),
+      ...(hullBonus !== undefined ? { hullBonus } : {}),
       ...(pilotCunning !== undefined ? { pilotCunning } : {}),
     },
     // WR-9 fix round (review: "recall replays the Pilot roll"): a stamped dispatch steps the captain's lifetime Cunning
@@ -6355,6 +6384,10 @@ function freshPatrolMission(args: {
   // WR-7 follow-up (OC-D5): the run's favored-spec stamp (dispatch: favoredSpecStamp; relaunch: the run's own). Stored
   // only when present.
   favoredSpec?: 1;
+  // Complement CP-13 (OC-13): the run's hull-family stamp (dispatch: hullFamilyStamp; relaunch: the run's own) and the
+  // cycle's frozen Tactician bridge weapon line (stored only when > 0). Each stored only when present.
+  hullBonus?: 1;
+  hullWeapon?: number;
   // WR-7 follow-up OC-D8: the cycle's frozen legs (patrolLegTicksFor at the ship's transit speed when the cycle starts).
   // Stored only when present (they differ from the route's); the wave schedule is planned on the route they make.
   // WR-9 fix round: with the Pilot's landed cut already folded in by the caller (officerStats.ts pilotCutPatrolLegs).
@@ -6447,6 +6480,8 @@ function freshPatrolMission(args: {
     recalled: false,
     repeatDispatch,
     ...(args.favoredSpec === 1 ? { favoredSpec: 1 as const } : {}),
+    ...(args.hullBonus === 1 ? { hullBonus: 1 as const } : {}),
+    ...(args.hullWeapon !== undefined && args.hullWeapon > 0 ? { hullWeapon: args.hullWeapon } : {}),
     ...(args.legTicks !== undefined ? { legTicks: { ...args.legTicks } } : {}),
     ...(args.pilotCunning !== undefined ? { pilotCunning: args.pilotCunning } : {}),
   };
@@ -6870,6 +6905,10 @@ export function dispatchCaptainOnPatrol(
     // WR-7 follow-up (OC-D5): a patrol dispatched now reads its favored pieces' bonus (stamped only when one favors
     // the hull's spec), carried to every relaunched cycle.
     favoredSpec: favoredSpecStamp(installedGear, ship.typeKey),
+    // Complement CP-13 (OC-13): a patrol dispatched now reads its crew modules' hull bonus (stamped only when a bridge or
+    // quarters module is in), carried to every relaunched cycle; the first cycle freezes the bridge's weapon line.
+    hullBonus: hullFamilyStamp(state, ship),
+    hullWeapon: hullFamilyWeaponLine(state, ship),
     // WR-7 follow-up OC-D8: read above.
     legTicks,
     // WR-9 fix round: read above.
@@ -6889,8 +6928,8 @@ export function dispatchCaptainOnPatrol(
         startSeconds: state.gameTimeSeconds,
         secondsPerTick: state.tickDurationSeconds,
         // WR-7 follow-up (OC-D5): on the stamp this dispatch just wrote, as the tail pass reads it.
-        underwayRate: repairRatePerMinute("underway", shipRepairBonuses(state, ship, mission.favoredSpec === 1)),
-        homeRate: repairRatePerMinute("home", shipRepairBonuses(state, ship, mission.favoredSpec === 1)),
+        underwayRate: repairRatePerMinute("underway", shipRepairBonuses(state, ship, mission.favoredSpec === 1, mission.hullBonus === 1)),
+        homeRate: repairRatePerMinute("home", shipRepairBonuses(state, ship, mission.favoredSpec === 1, mission.hullBonus === 1)),
       })
     : 0;
   if (firstPause > 0) {

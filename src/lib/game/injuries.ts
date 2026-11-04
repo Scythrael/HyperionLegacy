@@ -8,6 +8,7 @@
 // RECOVERY (FIRST-PASS TUNABLE): a 2 hour base, shortened by the ship's MEDICAL care:
 //   recovery = max(INJURY_MIN_RECOVERY_SECONDS, round(INJURY_BASE_RECOVERY_SECONDS / (1 + care)))
 //   care     = medicalShare + rapidRecoveryShare + treatmentShare   (each clamped at 0 or more)
+//              (+ the run's frozen Medical facets, + its frozen CP-13 Tactician quarters share hullInjuryShare)
 // where medicalShare is the Medical division's injury buff (crew.reducedCrewLosses, "Reduced Crew Losses",
 // from the complement, amplified by the museum like every crew number), rapidRecoveryShare is the Rapid
 // Recovery officer bonus (officer.repairRateMult, "Speeds hull and crew recovery"), and treatmentShare is a
@@ -55,6 +56,11 @@ export interface InjuryRecoveryFactors {
   // (Expedition.recoveryTurnaround, Constitution's shorter turnaround, + Expedition.quickRecovery, Cunning's
   // quicker recovery). Optional: absent = 0, so a run without them recovers exactly as before.
   officerFacetShare?: number;
+  // Complement CP-13 fix round (user 2026-11-04 "Yes, both paths, new runs only (Recommended)"): the Tactician quarters
+  // module's hull-family perk, "injured crew recover 15% faster" (crewModules.ts hullFamilyQuartersPerk "injuryRecovery"),
+  // FROZEN on the run at dispatch (Expedition.hullInjuryShare), a care share like the others. Optional: absent = 0, so a
+  // run dispatched before it (every run in flight at the update) recovers exactly as before.
+  hullInjuryShare?: number;
 }
 
 // The ship's care for its injured away team, read live (at claim). Zero for a missing ship. Pure.
@@ -71,7 +77,9 @@ export function shipInjuryFactors(state: GameState, ship: ShipInstance | undefin
 export function injuryRecoverySeconds(factors: InjuryRecoveryFactors, treatmentShare: number = 0): number {
   const facets = Math.max(0, factors.officerFacetShare ?? 0);
   const base = Math.max(0, factors.medicalShare) + Math.max(0, factors.rapidRecoveryShare) + Math.max(0, treatmentShare);
-  const care = facets === 0 ? base : base + facets;
+  const hull = Math.max(0, factors.hullInjuryShare ?? 0);
+  const cared = facets === 0 ? base : base + facets;
+  const care = hull === 0 ? cared : cared + hull;
   return Math.max(INJURY_MIN_RECOVERY_SECONDS, Math.round(INJURY_BASE_RECOVERY_SECONDS / (1 + care)));
 }
 
@@ -95,7 +103,9 @@ export function applyExpeditionInjuries(state: GameState, exp: Expedition): { ne
   // E-CREW (Task 21): the run's frozen Medical facets join the care (see InjuryRecoveryFactors).
   // Task 21 review calls: plus Medical's Integrity (exp.injurySteady), for members who come home INJURED.
   const officerFacetShare = (exp.recoveryTurnaround ?? 0) + (exp.quickRecovery ?? 0) + (exp.injurySteady ?? 0);
-  const factors = officerFacetShare > 0 ? { ...shipFactors, officerFacetShare } : shipFactors;
+  const faceted = officerFacetShare > 0 ? { ...shipFactors, officerFacetShare } : shipFactors;
+  // CP-13 fix round: the Tactician quarters perk the run froze at dispatch (absent on a run dispatched before it).
+  const factors = exp.hullInjuryShare !== undefined && exp.hullInjuryShare > 0 ? { ...faceted, hullInjuryShare: exp.hullInjuryShare } : faceted;
   const now = state.gameTimeSeconds;
   const injuries: MemberInjury[] = [];
   const byId = new Map<string, MemberInjury>();

@@ -79,6 +79,8 @@ import { deployableGroundTeams, shipGroundTeams } from "./groundTeams";
 import { bayCareFrom, memberBaySeconds, type BayCare } from "./medicalBay";
 import { shipInjuryFactors } from "./injuries";
 import { effectiveShipStats, shipCrewContribution, shipPreventCrewLoss } from "./crewOverlay";
+// Complement CP-13: the quarters module's hull-family bay perks (crewModules.ts imports no ground code, so no cycle).
+import { hullFamilyQuartersPerk } from "./crewModules";
 import { departmentFacet } from "./officerStats";
 import { CREW_STAT_KEYS } from "./crewBuffs";
 // GO-7b: the timeline engine's building blocks (GO-4 task model, GO-5 fight, GO-6 odds) and the legacy reward
@@ -223,6 +225,9 @@ export function snapshotGroundOps(state: GameState, ship: ShipInstance, run: Gro
   const preventLossShare = shipPreventCrewLoss(state, ship);
   // Wiring WR-9 (OC-E9): the Operations officer's Integrity steadies a packed offload (written only when non-zero).
   const offloadSteady = WR9_SWITCH.live ? departmentFacet(state, ship, "operations", "integrity") : 0;
+  // Complement CP-13 (OC-13): the quarters module's hull-family bay perks, frozen here (written only when non-zero).
+  const hullInjuryShare = hullFamilyQuartersPerk(state, ship, "injuryRecovery");
+  const hullBayShare = hullFamilyQuartersPerk(state, ship, "bayTime");
   const factors: GroundOpsFactors = {
     medicalShare: care.medicalShare,
     rapidRecoveryShare: care.rapidRecoveryShare,
@@ -235,8 +240,23 @@ export function snapshotGroundOps(state: GameState, ship: ShipInstance, run: Gro
     scienceShare: sharesOf(teams.map((t) => teamSquadsOf(t).science)),
     ...(preventLossShare > 0 ? { preventLossShare } : {}),
     ...(offloadSteady > 0 ? { offloadSteady } : {}),
+    ...(hullInjuryShare > 0 ? { hullInjuryShare } : {}),
+    ...(hullBayShare > 0 ? { hullBayShare } : {}),
   };
   return { teams, factors, shipEventProfile: snapshotShipEventProfile(state, ship) };
+}
+
+// Complement CP-13 fix round (review: "the tile says 10% shorter, the bay can give 7%"): the bay care a Ground Ops run
+// dispatched now on `ship` would freeze, read off the dispatch snapshot itself (so it can never drift from it), with
+// the expedition's Medical facets read exactly as its dispatch reads them (expedition.ts startExpedition) and the
+// Medical Cunning roll left out (it is rolled per dispatch, on the run's seed). Display only: the quarters tile reads it
+// to show what a hull-family bay perk does on this ship. Pure.
+export function shipBayCareNow(state: GameState, ship: ShipInstance): BayCare {
+  const run = {
+    recoveryTurnaround: departmentFacet(state, ship, "medical", "constitution"),
+    injurySteady: departmentFacet(state, ship, "medical", "integrity"),
+  };
+  return groundOpsBayCare(snapshotGroundOps(state, ship, run).factors);
 }
 
 // The bay care a run's frozen factors carry (GO-7b passes it to medicalBay.ts memberBaySeconds). CP-3: plus Prevent a
@@ -248,6 +268,9 @@ export function groundOpsBayCare(factors: GroundOpsFactors): BayCare {
     officerFacetShare: factors.officerFacetShare,
     injurySteady: factors.injurySteady,
     ...(factors.preventLossShare !== undefined ? { preventLossShare: factors.preventLossShare } : {}),
+    // CP-13: the hull-family bay perks when the run froze them.
+    ...(factors.hullInjuryShare !== undefined ? { hullInjuryShare: factors.hullInjuryShare } : {}),
+    ...(factors.hullBayShare !== undefined ? { hullBayShare: factors.hullBayShare } : {}),
   };
 }
 

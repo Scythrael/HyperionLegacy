@@ -21,6 +21,11 @@ import { QUALITY_TIERS } from "./inventory";
 import { materialQualityClimbChance, type MaterialPreference } from "./materialQuality";
 // E-CREW 0.14.0 (Task 21): the Constitution ramp leaf (imports only diminishing.ts; no cycle).
 import { constitutionRamp, RAMP_SECONDS_PER_TICK } from "./constitutionRamp";
+// Complement CP-13 fix round: the crew module effect scale (crewModuleEffectScale below) reads a piece's wear efficiency
+// and the D23 curve. Both are leaves for model.ts (gearWear.ts imports only model.ts TYPES, diminishing.ts nothing), so
+// no cycle.
+import { viewPieceEfficiency } from "./gearWear";
+import { diminishing } from "./diminishing";
 // Reactor fuel ladder (0.14.0, capture 2026-10-21): the fuel every Reactor Core blueprint takes (a leaf with no
 // imports, so no cycle).
 import { reactorCoreFuel } from "./reactorTech";
@@ -3886,6 +3891,11 @@ export interface ShortRangeMissionState {
   // hull favors its spec and carried to every later cycle; only a stamped run's sheet reads the favored lines, so a
   // run in flight at the update reads its pieces as it did. Optional, no SAVE bump.
   favoredSpec?: 1;
+  // CP-13 (OC-13, crewModules.ts hullFamilyStamp): the hull-family stamp, written at dispatch when the ship has a bridge or
+  // quarters module installed and carried to every later cycle; only a stamped run reads the modules' hull bonus (the
+  // sheet lines, the division lifts, the output share), so a run in flight at the update plays as it did. Optional, no
+  // SAVE bump.
+  hullBonus?: 1;
   // WR-9 fix round (user 2026-10-31 "Missions, short-range, patrols"): the Flight Deck's Cunning facet at dispatch
   // (officerStats.ts pilotCunningStamp), carried to every later cycle. Each cycle start rolls it on the cycle's job seed
   // and folds a landed cut into the plan's leg home (pilotCutShortRangePlan). Written only when non-zero; a run in
@@ -3960,6 +3970,9 @@ export interface CaptainMissionState {
   // WR-7 follow-up (OC-D5): the favored-spec stamp, as on ShortRangeMissionState: stamped at dispatch, carried to every
   // repeated cycle; only a stamped run's sheet reads the favored lines.
   favoredSpec?: 1;
+  // CP-13 (OC-13): the hull-family stamp, as on ShortRangeMissionState: stamped at dispatch, carried to every repeated
+  // cycle; only a stamped run reads its crew modules' hull bonus (the sheet, the output share, the rare finds).
+  hullBonus?: 1;
   // WR-9 (OC-E4, user 2026-10-15 "Quicker trips home"): the Flight Deck's Cunning facet at dispatch
   // (officerStats.ts pilotCunningStamp), carried to every repeated cycle: each cycle, that chance its return leg runs
   // PILOT_CUNNING_RETURN_CUT_TICKS shorter (tick.ts tickCaptainMission). Written only when non-zero; a run in flight
@@ -4255,6 +4268,15 @@ export interface PatrolMissionState {
   // Damage Control Suite's patch-up, the relaunch's fuel and combat speed), so a patrol in flight at the update flies
   // exactly as it did. Optional, no SAVE bump.
   favoredSpec?: 1;
+  // CP-13 (OC-13, crewModules.ts hullFamilyStamp): the hull-family stamp, written at dispatch when the ship has a bridge or
+  // quarters module installed and carried to every relaunched cycle: only a stamped run reads the modules' hull bonus (a
+  // relaunch's sheet, combat speed, output share and Deck Handling, and its weapon line below). Optional, no SAVE bump.
+  hullBonus?: 1;
+  // CP-13: the Tactician bridge's weapon damage line (crewModules.ts hullFamilyWeaponLine), FROZEN when THIS cycle starts
+  // (dispatch, and again at each relaunch of a stamped run) beside officerCombat, read the same way by every wave, the
+  // live loop and the display replay (combat/bridge.ts applyHullWeaponLine). It comes from INSTALLED GEAR, not the crew
+  // (D12 holds). OPTIONAL, written only when > 0 (no SAVE bump).
+  hullWeapon?: number;
   // WR-7 follow-up OC-D8 (patrolLegTicksFor): THIS cycle's transit legs in route ticks, frozen when the cycle starts
   // (dispatch, and again at each relaunch) from the ship's speed on each leg then (the sweeping transit speed, and since
   // the OC-D8 follow-up Fast Departure's lift on the outbound leg and Fast Return's on the leg home). Every reader of
@@ -4746,20 +4768,61 @@ function hullDerivedStats(ship: ShipInstance): ShipDerivedStats {
 }
 
 // G1-1 (Short-Range Missions, 0.14.0): the General hull family's Crew Quarters perk, "guest quarters +10% for
-// passenger runs" (the SMS-1 General Quarters line, approved with OC-13 "One catalog, by hull"; CP-13 builds the
-// family's other quarters and bridge lines and may absorb this constant into its catalog). A quarters module of any
-// variety installed on a hull of spec "general" multiplies the ship's whole guest quarters by (1 + this), rounded
-// to whole berths. Guest quarters are read only by the passenger jobs, so "for passenger runs" is where it acts.
+// passenger runs" (the SMS-1 General Quarters line, approved with OC-13 "One catalog, by hull"; the CP-13 catalog,
+// crewModules.ts HULL_FAMILY_MODULE_BONUS, names it). A quarters module of any variety installed on a hull of spec
+// "general" multiplies the ship's whole guest quarters by (1 + this x the module's crewModuleEffectScale), rounded to
+// whole berths. Guest quarters are read only at the short-range dispatch gate (shortRange.ts meetsSheet), so "for
+// passenger runs" is where it acts and a run in flight never reads it again.
+// CP-13 fix round (user 2026-11-04 "Yes, grow like the rest (Recommended)"): the perk scales with the module's rarity,
+// quality, ascension and its Crew Stations / Crew Efficiency lines like the family's other seven lines (G1-1 built it
+// flat; with HULL_FAMILY_SWITCH off it reads that flat +10% again). A Standard, quality 0 module without lines is +10%.
 export const GENERAL_QUARTERS_GUEST_PERK = 0.1;
 
 // A ship's guest quarters: the hull base plus every installed guest line, times the General quarters perk when it
-// applies, as whole berths. 0 when the ship has none. Pure.
-function foldGuestQuarters(ship: ShipInstance, pieces: EquipmentInstance[], base: number, gearLines: number): number {
+// applies, as whole berths. 0 when the ship has none. `installed` is the stored pieces (the perk's scale reads the
+// module as stored, never its favored-spec copy in `pieces`). Pure.
+function foldGuestQuarters(ship: ShipInstance, installed: EquipmentInstance[], base: number, gearLines: number): number {
   const raw = base + gearLines;
   if (raw <= 0) return 0;
-  const perk = SHIP_TYPES[ship.typeKey].spec === "general" && pieces.some((p) => p.slotType === "quarters");
-  return perk ? Math.round(raw * (1 + GENERAL_QUARTERS_GUEST_PERK)) : raw;
+  if (SHIP_TYPES[ship.typeKey].spec !== "general") return raw;
+  const quarters = installed.find((p) => p.slotType === "quarters");
+  if (quarters === undefined) return raw;
+  const scale = HULL_FAMILY_SWITCH.live ? crewModuleEffectScale(quarters) : 1;
+  return Math.round(raw * (1 + GENERAL_QUARTERS_GUEST_PERK * scale));
 }
+
+// ============================================================================
+// The crew module effect scale (MOVED here from crewModules.ts in the CP-13 fix round, so the guest quarters fold above
+// can read it; crewModules.ts re-exports every name unchanged)
+// ============================================================================
+
+// WR-7 (OC-D3): the knee of a crew module's Crew Stations + Crew Efficiency line scale (crewModules.ts header).
+// [PROVISIONAL] (no number was asked).
+export const CREW_MODULE_LINE_KNEE = 100;
+
+// A crew module's rolled or implicit points of `stat` (never below 0). Pure.
+export function crewModuleLinePoints(piece: EquipmentInstance, stat: string): number {
+  return Math.max(0, (piece.implicitStats[stat] ?? 0) + (piece.rolledStats[stat] ?? 0));
+}
+
+// The x factor a crew module's Crew Stations + Crew Efficiency lines apply to its effect (1 without them). Pure.
+export function crewModuleLineScale(piece: EquipmentInstance): number {
+  const points = crewModuleLinePoints(piece, "crewStations") + crewModuleLinePoints(piece, "crewEfficiency");
+  return points > 0 ? 1 + diminishing(points, CREW_MODULE_LINE_KNEE) / CREW_MODULE_LINE_KNEE : 1;
+}
+
+// The scale a crew module's effect carries: its rarity, quality and ascension (moduleEffectScale), x its wear
+// efficiency where a run reads it (gearWear.ts viewPieceEfficiency, 1 on a stored piece), x its Crew Stations and Crew
+// Efficiency lines (WR-7 OC-D3, crewModuleLineScale). Its variant effect and every hull-family line (CP-13, the General
+// guest perk included) read it, so a better module lifts both by the same share. Pure.
+export function crewModuleEffectScale(piece: EquipmentInstance): number {
+  return moduleEffectScale(piece.rarity, piece.quality, piece.ascension) * viewPieceEfficiency(piece) * crewModuleLineScale(piece);
+}
+
+// Complement CP-13 test switch only (the FAVORED_SPEC_SWITCH pattern; MOVED here with the scale so the guest fold can
+// read it, re-exported by crewModules.ts): off, no module gives a hull bonus, no run is stamped, and the General guest
+// perk reads G1-1's flat +10%, so a golden can show that the pins it moved return. Always live in the game.
+export const HULL_FAMILY_SWITCH = { live: true };
 
 // Project a ShipInstance to its mission-relevant derived stats, FOLDING IN the
 // stats of any equipment fitted to it (Task 13). PURE.
@@ -4807,7 +4870,7 @@ export function shipDerivedStats(
   const fuelCapacity = base.fuelCapacity + mods.flat.fuelCapacity;
   const sensors = base.sensors + mods.flat.sensors;
   // G1-1: guest quarters (hull base + guest lines, then the General quarters perk). Never touches the hold.
-  const colonistCapacity = foldGuestQuarters(ship, pieces, base.colonistCapacity ?? 0, mods.flat.colonistCapacity ?? 0);
+  const colonistCapacity = foldGuestQuarters(ship, installed, base.colonistCapacity ?? 0, mods.flat.colonistCapacity ?? 0);
 
   // (3) PERCENT boosts through the curve.
   const transitCurve = PERCENT_STAT_CURVES.transitSpeedMult;
@@ -8727,6 +8790,12 @@ export interface Expedition {
   rampReturn?: number;
   hazardSteady?: number;
   injurySteady?: number;
+  // Complement CP-13 fix round (user 2026-11-04 "Yes, both paths, new runs only (Recommended)"): the Tactician quarters
+  // module's hull-family perk, "injured crew recover 15% faster" (crewModules.ts hullFamilyQuartersPerk "injuryRecovery"),
+  // frozen at dispatch for the legacy (non-Ground-Ops) claim's care divisor (injuries.ts applyExpeditionInjuries); the
+  // Ground Ops bay reads its own frozen copy (GroundOpsFactors.hullInjuryShare). Written only when non-zero: absent on
+  // every run dispatched before it, which recovers exactly as before. No SAVE bump.
+  hullInjuryShare?: number;
   // How many step boundaries (flat across bodies, in scan order) have been rolled. The once-only latch
   // that keeps a boundary from rolling twice however the advance is chunked. Absent = 0.
   scanStepCursor?: number;
@@ -9393,6 +9462,12 @@ export interface GroundOpsFactors {
   // FULL_HOLD_FRACTION of its objective's haul runs offloadMult x (1 + this) faster (groundOps.ts groundOffloadSeconds).
   // Written only when non-zero; a run dispatched before WR-9 keeps its exact shape.
   offloadSteady?: number;
+  // CP-13 (OC-13, crewModules.ts hullFamilyQuartersPerk): a quarters module's hull-family perk, a care share in the
+  // medical bay (medicalBay.ts BayCare): the Tactician's "injured crew recover 15% faster" (INJURY-class conditions only)
+  // and the Explorer's "ground-team medical bay time 10% shorter" (every condition). Written only when non-zero; a run
+  // dispatched before CP-13 keeps its exact shape.
+  hullInjuryShare?: number;
+  hullBayShare?: number;
 }
 
 // The ship-side scan event inputs, frozen at dispatch (shipScanEvents.ts snapshotShipEventProfile, GO-8; GO-9
@@ -9445,6 +9520,10 @@ export interface ShipEventBattle {
   // exactly as the Shipyard applies it (damageControlRepairTicks). Written only when above 0: absent on a run without
   // the suite and on a run dispatched before WR-7, whose field repairs are exactly what they were.
   dcRepairTimeReduction?: number;
+  // Complement CP-13 (OC-13): the Tactician bridge module's weapon damage line (crewModules.ts hullFamilyWeaponLine),
+  // frozen at dispatch; every ship battle of the run fights with it (combat/bridge.ts applyHullWeaponLine). Written only
+  // when > 0: absent on a run without one and on a run dispatched before CP-13.
+  hullWeapon?: number;
 }
 
 // The default per-save expedition seed a fresh save starts from, and the value the v58->v59 migration

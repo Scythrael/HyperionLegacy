@@ -267,7 +267,10 @@ import { installedSensorArray, sensorArrayCanisterBandLift, sensorArrayEffect, s
 // Gas Giant Study GG-7: the special blueprints' table.
 import { PRESSURE_FORGED_PLATING_VARIETY, SPECIAL_BLUEPRINT_KEYS } from "../specialBlueprints";
 import { CREW_PROFESSIONS, complementTotalCap, remainingCapacityForSignature } from "../commandStructure";
-import { bridgeOfficerMultiplier, hullSpecOf, installedBridgeModule, quartersCapacityBonus } from "../crewModules";
+import { bridgeOfficerMultiplier, hullFamilyStamp, hullSpecOf, installedBridgeModule, quartersCapacityBonus } from "../crewModules";
+// Complement CP-13: the patrol wave's shared player leaf (the hull weapon line probe builds the live wave with it).
+import { buildPatrolPlayerCombatant } from "../combat/patrolWave";
+import type { ShipDerivedStats } from "../model";
 // WR-5b (0.14.0): the captain Tactician seams.
 import { captainWaveRegenFraction, patrolWaveRewardMult, shipCaptainCombatMods } from "../captainTacticianEffects";
 import { captainDroneDamage, captainProjectileDamage, incomingHitChance } from "../combat/captainEdge";
@@ -790,7 +793,9 @@ export function onShortRangeJob(s: GameState, template: ShortRangeTemplateKey, p
   const reactorLift = newReactorLiftFlag(equippedFor(s, WIRING_SHIP_ID));
   // WR-7 follow-up (OC-D5): and the favored-spec stamp a dispatch now writes (none without a favored piece).
   const favoredSpec = favoredSpecStamp(equippedFor(s, WIRING_SHIP_ID), shipOf(s).typeKey);
-  const start = startShortRangeCycle(s, shipOf(s), SHORT_RANGE_PROBE_SLOT, shortRangeJobIndex(s, template), undefined, reactorLift !== undefined, true, favoredSpec === 1);
+  // Complement CP-13: and the hull-family stamp a dispatch now writes (none without a bridge or quarters module).
+  const hullBonus = hullFamilyStamp(s, shipOf(s));
+  const start = startShortRangeCycle(s, shipOf(s), SHORT_RANGE_PROBE_SLOT, shortRangeJobIndex(s, template), undefined, reactorLift !== undefined, true, favoredSpec === 1, 0, 0, hullBonus === 1);
   const mission: ShortRangeMissionState = {
     kind: "shortRange",
     slotId: 0,
@@ -801,6 +806,7 @@ export function onShortRangeJob(s: GameState, template: ShortRangeTemplateKey, p
     recalled: !repeat,
     ...(reactorLift ? { reactorLift } : {}),
     ...(favoredSpec ? { favoredSpec } : {}),
+    ...(hullBonus ? { hullBonus } : {}),
   };
   return { ...editCaptain(s, { mission } as Partial<CaptainState>), runCounts: start.runCounts };
 }
@@ -972,6 +978,64 @@ export function patrolCycleOneWeapons(s: GameState): number {
   if (!r.success) return -1;
   const mission = captainOf(r.next).mission;
   return mission?.kind === "patrol" ? mission.officerCombat?.weaponDamage ?? 0 : -1;
+}
+
+// Complement CP-13: the first wave's player combatant of a patrol dispatched now, built by the live loop's shared leaf
+// (combat/patrolWave.ts buildPatrolPlayerCombatant) on the cycle's frozen records: its first weapon's yieldMax. -1 when
+// the dispatch is refused.
+export function patrolWaveWeaponYield(s: GameState): number {
+  const r = dispatchCaptainOnPatrol(s, WIRING_CAPTAIN_ID, Object.keys(PATROLS)[0], "balanced", false);
+  if (!r.success) return -1;
+  const m = captainOf(r.next).mission;
+  if (m?.kind !== "patrol") return -1;
+  const ship = shipOf(r.next);
+  const c = buildPatrolPlayerCombatant({
+    playerId: ship.id,
+    stats: SHIP_TYPES[ship.typeKey],
+    hullType: combatHullTypeOf(ship.typeKey)!,
+    stance: m.stance,
+    installedGear: equippedFor(r.next, ship.id),
+    carryHull: m.playerHull,
+    carryShield: m.playerShield,
+    carryDrones: m.playerDrones,
+    officerCombat: m.officerCombat,
+    captainCombat: m.captainCombat,
+    ...(m.hullWeapon !== undefined ? { hullWeapon: m.hullWeapon } : {}),
+    combatRules: m.combatRules,
+  });
+  return c.weapons[0]?.yieldMax ?? 0;
+}
+
+// Complement CP-13: the sheet a run reads at `ctx` (see hullRunTransit). null when the dispatch is refused.
+function hullRunSheet(s: GameState, ctx: ContextId): ShipDerivedStats | null {
+  if (ctx === "mission:shortRange") return missionRunSheet(s, shipOf(s), shortRangeMissionOf(onShortRangeJob(s, "telescopeRepair")));
+  if (ctx !== "mission:extraction") return sheet(s);
+  const ready = { ...s, captains: s.captains.map((c) => ({ ...c, level: Math.max(c.level, 10) })) };
+  const r = dispatchCaptainOnMission(ready, WIRING_CAPTAIN_ID, "shortOreRun");
+  const m = captainOf(r.next).mission;
+  return r.success && m?.kind === "extraction" ? missionRunSheet(r.next, shipOf(r.next), m) : null;
+}
+
+// Complement CP-13: extractionThreshold on a run carrying the hullBonus stamp a dispatch now writes (onMission writes no
+// stamp, so the plain probe reads a run from before CP-13).
+function hullStampedThreshold(s: GameState, missionKey: MissionKey): number {
+  const stamp = hullFamilyStamp(s, shipOf(s));
+  const lands = (d: number): boolean => {
+    const on = onMission(s, missionKey, "extracting");
+    const run = stamp === undefined ? on : editCaptain(on, { mission: { ...(captainOf(on).mission as CaptainMissionState), hullBonus: stamp } } as Partial<CaptainState>);
+    const after = economyTick(run, 1, () => d);
+    const m = captainOf(after).mission as CaptainMissionState | null;
+    return m !== null && "cargo" in m && Number(m.cargo.rareMaterial) > 0;
+  };
+  let lo = 0;
+  let hi = 1;
+  if (!lands(lo + 1e-12)) return 0;
+  for (let i = 0; i < 44; i++) {
+    const mid = (lo + hi) / 2;
+    if (lands(mid)) lo = mid;
+    else hi = mid;
+  }
+  return lo;
 }
 
 export function patrolDigest(s: GameState): number {
@@ -1608,6 +1672,18 @@ export const PROBES = {
       return r.success && m?.kind === "extraction" ? missionRunSheet(r.next, shipOf(r.next), m).cargoCapacity : -1;
     },
   },
+  // Complement CP-13 (OC-13): a hull-family sheet line where a run reads it: the sheet itself, the run sheet of a Short
+  // Ore Run dispatched now (missionRunSheet: its hullBonus stamp decides), or the run sheet of a short-range job started
+  // through the board's seam. -1 when the dispatch is refused.
+  hullRunTransit: { label: "transitSpeedMult on the sheet / a captain mission's or short-range run's run sheet (its hullBonus stamp)", read: (s, ctx) => hullRunSheet(s, ctx)?.transitSpeedMult ?? -1 },
+  hullRunUnload: { label: "unloadSpeedMult on the sheet / a captain mission's or short-range run's run sheet (its hullBonus stamp)", read: (s, ctx) => hullRunSheet(s, ctx)?.unloadSpeedMult ?? 1 },
+  hullRunYield: { label: "extractionYieldMult on the sheet / a captain mission's run sheet (its hullBonus stamp)", read: (s, ctx) => hullRunSheet(s, ctx)?.extractionYieldMult ?? -1 },
+  hullRunSensors: { label: "sensors on the sheet / a short-range run's run sheet (its hullBonus stamp) / a Ground Ops dispatch's frozen sensors", read: (s, ctx) => (ctx === "expedition:groundOps" ? dispatchRun(readyForRun(s)).groundOps?.shipEventProfile.sensors ?? -1 : hullRunSheet(s, ctx)?.sensors ?? -1) },
+  // CP-13: the rare-roll threshold of a stamped extracting run (the shortOreRun, or a mineral survey at mission:survey).
+  hullRareThreshold: { label: "economyTick extracting: the rare-roll threshold of a run stamped hullBonus as a dispatch now stamps it", read: (s, ctx) => hullStampedThreshold(s, ctx === "mission:survey" ? "surveyMineralAnomaly" : "shortOreRun") },
+  // CP-13: the Tactician bridge's weapon line where a battle reads it: the first wave of a patrol dispatched now (the
+  // live loop's shared leaf, on the cycle's frozen hullWeapon), or an expedition ship event's battle snapshot.
+  hullWeaponYield: { label: "the first weapon's yieldMax: a patrol's first wave combatant (its frozen hullWeapon) / a ship event's battle", read: (s, ctx) => (ctx === "shipEvent" ? shipEventCombatant(s)?.weapons[0]?.yieldMax ?? -1 : patrolWaveWeaponYield(s)) },
   // Expedition Tiers G2-3: at Ground Ops, the outbound leg speed the run's voyage froze (voyage.ts: each leg's seconds
   // divide by it); the patrol reads its whole cycle digest.
   sheetTransit: {
@@ -2238,8 +2314,10 @@ export const PROBES = {
     },
   },
   runBayFractureSeconds: {
-    label: "the dispatched run's medical bay: a Fracture's cure seconds on its frozen care (groundOpsBayCare; injuries only)",
-    read: (s) => {
+    label: "the dispatched run's medical bay: a Fracture's cure seconds on its frozen care (groundOpsBayCare; injuries only); expedition:legacy, the legacy claim's injury recovery",
+    read: (s, ctx) => {
+      // CP-13 fix round: the legacy (non-Ground-Ops) claim of the same dispatched run, on its frozen care.
+      if (ctx === "expedition:legacy") return legacyInjurySeconds(s);
       const ops = dispatchRun(readyForRun(s)).groundOps;
       return ops ? memberBaySeconds(["fracture"], [], groundOpsBayCare(ops.factors)) : 0;
     },

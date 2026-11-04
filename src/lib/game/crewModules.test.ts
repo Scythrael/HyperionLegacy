@@ -21,6 +21,7 @@ import {
   quartersCapacityBonus,
   bridgeOfficerMultiplier,
   HULL_ROLE_SEATS,
+  crewModuleEffectScale,
 } from "./crewModules";
 import {
   freshState,
@@ -365,12 +366,13 @@ describe("additive-neutrality + economy-neutrality", () => {
     // and its mass is 0, so the economy fold is unchanged too.
     // G1-1 (named move): guest quarters is the one quarters line that folds, and a quarters module on a General
     // hull carries the General quarters perk, so ONLY colonistCapacity moves (the Freighter's 20 base berths plus
-    // any guest affix, times 1.1); every other stat is byte-identical.
+    // any guest affix, times 1 + 0.1 x the module's effect scale: CP-13 fix round, "grow like the rest"); every other
+    // stat is byte-identical.
     const { colonistCapacity: guestsWith, ...restWith } = effectiveShipStats(withMod, ship1(withMod));
     const { colonistCapacity: guestsBare, ...restBare } = bare;
     expect(restWith).toEqual(restBare);
     expect(guestsBare).toBe(20);
-    expect(guestsWith).toBe(Math.round((20 + (gen.rolledStats.colonistCapacity ?? 0)) * 1.1));
+    expect(guestsWith).toBe(Math.round((20 + (gen.rolledStats.colonistCapacity ?? 0)) * (1 + 0.1 * crewModuleEffectScale(gen))));
   });
 });
 

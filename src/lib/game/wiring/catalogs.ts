@@ -47,7 +47,7 @@ import { PROSPECTING_BLUEPRINTS, PROSPECTING_SPEC_BASE, PROSPECTING_USES } from 
 import { GAMBIT_PRESETS, GAMBIT_STATUSES } from "../gambit";
 import { GROUND_CONDITIONS } from "../medicalBay";
 import { EXCEPTIONAL_SETS, MUSEUM_STATS, MUSEUM_V2_PER_COPY, RELIC_SETS, RELIC_TYPES, RELICS } from "../relics";
-import { BRIDGE_MODULES, QUARTERS_MODULES } from "../crewModules";
+import { BRIDGE_MODULES, HULL_FAMILY_MODULE_BONUS, QUARTERS_MODULES } from "../crewModules";
 import { SENSOR_ARRAYS } from "../sensorArrays";
 import { POI_CATALOG, PLANET_TYPES } from "../expeditionContent";
 import { WEAPON_DEFS } from "../combat/weapons";
@@ -210,6 +210,15 @@ export function enumerateEffectSources(): EffectSource[] {
   add("SHIP_GEAR_LINES", shipLineKeys());
   add("QUARTERS_MODULES", QUARTERS_MODULES.map((m) => m.id));
   add("BRIDGE_MODULES", BRIDGE_MODULES.map((m) => m.id));
+  // Complement CP-13 (OC-13): every hull family's bridge lines, its quarters division lift and its quarters perk.
+  add(
+    "HULL_FAMILY_MODULE_BONUS",
+    Object.entries(HULL_FAMILY_MODULE_BONUS).flatMap(([spec, fam]) => [
+      ...Object.keys(fam.bridge).map((stat) => `${spec}:bridge:${stat}`),
+      `${spec}:quarters:divisions`,
+      `${spec}:quarters:${fam.quarters.perk}`,
+    ]),
+  );
   // RARITY READINESS RR-3: one row per rarity band (budget, affixes, secondaries, Artisan).
   add("RARITY_PROFILES", Object.keys(RARITY_PROFILES));
   // RARITY READINESS RR-4: one row per ascension (the Nova / Celestial budget multipliers).

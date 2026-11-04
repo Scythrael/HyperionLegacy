@@ -242,6 +242,10 @@ export interface ResolvePatrolWavesInput {
   // (model.ts withFavoredLines): a cycle stamped favoredSpec (the live loop's reading), and the dispatch forecast (a
   // dispatch now stamps). Absent = the suite's lines as stored (a cycle from before the bonus; byte-identical).
   favoredHull?: ShipTypeKey;
+  // Complement CP-13: the cycle's frozen Tactician bridge weapon line (the mission's stored hullWeapon; the dispatch
+  // forecast passes the one a dispatch would freeze now), threaded into every wave's player combatant exactly as the
+  // live loop threads it. Absent = none (byte-identical).
+  hullWeapon?: number;
 }
 
 export interface ResolvePatrolWavesResult {
@@ -343,6 +347,8 @@ export function resolvePatrolWaves(input: ResolvePatrolWavesInput): ResolvePatro
       // E-CREW (Task 20): the same frozen officer bonuses the live wave reads.
       officerCombat: input.officerCombat,
       captainCombat: input.captainCombat,
+      // CP-13: the same frozen weapon line the live wave reads.
+      ...(input.hullWeapon !== undefined ? { hullWeapon: input.hullWeapon } : {}),
       // WR-8: the cycle's combat rules and the carried statuses, exactly as the live loop passes them.
       combatRules: input.combatRules,
       carryStatusEffects,
@@ -558,6 +564,8 @@ export function resolveMissionCycle(
     combatRules: mission.combatRules,
     // WR-7 follow-up (OC-D5): a stamped cycle's suite reads its favored lines (the hull type is the ship's type key).
     ...(mission.favoredSpec === 1 ? { favoredHull: hullType } : {}),
+    // CP-13: the cycle's stored weapon line (absent on a cycle without one).
+    ...(mission.hullWeapon !== undefined ? { hullWeapon: mission.hullWeapon } : {}),
   });
   return resolved;
 }

@@ -516,9 +516,11 @@ import {
 } from "./game/shortRange";
 import { SHORT_RANGE_BASE_SLOT_TIERS } from "./game/shortRangeBoard";
 import { SHORT_RANGE_CATEGORY_VIEW, SHORT_RANGE_TRAINING_NOTE, shortRangeTierNumeral } from "./shortRangeBoardDisplay";
-import { GENERAL_QUARTERS_GUEST_PERK, HULL_GUEST_QUARTERS, MISSIONS, MISSION_CONTROL_BOARD_RUNGS, SECONDARY_CAPTAIN_TALENTS } from "./game/model";
+import { GENERAL_QUARTERS_GUEST_PERK, HULL_GUEST_QUARTERS, MISSIONS, MISSION_CONTROL_BOARD_RUNGS, SECONDARY_CAPTAIN_TALENTS, type ShipSpec } from "./game/model";
+// Complement CP-13: the hull-family module bonus catalog (the Hull bonuses Help topic reads every number from it).
+import { HULL_FAMILY_MODULE_BONUS, type HullFamilyBridgeStat } from "./game/crewModules";
 import { LY_PER_TICK } from "./game/fuel";
-import { PILOT_CUNNING_RETURN_CUT_TICKS } from "./game/officerStats";
+import { DEPARTMENT_LABEL, PILOT_CUNNING_RETURN_CUT_TICKS } from "./game/officerStats";
 import { crewBuffLabel } from "./game/crewBuffs";
 import { SENIOR_STAFF_BONUSES } from "./game/seniorStaffBonuses";
 import { EXPEDITION_RELIC_BLANKS_PER_HOUR, SHORT_RANGE_RELIC_RATE_MULT } from "./game/relicBlanks";
@@ -535,6 +537,47 @@ const itemLabel = (id: string): string => ITEMS[id]?.label ?? id;
 const GUEST_WING = EQUIPMENT_SLOTS.quarters.varieties.find((v) => v.key === "quartersGuestWing")?.label ?? "Guest Wing";
 const QUARTERS_SLOT = EQUIPMENT_SLOTS.quarters.label;
 const GENERAL_HULLS = orList(Object.values(SHIP_TYPES).filter((d) => d.spec === "general").map((d) => d.label));
+
+// Complement CP-13 (OC-13 "One catalog, by hull"): the hull-family module bonuses, every number and name read from the
+// catalog (crewModules.ts HULL_FAMILY_MODULE_BONUS) and the hull table, so a retune changes the text with it.
+const HULL_FAMILY_ORDER: readonly ShipSpec[] = ["general", "prospector", "tactician", "explorer"];
+const HULL_FAMILY_NAME: Readonly<Record<ShipSpec, string>> = { general: "General", prospector: "Prospector", tactician: "Tactician", explorer: "Explorer" };
+const BRIDGE_LINE_NAME: Readonly<Record<HullFamilyBridgeStat, string>> = {
+  transitSpeed: "FTL transit speed",
+  unloadSpeed: "unload speed",
+  extractionYield: "extraction yield",
+  weaponDamage: "weapon damage",
+  sensors: "sensors",
+};
+const familyHulls = (spec: ShipSpec): string => andList(Object.values(SHIP_TYPES).filter((d) => d.spec === spec).map((d) => d.label));
+const familyBridgeText = (spec: ShipSpec): string =>
+  andList((Object.entries(HULL_FAMILY_MODULE_BONUS[spec].bridge) as [HullFamilyBridgeStat, number][]).map(([k, v]) => `+${pctExact(v)} ${BRIDGE_LINE_NAME[k]}`));
+function familyPerkText(spec: ShipSpec): string {
+  const q = HULL_FAMILY_MODULE_BONUS[spec].quarters;
+  switch (q.perk) {
+    case "guestQuarters":
+      return `guest quarters +${pctExact(q.perkSize)}`;
+    case "rareFind":
+      return `+${pctExact(q.perkSize)} rare finds on mining and survey hauls`;
+    case "injuryRecovery":
+      return `injured crew recover ${pctExact(q.perkSize)} faster in the medical bay`;
+    case "bayTime":
+      return `ground-team medical bay time ${pctExact(q.perkSize)} shorter`;
+  }
+}
+const HULL_BONUS_BRIDGE_TEXT = HULL_FAMILY_ORDER.map((s) => `${HULL_FAMILY_NAME[s]} hulls (${familyHulls(s)}) ${familyBridgeText(s)}`).join("; ");
+const HULL_BONUS_QUARTERS_TEXT = HULL_FAMILY_ORDER.map((s) => {
+  const q = HULL_FAMILY_MODULE_BONUS[s].quarters;
+  return `${HULL_FAMILY_NAME[s]}: ${andList(q.divisions.map((d) => DEPARTMENT_LABEL[d]))} crew +${pctExact(q.divisionLift)}, and ${familyPerkText(s)}`;
+}).join("; ");
+export const HULL_BONUS_HELP = [
+  `HULL BONUSES: a Bridge Module lifts the officers seated on the ship and ${QUARTERS_SLOT} lift its complement, and each one ALSO gives a hull bonus that depends on the family of the hull it is installed on. Move a module to another ship and its bonus changes with the hull. The Ships tab shows it on the module's tile, and the Ship Systems readout lists it as Hull bonus under each stat it moves there.`,
+  `Bridge Module: ${HULL_BONUS_BRIDGE_TEXT}.`,
+  `${QUARTERS_SLOT}: the family's two signature divisions work better, and one perk. ${HULL_BONUS_QUARTERS_TEXT}.`,
+  `These are the sizes on a Standard, quality 0 module. Rarity, quality and the module's Crew Stations and Crew Efficiency lines raise every one of them (the guest quarters perk included) exactly as they raise its own effect. Wear lowers a hull bonus only where it lowers the module's own effect: the ship stats a mission, short-range run or expedition flies on. On a patrol (its weapon damage included), in the rare-find roll, in mission output and in the medical bay, the module's own effect and its hull bonus both work at full strength whatever the module's condition.`,
+  `The two medical bay perks are care: they join the ship's other medical care (such as its Medical crew and Medical officer), and the bay divides its time by all of it together, so the more care a ship already has, the less time each perk saves. The sizes above are what they do alone; the module's tile shows what they do on that ship now.`,
+  `A hull bonus never adds crew berths. A mission, patrol or expedition reads the hull bonuses its ship had when it set out.`,
+].join("\n\n");
 const HULL_GUESTS = andList(
   (Object.entries(HULL_GUEST_QUARTERS) as [keyof typeof SHIP_TYPES, number][])
     .sort((a, b) => b[1] - a[1])
@@ -610,7 +653,7 @@ export const SHORT_RANGE_HELP_PARAGRAPHS: readonly string[] = [
   `Short-Range Missions are set-and-forget jobs close to home, run from the Ops tab under Short-Range. Each job is different: bring refugees to a new camp, evacuate people from a nearby world, drop off or pick up supplies, survey a phenomenon, repair a space telescope, build a comm booster, or move prisoners. A job can never fail.`,
   `THE BOARD: every save starts with ${BASE_SLOTS_TEXT}. Mission Control adds more:\n${RUNG_LINES}\nA slot is flown by one captain and their assigned ship (the captain is busy while it runs). The board shows each free slot's next job before you send it, and pre-picks the ready captain whose ship meets the sheet by the widest margin: Send dispatches them, or Choose captain opens the picker.`,
   `THE SHEET: each tier has one requirement sheet, and a ship must meet all of it, even the parts a job does not use. Every job a slot draws stays inside its sheet, so a ship that qualifies once can take any job that slot rolls.\n${SHEET_LINES}\nRange is the round trip the ship can reach. The Engineering and Security crew ratings come from the strength of the ship's Engineering crew (with its Engineering officer) and its Security crew: ${SHORT_RANGE_CREW_RATING.perDoubling} x log2(1 + strength / ${SHORT_RANGE_CREW_RATING.referenceStrength}), so each doubling of the crew adds about ${SHORT_RANGE_CREW_RATING.perDoubling}. The board's bars show your ship against the sheet, with the categories this job uses highlighted.`,
-  `GUEST QUARTERS carry people: refugees and prisoners ride in them, never in the cargo hold, and goods never ride in guest quarters. Guests are not crew and take no crew stations. A ship's guest quarters come from its hull (${HULL_GUESTS}), from a ${GUEST_WING} or a guest quarters line on ${QUARTERS_SLOT}, and on a ${GENERAL_HULLS} with ${QUARTERS_SLOT} installed they rise ${pct(GENERAL_QUARTERS_GUEST_PERK)}. Ship Systems shows the line once a ship has any.`,
+  `GUEST QUARTERS carry people: refugees and prisoners ride in them, never in the cargo hold, and goods never ride in guest quarters. Guests are not crew and take no crew stations. A ship's guest quarters come from its hull (${HULL_GUESTS}), from a ${GUEST_WING} or a guest quarters line on ${QUARTERS_SLOT}, and on a ${GENERAL_HULLS} with ${QUARTERS_SLOT} installed they rise ${pct(GENERAL_QUARTERS_GUEST_PERK)} with a Standard module, more with a better one. Ship Systems shows the line once a ship has any.`,
   `THE JOBS: every cycle the slot rolls a new job of any type, flying ${DISTANCE_TEXT} each way (Range on the sheet is the longest round trip).\n${JOB_LINES}`,
   `A CYCLE: the ship flies out (${TICKS_PER_LY} ticks a lightyear before its transit speed), does the job on site, flies home, and turns around at home, where it uses a transit berth like a mission unload. On site, passengers and goods take longer the more there are; a scan is shorter with stronger Sensors (the scan divides by 1 + Sensors / ${SHORT_RANGE_WORK.sensorsReference}) and a repair or a build is shorter with a better Engineering crew rating (1 + rating / ${SHORT_RANGE_WORK.engineeringReference}). The pay arrives when the ship is home, and the captain and your Fleet Admiral earn XP for every tick the run is underway.`,
   `REPEAT AND RECALL: Repeat until recalled is on by default, so the slot runs job after job. Turn Repeat off and the ship finishes this cycle and stops; turn it back on before then and it carries on. Recall does the same, and a run that has not left home yet ends at once and spends nothing.`,
@@ -942,6 +985,12 @@ On the order form, This order uses lists the qualities the order will draw, and 
     id: "shipSystems",
     title: "Ship Systems",
     body: `Every ship has four equipment slots (Cargo Bay, FTL Drive, Reactor Core, and a Spec Utility slot for the hull's specialization) and comes pre-installed with a Standard-Issue baseline in each, so a bare ship is always ready to fly. Research ship-system blueprints at the Research Lab, craft them at the Fabricator, then open the ship on the Ships tab, where its Ship Systems board lets you install them. Crafted systems are real upgrades over the baseline: each carries a quality grade (0 to 5), a rarity, and an item level that together set how much it boosts the ship. A Reactor Core is crafted with its fuel: every Reactor Core blueprint takes Deuterium Canisters (${BLUEPRINTS.balancedCoreBp.recipe.inputs.deuteriumCanister} for a Balanced Core, ${BLUEPRINTS.efficientCoreBp.recipe.inputs.deuteriumCanister} for an Efficient Core and ${BLUEPRINTS.highOutputCoreBp.recipe.inputs.deuteriumCanister} for a High-Output Core), and a core you already crafted keeps running without them. Install or uninstall in one tap and watch the ship's stats change. Uninstalling leaves that slot EMPTY and returns the piece to your spares, so nothing is ever lost and you can put it back (or install something else) whenever you like. If a baseline ever does leave your hands (you salvage it yourself, or the auto-salvage rules take one), a replacement Standard-Issue is free: the Quartermaster, in Facilities, issues one for any slot at no cost, so an empty slot is an errand rather than a dead end. The same Ship Systems board also holds a combat hull's combat slots (weapon hardpoints, a shield slot, a hull-plating slot, and, on a carrier, drone bays); see the Combat Gear topic for installing those. Its Power bar and Modules row are covered in the Power and modules topic.`,
+  },
+  {
+    // Complement CP-13 (OC-13): the bridge and quarters modules' hull-family bonuses, every number from the catalog.
+    id: "hullBonuses",
+    title: "Hull bonuses",
+    body: HULL_BONUS_HELP,
   },
   {
     // E-MOD EM-10 (0.14.0): the power budget (EM-1 to EM-4) and the universal modules (EM-5 to EM-7), as the Ship

@@ -1075,6 +1075,8 @@
   // missions through. The two mission-timing popups now read it (they read the bare equipment fold before,
   // which omitted crew and the museum, so the shown times disagreed with the flown ones).
   import { effectiveShipStats, shipCombatRulesStamp } from "./lib/game/crewOverlay";
+  // Complement CP-13: the Tactician bridge's weapon line (the patrol forecast and rating fight with it).
+  import { hullFamilyWeaponLine } from "./lib/game/crewModules";
   // E-MOD EM-4 review: the in-progress mission card reads the run's own sheet (its gear wear stamp, its reactor lift flag).
   import { missionRunSheet } from "./lib/game/gearWearEngine";
   // G1-3: a short-range run's display name (its current job) for the status rows and the recall log.
@@ -2088,7 +2090,11 @@
     // so this number agrees with the roster's "BR". BR / Holds / Range is one spread that reads for
     // all three hull roles (warship / hauler / explorer).
     const hullType = combatHullTypeOf(ship.typeKey);
-    const br = hullType ? battleRating(shipToCombatant({ id: ship.id, team: "player", stats: SHIP_TYPES[ship.typeKey], hullType, installedGear: gear })) : 0;
+    // Complement CP-13: with the Tactician bridge's weapon line, as the roster rates it.
+    const hullWeapon = hullFamilyWeaponLine(state, ship);
+    const br = hullType
+      ? battleRating(shipToCombatant({ id: ship.id, team: "player", stats: SHIP_TYPES[ship.typeKey], hullType, installedGear: gear, ...(hullWeapon > 0 ? { hullWeaponDamage: hullWeapon } : {}) }))
+      : 0;
     const parts = [`BR ${formatNumber(br)}`, `Hold ${formatNumber(stats.cargoCapacity)}`, `${formatNumber(Math.floor(reachLy))} LY`];
     if (ship.damaged) parts.push("Damaged");
     return parts.join(" · ");
@@ -4903,7 +4909,9 @@
     const combatRules = shipCombatRulesStamp(state, ship);
     // WR-7 follow-up OC-D8: the route a dispatch would fly now (its legs at the ship's transit speed), part of the key.
     const route = patrolDispatchRoute(state, ship, patrolKey).route;
-    const signature = `${patrolKey}::${ship.id}::${stance}::${gearIds}::${conditionDigest}::${JSON.stringify(difficulty ?? null)}::${JSON.stringify(combatRules ?? null)}::${route.transitOutTicks}/${route.transitBackTicks}`;
+    // Complement CP-13: the Tactician bridge's weapon line a dispatch would freeze now (installed gear), part of the key.
+    const hullWeapon = hullFamilyWeaponLine(state, ship);
+    const signature = `${patrolKey}::${ship.id}::${stance}::${gearIds}::${conditionDigest}::${JSON.stringify(difficulty ?? null)}::${JSON.stringify(combatRules ?? null)}::${route.transitOutTicks}/${route.transitBackTicks}::${hullWeapon}`;
     const cached = patrolForecastCache.get(patrolKey);
     if (cached && cached.signature === signature) return cached.value;
 
@@ -4929,6 +4937,8 @@
       hullType,
       stance,
       installedGear: cycleGear,
+      // Complement CP-13 (the lockstep note above): the bridge's weapon line, as the sim below fights with it.
+      ...(hullWeapon > 0 ? { hullWeaponDamage: hullWeapon } : {}),
     });
     const rating = battleRating(player);
 
@@ -4977,6 +4987,8 @@
         combatRules,
         // WR-7 follow-up (OC-D5): a dispatch now reads the Damage Control Suite's favored lines on a Tactician hull.
         favoredHull: ship.typeKey,
+        // Complement CP-13: the weapon line a dispatch now freezes onto its first cycle.
+        ...(hullWeapon > 0 ? { hullWeapon } : {}),
       });
       // A full-patrol WIN = survived every scheduled wave (never limped home defeated).
       if (!result.defeated) wins += 1;

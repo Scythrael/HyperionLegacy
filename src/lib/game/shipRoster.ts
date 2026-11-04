@@ -34,6 +34,8 @@ import { equippedFor } from "./equipment";
 import { computeCombatReadout } from "./combatFit";
 import { shipToCombatant, combatHullTypeOf } from "./combat/bridge";
 import { battleRating } from "./combat/rating";
+// Complement CP-13: the Tactician bridge's weapon line (the rating fights with it, as the patrol forecast does).
+import { hullFamilyWeaponLine } from "./crewModules";
 
 // ----------------------------------------------------------------------------
 // Public vocabulary
@@ -271,7 +273,9 @@ function buildRow(
 	// Battle Rating via the SAME path ShipSystemsPanel scores with: build the player
 	// Combatant from the installed gear and score it. A hull that does not resolve to a
 	// combat class (corrupt typeKey) or has no SHIP_TYPES entry scores 0 rather than throwing.
+	// Complement CP-13: with the Tactician bridge's weapon line, the one a patrol dispatched now would fight with.
 	const hullType = combatHullTypeOf(ship.typeKey);
+	const hullWeapon = hullFamilyWeaponLine(state, ship);
 	const rating =
 		def && hullType
 			? battleRating(
@@ -281,6 +285,7 @@ function buildRow(
 						stats: def,
 						hullType,
 						installedGear: gear,
+						...(hullWeapon > 0 ? { hullWeaponDamage: hullWeapon } : {}),
 					}),
 				)
 			: 0;

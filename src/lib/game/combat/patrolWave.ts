@@ -84,6 +84,9 @@ export function buildPatrolPlayerCombatant(args: {
   // WR-5b (0.14.0): the cycle's frozen captain Tactician talents (PatrolMissionState.captainCombat), passed straight
   // to shipToCombatant like officerCombat. Absent = none.
   captainCombat?: CaptainCombatMods;
+  // Complement CP-13: the cycle's frozen Tactician bridge weapon line (PatrolMissionState.hullWeapon), passed straight to
+  // shipToCombatant like officerCombat. Absent = none.
+  hullWeapon?: number;
   // WR-8 (0.14.0, combat/combatRules.ts): the cycle's combat rules stamp (PatrolMissionState.combatRules). Under it the
   // player flies its frozen combat speed with its weapons' rule traits and its installed reactor and drive, and opens
   // each wave carrying the status effects the last wave left on it (OC-D12 "conditions persist across the waves of one
@@ -104,6 +107,7 @@ export function buildPatrolPlayerCombatant(args: {
     installedGear: args.installedGear,
     officerCombat: args.officerCombat,
     captainCombat: args.captainCombat,
+    ...(args.hullWeapon !== undefined ? { hullWeaponDamage: args.hullWeapon } : {}),
     ...(args.combatRules ? stampCombatArgs(args.combatRules) : {}),
   });
   // OVERRIDE with the carry-state so hull damage + drone losses persist across waves.
