@@ -254,3 +254,5 @@ NEXT: CP-12 (Bridge/Quarters install tiles, mockup CMR-9; flips bridge+quarters:
 CP-17/18, CP-19, CP-20, ML-5, ML-6 verify, WR-10, OT-UI (Deep Field Refinement), G2-7 (Wolf 359 derelict field),
 E5-6b (echoes + a [DEV] grant-refugees button, then browser-check toast tuck / Leave all / Help links), R2-5..R2-9.
 0.14.x: the behavior-preserving cleanup pass (roadmap doc).
+
+- WORKTREE SAFETY addendum (2026-11-04): a builder left its vite dev server running from its worktree, which locked the folder and made `git worktree remove` fail. Every builder brief says: stop any dev server you start before reporting. If a removal fails, find node processes whose command line names the worktree, stop them, then remove (after the link check).
