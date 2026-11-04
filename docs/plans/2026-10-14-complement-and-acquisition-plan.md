@@ -580,6 +580,27 @@ blueprint mints its variant; a fresh save can research and craft a Wide-Beam Arr
 15 rows (patch notes must say completion % drops, the Task 10 precedent).
 CP-11 also owns a Guest Wing blueprint (G1-1 added the variety, `quartersGuestWing`; review 2026-10-19).
 
+**Carry note (2026-11-03, CP-11 landed in d0eea0d plus the user-calls fix round; no SAVE bump):** fifteen ordinary
+`equipmentOutput` blueprints in `model.ts` `CREW_MODULE_BLUEPRINTS` (tier 1 Balanced Command, Utilitarian Quarters,
+Guest Wing, Wide-Beam and Balanced Arrays; tier 2 Focused Command, the six division quarters, Efficient Quarters,
+Focused-Beam Array; tier 3 Flag Command), no relic or decode gate; goldens in `cp11Goldens.test.ts` traced through
+`cp11BlueprintsSwitch.fixture.ts`. Recipes: audit section 5 (call 13; Medical Quarters takes 1 Purified Biomass)
+and section 4.8 for the arrays, approved 2026-11-03 ("Approve as proposed"); components only, no Iridium Catalyst
+(M7), no canister (Flag Command kept as built). The Guest Wing's tier 1 is the user's call (2026-11-03); the research
+and craft costs (`CREW_MODULE_BLUEPRINT_COSTS`) stay [PROVISIONAL]. **Distinct recipes [PROPOSAL, for the user's
+sign-off]** (user 2026-11-03, "Tell them apart"): one blueprint of each shared section 5 pair swaps one input for a
+like-cost tier 1 component (a Frame Segment and a Power Coupling are 4 refined units each, an Ingot and a Wafer 1 each):
+- Engineering Quarters (pair with Efficient): Frame 2 + Coupling 2 + Ti Ingot 1 -> Frame 2 + Coupling 2 + Wafer 1
+  (the workshop's diagnostic consoles).
+- Science Quarters (pair with Operations): Frame 2 + Wafer 2 + Coupling 1 -> Frame 2 + Wafer 1 + Ti Ingot 1 +
+  Coupling 1 (a titanium lab bench).
+- Guest Wing (pair with Utilitarian): Frame 2 + Ti Ingot 2 + Coupling 1 -> Frame 1 + Ti Ingot 2 + Coupling 2 (fewer
+  crew bunks to frame; the cabins run their own climate loop).
+
+`materialLinesMl2.test.ts` again enforces "no two varieties of one slot share an input map" with no named exceptions
+(implants aside, as before). CP-12 must flip the bridge+quarters:obtainable row. QA:
+docs/qa/2026-11-03-cp11-crew-modules-qa.html.
+
 ### CP-12: Bridge and Crew Quarters tiles (Task 28 UI)
 
 **Files:** `ShipSystemsPanel.svelte` `SYSTEM_SLOTS` (+ Bridge Module, Crew Quarters, SVG glyphs `bridge`,

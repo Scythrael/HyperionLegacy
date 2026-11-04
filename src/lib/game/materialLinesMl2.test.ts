@@ -184,17 +184,9 @@ describe("ML-2 standing rules", () => {
   // already shared "Wafer + Coupling" stacks (Reflex Booster, Targeting Optic and Synaptic Accelerator; Med-Nanite Swarm
   // and Cipher Wetware), and the audit's approved Archaeo-Scanner fix (Wafer 4 + Coupling 1, call 7) joins the second.
   // Implants are biocompatible electronics, so the shared stacks read true; telling them apart is 0.16.0's theming.
-  // Complement CP-11: three quarters pairs share a map in the recipe realism audit's section 5 table, which the user
-  // approved as written (call 13, "Component mixes (Recommended)"): Science and Operations Quarters (Frame 2 + Wafer 2 +
-  // Coupling 1: a lab bench and an ops room are both consoles), Efficient and Engineering Quarters (Frame 2 + Ti Ingot 1
-  // + Coupling 2: more life support, a workshop) and Utilitarian Quarters and the Guest Wing (Frame 2 + Ti Ingot 2 +
-  // Coupling 1: bunks and cabins). Held as named pairs (not the whole slot) and raised with the user as an open call:
-  // keep the shared maps, or tell them apart.
-  const APPROVED_SHARED_MAPS: ReadonlySet<string> = new Set([
-    "quarters: efficientQuartersBp = engineeringQuartersBp",
-    "quarters: scienceQuartersBp = operationsQuartersBp",
-    "quarters: utilitarianQuartersBp = guestWingBp",
-  ]);
+  // Complement CP-11: the audit's section 5 table gave three quarters pairs one map each; the user chose to tell them
+  // apart (2026-11-03, "Tell them apart"), so Engineering, Science and the Guest Wing each swap one input ([PROPOSAL],
+  // model.ts CREW_MODULE_BLUEPRINTS) and the rule holds for the quarters with no exception.
   it("no two varieties of one slot share an identical input map (implants excepted, see above)", () => {
     const dupes: string[] = [];
     for (const slot of slotsWithBps.filter((s) => s !== "implant")) {
@@ -205,9 +197,7 @@ describe("ML-2 standing rules", () => {
         seen.set(map, bp.key);
       }
     }
-    expect(dupes.filter((d) => !APPROVED_SHARED_MAPS.has(d))).toEqual([]);
-    // The approved pairs are exactly the two (a third shared map, or a pair the user splits, shows here).
-    expect(new Set(dupes.filter((d) => APPROVED_SHARED_MAPS.has(d)))).toEqual(APPROVED_SHARED_MAPS);
+    expect(dupes).toEqual([]);
     // The six slots ML-2 reworked, explicitly.
     for (const slot of ["cargoBay", "ftlDrive", "reactorCore", "specUtility", "shieldEmitters", "hullPlating"]) expect(slotsWithBps, slot).toContain(slot);
   });

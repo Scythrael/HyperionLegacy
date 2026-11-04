@@ -178,8 +178,8 @@
     <h2>Builder notes (CP-11, 2026-11-03)</h2>
     <ol>
       <li><b>Install comes with CP-12.</b> CP-11 is the engine half of Task 28: the blueprints. The Ships tab gains its Bridge Module and Crew Quarters tiles (and Logistics its bridge and quarters groups) in CP-12, so a crafted bridge or quarters piece waits in the spare pool until then. Sensor arrays already install from the Sensor Array tile.</li>
-      <li><b>Provisional.</b> The research and craft costs (tier 1 like the utility rigs, tier 2 like the tier 2 systems, Flag Command like Elite Quarters) and the Guest Wing's tier (1) are first passes no answer names. The three array recipes are the recipe realism audit's section 4.8 proposals.</li>
-      <li><b>Three shared recipes.</b> The approved section 5 table gives Science and Operations Quarters one recipe, Efficient and Engineering Quarters another, and Utilitarian Quarters and the Guest Wing a third. Built as approved; open for your call.</li>
+      <li><b>Provisional.</b> The research and craft costs (tier 1 like the utility rigs, tier 2 like the tier 2 systems, Flag Command like Elite Quarters) are first passes no answer names. The Guest Wing's tier (1) is your call (2026-11-03). The three array recipes are the recipe realism audit's section 4.8 mixes, approved 2026-11-03.</li>
+      <li><b>Every blueprint has its own recipe [PROPOSAL, for your sign-off].</b> The section 5 table gave three quarters pairs one recipe each; you chose to tell them apart (2026-11-03), so one of each pair swaps one input for a like-cost component: Engineering Quarters Frame 2 + Coupling 2 + Ti Ingot 1 becomes Frame 2 + Coupling 2 + Wafer 1 (diagnostic consoles); Science Quarters Frame 2 + Wafer 2 + Coupling 1 becomes Frame 2 + Wafer 1 + Ti Ingot 1 + Coupling 1 (a titanium bench); the Guest Wing Frame 2 + Ti Ingot 2 + Coupling 1 becomes Frame 1 + Ti Ingot 2 + Coupling 2 (fewer crew bunks, cabins on their own climate loop). Efficient, Operations and Utilitarian Quarters keep the table's recipes.</li>
       <li><b>The Archive grows by fifteen rows</b>, so its completion percentage drops for existing saves (the Task 10 precedent): a patch note line.</li>
     </ol>
   </div>
@@ -202,7 +202,7 @@ const SECTIONS = [
     { t: "The flavor lines read true to what each piece does (no numbers, no em dashes, US English, never \"fit\").", tag: "theme" },
   ]},
   { n: "2", title: "Craft", items: [
-    { t: "Fabricator: each recipe takes components only: Frame Segments, Power Couplings, Polysilicate Wafers, Titanium Ingots (Flag Command a Structural Assembly). Medical Quarters also takes 1 Purified Biomass, its sickbay stock.", c: true, how: "cp11CrewModuleBlueprints.test.ts (the audit's recipes, verbatim; no Iridium Catalyst, no canister)." },
+    { t: "Fabricator: each recipe takes components only: Frame Segments, Power Couplings, Polysilicate Wafers, Titanium Ingots (Flag Command a Structural Assembly). Medical Quarters also takes 1 Purified Biomass, its sickbay stock.", c: true, how: "cp11CrewModuleBlueprints.test.ts (the audit's recipes, the arrays' approved 2026-11-03, plus the three [PROPOSAL] swaps; no Iridium Catalyst, no canister); materialLinesMl2.test.ts (no two quarters share a recipe)." },
     { t: "Craft a Wide-Beam Array, a Balanced Command and Utilitarian Quarters on a fresh-ish save: each blank inspects into the right piece.", c: true, tag: "save", how: "cp11CrewModuleBlueprints.test.ts (research, craft, inspect, the piece's variety)." },
     { t: "The blank tiles and the item cards show SVG glyphs: a command chair facing a viewscreen (bridge), a bunk bed (quarters), a phased-array panel with beams (the three arrays), the Guest Wing keeping its bed. No emoji.", tag: "theme" },
     { t: "Glyphs read clearly at 16, 28 and 56 px and stay apart from the Guest Wing bed, the telescope dish and the comm booster mast.", tag: "device" },

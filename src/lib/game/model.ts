@@ -11484,12 +11484,20 @@ export const GAS_GIANT_BLUEPRINTS: Readonly<Record<string, BlueprintDef>> = Obje
 //     tier 1, day one: Balanced Command, Utilitarian Quarters, the Wide-Beam and Balanced Arrays;
 //     tier 2: Focused Command, the six division quarters, Efficient Quarters, the Focused-Beam Array;
 //     tier 3: Flag Command (Elite Quarters is already GG-7's, GAS_GIANT_BLUEPRINTS above).
-//     The Guest Wing (G1-1's variety; "CP-11 must add a Guest Wing blueprint") at tier 1 [PROVISIONAL]: no answer names
-//     its tier; its recipe is Utilitarian's (audit section 5, passenger cabins).
+//     The Guest Wing (G1-1's variety; "CP-11 must add a Guest Wing blueprint") at tier 1 (user 2026-11-03, "Tier 1").
 //   Recipes: the recipe realism audit section 5 (user call 13, "Component mixes (Recommended)"; Medical Quarters takes
 //     1 Purified Biomass, its one exception); existing components only (L2), no Material Lines input and no Iridium
-//     Catalyst (M7 keeps the catalyst on top-tier recipes alone). The arrays take audit section 4.8's [PROPOSAL] mixes.
-//     Flag Command takes no canister: call 14 places canisters in the tier 3+ quarters and sensor modules only.
+//     Catalyst (M7 keeps the catalyst on top-tier recipes alone). The arrays take audit section 4.8's mixes, approved
+//     2026-11-03 ("Approve as proposed"). Flag Command takes no canister: call 14 places canisters in the tier 3+
+//     quarters and sensor modules only.
+//   [PROPOSAL] distinct recipes (user 2026-11-03, "Tell them apart"): section 5 gave three quarters pairs one recipe
+//     each, so one blueprint of each pair swaps one input for a like-cost tier 1 component (a Frame Segment and a Power
+//     Coupling are 4 refined units each, an Ingot and a Wafer 1 each), the user's to sign off:
+//       Engineering Quarters: Frame 2 + Coupling 2 + Ti Ingot 1 -> Frame 2 + Coupling 2 + Wafer 1 (diagnostic consoles);
+//       Science Quarters: Frame 2 + Wafer 2 + Coupling 1 -> Frame 2 + Wafer 1 + Ti Ingot 1 + Coupling 1 (a titanium bench);
+//       Guest Wing: Frame 2 + Ti Ingot 2 + Coupling 1 -> Frame 1 + Ti Ingot 2 + Coupling 2 (fewer crew bunks to frame,
+//       and cabins on their own climate loop).
+//     Efficient, Operations and Utilitarian Quarters keep the table's recipes.
 //   [PROVISIONAL] research and craft costs (CREW_MODULE_BLUEPRINT_COSTS): tier 1 the Spec Utility rigs', tier 2 the
 //     tier 2 economy systems', tier 3 the Elite Quarters' (GG7_NUMBERS.costs[3]), so Flag Command matches its sibling.
 // Flavor text carries no number: the module's effect line on its card does.
@@ -11536,12 +11544,12 @@ export const CREW_MODULE_BLUEPRINTS: Readonly<Record<string, BlueprintDef>> = Ob
     crewModuleBlueprint("utilitarianQuartersBp", "Utilitarian Quarters", 1, "quarters", "quartersUtilitarian", { frameSegment: 2, titaniumIngot: 2, powerCoupling: 1 }, "Plain bunks and a life support loop: a few more berths, and a small lift for every division."),
     crewModuleBlueprint("efficientQuartersBp", "Efficient Quarters", 2, "quarters", "quartersEfficient", { frameSegment: 2, titaniumIngot: 1, powerCoupling: 2 }, "Compact bunks stacked deep on a heavier life support loop: many more berths, each crew member a little less comfortable."),
     crewModuleBlueprint("securityQuartersBp", "Security Quarters", 2, "quarters", "quartersSecurityWing", { frameSegment: 2, titaniumIngot: 3 }, "Bunks beside an armory locker. Security works better; the other divisions give a little ground."),
-    crewModuleBlueprint("engineeringQuartersBp", "Engineering Quarters", 2, "quarters", "quartersEngineeringWing", { frameSegment: 2, powerCoupling: 2, titaniumIngot: 1 }, "Bunks beside a workshop. Engineering works better; the other divisions give a little ground."),
-    crewModuleBlueprint("scienceQuartersBp", "Science Quarters", 2, "quarters", "quartersScienceWing", { frameSegment: 2, polysilicateWafer: 2, powerCoupling: 1 }, "Bunks beside a lab bench. Science works better; the other divisions give a little ground."),
+    crewModuleBlueprint("engineeringQuartersBp", "Engineering Quarters", 2, "quarters", "quartersEngineeringWing", { frameSegment: 2, powerCoupling: 2, polysilicateWafer: 1 }, "Bunks beside a workshop. Engineering works better; the other divisions give a little ground."),
+    crewModuleBlueprint("scienceQuartersBp", "Science Quarters", 2, "quarters", "quartersScienceWing", { frameSegment: 2, polysilicateWafer: 1, titaniumIngot: 1, powerCoupling: 1 }, "Bunks beside a lab bench. Science works better; the other divisions give a little ground."),
     crewModuleBlueprint("medicalQuartersBp", "Medical Quarters", 2, "quarters", "quartersMedicalWing", { frameSegment: 2, polysilicateWafer: 1, titaniumIngot: 1, purifiedBiomass: 1 }, "Bunks beside a stocked sickbay. Medical works better; the other divisions give a little ground."),
     crewModuleBlueprint("operationsQuartersBp", "Operations Quarters", 2, "quarters", "quartersOperationsWing", { frameSegment: 2, polysilicateWafer: 2, powerCoupling: 1 }, "Bunks beside an ops room. Operations works better; the other divisions give a little ground."),
     crewModuleBlueprint("flightDeckQuartersBp", "Flight-Deck Quarters", 2, "quarters", "quartersFlightDeckWing", { frameSegment: 3, powerCoupling: 1 }, "Bunks a short run from the hangar. The Flight Deck works better; the other divisions give a little ground."),
-    crewModuleBlueprint("guestWingBp", "Guest Wing", 1, "quarters", "quartersGuestWing", { frameSegment: 2, titaniumIngot: 2, powerCoupling: 1 }, "Passenger cabins in place of crew bunks: berths for guests, and only a few for the crew."),
+    crewModuleBlueprint("guestWingBp", "Guest Wing", 1, "quarters", "quartersGuestWing", { frameSegment: 1, titaniumIngot: 2, powerCoupling: 2 }, "Passenger cabins in place of crew bunks: berths for guests, and only a few for the crew."),
     // Sensor arrays: receivers on wafers, a frame or couplings for the aperture.
     crewModuleBlueprint("wideBeamArrayBp", "Wide-Beam Array", 1, "sensor", "sensorWideBeam", { polysilicateWafer: 4, frameSegment: 2 }, "A wide receiving aperture: slower passes that sweep more ground, with a better eye for surface landmarks."),
     crewModuleBlueprint("focusedBeamArrayBp", "Focused-Beam Array", 2, "sensor", "sensorFocusedBeam", { polysilicateWafer: 3, powerCoupling: 2 }, "A narrow, hard-driven beam: quick looks that cover less ground, with a better eye for what lies underground."),

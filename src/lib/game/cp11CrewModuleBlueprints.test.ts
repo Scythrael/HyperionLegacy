@@ -13,13 +13,13 @@ import { addItemQuality } from "./inventory";
 import { CP11_BLUEPRINT_KEYS, withoutCp11Content } from "./cp11BlueprintsSwitch.fixture";
 import { WIRING_REGISTRY as REGISTRY } from "./wiring/registry";
 
-// The user-locked tiers (SMS-2 / OC-15) and the [PROVISIONAL] Guest Wing tier.
+// The user-locked tiers (SMS-2 / OC-15; the Guest Wing's, user 2026-11-03: "Tier 1").
 const TIERS: Readonly<Record<string, 1 | 2 | 3>> = {
   balancedCommandBp: 1,
   utilitarianQuartersBp: 1,
   wideBeamArrayBp: 1,
   balancedArrayBp: 1,
-  guestWingBp: 1, // [PROVISIONAL]: no answer names its tier
+  guestWingBp: 1,
   focusedCommandBp: 2,
   securityQuartersBp: 2,
   engineeringQuartersBp: 2,
@@ -32,7 +32,9 @@ const TIERS: Readonly<Record<string, 1 | 2 | 3>> = {
   flagCommandBp: 3,
 };
 
-// The recipes, verbatim from the audit (section 5 for the modules, section 4.8 for the arrays).
+// The recipes: the audit's section 5 for the modules and section 4.8 for the arrays (approved 2026-11-03), save the
+// three [PROPOSAL] swaps that tell the shared quarters pairs apart (user 2026-11-03, "Tell them apart"; model.ts
+// CREW_MODULE_BLUEPRINTS lists old and new): Engineering, Science and the Guest Wing.
 const RECIPES: Readonly<Record<string, Record<string, number>>> = {
   balancedCommandBp: { frameSegment: 1, powerCoupling: 2, polysilicateWafer: 2 },
   focusedCommandBp: { frameSegment: 1, powerCoupling: 2, polysilicateWafer: 3 },
@@ -40,12 +42,12 @@ const RECIPES: Readonly<Record<string, Record<string, number>>> = {
   utilitarianQuartersBp: { frameSegment: 2, titaniumIngot: 2, powerCoupling: 1 },
   efficientQuartersBp: { frameSegment: 2, titaniumIngot: 1, powerCoupling: 2 },
   securityQuartersBp: { frameSegment: 2, titaniumIngot: 3 },
-  engineeringQuartersBp: { frameSegment: 2, powerCoupling: 2, titaniumIngot: 1 },
-  scienceQuartersBp: { frameSegment: 2, polysilicateWafer: 2, powerCoupling: 1 },
+  engineeringQuartersBp: { frameSegment: 2, powerCoupling: 2, polysilicateWafer: 1 }, // [PROPOSAL]
+  scienceQuartersBp: { frameSegment: 2, polysilicateWafer: 1, titaniumIngot: 1, powerCoupling: 1 }, // [PROPOSAL]
   medicalQuartersBp: { frameSegment: 2, polysilicateWafer: 1, titaniumIngot: 1, purifiedBiomass: 1 },
   operationsQuartersBp: { frameSegment: 2, polysilicateWafer: 2, powerCoupling: 1 },
   flightDeckQuartersBp: { frameSegment: 3, powerCoupling: 1 },
-  guestWingBp: { frameSegment: 2, titaniumIngot: 2, powerCoupling: 1 },
+  guestWingBp: { frameSegment: 1, titaniumIngot: 2, powerCoupling: 2 }, // [PROPOSAL]
   wideBeamArrayBp: { polysilicateWafer: 4, frameSegment: 2 },
   focusedBeamArrayBp: { polysilicateWafer: 3, powerCoupling: 2 },
   balancedArrayBp: { polysilicateWafer: 3, powerCoupling: 1, frameSegment: 1 },
