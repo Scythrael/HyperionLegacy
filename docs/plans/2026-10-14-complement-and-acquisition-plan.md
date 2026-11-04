@@ -609,6 +609,23 @@ ICON_SEMANTICS.
 **UI:** mocked in CMR-9 and SMS-1 (tiles with the variant line and Swap / Install). Verify in preview: install a
 Balanced Command on the Aurora and see the officer lift in the stat breakdown; 375 px.
 
+**Carry note (2026-11-03, CP-12 landed; two commits: goldens, then the tiles; no SAVE bump, no rule change):** the
+Systems tiles are one list, `game/shipSystemTiles.ts SHIP_SYSTEM_TILES` (Cargo Bay, FTL Drive, Reactor Core, Spec
+Utility, Sensor Suite, Bridge Module, Crew Quarters), which `ShipSystemsPanel.svelte` draws and the registry measures
+(`installFromShipSystemTile`: the tile's own fitEquipment). Install / uninstall is the existing engine (allow-empty, the
+gear lock, the stamp rules); nothing evicts (CP-5), Elite Quarters 0 berths (WR-7), both pinned in `cp12Goldens`.
+Tile variant line (`src/lib/crewModuleTileDisplay.ts shipSystemTileLine`, every number from the engine readers): the
+array's name, or "<module> · <what it does on this hull>". The crew module compare reads the crew-inclusive sheet
+after the real fitEquipment (officer lift per stat, Crew Berths for quarters); the source popover splits a "Bridge
+Module" bucket off Senior Staff. OC-25: `EQUIPMENT_SLOTS.sensor.label` and the sensor blueprints' install hints read
+"Sensor Suite" (display only). Fabricator: a "Crew Modules" group after Modules (`awayGearDisplay.ts`, test seam
+`CREW_MODULE_SHELF_SWITCH`); Logistics `BAY_SLOT_ORDER` gained bridge and quarters. SVG: empty-tile plus; Bio-Resonance
+Array draws `relicLeviathanScale`, the Resonance Sensor Array `sensorArray`. Registry: `bridge+quarters:obtainable`
+LIVE (probe fillableBerths through the tile list); release gate pending 37 -> 36. Goldens: `cp12Goldens.test.ts`
+(captured first) moved only text, shelf and the registry row, each reproduced by `cp12Switch.fixture.ts withoutCp12` /
+`cp12Registry.fixture.ts cp12ReadBack`; cp11Goldens, emodGoldens and refugeeGoldens read CP-12 back (no hash re-pinned).
+QA: docs/qa/2026-11-03-cp12-bridge-quarters-qa.html.
+
 ### CP-13: Hull-type module bonuses (G5) [blocked on OC-13]
 
 **Files:** `crewModules.ts` (`HULL_FAMILY_MODULE_BONUS: Record<ShipSpec, { bridge, quarters }>`, scaled by the

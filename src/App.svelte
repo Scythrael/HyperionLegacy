@@ -6750,6 +6750,9 @@
     // 0.14.0: crafted scanning arrays are ship equipment too; without this group a crafted array
     // sat invisible in the spare pool (same class of bug as BUG-U1 below).
     "sensor",
+    // Complement CP-12: crafted bridge and quarters modules (CP-11's blueprints), the Logistics groups beside the
+    // Ships tab's Bridge Module and Crew Quarters tiles (the BUG-U1 class again: a crafted one sat invisible).
+    "bridge", "quarters",
     // Combat 1.0 (BUG-U1): crafted combat gear IS ship equipment and must show in this bay too, it
     // was invisible while this list was economy-only. shieldEmitters/hullPlating carry EQUIPMENT_SLOTS
     // labels; weapon + droneBay live in separate tables (WEAPON_DEFS / drone roles) so they take a

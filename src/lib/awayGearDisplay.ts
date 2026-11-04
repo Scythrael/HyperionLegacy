@@ -164,20 +164,29 @@ export function isFieldKitBlueprint(bp: Pick<BlueprintDef, "unlockOnly" | "weapo
 // EM-10's "Modules" group): Materials, Ship Systems, Modules, Away-Team Gear, Implants, Field Kits. A universal module
 // is ship gear (its blanks and its Research row stay with the ship systems), but it gets its own Fabricator shelf, the
 // EM-10 "Fabricator Modules group", next to the ship systems it is installed beside.
-export type FabricatorGroup = "material" | GearCategory | "module" | "fieldKit";
-export const FABRICATOR_GROUP_ORDER: readonly FabricatorGroup[] = ["material", "ship", "module", "awayTeam", "implant", "fieldKit"];
+// Complement CP-12 (plan CP-12 "the Fabricator group for crew modules"; mockup CMR-9 "Crew Modules"): bridge and quarters
+// blueprints get their own "Crew Modules" shelf after Modules, the same way (still ship gear: their Research rows and
+// blanks stay with the ship systems). Sensor arrays stay Ship Systems.
+export type FabricatorGroup = "material" | GearCategory | "module" | "crewModule" | "fieldKit";
+export const FABRICATOR_GROUP_ORDER: readonly FabricatorGroup[] = ["material", "ship", "module", "crewModule", "awayTeam", "implant", "fieldKit"];
 export const FABRICATOR_GROUP_LABEL: Readonly<Record<FabricatorGroup, string>> = {
   material: "Materials",
   ...GEAR_CATEGORY_LABEL,
   module: "Modules",
+  crewModule: "Crew Modules",
   fieldKit: "Field Kits",
 };
+// CP-12 test seam (the HULL_CREW_CAPS_SWITCH precedent): off, a crew module files under Ship Systems as it did before
+// CP-12, so the goldens captured before it read back (cp12Switch.fixture.ts). Always on in the game.
+export const CREW_MODULE_SHELF_SWITCH: { on: boolean } = { on: true };
 
-// The shelf a blueprint's craft files under: Modules for a universal module, its gear category, Field Kits for a kit,
-// else Materials. Pure.
+// The shelf a blueprint's craft files under: Modules for a universal module, Crew Modules for a bridge or quarters
+// module, its gear category, Field Kits for a kit, else Materials. Pure.
 export function fabricatorGroupOf(bp: Pick<BlueprintDef, "unlockOnly" | "weaponOutput" | "droneOutput" | "equipmentOutput" | "recipe">): FabricatorGroup {
   if (isFieldKitBlueprint(bp)) return "fieldKit";
   if (!bp.unlockOnly && bp.equipmentOutput?.slotType === "module") return "module";
+  const slot = bp.equipmentOutput?.slotType;
+  if (CREW_MODULE_SHELF_SWITCH.on && !bp.unlockOnly && (slot === "bridge" || slot === "quarters")) return "crewModule";
   return blueprintGearCategory(bp) ?? "material";
 }
 

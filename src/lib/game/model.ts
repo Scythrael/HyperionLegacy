@@ -2998,9 +2998,11 @@ export const EQUIPMENT_SLOTS: Record<string, EquipmentSlotDef> = {
   // instance as moduleVariant, exactly like a crew module, and exploration will later resolve the array's
   // scan-behavior params from the catalog. statRatios are empty because an array's per-variety behavior is
   // catalog-driven, not budget-biased (the scalar sensor ROLES ride the `sensors` power stat instead).
+  // Complement CP-12 (OC-25, user 2026-10-16 "Slot = Sensor Suite (Recommended)"; arrays stay its variants): the slot's
+  // DISPLAY name is the Sensor Suite. Display text only: the "sensor" slot type and every variety key are unchanged.
   sensor: {
     slotType: "sensor",
-    label: "Sensor Array",
+    label: "Sensor Suite",
     implicitStats: ["sensors"],
     affixPool: [
       { stat: "sensors", weight: 5 },     // signature affix: most likely to roll
@@ -11460,7 +11462,7 @@ export const GAS_GIANT_BLUEPRINTS: Readonly<Record<string, BlueprintDef>> = Obje
       { slotType: "sensor", varietyKey: RESONANCE_SENSOR_ARRAY },
       { photonicGel: 2, polysilicateWafer: 2, powerCoupling: 1, helium3Canister: 1 },
       "A sensor suite cooled on Helium-3 that reads a giant by its resonances from orbit, and hears what lies in its depths.",
-      SPECIAL_HINT("Sensor Array"),
+      SPECIAL_HINT("Sensor Suite"),
       special("resonanceSensorArrayBp").decode,
     ),
     gasGiantBlueprint(
@@ -11509,7 +11511,8 @@ export const CREW_MODULE_BLUEPRINT_COSTS: Readonly<Record<1 | 2 | 3, { ticks: nu
 const CREW_MODULE_SLOT_NAME: Readonly<Record<"bridge" | "quarters" | "sensor", string>> = {
   bridge: "Bridge Module",
   quarters: "Crew Quarters",
-  sensor: "Sensor Array",
+  // CP-12 (OC-25): the slot's display name.
+  sensor: "Sensor Suite",
 };
 function crewModuleBlueprint(
   key: string,

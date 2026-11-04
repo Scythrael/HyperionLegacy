@@ -88,7 +88,7 @@
   import Icon from "./ui/Icon.svelte";
   // The Help topic the Power bar links to (helpTopics.ts; powerBarDisplay.test.ts holds the id to a real topic).
   const POWER_HELP_TOPIC_ID = "powerAndModules";
-  import { equippedFor, fittedInSlot, canFitEquipment } from "./game/equipment";
+  import { equippedFor, fittedInSlot, canFitEquipment, fitEquipment } from "./game/equipment";
   // S2 (user 2026-10-17 "Lock it"): the one crew lock names why a ship's gear is locked (a mission, a patrol, a
   // short-range run, or an expedition until it is claimed), the same lock the engine's install gate reads.
   import { crewLockReason, shipGearLockHint, shipGearLockReasonText } from "./game/crewLock";
@@ -143,6 +143,11 @@
     shipReactorSurplus,
   } from "./game/crewOverlay";
   import { reactorSurplusSpeedLift } from "./game/reactorSurplus";
+  // Complement CP-12: the Systems tiles (shared with the wiring registry), the crew module readers the compare and the
+  // Bridge Module source bucket use, and the tile's variant line.
+  import { CREW_MODULE_TILE_SLOTS, SHIP_SYSTEM_TILES } from "./game/shipSystemTiles";
+  import { quartersCapacityBonus } from "./game/crewModules";
+  import { shipSystemTileLine } from "./crewModuleTileDisplay";
 
   // --- Props ------------------------------------------------------------------
   // `state` is the whole GameState (read-only here); `shipId` selects the ship
@@ -204,19 +209,13 @@
     { slotType: "shieldEmitters", label: "Shield Emitter" },
     { slotType: "hullPlating", label: "Hull Plating" },
   ];
-  // SHIP-SYSTEM singletons (economy): the four live economy slots.
-  const SYSTEM_SLOTS: SlotMeta[] = [
-    { slotType: "cargoBay", label: "Cargo Bay" },
-    { slotType: "ftlDrive", label: "FTL Drive" },
-    { slotType: "reactorCore", label: "Reactor Core" },
-    { slotType: "specUtility", label: "Spec Utility" },
-    // The scanning array (0.14.0). The sensor slot has existed on EVERY hull since the sensor
-    // foundation (an allow-empty catalog singleton), and the Expedition console tells players to
-    // "Install a sensor array (Ships tab)", but this tile was never added, so a crafted array
-    // (first craftable: the Bio-Resonance Array) had no way to be installed. Label matches the
-    // engine's EQUIPMENT_SLOTS.sensor.label.
-    { slotType: "sensor", label: "Sensor Array" },
-  ];
+  // SHIP-SYSTEM singletons: the economy slots, the Spec Utility, the Sensor Suite and (Complement CP-12, mockup CMR-9)
+  // the Bridge Module and Crew Quarters tiles. The list is the engine-side game/shipSystemTiles.ts SHIP_SYSTEM_TILES,
+  // so the wiring registry's "bridge and quarters can be built and installed" row measures an install through exactly
+  // the tiles drawn here. The sensor tile's name is the slot's catalog label (OC-25: "Sensor Suite").
+  const SYSTEM_SLOTS: SlotMeta[] = SHIP_SYSTEM_TILES.map((t) => ({ slotType: t.slotType, label: t.label }));
+  // The tiles whose pieces carry a variant (an array or a crew module): their tile names it on its own line.
+  const VARIANT_LINE_SLOTS: ReadonlySet<EquipmentSlotType> = new Set<EquipmentSlotType>(["sensor", ...CREW_MODULE_TILE_SLOTS]);
 
   // A stable per-slotType glyph for the combat slots (weapon / shield / plating /
   // drone), which carry no economy "variety" and so are not covered by the shared
@@ -510,7 +509,8 @@
   // applyCrewOverlay) the live fold uses, so a source bucket can never drift from the shown value.
   // Complement = the complement folded ALONE (no officers) off the gear baseline; Senior Staff = everything
   // the officers add ON TOP of it (crewOnlyStats - complementOnlyStats): their bonuses, racials and lifts,
-  // any bridge-module amp, and (E-CREW Task 21) the Strength facet's lift of the complement's buffs. The two
+  // the bridge module's amp (CP-12: shown as its own Bridge Module bucket, noBridgeCrewStats below), and (E-CREW Task 21)
+  // the Strength facet's lift of the complement's buffs. The two
   // buckets therefore always sum to the crew total, even where an officer MULTIPLIES the complement (an
   // honest coarse grouping, not a faked per-source split the exported functions do not expose).
   // WR-5c: the crew-side buckets read the save with the commanding captain's secondary nodes set aside, so Inspiring
@@ -534,6 +534,14 @@
   // crewBonuses amplification lives INSIDE the crew contribution, so it already shows in the Senior Staff
   // + Complement buckets above.) With an empty museum this equals effectiveStats and the bucket hides.
   $: crewOnlyStats = ship && fitStats ? applyCrewOverlay(fitStats, shipCrewContribution(noCaptainNodesState, ship)) : null;
+  // Complement CP-12 (plan: "install a Balanced Command ... and see the officer lift in the stat breakdown"): the same
+  // crew fold with this ship's bridge module set aside, so the officers' lift from it reads as its own "Bridge Module"
+  // bucket, split off Senior Staff (the two still sum to the officers' whole share). Null without a bridge module.
+  $: bridgePiece = ship ? fittedBySlot["bridge"] ?? null : null;
+  $: noBridgeCrewStats =
+    ship && fitStats && bridgePiece
+      ? applyCrewOverlay(fitStats, shipCrewContribution({ ...noCaptainNodesState, equipment: noCaptainNodesState.equipment.filter((e) => e.id !== bridgePiece.id) }, ship))
+      : null;
   // WR-5a / WR-5c: the stats before every secondary node of the commanding captain (the Prospector overlay and Keen
   // Sensors are layered last; the crew nodes are set aside above), so the Museum bucket stops there and the Captain
   // bucket is effective - this. With no node it equals effectiveStats.
@@ -650,8 +658,14 @@
     if (Math.abs(gearDelta) > 1e-9) out.push({ label: "Ship systems", text: fmtDeltaUnit(d.kind, gearDelta), delta: true });
     if (Math.abs(gear - plain) > 1e-9) out.push({ label: "Favored hull", text: fmtDeltaUnit(d.kind, gear - plain), delta: true });
     if (crewOnlyStats && complementOnlyStats) {
-      const od = d.get(crewOnlyStats) - d.get(complementOnlyStats);
+      const officersTop = noBridgeCrewStats ?? crewOnlyStats;
+      const od = d.get(officersTop) - d.get(complementOnlyStats);
       if (Math.abs(od) > 1e-9) out.push({ label: "Senior Staff", text: fmtDeltaUnit(d.kind, od), delta: true });
+      // CP-12: what the bridge module adds to the officers' share.
+      if (noBridgeCrewStats) {
+        const bd = d.get(crewOnlyStats) - d.get(noBridgeCrewStats);
+        if (Math.abs(bd) > 1e-9) out.push({ label: "Bridge Module", text: fmtDeltaUnit(d.kind, bd), delta: true });
+      }
     }
     if (complementOnlyStats) {
       const cd = d.get(complementOnlyStats) - gear;
@@ -810,7 +824,10 @@
         // non-prospector hull it now holds a different family, so the picker uses the neutral slot name.
         selectedSlot === "specUtility" && !isProspectorHull
         ? "Spec Utility"
-        : EQUIPMENT_SLOTS[selectedSlot]?.label ?? selectedSlot
+        : // CP-12: a crew module picker is titled like its tile ("Crew Quarters", "Bridge Module").
+          CREW_MODULE_TILE_SLOTS.includes(selectedSlot)
+          ? SYSTEM_SLOTS.find((m) => m.slotType === selectedSlot)?.label ?? selectedSlot
+          : EQUIPMENT_SLOTS[selectedSlot]?.label ?? selectedSlot
       : selectedHardpoint !== null
         ? "Weapon"
         : selectedBay !== null
@@ -905,8 +922,52 @@
     if (row.kind === "ly") return `${Math.floor(v)} LY`; // 0.13.9: floored like every range readout
     return fmtFlat(Number(v.toFixed(1)));
   }
+  function econCompareRow(r: StatRow): CompareRow {
+    // 0.13.9: a Range row diffs the FLOORED values it displays (floor(fitted) - floor(base)), so the
+    // delta always equals the difference of the two numbers shown beside it.
+    const delta = r.kind === "ly" ? Math.floor(r.fitted) - Math.floor(r.base) : r.fitted - r.base;
+    const zero = Math.abs(delta) < 1e-9;
+    const lowerBetter = ECON_LOWER_IS_BETTER.has(r.label);
+    const good = !zero && (lowerBetter ? delta < 0 : delta > 0);
+    const bad = !zero && !good;
+    // Percent stats report the change in points, flat stats as the raw number.
+    const deltaText = zero
+      ? null
+      : r.kind === "pct"
+        ? pointsDeltaText(delta)
+        : r.kind === "ly"
+          ? `${delta > 0 ? "+" : ""}${delta} LY`
+          : `${delta > 0 ? "+" : ""}${fmtFlat(Number(delta.toFixed(1)))}`;
+    return { label: r.label, curText: statValueText(r, "base"), candText: statValueText(r, "fitted"), deltaText, good, bad };
+  }
+  // Complement CP-12: a crew module changes no gear stat (its mass and draw are 0); it acts through the officers and the
+  // complement. Its compare reads the CREW-INCLUSIVE sheet before and after the very fitEquipment the Install button
+  // runs (pure: the result is only read), so a bridge shows the officer lift on each row it moves and a quarters
+  // module its berths. Null when the gate refuses it (the refusal line says why).
+  $: crewModuleCandidate =
+    installCandidate !== null && (installCandidate.slotType === "bridge" || installCandidate.slotType === "quarters") ? installCandidate : null;
+  $: crewModuleAfter =
+    crewModuleCandidate !== null && ship && canFitEquipment(safeState, shipId, crewModuleCandidate.id).ok
+      ? fitEquipment(safeState, shipId, crewModuleCandidate.id)
+      : null;
+  $: candidateCrewLine = crewModuleCandidate !== null && ship ? shipSystemTileLine(safeState, ship, crewModuleCandidate) : null;
   $: compareRows = ((): CompareRow[] => {
     if (!installCandidate || !candidateGear) return [];
+    if (crewModuleCandidate !== null) {
+      const afterShip = crewModuleAfter?.ships.find((s) => s.id === shipId);
+      if (!ship || !effectiveStats || !crewModuleAfter || !afterShip) return [];
+      const rows = buildLiveRows(effectiveStats, effectiveShipStats(crewModuleAfter, afterShip))
+        .filter((r) => Math.abs(r.fitted - r.base) > 1e-9)
+        .map(econCompareRow);
+      if (crewModuleCandidate.slotType !== "quarters") return rows;
+      const cur = quartersCapacityBonus(safeState, ship);
+      const cand = quartersCapacityBonus(crewModuleAfter, afterShip);
+      const d = cand - cur;
+      return [
+        { label: "Crew Berths", curText: `+${cur}`, candText: `+${cand}`, deltaText: d === 0 ? null : `${d > 0 ? "+" : ""}${d}`, good: d > 0, bad: d < 0 },
+        ...rows,
+      ];
+    }
     // ECONOMY: diff the derived stats with base = the CURRENTLY-installed loadout and
     // fitted = the hypothetical candidate loadout, reusing the exact rows the live board shows.
     if (candidateIsEconomy) {
@@ -919,24 +980,7 @@
       const rows = buildLiveRows(fitDriveStats ?? fitStats, candStats).filter(
         (r) => installCandidate?.slotType !== "module" || moduleCompareKeepsRow(r),
       );
-      return rows.map((r) => {
-        // 0.13.9: a Range row diffs the FLOORED values it displays (floor(fitted) - floor(base)), so the
-        // delta always equals the difference of the two numbers shown beside it.
-        const delta = r.kind === "ly" ? Math.floor(r.fitted) - Math.floor(r.base) : r.fitted - r.base;
-        const zero = Math.abs(delta) < 1e-9;
-        const lowerBetter = ECON_LOWER_IS_BETTER.has(r.label);
-        const good = !zero && (lowerBetter ? delta < 0 : delta > 0);
-        const bad = !zero && !good;
-        // Percent stats report the change in points, flat stats as the raw number.
-        const deltaText = zero
-          ? null
-          : r.kind === "pct"
-            ? pointsDeltaText(delta)
-            : r.kind === "ly"
-              ? `${delta > 0 ? "+" : ""}${delta} LY`
-              : `${delta > 0 ? "+" : ""}${fmtFlat(Number(delta.toFixed(1)))}`;
-        return { label: r.label, curText: statValueText(r, "base"), candText: statValueText(r, "fitted"), deltaText, good, bad };
-      });
+      return rows.map(econCompareRow);
     }
     // COMBAT: diff the two folded combat readouts. Every stat here is higher-is-better.
     if (!currentReadout || !candidateReadout) return [];
@@ -1415,9 +1459,10 @@
     // E4d: a relic-unlocked family in the shared Spec Utility slot (stamped moduleVariant with its own
     // identity) reads as its OWN name ("Damage Control Suite"), not the slot's original "Prospecting Rig".
     // Every other piece (no such variety) keeps the slot label exactly as before.
-    // Resolved through the shared pieceVarietyDef (model.ts), never a hand-rolled lookup. Still scoped to
-    // specUtility so crew modules and sensors keep their slot label exactly as before.
-    if (piece.slotType === "specUtility") {
+    // Resolved through the shared pieceVarietyDef (model.ts), never a hand-rolled lookup.
+    // Complement CP-12: a sensor array and a crew module read as their variant too ("Wide-Beam Array", "Focused
+    // Command"), so the install list tells the spares apart (the tile itself keeps the slot's name).
+    if (piece.slotType === "specUtility" || VARIANT_LINE_SLOTS.has(piece.slotType)) {
       const v = pieceVarietyDef(piece);
       if (v !== undefined) return v.label;
     }
@@ -1723,7 +1768,7 @@
                 {:else}
                   <div class="ss-hp-info ss-hp-empty">
                     <span class="ss-tile ss-tile-empty">
-                      <span class="ss-tile-ic">+</span>
+                      <span class="ss-tile-ic"><Icon name="plus" /></span>
                     </span>
                     <span class="ss-hp-name">Empty</span>
                     <!-- Reserve the rarity line a filled tile shows below its name (0.13.2 QA
@@ -1783,7 +1828,7 @@
                   </div>
                 {:else}
                   <div class="ss-slot-info ss-slot-info-empty">
-                    <span class="ss-tile ss-tile-empty"><span class="ss-tile-ic">+</span></span>
+                    <span class="ss-tile ss-tile-empty"><span class="ss-tile-ic"><Icon name="plus" /></span></span>
                     <span class="ss-slot-text">
                       <span class="ss-slot-label">{meta.label}</span>
                       <span class="ss-slot-sub">Empty</span>
@@ -1809,10 +1854,12 @@
               {@const fitted = fittedBySlot[meta.slotType]}
               <div class="ss-slot" class:sel={selectedSlot === meta.slotType} class:locked={editsBlocked}>
                 {#if fitted}
+                  {@const fittedSvg = equipmentSvgIcon(fitted)}
+                  {@const variantLine = VARIANT_LINE_SLOTS.has(fitted.slotType) && ship ? shipSystemTileLine(safeState, ship, fitted) : null}
                   <button
                     type="button"
                     class="ss-slot-info"
-                    aria-label={`${meta.label}: ${fitted.rarity} grade, iL ${fitted.iLevel}. Details.`}
+                    aria-label={`${meta.label}${variantLine ? `, ${variantLine}` : ""}: ${fitted.rarity} grade, iL ${fitted.iLevel}. Details.`}
                     on:click={(e) => clickInfo(e, fitted)}
                     on:mouseenter={(e) => hoverTip(fitted, e.currentTarget)}
                     on:mouseleave={hoverOut}
@@ -1821,11 +1868,15 @@
                   >
                     <span class="ss-tile" style="--tc: {equipmentRarityColor(fitted.rarity)}">
                       <span class="ss-tile-dot"></span>
-                      <span class="ss-tile-ic">{tileIcon(fitted)}</span>
+                      <span class="ss-tile-ic">{#if fittedSvg !== null}<Icon name={fittedSvg} />{:else}{tileIcon(fitted)}{/if}</span>
                       <span class="ss-tile-il">iL {fitted.iLevel}</span>
                     </span>
                     <span class="ss-slot-text">
                       <span class="ss-slot-label">{meta.label}</span>
+                      <!-- CP-12 (mockup CMR-9): the piece's variant, and for a crew module what it does on this hull. -->
+                      {#if variantLine}
+                        <span class="ss-slot-variant">{variantLine}</span>
+                      {/if}
                       <span class="ss-slot-sub">{fitted.rarity} &middot; iL {fitted.iLevel}</span>
                       {#if fitted.slotType === "ftlDrive"}
                         <span class="ss-slot-sub">{driveDrawText(fitted)}</span>
@@ -1843,7 +1894,7 @@
                   </div>
                 {:else}
                   <div class="ss-slot-info ss-slot-info-empty">
-                    <span class="ss-tile ss-tile-empty"><span class="ss-tile-ic">+</span></span>
+                    <span class="ss-tile ss-tile-empty"><span class="ss-tile-ic"><Icon name="plus" /></span></span>
                     <span class="ss-slot-text">
                       <span class="ss-slot-label">{meta.label}</span>
                       <span class="ss-slot-sub">Empty</span>
@@ -1972,7 +2023,7 @@
                     </div>
                   {:else}
                     <div class="ss-hp-info ss-hp-empty">
-                      <span class="ss-tile ss-tile-empty"><span class="ss-tile-ic">+</span></span>
+                      <span class="ss-tile ss-tile-empty"><span class="ss-tile-ic"><Icon name="plus" /></span></span>
                       <span class="ss-hp-name">Empty</span>
                     </div>
                     <div class="ss-slot-actions">
@@ -2015,6 +2066,9 @@
             {:else if pickerSpares.length === 0}
               {#if selectedSlot === "module"}
                 <p class="ss-note ss-note-dim">No spare modules in storage. Craft one at the Fabricator (its Modules group), or remove one from another ship.</p>
+              {:else if selectedSlot === "bridge" || selectedSlot === "quarters"}
+                <!-- CP-12: research the blueprint at the Research Lab, then craft it in the Fabricator's Crew Modules group. -->
+                <p class="ss-note ss-note-dim">No spare {selectedSlot === "bridge" ? "bridge modules" : "crew quarters"} in storage. Research a blueprint at the Research Lab and craft it at the Fabricator (its Crew Modules group), or uninstall one from another ship.</p>
               {:else}
                 <p class="ss-note ss-note-dim">No spare {pickerLabel} systems in storage. Fabricate one, or uninstall from another ship.</p>
               {/if}
@@ -2034,7 +2088,7 @@
                     <span class="ss-slot-sub">{installedPiece.rarity} &middot; iL {installedPiece.iLevel}</span>
                   </span>
                 {:else}
-                  <span class="ss-tile ss-tile-empty"><span class="ss-tile-ic">+</span></span>
+                  <span class="ss-tile ss-tile-empty"><span class="ss-tile-ic"><Icon name="plus" /></span></span>
                   <span class="ss-slot-text">
                     <span class="ss-slot-label">Nothing installed</span>
                     <span class="ss-slot-sub">{pickerLabel} slot is empty</span>
@@ -2116,6 +2170,15 @@
                           <div>{candidateModuleLines.when}</div>
                           {#if candidateModuleLines.rule}<div><b>{candidateModuleLines.rule}</b></div>{/if}
                           <div>{candidateModuleLines.draw}</div>
+                        </div>
+                      {/if}
+                      <!-- CP-12: a crew module says what it does on this hull (the tile's variant line). -->
+                      {#if candidateCrewLine}
+                        <div class="ss-compare-mod">
+                          <div>{candidateCrewLine}</div>
+                          {#if compareRows.length === 0 && crewModuleAfter}
+                            <div>No ship stat moves with the officers seated now.</div>
+                          {/if}
                         </div>
                       {/if}
                       <!-- Per-stat deltas (combat stats for a combat piece, economy stats for an
@@ -2903,6 +2966,13 @@
     font-size: var(--text-2xs);
     color: var(--color-text-secondary);
     text-transform: capitalize;
+  }
+  /* CP-12 (mockup CMR-9): a tile's variant line ("Focused Command · ..."). Sentence case (the rarity line below is
+     capitalized), wraps on a narrow tile instead of widening it. */
+  .ss-slot-variant {
+    font-size: var(--text-2xs);
+    color: var(--color-text-secondary);
+    overflow-wrap: break-word;
   }
   .ss-slot-info-empty {
     color: var(--color-text-dim);

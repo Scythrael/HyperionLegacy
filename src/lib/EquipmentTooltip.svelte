@@ -140,9 +140,7 @@
     efficientCore: "🔋",
     balancedCore: "⚖️",
     // Spec Utility rigs and suites: E-MOD EM-10 review moved all five to SVG (EQUIPMENT_VARIETY_SVG_ICON below).
-    // Exploration 0.14.0 (E4d): the relic-unlocked sensor (same placeholder-emoji surface as above; the game-wide SVG
-    // migration of this map is a separate pass).
-    sensorBioResonance: "🧬",
+    // Sensor arrays: Complement CP-12 moved the last emoji array (Bio-Resonance) to SVG as well.
   };
 
   // G1-1 (Short-Range Missions): the varieties that ship an SVG glyph (icons.ts, classified in ICON_SEMANTICS) in
@@ -172,11 +170,15 @@
     refineryFeedRig: "rigRefineryFeed",
     damageControlSuite: "suiteDamageControl",
     pathfinderSuite: "suitePathfinder",
-    // Complement CP-11: the three early sensor arrays its blueprints make (the slot's relic and special arrays keep
-    // their own glyphs, so the sensor slot takes no SVG fallback).
+    // Complement CP-11: the three early sensor arrays its blueprints make.
     sensorWideBeam: "sensorArray",
     sensorFocusedBeam: "sensorArray",
     sensorBalanced: "sensorArray",
+    // Complement CP-12 (the Sensor Suite tile, SVG only): the relic-unlocked Bio-Resonance Array draws its relic's glyph
+    // (the EM-8 Precursor Lens precedent: the Leviathan Scale unlocks it), and the Resonance Sensor Array the array glyph
+    // (it fell back to the generic emoji).
+    sensorBioResonance: "relicLeviathanScale",
+    sensorResonance: "sensorArray",
   };
 
   // Fallback glyph per SLOT, used if a variety is unmapped OR a slot has no variety

@@ -169,15 +169,15 @@ describe("CP-11: the crew module and early sensor array blueprints", () => {
     expect(new Set(now.filter((k) => !before.includes(k)))).toEqual(CP11_BLUEPRINT_KEYS);
   });
 
-  it("registers each blueprint's effect LIVE with a probe; bridge and quarters stay pending only on CP-12's install tiles", () => {
+  it("registers each blueprint's effect LIVE with a probe; the obtainable row went live with CP-12's install tiles", () => {
     for (const key of CP11_BLUEPRINT_KEYS) {
       const e = REGISTRY.find((x) => x.id === `ship:BLUEPRINTS:${key}:effect`);
       expect(e?.status, key).toEqual({ kind: "live" });
       expect(e?.probe, key).toBeDefined();
     }
+    // CP-12 (cp12BridgeQuartersTiles.test.ts): the Bridge Module and Crew Quarters tiles exist, so the row is live.
     const obtainable = REGISTRY.find((x) => x.id === "ship:EQUIPMENT_SLOTS:bridge+quarters:obtainable");
-    expect(obtainable?.status.kind).toBe("pending");
-    expect(JSON.stringify(obtainable?.status)).toContain("CP-12");
-    expect(JSON.stringify(obtainable?.status)).not.toContain("CP-11,");
+    expect(obtainable?.status).toEqual({ kind: "live" });
+    expect(obtainable?.probe).toBe("fillableBerths");
   });
 });

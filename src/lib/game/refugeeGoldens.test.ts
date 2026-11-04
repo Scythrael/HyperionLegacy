@@ -92,6 +92,7 @@ import { fabricateDurationTicks, researchSpeedFor, startProcess } from "./tick";
 import { dispatchRun, withRefugeePosted } from "./wiring/probes";
 import { CP11_BLUEPRINT_KEYS } from "./cp11BlueprintsSwitch.fixture";
 import { CP11_ADDED_ENTRY_IDS } from "./cp11Registry.fixture";
+import { cp12ReadBack } from "./cp12Registry.fixture";
 
 // The wiring registry entries E5 adds (E5-4 fills it). Held apart from golden 4, so that pin proves nothing else moved.
 // E5-2: the Evacuation template's three rows (the template catalog loop, registry.ts; refugeeRegistry.fixture.ts).
@@ -537,7 +538,8 @@ describe("E5-0 golden 4: the wiring registry's ids and statuses", () => {
   it("count and hash, E5's added entries held apart", () => {
     // Complement CP-11's rows (cp11Registry.fixture.ts) came after and are held apart the same way.
     const added = new Set([...E5_ADDED_ENTRY_IDS, ...CP11_ADDED_ENTRY_IDS]);
-    const lines = WIRING_REGISTRY.filter((e) => !added.has(e.id)).map((e) => `${e.id}|${e.status.kind}`);
+    // Complement CP-12's flip of the obtainable row came after too (cp12ReadBack puts it back).
+    const lines = cp12ReadBack(WIRING_REGISTRY).filter((e) => !added.has(e.id)).map((e) => `${e.id}|${e.status.kind}`);
     pin("registry", [lines.length, hash(lines)]);
   });
 });

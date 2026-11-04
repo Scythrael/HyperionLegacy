@@ -181,6 +181,16 @@ const MOVED_BEFORE: Record<string, string> = {
   "shelf:fabricator:3": "4d3c2ad0",
   "registry:obtainable": "c261096e",
 };
+// The by-design readings after CP-12 (pinned so a later slice cannot move one unexplained).
+const MOVED_AFTER: Record<string, string> = {
+  "text:sensorSlot": "4bfaaa4d",
+  "text:sensorHints": "8eb2b814",
+  "text:sensorCraftLabels": "c4c3098d",
+  "shelf:fabricator:1": "52b7d60b",
+  "shelf:fabricator:2": "c937cf0d",
+  "shelf:fabricator:3": "57d238e0",
+  "registry:obtainable": "ba584f7a",
+};
 
 describe("Complement CP-12 goldens (captured before the Bridge Module and Crew Quarters tiles)", () => {
   if (CAPTURE) {
@@ -202,6 +212,12 @@ describe("Complement CP-12 goldens (captured before the Bridge Module and Crew Q
     for (const [k, v] of Object.entries(MOVED_BEFORE)) expect(pre.moved[k], k).toBe(v);
     // The held readings agree with the switch on as well (the switch touches only the moved readings).
     for (const [k, v] of Object.entries(HELD_CAPTURE)) if (k !== "registry:rows") expect(pre.held[k], k).toBe(v);
+  });
+  it("the by-design readings: CP-12 moves exactly the named ones (every one, each to its pinned value)", () => {
+    const moved = Object.keys(MOVED_BEFORE).filter((k) => pins.moved[k] !== MOVED_BEFORE[k]).sort();
+    expect(moved).toEqual(Object.keys(MOVED_BEFORE).sort());
+    expect(Object.keys(MOVED_AFTER).sort()).toEqual(Object.keys(MOVED_BEFORE).sort());
+    for (const [k, v] of Object.entries(MOVED_AFTER)) expect(pins.moved[k], k).toBe(v);
   });
   it("the never-evict rule: an uninstalled quarters module never lowers the headcount; the Elite Quarters adds no berths", () => {
     for (const hull of ["aurora", "generalFreighter"] as const) {

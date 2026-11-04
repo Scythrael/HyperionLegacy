@@ -12,15 +12,18 @@
 // withoutCp12 runs `fn` with the text and the shelf as they stood, and puts them back exactly in a finally.
 
 import { BLUEPRINTS, EQUIPMENT_SLOTS, type BlueprintDef } from "./model";
+import { CREW_MODULE_SHELF_SWITCH } from "../awayGearDisplay";
 
 export const CP12_SLOT_NAME_BEFORE = "Sensor Array";
 export const CP12_SLOT_NAME_AFTER = "Sensor Suite";
 
 export function withoutCp12<T>(fn: () => T): T {
   const label = EQUIPMENT_SLOTS.sensor.label;
+  const shelf = CREW_MODULE_SHELF_SWITCH.on;
   const hints: [string, BlueprintDef][] = [];
   try {
     EQUIPMENT_SLOTS.sensor.label = CP12_SLOT_NAME_BEFORE;
+    CREW_MODULE_SHELF_SWITCH.on = false;
     for (const [k, bp] of Object.entries(BLUEPRINTS)) {
       if (bp.equipmentOutput?.slotType !== "sensor" || bp.unlockHint === undefined) continue;
       hints.push([k, bp]);
@@ -29,6 +32,7 @@ export function withoutCp12<T>(fn: () => T): T {
     return fn();
   } finally {
     EQUIPMENT_SLOTS.sensor.label = label;
+    CREW_MODULE_SHELF_SWITCH.on = shelf;
     for (const [k, bp] of hints) BLUEPRINTS[k] = bp;
   }
 }
