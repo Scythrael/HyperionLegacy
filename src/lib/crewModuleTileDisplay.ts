@@ -10,15 +10,20 @@
 
 import { CREW_PROFESSIONS } from "./game/commandStructure";
 import {
+  HULL_FAMILY_MODULE_BONUS,
   HULL_ROLE_SEATS,
   bridgeOfficerMultiplier,
   getBridgeModuleById,
   getQuartersModuleById,
+  hullFamilyBridgeLines,
+  hullFamilyQuartersPerk,
   hullSpecOf,
   quartersCapacityBonus,
   quartersProfessionMultiplier,
+  type HullFamilyBridgeStat,
+  type HullFamilyQuartersPerk,
 } from "./game/crewModules";
-import { pieceVarietyDef, shipDerivedStats, type EquipmentInstance, type GameState, type SeniorStaffOfficer, type SeniorStaffSeat, type ShipInstance } from "./game/model";
+import { pieceVarietyDef, shipDerivedStats, type EquipmentInstance, type GameState, type SeniorStaffOfficer, type SeniorStaffSeat, type ShipInstance, type ShipSpec } from "./game/model";
 import { DEPARTMENT_LABEL } from "./game/officerStats";
 
 // The seat names the Senior Staff panel uses (US English), as adjectives before "officers" ("Executive", not
@@ -100,6 +105,77 @@ function quartersEffect(state: GameState, ship: ShipInstance, piece: EquipmentIn
   const guests = (shipDerivedStats(ship, [piece]).colonistCapacity ?? 0) - (shipDerivedStats(ship, []).colonistCapacity ?? 0);
   if (guests > 0) parts.push(`+${Math.round(guests)} guest ${Math.round(guests) === 1 ? "berth" : "berths"}`);
   return parts.join(" · ");
+}
+
+// ============================================================================
+// Complement CP-13 (OC-13, mockup SMS-1 "Hull bonus on <family>"): the HULL BONUS line
+// ============================================================================
+
+// The family names the mockup uses ("Hull bonus on Explorer").
+export const HULL_FAMILY_LABEL: Readonly<Record<ShipSpec, string>> = { general: "General", prospector: "Prospector", tactician: "Tactician", explorer: "Explorer" };
+
+const BRIDGE_STAT_TEXT: Readonly<Record<HullFamilyBridgeStat, string>> = {
+  transitSpeed: "FTL transit speed",
+  unloadSpeed: "unload speed",
+  extractionYield: "extraction yield",
+  weaponDamage: "weapon damage",
+  sensors: "sensors",
+};
+const BRIDGE_STAT_ORDER: readonly HullFamilyBridgeStat[] = ["transitSpeed", "unloadSpeed", "extractionYield", "weaponDamage", "sensors"];
+
+// "+3%", "+3.6%": a share as a percent, at most one decimal (liftPercentText on 1 + share).
+function sharePercentText(share: number): string {
+  return liftPercentText(1 + share);
+}
+
+// The quarters perk as the player reads it, its number read from the engine (`share` is hullFamilyQuartersPerk's).
+function perkText(perk: HullFamilyQuartersPerk, share: number): string {
+  switch (perk) {
+    case "guestQuarters":
+      return `guest quarters ${sharePercentText(share)}`;
+    case "rareFind":
+      return `${sharePercentText(share)} rare finds on mining and survey hauls`;
+    case "injuryRecovery":
+      return `injured crew recover ${sharePercentText(share).replace("+", "")} faster`;
+    case "bayTime":
+      // The bay divides its time by 1 + share, so the cut alone is share / (1 + share).
+      return `ground-team medical bay time ${sharePercentText(share / (1 + share)).replace("+", "")} shorter`;
+  }
+}
+
+// What a bridge or quarters `piece` gives as its HULL BONUS on `ship` (every number from the engine readers, at the
+// piece's own rarity, quality and condition), or null for any other piece. Display only. Pure.
+export function hullFamilyBonusText(state: GameState, ship: ShipInstance, piece: EquipmentInstance): string | null {
+  const spec = hullSpecOf(ship);
+  const on = withPieceOn(state, ship, piece);
+  if (piece.slotType === "bridge") {
+    if (piece.moduleVariant === undefined || getBridgeModuleById(piece.moduleVariant) === undefined) return null;
+    const lines = hullFamilyBridgeLines(on, ship);
+    if (lines === null) return null;
+    const parts = BRIDGE_STAT_ORDER.filter((k) => lines[k] !== 0).map((k) => `${BRIDGE_STAT_TEXT[k]} ${sharePercentText(lines[k])}`);
+    return parts.length === 0 ? null : listText(parts);
+  }
+  if (piece.slotType === "quarters") {
+    const def = piece.moduleVariant === undefined ? undefined : getQuartersModuleById(piece.moduleVariant);
+    if (def === undefined) return null;
+    const q = HULL_FAMILY_MODULE_BONUS[spec]?.quarters;
+    if (q === undefined) return null;
+    const mod = { def, instance: piece };
+    // The division lift is the change it makes inside the quarters multiplier (the same multiplier the crew reads).
+    const lift = quartersProfessionMultiplier(mod, q.divisions[0], spec) - quartersProfessionMultiplier(mod, q.divisions[0]);
+    if (Math.abs(lift) < 1e-9) return null;
+    const parts = [`${listText(q.divisions.map((d) => DEPARTMENT_LABEL[d]))} crew ${sharePercentText(lift)}`];
+    const share = hullFamilyQuartersPerk(on, ship, q.perk);
+    if (share > 0) parts.push(perkText(q.perk, share));
+    return parts.join(", ");
+  }
+  return null;
+}
+
+// The tile's "Hull bonus on <family>" line, or null when the piece gives none. Pure.
+export function hullFamilyBonusLine(state: GameState, ship: ShipInstance, piece: EquipmentInstance): string | null {
+  const text = hullFamilyBonusText(state, ship, piece);
+  return text === null ? null : `Hull bonus on ${HULL_FAMILY_LABEL[hullSpecOf(ship)]}: ${text}`;
 }
 
 // The tile's variant line for an installed (or candidate) piece of a Sensor Suite, Bridge Module or Crew Quarters

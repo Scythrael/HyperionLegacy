@@ -200,9 +200,11 @@ export function projectRunStamp(state: GameState, shipId: string, events: readon
 // Defaults to true (a fresh reading); the engine's run readers pass the run's stamp.
 // WR-7 follow-up (OC-D5): `favored` likewise, whether the run carries the favored-spec stamp (favoredSpec); a run
 // without it reads its pieces without the favored-spec bonus, exactly as before. Defaults to true (a fresh reading).
-export function runShipStats(state: GameState, ship: ShipInstance, stamp: RunWearStamp | undefined, reactorLift: boolean, moduleLines = true, favored = true): ShipDerivedStats {
+// CP-13 (OC-13): `hullBonus` likewise, whether the run carries the hull-family stamp (hullBonus); a run without it reads
+// its crew modules without their hull bonus, exactly as before. Defaults to true (a fresh reading).
+export function runShipStats(state: GameState, ship: ShipInstance, stamp: RunWearStamp | undefined, reactorLift: boolean, moduleLines = true, favored = true, hullBonus = true): ShipDerivedStats {
   const lined = moduleLines ? state : withoutCrewModuleLines(state);
-  return effectiveShipStats(stamp === undefined ? lined : runGearView(lined, ship.id, stamp), ship, { reactorLift, favored });
+  return effectiveShipStats(stamp === undefined ? lined : runGearView(lined, ship.id, stamp), ship, { reactorLift, favored, hullBonus });
 }
 
 // THE SHEET A CAPTAIN MISSION IN FLIGHT IS READ ON (EM-4 review): its frozen gear (the run's wear stamp) and its reactor
@@ -212,9 +214,9 @@ export function runShipStats(state: GameState, ship: ShipInstance, stamp: RunWea
 export function missionRunSheet(
   state: GameState,
   ship: ShipInstance,
-  mission: Pick<CaptainMissionState, "gearWear" | "reactorLift" | "moduleLines" | "favoredSpec">,
+  mission: Pick<CaptainMissionState, "gearWear" | "reactorLift" | "moduleLines" | "favoredSpec" | "hullBonus">,
 ): ShipDerivedStats {
-  return runShipStats(state, ship, mission.gearWear, reactorLiftFlagged(mission.reactorLift), mission.moduleLines === 1, mission.favoredSpec === 1);
+  return runShipStats(state, ship, mission.gearWear, reactorLiftFlagged(mission.reactorLift), mission.moduleLines === 1, mission.favoredSpec === 1, mission.hullBonus === 1);
 }
 
 // ============================================================================
@@ -593,6 +595,9 @@ export interface RepairContextIndex {
   // WR-7 follow-up (OC-D5): ships out on a captain run stamped with the favored spec (favoredSpec === 1). A ship out on
   // a run NOT in this set (an unstamped run, an expedition) reads its Damage Control Suite as stored (shipRepairBonuses).
   readonly favoredRun: ReadonlySet<string>;
+  // Complement CP-13 (OC-13): ships out on a captain run stamped with the hull-family stamp (hullBonus === 1). A ship out
+  // on a run NOT in this set reads its crew's repair speed without the quarters' division lift (shipRepairBonuses).
+  readonly hullBonusRun: ReadonlySet<string>;
 }
 
 // Where every ship is at `state.gameTimeSeconds`, for the repair contexts. Pure.
@@ -600,12 +605,14 @@ export function repairContextIndex(state: GameState): RepairContextIndex {
   const t = state.gameTimeSeconds;
   const out = new Set<string>();
   const favoredRun = new Set<string>();
+  const hullBonusRun = new Set<string>();
   for (const ship of state.ships) {
     if (ship.assignedCaptainId === null) continue;
     const captain = state.captains.find((c) => c.id === ship.assignedCaptainId);
     if (captain && captain.mission !== null) {
       out.add(ship.id);
       if ((captain.mission as { favoredSpec?: unknown }).favoredSpec === 1) favoredRun.add(ship.id);
+      if ((captain.mission as { hullBonus?: unknown }).hullBonus === 1) hullBonusRun.add(ship.id);
     }
   }
   // A ship on an expedition is underway for the whole run, its field repair legs included: those settle at the field
@@ -621,7 +628,7 @@ export function repairContextIndex(state: GameState): RepairContextIndex {
   for (const p of state.activeProcesses) if (p.kind === "shipRepair" && p.effect.type === "clearShipDamage") bay.add(p.effect.shipId);
   const memberShip = new Map<string, string | null>();
   for (const m of state.awayMembers) memberShip.set(m.id, m.assignedShipId ?? null);
-  return { out, bay, field, memberShip, favoredRun };
+  return { out, bay, field, memberShip, favoredRun, hullBonusRun };
 }
 
 // The ship a piece rides with: its own ship, or its member's. null = in storage (a spare, an Armory piece). Pure.
@@ -650,10 +657,12 @@ type RepairBonuses = Partial<Record<RepairRateBonus, number>>;
 // withFavoredLines). A run reads them only when stamped (favoredSpec): a patrol's wear clock passes its run's stamp
 // (dispatch and every relaunch) and the tail pass the same stamp (pieceRepairRate, RepairContextIndex.favoredRun), so an
 // unstamped run in flight repairs exactly as before. A ship on no run reads the suite as it stands (favored).
-export function shipRepairBonuses(state: GameState, ship: ShipInstance, favored: boolean): RepairBonuses {
+// Complement CP-13 (OC-13): `hullBonus` likewise, whether the crew's repair speed reads the quarters module's division
+// lift (index.hullBonusRun: an unstamped run in flight repairs exactly as before). Defaults to true (a fresh reading).
+export function shipRepairBonuses(state: GameState, ship: ShipInstance, favored: boolean, hullBonus = true): RepairBonuses {
   const installed = equippedFor(state, ship.id);
   return {
-    officerRepairSpeed: withCaptainRepair(shipRepairSpeedBonus(state, ship), shipCaptainCombatMods(state, ship)),
+    officerRepairSpeed: withCaptainRepair(shipRepairSpeedBonus(state, ship, hullBonus), shipCaptainCombatMods(state, ship)),
     damageControlRepairTime: damageControlEffect(favored ? withFavoredLines(installed, ship.typeKey) : installed).repairTimeReduction,
   };
 }
@@ -675,11 +684,13 @@ export function pieceRepairRate(
   const shipId = pieceShipId(index, piece);
   if (shipId === null) return repairRatePerMinute(context);
   const favored = postRun || !index.out.has(shipId) || index.favoredRun.has(shipId);
-  const key = favored ? `${shipId}|favored` : shipId;
+  // Complement CP-13: the same rule for the hull-family stamp.
+  const hullBonus = postRun || !index.out.has(shipId) || index.hullBonusRun.has(shipId);
+  const key = `${favored ? `${shipId}|favored` : shipId}${hullBonus ? "|hull" : ""}`;
   let bonuses = cache?.get(key);
   if (bonuses === undefined) {
     const ship = state.ships.find((s) => s.id === shipId);
-    bonuses = ship ? shipRepairBonuses(state, ship, favored) : {};
+    bonuses = ship ? shipRepairBonuses(state, ship, favored, hullBonus) : {};
     cache?.set(key, bonuses);
   }
   return repairRatePerMinute(context, bonuses);

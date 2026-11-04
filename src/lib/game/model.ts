@@ -3886,6 +3886,11 @@ export interface ShortRangeMissionState {
   // hull favors its spec and carried to every later cycle; only a stamped run's sheet reads the favored lines, so a
   // run in flight at the update reads its pieces as it did. Optional, no SAVE bump.
   favoredSpec?: 1;
+  // CP-13 (OC-13, crewModules.ts hullFamilyStamp): the hull-family stamp, written at dispatch when the ship has a bridge or
+  // quarters module installed and carried to every later cycle; only a stamped run reads the modules' hull bonus (the
+  // sheet lines, the division lifts, the output share), so a run in flight at the update plays as it did. Optional, no
+  // SAVE bump.
+  hullBonus?: 1;
   // WR-9 fix round (user 2026-10-31 "Missions, short-range, patrols"): the Flight Deck's Cunning facet at dispatch
   // (officerStats.ts pilotCunningStamp), carried to every later cycle. Each cycle start rolls it on the cycle's job seed
   // and folds a landed cut into the plan's leg home (pilotCutShortRangePlan). Written only when non-zero; a run in
@@ -3960,6 +3965,9 @@ export interface CaptainMissionState {
   // WR-7 follow-up (OC-D5): the favored-spec stamp, as on ShortRangeMissionState: stamped at dispatch, carried to every
   // repeated cycle; only a stamped run's sheet reads the favored lines.
   favoredSpec?: 1;
+  // CP-13 (OC-13): the hull-family stamp, as on ShortRangeMissionState: stamped at dispatch, carried to every repeated
+  // cycle; only a stamped run reads its crew modules' hull bonus (the sheet, the output share, the rare finds).
+  hullBonus?: 1;
   // WR-9 (OC-E4, user 2026-10-15 "Quicker trips home"): the Flight Deck's Cunning facet at dispatch
   // (officerStats.ts pilotCunningStamp), carried to every repeated cycle: each cycle, that chance its return leg runs
   // PILOT_CUNNING_RETURN_CUT_TICKS shorter (tick.ts tickCaptainMission). Written only when non-zero; a run in flight
@@ -4255,6 +4263,15 @@ export interface PatrolMissionState {
   // Damage Control Suite's patch-up, the relaunch's fuel and combat speed), so a patrol in flight at the update flies
   // exactly as it did. Optional, no SAVE bump.
   favoredSpec?: 1;
+  // CP-13 (OC-13, crewModules.ts hullFamilyStamp): the hull-family stamp, written at dispatch when the ship has a bridge or
+  // quarters module installed and carried to every relaunched cycle: only a stamped run reads the modules' hull bonus (a
+  // relaunch's sheet, combat speed, output share and Deck Handling, and its weapon line below). Optional, no SAVE bump.
+  hullBonus?: 1;
+  // CP-13: the Tactician bridge's weapon damage line (crewModules.ts hullFamilyWeaponLine), FROZEN when THIS cycle starts
+  // (dispatch, and again at each relaunch of a stamped run) beside officerCombat, read the same way by every wave, the
+  // live loop and the display replay (combat/bridge.ts applyHullWeaponLine). It comes from INSTALLED GEAR, not the crew
+  // (D12 holds). OPTIONAL, written only when > 0 (no SAVE bump).
+  hullWeapon?: number;
   // WR-7 follow-up OC-D8 (patrolLegTicksFor): THIS cycle's transit legs in route ticks, frozen when the cycle starts
   // (dispatch, and again at each relaunch) from the ship's speed on each leg then (the sweeping transit speed, and since
   // the OC-D8 follow-up Fast Departure's lift on the outbound leg and Fast Return's on the leg home). Every reader of
@@ -9393,6 +9410,12 @@ export interface GroundOpsFactors {
   // FULL_HOLD_FRACTION of its objective's haul runs offloadMult x (1 + this) faster (groundOps.ts groundOffloadSeconds).
   // Written only when non-zero; a run dispatched before WR-9 keeps its exact shape.
   offloadSteady?: number;
+  // CP-13 (OC-13, crewModules.ts hullFamilyQuartersPerk): a quarters module's hull-family perk, a care share in the
+  // medical bay (medicalBay.ts BayCare): the Tactician's "injured crew recover 15% faster" (INJURY-class conditions only)
+  // and the Explorer's "ground-team medical bay time 10% shorter" (every condition). Written only when non-zero; a run
+  // dispatched before CP-13 keeps its exact shape.
+  hullInjuryShare?: number;
+  hullBayShare?: number;
 }
 
 // The ship-side scan event inputs, frozen at dispatch (shipScanEvents.ts snapshotShipEventProfile, GO-8; GO-9
@@ -9445,6 +9468,10 @@ export interface ShipEventBattle {
   // exactly as the Shipyard applies it (damageControlRepairTicks). Written only when above 0: absent on a run without
   // the suite and on a run dispatched before WR-7, whose field repairs are exactly what they were.
   dcRepairTimeReduction?: number;
+  // Complement CP-13 (OC-13): the Tactician bridge module's weapon damage line (crewModules.ts hullFamilyWeaponLine),
+  // frozen at dispatch; every ship battle of the run fights with it (combat/bridge.ts applyHullWeaponLine). Written only
+  // when > 0: absent on a run without one and on a run dispatched before CP-13.
+  hullWeapon?: number;
 }
 
 // The default per-save expedition seed a fresh save starts from, and the value the v58->v59 migration

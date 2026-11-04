@@ -47,6 +47,8 @@ import {
   bridgeOfficerMultiplier,
   quartersCapacityBonus,
   hullSpecOf,
+  hullFamilyBridgeLines,
+  type HullFamilyBridgeLines,
 } from "./crewModules";
 // Exploration 0.14.0 (Phase E4b): the account-level MUSEUM bonuses (relics.ts). relics.ts imports only
 // TYPES from model.ts + the leaf PRNG, so this import adds no cycle.
@@ -334,12 +336,15 @@ function applyOfficerLifts(base: ShipDerivedStats, lift: number, turnaround: num
 // the bonuses (effectiveShipStats) does not recompute them; omitted, it is read off `state`. With an
 // empty museum crewBonuses is 0 and the map is returned UNTOUCHED (no scaling pass at all), so every
 // crew number stays byte-identical to E4a.
+// CP-13 (OC-13): `hullBonus` false reads the quarters module without its hull-family division lift (a captain mission,
+// short-range run or patrol dispatched before CP-13: no hullBonus stamp). Defaults to true (a fresh reading).
 export function shipCrewContribution(
   state: GameState,
   ship: ShipInstance,
   museum: Readonly<Record<MuseumStat, number>> = museumBonuses(state),
+  hullBonus = true,
 ): Record<string, number> {
-  return scaleCrewContribution(rawShipCrewContribution(state, ship), museum.crewBonuses);
+  return scaleCrewContribution(rawShipCrewContribution(state, ship, hullBonus), museum.crewBonuses);
 }
 
 // Multiply every crew.* delta by (1 + crewBonus). crewBonus 0 returns the SAME map (no copy, no float
@@ -352,7 +357,7 @@ export function scaleCrewContribution(crew: Record<string, number>, crewBonus: n
 }
 
 // The UN-amplified crew contribution (the pre-E4b body of shipCrewContribution, unchanged).
-function rawShipCrewContribution(state: GameState, ship: ShipInstance): Record<string, number> {
+function rawShipCrewContribution(state: GameState, ship: ShipInstance, hullBonus: boolean): Record<string, number> {
   const out: Record<string, number> = {};
   const add = (key: string, value: number): void => {
     if (value === 0) return;
@@ -412,10 +417,12 @@ function rawShipCrewContribution(state: GameState, ship: ShipInstance): Record<s
   const complementMult = captainComplementMult(captain);
   const officerOutput = captainOfficerOutputMult(captain);
   if (buckets.length > 0) {
+    // CP-13 (OC-13): the hull family's division lift rides the quarters multiplier (a fresh reading, or a stamped run).
+    const liftSpec = hullBonus ? hullSpecOf(ship) : undefined;
     const contrib =
       quartersMod || strength || complementMult !== 1
         ? (sig: CrewSignature): Record<string, number> => {
-            const quarters = quartersMod ? quartersProfessionMultiplier(quartersMod, sig.profession) : 1;
+            const quarters = quartersMod ? quartersProfessionMultiplier(quartersMod, sig.profession, liftSpec) : 1;
             const mult = (strength ? quarters * strength[sig.profession] : quarters) * complementMult;
             const base = contributionForSignature(sig);
             if (mult === 1) return base; // no change for this division: keep the base map
@@ -680,9 +687,10 @@ export function officerMissionOutputBonus(state: GameState, ship: ShipInstance):
 
 // Damage Control (crew.hullRepairRate, plus the Stheni racial) and the repair half of Mission Turnaround
 // (crew.missionTurnaround): the complement's share of the repair speed-up. Pure.
-export function crewRepairSpeedBonus(state: GameState, ship: ShipInstance): number {
+// CP-13: `hullBonus` as in shipCrewContribution (a ship out on a run dispatched before CP-13 reads no division lift).
+export function crewRepairSpeedBonus(state: GameState, ship: ShipInstance, hullBonus = true): number {
   if (!carriesCrewKey(state, ship, CREW_STAT_KEYS.hullRepairRate) && !carriesCrewKey(state, ship, CREW_STAT_KEYS.missionTurnaround)) return 0;
-  const crew = shipCrewContribution(state, ship);
+  const crew = shipCrewContribution(state, ship, museumBonuses(state), hullBonus);
   return (crew[CREW_STAT_KEYS.hullRepairRate] ?? 0) + (crew[CREW_STAT_KEYS.missionTurnaround] ?? 0);
 }
 
@@ -726,25 +734,27 @@ function carriesCrewKey(state: GameState, ship: ShipInstance, key: string): bool
 // The whole repair speed-up every repair reads: the Shipyard divisor (tick.ts shipRepairDurationTicks divides the
 // repair by 1 + this, a D23 divisor: never 0, each point worth a little less) and the Ground Ops field repair
 // (frozen at dispatch, shipScanEvents.ts ShipEventBattle.repairSpeed). Officers + complement. Pure.
-export function shipRepairSpeedBonus(state: GameState, ship: ShipInstance): number {
+export function shipRepairSpeedBonus(state: GameState, ship: ShipInstance, hullBonus = true): number {
   const officers = officerRepairSpeedBonus(state, ship);
-  const crew = crewRepairSpeedBonus(state, ship);
+  const crew = crewRepairSpeedBonus(state, ship, hullBonus);
   return crew === 0 ? officers : officers + crew;
 }
 
 // Crew Output Multiplier (crew.crewOutputMult, OC-E3 "More mission + patrol haul"): the complement's share of the
 // mission output every delivered haul and credit award grows by. Pure.
-export function crewMissionOutputBonus(state: GameState, ship: ShipInstance): number {
+// CP-13: `hullBonus` as in shipCrewContribution (a run dispatched before CP-13 reads no division lift).
+export function crewMissionOutputBonus(state: GameState, ship: ShipInstance, hullBonus = true): number {
   if (!carriesCrewKey(state, ship, CREW_STAT_KEYS.crewOutputMult)) return 0;
-  return shipCrewContribution(state, ship)[CREW_STAT_KEYS.crewOutputMult] ?? 0;
+  return shipCrewContribution(state, ship, museumBonuses(state), hullBonus)[CREW_STAT_KEYS.crewOutputMult] ?? 0;
 }
 
 // The whole mission output share economyTick applies (extraction / survey / transport deliveries and patrol wave
 // loot, through the existing whole-unit chanceRound streams; no new stream): Command Presence + Crew Output
 // Multiplier, one additive share. Loot is not battle power, so D12 holds. Pure.
-export function shipMissionOutputBonus(state: GameState, ship: ShipInstance): number {
+// CP-13: `hullBonus` false for a run dispatched before CP-13 (its stamp), so its output share reads as it did.
+export function shipMissionOutputBonus(state: GameState, ship: ShipInstance, hullBonus = true): number {
   const officers = officerMissionOutputBonus(state, ship);
-  const crew = crewMissionOutputBonus(state, ship);
+  const crew = crewMissionOutputBonus(state, ship, hullBonus);
   return crew === 0 ? officers : officers + crew;
 }
 
@@ -754,9 +764,10 @@ export function shipMissionOutputBonus(state: GameState, ship: ShipInstance): nu
 // never drone damage (D12: the complement never feeds weapons or shields). Frozen when the cycle starts
 // (PatrolMissionState.deckHandling). A complement buff stacks with headcount (bounded by the hull's crew cap), so it
 // stays linear like every other complement buff. 0 without the key. Pure.
-export function shipDeckHandling(state: GameState, ship: ShipInstance): number {
+// CP-13: `hullBonus` false for a patrol relaunched from a run dispatched before CP-13 (no division lift).
+export function shipDeckHandling(state: GameState, ship: ShipInstance, hullBonus = true): number {
   if (!carriesCrewKey(state, ship, CREW_STAT_KEYS.droneHandling)) return 0;
-  return Math.max(0, shipCrewContribution(state, ship)[CREW_STAT_KEYS.droneHandling] ?? 0);
+  return Math.max(0, shipCrewContribution(state, ship, museumBonuses(state), hullBonus)[CREW_STAT_KEYS.droneHandling] ?? 0);
 }
 
 // Survey Aptitude (crew.surveyAptitude: the Science buff and the Vael and Outer-Colony racials; complement plan CP-3,
@@ -810,14 +821,17 @@ export const shipPreventCrewLoss = (state: GameState, ship: ShipInstance): numbe
 // EM-4 (no flag, gearWearEngine.ts runShipStats), and the readout's source split (its Reactor surplus bucket).
 // WR-7 follow-up (OC-D5): `opts.favored: false` reads the installed pieces without the favored-spec bonus (model.ts
 // withFavoredLines): a captain mission, short-range run or patrol cycle dispatched before it (no favoredSpec stamp).
-export function effectiveShipStats(state: GameState, ship: ShipInstance, opts: { reactorLift?: boolean; favored?: boolean } = {}): ShipDerivedStats {
+// CP-13 (OC-13): `opts.hullBonus: false` reads the crew modules without their hull-family bonus (the sheet lines and the
+// division lifts): a captain mission, short-range run or patrol cycle dispatched before CP-13 (no hullBonus stamp).
+export function effectiveShipStats(state: GameState, ship: ShipInstance, opts: { reactorLift?: boolean; favored?: boolean; hullBonus?: boolean } = {}): ShipDerivedStats {
   const favored = opts.favored !== false;
+  const hullBonus = opts.hullBonus !== false;
   // WR-5a: the commanding captain's Prospector nodes, LAST (Overloaded Holds' overflow is a share of the finished hold).
   // WR-5c: then the same captain's Keen Sensors (a multiplier on the finished sensors; the Prospector lifts never
   // touch sensors, so the order between the two is immaterial).
   const captain = commandingCaptain(state, ship);
-  const stats = applyCaptainSensors(applyCaptainOverlay(shipStatsBeforeCaptain(state, ship, favored), captainShipLifts(captain)), captainSensorsMult(captain));
-  return opts.reactorLift === false ? stats : applyReactorDrive(state, ship, stats, favored);
+  const stats = applyCaptainSensors(applyCaptainOverlay(shipStatsBeforeCaptain(state, ship, favored, hullBonus), captainShipLifts(captain)), captainSensorsMult(captain));
+  return opts.reactorLift === false ? stats : applyReactorDrive(state, ship, stats, favored, hullBonus);
 }
 
 // E-MOD EM-4: the installed Reactor Core's drive effect on the finished sheet. Transit speed x the surplus lift, then
@@ -828,13 +842,13 @@ export function effectiveShipStats(state: GameState, ship: ShipInstance, opts: {
 // Departure / Fast Return) multiply this sweeping speed, so both legs, the voyage and the combat speed all take it.
 // Returns `stats` itself without a core, with the Standard-Issue core and while the test switch is off (the
 // byte-identical guarantee). PURE.
-function applyReactorDrive(state: GameState, ship: ShipInstance, stats: ShipDerivedStats, favored: boolean): ShipDerivedStats {
+function applyReactorDrive(state: GameState, ship: ShipInstance, stats: ShipDerivedStats, favored: boolean, hullBonus: boolean): ShipDerivedStats {
   if (!REACTOR_LIFT_SWITCH.live) return stats;
   const core = equippedFor(state, ship.id).find((p) => p.slotType === "reactorCore");
   if (core === undefined) return stats;
   return reactorDriveFold(stats, core, reactorSurplusSpeedLift(shipReactorSurplus(state, ship)), () => {
     const weightless = { ...state, equipment: state.equipment.map((e) => (e.id === core.id ? { ...e, mass: 0 } : e)) };
-    return effectiveShipStats(weightless, ship, { reactorLift: false, favored }).transitSpeedMult;
+    return effectiveShipStats(weightless, ship, { reactorLift: false, favored, hullBonus }).transitSpeedMult;
   });
 }
 
@@ -898,13 +912,14 @@ export function shipReactorSurplus(state: GameState, ship: ShipInstance): number
 // pristine output against the net draw), stored only when below 100.
 // WR-7 follow-up (OC-D5): `favored` false for a patrol cycle relaunched from a run dispatched before the favored-spec
 // bonus (its speed reads the pieces as stored).
-export function shipCombatRulesStamp(state: GameState, ship: ShipInstance, favored = true): CombatRulesStamp | undefined {
+// CP-13: `hullBonus` false likewise (a patrol relaunched from a run dispatched before CP-13: no General bridge speed).
+export function shipCombatRulesStamp(state: GameState, ship: ShipInstance, favored = true, hullBonus = true): CombatRulesStamp | undefined {
   const hullBase = SHIP_TYPES[ship.typeKey]?.transitSpeedMult ?? 1;
   const gear = equippedFor(state, ship.id);
   const quality = (slotType: string): number => gear.find((p) => p.slotType === slotType)?.quality ?? 0;
   const power = shipNetPowerTotals(state, ship);
   return newCombatRulesStamp(
-    combatSpeedFor(effectiveShipStats(state, ship, { favored }).transitSpeedMult, hullBase),
+    combatSpeedFor(effectiveShipStats(state, ship, { favored, hullBonus }).transitSpeedMult, hullBase),
     quality("reactorCore"),
     quality("ftlDrive"),
     powerSupplyPercent(power.output, power.draw),
@@ -928,11 +943,39 @@ export function shipNetPowerTotals(state: GameState, ship: ShipInstance): { outp
 
 // effectiveShipStats WITHOUT the captain overlays: the gear fold, the crew, the museum and the officer facets. The
 // ship readout's source split reads it (its Captain bucket is effective minus this, Keen Sensors included). PURE.
-export function shipStatsBeforeCaptain(state: GameState, ship: ShipInstance, favored = true): ShipDerivedStats {
+// CP-13 (OC-13): then the installed bridge module's hull-family lines (applyHullFamilyLines), unless `hullBonus` is false.
+export function shipStatsBeforeCaptain(state: GameState, ship: ShipInstance, favored = true, hullBonus = true): ShipDerivedStats {
   const base = shipDerivedStats(ship, equippedFor(state, ship.id), { favored });
   const museum = museumBonuses(state);
-  const crewed = applyCrewOverlay(base, shipCrewContribution(state, ship, museum));
+  const crewed = applyCrewOverlay(base, shipCrewContribution(state, ship, museum, hullBonus));
+  const lined = hullBonus ? applyHullFamilyLines(applyMuseumOverlay(crewed, museum), hullFamilyBridgeLines(state, ship)) : applyMuseumOverlay(crewed, museum);
+  return applyOfficerFacetStats(lined, state, ship);
+}
+
+// CP-13: shipStatsBeforeCaptain without the bridge module's hull-family sheet lines (the division lifts kept): the ship
+// readout's source split reads it (its Hull bonus bucket is shipStatsBeforeCaptain minus this). PURE.
+export function shipStatsBeforeHullLines(state: GameState, ship: ShipInstance): ShipDerivedStats {
+  const base = shipDerivedStats(ship, equippedFor(state, ship.id), { favored: true });
+  const museum = museumBonuses(state);
+  const crewed = applyCrewOverlay(base, shipCrewContribution(state, ship, museum, true));
   return applyOfficerFacetStats(applyMuseumOverlay(crewed, museum), state, ship);
+}
+
+// CP-13 (OC-13, crewModules.ts HULL_FAMILY_MODULE_BONUS): the bridge module's hull-family lines on the sheet, each its own
+// (1 + line) factor on the value it names: FTL transit speed and unload speed (General), extraction yield (Prospector),
+// sensors (Explorer; 0 sensors stay 0). The Tactician weapon line is a combat line (combat/bridge.ts). No bridge
+// module, or no sheet line on the hull, returns `stats` itself (the byte-identical guarantee). PURE.
+export function applyHullFamilyLines(stats: ShipDerivedStats, lines: HullFamilyBridgeLines | null): ShipDerivedStats {
+  if (lines === null) return stats;
+  const { transitSpeed, unloadSpeed, extractionYield, sensors } = lines;
+  if (transitSpeed === 0 && unloadSpeed === 0 && extractionYield === 0 && sensors === 0) return stats;
+  return {
+    ...stats,
+    ...(transitSpeed !== 0 ? { transitSpeedMult: stats.transitSpeedMult * (1 + transitSpeed) } : {}),
+    ...(unloadSpeed !== 0 ? { unloadSpeedMult: (stats.unloadSpeedMult ?? 1) * (1 + unloadSpeed) } : {}),
+    ...(extractionYield !== 0 ? { extractionYieldMult: stats.extractionYieldMult * (1 + extractionYield) } : {}),
+    ...(sensors !== 0 ? { sensors: stats.sensors * (1 + sensors) } : {}),
+  };
 }
 
 // WR-5c (captain secondary talent surveySensors1 Keen Sensors, OC-A1 "Always multiply"): sensors x `mult`. Exactly 1

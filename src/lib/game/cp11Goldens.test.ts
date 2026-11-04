@@ -19,6 +19,11 @@
 // CP11_CAPTURE = an output path: record every pin instead of asserting (the EM8_CAPTURE pattern).
 
 import { describe, expect, it } from "vitest";
+import { cp13OffForThisFile } from "./cp13Switch.fixture";
+// Complement CP-13 (hull-family module bonuses) came after every pin here: the file runs with the bonus off, so its pins
+// keep proving their own slice (cp13Goldens.test.ts pins what CP-13 moved).
+cp13OffForThisFile();
+import { cp13ReadBack } from "./cp13Registry.fixture"; // Complement CP-13: its added rows read back, innermost
 import { writeFileSync } from "node:fs";
 import Decimal from "break_infinity.js";
 import { BLUEPRINTS, EQUIPMENT_SLOTS, blueprintResearchable, freshState, type GameState, type ShipTypeKey } from "./model";
@@ -42,7 +47,7 @@ const CAPTURE = Boolean(import.meta.env.CP11_CAPTURE);
 const SHIP = "ship-1";
 const HULLS: readonly ShipTypeKey[] = ["aurora", "eir", "generalFreighter"];
 const shipOf = (s: GameState) => s.ships.find((x) => x.id === SHIP)!;
-const REGISTRY = cp12ReadBack(WIRING_REGISTRY);
+const REGISTRY = cp12ReadBack(cp13ReadBack(WIRING_REGISTRY));
 
 function registryRows(): string[] {
   return cp11ReadBack(REGISTRY).map((e) => `${e.id}|${JSON.stringify(e.status)}|${e.probe ?? ""}|${e.contexts.join(",")}|${e.claim}`);

@@ -16,6 +16,7 @@ import type { WiringEntry } from "./registry";
 import {
   HOMEWORLD_TALENTS,
   SHIP_DOCKS_BASE,
+  SHIP_TYPES,
   SUBSPACE_TELESCOPE_FACILITY_KEY,
   type CrewBucket,
   type EquipmentInstance,
@@ -369,6 +370,15 @@ const ADAPTERS: Readonly<Record<string, Adapter>> = {
     shipOf(v)?.typeKey === key.split(":")[0] ? { ownership: "owned", measure: false, note: "hull data, read verbatim (the sensitivity suite proves it)" } : NOT_OWNED,
   QUARTERS_MODULES: (_e, v, key) => moduleOn(v, "quarters", key.split(":")[0]),
   BRIDGE_MODULES: (_e, v, key) => moduleOn(v, "bridge", key.split(":")[0]),
+  // Complement CP-13: a hull-family line ("<family>:<bridge|quarters>:...") is owned on a ship of that family with a
+  // module in that slot; without = that module uninstalled.
+  HULL_FAMILY_MODULE_BONUS: (_e, v, key) => {
+    const [spec, slot] = key.split(":");
+    const ship = v.ships.find((s) => s.id === PANEL_SHIP_ID);
+    const match = (e: EquipmentInstance) => e.fittedToShipId === PANEL_SHIP_ID && e.slotType === slot;
+    if (!ship || SHIP_TYPES[ship.typeKey]?.spec !== spec || !v.equipment.some(match)) return NOT_OWNED;
+    return owned(uninstall(v, match), `without = the ${slot === "bridge" ? "Bridge Module" : "Crew Quarters"} uninstalled`);
+  },
   SENSOR_ARRAYS: (_e, v, key) => moduleOn(v, "sensor", key.split(":")[0]),
   // E-MOD EM-7: a universal module installed on the measured ship.
   UNIVERSAL_MODULES: (_e, v, key) => moduleOn(v, "module", key),

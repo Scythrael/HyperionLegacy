@@ -135,6 +135,7 @@
     shipCrewContribution,
     applyCrewOverlay,
     shipStatsBeforeCaptain,
+    shipStatsBeforeHullLines,
     crewMissionOutputBonus,
     crewRepairSpeedBonus,
     shipMissionOutputBonus,
@@ -147,7 +148,7 @@
   // Bridge Module source bucket use, and the tile's variant line.
   import { CREW_MODULE_TILE_SLOTS, SHIP_SYSTEM_TILES } from "./game/shipSystemTiles";
   import { quartersCapacityBonus } from "./game/crewModules";
-  import { shipSystemTileLine } from "./crewModuleTileDisplay";
+  import { hullFamilyBonusLine, shipSystemTileLine } from "./crewModuleTileDisplay";
 
   // --- Props ------------------------------------------------------------------
   // `state` is the whole GameState (read-only here); `shipId` selects the ship
@@ -546,6 +547,12 @@
   // Sensors are layered last; the crew nodes are set aside above), so the Museum bucket stops there and the Captain
   // bucket is effective - this. With no node it equals effectiveStats.
   $: preCaptainStats = ship ? shipStatsBeforeCaptain(noCaptainNodesState, ship) : null;
+  // Complement CP-13 (OC-13; QA "hull bonus lines appear ... in the stat breakdown"): the crew modules' HULL BONUS as its
+  // own "Hull bonus" bucket: the complement folded without the quarters' division lift (so Complement stops before it),
+  // and the sheet before the bridge's hull lines (so Museum stops before them). Both read the engine's own folds.
+  $: complementNoHullStats =
+    ship && fitStats ? applyCrewOverlay(fitStats, shipCrewContribution({ ...noCaptainNodesState, officers: [] }, ship, undefined, false)) : null;
+  $: preHullLineStats = ship ? shipStatsBeforeHullLines(noCaptainNodesState, ship) : null;
 
   // The economy stat rows (real numbers). `kind` picks the formatter: percent for the
   // multiplier / 0-based-bonus stats, flat for capacities / power / mass. Split into
@@ -667,13 +674,21 @@
         if (Math.abs(bd) > 1e-9) out.push({ label: "Bridge Module", text: fmtDeltaUnit(d.kind, bd), delta: true });
       }
     }
-    if (complementOnlyStats) {
-      const cd = d.get(complementOnlyStats) - gear;
+    // CP-13: the complement before the quarters' hull-family division lift; the lift joins the Hull bonus bucket below.
+    const complementTop = complementNoHullStats ?? complementOnlyStats;
+    if (complementTop) {
+      const cd = d.get(complementTop) - gear;
       if (Math.abs(cd) > 1e-9) out.push({ label: "Complement", text: fmtDeltaUnit(d.kind, cd), delta: true });
     }
-    if (crewOnlyStats && preCaptainStats) {
-      const md = d.get(preCaptainStats) - d.get(crewOnlyStats);
+    const museumTop = preHullLineStats ?? preCaptainStats;
+    if (crewOnlyStats && museumTop) {
+      const md = d.get(museumTop) - d.get(crewOnlyStats);
       if (Math.abs(md) > 1e-9) out.push({ label: "Museum", text: fmtDeltaUnit(d.kind, md), delta: true });
+    }
+    // CP-13 (OC-13): the crew modules' hull-family bonus on this hull (the bridge's sheet lines and the quarters' lift).
+    if (preCaptainStats && preHullLineStats && complementOnlyStats && complementNoHullStats) {
+      const hd = d.get(preCaptainStats) - d.get(preHullLineStats) + (d.get(complementOnlyStats) - d.get(complementNoHullStats));
+      if (Math.abs(hd) > 1e-9) out.push({ label: "Hull bonus", text: fmtDeltaUnit(d.kind, hd), delta: true });
     }
     if (preCaptainStats && preLiftStats) {
       const kd = d.get(preLiftStats) - d.get(preCaptainStats);
@@ -951,6 +966,8 @@
       ? fitEquipment(safeState, shipId, crewModuleCandidate.id)
       : null;
   $: candidateCrewLine = crewModuleCandidate !== null && ship ? shipSystemTileLine(safeState, ship, crewModuleCandidate) : null;
+  // Complement CP-13 (mockup SMS-1): the candidate's hull bonus on this ship (engine numbers, crewModuleTileDisplay.ts).
+  $: candidateHullLine = crewModuleCandidate !== null && ship ? hullFamilyBonusLine(safeState, ship, crewModuleCandidate) : null;
   $: compareRows = ((): CompareRow[] => {
     if (!installCandidate || !candidateGear) return [];
     if (crewModuleCandidate !== null) {
@@ -1856,10 +1873,11 @@
                 {#if fitted}
                   {@const fittedSvg = equipmentSvgIcon(fitted)}
                   {@const variantLine = VARIANT_LINE_SLOTS.has(fitted.slotType) && ship ? shipSystemTileLine(safeState, ship, fitted) : null}
+                  {@const hullLine = ship ? hullFamilyBonusLine(safeState, ship, fitted) : null}
                   <button
                     type="button"
                     class="ss-slot-info"
-                    aria-label={`${meta.label}${variantLine ? `, ${variantLine}` : ""}: ${fitted.rarity} grade, iL ${fitted.iLevel}. Details.`}
+                    aria-label={`${meta.label}${variantLine ? `, ${variantLine}` : ""}${hullLine ? `, ${hullLine}` : ""}: ${fitted.rarity} grade, iL ${fitted.iLevel}. Details.`}
                     on:click={(e) => clickInfo(e, fitted)}
                     on:mouseenter={(e) => hoverTip(fitted, e.currentTarget)}
                     on:mouseleave={hoverOut}
@@ -1876,6 +1894,10 @@
                       <!-- CP-12 (mockup CMR-9): the piece's variant, and for a crew module what it does on this hull. -->
                       {#if variantLine}
                         <span class="ss-slot-variant">{variantLine}</span>
+                      {/if}
+                      <!-- CP-13 (mockup SMS-1): the module's hull-family bonus on this hull. -->
+                      {#if hullLine}
+                        <span class="ss-slot-hull">{hullLine}</span>
                       {/if}
                       <span class="ss-slot-sub">{fitted.rarity} &middot; iL {fitted.iLevel}</span>
                       {#if fitted.slotType === "ftlDrive"}
@@ -2176,6 +2198,9 @@
                       {#if candidateCrewLine}
                         <div class="ss-compare-mod">
                           <div>{candidateCrewLine}</div>
+                          {#if candidateHullLine}
+                            <div class="ss-slot-hull">{candidateHullLine}</div>
+                          {/if}
                           {#if compareRows.length === 0 && crewModuleAfter}
                             <div>No ship stat moves with the officers seated now.</div>
                           {/if}
@@ -2972,6 +2997,14 @@
   .ss-slot-variant {
     font-size: var(--text-2xs);
     color: var(--color-text-secondary);
+    overflow-wrap: break-word;
+  }
+  /* CP-13 (mockup SMS-1): the module's hull bonus on this hull, the variant line's size, set apart by the accent (not
+     the warning amber, which means "blocked" in reason lines). */
+  .ss-slot-hull {
+    display: block;
+    font-size: var(--text-2xs);
+    color: var(--color-accent);
     overflow-wrap: break-word;
   }
   .ss-slot-info-empty {

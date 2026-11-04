@@ -79,6 +79,8 @@ import { deployableGroundTeams, shipGroundTeams } from "./groundTeams";
 import { bayCareFrom, memberBaySeconds, type BayCare } from "./medicalBay";
 import { shipInjuryFactors } from "./injuries";
 import { effectiveShipStats, shipCrewContribution, shipPreventCrewLoss } from "./crewOverlay";
+// Complement CP-13: the quarters module's hull-family bay perks (crewModules.ts imports no ground code, so no cycle).
+import { hullFamilyQuartersPerk } from "./crewModules";
 import { departmentFacet } from "./officerStats";
 import { CREW_STAT_KEYS } from "./crewBuffs";
 // GO-7b: the timeline engine's building blocks (GO-4 task model, GO-5 fight, GO-6 odds) and the legacy reward
@@ -223,6 +225,9 @@ export function snapshotGroundOps(state: GameState, ship: ShipInstance, run: Gro
   const preventLossShare = shipPreventCrewLoss(state, ship);
   // Wiring WR-9 (OC-E9): the Operations officer's Integrity steadies a packed offload (written only when non-zero).
   const offloadSteady = WR9_SWITCH.live ? departmentFacet(state, ship, "operations", "integrity") : 0;
+  // Complement CP-13 (OC-13): the quarters module's hull-family bay perks, frozen here (written only when non-zero).
+  const hullInjuryShare = hullFamilyQuartersPerk(state, ship, "injuryRecovery");
+  const hullBayShare = hullFamilyQuartersPerk(state, ship, "bayTime");
   const factors: GroundOpsFactors = {
     medicalShare: care.medicalShare,
     rapidRecoveryShare: care.rapidRecoveryShare,
@@ -235,6 +240,8 @@ export function snapshotGroundOps(state: GameState, ship: ShipInstance, run: Gro
     scienceShare: sharesOf(teams.map((t) => teamSquadsOf(t).science)),
     ...(preventLossShare > 0 ? { preventLossShare } : {}),
     ...(offloadSteady > 0 ? { offloadSteady } : {}),
+    ...(hullInjuryShare > 0 ? { hullInjuryShare } : {}),
+    ...(hullBayShare > 0 ? { hullBayShare } : {}),
   };
   return { teams, factors, shipEventProfile: snapshotShipEventProfile(state, ship) };
 }
@@ -248,6 +255,9 @@ export function groundOpsBayCare(factors: GroundOpsFactors): BayCare {
     officerFacetShare: factors.officerFacetShare,
     injurySteady: factors.injurySteady,
     ...(factors.preventLossShare !== undefined ? { preventLossShare: factors.preventLossShare } : {}),
+    // CP-13: the hull-family bay perks when the run froze them.
+    ...(factors.hullInjuryShare !== undefined ? { hullInjuryShare: factors.hullInjuryShare } : {}),
+    ...(factors.hullBayShare !== undefined ? { hullBayShare: factors.hullBayShare } : {}),
   };
 }
 

@@ -67,7 +67,12 @@ export function asPreCp13(s: GameState): GameState {
   };
 }
 export type Cp13Variant = "fresh" | "inFlight";
-const asVariant = (s: GameState, v: Cp13Variant): GameState => (v === "fresh" ? s : asPreCp13(s));
+// How a row dispatches: as is (`fresh`), or with the bonus held apart (`inFlight`: a run dispatched before CP-13, which
+// carries no stamp and froze every record the old way), then runs with the bonus on.
+export type Cp13Dispatch = <T>(run: () => T) => T;
+const asIs: Cp13Dispatch = (run) => run();
+let inFlightDispatch: Cp13Dispatch = asIs;
+const dispatchFor = (v: Cp13Variant): Cp13Dispatch => (v === "fresh" ? asIs : inFlightDispatch);
 
 // ===== sheet =====
 const SHEET_HULLS: readonly ShipTypeKey[] = ["generalFreighter", "prospectorMiner", "destroyer", "aurora"];
@@ -85,9 +90,9 @@ function missionBase(hull: ShipTypeKey, kit: boolean): GameState {
   return { ...s, credits: new Decimal(1_000_000), captains: s.captains.map((c) => ({ ...c, level: 10 })) };
 }
 export function cp13MissionRow(hull: ShipTypeKey, missionKey: "shortOreRun" | "surveyMineralAnomaly", v: Cp13Variant, kit = true): string[] {
-  const r = dispatchCaptainOnMission(missionBase(hull, kit), 1, missionKey);
+  const r = dispatchFor(v)(() => dispatchCaptainOnMission(missionBase(hull, kit), 1, missionKey));
   must(r.success, `${hull} ${missionKey}: ${r.reason}`);
-  let s = asVariant(r.next, v);
+  let s = r.next;
   for (let i = 0; i < 2000; i++) s = economyTick(s, 1, RNG);
   return [hash(asPreCp13(r.next).captains[0].mission), stateHash(asPreCp13(s))];
 }
@@ -98,9 +103,9 @@ function shortRangeBase(): GameState {
   return withCp13Kit(installPiece(eir, { slotType: "sensor", moduleVariant: "sensorBalanced", implicitStats: { sensors: 20 } }));
 }
 export function cp13ShortRangeRow(v: Cp13Variant): string[] {
-  const r = dispatchCaptainOnShortRange(shortRangeBase(), 1, 0);
+  const r = dispatchFor(v)(() => dispatchCaptainOnShortRange(shortRangeBase(), 1, 0));
   must(r.success, String(r.reason));
-  const pre = asVariant(asPreStaggerShortRange(r.next), v);
+  const pre = asPreStaggerShortRange(r.next);
   let s = pre;
   for (let i = 0; i < 900; i++) s = economyTick(s, 1, RNG);
   return [hash(asPreCp13(pre).captains[0].mission), stateHash(asPreCp13(s))];
@@ -115,10 +120,10 @@ function patrolBase(kit: boolean): GameState {
 // Dispatch Once runs to its end; a Repeat run (`repeatTicks` set) runs that many seconds.
 export function cp13PatrolRow(v: Cp13Variant, repeatTicks?: number, kit = true): string[] {
   const repeat = repeatTicks !== undefined;
-  const r = dispatchCaptainOnPatrol(patrolBase(kit), 1, CP13_PATROL_KEY, "balanced", repeat);
+  const r = dispatchFor(v)(() => dispatchCaptainOnPatrol(patrolBase(kit), 1, CP13_PATROL_KEY, "balanced", repeat));
   must(r.success, `destroyer: ${r.reason}`);
   const row = [hash(structuredClone(asPreCp13(r.next).captains[0].mission))];
-  let s = asVariant(r.next, v);
+  let s = r.next;
   let ticks = 0;
   while (s.captains[0].mission !== null && (!repeat || ticks < repeatTicks)) {
     s = economyTick(s, 1, RNG);
@@ -135,7 +140,7 @@ function expeditionBase(): GameState {
   return withCp13Kit(installPiece(base, { slotType: "sensor", moduleVariant: "sensorBalanced", implicitStats: { sensors: 20 } }));
 }
 // `dispatch` wraps the dispatch (the inFlight row dispatches with the bonus held apart, then runs with it on).
-export function cp13ExpeditionRow(dispatch: <T>(run: () => T) => T = (run) => run()): string[] {
+export function cp13ExpeditionRow(dispatch: Cp13Dispatch = asIs): string[] {
   const res = dispatch(() => dispatchPastPropulsion(expeditionBase(), "ship-1", 1, "cand-0"));
   must(res.success, `orion: ${res.reason}`);
   const exp = withoutRelicStagger(res.expedition!);
@@ -151,7 +156,8 @@ export function cp13SaveRows(): string[] {
   return [hash(raw), hash(loaded === null ? null : serialize(migrate(loaded), 0, 0))];
 }
 
-export function cp13Rows(dispatchOff: <T>(run: () => T) => T): Record<string, unknown> {
+export function cp13Rows(dispatchOff: Cp13Dispatch): Record<string, unknown> {
+  inFlightDispatch = dispatchOff;
   const got: Record<string, unknown> = {};
   for (const hull of SHEET_HULLS) {
     got[`sheet:${hull}:kit`] = cp13SheetRow(withCp13Kit(sheetBase(hull)));

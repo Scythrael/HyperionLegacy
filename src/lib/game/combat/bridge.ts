@@ -789,6 +789,11 @@ export interface ShipToCombatantArgs {
 	// officers by combat/captainEdge.ts applyCaptainCombat, each its own factor. OPTIONAL: absent (enemies, ratings,
 	// a captain owning no Tactician node) leaves the combatant byte-identical.
 	captainCombat?: CaptainCombatMods;
+	// Complement CP-13 (OC-13): the Tactician bridge module's hull-family weapon damage line, frozen by the caller where the
+	// battle's run freezes its combat records (PatrolMissionState.hullWeapon, ShipEventBattle.hullWeapon). It comes from
+	// INSTALLED GEAR (the bridge module), not the crew, so D12 holds. OPTIONAL: absent or 0 leaves the combatant
+	// byte-identical (applyHullWeaponLine).
+	hullWeaponDamage?: number;
 	// E-MOD EM-5: which combat context this combatant fights in, for its universal modules (a module acts only in the
 	// contexts it lists). Absent = "patrol" (every patrol wave, replay, carry pool and forecast); the expedition ship
 	// event passes "shipEvent" (shipScanEvents.ts buildShipCombatant).
@@ -843,6 +848,18 @@ export function applyOfficerCombat(c: Combatant, mods: OfficerCombatMods | undef
 			c.underFire = { weaponDamage: uf.weaponDamage, shieldRecharge: uf.shield, evasion: evasionPoints };
 		}
 	}
+}
+
+// Complement CP-13 (OC-13): the Tactician bridge module's weapon damage line on a freshly minted combatant, IN PLACE:
+// every weapon's damage band x (1 + line), ROUNDED, the integer fold applyOfficerCombat uses (scaled weapons are
+// replaced with COPIES). One bridge per ship, so the line is linear. Absent or 0 writes nothing (byte-identical).
+export function applyHullWeaponLine(c: Combatant, line: number | undefined): void {
+	if (line === undefined || !(line > 0)) return;
+	const mult = 1 + line;
+	c.weapons = c.weapons.map((w) => {
+		const yieldMin = Math.max(0, Math.round(w.yieldMin * mult));
+		return { ...w, yieldMin, yieldMax: Math.max(yieldMin, Math.round(w.yieldMax * mult)) };
+	});
 }
 
 // E-MOD EM-5 (0.14.0, plan section 4 EM-5): fold a ship's installed UNIVERSAL MODULES onto a freshly minted combatant,
@@ -1134,6 +1151,8 @@ export function shipToCombatant(args: ShipToCombatantArgs): Combatant {
 	// E-MOD EM-5: the installed universal modules (gear, so before the people): Passive hull integrity and the
 	// Conditional damage lifts. Read off the same installed gear, so every caller that folds gear folds modules.
 	applyModuleCombat(combatant, gear, args.moduleContext ?? "patrol");
+	// Complement CP-13: the Tactician bridge's weapon line (installed gear, so before the people; absent = no-op).
+	applyHullWeaponLine(combatant, args.hullWeaponDamage);
 	// E-CREW (Task 20): the seated officers' combat bonuses, on top of everything above (absent = no-op).
 	applyOfficerCombat(combatant, args.officerCombat);
 	// WR-5b: the commanding captain's Tactician nodes, on top (absent = no-op).

@@ -11,6 +11,10 @@
 //   its own keyed stream. Both helpers are no-ops on a state from before G1-5.
 
 import { describe, expect, it } from "vitest";
+import { cp13OffForThisFile } from "./cp13Switch.fixture";
+// Complement CP-13 (hull-family module bonuses) came after every pin here: the file runs with the bonus off, so its pins
+// keep proving their own slice (cp13Goldens.test.ts pins what CP-13 moved).
+cp13OffForThisFile();
 import { hullCrewCapsOffForThisFile } from "./hullCrewCapsSwitch.fixture";
 // Complement plan CP-5 (per-hull crew caps): every pin here predates CP-5 and is about another slice, so the file runs
 // with the per-hull caps off (hullCrewCapsSwitch.fixture.ts); cp5Goldens.test.ts pins what CP-5 moved.

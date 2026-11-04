@@ -63,6 +63,8 @@ import { rollHaul, scanStepKey } from "./gambit";
 import { equippedFor } from "./equipment";
 import { damageControlEffect } from "./utilityGear";
 import { effectiveShipStats, officerCombatModsFromProfile, officerCombatProfile, shipCombatRulesStamp, shipCrewContribution, shipRepairSpeedBonus } from "./crewOverlay";
+// Complement CP-13: the Tactician bridge's weapon line (crewModules.ts imports no scan code, so no cycle).
+import { hullFamilyWeaponLine } from "./crewModules";
 import { ENCOUNTER_OPEN_DISTANCE, RULES_COMBAT_SPEED, stampCombatArgs } from "./combat/combatRules";
 // WR-5b (0.14.0): the commanding captain's Tactician talents, frozen with the battle profile.
 import { shipCaptainCombatMods, withCaptainRepair } from "./captainTacticianEffects";
@@ -181,6 +183,8 @@ export function snapshotShipEventProfile(state: GameState, ship: ShipInstance): 
   const dcRepair = damageControlEffect(withFavoredLines(installed, ship.typeKey)).repairTimeReduction;
   // WR-5b: the commanding captain's Tactician talents (absent without a node, so the profile is unchanged).
   const captainCombat = shipCaptainCombatMods(state, ship);
+  // Complement CP-13 (OC-13): the Tactician bridge's weapon line (installed gear), frozen here (absent when 0).
+  const hullWeapon = hullFamilyWeaponLine(state, ship);
   const battle: ShipEventBattle = {
     hullType: ship.typeKey,
     ...(gear.length > 0 ? { installedGear: structuredClone(gear) } : {}),
@@ -194,6 +198,7 @@ export function snapshotShipEventProfile(state: GameState, ship: ShipInstance): 
     ...(combatRules ? { combatRules } : {}),
     // WR-7 (OC-D10, "Field repairs too"): the Damage Control Suite's repair time reduction, frozen for the field repair.
     ...(dcRepair > 0 ? { dcRepairTimeReduction: dcRepair } : {}),
+    ...(hullWeapon > 0 ? { hullWeapon } : {}),
   };
   const c = buildShipCombatant(ship.id, battle, 0, 0);
   battle.hullMax = c.hullMax;
@@ -229,6 +234,8 @@ export function buildShipCombatant(id: string, battle: ShipEventBattle, hoursOut
     officerCombat: officerCombatModsFromProfile(battle.officerCombat, hoursOut),
     captainCombat: battle.captainCombat,
     moduleContext: "shipEvent", // E-MOD EM-5: only modules listing ship events act here
+    // Complement CP-13: the frozen Tactician bridge weapon line (absent on every run without one).
+    ...(battle.hullWeapon !== undefined ? { hullWeaponDamage: battle.hullWeapon } : {}),
     // WR-8: a run under the combat rules flies its frozen combat speed with the rules' traits and systems.
     ...(battle.combatRules ? stampCombatArgs(battle.combatRules) : {}),
   });

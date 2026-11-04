@@ -37,7 +37,7 @@ import { countShortRangeCycleStart, runCountsOf } from "./runDifficulty";
 import { crewLockReasonText, shipCrewLocked } from "./crewLock";
 import { RELIC_BLANKS_VERSION, RELIC_STAGGER_VERSION, newRunRelicBlanksFlag } from "./relicBlanks";
 import { newReactorLiftFlag, reactorLiftFlagged } from "./reactorSurplus";
-import { crewModuleLinesStamp } from "./crewModules";
+import { crewModuleLinesStamp, hullFamilyStamp } from "./crewModules";
 import { equippedFor } from "./equipmentQueries";
 import { pilotCunningStamp, pilotCutShortRangePlan } from "./officerStats";
 // E5-4 (the Dispatcher): Mission Control's refugee buff on each phase of the plan, frozen at the cycle start.
@@ -137,8 +137,10 @@ export function startShortRangeCycle(
   favored = true,
   pilotCunning = 0,
   refugeeCarry = 0,
+  hullBonus = true,
 ): ShortRangeCycleStart {
   const roll = rollShortRangeJob(state, slot, cycleIndex);
+  // Complement CP-13 (OC-13): `hullBonus` is whether the run carries the hull-family stamp (true for a preview).
   // WR-7 (OC-D3): `moduleLines` is whether the run carries the crew module lines stamp (true for a preview).
   // WR-7 follow-up (OC-D5): `favored` likewise, the favored-spec stamp (true for a preview).
   // WR-9 fix round (user 2026-10-31 "Missions, short-range, patrols"): `pilotCunning` is the run's Pilot Cunning stamp
@@ -151,7 +153,7 @@ export function startShortRangeCycle(
   // and the new carry rides back on the start (the run stores it; untouched with nobody posted).
   const refugee = refugeeShortRangePlan(
     state,
-    shortRangeCyclePlan(roll, runShipStats(state, ship, wear, reactorLift, moduleLines, favored), shortRangeShipEngineering(state, ship)),
+    shortRangeCyclePlan(roll, runShipStats(state, ship, wear, reactorLift, moduleLines, favored, hullBonus), shortRangeShipEngineering(state, ship)),
     refugeeCarry,
   );
   const plan = pilotCutShortRangePlan(refugee.plan, roll.seed, pilotCunning);
@@ -274,7 +276,9 @@ export function dispatchCaptainOnShortRange(state: GameState, captainId: number,
   const favoredSpec = favoredSpecStamp(equippedFor(state, ship.id), ship.typeKey);
   // WR-9 fix round (user 2026-10-31): and the Pilot's Cunning (stamped only when the Flight Deck's facet is non-zero).
   const pilotCunning = pilotCunningStamp(state, ship);
-  const start = startShortRangeCycle(state, ship, slot, shortRangeNextCycle(state, slotId), wear, reactorLift !== undefined, moduleLines === 1, favoredSpec === 1, pilotCunning ?? 0);
+  // Complement CP-13 (OC-13): and its crew modules' hull-family bonus (stamped only when a bridge or quarters module is in).
+  const hullBonus = hullFamilyStamp(state, ship);
+  const start = startShortRangeCycle(state, ship, slot, shortRangeNextCycle(state, slotId), wear, reactorLift !== undefined, moduleLines === 1, favoredSpec === 1, pilotCunning ?? 0, 0, hullBonus === 1);
   const mission: ShortRangeMissionState = {
     kind: "shortRange",
     slotId,
@@ -291,6 +295,7 @@ export function dispatchCaptainOnShortRange(state: GameState, captainId: number,
     ...(reactorLift !== undefined ? { reactorLift } : {}),
     ...(moduleLines !== undefined ? { moduleLines } : {}),
     ...(favoredSpec !== undefined ? { favoredSpec } : {}),
+    ...(hullBonus !== undefined ? { hullBonus } : {}),
     ...(pilotCunning !== undefined ? { pilotCunning } : {}),
     // E5-4 fix round: the run's Mission Control carry (absent with nobody posted there).
     ...(start.refugeeCarry !== undefined ? { refugeeCarry: start.refugeeCarry } : {}),
@@ -362,6 +367,7 @@ export function isWellFormedShortRangeMission(m: unknown): m is ShortRangeMissio
   if (s.reactorLift !== undefined && !reactorLiftFlagged(s.reactorLift)) return false;
   if (s.moduleLines !== undefined && s.moduleLines !== 1) return false; // WR-7 (OC-D3): the module lines stamp
   if (s.favoredSpec !== undefined && s.favoredSpec !== 1) return false; // WR-7 follow-up (OC-D5): the favored-spec stamp
+  if (s.hullBonus !== undefined && s.hullBonus !== 1) return false; // Complement CP-13: the hull-family stamp
   if (s.pilotCunning !== undefined && !(isFiniteNonNegative(s.pilotCunning) && s.pilotCunning <= 1)) return false; // WR-9 fix round
   return true;
 }

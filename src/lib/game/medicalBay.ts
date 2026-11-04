@@ -30,6 +30,9 @@
 // On a legacy run every condition is an injury, so this is the same care divisor injuries.ts
 // injuryRecoverySeconds uses (there the three facets fold into one officerFacetShare); only the base time and
 // the floor differ (2h base and a 15 minute floor there; per-condition times and BAY_MIN_SECONDS here).
+//   hullInjuryShare    = CP-13, the Tactician quarters perk (injured crew recover 15% faster): INJURY-class only.
+//   hullBayShare       = CP-13, the Explorer quarters perk (bay time 10% shorter): every condition class. Both frozen on
+//                        GroundOpsFactors at dispatch (crewModules.ts hullFamilyQuartersPerk).
 //   treatmentShare     = the per-member Injury Kit share (Field Kits FKR-6 / FKR-7: the trip's GroundTeamRun.treatment,
 //                        only for the member it was used on); 0 on a run without field kits.
 //
@@ -92,6 +95,10 @@ export interface BayCare {
   // frozen at dispatch on GroundOpsFactors.preventLossShare. INJURY-class conditions only, like injurySteady. Absent = 0
   // (every run dispatched before CP-3 and every ship without the buff).
   preventLossShare?: number;
+  // CP-13 (OC-13): the quarters module's hull-family perk, frozen at dispatch (GroundOpsFactors.hullInjuryShare /
+  // hullBayShare): the Tactician's share for INJURY-class conditions, the Explorer's for every condition. Absent = 0.
+  hullInjuryShare?: number;
+  hullBayShare?: number;
 }
 
 // The BayCare a run carries: the ship's two care shares (injuries.ts InjuryRecoveryFactors, frozen at
@@ -122,6 +129,9 @@ export function conditionCureSeconds(
   let total = share(care.medicalShare) + share(care.rapidRecoveryShare) + share(care.officerFacetShare) + share(treatmentShare);
   if (injury) total += share(care.injurySteady);
   if (injury && care.preventLossShare !== undefined) total += share(care.preventLossShare);
+  // CP-13: the hull-family perks (absent on every run dispatched before CP-13, so the sum is untouched).
+  if (injury && care.hullInjuryShare !== undefined) total += share(care.hullInjuryShare);
+  if (care.hullBayShare !== undefined) total += share(care.hullBayShare);
   const mult = injury && perks.includes("stoneskin") ? STONESKIN_INJURY_MULT : 1;
   return Math.max(BAY_MIN_SECONDS, Math.round((cond.cureSeconds * mult) / (1 + total)));
 }

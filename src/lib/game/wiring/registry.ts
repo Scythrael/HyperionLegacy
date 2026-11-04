@@ -86,6 +86,7 @@ import {
   type OfficerStats,
   type SecondaryTalentKey,
   type SeniorStaffSeat,
+  type ShipSpec,
   type ShipTypeKey,
 } from "../model";
 import Decimal from "break_infinity.js";
@@ -147,7 +148,7 @@ import { shortRangeRelicMicrosPerHour } from "../relicBlanks";
 // Relics v2 R2-10: the minigame's relic boost table (one-way; the audit reads it, no gameplay file does).
 import { RELIC_BOOSTS } from "../../secret/config";
 import { CREW_PROFESSIONS, complementTotalCap, divisionCap } from "../commandStructure";
-import { BRIDGE_MODULES, CREW_MODULE_LINE_KNEE, CREW_STATIONS_BERTH_KNEE, CREW_STATIONS_BERTH_SCALE, QUARTERS_MODULES, moduleEffectScale } from "../crewModules";
+import { BRIDGE_MODULES, CREW_MODULE_LINE_KNEE, CREW_STATIONS_BERTH_KNEE, CREW_STATIONS_BERTH_SCALE, HULL_FAMILY_MODULE_BONUS, QUARTERS_MODULES, hullFamilyPerkShare, moduleEffectScale, type HullFamilyBridgeStat } from "../crewModules";
 // E-MOD EM-7: the v1 universal module roster (each module's registry row reads its def through CATALOGS).
 import { UNIVERSAL_MODULES, bonusHaulUnits, type UniversalModuleDef } from "../shipModules";
 import { graduateStandout } from "../crewGraduation";
@@ -392,6 +393,8 @@ export const CATALOGS = {
   PATROLS,
   QUARTERS_MODULES,
   BRIDGE_MODULES,
+  // Complement CP-13: the hull-family module bonuses (each line measured by hullFamilyEntries).
+  HULL_FAMILY_MODULE_BONUS,
   SENSOR_ARRAYS,
   RELIC_SETS,
   RELICS,
@@ -2522,7 +2525,9 @@ function moduleEntries(): WiringEntry[] {
   const scale = moduleEffectScale("standard", 0, "none");
   // Each module measured on an Operations complement bucket carrying Efficient Unloading (a live key), so the
   // module's division multiplier shows on the unload speed: the bonus part above 1 grows by the boost.
-  const opsBase = () => withBuckets(wiringBase(), [bucketOf("operations", "ops.unloadSpeed")]);
+  // Complement CP-13: on an Orion, whose hull family (Explorer) does not lift Operations, so the move is the variant's own
+  // boost (the hull-family lifts have their own rows, hullFamilyEntries).
+  const opsBase = () => withBuckets(wiringBase("orion"), [bucketOf("operations", "ops.unloadSpeed")]);
   for (const def of QUARTERS_MODULES) {
     const boost = def.kind === "division" ? (def.division === "operations" ? def.focusBoost : def.offBoost) : def.focusBoost;
     // G1-1: a module with no effectiveness boost at all (the Guest Wing: its effect is its guest quarters line,
@@ -2603,6 +2608,189 @@ function moduleEntries(): WiringEntry[] {
   out.push(...crewModuleBlueprintEntries());
   return out;
 }
+
+// ============================================================================
+// Complement CP-13 (OC-13, "One catalog, by hull"): the hull-family module bonuses (crewModules.ts HULL_FAMILY_MODULE_BONUS)
+// ============================================================================
+//
+// Every line of the catalog is enumerated here (a family's bridge lines, its quarters division lift and its perk), each
+// measured where its consumer reads it, at a Standard quality 0 module (scale 1), against the same ship with no module:
+//   bridge sheet lines  the sheet, a Short Ore Run dispatched now and a short-range job (their run sheets read the
+//                       hullBonus stamp); the Explorer's sensors also where a Ground Ops dispatch freezes them.
+//   weapon line         a patrol's first wave (the cycle's frozen hullWeapon) and an expedition ship event's battle.
+//   division lifts      a Guest Wing (no crew boost of its own, so the move is the lift alone) on a crew of one
+//                       signature division carrying a live sheet key: the bonus part above the hull grows by the lift.
+//   perks               the rare-roll threshold of a stamped run; the Ground Ops bay's frozen care (a Fracture for the
+//                       Tactician's injuries-only share, a Health cure for the Explorer's every-condition share); the
+//                       General guest quarters on the sheet (G1-1's flat perk, rounded to whole berths).
+// A line added to the catalog without a seam here throws at build, so nothing in it can hide unmeasured.
+const HULL_FAMILY_HULL: Readonly<Record<ShipSpec, ShipTypeKey>> = { general: "generalFreighter", prospector: "prospectorMiner", tactician: "destroyer", explorer: "orion" };
+const HULL_BRIDGE_PROBE: Readonly<Record<HullFamilyBridgeStat, { probe: ProbeId; contexts: ContextId[] }>> = {
+  transitSpeed: { probe: "hullRunTransit", contexts: ["sheet", "mission:extraction", "mission:shortRange"] },
+  unloadSpeed: { probe: "hullRunUnload", contexts: ["sheet", "mission:extraction", "mission:shortRange"] },
+  extractionYield: { probe: "hullRunYield", contexts: ["sheet", "mission:extraction"] },
+  weaponDamage: { probe: "hullWeaponYield", contexts: ["patrol", "shipEvent"] },
+  sensors: { probe: "hullRunSensors", contexts: ["sheet", "mission:shortRange", "expedition:groundOps"] },
+};
+// The signature division's crew bucket and the sheet probe its buff moves (the hull's base, the bonus part's floor).
+const HULL_DIVISION_SEAM: Readonly<Record<ShipSpec, { buff: string; probe: ProbeId; base: (c: Catalogs) => number }>> = {
+  general: { buff: "ops.unloadSpeed", probe: "sheetUnload", base: () => 1 },
+  prospector: { buff: "sci.extraction", probe: "sheetYield", base: (c) => c.SHIP_TYPES.prospectorMiner.extractionYieldMult },
+  tactician: { buff: "eng.range", probe: "sheetEngineEff", base: (c) => c.SHIP_TYPES.destroyer.engineEfficiency },
+  explorer: { buff: "sci.extraction", probe: "sheetYield", base: (c) => c.SHIP_TYPES.orion.extractionYieldMult },
+};
+const PROFESSION_OF_DIVISION_BUFF: Readonly<Record<string, CrewProfession>> = { "ops.unloadSpeed": "operations", "sci.extraction": "science", "eng.range": "engineering" };
+
+function hullFamilyEntries(): WiringEntry[] {
+  const out: WiringEntry[] = [];
+  const bridge: Transform = (s) => installPiece(s, { slotType: "bridge", moduleVariant: "bridgeBalancedCommand" });
+  const quarters = (variant: string): Transform => (s) => installPiece(s, { slotType: "quarters", moduleVariant: variant });
+  // An empty complement (so no division lift moves the bridge and perk readings), and no officer (so the bridge's own
+  // officer amp has nothing to lift: the move is the hull line alone).
+  const bare = (hull: ShipTypeKey): GameState => withBuckets(wiringBase(hull), []);
+  const withArray = (s: GameState): GameState => installPiece(s, { slotType: "sensor", moduleVariant: "sensorBalanced", implicitStats: { sensors: 20 } });
+  for (const spec of Object.keys(HULL_FAMILY_MODULE_BONUS) as ShipSpec[]) {
+    const fam = HULL_FAMILY_MODULE_BONUS[spec];
+    const hull = HULL_FAMILY_HULL[spec];
+    const label = HULL_FAMILY_LABEL_TEXT[spec];
+    for (const stat of Object.keys(fam.bridge) as HullFamilyBridgeStat[]) {
+      const seam = HULL_BRIDGE_PROBE[stat];
+      const id = `ship:HULL_FAMILY_MODULE_BONUS:${spec}:bridge:${stat}`;
+      const common = {
+        id,
+        system: "ship" as const,
+        source: { catalog: "HULL_FAMILY_MODULE_BONUS", key: `${spec}:bridge:${stat}` },
+        claim: `A Bridge Module on a ${label} hull: +${Math.round((fam.bridge[stat] ?? 0) * 1000) / 10}% ${HULL_BRIDGE_STAT_TEXT[stat]}`,
+        probe: seam.probe,
+        contexts: seam.contexts,
+        on: bridge,
+        magnitude: (c: Catalogs) => c.HULL_FAMILY_MODULE_BONUS[spec].bridge[stat] ?? 0,
+      };
+      if (stat === "weaponDamage") {
+        out.push(entry({ ...common, curve: { kind: "linearRelative" }, tolerance: 1, base: () => combatBase(hull), note: "a weapon's damage band rounds to whole points (one point of tolerance)" }));
+      } else {
+        out.push(
+          entry({
+            ...common,
+            curve: { kind: "linearRelative" },
+            base: () => (stat === "sensors" ? withArray(bare(hull)) : bare(hull)),
+            ...(stat === "extractionYield" ? { outOfScope: [{ context: "mission:shortRange" as ContextId, reason: NO_EXTRACTING }] } : {}),
+          }),
+        );
+      }
+    }
+    const div = HULL_DIVISION_SEAM[spec];
+    const profession = PROFESSION_OF_DIVISION_BUFF[div.buff];
+    if (!fam.quarters.divisions.includes(profession)) throw new Error(`hull family ${spec}: its division seam names ${profession}, not a signature division`);
+    out.push(
+      entry({
+        id: `ship:HULL_FAMILY_MODULE_BONUS:${spec}:quarters:divisions`,
+        system: "ship",
+        source: { catalog: "HULL_FAMILY_MODULE_BONUS", key: `${spec}:quarters:divisions` },
+        claim: `Crew Quarters on a ${label} hull: its ${fam.quarters.divisions.map((d) => DIVISION_TEXT[d]).join(" and ")} crew +${Math.round(fam.quarters.divisionLift * 100)}%`,
+        probe: div.probe,
+        contexts: ["sheet"],
+        curve: { kind: "bonusRelative", base: div.base(CATALOGS) },
+        magnitude: (c) => c.HULL_FAMILY_MODULE_BONUS[spec].quarters.divisionLift,
+        base: () => withBuckets(wiringBase(hull), [bucketOf(profession, div.buff)]),
+        on: quarters("quartersGuestWing"),
+        note: `measured on the ${profession} division (the other signature division reads the same lift) through a Guest Wing, which boosts no crew itself`,
+      }),
+    );
+    const perkId = `ship:HULL_FAMILY_MODULE_BONUS:${spec}:quarters:${fam.quarters.perk}`;
+    const perkCommon = {
+      id: perkId,
+      system: "ship" as const,
+      source: { catalog: "HULL_FAMILY_MODULE_BONUS", key: `${spec}:quarters:${fam.quarters.perk}` },
+      on: quarters("quartersGuestWing"),
+    };
+    switch (fam.quarters.perk) {
+      case "rareFind":
+        out.push(
+          entry({
+            ...perkCommon,
+            claim: `Crew Quarters on a ${label} hull: +${Math.round(fam.quarters.perkSize * 100)}% rare finds on mining and survey hauls`,
+            probe: "hullRareThreshold",
+            contexts: ["mission:extraction", "mission:survey"],
+            curve: { kind: "linearRelative" },
+            magnitude: (c) => c.HULL_FAMILY_MODULE_BONUS[spec].quarters.perkSize,
+            base: () => bare(hull),
+            outOfScope: [
+              { context: "mission:transport", reason: "a transport hauls no ore and rolls no rare drop", userRef: "SMS-1 Prospector quarters line: \"+3% rare-find on mining and survey hauls\" (OC-13)" },
+              { context: "mission:shortRange", reason: NO_EXTRACTING, userRef: "SMS-1 Prospector quarters line: \"+3% rare-find on mining and survey hauls\" (OC-13)" },
+            ],
+          }),
+        );
+        break;
+      case "injuryRecovery":
+        out.push(
+          entry({
+            ...perkCommon,
+            claim: `Crew Quarters on a ${label} hull: injured crew recover ${Math.round(fam.quarters.perkSize * 100)}% faster in the medical bay`,
+            probe: "runBayFractureSeconds",
+            contexts: ["medbay"],
+            direction: "down",
+            curve: { kind: "divisor" },
+            tolerance: 1,
+            magnitude: (c) => c.HULL_FAMILY_MODULE_BONUS[spec].quarters.perkSize,
+            base: () => withAwayTeam(bare(hull)),
+            note: "injury-class conditions only (a Fracture here); its Health twin is ship:audit:hullFamilyInjuriesOnly",
+          }),
+          entry({
+            id: "ship:audit:hullFamilyInjuriesOnly",
+            system: "ship",
+            source: { catalog: "AUDIT", key: "ship:audit:hullFamilyInjuriesOnly" },
+            claim: `The ${label} quarters perk shortens injuries in the medical bay, never Health or ailments`,
+            probe: "runBayHealthSeconds",
+            contexts: ["medbay"],
+            direction: "none",
+            magnitude: () => 0,
+            base: () => withAwayTeam(bare(hull)),
+            on: quarters("quartersGuestWing"),
+            note: "a move of 0 on a Health cure",
+          }),
+        );
+        break;
+      case "bayTime":
+        out.push(
+          entry({
+            ...perkCommon,
+            claim: `Crew Quarters on a ${label} hull: ground-team medical bay time ${Math.round(fam.quarters.perkSize * 100)}% shorter`,
+            probe: "runBayHealthSeconds",
+            contexts: ["medbay"],
+            direction: "down",
+            curve: { kind: "divisor" },
+            tolerance: 1,
+            // The bay divides by 1 + share; a cut of c is the share c / (1 - c) (crewModules.ts hullFamilyPerkShare).
+            magnitude: (c) => hullFamilyPerkShare(c.HULL_FAMILY_MODULE_BONUS[spec].quarters, 1),
+            base: () => withAwayTeam(bare(hull)),
+            note: "every condition class (a Health cure here)",
+          }),
+        );
+        break;
+      case "guestQuarters":
+        out.push(
+          entry({
+            ...perkCommon,
+            claim: `Crew Quarters on a ${label} hull: guest quarters +${Math.round(fam.quarters.perkSize * 100)}%`,
+            probe: "sheetGuestQuarters",
+            contexts: ["sheet"],
+            curve: { kind: "linearRelative" },
+            tolerance: 1,
+            magnitude: (c) => c.HULL_FAMILY_MODULE_BONUS[spec].quarters.perkSize,
+            base: () => bare(hull),
+            on: quarters("quartersUtilitarian"),
+            note: "G1-1's flat perk on the whole guest total (whole berths; the Utilitarian Quarters add no guest line of their own)",
+          }),
+        );
+        break;
+    }
+  }
+  return out;
+}
+const HULL_FAMILY_LABEL_TEXT: Readonly<Record<ShipSpec, string>> = { general: "General", prospector: "Prospector", tactician: "Tactician", explorer: "Explorer" };
+const HULL_BRIDGE_STAT_TEXT: Readonly<Record<HullFamilyBridgeStat, string>> = { transitSpeed: "FTL transit speed", unloadSpeed: "unload speed", extractionYield: "extraction yield", weaponDamage: "weapon damage", sensors: "sensors" };
+const DIVISION_TEXT: Readonly<Record<CrewProfession, string>> = { security: "Security", engineering: "Engineering", science: "Science", medical: "Medical", operations: "Operations", flightDeck: "Flight Deck" };
 
 // Complement CP-11: the piece blueprint `key` mints through the Fabricator's own path (one blank inspected: the seeded
 // roll, the crafting level, the variety stamped as moduleVariant), installed on the ship in place of any piece of its
@@ -5607,6 +5795,7 @@ function build(): readonly WiringEntry[] {
     ...shipLineEntries(),
     ...hullEntries(),
     ...moduleEntries(),
+    ...hullFamilyEntries(),
     ...sensorArrayEntries(),
     ...museumEntries(),
     ...relicEntries(),
@@ -5725,7 +5914,8 @@ function rarityProfileEntries(): WiringEntry[] {
 function moduleRarityEntries(): WiringEntry[] {
   const def = QUARTERS_MODULES.find((d) => d.id === "quartersUtilitarian")!;
   const boost = (c: Catalogs): number => c.QUARTERS_MODULES.find((d) => d.id === def.id)!.focusBoost;
-  const opsBase = () => withBuckets(wiringBase(), [bucketOf("operations", "ops.unloadSpeed")]);
+  // Complement CP-13: on an Orion (its Explorer family lifts no Operations crew), so the move is the variant's alone.
+  const opsBase = () => withBuckets(wiringBase("orion"), [bucketOf("operations", "ops.unloadSpeed")]);
   const at = (rarity: EquipmentRarity, ascension: EquipmentAscension): Transform => (s) =>
     installPiece(s, { slotType: "quarters", moduleVariant: def.id, rarity, ascension, quality: 0 });
   const out: WiringEntry[] = (Object.keys(MODULE_RARITY_FACTOR) as EquipmentRarity[]).map((rarity) =>
@@ -6939,7 +7129,8 @@ function wearEntries(): WiringEntry[] {
     "quarters:crewEfficiency": {
       contexts: WEAR_MISSION_CONTEXTS,
       curve: { kind: "bonusRelative", base: 1 },
-      base: () => installPiece(withBuckets(wiringBase(), [bucketOf("operations", "ops.unloadSpeed")]), { slotType: "quarters", moduleVariant: quarters.id, durabilityMax: TOUGHNESS_REFERENCE }),
+      // Complement CP-13: on an Orion (its Explorer family lifts no Operations crew), so the move is the variant's alone.
+      base: () => installPiece(withBuckets(wiringBase("orion"), [bucketOf("operations", "ops.unloadSpeed")]), { slotType: "quarters", moduleVariant: quarters.id, durabilityMax: TOUGHNESS_REFERENCE }),
       magnitude: (c) => (1 + quartersBoost(c) * e()) / (1 + quartersBoost(c)) - 1,
       note: `an Operations complement's Efficient Unloading through ${quarters.label} quarters`,
     },
