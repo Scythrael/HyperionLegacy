@@ -111,3 +111,7 @@ WR-12 left), crew complement (CP-3, CP-5, CP-9, CP-10 merged), expedition tiers,
 Relics v2, Material Lines, recipe realism, plus the NEW refugee posts (E5-0 to E5-3 merged; it was in the locked saga
 design C.3 but never counted). Designed (1): completion tracking. Build % = (25 + 9 / 2) / 35 = 84.3%; to release =
 0.70 x 84.3% = 59.0%. Card note: five more systems finished, a new one joined (rescued refugees).
+
+## 2026-11-04 (v14): unchanged counts, 25 done / 9 building / 1 designed of 35 = 84% built, 59% to release
+
+Landed inside building systems since v13: refugee posts E5-0..E5-7 (complete except E5-6b echo refugees), crew complement CP-11, CP-12, CP-13 (crew module blueprints, Bridge/Quarters tiles, hull-family bonuses). The card refreshes its landed list and date only; the note says the numbers hold until the next systems wrap up.
