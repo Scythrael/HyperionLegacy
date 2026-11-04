@@ -90,6 +90,8 @@ import { REFUGEE_BACKGROUNDS, REFUGEE_BACKGROUND_KEYS } from "./refugees";
 import { refugeeShortRangePlan } from "./refugeeBuffs";
 import { fabricateDurationTicks, researchSpeedFor, startProcess } from "./tick";
 import { dispatchRun, withRefugeePosted } from "./wiring/probes";
+import { CP11_BLUEPRINT_KEYS } from "./cp11BlueprintsSwitch.fixture";
+import { CP11_ADDED_ENTRY_IDS } from "./cp11Registry.fixture";
 
 // The wiring registry entries E5 adds (E5-4 fills it). Held apart from golden 4, so that pin proves nothing else moved.
 // E5-2: the Evacuation template's three rows (the template catalog loop, registry.ts; refugeeRegistry.fixture.ts).
@@ -201,6 +203,9 @@ function facilityFixture(kind: LevelFixture): GameState {
 }
 
 const HULLS = Object.keys(SHIP_TYPES) as ShipTypeKey[];
+// Complement CP-11 came after this capture: its fifteen crew module and sensor array blueprints are held apart from the
+// research and fabricate readings (cp11BlueprintsSwitch.fixture.ts), so they keep proving every formula is unchanged.
+const blueprintsBeforeCp11 = () => Object.entries(BLUEPRINTS).filter(([k]) => !CP11_BLUEPRINT_KEYS.has(k));
 const STUDY_TIERS: readonly EquipmentRarity[] = ["standard", "augmented", "stellar", "radiant", "luminous", "constellar"];
 
 function consumers(s: GameState): Record<string, unknown> {
@@ -218,9 +223,9 @@ function consumers(s: GameState): Record<string, unknown> {
   );
   return {
     refine: hash(Object.entries(REFINE_RECIPES).map(([k, r]) => [k, refineJobDurationTicks(s, r.durationTicks)])),
-    research: hash(Object.entries(BLUEPRINTS).map(([k, bp]) => [k, museumResearchDurationTicks(bp.researchDurationTicks, museumSpeed)])),
+    research: hash(blueprintsBeforeCp11().map(([k, bp]) => [k, museumResearchDurationTicks(bp.researchDurationTicks, museumSpeed)])),
     relicStudy: STUDY_TIERS.map((t) => museumResearchDurationTicks(relicStudyDurationTicks(t), museumSpeed)),
-    fabricate: hash(Object.entries(BLUEPRINTS).map(([k, bp]) => [k, bp.craftDurationTicks])),
+    fabricate: hash(blueprintsBeforeCp11().map(([k, bp]) => [k, bp.craftDurationTicks])),
     build: HULLS.map((h) => shipBuildDurationTicks(s, h)),
     salvage: [salvageYieldMult(s), ...[0, 0.25, 0.5, 0.75, 0.999].map((d) => hullTeardownFraction(s, d))],
     fleetReachBonus: fleetReachBonus(s),
@@ -497,9 +502,9 @@ function consumersE54(s: GameState): Record<string, unknown> {
   }
   return {
     refineExtra: extra,
-    research: hash(Object.entries(BLUEPRINTS).map(([k, bp]) => [k, museumResearchDurationTicks(bp.researchDurationTicks, researchSpeedFor(s, museumSpeed))])),
+    research: hash(blueprintsBeforeCp11().map(([k, bp]) => [k, museumResearchDurationTicks(bp.researchDurationTicks, researchSpeedFor(s, museumSpeed))])),
     relicStudy: STUDY_TIERS.map((t) => museumResearchDurationTicks(relicStudyDurationTicks(t), researchSpeedFor(s, museumSpeed))),
-    fabricate: hash(Object.entries(BLUEPRINTS).map(([k, bp]) => [k, fabricateDurationTicks(s, bp.craftDurationTicks)])),
+    fabricate: hash(blueprintsBeforeCp11().map(([k, bp]) => [k, fabricateDurationTicks(s, bp.craftDurationTicks)])),
     build: HULLS.map((h) => shipBuildDurationTicks(s, h)),
     salvage: [salvageYieldMult(s), ...[0, 0.25, 0.5, 0.75, 0.999].map((d) => hullTeardownFraction(s, d))],
     fleetReachBonus: fleetReachBonus(s),
@@ -530,7 +535,8 @@ describe("E5-4 golden 3b: the consumers with every refugee facility staffed", ()
 
 describe("E5-0 golden 4: the wiring registry's ids and statuses", () => {
   it("count and hash, E5's added entries held apart", () => {
-    const added = new Set(E5_ADDED_ENTRY_IDS);
+    // Complement CP-11's rows (cp11Registry.fixture.ts) came after and are held apart the same way.
+    const added = new Set([...E5_ADDED_ENTRY_IDS, ...CP11_ADDED_ENTRY_IDS]);
     const lines = WIRING_REGISTRY.filter((e) => !added.has(e.id)).map((e) => `${e.id}|${e.status.kind}`);
     pin("registry", [lines.length, hash(lines)]);
   });

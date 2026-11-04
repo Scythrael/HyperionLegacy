@@ -8,6 +8,7 @@ import { describe, expect, it } from "vitest";
 import { withoutGg7Content } from "./gasGiantSpecials.fixture";
 // E-MOD EM-8 came after this capture: the Precursor Lens's blueprint, variety and the circuit's recipe held apart.
 import { EM8_BLUEPRINT_KEYS, withoutEm8Content } from "./emodEm8Switch.fixture";
+import { withoutCp11Content } from "./cp11BlueprintsSwitch.fixture";
 import { writeFileSync } from "node:fs";
 import { BLUEPRINTS, EQUIPMENT_RARITY_LADDER } from "./model";
 import { WEAPON_DEFS } from "./combat/weapons";
@@ -62,15 +63,16 @@ describe("rarity readiness goldens (RR-0, captured before any rarity engine edit
   }
 
   // Gas Giant Study GG-7 came after this capture: its blueprints and slot varieties are held apart
-  // (gasGiantSpecials.fixture.ts), so the rarity slices stay the only moves.
+  // (gasGiantSpecials.fixture.ts), so the rarity slices stay the only moves. Complement CP-11's blueprints likewise
+  // (cp11BlueprintsSwitch.fixture.ts).
   it("LIVE: Standard to Radiant, the inspect mint, the craft preview and the live readers are byte-identical", () => {
-    const pins = withoutGg7Content(() => withoutEm8Content(() => computeLivePins()));
+    const pins = withoutCp11Content(() => withoutGg7Content(() => withoutEm8Content(() => computeLivePins())));
     expect(Object.keys(pins).sort()).toEqual(Object.keys(RARITY_GOLDENS_LIVE).sort());
     for (const [k, v] of Object.entries(pins)) expect(v, k).toBe(RARITY_GOLDENS_LIVE[k]);
   });
 
   it("RESERVED: Derelict items, Luminous, Constellar, Nova and Celestial (moved only by the owner slice in the key)", () => {
-    const pins = withoutGg7Content(() => withoutEm8Content(() => computeReservedPins()));
+    const pins = withoutCp11Content(() => withoutGg7Content(() => withoutEm8Content(() => computeReservedPins())));
     expect(Object.keys(pins).sort()).toEqual(Object.keys(RARITY_GOLDENS_RESERVED).sort());
     for (const [k, v] of Object.entries(pins)) expect(v, k).toBe(RARITY_GOLDENS_RESERVED[k]);
   });
