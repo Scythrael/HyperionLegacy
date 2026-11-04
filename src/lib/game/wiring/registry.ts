@@ -22,6 +22,7 @@
 
 import {
   BLUEPRINTS,
+  CREW_MODULE_BLUEPRINTS,
   emptyMuseumV2,
   withGeneralMuseumRecord,
   FIELD_KITS_HIDDEN_BLUEPRINTS,
@@ -91,7 +92,7 @@ import Decimal from "break_infinity.js";
 import { diminishing } from "../diminishing";
 import { materialQualityClimbChance } from "../materialQuality";
 import { secondaryTalentEffectText } from "../captainSecondaryEffects";
-import { buyHomeworldTalent, describeCaptainTalentEffect, installMissingCombatBaselines } from "../tick";
+import { buyHomeworldTalent, describeCaptainTalentEffect, inspectBlank, installMissingCombatBaselines } from "../tick";
 import type { CaptainPrimaryMultKind } from "../captainPrimaryEffects";
 import { BASE_FTL_DURABILITY, BASE_REACTOR_DURABILITY, COMBAT_DEFAULT_LOADOUT, combatHullTypeOf, hullDefenseComposition } from "../combat/bridge";
 // WR-8 (0.14.0): the combat descriptors (combatRules.ts), their probes' on / off mark, and the readers they name.
@@ -404,6 +405,7 @@ export const CATALOGS = {
   STATUS_EFFECT_DEFS,
   REFINE_RECIPES,
   BLUEPRINTS,
+  CREW_MODULE_BLUEPRINTS,
   ITEMS,
   SALVAGE_LOOT_POOLS,
   POI_CATALOG,
@@ -2583,9 +2585,78 @@ function moduleEntries(): WiringEntry[] {
       system: "ship",
       source: { catalog: "SHIP_SEAMS", key: "bridge+quarters:obtainable" },
       claim: "Bridge and quarters modules can be built and installed",
-      status: pending("CP-11, CP-12 (no blueprint makes any of the 12 modules; no install tile)"),
+      // CP-11 built the blueprints (every bridge and quarters module is researched and crafted: ship:BLUEPRINTS:<key>:
+      // effect below); the Ships tab still has no Bridge Module or Crew Quarters tile to install one from.
+      status: pending("CP-12 (the Bridge Module and Crew Quarters install tiles; CP-11 built every blueprint)"),
     }),
   );
+  out.push(...crewModuleBlueprintEntries());
+  return out;
+}
+
+// Complement CP-11: the piece blueprint `key` mints through the Fabricator's own path (one blank inspected: the seeded
+// roll, the crafting level, the variety stamped as moduleVariant), installed on the ship in place of any piece of its
+// slot. Unchanged when the inspect is refused (the probe then reads no move).
+function craftedOn(key: string): Transform {
+  return (s) => {
+    const held: GameState = { ...s, blanks: { ...s.blanks, [key]: new Decimal(1) } };
+    const after = inspectBlank(held, key);
+    const minted = after.equipment.find((e) => !held.equipment.some((x) => x.id === e.id));
+    if (minted === undefined) return s;
+    return installPiece({ ...after, equipment: after.equipment.filter((e) => e.id !== minted.id) }, { ...minted, fittedToShipId: WIRING_SHIP_ID });
+  };
+}
+
+// Complement CP-11: each crew module and early sensor array blueprint, measured end to end: the piece one craft of it
+// mints, installed, moves the consumer its module catalog row reads (that row measures the catalog's number on a
+// hand-built piece; this one proves the blueprint makes that module and the made piece acts). Event curves: a crafted
+// piece carries rolled lines (Crew Stations, Crew Efficiency, sensors) that scale its effect, so only the direction and
+// a minimum size are claimed.
+//   quarters: the berths an empty complement can fill (every CP-11 quarters module adds berths; Elite Quarters, the
+//     one that adds none, is GG-7's blueprint);
+//   bridge: an Operations officer's Cargo Optimization on the cargo sheet (the BRIDGE_MODULES rows' fixture; the
+//     General Freighter's Operations seat is a Focused Command role seat; an ensign's Flag Command rank factor is 1);
+//   sensor: the dispatched run's discovery bias the array leans into (Wide-Beam and Balanced the landmark odds,
+//     Focused-Beam the underground odds; the ship carries no array without it).
+function crewModuleBlueprintEntries(): WiringEntry[] {
+  const out: WiringEntry[] = [];
+  for (const [key, bp] of Object.entries(CREW_MODULE_BLUEPRINTS)) {
+    const variety = bp.equipmentOutput!.varietyKey;
+    const label = bp.label.replace(/ Blueprint$/, "");
+    const common = { id: `ship:BLUEPRINTS:${key}:effect`, system: "ship" as const, source: { catalog: "BLUEPRINTS", key: `${key}:effect` }, contexts: ["sheet"] as ContextId[], direction: "up" as const, on: craftedOn(key), note: "one blank of the blueprint inspected (the Fabricator's mint) and installed" };
+    switch (bp.equipmentOutput!.slotType) {
+      case "quarters":
+        out.push(entry({ ...common, claim: `${label}: one craft makes the module (${variety}); installed, it adds crew berths`, probe: "fillableBerths", curve: { kind: "event", metric: "berths an empty complement can fill, the crafted module installed vs none" }, magnitude: () => 1 }));
+        break;
+      case "bridge":
+        out.push(
+          entry({
+            ...common,
+            claim: `${label}: one craft makes the module (${variety}); installed, it lifts a seated officer's bonus`,
+            probe: "sheetCargo",
+            curve: { kind: "event", metric: "cargo capacity with an Operations officer carrying Cargo Optimization, the crafted module installed vs none" },
+            // The minimum move: the module's own amplification, read as cargo units (the lift is several times that).
+            magnitude: (c) => c.BRIDGE_MODULES.find((b) => b.id === variety)!.amp,
+            base: () => seatOfficer(wiringBase(), "operations", ["ops.cargoExpand"]),
+          }),
+        );
+        break;
+      case "sensor": {
+        const underground = (SENSOR_ARRAYS.find((a) => a.id === variety)?.undergroundPoiOddsBias ?? 0) > (SENSOR_ARRAYS.find((a) => a.id === variety)?.landmarkOddsBias ?? 0);
+        out.push(
+          entry({
+            ...common,
+            claim: `${label}: one craft makes the array (${variety}); installed, a run leans into its ${underground ? "underground" : "landmark"} finds`,
+            probe: underground ? "expUndergroundBias" : "expLandmarkBias",
+            contexts: ["expedition:groundOps"],
+            curve: { kind: "event", metric: `a dispatched run's ${underground ? "underground PoI" : "landmark"} odds bias, the crafted array installed vs none` },
+            magnitude: () => 0.01,
+          }),
+        );
+        break;
+      }
+    }
+  }
   return out;
 }
 

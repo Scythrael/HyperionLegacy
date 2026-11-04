@@ -1,0 +1,305 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>0.14.0 QA: Crew module and array blueprints</title>
+<style>
+  :root {
+    --bg: #070b12;
+    --bg-2: #0d1420;
+    --panel: #111a29;
+    --panel-2: #0b1220;
+    --line: #1f2c40;
+    --line-2: #2a3a54;
+    --text: #dce6f3;
+    --dim: #8497af;
+    --faint: #5d6d86;
+    --accent: #38e0ff;
+    --accent-2: #7cf6c9;
+    --claude: #b98bff;
+    --desk: #38e0ff;
+    --mob: #ffcc66;
+    --warn: #ffcc66;
+    --save: #ff9a6b;
+    --device: #7fb2ff;
+    --good: #6ff2b0;
+    --danger: #ff7a7a;
+    --shadow: 0 0 0 1px var(--line), 0 18px 40px -24px #000;
+  }
+  * { box-sizing: border-box; }
+  html { color-scheme: dark; }
+  body {
+    margin: 0;
+    background:
+      radial-gradient(1200px 600px at 78% -10%, rgba(56,224,255,0.10), transparent 60%),
+      radial-gradient(900px 500px at 8% 8%, rgba(185,139,255,0.08), transparent 55%),
+      var(--bg);
+    color: var(--text);
+    font: 14px/1.55 ui-sans-serif, system-ui, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    padding: env(safe-area-inset-top, 0) 0 calc(env(safe-area-inset-bottom, 0) + 48px);
+  }
+  .wrap { max-width: 980px; margin: 0 auto; padding: 28px 18px 0; }
+  a { color: var(--accent); }
+
+  .eyebrow { font-size: 11px; letter-spacing: 3px; text-transform: uppercase; color: var(--accent); opacity: 0.85; margin: 0 0 6px; }
+  h1 { font-size: clamp(22px, 4.4vw, 34px); line-height: 1.1; margin: 0 0 4px; text-wrap: balance; font-weight: 750; letter-spacing: 0.3px; }
+  h1 .v { color: var(--accent); }
+  .sub { color: var(--dim); margin: 0 0 20px; font-size: 13px; }
+
+  .progress-card {
+    background: linear-gradient(180deg, var(--panel), var(--panel-2));
+    border: 1px solid var(--line-2); border-radius: 16px; padding: 20px 22px; box-shadow: var(--shadow); margin-bottom: 20px;
+  }
+  .progress-top { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+  .pct { font-size: clamp(30px, 8vw, 52px); font-weight: 800; line-height: 1; letter-spacing: -1px; color: var(--accent);
+    text-shadow: 0 0 24px rgba(56,224,255,0.45); font-variant-numeric: tabular-nums; }
+  .pct small { font-size: 15px; font-weight: 600; color: var(--dim); margin-left: 8px; letter-spacing: 0; }
+  .rowcount { color: var(--text); font-size: 15px; font-weight: 650; font-variant-numeric: tabular-nums; }
+  .rowcount b { color: var(--accent-2); }
+  .bar { margin-top: 16px; height: 16px; border-radius: 999px; background: #0a1220; border: 1px solid var(--line-2); overflow: hidden; }
+  .bar > i { display: block; height: 100%; width: 0%; background: linear-gradient(90deg, #2bd0ff, #7cf6c9);
+    box-shadow: 0 0 18px rgba(56,224,255,0.6); border-radius: 999px; transition: width .35s cubic-bezier(.2,.8,.2,1); }
+  .substats { display: flex; gap: 18px; flex-wrap: wrap; margin-top: 14px; font-size: 12.5px; color: var(--dim); }
+  .substats .dot { display: inline-block; width: 9px; height: 9px; border-radius: 3px; margin-right: 7px; vertical-align: middle; }
+  .substats b { color: var(--text); font-variant-numeric: tabular-nums; }
+  .d-claude { background: var(--claude); box-shadow: 0 0 10px var(--claude); }
+  .d-desk { background: var(--desk); box-shadow: 0 0 10px var(--desk); }
+  .d-mob { background: var(--mob); box-shadow: 0 0 10px var(--mob); }
+
+  .legend { background: var(--panel-2); border: 1px solid var(--line); border-radius: 12px; padding: 14px 16px; margin-bottom: 26px; font-size: 12.5px; color: var(--dim); }
+  .legend p { margin: 0 0 8px; }
+  .legend p:last-child { margin-bottom: 0; }
+  .legend b { color: var(--text); }
+  .chip { display: inline-block; padding: 1px 8px; border-radius: 999px; font-size: 11px; font-weight: 650; letter-spacing: 0.3px; vertical-align: middle; }
+  .chip.save { color: var(--save); background: rgba(255,154,107,0.12); border: 1px solid rgba(255,154,107,0.4); }
+  .chip.device { color: var(--device); background: rgba(127,178,255,0.12); border: 1px solid rgba(127,178,255,0.4); }
+  .chip.theme { color: var(--accent-2); background: rgba(124,246,201,0.10); border: 1px solid rgba(124,246,201,0.35); }
+  .chip.later { color: var(--danger); background: rgba(255,122,122,0.10); border: 1px solid rgba(255,122,122,0.4); }
+  .toolbar { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-bottom: 22px; }
+  .btn { background: var(--panel); color: var(--text); border: 1px solid var(--line-2); border-radius: 8px; padding: 7px 13px; font-size: 12.5px; cursor: pointer; font-weight: 600; }
+  .btn:hover { border-color: var(--accent); color: var(--accent); }
+  .toolbar .note { color: var(--faint); font-size: 12px; }
+
+  section { margin-bottom: 26px; }
+  .sec-head { display: flex; align-items: center; gap: 12px; margin: 0 0 6px; }
+  .sec-num { font-variant-numeric: tabular-nums; font-weight: 800; color: var(--accent); font-size: 13px; letter-spacing: 1px;
+    background: rgba(56,224,255,0.08); border: 1px solid rgba(56,224,255,0.3); border-radius: 7px; padding: 3px 9px; min-width: 34px; text-align: center; }
+  .sec-title { font-size: 16px; font-weight: 700; letter-spacing: 0.2px; }
+  .sec-line { flex: 1; height: 1px; background: linear-gradient(90deg, var(--line-2), transparent); }
+  .sec-done { font-size: 11.5px; color: var(--faint); font-variant-numeric: tabular-nums; }
+  .sec-note { color: var(--dim); font-size: 12.5px; font-style: italic; margin: 0 0 10px; border-left: 2px solid var(--line-2); padding: 2px 0 2px 12px; }
+
+  .items { display: flex; flex-direction: column; gap: 2px; }
+  .col-head, .item { display: grid; grid-template-columns: 52px 52px 52px 1fr; gap: 10px; }
+  .col-head { align-items: center; padding: 4px 12px; font-size: 10.5px; letter-spacing: 1px; text-transform: uppercase; color: var(--faint); }
+  .col-head .ch { text-align: center; }
+  .col-head .ch.claude { color: var(--claude); }
+  .col-head .ch.desk { color: var(--desk); }
+  .col-head .ch.mob { color: var(--mob); }
+  .item { align-items: start; padding: 10px 12px; border-radius: 10px; border: 1px solid transparent; }
+  .item:nth-child(odd) { background: rgba(255,255,255,0.014); }
+  .item.done { background: rgba(124,246,201,0.05); border-color: rgba(124,246,201,0.18); }
+  .cell { display: flex; justify-content: center; padding-top: 1px; }
+
+  .cb { position: relative; width: 22px; height: 22px; }
+  .cb input { position: absolute; inset: 0; opacity: 0; margin: 0; cursor: pointer; }
+  .cb .box { width: 22px; height: 22px; border-radius: 6px; border: 2px solid var(--line-2); display: grid; place-items: center; transition: .12s; background: #0a1220; }
+  .cb .box svg { width: 13px; height: 13px; opacity: 0; transform: scale(.5); transition: .12s; }
+  .cb input:checked + .box svg { opacity: 1; transform: scale(1); }
+  .cb input:focus-visible + .box { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .cb.claude input:checked + .box { background: rgba(185,139,255,0.18); border-color: var(--claude); }
+  .cb.claude .box svg { color: var(--claude); }
+  .cb.desk input:checked + .box { background: rgba(56,224,255,0.18); border-color: var(--desk); }
+  .cb.desk .box svg { color: var(--desk); }
+  .cb.mob input:checked + .box { background: rgba(255,204,102,0.18); border-color: var(--mob); }
+  .cb.mob .box svg { color: var(--mob); }
+  .cb.desk input:not(:disabled):hover + .box { border-color: var(--desk); }
+  .cb.mob input:not(:disabled):hover + .box { border-color: var(--mob); }
+  .cb input:disabled { cursor: default; }
+  .cb.claude.empty .box { border-style: dashed; opacity: 0.5; }
+
+  .body .t { color: var(--text); }
+  .body .t .k { color: var(--accent-2); font-weight: 600; }
+  .meta { margin-top: 5px; display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+  .how { color: var(--dim); font-size: 12px; font-style: italic; margin-top: 4px; }
+  .how::before { content: "how: "; font-style: normal; color: var(--claude); opacity: 0.85; font-weight: 650; }
+
+  .findings { background: linear-gradient(180deg, rgba(124,246,201,0.06), transparent); border: 1px solid rgba(124,246,201,0.25); border-radius: 14px; padding: 18px 20px; margin-top: 12px; }
+  .findings h2 { margin: 0 0 6px; font-size: 15px; color: var(--good); letter-spacing: 0.3px; }
+  .findings ol { margin: 8px 0 0; padding-left: 20px; }
+  .findings li { margin-bottom: 10px; color: var(--dim); }
+  .findings li b { color: var(--text); }
+  .foot { margin-top: 26px; color: var(--faint); font-size: 11.5px; text-align: center; }
+
+  @media (max-width: 520px) {
+    .col-head, .item { grid-template-columns: 34px 34px 34px 1fr; gap: 6px; }
+    .item { padding: 10px 8px; }
+    .col-head { padding: 4px 8px; font-size: 9.5px; letter-spacing: 0.5px; }
+    .wrap { padding-left: 14px; padding-right: 14px; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <p class="eyebrow">Hyperion Legacy · QA · 0.14.0 feature pass</p>
+  <h1><span class="v">0.14.0</span> Crew module and array blueprints (CP-11)</h1>
+  <p class="sub">Curated checklist for Complement CP-11 (plan docs/plans/2026-10-14-complement-and-acquisition-plan.md CP-11, Task 28 engine): fifteen new blueprints, so every Bridge Module, every Crew Quarters module (the Guest Wing included) and the three early sensor arrays can be researched and crafted, with no relic. Tier 1: Balanced Command, Utilitarian Quarters, Guest Wing, Wide-Beam Array, Balanced Array. Tier 2: Focused Command, the six division quarters, Efficient Quarters, Focused-Beam Array. Tier 3: Flag Command (beside GG-7's Elite Quarters). <b>Run this on staging</b> (devpreview.crystalisoft.com, the staging branch) with your migrated save, once 0.14.0 is deployed there (0.14.0 stays off staging until the wiring gate passes and you say go). Run each check once at <b>1280 px</b> (desktop) and once at <b>375 px</b> (mobile), in both <b>light and dark</b> themes.</p>
+
+  <div class="progress-card">
+    <div class="progress-top">
+      <div class="pct" id="pct">0%<small id="pctlabel">ready</small></div>
+      <div class="rowcount"><b id="doneCount">0</b> / <span id="totalCount">0</span> checks complete</div>
+    </div>
+    <div class="bar"><i id="barFill"></i></div>
+    <div class="substats">
+      <span><span class="dot d-claude"></span>Claude (tests) <b id="claudeCount">0</b></span>
+      <span><span class="dot d-desk"></span>You at 1280 px <b id="deskCount">0</b></span>
+      <span><span class="dot d-mob"></span>You at 375 px <b id="mobCount">0</b></span>
+      <span style="color:var(--faint)">A row is complete when both of your columns are ticked.</span>
+    </div>
+  </div>
+
+  <div class="legend">
+    <p><b>Where to test.</b> Staging, <b>devpreview.crystalisoft.com</b>, on the 0.14.0 build, with your own migrated save. A fresh save needs a built Research Lab and Fabricator for the tier 1 rows; tier 2 and 3 rows need those facilities upgraded.</p>
+    <p><b>The three columns.</b> <b style="color:var(--claude)">Claude</b> is pre-filled and read-only: a tick means the engine or display test suite proves that rule (the "how" line names the test file). Nothing here was clicked through in a browser for this sheet, so every on-screen check is yours. <b style="color:var(--desk)">1280</b> and <b style="color:var(--mob)">375</b> are your desktop and mobile passes; your ticks are saved in this browser.</p>
+    <p><b>Progress rule.</b> A row counts as complete once BOTH of your columns are ticked.</p>
+    <p>Tags: <span class="chip save">needs real save</span> needs your migrated save. <span class="chip device">needs device</span> touch, a real phone, or a visual call. <span class="chip theme">light + dark</span> look at it in both themes. <span class="chip later">not in this build</span> arrives with CP-12 (the Bridge Module and Crew Quarters install tiles).</p>
+  </div>
+
+  <div class="toolbar">
+    <button class="btn" type="button" id="resetBtn">Reset my columns</button>
+    <span class="note">Claude's column is read-only (it records what the tests prove).</span>
+  </div>
+
+  <div id="sections"></div>
+
+  <div class="findings">
+    <h2>Builder notes (CP-11, 2026-11-03)</h2>
+    <ol>
+      <li><b>Install comes with CP-12.</b> CP-11 is the engine half of Task 28: the blueprints. The Ships tab gains its Bridge Module and Crew Quarters tiles (and Logistics its bridge and quarters groups) in CP-12, so a crafted bridge or quarters piece waits in the spare pool until then. Sensor arrays already install from the Sensor Array tile.</li>
+      <li><b>Provisional.</b> The research and craft costs (tier 1 like the utility rigs, tier 2 like the tier 2 systems, Flag Command like Elite Quarters) are first passes no answer names. The Guest Wing's tier (1) is your call (2026-11-03). The three array recipes are the recipe realism audit's section 4.8 mixes, approved 2026-11-03.</li>
+      <li><b>Every blueprint has its own recipe [PROPOSAL, for your sign-off].</b> The section 5 table gave three quarters pairs one recipe each; you chose to tell them apart (2026-11-03), so one of each pair swaps one input for a like-cost component: Engineering Quarters Frame 2 + Coupling 2 + Ti Ingot 1 becomes Frame 2 + Coupling 2 + Wafer 1 (diagnostic consoles); Science Quarters Frame 2 + Wafer 2 + Coupling 1 becomes Frame 2 + Wafer 1 + Ti Ingot 1 + Coupling 1 (a titanium bench); the Guest Wing Frame 2 + Ti Ingot 2 + Coupling 1 becomes Frame 1 + Ti Ingot 2 + Coupling 2 (fewer crew bunks, cabins on their own climate loop). Efficient, Operations and Utilitarian Quarters keep the table's recipes.</li>
+      <li><b>The Archive grows by fifteen rows</b>, so its completion percentage drops for existing saves (the Task 10 precedent): a patch note line.</li>
+    </ol>
+  </div>
+
+  <p class="foot">0.14.0 Crew module and array blueprints QA · boxes persist in this browser only.</p>
+</div>
+
+<script>
+const TICK = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>';
+// c: a test proves it (how names the file). tag: "save" | "device" | "theme" | "later" | null.
+const SECTIONS = [
+  { n: "0", title: "Setup on staging", note: "Staging only: devpreview.crystalisoft.com on the 0.14.0 build, your migrated save.", items: [
+    { t: "Open staging and load your save. It loads clean (CP-11 adds no save step) and every ship's stats, crew berths and expedition scans read as before.", c: true, tag: "save", how: "cp11Goldens.test.ts (every existing bridge, quarters and sensor variety on three hulls, the existing mints and every other registry row, held)." },
+    { t: "No console errors opening Research, the Fabricator, Ships (Ship Systems), Logistics, the Archive and Help." },
+  ]},
+  { n: "1", title: "Research", items: [
+    { t: "Research Lab, tier 1: Balanced Command, Utilitarian Quarters, Guest Wing, Wide-Beam Array and Balanced Array blueprints are listed, unmasked, with no relic needed, and start like any research.", c: true, tag: "theme", how: "cp11CrewModuleBlueprints.test.ts (tiers, no relic or decode gate; a fresh save researches the Wide-Beam Array, Balanced Command and Utilitarian Quarters)." },
+    { t: "Tier 2 lists Focused Command, the six division quarters (Security, Engineering, Science, Medical, Operations, Flight-Deck), Efficient Quarters and the Focused-Beam Array; tier 3 lists Flag Command beside Elite Quarters.", c: true, how: "cp11CrewModuleBlueprints.test.ts (the tier table); cp11Goldens.test.ts (tiers 1 to 3, the named move)." },
+    { t: 'Each blueprint is named after its piece ("Balanced Command Blueprint", "Guest Wing Blueprint") and its hint names the slot it installs in (Bridge Module, Crew Quarters or Sensor Array).', c: true, how: "cp11CrewModuleBlueprints.test.ts (labels)." },
+    { t: "The flavor lines read true to what each piece does (no numbers, no em dashes, US English, never \"fit\").", tag: "theme" },
+  ]},
+  { n: "2", title: "Craft", items: [
+    { t: "Fabricator: each recipe takes components only: Frame Segments, Power Couplings, Polysilicate Wafers, Titanium Ingots (Flag Command a Structural Assembly). Medical Quarters also takes 1 Purified Biomass, its sickbay stock.", c: true, how: "cp11CrewModuleBlueprints.test.ts (the audit's recipes, the arrays' approved 2026-11-03, plus the three [PROPOSAL] swaps; no Iridium Catalyst, no canister); materialLinesMl2.test.ts (no two quarters share a recipe)." },
+    { t: "Craft a Wide-Beam Array, a Balanced Command and Utilitarian Quarters on a fresh-ish save: each blank inspects into the right piece.", c: true, tag: "save", how: "cp11CrewModuleBlueprints.test.ts (research, craft, inspect, the piece's variety)." },
+    { t: "The blank tiles and the item cards show SVG glyphs: a command chair facing a viewscreen (bridge), a bunk bed (quarters), a phased-array panel with beams (the three arrays), the Guest Wing keeping its bed. No emoji.", tag: "theme" },
+    { t: "Glyphs read clearly at 16, 28 and 56 px and stay apart from the Guest Wing bed, the telescope dish and the comm booster mast.", tag: "device" },
+  ]},
+  { n: "3", title: "Install and effect", items: [
+    { t: "Ships, Sensor Array tile: install a crafted Wide-Beam Array. An expedition from that ship scans with the wider, slower beam (and a Focused-Beam the quicker, narrower one).", c: true, tag: "save", how: "wiring registry ship:BLUEPRINTS:<array>:effect (the crafted array moves the run's discovery bias); wiring.sensitivity.test.ts." },
+    { t: "Install a crafted Balanced Command on the Aurora: the officer lift shows in the stat breakdown.", c: true, tag: "later", how: "wiring registry ship:BLUEPRINTS:balancedCommandBp:effect (a crafted module lifts a seated officer's bonus). The tile is CP-12's." },
+    { t: "Install crafted quarters: the ship's crew berths rise (Utilitarian a few, Efficient many); uninstalling never removes crew.", c: true, tag: "later", how: "cp11CrewModuleBlueprints.test.ts (every CP-11 quarters module adds berths); wiring registry ship:BLUEPRINTS:<quarters>:effect. The tile is CP-12's." },
+  ]},
+  { n: "4", title: "Archive and wiring", items: [
+    { t: "The Archive lists fifteen new rows (its completion percentage drops a little on an existing save).", c: true, tag: "save", how: "cp11CrewModuleBlueprints.test.ts and cp11Goldens.test.ts (the Archive's slots and maximum, the named move)." },
+    { t: "Every CP-11 blueprint has a live wiring row; the bridge and quarters obtainable row stays pending on CP-12's tiles alone.", c: true, how: "cp11CrewModuleBlueprints.test.ts; RELEASE_GATE=1 no-dead-stats.test.ts and wiring.completeness.test.ts (37 pending before and after)." },
+    { t: "No horizontal scroll at 375 px on the Research list, the Fabricator recipe picker and the item card.", tag: "device" },
+  ]},
+];
+
+const STORE = "hl-qa-0140-cp11-crew-modules-v1";
+let userState = {};
+try { userState = JSON.parse(localStorage.getItem(STORE) || "{}"); } catch (e) { userState = {}; }
+function save() { try { localStorage.setItem(STORE, JSON.stringify(userState)); } catch (e) {} }
+
+const CHIP = {
+  save: '<span class="chip save">needs real save</span>',
+  device: '<span class="chip device">needs device</span>',
+  theme: '<span class="chip theme">light + dark</span>',
+  later: '<span class="chip later">not in this build</span>',
+};
+
+function cb(kind, id, checked, disabled, label) {
+  const empty = (kind === "claude" && !checked) ? " empty" : "";
+  return '<span class="cb ' + kind + empty + '"><input type="checkbox" id="' + id + '" ' + (checked ? "checked " : "") + (disabled ? "disabled " : "") +
+    'aria-label="' + label + '"><span class="box">' + TICK + "</span></span>";
+}
+
+const secWrap = document.getElementById("sections");
+SECTIONS.forEach((sec, si) => {
+  const el = document.createElement("section");
+  let html = '<div class="sec-head"><span class="sec-num">' + sec.n + '</span><span class="sec-title">' + sec.title +
+    '</span><span class="sec-line"></span><span class="sec-done" id="secdone-' + si + '"></span></div>';
+  if (sec.note) html += '<p class="sec-note">' + sec.note + "</p>";
+  html += '<div class="items"><div class="col-head"><span class="ch claude">Claude</span><span class="ch desk">1280</span><span class="ch mob">375</span><span></span></div>';
+  sec.items.forEach((it, ii) => {
+    const key = si + "-" + ii;
+    const meta = it.tag ? '<div class="meta">' + (CHIP[it.tag] || "") + "</div>" : "";
+    const how = it.how ? '<div class="how">' + it.how + "</div>" : "";
+    html += '<div class="item" data-key="' + key + '">' +
+      '<div class="cell">' + cb("claude", "c-" + key, !!it.c, true, "Claude: covered by tests") + "</div>" +
+      '<div class="cell">' + cb("desk", "d-" + key, !!userState["d-" + key], false, "Checked at 1280 px") + "</div>" +
+      '<div class="cell">' + cb("mob", "m-" + key, !!userState["m-" + key], false, "Checked at 375 px") + "</div>" +
+      '<div class="body"><span class="t">' + it.t + "</span>" + meta + how + "</div></div>";
+  });
+  html += "</div>";
+  el.innerHTML = html;
+  secWrap.appendChild(el);
+});
+
+function isDone(key) { return !!userState["d-" + key] && !!userState["m-" + key]; }
+function recompute() {
+  let total = 0, done = 0, claude = 0, desk = 0, mob = 0;
+  SECTIONS.forEach((sec, si) => {
+    let secTotal = 0, secDone = 0;
+    sec.items.forEach((it, ii) => {
+      const key = si + "-" + ii;
+      total++; secTotal++;
+      if (it.c) claude++;
+      if (userState["d-" + key]) desk++;
+      if (userState["m-" + key]) mob++;
+      if (isDone(key)) { done++; secDone++; }
+      const row = secWrap.querySelector('.item[data-key="' + key + '"]');
+      if (row) row.classList.toggle("done", isDone(key));
+    });
+    const sd = document.getElementById("secdone-" + si);
+    if (sd) sd.textContent = secDone + " / " + secTotal;
+  });
+  const pctVal = total ? Math.round((done / total) * 100) : 0;
+  document.getElementById("pct").firstChild.textContent = pctVal + "%";
+  document.getElementById("barFill").style.width = pctVal + "%";
+  document.getElementById("doneCount").textContent = done;
+  document.getElementById("totalCount").textContent = total;
+  document.getElementById("claudeCount").textContent = claude;
+  document.getElementById("deskCount").textContent = desk;
+  document.getElementById("mobCount").textContent = mob;
+  document.getElementById("pctlabel").textContent = pctVal >= 100 ? "launch-ready" : (pctVal >= 60 ? "closing in" : "in progress");
+}
+
+secWrap.addEventListener("change", (e) => {
+  const inp = e.target;
+  if (!inp.id || (inp.id[0] !== "d" && inp.id[0] !== "m")) return;
+  if (inp.checked) userState[inp.id] = true; else delete userState[inp.id];
+  save(); recompute();
+});
+document.getElementById("resetBtn").addEventListener("click", () => {
+  userState = {}; save();
+  secWrap.querySelectorAll('input[id^="d-"], input[id^="m-"]').forEach((i) => (i.checked = false));
+  recompute();
+});
+recompute();
+</script>
+</body>
+</html>

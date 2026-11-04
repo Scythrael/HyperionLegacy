@@ -66,7 +66,7 @@ import { REACTOR_TECH_TIERS, REACTOR_VARIETY_TECH } from "../reactorTech";
 import { RARITY_PROFILES } from "../rarityProfiles";
 import { ASCENSION_BUDGET_MULT } from "../ascension";
 import { LUMINOUS_AFFIXES } from "../legendaryAffixes";
-import { MODULE_RARITY_FACTOR } from "../model";
+import { CREW_MODULE_BLUEPRINTS, MODULE_RARITY_FACTOR } from "../model";
 import { GEAR_SETS } from "../gearSets";
 import { UNIVERSAL_MODULES } from "../shipModules";
 import { REFUGEE_BACKGROUND_KEYS, REFUGEE_FACILITY_KEYS } from "../refugees";
@@ -176,6 +176,8 @@ export function enumerateEffectSources(): EffectSource[] {
   // GG-7: each canister's consumer (the dead-stock rule) and each special blueprint's effect.
   add("GAS_STUDY_USES", GAS_CANISTER_IDS.map((id) => `canisterRecipes:${id}`));
   add("BLUEPRINTS", SPECIAL_BLUEPRINT_KEYS.map((k) => `${k}:effect`));
+  // Complement CP-11: each crew module and early sensor array blueprint's effect (the crafted piece installed).
+  add("BLUEPRINTS", Object.keys(CREW_MODULE_BLUEPRINTS).map((k) => `${k}:effect`));
   // GG-5: the Research Lab's data study lane: the eight family boosts, the recipe chance, the fragment's decode, and
   // the lane consuming each research data item.
   add("DATA_STUDY", [...RESEARCH_FAMILIES.map((f) => `boost:${f}`), "recipeChance", "ancientDecode", ...DATA_STUDY_ITEM_IDS.map((id) => `consume:${id}`)]);

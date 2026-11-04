@@ -585,6 +585,19 @@ export const ICON_PATHS = {
   refugeeFarewell: ["M5 19c0-8 5-14 15-15-1 10-7 15-15 15z", "M5 19l8-8"],
   // Info: a circled i, a one-time note (the first-arrival hint).
   info: ["M12 3a9 9 0 1 1 0 18 9 9 0 0 1 0-18z", "M12 11v6", "M12 7.5v.5"],
+
+  // --- 0.14.0 CP-11: the crew module and early sensor array blueprints (CP-12's tiles reuse them) ---
+
+  // Bridge Module: a command chair seen from behind (backrest, armrests, pedestal) facing a wide viewscreen with a readout
+  // trace. Reviewed at 16 / 28 / 56 px: the armrests standing out past the backrest are what keep it a chair, not
+  // `equipment` or a monitor on a stand; the screen's trace was a cross at first and read as `plus` / medical.
+  bridge: ["M2.5 3h19v7h-19z", "M7 7l3-2 3 2.5 3.5-1.5", "M9 12.5h6v5.5H9z", "M5.5 15.5h3.5", "M15 15.5h3.5", "M5.5 15.5v3", "M18.5 15.5v3", "M12 18v3", "M9 21h6"],
+  // Crew Quarters: a bunk bed, two decks between two posts, a pillow on each. Kept apart from `guestWing` (one bed seen
+  // from the side, headboard and blanket) by the second deck and the posts on both ends.
+  quarters: ["M4 3v18", "M20 3v18", "M4 10.5h16", "M4 18h16", "M6.5 10.5V9a1 1 0 0 1 1-1h2a1 1 0 0 1 1 1v1.5", "M6.5 18v-1.5a1 1 0 0 1 1-1h2a1 1 0 0 1 1 1V18"],
+  // Sensor Array: a flat phased-array panel (its grid) on a mast, sending out three straight beams. Kept apart from
+  // `telescope` (a curved dish with arcs) and `commBooster` / `rigSurvey` (masts with arcs) by the flat grid and rays.
+  sensorArray: ["M3.5 4.5l9 2.5v8l-9-2.5z", "M3.5 8.5l9 2.5", "M8 5.75v8", "M8 14v6", "M5 20.5h6", "M15.5 8.5l5-2.5", "M15.5 11.5h5.5", "M15.5 14.5l5 2.5"],
 } as const satisfies Record<string, readonly string[]>;
 
 /**

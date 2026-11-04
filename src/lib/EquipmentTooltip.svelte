@@ -172,6 +172,11 @@
     refineryFeedRig: "rigRefineryFeed",
     damageControlSuite: "suiteDamageControl",
     pathfinderSuite: "suitePathfinder",
+    // Complement CP-11: the three early sensor arrays its blueprints make (the slot's relic and special arrays keep
+    // their own glyphs, so the sensor slot takes no SVG fallback).
+    sensorWideBeam: "sensorArray",
+    sensorFocusedBeam: "sensorArray",
+    sensorBalanced: "sensorArray",
   };
 
   // Fallback glyph per SLOT, used if a variety is unmapped OR a slot has no variety
@@ -191,6 +196,10 @@
   // module slot draws the Modules row's chip glyph, so a module added later without a glyph never falls back to an emoji.
   const SLOT_SVG_FALLBACK: Partial<Record<string, IconName>> = {
     module: "module",
+    // Complement CP-11: every bridge and quarters module draws its slot's glyph (the Guest Wing keeps its own bed), so
+    // the crew module blueprints' Research and Fabricator cards never fall back to an emoji.
+    bridge: "bridge",
+    quarters: "quarters",
   };
 
   // Resolve a piece's VARIETY key: a crafted piece from its blueprint's equipmentOutput,

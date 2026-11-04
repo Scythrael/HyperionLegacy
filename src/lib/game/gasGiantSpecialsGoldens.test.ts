@@ -16,6 +16,7 @@
 
 import { describe, expect, it } from "vitest";
 import { EM8_BLUEPRINT_KEYS } from "./emodEm8Switch.fixture";
+import { CP11_BLUEPRINT_KEYS } from "./cp11BlueprintsSwitch.fixture";
 import { gearWearOffInThisFile } from "./gearWearSwitch.fixture";
 gearWearOffInThisFile();
 import { combatRulesOffForThisFile } from "./combatRulesSwitch.fixture";
@@ -82,9 +83,9 @@ describe("GG-7 capture 1: every pre-GG-7 blueprint's research verdict at Lab lev
     for (let level = 0; level <= 7; level++) {
       for (const decoded of [false, true]) {
         const s = labAt(level, decoded);
-        // E-MOD EM-8 (after this capture): the Precursor Lens's blueprint held apart too.
+        // E-MOD EM-8 (after this capture): the Precursor Lens's blueprint held apart too; and Complement CP-11's.
         const verdicts = Object.keys(BLUEPRINTS)
-          .filter((k) => !GG7_ADDED_BLUEPRINT_KEYS.has(k) && !EM8_BLUEPRINT_KEYS.has(k))
+          .filter((k) => !GG7_ADDED_BLUEPRINT_KEYS.has(k) && !EM8_BLUEPRINT_KEYS.has(k) && !CP11_BLUEPRINT_KEYS.has(k))
           .map((k) => [k, canResearch(s, k)]);
         rows[`${level}:${decoded ? "decoded" : "plain"}`] = hash(verdicts);
       }

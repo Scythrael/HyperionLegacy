@@ -2278,8 +2278,13 @@ describe("Equipment BLUEPRINTS (0.11.0 Task 18)", () => {
     "pressureForgedPlatingBp", "ramscoopCollectorBp", "resonanceSensorArrayBp", "eliteQuartersBp",
     // E-MOD EM-8: the Precursor Lens module (discovery-gated on the Precursor Lens relic).
     "precursorLensBp",
+    // Complement CP-11: the crew module and early sensor array blueprints (3 bridge, 9 quarters, 3 arrays).
+    "balancedCommandBp", "focusedCommandBp", "flagCommandBp",
+    "utilitarianQuartersBp", "efficientQuartersBp", "securityQuartersBp", "engineeringQuartersBp", "scienceQuartersBp",
+    "medicalQuartersBp", "operationsQuartersBp", "flightDeckQuartersBp", "guestWingBp",
+    "wideBeamArrayBp", "focusedBeamArrayBp", "balancedArrayBp",
   ];
-  const EQUIP_BP_COUNT = 52 + (FIELD_KITS_PLAYER_LIVE ? 1 : 0) + 8 + 4 + 1;
+  const EQUIP_BP_COUNT = 52 + (FIELD_KITS_PLAYER_LIVE ? 1 : 0) + 8 + 4 + 1 + 15;
 
   // Every equipment blueprint = a BLUEPRINTS entry carrying `equipmentOutput`. Expedition Tiers G2-4: a CLASSED drive
   // (driveClass set: the Class II Drive today) is a class line on a Class I variety, counted apart (its own test below).
@@ -2293,7 +2298,7 @@ describe("Equipment BLUEPRINTS (0.11.0 Task 18)", () => {
     for (const bp of classed) expect(bp.equipmentOutput).toEqual({ slotType: "ftlDrive", varietyKey: "balancedDrive" });
   });
 
-  it("defines exactly 52 equipment blueprints (53 once the Impact Grenade's is live, 61 with EM-7's modules, 65 with GG-7's, 66 with EM-8's), one per (equipmentOutput slot × variety)", () => {
+  it("defines exactly 52 equipment blueprints (53 once the Impact Grenade's is live, 61 with EM-7's modules, 65 with GG-7's, 66 with EM-8's, 81 with CP-11's), one per (equipmentOutput slot × variety)", () => {
     expect(equipmentBlueprints).toHaveLength(EQUIP_BP_COUNT);
     // The named set matches the derived key list (no missing / extra entry).
     const keys = equipmentBlueprints.map((bp) => bp.key).sort();
@@ -2318,6 +2323,8 @@ describe("Equipment BLUEPRINTS (0.11.0 Task 18)", () => {
       "memberWeapon", "memberArmor", "memberTool", "implant",
       // E-MOD EM-7: every universal module too.
       "module",
+      // Complement CP-11: every bridge and quarters module and every sensor array (the relic, special and early ones).
+      "bridge", "quarters", "sensor",
     ] as const;
     for (const slotType of EQUIP_BP_SLOTS) {
       for (const variety of EQUIPMENT_SLOTS[slotType].varieties) {
