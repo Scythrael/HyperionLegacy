@@ -114,6 +114,9 @@ import { GROUND_CONDITIONS, STONESKIN_INJURY_MULT } from "../medicalBay";
 import { OFFICER_STAT_KEYS } from "../seniorStaff";
 import { DEPARTMENT_OF_SEAT, OFFICER_STAT_NEUTRAL, XO_DEPARTMENT_SHARE, officerStatFacet } from "../officerStats";
 import { CREW_EFFECTIVENESS_KNEE, OFFICER_BONUSES_PENDING_IN_RELEASE, POWER_EFFICIENCY_KNEE } from "../crewOverlay";
+// Complement CP-14: the Science amplification's numbers (each magnitude reads them, never a literal).
+import { SCIENCE_SEAT_SENSOR_LIFT, scienceCrewSensorLift } from "../crewOverlay";
+import { officerRankMagnitudeFactor } from "../seniorStaff";
 import { patrolCycleOneRampHours } from "../tick";
 import { installFromShipSystemTile } from "../shipSystemTiles";
 import { constitutionRamp } from "../constitutionRamp";
@@ -2394,6 +2397,24 @@ function hullEntries(): WiringEntry[] {
         },
       }),
     );
+    // Complement CP-14 (OC-16 "Explorers lead"): the hull's own base sensors, read verbatim off its bare sheet and where every
+    // run reads them (a survey's and a short-range run's run sheet, both stamped hullSensors at dispatch, and a Ground Ops
+    // dispatch's frozen sensors).
+    if (SHIP_TYPES[hull].baseSensors !== undefined) {
+      out.push(
+        hullEntry(hull, "baseSensors", {
+          probe: "runSensors",
+          // A warship cannot fly a survey mission (its dispatch is refused), so its base sensors reach the other readers.
+          contexts: SHIP_TYPES[hull].spec === "tactician" ? CP14_SENSOR_CONTEXTS.filter((c) => c !== "mission:survey") : CP14_SENSOR_CONTEXTS,
+          ...(SHIP_TYPES[hull].spec === "tactician" ? { outOfScope: [{ context: "mission:survey" as ContextId, reason: CP14_NO_SURVEY }] } : {}),
+          magnitude: (c) => c.SHIP_TYPES[hull].baseSensors ?? 0,
+          base: () => {
+            const s = wiringBase(hull);
+            return { ...s, equipment: s.equipment.filter((e) => e.fittedToShipId !== "ship-1") };
+          },
+        }),
+      );
+    }
     // E-MOD EM-7: the hull's shared module slots (modules + the Spec Utility, user M1 "Separate counts"), counted through
     // the real install gate: distinct catalog modules installed one by one on the bare hull until moduleSlotsFull.
     out.push(
@@ -2478,16 +2499,92 @@ function hullEntries(): WiringEntry[] {
       tolerance: 0.5, // whole berths
     }),
   );
+  // Complement CP-14 (S4-B04, OC-16 "Explorers lead"): the explorer sensor advantage the design claimed, now a field
+  // (ShipTypeDef.baseSensors): the same bare ship on an Aurora reads its lead over a Destroyer, wherever a run reads it.
+  // (cp14Registry.fixture.ts puts the pending row back for the pins taken before CP-14.)
   out.push(
     entry({
       id: "ship:SHIP_TYPES:sensors",
       system: "ship",
       source: { catalog: "SHIP_TYPES.missing", key: "sensors" },
-      claim: "Explorer hulls carry a sensor advantage (no field exists; MISSING)",
-      status: pending("CP-14 (hull base sensors, S4-B04)"),
+      claim: "Explorer hulls carry a sensor advantage: the Aurora's base sensors lead a warship's",
+      probe: "runSensors",
+      contexts: CP14_SENSOR_CONTEXTS.filter((c) => c !== "mission:survey"),
+      outOfScope: [{ context: "mission:survey" as ContextId, reason: CP14_NO_SURVEY }],
+      curve: { kind: "linearAbsolute" },
+      magnitude: (c) => (c.SHIP_TYPES.aurora.baseSensors ?? 0) - (c.SHIP_TYPES.destroyer.baseSensors ?? 0),
+      base: () => {
+        const s = wiringBase("destroyer");
+        return { ...s, equipment: s.equipment.filter((e) => e.fittedToShipId !== "ship-1") };
+      },
+      on: (s) => editShip(s, { typeKey: "aurora" }),
+      note: "the hull swapped under the same bare ship: its base sensors (HULL_BASE_SENSORS) are the only sensors it has",
     }),
   );
   return out;
+}
+
+// ============================================================================
+// Complement CP-14 (OC-20 "Proposed numbers", OC-21 "Multiply"): the Science amplification of a ship's sensors
+// ============================================================================
+//
+// Each measured on a bare Aurora (its 35 base sensors, no gear, no crew, no officer) where every run reads sensors
+// (CP14_SENSOR_CONTEXTS): a Science division of WIRING_BUCKET_COUNT heads (its buff, Survey Aptitude, never touches
+// sensors) and an Ensign Science officer with no bonus; and Focused Command lifting that officer on a Prospector carrying a
+// sensor array (Science is a Prospector role seat, and the Prospector's own bridge line is extraction, not sensors).
+const CP14_SENSOR_CONTEXTS: ContextId[] = ["sheet", "mission:survey", "mission:shortRange", "expedition:groundOps"];
+const CP14_NO_SURVEY = "a warship cannot fly a survey mission (the dispatch refuses its hull), so the survey yield never reads its sensors";
+function cp14ScienceSensorEntries(): WiringEntry[] {
+  const bareAurora = (): GameState => {
+    const s = withBuckets(wiringBase("aurora"), []);
+    return { ...s, equipment: s.equipment.filter((e) => e.fittedToShipId !== "ship-1") };
+  };
+  const sciencePeople: Transform = (s) => withBuckets(s, [bucketOf("science", "sci.survey")]);
+  const scienceOfficer: Transform = (s) => seatOfficer(s, "science", []);
+  const focusedId = BRIDGE_MODULES.find((m) => m.kind === "focused")!.id;
+  return [
+    entry({
+      id: "ship:SHIP_SEAMS:scienceCrewSensors",
+      system: "ship",
+      source: { catalog: "SHIP_SEAMS", key: "scienceCrewSensors" },
+      claim: "Science crew multiply the ship's sensors (unbounded, concave: 8% x ln(1 + heads / 25))",
+      probe: "runSensors",
+      contexts: CP14_SENSOR_CONTEXTS,
+      curve: { kind: "linearRelative" },
+      magnitude: () => scienceCrewSensorLift(WIRING_BUCKET_COUNT),
+      base: bareAurora,
+      on: sciencePeople,
+    }),
+    entry({
+      id: "ship:SHIP_SEAMS:scienceSeatSensors",
+      system: "ship",
+      source: { catalog: "SHIP_SEAMS", key: "scienceSeatSensors" },
+      claim: "A Science officer multiplies the ship's sensors (+12% at Ensign, growing with rank)",
+      probe: "runSensors",
+      contexts: CP14_SENSOR_CONTEXTS,
+      curve: { kind: "linearRelative" },
+      magnitude: () => SCIENCE_SEAT_SENSOR_LIFT * officerRankMagnitudeFactor("ensign"),
+      base: bareAurora,
+      on: scienceOfficer,
+    }),
+    entry({
+      id: "ship:audit:scienceSeatFocusedCommand",
+      system: "ship",
+      source: { catalog: "AUDIT", key: "scienceSeatFocusedCommand" },
+      claim: "Focused Command lifts the Science officer's sensor lift on a hull whose role seats include Science",
+      probe: "sheetSensors",
+      contexts: ["sheet"],
+      curve: { kind: "linearRelative" },
+      magnitude: (c) => {
+        const seat = SCIENCE_SEAT_SENSOR_LIFT * officerRankMagnitudeFactor("ensign");
+        const amp = c.BRIDGE_MODULES.find((m) => m.id === focusedId)!.amp;
+        return (1 + seat * (1 + amp)) / (1 + seat) - 1;
+      },
+      base: () => scienceOfficer(installPiece(withBuckets(wiringBase("prospectorMiner"), []), { slotType: "sensor", moduleVariant: "sensorBalanced", implicitStats: { sensors: 20 } })),
+      on: (s) => installPiece(s, { slotType: "bridge", moduleVariant: focusedId }),
+      note: "a Standard, quality 0 module; the officer's seat carries no bonus, so the bridge's other lifts have nothing to act on",
+    }),
+  ];
 }
 
 
@@ -5071,14 +5168,16 @@ function auditRowWiring(): Readonly<Record<string, Partial<EntryInput>>> {
       on: classedDrive("classIIDriveBp"),
       off: classedDrive("balancedDriveBp"),
     },
-    // With the Class II drive, Tier II asks for its frontier sensors: a stock Orion reads 0; FRONTIER_SENSORS[2] clears it.
+    // A tier asks for its frontier sensors. Complement CP-14: every explorer's base sensors clear Tier II's (10), so the
+    // gate is read at Tier III: a stock Eir reads its 15 base sensors; an array of the missing points clears its 20.
+    // (cp14Registry.fixture.ts puts the Tier II probe back for the pins taken before CP-14.)
     "expedition:audit:frontierSensors": {
-      probe: "tierTwoLaunchAllowed",
+      probe: "tierThreeSensorsMet",
       contexts: ["expedition:groundOps"],
       curve: { kind: "gate" },
       magnitude: () => 1,
-      base: () => classedDrive("classIIDriveBp")(consoleOrion(0)),
-      on: (s) => installPiece(s, { slotType: "sensor", implicitStats: { sensors: FRONTIER_SENSORS[2] } }),
+      base: () => withAwayTeam(wiringBase("eir")),
+      on: (s) => installPiece(s, { slotType: "sensor", implicitStats: { sensors: FRONTIER_SENSORS[3] - (SHIP_TYPES.eir.baseSensors ?? 0) } }),
       off: identity,
     },
     // The console's Tier II launch flies Tier II's ladder (4 h nominal), the Class I ship's Tier I launch Tier I's (2 h):
@@ -5799,6 +5898,8 @@ function build(): readonly WiringEntry[] {
     ...hullEntries(),
     ...moduleEntries(),
     ...hullFamilyEntries(),
+    // Complement CP-14: the Science amplification of the ship's sensors.
+    ...cp14ScienceSensorEntries(),
     ...sensorArrayEntries(),
     ...museumEntries(),
     ...relicEntries(),

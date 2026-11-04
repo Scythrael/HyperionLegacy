@@ -143,9 +143,8 @@ export type ShipTypeKey =
   // SHIELDS, better-than-normal CARGO, MORE module slots than any combat hull (the
   // explorer/science identity), TERRIBLE weapons (1 hardpoint, no drones), and a LOW /
   // frail hull (papier-mache once the shields drop). Their stats are FIRST-PASS TUNABLE.
-  // ⚠️ DEFERRED (design I.6 / A.6 / B.3, NOT built here): a base-hull SENSORS stat (no
-  // sensors field exists on ShipTypeDef; the explorer sensor advantage lands with the
-  // sensor-consumer phase) and the B.3 power-allocation preset (fixed stats chosen for
+  // Complement CP-14 (OC-16) BUILT the explorer sensor advantage: each hull carries base sensors (HULL_BASE_SENSORS,
+  // ShipTypeDef.baseSensors). ⚠️ Still DEFERRED (design B.3): the power-allocation preset (fixed stats chosen for
   // E0). The REAL discovery-gated acquisition is a later phase (E4 research); for E0
   // these are ordinary blueprint-gated capital builds (see the SHIP_TYPES entries).
   | "orion"
@@ -254,6 +253,11 @@ export interface ShipTypeDef {
   // substitute for the cargo hold. Folded into ShipDerivedStats.colonistCapacity (shipDerivedStats). OPTIONAL: set
   // only on the transport-minded hulls (HULL_GUEST_QUARTERS); absent reads as 0.
   colonistCapacity?: number;
+  // Complement CP-14 (G6 part 1, S4-B04; user 2026-10-16 OC-16 "Explorers lead (Recommended)"): the hull's OWN sensors,
+  // folded flat into ShipDerivedStats.sensors with the installed Sensor Suite's points, before every lift (the Science
+  // amplification, the museum, the officers, the Explorer bridge line and the captain multiply the sum). OPTIONAL: set
+  // only on the hulls that carry some (HULL_BASE_SENSORS); absent reads as 0.
+  baseSensors?: number;
   // E-MOD EM-1 (0.14.0, plan docs/plans/2026-10-17-material-lines-and-emod-plan.md section 3.2; user P1 2026-10-17 "No
   // ship goes over"): the hull's OWN power generation, the base of the B.4 power grid. Each value sits at or above the
   // heaviest crafted loadout the hull can install today (the EM-0 census: emodGoldens.test.ts), so no live ship goes
@@ -1246,6 +1250,18 @@ export function patrolRouteTicks(route: PatrolDef): number {
 // call 6: "Eir 80, Orion 40, Aurora 40, General Freighter 20, others 0"); every other hull omits the field (0). The ONE
 // place these numbers live: each SHIP_TYPES entry below reads its value from here.
 export const HULL_GUEST_QUARTERS = { generalFreighter: 20, orion: 40, aurora: 40, eir: 80 } as const;
+// Complement CP-14 (user 2026-10-16 OC-16 "Explorers lead (Recommended)": "Aurora 35, Orion 25, Eir 15, warships 10,
+// others 0"): each hull's BASE sensors (ShipTypeDef.baseSensors). The freighter and the three prospectors omit the field
+// (0). The ONE place these numbers live: each SHIP_TYPES entry below reads its value from here.
+export const HULL_BASE_SENSORS = { aurora: 35, orion: 25, eir: 15, destroyer: 10, battleship: 10, carrier: 10 } as const;
+// Complement CP-14 test switch only (the HULL_FAMILY_SWITCH pattern): off, no hull carries base sensors, the Science
+// division and the Science officer lift nothing and no run is stamped, so a golden can show that the pins it moved
+// return. Always live in the game.
+export const HULL_SENSORS_SWITCH = { live: true };
+// A hull's base sensors (0 without the field, or while the switch is off). Pure.
+export function hullBaseSensors(typeKey: ShipTypeKey): number {
+  return HULL_SENSORS_SWITCH.live ? SHIP_TYPES[typeKey].baseSensors ?? 0 : 0;
+}
 // G1-1 review (user 2026-10-19, "Hide until Short-Range"): the Ship Systems "Guest Quarters" rows (the stat readout,
 // its (i) definition, the install compare) and the hull card's line stay hidden until Short-Range Missions are in, so
 // no player meets a stat nothing they can do uses yet. The stat itself is live (shipDerivedStats folds it). The
@@ -1368,6 +1384,7 @@ export const SHIP_TYPES: Record<ShipTypeKey, ShipTypeDef> = {
     cargoCapacity: 30, transitSpeedMult: 1.3, extractionYieldMult: 1.0,
     fuelCapacity: 130, engineEfficiency: 0.2, // nimble: mid-small tank, decent efficiency
     moduleSlots: 2,
+    baseSensors: HULL_BASE_SENSORS.destroyer, // Complement CP-14 (OC-16): the hull's own sensors
     basePowerOutput: 160, // E-MOD EM-1 (P1): the hull's own power, at or above its heaviest crafted loadout
     // ⚠️ TUNABLE / LIVE (combat): FAST + fragile-ish striker. Solid hull, strong fast-
     // regen shields, but FEWER weapon hardpoints than the battleship (a raider, not a
@@ -1396,6 +1413,7 @@ export const SHIP_TYPES: Record<ShipTypeKey, ShipTypeDef> = {
     cargoCapacity: 40, transitSpeedMult: 0.7, extractionYieldMult: 1.0,
     fuelCapacity: 180, engineEfficiency: 0.05, // heavy: big tank, near-baseline burn
     moduleSlots: 3,
+    baseSensors: HULL_BASE_SENSORS.battleship, // Complement CP-14 (OC-16): the hull's own sensors
     basePowerOutput: 230, // E-MOD EM-1 (P1): the hull's own power, at or above its heaviest crafted loadout
     // ⚠️ TUNABLE / LIVE (combat): the TANK. MOST hull + shields of any hull and the MOST
     // weapon hardpoints (a wall of guns), at the cost of SLOW movement + slow shield
@@ -1431,6 +1449,7 @@ export const SHIP_TYPES: Record<ShipTypeKey, ShipTypeDef> = {
     cargoCapacity: 25, transitSpeedMult: 0.8, extractionYieldMult: 1.0,
     fuelCapacity: 170, engineEfficiency: 0.1, // large hull: mid-large tank, mild efficiency
     moduleSlots: 2,
+    baseSensors: HULL_BASE_SENSORS.carrier, // Complement CP-14 (OC-16): the hull's own sensors
     basePowerOutput: 110, // E-MOD EM-1 (P1): the hull's own power, at or above its heaviest crafted loadout
     // ⚠️ TUNABLE / LIVE (combat): the DRONE platform. Tough (second only to the
     // battleship) but with REDUCED weapon hardpoints (design S8: carriers trade
@@ -1488,10 +1507,8 @@ export const SHIP_TYPES: Record<ShipTypeKey, ShipTypeDef> = {
   // an explorer hull in the field) is a later phase (E4 research); the blueprint keeps them
   // well-formed + earnable now without stranding them.
   //
-  // ⚠️ DEFERRED (design I.6 / A.6 / B.3): NO base-hull sensors stat (ShipTypeDef has no sensors
-  // field; the explorer sensor advantage arrives with the sensor-consumer phase) and NO B.3
-  // power-allocation preset (fixed stats chosen for E0). E0's explorer identity == the range /
-  // shield / cargo / module / frail-hull profile only.
+  // Complement CP-14 (OC-16): each explorer carries base sensors (Aurora 35, Orion 25, Eir 15: HULL_BASE_SENSORS).
+  // ⚠️ DEFERRED (design B.3): NO power-allocation preset (fixed stats chosen for E0).
   orion: {
     label: "Orion", spec: "explorer", tier: 2, // FIRST-PASS TUNABLE
     // Blueprint-gated capital build (E0 placeholder; real E4 discovery gate deferred). Its OWN
@@ -1502,6 +1519,7 @@ export const SHIP_TYPES: Record<ShipTypeKey, ShipTypeDef> = {
     cargoCapacity: 120, transitSpeedMult: 1.1, extractionYieldMult: 1.0, // FIRST-PASS TUNABLE
     fuelCapacity: 340, engineEfficiency: 0.35, // FIRST-PASS TUNABLE: highest-tier range + good reach efficiency
     moduleSlots: 4, // FIRST-PASS TUNABLE: 4 > any combat hull (battleship 3), the explorer identity
+    baseSensors: HULL_BASE_SENSORS.orion, // Complement CP-14 (OC-16): the hull's own sensors
     basePowerOutput: 130, // E-MOD EM-1 (P1): the hull's own power, at or above its heaviest crafted loadout
     // ⚠️ TUNABLE / LIVE (combat): the glass tank. Huge shields, frail hull, one token gun.
     hullIntegrity: 340, shieldCapacity: 800, shieldRecharge: 12, weaponHardpoints: 1, // FIRST-PASS TUNABLE
@@ -1527,6 +1545,7 @@ export const SHIP_TYPES: Record<ShipTypeKey, ShipTypeDef> = {
     cargoCapacity: 100, transitSpeedMult: 1.3, extractionYieldMult: 1.1, // FIRST-PASS TUNABLE: fastest explorer
     fuelCapacity: 320, engineEfficiency: 0.4, // FIRST-PASS TUNABLE: highest-tier range + best reach efficiency
     moduleSlots: 5, // FIRST-PASS TUNABLE: 5, the MOST in the fleet (survey/science identity)
+    baseSensors: HULL_BASE_SENSORS.aurora, // Complement CP-14 (OC-16): the hull's own sensors
     basePowerOutput: 150, // E-MOD EM-1 (P1): the hull's own power, at or above its heaviest crafted loadout
     // ⚠️ TUNABLE / LIVE (combat): the frailest explorer (leanest combat), quick shields.
     hullIntegrity: 300, shieldCapacity: 720, shieldRecharge: 14, weaponHardpoints: 1, // FIRST-PASS TUNABLE
@@ -1562,6 +1581,7 @@ export const SHIP_TYPES: Record<ShipTypeKey, ShipTypeDef> = {
     cargoCapacity: 220, transitSpeedMult: 0.9, extractionYieldMult: 1.0, // FIRST-PASS TUNABLE: biggest hold, slower heavy transport
     fuelCapacity: 300, engineEfficiency: 0.3, // FIRST-PASS TUNABLE: still highest-tier range, modest among explorers
     moduleSlots: 4, // FIRST-PASS TUNABLE: 4 > any combat hull (battleship 3)
+    baseSensors: HULL_BASE_SENSORS.eir, // Complement CP-14 (OC-16): the hull's own sensors
     basePowerOutput: 120, // E-MOD EM-1 (P1): the hull's own power, at or above its heaviest crafted loadout
     // ⚠️ TUNABLE / LIVE (combat): a touch tougher frame than the other explorers (a big transport)
     // but still frail vs its shields, modest recharge.
@@ -2996,8 +3016,8 @@ export const EQUIPMENT_SLOTS: Record<string, EquipmentSlotDef> = {
   // and survey missions (MISSIONS' missionType "survey") scale their material yield by it (tick.ts's
   // tickCaptainMission). ⚠️ ADDITIVE-NEUTRAL for the ECONOMY fold: `sensors` moves only that one new field;
   // every other derived stat is byte-identical, and a ship with no sensor fitted folds sensors 0 (no survey
-  // bonus). Explorer-hull BASE sensors + Science-crew amplification stay DEFERRED (design I.6): a fitted
-  // sensor item is the only source of sensors this patch. massReduction is the one secondary affix, and because the slot's base
+  // bonus). Complement CP-14 added the hull's own base sensors (HULL_BASE_SENSORS) to the same flat sum and the
+  // Science amplification on top (crewOverlay.ts applyScienceSensorLift). massReduction is the one secondary affix, and because the slot's base
   // mass is 0 (SLOT_BASE_PHYSICALS) a rolled massReduction is consumed into the piece's own (0-floored)
   // mass by generateEquipment and removed from rolledStats, so it too folds to nothing.
   //
@@ -3896,6 +3916,11 @@ export interface ShortRangeMissionState {
   // sheet lines, the division lifts, the output share), so a run in flight at the update plays as it did. Optional, no
   // SAVE bump.
   hullBonus?: 1;
+  // Complement CP-14 (OC-16, OC-20; crewOverlay.ts hullSensorsStamp): the hull sensors stamp, written at dispatch when the
+  // hull's base sensors or the Science lift move the ship's sensors, and carried to every repeated cycle; only a stamped
+  // run's sheet reads them (the scan time and the scan yield), so a run in flight at the update plays as it did.
+  // Optional, no SAVE bump.
+  hullSensors?: 1;
   // WR-9 fix round (user 2026-10-31 "Missions, short-range, patrols"): the Flight Deck's Cunning facet at dispatch
   // (officerStats.ts pilotCunningStamp), carried to every later cycle. Each cycle start rolls it on the cycle's job seed
   // and folds a landed cut into the plan's leg home (pilotCutShortRangePlan). Written only when non-zero; a run in
@@ -3973,6 +3998,10 @@ export interface CaptainMissionState {
   // CP-13 (OC-13): the hull-family stamp, as on ShortRangeMissionState: stamped at dispatch, carried to every repeated
   // cycle; only a stamped run reads its crew modules' hull bonus (the sheet, the output share, the rare finds).
   hullBonus?: 1;
+  // Complement CP-14: the hull sensors stamp, as on ShortRangeMissionState: written at dispatch of a survey mission (the
+  // only captain missions that read sensors) when the hull's base sensors or the Science lift move them, carried to every
+  // repeated cycle; only a stamped run's sheet reads them (the survey yield).
+  hullSensors?: 1;
   // WR-9 (OC-E4, user 2026-10-15 "Quicker trips home"): the Flight Deck's Cunning facet at dispatch
   // (officerStats.ts pilotCunningStamp), carried to every repeated cycle: each cycle, that chance its return leg runs
   // PILOT_CUNNING_RETURN_CUT_TICKS shorter (tick.ts tickCaptainMission). Written only when non-zero; a run in flight
@@ -4444,9 +4473,9 @@ export interface ShipDerivedStats {
   // the `sensors` stat: survey missions scale their material yield by it (tick.ts's tickCaptainMission).
   // ⚠️ ADDITIVE-NEUTRAL: a bare hull, and any ship with NO sensor item fitted, folds to sensors 0 (the
   // sensor slot has no Standard-Issue baseline, so an un-sensored ship contributes nothing here), so
-  // every non-survey stat + fixture is byte-identical to before this field existed. Explorer-hull BASE
-  // sensors + Science-crew sensor amplification stay DEFERRED (design I.6): for E1a the ONLY source of
-  // sensors is a fitted sensor item, and the crew overlay does NOT map crew.sensors onto this field.
+  // every non-survey stat + fixture is byte-identical to before this field existed. Complement CP-14 (OC-16, OC-20):
+  // the hull's base sensors join the fitted points (hullDerivedStats), and the Science division and Science officer
+  // multiply the sum (crewOverlay.ts applyScienceSensorLift). The crew overlay still maps no crew.* key onto it.
   sensors: number;
   // Crew 0.14.0 (crew goes live): a >1 multiplier that SPEEDS homeworld unload, folded on TOP of
   // shipDerivedStats by the crew overlay (crewOverlay.ts applyCrewOverlay / effectiveShipStats)
@@ -4746,7 +4775,9 @@ export function equipmentStatMods(pieces: EquipmentInstance[]): EquipmentStatMod
 // (the 1-arg call every pre-Task-13 site uses) resolves to exactly this, so those
 // sites are byte-identical to before this task. Kept as its own helper so the
 // "bare hull" projection has one name.
-function hullDerivedStats(ship: ShipInstance): ShipDerivedStats {
+// Complement CP-14: `hullSensors` false reads the hull without its base sensors (a captain mission or short-range run
+// dispatched before CP-14: no hullSensors stamp).
+function hullDerivedStats(ship: ShipInstance, hullSensors = true): ShipDerivedStats {
   const def = SHIP_TYPES[ship.typeKey];
   return {
     cargoCapacity: def.cargoCapacity,
@@ -4759,9 +4790,9 @@ function hullDerivedStats(ship: ShipInstance): ShipDerivedStats {
     mass: 0,
     powerOutput: def.basePowerOutput,
     powerDraw: 0,
-    // Exploration 0.14.0 (E1a): a bare hull has NO sensors, its only source is a fitted
-    // sensor item (explorer-hull base sensors are deferred, design I.6). Folded in below.
-    sensors: 0,
+    // Complement CP-14 (OC-16): the hull's own base sensors (0 on a hull without them); the installed Sensor Suite's
+    // points add below (Exploration 0.14.0 E1a).
+    sensors: hullSensors ? hullBaseSensors(ship.typeKey) : 0,
     // G1-1: the hull's base guest quarters, written only when it has some (HULL_GUEST_QUARTERS).
     ...((def.colonistCapacity ?? 0) > 0 ? { colonistCapacity: def.colonistCapacity } : {}),
   };
@@ -4855,9 +4886,10 @@ export const HULL_FAMILY_SWITCH = { live: true };
 export function shipDerivedStats(
   ship: ShipInstance,
   installed: EquipmentInstance[] = [],
-  opts: { favored?: boolean } = {},
+  opts: { favored?: boolean; hullSensors?: boolean } = {},
 ): ShipDerivedStats {
-  const base = hullDerivedStats(ship);
+  // Complement CP-14: `opts.hullSensors: false` reads the hull without its base sensors (a run dispatched before CP-14).
+  const base = hullDerivedStats(ship, opts.hullSensors !== false);
   if (installed.length === 0) return base; // fast path + explicit byte-identical guarantee
   const pieces = opts.favored === true ? withFavoredLines(installed, ship.typeKey) : installed;
 
@@ -4865,7 +4897,7 @@ export function shipDerivedStats(
 
   // (2) FLAT capacities (+ the sensors point-sum, Exploration 0.14.0 E1a). Each ADDS the
   // fitted-gear total onto the bare-hull value; with no sensor item mods.flat.sensors is 0,
-  // so sensors stays at the hull's 0 and the fold is byte-identical for an un-sensored ship.
+  // so sensors stays at the hull's own base (Complement CP-14) and the fold is byte-identical for an un-sensored ship.
   const cargoCapacity = base.cargoCapacity + mods.flat.cargoCapacity;
   const fuelCapacity = base.fuelCapacity + mods.flat.fuelCapacity;
   const sensors = base.sensors + mods.flat.sensors;

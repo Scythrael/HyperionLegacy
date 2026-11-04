@@ -687,6 +687,27 @@ the next cycle (intended, patch notes); expeditions read the dispatch snapshot (
 lift at 40 may now trigger on explorers (intended). **Save:** none. **Tests:** base sensors on each hull; a hull
 without the field unchanged; amplification zero with no Science crew; CP-0 goldens for non-explorer fixtures.
 
+**Carry note (2026-11-04, CP-14 built; two commits: goldens, then the slice; no SAVE bump):** base sensors live in one
+table, `model.ts HULL_BASE_SENSORS` (OC-16: Aurora 35, Orion 25, Eir 15, Destroyer, Battleship and Carrier 10; the
+freighter and prospectors omit `ShipTypeDef.baseSensors`), folded flat with the Sensor Suite's points in
+`hullDerivedStats`. The Science lift (OC-20 numbers, OC-21 multiply) is `crewOverlay.ts applyScienceSensorLift`, after
+the crew overlay and before the museum: crew `0.08 x ln(1 + heads / 25)` (Science complement plus assigned Science
+notables; unbounded, concave, D23) and the Science seat `0.12 x officerRankMagnitudeFactor(rank)` x the officer's output
+multiplier (the bridge module, so Focused Command on explorer and prospector hulls, and the captain's Mentor / Legendary
+Captain); then the museum, Inspiring Leader, the CP-13 Explorer bridge line and Keen Sensors multiply as before.
+**Determinism (deviation from the line above, the hub's brief "runs in flight byte-identical"):** a survey mission or
+short-range run carries `hullSensors: 1` from dispatch (`hullSensorsStamp`, written only when CP-14 moves that ship's
+sensors; carried every cycle) and only a stamped run reads the base and the lift, so an in-flight survey does NOT pick
+them up next cycle; expeditions freeze at dispatch; patrols read no sensors. UI: Ship Systems Sensors popover gains
+Science crew and Science officer buckets (the officer's bridge share joins Bridge Module), Base / hull shows the hull's
+own; the Sensors (i) text, the console's sensor gate line and a new Help topic "Sensors" (numbers from the engine).
+Registry: per-hull `ship:SHIP_TYPES:<hull>:baseSensors`, `ship:SHIP_SEAMS:scienceCrewSensors` / `scienceSeatSensors`,
+`ship:audit:scienceSeatFocusedCommand` (all LIVE); `ship:SHIP_TYPES:sensors` flipped LIVE (pending 36 -> 35);
+`expedition:audit:frontierSensors` now reads Tier III's gate (every explorer clears Tier II's 10 on its own).
+`cp14Registry.fixture.ts cp14ReadBack` holds all of it apart in the registry pins. Goldens: `cp14Goldens.test.ts`
+(captured first) through `cp14Switch.fixture.ts withoutCp14`; 30 older golden files run with `cp14OffForThisFile()`.
+QA: docs/qa/2026-11-04-cp14-hull-sensors-qa.html.
+
 ### CP-15: Patrol cloak and threat detection (G6 part 2) [blocked on OC-19]
 
 **Files:** `combat/bridge.ts` (the player combatant's `particleTraceDetector` from sensors, `rating / (rating + K)`

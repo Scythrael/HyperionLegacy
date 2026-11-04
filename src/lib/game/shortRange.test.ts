@@ -19,6 +19,7 @@ import { resolveCrew } from "./crewOverlay";
 import { deriveAwayTeam, shipDivisionStrength } from "./gambit";
 import { N_FULL, RAMP_FLOOR, runDifficultyAt } from "./runDifficulty";
 import { editShip, installPiece, shipOf, wiringBase } from "./wiring/probes";
+import { withoutCp14 } from "./cp14Switch.fixture";
 import {
   SHORT_RANGE_BOARD_SALT,
   SHORT_RANGE_CATEGORIES,
@@ -501,7 +502,9 @@ describe("G1-2 the sheet check", () => {
     const bare = wiringBase();
     expect(meetsSheet(bare, shipOf(bare), 1)).toEqual({ ok: false, short: ["guests", "sensors", "engineering", "security"] });
     const eir = crewed("eir");
-    expect(meetsSheet(eir, shipOf(eir), 1)).toEqual({ ok: false, short: ["sensors"] });
+    // Complement CP-14 (OC-16): the Eir's own 15 base sensors meet the Tier I sheet; without them it falls short there only.
+    expect(meetsSheet(eir, shipOf(eir), 1)).toEqual({ ok: true, short: [] });
+    expect(withoutCp14(() => meetsSheet(eir, shipOf(eir), 1))).toEqual({ ok: false, short: ["sensors"] });
     const sensed = installPiece(eir, { slotType: "sensor", moduleVariant: "sensorBalanced", implicitStats: { sensors: 20 } });
     expect(meetsSheet(sensed, shipOf(sensed), 1)).toEqual({ ok: true, short: [] });
     expect(meetsSheet(sensed, shipOf(sensed), 2).short).toContain("guests");

@@ -518,7 +518,10 @@ import { SHORT_RANGE_BASE_SLOT_TIERS } from "./game/shortRangeBoard";
 import { SHORT_RANGE_CATEGORY_VIEW, SHORT_RANGE_TRAINING_NOTE, shortRangeTierNumeral } from "./shortRangeBoardDisplay";
 import { GENERAL_QUARTERS_GUEST_PERK, HULL_GUEST_QUARTERS, MISSIONS, MISSION_CONTROL_BOARD_RUNGS, SECONDARY_CAPTAIN_TALENTS, type ShipSpec } from "./game/model";
 // Complement CP-13: the hull-family module bonus catalog (the Hull bonuses Help topic reads every number from it).
-import { HULL_FAMILY_MODULE_BONUS, type HullFamilyBridgeStat } from "./game/crewModules";
+import { BRIDGE_MODULES, HULL_FAMILY_MODULE_BONUS, HULL_ROLE_SEATS, type HullFamilyBridgeStat } from "./game/crewModules";
+// Complement CP-14: the Sensors topic reads the Science lifts and the officer rank factors from the engine.
+import { SCIENCE_SEAT_SENSOR_LIFT, scienceCrewSensorLift } from "./game/crewOverlay";
+import { OFFICER_RANK_ORDER, officerRankLabel, officerRankMagnitudeFactor } from "./game/seniorStaff";
 import { LY_PER_TICK } from "./game/fuel";
 import { DEPARTMENT_LABEL, PILOT_CUNNING_RETURN_CUT_TICKS } from "./game/officerStats";
 import { crewBuffLabel } from "./game/crewBuffs";
@@ -577,6 +580,24 @@ export const HULL_BONUS_HELP = [
   `These are the sizes on a Standard, quality 0 module. Rarity, quality and the module's Crew Stations and Crew Efficiency lines raise every one of them (the guest quarters perk included) exactly as they raise its own effect. Wear lowers a hull bonus only where it lowers the module's own effect: the ship stats a mission, short-range run or expedition flies on. On a patrol (its weapon damage included), in the rare-find roll, in mission output and in the medical bay, the module's own effect and its hull bonus both work at full strength whatever the module's condition.`,
   `The two medical bay perks are care: they join the ship's other medical care (such as its Medical crew and Medical officer), and the bay divides its time by all of it together, so the more care a ship already has, the less time each perk saves. The sizes above are what they do alone; the module's tile shows what they do on that ship now.`,
   `A hull bonus never adds crew berths. A mission, patrol or expedition reads the hull bonuses its ship had when it set out.`,
+].join("\n\n");
+// Complement CP-14 (OC-16, OC-20, OC-21): the Sensors topic, every number read from the engine (the hulls' base sensors,
+// the Science crew curve, the Science seat by rank and Focused Command's amp).
+const SENSOR_HULLS = (Object.keys(SHIP_TYPES) as (keyof typeof SHIP_TYPES)[])
+  .filter((k) => (SHIP_TYPES[k].baseSensors ?? 0) > 0)
+  .sort((a, b) => (SHIP_TYPES[b].baseSensors ?? 0) - (SHIP_TYPES[a].baseSensors ?? 0))
+  .map((k) => `${SHIP_TYPES[k].label} ${SHIP_TYPES[k].baseSensors}`);
+const SENSORLESS_HULLS = andList((Object.keys(SHIP_TYPES) as (keyof typeof SHIP_TYPES)[]).filter((k) => !((SHIP_TYPES[k].baseSensors ?? 0) > 0)).map((k) => SHIP_TYPES[k].label));
+const SCIENCE_CREW_SAMPLES = andList([25, 100, 750].map((n) => `${n} Science crew +${pctExact(scienceCrewSensorLift(n))}`));
+const SCIENCE_SEAT_BY_RANK = andList(OFFICER_RANK_ORDER.map((r) => `${officerRankLabel(r)} +${pctExact(SCIENCE_SEAT_SENSOR_LIFT * officerRankMagnitudeFactor(r))}`));
+const FOCUSED_AMP = BRIDGE_MODULES.find((m) => m.kind === "focused")?.amp ?? 0;
+const SCIENCE_ROLE_FAMILIES = andList((Object.keys(HULL_ROLE_SEATS) as ShipSpec[]).filter((s) => HULL_ROLE_SEATS[s].includes("science")).map((s) => HULL_FAMILY_NAME[s].toLowerCase()));
+export const SENSORS_HELP = [
+  `SENSORS: how well a ship scans. Short-range jobs ask for them and scan faster and bring more home with them, a survey mission's haul grows with them, and an expedition reads what lies ahead and scans with them. The Ship Systems readout shows a ship's Sensors and, when you tap the number, every source.`,
+  `THE HULL: every hull carries its own sensors: ${andList(SENSOR_HULLS)}. The ${SENSORLESS_HULLS} have none of their own. An installed Sensor Suite adds its points to the hull's.`,
+  `SCIENCE: the ship's Science division multiplies its sensors, more with every head and never capped, each head worth a little less: ${SCIENCE_CREW_SAMPLES}. A Science officer multiplies them too, more with rank: ${SCIENCE_SEAT_BY_RANK}. A Bridge Module lifts the Science officer like any officer it lifts: Focused Command by ${pct(FOCUSED_AMP)} on ${SCIENCE_ROLE_FAMILIES} hulls, where Science is a role seat (sizes on a Standard, quality 0 module).`,
+  `STACKING: the hull's sensors and the Sensor Suite's add up first. The Science crew, the Science officer, the museum, an officer's Inspiring Leader, a Bridge Module on an Explorer hull and a captain's Keen Sensors then each multiply that total, so they all grow together. A ship with no sensors at all stays at 0 whatever its crew.`,
+  `A survey mission, short-range run or expedition reads the hull's sensors and the Science lifts its ship had when it set out.`,
 ].join("\n\n");
 const HULL_GUESTS = andList(
   (Object.entries(HULL_GUEST_QUARTERS) as [keyof typeof SHIP_TYPES, number][])
@@ -991,6 +1012,12 @@ On the order form, This order uses lists the qualities the order will draw, and 
     id: "hullBonuses",
     title: "Hull bonuses",
     body: HULL_BONUS_HELP,
+  },
+  {
+    // Complement CP-14 (OC-16, OC-20, OC-21): the hulls' base sensors and the Science amplification, numbers from the engine.
+    id: "sensors",
+    title: "Sensors",
+    body: SENSORS_HELP,
   },
   {
     // E-MOD EM-10 (0.14.0): the power budget (EM-1 to EM-4) and the universal modules (EM-5 to EM-7), as the Ship

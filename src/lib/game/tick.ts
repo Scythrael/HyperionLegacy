@@ -392,6 +392,7 @@ import {
   shipCrewContribution,
   shipDeckHandling,
   shipCombatRulesStamp,
+  hullSensorsStamp,
   type OfficerCombatEntry,
 } from "./crewOverlay";
 // GEAR WEAR step 3 (0.14.0): the use wear sources, the repair contexts and the settling (gearWearEngine.ts).
@@ -2488,9 +2489,9 @@ export function tickCaptainMission(
   // (missionDef.missionType === "survey"); for every extraction/patrol mission it is 0, so
   // non-survey yields are byte-identical. The ship's `sensors` is read off its derived stats,
   // the SAME shipStats the yield bonus above reads (crew-inclusive when the caller passes
-  // effectiveShipStats, which economyTick does), and for E1a sensors comes ONLY from a fitted
-  // sensor item (explorer-hull base sensors + Science-crew amplification are deferred, design
-  // I.6), so a bare / un-sensored ship reads sensors 0 -> +0. Added to all three tier yield
+  // effectiveShipStats, which economyTick does): a fitted sensor item plus (Complement CP-14, on a run
+  // stamped hullSensors) the hull's base sensors, times the Science lift, so a hull without base sensors
+  // and without a sensor item reads sensors 0 -> +0. Added to all three tier yield
   // mults below alongside shipYieldBonus, so it scales the survey's material amount equally
   // regardless of which rarity tier a tick rolls (the design's "sensor-scaled yield"). It does
   // NOT touch the chance/bonus-roll fields (a survey's rarity ODDS are the mission def's own).
@@ -2936,6 +2937,8 @@ export function tickCaptainMission(
               ...(mission!.favoredSpec !== undefined ? { favoredSpec: mission!.favoredSpec } : {}),
               // Complement CP-13: and the hull-family stamp.
               ...(mission!.hullBonus !== undefined ? { hullBonus: mission!.hullBonus } : {}),
+              // Complement CP-14: and the hull sensors stamp.
+              ...(mission!.hullSensors !== undefined ? { hullSensors: mission!.hullSensors } : {}),
               // WR-9 (OC-E4): and the Pilot's Cunning stamp.
               ...(mission!.pilotCunning !== undefined ? { pilotCunning: mission!.pilotCunning } : {}),
             };
@@ -5164,6 +5167,9 @@ export function economyTick(
     const favored = captain.mission.favoredSpec === 1;
     // Complement CP-13 (OC-13): only a run stamped with the hull-family stamp reads its crew modules' hull bonus.
     const hullBonus = captain.mission.hullBonus === 1;
+    // Complement CP-14 (OC-16, OC-20): only a run stamped with the hull sensors stamp reads the hull's base sensors and the
+    // Science lift (a survey dispatched now on a ship they move; none in flight from before).
+    const hullSensors = captain.mission.hullSensors === 1;
     // Phase 2 (Task B3, design §3.4): AUTO-STOP, when this mission's PRIMARY material is
     // already at its warehouse tier cap the run CANNOT usefully complete (its haul would
     // land over an already-full warehouse). Rather than leave the captain FROZEN in place
@@ -5254,7 +5260,7 @@ export function economyTick(
     // stamp (at dispatch, and again at each cycle start: onCycleDelivered below), so a worn hold, drive,
     // sensor array, prospecting rig or crew module acts on the run from its next cycle. It is constant within a cycle,
     // so the per-cycle guarantee holds as before. A run without a stamp (dispatched before step 3) reads the stored sheet.
-    const shipStats = ship ? runShipStats(state, ship, wearStamp, reactorLift, moduleLines, favored, hullBonus) : null;
+    const shipStats = ship ? runShipStats(state, ship, wearStamp, reactorLift, moduleLines, favored, hullBonus, hullSensors) : null;
     // GEAR WEAR step 3 (user 2026-10-21, "Re-read each cycle"): at each delivered cycle of a stamped run, its use wear at
     // its own instant (missionCycleWear on the sheet that cycle ran on), and the next cycle's gear re-read from the
     // pieces as the call's deliveries so far leave them (projectRunStamp: the arithmetic the tail pass writes).
@@ -5271,7 +5277,7 @@ export function economyTick(
             if (stats && !trainingCycle) missionWear.push({ at, wear: missionCycleWear(missionKey, stats, state.tickDurationSeconds, missionCrewed) });
             trainingCycle = false;
             const gearWear = projectRunStamp(state, ship.id, missionWear, at);
-            return { gearWear, stats: runShipStats(state, ship, gearWear, reactorLift, moduleLines, favored, hullBonus) };
+            return { gearWear, stats: runShipStats(state, ship, gearWear, reactorLift, moduleLines, favored, hullBonus, hullSensors) };
           }
         : undefined;
     // Mission Rework (Task 5): the fuel one round-trip cycle of THIS mission costs on
@@ -6241,6 +6247,9 @@ export function dispatchCaptainOnMission(
   const pilotCunning = wearShip ? pilotCunningStamp(state, wearShip) : undefined;
   // Complement CP-13 (OC-13): and its crew modules' hull-family bonus (stamped only when a bridge or quarters module is in).
   const hullBonus = wearShip ? hullFamilyStamp(state, wearShip) : undefined;
+  // Complement CP-14 (OC-16, OC-20): and the hull's base sensors and the Science lift (a survey only, the one captain
+  // mission that reads sensors; stamped only when they move the ship's sensors).
+  const hullSensors = wearShip ? hullSensorsStamp(state, wearShip, MISSIONS[missionKey]?.missionType === "survey") : undefined;
   captains[idx] = {
     ...captains[idx],
     mission: {
@@ -6258,6 +6267,7 @@ export function dispatchCaptainOnMission(
       ...(moduleLines !== undefined ? { moduleLines } : {}),
       ...(favoredSpec !== undefined ? { favoredSpec } : {}),
       ...(hullBonus !== undefined ? { hullBonus } : {}),
+      ...(hullSensors !== undefined ? { hullSensors } : {}),
       ...(pilotCunning !== undefined ? { pilotCunning } : {}),
     },
     // WR-9 fix round (review: "recall replays the Pilot roll"): a stamped dispatch steps the captain's lifetime Cunning

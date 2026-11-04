@@ -202,9 +202,11 @@ export function projectRunStamp(state: GameState, shipId: string, events: readon
 // without it reads its pieces without the favored-spec bonus, exactly as before. Defaults to true (a fresh reading).
 // CP-13 (OC-13): `hullBonus` likewise, whether the run carries the hull-family stamp (hullBonus); a run without it reads
 // its crew modules without their hull bonus, exactly as before. Defaults to true (a fresh reading).
-export function runShipStats(state: GameState, ship: ShipInstance, stamp: RunWearStamp | undefined, reactorLift: boolean, moduleLines = true, favored = true, hullBonus = true): ShipDerivedStats {
+// CP-14 (OC-16, OC-20): `hullSensors` likewise, whether the run carries the hull sensors stamp (hullSensors); a run without
+// it reads its sensors without the hull's base sensors and the Science lift, exactly as before. Defaults to true.
+export function runShipStats(state: GameState, ship: ShipInstance, stamp: RunWearStamp | undefined, reactorLift: boolean, moduleLines = true, favored = true, hullBonus = true, hullSensors = true): ShipDerivedStats {
   const lined = moduleLines ? state : withoutCrewModuleLines(state);
-  return effectiveShipStats(stamp === undefined ? lined : runGearView(lined, ship.id, stamp), ship, { reactorLift, favored, hullBonus });
+  return effectiveShipStats(stamp === undefined ? lined : runGearView(lined, ship.id, stamp), ship, { reactorLift, favored, hullBonus, hullSensors });
 }
 
 // THE SHEET A CAPTAIN MISSION IN FLIGHT IS READ ON (EM-4 review): its frozen gear (the run's wear stamp) and its reactor
@@ -214,9 +216,9 @@ export function runShipStats(state: GameState, ship: ShipInstance, stamp: RunWea
 export function missionRunSheet(
   state: GameState,
   ship: ShipInstance,
-  mission: Pick<CaptainMissionState, "gearWear" | "reactorLift" | "moduleLines" | "favoredSpec" | "hullBonus">,
+  mission: Pick<CaptainMissionState, "gearWear" | "reactorLift" | "moduleLines" | "favoredSpec" | "hullBonus" | "hullSensors">,
 ): ShipDerivedStats {
-  return runShipStats(state, ship, mission.gearWear, reactorLiftFlagged(mission.reactorLift), mission.moduleLines === 1, mission.favoredSpec === 1, mission.hullBonus === 1);
+  return runShipStats(state, ship, mission.gearWear, reactorLiftFlagged(mission.reactorLift), mission.moduleLines === 1, mission.favoredSpec === 1, mission.hullBonus === 1, mission.hullSensors === 1);
 }
 
 // ============================================================================

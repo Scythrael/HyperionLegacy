@@ -22,6 +22,7 @@ import { REGION_TIERS, stateHomeworld } from "./game/galaxy";
 import { installMissingCombatBaselines } from "./game/tick";
 import { asExpeditionVeteran, plainAwayMember } from "./game/awayTeamTestFixtures";
 import { installPiece } from "./game/wiring/probes";
+import { withoutCp14 } from "./game/cp14Switch.fixture";
 import { nearestFirst } from "./expeditionDispatchDisplay";
 import {
   candidateCardView,
@@ -95,7 +96,10 @@ describe("G2-6 the region tabs: Tier I to VII, Ready or the first unmet gate", (
     expect(tabs[1].stateText).toBe("Needs a Class II drive");
     expect(tabs[6].stateText).toBe("Needs a Class VII drive");
     const two = drive(s, "classIIDriveBp");
-    tabs = regionTabsView(two, ship1(two));
+    // Complement CP-14 (OC-16): the Orion's own 25 base sensors meet the Orion Arm's 10, so a Class II drive is enough.
+    expect(regionTabsView(two, ship1(two))[1].ready).toBe(true);
+    // The frontier's sensor gate itself, on the hull without its base sensors (the CP-14 switch off).
+    tabs = withoutCp14(() => regionTabsView(two, ship1(two)));
     expect(tabs[1].stateText).toBe("Needs sensors 10");
     const seeing = sensors(two, 30);
     tabs = regionTabsView(seeing, ship1(seeing));
@@ -169,7 +173,8 @@ describe("G2-6 the tier facts, the ship line and the locked panel", () => {
   });
 
   it("a locked tier lists every gate, met or not, and previews its three nearest systems by name and distance", () => {
-    const s = drive(crewed("orion"), "classIIDriveBp");
+    // Complement CP-14: the Eir (15 base sensors) still falls short of the Perseus Arm's 20; the Orion's 25 would meet it.
+    const s = drive(crewed("eir"), "classIIDriveBp");
     const gates = expeditionTierGates(s, ship1(s), 3);
     const v = lockedTierView(s, ship1(s), 3, gates);
     expect(v.heading).toBe("What Tier III needs");

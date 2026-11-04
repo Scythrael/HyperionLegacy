@@ -14,6 +14,10 @@
 //               span as ONE offline tick() call (per mission cycle).
 
 import { describe, expect, it } from "vitest";
+import { cp14OffForThisFile } from "./cp14Switch.fixture";
+// Complement CP-14 (hull base sensors and Science amplification) came after every pin here: the file runs with the
+// slice off, so its pins keep proving their own slice (cp14Goldens.test.ts pins what CP-14 moved).
+cp14OffForThisFile();
 // Merged with WR-8 (0.14.0): every pin in this file was taken before the combat rules (combatRulesSwitch.fixture.ts),
 // so the file runs with them switched off and its pins keep proving nothing else moved (the rules stamp new patrol
 // cycles and runs; combatDescriptorGoldens.test.ts pins the combat rules themselves).

@@ -41,6 +41,7 @@ import {
 } from "./favorsSpecGoldens.fixture";
 import { favoredSpecText } from "../ui/favoredSpecText";
 import { withFavoredSpecOff } from "./favoredSpecSwitch.fixture";
+import { withoutCp14 } from "./cp14Switch.fixture";
 
 gearWearOffInThisFile();
 
@@ -154,7 +155,8 @@ describe("OC-D5: short-range runs", () => {
     expect(m.favoredSpec).toBe(1);
     const { favoredSpec: _drop, ...legacy } = m;
     const ship = shipOf(r.next);
-    expect(missionRunSheet(r.next, ship, m).sensors - missionRunSheet(r.next, ship, legacy).sensors).toBeCloseTo(8 * FAVORED_SPEC_LINE_BONUS, 9);
+    // The favored line alone (CP-14 off: the Eir's base sensors and its Science lift would multiply the same delta).
+    expect(withoutCp14(() => missionRunSheet(r.next, ship, m).sensors - missionRunSheet(r.next, ship, legacy).sensors)).toBeCloseTo(8 * FAVORED_SPEC_LINE_BONUS, 9);
     // The stamp rides every later cycle of the run.
     const later = step(r.next, m.plan.totalTicks + 5);
     const next = later.captains[0].mission as ShortRangeMissionState | null;

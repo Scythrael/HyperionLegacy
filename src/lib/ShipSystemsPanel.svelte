@@ -142,6 +142,8 @@
     shipRepairSpeedBonus,
     gearSheetWithReactorDrive,
     shipReactorSurplus,
+    applyScienceSensorLift,
+    scienceSensorLifts,
   } from "./game/crewOverlay";
   import { reactorSurplusSpeedLift } from "./game/reactorSurplus";
   // Complement CP-12: the Systems tiles (shared with the wiring registry), the crew module readers the compare and the
@@ -553,6 +555,16 @@
   $: complementNoHullStats =
     ship && fitStats ? applyCrewOverlay(fitStats, shipCrewContribution({ ...noCaptainNodesState, officers: [] }, ship, undefined, false)) : null;
   $: preHullLineStats = ship ? shipStatsBeforeHullLines(noCaptainNodesState, ship) : null;
+  // Complement CP-14 (OC-20, OC-21): the Science lifts on the sensors (after the crew, before the museum: the engine's
+  // shipStatsBeforeCaptain order), each its own bucket: Science crew, then the Science officer, with the bridge module's
+  // part of the officer's lift in the Bridge Module bucket (the officer's lift read again without the module). The museum
+  // bucket starts after them. Both lifts read the save with the captain's nodes set aside (Mentor lands in Captain).
+  $: scienceLifts = ship ? scienceSensorLifts(noCaptainNodesState, ship) : null;
+  $: scienceSeatNoBridge =
+    ship && bridgePiece ? scienceSensorLifts({ ...noCaptainNodesState, equipment: noCaptainNodesState.equipment.filter((e) => e.id !== bridgePiece.id) }, ship).seat : (scienceLifts?.seat ?? 0);
+  $: scienceCrewStats = crewOnlyStats && scienceLifts ? applyScienceSensorLift(crewOnlyStats, { crew: scienceLifts.crew, seat: 0 }) : null;
+  $: scienceNoBridgeStats = crewOnlyStats && scienceLifts ? applyScienceSensorLift(crewOnlyStats, { crew: scienceLifts.crew, seat: scienceSeatNoBridge }) : null;
+  $: scienceStats = crewOnlyStats && scienceLifts ? applyScienceSensorLift(crewOnlyStats, scienceLifts) : null;
 
   // The economy stat rows (real numbers). `kind` picks the formatter: percent for the
   // multiplier / 0-based-bonus stats, flat for capacities / power / mass. Split into
@@ -616,7 +628,7 @@
     extractionYield: "How much raw material a mining or salvage mission pulls in; higher yield means more resources per run.",
     cargoCapacity: "How much a ship can carry home in a single trip; a bigger hold means fewer runs to move the same haul.",
     unloadSpeed: "How fast the ship unloads its hold at home and offloads a ground team's haul; the unload time is divided by it. Operations crew, some officers and a Bridge Module on a General hull raise it.",
-    sensors: "How well the ship scans: the sensor strength short-range jobs ask for and expeditions scan with. It comes from an installed Sensor Suite, and the museum, some officers, a captain's Keen Sensors and a Bridge Module on an Explorer hull raise it.",
+    sensors: "How well the ship scans: the sensor strength short-range jobs ask for, survey missions haul with and expeditions scan with. The hull's own sensors and an installed Sensor Suite add up, then Science crew, a Science officer, the museum, some officers, a captain's Keen Sensors and a Bridge Module on an Explorer hull each multiply that total (see the Sensors help topic).",
     ftlSpeed: "How fast the ship crosses between sectors; higher speed shortens every mission's travel time. A crafted Reactor Core's unused power speeds the drive too, with diminishing returns. Powered systems use it only once they draw more than the hull's own power, and the core's own weight eats into it first, but a Reactor Core never makes the ship slower than the Standard-Issue one.",
     outLeg: "The ship's speed on the outbound leg of a mission or patrol: FTL Speed plus the Fast Departure crew aboard.",
     backLeg: "The ship's speed on the return leg of a mission or patrol: FTL Speed plus the Fast Return crew aboard.",
@@ -678,9 +690,10 @@
       const officersTop = noBridgeCrewStats ?? crewOnlyStats;
       const od = d.get(officersTop) - d.get(complementOnlyStats);
       if (Math.abs(od) > 1e-9) out.push({ label: "Senior Staff", text: fmtDeltaUnit(d.kind, od), delta: true });
-      // CP-12: what the bridge module adds to the officers' share.
+      // CP-12: what the bridge module adds to the officers' share (CP-14: its lift of the Science officer's sensors too).
       if (noBridgeCrewStats) {
-        const bd = d.get(crewOnlyStats) - d.get(noBridgeCrewStats);
+        const scienceBridge = scienceStats && scienceNoBridgeStats ? d.get(scienceStats) - d.get(scienceNoBridgeStats) : 0;
+        const bd = d.get(crewOnlyStats) - d.get(noBridgeCrewStats) + scienceBridge;
         if (Math.abs(bd) > 1e-9) out.push({ label: "Bridge Module", text: fmtDeltaUnit(d.kind, bd), delta: true });
       }
     }
@@ -690,9 +703,17 @@
       const cd = d.get(complementTop) - gear;
       if (Math.abs(cd) > 1e-9) out.push({ label: "Complement", text: fmtDeltaUnit(d.kind, cd), delta: true });
     }
+    // CP-14: the Science division's and the Science officer's lifts on the sensors (only the Sensors row ever moves).
+    if (crewOnlyStats && scienceCrewStats && scienceNoBridgeStats) {
+      const sc = d.get(scienceCrewStats) - d.get(crewOnlyStats);
+      if (Math.abs(sc) > 1e-9) out.push({ label: "Science crew", text: fmtDeltaUnit(d.kind, sc), delta: true });
+      const so = d.get(scienceNoBridgeStats) - d.get(scienceCrewStats);
+      if (Math.abs(so) > 1e-9) out.push({ label: "Science officer", text: fmtDeltaUnit(d.kind, so), delta: true });
+    }
     const museumTop = preHullLineStats ?? preCaptainStats;
-    if (crewOnlyStats && museumTop) {
-      const md = d.get(museumTop) - d.get(crewOnlyStats);
+    const museumFloor = scienceStats ?? crewOnlyStats;
+    if (museumFloor && museumTop) {
+      const md = d.get(museumTop) - d.get(museumFloor);
       if (Math.abs(md) > 1e-9) out.push({ label: "Museum", text: fmtDeltaUnit(d.kind, md), delta: true });
     }
     // CP-13 (OC-13): the crew modules' hull-family bonus on this hull (the bridge's sheet lines and the quarters' lift).

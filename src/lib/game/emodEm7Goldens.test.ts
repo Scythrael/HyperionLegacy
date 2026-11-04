@@ -17,6 +17,10 @@
 // EM7_CAPTURE = an output path: record every pin instead of asserting (the RR_CAPTURE / GW_CAPTURE pattern).
 
 import { describe, expect, it } from "vitest";
+import { cp14OffForThisFile } from "./cp14Switch.fixture";
+// Complement CP-14 (hull base sensors and Science amplification) came after every pin here: the file runs with the
+// slice off, so its pins keep proving their own slice (cp14Goldens.test.ts pins what CP-14 moved).
+cp14OffForThisFile();
 import { withoutGg7Content } from "./gasGiantSpecials.fixture";
 // E-MOD EM-8 came after this capture: the Precursor Lens's blueprint, variety and the circuit's recipe held apart.
 import { EM8_BLUEPRINT_KEYS, withoutEm8Content } from "./emodEm8Switch.fixture";

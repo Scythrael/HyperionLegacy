@@ -25,6 +25,7 @@ import { recallCaptain } from "./game/tick";
 import { buildHomeDashboard } from "./game/homeDashboard";
 import { WIRING_CAPTAIN_ID, captainOf, editShip, installPiece, shipOf, wiringBase } from "./game/wiring/probes";
 import { ICON_SEMANTICS } from "./ui/iconPacks";
+import { withoutCp14 } from "./game/cp14Switch.fixture";
 import {
   SHORT_RANGE_CATEGORY_VIEW,
   SHORT_RANGE_PREPICK_RULE,
@@ -218,7 +219,8 @@ describe("G1-6 the sheet bars", () => {
 // ===== captains =====
 
 describe("G1-6 the pre-pick and the picker", () => {
-  it(`the pre-pick (${SHORT_RANGE_PREPICK_RULE}): the ready ship with the widest margin; ties to the lowest id`, () => {
+  // Complement CP-14: read with the Eir's base sensors off, so the array alone sets its Sensors (the margins below).
+  it(`the pre-pick (${SHORT_RANGE_PREPICK_RULE}): the ready ship with the widest margin; ties to the lowest id`, () => withoutCp14(() => {
     const tie = withSecondCaptain(qualified());
     expect(shortRangeBestReady(tie, 0)).toBe(WIRING_CAPTAIN_ID);
     // Captain 1's ship meets Sensors exactly (its binding category, margin 1); captain 2's copy has twice the sheet, so
@@ -232,7 +234,7 @@ describe("G1-6 the pre-pick and the picker", () => {
     expect(cmp?.captainId).toBe(2);
     expect(shortRangeBestReady(wiringBase(), 0)).toBeNull();
     expect(shortRangeBestReady(qualified(), 9)).toBeNull();
-  });
+  }));
 
   it("ready first (the pre-pick on top), then short (selectable), then blocked with the reason", () => {
     const base = withSecondCaptain(qualified());

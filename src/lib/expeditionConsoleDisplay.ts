@@ -256,7 +256,7 @@ export function lockedTierView(state: GameState, ship: ShipInstance, tier: Regio
     status: gates.sensorsMet ? "met" : "unmet",
     glyph: gates.sensorsMet ? "check" : "lock",
     title: gates.sensorsNeeded > 0 ? `Sensors ${gates.sensorsNeeded} to chart the ${region}` : "No sensor minimum",
-    detail: `This ship reads ${Math.floor(gates.sensors)}. Science crew and a stronger sensor array add to it.`,
+    detail: `This ship reads ${Math.floor(gates.sensors)}. Its hull and Sensor Suite set it, and Science crew and a Science officer raise it.`,
   });
   rows.push({
     key: "reach",
