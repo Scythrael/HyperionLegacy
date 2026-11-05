@@ -429,6 +429,9 @@ function* shortRangeRun(input: ShortRangeTickInput): Generator<ShortRangeSync, S
   const favored = startMission.favoredSpec === 1;
   // Complement CP-13 (OC-13): only a run stamped with the hull-family stamp reads its crew modules' hull bonus.
   const hullBonus = startMission.hullBonus === 1;
+  // Complement CP-14 (OC-16, OC-20): only a run stamped with the hull sensors stamp reads the hull's base sensors and the
+  // Science lift.
+  const hullSensors = startMission.hullSensors === 1;
   // The run's sheet, read on its stamps exactly as every captain mission reads its own (gearWearEngine.ts missionRunSheet).
   let stats = missionRunSheet(state, ship, startMission);
   const crewed = wearStamp === undefined ? false : shipCrewAboard(state, ship);
@@ -599,10 +602,10 @@ function* shortRangeRun(input: ShortRangeTickInput): Generator<ShortRangeSync, S
     // step 3: the new cycle re-reads its gear (its stamp re-frozen at this instant), and its plan and pay fold it.
     const cycleStamp =
       wearStamp === undefined ? undefined : projectRunStamp(state, ship.id, timedWear, state.gameTimeSeconds + (ticksElapsed - remaining) * state.tickDurationSeconds);
-    if (cycleStamp !== undefined) stats = runShipStats(state, ship, cycleStamp, reactorLift, moduleLines, favored, hullBonus);
+    if (cycleStamp !== undefined) stats = runShipStats(state, ship, cycleStamp, reactorLift, moduleLines, favored, hullBonus, hullSensors);
     // WR-9 fix round: the run's Pilot Cunning stamp rolls again for the new cycle (absent: no roll, as before).
     // E5-4 fix round: the run's Mission Control carry pays back into the new cycle's phases.
-    const start = startShortRangeCycle({ ...state, runCounts }, ship, slot, roll.cycleIndex + 1, cycleStamp, reactorLift, moduleLines, favored, mission.pilotCunning ?? 0, cleanRefugeeCarry(mission.refugeeCarry), hullBonus);
+    const start = startShortRangeCycle({ ...state, runCounts }, ship, slot, roll.cycleIndex + 1, cycleStamp, reactorLift, moduleLines, favored, mission.pilotCunning ?? 0, cleanRefugeeCarry(mission.refugeeCarry), hullBonus, hullSensors);
     runCounts = start.runCounts;
     mission = {
       kind: "shortRange",
@@ -625,6 +628,8 @@ function* shortRangeRun(input: ShortRangeTickInput): Generator<ShortRangeSync, S
       ...(mission.favoredSpec !== undefined ? { favoredSpec: mission.favoredSpec } : {}),
       // Complement CP-13: and the hull-family stamp.
       ...(mission.hullBonus !== undefined ? { hullBonus: mission.hullBonus } : {}),
+      // Complement CP-14: and the hull sensors stamp.
+      ...(mission.hullSensors !== undefined ? { hullSensors: mission.hullSensors } : {}),
       // WR-9 fix round: and the Pilot's Cunning stamp.
       ...(mission.pilotCunning !== undefined ? { pilotCunning: mission.pilotCunning } : {}),
       // E5-4 fix round: and the Mission Control carry the new cycle left (absent = 0).

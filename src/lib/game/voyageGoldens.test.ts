@@ -12,6 +12,10 @@
 // dispatch made today through `withoutVoyage` equals the stored record (G2-3: "a dispatch with `voyage` deleted").
 
 import { describe, expect, it } from "vitest";
+import { cp14OffForThisFile } from "./cp14Switch.fixture";
+// Complement CP-14 (hull base sensors and Science amplification) came after every pin here: the file runs with the
+// slice off, so its pins keep proving their own slice (cp14Goldens.test.ts pins what CP-14 moved).
+cp14OffForThisFile();
 // GEAR WEAR step 3: this file's pins were captured before the use wear engine; it runs with the use sources off
 // (gearWearSwitch.fixture.ts), so they keep proving nothing else moved. gearWearGoldens.test.ts pins the wear.
 import { gearWearOffInThisFile } from "./gearWearSwitch.fixture";

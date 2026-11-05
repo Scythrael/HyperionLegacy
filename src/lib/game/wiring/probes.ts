@@ -224,7 +224,7 @@ import { shipsWithMemberAutoSlotted } from "../groundTeamSlots";
 import { canFitEquipment, equippedFor, fitEquipment } from "../equipment";
 // E-MOD EM-7: the v1 module roster (the install-gate slot count probe installs it piece by piece).
 import { UNIVERSAL_MODULES } from "../shipModules";
-import { effectiveShipStats, officerCombatMods, officerRepairSpeedBonus, resolveCrew, shipCrewContribution, shipMissionOutputBonus, shipRepairSpeedBonus } from "../crewOverlay";
+import { effectiveShipStats, hullSensorsStamp, officerCombatMods, officerRepairSpeedBonus, resolveCrew, shipCrewContribution, shipMissionOutputBonus, shipRepairSpeedBonus } from "../crewOverlay";
 import { departmentFacet, pilotCunningStamp, seatFacet } from "../officerStats";
 import { RELICS, museumBonuses, type MuseumStat } from "../relics";
 import { hullTeardownFraction, salvageSalvagedMaterial, salvageShip, salvageTalentBonus, salvageTierReach, salvageYieldMult } from "../salvage";
@@ -795,7 +795,9 @@ export function onShortRangeJob(s: GameState, template: ShortRangeTemplateKey, p
   const favoredSpec = favoredSpecStamp(equippedFor(s, WIRING_SHIP_ID), shipOf(s).typeKey);
   // Complement CP-13: and the hull-family stamp a dispatch now writes (none without a bridge or quarters module).
   const hullBonus = hullFamilyStamp(s, shipOf(s));
-  const start = startShortRangeCycle(s, shipOf(s), SHORT_RANGE_PROBE_SLOT, shortRangeJobIndex(s, template), undefined, reactorLift !== undefined, true, favoredSpec === 1, 0, 0, hullBonus === 1);
+  // Complement CP-14: and the hull sensors stamp a dispatch now writes (none when nothing moves the ship's sensors).
+  const hullSensors = hullSensorsStamp(s, shipOf(s), true);
+  const start = startShortRangeCycle(s, shipOf(s), SHORT_RANGE_PROBE_SLOT, shortRangeJobIndex(s, template), undefined, reactorLift !== undefined, true, favoredSpec === 1, 0, 0, hullBonus === 1, hullSensors === 1);
   const mission: ShortRangeMissionState = {
     kind: "shortRange",
     slotId: 0,
@@ -807,6 +809,7 @@ export function onShortRangeJob(s: GameState, template: ShortRangeTemplateKey, p
     ...(reactorLift ? { reactorLift } : {}),
     ...(favoredSpec ? { favoredSpec } : {}),
     ...(hullBonus ? { hullBonus } : {}),
+    ...(hullSensors ? { hullSensors } : {}),
   };
   return { ...editCaptain(s, { mission } as Partial<CaptainState>), runCounts: start.runCounts };
 }
@@ -1012,6 +1015,15 @@ function hullRunSheet(s: GameState, ctx: ContextId): ShipDerivedStats | null {
   if (ctx !== "mission:extraction") return sheet(s);
   const ready = { ...s, captains: s.captains.map((c) => ({ ...c, level: Math.max(c.level, 10) })) };
   const r = dispatchCaptainOnMission(ready, WIRING_CAPTAIN_ID, "shortOreRun");
+  const m = captainOf(r.next).mission;
+  return r.success && m?.kind === "extraction" ? missionRunSheet(r.next, shipOf(r.next), m) : null;
+}
+
+// Complement CP-14: the run sheet of a mineral survey dispatched now on ship-1 (its stamps as the dispatch writes them).
+// null when the dispatch is refused.
+function surveyRunSheet(s: GameState): ShipDerivedStats | null {
+  const ready = { ...s, captains: s.captains.map((c) => ({ ...c, level: Math.max(c.level, 10) })) };
+  const r = dispatchCaptainOnMission(ready, WIRING_CAPTAIN_ID, "surveyMineralAnomaly");
   const m = captainOf(r.next).mission;
   return r.success && m?.kind === "extraction" ? missionRunSheet(r.next, shipOf(r.next), m) : null;
 }
@@ -1679,6 +1691,15 @@ export const PROBES = {
   hullRunUnload: { label: "unloadSpeedMult on the sheet / a captain mission's or short-range run's run sheet (its hullBonus stamp)", read: (s, ctx) => hullRunSheet(s, ctx)?.unloadSpeedMult ?? 1 },
   hullRunYield: { label: "extractionYieldMult on the sheet / a captain mission's run sheet (its hullBonus stamp)", read: (s, ctx) => hullRunSheet(s, ctx)?.extractionYieldMult ?? -1 },
   hullRunSensors: { label: "sensors on the sheet / a short-range run's run sheet (its hullBonus stamp) / a Ground Ops dispatch's frozen sensors", read: (s, ctx) => (ctx === "expedition:groundOps" ? dispatchRun(readyForRun(s)).groundOps?.shipEventProfile.sensors ?? -1 : hullRunSheet(s, ctx)?.sensors ?? -1) },
+  // Complement CP-14 (OC-16, OC-20): the ship's sensors where every reader reads them: the sheet (the dispatch gates and
+  // previews), the run sheet of a mineral survey dispatched now (missionRunSheet: its hullSensors stamp decides), the run
+  // sheet of a short-range job started through the board's seam, and a Ground Ops dispatch's frozen sensors. -1 when the
+  // dispatch is refused.
+  runSensors: {
+    label: "sensors on the sheet / a survey's or short-range run's run sheet (its hullSensors stamp) / a Ground Ops dispatch's frozen sensors",
+    read: (s, ctx) =>
+      ctx === "expedition:groundOps" ? dispatchRun(readyForRun(s)).groundOps?.shipEventProfile.sensors ?? -1 : ctx === "mission:survey" ? surveyRunSheet(s)?.sensors ?? -1 : hullRunSheet(s, ctx)?.sensors ?? -1,
+  },
   // CP-13: the rare-roll threshold of a stamped extracting run (the shortOreRun, or a mineral survey at mission:survey).
   hullRareThreshold: { label: "economyTick extracting: the rare-roll threshold of a run stamped hullBonus as a dispatch now stamps it", read: (s, ctx) => hullStampedThreshold(s, ctx === "mission:survey" ? "surveyMineralAnomaly" : "shortOreRun") },
   // CP-13: the Tactician bridge's weapon line where a battle reads it: the first wave of a patrol dispatched now (the
@@ -1712,6 +1733,12 @@ export const PROBES = {
   tierTwoLaunchAllowed: {
     label: "a console launch to Tier II (its nearest candidate in reach) succeeds (1) or is refused (0), the minimum away team aboard",
     read: (s) => (consoleLaunch(s, 2)?.success ? 1 : 0),
+  },
+  // Complement CP-14: every explorer's own base sensors now clear Tier II's frontier sensors, so the frontier gate is read
+  // where a hull can still fall short: Tier III's (the gate every console tab and launch asks, propulsion.ts).
+  tierThreeSensorsMet: {
+    label: "Tier III's frontier sensor gate (expeditionTierGates, the gate the console tab and a launch read): met (1) or not (0)",
+    read: (s) => (expeditionTierGates(s, shipOf(s), 3).sensorsMet ? 1 : 0),
   },
   consoleRiskTier: {
     label: "the region tier of the risk profile a console launch to the deepest tier ship-1 can attempt freezes (RISK_TIER_ODDS, hostile sites, SCIENCE_HEAVY, the affix rows read it); 0 when refused",

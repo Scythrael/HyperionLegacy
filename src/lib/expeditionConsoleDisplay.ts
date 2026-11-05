@@ -251,13 +251,17 @@ export function lockedTierView(state: GameState, ship: ShipInstance, tier: Regio
       ? `This ship has ${classText(gates.driveClass)}. A higher tier hull or a better FTL drive raises the class: install it in the ship's FTL Drive slot.`
       : `This ship has ${classText(gates.driveClass)}. None can be built yet.`,
   });
-  rows.push({
-    key: "sensors",
-    status: gates.sensorsMet ? "met" : "unmet",
-    glyph: gates.sensorsMet ? "check" : "lock",
-    title: gates.sensorsNeeded > 0 ? `Sensors ${gates.sensorsNeeded} to chart the ${region}` : "No sensor minimum",
-    detail: `This ship reads ${Math.floor(gates.sensors)}. Science crew and a stronger sensor array add to it.`,
-  });
+  // A tier with no frontier sensors (FRONTIER_SENSORS 0: Tier I, and Tier II since the CP-14 fix round retired its gate)
+  // shows no sensor row, never an always-met requirement.
+  if (gates.sensorsNeeded > 0) {
+    rows.push({
+      key: "sensors",
+      status: gates.sensorsMet ? "met" : "unmet",
+      glyph: gates.sensorsMet ? "check" : "lock",
+      title: `Sensors ${gates.sensorsNeeded} to chart the ${region}`,
+      detail: `This ship reads ${Math.floor(gates.sensors)}. Its hull and Sensor Suite set it, and Science crew and a Science officer raise it.`,
+    });
+  }
   rows.push({
     key: "reach",
     status: "info",
@@ -305,7 +309,7 @@ export interface CandidateCardView {
   outboundSeconds: number;
   transitText: string; // "Out 1h 52m · back 1h 42m"
   reach: ReachBarView;
-  gatesText: { drive: string; sensors: string; driveMet: boolean; sensorsMet: boolean };
+  gatesText: { drive: string; sensors: string | null; driveMet: boolean; sensorsMet: boolean };
   // The telescope's graded factors; `gradeText` adds the mockup's "(+1)" to Combat in known enemy territory.
   risk: { id: string; glyph: IconName; label: string; gradeName: string; gradeText: string; high: boolean }[] | null;
   gate: ExpeditionGateDetail | null; // the first propulsion refusal (Launch is off on it)
@@ -361,7 +365,8 @@ export function candidateCardView(state: GameState, ship: ShipInstance, cand: Ex
     reach: reachBar(reach.roundTripLy, reach.reachLy),
     gatesText: {
       drive: `${classText(gates.driveClass)} drive${gates.driveMet ? "" : `, needs ${classText(gates.driveClassNeeded)}`}`,
-      sensors: gates.sensorsNeeded > 0 ? `Sensors ${Math.floor(gates.sensors)} of ${gates.sensorsNeeded}` : "No sensor minimum",
+      // null on a tier with no frontier sensors: the card shows no sensor gate (never an always-met one).
+      sensors: gates.sensorsNeeded > 0 ? `Sensors ${Math.floor(gates.sensors)} of ${gates.sensorsNeeded}` : null,
       driveMet: gates.driveMet,
       sensorsMet: gates.sensorsMet,
     },

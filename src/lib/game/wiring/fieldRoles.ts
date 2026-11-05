@@ -30,6 +30,7 @@ export const FIELD_ROLES: Readonly<Record<string, Readonly<Record<string, FieldR
     droneBays: "effect",
     groundSquads: "effect",
     colonistCapacity: "effect",
+    baseSensors: "effect", // Complement CP-14 (OC-16): the hull's own sensors
     basePowerOutput: "effect", // E-MOD EM-1 (P1): the hull's own power output
     complementCap: "effect", // Complement plan CP-5: the hull's own crew berths
     complementDivisionWeights: "effect", // CP-5: the hull's own division mix

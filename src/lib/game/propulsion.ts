@@ -21,7 +21,7 @@
 //
 // Module graph: model, galaxy, crewOverlay, tick (the gear-inclusive trip range), equipment. Imported by expedition.ts.
 
-import { BLUEPRINTS, SHIP_TYPES, ftlDriveClass, type GameState, type RegionTier, type ShipInstance, type ShipTypeKey } from "./model";
+import { BLUEPRINTS, HULL_SENSORS_SWITCH, SHIP_TYPES, ftlDriveClass, type GameState, type RegionTier, type ShipInstance, type ShipTypeKey } from "./model";
 import { REGION_TIER_NAMES, regionTierNumeral } from "./galaxy";
 import { effectiveShipStats } from "./crewOverlay";
 import { shipTripRangeLightYears } from "./tick";
@@ -90,7 +90,20 @@ export function expeditionReachLy(state: GameState, ship: ShipInstance, roundTri
 
 // ===== Frontier sensors (locked I.6; user G7) =====
 
-export const FRONTIER_SENSORS: Readonly<Record<RegionTier, number>> = { 1: 0, 2: 10, 3: 20, 4: 30, 5: 40, 6: 55, 7: 65 };
+// 0 is "no gate" (Tier I's, and the console shows no sensor line for it). Complement CP-14 fix round (user 2026-11-04
+// "Retire the dead gates (Recommended)"): Tier II's 10 is retired. Only an explorer can attempt a tier and every
+// explorer's own base sensors clear it (the Eir's 15 is the least, model.ts HULL_BASE_SENSORS; every sensor lift
+// multiplies by 1 or more, so no ship reads below its hull's own), so it could never refuse. Every gate left can still
+// refuse a bare explorer (propulsion.test.ts holds both sides).
+export const FRONTIER_SENSORS: Readonly<Record<RegionTier, number>> = { 1: 0, 2: 0, 3: 20, 4: 30, 5: 40, 6: 55, 7: 65 };
+// TEST SWITCH ONLY (model.ts HULL_SENSORS_SWITCH off: no hull carries base sensors, the pre-CP-14 game): the table as it
+// stood before CP-14, when Tier II's 10 could still refuse a hull with no Sensor Suite.
+const FRONTIER_SENSORS_BEFORE_CP14: Readonly<Record<RegionTier, number>> = { ...FRONTIER_SENSORS, 2: 10 };
+
+// The frontier sensors `tier` asks for (0: no gate). Pure.
+export function frontierSensorsNeeded(tier: RegionTier): number {
+  return (HULL_SENSORS_SWITCH.live ? FRONTIER_SENSORS : FRONTIER_SENSORS_BEFORE_CP14)[tier] ?? 0;
+}
 
 // The ship's sensors as the dispatch snapshot freezes them (crew-inclusive: expedition.ts shipSensorSnapshot reads the
 // same effectiveShipStats). Pure.
@@ -139,7 +152,7 @@ export function expeditionTierGates(state: GameState, ship: ShipInstance, tier: 
   const driveMet = driveClass >= driveClassNeeded;
   const driveBuildable = buildableDriveClassMax() >= driveClassNeeded;
   const sensors = shipFrontierSensors(state, ship);
-  const sensorsNeeded = FRONTIER_SENSORS[tier] ?? 0;
+  const sensorsNeeded = frontierSensorsNeeded(tier);
   const sensorsMet = sensors >= sensorsNeeded;
   const base = { tier, driveClassNeeded, driveClass, sensorsNeeded, sensors };
   const reason: ExpeditionTierGateReason | null = !explorer

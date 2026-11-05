@@ -7,6 +7,10 @@
 // WR-9 switched off (wr9Switch.fixture.ts withWr9Off): every fixture then reproduces its capture (BEFORE).
 
 import { describe, expect, it } from "vitest";
+import { cp14OffForThisFile } from "./cp14Switch.fixture";
+// Complement CP-14 (hull base sensors and Science amplification) came after every pin here: the file runs with the
+// slice off, so its pins keep proving their own slice (cp14Goldens.test.ts pins what CP-14 moved).
+cp14OffForThisFile();
 import {
   WR9_CREW_SEEDS,
   WR9_EXP_SEEDS,

@@ -1271,7 +1271,7 @@
                       <span class="exp-row-k">Gates</span>
                       <span class="exp-row-v exp-gates">
                         <span class:exp-met={card.gatesText.driveMet} class:exp-unmet={!card.gatesText.driveMet}><Icon name={card.gatesText.driveMet ? "check" : "lock"} size={11} /> {card.gatesText.drive}</span>
-                        <span class:exp-met={card.gatesText.sensorsMet} class:exp-unmet={!card.gatesText.sensorsMet}><Icon name={card.gatesText.sensorsMet ? "check" : "lock"} size={11} /> {card.gatesText.sensors}</span>
+                        {#if card.gatesText.sensors !== null}<span class:exp-met={card.gatesText.sensorsMet} class:exp-unmet={!card.gatesText.sensorsMet}><Icon name={card.gatesText.sensorsMet ? "check" : "lock"} size={11} /> {card.gatesText.sensors}</span>{/if}
                       </span>
                     </span>
                     {#if card.reasonText}<span class="exp-target-reason"><Icon name="warning" size={13} /> {card.reasonText}</span>{/if}

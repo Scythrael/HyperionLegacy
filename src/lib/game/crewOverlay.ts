@@ -27,8 +27,8 @@
 // and deterministic in (pool order, caps). See docs/plans/2026-09-22-crew-0.14.0-plan.md
 // ("Engine seams" 1/4/5).
 
-import type { EquipmentInstance, GameState, ShipInstance, ShipDerivedStats, SeniorStaffOfficer, CrewSignature, CrewBucket, OfficerCombatMods, SeniorStaffSeat, PromotionObjectiveKind } from "./model";
-import { equipmentStatMods, shipDerivedStats, MASS_SPEED_DRAG, SHIP_TYPES, CREW_HOURS_MS_SWITCH } from "./model";
+import type { EquipmentInstance, GameState, ShipInstance, ShipDerivedStats, ShipSpec, SeniorStaffOfficer, CrewSignature, CrewBucket, OfficerCombatMods, SeniorStaffSeat, PromotionObjectiveKind } from "./model";
+import { equipmentStatMods, shipDerivedStats, MASS_SPEED_DRAG, SHIP_TYPES, CREW_HOURS_MS_SWITCH, HULL_SENSORS_SWITCH } from "./model";
 import { combatSpeedFor, newCombatRulesStamp, type CombatRulesStamp } from "./combat/combatRules";
 import { powerSupplyPercent } from "./combat/power";
 import { equippedFor } from "./equipmentQueries";
@@ -36,7 +36,7 @@ import { CREW_PROFESSION_BUFFS, CREW_STAT_KEYS, SECOND_LEVEL_EXCLUSIVE, TRANSIT_
 import { CREW_RACES } from "./crewRaces";
 import { coalesceBuckets, contributionForSignature, notableSignature, removeFromBucketList, rollupBuckets, totalCrew } from "./crew";
 import { shipCrewLocked } from "./crewLock";
-import { captainRacialBonus, officerCrewHoursMs, officerRacialBonus } from "./seniorStaff";
+import { captainRacialBonus, officerCrewHoursMs, officerRacialBonus, officerRankMagnitudeFactor } from "./seniorStaff";
 import { getSeniorStaffBonusById } from "./seniorStaffBonuses";
 import { crewTransportsDue, deliverDueTransports, transportBatchSize } from "./transports";
 import { autoCrewShip } from "./autoCrew";
@@ -297,6 +297,13 @@ function applyMappedCrewStats(
   };
 }
 
+// One seated officer's output multiplier: the installed bridge module's lift of that officer (exactly 1 with no bridge
+// module) x the commanding captain's officer output `officerOutput` (Mentor, Legendary Captain; exactly 1 without
+// them). The one expression every officer reader multiplies by. PURE.
+function officerOutputMultiplier(bridgeMod: ReturnType<typeof installedBridgeModule>, officer: SeniorStaffOfficer, hullSpec: ShipSpec, officerOutput: number): number {
+  return (bridgeMod ? bridgeOfficerMultiplier(bridgeMod, officer, hullSpec) : 1) * officerOutput;
+}
+
 // E-CREW 0.14.0 (Task 20): the officer-only ship-stat lifts, applied AFTER the mapped crew keys.
 //   Inspiring Leader ("a small lift to every ship stat"): x (1 + lift) on cargoCapacity, transitSpeedMult,
 //     extractionYieldMult, sensors (0 stays 0), fuelCapacity (so range rises by the same share, without also
@@ -448,7 +455,7 @@ function rawShipCrewContribution(state: GameState, ship: ShipInstance, hullBonus
     // A BRIDGE module amplifies this officer's whole output (both bonuses + the racial). 1 with no
     // bridge module, so the multiply is a no-op and the pre-module numbers are preserved exactly.
     // WR-5c: x the captain's officer output (Mentor, Legendary Captain), exactly 1 without them.
-    const officerMult = (bridgeMod ? bridgeOfficerMultiplier(bridgeMod, officer, hullSpec) : 1) * officerOutput;
+    const officerMult = officerOutputMultiplier(bridgeMod, officer, hullSpec, officerOutput);
     // Each of the two rolled bonuses. ⚠️ officer.bonuses[i].magnitude is ALREADY rank-scaled: the
     // generator/promotion bake officerRankMagnitudeFactor(rank) into the stored magnitude (seniorStaff.ts
     // rollCandidate/strengthenBonus), so it is used AS-IS here. Re-multiplying by the rank factor would
@@ -513,7 +520,7 @@ export function officerBonusTotal(state: GameState, ship: ShipInstance, statKey:
     if (officer.assignedShipId !== ship.id) continue;
     for (const bonus of officer.bonuses) {
       if (getSeniorStaffBonusById(bonus.id)?.statKey !== statKey) continue;
-      const officerMult = (bridgeMod ? bridgeOfficerMultiplier(bridgeMod, officer, hullSpec) : 1) * officerOutput;
+      const officerMult = officerOutputMultiplier(bridgeMod, officer, hullSpec, officerOutput);
       total += bonus.magnitude * officerMult;
     }
   }
@@ -576,7 +583,7 @@ export function officerCombatProfile(state: GameState, ship: ShipInstance): Offi
       const statKey = getSeniorStaffBonusById(bonus.id)?.statKey;
       const kind = statKey ? OFFICER_COMBAT_KIND_OF[statKey] : undefined;
       if (!kind) continue;
-      const officerMult = (bridgeMod ? bridgeOfficerMultiplier(bridgeMod, officer, hullSpec) : 1) * officerOutput;
+      const officerMult = officerOutputMultiplier(bridgeMod, officer, hullSpec, officerOutput);
       let f = facets.get(officer.seat);
       if (!f) {
         f = { integrity: seatFacet(state, ship, officer.seat, "integrity"), constitution: seatFacet(state, ship, officer.seat, "constitution") };
@@ -823,15 +830,102 @@ export const shipPreventCrewLoss = (state: GameState, ship: ShipInstance): numbe
 // withFavoredLines): a captain mission, short-range run or patrol cycle dispatched before it (no favoredSpec stamp).
 // CP-13 (OC-13): `opts.hullBonus: false` reads the crew modules without their hull-family bonus (the sheet lines and the
 // division lifts): a captain mission, short-range run or patrol cycle dispatched before CP-13 (no hullBonus stamp).
-export function effectiveShipStats(state: GameState, ship: ShipInstance, opts: { reactorLift?: boolean; favored?: boolean; hullBonus?: boolean } = {}): ShipDerivedStats {
+// Complement CP-14 (OC-16, OC-20): `opts.hullSensors: false` reads the ship without the hull's base sensors and the
+// Science lift (applyScienceSensorLift): a captain mission or short-range run dispatched before CP-14 (no hullSensors
+// stamp).
+export function effectiveShipStats(state: GameState, ship: ShipInstance, opts: { reactorLift?: boolean; favored?: boolean; hullBonus?: boolean; hullSensors?: boolean } = {}): ShipDerivedStats {
   const favored = opts.favored !== false;
   const hullBonus = opts.hullBonus !== false;
+  const hullSensors = opts.hullSensors !== false;
   // WR-5a: the commanding captain's Prospector nodes, LAST (Overloaded Holds' overflow is a share of the finished hold).
   // WR-5c: then the same captain's Keen Sensors (a multiplier on the finished sensors; the Prospector lifts never
   // touch sensors, so the order between the two is immaterial).
   const captain = commandingCaptain(state, ship);
-  const stats = applyCaptainSensors(applyCaptainOverlay(shipStatsBeforeCaptain(state, ship, favored, hullBonus), captainShipLifts(captain)), captainSensorsMult(captain));
-  return opts.reactorLift === false ? stats : applyReactorDrive(state, ship, stats, favored, hullBonus);
+  const stats = applyCaptainSensors(applyCaptainOverlay(shipStatsBeforeCaptain(state, ship, favored, hullBonus, hullSensors), captainShipLifts(captain)), captainSensorsMult(captain));
+  return opts.reactorLift === false ? stats : applyReactorDrive(state, ship, stats, favored, hullBonus, hullSensors);
+}
+
+// ============================================================================
+// Complement CP-14 (G6 part 1): the Science amplification of a ship's sensors
+// ============================================================================
+//
+// User 2026-10-16, OC-20 "Proposed numbers (Recommended)" and OC-21 "Multiply (Recommended)": the ship's Science
+// division and its Science officer each multiply the sensors the hull and the installed Sensor Suite give (the flat
+// sum), on top of which the museum, the officers' Inspiring Leader, the Explorer bridge line and the captain's Keen
+// Sensors multiply too (each its own factor; today's pattern, so their order never changes the result):
+//   Science crew     x (1 + SCIENCE_SENSOR_CREW_SHARE x ln(1 + heads / SCIENCE_SENSOR_CREW_KNEE)): unbounded and concave
+//                    (D23, never a cap); 25 heads +5.5%, 100 heads +12.9%, 750 heads +27.5%. Heads are the Science
+//                    division's complement plus the Science notables assigned to the ship.
+//   Science officer  x (1 + SCIENCE_SEAT_SENSOR_LIFT x the officer's rank factor x their output multiplier): +12% at
+//                    Ensign, growing with rank (seniorStaff.ts officerRankMagnitudeFactor: Cadet 10.2% to Commander
+//                    21%), times what lifts every officer's output: the bridge module (Focused Command on an explorer
+//                    or prospector hull, whose role seats include Science; Balanced and Flag Command on any hull) and
+//                    the captain's Mentor and Legendary Captain. One seated officer is a bounded source, so it stays
+//                    linear like every other officer lift.
+// A ship with no sensors stays at 0 (both are multipliers). Exactly 1 with neither, which returns the sheet itself.
+export const SCIENCE_SENSOR_CREW_SHARE = 0.08;
+export const SCIENCE_SENSOR_CREW_KNEE = 25;
+export const SCIENCE_SEAT_SENSOR_LIFT = 0.12;
+
+// The Science division's headcount aboard `ship`: its complement buckets plus its assigned Science notables. Pure.
+export function scienceCrewHeads(state: GameState, ship: ShipInstance): number {
+  let heads = 0;
+  for (const b of ship.complement?.buckets ?? []) if (b.profession === "science" && b.count > 0) heads += b.count;
+  for (const n of state.notableCrew) if ((n.assignedShipId ?? null) === ship.id && n.profession === "science") heads += 1;
+  return heads;
+}
+
+// The Science crew's share for `heads` (0 at 0 heads; unbounded, concave). Pure.
+export function scienceCrewSensorLift(heads: number): number {
+  return heads > 0 && Number.isFinite(heads) ? SCIENCE_SENSOR_CREW_SHARE * Math.log1p(heads / SCIENCE_SENSOR_CREW_KNEE) : 0;
+}
+
+export interface ScienceSensorLifts {
+  crew: number;
+  seat: number;
+}
+
+// The two Science shares on `ship` (each 0 without its source, and both 0 while the CP-14 switch is off). Pure.
+export function scienceSensorLifts(state: GameState, ship: ShipInstance): ScienceSensorLifts {
+  if (!HULL_SENSORS_SWITCH.live) return { crew: 0, seat: 0 };
+  const crew = scienceCrewSensorLift(scienceCrewHeads(state, ship));
+  let seat = 0;
+  let bridgeMod: ReturnType<typeof installedBridgeModule> | undefined;
+  let officerOutput: number | undefined;
+  for (const officer of state.officers) {
+    if (officer.assignedShipId !== ship.id || officer.seat !== "science") continue;
+    if (bridgeMod === undefined) bridgeMod = installedBridgeModule(state, ship);
+    if (officerOutput === undefined) officerOutput = captainOfficerOutputMult(commandingCaptain(state, ship));
+    const officerMult = officerOutputMultiplier(bridgeMod, officer, hullSpecOf(ship), officerOutput);
+    seat += SCIENCE_SEAT_SENSOR_LIFT * officerRankMagnitudeFactor(officer.rank) * officerMult;
+  }
+  return { crew, seat };
+}
+
+// sensors x (1 + crew) x (1 + seat). Returns `stats` itself with no share or no sensors (the byte-identical guarantee).
+// PURE.
+export function applyScienceSensorLift(stats: ShipDerivedStats, lifts: ScienceSensorLifts): ShipDerivedStats {
+  if ((lifts.crew === 0 && lifts.seat === 0) || !(stats.sensors > 0)) return stats;
+  return { ...stats, sensors: stats.sensors * (1 + lifts.crew) * (1 + lifts.seat) };
+}
+
+// The crewed sheet with the Science lift on `ship`. A sheet with no sensors skips reading the lifts at all (a pure
+// shortcut: applyScienceSensorLift returns such a sheet itself whatever the lifts). PURE.
+function scienceLiftedSheet(state: GameState, ship: ShipInstance, crewed: ShipDerivedStats): ShipDerivedStats {
+  return crewed.sensors > 0 ? applyScienceSensorLift(crewed, scienceSensorLifts(state, ship)) : crewed;
+}
+
+// The CP-14 stamp a run dispatched now on `ship` writes, when the run reads sensors (`reads`: a survey mission, every
+// short-range run): 1 when the hull's base sensors or the Science lift move the ship's sensors, else undefined (so a
+// ship they do not touch stores exactly what it stored before). Only a stamped run's sheet reads them, so a run in
+// flight at the update plays as it did; the ship's crew, officers and gear are locked while it is out (crewLock.ts; a
+// promotion, still allowed, only scales a seated Science officer's lift, and a seated one already stamped the run), so
+// an unstamped run's sensors could not have moved anyway. PURE.
+export function hullSensorsStamp(state: GameState, ship: ShipInstance, reads: boolean): 1 | undefined {
+  if (!HULL_SENSORS_SWITCH.live || !reads) return undefined;
+  const now = effectiveShipStats(state, ship).sensors;
+  const before = effectiveShipStats(state, ship, { hullSensors: false }).sensors;
+  return now !== before ? 1 : undefined;
 }
 
 // E-MOD EM-4: the installed Reactor Core's drive effect on the finished sheet. Transit speed x the surplus lift, then
@@ -842,13 +936,13 @@ export function effectiveShipStats(state: GameState, ship: ShipInstance, opts: {
 // Departure / Fast Return) multiply this sweeping speed, so both legs, the voyage and the combat speed all take it.
 // Returns `stats` itself without a core, with the Standard-Issue core and while the test switch is off (the
 // byte-identical guarantee). PURE.
-function applyReactorDrive(state: GameState, ship: ShipInstance, stats: ShipDerivedStats, favored: boolean, hullBonus: boolean): ShipDerivedStats {
+function applyReactorDrive(state: GameState, ship: ShipInstance, stats: ShipDerivedStats, favored: boolean, hullBonus: boolean, hullSensors: boolean): ShipDerivedStats {
   if (!REACTOR_LIFT_SWITCH.live) return stats;
   const core = equippedFor(state, ship.id).find((p) => p.slotType === "reactorCore");
   if (core === undefined) return stats;
   return reactorDriveFold(stats, core, reactorSurplusSpeedLift(shipReactorSurplus(state, ship)), () => {
     const weightless = { ...state, equipment: state.equipment.map((e) => (e.id === core.id ? { ...e, mass: 0 } : e)) };
-    return effectiveShipStats(weightless, ship, { reactorLift: false, favored, hullBonus }).transitSpeedMult;
+    return effectiveShipStats(weightless, ship, { reactorLift: false, favored, hullBonus, hullSensors }).transitSpeedMult;
   });
 }
 
@@ -944,11 +1038,14 @@ export function shipNetPowerTotals(state: GameState, ship: ShipInstance): { outp
 // effectiveShipStats WITHOUT the captain overlays: the gear fold, the crew, the museum and the officer facets. The
 // ship readout's source split reads it (its Captain bucket is effective minus this, Keen Sensors included). PURE.
 // CP-13 (OC-13): then the installed bridge module's hull-family lines (applyHullFamilyLines), unless `hullBonus` is false.
-export function shipStatsBeforeCaptain(state: GameState, ship: ShipInstance, favored = true, hullBonus = true): ShipDerivedStats {
-  const base = shipDerivedStats(ship, equippedFor(state, ship.id), { favored });
+// CP-14 (OC-16, OC-20): the hull's base sensors (in the gear fold) and the Science lift (after the crew, before the
+// museum), unless `hullSensors` is false.
+export function shipStatsBeforeCaptain(state: GameState, ship: ShipInstance, favored = true, hullBonus = true, hullSensors = true): ShipDerivedStats {
+  const base = shipDerivedStats(ship, equippedFor(state, ship.id), { favored, hullSensors });
   const museum = museumBonuses(state);
   const crewed = applyCrewOverlay(base, shipCrewContribution(state, ship, museum, hullBonus));
-  const lined = hullBonus ? applyHullFamilyLines(applyMuseumOverlay(crewed, museum), hullFamilyBridgeLines(state, ship)) : applyMuseumOverlay(crewed, museum);
+  const sensed = hullSensors ? scienceLiftedSheet(state, ship, crewed) : crewed;
+  const lined = hullBonus ? applyHullFamilyLines(applyMuseumOverlay(sensed, museum), hullFamilyBridgeLines(state, ship)) : applyMuseumOverlay(sensed, museum);
   return applyOfficerFacetStats(lined, state, ship);
 }
 
@@ -958,7 +1055,7 @@ export function shipStatsBeforeHullLines(state: GameState, ship: ShipInstance): 
   const base = shipDerivedStats(ship, equippedFor(state, ship.id), { favored: true });
   const museum = museumBonuses(state);
   const crewed = applyCrewOverlay(base, shipCrewContribution(state, ship, museum, true));
-  return applyOfficerFacetStats(applyMuseumOverlay(crewed, museum), state, ship);
+  return applyOfficerFacetStats(applyMuseumOverlay(scienceLiftedSheet(state, ship, crewed), museum), state, ship);
 }
 
 // CP-13 (OC-13, crewModules.ts HULL_FAMILY_MODULE_BONUS): the bridge module's hull-family lines on the sheet, each its own

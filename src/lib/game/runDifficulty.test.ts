@@ -34,6 +34,7 @@ import { dispatchCaptainOnPatrol, economyTick } from "./tick";
 import { migrate, serialize, deserialize, SAVE_VERSION, type SaveFile } from "./save";
 import { onHull, withCrew } from "./firstRunsGoldens.fixture";
 import { asPreSafeFirstRunsDispatch } from "./awayTeamTestFixtures";
+import { withoutCp14 } from "./cp14Switch.fixture";
 
 const RNG = (): number => 0.5;
 
@@ -362,8 +363,9 @@ describe("SF-1: SAVE v70, existing saves count as done (veterans)", () => {
 
   it("an in-flight run is unchanged by the migration and counts once at its claim", () => {
     const crewed = withCrew(onHull("eir"), "rank3");
-    // SF-2: a v69 save's in-flight run was dispatched before SF-2 (no training stamp, the shakedown).
-    const res = asPreSafeFirstRunsDispatch(startExpedition(crewed, "ship-1", 1, "cand-1"));
+    // SF-2: a v69 save's in-flight run was dispatched before SF-2 (no training stamp, the shakedown), so before CP-14 too:
+    // it froze the Eir's sensors without its base sensors (withoutCp14).
+    const res = asPreSafeFirstRunsDispatch(withoutCp14(() => startExpedition(crewed, "ship-1", 1, "cand-1")));
     const restored = migrate(v69(res.next));
     expect(restored.expeditions).toEqual(res.next.expeditions);
     expect(restored.runCounts!.expedition).toEqual({ completed: 0, trainingDone: true, veteran: true });
