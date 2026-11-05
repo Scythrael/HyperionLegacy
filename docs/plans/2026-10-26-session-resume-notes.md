@@ -256,3 +256,15 @@ E5-6b (echoes + a [DEV] grant-refugees button, then browser-check toast tuck / L
 0.14.x: the behavior-preserving cleanup pass (roadmap doc).
 
 - WORKTREE SAFETY addendum (2026-11-04): a builder left its vite dev server running from its worktree, which locked the folder and made `git worktree remove` fail. Every builder brief says: stop any dev server you start before reporting. If a removal fails, find node processes whose command line names the worktree, stop them, then remove (after the link check).
+
+## Hub handoff (2026-11-04, later), feat @ 658014c
+
+Merged since 3c676c0 (tagged in backup): CP-12 (Bridge/Quarters install tiles), CP-13 (hull-family module bonuses).
+11,146 green; perf 2/2; check 0. Progress card v14 (counts unchanged). Talent web light: closed (stale cache).
+IN FLIGHT: CP-14 (hull base sensors + Science crew/officer sensor lifts) built (08bbf4d, fd346cc), reviewed (no
+Critical/Important), fix round running in its worktree. User CP-14 answers (recorded in the complement plan by the fix
+round): Science lifts stay separate from other crew boosts; bare explorers clearing Tier II to IV gates is intended;
+"Retire the dead gates" (drop sensor gates that can no longer bind; drive class paces tiers).
+OPEN for the user: unchanged items (1) to (4) from the 03:20 note.
+NEXT after CP-14 merge: CP-16, CP-17/18, CP-19, CP-20, ML-5, ML-6 verify, WR-10, OT-UI, G2-7, E5-6b, R2-5..R2-9.
+Stale worktrees under .claude/worktrees (7 besides CP-14): old, leave until a safe-removal pass.
