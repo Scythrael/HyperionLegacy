@@ -2489,7 +2489,7 @@ export function tickCaptainMission(
   // (missionDef.missionType === "survey"); for every extraction/patrol mission it is 0, so
   // non-survey yields are byte-identical. The ship's `sensors` is read off its derived stats,
   // the SAME shipStats the yield bonus above reads (crew-inclusive when the caller passes
-  // effectiveShipStats, which economyTick does): a fitted sensor item plus (Complement CP-14, on a run
+  // effectiveShipStats, which economyTick does): an installed sensor item plus (Complement CP-14, on a run
   // stamped hullSensors) the hull's base sensors, times the Science lift, so a hull without base sensors
   // and without a sensor item reads sensors 0 -> +0. Added to all three tier yield
   // mults below alongside shipYieldBonus, so it scales the survey's material amount equally

@@ -189,6 +189,14 @@ describe("G2-6 the tier facts, the ship line and the locked panel", () => {
     expect(v.peekHeading).toBe("Three nearest systems waiting here");
   });
 
+  it("a tier with no frontier sensors (Tier II, retired by the CP-14 fix round) shows no sensor row", () => {
+    const s = crewed("eir");
+    const gates = expeditionTierGates(s, ship1(s), 2);
+    expect(gates.sensorsNeeded).toBe(0);
+    const v = lockedTierView(s, ship1(s), 2, gates);
+    expect(v.rows.map((r) => r.key)).toEqual(["drive", "reach", "telescope"]);
+  });
+
   it("a non-explorer's locked panel leads with the explorer hull", () => {
     const s = crewed("generalFreighter");
     const v = lockedTierView(s, ship1(s), 1, expeditionTierGates(s, ship1(s), 1));
@@ -213,7 +221,8 @@ describe("G2-6 the candidate card: transit, reach and gates are the engine's", (
       expect(v.reach.met).toBe(reach.met);
       expect(v.gate).toEqual(expeditionSystemGate(s, ship1(s), sys));
       expect(v.launchable).toBe(startExpedition(s, "ship-1", 1, c.id).success);
-      expect(v.gatesText.sensors).toBe("No sensor minimum");
+      // Tier I asks for no frontier sensors, so the card shows no sensor gate (never an always-met one).
+      expect(v.gatesText.sensors).toBeNull();
       expect(v.risk).not.toBeNull();
     }
   });

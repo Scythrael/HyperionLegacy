@@ -175,12 +175,14 @@
   <div id="sections"></div>
 
   <div class="findings">
-    <h2>Builder notes (CP-14, 2026-11-04)</h2>
+    <h2>Builder notes (CP-14 and its fix round, 2026-11-04)</h2>
     <ol>
       <li><b>Runs in flight do not change.</b> The plan said an in-flight survey would read the new sensors from its next cycle; the build follows the stricter rule instead: a survey mission or short-range run dispatched from this build on carries a stamp, and only a stamped run reads the hull's sensors and the Science lift. Anything already flying when the build lands finishes exactly as before; expeditions freeze their sensors at dispatch, as always.</li>
-      <li><b>Explorers clear early frontier gates on their own.</b> With their base sensors, a bare Eir meets Tier II's 10, an Orion Tier III's 20 and an Aurora Tier IV's 30, before any Sensor Suite (the drive class still gates those tiers). The Debug wiring audit for the frontier sensors gate now checks Tier III on an Eir.</li>
+      <li><b>Explorers clear early frontier gates on their own (your call: intended).</b> With their base sensors, an Orion meets Tier III's 20 and an Aurora Tier IV's 30 before any Sensor Suite; the drive class stays the tier pacer. The Debug wiring audit for the frontier sensors gate checks Tier III on an Eir.</li>
+      <li><b>Fix round: Tier II's frontier sensor gate is retired (your call: "Retire the dead gates").</b> It asked for 10, and every explorer (the only hulls that can launch) carries at least 15 of its own, so it could never refuse. Tiers I and II now ask for no sensors and show no sensor line at all; Tiers III to VII (20, 30, 40, 55, 65) are unchanged, and each still stops a bare Eir. The short-range sheets keep their Sensors (Tier I 10, Tier II 20): a freighter or prospector can fly them and has no sensors of its own.</li>
       <li><b>Stat breakdown.</b> Tapping the Sensors value lists Base / hull (the hull's own sensors), Ship systems (the Sensor Suite), Science crew, Science officer, Bridge Module (its lift of the Science officer, plus the Explorer line under Hull bonus), Museum and Captain, and they add up to the value.</li>
-      <li><b>Not lifted by the other crew amplifiers.</b> The Science crew lift reads the Science headcount, and the Science officer lift the officer's rank and the bridge module: a quarters module's division lift (the Explorer quarters' Science +8% included), Crew Effectiveness and the museum's crew bonuses scale neither (the museum's sensors bonus still multiplies the whole total). Flagged for your call.</li>
+      <li><b>Not lifted by the other crew amplifiers (your call: keep them separate).</b> The Science crew lift reads the Science headcount, and the Science officer lift the officer's rank and the bridge module: a quarters module's division lift (the Explorer quarters' Science +8% included), Crew Effectiveness and the museum's crew bonuses scale neither (the museum's sensors bonus still multiplies the whole total). Help, Sensors now says so.</li>
+      <li><b>Fix round: Help timing is truthful.</b> An expedition freezes its sensors when it sets out; a survey mission or short-range run keeps reading its ship's sensors as it flies (its crew and gear are locked, but a Science officer's promotion or a museum find counts as it goes). The Hull bonuses topic says the same of hull bonuses. For the patch notes: a run already out when this build lands does not pick the new sensors up at its next cycle.</li>
     </ol>
   </div>
 
@@ -209,23 +211,25 @@ const SECTIONS = [
     { t: "Many Science crew keep adding, each a little less (try a small and a large Science division): no cap.", c: true, how: "cp14HullSensors.test.ts (unbounded and concave, D23)." },
   ]},
   { n: "3", title: "Where sensors act", items: [
-    { t: "Expedition Console on an Orion with a Class II drive: the Tier II tab is <b>Ready</b> without a Sensor Suite (its own 25 meet the Orion Arm's 10). An Eir's Tier III panel still lists <b>Sensors 20 to chart the Perseus Arm</b> as unmet, and its line reads <b>Its hull and Sensor Suite set it, and Science crew and a Science officer raise it.</b>", c: true, tag: "save", how: "expeditionConsoleDisplay.test.ts (the stock Orion and the locked tier); wiring registry expedition:audit:frontierSensors (Tier III)." },
+    { t: "Expedition Console on an Orion with a Class II drive: the Tier II tab is <b>Ready</b> without a Sensor Suite. An Eir's Tier III panel still lists <b>Sensors 20 to chart the Perseus Arm</b> as unmet, and its line reads <b>Its hull and Sensor Suite set it, and Science crew and a Science officer raise it.</b>", c: true, tag: "save", how: "expeditionConsoleDisplay.test.ts (the stock Orion and the locked tier); wiring registry expedition:audit:frontierSensors (Tier III)." },
+    { t: "Expedition Console, Tiers I and II: a locked tier's panel lists the drive, reach and telescope rows but <b>no sensor row</b>, and a candidate card's Gates line shows only the drive (no \"No sensor minimum\" line any more). Tier III and deeper still show their sensor gate.", c: true, tag: "theme", how: "expeditionConsoleDisplay.test.ts (Tier II shows no sensor row; Tier I cards carry no sensor gate); propulsion.test.ts (no inert frontier gate)." },
     { t: "Short-Range Missions: a crewed Eir meets the Tier I sheet's Sensors without a Sensor Suite; the sheet bars show its own sensors.", c: true, tag: "save", how: "shortRange.test.ts (the Eir meets Tier I); cp14Goldens.test.ts shortRange:eir:fresh." },
     { t: "A mineral survey from an Orion with a Sensor Suite and Science people brings home more material than the same ship would have before this build.", c: true, tag: "save", how: "cp14Goldens.test.ts mission:orion:survey:fresh; wiring registry rows at mission:survey." },
     { t: "An expedition dispatched now freezes the new sensors (its foreknowledge and scan speed read them); a posted Stargazer's discovery odds are unchanged by them.", c: true, tag: "save", how: "cp14HullSensors.test.ts (the Stargazer rides the same frozen snapshot); cp14Goldens.test.ts expedition rows." },
   ]},
   { n: "4", title: "Runs in flight and offline", items: [
     { t: "A survey mission or short-range run that was already flying when the build landed finishes exactly as it would have before (same haul, same timing), even across its Repeat cycles.", c: true, tag: "save", how: "cp14Goldens.test.ts inFlight rows (dispatched before CP-14, run after it)." },
-    { t: "Leave the game closed for an hour with an explorer on a Repeat survey, reopen: the While You Were Away recap and the run match what live play would have produced.", c: true, tag: "save", how: "cp14HullSensors.test.ts (the offline catch-up in chunks == 1 s steps, a survey and a short-range run)." },
+    { t: "Leave the game closed for an hour with an explorer on a Repeat survey, reopen: the While You Were Away recap and the run match what live play would have produced.", c: true, tag: "save", how: "cp14HullSensors.test.ts (the offline catch-up in chunks == 1 s steps, and one economyTick call == 997 s chunks == 1 s steps, a survey and a short-range run)." },
   ]},
   { n: "5", title: "Help and wiring", items: [
-    { t: "Help, <b>Sensors</b>: lists every hull's base sensors, the Science crew and officer sizes by rank, Focused Command's lift and how they stack, matching the readout. No em dashes, US English.", tag: "theme" },
+    { t: "Help, <b>Sensors</b>: says <b>some</b> hulls carry sensors of their own (lists them, and that the freighter and prospectors have none), the Science crew and officer sizes by rank, Focused Command's lift, that the Science lifts stand alone, how they stack, and TIMING: an expedition keeps its sensors from launch, a survey or short-range run keeps reading them as it flies. No em dashes, US English.", tag: "theme" },
+    { t: "Help, <b>Hull bonuses</b>, last paragraph: an expedition keeps its hull bonuses from launch; a mission, short-range run or patrol keeps reading them as it goes.", tag: "theme" },
     { t: "Ship Systems, the Sensors (i): says the hull's own sensors and a Sensor Suite add up, then Science crew, a Science officer and the rest multiply.", tag: "theme" },
-    { t: "Debug, wiring audit: the base sensors and Science rows are LIVE and ship:SHIP_TYPES:sensors is no longer pending; the release gate pending count fell from 36 to 35.", c: true, how: "RELEASE_GATE=1 no-dead-stats.test.ts and wiring.completeness.test.ts (36 pending before, 35 after)." },
+    { t: "Debug, wiring audit: the base sensors and Science rows are LIVE and ship:SHIP_TYPES:sensors is no longer pending; the release gate pending count fell from 36 to 35. The frontier sensors row lists Tiers III to VII and says Tiers I and II ask for none; the warship base sensors rows read the sheet and short-range runs only.", c: true, how: "RELEASE_GATE=1 no-dead-stats.test.ts and wiring.completeness.test.ts (36 pending before, 35 after)." },
   ]},
 ];
 
-const STORE = "hl-qa-0140-cp14-hull-sensors-v1";
+const STORE = "hl-qa-0140-cp14-hull-sensors-v2";
 let userState = {};
 try { userState = JSON.parse(localStorage.getItem(STORE) || "{}"); } catch (e) { userState = {}; }
 function save() { try { localStorage.setItem(STORE, JSON.stringify(userState)); } catch (e) {} }

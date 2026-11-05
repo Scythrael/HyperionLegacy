@@ -2404,9 +2404,17 @@ function hullEntries(): WiringEntry[] {
       out.push(
         hullEntry(hull, "baseSensors", {
           probe: "runSensors",
-          // A warship cannot fly a survey mission (its dispatch is refused), so its base sensors reach the other readers.
-          contexts: SHIP_TYPES[hull].spec === "tactician" ? CP14_SENSOR_CONTEXTS.filter((c) => c !== "mission:survey") : CP14_SENSOR_CONTEXTS,
-          ...(SHIP_TYPES[hull].spec === "tactician" ? { outOfScope: [{ context: "mission:survey" as ContextId, reason: CP14_NO_SURVEY }] } : {}),
+          // A warship can fly neither a survey mission nor an expedition (both dispatches refuse its hull), so its base
+          // sensors reach the sheet (the short-range gate and the previews) and a short-range run only.
+          contexts: SHIP_TYPES[hull].spec === "tactician" ? CP14_SENSOR_CONTEXTS.filter((c) => c !== "mission:survey" && c !== "expedition:groundOps") : CP14_SENSOR_CONTEXTS,
+          ...(SHIP_TYPES[hull].spec === "tactician"
+            ? {
+                outOfScope: [
+                  { context: "mission:survey" as ContextId, reason: CP14_NO_SURVEY },
+                  { context: "expedition:groundOps" as ContextId, reason: CP14_NO_EXPEDITION },
+                ],
+              }
+            : {}),
           magnitude: (c) => c.SHIP_TYPES[hull].baseSensors ?? 0,
           base: () => {
             const s = wiringBase(hull);
@@ -2534,6 +2542,7 @@ function hullEntries(): WiringEntry[] {
 // sensor array (Science is a Prospector role seat, and the Prospector's own bridge line is extraction, not sensors).
 const CP14_SENSOR_CONTEXTS: ContextId[] = ["sheet", "mission:survey", "mission:shortRange", "expedition:groundOps"];
 const CP14_NO_SURVEY = "a warship cannot fly a survey mission (the dispatch refuses its hull), so the survey yield never reads its sensors";
+const CP14_NO_EXPEDITION = "a warship cannot launch an expedition (only an explorer hull can: propulsion.ts notExplorer), so no Ground Ops run reads its sensors";
 function cp14ScienceSensorEntries(): WiringEntry[] {
   const bareAurora = (): GameState => {
     const s = withBuckets(wiringBase("aurora"), []);
@@ -4502,7 +4511,7 @@ const AUDIT_ROWS: readonly { id: string; system: WiringSystem; claim: string; st
   { id: "expedition:audit:deepSpaceReach", system: "expedition", claim: "Deep-space reach: the gear-inclusive range x DRIVE_CLASS_REACH_MULT by drive class x the Engineering long-haul ramp, against the round trip (outOfReach)", status: LIVE },
   { id: "expedition:audit:explorerHullGate", system: "expedition", claim: "Only an explorer hull launches an expedition, Tier I included (notExplorer)", status: LIVE },
   { id: "expedition:audit:driveClassTierGate", system: "expedition", claim: "A tier asks for a drive class at least its own number (driveClassTooLow, driveClassUnavailable)", status: LIVE },
-  { id: "expedition:audit:frontierSensors", system: "expedition", claim: "Frontier sensors to attempt a tier: FRONTIER_SENSORS I 0, II 10, III 20, IV 30, V 40, VI 55, VII 65 (frontierSensors)", status: LIVE },
+  { id: "expedition:audit:frontierSensors", system: "expedition", claim: "Frontier sensors to attempt a tier: FRONTIER_SENSORS III 20, IV 30, V 40, VI 55, VII 65; Tiers I and II ask for none (frontierSensors)", status: LIVE },
   { id: "expedition:audit:hullBaseDriveClass", system: "expedition", claim: "A hull's base drive class from its tier (propulsion.ts hullBaseDriveClass): every explorer built today is Class I", status: { kind: "seam", owner: "the first tier 3 explorer hull (none is built yet)", userRef: "G2 OC-3 (user 2026-10-16): \"A combination of higher tier ships and better drive blueprints/stats/etc.\"" } },
   // Expedition Tiers G2-5: the recall and the resumable systems are built in the engine (expeditionRecall.test.ts proves
   // the 1:1 times, the closing window and the resume); G2-6's console recalls, resumes and abandons.

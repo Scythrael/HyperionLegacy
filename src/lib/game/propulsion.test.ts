@@ -214,21 +214,42 @@ describe("G2-4 the tier gates: explorer, drive class, frontier sensors (first un
     });
   });
 
-  it("frontierSensors both sides at Tier II (sensors 10): crew-inclusive sensors as the dispatch snapshot reads them", () => {
-    expect(FRONTIER_SENSORS).toEqual({ 1: 0, 2: 10, 3: 20, 4: 30, 5: 40, 6: 55, 7: 65 });
-    const two = drive(on("orion"), "classIIDriveBp");
-    const sensors = shipFrontierSensors(two, ship(two));
-    expect(sensors).toBe(effectiveShipStats(two, ship(two)).sensors);
-    // A sensor piece that takes the sheet under 10.
-    const blind = installPiece(two, { slotType: "sensor", implicitStats: { sensors: 9 - sensors } });
-    const g = expeditionTierGates(blind, ship(blind), 2);
-    expect(g.sensors).toBe(9);
+  it("frontierSensors both sides at Tier III (sensors 20): crew-inclusive sensors as the dispatch snapshot reads them", () => {
+    // Complement CP-14 fix round (user 2026-11-04 "Retire the dead gates"): Tier II's 10 is retired (every explorer's
+    // base sensors clear it), so Tiers I and II ask for none.
+    expect(FRONTIER_SENSORS).toEqual({ 1: 0, 2: 0, 3: 20, 4: 30, 5: 40, 6: 55, 7: 65 });
+    const three = drive(on("orion"), "classIIIDriveBp");
+    const sensors = shipFrontierSensors(three, ship(three));
+    expect(sensors).toBe(effectiveShipStats(three, ship(three)).sensors);
+    // A sensor piece that takes the sheet under 20.
+    const blind = installPiece(three, { slotType: "sensor", implicitStats: { sensors: 19 - sensors } });
+    const g = expeditionTierGates(blind, ship(blind), 3);
+    expect(g.sensors).toBe(19);
     expect(g.first?.reason).toBe("frontierSensors");
-    expect(expeditionGateText(g.first!)).toBe("Needs sensors 10 to chart the Orion Arm (this ship reads 9).");
-    const enough = installPiece(two, { slotType: "sensor", implicitStats: { sensors: 10 - sensors } });
-    expect(expeditionTierGates(enough, ship(enough), 2).first).toBeNull();
-    // Tier I asks for none.
-    expect(expeditionTierGates(blind, ship(blind), 1).first).toBeNull();
+    expect(expeditionGateText(g.first!)).toBe("Needs sensors 20 to chart the Perseus Arm (this ship reads 19).");
+    const enough = installPiece(three, { slotType: "sensor", implicitStats: { sensors: 20 - sensors } });
+    expect(expeditionTierGates(enough, ship(enough), 3).first).toBeNull();
+    // Tiers I and II ask for none: even a ship reading 0 passes their sensor gate.
+    const zero = installPiece(three, { slotType: "sensor", implicitStats: { sensors: -sensors } });
+    for (const tier of [1, 2] as const) {
+      const t = expeditionTierGates(zero, ship(zero), tier);
+      expect(t.sensorsNeeded, `tier ${tier}`).toBe(0);
+      expect(t.sensorsMet, `tier ${tier}`).toBe(true);
+      expect(t.first, `tier ${tier}`).toBeNull();
+    }
+  });
+
+  it("no inert frontier gate: every tier at 0 is cleared by the least explorer's own base sensors, every other refuses some bare explorer", () => {
+    // Only an explorer can attempt a tier (notExplorer refuses every other hull first), and every sensor lift multiplies
+    // by 1 or more, so a bare explorer's base sensors are the floor.
+    const explorers = (Object.keys(SHIP_TYPES) as ShipTypeKey[]).filter((k) => SHIP_TYPES[k].spec === "explorer");
+    expect(explorers.length).toBeGreaterThan(0);
+    const floor = Math.min(...explorers.map((k) => SHIP_TYPES[k].baseSensors ?? 0));
+    for (const tier of [1, 2, 3, 4, 5, 6, 7] as const) {
+      const need = FRONTIER_SENSORS[tier];
+      // A gate at or under the floor could never refuse: it must be retired (0). A live gate must sit above it.
+      if (need > 0) expect(need, `tier ${tier}`).toBeGreaterThan(floor);
+    }
   });
 
   it("every reason has a short line (the exhaustive switch) and the texts follow the rules", () => {

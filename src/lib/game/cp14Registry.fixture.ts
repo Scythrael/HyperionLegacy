@@ -7,7 +7,8 @@
 //             (ship:audit:scienceSeatFocusedCommand), all live.
 //   flipped : ship:SHIP_TYPES:sensors (pending on CP-14, no probe) is live, measured where every run reads sensors.
 //   moved   : expedition:audit:frontierSensors reads Tier III's gate (tierThreeSensorsMet): every explorer's base sensors
-//             now clear Tier II's, which its old probe (tierTwoLaunchAllowed) read.
+//             now clear Tier II's, which its old probe (tierTwoLaunchAllowed) read. The fix round (user 2026-11-04 "Retire
+//             the dead gates") retired that Tier II gate, so its claim no longer lists II 10.
 // cp14ReadBack takes the added rows out and puts the flipped and moved rows back as they stood. Apply it innermost.
 
 import { WIRING_REGISTRY, type WiringEntry } from "./wiring/registry";
@@ -32,13 +33,14 @@ export const CP14_BEFORE = {
 
 export const CP14_MOVED_PROBE_ID = "expedition:audit:frontierSensors";
 export const CP14_MOVED_PROBE_BEFORE = "tierTwoLaunchAllowed";
+export const CP14_MOVED_CLAIM_BEFORE = "Frontier sensors to attempt a tier: FRONTIER_SENSORS I 0, II 10, III 20, IV 30, V 40, VI 55, VII 65 (frontierSensors)";
 
 export function cp14ReadBack(entries: readonly WiringEntry[]): WiringEntry[] {
   return entries
     .filter((e) => !isCp14Row(e.id))
     .map((e) => {
       if (e.id === CP14_FLIPPED_ID) return { ...e, ...CP14_BEFORE, contexts: [...CP14_BEFORE.contexts], curve: { ...CP14_BEFORE.curve } } as unknown as WiringEntry;
-      if (e.id === CP14_MOVED_PROBE_ID) return { ...e, probe: CP14_MOVED_PROBE_BEFORE } as WiringEntry;
+      if (e.id === CP14_MOVED_PROBE_ID) return { ...e, probe: CP14_MOVED_PROBE_BEFORE, claim: CP14_MOVED_CLAIM_BEFORE } as WiringEntry;
       return e;
     });
 }

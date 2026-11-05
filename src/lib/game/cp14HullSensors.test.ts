@@ -213,6 +213,41 @@ describe("CP-14 determinism: the hullSensors stamp", () => {
     expect(stateHash(srChunk)).toBe(stateHash(srLive));
   });
 
+  it("one economyTick call == 997 s chunks == 1 s steps for a stamped short-range run and a stamped survey", () => {
+    const rng = () => 0.5;
+    // `discovered` is a set kept in first-seen order, and one call sees a cycle's finds in another order than 1 s steps
+    // (the emodEm4.test.ts precedent sorts it): compared sorted.
+    const hashOf = (s: GameState): string => stateHash({ ...s, discovered: [...s.discovered].sort() });
+    const stepped = (s: GameState, n: number): GameState => {
+      let out = s;
+      for (let i = 0; i < n; i++) out = economyTick(out, 1, rng);
+      return out;
+    };
+    const chunked = (s: GameState, n: number, size = 997): GameState => {
+      let out = s;
+      for (let left = n; left > 0; left -= size) out = economyTick(out, Math.min(size, left), rng);
+      return out;
+    };
+    const eir = withCp14Science(withCp14Array(resolveCrew({ ...editShip(wiringBase(), { typeKey: "eir" }), gameTimeSeconds: 6 * 3600 })));
+    const sr = dispatchCaptainOnShortRange(eir, 1, 0);
+    expect(sr.success, String(sr.reason)).toBe(true);
+    expect((sr.next.captains[0].mission as { hullSensors?: 1 }).hullSensors).toBe(1);
+    const srSteps = stepped(sr.next, 2400);
+    expect(hashOf(chunked(sr.next, 2400))).toBe(hashOf(srSteps));
+    expect(hashOf(economyTick(sr.next, 2400, rng))).toBe(hashOf(srSteps));
+
+    // An extraction claims its transit berths from a PER-CALL budget (tick.ts, 0.13.4), so a call spanning more than one
+    // of its homecomings holds it at a berth, with or without CP-14 (production and the offline catch-up both step
+    // economyTick(state, 1)). The survey's cycle is shorter than 997 s, so its chunks and its one call each stay within
+    // one homecoming (the emodEm4.test.ts precedent: 97 s chunks).
+    const r = dispatchCaptainOnMission(surveyBase("orion", true), 1, "surveyMineralAnomaly");
+    expect((r.next.captains[0].mission as { hullSensors?: 1 }).hullSensors).toBe(1);
+    const surveySteps = stepped(r.next, 1994);
+    expect(Number(surveySteps.lifetimeStats.missionsCompleted.surveyMineralAnomaly ?? 0)).toBeGreaterThan(3);
+    expect(hashOf(chunked(r.next, 1994, 97))).toBe(hashOf(surveySteps));
+    expect(hashOf(economyTick(r.next, 120, rng))).toBe(hashOf(stepped(r.next, 120)));
+  });
+
   it("the stamp survives a save round trip, and a malformed short-range stamp is refused", () => {
     const r = dispatchCaptainOnMission(surveyBase("orion", true), 1, "surveyMineralAnomaly");
     const raw = deserialize(serialize(r.next, 0, 0));

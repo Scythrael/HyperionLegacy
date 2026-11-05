@@ -5,8 +5,9 @@
 // The slice moves one thing: a ship's sensors (each hull's base sensors join the Sensor Suite's points, and the Science
 // division and Science officer multiply the sum), and a survey or short-range run dispatched now on a ship they move
 // carries the hullSensors stamp. With the switch OFF (model.ts HULL_SENSORS_SWITCH.live false, for one call or one file,
-// restored after) no hull carries base sensors, no Science lift acts and no run is stamped, so a golden computed inside
-// it is the pre-CP-14 game exactly.
+// restored after) no hull carries base sensors, no Science lift acts and no run is stamped, and the frontier gate reads
+// its pre-CP-14 table (propulsion.ts frontierSensorsNeeded: Tier II's 10, retired by the fix round), so a golden computed
+// inside it is the pre-CP-14 game exactly.
 
 import { afterAll } from "vitest";
 import { HULL_SENSORS_SWITCH } from "./model";

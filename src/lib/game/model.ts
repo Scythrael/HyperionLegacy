@@ -4474,7 +4474,7 @@ export interface ShipDerivedStats {
   // ⚠️ ADDITIVE-NEUTRAL: a bare hull, and any ship with NO sensor item fitted, folds to sensors 0 (the
   // sensor slot has no Standard-Issue baseline, so an un-sensored ship contributes nothing here), so
   // every non-survey stat + fixture is byte-identical to before this field existed. Complement CP-14 (OC-16, OC-20):
-  // the hull's base sensors join the fitted points (hullDerivedStats), and the Science division and Science officer
+  // the hull's base sensors join the installed points (hullDerivedStats), and the Science division and Science officer
   // multiply the sum (crewOverlay.ts applyScienceSensorLift). The crew overlay still maps no crew.* key onto it.
   sensors: number;
   // Crew 0.14.0 (crew goes live): a >1 multiplier that SPEEDS homeworld unload, folded on TOP of

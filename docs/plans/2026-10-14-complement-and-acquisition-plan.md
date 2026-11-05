@@ -708,6 +708,25 @@ Registry: per-hull `ship:SHIP_TYPES:<hull>:baseSensors`, `ship:SHIP_SEAMS:scienc
 (captured first) through `cp14Switch.fixture.ts withoutCp14`; 30 older golden files run with `cp14OffForThisFile()`.
 QA: docs/qa/2026-11-04-cp14-hull-sensors-qa.html.
 
+**Fix round (2026-11-04, the user's CP-14 calls plus the review's fixes; no SAVE bump; answers recorded verbatim under
+USER ANSWERS (2026-11-04): CP-14 calls):** the Science crew and Science officer lifts stay separate from every other
+crew boost (no code change; Help says so). The dead frontier gate is retired: `propulsion.ts FRONTIER_SENSORS` Tier II
+10 -> 0 ("no gate", as Tier I), because only an explorer can attempt a tier and the least explorer's own base sensors
+(Eir 15) clear it; Tiers III to VII (20, 30, 40, 55, 65) each still refuse a bare Eir and stay. `frontierSensorsNeeded`
+reads the old table only with the CP-14 test switch off, so `withoutCp14` stays the pre-CP-14 game. A tier with no gate
+shows no sensor row on the console's locked panel or candidate card (Tier I's "No sensor minimum" line went with it).
+The short-range sheet's sensors (Tier I 10, Tier II 20) stay: any hull can fly a short-range job, and the freighter and
+the prospectors carry no base sensors, so both still bind. Gates are read at dispatch and in previews only, so a run in
+flight is unaffected. The registry's frontier row lists the live gates (cp14ReadBack restores its old claim), and the
+warship `baseSensors` rows measure the sheet and the short-range run only (a warship can fly neither a survey nor an
+expedition: both now out of scope). Help: the Sensors topic says only some hulls carry sensors, that the Science lifts
+stand alone, and that an expedition freezes its sensors while a survey or short-range run keeps reading them as it flies
+(the Hull bonuses topic says the same of its bonuses). Smaller: a pure no-sensors shortcut before the Science lifts are
+read, one `officerOutputMultiplier` helper for the four officer loops, and a one call / 997 s chunks / 1 s steps parity
+case. **Patch notes (truthfulness):** a survey or short-range run already out when CP-14 lands does NOT pick up the hull's
+base sensors or the Science lifts at its next cycle; it carries no hullSensors stamp and flies as dispatched. Only runs
+dispatched after the update read them (the Determinism line above, "yields more from the next cycle", is superseded).
+
 ### CP-15: Patrol cloak and threat detection (G6 part 2) [blocked on OC-19]
 
 **Files:** `combat/bridge.ts` (the player combatant's `particleTraceDetector` from sensors, `rating / (rating + K)`
@@ -1036,3 +1055,16 @@ display: A a line per panel and a lock on each sub-tab; (9) benched list home: A
 - Stat breakdown: "Add the rows (Recommended)": Sensors and Unload speed get breakdown rows showing every source.
 - Tactician injury perk: "Yes, both paths, new runs only (Recommended)": the non-Ground-Ops injury path too, stamped at
   dispatch so runs in flight don't change.
+
+## USER ANSWERS (2026-11-04): CP-14 calls
+
+- Other crew boosts scaling the Science lifts: "Keep them separate (Recommended)". The Science crew and officer lifts
+  stand alone; Quarters lifts, Crew Effectiveness and museum crew bonuses do not scale them.
+- Bare explorers clearing Tier II to IV sensor gates: "Yes, intended (Recommended)". Drive class stays the tier pacer.
+- After the review showed a full Aurora with no Sensor Suite reaches about 59 (Tier VI, VII with Keen Sensors or
+  museum) and Tier II's gate can never fail: "Retire the dead gates (Recommended)". Drop the sensor gates that can no
+  longer bind, so no inert values; higher-tier gates stay as they are.
+- Builder flag on the pre-SF-2 ground-team stall: reviewer confirmed it is unreachable (prod/staging have no
+  expeditions; it is a latent pre-SF-2 path issue, not CP-14). No guard (hub call).
+- Plan wording: in-flight surveys keep their dispatch stamp rather than picking up new sensors "from their next
+  cycle"; note this so patch notes say it truthfully.
