@@ -7,6 +7,10 @@
   // POSTURE: pure presentation over hallOfCommandDisplay.ts (hallOfCommandRows; tested). One DOM; a container query puts
   // the cards two across from 720 px of panel width. On a phone each card is full width, its facts wrap under the name
   // and each notable keeps its day on the right of its line.
+  //
+  // ACCESSIBILITY: the Archive carries no heading levels (its panel titles are plain text), so a card's name is a styled
+  // span, not a heading out of sequence; the list and its items carry the structure. The "final" chip is read after a
+  // hidden comma ("Retirement 5 of 5, final").
 
   import type { HallOfCommandRow } from "./hallOfCommandDisplay";
 
@@ -18,12 +22,12 @@
     {#each rows as row (row.key)}
       <li class="hoc-card">
         <div class="hoc-head">
-          <h4 class="hoc-name">{row.name}</h4>
+          <span class="hoc-name">{row.name}</span>
           <span class="hoc-day">{row.retiredOn}</span>
         </div>
         <div class="hoc-facts">
           <span>{row.level}</span>
-          <span>{row.retirement}{#if row.final}<span class="hoc-final">final</span>{/if}</span>
+          <span>{row.retirement}{#if row.final}<span class="hoc-sr">, </span><span class="hoc-final">final</span>{/if}</span>
           <span>{row.missions}</span>
         </div>
         {#if row.notables.length > 0}
@@ -58,6 +62,7 @@
     }
   }
   .hoc-card {
+    position: relative; /* the hidden comma's containing block */
     min-width: 0;
     border: 1px solid var(--color-border);
     border-radius: var(--corner);
@@ -76,6 +81,7 @@
     overflow-wrap: anywhere;
     font-family: var(--font-display);
     font-size: var(--text-sm);
+    font-weight: 700;
     color: var(--color-text-primary);
   }
   .hoc-day {
@@ -91,6 +97,18 @@
     margin-top: 4px;
     font-size: var(--text-xs);
     color: var(--color-text-secondary);
+  }
+  /* Read by assistive tech, hidden on screen (the standard clip-rect idiom). */
+  .hoc-sr {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
   }
   .hoc-final {
     margin-left: 6px;

@@ -7,6 +7,8 @@
 //   mission      : a Short Ore Run flown by a level 9 captain 50 XP short of level 10, for 1000 s (six cycles): in 1 s
 //                  steps, in one call and in 997 s chunks (the three agree).
 //   patrol       : Dispatch Once on a Destroyer to its end, the captain 1 XP short of level 10.
+//   patrol:lost  : (fix round) Dispatch Once on a bare General Freighter against the Crimson Reaver Warband, lost: the
+//                  wreck limps home and the route ends in defeat.
 //   shortRange   : an Eir's first short-range run (900 s), the captain 1 XP short of level 20.
 //   evacuation   : a training Evacuation flown to its delivery and five seconds on (a refugee comes home).
 //   expedition   : an Orion's Tier I and Tier II dispatch, the run 30 days on, and its claim.
@@ -14,7 +16,7 @@
 //   save         : the stepped mission state serialized, and the same save through deserialize + migrate.
 
 import Decimal from "break_infinity.js";
-import { PATROLS, xpForNextLevel, type GameState, type PatrolKey, type ShipTypeKey, type ShortRangeMissionState } from "./model";
+import { PATROLS, xpForNextLevel, type Expedition, type GameState, type PatrolKey, type ShipTypeKey, type ShortRangeMissionState } from "./model";
 import { dispatchCaptainOnMission, dispatchCaptainOnPatrol, economyTick } from "./tick";
 import { resolveCrew } from "./crewOverlay";
 import { dispatchCaptainOnShortRange, shortRangeBoardSlots, startShortRangeCycle } from "./shortRangeBoard";
@@ -67,8 +69,28 @@ export function cp16PatrolStart(): GameState {
   must(r.success, `destroyer: ${r.reason}`);
   return r.next;
 }
-function patrolRow(): string[] {
-  let s = cp16PatrolStart();
+// Fix round (user 2026-11-06 "Count it too"): a route that is LOST (the patrol legs goldens' bare General Freighter on the
+// Crimson Reaver Warband, which loses its first wave and limps home).
+export const CP16_LOST_PATROL_KEY: PatrolKey = "crimsonReaverWarband";
+export function cp16LostPatrolStart(): GameState {
+  const base = nearLevel(asPatrolVeteran({ ...onHull("generalFreighter"), nextPatrolSeed: 1, credits: new Decimal(100_000) }), 9, 1);
+  const r = dispatchCaptainOnPatrol(base, WIRING_CAPTAIN_ID, CP16_LOST_PATROL_KEY, "balanced", false);
+  must(r.success, `freighter: ${r.reason}`);
+  return r.next;
+}
+// The seconds a patrol takes to end in 1 s steps.
+export function patrolSecondsToEnd(start: GameState): number {
+  let s = start;
+  let ticks = 0;
+  while (s.captains[0].mission !== null) {
+    s = economyTick(s, 1, RNG);
+    ticks += 1;
+    if (ticks > 6000) throw new Error("the patrol never ended");
+  }
+  return ticks;
+}
+function patrolRow(start: GameState = cp16PatrolStart()): string[] {
+  let s = start;
   let ticks = 0;
   while (s.captains[0].mission !== null) {
     s = economyTick(s, 1, RNG);
@@ -128,7 +150,7 @@ export function cp16ExpeditionDispatch(candidateId: string): GameState {
 // Tier II run (cand-2-0) completes and brings home two relics; the d18 crew's Tier I runs never finish their objectives,
 // so only their dispatch is pinned.
 export const CP16_EXPEDITION_END = 3_000_000;
-export function cp16Expedition(candidateId: string): { dispatched: GameState; claimed: GameState } {
+export function cp16Expedition(candidateId: string): { dispatched: GameState; claimed: GameState; done: Expedition } {
   const res = dispatchPastPropulsion(cp16ExpeditionBase(), "ship-1", WIRING_CAPTAIN_ID, candidateId);
   must(res.success, `orion ${candidateId}: ${res.reason}`);
   const exp = withoutRelicStagger(res.expedition!);
@@ -138,7 +160,7 @@ export function cp16Expedition(candidateId: string): { dispatched: GameState; cl
   const out = { ...res.next, gameTimeSeconds: at, expeditions: res.next.expeditions.map((e) => (e.id === done.id ? done : e)) };
   const claim = claimExpedition(out, done.id);
   must(claim.success, `${candidateId}: claim ${claim.reason}`);
-  return { dispatched: res.next, claimed: claim.next };
+  return { dispatched: res.next, claimed: claim.next, done };
 }
 
 // ===== retire =====
@@ -164,6 +186,7 @@ export function cp16Rows(through: (s: GameState) => GameState = (s) => s): Recor
   got["mission:ore:oneCall"] = row(steppedBy(ore, CP16_MISSION_SECONDS, CP16_MISSION_SECONDS));
   got["mission:ore:chunks"] = row(steppedBy(ore, CP16_MISSION_SECONDS, 997));
   got["patrol:destroyer"] = patrolRow();
+  got["patrol:lost"] = patrolRow(cp16LostPatrolStart());
   got["shortRange:eir:tierOne"] = row(steppedBy(cp16ShortRangeStart(0), 900, 1));
   const evac = cp16EvacuationStart();
   const evacDone = steppedBy(evac, cp16EvacuationSeconds(evac), 1);
@@ -178,12 +201,14 @@ export function cp16Rows(through: (s: GameState) => GameState = (s) => s): Recor
   return got;
 }
 
-// Captured on feat 9c1f93f, before the slice.
+// Captured on feat 9c1f93f, before the slice. patrol:lost was added in the fix round and captured with the slice switched
+// off (withoutCp16), which every other row proves is the pre-CP-16 game (cp16Goldens.test.ts).
 export const CP16_PINS_PRE: Record<string, unknown> = {
   "mission:ore:steps": ["cde30256", "c49d345f"],
   "mission:ore:oneCall": ["cde30256", "c49d345f"],
   "mission:ore:chunks": ["cde30256", "c49d345f"],
   "patrol:destroyer": ["won:14", "97f0d505", "abc6f91d"],
+  "patrol:lost": ["lost:20", "ed3c6e22", "cf0666eb"],
   "shortRange:eir:tierOne": ["64c679e1", "a7f0f72b"],
   "evacuation:steps": ["55ad70db", "d1eeb064", "4cfbf093"],
   "expedition:cand-0:dispatch": ["42ba7159", "602d32d8"],

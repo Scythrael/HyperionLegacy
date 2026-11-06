@@ -97,9 +97,9 @@ import { buyHomeworldTalent, describeCaptainTalentEffect, inspectBlank, installM
 // Complement CP-16: the Hall of Command rows fly one mission cycle and retire the captain.
 import { dispatchCaptainOnMission, economyTick } from "../tick";
 import { RETIRE_LEVEL_GATE, retireCaptain } from "../captainRetirement";
-import { LEVEL_MILESTONE_EVERY } from "../captainNotables";
-import { xpForNextLevel } from "../model";
-import { WIRING_CAPTAIN_ID } from "./probes";
+import { LEVEL_MILESTONE_EVERY, firstNotableLabel } from "../captainNotables";
+import { xpForNextLevel, type CaptainNotableKind } from "../model";
+import { WIRING_CAPTAIN_ID, evacuationArrival } from "./probes";
 import type { CaptainPrimaryMultKind } from "../captainPrimaryEffects";
 import { BASE_FTL_DURABILITY, BASE_REACTOR_DURABILITY, COMBAT_DEFAULT_LOADOUT, combatHullTypeOf, hullDefenseComposition } from "../combat/bridge";
 // WR-8 (0.14.0): the combat descriptors (combatRules.ts), their probes' on / off mark, and the readers they name.
@@ -1598,13 +1598,23 @@ const cp16FlyOneCycle: Transform = (s) => {
   for (let i = 0; i < 5000 && out.captains.find((c) => c.id === WIRING_CAPTAIN_ID)?.mission !== null; i++) out = economyTick(out, 1, () => 0.5);
   return out;
 };
+// The flown cycle, then an Evacuation delivered on short-range slot 0 (probes.ts evacuationArrival: someone comes home,
+// the run ends at the delivery), so the captain is home with a level milestone and a first under command.
+const cp16FlyAndRescue: Transform = (s) => {
+  const flown = cp16FlyOneCycle(s);
+  const { after } = evacuationArrival(flown);
+  return after.captains.find((c) => c.id === WIRING_CAPTAIN_ID)?.mission === null ? after : flown;
+};
+// A captain whose command already records `kind` (so the path under test records none).
+const cp16AlreadyHas = (kind: Exclude<CaptainNotableKind, "levelMilestone">): Transform => (s) =>
+  editCaptain(s, { commandNotables: [{ kind, label: firstNotableLabel(kind), atGameSeconds: 0 }] });
 function cp16HallEntries(): WiringEntry[] {
   return [
     entry({
       id: "captain:progression:missionsFlown",
       system: "captain",
       source: { catalog: "CAPTAIN_PROGRESSION", key: "missionsFlown" },
-      claim: "Missions flown: each delivered mission cycle, completed patrol route and delivered short-range cycle counts one for the captain, and their Hall of Command entry shows the total",
+      claim: "Missions flown: each delivered mission cycle, patrol route that ends (won or lost) and delivered short-range cycle counts one for the captain, and their Hall of Command entry shows the total",
       probe: "hallMissionsFlown",
       contexts: ["captain"],
       curve: { kind: "gate" },
@@ -1621,10 +1631,10 @@ function cp16HallEntries(): WiringEntry[] {
       probe: "hallNotables",
       contexts: ["captain"],
       curve: { kind: "gate" },
-      magnitude: () => 1,
+      magnitude: () => 2,
       base: cp16RetireReady,
-      on: cp16FlyOneCycle,
-      note: "the flown cycle's XP reaches level 30 (one milestone); then the retirement's entry read",
+      on: cp16FlyAndRescue,
+      note: "two notables: the flown cycle's XP reaches level 30 (a level milestone) and a delivered Evacuation brings a refugee home (a first under command); then the retirement's entry read",
     }),
     entry({
       id: "captain:progression:hallOfCommand",
@@ -1642,13 +1652,49 @@ function cp16HallEntries(): WiringEntry[] {
       id: "captain:audit:commandFirsts",
       system: "captain",
       source: { catalog: "AUDIT", key: "captain:audit:commandFirsts" },
-      claim: "Firsts under command: the captain's first expedition (and first Tier II or deeper run) at its dispatch, first relic found, and first refugee rescued, each recorded once",
+      claim: "Firsts under command at an expedition's dispatch: the captain's first expedition (and first Tier II or deeper run), recorded once",
       probe: "dispatchCommandFirsts",
       contexts: ["captain"],
       curve: { kind: "gate" },
       magnitude: () => 1,
-      off: (s) => editCaptain(s, { commandNotables: [{ kind: "firstExpedition", label: "First expedition", atGameSeconds: 0 }] }),
+      off: cp16AlreadyHas("firstExpedition"),
       note: "a Tier I dispatch records the first expedition; off: the captain already has one, so the dispatch records none",
+    }),
+    entry({
+      id: "captain:audit:commandFirstRelicClaim",
+      system: "captain",
+      source: { catalog: "AUDIT", key: "captain:audit:commandFirstRelicClaim" },
+      claim: "First relic found at an expedition's claim: a run that brings a relic into the vault records its captain's first relic found, once",
+      probe: "claimCommandFirstRelic",
+      contexts: ["captain"],
+      curve: { kind: "gate" },
+      magnitude: () => 1,
+      off: cp16AlreadyHas("firstRelic"),
+      note: "the probe run claimed with one relic among its findings; off: the captain already has a first relic, so the claim records none",
+    }),
+    entry({
+      id: "captain:audit:commandFirstRelicShortRange",
+      system: "captain",
+      source: { catalog: "AUDIT", key: "captain:audit:commandFirstRelicShortRange" },
+      claim: "First relic found on a short-range run: the delivery whose cycle found a relic records its captain's first relic found, once",
+      probe: "shortRangeCommandFirstRelic",
+      contexts: ["captain"],
+      curve: { kind: "gate" },
+      magnitude: () => 1,
+      off: cp16AlreadyHas("firstRelic"),
+      note: "the relic probe's Tier I cycle delivered with its finds; off: the captain already has a first relic, so the delivery records none",
+    }),
+    entry({
+      id: "captain:audit:commandFirstRefugee",
+      system: "captain",
+      source: { catalog: "AUDIT", key: "captain:audit:commandFirstRefugee" },
+      claim: "First refugee rescued: an Evacuation that brings someone home records the first refugee rescued of the captain flying its slot, once",
+      probe: "evacuationCommandFirstRescue",
+      contexts: ["captain"],
+      curve: { kind: "gate" },
+      magnitude: () => 1,
+      off: cp16AlreadyHas("firstRefugeeRescued"),
+      note: "an Evacuation's delivery tick on slot 0 (someone comes home); off: the captain already has a first rescue, so the arrival records none",
     }),
   ];
 }

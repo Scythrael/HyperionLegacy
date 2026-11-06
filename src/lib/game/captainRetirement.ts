@@ -104,10 +104,18 @@ export function isFinalRetirement(captain: Pick<CaptainState, "retirements">): b
   return (captain.retirements ?? 0) === MAX_CAPTAIN_RETIREMENTS - 1;
 }
 
+// The fleet-wide captain XP bonus one slot's retirements give once it has retired MAX_CAPTAIN_RETIREMENTS times, in
+// whole percent (retirementExpMultiplier: RETIREMENT_EXP_PER per retirement, summed over every captain; 25 today). Pure.
+export function lockedInRetirementXpPercent(): number {
+  return Math.round(RETIREMENT_EXP_PER * MAX_CAPTAIN_RETIREMENTS * 100);
+}
+
 // The retire confirm's warning for that last retirement (US English), true to the engine: the cap locks the captaincy
-// in, and a retirement is the only source of prestige points.
+// in, a retirement is the only source of prestige points, and retirementExpMultiplier reads each captain's retirement
+// count, so this slot's share of the fleet-wide captain XP bonus stops at its cap (it keeps that share; other slots'
+// retirements still add theirs).
 export function finalRetirementWarningText(): string {
-  return `This is this captaincy's final retirement (${MAX_CAPTAIN_RETIREMENTS} of ${MAX_CAPTAIN_RETIREMENTS}). After it the captaincy locks in: it can never retire again, so it earns no more prestige points.`;
+  return `This is this captaincy's final retirement (${MAX_CAPTAIN_RETIREMENTS} of ${MAX_CAPTAIN_RETIREMENTS}). After it the captaincy locks in: it can never retire again, so it earns no more prestige points, and its share of the fleet-wide captain XP bonus stops growing (it keeps the +${lockedInRetirementXpPercent()}% its ${MAX_CAPTAIN_RETIREMENTS} retirements give).`;
 }
 
 // Whether `captainId` may retire RIGHT NOW (retireBlockReason is null). Pure.

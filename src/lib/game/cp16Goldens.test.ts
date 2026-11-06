@@ -16,6 +16,9 @@ const CAPTURE = import.meta.env.CP16_CAPTURE as string | undefined;
 //   mission:ore:*          : the captain counts the six delivered cycles (missionsFlown 6) and reaches level 10 at
 //                            game second 50 (the 50th XP), the same in 1 s steps, one call and 997 s chunks.
 //   patrol:destroyer       : the won route is a mission flown and the first won wave's XP reaches level 10.
+//   patrol:lost            : (fix round, user 2026-11-06 "Count it too") the LOST route is a mission flown too, counted
+//                            on the tick the wreck limps home (missionsFlown 1), and its first wave, won before the
+//                            loss, reaches level 10; the ending, the wreck's damage and every other byte hold.
 //   shortRange:eir:tierOne : the delivered cycle is a mission flown and its XP reaches level 20.
 //   evacuation:steps       : the delivered Evacuation is a mission flown and its refugee is the captain's first rescue
 //                            (the refugees themselves hold).
@@ -30,6 +33,7 @@ const MOVED: Record<string, unknown> = {
   "mission:ore:oneCall": ["69db926a", "f937d153"],
   "mission:ore:chunks": ["69db926a", "f937d153"],
   "patrol:destroyer": ["won:14", "a4d32d1b", "5fc5c9db"],
+  "patrol:lost": ["lost:20", "bac0ff7a", "509155f3"],
   "shortRange:eir:tierOne": ["904b158e", "7e3029f8"],
   "evacuation:steps": ["a90ebffa", "8d917d09", "4cfbf093"],
   "expedition:cand-0:dispatch": ["8b3d0992", "718506ef"],

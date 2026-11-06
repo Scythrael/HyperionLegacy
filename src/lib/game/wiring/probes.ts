@@ -238,6 +238,7 @@ import { RETURN_SECONDS, ambushStrike, groundDeviceChance, groundOpsBayCare, gro
 import { retirementExpMultiplier, retireCaptain } from "../captainRetirement";
 // Complement CP-16: the Hall of Command and the captain's command record.
 import { captainCommandNotables, hallOfCommandOf } from "../captainNotables";
+import type { CaptainNotableKind } from "../model";
 import { transitBerthCount } from "../berths";
 import { shortRangeBoardSlots, startShortRangeCycle } from "../shortRangeBoard";
 import { newReactorLiftFlag } from "../reactorSurplus";
@@ -847,6 +848,10 @@ export const SHORT_RANGE_RELIC_PROBE_HOURS = 200;
 // SHORT_RANGE_RELIC_PROBE_HOURS, recalled so the run ends at the delivery. `flagged`: the run carries G1-5's relic flag
 // (a dispatch from G1-5 on); off, the same run as a pre-G1-5 dispatch.
 export function shortRangeRelicCycleFinds(s: GameState, tier: 1 | 2, flagged: boolean): number {
+  return (shortRangeRelicCycleRun(s, tier, flagged).relicVault ?? []).filter((t) => t.source === "shortRange").length;
+}
+// That cycle's state after its delivery (the run has ended).
+function shortRangeRelicCycleRun(s: GameState, tier: 1 | 2, flagged: boolean): GameState {
   const slot = { id: tier === 1 ? 0 : 2, tier };
   let idx = 0;
   while (rollShortRangeJob(s, slot, idx).template !== "telescopeRepair") if (++idx > 2000) throw new Error("wiring: no telescopeRepair roll");
@@ -868,7 +873,7 @@ export function shortRangeRelicCycleFinds(s: GameState, tier: 1 | 2, flagged: bo
   };
   const after = economyTick({ ...editCaptain(s, { mission } as Partial<CaptainState>), runCounts: start.runCounts }, total + 1, () => 0.5);
   if (captainOf(after).mission !== null) throw new Error("wiring: the relic probe's cycle was not delivered");
-  return (after.relicVault ?? []).filter((t) => t.source === "shortRange").length;
+  return after;
 }
 
 // The last tick of a Supply Pickup's home turnaround, then that tick (economyTick, every draw `draw`).
@@ -975,6 +980,54 @@ function dispatchCommandFirsts(s: GameState): number {
   if (!res.success) return -1;
   const firsts = (g: GameState) => captainCommandNotables(captainOf(g)).filter((n) => n.kind !== "levelMilestone").length;
   return firsts(res.next) - firsts(ready);
+}
+
+// Complement CP-16: how many notables of `kind` captain 1's command holds.
+function commandNotablesOfKind(s: GameState, kind: CaptainNotableKind): number {
+  return captainCommandNotables(captainOf(s)).filter((n) => n.kind === kind).length;
+}
+// Complement CP-16: the first relic found an expedition CLAIM records on its captain (expedition.ts claimExpedition): the
+// probe dispatch's run (dispatchRun's), complete with one relic among its findings (the first seed whose roll hits on a
+// hazard-1 Buried Vault, runRelicStudyTicks' find) and claimed. The firstRelic notables the claim adds; -1 when the
+// dispatch or the claim is refused, or the relic never reaches the vault.
+function claimCommandFirstRelic(s: GameState): number {
+  const ready = readyForRun(s);
+  const cand = expeditionCandidates(ready, WIRING_SHIP_ID)[0];
+  const res = startExpedition(ready, WIRING_SHIP_ID, WIRING_CAPTAIN_ID, cand.id, true, FIELD_KITS_RUNS_LIVE, false);
+  if (!res.success || !res.expedition) return -1;
+  const run = res.expedition;
+  for (let seed = 1; seed < 64; seed++) {
+    const relic = rollRelicToken(seed, 1, "buriedVault", `wiring-cp16-relic-${seed}`, 0, run.explorerCaptain);
+    if (!relic) continue;
+    const done: Expedition = { ...run, phase: "complete", findings: [{ id: "wiring-cp16-find", source: "activity", poiId: "buriedVault", relic }] };
+    const out: GameState = { ...res.next, expeditions: res.next.expeditions.map((e) => (e.id === done.id ? done : e)) };
+    const claim = claimExpedition(out, done.id);
+    if (!claim.success) return -1;
+    if ((claim.next.relicVault ?? []).length <= (out.relicVault ?? []).length) return -1;
+    return commandNotablesOfKind(claim.next, "firstRelic") - commandNotablesOfKind(out, "firstRelic");
+  }
+  return -1;
+}
+// Complement CP-16: the first relic found a short-range DELIVERY records on its captain (economyTick's short-range arm):
+// the relic probe's Tier I cycle (shortRangeRelicCycleFinds: a stretched Telescope Repair, flagged, its finds whole),
+// delivered. The firstRelic notables the delivery adds.
+function shortRangeCommandFirstRelic(s: GameState): number {
+  return commandNotablesOfKind(shortRangeRelicCycleRun(s, 1, true), "firstRelic") - commandNotablesOfKind(s, "firstRelic");
+}
+// Complement CP-16: the first refugee rescued an Evacuation's ARRIVAL records on the captain flying its slot (economyTick's
+// refugee pass): captain 1 on an Evacuation (onShortRangeJob), one tick before its home turnaround ends, then that tick
+// (with nobody waiting, someone always comes home: refugeeArrivalChance 1). The firstRefugeeRescued notables the arrival
+// adds; -1 when nobody arrived.
+export function evacuationArrival(s: GameState): { before: GameState; after: GameState } {
+  const on = onShortRangeJob(s, "evacuation", "unloading");
+  const m = shortRangeMissionOf(on);
+  const before = editCaptain(on, { mission: { ...m, phaseProgressTicks: m.plan.unloadTicks - 1 } } as Partial<CaptainState>);
+  return { before, after: economyTick(before, 1, () => 0.5) };
+}
+function evacuationCommandFirstRescue(s: GameState): number {
+  const { before, after } = evacuationArrival(s);
+  if ((after.refugees?.list.length ?? 0) <= (before.refugees?.list.length ?? 0)) return -1;
+  return commandNotablesOfKind(after, "firstRefugeeRescued") - commandNotablesOfKind(before, "firstRefugeeRescued");
 }
 
 // EVERYTHING a Ground Ops run reads of the ship: the candidate list it picks from (ids, systems, regions, reach) and
@@ -1938,6 +1991,9 @@ export const PROBES = {
   hallEntries: { label: "GameState.hallOfCommand entries (count)", read: (s) => hallOfCommandOf(s).length },
   // Complement CP-16: the firsts under command an expedition dispatch of ship-1 records on captain 1 (-1 when refused).
   dispatchCommandFirsts: { label: "startExpedition: the firsts under command the dispatch records on its captain (count)", read: (s) => dispatchCommandFirsts(s) },
+  claimCommandFirstRelic: { label: "claimExpedition: the first relic found the claim of a run with a relic records on its captain (count; -1 refused)", read: (s) => claimCommandFirstRelic(s) },
+  shortRangeCommandFirstRelic: { label: "economyTick (short-range delivery): the first relic found a delivered cycle's find records on its captain (count)", read: (s) => shortRangeCommandFirstRelic(s) },
+  evacuationCommandFirstRescue: { label: "economyTick (Evacuation arrival): the first refugee rescued the arrival records on the slot's captain (count; -1 nobody arrived)", read: (s) => evacuationCommandFirstRescue(s) },
   // == ship combat ==
   officerWeapons: { label: "officerCombatMods.weaponDamage", read: (s) => officerCombatMods(s, shipOf(s))?.weaponDamage ?? 0 },
   patrolCycleOneWeapons: { label: "dispatchCaptainOnPatrol: the first cycle's frozen officerCombat.weaponDamage", read: (s) => patrolCycleOneWeapons(s) },

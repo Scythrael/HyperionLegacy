@@ -161,7 +161,7 @@
   </div>
 
   <div class="legend">
-    <p><b>What counts.</b> Missions flown: every delivered mission cycle, completed patrol route and delivered short-range cycle, from this build on. Notables: every 10th level (10, 20, 30, no cap), and the ship's first expedition (at its launch), first Tier II or deeper run (an expedition or a Tier II short-range slot, at its launch), first relic found (an expedition's at its claim, a short-range run's at the delivery that found it) and first refugee rescued (the Evacuation's arrival), each once per captain. No captain rank or title exists in the game yet, so "Promotions and titles" records nothing. Days are in-game days (Day 1 is the first 24 hours of your fleet clock).</p>
+    <p><b>What counts.</b> Missions flown: every delivered mission cycle, every patrol route that ends (won or lost) and every delivered short-range cycle, from this build on. Notables: every 10th level (10, 20, 30, no cap), and the ship's first expedition (at its launch), first Tier II or deeper run (an expedition or a Tier II short-range slot, at its launch), first relic found (an expedition's at its claim, a short-range run's at the delivery that found it) and first refugee rescued (the Evacuation's arrival), each once per captain. No captain rank or title exists in the game yet, so "Promotions and titles" records nothing. Days are in-game days (Day 1 is the first 24 hours of your fleet clock).</p>
     <p><b>Where to test.</b> Staging, <b>devpreview.crystalisoft.com</b>, on the 0.14.0 build, with your own migrated save. You need a captain at level 25 or higher, idle at home, with an Executive officer seated aboard their ship (a Dev save or the Debug tab can set the level).</p>
     <p><b>The three columns.</b> <b style="color:var(--claude)">Claude</b> is pre-filled and read-only: a tick means a test proves that rule (the "how" line names the file). <b style="color:var(--desk)">1280</b> and <b style="color:var(--mob)">375</b> are yours; your ticks are saved in this browser.</p>
     <p>Tags: <span class="chip save">needs real save</span> needs your migrated save. <span class="chip device">needs device</span> touch, a real phone, or a visual call. <span class="chip theme">light + dark</span> look at it in both themes.</p>
@@ -175,12 +175,14 @@
   <div id="sections"></div>
 
   <div class="findings">
-    <h2>Builder notes (CP-16, 2026-11-06)</h2>
+    <h2>Builder notes (CP-16 and its fix round, 2026-11-06)</h2>
     <ol>
       <li><b>Counts start now.</b> Missions and notables are counted from this build on, so a captain who flew for months shows only what they did since. Retirements before this build have no Hall entry (nothing recorded them).</li>
       <li><b>The successor starts fresh.</b> The Executive officer who takes the captaincy is a new identity, so their missions and notables start at none; the outgoing captain's record moves into their Hall entry.</li>
-      <li><b>Short-range runs count as missions.</b> A delivered short-range cycle adds one mission flown, like a mission cycle or a patrol route (your call if you would rather count only gathering missions and patrols).</li>
-      <li><b>Promotions and titles: none exist.</b> Captains carry no rank or earned title in the code today (the specialization and prestige talents are chosen, not earned, and officer ranks belong to Senior Staff). When the captain identity ranks or medals land, they can join the same notables list.</li>
+      <li><b>Short-range runs count as missions</b> (your call, 2026-11-06: "Count short-range too"). A delivered short-range cycle adds one mission flown, like a mission cycle or a patrol route.</li>
+      <li><b>Lost patrol routes count too</b> (your call, 2026-11-06: "Count it too"). A lost route counts when the damaged ship has limped home. A recall adds no extra count.</li>
+      <li><b>The final-retirement warning is fuller.</b> It now also says the slot's share of the fleet-wide captain XP bonus stops growing (each retirement adds 5% for every captain; a locked-in slot keeps its 25%, and only your other slots can raise it further).</li>
+      <li><b>Promotions and titles: logged for later</b> (your call, 2026-11-06: "Log for later"). Captains carry no rank or earned title in the code today, so nothing is recorded. SUGGESTIONS.md now holds "earned captain titles" (candidates: the chosen specialization, prestige capstones) beside the captain identity entry, to join the same notables list when built.</li>
       <li><b>Where it sits.</b> The Hall of Command is its own panel at the top of the Archive tab (above the item record), shown only once your first captain has retired. Entries list newest first.</li>
     </ol>
   </div>
@@ -198,36 +200,38 @@ const SECTIONS = [
   ]},
   { n: "1", title: "The final-retirement warning", items: [
     { t: "Retire a captain who has retired <b>0 to 3</b> times: the confirm reads as before and shows <b>no</b> final-retirement callout.", c: true, tag: "save", how: "cp16HallOfCommand.test.ts (isFinalRetirement only at the slot's last retirement)." },
-    { t: "On a captain with <b>4</b> retirements, open Retire: a bordered warning callout reads <b>This is this captaincy's final retirement (5 of 5). After it the captaincy locks in: it can never retire again, so it earns no more prestige points.</b> It wraps cleanly at 375 px.", c: true, tag: "theme", how: "cp16HallOfCommand.test.ts (the text, and the engine locks the captaincy in after the 5th)." },
+    { t: "On a captain with <b>4</b> retirements, open Retire: a bordered warning callout reads <b>This is this captaincy's final retirement (5 of 5). After it the captaincy locks in: it can never retire again, so it earns no more prestige points, and its share of the fleet-wide captain XP bonus stops growing (it keeps the +25% its 5 retirements give).</b> It wraps cleanly at 375 px.", c: true, tag: "theme", how: "cp16HallOfCommand.test.ts (the text; the engine locks the captaincy in after the 5th; retirementExpMultiplier no longer grows from that slot)." },
     { t: "Confirm that 5th retirement: the Prestige tab now says the captaincy is locked in, and the Retire button stays disabled even after the successor climbs past level 25.", c: true, tag: "save", how: "cp16HallOfCommand.test.ts (retireBlockReason lockedIn after the 5th, level and XO restored)." },
   ]},
   { n: "2", title: "The Hall of Command entry", items: [
     { t: "Retire any captain: the Archive tab now opens with a <b>HALL OF COMMAND</b> panel above the item record, with one card for them: their name (the one before the successor took over), <b>Level N</b>, <b>Retirement N of 5</b>, <b>N missions</b> and the in-game <b>Day</b> they retired.", c: true, tag: "theme", how: "cp16HallOfCommand.test.ts (one entry with the outgoing captain's record, exactly once); hallOfCommandDisplay.test.ts (the card's lines)." },
     { t: "Retire a second captain (or the same slot again later): a second card appears, <b>newest first</b>; nothing else in the first card changes.", c: true, tag: "save", how: "cp16HallOfCommand.test.ts (entries accumulate in retirement order); hallOfCommandDisplay.test.ts (newest first)." },
-    { t: "The fifth retirement's card carries a small <b>final</b> tag next to Retirement 5 of 5.", c: true, how: "hallOfCommandDisplay.test.ts (final on the slot's last retirement)." },
+    { t: "The fifth retirement's card carries a small <b>final</b> tag next to Retirement 5 of 5. With a screen reader (VoiceOver or TalkBack) it reads <b>Retirement 5 of 5, final</b>, and the captain's name is read as plain text, not as a heading.", c: true, tag: "device", how: "hallOfCommandDisplay.test.ts (final on the slot's last retirement); the reading order is yours to hear." },
     { t: "The successor (the former Executive officer) starts with 0 missions and no notables of their own: their next retirement's card shows only what they did after taking command.", c: true, tag: "save", how: "cp16HallOfCommand.test.ts (the successor carries no CP-16 record)." },
     { t: "The (?) on the panel title explains what the card shows, the notables, and that counts start with this update.", tag: "theme" },
     { t: "At 375 px the cards are full width, a long name wraps instead of pushing the day off screen, and each notable keeps its day at the right. At 1280 px with two or more entries the cards sit two across.", tag: "device" },
   ]},
   { n: "3", title: "Missions flown", items: [
     { t: "Fly a captain on a gathering mission for a few cycles, then retire them: the card's missions equals the cycles they delivered since this build.", c: true, tag: "save", how: "cp16HallOfCommand.test.ts (six cycles of a Short Ore Run count six); wiring registry captain:progression:missionsFlown." },
-    { t: "A patrol's completed route and a delivered short-range cycle each count one mission too.", c: true, how: "cp16HallOfCommand.test.ts (patrol route and short-range cycle)." },
+    { t: "A patrol's won route and a delivered short-range cycle each count one mission too.", c: true, how: "cp16HallOfCommand.test.ts (patrol route and short-range cycle)." },
+    { t: "A <b>lost</b> patrol route counts one mission too, once the damaged ship has limped home (not at the moment of the loss). Recalling a patrol adds no extra count: the route it flies home on counts once.", c: true, tag: "save", how: "cp16HallOfCommand.test.ts (a lost route, counted when the wreck limps home; a recalled route; one call == 997 s chunks == 1 s steps); cp16Goldens.test.ts patrol:lost." },
     { t: "Close the game for an hour with a captain on a Repeat mission, reopen, then retire them: the count includes the offline cycles (offline and live count the same).", c: true, tag: "save", how: "cp16HallOfCommand.test.ts (offline catch-up == live 1 s steps; one call == 997 s chunks == 1 s steps)." },
   ]},
   { n: "4", title: "Notable moments", items: [
     { t: "A captain who crosses level 10, 20, 30 (and so on) while serving lists <b>Reached level N</b> with the day they reached it.", c: true, tag: "save", how: "cp16HallOfCommand.test.ts (the stamp is the second the level is reached, the same in one call, 997 s chunks and 1 s steps); wiring registry captain:progression:commandNotables." },
     { t: "Launch the captain's first expedition: their record gains <b>First expedition</b> (and, at Tier II or deeper, <b>First Tier II run</b> or the tier it was), dated at the launch. A second expedition adds nothing.", c: true, tag: "save", how: "cp16HallOfCommand.test.ts (dispatch firsts, once); wiring registry captain:audit:commandFirsts." },
-    { t: "Claim an expedition that brings relics home: <b>First relic found</b>, dated at the claim. A short-range run's relic counts at the delivery that found it.", c: true, tag: "save", how: "cp16HallOfCommand.test.ts (a Tier II claim with two relics)." },
-    { t: "An Evacuation that brings a refugee home records <b>First refugee rescued</b> for its captain, on the refugee's arrival day.", c: true, tag: "save", how: "cp16HallOfCommand.test.ts (the rescue's second is the refugee's arrivedAtSeconds)." },
+    { t: "Claim an expedition that brings relics home: <b>First relic found</b>, dated at the claim; a later claim with more relics adds nothing. A short-range run's relic counts at the delivery that found it.", c: true, tag: "save", how: "cp16HallOfCommand.test.ts (a Tier II claim with two relics, a second claim, a short-range delivery's find); wiring registry captain:audit:commandFirstRelicClaim and :commandFirstRelicShortRange." },
+    { t: "Dispatch a captain on a <b>Tier II</b> short-range slot for the first time: their record gains <b>First Tier II run</b>, dated at the dispatch.", c: true, tag: "save", how: "cp16HallOfCommand.test.ts (a Tier II short-range dispatch, once)." },
+    { t: "An Evacuation that brings a refugee home records <b>First refugee rescued</b> for its captain, on the refugee's arrival day. With two captains flying, each keeps their own record, and a captain who takes over a slot later gets their own rescue.", c: true, tag: "save", how: "cp16HallOfCommand.test.ts (the rescue's second is the refugee's arrivedAtSeconds; two captains and a slot swap between calls); wiring registry captain:audit:commandFirstRefugee." },
     { t: "Retire the captain: every notable above is listed on their card, oldest first, each with its day.", c: true, tag: "theme", how: "cp16HallOfCommand.test.ts (the entry copies the record); hallOfCommandDisplay.test.ts." },
   ]},
   { n: "5", title: "Help and wiring", items: [
-    { t: "Help, <b>Retirement and the Hall of Command</b>: the retire rules (level 25, idle, a seated Executive officer, 5 per slot), the final-retirement warning, what a card shows, what counts as a mission, the notables, and that counts start with this update. No em dashes, US English.", c: true, tag: "theme", how: "helpTopics.test.ts (the topic reads the engine's constants)." },
-    { t: "Debug, wiring audit: the Hall of Command rows (missions flown, notables, the Hall entry, firsts under command) are LIVE; the release gate pending count is unchanged at 35.", c: true, how: "RELEASE_GATE=1 no-dead-stats.test.ts and wiring.completeness.test.ts (35 pending before and after)." },
+    { t: "Help, <b>Retirement and the Hall of Command</b>: the retire rules (level 25, idle, a seated Executive officer, 5 per slot), the final-retirement warning (including that the slot's share of the fleet-wide captain XP bonus stops growing), what a card shows, what counts as a mission (a patrol route won or lost), the notables, and that counts start with this update. No em dashes, US English.", c: true, tag: "theme", how: "helpTopics.test.ts (the topic reads the engine's constants; the em dash guard is restored)." },
+    { t: "Debug, wiring audit: the Hall of Command rows (missions flown, notables, the Hall entry, and the four firsts rows: at dispatch, at an expedition claim, at a short-range delivery, at an Evacuation arrival) are LIVE; the release gate pending count is unchanged at 35.", c: true, how: "RELEASE_GATE=1 no-dead-stats.test.ts and wiring.completeness.test.ts (35 pending before and after)." },
   ]},
 ];
 
-const STORE = "hl-qa-0140-cp16-hall-of-command-v1";
+const STORE = "hl-qa-0140-cp16-hall-of-command-v2";
 let userState = {};
 try { userState = JSON.parse(localStorage.getItem(STORE) || "{}"); } catch (e) { userState = {}; }
 function save() { try { localStorage.setItem(STORE, JSON.stringify(userState)); } catch (e) {} }

@@ -5246,8 +5246,8 @@ export interface CaptainState {
   // rule. OPTIONAL, written only once a cycle has rolled (absent = 0, no SAVE_VERSION bump).
   moduleCycles?: number;
   // Complement CP-16 (the Hall of Command, OC-22): how many missions THIS captain has flown, counted from CP-16 on (one
-  // per delivered mission cycle, completed patrol route and delivered short-range cycle: captainNotables.ts
-  // addMissionsFlown, called from economyTick). Copied into the captain's Hall of Command entry at retirement, and the
+  // per delivered mission cycle, patrol route that ends, won or lost, and delivered short-range cycle:
+  // captainNotables.ts addMissionsFlown, called from economyTick). Copied into the captain's Hall of Command entry at retirement, and the
   // successor (a new identity) starts again from 0. OPTIONAL: absent = 0 (an old save, or a captain who has flown
   // nothing since CP-16), no SAVE_VERSION bump.
   missionsFlown?: number;

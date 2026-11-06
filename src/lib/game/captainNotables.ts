@@ -4,9 +4,11 @@
 // them. Pure helpers over plain data; the engine seams that call them are named at each one.
 //
 // WHAT IS RECORDED, AND WHERE:
-//   - missionsFlown (CaptainState): +1 per delivered mission cycle, completed patrol route and delivered short-range
-//     cycle (economyTick, from the same per-call counts the officers' missionsCompleted reads). A pure additive count of
-//     closed-form cycle counts, so it is chunk-independent: one call, 997 s chunks and 1 s steps add the same total.
+//   - missionsFlown (CaptainState): +1 per delivered mission cycle, patrol route that ends (won or lost; user 2026-11-06
+//     "Count it too": a record of service, not of wins) and delivered short-range cycle (economyTick: the won routes,
+//     cycles and deliveries from the same per-call counts the officers' missionsCompleted reads, plus a lost route at
+//     the call its wreck limps home on). A pure additive count of closed-form counts, so it is chunk-independent: one
+//     call, 997 s chunks and 1 s steps add the same total.
 //   - levelMilestone: the captain reaches level 10, 20, 30 and so on (every LEVEL_MILESTONE_EVERY levels). Stamped at the
 //     game second the XP that crossed the level was credited, which each XP source knows (XpSpan below): one big call
 //     stamps the same second 1 s steps do.
@@ -76,9 +78,16 @@ export function withCommandKeysLast(captain: CaptainState): CaptainState {
   const hasFlown = captain.missionsFlown !== undefined;
   const hasNotables = captain.commandNotables !== undefined;
   if (!hasFlown && !hasNotables) return captain;
-  const keys = Object.keys(captain);
-  const tail = hasFlown && hasNotables ? ["missionsFlown", "commandNotables"] : [hasFlown ? "missionsFlown" : "commandNotables"];
-  if (tail.every((k, i) => keys[keys.length - tail.length + i] === k)) return captain;
+  // The last two own keys, read in one walk without building the key array (this runs once per captain per tick; a
+  // plain data object's for...in order is its Object.keys order).
+  let last: string | undefined;
+  let beforeLast: string | undefined;
+  for (const k in captain) {
+    beforeLast = last;
+    last = k;
+  }
+  const inOrder = hasFlown && hasNotables ? beforeLast === "missionsFlown" && last === "commandNotables" : last === (hasFlown ? "missionsFlown" : "commandNotables");
+  if (inOrder) return captain;
   const { missionsFlown, commandNotables, ...rest } = captain;
   return { ...rest, ...(hasFlown ? { missionsFlown } : {}), ...(hasNotables ? { commandNotables } : {}) };
 }

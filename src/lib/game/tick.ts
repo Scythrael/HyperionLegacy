@@ -4844,8 +4844,9 @@ export function economyTick(
   const refugeeSlotCaptain = new Map<number, number>();
   const commandRecord = (c: CaptainState, missions: number, milestones: readonly { level: number; atTick: number }[] | undefined): CaptainState => {
     if (milestones) for (const n of levelMilestoneNotables(milestones, state.gameTimeSeconds, state.tickDurationSeconds)) noteForCaptain(c.id, n);
-    // Keys last every call (a counter the arm wrote for the first time this call joins after them otherwise).
-    return withCommandKeysLast(addMissionsFlown(c, missions));
+    // Keys last every call (a counter the arm wrote for the first time this call joins after them otherwise);
+    // addMissionsFlown already puts them last when it writes.
+    return missions > 0 ? addMissionsFlown(c, missions) : withCommandKeysLast(c);
   };
   // WR-5a (Assayer, captain secondary extraction4; user 2026-10-17 "Own ship only"): per item, the share of this
   // call's delivery that came from an Assayer captain's OWN mission, with its rollQuality bonus. The deposit fold
@@ -5116,8 +5117,13 @@ export function economyTick(
             shipKills.set(patrolShip.id, (shipKills.get(patrolShip.id) ?? 0) + patrolResult.enemiesDestroyed);
           }
         }
-        // Complement CP-16: each completed route is a mission flown; the won waves' XP may reach a level milestone.
-        return commandRecord(patrolResult.captain, routes, patrolResult.levelMilestones);
+        // Complement CP-16: every route that ends is a mission flown, won or lost (user 2026-11-06 "Count it too": the
+        // count is a record of service, not of wins). A won route is one `routes` counts (the whole route flown, the
+        // officers' missionsCompleted); a lost route ends when its wreck has limped home (endReason "defeat", set once,
+        // on the call the limp lands, so one call and many small calls count it alike). The won waves' XP may reach a
+        // level milestone.
+        const lostRoutes = patrolResult.endReason === "defeat" ? 1 : 0;
+        return commandRecord(patrolResult.captain, routes + lostRoutes, patrolResult.levelMilestones);
       }
       case "shortRange": {
         // G1-4 (Short-Range Missions): THE CYCLE ENGINE (shortRangeCycle.ts tickCaptainShortRange): the phases, the

@@ -3,7 +3,8 @@
 //
 // CP-16 changes the registry one way (wiring/registry.ts cp16HallEntries):
 //   added : captain:progression:missionsFlown, captain:progression:commandNotables, captain:progression:hallOfCommand
-//           and the audit row captain:audit:commandFirsts, all live.
+//           and the audit rows captain:audit:commandFirsts, :commandFirstRelicClaim, :commandFirstRelicShortRange and
+//           :commandFirstRefugee (the fix round: one per path a first is recorded on), all live.
 // cp16ReadBack takes the added rows out. Apply it innermost.
 
 import type { WiringEntry } from "./wiring/registry";
@@ -13,6 +14,9 @@ export const CP16_ADDED_IDS: ReadonlySet<string> = new Set([
   "captain:progression:commandNotables",
   "captain:progression:hallOfCommand",
   "captain:audit:commandFirsts",
+  "captain:audit:commandFirstRelicClaim",
+  "captain:audit:commandFirstRelicShortRange",
+  "captain:audit:commandFirstRefugee",
 ]);
 
 export function cp16ReadBack(entries: readonly WiringEntry[]): WiringEntry[] {
