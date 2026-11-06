@@ -235,7 +235,9 @@ import { buyFieldKits, sellItem } from "../quartermaster";
 // Field Kits FKR-7: the run plumbing (the free basic set at an objective start, the bay share).
 import { carriedExtras, fieldKitsStamp, refreshObjectiveSupplies } from "../fieldKitsRun";
 import { RETURN_SECONDS, ambushStrike, groundDeviceChance, groundOpsBayCare, groundTeamBaySeconds, visitReinforcements, type GroundTaskRef } from "../groundOps";
-import { retirementExpMultiplier } from "../captainRetirement";
+import { retirementExpMultiplier, retireCaptain } from "../captainRetirement";
+// Complement CP-16: the Hall of Command and the captain's command record.
+import { captainCommandNotables, hallOfCommandOf } from "../captainNotables";
 import { transitBerthCount } from "../berths";
 import { shortRangeBoardSlots, startShortRangeCycle } from "../shortRangeBoard";
 import { newReactorLiftFlag } from "../reactorSurplus";
@@ -955,6 +957,24 @@ export function digestOf(v: unknown): number {
 // The state a run dispatches from (ship-1 must field its away team).
 function readyForRun(s: GameState): GameState {
   return s.awayMembers.some((m) => m.assignedShipId === WIRING_SHIP_ID) ? s : withAwayTeam(s);
+}
+
+// Complement CP-16: the Hall of Command entry captain 1's retirement on `s` writes, or null when it is refused.
+function hallEntryOnRetire(s: GameState) {
+  const next = retireCaptain(s, WIRING_CAPTAIN_ID);
+  if (next === s) return null;
+  const hall = hallOfCommandOf(next);
+  return hall.length > hallOfCommandOf(s).length ? hall[hall.length - 1] : null;
+}
+// Complement CP-16: how many firsts under command an expedition dispatch of ship-1 (the probe dispatch, dispatchRun's)
+// adds to captain 1's record. -1 when the dispatch is refused.
+function dispatchCommandFirsts(s: GameState): number {
+  const ready = readyForRun(s);
+  const cand = expeditionCandidates(ready, WIRING_SHIP_ID)[0];
+  const res = startExpedition(ready, WIRING_SHIP_ID, WIRING_CAPTAIN_ID, cand.id, true, FIELD_KITS_RUNS_LIVE, false);
+  if (!res.success) return -1;
+  const firsts = (g: GameState) => captainCommandNotables(captainOf(g)).filter((n) => n.kind !== "levelMilestone").length;
+  return firsts(res.next) - firsts(ready);
 }
 
 // EVERYTHING a Ground Ops run reads of the ship: the candidate list it picks from (ids, systems, regions, reach) and
@@ -1911,6 +1931,13 @@ export const PROBES = {
   },
   // == captain progression ==
   captainXpPerTick: { label: "xpPerTick(shortOreRun) x retirementExpMultiplier", read: (s) => xpPerTick("shortOreRun", captainOf(s), s) * retirementExpMultiplier(s) },
+  // Complement CP-16: the Hall of Command entry captain 1's retirement on the state writes (-1 when it is refused), and
+  // the entries already written.
+  hallMissionsFlown: { label: "retireCaptain: the Hall of Command entry's missionsFlown", read: (s) => hallEntryOnRetire(s)?.missionsFlown ?? -1 },
+  hallNotables: { label: "retireCaptain: the Hall of Command entry's notables (count)", read: (s) => hallEntryOnRetire(s)?.notables.length ?? -1 },
+  hallEntries: { label: "GameState.hallOfCommand entries (count)", read: (s) => hallOfCommandOf(s).length },
+  // Complement CP-16: the firsts under command an expedition dispatch of ship-1 records on captain 1 (-1 when refused).
+  dispatchCommandFirsts: { label: "startExpedition: the firsts under command the dispatch records on its captain (count)", read: (s) => dispatchCommandFirsts(s) },
   // == ship combat ==
   officerWeapons: { label: "officerCombatMods.weaponDamage", read: (s) => officerCombatMods(s, shipOf(s))?.weaponDamage ?? 0 },
   patrolCycleOneWeapons: { label: "dispatchCaptainOnPatrol: the first cycle's frozen officerCombat.weaponDamage", read: (s) => patrolCycleOneWeapons(s) },

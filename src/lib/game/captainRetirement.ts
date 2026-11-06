@@ -31,6 +31,8 @@ import { freshCaptainStack } from "./model";
 import { fireOfficer } from "./seniorStaff";
 // CP-6: the one crew lock (a leaf module, no cycle).
 import { shipCrewLocked } from "./crewLock";
+// Complement CP-16: the Hall of Command entry a retirement appends (a leaf module, no cycle).
+import { HALL_OF_COMMAND_SWITCH, hallOfCommandEntryFor, hallOfCommandOf } from "./captainNotables";
 
 // The level a captain must REACH before they may retire. FIRST-PASS + TUNABLE (a captain climbs the
 // base tree meaningfully before the prestige is worthwhile).
@@ -96,6 +98,18 @@ export function retireBlockText(reason: RetireBlockReason, level: number): strin
   }
 }
 
+// Complement CP-16 (Task 29): whether the captain's NEXT retirement is the slot's last (the one that brings it to
+// MAX_CAPTAIN_RETIREMENTS, after which retireBlockReason answers lockedIn for good). Pure.
+export function isFinalRetirement(captain: Pick<CaptainState, "retirements">): boolean {
+  return (captain.retirements ?? 0) === MAX_CAPTAIN_RETIREMENTS - 1;
+}
+
+// The retire confirm's warning for that last retirement (US English), true to the engine: the cap locks the captaincy
+// in, and a retirement is the only source of prestige points.
+export function finalRetirementWarningText(): string {
+  return `This is this captaincy's final retirement (${MAX_CAPTAIN_RETIREMENTS} of ${MAX_CAPTAIN_RETIREMENTS}). After it the captaincy locks in: it can never retire again, so it earns no more prestige points.`;
+}
+
 // Whether `captainId` may retire RIGHT NOW (retireBlockReason is null). Pure.
 export function canRetireCaptain(state: GameState, captainId: number): boolean {
   return retireBlockReason(state, captainId) === null;
@@ -112,8 +126,14 @@ export function retireCaptain(state: GameState, captainId: number): GameState {
 
   const baseline = freshCaptainStack(); // the level-1 statPoints baseline a fresh captain starts with
 
+  // Complement CP-16 (OC-22): the outgoing captain's Hall of Command entry (name, level, this retirement's number, the
+  // missions they flew and their notables), stamped with the game clock. The successor is a new identity, so its
+  // missions and notables start again from none (the two optional fields are left off the successor).
+  const hallEntry = HALL_OF_COMMAND_SWITCH.live ? hallOfCommandEntryFor(captain, state.gameTimeSeconds) : null;
+  const { missionsFlown: _flown, commandNotables: _notables, ...career } = captain;
+
   const retired: CaptainState = {
-    ...captain,
+    ...(HALL_OF_COMMAND_SWITCH.live ? career : captain),
     // FULL MINI-PRESTIGE reset of the base progression.
     level: 1,
     xp: new Decimal(0),
@@ -138,6 +158,8 @@ export function retireCaptain(state: GameState, captainId: number): GameState {
   return {
     ...withoutXo,
     captains: withoutXo.captains.map((c) => (c.id === captainId ? retired : c)),
+    // Complement CP-16: appended exactly once, here (a refused retirement returned above, the same state).
+    ...(hallEntry !== null ? { hallOfCommand: [...hallOfCommandOf(state), hallEntry] } : {}),
   };
 }
 

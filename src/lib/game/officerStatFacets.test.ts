@@ -4,6 +4,11 @@
 // byte-identically to the code BEFORE Task 21 (golden hashes captured before the change).
 
 import { describe, it, expect } from "vitest";
+import { cp16OffForThisFile } from "./cp16Switch.fixture";
+// Complement CP-16 (the Hall of Command) came after every pin here: the file runs with the slice off, so its pins
+// keep proving their own slice (cp16Goldens.test.ts pins what CP-16 moved: the missions counter, the notables and
+// the Hall of Command entry).
+cp16OffForThisFile();
 // GEAR WEAR step 3: this file's pins were captured before the use wear engine; it runs with the use sources off
 // (gearWearSwitch.fixture.ts), so they keep proving nothing else moved. gearWearGoldens.test.ts pins the wear.
 import { gearWearOffInThisFile } from "./gearWearSwitch.fixture";

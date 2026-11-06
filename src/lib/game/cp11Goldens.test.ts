@@ -29,6 +29,7 @@ import { cp13OffForThisFile } from "./cp13Switch.fixture";
 cp13OffForThisFile();
 import { cp13ReadBack } from "./cp13Registry.fixture"; // Complement CP-13: its added rows read back, innermost
 import { cp14ReadBack } from "./cp14Registry.fixture"; // Complement CP-14: its added, flipped and moved rows read back, innermost
+import { cp16ReadBack } from "./cp16Registry.fixture"; // Complement CP-16: its added Hall of Command rows read back, innermost
 import { writeFileSync } from "node:fs";
 import Decimal from "break_infinity.js";
 import { BLUEPRINTS, EQUIPMENT_SLOTS, blueprintResearchable, freshState, type GameState, type ShipTypeKey } from "./model";
@@ -52,7 +53,7 @@ const CAPTURE = Boolean(import.meta.env.CP11_CAPTURE);
 const SHIP = "ship-1";
 const HULLS: readonly ShipTypeKey[] = ["aurora", "eir", "generalFreighter"];
 const shipOf = (s: GameState) => s.ships.find((x) => x.id === SHIP)!;
-const REGISTRY = cp12ReadBack(cp13ReadBack(cp14ReadBack(WIRING_REGISTRY)));
+const REGISTRY = cp12ReadBack(cp13ReadBack(cp14ReadBack(cp16ReadBack(WIRING_REGISTRY))));
 
 function registryRows(): string[] {
   return cp11ReadBack(REGISTRY).map((e) => `${e.id}|${JSON.stringify(e.status)}|${e.probe ?? ""}|${e.contexts.join(",")}|${e.claim}`);

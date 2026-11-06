@@ -14,6 +14,11 @@
 //   veteran:<key> : the same run on a save whose lifetime record already holds one delivered gathering cycle.
 
 import { describe, expect, it } from "vitest";
+import { cp16OffForThisFile } from "./cp16Switch.fixture";
+// Complement CP-16 (the Hall of Command) came after every pin here: the file runs with the slice off, so its pins
+// keep proving their own slice (cp16Goldens.test.ts pins what CP-16 moved: the missions counter, the notables and
+// the Hall of Command entry).
+cp16OffForThisFile();
 import { writeFileSync } from "node:fs";
 import Decimal from "break_infinity.js";
 import { MISSIONS, freshState, type GameState, type MissionKey } from "./model";

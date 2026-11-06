@@ -2641,6 +2641,11 @@ const MIGRATIONS: Record<number, Migration> = {
   // salvaged hull left its people pointing at it (staging and dev saves: the crew is new in 0.14.0). See
   // repairOrphanedShipRefsV69.
   68: (state: any): any => repairOrphanedShipRefsV69(state),
+  // Complement CP-16 (the Hall of Command) adds NOTHING to any step, the Task 12 to 21 rule (optional, absent = none):
+  // CaptainState.missionsFlown (absent = 0) and CaptainState.commandNotables (absent = none) ride the captain spread, and
+  // GameState.hallOfCommand (absent = no entry) rides the `...state` spread; all plain data (no Decimals). An old save
+  // loads with no Hall entries (retirements before CP-16 recorded nothing to rebuild one from) and its captains count
+  // missions and notables from the load on. No SAVE_VERSION bump.
   // v69 -> v70 (0.14.0, the shared bump; see SAVE_VERSION above for everything v70 contains).
   // 1. WR-4 (OC-C1): the retired fuel stockpile and any Fuel Depot refine batch still in flight.
   // 2. Safe first runs SF-1: the run counters, derived from the save's history (withRunCountsV70).

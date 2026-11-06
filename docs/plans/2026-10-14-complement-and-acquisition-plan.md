@@ -748,6 +748,28 @@ precedent; note in save.ts under v69). **Tests:** entry appended once; counter i
 mission parity with the counter. **UI:** CMR-10 one-liner only: the Archive subsection layout is small, **quick sketch
 in the slice report** (not a blocking mockup).
 
+**Carry note (2026-11-06, CP-16 built; two commits: goldens, then the slice; no SAVE bump, still v71):** one leaf module,
+`captainNotables.ts`, owns the record. `CaptainState.missionsFlown?` (+1 per delivered mission cycle, completed patrol
+route and delivered short-range cycle: the same per-call counts the officers' missionsCompleted reads, so a pure additive
+count, chunk-independent) and `CaptainState.commandNotables?` (`{ kind, label, atGameSeconds }`, in time order) sit LAST
+on the captain in that order (`withCommandKeysLast`, so a whole-state hash reads the same bytes however a span is cut).
+`GameState.hallOfCommand?` gets exactly one `HallOfCommandEntry` per retirement (`retireCaptain`); the successor is a new
+identity and carries neither field. Notables (user 2026-11-06): level milestones every `LEVEL_MILESTONE_EVERY` (10)
+levels, stamped at the game second the crossing XP was credited (each XP source records `XpSpan`s, the extraction and
+short-range whole ticks and the patrol's won waves, and `levelMilestoneTicks` searches them with the arm's own XP product,
+only when the fold passed a milestone); firsts: `firstExpedition` and `firstTierTwoRun` at the dispatch (expedition:
+`Expedition.captainId`; short-range: the Tier II slot's dispatched captain), `firstRelic` at an expedition's claim (a
+relic reached the vault) or a short-range delivery's whole tick, `firstRefugeeRescued` at an Evacuation arrival's whole
+tick (credited by the board slot's captain). Stamp rule: the refugee / relic find convention, call start + max(1,
+ceil(offset)) x tickDurationSeconds; one call == 997 s chunks == 1 s steps whenever the XP arithmetic is exact (integer
+XP, the existing captain XP parity condition). "Promotions and titles": none exist for captains in code, so none recorded.
+UI: the retire confirm's final-retirement callout (`isFinalRetirement`, `finalRetirementWarningText`); the Archive tab's
+HALL OF COMMAND panel above the item record (`HallOfCommandPanel.svelte`, `hallOfCommandDisplay.ts`), hidden until the
+first entry; Help topic `hallOfCommand`. Registry: `captain:progression:missionsFlown`, `:commandNotables`,
+`:hallOfCommand` and `captain:audit:commandFirsts`, all live (pending unchanged at 35). Older goldens run with
+`cp16OffForThisFile` and `cp16ReadBack`. Later: the planned notable-event ledger can feed `withCallNotables` /
+`recordCommandFirst` directly.
+
 ### CP-17: Roster dropdown on the ship personnel screen (Task 30)
 
 **Files:** `SeniorStaffPanel.svelte` (or the ship detail header shared by Senior Staff and Complement), App handler

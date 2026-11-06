@@ -131,6 +131,8 @@ import {
 // Field Kits FKR-1: the enemy ranks catalog version a new run is stamped with (enemyRanks.ts is pure, no cycle).
 import { ENEMY_RANKS_VERSION, isTrainingRun } from "./enemyRanks";
 import { newRunRelicBlanksFlag } from "./relicBlanks";
+// Complement CP-16: the firsts of a captain's command an expedition records (a leaf module).
+import { recordCommandFirst } from "./captainNotables";
 // Field Kits FKR-7: the runs switch, the flag, and the dispatch / claim plumbing (fieldKitsRun.ts never imports this).
 import { FIELD_KITS_RUNS_LIVE, fieldDeviceDial, fieldDevicesLive, fieldDevicesStamp, fieldKitsLive } from "./fieldKits";
 import { fieldKitsStamp, planDispatchPacks, returnCarriedExtras, settleDispatchPacks, withDispatchPacks } from "./fieldKitsRun";
@@ -1577,8 +1579,14 @@ export function startExpedition(
   // G2-5: the held system leaves the console (an ordinary candidate launched, or a resumed system flown again).
   const heldLeft = held ? (state.heldSystems ?? []).filter((h) => h.id !== held.id) : undefined;
 
+  // Complement CP-16: the dispatch is the captain's first expedition, and (Tier II or deeper) their first Tier II+ run,
+  // when their command has none yet (recorded at this instant; the run carries its captain, Expedition.captainId).
+  const noted = (s: GameState): GameState => {
+    const first = recordCommandFirst(s, captainId, "firstExpedition", state.gameTimeSeconds);
+    return cand.tier >= 2 ? recordCommandFirst(first, captainId, "firstTierTwoRun", state.gameTimeSeconds, cand.tier) : first;
+  };
   return {
-    next: {
+    next: noted({
       ...packed,
       expeditions: [...state.expeditions, expedition],
       nextExpeditionId: number + 1,
@@ -1593,7 +1601,7 @@ export function startExpedition(
       ...(blind ? { blindLaunches: blindLaunchCount(state) + 1 } : {}),
       ...(wolf359List !== undefined ? { wolf359List } : {}),
       ...(heldLeft !== undefined ? { heldSystems: heldLeft } : {}),
-    },
+    }),
     success: true,
     expedition,
   };
@@ -2970,8 +2978,12 @@ export function claimExpedition(state: GameState, expeditionId: string): Expedit
   // Safe first runs SF-1: the run counters (runDifficulty.ts countClaimedExpedition): a completed run counts on the curve,
   // the training run marks training done instead, a recalled run changes nothing. Read from the PRE-claim state, so a
   // save without stored counters derives them with this run still out.
+  // Complement CP-16: a relic this run brought into the vault is its captain's first relic found, at the claim, when their
+  // command has none yet (the run carries its captain; a relic token that maps to no set never reaches the vault).
+  const relicHome = (deposited.relicVault ?? []).length > (removed.relicVault ?? []).length;
+  const noted = relicHome ? recordCommandFirst(repaired, exp.captainId, "firstRelic", state.gameTimeSeconds) : repaired;
   const next = {
-    ...repaired,
+    ...noted,
     // WR-5c: x the run's frozen Drillmaster (Expedition.explorerCaptain), exactly 1 without it.
     officers: foldOfficerPromotionCounters(repaired.officers, expeditionPromotionIncrements(exp), () => exp.explorerCaptain?.promotionMult ?? 1),
     runCounts: countClaimedExpedition(runCountsOf(state), exp),

@@ -813,7 +813,7 @@ describe("HELP_TOPICS", () => {
     it("says match, never fit, and has no em dash or double hyphen", () => {
       for (const id of ["refugees", "shortRange", "homeworld"]) {
         expect(/\b(fit|fits|fitting|fitted)\b/i.test(topic(id).body), id).toBe(false);
-        expect(/—|–|-{2}/.test(topic(id).body), id).toBe(false);
+        expect(/2014|–|-{2}/.test(topic(id).body), id).toBe(false);
       }
       expect(b()).toContain("a match counts");
     });
@@ -825,7 +825,7 @@ describe("HELP_TOPICS", () => {
     for (const t of HELP_TOPICS) {
       for (const text of [t.title, t.body]) {
         expect(/\btasks?\b/i.test(text), `"task" wording in: ${t.id}`).toBe(false);
-        expect(/—|–|-{2}/.test(text), `em/en dash or double hyphen in: ${t.id}`).toBe(false);
+        expect(/2014|–|-{2}/.test(text), `em/en dash or double hyphen in: ${t.id}`).toBe(false);
         expect(/\b(fit|fits|fitting|fitted|fitment|refit|unfit)\b/i.test(text), `fit wording in: ${t.id}`).toBe(false);
         expect(/\bDBDs?\b|First Cause|going to die|Intact Data Core/i.test(text), `forbidden lore line in: ${t.id}`).toBe(false);
         expect(/\bcolour|armour|favour|honour|centre|defence|licence\b/i.test(text), `British spelling in: ${t.id}`).toBe(false);
@@ -882,5 +882,23 @@ describe("HELP_TOPICS", () => {
     for (const t of HELP_TOPICS) {
       expect(stale.test(t.body), `stale claim in: ${t.id}`).toBe(false);
     }
+  });
+});
+
+// 0.14.0 Complement CP-16: the retirement and Hall of Command topic, from the engine's constants.
+describe("HELP_TOPICS: retirement and the Hall of Command (CP-16)", () => {
+  it("names the retire rules, the final warning, the Hall's lines and the notables, true to the engine", async () => {
+    const { MAX_CAPTAIN_RETIREMENTS, RETIRE_LEVEL_GATE } = await import("./game/captainRetirement");
+    const { LEVEL_MILESTONE_EVERY } = await import("./game/captainNotables");
+    const t = HELP_TOPICS.find((x) => x.id === "hallOfCommand");
+    expect(t).toBeDefined();
+    const b = t!.body;
+    expect(b).toContain(`level ${RETIRE_LEVEL_GATE} or higher`);
+    expect(b).toContain(`retire ${MAX_CAPTAIN_RETIREMENTS} times`);
+    expect(b).toContain(`(${MAX_CAPTAIN_RETIREMENTS} of ${MAX_CAPTAIN_RETIREMENTS})`);
+    expect(b).toContain(`every ${LEVEL_MILESTONE_EVERY}th level`);
+    for (const first of ["first expedition", "first relic found", "first Tier II or deeper run", "first refugee rescued"]) expect(b).toContain(first);
+    expect(b).toMatch(/patrol route and short-range cycle/);
+    expect(b).not.toMatch(/\u2014|-{2}|\bfit/);
   });
 });

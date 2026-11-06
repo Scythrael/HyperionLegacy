@@ -60,8 +60,14 @@
 // withRefugeeBuffsOff), where they read the unstaffed values, which are golden 3's own pins.
 
 import { describe, expect, it } from "vitest";
+import { cp16OffForThisFile } from "./cp16Switch.fixture";
+// Complement CP-16 (the Hall of Command) came after every pin here: the file runs with the slice off, so its pins
+// keep proving their own slice (cp16Goldens.test.ts pins what CP-16 moved: the missions counter, the notables and
+// the Hall of Command entry).
+cp16OffForThisFile();
 import { cp13ReadBack } from "./cp13Registry.fixture"; // Complement CP-13: its added rows read back, innermost
 import { cp14ReadBack } from "./cp14Registry.fixture"; // Complement CP-14: its added, flipped and moved rows read back, innermost
+import { cp16ReadBack } from "./cp16Registry.fixture"; // Complement CP-16: its added Hall of Command rows read back, innermost
 import { writeFileSync } from "node:fs";
 import Decimal from "break_infinity.js";
 import { BLUEPRINTS, FACILITIES, REFINE_RECIPES, SHIP_TYPES, freshState, type EquipmentRarity, type GameState, type ShipTypeKey, type ShortRangeMissionState } from "./model";
@@ -543,7 +549,7 @@ describe("E5-0 golden 4: the wiring registry's ids and statuses", () => {
     // Complement CP-11's rows (cp11Registry.fixture.ts) came after and are held apart the same way.
     const added = new Set([...E5_ADDED_ENTRY_IDS, ...CP11_ADDED_ENTRY_IDS]);
     // Complement CP-12's flip of the obtainable row came after too (cp12ReadBack puts it back).
-    const lines = cp12ReadBack(cp13ReadBack(cp14ReadBack(WIRING_REGISTRY))).filter((e) => !added.has(e.id)).map((e) => `${e.id}|${e.status.kind}`);
+    const lines = cp12ReadBack(cp13ReadBack(cp14ReadBack(cp16ReadBack(WIRING_REGISTRY)))).filter((e) => !added.has(e.id)).map((e) => `${e.id}|${e.status.kind}`);
     pin("registry", [lines.length, hash(lines)]);
   });
 });

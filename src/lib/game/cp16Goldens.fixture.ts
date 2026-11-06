@@ -37,8 +37,10 @@ export function nearLevel(s: GameState, level: number, short: number): GameState
   return editCaptain(s, { level, xp: new Decimal(xpForNextLevel(level) - short) });
 }
 
-// A whole state and its captains.
-function row(s: GameState): string[] {
+// A whole state and its captains, read through the rows' view (cp16Rows: as it is, or with the CP-16 records taken off).
+let view: (s: GameState) => GameState = (s) => s;
+function row(raw: GameState): string[] {
+  const s = view(raw);
   return [stateHash(s), hash(s.captains)];
 }
 
@@ -147,12 +149,14 @@ export function cp16RetireReady(retirements: number): GameState {
 
 // ===== save =====
 function saveRows(s: GameState): string[] {
-  const raw = serialize(s, 0, 0);
+  const raw = serialize(view(s), 0, 0);
   const loaded = deserialize(raw);
   return [hash(raw), hash(loaded === null ? null : serialize(migrate(loaded), 0, 0))];
 }
 
-export function cp16Rows(): Record<string, unknown> {
+// Every row, each state read through `through` (default: as it is).
+export function cp16Rows(through: (s: GameState) => GameState = (s) => s): Record<string, unknown> {
+  view = through;
   const got: Record<string, unknown> = {};
   const ore = cp16MissionStart();
   const stepped = steppedBy(ore, CP16_MISSION_SECONDS, 1);

@@ -43,6 +43,8 @@ import { equippedFor } from "./equipmentQueries";
 import { pilotCunningStamp, pilotCutShortRangePlan } from "./officerStats";
 // E5-4 (the Dispatcher): Mission Control's refugee buff on each phase of the plan, frozen at the cycle start.
 import { cleanRefugeeCarry, refugeeShortRangePlan } from "./refugeeBuffs";
+// Complement CP-16: the firsts of a captain's command (a leaf module).
+import { withCommandFirst } from "./captainNotables";
 
 // ===== the board =====
 
@@ -308,7 +310,9 @@ export function dispatchCaptainOnShortRange(state: GameState, captainId: number,
     ...(start.refugeeCarry !== undefined ? { refugeeCarry: start.refugeeCarry } : {}),
   };
   const captains = [...state.captains];
-  captains[idx] = { ...captains[idx], mission, lastStopReason: undefined };
+  // Complement CP-16: a Tier II slot's dispatch is this captain's first Tier II+ run, when their command has none yet.
+  const flown = { ...captains[idx], mission, lastStopReason: undefined };
+  captains[idx] = slot.tier >= 2 ? withCommandFirst(flown, "firstTierTwoRun", state.gameTimeSeconds, slot.tier) : flown;
   return { next: { ...state, captains, runCounts: start.runCounts }, success: true };
 }
 
