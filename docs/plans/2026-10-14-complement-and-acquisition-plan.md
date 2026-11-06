@@ -748,6 +748,48 @@ precedent; note in save.ts under v69). **Tests:** entry appended once; counter i
 mission parity with the counter. **UI:** CMR-10 one-liner only: the Archive subsection layout is small, **quick sketch
 in the slice report** (not a blocking mockup).
 
+**Carry note (2026-11-06, CP-16 built; two commits: goldens, then the slice; no SAVE bump, still v71):** one leaf module,
+`captainNotables.ts`, owns the record. `CaptainState.missionsFlown?` (+1 per delivered mission cycle, completed patrol
+route and delivered short-range cycle: the same per-call counts the officers' missionsCompleted reads, so a pure additive
+count, chunk-independent) and `CaptainState.commandNotables?` (`{ kind, label, atGameSeconds }`, in time order) sit LAST
+on the captain in that order (`withCommandKeysLast`, so a whole-state hash reads the same bytes however a span is cut).
+`GameState.hallOfCommand?` gets exactly one `HallOfCommandEntry` per retirement (`retireCaptain`); the successor is a new
+identity and carries neither field. Notables (user 2026-11-06): level milestones every `LEVEL_MILESTONE_EVERY` (10)
+levels, stamped at the game second the crossing XP was credited (each XP source records `XpSpan`s, the extraction and
+short-range whole ticks and the patrol's won waves, and `levelMilestoneTicks` searches them with the arm's own XP product,
+only when the fold passed a milestone); firsts: `firstExpedition` and `firstTierTwoRun` at the dispatch (expedition:
+`Expedition.captainId`; short-range: the Tier II slot's dispatched captain), `firstRelic` at an expedition's claim (a
+relic reached the vault) or a short-range delivery's whole tick, `firstRefugeeRescued` at an Evacuation arrival's whole
+tick (credited by the board slot's captain). Stamp rule: the refugee / relic find convention, call start + max(1,
+ceil(offset)) x tickDurationSeconds; one call == 997 s chunks == 1 s steps whenever the XP arithmetic is exact (integer
+XP, the existing captain XP parity condition). "Promotions and titles": none exist for captains in code, so none recorded.
+UI: the retire confirm's final-retirement callout (`isFinalRetirement`, `finalRetirementWarningText`); the Archive tab's
+HALL OF COMMAND panel above the item record (`HallOfCommandPanel.svelte`, `hallOfCommandDisplay.ts`), hidden until the
+first entry; Help topic `hallOfCommand`. Registry: `captain:progression:missionsFlown`, `:commandNotables`,
+`:hallOfCommand` and `captain:audit:commandFirsts`, all live (pending unchanged at 35). Older goldens run with
+`cp16OffForThisFile` and `cp16ReadBack`. Later: the planned notable-event ledger can feed `withCallNotables` /
+`recordCommandFirst` directly.
+
+**Fix round (2026-11-06, the user's CP-16 calls plus the review's fixes; no SAVE bump, still v71; answers recorded
+verbatim under USER ANSWERS (2026-11-06): CP-16 calls):** placement, short-range counting, dispatch dating and the fresh
+successor stand as built. Lost patrol routes now count: `missionsFlown` adds every patrol route that ends, won or lost
+(a won route is the `routes` the officers' missionsCompleted reads, a lost one is counted on the call its wreck limps
+home, `endReason` "defeat", so one call == 997 s chunks == 1 s steps); a recall adds no count of its own (a recalled
+route that flies home is booked as completed by the engine, as before, and counts once). Golden `patrol:lost` added
+(pre pin captured with the slice switched off; the moved pin is the route counted and its won first wave's level 10).
+The final-retirement warning and the Help topic now also say the slot's share of the fleet-wide captain XP bonus stops
+growing (`retirementExpMultiplier` sums each captain's retirements, so a locked-in slot keeps its +25% and only other
+slots raise it; `lockedInRetirementXpPercent`). Registry: the `captain:audit:commandFirsts` claim is narrowed to the
+dispatch it probes, and three live audit rows measure the other paths (`:commandFirstRelicClaim` through
+`claimExpedition`, `:commandFirstRelicShortRange` through a delivered short-range cycle's find, `:commandFirstRefugee`
+through an Evacuation's arrival); `captain:progression:commandNotables` now measures a level milestone and a first
+(pending unchanged at 35). The Help em dash guard (`helpTopics.test.ts`) is restored to the real U+2014 character.
+Hall panel: a hidden comma before the "final" chip, and each card's name is a styled span (the Archive has no heading
+levels). Tests: the short-range first relic, a Tier II short-range dispatch, two captains with a slot swap between
+calls, a time skip and fractional progress, a real second claim, and whole-state chunk parity (two older orderings,
+`discovered` and the lifetime tally maps' key order, read as sets: they predate CP-16). Captain titles: logged in
+SUGGESTIONS.md (CAPTAIN IDENTITY, earned captain titles); nothing is recorded today.
+
 ### CP-17: Roster dropdown on the ship personnel screen (Task 30)
 
 **Files:** `SeniorStaffPanel.svelte` (or the ship detail header shared by Senior Staff and Complement), App handler
@@ -1072,3 +1114,14 @@ display: A a line per panel and a lock on each sub-tab; (9) benched list home: A
   expeditions; it is a latent pre-SF-2 path issue, not CP-14). No guard (hub call).
 - Plan wording: in-flight surveys keep their dispatch stamp rather than picking up new sensors "from their next
   cycle"; note this so patch notes say it truthfully.
+
+## USER ANSWERS (2026-11-06): CP-16 calls
+
+- Hall placement: "Top of the Archive (Recommended)", as built.
+- Missions flown includes short-range: "Count short-range too (Recommended)".
+- Firsts are dated at dispatch: "Date at launch (Recommended)". A recalled run still counts.
+- Successor: "Fresh record (Recommended)". The successor starts at zero missions with no notables.
+- Lost patrol routes: "Count it too (Recommended)". They flew it; the count is a record of service, not of wins.
+- Captain titles: "Log for later (Recommended)". Logged in SUGGESTIONS.md beside the CAPTAIN IDENTITY and personnel
+  achievements entries: earned captain titles (candidates: the chosen specialization, prestige capstones), to plug into
+  the Hall's "Promotions and titles" notable kind when built. Nothing is recorded today.

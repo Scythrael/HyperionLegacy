@@ -531,6 +531,19 @@ import {
   withRefugeeSpeed,
 } from "./refugeeBuffs";
 import { isWellFormedShortRangeBoard } from "./shortRangeBoard";
+// Complement CP-16: the missions counter and the notables of a captain's command (a leaf module, no cycle).
+import {
+  addMissionsFlown,
+  crossesLevelMilestone,
+  firstNotableLabel,
+  levelMilestoneNotables,
+  levelMilestoneTicks,
+  notableSecond,
+  withCallNotables,
+  withCommandKeysLast,
+  type XpSpan,
+} from "./captainNotables";
+import type { CaptainNotable } from "./model";
 
 // Must stay in sync with MissionPhase and requiredTicksForPhase's switch --
 // there's no compiler link between this array and the union type, so a 6th
@@ -2299,6 +2312,9 @@ export function tickCaptainMission(
   // GEAR WEAR step 3: the instant (ticks into this call) each completed cycle delivered, in order. Absent on the
   // early-outs (nothing delivered).
   cycleEndTicks?: number[];
+  // Complement CP-16: the level milestones (10, 20, ...) this call's XP crossed, each with the call's whole tick its
+  // crossing XP was credited on (captainNotables.ts levelMilestoneTicks). Absent when none was crossed.
+  levelMilestones?: { level: number; atTick: number }[];
 } {
   if (!captain.mission || ticksElapsed <= 0) {
     return {
@@ -2393,6 +2409,8 @@ export function tickCaptainMission(
   // recall) simply stops contributing once the loop exits, ticks never
   // advanced are never counted, matching a tick-by-tick stepping exactly.
   let wholeTicksElapsed = 0;
+  // Complement CP-16: where those whole ticks land in the call (captainNotables.ts XpSpan), for the level milestones.
+  const xpSpans: XpSpan[] = [];
   // The per-tick XP RATE for this mission, resolved ONCE (call-constant): the
   // missionKey is fixed for the whole call (auto-repeat reuses the same key),
   // and xpPerTick ignores level/state today, so pulling it out of the loop is
@@ -2673,8 +2691,18 @@ export function tickCaptainMission(
     // extra floors per iteration are negligible, readability/isolation over a
     // micro-consolidation. That deferred consolidation is logged in
     // SUGGESTIONS.md ("Consolidate the whole-tick floor-boundary device...").
-    wholeTicksElapsed +=
-      Math.floor(mission.phaseProgressTicks + ticksToApply) - Math.floor(mission.phaseProgressTicks);
+    const wholesThisStep = Math.floor(mission.phaseProgressTicks + ticksToApply) - Math.floor(mission.phaseProgressTicks);
+    wholeTicksElapsed += wholesThisStep;
+    // Complement CP-16: where this step's whole ticks land in the call (the first at the next whole boundary of the
+    // phase's progress; a time skip lands them all at once), for the level milestone stamps. Plain bookkeeping.
+    if (wholesThisStep > 0) {
+      const stepStart = ticksElapsed - remaining;
+      xpSpans.push(
+        skipping
+          ? { at: stepStart, wholes: wholesThisStep, units: 1, spacing: 0 }
+          : { at: stepStart + (Math.floor(mission.phaseProgressTicks) + 1 - mission.phaseProgressTicks), wholes: wholesThisStep, units: 1, spacing: 1 },
+      );
+    }
 
     if (mission.phase === "extracting") {
       // Roll loot once per WHOLE tick boundary crossed during this step --
@@ -3022,6 +3050,9 @@ export function tickCaptainMission(
   // retirements); a nonzero-retirement fractional multiplier needs its own parity re-derivation/test,
   // same as a fractional xpRate would.
   const captainXpAwardedThisCall = new Decimal(xpRate).times(wholeTicksElapsed).times(captainXpMult);
+  // Complement CP-16: the xp and level before this award, for the level milestone search below.
+  const xpBefore = xp;
+  const levelBefore = level;
   xp = xp.plus(captainXpAwardedThisCall);
   // Captain level-ups via the shared fold helper (was an inline subtract-and-carry
   // loop). Captain XP awards ONE stat point per level, so statPoints climbs by the
@@ -3030,6 +3061,11 @@ export function tickCaptainMission(
   xp = captainLevelUps.xp;
   level = captainLevelUps.level;
   statPoints += captainLevelUps.levelUps;
+  // Complement CP-16: the level milestones this award crossed, located by the SAME product at each whole tick (so a
+  // milestone is stamped on the tick 1 s steps reach it on). Searched only when the fold passed one.
+  const levelMilestones = crossesLevelMilestone(levelBefore, level)
+    ? levelMilestoneTicks(levelBefore, xpSpans, (k) => foldXpLevelUps(xpBefore.plus(new Decimal(xpRate).times(k).times(captainXpMult)), levelBefore, xpForNextLevel).level)
+    : [];
 
   // Task 5: award Fleet Admiral XP ONCE per call, for the total whole ticks the
   // mission advanced above, the SAME wholeTicksElapsed counter captain XP uses
@@ -3110,6 +3146,8 @@ export function tickCaptainMission(
     berthsClaimed,
     // GEAR WEAR step 3: each delivered cycle's instant, ticks into this call.
     cycleEndTicks,
+    // Complement CP-16: only when a milestone was crossed.
+    ...(levelMilestones.length > 0 ? { levelMilestones } : {}),
   };
 }
 
@@ -3382,6 +3420,8 @@ interface PatrolTickResult {
   // wear engine, and (user "Count on the run") the pauses of the run that ended this call, for its one log entry.
   repairWindows: RepairWindow[];
   endRepairPauses: number;
+  // Complement CP-16: the level milestones this call's won waves crossed, each with its whole tick (absent when none).
+  levelMilestones?: { level: number; atTick: number }[];
 }
 
 // tickCaptainPatrol: advance ONE captain's patrol by `ticksElapsed` route ticks. PURE
@@ -3592,6 +3632,7 @@ export function tickCaptainPatrol(
   let creditsAwarded = 0;        // summed credit bounty
   let fleetAdminXpAwarded = 0;   // summed Fleet Admiral XP (rides the existing FA track)
   let captainXpAwarded = 0;      // summed captain XP (folded onto the captain at the end of this call)
+  const xpSpans: XpSpan[] = [];  // CP-16: each won wave's XP and its instant (captainNotables.ts levelMilestoneTicks)
   // Count of full routes WON this call (a patrol "mission completed"). Like extraction's
   // cyclesCompleted: a single offline call can complete MANY routes (repeat-dispatch relaunch),
   // so this counts each one and feeds the missionsCompleted lifetime tally below.
@@ -3891,6 +3932,8 @@ export function tickCaptainPatrol(
         creditsAwarded += boosted(loot.credits);
         fleetAdminXpAwarded += loot.fleetAdminXp;
         captainXpAwarded += loot.captainXp;
+        // Complement CP-16: this won wave's XP lands at its instant in the call (the level milestone stamps).
+        if (loot.captainXp > 0) xpSpans.push({ at: offsetNow(), wholes: 1, units: loot.captainXp, spacing: 0 });
         // CONTINUE: the patrol proceeds (later waves and/or transitBack still ahead).
       } else if (patrolWaveBreaksOff(mission)) {
         // Safe first runs SF-4, THE BACKSTOP (the training cycle only; OC-1 "Finish 100%, no setbacks"): the wave
@@ -4217,6 +4260,9 @@ export function tickCaptainPatrol(
   // `captainXpAwarded * 1 === captainXpAwarded` for the plain number, so the total is value-identical
   // and the guard below (raw > 0, and the multiplier is always >= 1) is unaffected.
   const awardedXp = captainXpAwarded * captainXpMult;
+  // Complement CP-16: the xp and level before the award, for the level milestone search below.
+  const patrolXp0 = xp;
+  const patrolLevel0 = level;
   if (captainXpAwarded > 0) {
     xp = xp.plus(awardedXp);
     const captainLevelUps = foldXpLevelUps(xp, level, xpForNextLevel);
@@ -4224,6 +4270,11 @@ export function tickCaptainPatrol(
     level = captainLevelUps.level;
     statPoints += captainLevelUps.levelUps;
   }
+  // Complement CP-16: the level milestones the summed award crossed, located by the SAME product on each wave's running
+  // sum (the waves' instants are this call's own, so a big call stamps the tick 1 s steps reach it on).
+  const levelMilestones = crossesLevelMilestone(patrolLevel0, level)
+    ? levelMilestoneTicks(patrolLevel0, xpSpans, (u) => foldXpLevelUps(patrolXp0.plus(u * captainXpMult), patrolLevel0, xpForNextLevel).level)
+    : [];
 
   // Combat 0.13.0 (Phase 10): this call's LIFETIME-STATS contribution, built from the SAME
   // won-wave accumulators as the deltas above so patrol rewards count toward lifetime totals
@@ -4285,6 +4336,8 @@ export function tickCaptainPatrol(
     endedAtTicks,
     repairWindows: pauseWindows,
     endRepairPauses: endReason === null ? 0 : pausesThisRun,
+    // Complement CP-16: only when a milestone was crossed.
+    ...(levelMilestones.length > 0 ? { levelMilestones } : {}),
   };
 }
 
@@ -4778,6 +4831,23 @@ export function economyTick(
   // assigned to each such ship. Closed-form (a pure additive count) and per-tick safe (it changes no
   // stat mid-span; promotion is a discrete player action, never auto-applied here).
   const shipMissionCompletions = new Map<string, number>();
+  // Complement CP-16 (the Hall of Command): each captain's missions flown are added in the map (a pure additive count of
+  // the same cycle counts shipMissionCompletions reads, so chunk-independent), and the notables its command reached this
+  // call are collected here, each stamped with its game second (captainNotables.ts notableSecond), then applied in time
+  // order after the refugee pass (so one big call appends them in the order 1 s steps do).
+  const callNotables = new Map<number, CaptainNotable[]>();
+  const noteForCaptain = (captainId: number, notable: CaptainNotable): void => {
+    const held = callNotables.get(captainId);
+    if (held) held.push(notable);
+    else callNotables.set(captainId, [notable]);
+  };
+  const refugeeSlotCaptain = new Map<number, number>();
+  const commandRecord = (c: CaptainState, missions: number, milestones: readonly { level: number; atTick: number }[] | undefined): CaptainState => {
+    if (milestones) for (const n of levelMilestoneNotables(milestones, state.gameTimeSeconds, state.tickDurationSeconds)) noteForCaptain(c.id, n);
+    // Keys last every call (a counter the arm wrote for the first time this call joins after them otherwise);
+    // addMissionsFlown already puts them last when it writes.
+    return missions > 0 ? addMissionsFlown(c, missions) : withCommandKeysLast(c);
+  };
   // WR-5a (Assayer, captain secondary extraction4; user 2026-10-17 "Own ship only"): per item, the share of this
   // call's delivery that came from an Assayer captain's OWN mission, with its rollQuality bonus. The deposit fold
   // below grades that share with the bonus and the rest without it, both off the SAME recorded draws (rollQuality is
@@ -5035,11 +5105,11 @@ export function economyTick(
         // Crew 0.14.0 ("CREW GOES LIVE"): record this patrol's completed ROUTES against its ship so the
         // officers aboard get missionsCompleted credit (promotion gates). routesCompleted lives in the
         // patrol's lifetimeStatsDelta.missionsCompleted, keyed by patrolKey; sum its (single) value.
+        const routes = Object.values(patrolResult.lifetimeStatsDelta.missionsCompleted).reduce(
+          (sum, d) => sum + d.toNumber(),
+          0,
+        );
         if (patrolShip) {
-          const routes = Object.values(patrolResult.lifetimeStatsDelta.missionsCompleted).reduce(
-            (sum, d) => sum + d.toNumber(),
-            0,
-          );
           if (routes > 0) {
             shipMissionCompletions.set(patrolShip.id, (shipMissionCompletions.get(patrolShip.id) ?? 0) + routes);
           }
@@ -5047,7 +5117,13 @@ export function economyTick(
             shipKills.set(patrolShip.id, (shipKills.get(patrolShip.id) ?? 0) + patrolResult.enemiesDestroyed);
           }
         }
-        return patrolResult.captain;
+        // Complement CP-16: every route that ends is a mission flown, won or lost (user 2026-11-06 "Count it too": the
+        // count is a record of service, not of wins). A won route is one `routes` counts (the whole route flown, the
+        // officers' missionsCompleted); a lost route ends when its wreck has limped home (endReason "defeat", set once,
+        // on the call the limp lands, so one call and many small calls count it alike). The won waves' XP may reach a
+        // level milestone.
+        const lostRoutes = patrolResult.endReason === "defeat" ? 1 : 0;
+        return commandRecord(patrolResult.captain, routes + lostRoutes, patrolResult.levelMilestones);
       }
       case "shortRange": {
         // G1-4 (Short-Range Missions): THE CYCLE ENGINE (shortRangeCycle.ts tickCaptainShortRange): the phases, the
@@ -5111,11 +5187,24 @@ export function economyTick(
         }
         // Captain XP per active tick x the retirement multiplier, resolved through the shared level-up fold.
         const srXp = new Decimal(sr.captainXpAwarded).times(captainXpMult);
+        // Complement CP-16: the xp and level before the award, for the level milestone search below.
+        const srXp0 = sr.captain.xp;
+        const srLevel0 = sr.captain.level;
+        // Complement CP-16: the first relic this captain's run found reaches the vault at its delivery (finds are in
+        // delivery order, so the first is the earliest).
+        if (sr.relics.length > 0) noteForCaptain(captain.id, { kind: "firstRelic", label: firstNotableLabel("firstRelic"), atGameSeconds: notableSecond(state.gameTimeSeconds, sr.relics[0].atTick, state.tickDurationSeconds) });
+        // Complement CP-16: an Evacuation this run delivers is credited to this captain by its board slot (the post-pass
+        // below rolls the arrivals).
+        for (const d of sr.refugeeDeliveries) refugeeSlotCaptain.set(d.slotId, captain.id);
         let srCaptain = sr.captain;
         if (srXp.gt(0)) {
           const ups = foldXpLevelUps(srCaptain.xp.plus(srXp), srCaptain.level, xpForNextLevel);
           srCaptain = { ...srCaptain, xp: ups.xp, level: ups.level, statPoints: srCaptain.statPoints + ups.levelUps };
         }
+        // Complement CP-16: the level milestones the award crossed, by the SAME product on the spans' running raw XP.
+        const srMilestones = crossesLevelMilestone(srLevel0, srCaptain.level)
+          ? levelMilestoneTicks(srLevel0, sr.xpSpans, (u) => foldXpLevelUps(srXp0.plus(new Decimal(u).times(captainXpMult)), srLevel0, xpForNextLevel).level)
+          : [];
         // Lifetime totals: delivered cycles count under `shortRange:<template>` (plan 2 [PROPOSAL]); the credits earned
         // leave out the working capital a drop-off paid and got back.
         const srCompleted: Record<string, Decimal> = {};
@@ -5143,7 +5232,8 @@ export function economyTick(
         for (const find of sr.relics) shortRangeRelics.push(find);
         for (const c of sr.relicCycles) shortRangeRelicCycles.push({ captainId: captain.id, ...c });
         for (const d of sr.refugeeDeliveries) refugeeDeliveries.push(d);
-        return srCaptain;
+        // Complement CP-16: each delivered cycle is a mission flown.
+        return commandRecord(srCaptain, sr.cyclesDelivered, srMilestones.length > 0 ? srMilestones : undefined);
       }
       default:
         return assertNeverMission(captain.mission);
@@ -5346,6 +5436,7 @@ export function economyTick(
       creditsSpentOnFuel: captainCreditsSpentOnFuel,
       berthsClaimed: captainBerthsClaimed,
       cycleEndTicks,
+      levelMilestones: missionLevelMilestones,
     } = tickCaptainMission(
       ticksElapsed,
       captain,
@@ -5434,7 +5525,9 @@ export function economyTick(
         if (updated.mission === null) wearEvents.runEnds.set(ship.id, state.gameTimeSeconds + (ends.length > 0 ? ends[ends.length - 1] : 0) * state.tickDurationSeconds);
       }
     }
-    return deliveredCaptain;
+    // Complement CP-16: the missions this captain flew (each delivered cycle) and the level milestones it reached.
+    const extractionCycles = captainLifetimeStatsDelta.missionsCompleted[missionKey]?.toNumber() ?? 0;
+    return commandRecord(deliveredCaptain, extractionCycles, missionLevelMilestones);
   });
 
   // passiveTrickle (Homeworld Talent economyTrickle): flat fleet-wide
@@ -5593,9 +5686,16 @@ export function economyTick(
           gameTimeSeconds: state.gameTimeSeconds,
           tickDurationSeconds: state.tickDurationSeconds,
         });
+  // Complement CP-16: a refugee an Evacuation brings home is the first rescue of the captain flying that slot (at the
+  // arrival's whole tick, the record's own arrivedAtSeconds). Then every captain's notables of this call, in time order.
+  for (const ev of refugeePass?.events ?? []) {
+    const rescuer = ev.kind === "arrival" ? refugeeSlotCaptain.get(ev.slotId) : undefined;
+    if (rescuer !== undefined) noteForCaptain(rescuer, { kind: "firstRefugeeRescued", label: firstNotableLabel("firstRefugeeRescued"), atGameSeconds: notableSecond(state.gameTimeSeconds, ev.atTick, state.tickDurationSeconds) });
+  }
+  const notedCaptains = callNotables.size === 0 ? captains : captains.map((c) => withCallNotables(c, callNotables.get(c.id) ?? []));
   const postMissionState: GameState = {
     ...state,
-    captains,
+    captains: notedCaptains,
     // Combat 0.13.0 (Phase 9b.5c): nextPatrolSeed rides through unchanged via `...state`, a
     // RELAUNCH derives its master seed per-captain (not from this counter), so economyTick
     // never advances it (only the discrete player-dispatch action does).

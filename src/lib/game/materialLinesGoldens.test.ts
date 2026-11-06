@@ -16,6 +16,11 @@
 //              by design: it adds items and recipes).
 
 import { describe, expect, it } from "vitest";
+import { cp16OffForThisFile } from "./cp16Switch.fixture";
+// Complement CP-16 (the Hall of Command) came after every pin here: the file runs with the slice off, so its pins
+// keep proving their own slice (cp16Goldens.test.ts pins what CP-16 moved: the missions counter, the notables and
+// the Hall of Command entry).
+cp16OffForThisFile();
 import { GG7_BLUEPRINT_KEYS } from "./gasGiantSpecials.fixture";
 // E-MOD EM-8 came after this capture: the Precursor Lens's blueprint, variety and the circuit's recipe held apart.
 import { EM8_BLUEPRINT_KEYS, withoutEm8Content } from "./emodEm8Switch.fixture";

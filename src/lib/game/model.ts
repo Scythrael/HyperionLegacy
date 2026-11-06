@@ -5245,6 +5245,40 @@ export interface CaptainState {
   // modules rolled for. It keys each cycle's private module stream (shipModules.ts moduleCycleSeed), the Motherlode
   // rule. OPTIONAL, written only once a cycle has rolled (absent = 0, no SAVE_VERSION bump).
   moduleCycles?: number;
+  // Complement CP-16 (the Hall of Command, OC-22): how many missions THIS captain has flown, counted from CP-16 on (one
+  // per delivered mission cycle, patrol route that ends, won or lost, and delivered short-range cycle:
+  // captainNotables.ts addMissionsFlown, called from economyTick). Copied into the captain's Hall of Command entry at retirement, and the
+  // successor (a new identity) starts again from 0. OPTIONAL: absent = 0 (an old save, or a captain who has flown
+  // nothing since CP-16), no SAVE_VERSION bump.
+  missionsFlown?: number;
+  // Complement CP-16 (the CP-16 notables answer, user 2026-11-06): the notable moments of this captain's command, in the
+  // order they happened, each stamped with its game second (captainNotables.ts). Copied into the Hall of Command entry at
+  // retirement; the successor starts with none. OPTIONAL: absent = none, no SAVE_VERSION bump.
+  commandNotables?: CaptainNotable[];
+}
+
+// Complement CP-16: the kinds of notable a captain's command records (the user's 2026-11-06 pick "Level milestones,
+// Firsts under command, Promotions and titles"; no captain rank or title exists in code, so that third kind has no
+// member). Each first is recorded only where the engine knows the captain's ship did it (captainNotables.ts).
+export type CaptainNotableKind = "levelMilestone" | "firstExpedition" | "firstRelic" | "firstTierTwoRun" | "firstRefugeeRescued";
+
+// One notable moment: its kind, the player line ("Reached level 20", "First relic found") and the game second
+// (state.gameTimeSeconds) it happened at. Plain data, shaped so a later achievements ledger can feed the same list.
+export interface CaptainNotable {
+  kind: CaptainNotableKind;
+  label: string;
+  atGameSeconds: number;
+}
+
+// Complement CP-16 (OC-22): one retired captain's Hall of Command entry, appended once at the retirement
+// (captainRetirement.ts retireCaptain). Game time only (never the wall clock).
+export interface HallOfCommandEntry {
+  captainName: string; // the retiring captain's name (before the successor takes the slot)
+  levelReached: number; // the level they retired at
+  retirementNumber: number; // this slot's retirement count after this one (1..MAX_CAPTAIN_RETIREMENTS)
+  missionsFlown: number; // CaptainState.missionsFlown at retirement (0 when absent)
+  retiredAtGameSeconds: number; // state.gameTimeSeconds at the retirement
+  notables: CaptainNotable[]; // CaptainState.commandNotables at retirement ([] when absent)
 }
 
 // WR-5a / WR-5b / WR-5c (0.14.0, OC-A2 "own ship"): the captain who commands `ship` (ship.assignedCaptainId), or
@@ -9980,6 +10014,10 @@ export interface GameState {
   // expedition.ts depositExpeditionFindings. Every displayed number derives from the entry's stored fields (the
   // Archive tab is GG-6). OPTIONAL: absent until the first readout comes home, so a save without one carries no key.
   surveyLog?: SurveyLogEntry[];
+  // Complement CP-16 (OC-22): the HALL OF COMMAND, one entry per captain retirement from CP-16 on, appended once by
+  // captainRetirement.ts retireCaptain in retirement order (retirements before CP-16 have no entry: nothing recorded them).
+  // The Archive's Hall of Command subsection lists it. OPTIONAL: absent until the first retirement, no SAVE bump.
+  hallOfCommand?: HallOfCommandEntry[];
   // Gas Giant Study GG-5 (plan section 3.3; user calls 8 to 10; the signed-off v3 mockup): the Research Lab's DATA
   // STUDY lane (dataStudy.ts). All OPTIONAL, absent on every save until the lane first runs:
   //   dataStudyHeld    research data in ARRIVAL order (the claim appends one entry per unit; an Ancient Data Fragment

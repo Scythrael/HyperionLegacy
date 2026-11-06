@@ -9,6 +9,11 @@
 // WR-11 switched off (wr11Switch.fixture.ts withWr11Off): every fixture then reproduces its capture (BEFORE).
 
 import { describe, expect, it } from "vitest";
+import { cp16OffForThisFile } from "./cp16Switch.fixture";
+// Complement CP-16 (the Hall of Command) came after every pin here: the file runs with the slice off, so its pins
+// keep proving their own slice (cp16Goldens.test.ts pins what CP-16 moved: the missions counter, the notables and
+// the Hall of Command entry).
+cp16OffForThisFile();
 import { WR11_SEEDS, WR11_VARIANT_SEEDS, wr11Candidates, wr11Hash, wr11Run, wr11SalvageRun, type Wr11Variant } from "./wr11.fixture";
 import { getPlanetTypeById, getPoiById } from "./expeditionContent";
 import { withWr11Off } from "./wr11Switch.fixture";

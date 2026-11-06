@@ -55,6 +55,7 @@ import { relicBlanksStaggered, rollShortRangeRelicBlanks } from "./relicBlanks";
 import { reactorLiftFlagged } from "./reactorSurplus";
 import { formatNumber } from "./format";
 import type { RefugeeDelivery } from "./refugeeArrival";
+import type { XpSpan } from "./captainNotables";
 // E5-4 fix round: a run's stored Mission Control carry, read defensively.
 import { cleanRefugeeCarry } from "./refugeeBuffs";
 
@@ -254,6 +255,9 @@ export interface ShortRangeTickResult {
   budgetDraw: number; // the credits this call drew from the shared balance beyond its own deliveries (never negative)
   materials: Readonly<Record<string, number>>; // whole units delivered to the Warehouse
   captainXpAwarded: number; // integer: per-active-tick XP before the retirement multiplier
+  // Complement CP-16: where that XP's whole ticks land in the call, in order (captainNotables.ts XpSpan), so economyTick
+  // stamps a level milestone on the tick 1 s steps reach it on.
+  xpSpans: XpSpan[];
   fleetAdminXpDelta: number; // integer
   berthsClaimed: number; // berths claimed from the shared budget (a berth the run freed and took again is not drawn twice)
   cyclesDelivered: number;
@@ -397,6 +401,7 @@ function* shortRangeRun(input: ShortRangeTickInput): Generator<ShortRangeSync, S
     budgetDraw: 0,
     materials: {},
     captainXpAwarded: 0,
+    xpSpans: [],
     fleetAdminXpDelta: 0,
     berthsClaimed: 0,
     cyclesDelivered: 0,
@@ -456,6 +461,7 @@ function* shortRangeRun(input: ShortRangeTickInput): Generator<ShortRangeSync, S
   let runCounts = input.runCounts;
   let nextCycle = input.nextCycle;
   let captainXp = 0;
+  const xpSpans: XpSpan[] = [];
   let fleetAdminXp = 0;
   let cyclesDelivered = 0;
   const completedByTemplate: Record<string, number> = {};
@@ -510,6 +516,16 @@ function* shortRangeRun(input: ShortRangeTickInput): Generator<ShortRangeSync, S
     const whole = Math.floor(mission.phaseProgressTicks + step) - Math.floor(mission.phaseProgressTicks);
     const rewardDef = SHORT_RANGE_TEMPLATES[mission.roll.template].reward;
     captainXp += rewardDef.captainXpPerTick[mission.roll.tier] * whole;
+    // Complement CP-16: where these whole ticks land (the first at the phase's next whole boundary; a skip lands them at once).
+    if (whole > 0) {
+      const stepStart = ticksElapsed - remaining;
+      const units = rewardDef.captainXpPerTick[mission.roll.tier];
+      xpSpans.push(
+        skipping
+          ? { at: stepStart, wholes: whole, units, spacing: 0 }
+          : { at: stepStart + (Math.floor(mission.phaseProgressTicks) + 1 - mission.phaseProgressTicks), wholes: whole, units, spacing: 1 },
+      );
+    }
     fleetAdminXp += rewardDef.fleetAdminXpPerTick * whole;
     mission = { ...mission, phaseProgressTicks: mission.phaseProgressTicks + step };
     if (!skipping) remaining -= step;
@@ -644,6 +660,7 @@ function* shortRangeRun(input: ShortRangeTickInput): Generator<ShortRangeSync, S
     budgetDraw: Math.max(0, paidOut - paidIn),
     materials,
     captainXpAwarded: captainXp,
+    xpSpans,
     fleetAdminXpDelta: fleetAdminXp,
     berthsClaimed: sharedClaims,
     cyclesDelivered,

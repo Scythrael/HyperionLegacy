@@ -94,6 +94,12 @@ import { diminishing } from "../diminishing";
 import { materialQualityClimbChance } from "../materialQuality";
 import { secondaryTalentEffectText } from "../captainSecondaryEffects";
 import { buyHomeworldTalent, describeCaptainTalentEffect, inspectBlank, installMissingCombatBaselines } from "../tick";
+// Complement CP-16: the Hall of Command rows fly one mission cycle and retire the captain.
+import { dispatchCaptainOnMission, economyTick } from "../tick";
+import { RETIRE_LEVEL_GATE, retireCaptain } from "../captainRetirement";
+import { LEVEL_MILESTONE_EVERY, firstNotableLabel } from "../captainNotables";
+import { xpForNextLevel, type CaptainNotableKind } from "../model";
+import { WIRING_CAPTAIN_ID, evacuationArrival } from "./probes";
 import type { CaptainPrimaryMultKind } from "../captainPrimaryEffects";
 import { BASE_FTL_DURABILITY, BASE_REACTOR_DURABILITY, COMBAT_DEFAULT_LOADOUT, combatHullTypeOf, hullDefenseComposition } from "../combat/bridge";
 // WR-8 (0.14.0): the combat descriptors (combatRules.ts), their probes' on / off mark, and the readers they name.
@@ -1568,6 +1574,127 @@ function captainProgressionEntries(): WiringEntry[] {
       magnitude: (c) => c.CREW_RACES.stationBorn.racialBonus.seniorStaff * CAPTAIN_RACIAL_SCALE,
       on: (s) => editCaptain(s, { race: "stationBorn" }),
       note: "magnitude CAPTAIN_RACIAL_SCALE 1 (user 2026-10-19)",
+    }),
+    ...cp16HallEntries(),
+  ];
+}
+
+// Complement CP-16 (the Hall of Command, OC-22; the CP-16 notables answer, user 2026-11-06): the captain's command
+// record and the Hall it feeds, each measured through its consumer. The retire-ready fixture: captain 1 at level
+// RETIRE_LEVEL_GATE + 4, 5 XP short of the next level, an Executive officer seated. One flown cycle: a Short Ore Run
+// dispatched and flagged to come home after its cycle (the recall flag), stepped in 1 s steps until the captain is home
+// (it crosses level 30, a milestone).
+// (cp16HallOfCommand.test.ts proves the rest: patrols and short-range runs count, every first, one call == 997 s
+// chunks == 1 s steps.)
+const CP16_RETIRE_LEVEL = RETIRE_LEVEL_GATE + 4;
+function cp16RetireReady(): GameState {
+  return seatOfficer(editCaptain(wiringBase(), { level: CP16_RETIRE_LEVEL, xp: new Decimal(xpForNextLevel(CP16_RETIRE_LEVEL) - 5) }), "executive", [], { id: "wiring-cp16-xo" });
+}
+const cp16FlyOneCycle: Transform = (s) => {
+  const r = dispatchCaptainOnMission(s, WIRING_CAPTAIN_ID, "shortOreRun");
+  const m = r.next.captains.find((c) => c.id === WIRING_CAPTAIN_ID)?.mission;
+  if (!r.success || m?.kind !== "extraction") return s;
+  let out = editCaptain(r.next, { mission: { ...m, recalled: true } });
+  for (let i = 0; i < 5000 && out.captains.find((c) => c.id === WIRING_CAPTAIN_ID)?.mission !== null; i++) out = economyTick(out, 1, () => 0.5);
+  return out;
+};
+// The flown cycle, then an Evacuation delivered on short-range slot 0 (probes.ts evacuationArrival: someone comes home,
+// the run ends at the delivery), so the captain is home with a level milestone and a first under command.
+const cp16FlyAndRescue: Transform = (s) => {
+  const flown = cp16FlyOneCycle(s);
+  const { after } = evacuationArrival(flown);
+  return after.captains.find((c) => c.id === WIRING_CAPTAIN_ID)?.mission === null ? after : flown;
+};
+// A captain whose command already records `kind` (so the path under test records none).
+const cp16AlreadyHas = (kind: Exclude<CaptainNotableKind, "levelMilestone">): Transform => (s) =>
+  editCaptain(s, { commandNotables: [{ kind, label: firstNotableLabel(kind), atGameSeconds: 0 }] });
+function cp16HallEntries(): WiringEntry[] {
+  return [
+    entry({
+      id: "captain:progression:missionsFlown",
+      system: "captain",
+      source: { catalog: "CAPTAIN_PROGRESSION", key: "missionsFlown" },
+      claim: "Missions flown: each delivered mission cycle, patrol route that ends (won or lost) and delivered short-range cycle counts one for the captain, and their Hall of Command entry shows the total",
+      probe: "hallMissionsFlown",
+      contexts: ["captain"],
+      curve: { kind: "gate" },
+      magnitude: () => 1,
+      base: cp16RetireReady,
+      on: cp16FlyOneCycle,
+      note: "one Short Ore Run cycle flown, then the retirement's entry read",
+    }),
+    entry({
+      id: "captain:progression:commandNotables",
+      system: "captain",
+      source: { catalog: "CAPTAIN_PROGRESSION", key: "commandNotables" },
+      claim: `Notable moments: every ${LEVEL_MILESTONE_EVERY}th level and the ship's firsts under command are recorded on the captain with their in-game day, and their Hall of Command entry lists them`,
+      probe: "hallNotables",
+      contexts: ["captain"],
+      curve: { kind: "gate" },
+      magnitude: () => 2,
+      base: cp16RetireReady,
+      on: cp16FlyAndRescue,
+      note: "two notables: the flown cycle's XP reaches level 30 (a level milestone) and a delivered Evacuation brings a refugee home (a first under command); then the retirement's entry read",
+    }),
+    entry({
+      id: "captain:progression:hallOfCommand",
+      system: "captain",
+      source: { catalog: "CAPTAIN_PROGRESSION", key: "hallOfCommand" },
+      claim: "Hall of Command: each retirement appends one entry (the captain's name, level, retirement number, missions flown, in-game day and notables), listed in the Archive",
+      probe: "hallEntries",
+      contexts: ["captain"],
+      curve: { kind: "gate" },
+      magnitude: () => 1,
+      base: cp16RetireReady,
+      on: (s) => retireCaptain(s, WIRING_CAPTAIN_ID),
+    }),
+    entry({
+      id: "captain:audit:commandFirsts",
+      system: "captain",
+      source: { catalog: "AUDIT", key: "captain:audit:commandFirsts" },
+      claim: "Firsts under command at an expedition's dispatch: the captain's first expedition (and first Tier II or deeper run), recorded once",
+      probe: "dispatchCommandFirsts",
+      contexts: ["captain"],
+      curve: { kind: "gate" },
+      magnitude: () => 1,
+      off: cp16AlreadyHas("firstExpedition"),
+      note: "a Tier I dispatch records the first expedition; off: the captain already has one, so the dispatch records none",
+    }),
+    entry({
+      id: "captain:audit:commandFirstRelicClaim",
+      system: "captain",
+      source: { catalog: "AUDIT", key: "captain:audit:commandFirstRelicClaim" },
+      claim: "First relic found at an expedition's claim: a run that brings a relic into the vault records its captain's first relic found, once",
+      probe: "claimCommandFirstRelic",
+      contexts: ["captain"],
+      curve: { kind: "gate" },
+      magnitude: () => 1,
+      off: cp16AlreadyHas("firstRelic"),
+      note: "the probe run claimed with one relic among its findings; off: the captain already has a first relic, so the claim records none",
+    }),
+    entry({
+      id: "captain:audit:commandFirstRelicShortRange",
+      system: "captain",
+      source: { catalog: "AUDIT", key: "captain:audit:commandFirstRelicShortRange" },
+      claim: "First relic found on a short-range run: the delivery whose cycle found a relic records its captain's first relic found, once",
+      probe: "shortRangeCommandFirstRelic",
+      contexts: ["captain"],
+      curve: { kind: "gate" },
+      magnitude: () => 1,
+      off: cp16AlreadyHas("firstRelic"),
+      note: "the relic probe's Tier I cycle delivered with its finds; off: the captain already has a first relic, so the delivery records none",
+    }),
+    entry({
+      id: "captain:audit:commandFirstRefugee",
+      system: "captain",
+      source: { catalog: "AUDIT", key: "captain:audit:commandFirstRefugee" },
+      claim: "First refugee rescued: an Evacuation that brings someone home records the first refugee rescued of the captain flying its slot, once",
+      probe: "evacuationCommandFirstRescue",
+      contexts: ["captain"],
+      curve: { kind: "gate" },
+      magnitude: () => 1,
+      off: cp16AlreadyHas("firstRefugeeRescued"),
+      note: "an Evacuation's delivery tick on slot 0 (someone comes home); off: the captain already has a first rescue, so the arrival records none",
     }),
   ];
 }

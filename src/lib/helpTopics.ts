@@ -756,11 +756,28 @@ export interface HelpTopic {
   body: string;
 }
 
+// 0.14.0 Complement CP-16: the retirement and Hall of Command topic, from the engine's constants.
+import { MAX_CAPTAIN_RETIREMENTS, RETIREMENT_EXP_PER, RETIRE_LEVEL_GATE, lockedInRetirementXpPercent } from "./game/captainRetirement";
+import { LEVEL_MILESTONE_EVERY } from "./game/captainNotables";
+const HALL_OF_COMMAND_PARAGRAPHS: readonly string[] = [
+  `RETIRING A CAPTAIN: a captain at level ${RETIRE_LEVEL_GATE} or higher, idle at home, with an Executive officer seated aboard their ship can retire from the Prestige tab. The Executive officer succeeds them and takes the captaincy; the slot goes back to level 1 with its base talents refunded, keeps its prestige talents and gains one prestige point. Each slot can retire ${MAX_CAPTAIN_RETIREMENTS} times.`,
+  `THE FINAL RETIREMENT: when a slot is on its last retirement (${MAX_CAPTAIN_RETIREMENTS} of ${MAX_CAPTAIN_RETIREMENTS}), the retire confirm says so before you commit. After it the captaincy locks in: it can never retire again, so it earns no more prestige points, and its share of the fleet-wide captain XP bonus stops growing. Every retirement adds ${Math.round(RETIREMENT_EXP_PER * 100)}% to the captain XP all your captains earn, so a slot that has retired ${MAX_CAPTAIN_RETIREMENTS} times keeps giving +${lockedInRetirementXpPercent()}%, and only your other slots' retirements can raise the bonus further.`,
+  `THE HALL OF COMMAND: every retirement adds an entry to the Hall of Command, a section of the Archive that appears once your first captain retires. Each entry shows the name the captain served under, the level they retired at, which retirement it was, how many missions they flew (each delivered mission cycle, patrol route and short-range cycle counts, and a patrol route counts whether it was won or lost) and the in-game day they retired.`,
+  `NOTABLE MOMENTS: each entry also lists the captain's notable moments with the in-game day of each: every ${LEVEL_MILESTONE_EVERY}th level they reached, and their ship's first expedition, first relic found, first Tier II or deeper run and first refugee rescued while they were in command. The successor starts a fresh record. Missions and notables count from this update on, so a retirement before it has no entry.`,
+];
+
 export const HELP_TOPICS: HelpTopic[] = [
   {
     id: "crew",
     title: "Crew and Captains",
     body: "Crew is your roster of captains, found on the Crew tab under Captain Roster. Each captain commands one ship and earns XP every tick while out on a mission, so leveling is steady rather than only paying out at the end of a run. Your Fleet Admiral level rises alongside them, and it climbs faster the more captains you have working at once. Some captain slots start locked and open up once you have both the required talent and a high enough Fleet Admiral level. A captain needs a ship assigned (from the ship's page on the Ships tab) before it can be dispatched on missions.",
+  },
+  {
+    // 0.14.0 Complement CP-16: retirement's final warning and the Archive's Hall of Command (captainRetirement.ts,
+    // captainNotables.ts, hallOfCommandDisplay.ts), built from the engine's constants.
+    id: "hallOfCommand",
+    title: "Retirement and the Hall of Command",
+    body: HALL_OF_COMMAND_PARAGRAPHS.join("\n\n"),
   },
   {
     id: "missions",

@@ -7,6 +7,11 @@
 // completion log entry and the offline recap name the finds; the save round trip; a taken id never repeats.
 
 import { describe, expect, it } from "vitest";
+import { cp16OffForThisFile } from "./cp16Switch.fixture";
+// Complement CP-16 (the Hall of Command) came after every pin here: the file runs with the slice off, so its pins
+// keep proving their own slice (cp16Goldens.test.ts pins what CP-16 moved: the missions counter, the notables and
+// the Hall of Command entry).
+cp16OffForThisFile();
 import Decimal from "break_infinity.js";
 import { SALVAGE_LOOT_POOLS, type CaptainState, type GameState, type RunCounts, type ShortRangeMissionState } from "./model";
 import { dispatchCaptainOnShortRange, isWellFormedShortRangeMission, shortRangeBoardSlots, startShortRangeCycle } from "./shortRangeBoard";

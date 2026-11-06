@@ -884,3 +884,27 @@ describe("HELP_TOPICS", () => {
     }
   });
 });
+
+// 0.14.0 Complement CP-16: the retirement and Hall of Command topic, from the engine's constants.
+describe("HELP_TOPICS: retirement and the Hall of Command (CP-16)", () => {
+  it("names the retire rules, the final warning, the Hall's lines and the notables, true to the engine", async () => {
+    const { MAX_CAPTAIN_RETIREMENTS, RETIREMENT_EXP_PER, RETIRE_LEVEL_GATE, lockedInRetirementXpPercent } = await import("./game/captainRetirement");
+    const { LEVEL_MILESTONE_EVERY } = await import("./game/captainNotables");
+    const t = HELP_TOPICS.find((x) => x.id === "hallOfCommand");
+    expect(t).toBeDefined();
+    const b = t!.body;
+    expect(b).toContain(`level ${RETIRE_LEVEL_GATE} or higher`);
+    expect(b).toContain(`retire ${MAX_CAPTAIN_RETIREMENTS} times`);
+    expect(b).toContain(`(${MAX_CAPTAIN_RETIREMENTS} of ${MAX_CAPTAIN_RETIREMENTS})`);
+    expect(b).toContain(`every ${LEVEL_MILESTONE_EVERY}th level`);
+    for (const first of ["first expedition", "first relic found", "first Tier II or deeper run", "first refugee rescued"]) expect(b).toContain(first);
+    expect(b).toMatch(/patrol route and short-range cycle/);
+    // A lost patrol route counts too (user 2026-11-06 "Count it too").
+    expect(b).toContain("a patrol route counts whether it was won or lost");
+    // The final retirement stops the slot's share of the fleet-wide captain XP bonus (retirementExpMultiplier).
+    expect(b).toContain("its share of the fleet-wide captain XP bonus stops growing");
+    expect(b).toContain(`adds ${Math.round(RETIREMENT_EXP_PER * 100)}% to the captain XP`);
+    expect(b).toContain(`keeps giving +${lockedInRetirementXpPercent()}%`);
+    expect(b).not.toMatch(/\u2014|-{2}|\bfit/);
+  });
+});

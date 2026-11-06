@@ -564,7 +564,13 @@
     retirementExpMultiplier,
     seatedExecutiveOfficerFor,
     MAX_CAPTAIN_RETIREMENTS,
+    // Complement CP-16: the final-retirement warning on the confirm.
+    isFinalRetirement,
+    finalRetirementWarningText,
   } from "./lib/game/captainRetirement";
+  // Complement CP-16: the Archive's Hall of Command subsection.
+  import HallOfCommandPanel from "./lib/HallOfCommandPanel.svelte";
+  import { HALL_OF_COMMAND_HELP, hallOfCommandRows } from "./lib/hallOfCommandDisplay";
   // Crew 0.14.0 (phase 4d): the pure PERSONNEL ROSTERS engine, wired by the do* handlers below.
   // Each takes + returns a whole GameState (createRoster also returns the new id); all are
   // refuse-by-returning-the-same-state, so a no-op leaves state === next and we skip the log/save.
@@ -8297,6 +8303,8 @@
 
   // ── ITEM LIFECYCLE 0.13.6: the Archive (completion record) ─────────────────
   $: archiveCompletionVM = archiveCompletion(state);
+  // Complement CP-16: the Hall of Command rows (newest first; empty until the first retirement, so it stays hidden).
+  $: hallOfCommandVM = hallOfCommandRows(state);
   // One row per craftable item: its enshrined score, its max, and the best matching free SPARE you
   // hold (highest-scoring), which drives the one-click "Enshrine best" action. Sorted by label.
   $: archiveRows = archivableBlueprints().map(({ key, bp }) => {
@@ -16279,6 +16287,19 @@
               <MuseumPanel {state} />
             </Panel>
           {:else if activeFoundryFacility === "archive"}
+            <!-- Complement CP-16 (OC-22): THE HALL OF COMMAND, above the item record: one card per retired captain
+                 (hallOfCommandDisplay.ts). Hidden until the first retirement writes an entry. Pure display. -->
+            {#if hallOfCommandVM.length > 0}
+              <Panel>
+                <div class="panel-title">
+                  HALL OF COMMAND
+                  <HelpTip label="How the Hall of Command works" text={HALL_OF_COMMAND_HELP} />
+                </div>
+                <div style="margin-top:10px;">
+                  <HallOfCommandPanel rows={hallOfCommandVM} />
+                </div>
+              </Panel>
+            {/if}
             <!-- ITEM LIFECYCLE 0.13.6: the Archive console. The completionist record of this
                  miniature empire: enshrine your best-crafted version of each item for a score and
                  an overall completion percentage. Enshrining CONSUMES the spare and keeps only the
@@ -21770,6 +21791,11 @@
           This captain has no seated executive officer to succeed them, so they cannot retire.
         {/if}
       </p>
+      {#if retireSuccessor && isFinalRetirement(activeCaptain)}
+        <!-- Complement CP-16 (Task 29): the slot's last retirement (captainRetirement.ts isFinalRetirement), said
+             before it is taken; the text is the engine's own (finalRetirementWarningText). -->
+        <p class="retire-final-warn" role="note"><Icon name="warning" /><span>{finalRetirementWarningText()}</span></p>
+      {/if}
       <svelte:fragment slot="footer">
         <button class="dev-btn" on:click={() => (retireConfirmOpen = false)}>Cancel</button>
         <button
@@ -23375,6 +23401,9 @@
   .profile-portrait { flex: 0 0 48px; height: 48px; font-size: var(--text-2xl); }
   .profile-identity-name { font-size: var(--text-md); color: var(--color-accent); text-transform: uppercase; letter-spacing: 0.5px; }
   .modal-warning { font-size: var(--text-md); color: var(--color-danger); line-height: 1.5; margin: 0 0 10px; }
+  /* Complement CP-16: the final-retirement callout on the retire confirm (a bordered warning row, icon then text). */
+  .retire-final-warn { display: flex; align-items: flex-start; gap: 8px; margin: 0 0 10px; padding: 8px 10px; border: 1px solid var(--color-warning); border-radius: var(--corner); font-size: var(--text-sm); line-height: 1.45; color: var(--color-warning); overflow-wrap: anywhere; }
+  .retire-final-warn :global(svg) { flex: 0 0 auto; margin-top: 2px; }
   /* .modal-note: the REASSURING sibling of .modal-warning, for the "here is what
      actually happens next" line under a destructive warning. Same size, line-height
      and 10px bottom margin, differing only in color, so a modal's paragraphs share
