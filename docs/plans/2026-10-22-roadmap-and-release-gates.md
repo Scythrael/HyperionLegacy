@@ -73,3 +73,10 @@ perf suite equal or faster. Scope ideas: duplicate helpers and dead code (the sw
 that only serve finished slices), large files split (App.svelte, model.ts, tick.ts), the per-tick costs noted in
 reviews (e.g. the CP-10 transfer preview, the chunked catch-up on phones in SUGGESTIONS.md). Done as small reviewed
 slices, each tagged in the dev repo so any one can be rolled back.
+
+**Ordering wrinkles found by CP-14 / CP-16 parity tests (2026-11-06, hub log):** values match across chunkings, but
+(1) `state.discovered` lists the same items in a different order after one big `economyTick` call than after 1 s
+steps, and (2) with two captains, the key order of `lifetimeStats.missionsCompleted` differs between chunkings.
+Production only steps 1 s or less, so players are unaffected today. Fixing it changes output order, so it is NOT part of
+the behavior-preserving pass: give it its own small determinism slice (goldens first) before the release QA rounds.
+Related: survey parity at 997 s chunks differs because an extraction's berth budget is per call (EM-4 precedent).
