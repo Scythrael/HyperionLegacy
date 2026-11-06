@@ -943,6 +943,10 @@ the CP-6 core fix was dispatched the same day.
   link up properly with everything we're working on now anyway." So: in-game day stamps, a missions counter from now,
   no entries for past retirements, PLUS each captain's entry lists notable moments: specific achievements earned and
   when (links with the coming achievements system; build the per-captain record shape now so achievements plug in).
+  **CP-16 notables (user 2026-11-06, multi-pick):** "Level milestones, Firsts under command, Promotions and titles".
+  Level milestones every 10 levels; firsts (first expedition, first relic, first Tier II+ run, first refugee rescued)
+  only where the engine can attribute them to that captain's ship; earned ranks or titles if the identity system grants
+  them. Each notable carries its in-game day. Not picked: "Lifetime tallies only".
 - **OC-20 Science sensor amplification:** "Proposed numbers (Recommended)". **OC-21 stacking:** "Multiply (Recommended)".
 - **OC-14 bridge set:** "Keep the 3 built (Recommended)".
 
