@@ -799,6 +799,21 @@ differ from every saved roster, Apply first shows the locked "unsaved configurat
 450 to 452); disabled with the reason while the ship is locked (CP-6). **Tests:** display helper picks and the warning
 condition. **UI:** CMR-10 one-liner; follows the existing select + button pattern, no mockup needed.
 
+**Carry note (2026-11-06, CP-17 built; UI only, no engine or save change, still v71; no registry row, a picker carries
+no stat; pending unchanged at 35):** `ShipRosterBar.svelte` sits above the Senior Staff and Complement panes of the ship
+page (App renders it in both branches) and calls App's `doApplyRoster`, the facility's handler, so the linked loadout,
+the EM-2 power log and the CP-6 refusal log are shared. Decisions live in `shipRosterDisplay.ts` (tested):
+`shipRosterOptions` lists the rosters with `includePeople` (the facility disables Apply for the rest; it enforces no hull
+filter, so neither does this); "saved" (`shipMatchesRoster`) = every seat holds the roster's officer (empty matches
+unpinned) and the notables aboard are exactly its pins, as a set, with a pin the engine would skip read as no pin; the
+bulk complement is not compared. `shipSetupUnsaved` = the ship has people and matches no roster; Apply warns
+(`shipRosterApplyWarns`) only when it is unsaved AND the engine's `applyRoster` would change this ship's officers or
+notables, so the words stay true. `shipRosterApplyBlock`: the ship's own crew lock first (`crewLockReasonText` +
+`crewLockUntilText`, the facility's line), then `canApplyRoster`'s gate words. No rosters: a truthful empty line (the
+facility's empty-hint pattern), not a hidden bar. The crew spec (crew-0.14.0-plan 443 to 445) fixes the meaning, not the
+words, so the modal follows the facility's Unsaved Name pattern (title "Unsaved Configuration", Cancel / Apply anyway).
+Help: rosters had no topic; new `personnelRosters` topic. QA: `docs/qa/2026-11-06-cp17-roster-dropdown-qa.html`.
+
 ### CP-18: Soft captain level cap (Task 31)
 
 **Files:** `model.ts` `xpForNextLevel` (+ `CAPTAIN_SOFT_CAP_LEVEL` 30, `CAPTAIN_SOFT_CAP_GROWTH` 1.08

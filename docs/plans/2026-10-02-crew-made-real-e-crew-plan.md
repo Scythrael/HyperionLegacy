@@ -952,6 +952,10 @@ shipped). Archive gets a "Hall of Command" subsection. Tests: entry appended onc
 A select on `SeniorStaffPanel.svelte` / ship personnel view listing saved rosters; applies via `applyRoster`
 (which now also applies the linked loadout from Task 18). Verify in preview.
 
+**Carry (2026-11-06, built as Complement CP-17):** `ShipRosterBar.svelte` above the Senior Staff and Complement panes,
+decisions in `shipRosterDisplay.ts`, Apply through App's `doApplyRoster`; full note under CP-17 in
+`docs/plans/2026-10-14-complement-and-acquisition-plan.md`.
+
 ### Task 31: Soft captain level cap
 `model.ts` `xpForNextLevel` (~8647): past a threshold level (first-pass 30) the cost grows by an extra factor per
 level (first-pass 1.08^(level-30)). Below the threshold byte-identical. Tests both sides.

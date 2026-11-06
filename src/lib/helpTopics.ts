@@ -17,7 +17,7 @@
 // combatGear, queues, craftingLevels, autoSalvage, quartermaster, relics, and the 0.14.0 ground set:
 // groundTeams, groundOperations, returnTrip, objectiveDifficulty, affixes, reinforcing, riskFactors,
 // subspaceTelescope, scanEvents, Field Kits FKR-11's enemyRanks and fieldKits, and Gas Giant Study GG-8's gasGiants,
-// galileoProbe, gasCanisters, dataStudy, ancientData and surveyLog, Short-Range Missions G1-7's shortRange, and Refugee Posts E5-7's refugees) are welcome and
+// galileoProbe, gasCanisters, dataStudy, ancientData and surveyLog, Short-Range Missions G1-7's shortRange, Refugee Posts E5-7's refugees, and Complement CP-17's personnelRosters) are welcome and
 // help orient a new player, but the nine above must always be present.
 //
 // ⚠️ THIS MANUAL IS PART OF A RELEASE, NOT A ONE-TIME WRITE-UP. Crafting 0.13.3
@@ -766,6 +766,14 @@ const HALL_OF_COMMAND_PARAGRAPHS: readonly string[] = [
   `NOTABLE MOMENTS: each entry also lists the captain's notable moments with the in-game day of each: every ${LEVEL_MILESTONE_EVERY}th level they reached, and their ship's first expedition, first relic found, first Tier II or deeper run and first refugee rescued while they were in command. The successor starts a fresh record. Missions and notables count from this update on, so a retirement before it has no entry.`,
 ];
 
+// 0.14.0 Complement CP-17: the Personnel Rosters topic, true to applyRoster (personnelRosters.ts) and the ship
+// screen's roster picker (ShipRosterBar.svelte, shipRosterDisplay.ts).
+const PERSONNEL_ROSTERS_PARAGRAPHS: readonly string[] = [
+  "SAVED ROSTERS: Personnel Rosters, in Facilities, saves a ship's people as a named roster: the officer you pin to each bridge seat and the notable crew you pin, in a priority order. A roster can also link an Armory ship loadout and one squad loadout per ground team. Only a roster with Include Senior Staff & Complement turned on can be applied.",
+  "APPLYING: a roster seats its pinned officers (an officer already in that seat goes back to unassigned, and seats the roster does not pin keep their officer), brings its pinned notable crew aboard in priority order up to the ship's caps, then fills the remaining berths from the crew pool. Those fill-in crew are not written back to the roster, and no one already aboard is sent away. A linked loadout goes on first, so the caps reflect its gear; a loadout worn by another ship, pinned to another hull type, or over the ship's power stays in the Armory.",
+  "FROM THE SHIP: a ship's Senior Staff and Complement tabs carry a roster picker. Choosing a roster changes nothing until you press Apply. When the ship's officers and notable crew match no saved roster and the roster would change them, Apply first warns that the unsaved configuration will be lost, and you can cancel. Apply waits while the ship is out on a mission, patrol or short-range run, or until its expedition is claimed, and while a pinned person is aboard a ship that is out.",
+];
+
 export const HELP_TOPICS: HelpTopic[] = [
   {
     id: "crew",
@@ -778,6 +786,13 @@ export const HELP_TOPICS: HelpTopic[] = [
     id: "hallOfCommand",
     title: "Retirement and the Hall of Command",
     body: HALL_OF_COMMAND_PARAGRAPHS.join("\n\n"),
+  },
+  {
+    // 0.14.0 Complement CP-17: Personnel Rosters and the roster picker on a ship's Senior Staff and Complement tabs
+    // (personnelRosters.ts applyRoster, shipRosterDisplay.ts). Before CP-17 rosters had no topic.
+    id: "personnelRosters",
+    title: "Personnel Rosters",
+    body: PERSONNEL_ROSTERS_PARAGRAPHS.join("\n\n"),
   },
   {
     id: "missions",
