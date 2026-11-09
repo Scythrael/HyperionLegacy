@@ -960,6 +960,9 @@ decisions in `shipRosterDisplay.ts`, Apply through App's `doApplyRoster`; full n
 `model.ts` `xpForNextLevel` (~8647): past a threshold level (first-pass 30) the cost grows by an extra factor per
 level (first-pass 1.08^(level-30)). Below the threshold byte-identical. Tests both sides.
 
+**Carry (2026-11-09, built as Complement CP-18):** full note under CP-18 in
+`docs/plans/2026-10-14-complement-and-acquisition-plan.md`.
+
 ### Task 32: Candidate board expansion upgrade
 A Homeworld (or Personnel) timed upgrade raising `seniorStaffRosterSize` by 2 per level up to 20; the recruit
 board reads the same size. Reuse the existing timed-upgrade machinery (`docksExpansion` pattern). Tests.

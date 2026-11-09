@@ -98,7 +98,7 @@ import { buyHomeworldTalent, describeCaptainTalentEffect, inspectBlank, installM
 import { dispatchCaptainOnMission, economyTick } from "../tick";
 import { RETIRE_LEVEL_GATE, retireCaptain } from "../captainRetirement";
 import { LEVEL_MILESTONE_EVERY, firstNotableLabel } from "../captainNotables";
-import { xpForNextLevel, type CaptainNotableKind } from "../model";
+import { CAPTAIN_SOFT_CAP_GROWTH, CAPTAIN_SOFT_CAP_LEVEL, xpForNextLevel, type CaptainNotableKind } from "../model";
 import { WIRING_CAPTAIN_ID, evacuationArrival } from "./probes";
 import type { CaptainPrimaryMultKind } from "../captainPrimaryEffects";
 import { BASE_FTL_DURABILITY, BASE_REACTOR_DURABILITY, COMBAT_DEFAULT_LOADOUT, combatHullTypeOf, hullDefenseComposition } from "../combat/bridge";
@@ -1576,8 +1576,27 @@ function captainProgressionEntries(): WiringEntry[] {
       note: "magnitude CAPTAIN_RACIAL_SCALE 1 (user 2026-10-19)",
     }),
     ...cp16HallEntries(),
+    // Complement CP-18 (the soft captain level cap, OC-23): the level-up's real price, measured on a flown second at the
+    // threshold and ten levels past it (cp18SoftLevelCap.test.ts proves the rest: both sides, every cut, the offline row,
+    // level 200). Whole-XP rounding moves the per-level reading by at most half an XP over forty levels.
+    entry({
+      id: "captain:progression:softLevelCap",
+      system: "captain",
+      source: { catalog: "CAPTAIN_PROGRESSION", key: "softLevelCap" },
+      claim: `Captain levels never stop: past level ${CAPTAIN_SOFT_CAP_LEVEL} each level costs x${CAPTAIN_SOFT_CAP_GROWTH} more experience, compounding`,
+      probe: "captainLevelPrice",
+      contexts: ["captain"],
+      curve: { kind: "linearRelative" },
+      magnitude: () => CAPTAIN_SOFT_CAP_GROWTH ** CP18_LEVELS_PAST - 1,
+      on: (s) => editCaptain(s, { level: CAPTAIN_SOFT_CAP_LEVEL + CP18_LEVELS_PAST }),
+      off: (s) => editCaptain(s, { level: CAPTAIN_SOFT_CAP_LEVEL }),
+      tolerance: 0.5 / (CAPTAIN_SOFT_CAP_LEVEL + CP18_LEVELS_PAST),
+      note: "a captain at the threshold level and ten levels past it, each flying one second of a Short Ore Run holding one and a half levels' price",
+    }),
   ];
 }
+
+const CP18_LEVELS_PAST = 10;
 
 // Complement CP-16 (the Hall of Command, OC-22; the CP-16 notables answer, user 2026-11-06): the captain's command
 // record and the Hall it feeds, each measured through its consumer. The retire-ready fixture: captain 1 at level

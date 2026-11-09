@@ -843,6 +843,20 @@ branch would add a line the facility never showed; its output is unchanged.
 A captain already past 30 keeps every level and simply needs more XP for the next. **Tests:** both sides; offline
 summary uses the same curve; integer-safe for level 200.
 
+**Built (2026-11-09):** `xpForNextLevel` is byte-identical through level 30 (level 30's own cost stays 9,000; level 31 is
+the first that costs more, 10,044). The factor is built by repeated multiplication and the cost rounded once with
+`Math.round`, memoized by level; `Math.pow` is implementation-approximated, so it is never used. Every cost matches the
+exact rational through level 266 (a BigInt test), is a safe integer through level 356, and saturates at `Number.MAX_VALUE`
+near level 9,060 so the level still comes. Stored `xp` is left alone: no migration, no SAVE_VERSION bump (the new price is
+never below the old, so nothing can level up from the change, and a surplus only the fold's carry could leave spends at
+the new price on the next award). Every consumer already read the one function (tick's three folds, the CP-16 milestone
+search, `offlineSummary.ts`, both App bars); there was no other copy and no cached table. Goldens: `cp18Goldens.*`,
+switch `cp18Switch.fixture.ts` (`wr9Goldens` and `shortRangeRelicsGoldens` run with it off: their long flights carry a
+captain past level 31), read-back `cp18Registry.fixture.ts`. Registry:
+`captain:progression:softLevelCap`, probe `captainLevelPrice`. Also noted: one `economyTick` call spends one berth budget
+(at most 10 with every rung, the EM-4 precedent), so a "one call" parity row must stay within 10 cycles; the big-award
+row uses a raised XP rate for 1500 s instead of a long run. QA: `docs/qa/2026-11-09-cp18-soft-level-cap-qa.html`.
+
 ### CP-19: Candidate board expansion (Task 32) [home blocked on OC-17]
 
 **Files:** depends on OC-17; default proposal: give Personnel Rosters an upgrade track on the facility framework
