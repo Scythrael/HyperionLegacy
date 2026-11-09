@@ -1,26 +1,39 @@
 // CP-17 (E-CREW Task 30): the ship-screen roster picker's display decisions (shipRosterDisplay.ts): which rosters
-// are offered, the unsaved-configuration warning condition, the status line, the default pick, and why Apply is
-// disabled (the ship's own crew lock first, then the engine's gate for the pick).
+// are offered, the unsaved-configuration warning condition, who an apply pulls off other ships, the status line, the
+// default pick, the hull-mismatch line, and why Apply is disabled (the ship's own crew lock first, then the engine's
+// gate for the pick).
 
 import { describe, it, expect } from "vitest";
-import { freshState } from "./game/model";
+import { freshState, shipDisplayLabel, SHIP_TYPES } from "./game/model";
 import type {
   CaptainMissionState,
+  CrewBucket,
   Expedition,
   GameState,
+  Loadout,
   NotableCrewMember,
   PersonnelRoster,
   SeniorStaffOfficer,
+  ShipTypeKey,
 } from "./game/model";
+import { divisionCap } from "./game/commandStructure";
 import { emptyGroundTeams } from "./game/groundTeams";
 import { applyRoster, canApplyRoster, rosterApplyGateText } from "./game/personnelRosters";
 import {
   defaultShipRosterId,
+  ROSTER_PULL_TITLE,
+  rosterApplyPulls,
+  rosterApplyRefusal,
+  rosterPullLine,
+  rosterPullsLogText,
   shipMatchesRoster,
   shipMatchingRosterId,
   shipRosterApplyBlock,
+  shipRosterApplyConfirm,
   shipRosterApplyWarns,
+  shipRosterBlockLine,
   shipRosterEmptyText,
+  shipRosterGearLine,
   shipRosterOptions,
   shipRosterStatusText,
   shipSetupUnsaved,
@@ -109,6 +122,23 @@ function onExpedition(s: GameState, shipId: string): GameState {
 // The roster that records ship-1 exactly as fleet() builds it.
 const SHIP1 = roster("roster-1", { name: "Ship One", seatAssignments: { pilot: "officer-1" }, pinnedNotableCrew: ["notable-1"] });
 
+// fleet() plus officer-4, a second pilot waiting unassigned: pinning it evicts officer-1 from ship-1's pilot seat.
+function withSecondPilot(rosters: PersonnelRoster[]): GameState {
+  const s = fleet(rosters);
+  return { ...s, officers: [...s.officers, officer("officer-4", "pilot", null)], nextOfficerId: 5 };
+}
+
+// fleet() with ship-1's security division full once notable-1 is counted, so a security pin not aboard cannot land.
+function securityFull(rosters: PersonnelRoster[]): GameState {
+  const s = fleet(rosters);
+  const bulk: CrewBucket = { profession: "security", rarity: "standard", rank: 1, race: "earthBorn", buff1Id: "sec.boarding", buff2Id: null, count: divisionCap("generalFreighter", "security") - 1 };
+  return { ...s, ships: s.ships.map((x) => (x.id === "ship-1" ? { ...x, complement: { buckets: [bulk], mode: "active" as const } } : x)) };
+}
+
+function loadout(id: string, shipTypeKey: ShipTypeKey, checkedOutToShipId: string | null = null): Loadout {
+  return { id, name: `Loadout ${id}`, shipTypeKey, slots: {}, checkedOutToShipId };
+}
+
 // === offered rosters + empty state ===
 
 describe("shipRosterOptions / shipRosterEmptyText", () => {
@@ -193,18 +223,46 @@ describe("shipSetupUnsaved: the ship's people differ from every saved roster", (
   });
 });
 
-describe("shipRosterApplyWarns: Apply warns only when an unsaved setup would change", () => {
-  it("warns when the setup is unsaved and the pick changes the ship's officers or notable crew", () => {
-    const r = roster("roster-1", { seatAssignments: { operations: "officer-3" } });
+describe("shipRosterApplyWarns: Apply warns only when something on an unsaved ship is really lost", () => {
+  it("does not warn on a purely additive apply: an empty seat filled and a notable added take no one off the ship", () => {
+    const r = roster("roster-1", { seatAssignments: { operations: "officer-3" }, pinnedNotableCrew: ["notable-3"] });
     const s = fleet([r]);
     expect(shipSetupUnsaved(s, "ship-1")).toBe(true);
-    expect(shipRosterApplyWarns(s, "ship-1", "roster-1")).toBe(true);
+    expect(shipRosterApplyWarns(s, "ship-1", "roster-1")).toBe(false);
   });
 
-  it("does not warn when a saved roster matches the ship (the setup is not lost)", () => {
-    const other = roster("roster-2", { seatAssignments: { operations: "officer-3" } });
-    const s = fleet([SHIP1, other]);
+  it("warns when a pinned officer replaces a seated one, and the seated officer really is unseated", () => {
+    const r = roster("roster-1", { seatAssignments: { pilot: "officer-4" } });
+    const s = withSecondPilot([r]);
+    expect(shipSetupUnsaved(s, "ship-1")).toBe(true);
+    expect(shipRosterApplyWarns(s, "ship-1", "roster-1")).toBe(true);
+    const after = applyRoster(s, "roster-1", "ship-1");
+    expect(after.officers.find((o) => o.id === "officer-1")!.assignedShipId).toBeNull();
+    expect(after.officers.find((o) => o.id === "officer-4")!.assignedShipId).toBe("ship-1");
+  });
+
+  it("does not warn when a saved roster matches the ship, even if the pick evicts (the setup can be applied back)", () => {
+    const other = roster("roster-2", { seatAssignments: { pilot: "officer-4" } });
+    const s = withSecondPilot([SHIP1, other]);
     expect(shipRosterApplyWarns(s, "ship-1", "roster-2")).toBe(false);
+  });
+
+  it("does not warn for a roster blank against an occupied seat: that seat keeps its officer", () => {
+    const r = roster("roster-1", { seatAssignments: { operations: "officer-3" } });
+    const s = fleet([r]);
+    expect(shipMatchesRoster(s, "ship-1", r)).toBe(false);
+    expect(shipRosterApplyWarns(s, "ship-1", "roster-1")).toBe(false);
+    expect(applyRoster(s, "roster-1", "ship-1").officers.find((o) => o.id === "officer-1")!.assignedShipId).toBe("ship-1");
+  });
+
+  it("the engine takes no notable crew and no bulk off the target ship (why only a seat can be lost)", () => {
+    const bulk: CrewBucket = { profession: "security", rarity: "standard", rank: 1, race: "earthBorn", buff1Id: "sec.boarding", buff2Id: null, count: 2 };
+    const r = roster("roster-1", { seatAssignments: { pilot: "officer-4" }, pinnedNotableCrew: ["notable-3"] });
+    const s0 = withSecondPilot([r]);
+    const s = { ...s0, ships: s0.ships.map((x) => (x.id === "ship-1" ? { ...x, complement: { buckets: [bulk], mode: "active" as const } } : x)) };
+    const after = applyRoster(s, "roster-1", "ship-1");
+    expect(after.notableCrew.find((n) => n.id === "notable-1")!.assignedShipId).toBe("ship-1");
+    expect(after.ships[0].complement!.buckets).toEqual([bulk]);
   });
 
   it("does not warn when the pick's people are already aboard (applying changes nothing here)", () => {
@@ -220,6 +278,166 @@ describe("shipRosterApplyWarns: Apply warns only when an unsaved setup would cha
   it("does not warn when the engine refuses the apply (the button is disabled anyway)", () => {
     const r = roster("roster-1", { seatAssignments: { operations: "officer-3" } });
     expect(shipRosterApplyWarns(onMission(fleet([r])), "ship-1", "roster-1")).toBe(false);
+  });
+});
+
+// === who an apply pulls off other ships ===
+
+describe("rosterApplyPulls / shipRosterApplyConfirm: anyone pulled off another ship is named before Apply", () => {
+  it("names a pinned officer and a pinned notable serving on another idle ship, with that ship, as the engine moves them", () => {
+    const r = roster("roster-1", { seatAssignments: { science: "officer-2" }, pinnedNotableCrew: ["notable-2"] });
+    const s = fleet([r]);
+    const from = shipDisplayLabel(s, s.ships[1]);
+    expect(rosterApplyPulls(s, "roster-1", "ship-1")).toEqual([
+      { id: "officer-2", name: "Officer officer-2", fromShipId: "ship-2", fromShipLabel: from },
+      { id: "notable-2", name: "Notable notable-2", fromShipId: "ship-2", fromShipLabel: from },
+    ]);
+    const after = applyRoster(s, "roster-1", "ship-1");
+    expect(after.officers.find((o) => o.id === "officer-2")!.assignedShipId).toBe("ship-1");
+    expect(after.notableCrew.find((n) => n.id === "notable-2")!.assignedShipId).toBe("ship-1");
+  });
+
+  it("asks even when nothing is lost on this ship (a saved ship, an empty seat filled), under the pull title", () => {
+    const pull = roster("roster-2", { seatAssignments: { science: "officer-2" } });
+    const s = fleet([SHIP1, pull]);
+    expect(shipRosterApplyWarns(s, "ship-1", "roster-2")).toBe(false);
+    const step = shipRosterApplyConfirm(s, "ship-1", "roster-2");
+    expect(step?.title).toBe(ROSTER_PULL_TITLE);
+    expect(step?.unsaved).toBe(false);
+    expect(step?.pulls.map((p) => p.id)).toEqual(["officer-2"]);
+  });
+
+  it("combines the unsaved warning and the pull into one step when both apply", () => {
+    const r = roster("roster-1", { seatAssignments: { pilot: "officer-5" } });
+    const s0 = fleet([r]);
+    const s = { ...s0, officers: [...s0.officers, officer("officer-5", "pilot", "ship-2")], nextOfficerId: 6 };
+    const step = shipRosterApplyConfirm(s, "ship-1", "roster-1");
+    expect(step?.title).toBe("Unsaved Configuration");
+    expect(step?.unsaved).toBe(true);
+    expect(step?.pulls.map((p) => p.id)).toEqual(["officer-5"]);
+  });
+
+  it("the unsaved warning alone has no pulls; an apply with neither opens no step", () => {
+    const evict = roster("roster-1", { seatAssignments: { pilot: "officer-4" } });
+    const additive = roster("roster-2", { seatAssignments: { operations: "officer-3" }, pinnedNotableCrew: ["notable-3"] });
+    const s = withSecondPilot([evict, additive]);
+    expect(shipRosterApplyConfirm(s, "ship-1", "roster-1")).toEqual({ title: "Unsaved Configuration", unsaved: true, pulls: [] });
+    expect(shipRosterApplyConfirm(s, "ship-1", "roster-2")).toBeNull();
+    expect(rosterApplyPulls(s, "roster-2", "ship-1")).toEqual([]);
+  });
+
+  it("does not list someone already aboard, or a notable the caps keep off this ship (the engine leaves it there)", () => {
+    const r = roster("roster-1", { seatAssignments: { pilot: "officer-1" }, pinnedNotableCrew: ["notable-1", "notable-2"] });
+    const s = securityFull([r]);
+    expect(rosterApplyPulls(s, "roster-1", "ship-1")).toEqual([]);
+    expect(applyRoster(s, "roster-1", "ship-1").notableCrew.find((n) => n.id === "notable-2")!.assignedShipId).toBe("ship-2");
+  });
+
+  it("lists no one for a refused apply (the target ship out, or the pin's ship out)", () => {
+    const r = roster("roster-1", { seatAssignments: { science: "officer-2" } });
+    expect(rosterApplyPulls(onMission(fleet([r])), "roster-1", "ship-1")).toEqual([]);
+    expect(shipRosterApplyConfirm(onMission(fleet([r])), "ship-1", "roster-1")).toBeNull();
+    expect(rosterApplyPulls(onExpedition(fleet([r]), "ship-2"), "roster-1", "ship-1")).toEqual([]);
+  });
+
+  it("the same person pinned in two rosters: the second apply on that ship pulls no one; from another ship it pulls them back", () => {
+    const a = roster("roster-1", { name: "A", seatAssignments: { science: "officer-2" } });
+    const b = roster("roster-2", { name: "B", seatAssignments: { science: "officer-2" } });
+    const s = fleet([a, b]);
+    const after = applyRoster(s, "roster-1", "ship-1");
+    expect(rosterApplyPulls(after, "roster-2", "ship-1")).toEqual([]);
+    expect(rosterApplyPulls(after, "roster-2", "ship-2").map((p) => [p.id, p.fromShipId])).toEqual([["officer-2", "ship-1"]]);
+  });
+
+  it("writes the confirm line and the log line naming each person and the ship they left", () => {
+    const pulls = [
+      { id: "officer-2", name: "Ann", fromShipId: "ship-2", fromShipLabel: "Dawn" },
+      { id: "notable-2", name: "Bo", fromShipId: "ship-3", fromShipLabel: "Dusk" },
+    ];
+    expect(rosterPullLine(pulls[0])).toBe("Ann, from Dawn");
+    expect(rosterPullsLogText("Alpha", pulls)).toBe('Roster "Alpha" pulled Ann from Dawn, Bo from Dusk.');
+  });
+});
+
+// === the same person pinned in two rosters ===
+
+describe("two rosters that pin the same people", () => {
+  it("names the first in saved order, and applying the other changes nothing here, so no step opens", () => {
+    const twin = roster("roster-2", { name: "Twin", seatAssignments: { pilot: "officer-1" }, pinnedNotableCrew: ["notable-1"] });
+    const s = fleet([SHIP1, twin]);
+    expect(shipMatchingRosterId(s, "ship-1")).toBe("roster-1");
+    expect(shipRosterStatusText(s, "ship-1")).toBe("Current officers and notable crew match Ship One.");
+    expect(shipRosterApplyConfirm(s, "ship-1", "roster-2")).toBeNull();
+  });
+});
+
+// === a clean apply that skipped a pin at a cap ===
+
+describe("a pin the ship's caps keep out", () => {
+  const capped = roster("roster-1", { name: "Capped", seatAssignments: { pilot: "officer-1" }, pinnedNotableCrew: ["notable-1", "notable-3"] });
+
+  it("still reads as this roster's people, saying so, because applying it again would change nothing", () => {
+    const s = securityFull([capped]);
+    const after = applyRoster(s, "roster-1", "ship-1");
+    expect(after.notableCrew.find((n) => n.id === "notable-3")!.assignedShipId ?? null).toBeNull();
+    expect(shipMatchingRosterId(after, "ship-1")).toBe("roster-1");
+    expect(shipSetupUnsaved(after, "ship-1")).toBe(false);
+    expect(shipRosterStatusText(after, "ship-1")).toBe("Current officers and notable crew match Capped, as far as this ship's caps allow.");
+  });
+
+  it("prefers an exact match over a capped one, whatever the saved order", () => {
+    const exact = roster("roster-2", { name: "Exact", seatAssignments: { pilot: "officer-1" }, pinnedNotableCrew: ["notable-1"] });
+    const s = securityFull([capped, exact]);
+    expect(shipMatchingRosterId(s, "ship-1")).toBe("roster-2");
+    expect(shipRosterStatusText(s, "ship-1")).toBe("Current officers and notable crew match Exact.");
+  });
+
+  it("is no match with room for the pin, or while the ship is locked (a refused apply proves nothing)", () => {
+    expect(shipMatchingRosterId(fleet([capped]), "ship-1")).toBeNull();
+    expect(shipMatchingRosterId(onMission(securityFull([capped])), "ship-1")).toBeNull();
+  });
+});
+
+// === the hull-mismatch line ===
+
+describe("shipRosterGearLine: a linked loadout for another hull stays in the Armory", () => {
+  function linked(lo: Loadout, patch: Partial<PersonnelRoster> = {}): GameState {
+    return { ...fleet([roster("roster-1", { linkedLoadoutId: lo.id, ...patch })]), loadouts: [lo] };
+  }
+
+  it("says so when the loadout is free and pinned to another hull; the engine lands the people and leaves the gear", () => {
+    const s = linked(loadout("loadout-1", "prospectorMiner"), { seatAssignments: { operations: "officer-3" } });
+    expect(shipRosterGearLine(s, "ship-1", "roster-1")).toBe("Gear stays in the Armory: this loadout is for a Prospector.");
+    const after = applyRoster(s, "roster-1", "ship-1");
+    expect(after.officers.find((o) => o.id === "officer-3")!.assignedShipId).toBe("ship-1");
+    expect(after.loadouts[0].checkedOutToShipId).toBeNull();
+  });
+
+  it("uses the right article for the hull's name", () => {
+    const key = (Object.keys(SHIP_TYPES) as ShipTypeKey[]).find((k) => SHIP_TYPES[k].label === "Aurora")!;
+    expect(shipRosterGearLine(linked(loadout("loadout-1", key)), "ship-1", "roster-1")).toBe("Gear stays in the Armory: this loadout is for an Aurora.");
+  });
+
+  it("is silent when the hull matches (the engine checks the loadout out)", () => {
+    const s = linked(loadout("loadout-1", "generalFreighter"));
+    expect(shipRosterGearLine(s, "ship-1", "roster-1")).toBeNull();
+    expect(applyRoster(s, "roster-1", "ship-1").loadouts[0].checkedOutToShipId).toBe("ship-1");
+  });
+
+  it("is silent when another ship wears it: it stays on that ship, not in the Armory", () => {
+    const s = linked(loadout("loadout-1", "prospectorMiner", "ship-2"));
+    expect(shipRosterGearLine(s, "ship-1", "roster-1")).toBeNull();
+    expect(applyRoster(s, "roster-1", "ship-1").loadouts[0].checkedOutToShipId).toBe("ship-2");
+  });
+
+  it("is silent with no link, a loadout that is gone, a gear-only roster, an unknown ship, or a refused apply", () => {
+    const lo = loadout("loadout-1", "prospectorMiner");
+    expect(shipRosterGearLine(fleet([roster("roster-1")]), "ship-1", "roster-1")).toBeNull();
+    expect(shipRosterGearLine({ ...linked(lo), loadouts: [] }, "ship-1", "roster-1")).toBeNull();
+    expect(shipRosterGearLine(linked(lo, { includePeople: false }), "ship-1", "roster-1")).toBeNull();
+    expect(shipRosterGearLine(linked(lo), "ship-gone", "roster-1")).toBeNull();
+    expect(shipRosterGearLine(onMission(linked(lo)), "ship-1", "roster-1")).toBeNull();
+    expect(shipRosterGearLine(linked(lo), "ship-1", "")).toBeNull();
   });
 });
 
@@ -275,5 +493,49 @@ describe("shipRosterApplyBlock: the disabled reason", () => {
     expect(shipRosterApplyBlock(s, "ship-1", "")).toEqual({ text: "Choose a roster to apply.", locked: false });
     expect(shipRosterApplyBlock(s, "ship-1", "roster-g")).toEqual({ text: "This roster carries no people to apply.", locked: false });
     expect(shipRosterApplyBlock(s, "ship-1", "roster-gone")).toEqual({ text: "That roster no longer exists.", locked: false });
+  });
+});
+
+describe("shipRosterBlockLine: the ship's own lock is stated once, by the pane", () => {
+  it("prints no line for the ship's own lock, though Apply stays blocked with the reason", () => {
+    const s = onMission(fleet([SHIP1]));
+    expect(shipRosterBlockLine(s, "ship-1", "roster-1")).toBeNull();
+    expect(shipRosterApplyBlock(s, "ship-1", "roster-1")?.locked).toBe(true);
+  });
+
+  it("still prints a pinned person's lock on another ship, which no pane states", () => {
+    const s = onExpedition(fleet([roster("roster-1", { seatAssignments: { science: "officer-2" } })]), "ship-2");
+    expect(shipRosterBlockLine(s, "ship-1", "roster-1")).toEqual(shipRosterApplyBlock(s, "ship-1", "roster-1"));
+    expect(shipRosterBlockLine(s, "ship-1", "roster-1")).not.toBeNull();
+  });
+});
+
+// The facility's Apply reads this: its words must stay what the facility printed itself before CP-17.
+describe("rosterApplyRefusal: the facility's gate words", () => {
+  it("is null when the gate is open, including a gear-only roster (the facility has no line for that)", () => {
+    expect(rosterApplyRefusal(fleet([SHIP1]), "roster-1", "ship-1")).toBeNull();
+    expect(rosterApplyRefusal(fleet([roster("roster-1", { includePeople: false })]), "roster-1", "ship-1")).toBeNull();
+  });
+
+  it("gives the bare reason for the title and the full line, as the gate text plus the lock's duration", () => {
+    const s = onMission(fleet([SHIP1]));
+    expect(rosterApplyRefusal(s, "roster-1", "ship-1")).toEqual({
+      why: "Ship is out on a mission",
+      text: "Ship is out on a mission: crew changes wait until it returns.",
+      locked: true,
+    });
+    const pin = onExpedition(fleet([roster("roster-1", { seatAssignments: { science: "officer-2" } })]), "ship-2");
+    const gate = canApplyRoster(pin, "roster-1", "ship-1");
+    expect(rosterApplyRefusal(pin, "roster-1", "ship-1")).toEqual({
+      why: rosterApplyGateText(pin, gate),
+      text: `${rosterApplyGateText(pin, gate)}: crew changes wait until its expedition is claimed.`,
+      locked: true,
+    });
+  });
+
+  it("has no lock glyph or duration for a roster or ship that is gone", () => {
+    const s = fleet([SHIP1]);
+    expect(rosterApplyRefusal(s, "roster-gone", "ship-1")).toEqual({ why: "That roster no longer exists", text: "That roster no longer exists.", locked: false });
+    expect(rosterApplyRefusal(s, "roster-1", "ship-gone")).toEqual({ why: "That ship is no longer in the fleet", text: "That ship is no longer in the fleet.", locked: false });
   });
 });

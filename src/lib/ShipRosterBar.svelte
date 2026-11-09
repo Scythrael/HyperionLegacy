@@ -11,10 +11,13 @@
   //   - A select of saved rosters plus an Apply button. Picking in the select never acts; only Apply does.
   //   - Apply runs the host's onApplyRoster, App's doApplyRoster (the same handler the Personnel Rosters
   //     facility uses), so the linked loadout travels and every refusal is logged exactly as from there.
-  //   - When the ship's officers and notable crew match no saved roster (and the pick would change them), Apply
-  //     first opens the unsaved configuration warning (ActionModal, Cancel / Apply anyway), the facility's
-  //     Unsaved Name pattern.
-  //   - Disabled with the reason while the ship is crew-locked (CP-6) or the pick is refused by the engine.
+  //   - One confirm step before Apply (ActionModal, Cancel / Apply anyway, the facility's Unsaved Name pattern) when
+  //     either applies, both in the same popup: the ship's officers and notable crew match no saved roster and the
+  //     pick would really take an officer out of a seat, or the pick would pull someone off another ship (named, with
+  //     that ship). An apply that only adds people from the pool or the unassigned never asks.
+  //   - Disabled with the reason while the ship is crew-locked (CP-6) or the pick is refused by the engine. The ship's
+  //     own lock is stated by the pane below (and Apply's title), never twice on screen.
+  //   - A linked loadout for another hull: a short line says the gear stays in the Armory, before Apply.
   //   - No saved roster that carries people: a truthful empty line pointing at the facility.
   // Every decision is a pure function in shipRosterDisplay.ts (tested); this file only presents them.
   // RESPONSIVE: one DOM; the select takes the row's free width and the row wraps on a narrow screen.
@@ -25,11 +28,15 @@
   import type { GameState } from "./game/model";
   import {
     defaultShipRosterId,
+    rosterPullLine,
     shipRosterApplyBlock,
+    shipRosterApplyConfirm,
+    shipRosterBlockLine,
     shipRosterEmptyText,
+    shipRosterGearLine,
     shipRosterOptions,
     shipRosterStatusText,
-    shipRosterApplyWarns,
+    type ShipRosterConfirm,
   } from "./shipRosterDisplay";
 
   export let state: GameState;
@@ -41,29 +48,31 @@
   // stops being offered (deleted, or its people were turned off in the facility).
   let pickId = "";
   let lastShipId: string | null = null;
-  let confirmOpen = false;
+  // The open confirm step (null = closed).
+  let confirmStep: ShipRosterConfirm | null = null;
 
   $: options = shipRosterOptions(state);
   $: if (shipId !== lastShipId || (pickId !== "" && !options.some((o) => o.id === pickId)) || (pickId === "" && options.length > 0)) {
     lastShipId = shipId;
     pickId = defaultShipRosterId(state, shipId);
-    confirmOpen = false;
+    confirmStep = null;
   }
   $: emptyText = shipRosterEmptyText(state);
   $: statusText = shipRosterStatusText(state, shipId);
   $: block = shipRosterApplyBlock(state, shipId, pickId);
+  $: blockLine = shipRosterBlockLine(state, shipId, pickId);
+  $: gearLine = shipRosterGearLine(state, shipId, pickId);
+  // A lock that arrives while the confirm step is open closes it: "Apply anyway" could only do nothing.
+  $: if (block !== null) confirmStep = null;
   $: pickName = options.find((o) => o.id === pickId)?.label ?? "";
 
   function requestApply(): void {
     if (block !== null || pickId === "") return;
-    if (shipRosterApplyWarns(state, shipId, pickId)) {
-      confirmOpen = true;
-      return;
-    }
-    onApplyRoster(pickId, shipId);
+    confirmStep = shipRosterApplyConfirm(state, shipId, pickId);
+    if (confirmStep === null) onApplyRoster(pickId, shipId);
   }
   function confirmApply(): void {
-    confirmOpen = false;
+    confirmStep = null;
     if (block === null && pickId !== "") onApplyRoster(pickId, shipId);
   }
 </script>
@@ -89,25 +98,39 @@
         Apply
       </button>
     </div>
-    {#if block !== null && pickId !== ""}
-      <p class="srb-lock" role="note">{#if block.locked}<Icon name="lock" /> {/if}{block.text}</p>
+    {#if blockLine !== null}
+      <p class="srb-lock" role="note">{#if blockLine.locked}<Icon name="lock" /> {/if}{blockLine.text}</p>
     {:else if statusText !== null}
       <p class="srb-status">{statusText}</p>
+    {/if}
+    {#if gearLine !== null}
+      <p class="srb-lock" role="note">{gearLine}</p>
     {/if}
   {/if}
 </div>
 
-{#if confirmOpen}
-  <ActionModal title="Unsaved Configuration" onClose={() => (confirmOpen = false)}>
-    <p class="srb-confirm-text">
-      This ship's current configuration is unsaved: no saved roster matches its officers and notable crew.
-      Applying <strong>{pickName}</strong> will lose it. Apply anyway?
-    </p>
-    <p class="srb-confirm-note">
-      No one is dismissed: an officer moved out of a seat waits unassigned, and crew already aboard stay.
-    </p>
+{#if confirmStep !== null}
+  <ActionModal title={confirmStep.title} onClose={() => (confirmStep = null)}>
+    {#if confirmStep.unsaved}
+      <p class="srb-confirm-text">
+        This ship's current configuration is unsaved: no saved roster matches its officers and notable crew.
+        Applying <strong>{pickName}</strong> will lose it.
+      </p>
+      <p class="srb-confirm-note">
+        No one is dismissed: an officer moved out of a seat waits unassigned, and crew already aboard stay.
+      </p>
+    {/if}
+    {#if confirmStep.pulls.length > 0}
+      <p class="srb-confirm-text">Applying <strong>{pickName}</strong> pulls these people to this ship:</p>
+      <ul class="srb-confirm-pulls">
+        {#each confirmStep.pulls as pull (pull.id)}
+          <li>{rosterPullLine(pull)}</li>
+        {/each}
+      </ul>
+    {/if}
+    <p class="srb-confirm-text">Apply anyway?</p>
     <svelte:fragment slot="footer">
-      <button type="button" class="srb-btn plain" on:click={() => (confirmOpen = false)}>Cancel</button>
+      <button type="button" class="srb-btn plain" on:click={() => (confirmStep = null)}>Cancel</button>
       <button type="button" class="srb-btn danger" on:click={confirmApply}>Apply anyway</button>
     </svelte:fragment>
   </ActionModal>
@@ -209,5 +232,12 @@
   .srb-confirm-note {
     font-size: var(--text-xs);
     color: var(--color-text-dim);
+  }
+  .srb-confirm-pulls {
+    margin: 0 0 8px;
+    padding-left: 18px;
+    font-size: var(--text-sm);
+    color: var(--color-text-primary);
+    line-height: 1.5;
   }
 </style>
