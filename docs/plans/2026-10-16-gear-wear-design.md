@@ -568,3 +568,16 @@ is the training one). Goldens first (`gatheringTrainingWearGoldens.test.ts`, the
 **For step 5 (patrol use wear):** a patrol records no use event today. When step 5 adds one, skip the training cycle
 (`isTrainingPatrol`), as the battle sources do. Tutorials do not exist yet (the quests patch); their practice runs
 take no wear by W9 when built.
+
+## USER ANSWERS (2026-11-09): the two clashes that blocked step 5
+
+- **Use floor:** "Keep the 60% stop (Recommended)". As built: ordinary use stops at 60%, only battle damage goes lower,
+  a worn piece still works, nothing breaks or blocks a run. This replaces the "no floor" said on 2026-11-02. (The hub
+  first asked this with a wrong description, "gear below 60% can't be used"; the user re-answered the corrected
+  question, so only this answer counts.)
+- **Quick Service:** "None, always automatic (Recommended)". No paid rush and no instant repair; repair stays free and
+  automatic. This replaces the 2026-10-16 "Free auto + paid rush". Step 5 therefore drops Quick Service, and credit sink
+  S1 and OC-C1 in docs/plans/2026-10-16-credit-sinks-pass.md fall away. The credit sinks pass may need another sink in
+  its place (hub note; the user's 2026-10-16 reason for a paid repair was finding proper credit sinks).
+- Gear wear step 5 (wear UI per the approved mockup, Overtime on repair, patrol use wear) is now unblocked. Check the
+  mockup https://claude.ai/artifact/HRa9zUf1XRrPoh9tuinhEF for any Quick Service control before building and drop it.
