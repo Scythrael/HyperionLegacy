@@ -799,6 +799,42 @@ differ from every saved roster, Apply first shows the locked "unsaved configurat
 450 to 452); disabled with the reason while the ship is locked (CP-6). **Tests:** display helper picks and the warning
 condition. **UI:** CMR-10 one-liner; follows the existing select + button pattern, no mockup needed.
 
+**Carry note (2026-11-06, CP-17 built; UI only, no engine or save change, still v71; no registry row, a picker carries
+no stat; pending unchanged at 35):** `ShipRosterBar.svelte` sits above the Senior Staff and Complement panes of the ship
+page (App renders it in both branches) and calls App's `doApplyRoster`, the facility's handler, so the linked loadout,
+the EM-2 power log and the CP-6 refusal log are shared. Decisions live in `shipRosterDisplay.ts` (tested):
+`shipRosterOptions` lists the rosters with `includePeople` (the facility disables Apply for the rest; it enforces no hull
+filter, so neither does this); "saved" (`shipMatchesRoster`) = every seat holds the roster's officer (empty matches
+unpinned) and the notables aboard are exactly its pins, as a set, with a pin the engine would skip read as no pin; the
+bulk complement is not compared. `shipSetupUnsaved` = the ship has people and matches no roster; Apply warns
+(`shipRosterApplyWarns`) only when it is unsaved AND the engine's `applyRoster` would change this ship's officers or
+notables, so the words stay true. `shipRosterApplyBlock`: the ship's own crew lock first (`crewLockReasonText` +
+`crewLockUntilText`, the facility's line), then `canApplyRoster`'s gate words. No rosters: a truthful empty line (the
+facility's empty-hint pattern), not a hidden bar. The crew spec (crew-0.14.0-plan 443 to 445) fixes the meaning, not the
+words, so the modal follows the facility's Unsaved Name pattern (title "Unsaved Configuration", Cancel / Apply anyway).
+Help: rosters had no topic; new `personnelRosters` topic. QA: `docs/qa/2026-11-06-cp17-roster-dropdown-qa.html`.
+
+**Fix round (2026-11-09, the user's CP-17 calls plus the review's fixes; display and log only, no engine or save change,
+still v71, pending still 35; answers recorded verbatim under USER ANSWERS (2026-11-09): CP-17 calls):** supersedes the
+carry note's warning rule. `shipRosterApplyWarns` now needs a real loss: a seat on the target ship goes from officer X to
+someone else. Confirmed in `applyRosterSteps`: step (a) is the only removal of a person from the target ship, step (b) and
+step (c) only add. Gear is the other thing that can leave: a linked loadout that lands checks in the ship's current
+loadout or returns its manual gear to the spare pool. Nothing is destroyed and gear is not part of a roster's people, so
+it does not warn (as before). New `rosterApplyPulls` reads the engine's own `applyRoster` back to list who leaves another
+ship (officers, then notable crew; a notable the caps keep out is not listed). `shipRosterApplyConfirm` is the picker's
+ONE confirm step, combining the unsaved warning and the pull list; the facility has a pull-only confirm (it never had the
+unsaved warning, and the answers did not add it). App's `doApplyRoster` adds a second log line, `Roster "X" pulled A from
+Ship, B from Ship.`, read before the apply; "Applied roster" is unchanged and no golden or test reads either line, since
+`doApplyRoster` is App-only. `shipRosterGearLine` is the hull line for both surfaces, worded from `checkOutTransition`
+("type must match the pin"): a free loadout pinned to another hull. A loadout another ship wears never reaches that rule
+and stays on that ship, so it gets no line, and the Help text now says so rather than saying it stays in the Armory. The
+status line's cap case is fixed: `rosterMatch` reads a ship as "capped" when its seats match, its notables are all pins,
+and re-applying (read back from the engine) would change no one, so a clean apply that skipped a pin says "match X, as far
+as this ship's caps allow", and the unsaved warning agrees with it. The bar states a pinned person's lock but not the
+ship's own: both panes under it already carry that line, and Apply keeps the reason as its title. The facility shares the
+gate-to-text mapping through `rosterApplyRefusal` rather than `shipRosterApplyBlock` itself, because that one's gear-only
+branch would add a line the facility never showed; its output is unchanged.
+
 ### CP-18: Soft captain level cap (Task 31)
 
 **Files:** `model.ts` `xpForNextLevel` (+ `CAPTAIN_SOFT_CAP_LEVEL` 30, `CAPTAIN_SOFT_CAP_GROWTH` 1.08
@@ -1125,3 +1161,13 @@ display: A a line per panel and a lock on each sub-tab; (9) benched list home: A
 - Captain titles: "Log for later (Recommended)". Logged in SUGGESTIONS.md beside the CAPTAIN IDENTITY and personnel
   achievements entries: earned captain titles (candidates: the chosen specialization, prestige capstones), to plug into
   the Hall's "Promotions and titles" notable kind when built. Nothing is recorded today.
+
+## USER ANSWERS (2026-11-09): CP-17 calls
+
+- Warning: "Only when something is lost (Recommended)". No warning on a no-op apply, so "will lose it" is always true.
+- Tabs: "Senior Staff + Complement only (Recommended)".
+- Gear-only rosters: "Keep matching the facility (Recommended)".
+- Hull-mismatched loadout: "Say so in both (Recommended)". A short truthful line in both the ship bar and the facility,
+  with no silent outcomes.
+- Pulled crew: "Warn and log it (Recommended)". Before Apply, name who will be pulled from which ship and let the player
+  cancel; the log line says so too. In both the ship dropdown and the facility.

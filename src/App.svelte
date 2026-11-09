@@ -36,6 +36,9 @@
   // Crew 0.14.0 (phase 4d): the Personnel Rosters facility screen (saved PEOPLE loadouts). Same
   // posture as the two panels above: reads live state, routes every mutation to the do* handlers.
   import PersonnelRostersPanel from "./lib/PersonnelRostersPanel.svelte";
+  // 0.14.0 Complement CP-17: the roster picker above a ship's Senior Staff and Complement panes.
+  import ShipRosterBar from "./lib/ShipRosterBar.svelte";
+  import { rosterApplyPulls, rosterPullsLogText } from "./lib/shipRosterDisplay";
   // CP-10: the Personnel Rosters facility's Crew Pool tab, and the one transfer engine every picker routes to.
   import CrewPoolPanel from "./lib/CrewPoolPanel.svelte";
   import { transferCrew, crewTransferGateText, type CrewTransferEndpoint, type CrewTransferPick, type CrewTransferResult } from "./lib/game/crewTransfer";
@@ -6747,6 +6750,8 @@
     // E-MOD EM-2: a linked loadout the power gate keeps in the Armory is named in the log (the rest still applies).
     const powerShort = canApplyRoster(state, rosterId, shipId).ok ? rosterLoadoutPowerShortfall(state, rosterId, shipId) : 0;
     if (powerShort > 0) pushLog(`Roster "${rosterName(rosterId)}": its linked loadout stayed in the Armory, it ${overPowerReasonText(powerShort)}.`);
+    // CP-17 (user 2026-11-09, "Warn and log it"): read before the apply, so the log names the ship each person left.
+    const pulls = rosterApplyPulls(state, rosterId, shipId);
     const next = applyRoster(state, rosterId, shipId);
     if (next === state) {
       const why = rosterApplyGateText(state, canApplyRoster(state, rosterId, shipId));
@@ -6756,6 +6761,7 @@
     state = next;
     doSave();
     pushLog(`Applied roster "${rosterName(rosterId)}" to ${devShipLabel(shipId)}.`);
+    if (pulls.length > 0) pushLog(rosterPullsLogText(rosterName(rosterId), pulls));
   }
 
   // ── Ship Systems bay (Equipment 0.11.0 Phase D, Warehouse "Ship Systems" tab) ──
@@ -17283,6 +17289,9 @@
              already-hired officers, review a seated officer's rank ladder + provided stats +
              objective-gated promotion checklist, and reassign / dismiss. All side effects
              route to the do* handlers below (pure seniorStaff.ts engine + doSave + pushLog). -->
+        <!-- CP-17 (E-CREW Task 30): the saved-roster picker, shared by Senior Staff and Complement. Apply runs
+             doApplyRoster, the facility's own handler, so the linked loadout travels the same way. -->
+        <ShipRosterBar {state} shipId={ship.id} onApplyRoster={doApplyRoster} />
         <SeniorStaffPanel
           {state}
           shipId={ship.id}
@@ -17323,6 +17332,7 @@
              behind a hue-by-utilization fill, crewmen shown uncapped as "N+"), and the assigned
              Notable Crew strip. Pure read/present; the only side effect, the Auto-crew toggle,
              routes to doSetComplementMode (flips ship.complement.mode + doSave). -->
+        <ShipRosterBar {state} shipId={ship.id} onApplyRoster={doApplyRoster} />
         <ComplementPanel
           {state}
           shipId={ship.id}

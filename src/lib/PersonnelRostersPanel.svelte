@@ -48,10 +48,11 @@
   import { crewRankLabel } from "./game/crewRank";
   import { complementTotalCap } from "./game/commandStructure";
   import { CREW_RACES } from "./game/crewRaces";
-  import { canApplyRoster, rosterApplyGateText, rosterSquadLinkSlots } from "./game/personnelRosters";
+  import { rosterSquadLinkSlots } from "./game/personnelRosters";
   import { groundTeamDefaultName } from "./game/groundTeams";
   import { rosterSquadOptions } from "./squadLoadoutDisplay";
-  import { crewLockReason, crewLockUntilText } from "./game/crewLock";
+  import { crewLockReason } from "./game/crewLock";
+  import { ROSTER_PULL_TITLE, rosterApplyPulls, rosterApplyRefusal, rosterPullLine, shipRosterGearLine, type RosterPull } from "./shipRosterDisplay";
   import Icon from "./ui/Icon.svelte";
 
   // --- Props ------------------------------------------------------------------
@@ -105,6 +106,7 @@
   let applyShipId = "";
   // Modal drivers.
   let confirmUpdate = false; // Update confirm open
+  let pendingPulls: RosterPull[] | null = null; // CP-17: the people Apply would pull off other ships (confirm open)
   let confirmDeleteId: string | null = null; // roster pending a Delete confirm
   let pendingSwapId: string | null = null; // roster the user tried to switch to while dirty
 
@@ -285,16 +287,26 @@
   function moveNotable(notableId: string, dir: "up" | "down"): void {
     if (selectedRoster !== null) onReorderNotable(selectedRoster.id, notableId, dir);
   }
+  // CP-17 (user 2026-11-09, "Warn and log it"): anyone Apply would pull off another ship is named first, with a Cancel.
   function applyToShip(): void {
-    if (selectedRoster !== null && applyShipId) onApplyRoster(selectedRoster.id, applyShipId);
+    if (selectedRoster === null || !applyShipId) return;
+    const pulls = rosterApplyPulls(state, selectedRoster.id, applyShipId);
+    if (pulls.length > 0) pendingPulls = pulls;
+    else onApplyRoster(selectedRoster.id, applyShipId);
+  }
+  function confirmPulls(): void {
+    pendingPulls = null;
+    if (selectedRoster !== null && applyShipId && applyRefusal === null) onApplyRoster(selectedRoster.id, applyShipId);
   }
 
   // CP-6: Apply refuses WHOLE while the target ship, or a ship a pinned officer / notable sits on, is
   // crew-locked (a captain mission, or an expedition until it is claimed). The engine gate gives the reason,
   // shown as text under the disabled button (color is never the only signal).
-  $: applyGate = selectedRoster !== null && applyShipId ? canApplyRoster(state, selectedRoster.id, applyShipId) : null;
-  $: applyWhy = applyGate === null ? undefined : rosterApplyGateText(state, applyGate);
-  $: applyLockReason = applyGate !== null && !applyGate.ok && "lockedShipId" in applyGate ? crewLockReason(state, applyGate.lockedShipId) : null;
+  $: applyRefusal = selectedRoster !== null && applyShipId ? rosterApplyRefusal(state, selectedRoster.id, applyShipId) : null;
+  // A lock that arrives while the pull confirm is open closes it: its Apply could only do nothing.
+  $: if (applyRefusal !== null) pendingPulls = null;
+  // CP-17: a linked loadout for another hull stays in the Armory; say so before Apply, as the ship's picker does.
+  $: applyGearLine = selectedRoster !== null && applyShipId ? shipRosterGearLine(state, applyShipId, selectedRoster.id) : null;
 
   // The pending-swap modal needs the target roster's name for the message.
   $: swapTargetName =
@@ -588,23 +600,45 @@
             <button
               type="button"
               class="pr-btn primary"
-              disabled={!applyShipId || !roster.includePeople || applyWhy !== undefined}
-              title={applyWhy ?? (roster.includePeople ? "Apply this roster's people to the ship" : "This roster carries no people to apply")}
+              disabled={!applyShipId || !roster.includePeople || applyRefusal !== null}
+              title={applyRefusal?.why ?? (roster.includePeople ? "Apply this roster's people to the ship" : "This roster carries no people to apply")}
               on:click={applyToShip}
             >
               Apply
             </button>
           </div>
-          {#if applyWhy !== undefined}
+          {#if applyRefusal !== null}
             <p class="pr-lock" role="note">
-              {#if applyLockReason !== null}<Icon name="lock" /> {applyWhy}: crew changes wait {crewLockUntilText(applyLockReason)}.{:else}{applyWhy}.{/if}
+              {#if applyRefusal.locked}<Icon name="lock" /> {/if}{applyRefusal.text}
             </p>
+          {/if}
+          {#if applyGearLine !== null}
+            <p class="pr-lock" role="note">{applyGearLine}</p>
           {/if}
         {/if}
       </div>
     {/if}
   </div>
 </div>
+
+<!-- CP-17: PULLED-PEOPLE confirm -->
+{#if pendingPulls !== null && selectedRoster !== null}
+  <ActionModal title={ROSTER_PULL_TITLE} onClose={() => (pendingPulls = null)}>
+    <p class="pr-confirm-text">
+      Applying <strong>{selectedRoster.name}</strong> to <strong>{shipLabel(applyShipId)}</strong> pulls these people to that ship:
+    </p>
+    <ul class="pr-confirm-pulls">
+      {#each pendingPulls as pull (pull.id)}
+        <li>{rosterPullLine(pull)}</li>
+      {/each}
+    </ul>
+    <p class="pr-confirm-text">Apply anyway?</p>
+    <svelte:fragment slot="footer">
+      <button type="button" class="pr-btn" on:click={() => (pendingPulls = null)}>Cancel</button>
+      <button type="button" class="pr-btn danger" on:click={confirmPulls}>Apply anyway</button>
+    </svelte:fragment>
+  </ActionModal>
+{/if}
 
 <!-- UPDATE confirm -->
 {#if confirmUpdate && selectedRoster !== null}
@@ -1092,6 +1126,13 @@
     font-style: italic;
     line-height: 1.5;
     padding: 4px 0;
+  }
+  .pr-confirm-pulls {
+    margin: 0 0 8px;
+    padding-left: 18px;
+    font-size: var(--text-sm);
+    color: var(--color-text-primary);
+    line-height: 1.5;
   }
   .pr-confirm-text {
     font-size: var(--text-sm);
