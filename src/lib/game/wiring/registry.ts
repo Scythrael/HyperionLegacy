@@ -543,10 +543,17 @@ function pending(owner: string, contexts?: readonly ContextId[]): WiringStatus {
 // dropped by the user, 2026-11-09; patrol use wear built and then REMOVED by the user, 2026-11-09 "Combat only on
 // patrols": a patrol wears its gear by battle alone). Each step flips its entries live in the same commit. Step 4 flipped
 // every entry it owned (the battle sources, the combat consumers, the Damage Control Suite's fires and lines, the
-// defense and pod toughness rows); the Reactor Core's power output consumer is re-owned to the user's EM-4 open call
-// (item 4, the drive lift reads it pristine as built). Step 5 took wear:audit:gearRepairOvertime live.
+// defense and pod toughness rows); the Reactor Core's power output consumer was re-owned to the user's EM-4 open call
+// (item 4, the drive lift reads it pristine as built). Step 5 took wear:audit:gearRepairOvertime live, and the user's
+// 2026-11-09 answer to that EM-4 call ("Stays full (Recommended)": wear never cuts reactor power output) closed the
+// reactor row as LIVE and not applicable (REACTOR_OUTPUT_STAYS_FULL).
 const GEAR_WEAR_STEP_3 = "gear wear step 3 (use wear sources, repair contexts and settling at events)";
-const EM4_WORN_OUTPUT_CALL = "the user's EM-4 open call (review item 4, material lines plan): the drive lift reads the Reactor Core's PRISTINE output as built ((a) keep pristine; (b) read the worn output); in combat the core's wear acts through its true-condition pool (wear:WEAR_SOURCES:reactorCore:hitsTaken), never a second penalty (user W3)";
+// The user's answer to the EM-4 open call (2026-11-09, "Stays full (Recommended)"). Wear never cuts reactor power output:
+// every reader (the install gate, design 4.3; the combat power budget; the reactor surplus drive lift) reads the
+// PRISTINE output, and in combat the core's wear acts through its true-condition pool alone (user W3). The row is kept
+// LIVE with notApplicable (the registry's record of a deliberately unaffected stat), never left pending.
+const REACTOR_OUTPUT_STAYS_FULL =
+  "wear never cuts reactor power output (the user's answer to the EM-4 open call, 2026-11-09: \"Stays full (Recommended)\"): the install gate, the combat power budget and the reactor surplus drive lift all read the PRISTINE output; in combat the core's wear acts through its true-condition pool alone (wear:WEAR_SOURCES:reactorCore:hitsTaken, user W3)";
 // The user's T3 deferrals (capture 2026-10-15 section 3: "Move all five (Recommended)").
 const T3 = "capture 2026-10-15 section 3 T3 (moved to 0.14.x)";
 // G1-4: the guest quarters sources and the short-range template catalog are LIVE at mission:shortRange (the cycle
@@ -7364,9 +7371,17 @@ function wearEntries(): WiringEntry[] {
     // 0.13.6 (an infinite fuel budget: facility:audit:fuelAutoBuy); reach reads the pristine drive (design 4.3).
     "ftlDrive:engineEfficiency": pending("S4-A02 (the fuel-economy cleanup: a run's fuel price is engine efficiency's only run-time reader, unreachable since 0.13.6; reach reads the pristine drive, design 4.3)"),
     // The reactor's power output is read by the install gate (pristine), the combat power budget, where combat's own
-    // model is the authority (W3), and since E-MOD EM-4 the reactor surplus drive lift, which reads it pristine too
-    // ([PROVISIONAL], an open call for the user: reactorSurplus.ts).
-    "reactorCore:powerOutput": pending(EM4_WORN_OUTPUT_CALL),
+    // model is the authority (W3), and since E-MOD EM-4 the reactor surplus drive lift, which reads it pristine too.
+    // The user closed the EM-4 open call on 2026-11-09 ("Stays full (Recommended)"): wear never cuts it. Live, not
+    // applicable: there is nothing for wear to move (gearWearStep5Registry.fixture.ts reads it back to pending).
+    "reactorCore:powerOutput": {
+      claim: "A worn Reactor Core's power output stays full: wear never cuts it (its wear acts in combat through its true-condition pool)",
+      status: LIVE,
+      probe: undefined,
+      on: identity,
+      contexts: [],
+      notApplicable: REACTOR_OUTPUT_STAYS_FULL,
+    },
     "specUtility:lines": {
       // Gear wear step 4: and a Damage Control Suite's lines (the Shipyard repair speed, the patrol wave patch-up).
       contexts: ["mission:survey", "mission:shortRange", "expedition:groundOps", "shipyard", "patrol"],

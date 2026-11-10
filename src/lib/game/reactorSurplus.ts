@@ -56,9 +56,9 @@ export function reactorLiftFlagged(flag: unknown): boolean {
   return flag !== null && typeof flag === "object" && (flag as { version?: unknown }).version === REACTOR_LIFT_VERSION;
 }
 
-// [PROVISIONAL] (EM-4 review, an open call for the user): the lift reads the Reactor Core's PRISTINE output, as the
-// install gate does (gear wear design 4.3); a worn core does not lift less. Gear wear step 4 may make it read the
-// worn output instead.
+// The lift reads the Reactor Core's PRISTINE output, as the install gate does (gear wear design 4.3); a worn core does not
+// lift less. Settled by the user 2026-11-09 (the EM-4 open call, "Stays full (Recommended)"): wear never cuts reactor
+// power output (registry wear:WEAR_EFFICIENCY:reactorCore:powerOutput, live and not applicable).
 
 // The flag a run dispatched now on a ship with `pieces` installed carries. Written only when the installed Reactor Core
 // is not a Standard-Issue one (it supplies power or has mass): the gear is locked while the ship is out (equipment.ts

@@ -658,6 +658,10 @@ earlier pins). Tests: `emodEm4Readouts.test.ts`.
 PRISTINE output (like the install gate), so a worn core lifts as much as a new one. (a) Keep pristine (as built; the
 core's wear acts in combat through its four-state model). (b) Read the worn output, like the other run consumers, from
 gear wear step 4.
+**ANSWERED (user 2026-11-09): "Stays full (Recommended)"**, option (a): wear never cuts reactor power output. The drive
+lift, the install gate and the combat power budget all read the pristine output; the core's wear acts in combat through
+its true-condition pool alone. The registry row `wear:WEAR_EFFICIENCY:reactorCore:powerOutput` is LIVE and not
+applicable (re-owned from this call to the answer; `gearWearStep5Registry.fixture.ts` reads it back for the earlier pins).
 
 **EM-5 Module slot and catalog (engine).** The `module` slot, cap (call M1), `moduleSlotsFull`, `duplicateModule`
 (call M8), physicals, catalog, mint path, Passive and Conditional effects through the ship sheet and combat bridge,
