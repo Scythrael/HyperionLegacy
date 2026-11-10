@@ -80,3 +80,7 @@ steps, and (2) with two captains, the key order of `lifetimeStats.missionsComple
 Production only steps 1 s or less, so players are unaffected today. Fixing it changes output order, so it is NOT part of
 the behavior-preserving pass: give it its own small determinism slice (goldens first) before the release QA rounds.
 Related: survey parity at 997 s chunks differs because an extraction's berth budget is per call (EM-4 precedent).
+**Perf finding (2026-11-09, gear wear step 5 verification, NOT caused by step 5):** offline catch-up costs about 4 ms
+per crew transport window, and `crewPool` has no size bound (a test save that skipped 1,666 windows built a 172 KB pool
+and slowed later ticks to 1.4 to 2 ms on both old and new code). Real saves keep `lastTransportWindow` current, so play
+is unaffected today; look at it with the chunked offline catch-up item in SUGGESTIONS.md (long absences on phones).
