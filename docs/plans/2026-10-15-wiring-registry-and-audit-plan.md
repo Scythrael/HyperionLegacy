@@ -2249,3 +2249,37 @@ stalls run 2 on 5 of 200 (2.5%, under the 5% bar: a margin of 5 runs); rank1si a
   "Torpedoes on fitting enemies": give the Concussion Torpedo (missile trait) to enemy ship types where it makes sense;
   the hub proposes WHICH enemies for the user's OK before building.
 - CP-4 rest, the Flight Deck Integrity facet on drone replenishment below half hull (was [PROPOSAL]): "Build it".
+
+## WR-13 BUILT (2026-11-10): the audit leftovers cleanup (S4-A02, the drive wear line, OC-C4)
+
+**S4-A02 "Remove it":** the old fuel economy is gone. Unreachability proof: economyTick is the only production caller
+of `tickCaptainMission` and `tickCaptainPatrol`; it seeded the shared fuel budget at `+Infinity` and only ever
+subtracted finite need (fuelNeeded / fuelForRoundTrip with the clamped efficiency), so `fuelRemaining >= need` always
+held: the credit auto-buy, the "truly broke" stop (stop reason `fuel`, patrol ending `outOfFuel`) and the +2 refuel
+penalty never ran, and `totalCreditsSpentOnFuel` was always 0. Removed: `FUEL_CREDITS_PER_UNIT`,
+`REFUEL_PENALTY_TICKS`, the fuel budget / per-cycle / credit-price params of both tick helpers, their `fuelSpent` /
+`creditsSpentOnFuel` results, `relaunchFuelPaid`, economyTick's fuel budget, fuel sums and the per-cycle fuel prices.
+`creditsBudget` stays on `tickCaptainMission` (a transport's working capital reads it). Kept for old saves: the
+`fuel` stop reason and `outOfFuel` ending (types and their recap / log labels, marked legacy), and a tolerant read of
+`refuelDelayTicks` so a cycle in flight from a pre-0.13.6 save plays out exactly as saved (fuel.test.ts pins it).
+**Held for a hub call:** a fresh cycle still stamps the constant `refuelDelayTicks: 0`. Dropping that key moves the
+state-hash goldens (shortRange `fleet`, EM-0 `mission:shortOreRun` / `mission:surveyMineralAnomaly`, cp19 rows) and
+nothing else: the switch (key re-inserted) reproduces every pin, so it is shape-only. Re-pin, or keep the stamp.
+
+**The drive's `engineEfficiency` wear line, "Drop that line":** removed from `WEAR_EFFICIENCY` (and its probe and
+registry row); `engineEfficiency` joins `WEAR_EXEMPT_LINES`, so no worn piece scales it (a cargo hold can roll it too)
+and the gear card's worn lines no longer list it. A worn drive keeps its transit-speed wear and true-condition fights.
+Help's Gear wear topic now names transit speed only. No golden moved (its only run-time reader was the fuel price).
+
+**OC-C4 "Keep tested hooks":** six rows are `seam` (userRef `OC_C4_HOOKS`): `captain:audit:gearGates` (new test:
+equipment.test.ts "OC-C4 seam", a lent captainSpec requirement refuses parked / no spec / wrong spec, allows the
+right one; minCaptainLevel / requiresTalent are declared fields with no gate logic, named in the claim),
+`facility:audit:requiresResearch` (wiringBugs B1), `facility:audit:requiresFacilityLevels` (new test in
+wiringBugs.test.ts), `away:audit:objectiveHooks` (riskFactors / affixes / outcroppings tests),
+`salvage:audit:achievementBoost` (itemgen computeItemLevel tests), `salvage:audit:ascension` (ascension.test.ts; RR-4
+gave it a planned use after OC-C4). `facility:audit:itemEquipStats` was NOT seamed: the OC-C4 proposal the user took
+deletes `ItemDef.equipStats` (no planned use, the equipmentSlots precedent), so the field and its row are deleted.
+
+**Registry:** `wr13Registry.fixture.ts` `wr13ReadBack` (innermost in every registry chain) puts the three removed rows
+back in place and the six flips back to pending; gearWearRegistry.fixture.ts reads the removed wear row back too.
+Release gate pending: 19 -> 10.
