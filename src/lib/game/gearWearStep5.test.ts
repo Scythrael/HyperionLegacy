@@ -24,6 +24,7 @@ import { withBattleWearOff } from "./battleWearSwitch.fixture";
 import { HELP_TOPICS, TRAINING_WEAR_SENTENCE } from "../helpTopics";
 import { WIRING_REGISTRY, releaseBlockers } from "./wiring/registry";
 import { gw5ReadBack } from "./gearWearStep5Registry.fixture";
+import { otUiReadBack } from "./otUiRegistry.fixture"; // OT-UI: the Overtime row restated, read back innermost
 import { WEAR_BANDS, aboutMinutes, conditionPercent, fleetCare, pieceWearCard, shipGearSummary, wearBand, wearEffectText } from "../gearWearDisplay";
 
 const RNG = () => 0.5;
@@ -146,7 +147,7 @@ describe("gear wear step 5: the registry move is exactly its own", () => {
     const patrolUse = WIRING_REGISTRY.filter((e) => e.id.startsWith("wear:WEAR_SOURCES:") && e.contexts.includes("patrol") && !e.id.includes("hitsTaken"));
     expect(patrolUse.map((e) => e.id).filter((id) => /minutes|distance/.test(id))).toEqual([]);
     // Read back, every changed row is as step 4 left it (the earlier registry pins use gw5ReadBack, innermost).
-    const back = gw5ReadBack(WIRING_REGISTRY);
+    const back = gw5ReadBack(otUiReadBack(WIRING_REGISTRY));
     expect(back.find((e) => e.id === "wear:audit:quickGearRepair")?.status.kind).toBe("pending");
     expect(back.find((e) => e.id === "wear:audit:gearRepairOvertime")?.status.kind).toBe("pending");
     expect(back.length).toBe(WIRING_REGISTRY.length + 1);
@@ -161,7 +162,7 @@ describe("gear wear step 5: the registry move is exactly its own", () => {
     expect(row.probe).toBeUndefined();
     expect(row.contexts).toEqual([]);
     expect(releaseBlockers().some((e) => e.id === id)).toBe(false);
-    const back = gw5ReadBack(WIRING_REGISTRY).find((e) => e.id === id)!;
+    const back = gw5ReadBack(otUiReadBack(WIRING_REGISTRY)).find((e) => e.id === id)!;
     expect(back.status.kind === "pending" ? back.status.owner : "").toMatch(/^the user's EM-4 open call/);
     expect(back.notApplicable).toBeUndefined();
   });

@@ -5578,10 +5578,16 @@ export interface TimedProcess {
 //                    end minus the game time then). Its stored times (bay ends) are on its own clock, so the claim
 //                    reads them shifted back by this (injuries.ts applyGroundOpsInjuries), exactly as if it had
 //                    been claimed at its natural end. Absent = 0 = the game clock.
+//   ticksSaved       OT-UI (user 2026-11-10 "Show both times"): the ticks every Overtime purchase took off the job's time
+//                    left, summed (each purchase adds its quote's ticksSaved). The job's real length is durationTicks
+//                    (its normal-rate length) minus this, so the completion log stamps the TRUE start and records both
+//                    times (tick.ts completionStartedAtMs). Written only by buyOvertime; absent on every job nothing sped
+//                    up, so those complete byte-identically. A plain number: no migration.
 export interface ProcessSpeed {
   overtimeSteps?: number;
   instantComplete?: true;
   clockOffsetSeconds?: number;
+  ticksSaved?: number;
 }
 
 // A built facility's live state. `level` 0 = not built; unlock is the level 0->1
@@ -7290,6 +7296,10 @@ export interface CompletionLogEntry {
   // E5-2: on every refugee entry, the Evacuation's (E5-3: or the Relocation's) tier and destination (the label is derived,
   // shortRangeDestinationLabel). Absent everywhere else.
   refugeeOrigin?: { tier: 1 | 2; destinationIndex: number };
+  // OT-UI (user 2026-11-10 "Show both times"): on a job that ran with Overtime, the steps bought and its length at the
+  // NORMAL rate in milliseconds (durationTicks on the fleet's cadence), so the row reads "took 08:20 with Overtime
+  // (10:00 at the normal rate)"; startedAtMs is then the true start. Absent on every job that ran at the normal rate.
+  overtime?: { steps: number; normalMs: number };
 }
 
 // The RUNNING accumulation for one line-backed order that has not finished yet.

@@ -29,14 +29,16 @@ import {
   type TimedProcessKind,
   generalMuseumRecord,
 } from "./model";
-import { dispatchCaptainOnMission, dispatchCaptainOnPatrol, economyTick, installMissingCombatBaselines, itemCap, recallCaptain, startProcess } from "./tick";
+import { dispatchCaptainOnMission, dispatchCaptainOnPatrol, economyTick, installMissingCombatBaselines, itemCap, recallCaptain, startProcess, tick } from "./tick";
 import { itemTotal } from "./inventory";
 import { RELIC_SETS } from "./relics";
 import { advanceExpedition, claimExpedition, expeditionCandidates } from "./expedition";
 import { applyGroundOpsInjuries } from "./injuries";
 import { dispatchCaptainOnShortRange } from "./shortRangeBoard";
 import { resolveCrew } from "./crewOverlay";
-import { editShip, installPiece, wiringBase } from "./wiring/probes";
+import { editShip, installPiece, wiringBase, withRunningJobs } from "./wiring/probes";
+import { WIRING_REGISTRY } from "./wiring/registry";
+import { OTUI_RESTATED_ID, otUiReadBack } from "./otUiRegistry.fixture";
 import { asLegacyDispatch, asPreCurveDispatch, ensureMinimumAwayTeam, plainAwayMember, withSlottedAwayTeams, dispatchPastPropulsion } from "./awayTeamTestFixtures";
 import {
   OVERTIME_CREDITS_PER_MINUTE,
@@ -303,6 +305,120 @@ describe("Overtime: refusals", () => {
     const r = buyOvertime(broke, ref);
     expect(r.bought).toBe(false);
     expect(r.next).toBe(broke);
+  });
+});
+
+// ============================================================================
+// OT-UI (user 2026-11-10): "Show both times" (the completion log) and "Chip + no jump" (the bar measures work done)
+// ============================================================================
+
+const T0 = 1_800_000_000_000; // a real wall clock, so the completion log stamps are known
+
+// Step a state through tick() in chunks of `chunk` seconds over `seconds`, the clock ending each chunk where live play
+// would stamp it (the offline path is one call, live is 1 s steps).
+function tickedBy(s: GameState, seconds: number, chunk: number, startMs: number): GameState {
+  let out = s;
+  let at = startMs;
+  for (let left = seconds; left > 0; left -= chunk) {
+    const span = Math.min(chunk, left);
+    at += span * 1000;
+    out = tick(span, out, RNG, at);
+  }
+  return out;
+}
+
+function lastEntry(s: GameState) {
+  const log = s.completionLog ?? [];
+  return log[log.length - 1];
+}
+
+describe("OT-UI: the completion log shows both times (the true start, the normal length)", () => {
+  it("a 600-tick build sped up 200 ticks in: took 520 s with Overtime, 600 s at the normal rate, started when it started", () => {
+    const { state, ref } = withJob("shipBuild", 600);
+    let s = tickedBy(state, 200, 200, T0);
+    const quote = canBuyOvertime(s, ref);
+    expect(quote).toMatchObject({ ok: true, step: 1, ticksSaved: 80 });
+    s = buy(s, ref);
+    expect(jobOf(s, ref)!.speed).toEqual({ overtimeSteps: 1, ticksSaved: 80 });
+    s = tickedBy(s, 320, 320, T0 + 200_000);
+    expect(jobOf(s, ref)).toBeUndefined();
+    const e = lastEntry(s);
+    expect(e.kind).toBe("shipBuild");
+    expect(e.atMs).toBe(T0 + 520_000);
+    expect(e.startedAtMs).toBe(T0); // the true start, never "finish minus the full length"
+    expect(e.atMs - e.startedAtMs).toBe(520_000);
+    expect(e.overtime).toEqual({ steps: 1, normalMs: 600_000 });
+  });
+
+  it("two steps with a fractional time left: the stamp counts the whole ticks the countdown ran", () => {
+    const { state, ref } = withJob("researchProject", 1000);
+    let s = tickedBy(state, 401, 401, T0); // 599 left
+    s = buy(s, ref); // 599 / 1.25 = 479.2 left
+    s = tickedBy(s, 150, 150, T0 + 401_000); // 329.2 left at 1.25
+    s = buy(s, ref); // 329.2 x 1.25 / 1.5 = 274.33 left
+    const job = jobOf(s, ref)!;
+    expect(job.remainingTicks).toBeCloseTo((329.2 * 1.25) / 1.5, 9);
+    const ran = 401 + 150 + Math.ceil(job.remainingTicks);
+    s = tickedBy(s, Math.ceil(job.remainingTicks), 1, T0 + 551_000);
+    expect(jobOf(s, ref)).toBeUndefined();
+    const e = lastEntry(s);
+    expect(e.atMs).toBe(T0 + ran * 1000);
+    expect(e.startedAtMs).toBe(T0);
+    expect(e.overtime).toEqual({ steps: 2, normalMs: 1_000_000 });
+  });
+
+  it("offline == live: one call, 997 s chunks and 1 s steps write the same log and the same state", () => {
+    const { state, ref } = withJob("facilityUpgrade", 3000);
+    let s = tickedBy(state, 333, 333, T0);
+    s = buy(s, ref);
+    s = tickedBy(s, 517, 517, T0 + 333_000);
+    s = buy(s, ref);
+    const from = T0 + 850_000;
+    const span = 2200;
+    const oneCall = tickedBy(s, span, span, from);
+    const chunks = tickedBy(s, span, 997, from);
+    const steps = tickedBy(s, span, 1, from);
+    expect(jobOf(steps, ref)).toBeUndefined();
+    same(oneCall, steps);
+    same(chunks, steps);
+    const e = lastEntry(steps);
+    expect(e.startedAtMs).toBe(T0);
+    expect(e.overtime).toEqual({ steps: 2, normalMs: 3_000_000 });
+  });
+
+  it("a job without Overtime logs exactly as before: no overtime record, started = finish minus its full length", () => {
+    const { state, ref } = withJob("shipBuild", 600);
+    const s = tickedBy(state, 600, 600, T0);
+    expect(jobOf(s, ref)).toBeUndefined();
+    const e = lastEntry(s);
+    expect("overtime" in e).toBe(false);
+    expect(e.startedAtMs).toBe(T0);
+    expect(JSON.stringify(s)).not.toContain('"overtime"');
+  });
+
+  it("the registry row is reachable on every kind: its fixture runs one job of each, and its move is exactly its own", () => {
+    const s = withRunningJobs(wiringBase());
+    const kinds = new Set(s.activeProcesses.map((p) => p.kind));
+    for (const k of OVERTIME_PROCESS_KINDS) expect(kinds.has(k), k).toBe(true);
+    const row = WIRING_REGISTRY.find((e) => e.id === OTUI_RESTATED_ID)!;
+    expect(row.status.kind).toBe("live");
+    expect(row.claim).toContain("data studies");
+    const back = otUiReadBack(WIRING_REGISTRY);
+    expect(back.length).toBe(WIRING_REGISTRY.length);
+    back.forEach((e, i) => {
+      if (e.id === OTUI_RESTATED_ID) expect(e.claim).toBe("Overtime: each step bought speeds a running job by 25% of its normal rate (Shipyard builds and repairs, research, facility upgrades)");
+      else expect(e).toBe(WIRING_REGISTRY[i]);
+    });
+  });
+
+  it("the bar measures work done: a purchase never moves it, at the normal rate it is the old formula bit for bit", () => {
+    const { state, ref } = withJob("docksExpansion", 700);
+    const s = stepped(state, 301);
+    const before = jobOf(s, ref)!;
+    expect(processWorkFraction(before)).toBe((before.durationTicks - before.remainingTicks) / before.durationTicks);
+    const after = jobOf(buy(s, ref), ref)!;
+    expect(processWorkFraction(after)).toBeCloseTo(processWorkFraction(before), 12);
+    expect(after.remainingTicks).toBeLessThan(before.remainingTicks);
   });
 });
 
