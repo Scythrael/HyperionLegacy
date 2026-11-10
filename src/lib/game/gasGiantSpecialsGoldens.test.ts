@@ -29,7 +29,7 @@ import { BLUEPRINTS, RESEARCH_FACILITY_KEY, SUBSPACE_TELESCOPE_FACILITY_KEY, fre
 import { canResearch } from "./tick";
 import { advanceExpedition, claimExpedition } from "./expedition";
 import { ancientFragmentPermille } from "./gasGiantStudy";
-import { asPreStaggerDispatch, dispatchPastPropulsion, plainAwayMember } from "./awayTeamTestFixtures";
+import { asPreStaggerDispatch, dispatchPastPropulsion, plainAwayMember, G2_7_DERELICT_PINS, hasWolf359Derelict, withoutWolf359Derelict } from "./awayTeamTestFixtures";
 import { goldenJson } from "./firstRunsGoldens.fixture";
 import { wr11OffForThisFile } from "./wr11Switch.fixture";
 
@@ -162,8 +162,12 @@ describe("GG-7 capture 2: the grid's study and nebula runs, as dispatched today"
           expect(done.phase, id).toBe("complete");
           const claim = claimExpedition({ ...res.next, expeditions: [done] }, done.id);
           expect(claim.success).toBe(true);
-          const deposits = { inventory: claim.next.inventory, credits: claim.next.credits.toString(), surveyLog: claim.next.surveyLog ?? null };
-          rows[`${saveSeed.toString(16)}:${id}`] = hash([hash(exp), hash(done), hash(deposits)]);
+          // G2-7 switch: a Wolf 359 claim's derelict entry comes off (G2_7_DERELICT_PINS traces which rows carry it).
+          const key = `${saveSeed.toString(16)}:${id}`;
+          expect(hasWolf359Derelict(claim.next), key).toBe(G2_7_DERELICT_PINS.includes(`gasGiantSpecialsGoldens:${key}`));
+          const claimed = withoutWolf359Derelict(claim.next, res.next);
+          const deposits = { inventory: claimed.inventory, credits: claimed.credits.toString(), surveyLog: claimed.surveyLog ?? null };
+          rows[key] = hash([hash(exp), hash(done), hash(deposits)]);
         }
       }
     }

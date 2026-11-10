@@ -8315,7 +8315,18 @@ export interface SurveyNebulaEntry {
   kindId: NebulaKindId;
   tier: RegionTier;
 }
-export type SurveyLogEntry = SurveyGiantEntry | SurveyNebulaEntry;
+// Expedition Tiers G2-7 (user 2026-11-02, the Wolf 359 nod: "Quiet derelict field (Recommended)"): a one-time entry
+// the claim of the first run that reached Wolf 359 writes (expedition.ts wolf359DerelictEntry). Many old, unmarked
+// hulls drift in loose formation; the crew holds a moment of silence. Unnamed and original: no ship, person or
+// franchise is named. Its card reads only these fields (gasGiantStudyDisplay.ts surveyEntryView).
+export interface SurveyDerelictEntry {
+  id: string; // "<expeditionId>-survey-derelict"
+  at: number; // gameTimeSeconds of the claim
+  systemName: string; // "Wolf 359"
+  kind: "derelict";
+  tier: RegionTier;
+}
+export type SurveyLogEntry = SurveyGiantEntry | SurveyNebulaEntry | SurveyDerelictEntry;
 
 // Gas Giant Study GG-5: one held research data unit in arrival order (GameState.dataStudyHeld). `cultureId` only on an
 // Ancient Data Fragment (the culture of the body it came from).

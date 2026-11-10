@@ -293,6 +293,58 @@ describe("telescopeMapView: the galaxy map", () => {
     expect(telescopeMapView(1).legend).toEqual(["Solid ring: your range now, 150 ly.", "Dashed ring: Level 2, 3,000 ly."]);
   });
 
+  // Expedition Tiers G2-7 (the SQ-7.4 carry note, per homeworld): the homeworld dot at its own position, the badges
+  // inside their bands at every level, and the dispatch console's longer "Your homeworld" label (expeditionConsoleDisplay.ts
+  // regionMapView draws it at the same spot) clear of every badge and dot, over 200 placements.
+  it("G2-7: the homeworld dot sits at the homeworld's own position; every badge and the core are measured from it", { timeout: 60_000 }, () => {
+    for (const home of HOMES) {
+      const map = telescopeMapView(8, home);
+      expect(map.home).toEqual({ x: 200, y: 200 });
+      // The core lies at the homeworld's own distance from the core, on the square-root scale the rings use.
+      const core = map.badges.find((b) => b.tier === 7)!;
+      expect(core.distanceLy, home.id).toBe(Math.round(Math.hypot(home.galactic.x, home.galactic.y)));
+      expect(Math.abs(Math.hypot(map.core.x - map.home.x, map.core.y - map.home.y) - map.ringR), home.id).toBeLessThan(0.5);
+    }
+    // Two different homeworlds draw the same galaxy from two different centers (the core dot moves with the home).
+    const a = telescopeMapView(8, HOMES[1]);
+    const b = telescopeMapView(8, HOMES[2]);
+    expect(HOMES[1].galactic).not.toEqual(HOMES[2].galactic);
+    expect(a.core).not.toEqual(b.core);
+  });
+
+  it("G2-7: every badge stays inside its band, and inside the view box, at every level from every homeworld", { timeout: 60_000 }, () => {
+    for (const home of HOMES) for (let level = 1; level <= TOP; level++) {
+      const map = telescopeMapView(level, home);
+      const [vx, vy, vw, vh] = map.viewBox.split(" ").map(Number);
+      for (const b of map.badges) {
+        expect(b.x - map.badgeR, `${home.id} L${level} ${b.numeral}`).toBeGreaterThanOrEqual(vx);
+        expect(b.x + map.badgeR, `${home.id} L${level} ${b.numeral}`).toBeLessThanOrEqual(vx + vw);
+        expect(b.y - map.badgeR, `${home.id} L${level} ${b.numeral}`).toBeGreaterThanOrEqual(vy);
+        expect(b.y + map.badgeR, `${home.id} L${level} ${b.numeral}`).toBeLessThanOrEqual(vy + vh);
+        if (b.tier === 1) continue;
+        const band = home.regionBandsLy[b.tier as RegionTier];
+        expect(b.distanceLy).toBeGreaterThan(band.near);
+        expect(b.distanceLy).toBeLessThanOrEqual(band.far);
+      }
+    }
+  });
+
+  it("G2-7: the console map's \"Your homeworld\" label clears every badge and dot, at every level from every homeworld", { timeout: 60_000 }, () => {
+    const box = (l: { x: number; y: number; text: string; size: number }) => {
+      const w = l.text.length * l.size * 0.56;
+      return { x0: l.x, x1: l.x + w, y0: l.y - l.size * 0.75, y1: l.y + l.size * 0.2 };
+    };
+    const hits = (b: ReturnType<typeof box>, cx: number, cy: number, r: number) =>
+      Math.hypot(Math.max(b.x0, Math.min(cx, b.x1)) - cx, Math.max(b.y0, Math.min(cy, b.y1)) - cy) < r;
+    for (const home of HOMES) for (let level = 1; level <= TOP; level++) {
+      const map = telescopeMapView(level, home);
+      const label = box({ ...map.homeLabel, text: "Your homeworld" });
+      for (const badge of map.badges) expect(hits(label, badge.x, badge.y, map.badgeR), `${home.id} L${level} ${badge.numeral}`).toBe(false);
+      expect(hits(label, map.core.x, map.core.y, 3.5), `${home.id} L${level} core`).toBe(false);
+      expect(hits(label, map.home.x, map.home.y, 4), `${home.id} L${level} home`).toBe(false);
+    }
+  });
+
   it("paths are finite SVG path data and everything sits inside the view box, from every homeworld", { timeout: 60_000 }, () => {
     for (const home of HOMES) {
       const map = telescopeMapView(5, home);

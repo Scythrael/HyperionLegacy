@@ -190,7 +190,7 @@ import { groundSiteLabel } from "./expeditionContent";
 // E4a: the PoI -> relic-set single source of truth (pure data) for the foreknowledge signature + the
 // claim deposit's set routing.
 import { RELIC_SETS, relicSetForPoi, museumBonuses, resistedHazard } from "./relics";
-import type { RelicSetId, RelicVaultToken, SurveyLogEntry } from "./model";
+import type { RelicSetId, RelicVaultToken, SurveyDerelictEntry, SurveyLogEntry } from "./model";
 // E4a: the CLAIM DEPOSIT routes materials through the discovery-safe add seam (addToInventory, clamped at
 // itemCap) and folds the haul into lifetimeStats through the shared fold. These are imported from tick.ts,
 // which itself imports resolveExpeditions from this module: an ESM cycle that is SAFE because neither
@@ -707,6 +707,23 @@ export function wolf359ListAfterDispatch(state: GameState): number | undefined {
   const n = dispatchedExpeditions(state);
   const seen = tierCandidateSystems(state, 1).some((c) => c.famousId === WOLF_359_ID);
   return seen ? n : n + 1;
+}
+
+// Expedition Tiers G2-7 (user 2026-11-02, the Wolf 359 nod: "Quiet derelict field (Recommended)": "a one-time Survey
+// Log entry. Many old, unmarked hulls drift in loose formation; the crew holds a moment of silence. ... Triggers
+// once."). The Survey Log entry the claim of `exp` writes at `at`, or null: only a run to Wolf 359 that REACHED it (a
+// run recalled in transit turned back before it arrived), and only while the save's Survey Log holds no derelict
+// entry yet (once per save, whichever run gets there first: the guaranteed list, a veteran's list, a rolled find or a
+// resumed system). A claim is a player action and draws nothing, so no board, seed or upcoming draw moves. Pure.
+export function wolf359DerelictEntry(
+  state: Pick<GameState, "surveyLog">,
+  exp: Pick<Expedition, "id" | "targetSystemId" | "systemName" | "region" | "recall">,
+  at: number,
+): SurveyDerelictEntry | null {
+  if (exp.targetSystemId !== WOLF_359_ID) return null;
+  if (recallOf(exp)?.phaseAtRecall === "transit") return null;
+  if ((state.surveyLog ?? []).some((e) => e.kind === "derelict")) return null;
+  return { id: `${exp.id}-survey-derelict`, at, systemName: exp.systemName, kind: "derelict", tier: exp.region?.tier ?? 1 };
 }
 
 // The candidate systems the console offers for `tier`, in SLOT order (the console shows them nearest first:
@@ -2982,11 +2999,15 @@ export function claimExpedition(state: GameState, expeditionId: string): Expedit
   // command has none yet (the run carries its captain; a relic token that maps to no set never reaches the vault).
   const relicHome = (deposited.relicVault ?? []).length > (removed.relicVault ?? []).length;
   const noted = relicHome ? recordCommandFirst(repaired, exp.captainId, "firstRelic", state.gameTimeSeconds) : repaired;
+  // Expedition Tiers G2-7 (user 2026-11-02): the first run home from Wolf 359 writes the derelict field's one-time
+  // Survey Log entry, after the run's own readouts; every other claim leaves the key exactly as it was.
+  const derelict = wolf359DerelictEntry(noted, exp, state.gameTimeSeconds);
   const next = {
     ...noted,
     // WR-5c: x the run's frozen Drillmaster (Expedition.explorerCaptain), exactly 1 without it.
     officers: foldOfficerPromotionCounters(repaired.officers, expeditionPromotionIncrements(exp), () => exp.explorerCaptain?.promotionMult ?? 1),
     runCounts: countClaimedExpedition(runCountsOf(state), exp),
+    ...(derelict ? { surveyLog: [...(noted.surveyLog ?? []), derelict] } : {}),
   };
   return {
     next,

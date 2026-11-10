@@ -692,3 +692,34 @@ export function dispatchPastPropulsion(
 ): ExpeditionDispatchResult {
   return startExpedition(state, shipId, captainId, candidateId, anomalyOptIn, fieldKitsRuns, false);
 }
+
+// Expedition Tiers G2-7 SWITCH (user 2026-11-02, the Wolf 359 nod "Quiet derelict field"): the claimed state as the
+// same claim made it BEFORE G2-7, i.e. without the derelict field's one-time Survey Log entry
+// (expedition.ts wolf359DerelictEntry). The claim only ever APPENDS that entry to the pre-claim log (`before`'s), so
+// dropping it gives back the pre-G2-7 state exactly: the key stays absent when the log held nothing else and `before`
+// had no log. Every other key keeps its order. A state without the entry is returned as it is. Pure: a shallow copy.
+// Goldens pinned before G2-7 hash a claim through this; G2_7_DERELICT_PINS names every pin it moved (each test asserts
+// its claim holds the entry exactly when it is listed, so the trace cannot drift).
+export function withoutWolf359Derelict(after: GameState, before: Pick<GameState, "surveyLog">): GameState {
+  const log = after.surveyLog;
+  if (!log || !log.some((e) => e.kind === "derelict")) return after;
+  const kept = log.filter((e) => e.kind !== "derelict");
+  const rest: GameState = { ...after, surveyLog: kept };
+  if (kept.length === 0 && before.surveyLog === undefined) delete rest.surveyLog;
+  return rest;
+}
+
+// Does the claimed state hold the G2-7 derelict entry? (the trace assertion beside withoutWolf359Derelict). Pure.
+export function hasWolf359Derelict(state: Pick<GameState, "surveyLog">): boolean {
+  return (state.surveyLog ?? []).some((e) => e.kind === "derelict");
+}
+
+// Every golden pin G2-7 moved, named "<file>:<case>": each a claim of a run that reached Wolf 359 (the list after the
+// first run holds it on Tier I slot 0, user G10). Each compares through withoutWolf359Derelict to its pre-G2-7 value.
+export const G2_7_DERELICT_PINS: readonly string[] = [
+  "gasGiantStudyGoldens:51f15e:cand-1-0",
+  "gasGiantNebulaLabGoldens:51f15e:cand-1-0",
+  "gasGiantNebulaLabGoldens:2b7c0d3:cand-1-0",
+  "gasGiantSpecialsGoldens:51f15e:cand-1-0",
+  "propulsionRecallGoldens:orionTier1",
+];
