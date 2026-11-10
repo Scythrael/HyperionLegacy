@@ -2249,3 +2249,11 @@ stalls run 2 on 5 of 200 (2.5%, under the 5% bar: a margin of 5 runs); rank1si a
   "Torpedoes on fitting enemies": give the Concussion Torpedo (missile trait) to enemy ship types where it makes sense;
   the hub proposes WHICH enemies for the user's OK before building.
 - CP-4 rest, the Flight Deck Integrity facet on drone replenishment below half hull (was [PROPOSAL]): "Build it".
+- Enemy torpedoes (2026-11-10, after the research proposal): Corsair Carrier "Add to its plasma (Recommended)". Marauder
+  (verbatim): "Perhaps give them a chance to have them. Spice up earlier tiers. Later tiers will likely have them on all
+  ships, or something equivalent." Ship events (verbatim): "Similar to the last question. Starting off a bit more
+  generous, but as you go up in tier, or perhaps through a safety interlock, enemies become far more dangerous. Or
+  both." Scope: "Simple now, rest logged (Recommended)": 0.14.0 builds the carrier's torpedo, a Marauder torpedo CHANCE
+  that grows along the patrol ramp, and a ship-event torpedo chance that grows with expedition tier (gentle at Tier I).
+  LOGGED for later: torpedoes (or an equivalent) on all ships at high tiers, and Safety Interlocks (SUGGESTIONS.md
+  "SAFETY INTERLOCKS", the opt-in risk toggles; user: "Check documentation for the definition") raising enemy danger.
