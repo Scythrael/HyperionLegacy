@@ -100,6 +100,11 @@
   import { clampFloatingTip } from "./lib/floatingTip";
   // 0.14.0 gear wear step 5: a spare's or loadout piece's condition block on its card, and the Command Home fleet care line.
   import { fleetCare, gearOvertimePurchase, pieceWearCard } from "./lib/gearWearDisplay";
+  // OT-UI (the 2026-11-10 Overtime buttons mockup, approved): the job Overtime strip, its rate chip and the one-tap buy.
+  import JobOvertimeStrip from "./lib/JobOvertimeStrip.svelte";
+  import OvertimeRateChip from "./lib/OvertimeRateChip.svelte";
+  import { jobOvertimePurchase, jobOvertimeStrip, jobRateText, overtimeElapsedText } from "./lib/jobOvertimeDisplay";
+  import { OVERTIME_MAX_STEPS, processWorkFraction } from "./lib/game/processSpeed";
   import { withPieceCondition } from "./lib/game/gearWear";
   // Radial Skill Web (Task 11b, minimal buildable integration), the pannable
   // fog-of-war talent web that REPLACES the old depth-row talent panels in
@@ -4526,10 +4531,8 @@
     research: "🔬",     // Research Lab
     shipBuild: "🚧",    // Shipyard build
     fuel: "⛽",         // Fuel Depot
-    facility: "🛠️",     // a facility upgrade (or a locked/not-built facility chip)
     storage: "📦",      // Ship Systems storage upgrade
     docks: "⚓",        // docks-capacity expansion
-    repair: "🔨",       // ship repair at the Shipyard
     // 0.13.3 Unit 4.4b: the Salvage Bay, reachable now that a completed salvage leaves a
     // record on the board (the RECENTLY COMPLETED section's only new hint).
     salvage: "♻️",      // a completed salvage run
@@ -4542,8 +4545,9 @@
   //
   // The icon REGISTRY (ui/icons.ts) carries real stroke-SVG geometry for a named set, and the pack
   // seam built in phase 2 lets a bought pack replace any of it. What the registry does NOT carry is
-  // a drawing for every hint this board uses: `facility`, `repair`, `extraction`, `patrol` and
-  // `dispatch` have no icon yet, and DRAWING them is new content rather than a conversion.
+  // a drawing for every hint this board uses: `extraction`, `patrol` and `dispatch` have no icon yet, and
+  // DRAWING them is new content rather than a conversion. (OT-UI, 0.14.0, drew `repair` and `facility`: the user
+  // asked for the emoji on the rows that build touched to become SVG, "Replace them now".)
   //
   // So the rule here is: a hint with a registry icon RENDERS THE ICON, and a hint without one keeps
   // its emoji until the art exists. That is the user's call ("sweep only what maps today"), and it
@@ -4555,6 +4559,10 @@
   // ("refinery", "fabricator", "shipyard"), because an icon depicts the place, not the activity.
   // That translation lives here, in one table, rather than being spread across call sites.
   const HOME_ICON_NAME: Record<string, IconName> = {
+    // OT-UI (user 2026-11-10 "Replace them now"): the ship repair and facility upgrade rows this build touches wear
+    // their own SVG glyphs (their emoji left HOME_ICON_GLYPH).
+    repair: "hullRepair",
+    facility: "facilityUpgrade",
     refine: "refinery",
     fabricate: "fabricator",
     research: "research",
@@ -4675,8 +4683,12 @@
   // first. Returns null when either stamp was unknown, so the row simply omits the line.
   function completionElapsedText(elapsedMs: number | null): string | null {
     if (elapsedMs === null) return null;
-    const ticks = Math.max(0, Math.round(elapsedMs / 1000 / state.tickDurationSeconds));
-    return `took ${durationReadout(ticks, showTickCounts, state.tickDurationSeconds)}`;
+    return `took ${completionDurationText(elapsedMs)}`;
+  }
+  // A stored wall-clock span as the shared duration readout (OT-UI: the Overtime row prints two of these).
+  function completionDurationText(ms: number): string {
+    const ticks = Math.max(0, Math.round(ms / 1000 / state.tickDurationSeconds));
+    return durationReadout(ticks, showTickCounts, state.tickDurationSeconds);
   }
 
   // Guarded jump for an IN-PROGRESS row (0.13.1, Unit 5). A row whose jumpTarget is null
@@ -5888,6 +5900,21 @@
     state = r.next;
     doSave();
     if (r.log) pushLog(r.log);
+  }
+
+  // OT-UI (the 2026-11-10 Overtime buttons mockup, approved; user "One tap, always visible"): a running job's Overtime
+  // strip buys its next step at once (jobOvertimeDisplay.ts jobOvertimePurchase: the engine's buy, processSpeed.ts),
+  // saves and logs it. A refusal changes nothing (the strip already shows why).
+  function buyJobOvertime(processId: string) {
+    const r = jobOvertimePurchase(state, processId, jobClock);
+    if (!r.bought) return;
+    state = r.next;
+    doSave();
+    if (r.log) pushLog(r.log);
+  }
+  // The Shipyard and facility rows' own clock ("04:48"), so a strip's times match its row (user "Match each row").
+  function jobClock(ticks: number): string {
+    return formatClock(ticks, state.tickDurationSeconds);
   }
 
   function repairShipNow(shipId: string) {
@@ -11296,10 +11323,11 @@
     // Squads SQ-7.4: an SVG glyph (icons.ts) drawn in place of the emoji `glyph` (new cards use SVG).
     icon?: IconName;
   };
+  // OT-UI (user "Chip + no jump"): the WORK done (processSpeed.ts processWorkFraction), so an Overtime purchase never
+  // moves a pane's bar; at the normal rate it is the familiar (duration - remaining) / duration, bit for bit.
   function procFrac(p: TimedProcess | null | undefined): number {
     if (!p) return 0;
-    if (p.durationTicks <= 0) return 1;
-    return Math.min(1, Math.max(0, (p.durationTicks - p.remainingTicks) / p.durationTicks));
+    return processWorkFraction(p);
   }
   const facilityPct = (f: number): string => `${Math.round(f * 100)}%`;
   // Representative job for a multi-slot facility: the one SOONEST to finish (least remaining), so a
@@ -11580,6 +11608,25 @@
        onBuild   the click handler (e.g. () => doStartFacilityUpgrade("refinery")).
        wrapStyle optional inline style for the wrapper (e.g. "margin-top: 8px;" to keep
                  the spacing a button previously carried). -->
+<!-- ================= A RUNNING JOB'S PROGRESS ROW + ITS OVERTIME STRIP (OT-UI, 0.14.0) =================
+     The 2026-11-10 Overtime buttons mockup (approved): the bar measures WORK done (processSpeed.ts processWorkFraction,
+     user "Chip + no jump": a purchase never moves it, it just fills faster; at the normal rate it is the old formula),
+     the time line carries the "1.25x" rate chip once a step is bought, and the strip sits under it on every job kind
+     Overtime is offered on ("One tap, always visible"; hidden where the engine hides it: a job's last tick). The time
+     line is the row's own remainingReadout, and the strip speaks the same clock ("Match each row"). -->
+{#snippet jobProgress(job: TimedProcess)}
+  {@const rate = jobRateText(job)}
+  {@const strip = jobOvertimeStrip(state, job, jobClock)}
+  <div class="research-bar-track">
+    <div class="research-bar-fill" style="width:{Math.min(100, processWorkFraction(job) * 100)}%"></div>
+  </div>
+  <div class="job-readout-line">
+    {#if rate}<OvertimeRateChip {rate} />{/if}
+    <div class="research-readout">{remainingReadout(job.remainingTicks, job.durationTicks, showTickCounts, state.tickDurationSeconds)}</div>
+  </div>
+  {#if strip}<JobOvertimeStrip {strip} onBuy={buyJobOvertime} />{/if}
+{/snippet}
+
 {#snippet facilityUpgradeButton(
   key: string,
   check: { ok: boolean; reason?: string },
@@ -11652,6 +11699,12 @@
   </div>
   {#if !equipmentStorageUpgradeInFlight && !upgradeCheck.ok}
     <div class="systems-bay-upgrade-note">{upgradeCheck.reason}</div>
+  {/if}
+  <!-- OT-UI (user 2026-11-10 "Yes, add bar + Overtime"): the rung in flight gets a real bar, its time and the
+       Overtime strip, all read from the engine (it was a text-only line). -->
+  {@const storageJob = state.activeProcesses.find((p) => p.kind === "equipmentStorageUpgrade")}
+  {#if storageJob}
+    <div class="inflight-job">{@render jobProgress(storageJob)}</div>
   {/if}
   <p class="systems-bay-shared-note">
     Ship systems and away-team gear share one bay: every crafted spare in either tab counts toward the same {bayCap} slots. Standard-Issue pieces take no space.
@@ -12958,15 +13011,9 @@
                      while a rung builds, level hasn't bumped yet, so
                      nextRefineryUpgrade still points at the in-flight rung). -->
                 {#if refineryUpgradeInFlight}
-                  {@const progress = refineryUpgradeInFlight.durationTicks > 0
-                    ? (refineryUpgradeInFlight.durationTicks - refineryUpgradeInFlight.remainingTicks) / refineryUpgradeInFlight.durationTicks
-                    : 1}
                   <!-- 0.13.3 Unit 6.1: decorative clock beside the unchanged in-flight label. -->
                   <div class="research-name" style="margin-top: 10px;"><Icon name="clock" size={12} /> Currently upgrading…</div>
-                  <div class="research-bar-track">
-                    <div class="research-bar-fill" style="width:{Math.min(100, progress * 100)}%"></div>
-                  </div>
-                  <div class="research-readout">{remainingReadout(refineryUpgradeInFlight.remainingTicks, refineryUpgradeInFlight.durationTicks, showTickCounts, state.tickDurationSeconds)}</div>
+                  {@render jobProgress(refineryUpgradeInFlight)}
                 {/if}
               </Panel>
             {/if}
@@ -13625,15 +13672,9 @@
                 {/if}
 
                 {#if fabricatorUpgradeInFlight}
-                  {@const progress = fabricatorUpgradeInFlight.durationTicks > 0
-                    ? (fabricatorUpgradeInFlight.durationTicks - fabricatorUpgradeInFlight.remainingTicks) / fabricatorUpgradeInFlight.durationTicks
-                    : 1}
                   <!-- 0.13.3 Unit 6.1: decorative clock beside the unchanged in-flight label. -->
                   <div class="research-name" style="margin-top: 10px;"><Icon name="clock" size={12} /> Currently upgrading…</div>
-                  <div class="research-bar-track">
-                    <div class="research-bar-fill" style="width:{Math.min(100, progress * 100)}%"></div>
-                  </div>
-                  <div class="research-readout">{remainingReadout(fabricatorUpgradeInFlight.remainingTicks, fabricatorUpgradeInFlight.durationTicks, showTickCounts, state.tickDurationSeconds)}</div>
+                  {@render jobProgress(fabricatorUpgradeInFlight)}
                 {/if}
               </Panel>
             {/if}
@@ -13687,7 +13728,6 @@
                     <span class="home-sec-rule"></span>
                   </div>
                   {#each activeResearchProjects as job (job.id)}
-                    {@const progress = job.durationTicks > 0 ? (job.durationTicks - job.remainingTicks) / job.durationTicks : 1}
                     <div class="mission-card">
                       <!-- 0.13.3 Unit 6.2: decorative facility glyph on the job card title, the
                            same swap the refine and fabricate job cards took in Unit 6.1. The
@@ -13696,10 +13736,7 @@
                       <div class="research-name">
                         <Icon name="research" size={12} /> {#if job.effect.type === "unlockBlueprint"}Researching → [{BLUEPRINTS[job.effect.key]?.label ?? job.effect.key}]{:else}Research project{/if}
                       </div>
-                      <div class="research-bar-track">
-                        <div class="research-bar-fill" style="width:{Math.min(100, progress * 100)}%"></div>
-                      </div>
-                      <div class="research-readout">{remainingReadout(job.remainingTicks, job.durationTicks, showTickCounts, state.tickDurationSeconds)}</div>
+                      {@render jobProgress(job)}
                     </div>
                   {/each}
                 {:else}
@@ -13840,11 +13877,7 @@
                              branches carried the same mark. -->
                         <div class="research-cost" style="color: var(--color-success)"><Icon name="check" size={12} /> {blueprintKind(bp) === "unlockOnly" ? "Researched, build it at the Shipyard" : "Researched, craftable once the Fabricator is online"}</div>
                       {:else if job}
-                        {@const progress = job.durationTicks > 0 ? (job.durationTicks - job.remainingTicks) / job.durationTicks : 1}
-                        <div class="research-bar-track">
-                          <div class="research-bar-fill" style="width:{Math.min(100, progress * 100)}%"></div>
-                        </div>
-                        <div class="research-readout">{remainingReadout(job.remainingTicks, job.durationTicks, showTickCounts, state.tickDurationSeconds)}</div>
+                        {@render jobProgress(job)}
                       {:else if gate.ok}
                         <button class="buy-btn" on:click={() => doStartResearch(bp.key)}>
                           Research · ◈ {formatNumber(bp.researchCreditCost)}
@@ -13969,7 +14002,7 @@
                     text="Research data comes home from a ship's study of a gas giant or a nebula. The Lab studies it on its own lane, never blocking research or relic study, oldest first. Each study banks a boost for its family; your next project in that family uses them all. Pause holds the queue and the running study."
                   />
                 </div>
-                {#if dataStudyTabView}<DataStudyPanel view={dataStudyTabView} onSetPaused={doSetDataStudyPaused} />{/if}
+                {#if dataStudyTabView}<DataStudyPanel view={dataStudyTabView} onSetPaused={doSetDataStudyPaused} onBuyOvertime={buyJobOvertime} />{/if}
               </Panel>
             {/if}
 
@@ -14056,16 +14089,10 @@
                 {/if}
 
                 {#if researchUpgradeInFlight}
-                  {@const progress = researchUpgradeInFlight.durationTicks > 0
-                    ? (researchUpgradeInFlight.durationTicks - researchUpgradeInFlight.remainingTicks) / researchUpgradeInFlight.durationTicks
-                    : 1}
                   <!-- 0.13.3 Unit 6.2: decorative clock beside the unchanged in-flight label,
                        matching the Refinery and Fabricator in-flight rows from Unit 6.1. -->
                   <div class="research-name" style="margin-top: 10px;"><Icon name="clock" size={12} /> Currently upgrading…</div>
-                  <div class="research-bar-track">
-                    <div class="research-bar-fill" style="width:{Math.min(100, progress * 100)}%"></div>
-                  </div>
-                  <div class="research-readout">{remainingReadout(researchUpgradeInFlight.remainingTicks, researchUpgradeInFlight.durationTicks, showTickCounts, state.tickDurationSeconds)}</div>
+                  {@render jobProgress(researchUpgradeInFlight)}
                 {/if}
               </Panel>
             {/if}
@@ -14121,14 +14148,8 @@
                 {/if}
 
                 {#if fuelStorageUpgradeInFlight}
-                  {@const progress = fuelStorageUpgradeInFlight.durationTicks > 0
-                    ? (fuelStorageUpgradeInFlight.durationTicks - fuelStorageUpgradeInFlight.remainingTicks) / fuelStorageUpgradeInFlight.durationTicks
-                    : 1}
                   <div class="research-name" style="margin-top: 10px;"><Icon name="clock" size={12} /> Currently upgrading…</div>
-                  <div class="research-bar-track">
-                    <div class="research-bar-fill" style="width:{Math.min(100, progress * 100)}%"></div>
-                  </div>
-                  <div class="research-readout">{remainingReadout(fuelStorageUpgradeInFlight.remainingTicks, fuelStorageUpgradeInFlight.durationTicks, showTickCounts, state.tickDurationSeconds)}</div>
+                  {@render jobProgress(fuelStorageUpgradeInFlight)}
                 {/if}
               </Panel>
             {/if}
@@ -14276,16 +14297,10 @@
                   {/if}
 
                   {#if inFlight}
-                    {@const progress = inFlight.durationTicks > 0
-                      ? (inFlight.durationTicks - inFlight.remainingTicks) / inFlight.durationTicks
-                      : 1}
                     <!-- 0.13.3 Unit 6.2: decorative clock beside the unchanged in-flight label,
                          matching every other facility console's in-flight row. -->
                     <div class="research-name" style="margin-top: 10px;"><Icon name="clock" size={12} /> Currently upgrading…</div>
-                    <div class="research-bar-track">
-                      <div class="research-bar-fill" style="width:{Math.min(100, progress * 100)}%"></div>
-                    </div>
-                    <div class="research-readout">{remainingReadout(inFlight.remainingTicks, inFlight.durationTicks, showTickCounts, state.tickDurationSeconds)}</div>
+                    {@render jobProgress(inFlight)}
                   {/if}
                 </Panel>
               {/each}
@@ -15153,17 +15168,11 @@
               {/if}
 
               {#if salvageBayUpgradeInFlight}
-                {@const progress = salvageBayUpgradeInFlight.durationTicks > 0
-                  ? (salvageBayUpgradeInFlight.durationTicks - salvageBayUpgradeInFlight.remainingTicks) / salvageBayUpgradeInFlight.durationTicks
-                  : 1}
                 <!-- The same in-flight row every sibling Upgrades tab renders. A salvage
                      JOB already running is unaffected by an upgrade in flight: the level
                      bumps at completion and the extra lane simply becomes available. -->
                 <div class="research-name" style="margin-top: 10px;"><Icon name="clock" size={12} /> Currently upgrading…</div>
-                <div class="research-bar-track">
-                  <div class="research-bar-fill" style="width:{Math.min(100, progress * 100)}%"></div>
-                </div>
-                <div class="research-readout">{remainingReadout(salvageBayUpgradeInFlight.remainingTicks, salvageBayUpgradeInFlight.durationTicks, showTickCounts, state.tickDurationSeconds)}</div>
+                {@render jobProgress(salvageBayUpgradeInFlight)}
               {/if}
             </Panel>
             {/if}
@@ -15260,9 +15269,6 @@
 
                   <!-- In-flight founding progress (a founding is a facilityUpgrade process). -->
                   {#if shipyardUpgradeInFlight}
-                    {@const progress = shipyardUpgradeInFlight.durationTicks > 0
-                      ? (shipyardUpgradeInFlight.durationTicks - shipyardUpgradeInFlight.remainingTicks) / shipyardUpgradeInFlight.durationTicks
-                      : 1}
                     <!-- 0.13.3 Unit 6.4: decorative clock beside the unchanged in-flight label,
                          matching the "Currently upgrading…" rows Units 6.1, 6.2 and 6.3 gave the
                          Refinery, Fabricator, Research and Fuel Depot. The clock (not the
@@ -15270,10 +15276,7 @@
                          and the remainingReadout below it report. The remainingReadout and its
                          showTickCounts / state.tickDurationSeconds arguments are untouched. -->
                     <div class="research-name" style="margin-top: 10px;"><Icon name="clock" size={12} /> Establishing the Shipyard…</div>
-                    <div class="research-bar-track">
-                      <div class="research-bar-fill" style="width:{Math.min(100, progress * 100)}%"></div>
-                    </div>
-                    <div class="research-readout">{remainingReadout(shipyardUpgradeInFlight.remainingTicks, shipyardUpgradeInFlight.durationTicks, showTickCounts, state.tickDurationSeconds)}</div>
+                    {@render jobProgress(shipyardUpgradeInFlight)}
                   {/if}
                 {:else}
                   <!-- FOUNDED (level >= 1): the build surface. An in-flight ship BUILD (if any)
@@ -15285,9 +15288,6 @@
                   <div class="research-cost">Shipyard level: {shipyardLevel}</div>
 
                   {#if activeShipBuild}
-                    {@const progress = activeShipBuild.durationTicks > 0
-                      ? (activeShipBuild.durationTicks - activeShipBuild.remainingTicks) / activeShipBuild.durationTicks
-                      : 1}
                     {@const buildingKey = activeShipBuild.effect.type === "addShip" ? activeShipBuild.effect.typeKey : undefined}
                     <!-- 0.13.3 Unit 6.4, READ BEFORE EDITING: THIS CARD HAS NO CANCEL CONTROL AND
                          THAT IS DELIBERATE, NOT AN OVERSIGHT. startShipBuild commits the whole BOM
@@ -15306,10 +15306,7 @@
                          already names the hull in words. -->
                     <div class="mission-card" style="margin-top: 10px;">
                       <div class="research-name"><Icon name="shipyard" size={12} /> BUILDING · {buildingKey ? (SHIP_TYPES[buildingKey]?.label ?? buildingKey) : "hull"}</div>
-                      <div class="research-bar-track">
-                        <div class="research-bar-fill" style="width:{Math.min(100, progress * 100)}%"></div>
-                      </div>
-                      <div class="research-readout">{remainingReadout(activeShipBuild.remainingTicks, activeShipBuild.durationTicks, showTickCounts, state.tickDurationSeconds)}</div>
+                      {@render jobProgress(activeShipBuild)}
                     </div>
                   {/if}
 
@@ -15636,17 +15633,11 @@
                 {/if}
 
                 {#if shipyardUpgradeInFlight}
-                  {@const progress = shipyardUpgradeInFlight.durationTicks > 0
-                    ? (shipyardUpgradeInFlight.durationTicks - shipyardUpgradeInFlight.remainingTicks) / shipyardUpgradeInFlight.durationTicks
-                    : 1}
                   <!-- 0.13.3 Unit 6.4: decorative clock beside the unchanged in-flight label,
                        matching the Refinery and Fabricator rows from Unit 6.1, Research from Unit
                        6.2 and the Fuel Depot from Unit 6.3. -->
                   <div class="research-name" style="margin-top: 10px;"><Icon name="clock" size={12} /> Currently upgrading…</div>
-                  <div class="research-bar-track">
-                    <div class="research-bar-fill" style="width:{Math.min(100, progress * 100)}%"></div>
-                  </div>
-                  <div class="research-readout">{remainingReadout(shipyardUpgradeInFlight.remainingTicks, shipyardUpgradeInFlight.durationTicks, showTickCounts, state.tickDurationSeconds)}</div>
+                  {@render jobProgress(shipyardUpgradeInFlight)}
                 {/if}
               </Panel>
             {/if}
@@ -15709,14 +15700,8 @@
                 {/if}
 
                 {#if telescopeUpgradeInFlight}
-                  {@const progress = telescopeUpgradeInFlight.durationTicks > 0
-                    ? (telescopeUpgradeInFlight.durationTicks - telescopeUpgradeInFlight.remainingTicks) / telescopeUpgradeInFlight.durationTicks
-                    : 1}
                   <div class="research-name" style="margin-top: 10px;"><Icon name="clock" size={12} /> Development cycle {telescopeView.level + 1} in progress…</div>
-                  <div class="research-bar-track">
-                    <div class="research-bar-fill" style="width:{Math.min(100, progress * 100)}%"></div>
-                  </div>
-                  <div class="research-readout">{remainingReadout(telescopeUpgradeInFlight.remainingTicks, telescopeUpgradeInFlight.durationTicks, showTickCounts, state.tickDurationSeconds)}</div>
+                  {@render jobProgress(telescopeUpgradeInFlight)}
                 {/if}
 
                 <div class="telescope-ladder-title">Development cycles</div>
@@ -15816,6 +15801,12 @@
                 {#if !docksExpansionInFlight && !docksCheck.ok}
                   <div class="docks-expand-note">{docksCheck.reason}</div>
                 {/if}
+                <!-- OT-UI (user 2026-11-10 "Yes, add bar + Overtime"): the Docks rung in flight gets a real bar, its
+                     time and the Overtime strip, all read from the engine (it was a text-only line). -->
+                {@const docksJob = state.activeProcesses.find((p) => p.kind === "docksExpansion")}
+                {#if docksJob}
+                  <div class="inflight-job">{@render jobProgress(docksJob)}</div>
+                {/if}
                 <!-- ⚠️ TRANSIT BERTHS (0.13.4 Phase 4 Unit 4.2): A SECOND, INDEPENDENT CAPACITY.
                      It shares the noun "berth" with the Drydock capacity above and NOTHING else.
                      Design section 3 locks that the two "never add, never multiply, never share a
@@ -15856,6 +15847,11 @@
                 </div>
                 {#if !transitBerthExpansionInFlight && !berthCheck.ok}
                   <div class="docks-expand-note">{berthCheck.reason}</div>
+                {/if}
+                <!-- OT-UI (user 2026-11-10 "Yes, add bar + Overtime"): the docking bay rung in flight, as the Docks row. -->
+                {@const berthJob = state.activeProcesses.find((p) => p.kind === "transitBerthExpansion")}
+                {#if berthJob}
+                  <div class="inflight-job">{@render jobProgress(berthJob)}</div>
                 {/if}
                 <!-- Where per-hull management went. The list/assign/salvage that
                      used to render here now live in Logistics > Ships (the ITEM
@@ -16496,14 +16492,8 @@
                 {/if}
 
                 {#if rostersUpgradeInFlight}
-                  {@const progress = rostersUpgradeInFlight.durationTicks > 0
-                    ? (rostersUpgradeInFlight.durationTicks - rostersUpgradeInFlight.remainingTicks) / rostersUpgradeInFlight.durationTicks
-                    : 1}
                   <div class="research-name" style="margin-top: 10px;"><Icon name="clock" size={12} /> Level {rostersView.level + 1} in progress…</div>
-                  <div class="research-bar-track">
-                    <div class="research-bar-fill" style="width:{Math.min(100, progress * 100)}%"></div>
-                  </div>
-                  <div class="research-readout">{remainingReadout(rostersUpgradeInFlight.remainingTicks, rostersUpgradeInFlight.durationTicks, showTickCounts, state.tickDurationSeconds)}</div>
+                  {@render jobProgress(rostersUpgradeInFlight)}
                 {/if}
 
                 <div class="telescope-ladder-title">Levels</div>
@@ -17443,6 +17433,7 @@
           onUninstall={uninstallSystem}
           onRepair={repairShipNow}
           onBuyGearOvertime={buyGearOvertime}
+          onBuyJobOvertime={buyJobOvertime}
           onRename={handleRenameShip}
           onClose={returnFromShipPage}
           onOpenHelp={openHelpTopic}
@@ -19162,14 +19153,8 @@
                 {/if}
 
                 {#if missionControlUpgradeInFlight}
-                  {@const progress = missionControlUpgradeInFlight.durationTicks > 0
-                    ? (missionControlUpgradeInFlight.durationTicks - missionControlUpgradeInFlight.remainingTicks) / missionControlUpgradeInFlight.durationTicks
-                    : 1}
                   <div class="research-name" style="margin-top: 10px;">Currently upgrading…</div>
-                  <div class="research-bar-track">
-                    <div class="research-bar-fill" style="width:{Math.min(100, progress * 100)}%"></div>
-                  </div>
-                  <div class="research-readout">{remainingReadout(missionControlUpgradeInFlight.remainingTicks, missionControlUpgradeInFlight.durationTicks, showTickCounts, state.tickDurationSeconds)}</div>
+                  {@render jobProgress(missionControlUpgradeInFlight)}
                 {/if}
               </Panel>
             {/if}
@@ -19254,6 +19239,9 @@
                    Reuses the app-wide remainingReadout with the player's tick-count preference,
                    the SAME formatter the source panels use, so the clock can't drift. An
                    extraction reports PER-PHASE time, so it reads "... in phase". -->
+              <!-- OT-UI (user 2026-11-10 "Rate chip only"): a job sped up by Overtime shows its rate here. No buy
+                   button: the row stays one tap to the console, where the job's strip is. -->
+              {#if row.rateText}<OvertimeRateChip rate={row.rateText} />{/if}
               {#if row.remainingTicks !== null && row.durationTicks !== null}
                 <span class="home-eta">{remainingReadout(row.remainingTicks, row.durationTicks, showTickCounts, state.tickDurationSeconds)}{row.kind === "extraction" || row.kind === "shortRange" ? " in phase" : ""}</span>
               {/if}
@@ -19304,9 +19292,20 @@
             <dd>{done.source}</dd>
             <dt>Action</dt>
             <dd>{done.primaryLabel}{#if done.secondaryLabel !== null} &middot; {done.secondaryLabel}{/if}</dd>
-            {#if completionElapsedText(done.elapsedMs) !== null}
+            {#if done.overtime && done.elapsedMs !== null}
+              <!-- OT-UI (user 2026-11-10 "Show both times"): a job that ran with Overtime reads its true time and
+                   its normal one, from the log entry's own record (tick.ts completionOvertime). -->
+              {@const both = overtimeElapsedText(completionDurationText(done.elapsedMs), completionDurationText(done.overtime.normalMs))}
+              <dt>Time elapsed</dt>
+              <dd>{both.took} <span class="done-dim">{both.normal}</span></dd>
+            {:else if completionElapsedText(done.elapsedMs) !== null}
               <dt>Time elapsed</dt>
               <dd>{completionElapsedText(done.elapsedMs)}</dd>
+            {/if}
+            {#if done.overtime}
+              <!-- The steps line reads even when the run's time is unknown (elapsedMs null). -->
+              <dt>Overtime</dt>
+              <dd>{done.overtime.steps} of {OVERTIME_MAX_STEPS} steps</dd>
             {/if}
             <dt>When</dt>
             <!-- The AGE survives here, so "what did I miss while I was away" is still answerable
@@ -23070,6 +23069,12 @@
     transition: width var(--bar-step-seconds, 0.2s) linear;
   }
   .research-readout { font-size: var(--text-xs); color: var(--color-text-secondary); text-align: right; }
+  /* OT-UI (the 2026-11-10 Overtime buttons mockup): a running job's time line, the Overtime rate chip at its left and
+     the readout at its right (the readout keeps its own right alignment when there is no chip). */
+  .job-readout-line { display: flex; align-items: center; gap: 8px; }
+  .job-readout-line .research-readout { margin-left: auto; }
+  /* OT-UI: the bar, time and strip the Docks, docking bay and Systems Bay rungs gained (user "Yes, add bar + Overtime"). */
+  .inflight-job { margin: 6px 0 10px; }
   /* OPERATIONS MISSION PANES (0.13.5, docs/plans/2026-09-14-ops-mission-panes.html). The
      Gathering + Combat AVAILABLE lists render as a vertical stack of full-width ROWS, the
      facilities/captains .fpane/.cpane idiom, instead of the old .mission-list card grid.
@@ -23465,6 +23470,8 @@
     margin: 0;
     color: var(--color-text-primary);
   }
+  /* OT-UI: the normal-rate time beside a sped-up job's true time ("(10:00 at the normal rate)"). */
+  .done-dl dd .done-dim { color: var(--color-text-secondary); }
   /* SHOW MORE HISTORY. ⚠️ Matched spacing above AND below once open, per the user: the toggle sits
      between two equal gaps rather than hugging the rows it reveals. */
   .done-more {

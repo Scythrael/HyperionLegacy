@@ -61,6 +61,7 @@
 
 import { describe, expect, it } from "vitest";
 import { gw5ReadBack } from "./gearWearStep5Registry.fixture"; // Gear wear step 5: its deleted and flipped rows read back, innermost
+import { otUiReadBack } from "./otUiRegistry.fixture"; // OT-UI: the Overtime row restated, read back innermost
 import { cp16OffForThisFile } from "./cp16Switch.fixture";
 // Complement CP-19: this file's pins predate the Personnel Rosters track (a new game's facility map gains its
 // pre-granted Level 1), so it runs with the slice off; cp19Goldens.test.ts pins the slice itself.
@@ -558,7 +559,7 @@ describe("E5-0 golden 4: the wiring registry's ids and statuses", () => {
     // Complement CP-11's rows (cp11Registry.fixture.ts) came after and are held apart the same way.
     const added = new Set([...E5_ADDED_ENTRY_IDS, ...CP11_ADDED_ENTRY_IDS]);
     // Complement CP-12's flip of the obtainable row came after too (cp12ReadBack puts it back).
-    const lines = cp12ReadBack(cp13ReadBack(cp14ReadBack(cp16ReadBack(cp18ReadBack(cp19ReadBack(gw5ReadBack(ml5ReadBack(WIRING_REGISTRY)))))))).filter((e) => !added.has(e.id)).map((e) => `${e.id}|${e.status.kind}`);
+    const lines = cp12ReadBack(cp13ReadBack(cp14ReadBack(cp16ReadBack(cp18ReadBack(cp19ReadBack(gw5ReadBack(ml5ReadBack(otUiReadBack(WIRING_REGISTRY))))))))).filter((e) => !added.has(e.id)).map((e) => `${e.id}|${e.status.kind}`);
     pin("registry", [lines.length, hash(lines)]);
   });
 });

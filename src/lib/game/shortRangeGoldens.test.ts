@@ -133,6 +133,7 @@
 
 import { describe, expect, it, vi } from "vitest";
 import { gw5ReadBack } from "./gearWearStep5Registry.fixture"; // Gear wear step 5: its deleted and flipped rows read back, innermost
+import { otUiReadBack } from "./otUiRegistry.fixture"; // OT-UI: the Overtime row restated, read back innermost
 import { cp16OffForThisFile } from "./cp16Switch.fixture";
 // Complement CP-19: this file's pins predate the Personnel Rosters track (a new game's facility map gains its
 // pre-granted Level 1), so it runs with the slice off; cp19Goldens.test.ts pins the slice itself.
@@ -1052,7 +1053,7 @@ describe("G1-0 golden 5: the wiring registry's ids and statuses", () => {
   it("gear wear steps 1 and 2: the added entries, each with its status (all pending; step 3 read back)", () => {
     // Step 3's flips read back (gearWearRegistry.fixture.ts), the step 2 pin reproduces: step 3 moved only its own rows.
     // E-MOD EM-5's two module wear rows (emodEm5Registry.fixture.ts) are held apart: they came after this pin.
-    const added = gw5ReadBack(WIRING_REGISTRY).filter((e) => e.id.startsWith("wear:") && !EM5_ADDED_ENTRY_IDS.has(e.id))
+    const added = gw5ReadBack(otUiReadBack(WIRING_REGISTRY)).filter((e) => e.id.startsWith("wear:") && !EM5_ADDED_ENTRY_IDS.has(e.id))
       .map((e) => gw3EntryBack(gw4EntryBack(e))!)
       .map((e) => `${e.id}|${e.status.kind}`);
     expect(added.length).toBeGreaterThan(30);
@@ -1061,7 +1062,7 @@ describe("G1-0 golden 5: the wiring registry's ids and statuses", () => {
   });
   it("gear wear step 3: the wear entries and its two audit rows, each with its status", () => {
     // Gear wear step 4's flips read back (gearWearCombatRegistry.fixture.ts): the step 3 pin reproduces.
-    const rows = gw5ReadBack(WIRING_REGISTRY).filter((e) => e.id.startsWith("wear:") || e.id === "ship:audit:slotDurability" || GW3_ADDED_IDS.has(e.id)).map(gw4EntryBack).map(
+    const rows = gw5ReadBack(otUiReadBack(WIRING_REGISTRY)).filter((e) => e.id.startsWith("wear:") || e.id === "ship:audit:slotDurability" || GW3_ADDED_IDS.has(e.id)).map(gw4EntryBack).map(
       (e) => `${e.id}|${e.status.kind}|${e.contexts.join(",")}`,
     );
     // Every use source, repair context and bonus is live; the battle sources and the combat consumers wait for step 4.

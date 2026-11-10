@@ -5890,7 +5890,7 @@ function speedSeamEntries(): WiringEntry[] {
       id: "facility:SPEED_SEAM:overtime",
       system: "facility",
       source: { catalog: "SPEED_SEAM", key: "overtime" },
-      claim: "Overtime: each step bought speeds a running job by 25% of its normal rate (Shipyard builds and repairs, research, facility upgrades)",
+      claim: "Overtime: each step bought speeds a running job by 25% of its normal rate (Shipyard builds and repairs, research projects and data studies, facility upgrades incl. the Docks, docking bays and Systems Bay)",
       probe: "overtimeTicks",
       contexts: ["shipyard", "research", "facility"],
       direction: "down",
@@ -5898,7 +5898,7 @@ function speedSeamEntries(): WiringEntry[] {
       magnitude: () => OVERTIME_STEP_RATE,
       on: overtimeOneStep,
       base: () => withRunningJobs(wiringBase()),
-      note: "one step from the normal rate: the time left is divided by 1 + 0.25 (the countdown then runs unchanged)",
+      note: "one step from the normal rate on every kind it is offered on: the time left is divided by 1 + 0.25 (the countdown then runs unchanged); reachable from each running job's Overtime strip (OT-UI, the 2026-11-10 mockup: the Shipyard building card, the damaged banner, the Lab's project cards and data study, every facility's in-flight row, the Docks, docking bay and Systems Bay rows)",
     }),
     entry({
       id: "fleetAdmiral:SPEED_SEAM:timeSkip",

@@ -31,7 +31,8 @@
 // Without a speed record every process, mission, patrol and expedition is byte-identical to before this seam.
 //
 // PURE + DETERMINISTIC: no draws, no clock reads, no state mutation; each action returns a fresh state or the SAME
-// reference on a refusal. No UI in this slice (an Overtime button needs a sketch first).
+// reference on a refusal. The UI (OT-UI, the 2026-11-10 Overtime buttons mockup, approved) is jobOvertimeDisplay.ts and
+// JobOvertimeStrip.svelte: every number on a job's strip is this module's quote.
 // ============================================================================
 
 import Decimal from "break_infinity.js";
@@ -100,10 +101,13 @@ export function processRate(p: TimedProcess): number {
 }
 
 // How much of the job's WORK is done, 0 to 1 (the honest progress bar under Overtime: remainingTicks x rate is the
-// work left in normal ticks). Without Overtime this is the familiar (durationTicks - remainingTicks) / durationTicks.
+// work left in normal ticks). OT-UI (user 2026-11-10 "Chip + no jump"): every bar on a job Overtime is offered on reads
+// this, so a purchase never moves the bar; it only fills faster. Written as (durationTicks - remainingTicks x rate) /
+// durationTicks so that, without Overtime (rate 1), it is BIT-identical to the familiar (durationTicks -
+// remainingTicks) / durationTicks every bar read before (x 1 is exact), clamped to 0..1.
 export function processWorkFraction(p: TimedProcess): number {
   if (p.durationTicks <= 0) return 1;
-  return Math.min(1, Math.max(0, 1 - (p.remainingTicks * processRate(p)) / p.durationTicks));
+  return Math.min(1, Math.max(0, (p.durationTicks - p.remainingTicks * processRate(p)) / p.durationTicks));
 }
 
 // The tier a job is priced at: the hull being built or repaired, the blueprint being researched, the rung being
@@ -163,8 +167,8 @@ function rescaledRemaining(remainingTicks: number, fromSteps: number, toSteps: n
   return (remainingTicks * overtimeRate(fromSteps)) / overtimeRate(toSteps);
 }
 
-// Buy the next Overtime step: charge the quoted price, record the step, and rescale the time left so the work left
-// runs at the new rate. A refusal returns the SAME state with the reason.
+// Buy the next Overtime step: charge the quoted price, record the step (and the ticks it saves), and rescale the time
+// left so the work left runs at the new rate. A refusal returns the SAME state with the reason.
 export function buyOvertime(
   state: GameState,
   ref: ProcessRef,
@@ -177,7 +181,9 @@ export function buyOvertime(
       ? {
           ...p,
           remainingTicks: rescaledRemaining(p.remainingTicks, quote.step - 1, quote.step),
-          speed: { ...p.speed, overtimeSteps: quote.step },
+          // OT-UI "Show both times": the ticks this step took off the time left, summed over the steps, so the
+          // completion log knows the job's true length (durationTicks - ticksSaved) and its normal one (durationTicks).
+          speed: { ...p.speed, overtimeSteps: quote.step, ticksSaved: (p.speed?.ticksSaved ?? 0) + quote.ticksSaved },
         }
       : p,
   );

@@ -89,6 +89,11 @@
   import { conditionMeter, pieceWearCard, shipGearSummary } from "./gearWearDisplay";
   const GEAR_WEAR_HELP_TOPIC_ID = "gearWear";
   import Icon from "./ui/Icon.svelte";
+  // OT-UI (the 2026-11-10 Overtime buttons mockup, approved): the hull repair's Overtime strip and rate chip.
+  import JobOvertimeStrip from "./JobOvertimeStrip.svelte";
+  import OvertimeRateChip from "./OvertimeRateChip.svelte";
+  import { jobOvertimeStrip, jobRateText } from "./jobOvertimeDisplay";
+  import { processWorkFraction } from "./game/processSpeed";
   // The Help topic the Power bar links to (helpTopics.ts; powerBarDisplay.test.ts holds the id to a real topic).
   const POWER_HELP_TOPIC_ID = "powerAndModules";
   import { equippedFor, fittedInSlot, canFitEquipment, fitEquipment } from "./game/equipment";
@@ -176,6 +181,9 @@
   // repair Overtime step on this docked ship (App's buyGearOvertime: the engine's buy, save and log). The gear card
   // carries the button; Fleet care on Command Home stays report-only.
   export let onBuyGearOvertime: ((shipId: string) => void) | undefined = undefined;
+  // OT-UI (user 2026-11-10 "One tap, always visible"): buys the next Overtime step on this ship's running hull repair
+  // (App's buyJobOvertime: the engine's buy, save and log). Absent = the strip shows its state but no button.
+  export let onBuyJobOvertime: ((processId: string) => void) | undefined = undefined;
   // Renamable Ships: routes a rename (or a clear) back to the host, which runs the
   // pure renameShip seam + doSave + pushLog exactly once. The panel owns only the
   // in-progress edit UI (the draft string + focus); it never mutates state itself.
@@ -864,10 +872,14 @@
         ) ?? null
       : null;
   $: repairRunning = repairProcess !== null;
-  $: repairProgress =
-    repairProcess && repairProcess.durationTicks > 0
-      ? (repairProcess.durationTicks - repairProcess.remainingTicks) / repairProcess.durationTicks
-      : 0;
+  // OT-UI (user "Chip + no jump"): the WORK done (processSpeed.ts processWorkFraction), so an Overtime step never
+  // moves the bar; at the normal rate it is the familiar (duration - remaining) / duration.
+  $: repairProgress = repairProcess ? processWorkFraction(repairProcess) : 0;
+  // The banner's own clock ("~3m 12s", user "Match each row"), the strip's times in it.
+  $: repairOvertime = repairProcess
+    ? jobOvertimeStrip(state, repairProcess, (ticks) => formatEta(ticks * state.tickDurationSeconds).replace(/ left$/, ""))
+    : null;
+  $: repairRate = repairProcess ? jobRateText(repairProcess) : null;
   $: repairEtaSeconds = repairProcess ? Math.max(0, repairProcess.remainingTicks) * state.tickDurationSeconds : 0;
 
   // --- Install picker reads ---------------------------------------------------
@@ -1705,13 +1717,17 @@
          so it explains the wait (the auto-repair claims a bay the instant one frees). -->
     {#if shipDamaged}
       <div class="ss-repair" role="status">
-        <div class="ss-repair-top"><span aria-hidden="true">&#128295;</span> Ship damaged &middot; returned from a lost patrol</div>
+        <div class="ss-repair-top"><Icon name="hullRepair" size={15} /> Ship damaged &middot; returned from a lost patrol</div>
         <div class="ss-repair-msg">Your ship is damaged. It needs repair before you can install new ship systems.</div>
         {#if repairRunning}
           <div class="ss-repair-row">
             <div class="ss-repair-bar"><i style="width: {Math.round(repairProgress * 100)}%"></i></div>
+            {#if repairRate}<OvertimeRateChip rate={repairRate} />{/if}
             <div class="ss-repair-eta">{formatEta(repairEtaSeconds)}</div>
           </div>
+          {#if repairOvertime}
+            <div class="ss-repair-ot"><JobOvertimeStrip strip={repairOvertime} onBuy={onBuyJobOvertime} /></div>
+          {/if}
         {:else}
           <div class="ss-repair-row">
             <div class="ss-repair-wait">Waiting for a free repair bay at the Shipyard.</div>
@@ -2760,6 +2776,10 @@
     height: 100%;
     background: linear-gradient(90deg, var(--color-warning), var(--color-success));
     transition: width var(--bar-step-seconds, 0.2s) linear;
+  }
+  /* OT-UI: the strip under the repair bar, on a darker ground so it reads against the danger tint (the mockup). */
+  .ss-repair-ot :global(.jo) {
+    background: rgba(6, 10, 18, 0.35);
   }
   .ss-repair-eta {
     font-family: var(--font-mono);

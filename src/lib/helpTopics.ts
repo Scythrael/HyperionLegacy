@@ -95,7 +95,20 @@ import {
   riskRewardBonus,
 } from "./game/riskFactors";
 import { MUSEUM_HAZARD_RESIST_MAX } from "./game/relics";
-import { OVERTIME_MAX_STEPS, OVERTIME_STEP_RATE } from "./game/processSpeed";
+import { OVERTIME_CREDITS_PER_MINUTE, OVERTIME_MAX_STEPS, OVERTIME_STEP_RATE, overtimeRate } from "./game/processSpeed";
+
+// OT-UI (0.14.0, the 2026-11-10 Overtime buttons mockup): Overtime on every running job it is offered on, every number
+// from the engine (processSpeed.ts): the step, the most a job reaches, the price rule (the job's whole length x its
+// tier x the step, fixed for the job), the refusals and where each strip sits.
+const OT_PCT = `${Math.round(OVERTIME_STEP_RATE * 100)}%`;
+const OT_MAX_RATE = `${Math.round(overtimeRate(OVERTIME_MAX_STEPS) * 100) / 100}x`;
+const OVERTIME_PARAGRAPHS: readonly string[] = [
+  `Overtime pays credits to finish a running job sooner. It is always optional: every job runs at its normal speed on its own. Each step you buy speeds the job by ${OT_PCT} of its normal rate, up to ${OVERTIME_MAX_STEPS} steps, so a job runs at most ${OT_MAX_RATE} its normal rate: never double, never instant. Each step saves a little less time than the one before.`,
+  `WHERE: a strip sits under the progress bar of every running job it is offered on: a hull build (the Shipyard's building card), a hull repair (the damaged banner on the ship's Ship Systems board), a blueprint project and a data study (the Research Lab), and a facility upgrade (every facility's in-flight row, including the Docks, the docking bays and the Systems Bay). One tap buys the next step; the button shows its exact price, and the line under it shows the new time. It is not offered on refining, crafting, salvage, relic study, missions, patrols or expeditions. Gear repair has its own Overtime on a docked ship's gear cards (see the Gear wear topic).`,
+  `THE PRICE: step k costs ${OVERTIME_CREDITS_PER_MINUTE} credits for each minute of the job's whole length, times its tier, times k, rounded up. The whole length is the job's own, set when it started (never the time left), so a step costs the same whenever you buy it. The tier is the hull being built or repaired, the blueprint being researched, or the level being built (on the Docks, docking bays and Systems Bay, which have no level, the expansion's number: the first is Tier 1); a data study is always Tier 1.`,
+  `WHEN IT IS OFF: a strip says why it cannot buy: you are short of credits (it shows exactly how many more you need), the job is already at its fastest, or a data study is paused because auto-study is off (it is not counting down, so turn auto-study back on first). On a job's last tick the strip is hidden: a step would buy nothing.`,
+  `WHAT CHANGES: only the time left. The job's size, what it delivers and its Fleet Admiral XP stay the same. Its bar measures the work done, so a step never makes the bar jump; it just fills faster, and a rate chip ("1.25x") shows beside the time while it runs faster. Overtime belongs to one running job: the next job starts at the normal rate. Every purchase is written to the System Log, and the job's completion entry on Command Home reads both times, how long it took with Overtime and its length at the normal rate.`,
+];
 // Safe first runs SF-6: the training runs and the curve, every number read from its owner (no typed number).
 import {
   FIRST_PATROL_WAVES,
@@ -1140,6 +1153,12 @@ Fabricated equipment keeps its quality too. A crafted blank holds the quality it
     id: "docks",
     title: "Docks",
     body: "The Docks, in Facilities, sets how many hulls your fleet can hold: the capacity cap starts at 8 hulls, and a timed Expand Docks upgrade raises it one ship at a time. Managing the ships themselves happens on the Ships tab: open a ship to assign it to a captain, install its ship systems, or salvage it. When the docks are full and you no longer need a ship, salvaging one frees its slot immediately.",
+  },
+  {
+    // OT-UI (0.14.0): Overtime on running jobs (OVERTIME_PARAGRAPHS above).
+    id: "overtime",
+    title: "Overtime",
+    body: OVERTIME_PARAGRAPHS.join("\n\n"),
   },
   {
     id: "shipSystems",

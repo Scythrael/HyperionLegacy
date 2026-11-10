@@ -1379,9 +1379,32 @@ function foldRewardItems(into: CompletionRewardItem[], manifest: Record<string, 
 // the cadence is fleet-wide), and it is what lets a readout answer the user's "Time
 // elapsed: X" without a second persisted field. An unknown clock stays unknown rather than
 // becoming a negative date.
+//
+// OT-UI (user 2026-11-10 "Show both times"): a job sped up by Overtime ran for fewer ticks than its durationTicks (its
+// normal-rate length). buyOvertime sums the ticks each step took off the time left (speed.ticksSaved), so its true
+// length is durationTicks - ticksSaved, counted in the whole ticks the countdown needed to reach 0 (a rescaled time
+// left can be fractional, and the job completes on the first tick it reaches 0, resolveProcesses' epsilon). A job
+// without Overtime takes the unchanged branch, so its stamp is byte-identical.
 function completionStartedAtMs(nowMs: number, process: TimedProcess, tickDurationSeconds: number): number {
   if (nowMs <= UNKNOWN_COMPLETION_TIME_MS) return UNKNOWN_COMPLETION_TIME_MS;
-  return Math.round(nowMs - process.durationTicks * tickDurationSeconds * 1000);
+  return Math.round(nowMs - completionRanTicks(process) * tickDurationSeconds * 1000);
+}
+
+// The whole ticks a completing job ran for (see completionStartedAtMs): its durationTicks, less what Overtime saved.
+function completionRanTicks(process: TimedProcess): number {
+  const saved = process.speed?.ticksSaved ?? 0;
+  if (saved <= 0) return process.durationTicks;
+  return Math.max(0, Math.ceil(process.durationTicks - saved - MISSION_TICK_EPSILON));
+}
+
+// OT-UI: a job that ran with Overtime records its steps and its NORMAL-rate length on its log entry ("took 08:20 with
+// Overtime (10:00 at the normal rate)"); undefined (and so not written) for every other job. A job from a save made
+// before ticksSaved was recorded (steps but no ticksSaved) is undefined too: its saving was never measured, so its
+// log line never claims one (it reads the plain time, as before).
+function completionOvertime(process: TimedProcess, tickDurationSeconds: number): { steps: number; normalMs: number } | undefined {
+  const steps = process.speed?.overtimeSteps ?? 0;
+  if (steps <= 0 || process.speed?.ticksSaved === undefined) return undefined;
+  return { steps, normalMs: Math.round(process.durationTicks * tickDurationSeconds * 1000) };
 }
 
 // Push an entry onto the ring buffer, evicting the OLDEST first once the cap is reached.
@@ -1846,6 +1869,7 @@ function recordCompletion(args: {
 
   const contribution = completionYieldFor(process, policy, levels, mintedPieces, salvage, state, relicId, dataLearned);
   const startedAtMs = completionStartedAtMs(nowMs, process, state.tickDurationSeconds);
+  const overtime = completionOvertime(process, state.tickDurationSeconds);
 
   // A line-backed iteration folds; everything else is a batch of one and emits now.
   const lineId = policy.batched ? process.lineId ?? null : null;
@@ -1871,6 +1895,7 @@ function recordCompletion(args: {
       // compares against.
       ...(contribution.salvageSubject !== undefined ? { salvageSubject: contribution.salvageSubject } : {}),
       ...(contribution.salvageRoll !== undefined ? { salvageRoll: contribution.salvageRoll } : {}),
+      ...(overtime !== undefined ? { overtime } : {}),
     };
     return { log: pushCompletionEntry(acc.log, entry), nextId: acc.nextId + 1, open: acc.open };
   }

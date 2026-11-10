@@ -26,6 +26,7 @@
 
 import { describe, expect, it } from "vitest";
 import { gw5ReadBack } from "./gearWearStep5Registry.fixture"; // Gear wear step 5: its deleted and flipped rows read back, innermost
+import { otUiReadBack } from "./otUiRegistry.fixture"; // OT-UI: the Overtime row restated, read back innermost
 import { cp14OffForThisFile } from "./cp14Switch.fixture";
 // Complement CP-19: this file's pins predate the Personnel Rosters track (a new game's facility map gains its
 // pre-granted Level 1), so it runs with the slice off; cp19Goldens.test.ts pins the slice itself.
@@ -234,11 +235,11 @@ const MOVED_AFTER: Record<string, string> = {
 describe("Complement CP-12 goldens (captured before the Bridge Module and Crew Quarters tiles)", () => {
   if (CAPTURE) {
     it("captures", () => {
-      writeFileSync(String(import.meta.env.CP12_CAPTURE), JSON.stringify(computePins(cp13ReadBack(cp14ReadBack(cp16ReadBack(cp18ReadBack(cp19ReadBack(gw5ReadBack(ml5ReadBack(WIRING_REGISTRY)))))))), null, 2));
+      writeFileSync(String(import.meta.env.CP12_CAPTURE), JSON.stringify(computePins(cp13ReadBack(cp14ReadBack(cp16ReadBack(cp18ReadBack(cp19ReadBack(gw5ReadBack(ml5ReadBack(otUiReadBack(WIRING_REGISTRY))))))))), null, 2));
     });
     return;
   }
-  const pins = computePins(cp13ReadBack(cp14ReadBack(cp16ReadBack(cp18ReadBack(cp19ReadBack(gw5ReadBack(ml5ReadBack(WIRING_REGISTRY))))))));
+  const pins = computePins(cp13ReadBack(cp14ReadBack(cp16ReadBack(cp18ReadBack(cp19ReadBack(gw5ReadBack(ml5ReadBack(otUiReadBack(WIRING_REGISTRY)))))))));
   it("every reading a player already owns holds (install and uninstall of each module, never evict, the save bytes, the registry)", () => {
     expect(Object.keys(HELD_CAPTURE).length).toBeGreaterThan(40);
     expect(Object.keys(pins.held).sort()).toEqual(Object.keys(HELD_CAPTURE).sort());
@@ -246,7 +247,7 @@ describe("Complement CP-12 goldens (captured before the Bridge Module and Crew Q
   });
   it("the by-design readings: with CP-12 held apart, every one is the pre-CP-12 capture", () => {
     expect(Object.keys(MOVED_BEFORE).length).toBeGreaterThan(5);
-    const pre = withoutCp12(() => computePins(cp12ReadBack(cp13ReadBack(cp14ReadBack(cp16ReadBack(cp18ReadBack(cp19ReadBack(gw5ReadBack(ml5ReadBack(WIRING_REGISTRY))))))))));
+    const pre = withoutCp12(() => computePins(cp12ReadBack(cp13ReadBack(cp14ReadBack(cp16ReadBack(cp18ReadBack(cp19ReadBack(gw5ReadBack(ml5ReadBack(otUiReadBack(WIRING_REGISTRY)))))))))));
     expect(Object.keys(pre.moved).sort()).toEqual(Object.keys(MOVED_BEFORE).sort());
     for (const [k, v] of Object.entries(MOVED_BEFORE)) expect(pre.moved[k], k).toBe(v);
     // The held readings agree with the switch on as well (the switch touches only the moved readings).

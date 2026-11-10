@@ -1,6 +1,27 @@
 import { describe, it, expect } from "vitest";
 import { FIELD_DEVICES_PARAGRAPH, HELP_TOPICS, TRAINING_RUNS_PARAGRAPH, TRAINING_WEAR_SENTENCE } from "./helpTopics";
 import { gatheringTrainingStamp } from "./game/gearWearEngine";
+import { OVERTIME_CREDITS_PER_MINUTE, OVERTIME_MAX_STEPS as OT_MAX, OVERTIME_STEP_RATE as OT_STEP } from "./game/processSpeed";
+
+// OT-UI (0.14.0, the 2026-11-10 Overtime buttons mockup): the Overtime topic is truthful for every job kind, its numbers
+// read from the engine (processSpeed.ts).
+describe("the Overtime topic (OT-UI)", () => {
+  it("names every job kind it is offered on, the engine's price rule and its refusals", () => {
+    const t = HELP_TOPICS.find((x) => x.id === "overtime");
+    expect(t).toBeDefined();
+    const b = t!.body;
+    expect(b).toContain(`${Math.round(OT_STEP * 100)}% of its normal rate, up to ${OT_MAX} steps`);
+    expect(b).toContain(`${OVERTIME_CREDITS_PER_MINUTE} credits for each minute of the job's whole length`);
+    for (const where of ["hull build", "hull repair", "blueprint project", "data study", "facility upgrade", "the Docks", "docking bays", "Systems Bay"]) {
+      expect(b, where).toContain(where);
+    }
+    expect(b).toContain("auto-study is off");
+    expect(b).toContain("last tick");
+    expect(b).toContain("at the normal rate");
+    expect(b.includes(String.fromCharCode(0x2014))).toBe(false);
+    expect(b).not.toMatch(/-{2}|\bfit/);
+  });
+});
 import {
   FIRST_PATROL_WAVES,
   FIRST_RUN_ENEMY_SCALE,

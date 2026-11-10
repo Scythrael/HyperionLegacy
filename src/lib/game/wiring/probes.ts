@@ -418,14 +418,27 @@ export function seatOfficer(
   return { ...s, officers: [...s.officers.filter((o) => o.seat !== seat || o.assignedShipId !== WIRING_SHIP_ID), officer] };
 }
 
-// 0.14.0 SPEED SEAM: one running job per Overtime context, each RUNNING_JOB_TICKS long: a hull build (shipyard), a
-// research project (research) and a facility rung (facility). Started through the shared startProcess engine.
+// 0.14.0 SPEED SEAM: one running job of EVERY kind Overtime is offered on (OVERTIME_PROCESS_KINDS), each
+// RUNNING_JOB_TICKS long, started through the shared startProcess engine. OT-UI (2026-11-10): every one of them now
+// carries a strip a player can tap, so each is measured, grouped by the console it runs at: the Shipyard (a hull build,
+// a hull repair, a Docks rung, a docking bay rung), research (a blueprint project, a data study) and facility (a
+// facility rung, a Systems Bay rung).
 export const RUNNING_JOB_TICKS = 1000;
-const RUNNING_JOB_KIND: Partial<Record<ContextId, TimedProcessKind>> = { shipyard: "shipBuild", research: "researchProject", facility: "facilityUpgrade" };
+const RUNNING_JOB_KINDS: Partial<Record<ContextId, readonly TimedProcessKind[]>> = {
+  shipyard: ["shipBuild", "shipRepair", "docksExpansion", "transitBerthExpansion"],
+  research: ["researchProject", "dataStudy"],
+  facility: ["facilityUpgrade", "equipmentStorageUpgrade"],
+};
 export function withRunningJobs(s: GameState): GameState {
-  let out = startProcess(s, "shipBuild", {}, RUNNING_JOB_TICKS, { type: "addShip", typeKey: "generalFreighter" }).next;
+  const damaged = editShip(s, { damaged: true, repairDamage: 100 });
+  let out = startProcess(damaged, "shipBuild", {}, RUNNING_JOB_TICKS, { type: "addShip", typeKey: "generalFreighter" }).next;
+  out = startProcess(out, "shipRepair", {}, RUNNING_JOB_TICKS, { type: "clearShipDamage", shipId: WIRING_SHIP_ID }).next;
+  out = startProcess(out, "docksExpansion", {}, RUNNING_JOB_TICKS, { type: "docksCapacityUp" }).next;
+  out = startProcess(out, "transitBerthExpansion", {}, RUNNING_JOB_TICKS, { type: "transitBerthLevelUp" }).next;
   out = startProcess(out, "researchProject", {}, RUNNING_JOB_TICKS, { type: "unlockBlueprint", key: "frameSegmentBp" }).next;
-  return startProcess(out, "facilityUpgrade", {}, RUNNING_JOB_TICKS, { type: "facilityLevelUp", facility: "refinery" }).next;
+  out = startProcess(out, "dataStudy", {}, RUNNING_JOB_TICKS, { type: "studyData", itemId: "propulsionData", studyIndex: 1 }).next;
+  out = startProcess(out, "facilityUpgrade", {}, RUNNING_JOB_TICKS, { type: "facilityLevelUp", facility: "refinery" }).next;
+  return startProcess(out, "equipmentStorageUpgrade", {}, RUNNING_JOB_TICKS, { type: "equipmentStorageLevelUp" }).next;
 }
 
 // Buy ONE Overtime step on every running job it is offered on (a job it is not, or a refusal, is left as it is).
@@ -2193,8 +2206,12 @@ export const PROBES = {
   shipBuildTicks: { label: "shipBuildDurationTicks(destroyer)", read: (s) => shipBuildDurationTicks(s, "destroyer") },
   shipyardFounded: { label: "canBuildShip passes the founded gate (0/1)", read: (s) => buildGatePassed(s, "notFounded") },
   overtimeTicks: {
-    label: "a running job's remaining ticks (processSpeed.ts Overtime): a hull build / a research project / a facility rung",
-    read: (s, ctx) => s.activeProcesses.find((p) => p.kind === RUNNING_JOB_KIND[ctx])?.remainingTicks ?? -1,
+    label: "the running jobs' remaining ticks, summed per console (processSpeed.ts Overtime): Shipyard (build, repair, Docks, docking bay) / research (project, data study) / facility (rung, Systems Bay)",
+    read: (s, ctx) => {
+      const kinds = RUNNING_JOB_KINDS[ctx] ?? [];
+      const jobs = s.activeProcesses.filter((p) => kinds.includes(p.kind));
+      return jobs.length === kinds.length && jobs.length > 0 ? jobs.reduce((sum, p) => sum + p.remainingTicks, 0) : -1;
+    },
   },
   dockRoom: { label: "canBuildShip passes the docks gate (0/1)", read: (s) => buildGatePassed(s, "storageFull") },
   // == facilities ==

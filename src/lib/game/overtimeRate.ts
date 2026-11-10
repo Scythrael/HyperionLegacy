@@ -10,3 +10,9 @@ export const OVERTIME_STEP_RATE = 0.25;
 export function overtimeRate(steps: number): number {
   return 1 + OVERTIME_STEP_RATE * steps;
 }
+
+// OT-UI (the 2026-11-10 Overtime buttons mockup, user "Chip + no jump"): the rate chip's text, "1.25x", "1.5x", "1.75x"
+// (the gear card's own format), or null at the normal rate (no chip). Pure.
+export function overtimeRateText(steps: number): string | null {
+  return steps > 0 ? `${Math.round(overtimeRate(steps) * 100) / 100}x` : null;
+}

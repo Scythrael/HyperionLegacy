@@ -119,6 +119,8 @@ import { missionRunSheet } from "./gearWearEngine";
 // Exploration 0.14.0 (E4a): relic + set names for the relic-study rows (pure catalog, no cycle).
 import { getRelicById, getRelicSetById } from "./relics";
 import { dataStudyPaused } from "./dataStudy";
+import { overtimeRateText } from "./overtimeRate";
+import { processWorkFraction } from "./processSpeed";
 
 // Gas Giant Study GG-6: the Home row's line for a data study while the lane is paused.
 export const DATA_STUDY_PAUSED_HOME_LINE = "Paused: the countdown holds until auto-study is back on";
@@ -203,6 +205,9 @@ export interface ActivityRow {
   durationTicks: number | null;  // raw total ticks, for remainingReadout; null for a patrol
   jumpTarget: JumpTarget | null; // where a tap routes; null = a non-navigable status row (no Section-8 destination)
   combat: CombatRowDetail | null; // present ONLY on a patrol row; null otherwise
+  // OT-UI (user 2026-11-10 "Rate chip only"): the Overtime rate chip ("1.25x") on a job sped up by Overtime. Absent on
+  // every other row (written only when a step was bought), so a row without Overtime is byte-identical.
+  rateText?: string;
 }
 
 // One actionable-idle prompt (NEEDS YOUR ORDERS). STUB in Unit 1 (see the builder);
@@ -291,6 +296,9 @@ export interface CompletionRow {
   // Always present, because every completion kind happens somewhere; see COMPLETION_KIND_VIEW.
   source: string;
   jumpTarget: JumpTarget | null; // where a tap routes; null = a plain, non-navigable row
+  // OT-UI (user 2026-11-10 "Show both times"): a job that ran with Overtime, its steps and its length at the normal rate
+  // (the log entry's own record). Absent on every other row.
+  overtime?: { steps: number; normalMs: number };
 }
 
 // ---------------------------------------------------------------------------
@@ -631,9 +639,10 @@ function rowForProcess(
   craftRunByLine: Map<string, CraftQueueRunningRow>,
 ): ActivityRow {
   const { icon, primaryLabel, jumpTarget } = labelForProcess(process, state);
-  const progress = process.durationTicks > 0
-    ? (process.durationTicks - process.remainingTicks) / process.durationTicks
-    : 1;
+  // OT-UI (user "Chip + no jump"): the bar measures WORK done (processSpeed.ts processWorkFraction, the same rule), so an
+  // Overtime purchase never moves it. At the normal rate (x 1, exact) this is the familiar formula, bit for bit.
+  const progress = processWorkFraction(process);
+  const rateText = overtimeRateText(process.speed?.overtimeSteps ?? 0);
 
   // The PER-ITEM defaults: this iteration's own ticks, no count sub-line. Every non-craft
   // row keeps these, and a craft row falls back to them when there is no queue line behind
@@ -686,6 +695,7 @@ function rowForProcess(
     durationTicks,
     jumpTarget,
     combat: null,
+    ...(rateText !== null ? { rateText } : {}),
   };
 }
 
@@ -1518,6 +1528,7 @@ function rowForCompletion(entry: CompletionLogEntry, state: GameState): Completi
     creditsAmount: entry.creditsAmount,
     fuelAmount: entry.fuelAmount,
     jumpTarget: view.jumpTarget,
+    ...(entry.overtime !== undefined ? { overtime: entry.overtime } : {}),
   };
 }
 
