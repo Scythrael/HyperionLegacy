@@ -1283,6 +1283,7 @@
   // Inspect-reveal (0.13.6): whether inspecting a blank pops the rolled system before it files away.
   import { loadInspectReveal, saveInspectReveal } from "./lib/inspectRevealPreference";
   import { loadTickBarEnabled, saveTickBarEnabled } from "./lib/tickBarPreference";
+  import { GRAPH_PALETTE_IDS, GRAPH_PALETTE_LABELS, graphPaletteStore, setGraphPalette } from "./lib/graphPalettePreference";
   import { loadShowTickCounts, saveShowTickCounts } from "./lib/tickReadoutPreference";
   import { loadShowExperienceValues, saveShowExperienceValues } from "./lib/experienceReadoutPreference";
   import { loadRefineConfirmEnabled, saveRefineConfirmEnabled } from "./lib/refineConfirmPreference";
@@ -3190,6 +3191,9 @@
   // Color-blind palette: a separate axis from the theme (see accessibilityPreference.ts). "off" or
   // the Okabe-Ito "cbsafe" set, which remaps the meaning-bearing semantic + rarity colors only.
   let colorBlindPalette: ColorBlindPalette = COLORBLIND_PALETTE_DEFAULT;
+  // CP-20: the complement graph's color preset (graphPalettePreference.ts), device-side, never the save.
+  // A store, so the Complement tab repaints at once when this changes.
+  const complementGraphPalette = graphPaletteStore("complement");
 
   // ⚠️ ONE PATH FOR EVERY CHANGE. Each control calls this rather than writing the document itself,
   // so "persist it" and "apply it" cannot drift apart. The classic bug this avoids is a setting
@@ -19691,6 +19695,24 @@
               applyAccessibilityNow();
             }}
           />
+        </SettingRow>
+
+        <!-- CP-20 (OC-24): the complement graph's colors. A select because there are three presets.
+             Device-side like every row here; the Complement tab's graph key points back to this row. -->
+        <SettingRow
+          label="Complement graph colors"
+          description="Changes the colors of the rank bars on a ship's Complement tab, on this device only. Color-blind safe uses the Okabe-Ito colors; Monochrome uses gray steps and a hatched cap bar."
+        >
+          <select
+            class="setting-select"
+            value={$complementGraphPalette}
+            on:change={(e) => setGraphPalette("complement", (e.target as HTMLSelectElement).value)}
+            aria-label="Complement graph colors"
+          >
+            {#each GRAPH_PALETTE_IDS as id}
+              <option value={id}>{GRAPH_PALETTE_LABELS[id]}</option>
+            {/each}
+          </select>
         </SettingRow>
 
         <!-- ⚠️ RENDERED DISABLED RATHER THAN HIDDEN, and the description says why. The separate

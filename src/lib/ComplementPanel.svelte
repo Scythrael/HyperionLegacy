@@ -70,6 +70,7 @@
   import CrewTransferModal from "./CrewTransferModal.svelte";
   import type { CrewTransferEndpoint, CrewTransferPick, CrewTransferResult } from "./game/crewTransfer";
   import { transferSourceBlock } from "./crewTransferDisplay";
+  import { graphPalette, graphPaletteStore, graphUtilFill } from "./graphPalettePreference";
 
   // --- Props ------------------------------------------------------------------
   // `state` is the whole GameState (read-only here); `shipId` selects the ship whose complement
@@ -204,12 +205,14 @@
     columns: ChartColumn[];
   }
 
-  // The graph UTILIZATION color: hue 0 (red) -> 60 (yellow) -> 120 (green) by fill %, with a
-  // VERTICAL light->dark fade tinted to that hue. Graph palette, deliberately separate from the
-  // console theme (per the spec). pct is clamped to [0,1].
+  // The graph UTILIZATION color, by fill % with a VERTICAL light->dark fade. Graph palette,
+  // deliberately separate from the console theme (per the spec). CP-20: the viewer picks the preset
+  // in Settings (graphPalettePreference.ts, device-side, never the save); Default is the original
+  // red -> yellow -> green hue ramp, byte for byte. pct is clamped to [0,1].
+  const complementPaletteId = graphPaletteStore("complement");
+  $: palette = graphPalette($complementPaletteId);
   function utilFill(pct: number): string {
-    const h = Math.max(0, Math.min(1, pct)) * 120;
-    return `linear-gradient(180deg, hsl(${h}, 80%, 62%), hsla(${h}, 72%, 42%, 0.4))`;
+    return graphUtilFill($complementPaletteId, pct);
   }
 
   // Build one division's chart. axisMax clamps to just above the largest FINITE cap so the officer
@@ -282,7 +285,9 @@
   // function, which Svelte's `$:` dependency tracking does NOT see, so without naming countByKey here
   // `divisions` would only recompute when `hullType` changes (never, for a given ship) and the charts
   // would stay stale as crew arrive. Referencing countByKey (always a truthy Map) makes the dep visible.
-  $: divisions = hullType && countByKey
+  // CP-20: $complementPaletteId is named for the same reason (utilFill reads it inside a function), so
+  // a palette change in Settings repaints a chart already on screen.
+  $: divisions = hullType && countByKey && $complementPaletteId
     ? CREW_PROFESSIONS.map((p) => buildDivision(p, hullType as NonNullable<typeof hullType>, moduleBonus, overCap))
     : [];
 
@@ -475,7 +480,7 @@
                   <div
                     class="comp-capbar"
                     class:uncapped={col.uncapped}
-                    style="height:{col.capH}%"
+                    style="height:{col.capH}%; background:{col.uncapped ? palette.capUncapped : palette.cap}"
                   ></div>
                   <div class="comp-utilbar" style="height:{col.curH}%; background:{col.fill}"></div>
                 </div>
@@ -489,9 +494,10 @@
 
     <!-- GRAPH KEY (graph palette, separate from the console theme). -->
     <div class="comp-gkey">
-      <span><i class="comp-swatch cap"></i> Rank cap</span>
-      <span><i class="comp-swatch util"></i> Utilization (low to full)</span>
+      <span><i class="comp-swatch cap" style="background:{palette.keyCap}"></i> Rank cap</span>
+      <span><i class="comp-swatch util" style="background:{palette.keyUtil}"></i> Utilization (low to full)</span>
       <span>Crewmen uncapped, axis reads "N+"</span>
+      <span>Graph colors: Settings, UI, Accessibility</span>
     </div>
 
     {#if isEmpty}
@@ -907,12 +913,8 @@
     left: 0;
     right: 0;
     bottom: 0;
-    background: linear-gradient(180deg, #4c5666, #333b48);
+    /* CP-20: the background is set inline from the graph palette (graphPalettePreference.ts). */
     border-radius: 1px 1px 0 0;
-  }
-  .comp-capbar.uncapped {
-    /* The uncapped Crewman cap layer reads as a striped "no ceiling" bar. */
-    background: repeating-linear-gradient(180deg, #4a5568, #4a5568 3px, transparent 3px, transparent 5px);
   }
   /* UTILIZATION LAYER (graph palette): the fill gradient is set inline per column (hue by %). */
   .comp-utilbar {
@@ -999,12 +1001,7 @@
     border-radius: 1px;
     flex: 0 0 auto;
   }
-  .comp-swatch.cap {
-    background: linear-gradient(180deg, #4c5666, #333b48);
-  }
-  .comp-swatch.util {
-    background: linear-gradient(90deg, hsl(0, 80%, 55%), hsl(60, 80%, 55%), hsl(120, 60%, 45%));
-  }
+  /* CP-20: the cap and util swatch backgrounds are set inline from the graph palette. */
 
   /* NOTABLE CREW STRIP */
   .comp-notable {

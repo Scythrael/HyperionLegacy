@@ -862,6 +862,17 @@ the complement graph), Settings row, `ComplementPanel.svelte` reads it.
 Monochrome. Per-viewer convenience only, never in the save. **Tests:** preference round trip and fallback when storage
 throws. **UI:** a Settings select; no mockup needed.
 
+**CARRY NOTE (CP-20 built 2026-11-09, user pick OC-24 "Default, Colorblind, Mono"):** `src/lib/graphPalettePreference.ts`
+holds the presets, one localStorage key per graph (`fleet_admiral_graph_palette_complement`), a store so an open
+Complement tab repaints live, and `setGraphPalette` for Settings (Settings, UI, Accessibility, "Complement graph
+colors", under Color-blind palette). Default is the pre-CP-20 strings byte for byte (test-pinned). Color-blind safe:
+Okabe-Ito #d55e00 / #e69f00 / #009e73 at 0 / 50 / 100%, RGB-blended between, on the Default gray cap. Monochrome: fill
+#8c9198 to #f2f4f7 by fill, cap hatched #5a5f66 / #24272c. The game has only dark surfaces; every Color-blind safe and
+Monochrome fill clears 3:1 on them (test-pinned). The emptiest fill sits near 2:1 against the cap behind it in all three
+presets (as Default does today); bar height and the tooltip carry it. Help: no Complement topic exists yet, so the
+graph key ends with "Graph colors: Settings, UI, Accessibility"; Task 34's Complement topic should say the same. QA:
+`docs/qa/2026-11-09-cp20-graph-colors-qa.html`. No engine, save or wiring change.
+
 ### CP-21: Close-out
 
 Help lines for every new player-facing rule (Task 34 owns the topics), carry notes in the E-CREW plan for every slice,
