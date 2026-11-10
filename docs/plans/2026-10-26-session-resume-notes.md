@@ -268,3 +268,18 @@ round): Science lifts stay separate from other crew boosts; bare explorers clear
 OPEN for the user: unchanged items (1) to (4) from the 03:20 note.
 NEXT after CP-14 merge: CP-16, CP-17/18, CP-19, CP-20, ML-5, ML-6 verify, WR-10, OT-UI, G2-7, E5-6b, R2-5..R2-9.
 Stale worktrees under .claude/worktrees (7 besides CP-14): old, leave until a safe-removal pass.
+
+## Hub handoff (2026-11-10), feat @ 8030689e
+
+BURST mode (user 2026-11-09: parallel builders until weekly ~65%; reset Thu 11-12 12:00 UTC). Merged since 61664dd, each
+tagged slice/<id> in backup: CP-14, CP-16, CP-17, CP-18, CP-20, G2-7 (Wolf 359 derelict field + enemy territory
+shading), CP-19, gear wear step 5 (patrols wear by combat only, user "Combat only on patrols"; Quick Service dropped;
+Overtime button on the gear card), ML-5, OT-UI (Overtime buttons on every job), WR-10. 11,540 green.
+Deferred by the user: Deep Field Refinement waits for rare planet aspects ("Wait for aspects").
+OPEN for the user: relic names final read (+ Keelsong / Ember Court homage lines to draft); echo roster names final
+read; CP-11 recipe swaps sign-off; WR-10 OC-F14 (field repair button: answer + sketch) and the OC-F12 account default
+control (mockup); ML-5 patch-note wording (at release).
+Lessons this stretch (memory feedback_decisions_are_the_users): scope lists I write are not the user's words; state
+test conditions with any measured number. Builder briefs now say: build only what traces to the user's answers.
+Process: parallel builders branch from different feat heads, so golden read-back chains conflict at merge; resolve by
+putting the newer slice's ReadBack innermost, then run every *Goldens file (cp18 needed a C1 trace after gear wear).
