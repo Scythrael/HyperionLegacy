@@ -239,7 +239,7 @@ describe("graphPalettePreference: Default follows the global Color-blind palette
   });
 
   it("ComplementPanel.svelte draws from the resolved store, not the raw preset", () => {
-    const src = readFileSync(new URL("./ComplementPanel.svelte", import.meta.url), "utf8");
+    const src = readFileSync("src/lib/ComplementPanel.svelte", "utf8");
     expect(src).toMatch(/import\s*\{[^}]*effectiveGraphPaletteStore[^}]*\}\s*from\s*"\.\/graphPalettePreference"/);
     expect(src).toContain('effectiveGraphPaletteStore("complement")');
     expect(src).toContain("graphUtilFill($complementPaletteId");
