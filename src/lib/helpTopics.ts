@@ -776,7 +776,7 @@ const PERSONNEL_ROSTERS_PARAGRAPHS: readonly string[] = [
 
 // Complement CP-18: the soft captain level cap, in the engine's own numbers.
 import { CAPTAIN_SOFT_CAP_GROWTH, CAPTAIN_SOFT_CAP_LEVEL } from "./game/model";
-export const CAPTAIN_SOFT_CAP_TEXT = `Captain levels never stop: there is no top level. Each level costs more experience than the one before it, and past level ${CAPTAIN_SOFT_CAP_LEVEL} every level also costs ${Math.round((CAPTAIN_SOFT_CAP_GROWTH - 1) * 100)}% more on top of that, compounding, so the climb slows the higher a captain goes. A captain already past level ${CAPTAIN_SOFT_CAP_LEVEL} keeps every level and all their experience.`;
+export const CAPTAIN_SOFT_CAP_TEXT = `Captain levels never stop: there is no top level. Each level costs more experience than the one before it, and past level ${CAPTAIN_SOFT_CAP_LEVEL} each level also costs ${Math.round((CAPTAIN_SOFT_CAP_GROWTH - 1) * 100)}% more on top of that, compounding, so the climb slows the higher a captain goes.`;
 
 export const HELP_TOPICS: HelpTopic[] = [
   {

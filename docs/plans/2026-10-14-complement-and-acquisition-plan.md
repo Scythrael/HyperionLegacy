@@ -847,7 +847,7 @@ summary uses the same curve; integer-safe for level 200.
 the first that costs more, 10,044). The factor is built by repeated multiplication and the cost rounded once with
 `Math.round`, memoized by level; `Math.pow` is implementation-approximated, so it is never used. Every cost matches the
 exact rational through level 266 (a BigInt test), is a safe integer through level 356, and saturates at `Number.MAX_VALUE`
-near level 9,060 so the level still comes. Stored `xp` is left alone: no migration, no SAVE_VERSION bump (the new price is
+from level 9,061 so the level still comes. Stored `xp` is left alone: no migration, no SAVE_VERSION bump (the new price is
 never below the old, so nothing can level up from the change, and a surplus only the fold's carry could leave spends at
 the new price on the next award). Every consumer already read the one function (tick's three folds, the CP-16 milestone
 search, `offlineSummary.ts`, both App bars); there was no other copy and no cached table. Goldens: `cp18Goldens.*`,
@@ -856,6 +856,24 @@ captain past level 31), read-back `cp18Registry.fixture.ts`. Registry:
 `captain:progression:softLevelCap`, probe `captainLevelPrice`. Also noted: one `economyTick` call spends one berth budget
 (at most 10 with every rung, the EM-4 precedent), so a "one call" parity row must stay within 10 cycles; the big-award
 row uses a raised XP rate for 1500 s instead of a long run. QA: `docs/qa/2026-11-09-cp18-soft-level-cap-qa.html`.
+
+**User answer (2026-11-09):** "Keep x1.08 for now (Recommended)". Ship it as built; `CAPTAIN_SOFT_CAP_GROWTH` 1.08 stays
+[PROVISIONAL] for the 0.16.0 balance pass.
+
+**Threshold reading:** the level 30 to 31 step is level 30's own cost and still costs 9,000; the first dearer step is 31 to
+32 (10,044, was 9,300), per the formula above (`growth^(level - threshold)` is 1 at level 30).
+
+**Patch-notes carry (0.14.0):** veterans past level 30 will see their XP bar drop, because the same stored XP is now a
+smaller share of a larger price. Example: a level 60 captain's next level goes from 18,000 to about 181,000 XP. No levels
+are lost, and no XP is taken away.
+
+**Fix round (2026-11-09):** a past-cap parity golden at a real, non-dyadic multiplier, `mission:realRate` (one
+retirement, x1.05; level 39 holding 22338 XP; the 1050 XP of a 1000 s run lands exactly on the 23388 price), agrees in
+1 s steps, 997 s chunks and one call, with the switch both off and on. Precision limits, now pinned by tests: at x1.05
+the stored XP of 1 s steps and one call first differs at level 272 and the level first splits at level 301 (they agree
+to the byte through 271); with whole XP an exact landing holds through 329; the last safe-integer cost is level 356 and
+the first `Number.MAX_VALUE` cost is level 9,061. Perf: the perf suite is unchanged by this slice (no new perf figure is
+claimed for it).
 
 ### CP-19: Candidate board expansion (Task 32) [home blocked on OC-17]
 

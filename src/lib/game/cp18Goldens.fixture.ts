@@ -12,6 +12,9 @@
 //   mission:milestone : level 39 holding 11650 XP (an old save's 50 XP short of level 40, a notable), for 1000 s.
 //   mission:bigAward  : level 31 at 0 XP at a fractional 201.25 XP a second (see cp18BigAward), for 1500 s: one award
 //                       that crosses many levels past the threshold, and level milestones on the way.
+//   mission:realRate  : (fix round) level 39 holding 22338 XP with ONE retirement, so the award runs at the real,
+//                       non-dyadic x1.05 (1.05 XP a second), for 1000 s: the whole 1050 XP lands exactly on the live
+//                       level 39 price (23388), at the run's last second, in every cut (see cp18RealRate).
 //   patrol:pastCap    : Dispatch Once on a Destroyer to its end, level 39 holding 11699 XP.
 //   shortRange:pastCap: an Eir's first short-range run (900 s), level 39 holding 11699 XP.
 //   offline:pastCap   : the While You Were Away captain row of mission:milestone and mission:bigAward.
@@ -52,6 +55,15 @@ export const CP18_BIG_AWARD_RETIREMENTS = 4005;
 export function cp18BigAward(level: number, xp: number): GameState {
   return cp18Mission(level, xp, CP18_BIG_AWARD_RETIREMENTS);
 }
+// Fix round: the past-cap parity row at a REAL multiplier. One retirement gives x1.05 (retirementExpMultiplier), which
+// no power of two divides, so the 1 s steps add 1.05 a thousand times while the one call adds 1050 once: the row proves
+// they still land on the same bytes. The stored XP is spelled out (23388 - 1050), so it is the same start on both sides
+// of the slice; with the switch off the old 11700 price is crossed on the first second instead.
+export const CP18_REAL_RATE_RETIREMENTS = 1;
+export const CP18_REAL_RATE_SECONDS = 1000;
+export function cp18RealRate(): GameState {
+  return cp18Mission(39, 22338, CP18_REAL_RATE_RETIREMENTS);
+}
 export const CP18_CURVE_LEVELS: readonly number[] = [1, 2, 29, 30, 31, 35, 40, 50, 100, 200];
 
 function offlineRow(before: GameState, after: GameState, seconds: number): string {
@@ -79,6 +91,10 @@ export function cp18Rows(): Record<string, unknown> {
   got["mission:bigAward:steps"] = row(bigCuts.steps);
   got["mission:bigAward:oneCall"] = row(bigCuts.oneCall);
   got["mission:bigAward:chunks"] = row(bigCuts.chunks);
+  const realCuts = threeCuts(cp18RealRate(), CP18_REAL_RATE_SECONDS);
+  got["mission:realRate:steps"] = row(realCuts.steps);
+  got["mission:realRate:oneCall"] = row(realCuts.oneCall);
+  got["mission:realRate:chunks"] = row(realCuts.chunks);
   const patrol = storedCaptain(cp16PatrolStart(), 39, 11699);
   got["patrol:pastCap"] = row(steppedBy(patrol, patrolSecondsToEnd(patrol), 1));
   got["shortRange:pastCap"] = row(steppedBy(storedCaptain(cp16ShortRangeStart(0), 39, 11699), 900, 1));
@@ -110,6 +126,11 @@ export const CP18_PINS_PRE: Record<string, unknown> = {
   "mission:bigAward:steps": ["65c38710", "aada9279"],
   "mission:bigAward:oneCall": ["65c38710", "aada9279"],
   "mission:bigAward:chunks": ["65c38710", "aada9279"],
+  // Fix round: the real-rate row was added after the slice, so its pre-slice pin was captured on 9666c2e with the CP-18
+  // switch OFF (cp18Switch.fixture.ts withoutCp18), the same switch every other pin here is proven to return to.
+  "mission:realRate:steps": ["e587d9d2", "6f8c504c"],
+  "mission:realRate:oneCall": ["e587d9d2", "6f8c504c"],
+  "mission:realRate:chunks": ["e587d9d2", "6f8c504c"],
   "patrol:pastCap": ["842e8665", "d5c221bd"],
   "shortRange:pastCap": ["1928443e", "e60a6c68"],
   "offline:pastCap": ["c37603a", "91dba251"],

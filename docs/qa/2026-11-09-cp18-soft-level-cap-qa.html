@@ -191,7 +191,7 @@
       <li><b>Stored experience on an old save.</b> Kept as it is, with no migration and no SAVE_VERSION bump (still 71). The new price is never below the old one, so a save cannot gain a level from this change. The stored number stays progress toward the next level, so nothing is lost; the bar reads lower.</li>
       <li><b>Experience above the old price.</b> Only the fold's own carry (10,000 level-ups in one call) can leave that. It spends at the new price on the captain's next award, one level per price paid, with no special case.</li>
       <li><b>Rounding.</b> The factor is multiplied up one level at a time and the cost rounded once, not computed with a power function, whose last digit the language leaves to each browser. Every cost is a whole number and is checked against exact arithmetic through level 266.</li>
-      <li><b>Very high levels.</b> Costs are safe whole numbers through level 356. Decimal experience keeps whole-XP steps honest to about level 330 (XP around 1e15), which is millions of years per level at 1 XP a second, so no captain gets there. Past what a number can hold (about level 9,060) the price stays at the largest number, so the level still comes.</li>
+      <li><b>Very high levels.</b> Costs are safe whole numbers through level 356. Decimal experience runs out of digits sooner: at a real multiplier (one retirement's x1.05), one-second steps and one lump first leave different stored experience at level 272, and the level itself first differs at level 301; through level 271 they agree to the byte. With whole experience an exact landing holds through level 329. Level 272 alone costs some 1e13 XP, about 300,000 years at 1 XP a second, so no captain gets there. Past what a number can hold (level 9,061) the price stays at the largest number, so the level still comes. Tests pin each of these limits.</li>
       <li><b>Unaffected.</b> The level 25 retirement gate, one talent point per level, the fold, and the Fleet Admiral and Crafting curves.</li>
       <li><b>Wiring.</b> A new live row, <b>captain:progression:softLevelCap</b>, measures what a level-up really drains on a flown second at level 30 and level 40.</li>
     </ol>
@@ -225,11 +225,11 @@ const SECTIONS = [
   ]},
   { n: "4", title: "While You Were Away", items: [
     { t: "Close the game with a past-30 captain out flying and come back: the recap's XP and levels gained match what the captain's page now shows.", c: true, tag: "save", how: "cp18SoftLevelCap.test.ts (the offline summary agrees with the live award); cp18Goldens.test.ts (offline:pastCap)." },
-    { t: "1 s steps, 997 s chunks and one long call land the same level, experience and notables past level 30.", c: true, how: "cp18SoftLevelCap.test.ts (parity with a captain past the threshold, also at level 200); cp18Goldens.test.ts (all three cuts)." },
+    { t: "1 s steps, 997 s chunks and one long call land the same level, experience and notables past level 30.", c: true, how: "cp18SoftLevelCap.test.ts (parity with a captain past the threshold, also at level 200; the x1.05 limits); cp18Goldens.test.ts (all three cuts, including mission:realRate at one retirement's real x1.05)." },
   ]},
   { n: "5", title: "Retirement and Help", items: [
     { t: "Retiring from past level 30 works as it did: same level 25 gate, same reset to level 1, same prestige point.", c: true, tag: "save", how: "cp18Goldens.test.ts (retire:pastCap held); cp18SoftLevelCap.test.ts (retirement is unaffected)." },
-    { t: "Help, <b>Crew and Captains</b>: says levels never stop, that past level 30 every level costs 8% more, compounding, and that a captain past level 30 keeps everything. Nothing anywhere says there is a top level. No em dashes, US English.", c: true, tag: "theme", how: "cp18SoftLevelCap.test.ts (Help is truthful); helpTopics.test.ts (topic shape, the em dash and wording guards)." },
+    { t: "Help, <b>Crew and Captains</b>: says levels never stop and that past level 30 each level also costs 8% more, compounding (no migration note: the line is permanent). Nothing anywhere says there is a top level. No em dashes, US English.", c: true, tag: "theme", how: "cp18SoftLevelCap.test.ts (Help is truthful); helpTopics.test.ts (topic shape, the em dash and wording guards)." },
   ]},
 ];
 

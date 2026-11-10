@@ -14250,8 +14250,12 @@ export function blueprintResearchable(state: GameState, key: string): boolean {
 // paths), so a read past the threshold is one array index once it has been built.
 //
 // CEILING: a cost past what a double holds (about level 9060, some 1e308 XP) stays at Number.MAX_VALUE, a finite price
-// Decimal can still compare and subtract, so even there the level still comes. XP past about 1e15 (level 330) is out of
-// reach too (millions of years per level at 1 XP a second), and it is where Decimal's digits run out for a 1 XP award.
+// Decimal can still compare and subtract, so even there the level still comes. Costs are safe integers through level 356.
+// PRECISION: Decimal's digits run out well before that. At a real, non-dyadic XP multiplier (one retirement's x1.05) the
+// stored XP of 1 s steps and of one call first differs at level 272, and the level itself first splits at level 301;
+// through level 271 the cuts agree to the byte (cp18SoftLevelCap.test.ts). With whole XP, an exact landing and one XP
+// short both hold through level 329. All of it is out of reach: level 272 alone costs some 1e13 XP, about 300,000 years
+// at 1 XP a second.
 export const CAPTAIN_SOFT_CAP_LEVEL = 30;
 export const CAPTAIN_SOFT_CAP_GROWTH = 1.08;
 // Test-only off switch for the golden files that pin the pre-slice curve (cp18Switch.fixture.ts).

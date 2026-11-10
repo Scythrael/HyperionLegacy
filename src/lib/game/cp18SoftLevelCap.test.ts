@@ -56,7 +56,7 @@ describe("xpForNextLevel past the soft cap", () => {
     }
   });
 
-  it("is a safe whole number through level 200 and matches the exact rational (no float exponent drift)", () => {
+  it("is a safe whole number through level 266 and matches the exact rational there (no float exponent drift)", () => {
     for (let level = CAPTAIN_SOFT_CAP_LEVEL + 1; level <= 266; level++) {
       const cost = xpForNextLevel(level);
       expect(Number.isSafeInteger(cost), `level ${level}`).toBe(true);
@@ -80,6 +80,52 @@ describe("xpForNextLevel past the soft cap", () => {
     const up = foldXpLevelUps(new Decimal("1e400"), past, xpForNextLevel);
     expect(up.level).toBeGreaterThan(past);
     expect(up.levelUps).toBeLessThanOrEqual(MAX_LEVEL_UPS_PER_TICK);
+  });
+});
+
+describe("the documented limits (model.ts xpForNextLevel ROUNDING, CEILING and PRECISION), pinned", () => {
+  it("the last safe-integer cost is level 356 and the first Number.MAX_VALUE cost is level 9061", () => {
+    let lastSafe = 0;
+    let firstMax = 0;
+    for (let level = CAPTAIN_SOFT_CAP_LEVEL + 1; level <= 10_000 && firstMax === 0; level++) {
+      const cost = xpForNextLevel(level);
+      if (Number.isSafeInteger(cost)) lastSafe = level;
+      if (cost === Number.MAX_VALUE) firstMax = level;
+    }
+    expect(lastSafe).toBe(356);
+    expect(firstMax).toBe(9061);
+    expect(xpForNextLevel(9060)).toBeLessThan(Number.MAX_VALUE);
+  });
+
+  it("with whole XP an exact landing and one XP short hold through level 329, and first fail at 330", () => {
+    const holds = (level: number) => {
+      const cost = xpForNextLevel(level);
+      const landed = foldXpLevelUps(new Decimal(cost), level, xpForNextLevel);
+      const short = foldXpLevelUps(new Decimal(cost).minus(1), level, xpForNextLevel);
+      return landed.level === level + 1 && landed.xp.eq(0) && short.level === level;
+    };
+    for (let level = CAPTAIN_SOFT_CAP_LEVEL + 1; level <= 329; level++) expect(holds(level), `level ${level}`).toBe(true);
+    expect(holds(330)).toBe(false);
+  });
+
+  it("at the real x1.05 of one retirement, 1000 one-second awards and one lump agree to the byte through level 271; XP first drifts at 272 and the level first splits at 301", () => {
+    const mult = 1.05;
+    const cuts = (level: number) => {
+      const start = new Decimal(xpForNextLevel(level)).minus(1050);
+      let xp = start;
+      let at = level;
+      for (let i = 0; i < 1000; i++) {
+        const up = foldXpLevelUps(xp.plus(new Decimal(1).times(1).times(mult)), at, xpForNextLevel);
+        xp = up.xp;
+        at = up.level;
+      }
+      const lump = foldXpLevelUps(start.plus(new Decimal(1).times(1000).times(mult)), level, xpForNextLevel);
+      return { sameXp: xp.toString() === lump.xp.toString(), sameLevel: at === lump.level };
+    };
+    for (let level = CAPTAIN_SOFT_CAP_LEVEL + 1; level <= 271; level++) expect(cuts(level), `level ${level}`).toEqual({ sameXp: true, sameLevel: true });
+    expect(cuts(272)).toEqual({ sameXp: false, sameLevel: true });
+    for (let level = 272; level <= 300; level++) expect(cuts(level).sameLevel, `level ${level}`).toBe(true);
+    expect(cuts(301).sameLevel).toBe(false);
   });
 });
 

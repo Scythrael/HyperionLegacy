@@ -18,6 +18,9 @@ const CAPTURE = import.meta.env.CP18_CAPTURE as string | undefined;
 //                        level, 11450 XP. Nothing is taken away.
 //   mission:milestone:*: level 39 holding 11650 XP no longer reaches level 40, so no notable yet.
 //   mission:bigAward:* : the same 301875 XP buys fewer levels past the threshold; the three cuts still agree.
+//   mission:realRate:* : (fix round) level 39 holding 22338 XP at the real x1.05 of one retirement: the 1050 XP now lands
+//                        exactly on the new 23388 price at the last second (level 40, 0 XP left) instead of crossing the
+//                        old 11700 on the first; all three cuts agree on both sides.
 //   patrol:pastCap     : level 39 holding 11699 XP: the first won wave's XP no longer reaches level 40.
 //   shortRange:pastCap : the same, on the delivered cycle's XP.
 //   offline:pastCap    : the While You Were Away rows follow: the gross XP holds, the levels gained drop.
@@ -35,6 +38,9 @@ const MOVED: Record<string, unknown> = {
   "mission:bigAward:steps": ["3965862f", "433fe3c8"],
   "mission:bigAward:oneCall": ["3965862f", "433fe3c8"],
   "mission:bigAward:chunks": ["3965862f", "433fe3c8"],
+  "mission:realRate:steps": ["9e05e586", "fc11c6b8"],
+  "mission:realRate:oneCall": ["9e05e586", "fc11c6b8"],
+  "mission:realRate:chunks": ["9e05e586", "fc11c6b8"],
   "patrol:pastCap": ["9723514a", "aea99086"],
   "shortRange:pastCap": ["c9a3925f", "5ca32a69"],
   "offline:pastCap": ["b8ca91a1", "283ec22e"],
