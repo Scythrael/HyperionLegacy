@@ -95,6 +95,7 @@
   // equipmentRarityColor (its module-context export) is the SINGLE rarity->color
   // source the bay TILES also read, so tile border/dot and the tooltip never drift.
   import EquipmentTooltip, { equipmentRarityColor, equipmentIcon, equipmentSvgIcon, varietySvgIcon, blueprintIcon, type ItemTooltipSubject } from "./lib/EquipmentTooltip.svelte";
+  import { clampFloatingTip } from "./lib/floatingTip";
   // 0.14.0 gear wear step 5: a spare's or loadout piece's condition block on its card, and the Command Home fleet care line.
   import { fleetCare, gearOvertimePurchase, pieceWearCard } from "./lib/gearWearDisplay";
   import { withPieceCondition } from "./lib/game/gearWear";
@@ -8151,7 +8152,11 @@
   // The Armory editor's installed-item tooltip: a REAL floating card (fixed-positioned at the tapped
   // item name), NOT an inline div, so it overlays rather than reflowing the list. Same overflow-proof
   // idiom as facilityTip / the warehouse tile tooltip (clampArmoryTip flips it above / nudges it in).
-  let armoryTip: { itemId: string; x: number; y: number; anchorTop: number } | null = null;
+  // GEAR WEAR step 5 fix (2026-11-09): the card is now INTERACTIVE (its Overtime strip carries a one-tap
+  // button), so it takes pointer events (.armory-tip-card) and is placed by the shared clampFloatingTip
+  // (below the item name, start-aligned, then above, then beside), so it never covers its own item name
+  // when the viewport has room elsewhere. anchor is the item name's viewport rect at the tap.
+  let armoryTip: { itemId: string; x: number; y: number; anchor: { left: number; top: number; bottom: number; width: number } } | null = null;
   function toggleArmoryTip(e: Event, itemId: string) {
     e.stopPropagation();
     if (armoryTip && armoryTip.itemId === itemId) { armoryTip = null; return; }
@@ -8160,7 +8165,7 @@
       itemId,
       x: Math.max(8, Math.min(r.left, window.innerWidth - 8 - 320)),
       y: r.bottom + 6,
-      anchorTop: r.top,
+      anchor: { left: r.left, top: r.top, bottom: r.bottom, width: r.width },
     };
   }
   function handleArmoryTipOutside(e: PointerEvent) {
@@ -8179,8 +8184,19 @@
       node.style.top = `${armoryTip.y}px`;
       node.style.left = `${armoryTip.x}px`;
       const r = node.getBoundingClientRect();
-      if (r.bottom > window.innerHeight - 8) node.style.top = `${Math.max(8, armoryTip.anchorTop - r.height - 6)}px`;
-      if (r.right > window.innerWidth - 8) node.style.left = `${Math.max(8, window.innerWidth - 8 - r.width)}px`;
+      const { left, top } = clampFloatingTip({
+        anchorRect: armoryTip.anchor,
+        tipWidth: r.width,
+        tipHeight: r.height,
+        viewportW: window.innerWidth,
+        viewportH: window.innerHeight,
+        margin: 8,
+        gap: 6,
+        prefer: "below",
+        align: "start",
+      });
+      node.style.top = `${top}px`;
+      node.style.left = `${left}px`;
     };
     requestAnimationFrame(reposition);
     return { update: () => requestAnimationFrame(reposition) };
@@ -11474,8 +11490,10 @@
   {@const armoryTipInst = loadoutInstance(armoryTip.itemId)}
   {#if armoryTipInst}
     <!-- The Armory editor's installed-item tooltip, floated at the tapped item name (real popover,
-         not an inline div). Same fixed-position + clamp idiom as facilityTip; pointer-events:none. -->
-    <div class="frow-tip-card" style="left: {armoryTip.x}px; top: {armoryTip.y}px;" role="tooltip" use:clampArmoryTip={armoryTip}>
+         not an inline div). Same fixed-position idiom as facilityTip, but INTERACTIVE (.armory-tip-card):
+         its Overtime button must take the click (gear wear step 5 fix). A press inside it is already
+         exempt from handleArmoryTipOutside, so tapping Overtime buys with the card still open. -->
+    <div class="frow-tip-card armory-tip-card" style="left: {armoryTip.x}px; top: {armoryTip.y}px;" role="tooltip" use:clampArmoryTip={armoryTip}>
       <EquipmentTooltip piece={armoryTipInst} onBuyGearOvertime={buyGearOvertime} wear={pieceWearCard(state, armoryTipInst)} />
     </div>
   {/if}
@@ -23789,6 +23807,9 @@
   /* The item-card variant of the facility ⓘ tooltip: hosts the generalized ItemTooltip. Same
      fixed / overflow-proof placement as .frow-tip, sized to the card (which caps its own width). */
   .frow-tip-card { position: fixed; z-index: 110; width: max-content; max-width: 320px; pointer-events: none; }
+  /* The Armory gear card carries the Overtime button, so it takes the pointer, and it is capped to the
+     viewport (scrolling inside) so the shared clamp can always fit it on screen. */
+  .frow-tip-card.armory-tip-card { pointer-events: auto; max-height: calc(100vh - 16px); overflow-y: auto; }
   .frow-tip.up { border-color: rgba(var(--color-warning-rgb), 0.45); }
   .frow-tip-title { font-size: var(--text-2xs); letter-spacing: 0.5px; text-transform: uppercase; color: var(--color-accent); }
   .frow-tip.up .frow-tip-title { color: var(--color-warning); }

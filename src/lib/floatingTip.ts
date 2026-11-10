@@ -15,9 +15,10 @@
 // two callers share ONE clamp implementation and it is trivially unit-testable
 // without a DOM.
 //
-// The math is a VERBATIM lift of ShipSystemsPanel.positionTip's original inline
-// computation (prefer-above / flip-below / clamp), so the panel tooltip keeps its
-// exact behavior after the refactor.
+// The math began as a verbatim lift of ShipSystemsPanel.positionTip's inline computation
+// (prefer-above / flip-below / clamp). Gear wear step 5 (2026-11-09) added the side
+// placement so a tall card never covers its own anchor when there is room elsewhere, plus
+// the prefer / align options so the Armory card shares this one implementation.
 // ============================================================================
 
 // The anchor's viewport rectangle. A DOMRect satisfies this shape, so callers can
@@ -50,6 +51,12 @@ export interface FloatingTipInput {
   margin: number;
   // Gap between the anchor and the tooltip, in pixels.
   gap: number;
+  // Which vertical side to try first. Default "above" (the panel / combat / away team cards);
+  // the Armory card opens "below" its item name.
+  prefer?: "above" | "below";
+  // Horizontal alignment for an above / below placement. Default "center" on the anchor;
+  // "start" aligns the card's left edge with the anchor's (the Armory card).
+  align?: "center" | "start";
 }
 
 // The resolved fixed-position coordinates, in viewport pixels.
@@ -61,29 +68,55 @@ export interface FloatingTipPosition {
 // ---------------------------------------------------------------------------
 // clampFloatingTip: resolve the fixed-position left/top for a floating tooltip.
 //
-// Horizontal: center the tooltip on the anchor, then clamp so neither edge leaves
-//   the viewport (margin on each side).
-// Vertical: prefer ABOVE the anchor. If that clips the top, flip BELOW; if below
-//   also clips the bottom, keep whichever fits and clamp into the visible band.
-//   A final Math.max/Math.min pins the result inside the top/bottom margins.
+// Placement order (gear wear step 5 fix, 2026-11-09): the card must NEVER cover its own
+// anchor when the viewport has room anywhere else. A card over its own trigger steals the
+// pointer from the trigger, which is what made the tall gear card flicker (close and reopen)
+// on a mid-screen tile. So:
+//   1. The preferred vertical side (ABOVE by default, BELOW when prefer is "below"), if the
+//      whole card fits there.
+//   2. The other vertical side, if it fits.
+//   3. Beside the anchor: RIGHT, then LEFT, if the whole card width fits there. The card is
+//      vertically centered on the anchor and clamped into the viewport (it may extend past
+//      the anchor's top or bottom, but never overlaps it horizontally).
+//   4. No room anywhere: the legacy clamp (keep whichever vertical side fits, else clamp into
+//      the visible band). The card may then overlap its anchor; the host's hover wiring keeps
+//      that state stable (one event family on anchor + card, see ShipSystemsPanel).
+// Horizontal for the vertical placements: centered on the anchor (or start-aligned to its
+//   left edge when align is "start"), then clamped so neither edge leaves the viewport.
 //
 // PURE: no DOM reads, no side effects. Same inputs -> same output.
 // ---------------------------------------------------------------------------
 export function clampFloatingTip(input: FloatingTipInput): FloatingTipPosition {
   const { anchorRect, tipWidth, tipHeight, viewportW, viewportH, margin, gap } = input;
+  const prefer = input.prefer ?? "above";
+  const anchorRight = anchorRect.left + anchorRect.width;
 
-  // Horizontal: center on the anchor, then clamp so neither edge leaves the viewport.
-  let left = anchorRect.left + anchorRect.width / 2 - tipWidth / 2;
-  left = Math.max(margin, Math.min(left, viewportW - tipWidth - margin));
+  // Horizontal for an above / below placement: center (or start-align) on the anchor, then
+  // clamp so neither edge leaves the viewport.
+  let hLeft = input.align === "start" ? anchorRect.left : anchorRect.left + anchorRect.width / 2 - tipWidth / 2;
+  hLeft = Math.max(margin, Math.min(hLeft, viewportW - tipWidth - margin));
 
-  // Vertical: prefer ABOVE the anchor. If it would clip the top, flip BELOW; if below
-  // also clips the bottom, keep whichever fits and clamp into the visible band.
-  let top = anchorRect.top - tipHeight - gap;
-  if (top < margin) {
-    const below = anchorRect.bottom + gap;
-    top = below + tipHeight <= viewportH - margin ? below : Math.min(top, viewportH - tipHeight - margin);
+  const aboveTop = anchorRect.top - tipHeight - gap;
+  const belowTop = anchorRect.bottom + gap;
+  const fitsAbove = aboveTop >= margin;
+  const fitsBelow = belowTop + tipHeight <= viewportH - margin;
+  const clampV = (t: number): number => Math.max(margin, Math.min(t, viewportH - tipHeight - margin));
+
+  // 1 + 2: a vertical side that fits the whole card, preferred side first.
+  const sides: Array<"above" | "below"> = prefer === "below" ? ["below", "above"] : ["above", "below"];
+  for (const side of sides) {
+    if (side === "above" && fitsAbove) return { left: hLeft, top: aboveTop };
+    if (side === "below" && fitsBelow) return { left: hLeft, top: belowTop };
   }
-  top = Math.max(margin, Math.min(top, viewportH - tipHeight - margin));
 
-  return { left, top };
+  // 3: beside the anchor (right, then left), vertically centered on it and clamped.
+  const sideTop = clampV(anchorRect.top + (anchorRect.bottom - anchorRect.top) / 2 - tipHeight / 2);
+  const rightLeft = anchorRight + gap;
+  if (rightLeft + tipWidth <= viewportW - margin) return { left: rightLeft, top: sideTop };
+  const leftLeft = anchorRect.left - gap - tipWidth;
+  if (leftLeft >= margin) return { left: leftLeft, top: sideTop };
+
+  // 4: no room anywhere. The legacy clamp (identical for both preferences): neither vertical
+  // side fits, so pin the card into the visible band from the top.
+  return { left: hLeft, top: clampV(Math.min(aboveTop, viewportH - tipHeight - margin)) };
 }

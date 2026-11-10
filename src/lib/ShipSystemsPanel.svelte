@@ -330,12 +330,25 @@
   // Schedule the hover tooltip to hide after the grace window, cancelable. Routes
   // through closeTip(false) so a PINNED (touch) tooltip is left alone (mobile tap-pin
   // still dismisses via re-tap / outside-press, never by this timer).
+  // GEAR WEAR step 5 fix (2026-11-09): the timer also refuses to close a card the pointer is
+  // resting on. Defense in depth behind the one-event-family rule on the tiles + the card (see
+  // the .ss-tip-float markup): however the leave / enter events interleave, a card under the
+  // pointer never closes under it, so it cannot flicker.
   function scheduleTipHide(): void {
     cancelTipHide();
     tipHideTimer = setTimeout(() => {
       tipHideTimer = null;
+      if (pointerOnTip()) return;
       closeTip(false);
     }, TIP_HIDE_GRACE_MS);
+  }
+  // Is the pointer over the floating card right now? (:hover tracks the real hit-tested pointer.)
+  function pointerOnTip(): boolean {
+    try {
+      return !!tipEl && tipEl.matches(":hover");
+    } catch {
+      return false;
+    }
   }
   // Does this device have a hover-capable pointer (a real mouse / trackpad)? On such
   // devices the tooltip is already previewed on hover, so we do NOT pin on click:
@@ -1357,6 +1370,13 @@
   function hoverOut(): void {
     scheduleTipHide();
   }
+  // Focus left the tile. Focus moving INTO the card (a click on its Overtime button) is not a
+  // leave: the card stays. Any other blur schedules the same grace-delay hide.
+  function blurOut(e: FocusEvent): void {
+    const next = e.relatedTarget as Node | null;
+    if (next && tipEl && tipEl.contains(next)) return;
+    scheduleTipHide();
+  }
   // Keep the fixed tooltip glued to its tile as the panel / window scrolls or resizes
   // (capture:true catches the inner column's scroll, which does not bubble to window).
   function reflowTip(): void {
@@ -1834,7 +1854,7 @@
                     on:mouseenter={(e) => hoverTip(weapon, e.currentTarget)}
                     on:mouseleave={hoverOut}
                     on:focus={(e) => hoverTip(weapon, e.currentTarget)}
-                    on:blur={hoverOut}
+                    on:blur={blurOut}
                   >
                     <span class="ss-tile" style="--tc: {equipmentRarityColor(weapon.rarity)}">
                       <span class="ss-tile-dot"></span>
@@ -1902,7 +1922,7 @@
                     on:mouseenter={(e) => hoverTip(fitted, e.currentTarget)}
                     on:mouseleave={hoverOut}
                     on:focus={(e) => hoverTip(fitted, e.currentTarget)}
-                    on:blur={hoverOut}
+                    on:blur={blurOut}
                   >
                     <span class="ss-tile" style="--tc: {equipmentRarityColor(fitted.rarity)}">
                       <span class="ss-tile-dot"></span>
@@ -1963,7 +1983,7 @@
                     on:mouseenter={(e) => hoverTip(fitted, e.currentTarget)}
                     on:mouseleave={hoverOut}
                     on:focus={(e) => hoverTip(fitted, e.currentTarget)}
-                    on:blur={hoverOut}
+                    on:blur={blurOut}
                   >
                     <span class="ss-tile" style="--tc: {equipmentRarityColor(fitted.rarity)}">
                       <span class="ss-tile-dot"></span>
@@ -2054,7 +2074,7 @@
                       on:mouseenter={(e) => hoverTip(piece, e.currentTarget)}
                       on:mouseleave={hoverOut}
                       on:focus={(e) => hoverTip(piece, e.currentTarget)}
-                      on:blur={hoverOut}
+                      on:blur={blurOut}
                     >
                       <span class="ss-mod-cat">{moduleTileCategory(piece)}</span>
                       <span class="ss-mod-glyph" aria-hidden="true">{#if svg !== null}<Icon name={svg} size={22} />{:else}{tileIcon(piece)}{/if}</span>
@@ -2106,7 +2126,7 @@
                       on:mouseenter={(e) => hoverTip(pod, e.currentTarget)}
                       on:mouseleave={hoverOut}
                       on:focus={(e) => hoverTip(pod, e.currentTarget)}
-                      on:blur={hoverOut}
+                      on:blur={blurOut}
                     >
                       <span class="ss-tile" style="--tc: {equipmentRarityColor(pod.rarity)}">
                         <span class="ss-tile-dot"></span>
@@ -2221,7 +2241,7 @@
                         on:mouseenter={(e) => hoverTip(spare, e.currentTarget)}
                         on:mouseleave={hoverOut}
                         on:focus={(e) => hoverTip(spare, e.currentTarget)}
-                        on:blur={hoverOut}
+                        on:blur={blurOut}
                       >
                         <span class="ss-tile" style="--tc: {equipmentRarityColor(spare.rarity)}">
                           <span class="ss-tile-dot"></span>
@@ -2469,7 +2489,12 @@
        principle (design S1): actions never live in a hover / float surface. EquipmentTooltip's
        internals stay preserved (the only branch edit was the df53dd5 blueprint name resolver).
        ONE EXCEPTION (user 2026-11-09, the approved Overtime mockup, "Gear card only"): the gear card's Overtime strip
-       carries its one-tap button here; the grace-delay hover and the tap-pin keep it reachable. -->
+       carries its one-tap button here; the grace-delay hover and the tap-pin keep it reachable.
+       ONE EVENT FAMILY (gear wear step 5 fix, 2026-11-09): the tiles open / leave on mouseenter / mouseleave, so the
+       card MUST use mouseenter / mouseleave too. Mixed families flickered: a card placed over its own tile got its
+       pointerenter (hide cancel) BEFORE the tile's mouseleave (hide schedule), so it closed and reopened about three
+       times a second. Same family, the leave always precedes the enter and the cancel wins. Touch is unchanged: a
+       tap pins (clickInfo), and a pinned card ignores the hover hide, so the Overtime tap buys with the card open. -->
   {#if activeTip}
     {@const tipPiece = activeTip.piece}
     <div
@@ -2477,8 +2502,8 @@
       bind:this={tipEl}
       role="tooltip"
       style="left: {tipLeft}px; top: {tipTop}px; visibility: {tipVisible ? 'visible' : 'hidden'}"
-      on:pointerenter={cancelTipHide}
-      on:pointerleave={scheduleTipHide}
+      on:mouseenter={cancelTipHide}
+      on:mouseleave={scheduleTipHide}
     >
       <EquipmentTooltip piece={tipPiece} shipPieces={fittedPieces} hostTypeKey={ship?.typeKey} wear={pieceWearCard(state, tipPiece)} {onBuyGearOvertime} />
     </div>
