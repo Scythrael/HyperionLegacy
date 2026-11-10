@@ -43,6 +43,7 @@
 import type { Expedition, ExpeditionActivity, ExpeditionBody } from "./model";
 import {
   resolveTaskFightOnSeed,
+  runCasterCorrodePermille,
   type GroundFightRecord,
   type GroundFightTeam,
   type GroundMemberCarry,
@@ -256,8 +257,9 @@ export function groundThreatOddsKey(
   // each team's kits (the free basics and the extras left), so packing better reads better odds.
   const kits = fieldKitsLive(exp) ? [["fieldKits", exp.fieldKits?.catalog, task.difficulty, teams.map((t) => [t.charges, t.basics, t.kits])]] : [];
   // Wiring WR-10: a run stamped with the away rules fights under them (Neural Backup's wearer, Fall Back's shield, the
-  // casters' Corroded), tagged and appended only on such a run.
-  const awayRules = exp.awayRules === 1 ? [["awayRules"]] : [];
+  // casters' Corroded), tagged and appended only on such a run. The fix round: with the casters' Corroded chance on the run's
+  // odds ramp (groundFight.ts runCasterCorrodePermille), which the curve tag's enemy ramp alone does not fix.
+  const awayRules = exp.awayRules === 1 ? [["awayRules", runCasterCorrodePermille(exp)]] : [];
   return JSON.stringify(
     // Squads SQ-4: the body's risk shapes the read, so it is part of the key: its flora the fights (groundFight.ts
     // withFloraToxins), its combat and fauna an unstamped task's fight count (taskFightTotal). Absent risk: "u".

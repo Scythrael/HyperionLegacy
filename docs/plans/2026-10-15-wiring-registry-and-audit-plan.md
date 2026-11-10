@@ -2118,3 +2118,117 @@ No SAVE_VERSION bump: the one new field is optional and stamped at dispatch (Exp
 - **OC-F12 detail.** A control to set or clear the account default from the Tactical Protocols editor needs a mockup.
 - **OC-F14 (player-ordered field repair).** Still no answer recorded; the proposal is a button on the expedition ship
   lane and needs a sketch. Not built.
+
+## USER ANSWERS (2026-11-10): WR-10 calls
+
+Recorded verbatim (the user picked each option by name; the line after it is the option's text as answered):
+
+- **Corroded (OC-F9):** "Scale with the ramp (Recommended)". All casters can cause it, but the chance starts low on early
+  runs and grows with difficulty, the way affixes and ambushes already do. Gentle early game.
+- **Saboteur (OC-F4):** "Chance to last longer (Recommended)". Suppress still always lands; status chance gives a chance
+  it lasts one extra round.
+- **Quick Draw (OC-F5):** "Shrug off stun/fear once (Recommended)". The member ignores stun and fear on their first turn
+  after the enemies have acted.
+- **Account gambit defaults (OC-F12):** "Merge with built-in (Recommended)". A fresh, unchanged program means the built-in
+  default. A changed program is merged so hires still get the built-in cure, heal, brace and Field Kits grenade rules.
+- **Still open:** OC-F14 (no answer yet; needs an answer and a sketch), and a mockup for an OC-F12 control. Do not build
+  either.
+
+## WR-10 FIX ROUND BUILT (2026-11-10)
+
+Built from the answers above, every new rule under the same away rules stamp (Expedition.awayRules: nothing stamped with
+it has shipped, and a run dispatched before WR-10 still replays byte for byte; WR10_SWITCH off reproduces every
+pre-WR-10 capture).
+
+- **OC-F9 Corroded on the ramp.** The casters' chance is `rampedChance(CASTER_CORRODE_PERMILLE, oddsRamp)`, rounded to
+  whole permille (groundFight.ts casterCorrodePermille / runCasterCorrodePermille): the SAME mechanism and the same lagged
+  odds position (runDifficulty.ts runOddsRampOf) the affix roll and the ambush chance read (groundOps.ts
+  initGroundTasks). 30% stays the top of the ramp [PROVISIONAL]. At Tier I, per completed runs after the training run:
+  0 and 1: 0%; 2: 1.1%; 3: 3.1%; 4: 5.8%; 5: 8.9%; 6: 12.4%; 7: 16.3%; 8: 20.6%; 9: 23.7%; 10: 26.9%; 11 and on: 30%.
+  Tier II and up, and a run without a curve stamp: 30% from the first run. At 0 nothing is stamped (no roll is drawn).
+  Never on a training run. The odds key carries the chance; Help (Field Kits, CONDITIONS) states it from the engine.
+- **OC-F4 Saboteur.** Suppress still always lands (the target's resist aside). After it lands, under the away rules, a
+  member with a status chance (Debuff specialty base, Saboteur +10%, gear) rolls it on the battle's OWN linger stream
+  (battle seed ^ gambit.ts SUPPRESS_LINGER_SALT, opened at the first roll): a success makes that Suppressed last
+  SUPPRESS_LINGER_EXTRA_ROUNDS (1) longer. No draw on the fight stream, so a status chance shifts no other roll; parity
+  and determinism hold (one battle is one pure call). The combatant carries it as `suppressLinger` (permille).
+- **OC-F5 Quick Draw.** Under the away rules a Quick Draw member (firstStrike) ignores Stun and Fear on their first turn
+  after the enemies have acted: round 2 (gambit.ts QUICK_DRAW_SHRUG_ROUND 1, 0-based). No Fear roll is drawn for them
+  that turn. The trait text reads "Acts first on the opening round, and ignores Stun and Fear on their first turn after
+  the enemies have acted."
+- **OC-F12 merge.** A fresh pair (equal to DEFAULT_GAMBIT_PROGRAMS) still hires onto the built-in default. A changed
+  program is merged (memberGambits.ts mergeWithBuiltInDefault): the built-in default's rules of each kind in Cure, Aid
+  Heal, Brace and Throw Grenade that the copy has no rule of, in the built-in default's order (the Field Kits default
+  once kits are live in runs, so both grenade rules), then the player's rules in their own order, all kept. The editor
+  notice says so. **[interpretation, flagged]** The brief said "the user's rules first, then any built-in rule kinds the
+  copy lacks". Built that way, the merge would be inert: every preset ends with an attack on the nearest foe, which fires
+  whenever a foe stands, so a rule after it never acts. The support rules go AHEAD instead (each fires only when its own
+  condition holds, as in the built-in default). One line to flip if the user wants them after.
+- **OC-F7 and gas giant study.** A gas giant study is fieldwork, so the rank factor speeds it too (gasGiantStudy.ts
+  studySeconds through fieldworkSpeedMult); kept, as the answer "Rank boosts fieldwork" reads. Pinned on the WR-10 fixture
+  run: 1592 s with WR-10, 1640 s with it off (wr10.test.ts). Help (Gas Giants and Nebulae, THE STUDY) says a member's own
+  fieldwork counts a little more at a higher rank.
+- **Fall Back** is described in the editor (its rule hint, gambitEditorDisplay.ts FALL_BACK_HINT) and in Help (Team
+  Types and Squads, IN A FIGHT, with Suppress and Quick Draw).
+- **Registry.** Live with measuring probes: `away:AWAY_TRAITS:saboteur` (probe secSuppressLinger: the Suppressed rounds
+  the member's Suppress leaves over 200 seeded battles, no inflict piece) and `away:audit:quickDraw` (content probe: a
+  Stunned Quick Draw member acts in round 2). `away:GAMBIT_PROGRAMS:account` stays live (every hire reads the pair; the
+  merge is measured), with a note that no control sets it; the missing control is its own new row,
+  `away:audit:accountDefaultControl`, pending on OC-F12's mockup (the registry has no "partial / needs control" status).
+  Pending entries under RELEASE_GATE: 23 before the fix round, 22 after (saboteur and quickDraw live, the control row
+  added; WR-10 still owns fieldRepairOrder OC-F14 and the control row).
+- **Goldens moved (each traced).** wr10Goldens.test.ts: enemyFortification fights 5502e0e5 to 67e64e5b (the fixture run
+  is at curve position 0, so no Corroded; with the odds ramp lifted to full the fights read 5502e0e5 again) and the custom
+  hire 50ece9e5 to e24ce9f (the merge; the unmerged copy hashes to 50ece9e5). safeFirstRamp.test.ts sample: d18 run 2
+  5/88 back to 4/83 and run 5 lost fights 316 to 295 (WR-10 off still reads the pre-WR-10 pins). The sweep table below.
+  Every WR-10-off capture is unchanged.
+- **Review fixes.** safeFirstRamp.test.ts: the sample keeps its live pins and now also asserts that with WR-10 off it
+  reads the pre-WR-10 pins. wr10.test.ts: a caster's hit leaves exactly Corroded and the armor cut acts (armor halved,
+  the same hit 3 more). expedition.ts import spacing.
+
+### WR-10 fix round: the ramp sweep (`npm run test:sweep:ramp`, 200 seeds a cell)
+
+Cells "stalled/anyLost/lostFights/vaultWon:vaultSites", completed runs after the training run 0 to 10. OLD = the pins
+before this round (already a little stale), NEW = re-pinned now, OFF = this build with WR-10 switched off.
+
+| crew, k | OLD | NEW | OFF |
+| --- | --- | --- | --- |
+| d18 0 | 5/132/2351/377:383 | 5/132/2350/377:383 | 5/132/2350/377:383 |
+| d18 1 | 15/146/2666/363:381 | 15/146/2665/363:381 | 15/146/2665/363:381 |
+| d18 2 | 56/159/3786/308:380 | 57/159/3822/307:380 | 56/159/3786/308:380 |
+| d18 3 | 82/175/5203/231:380 | 82/174/5278/232:380 | 82/175/5204/232:380 |
+| d18 4 | 97/177/5968/203:378 | 99/177/6006/202:380 | 98/178/5970/204:380 |
+| d18 5 | 175/187/7142/8:376 | 175/187/7117/8:378 | 175/187/7142/8:378 |
+| d18 6 | 176/188/7340/0:369 | 176/188/7325/0:376 | 176/188/7340/0:376 |
+| d18 7 | 183/192/7490/0:369 | 183/192/7467/0:373 | 183/192/7490/0:373 |
+| d18 8 | 184/192/7522/0:369 | 185/192/7526/0:370 | 184/192/7522/0:370 |
+| d18 9 | 187/192/7612/0:366 | 187/192/7612/0:369 | 187/192/7612/0:369 |
+| d18 10 | 187/192/7641/0:365 | 187/192/7641/0:369 | 187/192/7640/0:369 |
+| rank1 0 | 0/1/1/383:383 | same | same |
+| rank1 1 | 0/2/2/381:381 | same | same |
+| rank1 2 | 0/12/15/380:380 | 0/11/13/380:380 | 0/12/15/380:380 |
+| rank1 3 | 0/27/35/380:380 | 0/25/30/380:380 | 0/27/35/380:380 |
+| rank1 4 | 0/38/58/378:378 | 0/37/58/380:380 | 0/38/58/380:380 |
+| rank1 5 | 0/63/192/376:376 | 0/64/205/378:378 | 0/62/192/378:378 |
+| rank1 6 | 0/89/386/369:369 | 0/87/430/376:376 | 0/88/388/376:376 |
+| rank1 7 | 4/119/928/364:369 | 4/120/910/369:373 | 4/119/921/369:373 |
+| rank1 8 | 6/145/2483/361:369 | 6/148/2552/362:370 | 6/146/2469/362:370 |
+| rank1 9 | 19/164/4178/341:366 | 24/167/4157/341:369 | 19/165/4205/344:369 |
+| rank1 10 | 75/179/5426/231:365 | 75/179/5468/232:369 | 75/179/5515/232:369 |
+| rank1si 0 | 0/0/0/383:383 | same | same |
+| rank1si 1 | 0/1/1/381:381 | same | same |
+| rank1si 2 | 0/2/3/380:380 | 0/3/4/380:380 | 0/2/3/380:380 |
+| rank1si 3 | 0/8/10/380:380 | 0/8/11/380:380 | 0/8/10/380:380 |
+| rank1si 4 | 0/17/22/378:378 | 0/19/25/380:380 | 0/17/22/380:380 |
+| rank1si 5 | 0/39/58/376:376 | 0/38/68/378:378 | 0/39/58/378:378 |
+| rank1si 6 | 0/56/171/369:369 | 0/56/159/376:376 | 0/56/172/376:376 |
+| rank1si 7 | 0/96/438/369:369 | 1/98/452/372:373 | 0/97/443/373:373 |
+| rank1si 8 | 4/117/788/365:369 | 4/118/820/365:370 | 4/117/797/366:370 |
+| rank1si 9 | 7/134/1851/357:366 | 7/140/1821/362:369 | 7/134/1852/360:369 |
+| rank1si 10 | 7/161/3526/356:365 | 8/161/3684/359:369 | 7/162/3540/360:369 |
+
+OLD to OFF (the vault site counts, a lost fight here and there) is staleness from later slices; OFF to NEW is WR-10. k = 0
+and 1 do not move with WR-10 (the Corroded chance is 0 there, and these crews carry no status chance or Quick Draw). The
+claims still hold: the stall count and the runs with a lost fight never fall as the curve rises; the weakest crew (d18)
+stalls run 2 on 5 of 200 (2.5%, under the 5% bar: a margin of 5 runs); rank1si at full strength completes 192 of 200
+(96%, over the 95% bar: a margin of 2 runs) and wins 359 of 369 vaults (97.3%, over 90%).

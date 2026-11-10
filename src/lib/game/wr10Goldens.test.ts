@@ -11,6 +11,8 @@ import { describe, expect, it } from "vitest";
 import { advanceExpedition } from "./expedition";
 import { WR10_FIGHT_POIS, WR10_SEEDS, wr10Dispatch, wr10FightHash, wr10Hash, wr10Hires, wr10Run } from "./wr10.fixture";
 import { withWr10Off } from "./wr10Switch.fixture";
+import { mergeWithBuiltInDefault } from "./memberGambits";
+import { gambitPresetPrograms } from "./gambit";
 
 // Captured on the code BEFORE the engine edit (5339682).
 const BEFORE_RUNS: Record<string, string[]> = {
@@ -45,8 +47,17 @@ const GOLDEN_RUNS: Record<string, string[]> = {
   bebe: ["69fc79bf", "be493208", "72c4d6f2"],
   cfcf: ["f9be4ba1", "bc7ee1f1", "4c1e88ab"],
 };
-const GOLDEN_FIGHTS: Record<string, string> = { ...BEFORE_FIGHTS, enemyFortification: "5502e0e5" };
-const GOLDEN_HIRES = { plain: BEFORE_HIRES.plain, custom: "50ece9e5" };
+// The fix round (user answers 2026-11-10) re-pinned two more, each traced below ("the fix round's moves"):
+// - enemyFortification 5502e0e5 to 67e64e5b: OC-F9 "Scale with the ramp". The fixture run is the first ramped run (curve
+//   position 0, so its odds ramp is 0), where the casters' Corroded chance is now 0: the caster carries no Corroded and
+//   draws no roll. With the odds ramp lifted to full (the enemy curve untouched) the fights read 5502e0e5 again.
+// - hires custom 50ece9e5 to e24ce9f: OC-F12 "Merge with built-in". The Decapitate hire's copy now carries the built-in
+//   cure, heal, brace and grenade rules ahead of the Decapitate rules (memberGambits.ts mergeWithBuiltInDefault).
+// Saboteur (OC-F4) and Quick Draw (OC-F5) move no pin here: no fixture member has a status chance or Quick Draw (their
+// unit tests are in wr10.test.ts).
+const FIX_ROUND_BEFORE = { enemyFortification: "5502e0e5", custom: "50ece9e5" };
+const GOLDEN_FIGHTS: Record<string, string> = { ...BEFORE_FIGHTS, enemyFortification: "67e64e5b" };
+const GOLDEN_HIRES = { plain: BEFORE_HIRES.plain, custom: "e24ce9f" };
 
 describe("WR-10 goldens", () => {
   for (const seed of WR10_SEEDS) {
@@ -56,6 +67,24 @@ describe("WR-10 goldens", () => {
   it("hires", () => {
     expect(wr10Hash(wr10Hires(false).awayMembers)).toBe(GOLDEN_HIRES.plain);
     expect(wr10Hash(wr10Hires(true).awayMembers)).toBe(GOLDEN_HIRES.custom);
+  });
+});
+
+describe("WR-10: the fix round's moves", () => {
+  it("enemyFortification: with the odds ramp lifted to full, the fights read the pre-fix-round pin", () => {
+    const { exp } = wr10Dispatch(0x1234);
+    const stamp = exp.difficulty as { ramp: number };
+    expect(stamp.ramp).toBe(0);
+    const full = { ...exp, difficulty: { ...(exp.difficulty as object), oddsRamp: 1 } } as typeof exp;
+    expect(wr10FightHash(full, "enemyFortification")).toBe(FIX_ROUND_BEFORE.enemyFortification);
+    expect(wr10FightHash(exp, "enemyFortification")).toBe(GOLDEN_FIGHTS.enemyFortification);
+  });
+  it("hires: the custom hire is the Decapitate copy merged with the built-in default", () => {
+    const sec = wr10Hires(true).awayMembers.find((m) => m.teamType === "security")!;
+    expect(sec.gambit).toEqual(mergeWithBuiltInDefault(gambitPresetPrograms("decapitate")!.security));
+    // The hire without the merge (the Decapitate copy as WR-10 first gave it) hashes to the pre-fix-round pin.
+    const unmerged = wr10Hires(true).awayMembers.map((m) => (m.teamType === "security" ? { ...m, gambit: gambitPresetPrograms("decapitate")!.security } : m));
+    expect(wr10Hash(unmerged)).toBe(FIX_ROUND_BEFORE.custom);
   });
 });
 

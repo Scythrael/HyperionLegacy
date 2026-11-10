@@ -79,8 +79,9 @@ describe("wiring sensitivity: every claimed context that does not move yet stays
     // Medical quarters wings went live (their division keys act on Ground Ops), leaving 5. Lowered from 5 at WR-11: the
     // salvage talent's top-tier reach went live (OC-J1, the overflow tilts the loot odds), leaving 4. Lowered from 3 at
     // E-MOD EM-8: the Precursor Lens's first find went live (its craft context, measured by
-    // relic:em8:precursorLensFirstFind), leaving 3.
-    expect(flatChecks.filter(({ e }) => e.contexts.length > 0).length).toBeGreaterThan(2);
+    // relic:em8:precursorLensFirstFind), leaving 3. Lowered from 2 at the WR-10 fix round: Saboteur's no-inflict context went
+    // live (OC-F4, its status chance stretches a landed Suppress, measured by secSuppressLinger), leaving 2.
+    expect(flatChecks.filter(({ e }) => e.contexts.length > 0).length).toBeGreaterThan(1);
     // Lowered from 30 at the CP-2 + WR-5a integration (0.14.0): both slices moved inert sources live, leaving 28;
     // WR-5b's Tactician tree left 24, WR-5c's Explorer tree 20 (no pending secondary captain entry is left). The
     // guard only asserts the sweep is not vacuous; lower it again as more sources go live. Lowered from 15 when the

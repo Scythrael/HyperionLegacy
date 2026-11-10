@@ -1112,17 +1112,17 @@ function traitEntry(t: AwayTraitDef): WiringEntry {
   switch (e.kind) {
     case "stat": {
       if (e.stat === "statusChance") {
-        // Saboteur: lands only with an inflict piece worn (PARTIAL, OC-F4).
+        // Saboteur. Wiring WR-10 fix round (OC-F4, user 2026-11-10 "Chance to last longer"): with no inflict piece worn the
+        // status chance now acts on the member's Suppress (a chance the Suppressed lasts one round longer, under the away
+        // rules), measured in battle; with an inflict piece it also lands the piece's statuses (secInflictPermille, the
+        // gear's own rows).
         return entry({
           ...common,
-          probe: "secInflictPermille",
+          probe: "secSuppressLinger",
           contexts: ["ground"],
-          curve: { kind: "chanceAbsolute" },
-          magnitude: (c) => value(c) * 1000,
-          tolerance: 1,
-          base: () => wearPiece(withAwayTeam(wiringBase()), memberId, "memberTool", "stunGrenade", {}),
-          status: pending("WR-10 OC-F4 (status chance without an inflict piece)", ["ground:noInflict"]),
-          note: "live with an inflict piece worn (the base wears a bare Stun Grenade); the no-inflict context is pending",
+          curve: { kind: "event", metric: "the Suppressed rounds the member's Suppress leaves over seeded battles" },
+          magnitude: () => 1,
+          note: "measured with no inflict piece worn: the status chance stretches a landed Suppress (gambit.ts lingerSuppress)",
         });
       }
       const probe: Record<string, ProbeId> = { accuracy: "secAccuracy", power: "secPower", armor: "secArmor", relicFind: "fieldRelicFind", hazardResist: "fieldHazardResist" };
@@ -1134,7 +1134,7 @@ function traitEntry(t: AwayTraitDef): WiringEntry {
     case "medic":
       return entry({ ...common, probe: "secFirstAid", contexts: ["ground"], magnitude: () => FIRST_AID_TRAINED_EFFECTIVENESS - FIRST_AID_UNTRAINED_EFFECTIVENESS });
     case "firstStrike":
-      return entry({ ...common, probe: "secFirstStrike", contexts: ["ground"], curve: { kind: "gate" }, magnitude: () => 1, note: "weak: the team already acts first (OC-F5)" });
+      return entry({ ...common, probe: "secFirstStrike", contexts: ["ground"], curve: { kind: "gate" }, magnitude: () => 1, note: "the flag the opening reorder and, under the away rules, the Stun and Fear shrug read (away:audit:quickDraw, OC-F5)" });
     case "resistStatus":
       // Field Kits FKR-4: Iron Will's Fear resist, now that a Field Kits run's Swarm and hostile garrisons inflict Fear.
       if (e.status === "fear") return entry({ ...common, probe: "secFearResist", contexts: ["ground"], curve: { kind: "chanceAbsolute" }, magnitude: (c) => value(c) * 1000, tolerance: 1 });
@@ -3804,8 +3804,11 @@ function contentEntries(): WiringEntry[] {
   }
   out.push(
     entry({
-      ...base("away", "GAMBIT_PROGRAMS", "account", "The account gambit pair (DEFAULT_GAMBIT_PROGRAMS, state.gambitPrograms): a pair the player changed is given to each newly hired Security member (OC-F12)"),
-      // Wiring WR-10 (OC-F12 "Account-wide defaults"): a hire with the changed pair (Decapitate) vs the fresh pair.
+      ...base("away", "GAMBIT_PROGRAMS", "account", "The account gambit pair (DEFAULT_GAMBIT_PROGRAMS, state.gambitPrograms): a pair the player changed is given to each newly hired Security member, merged with the built-in default's support rules (OC-F12)"),
+      // Wiring WR-10 (OC-F12 "Account-wide defaults"): a hire with the changed pair (Decapitate) vs the fresh pair. The fix
+      // round (user 2026-11-10 "Merge with built-in"): the hire's copy carries the built-in cure, heal, brace and grenade
+      // rules it lacks. Live: every hire reads the stored pair. No screen sets the pair since GO-16 (Q21), so a pair is
+      // changed only on a save that set it before; the missing control is its own row, away:audit:accountDefaultControl.
       probe: "content:wr10:accountHire",
       contexts: ["ground"],
       direction: "up",
@@ -3813,6 +3816,7 @@ function contentEntries(): WiringEntry[] {
       magnitude: () => 1,
       on: sourceOn,
       status: LIVE,
+      note: "read at every hire; no control sets the pair since GO-16 (the control: away:audit:accountDefaultControl, OC-F12 mockup)",
     }),
   );
   // Field Kits FKR-6 (group 7 "Rank rules + reserve"; N15): the rank conditions ("target is Elite or stronger",
@@ -4655,7 +4659,8 @@ const AUDIT_ROWS: readonly { id: string; system: WiringSystem; claim: string; st
   // Wiring WR-10 (OC-F2 "Revives the wearer", B13; OC-F3 "Fix the flavor"): checks in wr10AuditWiring below.
   { id: "away:audit:neuralBackupClaim", system: "away", claim: "Neural Backup revives its wearer, as its flavor says (B13 fixed on every run dispatched since WR-10)", status: LIVE },
   { id: "away:audit:medKitClaim", system: "away", claim: "The Med Kit's text claims no revive: it heals in a trained medic's hands", status: LIVE },
-  { id: "away:audit:quickDraw", system: "away", claim: "Quick Draw only reorders teammates (the team already acts first)", status: pending("WR-10, OC-F5") },
+  // Wiring WR-10 fix round (OC-F5, user 2026-11-10 "Shrug off stun/fear once"): checked in wr10AuditWiring below.
+  { id: "away:audit:quickDraw", system: "away", claim: "Quick Draw ignores Stun and Fear on the member's first turn after the enemies have acted (on every run dispatched since WR-10), besides acting first on the opening round", status: LIVE },
   { id: "away:audit:scienceRank", system: "away", claim: "A Science member's rank multiplies their own fieldwork (OC-F7, on every run dispatched since WR-10)", status: LIVE },
   { id: "away:audit:fieldDeviceEffectiveness", system: "away", claim: "Field devices work at a rolled 50 to 75% per use (fieldKits.ts fieldDevicePercent; the old untrained / trained knob retired)", status: LIVE },
   // WR-8 settled mass and power draw (0 by design: member gear never moves ship stats) and gear wear step 3 made the
@@ -4691,6 +4696,10 @@ const AUDIT_ROWS: readonly { id: string; system: WiringSystem; claim: string; st
   // Wiring WR-10 (OC-F9): the last never-matching picker entry, Corroded, now lands from the casters' hits.
   { id: "away:audit:statusPicker", system: "away", claim: "Every status the picker offers can land in a fight (Corroded from the casters' hits since WR-10, OC-F9)", status: LIVE },
   { id: "away:audit:fieldRepairOrder", system: "away", claim: "Player-ordered field repair (engine only, no UI)", status: pending("WR-10, OC-F14") },
+  // Wiring WR-10 fix round (OC-F12): the account pair is read at every hire (away:GAMBIT_PROGRAMS:account, live and
+  // measured), but GO-16 hid the old editor, so no control sets or clears it: only a save that set it before GO-16 has a
+  // changed pair. The control is a new screen element and needs the user's mockup.
+  { id: "away:audit:accountDefaultControl", system: "away", claim: "A control to set or clear the account default program (no screen sets the account pair since GO-16)", status: pending("WR-10, OC-F12 mockup (a set / clear account default control in the Tactical Protocols editor)") },
   { id: "away:audit:legacyOnly", system: "away", claim: "Legacy-only: MAX_BATTLE_ATTEMPTS, EVAC_REWARD_FRACTION, ENCOUNTER_DROP_SCALE, scan ground battles, softenAmbush, the flat 2 h injury", status: pending("OC-G1") },
   // Expedition Tiers G2-6: the region picker offers every tier, so the tier rows read on a player's launch (the run's
   // risk profile at the picked tier). The tier haul and the tier body counts have their own rows (the G2-2 review
@@ -5052,6 +5061,7 @@ function wr10AuditWiring(): Readonly<Record<string, Partial<EntryInput>>> {
       magnitude: () => 1,
       note: "1 when the Med Kit's text promises no revive (its heal is away:groundEffect:heal)",
     },
+    "away:audit:quickDraw": content("quickDrawShrug", "1 when a Stunned Quick Draw member acts on their first turn after the enemies have acted (stamped run vs older run)"),
     "away:audit:statusPicker": content("casterCorrodes", "the casters of a Xeno-Flora Bloom guard that Corrode on a hit (stamped run vs older run)"),
     // A rank 8 Science member against the same member at rank 1, wearing a fieldwork piece: their own fieldwork on the
     // dispatched run grows by the rank factor (crewRank.ts rankMagnitudeFactor).

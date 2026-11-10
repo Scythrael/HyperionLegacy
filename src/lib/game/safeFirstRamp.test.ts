@@ -48,6 +48,7 @@ import {
 import { asExpeditionVeteran, withoutCurve } from "./awayTeamTestFixtures";
 import { onHull, SWEEP_END, withCrew } from "./firstRunsGoldens.fixture";
 import { afterTraining, rampRun, rampSeed, tally } from "./safeFirstRamp.fixture";
+import { withWr10Off } from "./wr10Switch.fixture";
 
 // ===== helpers =====
 
@@ -430,6 +431,12 @@ describe("SF-3 the sample: difficulty rises with the curve and never falls", () 
       if (crew === "d18") expect(rows[0].stalled, "the weakest launchable crew finishes run 2").toBe(0);
       expect(rows.map((r) => `${r.stalled}/${r.anyLost}/${r.lostFights}/${r.vaultWon}:${r.vaultSites}`)).toEqual(SAMPLE_PINS[crew]);
     });
+    // Wiring WR-10 moved the pins in place: with WR-10 switched off (wr10Switch.fixture.ts) the sample reads the pins as
+    // the SF-3 review left them, so every move above is WR-10's.
+    it(`Orion ${crew}: with WR-10 off the sample reads the pre-WR-10 pins`, { timeout: 120_000 }, () => {
+      const rows = withWr10Off(() => SAMPLE_KS.map((k) => tally(SAMPLE.map((i) => rampRun("orion", crew, k, rampSeed(i))))));
+      expect(rows.map((r) => `${r.stalled}/${r.anyLost}/${r.lostFights}/${r.vaultWon}:${r.vaultSites}`)).toEqual(SAMPLE_PINS_BEFORE_WR10[crew]);
+    });
   }
 
   it("the weakest launchable crew finishes run 2 on the three fresh candidates", () => {
@@ -447,6 +454,15 @@ const SAMPLE_PINS: Record<string, string[]> = {
   // casters Corrode, Science rank lifts fieldwork): d18 run 2 4/83 to 5/88 and run 5 lost fights 247 to 316; rank 1 run 5
   // 0/0 to 1/1 and run 11 lost 212 to 203. Mostly the reshuffled fight streams (each caster hit now draws its Corroded roll):
   // with the Corroded chance at 0 the sample reads 5/86, 295, 1/1 and 205. Every row still never falls, and run 2 never stalls.
-  d18: ["0/5/88/19:19", "4/9/316/12:19", "10/10/400/0:19", "10/10/400/0:19"],
+  // The WR-10 fix round (user 2026-11-10 "Scale with the ramp"): the casters' Corroded chance climbs the odds ramp (0 at
+  // curve position 0, 31 permille at 3, 124 at 6, 237 at 9, where it was 300 everywhere): d18 run 2 5/88 back to 4/83 (no
+  // Corroded at the first ramped run, so no roll is drawn: the pre-WR-10 cell) and run 5 lost fights 316 to 295; rank 1
+  // unchanged. Every row still never falls, and run 2 never stalls.
+  d18: ["0/4/83/19:19", "4/9/295/12:19", "10/10/400/0:19", "10/10/400/0:19"],
   rank1: ["0/0/0/19:19", "0/1/1/19:19", "0/4/7/19:19", "0/9/203/19:19"],
+};
+// The pins as the SF-3 review left them (before WR-10), read back with WR-10 off.
+const SAMPLE_PINS_BEFORE_WR10: Record<string, string[]> = {
+  d18: ["0/4/83/19:19", "4/9/247/12:19", "10/10/400/0:19", "10/10/400/0:19"],
+  rank1: ["0/0/0/19:19", "0/0/0/19:19", "0/4/7/19:19", "0/9/212/19:19"],
 };

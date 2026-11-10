@@ -1,7 +1,7 @@
 // Wiring WR-10 (the away team and ground beyond Field Kits): the wiring registry READ-BACK the registry golden chains
 // apply, since their pins were taken before it (the cp19ReadBack / wr11ReadBack precedent). TEST-ONLY.
 //
-// WR-10 changes the registry one way: rows FLIPPED, none added or removed.
+// WR-10 changes the registry by FLIPPING rows; its fix round (WR10_FIX_BEFORE below) also added one.
 //   pending -> live : Corroded's status row (OC-F9), the Fall Back action (OC-F6), the account gambit pair (OC-F12), and
 //                     four audit rows (Neural Backup's claim OC-F2, the Med Kit's claim OC-F3, Science rank OC-F7, the
 //                     status picker OC-F9);
@@ -54,8 +54,37 @@ const DEFAULT_SHAPE_IDS: ReadonlySet<string> = new Set([
 ]);
 const REVIVE_NOTE_BEFORE = "revives the FIRST downed ally, not the wearer (B13, WR-10 OC-F2)";
 
+// The WR-10 FIX ROUND (user answers 2026-11-10): two more rows flipped pending -> live, Saboteur's trait row (OC-F4: its status
+// chance now stretches a landed Suppress, measured in battle with no inflict piece; before, live only with one) and the
+// Quick Draw audit row (OC-F5: the Stun and Fear shrug); the account pair row (OC-F12, the merge) and the Quick Draw trait
+// row changed their claim or note; and one row was ADDED, the account default control (pending on OC-F12's mockup).
+// Each is put back as it stood on 5339682.
+export const WR10_FIX_ADDED_IDS: ReadonlySet<string> = new Set(["away:audit:accountDefaultControl"]);
+type Shape = Pick<WiringEntry, "status" | "probe" | "contexts" | "direction" | "curve" | "note" | "claim">;
+export const WR10_FIX_BEFORE: Readonly<Record<string, Partial<Shape>>> = {
+  "away:AWAY_TRAITS:saboteur": {
+    status: { kind: "pending", owner: "WR-10 OC-F4 (status chance without an inflict piece)", contexts: ["ground:noInflict"] },
+    probe: "secInflictPermille",
+    contexts: ["ground"],
+    curve: { kind: "chanceAbsolute" },
+    note: "live with an inflict piece worn (the base wears a bare Stun Grenade); the no-inflict context is pending",
+  },
+  "away:AWAY_TRAITS:quickDraw": { note: "weak: the team already acts first (OC-F5)" },
+  "away:audit:quickDraw": {
+    status: { kind: "pending", owner: "WR-10, OC-F5" },
+    probe: undefined,
+    contexts: [],
+    direction: "up",
+    curve: { kind: "linearAbsolute" },
+    note: undefined,
+    claim: "Quick Draw only reorders teammates (the team already acts first)",
+  },
+  "away:GAMBIT_PROGRAMS:account": { note: undefined },
+};
+export const WR10_FIX_FLIPPED_IDS: ReadonlySet<string> = new Set(["away:AWAY_TRAITS:saboteur", "away:audit:quickDraw"]);
+
 export function wr10ReadBack(entries: readonly WiringEntry[]): WiringEntry[] {
-  return entries.map((e) => {
+  return entries.filter((e) => !WR10_FIX_ADDED_IDS.has(e.id)).map((e) => (WR10_FIX_BEFORE[e.id] ? ({ ...e, ...WR10_FIX_BEFORE[e.id] } as WiringEntry) : e)).map((e) => {
     const before = WR10_FLIPPED_BEFORE[e.id];
     const claim = WR10_CLAIM_BEFORE[e.id];
     if (!before && claim === undefined) return e;

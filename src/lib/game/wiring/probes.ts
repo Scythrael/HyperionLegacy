@@ -2420,6 +2420,15 @@ export const PROBES = {
   },
   secGuardBelow: { label: "Security combatant guardBelow", read: (s) => memberCombatant(s, sec())?.guardBelow ?? 0 },
   secFirstStrike: { label: "Security combatant firstStrike (0/1)", read: (s) => (memberCombatant(s, sec())?.firstStrike ? 1 : 0) },
+  // Wiring WR-10 fix round (OC-F4 "Chance to last longer"): the Suppressed rounds the member's Suppress leaves on a sturdy foe,
+  // summed over SUPPRESS_PROBE_SEEDS battles under the away rules (each its own linger stream), no inflict piece needed.
+  secSuppressLinger: {
+    label: "Security member's Suppress under the away rules: the Suppressed rounds it leaves, summed over seeded battles",
+    read: (s) => {
+      const c = memberCombatant(s, sec());
+      return c ? suppressedRoundsLeft(c) : 0;
+    },
+  },
   secFirstAid: { label: "firstAidEffectiveness(Security combatant)", read: (s) => firstAidEffectiveness(memberCombatant(s, sec()) ?? { medic: false }) },
   secHeal: { label: "Security combatant heal", read: (s) => memberCombatant(s, sec())?.heal ?? 0 },
   secGroupHit: { label: "Security combatant groupHit", read: (s) => memberCombatant(s, sec())?.groupHit ?? 0 },
@@ -2644,6 +2653,22 @@ function battleChange(before: BattleState, after: BattleState): number {
     d += Math.abs(c.hp - b.hp) + Math.abs(c.statuses.length - b.statuses.length);
   });
   return d + (after.tauntedBy ? 1 : 0) + Math.abs(after.teamKit - before.teamKit);
+}
+
+// Wiring WR-10 fix round (OC-F4): the member `c` suppresses a sturdy foe once in each of SUPPRESS_PROBE_SEEDS battles under
+// the away rules (seed i: the fight stream and the linger stream), and the foe's Suppressed rounds are summed. Suppress
+// always lands (the foe has no resist), so the sum is the seeds x the duration plus one round per linger roll won.
+export const SUPPRESS_PROBE_SEEDS = 200;
+function suppressedRoundsLeft(c: GroundCombatant): number {
+  let total = 0;
+  for (let i = 0; i < SUPPRESS_PROBE_SEEDS; i += 1) {
+    const actor: GroundCombatant = { ...c, id: "a1", side: "team", statuses: [] };
+    const foe = gc("e1", "enemy", { hp: 100_000, hpMax: 100_000 });
+    const st: BattleState = { ...battle([actor, foe]), awayRules: true, lingerSeed: i };
+    evaluateAndAct([{ target: "foeNearest", action: "suppress" }], actor, st, makeRng(i));
+    total += foe.statuses.find((x) => x.id === "suppressed")?.remaining ?? 0;
+  }
+  return total;
 }
 
 function cloneBattle(b: BattleState): BattleState {
@@ -3815,6 +3840,17 @@ function wr10AuditValue(s: GameState, key: string, on: boolean): number {
       // OC-F9: the casters of a Xeno-Flora Bloom guard that carry Corroded on their hits (groundFight.ts taskFightGuard).
       const guard = taskFightGuard({ hazardResist: 0, ...(on ? { awayRules: 1 as const } : {}) }, { hazard: 0.3 }, { id: "wr10", poiId: "xenoFloraBloom", fightCount: 0, pointsCleared: 0 }, 0x5eed);
       return guard.filter((e) => e.role === "caster" && (e.onHitStatuses ?? []).some((x) => x.id === "corroded")).length;
+    }
+    case "quickDrawShrug": {
+      // OC-F5 (fix round, "Shrug off stun/fear once"): a Quick Draw member Stunned for three rounds from the start, against
+      // a sturdy foe. 1 when they act on their first turn after the enemies have acted (round 2) under the away rules,
+      // 0 when the Stun still holds them (an older run).
+      const member = gc("a1", "team", { memberId: "quick", firstStrike: true, program: [{ target: "foeNearest", action: "attack" }] });
+      applyStatus(member, "stun", undefined, 3);
+      const foe = gc("e1", "enemy", { power: 1, hp: 100_000, hpMax: 100_000, program: [] });
+      const log: GambitLogEvent[] = [];
+      resolveGroundBattle([member], [foe], 0, makeRng(5), log, 0x77, undefined, on);
+      return log.filter((e) => e.round === 2 && e.memberId === "quick" && e.action !== "hold").length;
     }
     case "accountHire": {
       // OC-F12: the rules a new Security hire starts with of its own: the account pair the player changed (on: the

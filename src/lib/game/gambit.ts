@@ -71,7 +71,7 @@ import type {
   GroundStatus,
   EnemyRank,
 } from "./model";
-import { DEFAULT_GAMBIT_PROGRAMS, DEFAULT_MEMBER_GAMBIT, FIELD_KITS_PLAYER_LIVE, commandingCaptain, memberVariety } from "./model";
+import { DEFAULT_GAMBIT_PROGRAMS, DEFAULT_MEMBER_GAMBIT, FIELD_KITS_PLAYER_LIVE, WR10_SWITCH, commandingCaptain, memberVariety } from "./model";
 // Field Kits FKR-6: the kit ids (type only: fieldKits.ts imports this module, so the kit RULES arrive by injection,
 // BattleKitRules below) and the rank order the rank conditions compare (enemyRanks.ts imports types only, so no cycle).
 import type { FieldKitId } from "./fieldKits";
@@ -158,6 +158,11 @@ const DAMAGE_VARIANCE_SPAN_PERMILLE = 300;
 const EXECUTE_HP_FRACTION = 0.35; // "low HP" for Execute: target below this fraction of its max
 const EXECUTE_BONUS_MULT = 2.0; // Execute deals this multiple vs a low-HP foe (else a normal hit)
 const SUPPRESS_DAMAGE_MULT = 0.6; // Suppress deals reduced damage (its value is the debuff)
+// Wiring WR-10 fix round (OC-F4 "Chance to last longer"): the extra rounds a lingering Suppressed lasts.
+export const SUPPRESS_LINGER_EXTRA_ROUNDS = 1;
+// Wiring WR-10 fix round (OC-F5 "Shrug off stun/fear once"): the 0-based round of a Quick Draw member's first turn after the
+// enemies have acted (the team always acts first, so the enemies first act in round 0 and that turn is round 1).
+export const QUICK_DRAW_SHRUG_ROUND = 1;
 // Wiring WR-10 (OC-F6 "Brace for the round"): a Fall Back's Shielded lasts the round it is taken in.
 export const FALL_BACK_SHIELD_ROUNDS = 1;
 const MIN_DAMAGE = 1; // a landed hit always does at least this (armor can never fully zero a hit)
@@ -269,6 +274,10 @@ export const NEURAL_BACKUP_SALT = 0x2f6e9c31;
 // Timed grenades (user 2026-10-21): the "moved clear" roll of each foe a primed grenade would hit. Its OWN stream (the
 // battle's seed ^ this salt, drawn in detonation order), never a draw on the battle's shared stream.
 export const GRENADE_FUSE_SALT = 0x6d1f4a3b;
+// Wiring WR-10 fix round (OC-F4, user 2026-11-10 "Chance to last longer"): the roll for a landed Suppress to last one round
+// longer (GroundCombatant.suppressLinger). Its OWN stream (the battle's seed ^ this salt, drawn in Suppress order, opened
+// at the first such roll), never a draw on the battle's shared stream, so a status chance shifts no other roll.
+export const SUPPRESS_LINGER_SALT = 0x4b7d2e61;
 
 // ============================================================================
 // Enemy roles + role behaviors
@@ -383,7 +392,11 @@ export interface GroundCombatant {
   onHitStatuses?: { id: GambitStatusId; permille: number }[]; // inflict gear: rolled after a landed strike
   groupHit?: number; // fraction of a landed attack/execute that splashes onto the target's group
   resists?: Partial<Record<GambitStatusId, number>>; // permille chance to shrug off each status
-  firstStrike?: boolean; // acts before the other team members on the opening round
+  firstStrike?: boolean; // acts before the other team members on the opening round (Quick Draw)
+  // Wiring WR-10 fix round (OC-F4, user 2026-11-10 "Chance to last longer"): the member's status chance as permille (the
+  // spec's base plus its gear and traits, memberStatusChance). In a battle under the away rules, a Suppressed this member
+  // lands lasts SUPPRESS_LINGER_EXTRA_ROUNDS longer on this roll (Suppress itself still always lands). Absent at 0.
+  suppressLinger?: number;
   guardBelow?: number; // takes enemy strikes meant for an ally below this HP fraction
   // E-CREW (Task 16): this member wears NEURAL BACKUP (D11). Once per battle, the FIRST ally downed rolls
   // `permille` / 1000 to come back at `hpFraction` of their max HP (resolveGroundBattle). Wiring WR-10 (OC-F2): on a run
@@ -948,7 +961,7 @@ function effectiveAccuracy(c: GroundCombatant): number {
 }
 
 // A target's effective armor after Corroded.
-function effectiveArmor(c: GroundCombatant): number {
+export function effectiveArmor(c: GroundCombatant): number {
   let armor = c.armor;
   if (hasStatus(c, "corroded")) armor *= 1 - GAMBIT_STATUSES.corroded.magnitude;
   return Math.max(0, armor);
@@ -1179,6 +1192,19 @@ function doStrike(
   return true;
 }
 
+// Wiring WR-10 fix round (OC-F4, user 2026-11-10 "Chance to last longer": Suppress still always lands; the status chance
+// gives a chance it lasts one extra round). After a Suppressed LANDED (the resist roll passed), in a battle under the away
+// rules, a member with a status chance (suppressLinger) rolls it on the battle's own linger stream (SUPPRESS_LINGER_SALT);
+// on a success the Suppressed lasts SUPPRESS_LINGER_EXTRA_ROUNDS more than it would. No draw on the fight stream, and no
+// draw at all outside the away rules or for a member without a status chance, so every other battle is exactly as before.
+function lingerSuppress(actor: GroundCombatant, target: GroundCombatant, state: BattleState): void {
+  const permille = actor.suppressLinger ?? 0;
+  if (!state.awayRules || !(permille > 0)) return;
+  if (!state.lingerStream) state.lingerStream = makeRng(((state.lingerSeed ?? 0) ^ SUPPRESS_LINGER_SALT) >>> 0);
+  if (!state.lingerStream.chance(permille, 1000)) return;
+  applyStatus(target, "suppressed", undefined, landedRounds(target, "suppressed") + SUPPRESS_LINGER_EXTRA_ROUNDS);
+}
+
 // Field Kits (user 2026-10-19): a landed normal hit's affliction (normalHitAfflicts) on a target still standing: its
 // chance roll, then the target's resist roll, both on the fight stream. Only a Field Kits run's Strikers carry it, so
 // every other strike draws exactly as before.
@@ -1256,7 +1282,7 @@ function applyAction(
     case "suppress":
       if (target) {
         doStrike(actor, target, rng, SUPPRESS_DAMAGE_MULT, false, state);
-        if (!target.downed) tryApplyStatus(target, "suppressed", rng);
+        if (!target.downed && tryApplyStatus(target, "suppressed", rng)) lingerSuppress(actor, target, state);
       }
       return;
     case "execute": {
@@ -1447,8 +1473,14 @@ export interface BattleState {
   // timed throw (only a catalog 2 run arms one), so every other battle never carries it.
   fuses?: PrimedGrenade[];
   // Wiring WR-10: present only in a battle of a run stamped with the away rules (Expedition.awayRules; resolveGroundBattle's
-  // `awayRules`): Fall Back shields the member for the round (OC-F6) and Neural Backup brings back its wearer (OC-F2).
+  // `awayRules`): Fall Back shields the member for the round (OC-F6) and Neural Backup brings back its wearer (OC-F2). The
+  // fix round (user 2026-11-10): a member's status chance may make a landed Suppress last a round longer (OC-F4,
+  // lingerSuppress) and a Quick Draw member shrugs off Stun and Fear on their first turn after the enemies act (OC-F5).
   awayRules?: true;
+  // Wiring WR-10 fix round (OC-F4): the battle's seed for its Suppress linger stream (resolveGroundBattle's `reviveSeed`;
+  // absent reads 0, a hand-built battle) and that stream, opened at its first roll (lingerSuppress).
+  lingerSeed?: number;
+  lingerStream?: Rng;
 }
 
 
@@ -1734,7 +1766,8 @@ export interface GroundBattleResult {
 // nothing but one log line. `reviveSeed` defaults to 0 (a hand-built battle); the expedition callers pass
 // the battle's own keyed seed.
 // Wiring WR-10: `awayRules` (a run stamped with Expedition.awayRules) makes Neural Backup roll for its wearer alone
-// (OC-F2) and Fall Back shield the member for the round (OC-F6). Absent: every rule exactly as before.
+// (OC-F2) and Fall Back shield the member for the round (OC-F6); the fix round adds the Suppress linger (OC-F4, on its own
+// stream: `reviveSeed` ^ SUPPRESS_LINGER_SALT) and Quick Draw's shrug (OC-F5). Absent: every rule exactly as before.
 export function resolveGroundBattle(
   team: GroundCombatant[],
   enemies: GroundCombatant[],
@@ -1753,7 +1786,10 @@ export function resolveGroundBattle(
     log,
   };
   if (kitRules) state.kitRules = kitRules;
-  if (awayRules) state.awayRules = true;
+  if (awayRules) {
+    state.awayRules = true;
+    state.lingerSeed = reviveSeed;
+  }
 
   const teamAlive = () => state.combatants.filter((c) => c.side === "team" && !c.downed);
   const enemyAlive = () => state.combatants.filter((c) => c.side === "enemy" && !c.downed);
@@ -1874,10 +1910,14 @@ export function resolveGroundBattle(
       // or not it can (downed, stunned or afraid: the fuse burns regardless). Only a catalog 2 run primes one.
       if (state.fuses && state.fuses.length > 0) detonateDue(actor);
       if (actor.downed) continue;
+      // Wiring WR-10 fix round (OC-F5, user 2026-11-10 "Shrug off stun/fear once"): under the away rules a Quick Draw
+      // member (firstStrike) ignores Stun and Fear on their first turn after the enemies have acted (the team acts first,
+      // so that is round 2). No Fear roll is drawn for them that turn; every other turn, and every other member, as before.
+      const shrugs = state.awayRules === true && actor.firstStrike === true && state.round === QUICK_DRAW_SHRUG_ROUND;
       // Stun: skip the action (the stun still ticks down at end of round).
-      if (hasStatus(actor, "stun")) continue;
+      if (!shrugs && hasStatus(actor, "stun")) continue;
       // Fear: a chance to fall back (do nothing) instead of acting.
-      if (hasStatus(actor, "fear") && rng.chance(Math.round(GAMBIT_STATUSES.fear.magnitude * 1000), 1000)) continue;
+      if (!shrugs && hasStatus(actor, "fear") && rng.chance(Math.round(GAMBIT_STATUSES.fear.magnitude * 1000), 1000)) continue;
       // Field Kits FKR-4: a Concussion or a Neurotoxin may cost the turn (one draw, only while one is held, so a fight
       // without them draws exactly as before).
       const lose = turnLossPermille(actor);
@@ -2210,6 +2250,9 @@ export function buildRosterCombatants(
     if (Object.keys(resists).length > 0) c.resists = resists;
     if (triage > 0) c.careMult = 1 + triage;
     if (firstStrike) c.firstStrike = true;
+    // Wiring WR-10 fix round (OC-F4): the status chance read by a Suppress under the away rules (lingerSuppress). Not under
+    // the WR-10 test switch off, so a pre-WR-10 squad snapshot stays byte for byte (it is only read under the away rules).
+    if (permille > 0 && WR10_SWITCH.live) c.suppressLinger = permille;
     if (guardBelow !== undefined) c.guardBelow = guardBelow;
     if (revive && revive.permille > 0) c.revive = revive;
     return c;

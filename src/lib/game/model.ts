@@ -9053,7 +9053,10 @@ export interface Expedition {
   // fights Neural Backup brings back its WEARER (OC-F2 "Revives the wearer"), a Fall Back shields the member for that
   // round (OC-F6 "Brace for the round"), and every enemy caster's hits may leave a member Corroded (OC-F9 "Some enemies
   // cause it", groundFight.ts withCorrodingCasters); its fieldwork counts each Science member's rank (OC-F7 "Rank
-  // boosts fieldwork", fieldwork.ts memberFieldworkFactor). Absent on every run dispatched before WR-10, which resolves
+  // boosts fieldwork", fieldwork.ts memberFieldworkFactor). The fix round (user answers 2026-11-10) adds to the same stamp
+  // (nothing with it has shipped): the casters' Corroded chance climbs the odds ramp (OC-F9 "Scale with the ramp"), a
+  // member's status chance may make a landed Suppress last a round longer (OC-F4) and Quick Draw ignores Stun and Fear on
+  // the member's first turn after the enemies act (OC-F5). Absent on every run dispatched before WR-10, which resolves
   // exactly as stamped. Optional, no SAVE bump.
   awayRules?: 1;
 }

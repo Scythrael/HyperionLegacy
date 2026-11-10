@@ -79,6 +79,27 @@ export function fieldKitsFightProgram(program: readonly GambitRule[]): GambitPro
     : (program as GambitProgram);
 }
 
+// Wiring WR-10 fix round (OC-F12, user 2026-11-10 "Merge with built-in (Recommended)": "A fresh, unchanged program means the
+// built-in default. A changed program is merged so hires still get the built-in cure, heal, brace and Field Kits grenade
+// rules"). The rule kinds the merge brings in from the built-in default: its support rules, each conditional (a medic with
+// an afflicted or hurt ally, the member badly hurt, a grenade installed with a charge left).
+export const ACCOUNT_MERGE_ACTIONS: readonly GambitRule["action"][] = ["cure", "aidHeal", "brace", "throwGrenade"];
+
+// THE MERGE ORDER (documented in the editor's notice, gambitEditorDisplay.ts ACCOUNT_PAIR_NOTICE): the built-in default's
+// rules of each ACCOUNT_MERGE_ACTIONS kind the player's program has NO rule of, in the built-in default's own order (the
+// Field Kits default once kits are live in runs, so its two grenade rules come along; D19's default otherwise), placed
+// AHEAD of the player's rules, which follow in their own order, every one kept. A kind the player's program already has
+// (any rule with that action) is the player's own and is never added twice. Why ahead [interpretation, flagged]: every
+// preset ends with an attack on the nearest foe, which fires whenever a foe stands, so a support rule placed after the
+// player's rules would never fire; ahead, each fires only when its own condition holds and the player's targeting runs
+// every other turn, the shape of the built-in default itself. A fresh copy; the input is never touched. Pure.
+export function mergeWithBuiltInDefault(program: readonly GambitRule[], kitsLive: boolean = FIELD_KITS_RUNS_LIVE): GambitProgram {
+  const builtIn = kitsLive ? FIELD_KITS_DEFAULT_MEMBER_GAMBIT : DEFAULT_MEMBER_GAMBIT;
+  const has = new Set(program.map((r) => r.action));
+  const added = builtIn.filter((r) => ACCOUNT_MERGE_ACTIONS.includes(r.action) && !has.has(r.action));
+  return cloneProgram([...added, ...program]);
+}
+
 // The preset whose Security program the member's OWN program matches, else null (the default is not a preset,
 // and an edited preset reads as custom). Pure.
 export function matchedMemberPreset(member: Pick<AwayMember, "gambit">): GambitPreset | null {

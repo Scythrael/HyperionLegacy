@@ -74,7 +74,7 @@ describe("trait text", () => {
       [{ kind: "stat", stat: "accuracy", value: 0.05 }, "+5% accuracy"],
       [{ kind: "stat", stat: "relicFind", value: 0.05 }, "+5% relic chance"],
       [{ kind: "medic" }, "Cures and heals allies in battle, can use a Med Kit, and gives +25% first aid"],
-      [{ kind: "firstStrike" }, "Acts first on the opening round"],
+      [{ kind: "firstStrike" }, "Acts first on the opening round, and ignores Stun and Fear on their first turn after the enemies have acted"],
       [{ kind: "guard", allyHpBelow: 0.4 }, "Takes hits meant for allies below 40% HP"],
       [{ kind: "resistStatus", status: "fear", value: 0.5 }, "Resists Fear (50%)"],
       [{ kind: "poiYield", pois: ["ancientRuins"], value: 0.1 }, "+10% yield at Ancient Ruins"],

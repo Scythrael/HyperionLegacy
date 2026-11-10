@@ -59,7 +59,7 @@ import { makeRng, weightedPick, type Rng } from "./combat/rng";
 import { gearSetBonusLines } from "./gearSets";
 import { shipCrewLocked } from "./crewLock";
 // Wiring WR-10 (OC-F12): the structural program equality (memberGambits.ts imports nothing of this module).
-import { gambitProgramEquals } from "./memberGambits";
+import { gambitProgramEquals, mergeWithBuiltInDefault } from "./memberGambits";
 // Ground Ops (GO-2): keep each ship's ground-team slots in sync with crew moves. groundTeamSlots.ts imports
 // model.ts only, so this is no cycle (groundTeams.ts, which imports this module, re-exports it).
 import { isGroundSquadType, isSlotSquadType, shipsWithMemberAutoSlotted, shipsWithMemberUnslotted } from "./groundTeamSlots";
@@ -511,11 +511,14 @@ export function hireTargetsForCandidate(
 // default (DEFAULT_GAMBIT_PROGRAMS: the player set it up). Undefined otherwise: the hire runs the built-in
 // DEFAULT_MEMBER_GAMBIT (D19) exactly as before, so a player who never touched the pair hires exactly as before. Not under
 // WR10_SWITCH off. Pure.
+// The fix round (OC-F12, user 2026-11-10 "Merge with built-in (Recommended)"): a changed program is MERGED with the built-in
+// default (memberGambits.ts mergeWithBuiltInDefault: the built-in cure, heal, brace and Field Kits grenade rules the copy
+// lacks, ahead of the player's own rules), so the hire still cures, heals, braces and throws.
 export function accountProgramForHire(state: Pick<GameState, "gambitPrograms">, teamType: AwayTeamType): GambitProgram | undefined {
   if (!WR10_SWITCH.live || teamType !== "security") return undefined;
   const program = state.gambitPrograms?.security;
   if (!program || gambitProgramEquals(program, DEFAULT_GAMBIT_PROGRAMS.security)) return undefined;
-  return program.map((r) => ({ ...r, ...(r.params ? { params: { ...r.params } } : {}) }));
+  return mergeWithBuiltInDefault(program);
 }
 
 // Hire a candidate from the CURRENT board into `shipId`'s squad of the candidate's team type. Refuses

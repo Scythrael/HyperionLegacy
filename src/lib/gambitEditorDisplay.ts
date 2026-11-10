@@ -8,7 +8,7 @@
 
 import type { EnemyRank, GambitActionId, GambitProgram, GambitRule, GambitStatusId, GambitTargetSelector, GameState, GroundTeamKind } from "./game/model";
 import { DEFAULT_GAMBIT_PROGRAMS, EQUIPMENT_SLOTS, groundSquadSize, groundTeamCount, memberVariety } from "./game/model";
-import { GAMBIT_STATUSES, isActionLegalForRole } from "./game/gambit";
+import { FALL_BACK_SHIELD_ROUNDS, GAMBIT_STATUSES, SUPPRESS_LINGER_EXTRA_ROUNDS, isActionLegalForRole } from "./game/gambit";
 import { FIELD_KITS, FIELD_KITS_CATALOG_VERSION, FIELD_KITS_RUNS_LIVE, FIELD_KIT_IDS, FIELD_KIT_STATUS_IDS, KIT_CATEGORY_RULES, severityOf, CONDITION_LINES, timedFusesLive, type FieldKitId } from "./game/fieldKits";
 import { LEGACY_USE_ITEM_KIT } from "./game/fieldKitsBattle";
 import { hasMedicalTraining } from "./game/awayTraits";
@@ -84,8 +84,10 @@ export interface GambitEditorPick {
 
 // The line under the editor about the old account-wide pair (Q21: kept stored and hidden; Wiring WR-10, OC-F12 "Account-wide
 // defaults": a changed pair's Security program is given to each newly hired Security member, awayTeam.ts accountProgramForHire).
+// The fix round (user 2026-11-10 "Merge with built-in"): the copy is merged with the built-in default; the notice states the
+// merge order (memberGambits.ts mergeWithBuiltInDefault).
 export const ACCOUNT_PAIR_NOTICE =
-  "Your older account-wide tactical protocols are still saved: each Security member you hire starts with a copy, which you can change like any member's own.";
+  "Your older account-wide tactical protocols are still saved: each Security member you hire starts with a copy, which you can change like any member's own. The copy also gets the built-in default's cure, heal, brace and grenade rules it lacks, placed ahead of your rules (each acts only when it applies: a medic with an afflicted or hurt ally, the member badly hurt, a grenade ready); your rules follow in your order.";
 
 // Whether the account-pair notice shows: only when the stored pair differs from the fresh default (the player
 // set it up in the old editor), so a player who never touched it is not told about a page they never saw.
@@ -364,8 +366,13 @@ export function normalizeEditorRule(rule: GambitRule, kitsLive: boolean = FIELD_
 
 // The quiet hints under a rule (FKR-10): what keeps it from firing for THIS member. Pure.
 export function ruleHints(rule: GambitRule, member: Pick<GambitMemberEditView, "medic" | "grenade">, kitsLive: boolean = FIELD_KITS_RUNS_LIVE): string[] {
-  if (!kitsLive) return [];
-  const out: string[] = [];
+  // Wiring WR-10 (OC-F6 "Brace for the round") and its fix round (OC-F4 "Chance to last longer"): what Fall Back and
+  // Suppress do in a fight, kits or not (every run dispatched since WR-10).
+  const rules: string[] = [];
+  if (rule.action === "fallBack") rules.push(FALL_BACK_HINT);
+  if (rule.action === "suppress") rules.push(SUPPRESS_HINT);
+  if (!kitsLive) return rules;
+  const out: string[] = rules;
   if (rule.action === "useItem") {
     const kit = rule.params?.kitId ?? DEFAULT_RULE_KIT;
     if (KIT_CATEGORY_RULES[FIELD_KITS[kit].category].requiresMedicalTraining && !member.medic) out.push("Fires only for a member with Medical Training.");
@@ -380,6 +387,11 @@ export function ruleHints(rule: GambitRule, member: Pick<GambitMemberEditView, "
   if (rule.target === "allyDowned" && rule.action !== "useItem") out.push("Ally: downed fires only for Use Item (the Injury Kit's target).");
   return out;
 }
+
+// Wiring WR-10 (OC-F6): Fall Back's effect, read from its constants (gambit.ts FALL_BACK_SHIELD_ROUNDS, GAMBIT_STATUSES).
+export const FALL_BACK_HINT = `Falls back behind cover: ${GAMBIT_STATUSES.shielded.label} (${Math.round(GAMBIT_STATUSES.shielded.magnitude * 100)}% less damage taken) for ${FALL_BACK_SHIELD_ROUNDS === 1 ? "that round" : `${FALL_BACK_SHIELD_ROUNDS} rounds`}, and no attack.`;
+// Wiring WR-10 fix round (OC-F4): Suppress's status always lands (a resist aside); the member's status chance may stretch it.
+export const SUPPRESS_HINT = `A light hit that always leaves the target ${GAMBIT_STATUSES.suppressed.label} (it may resist). The member's status chance is the chance it lasts ${SUPPRESS_LINGER_EXTRA_ROUNDS === 1 ? "one round" : `${SUPPRESS_LINGER_EXTRA_ROUNDS} rounds`} longer.`;
 
 // What the built-in default does, for the "Use default" line. Once kits are live in runs a member on the default
 // throws grenades too (FIELD_KITS_DEFAULT_MEMBER_GAMBIT, user N15 and "Save for Elite or Boss"). Pure.

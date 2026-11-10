@@ -4,7 +4,9 @@
 // WR-10 moves these things: a dispatch stamps the away rules (Expedition.awayRules), under which the run's ground fights
 // bring Neural Backup's WEARER back (OC-F2), shield a member who falls back for that round (OC-F6) and let every enemy
 // caster's hits leave a member Corroded (OC-F9), and its fieldwork counts each Science member's rank (OC-F7); and a
-// Security hire starts with the account pair's program when the player changed it (OC-F12). With the switch OFF
+// Security hire starts with the account pair's program when the player changed it (OC-F12). The fix round (2026-11-10) adds,
+// under the same stamp: the casters' Corroded chance on the odds ramp, the Suppress linger (OC-F4), Quick Draw's shrug
+// (OC-F5), and the hire's program merged with the built-in default. With the switch OFF
 // (model.ts WR10_SWITCH.live false, for one call or one file, restored after) none of these is written, so every run and
 // hire made inside it is the pre-WR-10 game exactly.
 
