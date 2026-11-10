@@ -87,7 +87,7 @@ export function fabricated(bp: string): string {
 export const isEquipment = (bp: string): boolean => BLUEPRINTS[bp].equipmentOutput !== undefined;
 
 export function inspected(bp: string): GameState {
-  return inspectBlank({ ...freshState(), blanks: { [bp]: new Decimal(1) } }, bp);
+  return inspectBlank({ ...freshState(), blanks: { [bp]: [new Decimal(1)] } }, bp);
 }
 
 export function salvageRows(): [string, (Record<string, number> | string)[]][] {

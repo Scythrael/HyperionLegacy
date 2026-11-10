@@ -118,7 +118,7 @@ export function siInflight(dispatch: () => GameState = () => asExpeditionVeteran
 // A crafted piece of `bpKey` inspected from one blank at crafting level `level` (the real Fabricator mint).
 export function siCrafted(bpKey: string, level: number): string {
   const base = freshState();
-  const s: GameState = { ...base, craftingLevel: level, blanks: { ...base.blanks, [bpKey]: new Decimal(1) } };
+  const s: GameState = { ...base, craftingLevel: level, blanks: { ...base.blanks, [bpKey]: [new Decimal(1)] } };
   const next = inspectBlank(s, bpKey);
   if (next === s) throw new Error(`inspect refused for ${bpKey}`);
   return hash(next.equipment[next.equipment.length - 1]);

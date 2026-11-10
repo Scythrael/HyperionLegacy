@@ -120,6 +120,10 @@ import { withThirdBuffGrantedV70 } from "./crewThirdBuff";
 //   2. Complement CP-19 (no bump, v71 not yet on staging): `facilities.personnelRosters` at its pre-granted Level 1
 //      (the base board of 10; nothing changes until a rung is bought). Idempotent, so migrate also runs it on every
 //      load. See withPersonnelRostersTrackV71.
+//   3. Material Lines ML-5 quality blanks (no bump, no MIGRATIONS entry): `blanks` becomes quality-bucketed
+//      (Decimal[] per blueprint, like `inventory`). hydrateDecimals revives it through hydrateInventoryBuckets, which
+//      wraps an old flat count into the Q0 bucket ([count]) on EVERY load: deterministic, lossless (every old blank
+//      was Q0) and idempotent, so it needs no version marker and cannot collide with another slice's step.
 export const SAVE_VERSION = 71;
 export const SAVE_KEY = "fleet_admiral_save";
 
@@ -335,7 +339,12 @@ function hydrateDecimals(state: any): GameState {
     // not quality-bucketed), so they round-trip through JSON as strings and must be revived like
     // any Decimal map. `?? {}` covers a pre-v49 save that reaches here before MIGRATIONS[48] (it
     // will not, migrate runs first, but hydration stays fail-open on a partial/hostile save).
-    blanks: hydrateDecimalMap(state.blanks ?? {}),
+    // Material Lines ML-5 (quality blanks): the store is now QUALITY-BUCKETED like `inventory`, so it revives through
+    // the same hydrateInventoryBuckets. That is also the whole save step: a count from before ML-5 (one Decimal per
+    // key) is wrapped into the Q0 bucket ([count]), so every blank keeps its count at Q0, the quality every blank had.
+    // Idempotent and shape-preserving on every load (an array passes through), so no SAVE_VERSION bump and no
+    // MIGRATIONS entry (the clampInventoryToCaps precedent above); see "WHAT v71 CONTAINS" item 3.
+    blanks: hydrateInventoryBuckets(state.blanks ?? {}),
     // lifetimeStats' 3 scalar sums are Decimal-typed (Progression Pacing
     // Rework), so, exactly like credits/fleetAdminXp above, they round-trip
     // through JSON as plain strings (Decimal.toJSON()) and MUST be converted

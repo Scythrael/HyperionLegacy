@@ -245,7 +245,7 @@ function inspectPins(): Record<string, string> {
     const rows: unknown[] = [];
     for (const craftingLevel of [1, 40]) {
       for (let seed = 0; seed < 8; seed++) {
-        const s = { ...base, craftingLevel, inspectSeed: seed, blanks: { [key]: new Decimal(1) } };
+        const s = { ...base, craftingLevel, inspectSeed: seed, blanks: { [key]: [new Decimal(1)] } };
         const t = inspectBlank(s, key);
         rows.push(t === s ? null : t.equipment[t.equipment.length - 1]);
       }

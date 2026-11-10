@@ -149,7 +149,7 @@ describe("the reactor fuel ladder: every Reactor Core recipe takes its tier's fu
   it("an already crafted reactor is untouched: its roll and its power never read the recipe", () => {
     // The piece a blank rolls is keyed by the save's inspect seed and the blueprint key only (reactorFuelGoldens pins it).
     for (const bp of CORES) {
-      const a = inspectBlank({ ...freshState(), blanks: { [bp]: new Decimal(1) } }, bp).equipment.at(-1)!;
+      const a = inspectBlank({ ...freshState(), blanks: { [bp]: [new Decimal(1)] } }, bp).equipment.at(-1)!;
       expect(a.blueprintKey).toBe(bp);
       expect(reactorPieceTech(a)).toBe("fusion");
     }

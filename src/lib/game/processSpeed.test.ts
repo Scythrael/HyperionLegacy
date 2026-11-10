@@ -646,7 +646,7 @@ describe("grant: items, credits, gear and a hull, with a log line", () => {
     expect(r.next.credits.minus(s.credits).toNumber()).toBe(500);
     expect(itemTotal(r.next.inventory, "frameSegment").minus(itemTotal(s.inventory, "frameSegment")).toNumber()).toBe(4);
     expect(r.next.discovered).toContain("frameSegment");
-    expect(r.next.blanks.plasmaBp?.toNumber()).toBe(1);
+    expect(r.next.blanks.plasmaBp?.map((b) => b.toNumber())).toEqual([1]); // ML-5: a granted blank is Q0
     expect(r.next.ships).toHaveLength(s.ships.length + 1);
     const minted = r.next.ships[r.next.ships.length - 1];
     expect(minted).toMatchObject({ id: `ship-${s.nextShipId}`, typeKey: "generalFreighter", assignedCaptainId: null });

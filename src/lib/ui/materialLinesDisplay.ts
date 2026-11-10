@@ -12,7 +12,7 @@
 // describes (materialLinesDisplay.test.ts starts the real job and compares its stamped inputQuality).
 
 import Decimal from "break_infinity.js";
-import { ITEMS, MISSIONS, REFINE_RECIPES, refineRecipeOffered } from "../game/model";
+import { BLUEPRINTS, ITEMS, MISSIONS, REFINE_RECIPES, refineRecipeOffered } from "../game/model";
 import { QUALITY_TIERS, drawQualityTally, itemTotal, removeItemHighestFirst, removeItemLowestFirst } from "../game/inventory";
 import { CARRY_AVERAGE_EPSILON, MAX_MATERIAL_QUALITY, carriedQuality } from "../game/materialQuality";
 import type { IconName } from "./icons";
@@ -248,9 +248,9 @@ export function carriedQualityText(p: Pick<OrderQualityPreview, "firstAverage" |
 // ---------------------------------------------------------------------------------------------------------------
 
 // The worked example the Refinery's explainer panel shows: a real recipe (Cobalt Coil) on all-Q2 inputs, run through
-// the same orderQualityPreview the order form uses, so every figure is what the engine would stamp. Only the half
-// that is true today: raw quality carries into a refined good. ML-5 (quality blanks) restores the mockup's other
-// half (equipment blanks keep their quality; the Sprint Drive step). Pure.
+// the same orderQualityPreview the order form uses, so every figure is what the engine would stamp. The first half:
+// raw quality carries into a refined good. ML-5 (quality blanks) adds the mockup's other half below
+// (blankCarryExample: equipment blanks keep their quality; the Sprint Drive step). Pure.
 export const CARRY_EXAMPLE_RECIPE = "synthCobaltCoil";
 export const CARRY_EXAMPLE_QUALITY = 2;
 
@@ -286,6 +286,49 @@ export function carryExample(): CarryExample {
 
 // The explainer's rule sentence (the engine's L6 rule, materialQuality.ts carriedQuality + craftOutputQuality).
 export const CARRY_RULE_TEXT = `A refine order stamps the unit-weighted average quality of what it used, rounded down. The usual quality roll can then lift the result, up to Q${MAX_MATERIAL_QUALITY}.`;
+
+// Material Lines ML-5 (quality blanks) restores the mockup's other half (the ML-7 trimmed-panel record: "ML-5 restores
+// that half"): the Sprint Drive step. A real Fabricator blueprint on all-Q2 inputs (the Cobalt Coil the first example
+// makes is one of them), through the same orderQualityPreview, so the blank's quality is what the engine stamps; the
+// inspected piece starts there (tick.ts inspectBlank, craftOutputQuality). Pure.
+export const BLANK_CARRY_EXAMPLE_BLUEPRINT = "sprintDriveBp";
+
+export interface BlankCarryExample {
+  // The flow chips: each input at the example quality, the blank at its carried quality, then the inspected piece.
+  inputs: string[];
+  blank: string;
+  piece: string;
+  // "2 Power Coupling Q2 · 2 Cobalt Coil Q2"
+  uses: string;
+  // "average 2.00 = Q2, then the roll"
+  carried: string;
+  outputLabel: string;
+}
+
+export function blankCarryExample(): BlankCarryExample {
+  const bp = BLUEPRINTS[BLANK_CARRY_EXAMPLE_BLUEPRINT];
+  const q = CARRY_EXAMPLE_QUALITY;
+  const inv: Record<string, Decimal[]> = {};
+  const perRun: Record<string, Decimal> = {};
+  for (const [id, n] of Object.entries(bp.recipe.inputs)) {
+    inv[id] = Array.from({ length: q + 1 }, (_, i) => (i === q ? new Decimal(n) : new Decimal(0)));
+    perRun[id] = new Decimal(n);
+  }
+  const p = orderQualityPreview(inv, perRun, 1, false);
+  const label = (id: string): string => ITEMS[id]?.label ?? id;
+  const name = bp.label.replace(/ Blueprint$/, "");
+  return {
+    inputs: Object.keys(perRun).map((id) => `${label(id)} Q${q}`),
+    blank: `${name} blank Q${p.firstCarried}`,
+    piece: `${name} Q${p.firstCarried}+`,
+    uses: p.inputs.map((u) => u.used.map((c) => `${c.amount.toString()} ${label(u.itemId)} Q${c.quality}`).join(" · ")).join(" · "),
+    carried: carriedQualityText(p),
+    outputLabel: name,
+  };
+}
+
+// The blank half's rule sentence (ML-5: tick.ts startProcess stamps the blank, inspectBlank takes the highest first).
+export const BLANK_CARRY_RULE_TEXT = `A Fabricator order stamps the same average on each equipment blank, and the blank keeps it. Inspecting takes your highest quality blank first; the piece starts at that quality, then the usual roll, up to Q${MAX_MATERIAL_QUALITY}.`;
 
 // The note under the readout when other orders draw the same stock first (the queue's form, or an input another line
 // or a queued order holds part of): the readout is worked out as if the order started now.

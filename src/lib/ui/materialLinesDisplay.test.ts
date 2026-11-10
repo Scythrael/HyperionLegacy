@@ -9,7 +9,7 @@ import { EQUIPMENT_SLOTS, MISSIONS, REFINE_RECIPES, refineRecipeOffered, type Ga
 import { LUMINOUS_AFFIXES } from "../game/legendaryAffixes";
 import { LIVE_BANDS } from "../game/rarityGoldens.fixture";
 import { CARRY_AVERAGE_EPSILON, carriedQuality, craftOutputQuality } from "../game/materialQuality";
-import { economyTick, startLine } from "../game/tick";
+import { economyTick, inspectBlank, startLine } from "../game/tick";
 import { lineInputsPerIteration } from "../game/allocation";
 import { QUALITY_TIERS, getBucket } from "../game/inventory";
 import { craftStateQ } from "../game/materialQualityGoldens.fixture";
@@ -18,6 +18,9 @@ import {
   CARRY_EXAMPLE_QUALITY,
   CARRY_EXAMPLE_RECIPE,
   CARRY_RULE_TEXT,
+  BLANK_CARRY_EXAMPLE_BLUEPRINT,
+  BLANK_CARRY_RULE_TEXT,
+  blankCarryExample,
   carryExample,
   CONTENDED_STOCK_NOTE,
   orderStockContext,
@@ -231,7 +234,7 @@ describe("ML-7 the trimmed 'Quality carries into crafts' panel (user 2026-10-26)
     expect(real.stamps).toEqual([CARRY_EXAMPLE_QUALITY]);
   });
 
-  it("states only today's rule: no equipment or blank claim (ML-5 restores that half)", () => {
+  it("states the refine rule in its first half (the blank half is its own example)", () => {
     expect(CARRY_RULE_TEXT).toBe("A refine order stamps the unit-weighted average quality of what it used, rounded down. The usual quality roll can then lift the result, up to Q5.");
     expect(/blank|equipment|Sprint Drive|inspect/i.test(CARRY_RULE_TEXT + JSON.stringify(carryExample()))).toBe(false);
     // "Can then lift": the roll never lowers a carried quality, and caps at Q5.
@@ -239,6 +242,26 @@ describe("ML-7 the trimmed 'Quality carries into crafts' panel (user 2026-10-26)
       const out = craftOutputQuality(carried, rolled);
       expect(out >= carried && out <= 5).toBe(true);
     }
+  });
+
+  it("ML-5 restores the blank half: the Sprint Drive step, and the real job and inspect agree", () => {
+    const bx = blankCarryExample();
+    expect(bx.inputs).toEqual(["Power Coupling Q2", "Cobalt Coil Q2"]);
+    expect(bx.blank).toBe("Sprint Drive blank Q2");
+    expect(bx.piece).toBe("Sprint Drive Q2+");
+    expect(bx.uses).toBe("2 Power Coupling Q2 · 2 Cobalt Coil Q2");
+    expect(bx.carried).toBe("average 2.00 = Q2, then the roll");
+    expect(BLANK_CARRY_RULE_TEXT).toBe("A Fabricator order stamps the same average on each equipment blank, and the blank keeps it. Inspecting takes your highest quality blank first; the piece starts at that quality, then the usual roll, up to Q5.");
+    expect(/—|-{2}/.test(BLANK_CARRY_RULE_TEXT + JSON.stringify(bx))).toBe(false);
+    // The real Fabricator job on that stock: its blank lands at Q2 and inspects to Q2 or more.
+    const s0 = craftStateQ({ powerCoupling: [0, 0, 2], cobaltCoil: [0, 0, 2] }, [BLANK_CARRY_EXAMPLE_BLUEPRINT]);
+    const r = startLine(s0, "fabricate", BLANK_CARRY_EXAMPLE_BLUEPRINT, { kind: "batch", remaining: 1 });
+    expect(r.started).toBe(true);
+    let s: GameState = r.next;
+    for (let i = 0; i < 400; i++) s = economyTick(s, 1, NO_ROLL);
+    expect(s.blanks[BLANK_CARRY_EXAMPLE_BLUEPRINT].map((b) => b.toString())).toEqual(["0", "0", "1"]);
+    const after = inspectBlank(s, BLANK_CARRY_EXAMPLE_BLUEPRINT);
+    expect(after.equipment[after.equipment.length - 1].quality).toBeGreaterThanOrEqual(CARRY_EXAMPLE_QUALITY);
   });
 });
 
@@ -267,8 +290,11 @@ describe("ML-7 Help topic", () => {
     expect(LUMINOUS_AFFIXES.some((a) => a.stat === "materialQualityChance")).toBe(true);
     expect(LIVE_BANDS).not.toContain("luminous");
     expect(b).toContain("how much of its output you hold");
-    // ML-5 is not built: the manual must not promise quality on fabricated equipment.
-    expect(b).toContain("Fabricated equipment does not take on the quality of its materials");
+    // ML-5 (quality blanks): the manual says equipment keeps its quality, where to see it, and the inspect order.
+    expect(b).not.toContain("does not take on the quality");
+    expect(b).toContain("Fabricated equipment keeps its quality too");
+    expect(b).toContain("Crafted Blanks under Logistics shows each blank's count split by quality");
+    expect(b).toContain("Inspecting always takes your highest quality blank of that type first");
     expect(/—|-{2}/.test(b)).toBe(false);
   });
 });

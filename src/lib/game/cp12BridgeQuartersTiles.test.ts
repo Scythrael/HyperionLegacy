@@ -19,7 +19,7 @@ import { liftPercentText, shipSystemTileLine } from "../crewModuleTileDisplay";
 
 // One blank of `key` inspected (the Fabricator's own mint): the state and the spare's id.
 function crafted(s: GameState, key: string): { state: GameState; id: string } {
-  const held: GameState = { ...s, blanks: { ...s.blanks, [key]: new Decimal(1) } };
+  const held: GameState = { ...s, blanks: { ...s.blanks, [key]: [new Decimal(1)] } };
   const after = inspectBlank(held, key);
   const piece = after.equipment.find((e) => !held.equipment.some((x) => x.id === e.id));
   if (piece === undefined) throw new Error(`no mint for ${key}`);

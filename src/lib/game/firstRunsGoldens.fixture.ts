@@ -38,7 +38,19 @@ export function fnv(s: string): string {
 // did before the swap and every golden captured before it keeps proving that nothing else moved (the stateHash /
 // withoutRunCounts precedent). A no-op on a piece that still carries the field. A WORN piece (a `condition`) is left
 // as it is, so real wear moves a golden. Pure.
-function goldenReplacer(this: unknown, _key: string, value: unknown): unknown {
+//
+// Material Lines ML-5 (quality blanks): the same for the blank store (`blanks`), now quality-bucketed. A blueprint
+// holding Q0 blanks only (a one-bucket array, the shape every pre-ML-5 blank migrates to and every Q0 craft writes)
+// serializes as the flat count it was before, so a golden captured before ML-5 keeps proving nothing else moved. A
+// blank at Q1 or higher (two buckets or more) is left as its array, so real quality moves a golden.
+function goldenReplacer(this: unknown, key: string, value: unknown): unknown {
+  if (key === "blanks" && value && typeof value === "object" && !Array.isArray(value)) {
+    const entries = Object.entries(value as Record<string, unknown>);
+    if (entries.some(([, b]) => Array.isArray(b) && b.length === 1)) {
+      return Object.fromEntries(entries.map(([k, b]) => [k, Array.isArray(b) && b.length === 1 ? b[0] : b]));
+    }
+    return value;
+  }
   if (!value || typeof value !== "object" || Array.isArray(value)) return value;
   const v = value as Record<string, unknown>;
   if (!("durabilityMax" in v) || !("implicitStats" in v) || "durability" in v || "condition" in v) return value;

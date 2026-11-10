@@ -62,7 +62,7 @@ function lcg(seed: number): () => number {
 
 // The piece a blank of `bp` rolls on a fresh save (inspect seed 0).
 function inspected(bp: string): GameState {
-  return inspectBlank({ ...freshState(), blanks: { [bp]: new Decimal(1) } }, bp);
+  return inspectBlank({ ...freshState(), blanks: { [bp]: [new Decimal(1)] } }, bp);
 }
 
 // The budget's fields as EM-1 shipped them.

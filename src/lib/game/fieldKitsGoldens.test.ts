@@ -895,7 +895,7 @@ function inspectGrenades(): EquipmentInstance[] {
   return (["stunGrenade", "toxinGrenade"] as const).flatMap((variety) =>
     INSPECT_SEEDS.map((inspectSeed) => {
       const bp = `${variety}Bp`;
-      const state: GameState = { ...freshState(), craftingLevel: INSPECT_CRAFTING_LEVEL, blanks: { [bp]: new Decimal(1) }, inspectSeed };
+      const state: GameState = { ...freshState(), craftingLevel: INSPECT_CRAFTING_LEVEL, blanks: { [bp]: [new Decimal(1)] }, inspectSeed };
       const next = inspectBlank(state, bp);
       expect(next).not.toBe(state);
       const piece = next.equipment[next.equipment.length - 1];

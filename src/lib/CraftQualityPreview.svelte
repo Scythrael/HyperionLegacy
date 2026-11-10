@@ -1,8 +1,8 @@
 <script lang="ts">
   // CraftQualityPreview.svelte: a craft order's "This order uses" per-quality breakdown and its "Carried quality"
   // readout (0.14.0 ML-7; the signed-off Refinery mockup's order panel, user 2026-10-21 "approve as is"). It sits
-  // under the "Use best materials" switch on the Refinery's configurator and on the Fabricator's for a stackable
-  // output (equipment carries no quality until ML-5, so the parent shows this only where a job really carries it).
+  // under the "Use best materials" switch on the Refinery's configurator and on the Fabricator's for every output
+  // (ML-5 quality blanks: an equipment blank keeps the carried quality too, and its inspect starts from it).
   //
   // POSTURE: pure presentation over materialLinesDisplay.ts orderQualityPreview, which walks the stock with the
   // engine's own drawQualityTally / removeItem* / carriedQuality calls. The carried figure is the NEXT job's: each run
