@@ -49,7 +49,20 @@ const MOVED: Record<string, unknown> = {
   "shortRange:pastCap": ["c9a3925f", "5ca32a69"],
   "offline:pastCap": ["b8ca91a1", "283ec22e"],
 };
-const PINS: Record<string, unknown> = { ...CP18_PINS_PRE, ...MOVED };
+// GEAR WEAR step 5 review fix C1 (exact repair settling, 2026-11-09; built on 8d3809b, before this slice, so traced here at
+// its merge): the Eir's Science and Medical crew lift raises its gear repair rate off the free 2, 40 and 80 a minute, so
+// its pieces' repair anchors are now encoded exactly from integers (the rate quantized to a thousandth of a per-mille a
+// minute) where the old float arithmetic drifted (the cp14Goldens.test.ts shortRange:eir rows, the same run). Only the
+// state hash moves; the captain hash holds. With the old settle every pin here holds, both live and with the slice
+// switched off (checked at the trace, 2026-11-10); the gear repair job record (gearRepairJobSwitch.fixture.ts) moves
+// nothing here. C1_MOVED overlays the current pins, C1_MOVED_PRE the pre-slice pins.
+const C1_MOVED: Record<string, unknown> = {
+  "shortRange:pastCap": ["821f329c", "5ca32a69"],
+};
+const C1_MOVED_PRE: Record<string, unknown> = {
+  "shortRange:pastCap": ["f950eff1", "e60a6c68"],
+};
+const PINS: Record<string, unknown> = { ...CP18_PINS_PRE, ...MOVED, ...C1_MOVED };
 
 describe("Complement CP-18 goldens (captured before the soft level cap)", () => {
   it("every reading matches its pin (moves are named in MOVED)", () => {
@@ -63,7 +76,7 @@ describe("Complement CP-18 goldens (captured before the soft level cap)", () => 
   }, 600_000);
 
   it("with the slice switched off every row returns to its pre-CP-18 pin", () => {
-    expect(withoutCp18(() => cp18Rows())).toEqual(CP18_PINS_PRE);
+    expect(withoutCp18(() => cp18Rows())).toEqual({ ...CP18_PINS_PRE, ...C1_MOVED_PRE });
   }, 600_000);
 
   it("the registry read-back names exactly the row CP-18 added, live", () => {
