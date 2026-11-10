@@ -324,7 +324,6 @@ function memberStat(s: GameState, memberId: string, stat: string): number {
 const EFF_READS: Readonly<Record<string, (s: GameState, ctx: ContextId) => number>> = {
   "cargoBay:cargoCapacity": (s) => sheetOfRun(s).cargoCapacity,
   "ftlDrive:transitSpeed": (s, ctx) => (ctx === "expedition:groundOps" ? dispatchRun(s).voyage?.outboundSpeed ?? -1 : sheetOfRun(s).transitSpeedMult),
-  "ftlDrive:engineEfficiency": (s) => sheetOfRun(s).engineEfficiency,
   // GEAR WEAR step 4: at the Shipyard and on a patrol the fixture's piece is a Damage Control Suite: its repair speed
   // line as the repair duration reads it (tick.ts shipRepairGear), its wave patch-up line as the dispatched cycle's
   // frozen view holds it (the suite's patch reads exactly that).

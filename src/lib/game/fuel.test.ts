@@ -14,7 +14,6 @@ import {
   MISSIONS,
   freshState,
   FUEL_PER_TICK,
-  FUEL_CREDITS_PER_UNIT,
   type CaptainMissionState,
 } from "./model";
 import { itemTotal } from "./inventory"; // Task 9a: read item TOTAL across quality buckets
@@ -46,9 +45,14 @@ describe("ship fuel stats", () => {
 });
 
 describe("fuel constants", () => {
-  it("exposes the first-pass tunables", () => {
+  it("exposes the first-pass tunable", () => {
     expect(FUEL_PER_TICK).toBe(1); // Fuel Economy v2: reverted 0.1 -> 1 in the 2026-07-15 device retune (0.1 was too generous)
-    expect(FUEL_CREDITS_PER_UNIT).toBe(20); // Fuel-sourcing restructure: 5 -> 20 (expensive auto-buy; refining is the intended path)
+  });
+
+  it("WR-13 (S4-A02 \"Remove it\"): the old fuel economy's credit auto-buy price and refuel delay are gone", async () => {
+    const model: Record<string, unknown> = await import("./model");
+    expect("FUEL_CREDITS_PER_UNIT" in model).toBe(false);
+    expect("REFUEL_PENALTY_TICKS" in model).toBe(false);
   });
 });
 
@@ -99,12 +103,33 @@ describe("WR-4: the fuel stockpile is retired (OC-C1)", () => {
 // below bit-exact (integer Decimal deductions carry no float drift). One shortOreRun
 // cycle is 149 whole ticks (1 orders + 25 out + 90 extract + 25 back + 8 unload).
 //
-// F3 REWORKED the auto-repeat: the old hard "stop-on-empty" is REPLACED by auto-buy +
-// (+2-tick penalty) with a broke-stop floor. The tests in this section now exercise the
-// BROKE-STOP path (tank short AND credits can't cover the shortfall); the auto-buy +
-// penalty behavior + the multi-cycle refining parity live in fuel-consumption-v2.test.ts.
+// WR-13 (S4-A02): the F3 auto-buy, its +2-tick penalty and its broke-stop floor are removed (unreachable since
+// 0.13.6); fuel only gates reach.
 const FREIGHTER_SHORT_RUN_FUEL = 50; // fuelNeeded(shortOreRun, generalFreighter) at FUEL_PER_TICK 1
 const SHORT_RUN_CYCLE_TICKS = 149;
+
+describe("WR-13 (S4-A02): the old fuel economy is gone, and a save from it still loads and plays", () => {
+  it("a fresh dispatch and its repeats carry no refuel delay (the constant 0 stamp stays: it holds the state goldens)", () => {
+    const { next } = dispatchCaptainOnMission(freshState(), 1, "shortOreRun");
+    expect((next.captains[0].mission as CaptainMissionState).refuelDelayTicks ?? 0).toBe(0);
+    const later = economyTick(next, SHORT_RUN_CYCLE_TICKS + 5).captains[0].mission as CaptainMissionState;
+    expect(later).not.toBeNull();
+    expect(later.refuelDelayTicks ?? 0).toBe(0);
+  });
+
+  it("a legacy cycle in flight with its +2 refuel delay loads, plays out as saved, and the next cycle carries none", () => {
+    const { next } = dispatchCaptainOnMission(freshState(), 1, "shortOreRun");
+    const legacy = { ...next, captains: next.captains.map((c, i) => (i === 0 ? { ...c, mission: { ...(c.mission as CaptainMissionState), refuelDelayTicks: 2 } } : c)) };
+    const loaded = migrate(deserialize(serialize(legacy, 0)) as SaveFile);
+    expect((loaded.captains[0].mission as CaptainMissionState).refuelDelayTicks).toBe(2);
+    // ordersReceived is 1 tick; with the legacy delay it is 3, so after 2 ticks the cycle is still at its orders.
+    expect((economyTick(loaded, 2).captains[0].mission as CaptainMissionState).phase).toBe("ordersReceived");
+    expect((economyTick(loaded, 3).captains[0].mission as CaptainMissionState).phase).toBe("transitOut");
+    const repeated = economyTick(loaded, SHORT_RUN_CYCLE_TICKS + 2).captains[0].mission as CaptainMissionState;
+    expect(repeated.phase).toBe("ordersReceived");
+    expect(repeated.refuelDelayTicks ?? 0).toBe(0);
+  });
+});
 
 describe("dispatch fuel gate: REACH only (dispatchCaptainOnMission)", () => {
   // 0.13.6 fuel-to-reach: the RESOURCE (empty-tank) block and the fuel DEDUCTION are gone. The only

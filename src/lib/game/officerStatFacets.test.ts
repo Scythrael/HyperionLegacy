@@ -1030,7 +1030,7 @@ describe("Cunning: per-mission over-delivery", () => {
     const firstSeed = (c.mission as PatrolMissionState).masterSeed;
     const gear = equippedFor(rr, "ship-1");
     for (let i = 0; i < 400 && (c.mission as PatrolMissionState).masterSeed === firstSeed; i++) {
-      c = tickCaptainPatrol(1, c, rr.ships[0], 1e9, 0, 1e9, 1, gear, 1, { freeRepairChance: 1 }).captain;
+      c = tickCaptainPatrol(1, c, rr.ships[0], gear, 1, { freeRepairChance: 1 }).captain;
     }
     expect((c.mission as PatrolMissionState).masterSeed).not.toBe(firstSeed);
     expect((c.mission as PatrolMissionState).freeRepairTicks).toBe(CUNNING_FREE_REPAIR_TICKS);
@@ -1111,7 +1111,7 @@ describe("Constitution: long-haul ramp and shorter turnaround", () => {
     const seen: number[] = [];
     for (let i = 0; i < 400 && seen.length < 3; i++) {
       const before = (c.mission as PatrolMissionState).masterSeed;
-      c = tickCaptainPatrol(1, c, ship, 1e9, 0, 1e9, 1, gear, 1, effects).captain;
+      c = tickCaptainPatrol(1, c, ship, gear, 1, effects).captain;
       const m = c.mission as PatrolMissionState | null;
       if (!m) break;
       if (m.masterSeed !== before) seen.push(m.officerCombat!.weaponDamage);
@@ -1132,9 +1132,9 @@ describe("Constitution: long-haul ramp and shorter turnaround", () => {
     const gear = equippedFor(r.next, "ship-1");
     const effects = { relaunchCombatProfile: officerCombatProfile(r.next, ship), secondsPerTick: 60, freeRepairChance: 0.5 };
     const captain = r.next.captains[0];
-    const big = tickCaptainPatrol(900, captain, ship, 1e9, 0, 1e9, 1, gear, 1, effects);
+    const big = tickCaptainPatrol(900, captain, ship, gear, 1, effects);
     let c = captain;
-    for (let i = 0; i < 900; i++) c = tickCaptainPatrol(1, c, ship, 1e9, 0, 1e9, 1, gear, 1, effects).captain;
+    for (let i = 0; i < 900; i++) c = tickCaptainPatrol(1, c, ship, gear, 1, effects).captain;
     expect(JSON.stringify(c.mission)).toBe(JSON.stringify(big.captain.mission));
   });
 
@@ -1276,7 +1276,7 @@ describe("per-seat Integrity and Constitution rows", () => {
     let c = r.next.captains[0];
     let cut = 0;
     for (let i = 0; i < 400 && cut === 0; i++) {
-      c = tickCaptainPatrol(1, c, r.next.ships[0], 1e9, 0, 1e9, 1, gear, 1, effects).captain;
+      c = tickCaptainPatrol(1, c, r.next.ships[0], gear, 1, effects).captain;
       cut = (c.mission as PatrolMissionState | null)?.returnCutTicks ?? 0;
     }
     expect(cut).toBeGreaterThan(0);
@@ -1284,7 +1284,7 @@ describe("per-seat Integrity and Constitution rows", () => {
     const startSeed = (c.mission as PatrolMissionState).masterSeed;
     let ticks = 0;
     while ((c.mission as PatrolMissionState).masterSeed === startSeed && ticks < 400) {
-      c = tickCaptainPatrol(1, c, r.next.ships[0], 1e9, 0, 1e9, 1, gear, 1, effects).captain;
+      c = tickCaptainPatrol(1, c, r.next.ships[0], gear, 1, effects).captain;
       ticks++;
     }
     expect(ticks).toBe(def.transitOutTicks + def.rollWindowTicks + def.transitBackTicks - cut);
@@ -1408,16 +1408,10 @@ describe("per-seat Integrity and Constitution rows", () => {
       secondsPerTick: 600,
       returnConstitution: 0.15,
     };
-    const pBig = tickCaptainPatrol(900, r.next.captains[0], ship, 1e9, 10, 1e9, 1, gear, 1, effects);
+    const pBig = tickCaptainPatrol(900, r.next.captains[0], ship, gear, 1, effects);
     let pc = r.next.captains[0];
-    let fuel = 0;
-    for (let i = 0; i < 900; i++) {
-      const step = tickCaptainPatrol(1, pc, ship, 1e9, 10, 1e9, 1, gear, 1, effects);
-      pc = step.captain;
-      fuel += step.fuelSpent;
-    }
+    for (let i = 0; i < 900; i++) pc = tickCaptainPatrol(1, pc, ship, gear, 1, effects).captain;
     expect(JSON.stringify(pc.mission)).toBe(JSON.stringify(pBig.captain.mission));
-    expect(fuel).toBeCloseTo(pBig.fuelSpent, 9);
   });
 
   it("every seat's Integrity and Constitution tooltip names its real effect", () => {

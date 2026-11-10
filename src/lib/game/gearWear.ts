@@ -174,7 +174,6 @@ export interface WearEfficiencyConsumer {
 export const WEAR_EFFICIENCY: readonly WearEfficiencyConsumer[] = [
   { id: "cargoBay:cargoCapacity", slot: "cargoBay", reads: "cargo capacity", combat: false },
   { id: "ftlDrive:transitSpeed", slot: "ftlDrive", reads: "transit speed", combat: false },
-  { id: "ftlDrive:engineEfficiency", slot: "ftlDrive", reads: "engine efficiency", combat: false },
   { id: "reactorCore:powerOutput", slot: "reactorCore", reads: "power output where something consumes it (never the install gate)", combat: false },
   { id: "specUtility:lines", slot: "specUtility", reads: "its lines (prospecting yields, repair speed, wave hull regen, scan speed, hazard resist)", combat: false },
   { id: "sensor:lines", slot: "sensor", reads: "scan rate, coverage and foreknowledge", combat: false },
@@ -515,9 +514,11 @@ export function applyBattleWearAt<T extends EquipmentInstance>(piece: T, raw: nu
 // the authority (W3), so its catalog row is owned by step 4.
 export const WEAR_VIEW_SLOTS: ReadonlySet<string> = new Set(WEAR_EFFICIENCY.filter((c) => !c.combat && c.slot !== "reactorCore").map((c) => c.slot));
 
-// Lines that are COUNTS, never scaled by wear (design 4.3: no station, berth or charge count moves with condition):
-// crew stations, guest berths and a member's grenade carry.
-export const WEAR_EXEMPT_LINES: ReadonlySet<string> = new Set(["crewStations", "colonistCapacity", "groundCarryCapacity"]);
+// Lines wear never scales: the COUNTS (design 4.3: no station, berth or charge count moves with condition): crew
+// stations, guest berths and a member's grenade carry; and engine efficiency (WR-13, user 2026-11-10 "Drop that line":
+// its only run-time reader was the old fuel price, removed with S4-A02; reach reads the pristine piece, design 4.3), so
+// a worn drive keeps its transit-speed wear and its true-condition fights and nothing claims a fuel-efficiency loss.
+export const WEAR_EXEMPT_LINES: ReadonlySet<string> = new Set(["crewStations", "colonistCapacity", "groundCarryCapacity", "engineEfficiency"]);
 
 // The efficiency each view copy was built at (a WeakMap, so it never reaches a save).
 const VIEW_EFFICIENCY = new WeakMap<object, number>();

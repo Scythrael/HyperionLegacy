@@ -175,7 +175,7 @@ describe("⚠️ mission recall-on-cap, REQUIRED offline==live PARITY (recall fi
       credits: st.credits.toString(),
       ships: st.ships.map((sh) => ({ id: sh.id, assignedCaptainId: sh.assignedCaptainId, typeKey: sh.typeKey })),
       mission: m
-        ? { phase: m.phase, progress: m.phaseProgressTicks, key: m.missionKey, recalled: m.recalled, delay: m.refuelDelayTicks ?? 0 }
+        ? { phase: m.phase, progress: m.phaseProgressTicks, key: m.missionKey, recalled: m.recalled }
         : null,
       xp: st.captains[0].xp.toString(),
       level: st.captains[0].level,

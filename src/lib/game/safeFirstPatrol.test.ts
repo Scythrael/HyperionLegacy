@@ -233,7 +233,7 @@ describe("SF-4 offline == live", () => {
     const { difficulty: _drop, ...legacy } = patrolOf(r.next)! as PatrolMissionState;
     const captain = { ...r.next.captains[0], mission: { ...legacy, waveTicks: planWaveSchedule(legacy.masterSeed, patrolWaveParams(PATROLS.crimsonReaverSweep)) } };
     const ship = r.next.ships[0];
-    const res = tickCaptainPatrol(routeTicks("crimsonReaverSweep"), captain, ship, 1000, 0, 1000);
+    const res = tickCaptainPatrol(routeTicks("crimsonReaverSweep"), captain, ship);
     const next = res.captain.mission as PatrolMissionState;
     expect(next.phase).toBe("transitOut");
     expect("difficulty" in next).toBe(false);

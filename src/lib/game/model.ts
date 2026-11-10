@@ -1686,48 +1686,15 @@ export function shipDisplayLabels(ships: readonly ShipInstance[]): Map<string, s
   return out;
 }
 
-// --- Fuel economy constants (Mission Rework Task 3, design §3) -------------------
-// Both FIRST-PASS TUNABLE, same launch-placeholder spirit as MISSIONS'/SHIP_TYPES'
-// numbers, real balancing at the device-check stage.
-//   FUEL_PER_TICK        , fuel burned per round-trip transit tick.
-//                            the numerator scale in fuel.ts's fuelNeeded.
-//   FUEL_CREDITS_PER_UNIT, the price the F3 auto-buy-shortfall path charges per fuel unit. (WR-4: Buy Fuel,
-//                            the other spender, is retired, user 2026-10-16 credit sinks pass; the mission
-//                            auto-buy plumbing itself is unreachable since 0.13.6, its fuel budget is
-//                            infinite, and its removal waits on the fuel-economy cleanup call, S4-A02.)
-// Kept as plain numbers (not Decimal): fuel amounts are small, non-idle-scale values.
-//
-// ⚠️ FUEL ECONOMY v2 RETUNE (device feedback 2026-07-15) ⚠️ FUEL_PER_TICK was REVERTED
-// 0.1 -> 1 (back to the original v1 value). HISTORY: F3 first DROPPED it 1 -> 0.1 fearing a
-// dry-tank bankruptcy, but on-device play showed 0.1 was TOO GENEROUS, the Fuel Depot's
-// refining trivially dwarfed the tiny 0.1 consumption (three captains ran ~+1.19k fuel/min
-// net-positive with NO upgrades), so fuel was a non-factor, not a managed resource. At 1 a
-// round trip costs 1 fuel per transit tick (the meaningful value): Freighter
-// (engineEfficiency 0) shortOreRun = 50 transit ticks * 1 = 50 fuel/cycle. This stays
-// SUSTAINABLE, NOT bankrupting: a fresh full 500 tank plus the F2 Fuel Depot's refining
-// (100 fuel / 10-tick batch = 10 fuel/tick) still FAR outpaces a mission's consumption
-// (50 fuel / 149-tick cycle ~= 0.34 fuel/tick), refining alone keeps a fresh game afloat
-// with no credit spend. It just makes fuel a real resource again, so credit auto-buy (F3)
-// is a genuine short-tank backstop rather than a never-triggered branch. FIRST-PASS TUNABLE.
-// The Freighter's integer needs (short 50 / long 140 / salvage 90 / forage 110) keep the
-// Decimal fuel-tank deductions EXACT, load-bearing for the F3 offline==live parity proof.
+// --- Fuel constant (Mission Rework Task 3, design §3) ------------------------------
+//   FUEL_PER_TICK, fuel burned per round-trip transit tick: the numerator scale in fuel.ts's fuelNeeded, which
+//   since 0.13.6 (fuel-to-reach) prices only REACH (a hull reaches a trip when its fuel capacity covers the need).
+// Kept as a plain number (not Decimal): fuel amounts are small, non-idle-scale values. At 1 a Freighter
+// (engineEfficiency 0) shortOreRun needs 50 transit ticks * 1 = 50; the integer needs (short 50 / long 140 /
+// salvage 90 / forage 110) keep the reach gate exact. History: reverted 0.1 -> 1 in the 2026-07-15 device retune.
+// WR-13 (S4-A02, user 2026-11-10 "Remove it"): the old fuel economy's FUEL_CREDITS_PER_UNIT (the credit auto-buy
+// price) and REFUEL_PENALTY_TICKS (its +2-tick refuel delay) are gone with the auto-buy, unreachable since 0.13.6.
 export const FUEL_PER_TICK = 1;
-// Fuel-sourcing RESTRUCTURE (2026-07-15): 5 -> 20. Credit auto-buy is now an EXPENSIVE
-// convenience / soft-lock escape hatch, NOT a cheap crutch: the intended fuel path is
-// refining Deuterium Ice (mined free on localFuelRun) at the Fuel Depot. At 20cr/unit a
-// Freighter shortOreRun empty-tank top-up costs 50*20 = 1000cr (vs its 30cr reward), so
-// leaning on auto-buy bleeds credits fast, deliberately steering the player to refine.
-// FIRST-PASS TUNABLE, same launch-placeholder spirit as the constants above.
-export const FUEL_CREDITS_PER_UNIT = 20;
-
-// ⚠️ FUEL ECONOMY v2 (F3, design §3): the "+2 ticks" refuel-at-a-non-allied-station delay
-// added to a mission cycle whenever that cycle had to AUTO-BUY its fuel shortfall from
-// credits (tank was short at the cycle boundary but the shortfall was affordable). Modelled
-// CLOSED-FORM as a per-cycle addition to the ordersReceived phase's required ticks (stored
-// on CaptainMissionState.refuelDelayTicks, set when the auto-buy fires) so it advances
-// identically whether the span is one big tick() call or many stepped economyTick(_,1)
-// calls, the offline==live parity guarantee. FIRST-PASS TUNABLE (device-retuned).
-export const REFUEL_PENALTY_TICKS = 2;
 
 // WR-4 (OC-C1, user 2026-10-16 "Turn into range": the Fuel Depot's storage levels become a fleet reach bonus).
 // The share of every ship's reach one built Fuel Depot rung adds; tick.ts fleetReachBonus sums it over the reached
@@ -3984,14 +3951,11 @@ export interface CaptainMissionState {
   cargo: Record<LootMaterialKey, Decimal>;
   recalled: boolean; // if true, ends the loop (mission -> null) after THIS cycle's unloading completes,
   // instead of auto-restarting at ordersReceived. Does not interrupt the current cycle mid-flight.
-  // FUEL ECONOMY v2 (F3, design §3): the "+2 ticks" refuel-at-a-non-allied-station delay for
-  // THIS cycle, REFUEL_PENALTY_TICKS when this cycle had to auto-buy its fuel shortfall from
-  // credits (tank short but affordable at the cycle boundary), otherwise 0. Added to the
-  // ordersReceived phase's required ticks in tickCaptainMission, so a penalized cycle runs 2
-  // ticks longer. CLOSED-FORM: it is a per-cycle constant stamped at the cycle boundary, so it
-  // advances identically one-big-call vs many-stepped-calls (the offline==live parity proof).
-  // OPTIONAL so pre-F3 saves (whose in-flight missions predate the field) rehydrate as absent
-  // and are read as 0 (`?? 0`), no migration needed; a fresh cycle always sets it explicitly.
+  // LEGACY, READ-ONLY (WR-13, S4-A02 "Remove it"): the old fuel economy's +2-tick refuel delay, stamped by the credit
+  // fuel auto-buy (gone; unreachable since 0.13.6). Nothing writes a non-zero value any more: a fresh cycle still
+  // stamps a constant 0 (dropping the key is a shape-only move of the state goldens, held for a hub call; WR-13 carry
+  // note). tickCaptainMission still adds it to the ordersReceived phase so a cycle in flight from a pre-0.13.6 save
+  // plays out exactly as saved. Absent reads 0.
   refuelDelayTicks?: number;
   // E-CREW 0.14.0 (Task 20 review): how many cycles of THIS run delivered under Command Presence. It keys
   // the PRIVATE rounding stream that keeps a whole delivery whole (tick.ts tickCaptainMission), so no two
@@ -5155,7 +5119,7 @@ function museumExtractionSpeedFold(
 }
 
 // Combat 0.13.0 (offline recap "why did it stop early"): a TRANSIENT display hint recording
-// the reason a captain's mission ended at a genuine wall-stop during catch-up. "fuel" = ran
+// the reason a captain's mission ended at a genuine wall-stop during catch-up. "fuel" = (LEGACY, WR-13: no longer set since the old fuel economy went) ran
 // dry and could not relaunch; "cargo" = a warehouse/material cap idled an extraction run;
 // "defeat" = a patrol was beaten and limped home damaged. Set by the mission-resolution
 // functions in tick.ts at the SAME deterministic stop condition live and offline (so offline
@@ -5179,8 +5143,9 @@ export type PatrolEndReason =
   // The limp-home countdown reached 0. The hull arrives damaged and this is the one ending
   // that flags the ship. (tickCaptainPatrol, the limpingHome branch.)
   | "defeat"
-  // A repeat-dispatch relaunch was unaffordable even after the credits auto-buy: the
-  // anti-infinite-fuel floor. (tickCaptainPatrol, the canRelaunch false branch.)
+  // LEGACY (WR-13, S4-A02): a repeat-dispatch relaunch was unaffordable even after the credits
+  // auto-buy. The engine no longer produces it (the old fuel economy is gone, unreachable since
+  // 0.13.6); kept so an ending already in a saved log still reads.
   | "outOfFuel"
   // Dispatch Once finished its route cleanly. NOT a wall-stop.
   | "ordersComplete"
@@ -10485,9 +10450,6 @@ export interface ItemDef {
   reserved?: string;
   // Gas Giant Study GG-1: the quality band of a gas canister (ItemBand); absent on every other item.
   band?: ItemBand;
-  // FORWARD (not populated this pass): only shipModule/shipSystem items ever
-  // carry equip stats; every Phase 1 seed leaves this undefined.
-  equipStats?: Record<string, number>;
   // SELLABLE (0.13.6): credits per unit at the Quartermaster's Sell counter. An item is
   // sellable IFF this is defined; canSell rejects everything else, so a locked / non-sellable
   // good can never be sold even as the catalogue grows. Only DEPRECATED stock carries it for now

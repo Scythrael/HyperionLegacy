@@ -264,7 +264,7 @@ describe("captain XP accrual retirement multiplier (tickCaptainMission)", () => 
   it("omitting the multiplier == passing 1 (byte-identical): 100 ticks -> 100 XP, no level-up", () => {
     const base = baseOnMission();
     const noArg = tickCaptainMission(100, base, CONST_RNG);
-    const explicitOne = tickCaptainMission(100, base, CONST_RNG, {}, null, Infinity, 0, Infinity, undefined, Infinity, 1);
+    const explicitOne = tickCaptainMission(100, base, CONST_RNG, {}, null, Infinity, Infinity, 1);
     expect(noArg.captain.xp.equals(100)).toBe(true);
     expect(noArg.captain.level).toBe(1);
     expect(noArg.captain.statPoints).toBe(0);
@@ -276,8 +276,8 @@ describe("captain XP accrual retirement multiplier (tickCaptainMission)", () => 
 
   it("a >1 multiplier scales the per-call award proportionally", () => {
     const base = baseOnMission();
-    const x1_5 = tickCaptainMission(100, base, CONST_RNG, {}, null, Infinity, 0, Infinity, undefined, Infinity, 1.5);
-    const x2 = tickCaptainMission(100, base, CONST_RNG, {}, null, Infinity, 0, Infinity, undefined, Infinity, 2);
+    const x1_5 = tickCaptainMission(100, base, CONST_RNG, {}, null, Infinity, Infinity, 1.5);
+    const x2 = tickCaptainMission(100, base, CONST_RNG, {}, null, Infinity, Infinity, 2);
     expect(x1_5.captain.xp.equals(150)).toBe(true); // 100 * 1.5
     expect(x2.captain.xp.equals(200)).toBe(true); // 100 * 2
     // Still below xpForNextLevel(1)=300, so no level-up on either.

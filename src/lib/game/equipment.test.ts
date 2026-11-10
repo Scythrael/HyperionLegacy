@@ -26,8 +26,9 @@
 // ============================================================================
 import { describe, it, expect } from "vitest";
 import Decimal from "break_infinity.js";
-import { freshState } from "./model";
+import { freshState, EQUIPMENT_SLOTS } from "./model";
 import type {
+  EquipRequirement,
   GameState,
   EquipmentInstance,
   EquipmentSlotType,
@@ -429,6 +430,25 @@ describe("equipRequirement gate", () => {
     // And the fit actually lands:
     const next = fitEquipment(state, "ship-1", "equip-1");
     expect(next.equipment.find((e) => e.id === "equip-1")?.fittedToShipId).toBe("ship-1");
+  });
+
+  // OC-C4 "Keep tested hooks" (registry seam captain:audit:gearGates): no slot declares a captainSpec today, so this
+  // proves the gate works the moment one does (a slot's requirement lent for the test, restored after).
+  it("OC-C4 seam: a declared captainSpec gates on the captain's spec (parked, none, wrong, right)", () => {
+    const slot = EQUIPMENT_SLOTS.specUtility as { equipRequirement?: EquipRequirement };
+    const saved = slot.equipRequirement;
+    const need = captainBranchToShipSpec("resourcefulness");
+    slot.equipRequirement = { ...saved, captainSpec: need };
+    try {
+      const base = withHull(withEquipment(freshState(), rig()), "prospectorMiner");
+      expect(canFitEquipment(parked(base), "ship-1", "equip-1")).toEqual({ ok: false, reason: "captainSpecParked" });
+      expect(canFitEquipment(base, "ship-1", "equip-1")).toEqual({ ok: false, reason: "captainSpec" });
+      expect(canFitEquipment(withCaptainSpec(base, "tactical"), "ship-1", "equip-1")).toEqual({ ok: false, reason: "captainSpec" });
+      expect(canFitEquipment(withCaptainSpec(base, "resourcefulness"), "ship-1", "equip-1")).toEqual({ ok: true });
+    } finally {
+      slot.equipRequirement = saved;
+    }
+    expect(canFitEquipment(withCaptainSpec(withHull(withEquipment(freshState(), rig()), "prospectorMiner"), "tactical"), "ship-1", "equip-1")).toEqual({ ok: true });
   });
 
   it("a UNIVERSAL slot (cargoBay) has no spec/hull gate, fits any hull + captain", () => {
