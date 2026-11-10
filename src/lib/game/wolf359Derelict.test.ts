@@ -18,8 +18,9 @@ import {
 } from "./expedition";
 import { WOLF_359_ID } from "./starCatalog";
 import { installMissingCombatBaselines } from "./tick";
-import { asExpeditionVeteran, plainAwayMember } from "./awayTeamTestFixtures";
-import { DERELICT_FIELD_KV, DERELICT_FIELD_NAME, DERELICT_FIELD_NOTE, derelictClaimLine, surveyEntryView, surveyLogGroups } from "../gasGiantStudyDisplay";
+import { asExpeditionVeteran, plainAwayMember, withoutWolf359Derelict } from "./awayTeamTestFixtures";
+import { DERELICT_FIELD_KV, DERELICT_FIELD_NAME, DERELICT_FIELD_NOTE, SURVEY_LOG_LIVE, derelictClaimLine, surveyEntryView, surveyLogGroups } from "../gasGiantStudyDisplay";
+import { deserialize, migrate, serialize, type SaveFile } from "./save";
 
 const T0 = 100_000;
 const FINAL = T0 + 3_000_000;
@@ -179,5 +180,57 @@ describe("G2-7 the Wolf 359 derelict field (user 2026-11-02)", () => {
     expect(derelictClaimLine([entry], [entry])).toBeNull();
     expect(derelictClaimLine([], [])).toBeNull();
     expect(derelictClaimLine(undefined, undefined)).toBeNull();
+  });
+  it("the entry survives a JSON round trip and a save round trip (serialize, deserialize, migrate) unchanged", () => {
+    const start = crewed();
+    const { state, exp } = launch(start, wolfCandidate(start));
+    const claimed = claimExpedition(finished(state, exp), exp.id).next;
+    const entry = (claimed.surveyLog ?? []).find((e) => e.kind === "derelict")!;
+    expect(entry).toBeDefined();
+    expect(JSON.parse(JSON.stringify(entry))).toEqual(entry);
+    const loaded = migrate(deserialize(serialize(claimed, 0)) as SaveFile);
+    expect(loaded.surveyLog).toEqual(claimed.surveyLog);
+    // Once per save holds across a reload: the loaded save's next Wolf 359 run writes nothing more.
+    const again: Expedition = { ...advanceExpedition(exp, FINAL), id: "exp-98" };
+    expect(wolf359DerelictEntry(loaded, again, FINAL)).toBeNull();
+  });
+
+  it("the real claim's entry renders through the display helpers: the claim line once, the card's note and words", () => {
+    const start = crewed();
+    const { state, exp } = launch(start, wolfCandidate(start));
+    const before = finished(state, exp);
+    const after = claimExpedition(before, exp.id).next;
+    // The claim's log line (App.svelte reads derelictClaimLine(state.surveyLog, next.surveyLog) around the claim).
+    expect(derelictClaimLine(before.surveyLog, after.surveyLog)).toBe(
+      `Wolf 359: many old, unmarked hulls drift in loose formation. The crew held a moment of silence.${SURVEY_LOG_LIVE ? " Logged in the Survey Log." : ""}`,
+    );
+    // The Survey Log's group and card for the stored entry (SurveyLogPanel.svelte draws card.note under the rows).
+    const log = after.surveyLog ?? [];
+    const entry = log.find((e) => e.kind === "derelict")!;
+    const group = surveyLogGroups(log).find((g) => g.key === "derelict")!;
+    expect(group.entries).toEqual([{ id: entry.id, label: "Wolf 359", first: false }]);
+    const card = surveyEntryView(entry, log);
+    expect(card.derelict).toBe(true);
+    expect(card.note).toBe(DERELICT_FIELD_NOTE);
+    expect(card.subtitle).toBe(`${DERELICT_FIELD_NAME} · Tier I`);
+    // A second claim after it (a later run home) prints no second line.
+    const again: Expedition = { ...advanceExpedition(exp, FINAL), id: "exp-97" };
+    const later = claimExpedition({ ...after, expeditions: [again] }, "exp-97").next;
+    expect(derelictClaimLine(after.surveyLog, later.surveyLog)).toBeNull();
+  });
+
+  it("the golden switch strips only the entry this claim added, never one the pre-claim log already held", () => {
+    const start = crewed();
+    const { state, exp } = launch(start, wolfCandidate(start));
+    const before = finished(state, exp);
+    const after = claimExpedition(before, exp.id).next;
+    const stripped = withoutWolf359Derelict(after, before);
+    expect((stripped.surveyLog ?? []).some((e) => e.kind === "derelict")).toBe(false);
+    // An earlier claim's entry, already in the pre-claim log, is kept (the claim added nothing, so nothing is dropped).
+    const held = { id: "exp-1-survey-derelict", at: 1, systemName: "Wolf 359", kind: "derelict" as const, tier: 1 as const };
+    const beforeHeld = { ...before, surveyLog: [held] };
+    const afterHeld = claimExpedition(beforeHeld, exp.id).next;
+    expect(withoutWolf359Derelict(afterHeld, beforeHeld)).toBe(afterHeld);
+    expect(afterHeld.surveyLog?.[0]).toEqual(held);
   });
 });

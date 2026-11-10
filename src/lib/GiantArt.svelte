@@ -1,7 +1,9 @@
 <script lang="ts">
-  // GiantArt.svelte: the SVG portrait of a gas giant or a nebula (0.14.0, Gas Giant Study GG-6; the signed-off v3
-  // mockup's banded planet, the Survey Log's nebula cloud). Drawing only: the palette comes from gasGiantStudyDisplay.ts
-  // (GIANT_ART, NEBULA_ART). A labeled image (role img) so a screen reader hears what it shows.
+  // GiantArt.svelte: the SVG portrait of a gas giant, a nebula or the Wolf 359 derelict field (0.14.0, Gas Giant Study
+  // GG-6; the signed-off v3 mockup's banded planet, the Survey Log's nebula cloud; Expedition Tiers G2-7's derelict
+  // field). Drawing only: the giant and nebula palettes come from gasGiantStudyDisplay.ts (GIANT_ART, NEBULA_ART); the
+  // derelict portrait has ONE fixed palette written inline below (its dim red star's glow, the hulls' tones), since
+  // there is only one derelict field. A labeled image (role img) so a screen reader hears what it shows.
 
   import type { GiantArt } from "./gasGiantStudyDisplay";
 

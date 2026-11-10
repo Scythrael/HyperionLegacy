@@ -697,13 +697,16 @@ export function dispatchPastPropulsion(
 // same claim made it BEFORE G2-7, i.e. without the derelict field's one-time Survey Log entry
 // (expedition.ts wolf359DerelictEntry). The claim only ever APPENDS that entry to the pre-claim log (`before`'s), so
 // dropping it gives back the pre-G2-7 state exactly: the key stays absent when the log held nothing else and `before`
-// had no log. Every other key keeps its order. A state without the entry is returned as it is. Pure: a shallow copy.
-// Goldens pinned before G2-7 hash a claim through this; G2_7_DERELICT_PINS names every pin it moved (each test asserts
-// its claim holds the entry exactly when it is listed, so the trace cannot drift).
+// had no log. Every other key keeps its order. Only an entry THIS claim added is dropped: a derelict entry whose id
+// `before`'s log already held (an earlier claim's) is kept. A state without a new entry is returned as it is. Pure: a
+// shallow copy. Goldens pinned before G2-7 hash a claim through this; G2_7_DERELICT_PINS names every pin it moved (each
+// test asserts its claim holds the entry exactly when it is listed, so the trace cannot drift).
 export function withoutWolf359Derelict(after: GameState, before: Pick<GameState, "surveyLog">): GameState {
   const log = after.surveyLog;
-  if (!log || !log.some((e) => e.kind === "derelict")) return after;
-  const kept = log.filter((e) => e.kind !== "derelict");
+  const held = new Set((before.surveyLog ?? []).map((e) => e.id));
+  const isNew = (e: NonNullable<GameState["surveyLog"]>[number]): boolean => e.kind === "derelict" && !held.has(e.id);
+  if (!log || !log.some(isNew)) return after;
+  const kept = log.filter((e) => !isNew(e));
   const rest: GameState = { ...after, surveyLog: kept };
   if (kept.length === 0 && before.surveyLog === undefined) delete rest.surveyLog;
   return rest;

@@ -88,7 +88,8 @@ import { REFUGEE_BUFF_HELP } from "./helpTopics";
 import { ENEMY_SECTOR_WIDTH_PERMILLE, HOMEWORLD_MAX_FROM_SOL_LY, HOMEWORLD_MIN_FROM_SOL_LY, REGION_TIERS, REGION_TIER_NAMES } from "./game/galaxy";
 import { EXPEDITION_CANDIDATE_COUNT, FAMOUS_SYSTEM_ONE_IN, TIER_BODY_COUNT, recallBlockText } from "./game/expedition";
 import { DRIVE_CLASS_MAX, DRIVE_CLASS_REACH_MULT, buildableDriveClassMax, frontierSensorsNeeded } from "./game/propulsion";
-import { TIER_TRANSIT_HOURS, VOYAGE_ANOMALY_DETOUR_PERMILLE, VOYAGE_BAND_SCALE_PERMILLE, VOYAGE_FLOOR_SECONDS, tierMinimumDriveClass } from "./game/voyage";
+import { TIER_TRANSIT_HOURS, TUTORIAL_TRANSIT_SECONDS, VOYAGE_ANOMALY_DETOUR_PERMILLE, VOYAGE_BAND_SCALE_PERMILLE, VOYAGE_FLOOR_SECONDS, tierMinimumDriveClass, tierNominalSeconds } from "./game/voyage";
+import { trainingRunTransitSentence } from "./helpTopics";
 import { ENEMY_TERRITORY_COMBAT_STEP } from "./game/riskFactors";
 const articleFor = (word: string): string => (/^[AEIOU]/i.test(word) ? "an" : "a");
 const officer = (id: string): string => SENIOR_STAFF_BONUSES.find((x) => x.id === id)!.label;
@@ -896,6 +897,20 @@ describe("HELP_TOPICS", () => {
       expect(b()).toContain("Each drive class above the tier's halves the leg");
       expect(b()).toContain(`No leg is shorter than ${VOYAGE_FLOOR_SECONDS / 60} minutes`);
       expect(b()).toContain(`${VOYAGE_ANOMALY_DETOUR_PERMILLE / 10}% of the outbound leg`);
+    });
+
+    it("the training run's line shows only while its trip equals the Tier I nominal (voyage.ts)", () => {
+      const line = `Your training run flies the same trip an ordinary ${T(1)} run to its system would.`;
+      expect(trainingRunTransitSentence(tierNominalSeconds(1), tierNominalSeconds(1))).toBe(` ${line}`);
+      expect(trainingRunTransitSentence(5, tierNominalSeconds(1))).toBe("");
+      expect(b().includes(line)).toBe(TUTORIAL_TRANSIT_SECONDS === tierNominalSeconds(1));
+    });
+
+    it("the telescope topic says the map hatches enemy territory once in range, Tier II out (G2-7 shading)", () => {
+      const first = REGION_TIERS.find((t) => ENEMY_SECTOR_WIDTH_PERMILLE[t] > 0)!;
+      const tel = topic("subspaceTelescope").body;
+      expect(tel).toContain(`From ${T(first)} out, once the range reaches a region, the map hatches that region's enemy territory sector`);
+      expect(tel).toContain('reads "part enemy"; a region beyond range shows none');
     });
 
     it("recall and resume: the 1:1 rule, the pickup, the refusal and the Resume list", () => {
