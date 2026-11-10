@@ -116,6 +116,20 @@ describe("Ground Operations glyphs (0.14.0 GO-10)", () => {
     for (const name of required) expect(ICON_NAMES, `missing icon: ${name}`).toContain(name);
   });
 
+  // OT-UI review fix: the Overtime buttons' new glyphs share no path with any other glyph (the first hullRepair reused
+  // the Shipwright's hammer head and handle almost verbatim and read the same at 16 px).
+  it("draws the OT-UI glyphs with paths no other glyph uses", () => {
+    const fresh: IconName[] = ["hullRepair", "facilityUpgrade"];
+    for (const name of fresh) {
+      expect(ICON_NAMES).toContain(name);
+      for (const other of ICON_NAMES) {
+        if (other === name) continue;
+        const theirs = new Set(ICON_PATHS[other] as readonly string[]);
+        for (const d of ICON_PATHS[name] as readonly string[]) expect(theirs.has(d), `${name} shares the path "${d}" with ${other}`).toBe(false);
+      }
+    }
+  });
+
   // One concept, one glyph: no two names may share the same drawing (a copy-paste slip would make two
   // different things read the same).
   it("never draws two names identically", () => {

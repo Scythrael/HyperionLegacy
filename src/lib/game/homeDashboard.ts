@@ -119,7 +119,8 @@ import { missionRunSheet } from "./gearWearEngine";
 // Exploration 0.14.0 (E4a): relic + set names for the relic-study rows (pure catalog, no cycle).
 import { getRelicById, getRelicSetById } from "./relics";
 import { dataStudyPaused } from "./dataStudy";
-import { overtimeRate, overtimeRateText } from "./overtimeRate";
+import { overtimeRateText } from "./overtimeRate";
+import { processWorkFraction } from "./processSpeed";
 
 // Gas Giant Study GG-6: the Home row's line for a data study while the lane is paused.
 export const DATA_STUDY_PAUSED_HOME_LINE = "Paused: the countdown holds until auto-study is back on";
@@ -640,11 +641,8 @@ function rowForProcess(
   const { icon, primaryLabel, jumpTarget } = labelForProcess(process, state);
   // OT-UI (user "Chip + no jump"): the bar measures WORK done (processSpeed.ts processWorkFraction, the same rule), so an
   // Overtime purchase never moves it. At the normal rate (x 1, exact) this is the familiar formula, bit for bit.
-  const steps = process.speed?.overtimeSteps ?? 0;
-  const progress = process.durationTicks > 0
-    ? Math.min(1, Math.max(0, (process.durationTicks - process.remainingTicks * overtimeRate(steps)) / process.durationTicks))
-    : 1;
-  const rateText = overtimeRateText(steps);
+  const progress = processWorkFraction(process);
+  const rateText = overtimeRateText(process.speed?.overtimeSteps ?? 0);
 
   // The PER-ITEM defaults: this iteration's own ticks, no count sub-line. Every non-craft
   // row keeps these, and a craft row falls back to them when there is no queue line behind

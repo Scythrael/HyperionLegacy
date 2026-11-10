@@ -1396,10 +1396,12 @@ function completionRanTicks(process: TimedProcess): number {
 }
 
 // OT-UI: a job that ran with Overtime records its steps and its NORMAL-rate length on its log entry ("took 08:20 with
-// Overtime (10:00 at the normal rate)"); undefined (and so not written) for every other job.
+// Overtime (10:00 at the normal rate)"); undefined (and so not written) for every other job. A job from a save made
+// before ticksSaved was recorded (steps but no ticksSaved) is undefined too: its saving was never measured, so its
+// log line never claims one (it reads the plain time, as before).
 function completionOvertime(process: TimedProcess, tickDurationSeconds: number): { steps: number; normalMs: number } | undefined {
   const steps = process.speed?.overtimeSteps ?? 0;
-  if (steps <= 0) return undefined;
+  if (steps <= 0 || process.speed?.ticksSaved === undefined) return undefined;
   return { steps, normalMs: Math.round(process.durationTicks * tickDurationSeconds * 1000) };
 }
 

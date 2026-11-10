@@ -74,10 +74,6 @@ export function jobNoun(p: TimedProcess): string {
   }
 }
 
-function isRung(p: TimedProcess): boolean {
-  return p.kind === "facilityUpgrade" || p.kind === "docksExpansion" || p.kind === "transitBerthExpansion" || p.kind === "equipmentStorageUpgrade";
-}
-
 // The job by name, for the System Log line ("the Destroyer build", "Kestrel's hull repair"). Pure.
 export function jobSubject(state: GameState, p: TimedProcess): string {
   const e = p.effect;
@@ -104,7 +100,11 @@ export function jobSubject(state: GameState, p: TimedProcess): string {
 function pricing(state: GameState, p: TimedProcess, steps: number): { note: string; noteTail: string } {
   const length = jobLengthText(p.durationTicks * state.tickDurationSeconds);
   const tier = overtimeTier(state, p);
-  const level = isRung(p) ? " (the level being built)" : "";
+  // What the tier counts (processSpeed.ts overtimeTier): a facility's level being built, the telescope's cycle being
+  // run; the Docks, docking bays and Systems Bay have no level, so their tier is the expansion's number, said bare.
+  const e = p.effect;
+  const level =
+    e.type === "facilityLevelUp" ? (e.facility === "subspaceTelescope" ? " (the cycle being run)" : " (the level being built)") : "";
   const head = `Priced on the whole ${length} ${jobNoun(p)} at Tier ${tier}${level}`;
   return steps === 0 ? { note: `Optional. ${head}`, noteTail: ", so a step costs the same whenever you buy it" } : { note: `${head}.`, noteTail: "" };
 }

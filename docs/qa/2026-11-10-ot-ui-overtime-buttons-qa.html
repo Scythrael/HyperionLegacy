@@ -180,7 +180,7 @@
       <li><b>One new engine field, optional.</b> A job's speed record now sums the ticks each Overtime step saved (<code>speed.ticksSaved</code>), and a completed sped-up job's log entry records its steps and its normal-rate length (<code>overtime</code>). Both are absent on every job nothing sped up, so those log and save byte for byte as before. No SAVE_VERSION bump (it stays 71).</li>
       <li><b>The completion log is now truthful.</b> A sped-up job's start is stamped at its real start (finish minus its real length), so "took" is the true time; the normal-rate length sits beside it.</li>
       <li><b>Bars measure work done</b> on every job row that offers Overtime, the facility list panes and Command Home. At the normal rate it is the same formula as before, bit for bit.</li>
-      <li><b>Two new glyphs</b> in icons.ts: <b>hullRepair</b> (a hammer over a hull plate: the damaged banner and Command Home's repair rows) and <b>facilityUpgrade</b> (a block with a rising arrow: Command Home's facility upgrade rows). Checked at 16, 28 and 56 px beside the wrench, the Fabricator, the Warehouse and the plain arrow.</li>
+      <li><b>Two new glyphs</b> in icons.ts: <b>hullRepair</b> (a cracked hull plate with a riveted patch across the crack: the damaged banner and Command Home's repair rows) and <b>facilityUpgrade</b> (a block with a rising arrow: Command Home's facility upgrade rows). hullRepair was redrawn after review: the first draft (a hammer) read the same as the Shipwright glyph (refugeeShipwright, the Refugees tab's hammer) at 16 px. Check at 16, 28 and 56 px that hullRepair reads apart from the Shipwright hammer, both wrenches (tool and the Machinist), the Fabricator and the Hull Rivet relic; facilityUpgrade apart from the Warehouse and the plain arrow.</li>
       <li><b>Help</b> has a new <b>Overtime</b> topic, every number read from the engine.</li>
     </ol>
   </div>
@@ -210,7 +210,7 @@ const SECTIONS = [
     { t: "Research Lab: each running project's card on the Research tab, and each row under <b>In progress</b> on the Overview, has its own strip (priced on the whole project at the blueprint's tier).", c: true, how: "jobOvertimeDisplay.test.ts (every kind draws a strip)." },
     { t: "Research Lab, Data study: the strip sits under the study's bar, in the row's own time format (<b>Done in 15 min 12 s instead of 19 min.</b>), priced at Tier 1.", c: true, tag: "theme", how: "jobOvertimeDisplay.test.ts (D: Tier 1 pricing)." },
     { t: "Data study with Auto-study off: the strip's tag is dim, the button is a dashed <b>Paused</b> and the reason reads <b>Auto-study is off, so this study is not counting down. Turn it back on to use Overtime.</b> Turn it back on: the button returns.", c: true, tag: "save", how: "jobOvertimeDisplay.test.ts (D, paused); gasGiantDataStudy.test.ts (the engine refuses while paused)." },
-    { t: "Every facility's in-flight row (Refinery, Fabricator, Research Lab, Fuel Depot, Warehouse tiers, Salvage Bay, Shipyard founding and upgrades, Subspace Telescope cycle, Personnel Rosters, Mission Control) has the strip; the pricing line names <b>rung</b> (a telescope <b>cycle</b>) and <b>(the level being built)</b>.", c: true, tag: "save", how: "jobOvertimeDisplay.test.ts (rungs and the telescope cycle)." },
+    { t: "Every facility's in-flight row (Refinery, Fabricator, Research Lab, Fuel Depot, Warehouse tiers, Salvage Bay, Shipyard founding and upgrades, Subspace Telescope cycle, Personnel Rosters, Mission Control) has the strip; the pricing line names <b>rung</b> and <b>(the level being built)</b>; the telescope reads <b>cycle</b> and <b>(the cycle being run)</b>; the Docks, docking bay and Systems Bay rows read a bare <b>at Tier N</b> (their tier is the expansion's number: the first is Tier 1).", c: true, tag: "save", how: "jobOvertimeDisplay.test.ts (rungs and the telescope cycle)." },
     { t: "Ship Systems damaged banner: the strip sits under the repair bar in the banner's own clock: <b>Repaired in ~3m 12s instead of ~4m.</b>", c: true, tag: "theme", how: "jobOvertimeDisplay.test.ts (the repair banner speaks 'Repaired in')." },
   ]},
   { n: "3", title: "Docks, docking bays and the Systems Bay (your pick: add bar + Overtime)", items: [
@@ -225,12 +225,12 @@ const SECTIONS = [
   ]},
   { n: "5", title: "Command Home (your pick: rate chip only)", items: [
     { t: "In progress: a sped-up job's row shows the <b>1.25x</b> chip beside its time. There is no buy button on Command Home; the row still opens its console in one tap.", c: true, tag: "theme", how: "jobOvertimeDisplay.test.ts (an in-progress row carries the rate chip)." },
-    { t: "The repair rows show a hammer glyph and the facility upgrade rows a block with a rising arrow, both SVG in the theme color (no emoji).", tag: "theme" },
+    { t: "The repair rows show a patched hull plate glyph (a riveted patch across a crack) and the facility upgrade rows a block with a rising arrow, both SVG in the theme color (no emoji).", tag: "theme" },
     { t: "Recently completed: open a sped-up job's row. <b>Time elapsed</b> reads <b>took 07:20 with Overtime (10:00 at the normal rate)</b> and an <b>Overtime</b> line reads <b>2 of 3 steps</b>. A job without Overtime reads <b>took 10:00</b> as before.", c: true, tag: "save", how: "processSpeed.test.ts (the completion log shows both times; offline == live); jobOvertimeDisplay.test.ts (the completed row)." },
     { t: "Close the game while a sped-up job runs and reopen after it finishes: the completed row still reads both times correctly.", c: true, tag: "save", how: "processSpeed.test.ts (one call, 997 s chunks and 1 s steps write the same log)." },
   ]},
   { n: "6", title: "Glyphs and Help", items: [
-    { t: "Ship Systems damaged banner: the wrench emoji is now an SVG hammer glyph in the banner's red.", tag: "theme" },
+    { t: "Ship Systems damaged banner: the wrench emoji is now an SVG patched hull plate glyph in the banner's red.", tag: "theme" },
     { t: "Help, <b>Overtime</b>: +25% a step, 3 steps (1.75x), the price rule (10 credits a minute of the job's whole length x tier x step), where each strip sits, the refusals (credits, at its fastest, paused data study, last tick), no bar jump, the rate chip, the next job at the normal rate, the log line and both times on Command Home. No em dashes, US English.", c: true, tag: "theme", how: "helpTopics.test.ts (the Overtime topic)." },
   ]},
 ];

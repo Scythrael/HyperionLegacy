@@ -31,6 +31,7 @@ import {
 } from "./model";
 import { dispatchCaptainOnMission, dispatchCaptainOnPatrol, economyTick, installMissingCombatBaselines, itemCap, recallCaptain, startProcess, tick } from "./tick";
 import { itemTotal } from "./inventory";
+import { buildHomeDashboard } from "./homeDashboard";
 import { RELIC_SETS } from "./relics";
 import { advanceExpedition, claimExpedition, expeditionCandidates } from "./expedition";
 import { applyGroundOpsInjuries } from "./injuries";
@@ -394,6 +395,24 @@ describe("OT-UI: the completion log shows both times (the true start, the normal
     expect("overtime" in e).toBe(false);
     expect(e.startedAtMs).toBe(T0);
     expect(JSON.stringify(s)).not.toContain('"overtime"');
+  });
+
+  it("an old save (steps bought before ticksSaved was recorded) claims no saving: no overtime record, the plain stamp", () => {
+    const { state, ref } = withJob("shipBuild", 600);
+    let s = tickedBy(state, 200, 200, T0);
+    s = buy(s, ref);
+    // The save as written before OT-UI: the steps, no ticksSaved.
+    s = { ...s, activeProcesses: s.activeProcesses.map((p) => (p.id === jobOf(s, ref)!.id ? { ...p, speed: { overtimeSteps: 1 } } : p)) };
+    expect(jobOf(s, ref)!.speed).toEqual({ overtimeSteps: 1 });
+    s = tickedBy(s, 320, 320, T0 + 200_000);
+    expect(jobOf(s, ref)).toBeUndefined();
+    const e = lastEntry(s);
+    expect(e.kind).toBe("shipBuild");
+    expect("overtime" in e).toBe(false); // the saving was never measured, so the line never claims one
+    expect(e.startedAtMs).toBe(e.atMs - 600_000); // the unchanged stamp (finish minus the full length)
+    const row = buildHomeDashboard(s).recentlyCompleted.find((r) => r.id === e.id);
+    expect(row).toBeDefined();
+    expect("overtime" in row!).toBe(false);
   });
 
   it("the registry row is reachable on every kind: its fixture runs one job of each, and its move is exactly its own", () => {

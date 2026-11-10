@@ -629,9 +629,11 @@ export const ICON_PATHS = {
   overtime: ["M9.5 5.5a6.5 6.5 0 1 0 0 13 6.5 6.5 0 0 0 0-13z", "M9.5 8.5V12l2.2 1.4", "M17.5 8.5L21 12l-3.5 3.5"],
 
   // --- 0.14.0 OT-UI (the 2026-11-10 Overtime buttons mockup, user "Replace them now") ---
-  // Hull repair: a hammer over a hull plate (the Ship Systems damaged banner and Command Home's ship repair rows; was
-  // the wrench and hammer emoji). Kept apart from `tool` (a wrench, gear in hand) and `fabricator` (a gantry).
-  hullRepair: ["M13.8 3.5l5.7 5.7-2.3 2.3-5.7-5.7z", "M14.3 8.7L5.5 17.5", "M3 21h10"],
+  // Hull repair: a hull plate cracked top to bottom, a riveted patch plate across the crack (the Ship Systems damaged
+  // banner and Command Home's ship repair rows; was the wrench and hammer emoji). A hammer was tried first and read as
+  // `refugeeShipwright` (the same angled hammer) at 16 px. Kept apart from `refugeeShipwright` (a hammer), `tool` and
+  // `refugeeMachinist` (wrenches), `fabricator` (a gantry) and `relicHullRivet` (a curved panel, no patch).
+  hullRepair: ["M3 4.5h18v15H3z", "M12 4.5l-1.3 2.5 1.6 2", "M12 15l-1.4 2.2 1.1 2.3", "M6.5 9h11v6h-11z", "M9 12h.01M15 12h.01"],
   // Facility upgrade: a flat-roofed block with its door and an arrow rising beside it (Command Home's facility upgrade
   // rows; was the hammer and wrench emoji). Kept apart from `warehouse` (a pitched roof) and `arrowUp` (no block).
   facilityUpgrade: ["M4 21V10h9v11", "M2.5 21h12", "M7.5 21v-4h2v4", "M18.5 20V5", "M15 8.5L18.5 5 22 8.5"],

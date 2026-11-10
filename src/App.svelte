@@ -19285,11 +19285,14 @@
               {@const both = overtimeElapsedText(completionDurationText(done.elapsedMs), completionDurationText(done.overtime.normalMs))}
               <dt>Time elapsed</dt>
               <dd>{both.took} <span class="done-dim">{both.normal}</span></dd>
-              <dt>Overtime</dt>
-              <dd>{done.overtime.steps} of {OVERTIME_MAX_STEPS} steps</dd>
             {:else if completionElapsedText(done.elapsedMs) !== null}
               <dt>Time elapsed</dt>
               <dd>{completionElapsedText(done.elapsedMs)}</dd>
+            {/if}
+            {#if done.overtime}
+              <!-- The steps line reads even when the run's time is unknown (elapsedMs null). -->
+              <dt>Overtime</dt>
+              <dd>{done.overtime.steps} of {OVERTIME_MAX_STEPS} steps</dd>
             {/if}
             <dt>When</dt>
             <!-- The AGE survives here, so "what did I miss while I was away" is still answerable
