@@ -20,6 +20,8 @@
 //       (the untuned source always; a planet-tuned tool's source only when P is in its planetTypes)
 //     spec_m  = SPEC_POI_YIELD when m's spec favors X (SCIENCE_SPEC_POIS), else 0
 //     trait_m = the summed value of m's poiYield effects that list X
+//     (Wiring WR-11 and WR-10: fw_m is x the Museum's Science team power and, on a run stamped with the away rules,
+//      x m's rank factor: memberFieldworkFactor)
 //   Team (STACKING RULE: same-kind bumps ADD; D23: DIMINISHING RETURNS, never a cap, diminishing.ts):
 //     crew       = diminishing(scienceStrength * SCIENCE_STRENGTH_FIELDWORK, CREW_FIELDWORK_KNEE)
 //     F          = sum(fw_m) + crew                                            (crew = the crew layer)
@@ -162,7 +164,7 @@ export function specFavorsPoi(spec: string, poiId: string): boolean {
 }
 
 // What the fieldwork readers need from the stored expedition.
-type FieldworkRun = Pick<Expedition, "roster" | "scienceStrength" | "museumSciencePower">;
+type FieldworkRun = Pick<Expedition, "roster" | "scienceStrength" | "museumSciencePower"> & Partial<Pick<Expedition, "awayRules">>;
 
 // Wiring WR-11 (OC-H1 "Members too"): the factor on each named Science member's own fieldwork (its fw_m in THE MODEL):
 // 1 + the Museum's Science team power frozen at dispatch (Expedition.museumSciencePower), 1 without it. The crew layer
@@ -170,6 +172,17 @@ type FieldworkRun = Pick<Expedition, "roster" | "scienceStrength" | "museumScien
 export function memberFieldworkScale(exp: Pick<Expedition, "museumSciencePower">): number {
   const p = exp.museumSciencePower;
   return p !== undefined && p > 0 && Number.isFinite(p) ? 1 + p : 1;
+}
+
+// Wiring WR-10 (OC-F7, user 2026-10-15 "Rank boosts fieldwork"): on a run stamped with the away rules
+// (Expedition.awayRules) each named Science member's own fieldwork (its fw_m) is also x its frozen rank factor
+// (SnapshotMember.rankFactor, crewRank.ts rankMagnitudeFactor: +5% a rank above the first), the same rank nudge a Security
+// member's HP, power and armor take in battle. The member's whole factor: `scale` (the Museum's, memberFieldworkScale)
+// times that. A run without the stamp reads `scale` alone (rank only set the trait count). Pure.
+export function memberFieldworkFactor(exp: Pick<Expedition, "awayRules">, m: Pick<SnapshotMember, "rankFactor">, scale: number): number {
+  if (exp.awayRules !== 1) return scale;
+  const rank = m.rankFactor;
+  return Number.isFinite(rank) && rank > 0 ? scale * rank : scale;
 }
 
 // The crew layer's contribution to F: the snapshotted scienceStrength through the D23 crew curve. Pure.
@@ -197,7 +210,10 @@ export function memberFieldworkTotal(exp: FieldworkRun, planetType: ExpeditionPl
   const party = exp.roster?.science ?? [];
   const scale = memberFieldworkScale(exp);
   let F = 0;
-  for (const m of party) F += scale === 1 ? memberFieldworkOnBody(m, planetType).fieldwork : memberFieldworkOnBody(m, planetType).fieldwork * scale;
+  for (const m of party) {
+    const k = memberFieldworkFactor(exp, m, scale);
+    F += k === 1 ? memberFieldworkOnBody(m, planetType).fieldwork : memberFieldworkOnBody(m, planetType).fieldwork * k;
+  }
   return F;
 }
 
@@ -215,7 +231,8 @@ export function fieldworkEffect(exp: FieldworkRun, planetType: ExpeditionPlanetT
   const scale = memberFieldworkScale(exp);
   for (const m of party) {
     const fw = memberFieldworkOnBody(m, planetType);
-    F += scale === 1 ? fw.fieldwork : fw.fieldwork * scale;
+    const k = memberFieldworkFactor(exp, m, scale);
+    F += k === 1 ? fw.fieldwork : fw.fieldwork * k;
     relicFind += fw.relicFind;
     hazardResist += fw.hazardResist;
     if (organics) poiBonus += fw.organicsYield;

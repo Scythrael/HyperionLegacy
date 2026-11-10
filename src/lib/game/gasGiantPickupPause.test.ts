@@ -6,6 +6,10 @@
 // still wait for the study or the sweep (GG-3 studyPickupAt). These pins were captured on the build before the change.
 
 import { describe, expect, it } from "vitest";
+// Wiring WR-10 (the away rules stamped at dispatch, a hire's account program) came after every pin here: the whole file
+// runs with WR-10 off (wr10Switch.fixture.ts), so its pins keep proving their own slice (wr10Goldens.test.ts pins WR-10's).
+import { wr10OffForThisFile } from "./wr10Switch.fixture";
+wr10OffForThisFile();
 import { SUBSPACE_TELESCOPE_FACILITY_KEY, freshState, type AwayMember, type Expedition, type GameState, type ShipGroundTeam } from "./model";
 import { advanceExpedition, flaggedScanTimeline } from "./expedition";
 import { IN_SYSTEM_LEG_SECONDS, RETURN_SECONDS, groundLegTeams, pausePaysOff, pickupPauseSlot, studyLegShare, studyPickupAt, waitDockAt } from "./groundOps";

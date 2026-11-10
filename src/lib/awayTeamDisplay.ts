@@ -57,7 +57,8 @@ export function awaySpecLabel(spec: AwayMemberSpec): string {
 // compile error until it is described. Sources:
 //   - Security specs: gambit.ts SECURITY_SPEC_BASE, added to the Security base line in
 //     buildRosterCombatants (Offense: power; Defense: HP + armor; Debuff: a base statusChance, the chance
-//     an `inflict` piece's statuses land on a hit, which is zero for the other specs without a bump).
+//     an `inflict` piece's statuses land on a hit and, under the away rules (Wiring WR-10 fix round, OC-F4), the chance
+//     a landed Suppress lasts a round longer; zero for the other specs without a bump).
 //   - Science specs (E-CREW Task 15): fieldwork.ts SCIENCE_SPEC_POIS. A member whose spec favors a task's
 //     PoI raises that task's haul. The PoI names are READ from the mapping + the content catalog's labels,
 //     so remapping a PoI can never leave a stale name here.
@@ -71,7 +72,7 @@ const SPEC_DESCRIPTION: Record<AwayMemberSpec, string> = {
   offense: "Security specialty: hits harder in battle, with extra base power.",
   defense: "Security specialty: lasts longer in battle, with extra base health and armor.",
   debuff:
-    "Security specialty: lands afflictions. Gives a base chance for the statuses this member's gear inflicts to take hold on a hit.",
+    "Security specialty: lands afflictions. Gives a base chance for the statuses this member's gear inflicts to take hold on a hit, and for a Suppress to last a round longer.",
   archaeology: scienceSpecLine("archaeology", "ancient ruins, old wrecks and lost civilizations"),
   xenobiology: scienceSpecLine("xenobiology", "alien life and plant blooms"),
   geology: scienceSpecLine("geology", "rock, minerals and deep caves"),
@@ -106,9 +107,10 @@ export const UNIQUE_TAG_TEXT = "Only one can be installed in the whole fleet. Sp
 
 // A recruit's rank label. Rank is rolled with the candidate (awayRecruitCandidates) and never changes; it
 // sets the trait count (traitCountForRank), and the Security battle multiplies it into base HP, power and
-// armor (rankMagnitudeFactor in buildRosterCombatants). Science reads rank only for the trait count.
+// armor (rankMagnitudeFactor in buildRosterCombatants). Wiring WR-10 (OC-F7): a Science member's own fieldwork is x the same
+// factor (fieldwork.ts memberFieldworkFactor, on every run dispatched since WR-10).
 export const RANK_TEXT =
-  "Rolled at hiring and never changes. A higher rank carries more traits, and a Security member also gets a little more base health, power and armor from it.";
+  "Rolled at hiring and never changes. A higher rank carries more traits. A Security member also gets a little more base health, power and armor from it, and a Science member's own fieldwork (from gear and traits) counts a little more.";
 
 // The visual emphasis band for a rank on the recruit board: a Lieutenant or Lieutenant Commander is the
 // rare find (hi), the upper enlisted through Ensign are mid, the first three ranks are lo.

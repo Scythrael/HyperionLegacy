@@ -255,8 +255,8 @@ describe("Field Kits close-out (FKR-11): every Field Kits stat is live", () => {
   it("releaseBlockers() holds NO Field Kits entry (FKR-8 took the last three live)", () => {
     const fieldKits = releaseBlockers().filter((e) => e.status.kind === "pending" && FIELD_KITS_OWNER.test(e.status.owner));
     expect(fieldKits.map((e) => e.id), "pending entries naming a Field Kits slice: wire them, or name their real owner").toEqual([]);
-    // The status picker's Field Kits half is done (every Field Kits condition and Inspired can fire); only Corroded is left.
-    const picker = wiringEntry("away:audit:statusPicker")!;
-    expect(picker.status.kind === "pending" ? picker.status.owner : picker.status.kind).toMatch(/^WR-10, OC-F9/);
+    // The status picker's Field Kits half is done (every Field Kits condition and Inspired can fire); Wiring WR-10 (OC-F9)
+    // took its last entry, Corroded, live (the casters' hits), so the row is live.
+    expect(wiringEntry("away:audit:statusPicker")!.status.kind).toBe("live");
   });
 });

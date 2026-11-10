@@ -80,7 +80,7 @@ import {
   withEnemyRanks,
   type RankedFightKind,
 } from "./enemyRanks";
-import { FIRST_RUN_ENEMY_SCALE, FIRST_RUN_MAX_ENEMIES, encounterHazard, rampEnemyScale, rampedStampOf } from "./runDifficulty";
+import { FIRST_RUN_ENEMY_SCALE, FIRST_RUN_MAX_ENEMIES, encounterHazard, rampEnemyScale, rampedChance, rampedStampOf, runOddsRampOf } from "./runDifficulty";
 // Field Kits FKR-4: the flag and the inflictors (a Field Kits run only).
 import { SPLINT_HEAL_ROUNDS, fieldKitsLive, timedFusesLive, type FieldKitId } from "./fieldKits";
 import { withFieldKitsGuard, withFieldKitsTeam } from "./fieldKitsConditions";
@@ -262,6 +262,38 @@ export function withFloraToxins(enemies: GroundCombatant[], flora: number): Grou
   return enemies;
 }
 
+// Wiring WR-10 (OC-F9, user 2026-10-15 "Some enemies cause it": certain enemy casters inflict Corroded): on a run stamped
+// with the away rules (Expedition.awayRules) every CASTER in a guard carries a Corroded on its hits, CASTER_CORRODE_PERMILLE
+// a landed hit, rolled after its own affliction (the onHitStatuses roll; Corroded cuts the target's armor, gambit.ts
+// GAMBIT_STATUSES). A post-generation stamp (the withFloraToxins pattern): no draw here, and a guard without a caster is
+// untouched. Mutates the fresh guard list it is handed and returns it. `permille` is the run's chance (casterCorrodePermille);
+// at 0 nothing is stamped, so no roll is drawn and the guard is exactly the pre-WR-10 one.
+// CASTER_CORRODE_PERMILLE is the chance at the top of the ramp (full strength, and every Tier II and higher run).
+export const CASTER_CORRODE_PERMILLE = 300; // [PROVISIONAL]
+export function withCorrodingCasters(enemies: GroundCombatant[], permille: number = CASTER_CORRODE_PERMILLE): GroundCombatant[] {
+  if (!(permille > 0)) return enemies;
+  for (const e of enemies) {
+    if (e.role !== "caster") continue;
+    e.onHitStatuses = [...(e.onHitStatuses ?? []), { id: "corroded", permille }];
+  }
+  return enemies;
+}
+
+// Wiring WR-10 fix round (OC-F9, user 2026-11-10 "Scale with the ramp (Recommended)": all casters can cause it, but the
+// chance starts low on early runs and grows with difficulty, the way affixes and ambushes already do): the casters'
+// Corroded chance a landed hit, in whole permille, at the odds ramp `oddsRamp` (runDifficulty.ts rampedChance, the same
+// mechanism and the same lagged position as the affix roll and the ambush chance, groundOps.ts initGroundTasks).
+// Exactly CASTER_CORRODE_PERMILLE at full strength; 0 on the first ramped runs (the odds ramp is 0 there). Pure.
+export function casterCorrodePermille(oddsRamp: number): number {
+  return Math.round(rampedChance(CASTER_CORRODE_PERMILLE, oddsRamp));
+}
+
+// The casters' Corroded chance on run `exp` (permille): its odds ramp through casterCorrodePermille (a run without a ramp
+// stamp, and every Tier II and higher run, reads full strength). Pure.
+export function runCasterCorrodePermille(exp: Pick<Expedition, "difficulty">): number {
+  return casterCorrodePermille(runOddsRampOf(exp));
+}
+
 // Objective affixes (AF-1, Reinforcing; user 2026-10-14): an objective on ALERT escalates its fights. Per alert
 // level the guard fields ESCALATION_ENEMIES_PER_LEVEL more enemies (copies of the generated guards in order, so the
 // extra bodies fit the encounter's flavor, each with its own id in its group), and every enemy's damage takes the
@@ -363,6 +395,7 @@ export type TaskFightExp = Pick<
   | "difficulty"
   | "explorerCaptain"
   | "fieldKits"
+  | "awayRules"
 >;
 
 // THE GUARD a task fight fields on a given stream seed, as fresh combatants: generateEncounter on the body's hazard
@@ -372,7 +405,7 @@ export type TaskFightExp = Pick<
 // one enemy at FIRST_RUN_ENEMY_SCALE of its strength; same seed, same draws); every other run's guard is exactly as
 // before. Pure.
 export function taskFightGuard(
-  exp: Pick<TaskFightExp, "hazardResist" | "enemyRanks" | "difficulty" | "fieldKits">,
+  exp: Pick<TaskFightExp, "hazardResist" | "enemyRanks" | "difficulty" | "fieldKits"> & Partial<Pick<TaskFightExp, "awayRules">>,
   body: Pick<ExpeditionBody, "hazard" | "risk">,
   task: RankedFightTask,
   seed: number,
@@ -391,6 +424,9 @@ export function taskFightGuard(
   // Safe first runs (OC-1 "no lost fights"): a training run's guards carry no Field Kits inflictors (with kits switched
   // on, FKR-9 / FKR-10, the inflicted conditions cost the D18 minimum crew a fight on 2 of 500 seeds per explorer).
   if (fieldKitsLive(exp) && !training) withFieldKitsGuard(enemies, { grade: task.difficulty, poiId: task.poiId });
+  // Wiring WR-10 (OC-F9): the casters' Corroded, last (no draw). Like the Field Kits inflictors, never on a training run.
+  // The fix round (user 2026-11-10 "Scale with the ramp"): its chance climbs the odds ramp (runCasterCorrodePermille).
+  if (exp.awayRules === 1 && !training) withCorrodingCasters(enemies, runCasterCorrodePermille(exp));
   return enemies;
 }
 
@@ -434,7 +470,8 @@ export function resolveTaskFightOnSeed(
   // GEAR WEAR step 4 (design 3.2 "member armor: hits on the wearer"): each member's hp as the fight opens.
   const startHp = armorWear ? new Map(team.map((c) => [c.memberId, c.hp] as const)) : null;
   // Field Kits FKR-6: a Field Kits run's battle spends each member's own kits (the team kit is never read there).
-  const result = resolveGroundBattle(team, enemies, exp.teamKit, makeRng(seed), logSink, seed, fieldKitsLive(exp) ? FIELD_KITS_BATTLE : undefined);
+  // Wiring WR-10: a run stamped with the away rules fights under them (Neural Backup's wearer, Fall Back's shield).
+  const result = resolveGroundBattle(team, enemies, exp.teamKit, makeRng(seed), logSink, seed, fieldKitsLive(exp) ? FIELD_KITS_BATTLE : undefined, exp.awayRules === 1);
 
   // resolveGroundBattle reports the 0-based round a fight ENDED in (or MAX_ROUNDS at the cap, after
   // MAX_ROUNDS full rounds); the record counts rounds fought.

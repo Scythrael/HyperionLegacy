@@ -1170,6 +1170,11 @@ export const PATROL_LEGS_SWITCH = { live: true };
 // entry without the roll it recovered, so a golden can show that the pins WR-11 moved return. Always live in the game.
 export const WR11_SWITCH = { live: true };
 
+// Test switch only (the same pattern, Wiring WR-10): off, a dispatch stamps no away rules (Expedition.awayRules), so its
+// fights keep the old Neural Backup, Fall Back and caster rules and its fieldwork ignores Science rank, and a hire never
+// reads the account pair, so a golden can show that the pins WR-10 moved return. Always live in the game.
+export const WR10_SWITCH = { live: true };
+
 // Test switch only (the same pattern, Wiring WR-9): off, a captain mission is dispatched without the Pilot's Cunning
 // stamp (CaptainMissionState.pilotCunning), an expedition without Command Presence on its objective hauls
 // (Expedition.groundOutputShare) or Operations Integrity on its offload (GroundOpsFactors.offloadSteady), and a
@@ -2576,7 +2581,8 @@ export function memberVariety(slotType: string, key: string): MemberVarietyDef |
 //   resistStatus , resists the listed statuses with chance = the member's summed groundStatusResist
 //                  (Toxin Filters, Cortex Shield).
 //   heal         , an in-fight heal item (Med Kit).
-//   revive       , once per battle, `chance` to revive the first downed ally at `hpFraction` HP (Neural Backup).
+//   revive       , once per battle, `chance` to revive the first downed ally at `hpFraction` HP (Neural Backup; Wiring
+//                  WR-10 OC-F2: on a run stamped with the away rules, the wearer only).
 export type GroundGearEffect =
   | { readonly kind: "groupHit" }
   | { readonly kind: "inflict"; readonly status: GambitStatusId }
@@ -3566,7 +3572,8 @@ export const EQUIPMENT_SLOTS: Record<string, EquipmentSlotDef> = {
         statRatios: { groundStatusResist: 0.7, groundArmor: 0.3 },
       },
       // Neural Backup (Heart of the Archive's first-find unlock): UNIQUE-EQUIPPED, one in the entire
-      // fleet (D11). Once per battle, a ~50% chance to revive the first downed member at 30% HP (E-CREW
+      // fleet (D11). Once per battle, a ~50% chance to revive its wearer at 30% HP when the wearer goes down (Wiring WR-10,
+      // OC-F2 "Revives the wearer"; a run dispatched before WR-10 revives the first downed member) (E-CREW
       // Task 16 reads the descriptor). Its rolled lines are modest sustain; the revive is the point.
       {
         key: "neuralBackup",
@@ -9070,6 +9077,16 @@ export interface Expedition {
   // above already carries it for the crew layer. Written only when above 0. Absent = no member scale (every run
   // dispatched before WR-11). Optional, no SAVE bump.
   museumSciencePower?: number;
+  // Wiring WR-10 (the OC-F user answers, 2026-10-15): the AWAY RULES, stamped at dispatch. Present: in this run's ground
+  // fights Neural Backup brings back its WEARER (OC-F2 "Revives the wearer"), a Fall Back shields the member for that
+  // round (OC-F6 "Brace for the round"), and every enemy caster's hits may leave a member Corroded (OC-F9 "Some enemies
+  // cause it", groundFight.ts withCorrodingCasters); its fieldwork counts each Science member's rank (OC-F7 "Rank
+  // boosts fieldwork", fieldwork.ts memberFieldworkFactor). The fix round (user answers 2026-11-10) adds to the same stamp
+  // (nothing with it has shipped): the casters' Corroded chance climbs the odds ramp (OC-F9 "Scale with the ramp"), a
+  // member's status chance may make a landed Suppress last a round longer (OC-F4) and Quick Draw ignores Stun and Fear on
+  // the member's first turn after the enemies act (OC-F5). Absent on every run dispatched before WR-10, which resolves
+  // exactly as stamped. Optional, no SAVE bump.
+  awayRules?: 1;
 }
 
 // Expedition Tiers G2-5 (user #7 "Based on distance traveled 1:1"; G13 one confirm with the return time; G14 detour
@@ -12760,7 +12777,7 @@ export const BLUEPRINTS: Record<string, BlueprintDef> = {
     // Recipe realism (audit call 7): wafer diagnostics in a titanium case, with Purified Biomass for the dressings and
     // stims (the First Aid Kit's own materials; Purified Biomass stays the food and medical feedstock).
     recipe: { inputs: { polysilicateWafer: 1, titaniumIngot: 1, purifiedBiomass: 2 } },
-    flavor: "Field dressings, stims, and a diagnostic wand. Keeps a downed friend in the fight.",
+    flavor: "Field dressings, stims, and a diagnostic wand. In a trained medic's hands it patches up a wounded squadmate mid-fight.",
     unlockHint: "Researched at the Research Lab; crafted at the Fabricator. Away-team gear, worn by a squad member.",
   },
   shroudEmitterBp: {

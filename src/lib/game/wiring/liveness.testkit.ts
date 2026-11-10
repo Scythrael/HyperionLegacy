@@ -447,7 +447,9 @@ function probeExpeditionBattles(t: Transform): string {
 const FIELD_KITS_PROBE_SITES = ["caveNetwork", "enemyFortification", "derelictOutpost"];
 function probeFieldKitsFights(t: Transform): string {
   return fp(
-    dispatches(t).map(({ exp }) => {
+    dispatches(t).flatMap(({ exp }) => [exp, { ...exp, awayRules: undefined }]).map((exp) => {
+      // Wiring WR-10: the fights of the dispatched run (the away rules stamped) and of the same run without them (the
+      // fights FKR-4 measured), so a resist reads on both rule sets.
       const run: Expedition = { ...exp, fieldKits: { catalog: FIELD_KITS_CATALOG_VERSION } };
       const ops = run.groundOps!;
       const teams = ops.teams.map((team, i) => ({ securityIds: team.securityIds, downedThisTask: [], securityShare: ops.factors.securityShare[i] ?? 0 }));

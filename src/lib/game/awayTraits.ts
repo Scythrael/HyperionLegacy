@@ -246,7 +246,8 @@ export function awayTraitEffectText(effect: AwayTraitEffect): string {
     case "medic":
       return `Cures and heals allies in battle, can use a Med Kit, and gives ${signedPct(FIRST_AID_TRAINED_EFFECTIVENESS - 1)} first aid`;
     case "firstStrike":
-      return "Acts first on the opening round";
+      // Wiring WR-10 fix round (OC-F5, user 2026-11-10 "Shrug off stun/fear once"): gambit.ts resolveGroundBattle.
+      return `Acts first on the opening round, and ignores ${GAMBIT_STATUSES.stun.label} and ${GAMBIT_STATUSES.fear.label} on their first turn after the enemies have acted`;
     case "guard":
       return `Takes hits meant for allies below ${pct(effect.allyHpBelow)} HP`;
     case "resistStatus":

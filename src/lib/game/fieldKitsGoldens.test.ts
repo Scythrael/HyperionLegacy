@@ -27,6 +27,10 @@
 // same whole-run suites; the claim hashes now pass through the state twin withoutFieldKitsState (identity today).
 
 import { describe, expect, it } from "vitest";
+// Wiring WR-10 (the away rules stamped at dispatch, a hire's account program) came after every pin here: the whole file
+// runs with WR-10 off (wr10Switch.fixture.ts), so its pins keep proving their own slice (wr10Goldens.test.ts pins WR-10's).
+import { wr10OffForThisFile } from "./wr10Switch.fixture";
+wr10OffForThisFile();
 import { cp16OffForThisFile } from "./cp16Switch.fixture";
 // Complement CP-16 (the Hall of Command) came after every pin here: the file runs with the slice off, so its pins
 // keep proving their own slice (cp16Goldens.test.ts pins what CP-16 moved: the missions counter, the notables and

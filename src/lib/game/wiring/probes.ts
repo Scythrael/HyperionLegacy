@@ -217,7 +217,7 @@ import { generateComplementCrew } from "../crewGeneration";
 import { CREW_RANKS, buffCountForRank } from "../crewRank";
 import { getCrewBuffById } from "../crewBuffs";
 import { missionCycleTiming } from "../model";
-import { awayRecruitCandidates, snapshotMembers } from "../awayTeam";
+import { awayRecruitCandidates, hireAwayMember, snapshotMembers } from "../awayTeam";
 import { officerPromotionCounter, seniorStaffCandidates } from "../seniorStaff";
 import { applyExpeditionInjuries, injuryRecoverySeconds, shipInjuryFactors } from "../injuries";
 import { boardingRepelChance, buildShipCombatant, shipSalvageScale, snapshotShipEventProfile } from "../shipScanEvents";
@@ -2476,6 +2476,15 @@ export const PROBES = {
   },
   secGuardBelow: { label: "Security combatant guardBelow", read: (s) => memberCombatant(s, sec())?.guardBelow ?? 0 },
   secFirstStrike: { label: "Security combatant firstStrike (0/1)", read: (s) => (memberCombatant(s, sec())?.firstStrike ? 1 : 0) },
+  // Wiring WR-10 fix round (OC-F4 "Chance to last longer"): the Suppressed rounds the member's Suppress leaves on a sturdy foe,
+  // summed over SUPPRESS_PROBE_SEEDS battles under the away rules (each its own linger stream), no inflict piece needed.
+  secSuppressLinger: {
+    label: "Security member's Suppress under the away rules: the Suppressed rounds it leaves, summed over seeded battles",
+    read: (s) => {
+      const c = memberCombatant(s, sec());
+      return c ? suppressedRoundsLeft(c) : 0;
+    },
+  },
   secFirstAid: { label: "firstAidEffectiveness(Security combatant)", read: (s) => firstAidEffectiveness(memberCombatant(s, sec()) ?? { medic: false }) },
   secHeal: { label: "Security combatant heal", read: (s) => memberCombatant(s, sec())?.heal ?? 0 },
   secGroupHit: { label: "Security combatant groupHit", read: (s) => memberCombatant(s, sec())?.groupHit ?? 0 },
@@ -2702,6 +2711,22 @@ function battleChange(before: BattleState, after: BattleState): number {
   return d + (after.tauntedBy ? 1 : 0) + Math.abs(after.teamKit - before.teamKit);
 }
 
+// Wiring WR-10 fix round (OC-F4): the member `c` suppresses a sturdy foe once in each of SUPPRESS_PROBE_SEEDS battles under
+// the away rules (seed i: the fight stream and the linger stream), and the foe's Suppressed rounds are summed. Suppress
+// always lands (the foe has no resist), so the sum is the seeds x the duration plus one round per linger roll won.
+export const SUPPRESS_PROBE_SEEDS = 200;
+function suppressedRoundsLeft(c: GroundCombatant): number {
+  let total = 0;
+  for (let i = 0; i < SUPPRESS_PROBE_SEEDS; i += 1) {
+    const actor: GroundCombatant = { ...c, id: "a1", side: "team", statuses: [] };
+    const foe = gc("e1", "enemy", { hp: 100_000, hpMax: 100_000 });
+    const st: BattleState = { ...battle([actor, foe]), awayRules: true, lingerSeed: i };
+    evaluateAndAct([{ target: "foeNearest", action: "suppress" }], actor, st, makeRng(i));
+    total += foe.statuses.find((x) => x.id === "suppressed")?.remaining ?? 0;
+  }
+  return total;
+}
+
 function cloneBattle(b: BattleState): BattleState {
   return { ...b, combatants: b.combatants.map((c) => ({ ...c, statuses: c.statuses.map((x) => ({ ...x })) })) };
 }
@@ -2748,7 +2773,8 @@ function flashScenario(): BattleState {
 }
 
 function actionChange(action: GambitActionId): number {
-  const before = action === "flashGrenade" ? flashScenario() : action === "throwGrenade" ? throwScenario() : actionScenario();
+  // Wiring WR-10: the battle a run stamped with the away rules fights (Fall Back shields the member for the round, OC-F6).
+  const before: BattleState = { ...(action === "flashGrenade" ? flashScenario() : action === "throwGrenade" ? throwScenario() : actionScenario()), awayRules: true };
   const after = cloneBattle(before);
   evaluateAndAct([{ target: ACTION_TARGET[action], action }], after.combatants[0], after, makeRng(0x5eed));
   return battleChange(before, after);
@@ -2849,6 +2875,14 @@ function groundStatusValue(id: GambitStatusId, on: boolean): number {
       if (on) applyStatus(foe, id);
       const r = resolveGroundBattle(team, [foe], 0, makeRng(0x5eed));
       return team[0].hpMax - r.teamHpRemaining;
+    }
+    case "armorDown": {
+      // Wiring WR-10 (OC-F9): one attack on an armored foe, Corroded or not: the hp it lost.
+      const target = gc("e1", "enemy", { hp: 400, hpMax: 400, armor: 8 });
+      if (on) applyStatus(target, id);
+      const st = battle([gc("a1", "team"), target]);
+      evaluateAndAct([{ target: "foeNearest", action: "attack" }], st.combatants[0], st, makeRng(0x5eed));
+      return 400 - st.combatants[1].hp;
     }
     default:
       return 0;
@@ -3797,6 +3831,8 @@ function readContent(id: string, s: GameState): number {
       return wr11AuditValue(s, a, on);
     case "wr9":
       return wr9AuditValue(a);
+    case "wr10":
+      return wr10AuditValue(s, a, on);
     default:
       throw new Error(`unknown content probe ${id}`);
   }
@@ -3839,6 +3875,53 @@ function wr9AuditValue(key: string): number {
   }
 }
 
+// Wiring WR-10's rows (the OC-F answers), each read through the consumer that makes it true (on = a run stamped with the
+// away rules, or the account pair the player changed; off = an older run, or the fresh pair). Pure.
+function wr10AuditValue(s: GameState, key: string, on: boolean): number {
+  switch (key) {
+    case "neuralBackupWearer": {
+      // OC-F2: a Neural Backup wearer and a frail squadmate against a Striker that finishes the frail one first. 1 when the
+      // backup's one roll brings back its wearer (resolveGroundBattle under the away rules), 0 when it went to the squadmate.
+      const team = [
+        gc("a1", "team", { memberId: "wearer", program: [], revive: { permille: 1000, hpFraction: 0.5 } }),
+        gc("a2", "team", { memberId: "frail", program: [], hp: 1 }),
+      ];
+      const foe = gc("e1", "enemy", { role: "striker", power: 30, hp: 500, hpMax: 500 });
+      return resolveGroundBattle(team, [foe], 0, makeRng(7), undefined, 0x1234, undefined, on).neuralBackup?.memberId === "wearer" ? 1 : 0;
+    }
+    case "medKitFlavor":
+      // OC-F3: the Med Kit's text no longer promises a revive (1 = it names no downed friend; it heals in a medic's hands).
+      return BLUEPRINTS.medKitBp?.flavor !== undefined && !/downed/i.test(BLUEPRINTS.medKitBp.flavor) ? 1 : 0;
+    case "casterCorrodes": {
+      // OC-F9: the casters of a Xeno-Flora Bloom guard that carry Corroded on their hits (groundFight.ts taskFightGuard).
+      const guard = taskFightGuard({ hazardResist: 0, ...(on ? { awayRules: 1 as const } : {}) }, { hazard: 0.3 }, { id: "wr10", poiId: "xenoFloraBloom", fightCount: 0, pointsCleared: 0 }, 0x5eed);
+      return guard.filter((e) => e.role === "caster" && (e.onHitStatuses ?? []).some((x) => x.id === "corroded")).length;
+    }
+    case "quickDrawShrug": {
+      // OC-F5 (fix round, "Shrug off stun/fear once"): a Quick Draw member Stunned for three rounds from the start, against
+      // a sturdy foe. 1 when they act on their first turn after the enemies have acted (round 2) under the away rules,
+      // 0 when the Stun still holds them (an older run).
+      const member = gc("a1", "team", { memberId: "quick", firstStrike: true, program: [{ target: "foeNearest", action: "attack" }] });
+      applyStatus(member, "stun", undefined, 3);
+      const foe = gc("e1", "enemy", { power: 1, hp: 100_000, hpMax: 100_000, program: [] });
+      const log: GambitLogEvent[] = [];
+      resolveGroundBattle([member], [foe], 0, makeRng(5), log, 0x77, undefined, on);
+      return log.filter((e) => e.round === 2 && e.memberId === "quick" && e.action !== "hold").length;
+    }
+    case "accountHire": {
+      // OC-F12: the rules a new Security hire starts with of its own: the account pair the player changed (on: the
+      // Decapitate program) vs the fresh pair (off: none, the built-in default).
+      const pair = on ? { security: gambitPresetPrograms("decapitate")!.security, science: [] } : s.gambitPrograms;
+      const st = { ...s, gambitPrograms: pair };
+      const candidate = awayRecruitCandidates(st).find((c) => c.teamType === "security");
+      if (!candidate) return -1;
+      const hired = hireAwayMember(st, candidate.id, WIRING_SHIP_ID);
+      return hired.awayMembers.find((m) => m.hiredFrom === candidate.id)?.gambit?.length ?? 0;
+    }
+    default:
+      throw new Error(`unknown WR-10 audit probe ${key}`);
+  }
+}
 // Wiring WR-11's audit rows, each read through the consumer that makes it true (on = the WR-11 rule, off = the
 // record or run without it). Pure.
 function wr11AuditValue(s: GameState, key: string, on: boolean): number {

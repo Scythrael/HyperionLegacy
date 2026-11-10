@@ -213,7 +213,14 @@ export const STUDY_MIN_SECONDS = 60;
 // body's planet type (the crew layer, every Science member's lines, a Galileo's fieldwork line on a gas giant), whole
 // seconds, floored at STUDY_MIN_SECONDS. Exactly STUDY_BASE_SECONDS without a Science member (the ship studies alone:
 // user call 3, "no squad needed"). Pure.
-export function studySeconds(exp: Pick<Expedition, "roster" | "scienceStrength">, body: Pick<ExpeditionBody, "planetType">): number {
+// Wiring WR-10 (OC-F7, user 2026-10-15 "Rank boosts fieldwork"; confirmed in the fix round 2026-11-10: a study IS
+// fieldwork): on a run stamped with the away rules each named Science member's own fieldwork counts x their frozen rank
+// factor here too (fieldwork.ts memberFieldworkFactor through fieldworkSpeedMult), so a higher rank studies a giant faster;
+// WR-11's Museum factor reaches it the same way. The type names both stamps so the read is explicit.
+export function studySeconds(
+  exp: Pick<Expedition, "roster" | "scienceStrength"> & Partial<Pick<Expedition, "museumSciencePower" | "awayRules">>,
+  body: Pick<ExpeditionBody, "planetType">,
+): number {
   const pace = fieldworkSpeedMult(exp, body.planetType);
   return pace === 1 ? STUDY_BASE_SECONDS : Math.max(STUDY_MIN_SECONDS, Math.round(STUDY_BASE_SECONDS / pace));
 }

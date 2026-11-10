@@ -519,7 +519,8 @@
     if (ev.missed) tail.push("miss");
     else if (ev.hpDelta && ev.hpDelta < 0) tail.push(`${ev.hpDelta} HP`);
     else if (ev.hpDelta && ev.hpDelta > 0) tail.push(`+${ev.hpDelta} HP`);
-    if (ev.statusApplied) tail.push("affliction applied");
+    // Wiring WR-10 (OC-F6): Brace and Fall Back put Shielded on the member (a buff, never an affliction).
+    if (ev.statusApplied) tail.push(ev.action === "brace" || ev.action === "fallBack" ? "Shielded" : "affliction applied");
     if (ev.statusCleared) tail.push("cleansed");
     if (ev.downed) tail.push("DOWNED");
     return tail.length ? `${line}: ${tail.join(", ")}` : line;

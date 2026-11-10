@@ -180,9 +180,9 @@ export function teamSnapshotMembers<T>(
 // Science crew layer times the teams' summed share (each share clamped at 0). Security stays empty: the
 // fieldwork readers never read it (Science does the fieldwork, design D2). Pure; fresh arrays.
 export function taskFieldworkRun(
-  exp: Pick<Expedition, "roster" | "scienceStrength" | "museumSciencePower">,
+  exp: Pick<Expedition, "roster" | "scienceStrength" | "museumSciencePower"> & Partial<Pick<Expedition, "awayRules">>,
   teams: readonly GroundTaskTeam[],
-): Pick<Expedition, "roster" | "scienceStrength" | "museumSciencePower"> {
+): Pick<Expedition, "roster" | "scienceStrength" | "museumSciencePower"> & Partial<Pick<Expedition, "awayRules">> {
   let share = 0;
   for (const team of teams) share += Math.max(0, team.scienceShare);
   return {
@@ -190,6 +190,8 @@ export function taskFieldworkRun(
     scienceStrength: (exp.scienceStrength ?? 0) * share,
     // Wiring WR-11 (OC-H1): the Museum's Science team power on the members is a per-member factor, not a pool share.
     ...(exp.museumSciencePower !== undefined ? { museumSciencePower: exp.museumSciencePower } : {}),
+    // Wiring WR-10 (OC-F7): the away rules carry each member's rank into its own fieldwork.
+    ...(exp.awayRules !== undefined ? { awayRules: exp.awayRules } : {}),
   };
 }
 
