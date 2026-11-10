@@ -158,6 +158,8 @@ const DAMAGE_VARIANCE_SPAN_PERMILLE = 300;
 const EXECUTE_HP_FRACTION = 0.35; // "low HP" for Execute: target below this fraction of its max
 const EXECUTE_BONUS_MULT = 2.0; // Execute deals this multiple vs a low-HP foe (else a normal hit)
 const SUPPRESS_DAMAGE_MULT = 0.6; // Suppress deals reduced damage (its value is the debuff)
+// Wiring WR-10 (OC-F6 "Brace for the round"): a Fall Back's Shielded lasts the round it is taken in.
+export const FALL_BACK_SHIELD_ROUNDS = 1;
 const MIN_DAMAGE = 1; // a landed hit always does at least this (armor can never fully zero a hit)
 
 // --- Status effect magnitudes / durations (FIRST-PASS TUNABLE) ---
@@ -384,7 +386,8 @@ export interface GroundCombatant {
   firstStrike?: boolean; // acts before the other team members on the opening round
   guardBelow?: number; // takes enemy strikes meant for an ally below this HP fraction
   // E-CREW (Task 16): this member wears NEURAL BACKUP (D11). Once per battle, the FIRST ally downed rolls
-  // `permille` / 1000 to come back at `hpFraction` of their max HP (resolveGroundBattle).
+  // `permille` / 1000 to come back at `hpFraction` of their max HP (resolveGroundBattle). Wiring WR-10 (OC-F2): on a run
+  // stamped with the away rules it rolls for the WEARER only, when the wearer goes down.
   revive?: { permille: number; hpFraction: number };
   // E-CREW (Task 20): FLEET TRIAGE (the ship's Medical officer bonus, Expedition.squadTriage). The member's
   // first-aid effectiveness (Use Item) is multiplied by this; its Aid / Heal amount is already scaled at
@@ -1374,6 +1377,11 @@ function applyAction(
       }
       return;
     case "fallBack":
+      // Wiring WR-10 (OC-F6, user 2026-10-15 "Brace for the round"): on a run stamped with the away rules the member
+      // falls back behind cover, Shielded for that round only (it wears off in the round's upkeep). No draw. Before the
+      // stamp it held, as Hold does.
+      if (state.awayRules) applyStatus(actor, "shielded", undefined, FALL_BACK_SHIELD_ROUNDS);
+      return;
     case "hold":
       return; // deliberate no-op this round
   }
@@ -1438,6 +1446,9 @@ export interface BattleState {
   // Timed grenades (user 2026-10-21): the grenades primed and not yet detonated, in throw order. Created by the first
   // timed throw (only a catalog 2 run arms one), so every other battle never carries it.
   fuses?: PrimedGrenade[];
+  // Wiring WR-10: present only in a battle of a run stamped with the away rules (Expedition.awayRules; resolveGroundBattle's
+  // `awayRules`): Fall Back shields the member for the round (OC-F6) and Neural Backup brings back its wearer (OC-F2).
+  awayRules?: true;
 }
 
 
@@ -1722,6 +1733,8 @@ export interface GroundBattleResult {
 // (or one where nobody goes down) is identical to the pre-Task-16 battle, and a failed roll changes
 // nothing but one log line. `reviveSeed` defaults to 0 (a hand-built battle); the expedition callers pass
 // the battle's own keyed seed.
+// Wiring WR-10: `awayRules` (a run stamped with Expedition.awayRules) makes Neural Backup roll for its wearer alone
+// (OC-F2) and Fall Back shield the member for the round (OC-F6). Absent: every rule exactly as before.
 export function resolveGroundBattle(
   team: GroundCombatant[],
   enemies: GroundCombatant[],
@@ -1730,6 +1743,7 @@ export function resolveGroundBattle(
   log?: GambitLogEvent[], // OPTIONAL transient sink (E3b); undefined => byte-identical no-log behavior
   reviveSeed: number = 0,
   kitRules?: BattleKitRules, // Field Kits FKR-6: a Field Kits run's kit rules (absent: the team kit, as before)
+  awayRules = false, // Wiring WR-10: a run stamped with the away rules (Expedition.awayRules)
 ): GroundBattleResult {
   const state: BattleState = {
     combatants: [...team, ...enemies],
@@ -1739,16 +1753,20 @@ export function resolveGroundBattle(
     log,
   };
   if (kitRules) state.kitRules = kitRules;
+  if (awayRules) state.awayRules = true;
 
   const teamAlive = () => state.combatants.filter((c) => c.side === "team" && !c.downed);
   const enemyAlive = () => state.combatants.filter((c) => c.side === "enemy" && !c.downed);
 
   // Neural Backup: the wearer (if any) and the once-per-battle latch.
+  // Wiring WR-10 (OC-F2, user 2026-10-15 "Revives the wearer", fixing B13): under the away rules the backup waits for its
+  // WEARER to go down and rolls for them alone (the implant keeps a copy of its wearer); a squadmate going down first
+  // spends nothing. The same one roll on the same stream, so a battle where the wearer falls first is unchanged.
   const wearer = state.combatants.find((c) => c.side === "team" && c.revive !== undefined) ?? null;
   let backup: GroundBattleResult["neuralBackup"] | undefined;
   const checkNeuralBackup = (): void => {
     if (!wearer || backup) return;
-    const fallen = state.combatants.find((c) => c.side === "team" && c.downed);
+    const fallen = awayRules ? (wearer.downed ? wearer : undefined) : state.combatants.find((c) => c.side === "team" && c.downed);
     if (!fallen) return;
     const spec = wearer.revive!;
     const revived = makeRng((reviveSeed ^ NEURAL_BACKUP_SALT) >>> 0).chance(spec.permille, 1000);

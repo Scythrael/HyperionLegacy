@@ -262,6 +262,20 @@ export function withFloraToxins(enemies: GroundCombatant[], flora: number): Grou
   return enemies;
 }
 
+// Wiring WR-10 (OC-F9, user 2026-10-15 "Some enemies cause it": certain enemy casters inflict Corroded): on a run stamped
+// with the away rules (Expedition.awayRules) every CASTER in a guard carries a Corroded on its hits, CASTER_CORRODE_PERMILLE
+// a landed hit, rolled after its own affliction (the onHitStatuses roll; Corroded cuts the target's armor, gambit.ts
+// GAMBIT_STATUSES). A post-generation stamp (the withFloraToxins pattern): no draw here, and a guard without a caster is
+// untouched. Mutates the fresh guard list it is handed and returns it.
+export const CASTER_CORRODE_PERMILLE = 300; // [PROVISIONAL]
+export function withCorrodingCasters(enemies: GroundCombatant[]): GroundCombatant[] {
+  for (const e of enemies) {
+    if (e.role !== "caster") continue;
+    e.onHitStatuses = [...(e.onHitStatuses ?? []), { id: "corroded", permille: CASTER_CORRODE_PERMILLE }];
+  }
+  return enemies;
+}
+
 // Objective affixes (AF-1, Reinforcing; user 2026-10-14): an objective on ALERT escalates its fights. Per alert
 // level the guard fields ESCALATION_ENEMIES_PER_LEVEL more enemies (copies of the generated guards in order, so the
 // extra bodies fit the encounter's flavor, each with its own id in its group), and every enemy's damage takes the
@@ -363,6 +377,7 @@ export type TaskFightExp = Pick<
   | "difficulty"
   | "explorerCaptain"
   | "fieldKits"
+  | "awayRules"
 >;
 
 // THE GUARD a task fight fields on a given stream seed, as fresh combatants: generateEncounter on the body's hazard
@@ -372,7 +387,7 @@ export type TaskFightExp = Pick<
 // one enemy at FIRST_RUN_ENEMY_SCALE of its strength; same seed, same draws); every other run's guard is exactly as
 // before. Pure.
 export function taskFightGuard(
-  exp: Pick<TaskFightExp, "hazardResist" | "enemyRanks" | "difficulty" | "fieldKits">,
+  exp: Pick<TaskFightExp, "hazardResist" | "enemyRanks" | "difficulty" | "fieldKits"> & Partial<Pick<TaskFightExp, "awayRules">>,
   body: Pick<ExpeditionBody, "hazard" | "risk">,
   task: RankedFightTask,
   seed: number,
@@ -391,6 +406,8 @@ export function taskFightGuard(
   // Safe first runs (OC-1 "no lost fights"): a training run's guards carry no Field Kits inflictors (with kits switched
   // on, FKR-9 / FKR-10, the inflicted conditions cost the D18 minimum crew a fight on 2 of 500 seeds per explorer).
   if (fieldKitsLive(exp) && !training) withFieldKitsGuard(enemies, { grade: task.difficulty, poiId: task.poiId });
+  // Wiring WR-10 (OC-F9): the casters' Corroded, last (no draw). Like the Field Kits inflictors, never on a training run.
+  if (exp.awayRules === 1 && !training) withCorrodingCasters(enemies);
   return enemies;
 }
 
@@ -434,7 +451,8 @@ export function resolveTaskFightOnSeed(
   // GEAR WEAR step 4 (design 3.2 "member armor: hits on the wearer"): each member's hp as the fight opens.
   const startHp = armorWear ? new Map(team.map((c) => [c.memberId, c.hp] as const)) : null;
   // Field Kits FKR-6: a Field Kits run's battle spends each member's own kits (the team kit is never read there).
-  const result = resolveGroundBattle(team, enemies, exp.teamKit, makeRng(seed), logSink, seed, fieldKitsLive(exp) ? FIELD_KITS_BATTLE : undefined);
+  // Wiring WR-10: a run stamped with the away rules fights under them (Neural Backup's wearer, Fall Back's shield).
+  const result = resolveGroundBattle(team, enemies, exp.teamKit, makeRng(seed), logSink, seed, fieldKitsLive(exp) ? FIELD_KITS_BATTLE : undefined, exp.awayRules === 1);
 
   // resolveGroundBattle reports the 0-based round a fight ENDED in (or MAX_ROUNDS at the cap, after
   // MAX_ROUNDS full rounds); the record counts rounds fought.

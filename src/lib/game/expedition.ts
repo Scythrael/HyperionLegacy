@@ -57,7 +57,7 @@ import type {
   ExpeditionScanEvent,
   SnapshotMember,
 } from "./model";
-import { SHIP_TYPES, WR11_SWITCH, WR9_SWITCH, commandingCaptain, moduleEffectScale, shipGearSetBonusLines, withFavoredLines } from "./model";
+import { SHIP_TYPES, WR10_SWITCH, WR11_SWITCH, WR9_SWITCH,commandingCaptain, moduleEffectScale, shipGearSetBonusLines, withFavoredLines } from "./model";
 // E-MOD EM-6: the body-scanned module trigger (its frozen procs and private stream).
 import { moduleNebulaSweep, moduleScanProcs, moduleScanSeed, rollModuleChance } from "./shipModules";
 import { makeRng, type Rng } from "./combat/rng";
@@ -1831,6 +1831,8 @@ function buildExpedition(
     // named Science members (OC-H1), only when the Museum has some. Neither under the test switch.
     ...(WR11_SWITCH.live ? { siteRules: 1 as const } : {}),
     ...(WR11_SWITCH.live && museum.scienceTeamPower > 0 ? { museumSciencePower: museum.scienceTeamPower } : {}),
+    // Wiring WR-10: the away rules (OC-F2, OC-F6, OC-F7, OC-F9) on every new run, not under the test switch.
+    ...(WR10_SWITCH.live ? { awayRules: 1 as const } : {}),
   };
   return expedition;
 }

@@ -443,6 +443,10 @@ const SAMPLE_PINS: Record<string, string[]> = {
   // Re-measured by the SF-3 review (Weak fades, the climb ends at run 12): d18 run 5 lost fights 228 to 247 (its
   // ordinary enemies x0.76 now, x0.7 before); rank 1 run 8 lost 14 to 7 and run 11 stalls 3 to 0 (run 11 is no longer
   // full strength).
-  d18: ["0/4/83/19:19", "4/9/247/12:19", "10/10/400/0:19", "10/10/400/0:19"],
-  rank1: ["0/0/0/19:19", "0/0/0/19:19", "0/4/7/19:19", "0/9/212/19:19"],
+  // Re-measured by Wiring WR-10 (the away rules on every new run: Neural Backup waits for its wearer, Fall Back shields,
+  // casters Corrode, Science rank lifts fieldwork): d18 run 2 4/83 to 5/88 and run 5 lost fights 247 to 316; rank 1 run 5
+  // 0/0 to 1/1 and run 11 lost 212 to 203. Mostly the reshuffled fight streams (each caster hit now draws its Corroded roll):
+  // with the Corroded chance at 0 the sample reads 5/86, 295, 1/1 and 205. Every row still never falls, and run 2 never stalls.
+  d18: ["0/5/88/19:19", "4/9/316/12:19", "10/10/400/0:19", "10/10/400/0:19"],
+  rank1: ["0/0/0/19:19", "0/1/1/19:19", "0/4/7/19:19", "0/9/203/19:19"],
 };

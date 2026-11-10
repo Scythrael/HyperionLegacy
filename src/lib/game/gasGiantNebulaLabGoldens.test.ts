@@ -13,6 +13,10 @@
 //      itself taken off).
 
 import { describe, expect, it } from "vitest";
+// Wiring WR-10 (the away rules stamped at dispatch, a hire's account program) came after every pin here: the whole file
+// runs with WR-10 off (wr10Switch.fixture.ts), so its pins keep proving their own slice (wr10Goldens.test.ts pins WR-10's).
+import { wr10OffForThisFile } from "./wr10Switch.fixture";
+wr10OffForThisFile();
 // GEAR WEAR step 3: this file's pins were captured before the use wear engine; it runs with the use sources off
 // (gearWearSwitch.fixture.ts), so they keep proving nothing else moved. gearWearGoldens.test.ts pins the wear.
 import { gearWearOffInThisFile } from "./gearWearSwitch.fixture";

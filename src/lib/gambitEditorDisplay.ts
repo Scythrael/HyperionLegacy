@@ -82,9 +82,10 @@ export interface GambitEditorPick {
   memberId?: string | null;
 }
 
-// The line under the editor about the old account-wide pair (Q21: kept stored and hidden, never read).
+// The line under the editor about the old account-wide pair (Q21: kept stored and hidden; Wiring WR-10, OC-F12 "Account-wide
+// defaults": a changed pair's Security program is given to each newly hired Security member, awayTeam.ts accountProgramForHire).
 export const ACCOUNT_PAIR_NOTICE =
-  "Your older account-wide tactical protocols are still saved, but no battle uses them: each Security member fights with their own.";
+  "Your older account-wide tactical protocols are still saved: each Security member you hire starts with a copy, which you can change like any member's own.";
 
 // Whether the account-pair notice shows: only when the stored pair differs from the fresh default (the player
 // set it up in the old editor), so a player who never touched it is not told about a page they never saw.

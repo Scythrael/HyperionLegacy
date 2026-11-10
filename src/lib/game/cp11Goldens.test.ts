@@ -19,6 +19,10 @@
 // CP11_CAPTURE = an output path: record every pin instead of asserting (the EM8_CAPTURE pattern).
 
 import { describe, expect, it } from "vitest";
+// Wiring WR-10 (the away rules stamped at dispatch, a hire's account program) came after every pin here: the whole file
+// runs with WR-10 off (wr10Switch.fixture.ts), so its pins keep proving their own slice (wr10Goldens.test.ts pins WR-10's).
+import { wr10OffForThisFile } from "./wr10Switch.fixture";
+wr10OffForThisFile();
 import { cp14OffForThisFile } from "./cp14Switch.fixture";
 // Complement CP-19: this file's pins predate the Personnel Rosters track (a new game's facility map gains its
 // pre-granted Level 1), so it runs with the slice off; cp19Goldens.test.ts pins the slice itself.
@@ -36,6 +40,8 @@ import { cp14ReadBack } from "./cp14Registry.fixture"; // Complement CP-14: its 
 import { cp16ReadBack } from "./cp16Registry.fixture"; // Complement CP-16: its added Hall of Command rows read back, innermost
 import { cp18ReadBack } from "./cp18Registry.fixture";
 import { cp19ReadBack } from "./cp19Registry.fixture";
+// Wiring WR-10 flipped twelve away rows after every pin here (wr10Registry.fixture.ts): read back innermost.
+import { wr10ReadBack } from "./wr10Registry.fixture";
 import { writeFileSync } from "node:fs";
 import Decimal from "break_infinity.js";
 import { BLUEPRINTS, EQUIPMENT_SLOTS, blueprintResearchable, freshState, type GameState, type ShipTypeKey } from "./model";
@@ -59,7 +65,7 @@ const CAPTURE = Boolean(import.meta.env.CP11_CAPTURE);
 const SHIP = "ship-1";
 const HULLS: readonly ShipTypeKey[] = ["aurora", "eir", "generalFreighter"];
 const shipOf = (s: GameState) => s.ships.find((x) => x.id === SHIP)!;
-const REGISTRY = cp12ReadBack(cp13ReadBack(cp14ReadBack(cp16ReadBack(cp18ReadBack(cp19ReadBack(WIRING_REGISTRY))))));
+const REGISTRY = cp12ReadBack(cp13ReadBack(cp14ReadBack(cp16ReadBack(cp18ReadBack(cp19ReadBack(wr10ReadBack(WIRING_REGISTRY)))))));
 
 function registryRows(): string[] {
   return cp11ReadBack(REGISTRY).map((e) => `${e.id}|${JSON.stringify(e.status)}|${e.probe ?? ""}|${e.contexts.join(",")}|${e.claim}`);

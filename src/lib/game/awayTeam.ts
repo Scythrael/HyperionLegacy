@@ -38,10 +38,12 @@ import type {
   SnapshotMember,
 } from "./model";
 import {
+  DEFAULT_GAMBIT_PROGRAMS,
   DEFAULT_MEMBER_GAMBIT,
   GRENADE_CARRY_PER_LINE,
   MEMBER_GROUND_STAT_KEYS,
   SENIOR_STAFF_ROSTER_BASE,
+  WR10_SWITCH,
   groundSquadSize,
   isMemberSlotType,
   memberVariety,
@@ -56,6 +58,8 @@ import { makeRng, weightedPick, type Rng } from "./combat/rng";
 // RARITY READINESS RR-6: the one set engine (the member scope).
 import { gearSetBonusLines } from "./gearSets";
 import { shipCrewLocked } from "./crewLock";
+// Wiring WR-10 (OC-F12): the structural program equality (memberGambits.ts imports nothing of this module).
+import { gambitProgramEquals } from "./memberGambits";
 // Ground Ops (GO-2): keep each ship's ground-team slots in sync with crew moves. groundTeamSlots.ts imports
 // model.ts only, so this is no cycle (groundTeams.ts, which imports this module, re-exports it).
 import { isGroundSquadType, isSlotSquadType, shipsWithMemberAutoSlotted, shipsWithMemberUnslotted } from "./groundTeamSlots";
@@ -501,6 +505,19 @@ export function hireTargetsForCandidate(
   });
 }
 
+// Wiring WR-10 (OC-F12, user 2026-10-15 "Account-wide defaults (Recommended)": the account default program is given to
+// newly hired members): the program a new hire starts with, a fresh copy of the account pair's Security program, when the
+// hire is a Security member (Science never fights, D2) and the stored pair's Security program differs from the fresh
+// default (DEFAULT_GAMBIT_PROGRAMS: the player set it up). Undefined otherwise: the hire runs the built-in
+// DEFAULT_MEMBER_GAMBIT (D19) exactly as before, so a player who never touched the pair hires exactly as before. Not under
+// WR10_SWITCH off. Pure.
+export function accountProgramForHire(state: Pick<GameState, "gambitPrograms">, teamType: AwayTeamType): GambitProgram | undefined {
+  if (!WR10_SWITCH.live || teamType !== "security") return undefined;
+  const program = state.gambitPrograms?.security;
+  if (!program || gambitProgramEquals(program, DEFAULT_GAMBIT_PROGRAMS.security)) return undefined;
+  return program.map((r) => ({ ...r, ...(r.params ? { params: { ...r.params } } : {}) }));
+}
+
 // Hire a candidate from the CURRENT board into `shipId`'s squad of the candidate's team type. Refuses
 // (returns the SAME state) whenever canHireAwayMember does. The hire is re-ided to "member-N" from
 // nextAwayMemberId (mirroring hireOfficer), records the candidate id in hiredFrom, and keeps its rolled
@@ -510,12 +527,14 @@ export function hireTargetsForCandidate(
 export function hireAwayMember(state: GameState, candidateId: string, shipId: string): GameState {
   const candidate = boardCandidate(state, candidateId);
   if (!candidate || !hireGateFor(state, candidate, shipId).ok) return state;
+  const account = accountProgramForHire(state, candidate.teamType);
   const hired: AwayMember = {
     ...candidate,
     id: `member-${state.nextAwayMemberId}`,
     traits: [...candidate.traits],
     assignedShipId: shipId,
     hiredFrom: candidate.id,
+    ...(account ? { gambit: account } : {}),
   };
   return {
     ...state,

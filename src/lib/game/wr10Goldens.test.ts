@@ -8,7 +8,9 @@
 // WR-10 switched off (wr10Switch.fixture.ts withWr10Off): every fixture then reproduces its capture (BEFORE).
 
 import { describe, expect, it } from "vitest";
+import { advanceExpedition } from "./expedition";
 import { WR10_FIGHT_POIS, WR10_SEEDS, wr10Dispatch, wr10FightHash, wr10Hash, wr10Hires, wr10Run } from "./wr10.fixture";
+import { withWr10Off } from "./wr10Switch.fixture";
 
 // Captured on the code BEFORE the engine edit (5339682).
 const BEFORE_RUNS: Record<string, string[]> = {
@@ -25,9 +27,26 @@ const BEFORE_FIGHTS: Record<string, string> = {
 };
 const BEFORE_HIRES = { plain: "85b1e0a6", custom: "85b1e0a6" };
 
-const GOLDEN_RUNS: Record<string, string[]> = BEFORE_RUNS;
-const GOLDEN_FIGHTS: Record<string, string> = BEFORE_FIGHTS;
-const GOLDEN_HIRES = BEFORE_HIRES;
+// The pins today. Each move names its reason; every one returns to BEFORE with WR-10 off (the last describe below).
+// Runs: the dispatched record carries the away rules stamp (awayRules), so every dispatch hash moves. The done and claim
+//   hashes move with it: the rank 8 Science member's fieldwork gear now counts x1.35 (OC-F7), so every objective's pace and
+//   haul shift, and the squad's fights run under the away rules (Neural Backup waits for its wearer, a falling-back medic
+//   is Shielded for the round, a caster's hits may Corrode).
+// Fights: the enemy fortification's guard fields a caster and the fights are hard enough that the medic falls back and
+//   members go down, so its hash moves (Neural Backup rolls for the wearer: 3 rolls against 1, the falling-back medic is
+//   Shielded, the caster carries a Corroded; seed 7 is now lost). Xeno-Flora Bloom (a caster that dies before it lands a
+//   hit) and Ancient Ruins (no caster) do not move: nobody falls back or goes down there, so the rules never act.
+// Hires: the save whose account pair runs Decapitate hires its Security member with that program (OC-F12); the fresh
+//   save's hires are unchanged.
+const GOLDEN_RUNS: Record<string, string[]> = {
+  "1234": ["cf93601", "bc5d2821", "c2cdae61"],
+  "3c3c": ["67722c38", "f54c52", "739b5279"],
+  "5e5e": ["12adf5bf", "3aa8db38", "c741c836"],
+  bebe: ["69fc79bf", "be493208", "72c4d6f2"],
+  cfcf: ["f9be4ba1", "bc7ee1f1", "4c1e88ab"],
+};
+const GOLDEN_FIGHTS: Record<string, string> = { ...BEFORE_FIGHTS, enemyFortification: "5502e0e5" };
+const GOLDEN_HIRES = { plain: BEFORE_HIRES.plain, custom: "50ece9e5" };
 
 describe("WR-10 goldens", () => {
   for (const seed of WR10_SEEDS) {
@@ -38,4 +57,29 @@ describe("WR-10 goldens", () => {
     expect(wr10Hash(wr10Hires(false).awayMembers)).toBe(GOLDEN_HIRES.plain);
     expect(wr10Hash(wr10Hires(true).awayMembers)).toBe(GOLDEN_HIRES.custom);
   });
+});
+
+describe("WR-10 off reproduces every capture (BEFORE)", () => {
+  for (const seed of WR10_SEEDS) {
+    it(`run ${seed.toString(16)}`, { timeout: 120_000 }, () => expect(withWr10Off(() => wr10Run(seed).out)).toEqual(BEFORE_RUNS[seed.toString(16)]));
+  }
+  for (const poi of WR10_FIGHT_POIS) it(`fights at ${poi}`, () => expect(withWr10Off(() => wr10FightHash(wr10Dispatch(0x1234).exp, poi))).toBe(BEFORE_FIGHTS[poi]));
+  it("hires", () => {
+    expect(withWr10Off(() => wr10Hash(wr10Hires(false).awayMembers))).toBe(BEFORE_HIRES.plain);
+    expect(withWr10Off(() => wr10Hash(wr10Hires(true).awayMembers))).toBe(BEFORE_HIRES.custom);
+  });
+});
+
+// A run in flight at the update (dispatched before WR-10: no away rules stamp) replays byte-identically: a stamped
+// dispatch with the stamp taken off advances and claims exactly as the WR-10-off dispatch does.
+describe("WR-10: a run dispatched before it replays byte-identically", () => {
+  for (const seed of WR10_SEEDS) {
+    it(`run ${seed.toString(16)}`, { timeout: 120_000 }, () => {
+      const { exp } = wr10Dispatch(seed);
+      const { awayRules: _stamp, ...old } = exp;
+      const offExp = withWr10Off(() => wr10Dispatch(seed).exp);
+      expect(wr10Hash(old)).toBe(wr10Hash(offExp));
+      expect(wr10Hash(advanceExpedition(old, 2_000_000))).toBe(BEFORE_RUNS[seed.toString(16)][1]);
+    });
+  }
 });

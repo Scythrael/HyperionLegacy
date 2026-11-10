@@ -193,7 +193,7 @@ const EXP_KEY_FIELDS = {
   squadFearResist: true,
   hazardResist: true,
   teamKit: true,
-} as const satisfies Record<Exclude<keyof ThreatExp, "enemyRanks" | "difficulty" | "explorerCaptain" | "fieldKits" | "squadHpBonus" | "squadDebuffResist">, true>;
+} as const satisfies Record<Exclude<keyof ThreatExp, "enemyRanks" | "difficulty" | "explorerCaptain" | "fieldKits" | "squadHpBonus" | "squadDebuffResist" | "awayRules">, true>;
 // Field Kits FKR-5: a team's grenade charges (`charges`) are read only on a Field Kits run, so they are keyed with the
 // Field Kits tag below, never here (every other key reads exactly as before). FKR-6: so are its kits (`basics`, `kits`).
 const TEAM_KEY_FIELDS = { securityIds: true, downedThisTask: true, securityShare: true } as const satisfies Record<
@@ -255,6 +255,9 @@ export function groundThreatOddsKey(
   // FKR-5: with each team's grenade charges left this objective (the throws the squad can still make). FKR-6 (FK12): and
   // each team's kits (the free basics and the extras left), so packing better reads better odds.
   const kits = fieldKitsLive(exp) ? [["fieldKits", exp.fieldKits?.catalog, task.difficulty, teams.map((t) => [t.charges, t.basics, t.kits])]] : [];
+  // Wiring WR-10: a run stamped with the away rules fights under them (Neural Backup's wearer, Fall Back's shield, the
+  // casters' Corroded), tagged and appended only on such a run.
+  const awayRules = exp.awayRules === 1 ? [["awayRules"]] : [];
   return JSON.stringify(
     // Squads SQ-4: the body's risk shapes the read, so it is part of the key: its flora the fights (groundFight.ts
     // withFloraToxins), its combat and fauna an unstamped task's fight count (taskFightTotal). Absent risk: "u".
@@ -268,6 +271,8 @@ export function groundThreatOddsKey(
       flatIndex,
       samples,
       carried,
+      // Wiring WR-10: first of the appended tags, so every later tag still extends a stamped run's key.
+      ...awayRules,
       ...escalation,
       ...covered,
       ...ranked,

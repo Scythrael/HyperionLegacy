@@ -106,9 +106,10 @@ export const UNIQUE_TAG_TEXT = "Only one can be installed in the whole fleet. Sp
 
 // A recruit's rank label. Rank is rolled with the candidate (awayRecruitCandidates) and never changes; it
 // sets the trait count (traitCountForRank), and the Security battle multiplies it into base HP, power and
-// armor (rankMagnitudeFactor in buildRosterCombatants). Science reads rank only for the trait count.
+// armor (rankMagnitudeFactor in buildRosterCombatants). Wiring WR-10 (OC-F7): a Science member's own fieldwork is x the same
+// factor (fieldwork.ts memberFieldworkFactor, on every run dispatched since WR-10).
 export const RANK_TEXT =
-  "Rolled at hiring and never changes. A higher rank carries more traits, and a Security member also gets a little more base health, power and armor from it.";
+  "Rolled at hiring and never changes. A higher rank carries more traits. A Security member also gets a little more base health, power and armor from it, and a Science member's own fieldwork (from gear and traits) counts a little more.";
 
 // The visual emphasis band for a rank on the recruit board: a Lieutenant or Lieutenant Commander is the
 // rare find (hi), the upper enlisted through Ensign are mid, the first three ranks are lo.

@@ -2066,3 +2066,55 @@ flown-tick run clock by the OC-D8 follow-up. Nothing left of those.
 
 The registry note "extraction-roll talents stay with extraction missions" is APPROVED. User (verbatim): "Yes. Locking
 specific stats to certain game modes makes sense." Drop its [PROPOSAL] tag.
+
+## WR-10 BUILT (2026-11-09)
+
+Goldens first (wr10Goldens.test.ts on cc83470, captured on 5339682), test switch WR10_SWITCH (wr10Switch.fixture.ts);
+every moved pin returns with it off, and a stamped run with its stamp taken off replays the BEFORE capture byte for byte.
+No SAVE_VERSION bump: the one new field is optional and stamped at dispatch (Expedition.awayRules: 1, the AWAY RULES).
+
+- OC-F1: already built by Field Kits FKR-8 (Shroud and Lure on the ground; LIVE before WR-10). Nothing left.
+- OC-F2 "Revives the wearer" (B13): on a stamped run Neural Backup waits for its WEARER to go down and rolls for them
+  alone (gambit.ts resolveGroundBattle); a squadmate falling first spends nothing. The implant's flavor was already true.
+- OC-F3 "Fix the flavor": the Med Kit blueprint reads "In a trained medic's hands it patches up a wounded squadmate
+  mid-fight." (no revive claim).
+- OC-F6 "Brace for the round": on a stamped run Fall Back puts Shielded on the member for that round only
+  (FALL_BACK_SHIELD_ROUNDS 1; no draw).
+- OC-F7 "Rank boosts fieldwork": on a stamped run each named Science member's own fieldwork is x their frozen rank factor
+  (crewRank.ts rankMagnitudeFactor, +5% a rank above the first; fieldwork.ts memberFieldworkFactor), on top of WR-11's
+  Museum factor. The rank tooltip says so.
+- OC-F9 "Some enemies cause it": on a stamped run every enemy CASTER carries a Corroded on its hits,
+  CASTER_CORRODE_PERMILLE 300 [PROVISIONAL], rolled after its own affliction (groundFight.ts withCorrodingCasters, the
+  withFloraToxins post-generation pattern); never on a training run. The status picker's last never-matching entry is
+  live. Help (Field Kits, CONDITIONS) names it. "Certain casters" is read as every caster [interpretation, flagged].
+- OC-F10: the four Science actions stay in the union, never offered or run: registry `seam` (owner: a future Science
+  battle-proc tool system; SUGGESTIONS.md SCIENCE BATTLE PROCS already logs it).
+- OC-F11: closed earlier by the Prospecting Squads design (user group 4: built, hidden; registry `deferred`).
+- OC-F12 "Account-wide defaults": a Security hire starts with a copy of the account pair's Security program when the
+  stored pair differs from the fresh default (awayTeam.ts accountProgramForHire); a fresh pair (Balanced) hires onto the
+  built-in DEFAULT_MEMBER_GAMBIT as before, so the Field Kits default program swap still reaches them. The editor's
+  notice says so. NO UI sets the account pair today (GO-16 hid the old editor, Q21): a "set as default for new hires"
+  control is a new control and needs a user-signed mockup.
+- OC-F13 "Keep as a seam": memberFallOutcome registered `seam` (owner: the future Safety Interlocks).
+- NOT BUILT: OC-F4 and OC-F5 (open calls below: as answered they do not act), OC-F14 (no user answer; a new control,
+  needs a mockup).
+- Registry: twelve rows flipped (wr10Registry.fixture.ts reads them back in the registry golden chains). Pending entries
+  under RELEASE_GATE: 35 before, 23 after (WR-10 still owns saboteur OC-F4, quickDraw OC-F5, fieldRepairOrder OC-F14).
+
+## OPEN CALLS from WR-10 (2026-11-09, for the user)
+
+- **OC-F4 follow-up (Saboteur / Debuff spec, answered "Also power Suppress").** The proposal said "status chance also
+  gates Suppress's status". Today a Suppress always lands Suppressed (the target's resist aside, even on a miss), so a
+  literal gate would make Suppress WEAKER for every member without status chance (a nerf, against the peace rule).
+  Options: (a) [PROPOSAL] the member's status chance is a chance the Suppressed lasts a round longer; (b) a chance it
+  lands deeper (a bigger accuracy cut); (c) the literal gate (Suppressed lands only at the status chance). Not built.
+- **OC-F5 follow-up (Quick Draw, answered "Beats stun and fear").** The team always acts before the enemies and Stun and
+  Fear never carry between fights, so on the opening round no member can be stunned or afraid yet: the answer as built
+  would change nothing. Options: (a) [PROPOSAL] the member ignores Stun and Fear on their first turn after the enemies
+  have acted (round 2); (b) the alt "an extra opening action"; (c) keep Quick Draw as the teammate reorder, text says so.
+  Not built.
+- **OC-F9 detail.** "Certain enemy casters": built as every caster at 30% a landed hit [PROVISIONAL]. Narrow it (a site,
+  a planet type, a tier) if you meant a subset.
+- **OC-F12 detail.** A control to set or clear the account default from the Tactical Protocols editor needs a mockup.
+- **OC-F14 (player-ordered field repair).** Still no answer recorded; the proposal is a button on the expedition ship
+  lane and needs a sketch. Not built.

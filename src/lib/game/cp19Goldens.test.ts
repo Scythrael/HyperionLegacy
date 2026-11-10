@@ -4,6 +4,10 @@
 // CP19_CAPTURE = an output path: record every row (live, and with the slice switched off) instead of asserting.
 
 import { describe, expect, it } from "vitest";
+// Wiring WR-10 (the away rules stamped at dispatch, a hire's account program) came after every pin here: the whole file
+// runs with WR-10 off (wr10Switch.fixture.ts), so its pins keep proving their own slice (wr10Goldens.test.ts pins WR-10's).
+import { wr10OffForThisFile } from "./wr10Switch.fixture";
+wr10OffForThisFile();
 import { writeFileSync } from "node:fs";
 import { CP19_PINS_PRE, boards, cp19Rows, withRecruiter } from "./cp19Goldens.fixture";
 import { hash } from "./firstRunsGoldens.fixture";
@@ -13,6 +17,8 @@ import { awayRecruitCandidates } from "./awayTeam";
 import { wiringBase } from "./wiring/probes";
 import { withoutCp19 } from "./cp19Switch.fixture";
 import { CP19_ADDED_IDS, CP19_MOVED_IDS, CP19_RECRUITER_BEFORE, cp19ReadBack } from "./cp19Registry.fixture";
+// Wiring WR-10 flipped twelve away rows after every pin here (wr10Registry.fixture.ts): read back innermost.
+import { wr10ReadBack } from "./wr10Registry.fixture";
 import { WIRING_REGISTRY } from "./wiring/registry";
 
 const CAPTURE = import.meta.env.CP19_CAPTURE as string | undefined;
@@ -79,7 +85,7 @@ describe("Complement CP-19 goldens (captured before the Personnel Rosters track)
     expect(added.map((e) => e.id).sort()).toEqual([...CP19_ADDED_IDS].sort());
     expect(added).toHaveLength(12);
     for (const e of added) expect(e.status.kind, e.id).toBe("live");
-    expect(cp19ReadBack(WIRING_REGISTRY)).toHaveLength(WIRING_REGISTRY.length - CP19_ADDED_IDS.size);
+    expect(cp19ReadBack(wr10ReadBack(WIRING_REGISTRY))).toHaveLength(WIRING_REGISTRY.length - CP19_ADDED_IDS.size);
   });
 
   it("the registry read-back puts the Recruiter's two moved rows back as WR-5c built them, and only those", () => {

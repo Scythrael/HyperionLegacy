@@ -19,6 +19,10 @@
 
 import { E5_2_ADDED_ENTRY_IDS, E5_4_ADDED_ENTRY_IDS } from "./refugeeRegistry.fixture";
 import { describe, expect, it } from "vitest";
+// Wiring WR-10 (the away rules stamped at dispatch, a hire's account program) came after every pin here: the whole file
+// runs with WR-10 off (wr10Switch.fixture.ts), so its pins keep proving their own slice (wr10Goldens.test.ts pins WR-10's).
+import { wr10OffForThisFile } from "./wr10Switch.fixture";
+wr10OffForThisFile();
 import { cp16OffForThisFile } from "./cp16Switch.fixture";
 // Complement CP-19: this file's pins predate the Personnel Rosters track (a new game's facility map gains its
 // pre-granted Level 1), so it runs with the slice off; cp19Goldens.test.ts pins the slice itself.
@@ -41,6 +45,8 @@ import { cp14ReadBack } from "./cp14Registry.fixture"; // Complement CP-14: its 
 import { cp16ReadBack } from "./cp16Registry.fixture"; // Complement CP-16: its added Hall of Command rows read back, innermost
 import { cp18ReadBack } from "./cp18Registry.fixture";
 import { cp19ReadBack } from "./cp19Registry.fixture";
+// Wiring WR-10 flipped twelve away rows after every pin here (wr10Registry.fixture.ts): read back innermost.
+import { wr10ReadBack } from "./wr10Registry.fixture";
 import { hullCrewCapsOffForThisFile } from "./hullCrewCapsSwitch.fixture";
 // Complement plan CP-5 (per-hull crew caps): every pin here predates CP-5 and is about another slice, so the file runs
 // with the per-hull caps off (hullCrewCapsSwitch.fixture.ts); cp5Goldens.test.ts pins what CP-5 moved.
@@ -773,7 +779,7 @@ function fkr11ReadBack(rows: readonly WiringEntry[]): WiringEntry[] {
   });
 }
 const BEFORE_RX: WiringEntry[] = siReadBack(
-  em4ReadBack(em3ReadBack(em5ReadBack(wr8ReadBack(gw3RegistryBack(em7ReadBack(fkr11ReadBack(gw4ReadBack(favorsSpecReadBack(patrolLegsReadBack(patrolLegLiftsReadBack(cp3ReadBack(wr11ReadBack(wr9ReadBack(em8ReadBack(cp5ReadBack(sf7ReadBack(cp11ReadBack(cp12ReadBack(cp13ReadBack(cp14ReadBack(cp16ReadBack(cp18ReadBack(cp19ReadBack(WIRING_REGISTRY)))))))))))))))))))))))).filter(
+  em4ReadBack(em3ReadBack(em5ReadBack(wr8ReadBack(gw3RegistryBack(em7ReadBack(fkr11ReadBack(gw4ReadBack(favorsSpecReadBack(patrolLegsReadBack(patrolLegLiftsReadBack(cp3ReadBack(wr11ReadBack(wr9ReadBack(em8ReadBack(cp5ReadBack(sf7ReadBack(cp11ReadBack(cp12ReadBack(cp13ReadBack(cp14ReadBack(cp16ReadBack(cp18ReadBack(cp19ReadBack(wr10ReadBack(WIRING_REGISTRY))))))))))))))))))))))))).filter(
     (e) =>
       !RX_ADDED_ENTRY_IDS.has(e.id) && !RR_ADDED_ENTRY_IDS.has(e.id) && !FUSE_ADDED_ENTRY_IDS.has(e.id) && !R2_2_ADDED_ENTRY_IDS.has(e.id) && !R2_3_ADDED_ENTRY_IDS.has(e.id) && !R2_10_ADDED_ENTRY_IDS.has(e.id) && !R2_4_ADDED_ENTRY_IDS.has(e.id) && !G16_ADDED_IDS.has(e.id) &&
       !G2_4_ADDED_ENTRY_IDS.has(e.id) && !OC15_ADDED_ENTRY_IDS.has(e.id) && !GG_STUDY_ADDED_ENTRY_IDS.has(e.id) && !G2_6_ADDED_ENTRY_IDS.has(e.id) &&
@@ -942,7 +948,7 @@ describe("EM-0 goldens (re-pinned by EM-1 where named)", () => {
     // Merged onto feat (0.14.0 integration): the slices BEFORE_RX holds apart (the timed grenades, R2-2, the SI read-back)
     // and G2-4's additions are held apart here the same way, so the comparison sees G1-6's move alone. E-MOD EM-5's move is
     // read back first (em5ReadBack), as BEFORE_RX does; Gas Giant Study GG-3's added seam is held apart too.
-    const live = em4ReadBack(em3ReadBack(em5ReadBack(wr8ReadBack(gw3RegistryBack(em7ReadBack(gw4ReadBack(patrolLegsReadBack(patrolLegLiftsReadBack(cp3ReadBack(wr11ReadBack(wr9ReadBack(em8ReadBack(cp5ReadBack(sf7ReadBack(cp11ReadBack(cp12ReadBack(cp13ReadBack(cp14ReadBack(cp16ReadBack(cp18ReadBack(cp19ReadBack(WIRING_REGISTRY)))))))))))))))))))))).filter(
+    const live = em4ReadBack(em3ReadBack(em5ReadBack(wr8ReadBack(gw3RegistryBack(em7ReadBack(gw4ReadBack(patrolLegsReadBack(patrolLegLiftsReadBack(cp3ReadBack(wr11ReadBack(wr9ReadBack(em8ReadBack(cp5ReadBack(sf7ReadBack(cp11ReadBack(cp12ReadBack(cp13ReadBack(cp14ReadBack(cp16ReadBack(cp18ReadBack(cp19ReadBack(wr10ReadBack(WIRING_REGISTRY))))))))))))))))))))))).filter(
       (e) => !FKR8_ADDED_IDS.has(e.id) && !RX_ADDED_ENTRY_IDS.has(e.id) && !RR_ADDED_ENTRY_IDS.has(e.id) && !FUSE_ADDED_ENTRY_IDS.has(e.id) && !R2_2_ADDED_ENTRY_IDS.has(e.id) && !R2_3_ADDED_ENTRY_IDS.has(e.id) && !R2_10_ADDED_ENTRY_IDS.has(e.id) && !R2_4_ADDED_ENTRY_IDS.has(e.id) && !G2_4_ADDED_ENTRY_IDS.has(e.id) && !OC15_ADDED_ENTRY_IDS.has(e.id) && !GG_STUDY_ADDED_ENTRY_IDS.has(e.id) && !G2_6_ADDED_ENTRY_IDS.has(e.id) && !E5_2_ADDED_ENTRY_IDS.has(e.id) && !E5_4_ADDED_ENTRY_IDS.has(e.id),
     );
     const rung = live.filter((e) => G16_ADDED_IDS.has(e.id)).map((e) => [e.id, e.status, e.contexts, e.probe ?? null]);

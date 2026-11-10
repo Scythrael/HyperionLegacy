@@ -9,6 +9,10 @@
 // NEVER regenerate these from a later build.
 
 import { describe, it, expect } from "vitest";
+// Wiring WR-10 (the away rules stamped at dispatch, a hire's account program) came after every pin here: the whole file
+// runs with WR-10 off (wr10Switch.fixture.ts), so its pins keep proving their own slice (wr10Goldens.test.ts pins WR-10's).
+import { wr10OffForThisFile } from "./wr10Switch.fixture";
+wr10OffForThisFile();
 import { cp14OffForThisFile } from "./cp14Switch.fixture";
 // Complement CP-14 (hull base sensors and Science amplification) came after every pin here: the file runs with the
 // slice off, so its pins keep proving their own slice (cp14Goldens.test.ts pins what CP-14 moved).
