@@ -2,7 +2,7 @@
 //
 // The ship scans from orbit, so nobody is on the ground to fight: on a flagged run the scan step roll's draw 1
 // (expedition.ts scanStepRoll, the Task 14 keyed roll and its timing, unchanged) fires a SHIP EVENT resolved
-// by the ship and its officers instead of a ground battle (legacy runs keep Task 14's battles). The approved
+// by the ship and its officers instead of a ground battle (OC-G1 deleted the legacy runs' Task 14 battles). The approved
 // set (design 9b.6, user 2026-10-09):
 //   DEBRIS FIELD      the pilot's evasion. Pass: nothing. Fail: a short scan delay + light hull damage.
 //   HOSTILE PROBE     a quick ship battle on the existing combat engine (combat/resolveBattle.ts), the frozen

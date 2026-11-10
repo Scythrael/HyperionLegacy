@@ -138,7 +138,9 @@ describe("scanTrackView: the pips", () => {
     expect(cache.sentence).toBe("Supply cache: Titanium Ore x2, 15 credits.");
   });
 
-  it("a legacy run keeps its ground battles: won with drops, lost with the pause and who was downed; each offers its battle log", () => {
+  // Wiring OC-G1: an old save's finished legacy run still shows its stored battles in words; the re-derived battle log
+  // they offered (the `battleLog` flag) went with the legacy resolver, so those three checks are RETIRED.
+  it("a legacy run keeps its ground battles: won with drops, lost with the pause and who was downed", () => {
     const run = legacyRun(
       [
         { bodyIndex: 0, step: 1, kind: "encounter", outcome: "win", downedMemberIds: [], findingId: "e-1" },
@@ -147,11 +149,10 @@ describe("scanTrackView: the pips", () => {
       [{ id: "e-1", source: "encounter", materials: { commonOre: 1 }, credits: 0, relic: null }],
     );
     const [won, lost] = scanTrackView(run, 0)!.pips;
-    expect(won).toMatchObject({ glyph: "fightPoint", name: "Ground battle", outcome: "Won", tone: "good", battleLog: true });
+    expect(won).toMatchObject({ glyph: "fightPoint", name: "Ground battle", outcome: "Won", tone: "good" });
     expect(won.sentence).toContain("Titanium Ore x1");
-    expect(lost).toMatchObject({ outcome: "Lost", tone: "bad", pauseText: "Scan paused 1m 15s", battleLog: true });
+    expect(lost).toMatchObject({ outcome: "Lost", tone: "bad", pauseText: "Scan paused 1m 15s" });
     expect(lost.sentence).toContain("2 members downed");
-    expect(scanTrackView(shipRun([{ bodyIndex: 0, step: 1, kind: "shipEvent", event: "probe", outcome: "win" }]), 0)!.pips[0].battleLog).toBe(false);
   });
 
   it("the text never relies on color: each pip's accessible name carries where, what and the outcome; no em dashes anywhere", () => {

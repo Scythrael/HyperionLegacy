@@ -1,15 +1,19 @@
 // E-CREW 0.14.0 (Task 14): RANDOM ENCOUNTERS during scan progress (design D10).
 //
 // Covers:
-//   - the chance formula: base by hazard, the Shroud / Lure dial, Evasive Command, the clamp;
+//   - the chance formula: base by hazard, the Shroud / Lure dial, Evasive Command, the clamp (the ship-event
+//     chance reads the same formula, expedition.ts shipScanEventChance);
 //   - D20: the field-device multiplier is applied to every device bias (one tunable number);
-//   - every interior step boundary rolls exactly once, however the advance is chunked;
-//   - a win adds the enemy drops; a loss pauses the body's scan until the next activity window, then
-//     the scan resumes; downed members are recorded;
-//   - the supply-cache event is the step roll's second draw and only counts without an encounter;
-//   - Evasive Command is snapshotted at dispatch from the pilot officer;
-//   - offline == live with a real roster, including an encounter and a loss pause;
-//   - neutrality: an expedition dispatched before Task 14 (no encounterSteps) scans exactly as before.
+//   - the supply-cache event is the step roll's second draw and only counts when draw 1 fired nothing;
+//   - Evasive Command is snapshotted at dispatch from the pilot officer.
+//
+// Wiring OC-G1 (user 2026-10-16 "Delete it"): the legacy (pre-Ground-Ops) scan battles are deleted, so every test here
+// that drove a LEGACY run's scan (scanEncounterChance, the battles' outcomes, their loss pauses and the activity window
+// grid, the cache found by a legacy advance, the legacy parity and neutrality runs, deriveScanEncounterLog, the legacy
+// phase-end sliver) is RETIRED with it: each proved only the legacy path. What stays proves live rules: the chance
+// formula (encounterChance, the ship-event chance's formula), the device dial, the step roll's two draws, the battle
+// result's downed list, Evasive Command's dispatch freeze and the officer amplification. A Ground Ops run's scan walk,
+// its ship events and caches, and its parity are proven in groundOps*.test.ts and shipScanEvents.test.ts.
 
 import { describe, it, expect } from "vitest";
 import {
@@ -23,33 +27,20 @@ import {
   type SeniorStaffOfficer,
 } from "./model";
 import {
-  advanceExpedition,
   encounterChance,
   expeditionCandidates,
-  nextActivityWindow,
-  scanEncounterChance,
   scanStepRoll,
   squadEncounterBias,
-  startExpedition,
-  ACTIVITY_SECONDS,
   ENCOUNTER_BASE_CHANCE,
   ENCOUNTER_CHANCE_MAX,
   ENCOUNTER_HAZARD_CHANCE,
   ENCOUNTER_STEPS,
-  PRE_FKR8_DEVICE_EFFECTIVENESS,
 } from "./expedition";
 import { snapshotAwayRoster } from "./awayTeam";
 import { officerBonusTotal } from "./crewOverlay";
-import {
-  resolveGroundBattle,
-  resolveScanEncounter,
-  rollSupplyCache,
-  buildRosterCombatants,
-  deriveScanEncounterLog,
-  generateEncounter,
-} from "./gambit";
+import { resolveGroundBattle, buildRosterCombatants, generateEncounter } from "./gambit";
 import { makeRng } from "./combat/rng";
-import { asLegacyDispatch, withSlottedAwayTeams, dispatchPastPropulsion } from "./awayTeamTestFixtures";
+import { withSlottedAwayTeams, dispatchPastPropulsion } from "./awayTeamTestFixtures";
 
 // ===== fixtures =====
 
@@ -136,21 +127,6 @@ function scanExp(state: GameState, over: Partial<Expedition> = {}, body: Partial
   };
 }
 
-// The rate a neutral hand-built expedition scans at (SCAN_BASE_RATE 0.05, hazard 1 -> / 1.5).
-const RATE_HAZARD_1 = 0.05 / 1.5;
-
-// The first seed in [1, limit] whose expedition satisfies `pred`, else throws (the search is the test's
-// precondition, so failing loudly beats a silently vacuous test).
-function findSeed(make: (seed: number) => Expedition, pred: (e: Expedition) => boolean, limit = 2000): { seed: number; exp: Expedition } {
-  for (let seed = 1; seed <= limit; seed++) {
-    const exp = make(seed);
-    if (pred(exp)) return { seed, exp };
-  }
-  throw new Error("no seed satisfied the precondition");
-}
-
-const BIG = 1_000_000;
-
 // ============================================================================
 describe("encounter chance formula", () => {
   it("base by hazard tier: 8% + hazard * 20%", () => {
@@ -187,31 +163,12 @@ describe("encounter chance formula", () => {
     expect(bias(shroud)).toBeCloseTo(-0.4);
     expect(bias(lure)).toBeCloseTo(0.4);
     expect(bias(twoLures)).toBeCloseTo(0.8);
-
-    const body = scanExp(plain).bodies[0];
-    const chance = (s: GameState) => scanEncounterChance(scanExp(s), body);
-    expect(chance(shroud)).toBeLessThan(chance(plain));
-    expect(chance(lure)).toBeGreaterThan(chance(plain));
-    expect(chance(plain)).toBeCloseTo(ENCOUNTER_BASE_CHANCE + ENCOUNTER_HAZARD_CHANCE);
   });
 
-  it("Evasive Command and the museum hazard resist both lower the run's chance", () => {
-    const s = withRoster(plainSquad());
-    const body = scanExp(s).bodies[0];
-    const plain = scanEncounterChance(scanExp(s), body);
-    expect(scanEncounterChance(scanExp(s, { encounterEvasion: 0.2 }), body)).toBeCloseTo(plain * 0.8);
-    expect(scanEncounterChance(scanExp(s, { hazardResist: 0.5 }), body)).toBeLessThan(plain);
-  });
-
-  it("no Security member, no encounter chance (only a pre-D18 run can lack one)", () => {
-    const s = withRoster([member("member-2", "science")]);
-    const exp = scanExp(s);
-    expect(scanEncounterChance(exp, exp.bodies[0])).toBe(0);
-  });
 });
 
 // ============================================================================
-describe("D20 field devices on a legacy run: the dial at the effectiveness it is given (full strength before FKR-8)", () => {
+describe("D20 field devices: the dial at the effectiveness it is given", () => {
   it("the device bias is multiplied by the effectiveness it is given", () => {
     const s = withRoster(plainSquad(), [tool("equip-901", "shroudEmitter", "member-1")]);
     const security = snapshotAwayRoster(s, s.ships[0]).security;
@@ -219,128 +176,10 @@ describe("D20 field devices on a legacy run: the dial at the effectiveness it is
     expect(squadEncounterBias(security, 0.5)).toBeCloseTo(-0.2);
   });
 
-  it("a legacy run's chance reads its devices at full strength (PRE_FKR8_DEVICE_EFFECTIVENESS; FKR-8 rolls only stamped Ground Ops runs)", () => {
-    const s = withRoster(plainSquad(), [tool("equip-901", "lureBeacon", "member-1")]);
-    const exp = scanExp(s);
-    expect(PRE_FKR8_DEVICE_EFFECTIVENESS).toBe(1);
-    expect(scanEncounterChance(exp, exp.bodies[0])).toBeCloseTo(encounterChance(1, 0.4 * PRE_FKR8_DEVICE_EFFECTIVENESS, 0));
-  });
 });
 
 // ============================================================================
-describe("step boundaries roll exactly once each", () => {
-  it("every interior boundary is rolled once, and an event is recorded exactly where the roll fired", () => {
-    const s = withRoster(plainSquad(), [tool("equip-901", "lureBeacon", "member-1")]);
-    for (let seed = 1; seed <= 40; seed++) {
-      const start = scanExp(s, { seed });
-      // Chunk the advance unevenly: 37-second steps, then a big finish.
-      let e = start;
-      for (let t = 37; t < 5000; t += 37) e = advanceExpedition(e, t);
-      e = advanceExpedition(e, BIG);
-      expect(e.scanStepCursor).toBe(ENCOUNTER_STEPS - 1);
-      const keys = (e.scanEvents ?? []).map((ev) => `${ev.bodyIndex}:${ev.step}`);
-      expect(new Set(keys).size).toBe(keys.length); // never two events at one boundary
-      const expected: string[] = [];
-      for (let k = 1; k < ENCOUNTER_STEPS; k++) {
-        // Task 16 DELIBERATE CHANGE: a boundary's roll reads who was downed at EARLIER boundaries (they sit
-        // out, so their devices stop counting), so it is replayed against the finished run, whose earlier
-        // events are exactly what the live roll saw. (It was the fresh start, before anyone could sit out.)
-        const roll = scanStepRoll(e, 0, k);
-        if (roll.encounter || roll.supplyCache) expected.push(`0:${k}`);
-      }
-      expect(keys).toEqual(expected);
-      // Every finding is unique too (no double-award).
-      const ids = e.findings.map((f) => f.id);
-      expect(new Set(ids).size).toBe(ids.length);
-    }
-  });
-
-  it("no roll happens at 0% or 100%: the cursor only counts interior boundaries", () => {
-    const s = withRoster(plainSquad());
-    const exp = scanExp(s);
-    const bodyTime = 100 / RATE_HAZARD_1;
-    // Just before the first boundary (10%): nothing rolled yet.
-    const before = advanceExpedition(exp, bodyTime / ENCOUNTER_STEPS - 1);
-    expect(before.scanStepCursor).toBe(0);
-    expect(before.scanEvents).toEqual([]);
-  });
-});
-
-// ============================================================================
-describe("encounter outcomes", () => {
-  it("a WIN adds the enemy drops as an encounter finding and the scan continues", () => {
-    // A strong squad wins most fights; find a run whose first event is a won encounter.
-    const s = withRoster(plainSquad(), [tool("equip-901", "lureBeacon", "member-1")]);
-    const { exp } = findSeed(
-      (seed) => advanceExpedition(scanExp(s, { seed, securityStrength: 60 }), BIG),
-      (e) => (e.scanEvents ?? []).some((ev) => ev.kind === "encounter" && ev.outcome === "win")
-    );
-    const ev = exp.scanEvents!.find((x) => x.kind === "encounter" && x.outcome === "win")!;
-    const finding = exp.findings.find((f) => f.id === ev.findingId)!;
-    expect(finding.source).toBe("encounter");
-    expect(finding.relic).toBeNull();
-    expect(Object.values(finding.materials ?? {}).reduce((a, b) => a + b, 0)).toBeGreaterThan(0);
-    expect(finding.credits).toBeGreaterThan(0);
-    expect(ev.pauseSeconds).toBeUndefined();
-    // The finding is exactly the keyed resolver's.
-    const fresh = scanExp(s, { seed: exp.seed, securityStrength: 60 });
-    expect(resolveScanEncounter(fresh, fresh.bodies[ev.bodyIndex], ev.bodyIndex, ev.step).finding).toEqual(finding);
-    expect(exp.phase).not.toBe("scanning"); // the scan finished
-  });
-
-  it("a LOSS withdraws the team: no drops, findings so far stay, downed members recorded", () => {
-    const s = withRoster(plainSquad(), [tool("equip-901", "lureBeacon", "member-1")]);
-    const { exp } = findSeed(
-      (seed) => advanceExpedition(scanExp(s, { seed }), BIG),
-      (e) => (e.scanEvents ?? []).some((ev) => ev.kind === "encounter" && ev.outcome === "loss")
-    );
-    const ev = exp.scanEvents!.find((x) => x.kind === "encounter" && x.outcome === "loss")!;
-    expect(ev.findingId).toBeUndefined();
-    expect(ev.pauseSeconds).toBeGreaterThan(0);
-    expect(ev.pauseSeconds).toBeLessThanOrEqual(ACTIVITY_SECONDS);
-    // The lone Security member is down (a wipe), and named by member id.
-    expect(ev.downedMemberIds).toEqual(["member-1"]);
-    // Earlier finds are still on the expedition.
-    const earlier = exp.scanEvents!.filter((x) => x.step < ev.step && x.findingId);
-    for (const x of earlier) expect(exp.findings.some((f) => f.id === x.findingId)).toBe(true);
-  });
-
-  it("a loss PAUSES the body's scan until the next activity window, then the scan resumes", () => {
-    const s = withRoster(plainSquad(), [tool("equip-901", "lureBeacon", "member-1")]);
-    // A run whose FIRST event is a loss, so the boundary time has no earlier pause in it.
-    const { seed, exp } = findSeed(
-      (sd) => advanceExpedition(scanExp(s, { seed: sd }), BIG),
-      (e) => e.scanEvents?.[0]?.kind === "encounter" && e.scanEvents[0].outcome === "loss"
-    );
-    const ev = exp.scanEvents![0];
-    const bodyTime = 100 / RATE_HAZARD_1;
-    const at = (ev.step * bodyTime) / ENCOUNTER_STEPS;
-    expect(ev.pauseSeconds).toBeCloseTo(nextActivityWindow(at) - at, 6);
-
-    const start = scanExp(s, { seed });
-    const held = (t: number) => advanceExpedition(start, t).bodies[0].scanProgress;
-    const atBoundary = (100 * ev.step) / ENCOUNTER_STEPS;
-    // During the pause the progress holds at the boundary.
-    expect(held(at + ev.pauseSeconds! * 0.25)).toBeCloseTo(atBoundary, 6);
-    expect(held(at + ev.pauseSeconds! * 0.9)).toBeCloseTo(atBoundary, 6);
-    // After the window the scan resumes from there.
-    const resumed = held(at + ev.pauseSeconds! + 30);
-    expect(resumed).toBeCloseTo(atBoundary + 30 * RATE_HAZARD_1, 6);
-    // And the scanning phase lasted the body time plus every recorded pause.
-    const pauses = exp.scanEvents!.reduce((sum, x) => sum + (x.pauseSeconds ?? 0), 0);
-    const justBefore = advanceExpedition(start, bodyTime + pauses - 1);
-    expect(justBefore.phase).toBe("scanning");
-    const justAfter = advanceExpedition(start, bodyTime + pauses + 1);
-    expect(justAfter.phase).toBe("activities");
-  });
-
-  it("the activity window grid is every ACTIVITY_SECONDS of scanning, strictly after the loss", () => {
-    expect(nextActivityWindow(0)).toBe(ACTIVITY_SECONDS);
-    expect(nextActivityWindow(599.5)).toBe(ACTIVITY_SECONDS);
-    expect(nextActivityWindow(ACTIVITY_SECONDS)).toBe(2 * ACTIVITY_SECONDS);
-    expect(nextActivityWindow(1234)).toBe(3 * ACTIVITY_SECONDS);
-  });
-
+describe("ground battle results", () => {
   it("GroundBattleResult lists the named members down at the end (win or lose)", () => {
     const s = withRoster([member("member-1", "security"), member("member-3", "security"), member("member-2", "science")]);
     const roster = snapshotAwayRoster(s, s.ships[0]);
@@ -358,48 +197,44 @@ describe("encounter outcomes", () => {
 });
 
 // ============================================================================
+// Wiring OC-G1: draw 1 is a SHIP EVENT on a run with ship events (shipScanEvents.ts shipEventsLive reads the frozen
+// profile's battle inputs; a stub marks the run live here) and chance 0 on one without (a run dispatched before GO-8).
+const withShipEvents = (e: Expedition): Expedition => ({ ...e, groundOps: { shipEventProfile: { battle: {} } } as unknown as Expedition["groundOps"] });
+
 describe("the supply-cache EVENT is the step roll's second draw", () => {
-  it("never on a boundary that fired an encounter; fires on some boundaries without one", () => {
+  it("never on a boundary that fired a ship event; fires on some boundaries without one", () => {
     const s = withRoster(plainSquad(), [tool("equip-901", "lureBeacon", "member-1")]);
     let caches = 0;
+    let events = 0;
     for (let seed = 1; seed <= 200; seed++) {
-      const exp = scanExp(s, { seed });
+      const exp = withShipEvents(scanExp(s, { seed }));
       for (let k = 1; k < ENCOUNTER_STEPS; k++) {
         const r = scanStepRoll(exp, 0, k);
         expect(r.encounter && r.supplyCache).toBe(false);
         if (r.supplyCache) caches++;
+        if (r.encounter) events++;
       }
     }
     expect(caches).toBeGreaterThan(0);
+    expect(events).toBeGreaterThan(0);
   });
 
   it("the second draw is independent of the first draw's odds (same stream, same position)", () => {
-    // With no Security member the encounter chance is 0, yet the cache draw is the SAME draw.
-    const sec = withRoster(plainSquad());
-    const noSec = withRoster([member("member-2", "science")]);
+    // A run without ship events rolls draw 1 at chance 0, yet the cache draw is the SAME draw.
+    const s = withRoster(plainSquad(), [tool("equip-901", "lureBeacon", "member-1")]);
+    let compared = 0;
     for (let seed = 1; seed <= 200; seed++) {
       for (let k = 1; k < ENCOUNTER_STEPS; k++) {
-        const a = scanStepRoll(scanExp(sec, { seed }), 0, k);
-        const b = scanStepRoll(scanExp(noSec, { seed }), 0, k);
+        const a = scanStepRoll(withShipEvents(scanExp(s, { seed })), 0, k);
+        const b = scanStepRoll(scanExp(s, { seed }), 0, k);
         expect(b.encounter).toBe(false);
-        if (!a.encounter) expect(a.supplyCache).toBe(b.supplyCache);
+        if (!a.encounter) {
+          expect(a.supplyCache).toBe(b.supplyCache);
+          compared++;
+        }
       }
     }
-  });
-
-  it("a cache adds a small find recorded on the scan track", () => {
-    const s = withRoster(plainSquad());
-    const { exp } = findSeed(
-      (seed) => advanceExpedition(scanExp(s, { seed }), BIG),
-      (e) => (e.scanEvents ?? []).some((ev) => ev.kind === "supplyCache")
-    );
-    const ev = exp.scanEvents!.find((x) => x.kind === "supplyCache")!;
-    const finding = exp.findings.find((f) => f.id === ev.findingId)!;
-    expect(finding.source).toBe("supplyCache");
-    expect(finding.relic).toBeNull();
-    expect(finding).toEqual(rollSupplyCache(exp, exp.bodies[ev.bodyIndex], ev.bodyIndex, ev.step));
-    expect(ev.outcome).toBeUndefined();
-    expect(ev.pauseSeconds).toBeUndefined();
+    expect(compared).toBeGreaterThan(0);
   });
 });
 
@@ -443,86 +278,9 @@ describe("Evasive Command (the pilot officer's officer.evasion bonus)", () => {
 });
 
 // ============================================================================
-describe("PARITY: one big advance == many small advances, with a real roster", () => {
-  it("is deep-equal, and the run includes an encounter and a loss pause", () => {
-    // A real dispatched run (startExpedition: the roster snapshot, multi-body system, every phase).
-    const base = withRoster(
-      [member("member-1", "security"), member("member-3", "security"), member("member-2", "science")],
-      [tool("equip-901", "lureBeacon", "member-1"), tool("equip-902", "lureBeacon", "member-3")]
-    );
-    let found: Expedition | null = null;
-    for (let i = 0; i < 300 && !found; i++) {
-      const s = { ...base, expeditionSeed: (0x1234567 + i * 7919) >>> 0 };
-      // A legacy run (asLegacyDispatch): Task 14's scan battles; a Ground Ops run rolls none (GO-7b).
-      const res = asLegacyDispatch(dispatchPastPropulsion(s, "ship-1", 1, expeditionCandidates(s, "ship-1")[0].id));
-      if (!res.success) continue;
-      const done = advanceExpedition(res.expedition!, BIG);
-      const evs = done.scanEvents ?? [];
-      if (evs.some((e) => e.kind === "encounter" && e.outcome === "loss") && evs.some((e) => e.outcome === "win") && done.bodies.length > 1) {
-        found = res.expedition!;
-      }
-    }
-    expect(found).not.toBeNull();
-    const start = found!;
-    const big = advanceExpedition(start, BIG);
-    let small = start;
-    for (let t = 0; t <= BIG; t += 97) small = advanceExpedition(small, t);
-    small = advanceExpedition(small, BIG);
-    expect(big.phase).toBe("complete");
-    expect(small).toEqual(big);
-  });
-});
-
-// ============================================================================
-describe("NEUTRALITY: a run dispatched before Task 14 scans exactly as before", () => {
-  it("no encounterSteps -> no rolls, no new fields, the scan ends at the plain body time", () => {
-    const s = withRoster(plainSquad(), [tool("equip-901", "lureBeacon", "member-1")]);
-    const legacy = scanExp(s, { encounterSteps: undefined, scanStepCursor: undefined, scanEvents: undefined });
-    delete legacy.encounterSteps;
-    delete legacy.scanStepCursor;
-    delete legacy.scanEvents;
-    delete legacy.encounterEvasion;
-    const bodyTime = 100 / RATE_HAZARD_1;
-    expect(advanceExpedition(legacy, bodyTime - 1).phase).toBe("scanning");
-    const after = advanceExpedition(legacy, bodyTime + 1);
-    expect(after.phase).toBe("activities");
-    const done = advanceExpedition(legacy, BIG);
-    expect(done.phase).toBe("complete");
-    expect("scanEvents" in done).toBe(false);
-    expect("scanStepCursor" in done).toBe(false);
-    expect("encounterSteps" in done).toBe(false);
-    expect(done.findings.every((f) => f.source === "activity" || f.source === "anomaly")).toBe(true);
-  });
-});
-
-// ============================================================================
 describe("review hardening", () => {
   it("ENCOUNTER_STEPS stays below 100 (scanStepKey is bodyIndex * 100 + step)", () => {
     expect(ENCOUNTER_STEPS).toBeLessThan(100);
-  });
-
-  it("deriveScanEncounterLog replays every recorded encounter's outcome, and is null where none happened", () => {
-    const s = withRoster(plainSquad(), [tool("equip-901", "lureBeacon", "member-1")]);
-    let checked = 0;
-    for (let seed = 1; seed <= 60; seed++) {
-      const done = advanceExpedition(scanExp(s, { seed, securityStrength: seed % 2 === 0 ? 40 : 0 }), BIG);
-      const evs = done.scanEvents ?? [];
-      for (const ev of evs) {
-        const log = deriveScanEncounterLog(done, ev.bodyIndex, ev.step);
-        if (ev.kind === "encounter") {
-          expect(log).not.toBeNull();
-          expect(log!.outcome).toBe(ev.outcome);
-          expect(log!.events.length).toBeGreaterThan(0);
-          checked++;
-        } else {
-          expect(log).toBeNull(); // a supply cache is not a battle
-        }
-      }
-      for (let k = 1; k < ENCOUNTER_STEPS; k++) {
-        if (!evs.some((ev) => ev.step === k)) expect(deriveScanEncounterLog(done, 0, k)).toBeNull();
-      }
-    }
-    expect(checked).toBeGreaterThan(0);
   });
 
   it("officerBonusTotal applies the bridge module's officer amplification", () => {
@@ -560,43 +318,5 @@ describe("review hardening", () => {
     const withBridge = { ...s, officers: [officer], equipment: [...s.equipment, bridge] };
     // Balanced Command: amp 0.1 at scale 1.0 (standard, quality 0), the same lift the crew overlay applies.
     expect(officerBonusTotal(withBridge, s.ships[0], "officer.evasion")).toBeCloseTo(0.15 * 1.1, 9);
-  });
-});
-
-// ============================================================================
-describe("the last body completes at the exact phase-end boundary (no rounding sliver)", () => {
-  // Two bodies, no Security member (no encounter, so no pause): the scanning phase lasts t1 + t2.
-  const bodies = (): ExpeditionBody[] => [
-    { id: "body-1", planetType: "toxic", scanTotal: 100, scanProgress: 0, hazard: 1, scanned: false, discoveries: [], activities: [] },
-    { id: "body-2", planetType: "terrestrial", scanTotal: 137, scanProgress: 0, hazard: 0.2, scanned: false, discoveries: [], activities: [] },
-  ];
-  const t = (b: ExpeditionBody) => b.scanTotal / (0.05 / (1 + b.hazard * 0.5));
-
-  function check(exp: Expedition): void {
-    const [b1, b2] = exp.bodies;
-    const dur = 0 + t(b1) + t(b2);
-    for (const now of [dur - 5e-7, dur, dur + 5e-7]) {
-      const e = advanceExpedition(exp, now);
-      expect(e.phase).toBe("activities");
-      expect(e.bodies.every((b) => b.scanned && b.activities.length > 0)).toBe(true);
-    }
-    const before = advanceExpedition(exp, dur - 2e-6);
-    expect(before.phase).toBe("scanning");
-    expect(before.bodies[1].scanned).toBe(false);
-  }
-
-  it("encounter-enabled run", () => {
-    const s = withRoster([member("member-2", "science")]);
-    check(scanExp(s, { bodies: bodies() }));
-  });
-
-  it("legacy run (dispatched before Task 14)", () => {
-    const s = withRoster([member("member-2", "science")]);
-    const legacy = scanExp(s, { bodies: bodies() });
-    delete legacy.encounterSteps;
-    delete legacy.scanStepCursor;
-    delete legacy.scanEvents;
-    delete legacy.encounterEvasion;
-    check(legacy);
   });
 });

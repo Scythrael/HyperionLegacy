@@ -7,7 +7,8 @@
 //   1. stored  : two in-flight runs restored from a v69 save of their STORED records (expeditionTiersGoldens.fixture.ts):
 //                a flagged run (Ground Ops + risk + affixed objectives) and a pre-Ground-Ops legacy run. Each is hashed
 //                at five checkpoints read off its own phase timeline (transit midpoint, arrival, mid-scan, window end,
-//                claim), plus the timeline itself.
+//                claim), plus the timeline itself. Wiring OC-G1 RETIRED the legacy run's golden and parity (the legacy
+//                path is deleted); the same stored record now proves the load step finishes it (OC-G1 test below).
 //   2. fresh   : freshState with a slotted crew (two Ground teams, rank 10), candidates 0, 1 and 2 dispatched, as the
 //                shakedown (expedition 1) and as a regular run (expedition 2): the dispatch record, the phase anchors,
 //                the findings, the objectives, the fights (the step history and ship legs), the finished run and the
@@ -236,7 +237,6 @@ function atLevel(level: number, base: GameState): GameState {
 // timeline and claim equal fresh:regular:cand-0's (5a7a918b, 4502111d).
 const GOLDEN: Record<string, string[]> = {
   "stored:flagged": ["5a7a918b", "5a4c98ee", "30cdaff5", "a1a964c6", "af11c93d", "62735fe0"],
-  "stored:legacy": ["b6f6ef9", "cf4981df", "6219aff8", "98de1f81", "339278d", "a7a2e5a5"],
   "fresh:shakedown:cand-0": ["d989224b", "71bf5b40", "bcba23ec", "f76c2227", "ff015e8a", "e60db926", "9bf89e99"],
   "fresh:shakedown:cand-1": ["fa307f8e", "740b05ec", "4149d5e3", "3eda30ac", "3fd36503", "b856dcf7", "9d293fb2"],
   "fresh:shakedown:cand-2": ["7b93334b", "e759695a", "1406ac88", "8308ef01", "60e1864a", "3dd6eac3", "9ec416ac"],
@@ -288,7 +288,9 @@ const GOLDEN: Record<string, string[]> = {
 
 // ===== 1. legacy in-flight runs, restored from their stored records =====
 
-const STORED: Record<"flagged" | "legacy", { crew: () => GameState; check: (exp: Expedition, done: Expedition) => void }> = {
+// Wiring OC-G1: the legacy fixture's golden and parity are RETIRED (they pinned the deleted legacy resolution); its
+// stored record is the save shape the OC-G1 test below loads.
+const STORED: Record<"flagged", { crew: () => GameState; check: (exp: Expedition, done: Expedition) => void }> = {
   flagged: {
     crew: () => crewed(2),
     check: (exp, done) => {
@@ -299,19 +301,12 @@ const STORED: Record<"flagged" | "legacy", { crew: () => GameState; check: (exp:
       expect(done.groundOps!.history.some((r) => r.outcome !== undefined)).toBe(true);
     },
   },
-  legacy: {
-    crew: legacyCrew,
-    check: (exp, done) => {
-      expect("groundOps" in exp).toBe(false);
-      expect(done.findings.length).toBeGreaterThan(0);
-    },
-  },
 };
 
-describe("G2-0 golden 1: legacy in-flight runs restored from their stored records", () => {
+describe("G2-0 golden 1: in-flight runs restored from their stored records", () => {
   for (const [name, f] of Object.entries(STORED)) {
     it(`${name}: transit midpoint, arrival, mid-scan, window end and claim match the pre-G2 capture`, () => {
-      const stored = structuredClone(PRE_G2_STORED_RUNS[name as "flagged" | "legacy"]) as Expedition;
+      const stored = structuredClone(PRE_G2_STORED_RUNS[name as "flagged"]) as Expedition;
       const state = restored(f.crew(), stored);
       expect(state.homeworld).toEqual({ version: 1, seed: G2_1_ENTROPY }); // G2-1: the v69 -> v70 step ran
       const exp = state.expeditions[0];
@@ -331,10 +326,26 @@ describe("G2-0 golden 1: legacy in-flight runs restored from their stored record
     });
 
     it(`${name}: one call == 997 s chunks == 1 s steps == the event-boundary chain`, () => {
-      const stored = structuredClone(PRE_G2_STORED_RUNS[name as "flagged" | "legacy"]) as Expedition;
+      const stored = structuredClone(PRE_G2_STORED_RUNS[name as "flagged"]) as Expedition;
       expectParity(restored(f.crew(), stored).expeditions[0]);
     });
   }
+});
+
+describe("OC-G1: a v69 save's stored LEGACY run is finished at load, and claims", () => {
+  it("loads complete with the findings it held, nothing more rolled; the claim brings the team home ready", () => {
+    const stored = structuredClone(PRE_G2_STORED_RUNS.legacy) as Expedition;
+    expect("groundOps" in stored).toBe(false);
+    expect(stored.phase).not.toBe("complete");
+    const state = restored(legacyCrew(), stored);
+    const exp = state.expeditions[0];
+    expect(exp).toEqual({ ...stored, phase: "complete" });
+    expect(advanceExpedition(exp, FINAL)).toBe(exp);
+    const claim = claimExpedition({ ...state, gameTimeSeconds: FINAL }, exp.id);
+    expect(claim.success).toBe(true);
+    expect(claim.injuries).toEqual([]);
+    expect(claim.next.expeditions).toEqual([]);
+  });
 });
 
 // ===== 2. fresh dispatches =====

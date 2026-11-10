@@ -47,7 +47,7 @@ import {
   type CrewRace,
   type EquipmentInstance,
   type Expedition,
-  type ExpeditionActivity,
+  type BodyRiskGrades,
   type ExpeditionBody,
   type ExpeditionPlanetType,
   type GameState,
@@ -75,24 +75,24 @@ import {
 import { combatHullTypeOf, shipToCombatant } from "../combat/bridge";
 import { resolveBattle } from "../combat/resolveBattle";
 import {
-  activityDurationSeconds,
   advanceExpedition,
   claimExpedition,
   expeditionCandidates,
   returnDurationSeconds,
-  scanEncounterChance,
   scanRatePerSecond,
+  shipScanEventChance,
   startExpedition,
 } from "../expedition";
-import { activityRelicFindBonus, resolveExpeditionActivity, resolveScanEncounter, type GambitLogEvent } from "../gambit";
+import { activityRelicFindBonus, type GambitLogEvent } from "../gambit";
+import { taskWorkSeconds } from "../groundTasks";
 import { fieldworkEffect } from "../fieldwork";
 import { pieceCondition } from "../gearWear";
-import { applyExpeditionInjuries, applyGroundOpsInjuries } from "../injuries";
+import { applyGroundOpsInjuries } from "../injuries";
 import { groundTeamBaySeconds } from "../groundOps";
 import { resolveTaskFight, taskFightTeam } from "../groundFight";
 import { FIELD_KITS_CATALOG_VERSION, FIELD_KITS_RUNS_LIVE } from "../fieldKits";
-import { SHIP_EVENT_DRAW_UNITS, SHIP_EVENT_WEIGHTS, boardingRepelChance, resolveShipScanEventFromDraws, shipEventDraws } from "../shipScanEvents";
-import { withSlottedAwayTeams, withoutGroundOps } from "../awayTeamTestFixtures";
+import { CLOAKED_VESSEL_HULL, HOSTILE_PROBE_HULL, SHIP_EVENT_DRAW_UNITS, SHIP_EVENT_WEIGHTS, boardingRepelChance, resolveShipScanEventFromDraws, shipEventDraws, shipEventEnemy } from "../shipScanEvents";
+import { withSlottedAwayTeams } from "../awayTeamTestFixtures";
 import { effectiveShipStats, officerCombatMods } from "../crewOverlay";
 import { CREW_PROFESSION_BUFFS, ROLLABLE_SECOND_LEVEL_EXCLUSIVE, type CrewBuffDef } from "../crewBuffs";
 import { CREW_RACES } from "../crewRaces";
@@ -394,16 +394,20 @@ export function dispatches(t: Transform): { state: GameState; exp: Expedition }[
   });
 }
 
+// Wiring OC-G1: the task time and the step-roll chance are read on the Ground Ops engine (the whole deployed roster as
+// one team's task, groundTasks.ts taskWorkSeconds; the ship-event chance, shipScanEventChance), the legacy readers
+// having gone with the legacy path.
 function probeExpeditionReaders(t: Transform): string {
   return fp(
     dispatches(t).map(({ exp }) => {
+      const team = { securityIds: (exp.roster?.security ?? []).map((m) => m.memberId), scienceIds: (exp.roster?.science ?? []).map((m) => m.memberId), scienceShare: 1 };
       const perBody = PLANET_IDS.flatMap((pt) =>
         [0, 0.9].map((hz) => {
           const body = syntheticBody(pt, hz);
           return {
             scanRate: scanRatePerSecond(exp, body),
-            taskSeconds: activityDurationSeconds(exp, body),
-            encounter: [scanEncounterChance(exp, body, undefined, 0), scanEncounterChance(exp, body, undefined, 12)],
+            taskSeconds: taskWorkSeconds(exp, [team], body),
+            encounter: [shipScanEventChance(exp, body, 0), shipScanEventChance(exp, body, 12)],
           };
         }),
       );
@@ -418,23 +422,30 @@ function probeExpeditionReaders(t: Transform): string {
   );
 }
 
+// Wiring OC-G1: the dispatched run's Ground Ops objective fights (groundFight.ts resolveTaskFight, the squad every task
+// fields) at every site, two fight numbers, on a calm world, a hot world and an overgrown one (High flora: every guard
+// poisons on hit, so a Poison resist reads): each fight's record and battle log. (The legacy scan battles and activity
+// resolver this probe read went with the legacy path.)
+const FLORA_PROBE_RISK: BodyRiskGrades = { combat: 2, fauna: 2, flora: 3, hazard: 1 };
 function probeExpeditionBattles(t: Transform): string {
   return fp(
     dispatches(t).map(({ exp }) => {
-      const hot = syntheticBody("volcanic", 0.9);
-      const scans = [1, 2, 3, 4, 5, 6].map((step) => {
-        const log: GambitLogEvent[] = [];
-        return [resolveScanEncounter(exp, hot, 0, step, log), log];
-      });
-      const tasks = POI_IDS.flatMap((poiId, i) => {
-        const body = syntheticBody("terrestrial", 0.4);
-        const activity: ExpeditionActivity = { id: `probe-act-${poiId}`, bodyId: body.id, poiId, done: false };
-        return [0, 12].map((hours) => {
-          const log: GambitLogEvent[] = [];
-          return [resolveExpeditionActivity(exp, body, activity, i, log, hours), log];
-        });
-      });
-      return { scans, tasks };
+      const ops = exp.groundOps!;
+      const teams = ops.teams.map((team, i) => ({ securityIds: team.securityIds, downedThisTask: [], securityShare: ops.factors.securityShare[i] ?? 0 }));
+      const overgrown = { ...syntheticBody("terrestrial", 0.4), id: "probe-flora", risk: FLORA_PROBE_RISK };
+      // The squad as every objective fight fields it (taskFightTeam: each member's converted stats, resists and effects),
+      // then the fights themselves.
+      const squad = taskFightTeam(exp, teams, { id: "probe-squad", fightCount: 0 });
+      const fights = [syntheticBody("terrestrial", 0.4), syntheticBody("volcanic", 0.9), overgrown].flatMap((body) =>
+        POI_IDS.flatMap((poiId, i) =>
+          [0, 1].map((fightCount) => {
+            const log: GambitLogEvent[] = [];
+            const task = { id: `probe-act-${poiId}`, poiId, fightCount, pointsCleared: 0, difficulty: 2, fightPoints: [0.5] };
+            return [resolveTaskFight(exp, teams, body, task, i, undefined, log), log];
+          }),
+        ),
+      );
+      return { squad, fights };
     }),
   );
 }
@@ -470,20 +481,13 @@ function probeFieldKitsFights(t: Transform): string {
   );
 }
 
-// Injury recovery, both engines: a LEGACY run's claim injuries (every Security member downed in a scan battle,
-// timed by the ship's care at claim), and a GROUND OPS run's medical bay (every member carrying a full set of
-// conditions, timed by the run's frozen care: groundTeamBaySeconds) and its claim (each member still in the bay
-// comes home with the time left).
+// Injury recovery: a GROUND OPS run's medical bay (every member carrying a full set of conditions, timed by the run's
+// frozen care: groundTeamBaySeconds) and its claim (each member still in the bay comes home with the time left). (The
+// legacy claim's flat injury went with the legacy path, Wiring OC-G1.)
 const BAY_PROBE_CONDITIONS = ["health", "poison", "bleed", "downed", "fracture"];
 function probeInjuries(t: Transform): string {
   return fp(
     dispatches(t).map(({ state, exp }) => {
-      const legacy = withoutGroundOps(exp);
-      const downed: Expedition = {
-        ...legacy,
-        phase: "complete",
-        scanEvents: [{ bodyIndex: 0, step: 1, kind: "encounter", outcome: "loss", downedMemberIds: (exp.roster?.security ?? []).map((m) => m.memberId) }],
-      };
       const ops = exp.groundOps!;
       const hurt = ops.teams.map((team) => ({
         ...team,
@@ -502,20 +506,20 @@ function probeInjuries(t: Transform): string {
           })),
         },
       };
-      return [applyExpeditionInjuries(state, downed).injuries, bay, applyGroundOpsInjuries({ ...state, gameTimeSeconds: state.gameTimeSeconds + 60 }, inBay).injuries];
+      return [bay, applyGroundOpsInjuries({ ...state, gameTimeSeconds: state.gameTimeSeconds + 60 }, inBay).injuries];
     }),
   );
 }
 
-// A whole run + claim on BOTH engines: the dispatched Ground Ops run (the timeline: task work with the
-// Security suits' hazard resist, fights, the bay on the frozen care, offload and reload, the window's end) and
-// its legacy twin (no groundOps flag: the activities phase's battles and Task 16 injuries). A Ground Ops run
-// that holds a task it cannot win is fingerprinted where it stands at the horizon (user Q4: it never gives up).
+// A whole run + claim: the dispatched Ground Ops run (the timeline: task work with the Security suits' hazard resist,
+// fights, the bay on the frozen care, offload and reload, the window's end). (Its legacy twin went with the legacy path,
+// Wiring OC-G1.) A run that holds a task it cannot win is fingerprinted where it stands at the horizon (user Q4: it never
+// gives up).
 const RUN_PROBE_HORIZON = 200_000;
 function probeExpeditionRun(t: Transform): string {
   return fp(
     dispatches(t).map(({ state, exp }) =>
-      [exp, withoutGroundOps(exp)].map((start) => {
+      [exp].map((start) => {
         const done = advanceExpedition(start, RUN_PROBE_HORIZON);
         const claimed = claimExpedition({ ...state, expeditions: [done] }, done.id);
         return [expeditionOutcome(done), claimed.success ? outcome(claimed.next) : null];
@@ -527,13 +531,15 @@ function probeExpeditionRun(t: Transform): string {
 // Ground Ops GO-9: the ship-side scan events' BOARDING (D26): per dispatch, the repel decision on the run's frozen
 // profile (shipScanEvents.ts boardingRepelChance, the chance draw 5 is compared against) and one forced boarding
 // event (a hostile probe, an attempt, the repel draw at one half), so a defense that moves the odds, or flips the
-// event, reads live.
+// event, reads live. Wiring OC-G1: and the hostile probe and cloaked vessel as the run meets them (shipEventEnemy: the
+// hazard, the ramp and Security Cunning's softened ambush, which the deleted legacy scan battles used to carry).
 function probeShipScanEvents(t: Transform): string {
   return fp(
     dispatches(t).map(({ exp }) => {
       const body = syntheticBody("terrestrial", 0.4);
       const draws = { ...shipEventDraws(exp, 0, 1), kind: SHIP_EVENT_WEIGHTS.debris, boardingAttempt: 0, boardingRepel: SHIP_EVENT_DRAW_UNITS / 2 };
-      return [boardingRepelChance(exp.groundOps!.shipEventProfile.boardingDefense), resolveShipScanEventFromDraws(exp, body, 0, 1, 0, draws).event];
+      const enemies = [HOSTILE_PROBE_HULL, CLOAKED_VESSEL_HULL].map((hull) => shipEventEnemy(exp, body, 0, 1, hull));
+      return [boardingRepelChance(exp.groundOps!.shipEventProfile.boardingDefense), resolveShipScanEventFromDraws(exp, body, 0, 1, 0, draws).event, enemies];
     }),
   );
 }

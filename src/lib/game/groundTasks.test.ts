@@ -5,8 +5,8 @@
 import { describe, it, expect } from "vitest";
 import { DEFAULT_GAMBIT_PROGRAMS, type EquipmentInstance, type Expedition, type ExpeditionBody, type SnapshotMember } from "./model";
 import { POI_CATALOG, planetTypeHazard } from "./expeditionContent";
-import { activityDurationSeconds, ACTIVITY_SECONDS as EXPEDITION_ACTIVITY_SECONDS } from "./expedition";
-import { resolveExpeditionActivity, rollHaul, taskRelicSeed, taskRewardSeed } from "./gambit";
+import { ACTIVITY_SECONDS as EXPEDITION_ACTIVITY_SECONDS } from "./expedition";
+import { rollHaul, taskRelicSeed, taskRewardSeed } from "./gambit";
 import { fieldworkSpeedMult } from "./fieldwork";
 import { snapshotMember } from "./awayTeam";
 import { plainAwayMember } from "./awayTeamTestFixtures";
@@ -246,13 +246,15 @@ describe("task work time (D25 + D26)", () => {
     expect(taskWorkSeconds(e, [wholeTeam(e)], body("terrestrial", 0))).toBe(ACTIVITY_SECONDS);
   });
 
-  it("one team holding the whole roster equals the legacy activityDurationSeconds on a calm world", () => {
+  // Wiring OC-G1: the legacy activityDurationSeconds is deleted; its formula (ACTIVITY_SECONDS over the party's pace,
+  // rounded) is written out here, so the pin still says a lone team's calm task keeps the legacy task time.
+  it("one team holding the whole roster equals the legacy task time (ACTIVITY_SECONDS / pace) on a calm world", () => {
     const e = exp({
       scienceStrength: 35,
       roster: { security: [snap("member-1", "security")], science: [sciWith("member-2", 0.6), sciWith("member-3", 0.3)] },
       bodies: [body("volcanic", 0)],
     });
-    expect(taskWorkSeconds(e, [wholeTeam(e)], e.bodies[0])).toBe(activityDurationSeconds(e, e.bodies[0]));
+    expect(taskWorkSeconds(e, [wholeTeam(e)], e.bodies[0])).toBe(Math.max(1, Math.round(ACTIVITY_SECONDS / fieldworkSpeedMult(e, "volcanic"))));
     expect(taskWorkSeconds(e, [wholeTeam(e)], e.bodies[0])).toBeLessThan(ACTIVITY_SECONDS);
   });
 
@@ -367,55 +369,8 @@ describe("taskRewardSeed: ONE reward seed definition for legacy and Ground Ops",
     expect(taskRelicSeed({ seed: 12345 }, 0)).toBe(245697858);
   });
 
-  // Captured from resolveExpeditionActivity BEFORE the taskRewardSeed extraction (GO-4): the win haul, the
-  // relic roll, the evacuation haul and the D18 no-team path all read the same keyed reward stream, so the
-  // extraction must leave every one byte-identical.
-  it("legacy resolveExpeditionActivity output is unchanged by the extraction (pinned)", () => {
-    const strong = { security: [snap("member-1", "security"), snap("member-2", "security"), snap("member-3", "security")], science: [] };
-    const withSci = {
-      security: strong.security,
-      science: [snap("member-4", "science", { groundStats: { ...ZERO_STATS, fieldwork: 0.4, relicFind: 0.2 } })],
-    };
-    const act = (poiId: string) => ({ id: "expedition-1-body-1-act-0", bodyId: "body-1", poiId, done: false });
-    const fid = "expedition-1-find-act-expedition-1-body-1-act-0";
-    const relic = { id: "expedition-1-relic-expedition-1-body-1-act-0", tier: "standard", quality: 0, unidentified: true };
-    const a = exp({ securityStrength: 40, teamKit: 6, roster: strong, bodies: [planetBody("terrestrial")] });
-    const b = exp({ securityStrength: 40, scienceStrength: 30, teamKit: 6, roster: withSci, seed: 987654321, bodies: [planetBody("terrestrial")] });
-    const c = exp({ teamKit: 0, roster: { security: [snap("member-1", "security")], science: [] }, bodies: [planetBody("toxic")] });
-    const d = exp({ roster: { security: [], science: [] }, bodies: [planetBody("volcanic")], seed: 4242 });
-
-    expect(resolveExpeditionActivity(a, a.bodies[0], act("caveNetwork"), 0)).toEqual({
-      finding: { id: fid, source: "activity", poiId: "caveNetwork", materials: { scrapAlloy: 3 }, credits: 52, relic: null },
-      outcome: "win",
-      attempts: 1,
-      downedMemberIds: [],
-    });
-    expect(resolveExpeditionActivity(a, a.bodies[0], act("ancientRuins"), 5)).toEqual({
-      finding: { id: fid, source: "activity", poiId: "ancientRuins", materials: { scrapAlloy: 2 }, credits: 52, relic },
-      outcome: "win",
-      attempts: 1,
-      downedMemberIds: [],
-    });
-    expect(resolveExpeditionActivity(b, b.bodies[0], act("crashedShip"), 7, undefined, 30)).toEqual({
-      finding: { id: fid, source: "activity", poiId: "crashedShip", materials: { titaniumIngot: 8 }, credits: 68, relic },
-      outcome: "win",
-      attempts: 1,
-      downedMemberIds: [],
-    });
-    expect(resolveExpeditionActivity(c, c.bodies[0], act("subterraneanCivilization"), 3)).toEqual({
-      finding: { id: fid, source: "activity", poiId: "subterraneanCivilization", materials: { anomalousAlloy: 1 }, credits: 59, relic: null, evacuated: true },
-      outcome: "evacuated",
-      attempts: 1,
-      downedMemberIds: ["member-1"],
-    });
-    expect(resolveExpeditionActivity(d, d.bodies[0], act("mineralOutcrop"), 2)).toEqual({
-      finding: { id: fid, source: "activity", poiId: "mineralOutcrop", materials: { anomalousAlloy: 2 }, credits: 47, relic: null, evacuated: true },
-      outcome: "evacuated",
-      attempts: 0,
-      downedMemberIds: [],
-    });
-  });
-
+  // Wiring OC-G1: "legacy resolveExpeditionActivity output is unchanged by the extraction (pinned)" is RETIRED with the
+  // legacy resolver (it pinned only that resolver's findings); the live haul values it shared stay pinned just below.
   it("taskFullHaul rolls the SAME keyed stream as the legacy win haul (one team holding the whole roster)", () => {
     const strong = { security: [snap("member-1", "security"), snap("member-2", "security"), snap("member-3", "security")], science: [] };
     const withSci = {

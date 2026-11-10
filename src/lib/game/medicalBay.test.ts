@@ -13,11 +13,9 @@ import {
   memberPerksFor,
   teamBaySeconds,
   type BayCare,
-  type GroundConditionDef,
 } from "./medicalBay";
 import { CREW_RACE_IDS } from "./crewRaces";
 import { snapshotMember } from "./awayTeam";
-import { injuryRecoverySeconds } from "./injuries";
 import { plainAwayMember } from "./awayTeamTestFixtures";
 
 const NO_CARE: BayCare = { medicalShare: 0, rapidRecoveryShare: 0, officerFacetShare: 0, injurySteady: 0 };
@@ -108,17 +106,8 @@ describe("conditionCureSeconds", () => {
     expect(conditionCureSeconds(C.fracture, [], { ...NO_CARE, medicalShare: 1e9 })).toBe(BAY_MIN_SECONDS);
   });
 
-  it("matches the legacy injury care divisor (injuries.ts) for an injury above the old floor", () => {
-    // Legacy folds all three Medical facets into one officerFacetShare (every legacy condition is an injury),
-    // summed exactly as injuries.ts applyExpeditionInjuries sums them.
-    const ship = { medicalShare: 0.3, rapidRecoveryShare: 0.1 };
-    const exp = { recoveryTurnaround: 0.05, quickRecovery: 0.5, injurySteady: 0.02 };
-    const legacyFacets = (exp.recoveryTurnaround ?? 0) + (exp.quickRecovery ?? 0) + (exp.injurySteady ?? 0);
-    const twoHours: GroundConditionDef = { id: "legacy", label: "Legacy", cls: "injury", cureSeconds: 7200 };
-    expect(conditionCureSeconds(twoHours, [], bayCareFrom(ship, exp))).toBe(
-      injuryRecoverySeconds({ ...ship, officerFacetShare: legacyFacets }),
-    );
-  });
+  // Wiring OC-G1: "matches the legacy injury care divisor (injuries.ts)" is RETIRED: it cross-checked the bay against the
+  // legacy claim's flat injury (injuryRecoverySeconds), deleted with the legacy path.
 });
 
 describe("bayCareFrom (the explicit mapping onto the frozen medical factors)", () => {

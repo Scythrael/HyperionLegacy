@@ -19,6 +19,8 @@ import { withoutCp19 } from "./cp19Switch.fixture";
 import { CP19_ADDED_IDS, CP19_MOVED_IDS, CP19_RECRUITER_BEFORE, cp19ReadBack } from "./cp19Registry.fixture";
 // Wiring WR-10 flipped twelve away rows after every pin here (wr10Registry.fixture.ts): read back innermost.
 import { WR10_FIX_ADDED_IDS, wr10ReadBack } from "./wr10Registry.fixture";
+// Wiring OC-G1 (the legacy expedition path deleted) came after these pins: its registry read-back applies innermost.
+import { ocg1ReadBack } from "./ocg1Registry.fixture";
 import { WIRING_REGISTRY } from "./wiring/registry";
 
 const CAPTURE = import.meta.env.CP19_CAPTURE as string | undefined;
@@ -86,7 +88,7 @@ describe("Complement CP-19 goldens (captured before the Personnel Rosters track)
     expect(added).toHaveLength(12);
     for (const e of added) expect(e.status.kind, e.id).toBe("live");
     // Wiring WR-10's fix round added one row (WR10_FIX_ADDED_IDS), which its read-back takes out.
-    expect(cp19ReadBack(wr10ReadBack(WIRING_REGISTRY))).toHaveLength(WIRING_REGISTRY.length - CP19_ADDED_IDS.size - WR10_FIX_ADDED_IDS.size);
+    expect(cp19ReadBack(wr10ReadBack(ocg1ReadBack(WIRING_REGISTRY)))).toHaveLength(WIRING_REGISTRY.length - CP19_ADDED_IDS.size - WR10_FIX_ADDED_IDS.size);
   });
 
   it("the registry read-back puts the Recruiter's two moved rows back as WR-5c built them, and only those", () => {

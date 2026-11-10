@@ -11,6 +11,14 @@
 //     shortened by the Medical division share and Rapid Recovery (D23 curve, floor 15m), with a
 //     per-member treatment hook for the Injury Kit (Task 16b);
 //   - an injured member is excluded from the next dispatch snapshot and deploys again once recovered.
+//
+// Wiring OC-G1 (user 2026-10-16 "Delete it"): the legacy (pre-Ground-Ops) run rules are deleted, so the tests that
+// pinned them are RETIRED with them, each having proved only the legacy path: "sits out the rest of the RUN" across
+// legacy scan battles and activity battles (with its legacy parity run and fieldwork check), and the legacy claim's
+// FLAT injury (the 2h recovery curve, its treatment hook, the claim injuring the downed, a fired member skipped).
+// Ground Ops runs bring injuries home from the medical bay (groundOps*.test.ts, medicalBay.test.ts). What stays proves
+// live rules: Neural Backup in the shared battle engine, the fall-outcome seam, the ship's care factors (the bay's
+// frozen inputs), the dispatch snapshot leaving an injured member home, the recovery bar, and the save round-trip.
 
 import { describe, it, expect } from "vitest";
 import {
@@ -18,44 +26,13 @@ import {
   type AwayMember,
   type AwayTeamType,
   type EquipmentInstance,
-  type Expedition,
   type GameState,
   type SeniorStaffOfficer,
 } from "./model";
 import { snapshotAwayRoster } from "./awayTeam";
-import {
-  activityDownedBefore,
-  buildRosterCombatants,
-  deriveExpeditionActivityLog,
-  deriveScanEncounterLog,
-  expeditionDownedMemberIds,
-  generateEncounter,
-  resolveExpeditionActivity,
-  resolveGroundBattle,
-  scanDownedBefore,
-  type GambitLogEvent,
-  type GroundCombatant,
-} from "./gambit";
+import { buildRosterCombatants, generateEncounter, resolveGroundBattle, type GambitLogEvent, type GroundCombatant } from "./gambit";
 import { makeRng } from "./combat/rng";
-import {
-  advanceExpedition,
-  claimExpedition,
-  expeditionCandidates,
-  scanEncounterChance,
-  scanStepRoll,
-  startExpedition,
-} from "./expedition";
-import {
-  INJURY_BASE_RECOVERY_SECONDS,
-  INJURY_MIN_RECOVERY_SECONDS,
-  applyExpeditionInjuries,
-  injuryRecoveredFraction,
-  injuryRecoverySeconds,
-  memberFallOutcome,
-  shipInjuryFactors,
-} from "./injuries";
-import { fieldworkEffect } from "./fieldwork";
-import { asLegacyDispatch, withSlottedAwayTeams, dispatchPastPropulsion } from "./awayTeamTestFixtures";
+import { INJURY_BASE_RECOVERY_SECONDS, injuryRecoveredFraction, memberFallOutcome, shipInjuryFactors } from "./injuries";
 import { deserialize, migrate, serialize } from "./save";
 
 // ===== fixtures =====
@@ -96,14 +73,11 @@ function gearPiece(id: string, slotType: EquipmentInstance["slotType"], variety:
 }
 
 const neuralBackup = (wearer: string): EquipmentInstance => gearPiece("equip-950", "implant", "neuralBackup", wearer, { groundHp: 12 });
-const lure = (id: string, wearer: string): EquipmentInstance => gearPiece(id, "memberTool", "lureBeacon", wearer);
 
 function withRoster(members: AwayMember[], gear: EquipmentInstance[] = []): GameState {
   const base = freshState();
   return { ...base, awayMembers: members, equipment: [...base.equipment, ...gear], nextAwayMemberId: 100 };
 }
-
-const BIG = 1_000_000;
 
 function fnv(s: string): string {
   let h = 0x811c9dc5;
@@ -139,38 +113,6 @@ const GOLDEN = [
   "57cc2535", "304dd0c6", "55ca174a", "80cb229", "41cc3f13", "392a801e", "10ac9c77", "f0f7f5a5", "c64df38e", "1cdefa63",
   "c76913a3", "f0988ecb", "1662d26a", "7202711f", "55f64df8", "5f99dee5", "80e9caab", "1c1c5e42", "ba85edb8", "e86a91bd",
 ];
-
-// A dispatched run (startExpedition: the real roster snapshot, every phase) whose completed form satisfies
-// `pred`, searched over the per-save expedition seed. Throws when none does (a vacuous test fails loudly).
-function findRun(base: GameState, pred: (done: Expedition) => boolean, limit = 400): { state: GameState; start: Expedition; done: Expedition } {
-  for (let i = 0; i < limit; i++) {
-    // Ground Ops (GO-7b): this file pins the LEGACY Task 16 rules (sit out the rest of the RUN, the flat claim
-    // injury), so the run is dispatched from slotted teams and resolved as a legacy run (no groundOps flag).
-    const s = withSlottedAwayTeams({ ...base, expeditionSeed: (0x2468ace + i * 7919) >>> 0 });
-    const res = asLegacyDispatch(dispatchPastPropulsion(s, "ship-1", 1, expeditionCandidates(s, "ship-1")[0].id));
-    if (!res.success) continue;
-    const done = advanceExpedition(res.expedition!, BIG);
-    if (pred(done)) return { state: res.next, start: res.expedition!, done };
-  }
-  throw new Error("no run satisfied the precondition");
-}
-
-// Every activity of a run with its flat index (the resolver's globalIndex).
-function flatActivities(exp: Expedition) {
-  const out: { body: Expedition["bodies"][number]; act: Expedition["bodies"][number]["activities"][number]; index: number }[] = [];
-  let i = 0;
-  for (const body of exp.bodies) for (const act of body.activities) out.push({ body, act, index: i++ });
-  return out;
-}
-
-const membersIn = (events: GambitLogEvent[]): Set<string> => {
-  const ids = new Set<string>();
-  for (const e of events) {
-    if (e.memberId) ids.add(e.memberId);
-    if (e.targetMemberId) ids.add(e.targetMemberId);
-  }
-  return ids;
-};
 
 // ============================================================================
 describe("Neural Backup: determinism (no existing draw shifts)", () => {
@@ -295,150 +237,9 @@ describe("Neural Backup: once per battle, the first ally downed, at 30% HP", () 
 });
 
 // ============================================================================
-describe("a downed member SITS OUT the rest of the run", () => {
-  // Two Security members (each with a Lure Beacon to raise the encounter count) and one Science member.
-  const base = withRoster(
-    [member("member-1", "security"), member("member-3", "security"), member("member-2", "science")],
-    [lure("equip-901", "member-1"), lure("equip-902", "member-3")],
-  );
-
-  it("scan encounters: a member downed at an earlier boundary fights no later encounter", () => {
-    const { done } = findRun(base, (e) => {
-      const evs = (e.scanEvents ?? []).filter((x) => x.kind === "encounter");
-      const firstDown = evs.findIndex((x) => (x.downedMemberIds ?? []).length > 0 && x.downedMemberIds!.length < 2);
-      return firstDown >= 0 && evs.length > firstDown + 1;
-    });
-    const evs = (done.scanEvents ?? []).filter((x) => x.kind === "encounter");
-    let out = new Set<string>();
-    let laterChecked = 0;
-    for (const ev of evs) {
-      expect(scanDownedBefore(done, ev.bodyIndex, ev.step)).toEqual(out);
-      const log = deriveScanEncounterLog(done, ev.bodyIndex, ev.step)!;
-      expect(log.outcome).toBe(ev.outcome);
-      for (const id of out) {
-        expect(membersIn(log.events).has(id)).toBe(false);
-        laterChecked++;
-      }
-      // Nobody already out can be listed as downed again.
-      for (const id of ev.downedMemberIds ?? []) expect(out.has(id)).toBe(false);
-      out = new Set([...out, ...(ev.downedMemberIds ?? [])]);
-    }
-    expect(laterChecked).toBeGreaterThan(0);
-  });
-
-  it("activity battles: members downed while scanning or in an earlier task never fight a later task", () => {
-    const { done } = findRun(base, (e) => {
-      const scanDowned = (e.scanEvents ?? []).some((x) => (x.downedMemberIds ?? []).length === 1);
-      return scanDowned && flatActivities(e).length >= 2;
-    });
-    const acts = flatActivities(done);
-    let out = new Set<string>();
-    for (const ev of done.scanEvents ?? []) for (const id of ev.downedMemberIds ?? []) out.add(id);
-    expect(out.size).toBeGreaterThan(0);
-    for (const { body, act, index } of acts) {
-      expect(activityDownedBefore(done, index)).toEqual(out);
-      const log = deriveExpeditionActivityLog(done, body, act, index);
-      for (const id of out) expect(membersIn(log.events).has(id)).toBe(false);
-      // The stored finding agrees with the re-derived outcome (the re-derivation reads the same cutoff).
-      const stored = done.findings.find((f) => f.id.endsWith(act.id))!;
-      expect(stored.evacuated === true).toBe(log.outcome === "evacuated");
-      for (const id of act.downedMemberIds ?? []) expect(out.has(id)).toBe(false);
-      out = new Set([...out, ...(act.downedMemberIds ?? [])]);
-    }
-    expect(expeditionDownedMemberIds(done).sort()).toEqual([...out].sort());
-  });
-
-  it("with the whole Security squad out, no later encounter rolls and tasks evacuate without a battle", () => {
-    const solo = withRoster([member("member-1", "security"), member("member-2", "science")], [lure("equip-901", "member-1")]);
-    const { done } = findRun(solo, (e) => (e.scanEvents ?? []).some((x) => x.kind === "encounter" && x.outcome === "loss"));
-    const evs = done.scanEvents ?? [];
-    const lossAt = evs.findIndex((x) => x.kind === "encounter" && x.outcome === "loss");
-    expect(evs[lossAt].downedMemberIds).toEqual(["member-1"]);
-    // Every later boundary has a 0 encounter chance (the only Security member is out).
-    for (const ev of evs.slice(lossAt + 1)) expect(ev.kind).toBe("supplyCache");
-    const lossEv = evs[lossAt];
-    const body = done.bodies[lossEv.bodyIndex];
-    expect(scanEncounterChance(done, body, scanDownedBefore(done, lossEv.bodyIndex, lossEv.step + 1))).toBe(0);
-    expect(scanStepRoll(done, lossEv.bodyIndex, lossEv.step).encounter).toBe(true); // its own boundary still did
-    // Every ground task evacuated with no battle at all.
-    for (const { body: b, act, index } of flatActivities(done)) {
-      const res = resolveExpeditionActivity(done, b, act, index);
-      expect(res.outcome).toBe("evacuated");
-      expect(res.attempts).toBe(0);
-      expect(res.downedMemberIds).toEqual([]);
-    }
-  });
-
-  it("an earlier ATTEMPT counts too: a lone member wiped in attempt 1 cannot retry, the task evacuates", () => {
-    const solo = withRoster([member("member-1", "security"), member("member-2", "science")]);
-    const { done } = findRun(solo, (e) =>
-      (e.scanEvents ?? []).every((x) => (x.downedMemberIds ?? []).length === 0) &&
-      flatActivities(e).some(({ act }) => (act.downedMemberIds ?? []).length > 0),
-    );
-    const hit = flatActivities(done).find(({ act }) => (act.downedMemberIds ?? []).length > 0)!;
-    const res = resolveExpeditionActivity(done, hit.body, hit.act, hit.index);
-    // A lone member down is a wipe: the task is lost, and with nobody left there is no second attempt
-    // (before Task 16 the same member stood back up for attempts 2 and 3).
-    expect(res.downedMemberIds).toEqual(["member-1"]);
-    expect(res.outcome).toBe("evacuated");
-    expect(res.attempts).toBe(1);
-    // ...and every later task evacuates without a battle.
-    for (const later of flatActivities(done).filter((x) => x.index > hit.index)) {
-      expect(resolveExpeditionActivity(done, later.body, later.act, later.index).attempts).toBe(0);
-    }
-  });
-
-  it("fieldwork: Science never fights so never sits out, and a downed Security member never did fieldwork", () => {
-    const { done, start } = findRun(base, (e) => expeditionDownedMemberIds(e).length > 0 && flatActivities(e).length > 0);
-    for (const { body, act } of flatActivities(done)) {
-      expect(fieldworkEffect(done, body.planetType, act.poiId)).toEqual(fieldworkEffect(start, body.planetType, act.poiId));
-    }
-    for (const id of expeditionDownedMemberIds(done)) expect(done.roster!.science.some((m) => m.memberId === id)).toBe(false);
-  });
-
-  it("PARITY: one big advance == many small advances with sit-outs and Neural Backup in play", () => {
-    const gear = [lure("equip-901", "member-1"), lure("equip-902", "member-3"), neuralBackup("member-3")];
-    const s0 = withRoster([member("member-1", "security"), member("member-3", "security"), member("member-2", "science")], gear);
-    const { start, done } = findRun(s0, (e) => {
-      const downedScan = (e.scanEvents ?? []).some((x) => (x.downedMemberIds ?? []).length > 0);
-      return downedScan && flatActivities(e).length >= 2 && e.bodies.length > 1;
-    });
-    let small = start;
-    for (let t = start.phaseAnchorSeconds; t <= start.phaseAnchorSeconds + 200_000; t += 89) small = advanceExpedition(small, t);
-    small = advanceExpedition(small, BIG);
-    expect(done.phase).toBe("complete");
-    expect(small).toEqual(done);
-  });
-});
-
-// ============================================================================
-describe("injuries at claim", () => {
+describe("injuries: the fall seam, the ship's care, the dispatch snapshot, the recovery bar", () => {
   it("memberFallOutcome is 'injured' (the Safety Interlock branch comes later)", () => {
     expect(memberFallOutcome({ memberId: "member-1", expeditionId: "expedition-1" })).toBe("injured");
-  });
-
-  it("recovery: 2h base, shortened by Medical and Rapid Recovery on a diminishing curve, floor 15m", () => {
-    const none = { medicalShare: 0, rapidRecoveryShare: 0 };
-    expect(injuryRecoverySeconds(none)).toBe(INJURY_BASE_RECOVERY_SECONDS);
-    expect(INJURY_BASE_RECOVERY_SECONDS).toBe(7200);
-    expect(INJURY_MIN_RECOVERY_SECONDS).toBe(900);
-    const med = injuryRecoverySeconds({ medicalShare: 0.1, rapidRecoveryShare: 0 });
-    const rapid = injuryRecoverySeconds({ medicalShare: 0, rapidRecoveryShare: 0.1 });
-    const both = injuryRecoverySeconds({ medicalShare: 0.1, rapidRecoveryShare: 0.1 });
-    expect(med).toBeLessThan(7200);
-    expect(rapid).toBe(med); // the two shares stack additively
-    expect(both).toBeLessThan(med);
-    // Each extra share point saves less time than the one before (diminishing, never a cliff).
-    expect(7200 - med).toBeGreaterThan(med - both);
-    expect(injuryRecoverySeconds({ medicalShare: 50, rapidRecoveryShare: 50 })).toBe(INJURY_MIN_RECOVERY_SECONDS);
-    // Negative shares never lengthen the injury past the base.
-    expect(injuryRecoverySeconds({ medicalShare: -1, rapidRecoveryShare: 0 })).toBe(7200);
-  });
-
-  it("the per-member treatment hook (the Injury Kit, Task 16b) shortens one member's recovery", () => {
-    const f = { medicalShare: 0.05, rapidRecoveryShare: 0 };
-    expect(injuryRecoverySeconds(f, 0.25)).toBeLessThan(injuryRecoverySeconds(f));
-    expect(injuryRecoverySeconds(f, 0)).toBe(injuryRecoverySeconds(f));
   });
 
   it("shipInjuryFactors reads the Medical division (Reduced Crew Losses) and the Rapid Recovery officer", () => {
@@ -470,58 +271,19 @@ describe("injuries at claim", () => {
     expect(shipInjuryFactors(withMed, ship).medicalShare).toBeGreaterThan(0);
   });
 
-  it("claim injures every member downed during the run (and only them), timed by the ship's Medical", () => {
-    const base = withRoster(
-      [member("member-1", "security"), member("member-3", "security"), member("member-2", "science")],
-      [lure("equip-901", "member-1"), lure("equip-902", "member-3")],
-    );
-    const { state, done } = findRun(base, (e) => expeditionDownedMemberIds(e).length === 1);
-    const now = 123_456;
-    const s = { ...state, gameTimeSeconds: now, expeditions: state.expeditions.map((e) => (e.id === done.id ? done : e)) };
-    const res = claimExpedition(s, done.id);
-    expect(res.success).toBe(true);
-    const downed = expeditionDownedMemberIds(done);
-    expect(res.injuries!.map((i) => i.memberId)).toEqual(downed);
-    for (const m of res.next.awayMembers) {
-      if (downed.includes(m.id)) {
-        expect(m.injuredUntilSeconds).toBe(now + INJURY_BASE_RECOVERY_SECONDS);
-        expect(m.injuredAtSeconds).toBe(now);
-      } else {
-        expect(m.injuredUntilSeconds).toBeUndefined();
-        expect(m.injuredAtSeconds).toBeUndefined();
-      }
-    }
-
-    // A Rapid Recovery officer on the ship shortens the new timer.
-    const medic: SeniorStaffOfficer = {
-      id: "officer-1", seat: "medical", name: "Doc", race: "earthBorn", gender: "nonbinary", rank: "ensign",
-      bonuses: [{ id: "med.recovery", magnitude: 0.2 }, { id: "med.fleetTriage", magnitude: 0.15 }], missionsCompleted: 0, assignedShipId: "ship-1",
-    };
-    const res2 = claimExpedition({ ...s, officers: [medic] }, done.id);
-    const hurt = res2.next.awayMembers.find((m) => m.id === downed[0])!;
-    expect(hurt.injuredUntilSeconds! - now).toBe(injuryRecoverySeconds({ medicalShare: 0, rapidRecoveryShare: 0.2 }));
-    expect(hurt.injuredUntilSeconds! - now).toBeLessThan(INJURY_BASE_RECOVERY_SECONDS);
-  });
-
   it("an injured member is excluded from the next dispatch snapshot, and deploys again once recovered", () => {
+    // OC-G1: the injury is written as a claim writes it (injuredUntilSeconds / injuredAtSeconds), not by the deleted
+    // legacy claim.
     const s = withRoster([member("member-1", "security"), member("member-3", "security"), member("member-2", "science")]);
-    const fake: Expedition = { ...findRun(s, () => true).done, scanEvents: [{ bodyIndex: 0, step: 3, kind: "encounter", outcome: "loss", downedMemberIds: ["member-1"], pauseSeconds: 10 }] };
-    const st = { ...s, gameTimeSeconds: 1000 };
-    const { next, injuries } = applyExpeditionInjuries(st, fake);
-    expect(injuries.map((i) => i.memberId)).toEqual(["member-1"]);
+    const next: GameState = {
+      ...s,
+      gameTimeSeconds: 1000,
+      awayMembers: s.awayMembers.map((m) => (m.id === "member-1" ? { ...m, injuredUntilSeconds: 1000 + INJURY_BASE_RECOVERY_SECONDS, injuredAtSeconds: 1000 } : m)),
+    };
     const snapNow = snapshotAwayRoster(next, next.ships[0]);
     expect(snapNow.security.map((m) => m.memberId)).toEqual(["member-3"]);
     const later = { ...next, gameTimeSeconds: 1000 + INJURY_BASE_RECOVERY_SECONDS };
     expect(snapshotAwayRoster(later, later.ships[0]).security.map((m) => m.memberId)).toEqual(["member-1", "member-3"]);
-  });
-
-  it("a fired member (gone from the roster) is skipped; no downs leaves the state untouched", () => {
-    const s = withRoster([member("member-3", "security"), member("member-2", "science")]);
-    const fake = { ...findRun(withRoster([member("member-1", "security"), member("member-2", "science")]), () => true).done };
-    const withDown: Expedition = { ...fake, scanEvents: [{ bodyIndex: 0, step: 1, kind: "encounter", outcome: "loss", downedMemberIds: ["member-1"], pauseSeconds: 5 }] };
-    expect(applyExpeditionInjuries(s, withDown)).toEqual({ next: s, injuries: [] });
-    const clean: Expedition = { ...fake, scanEvents: [], bodies: fake.bodies.map((b) => ({ ...b, activities: b.activities.map((a) => ({ ...a, downedMemberIds: undefined })) })) };
-    expect(applyExpeditionInjuries(s, clean).next).toBe(s);
   });
 
   it("the recovery bar reads the stored span; an old injury without a start falls back to the 2h base", () => {
@@ -534,20 +296,14 @@ describe("injuries at claim", () => {
 
 // ============================================================================
 describe("save: the Task 16 fields are optional and round-trip with no SAVE_VERSION bump", () => {
-  it("an injured member's start and a task's downed list survive serialize -> load", () => {
-    const base = withRoster(
-      [member("member-1", "security"), member("member-3", "security"), member("member-2", "science")],
-      [lure("equip-901", "member-1"), lure("equip-902", "member-3")],
-    );
-    const { state, done } = findRun(base, (e) => flatActivities(e).some(({ act }) => (act.downedMemberIds ?? []).length > 0));
+  // OC-G1: the legacy task's downed list went with the legacy resolver; the member's injury fields stay live.
+  it("an injured member's start survives serialize -> load", () => {
+    const base = withRoster([member("member-1", "security"), member("member-3", "security"), member("member-2", "science")]);
     const s: GameState = {
-      ...state,
-      expeditions: state.expeditions.map((e) => (e.id === done.id ? done : e)),
-      awayMembers: state.awayMembers.map((m) => (m.id === "member-1" ? { ...m, injuredUntilSeconds: 9000, injuredAtSeconds: 1800 } : m)),
+      ...base,
+      awayMembers: base.awayMembers.map((m) => (m.id === "member-1" ? { ...m, injuredUntilSeconds: 9000, injuredAtSeconds: 1800 } : m)),
     };
     const loaded = migrate(deserialize(serialize(s, 0))!);
     expect(loaded.awayMembers.find((m) => m.id === "member-1")).toMatchObject({ injuredUntilSeconds: 9000, injuredAtSeconds: 1800 });
-    const exp = loaded.expeditions.find((e) => e.id === done.id)!;
-    expect(expeditionDownedMemberIds(exp)).toEqual(expeditionDownedMemberIds(done));
   });
 });

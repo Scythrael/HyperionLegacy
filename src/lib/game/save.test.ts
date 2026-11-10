@@ -6658,7 +6658,8 @@ describe("migrate, v66 -> v67 ground-team slots (Ground Ops GO-1)", () => {
     // handed the same seed, so the comparison still isolates GO-1's groundTeams addition.)
     let s = withMinimumAwayTeam(crewed());
     s = { ...s, awayMembers: s.awayMembers.map(withoutInjury) };
-    // A v66 save predates Ground Ops (GO-7b), so its in-flight run is a legacy one (no groundOps flag).
+    // A v66 save predates Ground Ops (GO-7b), so its in-flight run is a legacy one (no groundOps flag). Wiring OC-G1:
+    // both loads finish it at load (save.ts finishLegacyExpeditionsOnLoad), so it claims identically either way.
     const launched = asLegacyDispatch(dispatchPastPropulsion(s, "ship-1", 1, expeditionCandidates(s, "ship-1")[0].id));
     expect(launched.success).toBe(true);
     const raw = v66State(launched.next);

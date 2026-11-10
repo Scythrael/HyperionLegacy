@@ -5,7 +5,7 @@
 import { describe, it, expect } from "vitest";
 import { DEFAULT_MEMBER_GAMBIT, type Expedition, type ExpeditionActivity, type ExpeditionBody, type SnapshotMember } from "./model";
 import { makeRng } from "./combat/rng";
-import { COMBAT_SALT, NEURAL_BACKUP_SALT, MAX_ROUNDS, type GambitLogEvent, type GroundCombatant } from "./gambit";
+import { NEURAL_BACKUP_SALT, MAX_ROUNDS, type GambitLogEvent, type GroundCombatant } from "./gambit";
 import { GROUND_CONDITIONS } from "./medicalBay";
 import {
   GROUND_FIGHT_SALT,
@@ -109,7 +109,8 @@ describe("the fight's private keyed stream (GO-5)", () => {
     expect(GROUND_FIGHT_SALT).toBe(0x4d2a7e1b);
     const want = (e.seed ^ GROUND_FIGHT_SALT ^ Math.imul(7 + 1, 0x9e3779b9) ^ Math.imul(2 + 1, 0x85ebca6b)) >>> 0;
     expect(taskFightSeed(e, 7, 2)).toBe(want);
-    const legacy = (e.seed ^ COMBAT_SALT ^ Math.imul(7 + 1, 0x9e3779b9) ^ Math.imul(2 + 1, 0x85ebca6b)) >>> 0;
+    // The legacy activity battle's COMBAT_SALT (0x5a3c9d17), retired with the legacy path (Wiring OC-G1).
+    const legacy = (e.seed ^ 0x5a3c9d17 ^ Math.imul(7 + 1, 0x9e3779b9) ^ Math.imul(2 + 1, 0x85ebca6b)) >>> 0;
     expect(taskFightSeed(e, 7, 2)).not.toBe(legacy);
     // Every (flat index, fight number) pair keys its own stream.
     const seen = new Set<number>();

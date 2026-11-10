@@ -24,7 +24,7 @@ import type {
   SeniorStaffOfficer,
 } from "./model";
 import { advanceExpedition, claimExpedition, expeditionCandidates, orphanExpeditions, startExpedition } from "./expedition";
-import { asLegacyDispatch, plainAwayMember, withMinimumAwayTeam, dispatchPastPropulsion } from "./awayTeamTestFixtures";
+import { plainAwayMember, withMinimumAwayTeam, dispatchPastPropulsion } from "./awayTeamTestFixtures";
 import { emptyGroundTeams, shipGroundTeams } from "./groundTeams";
 import { migrate, serialize, deserialize, repairOrphanedShipRefsV69, SAVE_VERSION, type SaveFile } from "./save";
 import { totalCrew } from "./crew";
@@ -102,13 +102,18 @@ function shipOrder(shipId: string): QueuedOrder {
   return { type: "salvage", target: { kind: "ship", shipId }, mode: { kind: "batch", remaining: 1 } };
 }
 
-// A fleet whose ship-1 is out on a REAL expedition (startExpedition, the console's dispatch). Launched as a
-// legacy run (no ground ops) so advanceExpedition alone carries it to "complete" for the claim cases.
+// A fleet whose ship-1 is out on a REAL expedition (startExpedition, the console's dispatch). Wiring OC-G1: a Ground Ops
+// run (it used to be launched as a legacy run, which the engine now finishes at once). The claim cases need a COMPLETE
+// run: `completed` advances it and marks it complete (a squad that cannot clear a task never gives up, user Q4).
 function onExpedition(): GameState {
   const s = crewedFleet();
-  const launched = asLegacyDispatch(dispatchPastPropulsion(s, "ship-1", 1, expeditionCandidates(s, "ship-1")[0].id));
+  const launched = dispatchPastPropulsion(s, "ship-1", 1, expeditionCandidates(s, "ship-1")[0].id);
   expect(launched.success).toBe(true);
   return launched.next;
+}
+function completed(exp: Expedition): Expedition {
+  const advanced = advanceExpedition(exp, 10_000_000);
+  return advanced.phase === "complete" ? advanced : { ...advanced, phase: "complete" };
 }
 
 describe("salvage refuses a hull on an expedition (CP-6)", () => {
@@ -125,7 +130,7 @@ describe("salvage refuses a hull on an expedition (CP-6)", () => {
 
   it("a COMPLETE but unclaimed expedition still refuses (its findings and away team wait on the claim)", () => {
     const s = onExpedition();
-    const done: GameState = { ...s, expeditions: [advanceExpedition(s.expeditions[0], 10_000_000)] };
+    const done: GameState = { ...s, expeditions: [completed(s.expeditions[0])] };
     expect(done.expeditions[0].phase).toBe("complete");
     const r = salvageShip(done, "ship-1", () => 0.5);
     expect(r.ok).toBe(false);
@@ -140,7 +145,7 @@ describe("salvage refuses a hull on an expedition (CP-6)", () => {
 
   it("after the claim the hull salvages normally", () => {
     const s = onExpedition();
-    const exp = advanceExpedition(s.expeditions[0], 10_000_000);
+    const exp = completed(s.expeditions[0]);
     const claimed = claimExpedition({ ...s, expeditions: [exp] }, exp.id);
     expect(claimed.success).toBe(true);
     expect(salvageShipLockReason(claimed.next, "ship-1")).toBeNull();
@@ -435,7 +440,7 @@ describe("salvage refuses while a loadout worn here is also worn on a locked shi
 describe("a ghost expedition (its ship already gone, pre-fix saves) stays claimable (CP-6 review)", () => {
   it("orphanExpeditions lists it and the claim deposits and removes it", () => {
     const s = onExpedition();
-    const exp = advanceExpedition(s.expeditions[0], 10_000_000);
+    const exp = completed(s.expeditions[0]);
     const ghost: GameState = { ...s, ships: s.ships.filter((x) => x.id !== "ship-1"), expeditions: [exp] };
     expect(orphanExpeditions(ghost).map((e) => e.id)).toEqual([exp.id]);
     expect(orphanExpeditions(s)).toEqual([]);

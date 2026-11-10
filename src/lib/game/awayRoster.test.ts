@@ -42,16 +42,13 @@ import {
   applyStatus,
   buildRosterCombatants,
   canActorUse,
-  deriveExpeditionActivityLog,
   firstAidEffectiveness,
   FIRST_AID_HEAL,
   FIRST_AID_TRAINED_EFFECTIVENESS,
   FIRST_AID_UNTRAINED_EFFECTIVENESS,
   evaluateAndAct,
-  expeditionTeamCombatants,
   generateEncounter,
   hasStatus,
-  resolveExpeditionActivity,
   resolveGroundBattle,
   validateGambitProgram,
   GAMBIT_PRESETS,
@@ -68,7 +65,10 @@ import {
   type GambitProgram,
   type SnapshotMember,
 } from "./model";
-import { asLegacyDispatch, withSlottedAwayTeams, dispatchPastPropulsion } from "./awayTeamTestFixtures";
+import { withSlottedAwayTeams, dispatchPastPropulsion } from "./awayTeamTestFixtures";
+// Wiring OC-G1: the squad a run fields is read on the Ground Ops builder (groundFight.ts taskFightTeam), the legacy
+// expeditionTeamCombatants having gone with the legacy path.
+import { taskFightTeam } from "./groundFight";
 
 // ===== fixtures =====
 
@@ -407,7 +407,12 @@ function makeExp(over: Partial<Expedition> = {}): Expedition {
   };
 }
 
-const ACT = { id: "expedition-1-body-1-act-0", bodyId: "body-1", poiId: "buriedVault", done: false };
+// The squad a Ground Ops objective fight fields from `exp`: one team naming every roster member (Science ids too, so the
+// test proves the builder itself leaves them out).
+function fightTeam(exp: Expedition): GroundCombatant[] {
+  const ids = [...(exp.roster?.security ?? []), ...(exp.roster?.science ?? [])].map((m) => m.memberId);
+  return taskFightTeam(exp, [{ securityIds: ids.length > 0 ? ids : ["member-1"], securityShare: 1 }], { id: "x", fightCount: 0 });
+}
 
 // ============================================================================
 describe("Task 13: Science never enters a battle", () => {
@@ -415,7 +420,7 @@ describe("Task 13: Science never enters a battle", () => {
   // The fallback (buildTeamCombatants) is deleted, so the test now proves there is no stand-in at all.
   it("D18: with no Security member there is no stand-in team, at any crew strength", () => {
     for (const str of [0, 5, 12, 40]) {
-      expect(expeditionTeamCombatants(makeExp({ securityStrength: str }), "x")).toEqual([]);
+      expect(fightTeam(makeExp({ securityStrength: str }))).toEqual([]);
     }
   });
 
@@ -423,57 +428,15 @@ describe("Task 13: Science never enters a battle", () => {
     const exp = makeExp({
       roster: { security: [snap("member-1"), snap("member-2")], science: [snap("member-3", { teamType: "science", spec: "geology" })] },
     });
-    const team = expeditionTeamCombatants(exp, "x");
+    const team = fightTeam(exp);
     expect(team.map((c) => c.memberId)).toEqual(["member-1", "member-2"]);
     expect(team.every((c) => c.role === "security")).toBe(true);
   });
 
-  // D18 DELIBERATE CHANGE: a Science-only roster used to fall back to the anonymous detail. Now it, like an
-  // old in-flight expedition with no roster at all, fields NO team and each task evacuates without a battle.
-  it("a Science-only roster resolves exactly like no roster: no battle, an evacuation with a partial haul", () => {
-    const sciOnly = makeExp({ roster: { security: [], science: [snap("member-3", { teamType: "science", spec: "geology" })] } });
-    const none = makeExp();
-    expect(expeditionTeamCombatants(sciOnly, "x")).toEqual([]);
-    const a = resolveExpeditionActivity(sciOnly, sciOnly.bodies[0], ACT, 0);
-    expect(a).toEqual(resolveExpeditionActivity(none, none.bodies[0], ACT, 0));
-    expect(a.outcome).toBe("evacuated");
-    expect(a.attempts).toBe(0); // no battle was fought
-    expect(a.finding.evacuated).toBe(true);
-    expect(a.finding.relic).toBeNull();
-    expect(Object.keys(a.finding.materials ?? {}).length).toBeGreaterThan(0); // always win something
-    expect(deriveExpeditionActivityLog(none, none.bodies[0], ACT, 0)).toEqual({ outcome: "evacuated", attempts: 0, events: [] });
-  });
-});
-
-// ============================================================================
-// D18: an expedition launched BEFORE the minimum-team gate (an existing dev save) may carry no roster. It
-// must still run to completion without crashing or stalling, deterministically and offline == live.
-describe("D18: an in-flight expedition with no roster resolves safely", () => {
-  const noRosterExp = () =>
-    makeExp({
-      seed: makeExpeditionSeed(0x2545f491, 9),
-      securityStrength: 30,
-      bodies: [
-        { id: "body-1", planetType: "toxic", scanTotal: 110, scanProgress: 0, hazard: planetTypeHazard("toxic"), scanned: false, discoveries: [], activities: [] },
-        { id: "body-2", planetType: "frozen", scanTotal: 90, scanProgress: 0, hazard: planetTypeHazard("frozen"), scanned: false, discoveries: [], activities: [] },
-      ],
-    });
-
-  it("completes, every ground task evacuates with a partial haul, and one big advance == many small", () => {
-    const exp = noRosterExp();
-    expect("roster" in exp).toBe(false);
-    const big = advanceExpedition(exp, 300_000);
-    let stepped = noRosterExp();
-    for (let t = 100; t <= 300_000; t += 100) stepped = advanceExpedition(stepped, t);
-    expect(stepped).toEqual(big);
-    expect(big.phase).toBe("complete");
-    const acts = big.findings.filter((f) => f.source === "activity");
-    expect(acts.length).toBeGreaterThan(0);
-    for (const f of acts) {
-      expect(f.evacuated).toBe(true);
-      expect(f.relic).toBeNull();
-      expect(Object.keys(f.materials ?? {}).length).toBeGreaterThan(0);
-    }
+  // Wiring OC-G1: the legacy evacuation of a Science-only roster (and the D18 no-roster legacy run below it) are
+  // RETIRED with the legacy resolver; a Science-only roster still fields nobody.
+  it("a Science-only roster fields no squad", () => {
+    expect(fightTeam(makeExp({ roster: { security: [], science: [snap("member-3", { teamType: "science", spec: "geology" })] } }))).toEqual([]);
   });
 });
 
@@ -562,15 +525,15 @@ describe("D19: the built-in default member program", () => {
     const hold: GameState = { ...base, gambitPrograms: { security: [{ target: "self", action: "hold" }], science: [] } };
     const lazy: GameState = { ...base, gambitPrograms: { security: [{ target: "foeNearest", action: "attack" }], science: [] } };
     expect(snapshotAwayRoster(hold, ship(hold))).toEqual(snapshotAwayRoster(lazy, ship(lazy)));
-    // A legacy run (asLegacyDispatch): it must reach "complete" with a lone plain member, which only the legacy
-    // evacuation path guarantees (a Ground Ops run holds a task it cannot win, user Q4).
+    // Wiring OC-G1: the run is a Ground Ops run (the legacy run this compared went with the legacy path); a lone plain
+    // member may hold a task it cannot win (user Q4), so the two runs are compared where they stand, far into the run.
     const run = (s: GameState) => {
-      const res = asLegacyDispatch(dispatchPastPropulsion(s, "ship-1", 1, expeditionCandidates(s, "ship-1")[0].id));
+      const res = dispatchPastPropulsion(s, "ship-1", 1, expeditionCandidates(s, "ship-1")[0].id);
       expect(res.success).toBe(true);
       return advanceExpedition(res.expedition!, 1_000_000);
     };
     const a = run(hold);
-    expect(a.phase).toBe("complete");
+    expect(a.groundOps?.startedAt).toBeTypeOf("number");
     expect(run(lazy)).toEqual(a);
   });
 });
@@ -850,30 +813,14 @@ describe("Task 13: determinism with a roster", () => {
     });
   }
 
-  it("same seed, same battle log", () => {
-    const exp = rosterExp();
-    const act = { ...ACT, poiId: "subterraneanCivilization" };
-    const a = deriveExpeditionActivityLog(exp, exp.bodies[0], act, 1);
-    const b = deriveExpeditionActivityLog(exp, exp.bodies[0], act, 1);
-    expect(a).toEqual(b);
-    expect(a.events.some((e) => e.memberId !== undefined)).toBe(true);
-  });
-
-  it("offline == live: one big advanceExpedition equals many small steps", () => {
-    const big = advanceExpedition(rosterExp(), 300_000);
-    let stepped = rosterExp();
-    for (let t = 100; t <= 300_000; t += 100) stepped = advanceExpedition(stepped, t);
-    expect(stepped).toEqual(big);
-    expect(big.phase).toBe("complete");
-    expect(big.findings.filter((f) => f.source === "activity").length).toBeGreaterThan(0);
-  });
-
+  // Wiring OC-G1: "same seed, same battle log" and "offline == live" drove the legacy activity resolver on this hand-built
+  // run; both are RETIRED with it (Ground Ops determinism: groundOpsParity.test.ts).
   // D18 DELIBERATE CHANGE: without a roster this used to field the anonymous detail; now it fields nobody.
   it("the roster's Security members fight; without a roster nobody does", () => {
     const withR = rosterExp();
     const without = { ...withR };
     delete without.roster;
-    expect(expeditionTeamCombatants(withR, "x").map((c) => c.memberId)).toEqual(["member-1", "member-2", "member-3"]);
-    expect(expeditionTeamCombatants(without, "x")).toEqual([]);
+    expect(fightTeam(withR).map((c) => c.memberId)).toEqual(["member-1", "member-2", "member-3"]);
+    expect(fightTeam(without)).toEqual([]);
   });
 });

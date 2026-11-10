@@ -9,6 +9,18 @@
 //   - one big offline window == many small live ticks (PARITY, via tick()).
 //   - NO-expedition byte-identical additive-neutrality (resolveExpeditions is a same-ref no-op).
 //   - the v58->v59 SAVE migration seeds the new fields.
+//
+// Wiring OC-G1 (user 2026-10-16 "Delete it"): this file pinned the LEGACY expedition machine (one finding per activity,
+// the activities phase's in-resolution battles). That machine is deleted, so its dispatches are now Ground Ops runs in
+// the same pre-SQ-4 shape (asPreRiskDispatch: the twin of the asLegacyDispatch it used, minus the flag strip), and:
+//   - RE-POINTED (live mechanics read through the legacy engine): the transit and anomaly checks run on a Ground Ops
+//     record; the scan-speed checks read the scan rate (scanRatePerSecond, the reader the Ground Ops scan walk uses);
+//     the discovery-roll tallies and the gas giant roll read rollBodyDiscoveries (the run's own roll); the claim test
+//     claims a complete Ground Ops record; the tick parity runs a Ground Ops run (one jump == per-tick steps).
+//   - RETIRED (each proved only the legacy machine): "walks the full machine to complete" (its legacy findings and every
+//     activity done), and the typed multi-body big-jump parity on a hand-built legacy run (Ground Ops parity:
+//     groundOpsParity.test.ts). A run a Ground Ops squad cannot clear never gives up (user Q4), so "complete by a big
+//     span" is not a Ground Ops property for the minimum team these dispatch with.
 
 import { describe, it, expect } from "vitest";
 import {
@@ -27,8 +39,8 @@ import {
   expeditionCandidates,
   makeExpeditionSeed,
   advanceExpeditionSeed,
-  expeditionScanFraction,
-  expeditionActivitiesDone,
+  rollBodyDiscoveries,
+  scanRatePerSecond,
   BANKED_SYSTEMS,
   BODY_COUNT_MIN,
   BODY_COUNT_MAX,
@@ -47,7 +59,7 @@ import {
   MIN_SECURITY_MEMBERS,
   MIN_SCIENCE_MEMBERS,
 } from "./expedition";
-import { asLegacyDispatch, ensureMinimumAwayTeam, plainAwayMember, withMinimumAwayTeam, withSlottedAwayTeams, dispatchPastPropulsion } from "./awayTeamTestFixtures";
+import { asPreRiskDispatch, ensureMinimumAwayTeam, plainAwayMember, withMinimumAwayTeam, withSlottedAwayTeams, dispatchPastPropulsion } from "./awayTeamTestFixtures";
 import { tick } from "./tick";
 import { famousSystem } from "./starCatalog";
 import { migrate, type SaveFile } from "./save";
@@ -125,8 +137,17 @@ function makeExpedition(over: Partial<Expedition> = {}): Expedition {
     scanSpeedBonus: 0,
     relicFindBonus: 0,
     hazardResist: 0,
+    // Wiring OC-G1: a Ground Ops record (a real dispatch's), so a hand-built run is a live run (the engine finishes a
+    // run without one). Only TRANSIT is advanced on these hand-built runs; nothing in transit reads the record.
+    groundOps: groundOpsRecord(),
     ...over,
   };
+}
+
+let groundOpsMemo: Expedition["groundOps"] | undefined;
+function groundOpsRecord(): Expedition["groundOps"] {
+  groundOpsMemo ??= dispatch(freshState()).expedition!.groundOps;
+  return structuredClone(groundOpsMemo);
 }
 
 // Dispatch helper: resolve a candidate id off the state's console list and commit it. Defaults to the
@@ -134,13 +155,12 @@ function makeExpedition(over: Partial<Expedition> = {}): Expedition {
 // 0). Mirrors how the E2c UI dispatches (pick a candidate -> startExpedition).
 // D18: the ship gets the minimum away team (1 Security + 1 Science) first when it lacks one, so these tests
 // keep testing the expedition engine, not the dispatch gate (which has its own block below).
-// Ground Ops (GO-7b): this file pins the LEGACY expedition machine (one finding per activity, the activities
-// phase's in-resolution battles), so its dispatches resolve as legacy runs (asLegacyDispatch strips the
-// groundOps flag). The Ground Ops timeline has its own files (groundOps*.test.ts).
+// Wiring OC-G1: Ground Ops runs in the pre-SQ-4 shape (asPreRiskDispatch; see the header). The Ground Ops timeline has
+// its own files (groundOps*.test.ts).
 function dispatch(s: GameState, shipId = "ship-1", captainId = 1, idx = 0, anomalyOptIn = true) {
   const ready = ensureMinimumAwayTeam(s, shipId);
   const cands = expeditionCandidates(ready, shipId);
-  return asLegacyDispatch(dispatchPastPropulsion(ready, shipId, captainId, cands[idx]?.id ?? `cand-${idx}`, anomalyOptIn));
+  return asPreRiskDispatch(dispatchPastPropulsion(ready, shipId, captainId, cands[idx]?.id ?? `cand-${idx}`, anomalyOptIn));
 }
 
 // ============================================================================
@@ -230,7 +250,7 @@ describe("startExpedition — snapshots the installed sensor array + params", ()
 
 // ============================================================================
 describe("phase advancement — deterministic transit -> scanning -> activities -> return -> complete", () => {
-  it("stays in transit before the leg elapses, then walks the full machine to complete", () => {
+  it("stays in transit before the leg elapses, then opens the operations window (scanning)", () => {
     const exp = dispatch(freshState()).expedition!; // shakedown transit
 
     // Early: still in transit.
@@ -239,50 +259,27 @@ describe("phase advancement — deterministic transit -> scanning -> activities 
     const mid = advanceExpedition(exp, SHAKEDOWN_TRANSIT_SECONDS * ANOMALY_CHECK_FRACTION + 5);
     expect(mid.phase).toBe("transit");
     expect(mid.anomalyResolved).toBe(true);
-
-    // A big span clears every phase in ONE call -> complete, all bodies scanned, all activities done.
-    const done = advanceExpedition(exp, 1_000_000);
-    expect(done.phase).toBe("complete");
-    for (const body of done.bodies) {
-      expect(body.scanProgress).toBe(body.scanTotal);
-      expect(body.scanned).toBe(true);
-      expect(body.discoveries.length).toBeGreaterThan(0);
-      expect(body.activities.length).toBe(body.discoveries.length);
-      expect(body.activities.every((a) => a.done)).toBe(true);
-      // E2b: every discovery names a real PoI from the body's planet-type pool, and its activity carries
-      // the same PoI id (the kind matches the PoI's pool).
-      const pools = poisForPlanetType(body.planetType);
-      const eligible = new Map<string, (typeof pools.surface)[number]["poi"]>(
-        [...pools.surface, ...pools.underground].map((w) => [w.poi.id as string, w.poi]),
-      );
-      body.discoveries.forEach((d, k) => {
-        const poi = eligible.get(d.poiId);
-        expect(poi).toBeDefined();
-        expect(d.kind).toBe(poi!.pool === "surface" ? "landmark" : "underground");
-        expect(body.activities[k].poiId).toBe(d.poiId);
-      });
-    }
-    // Findings = one per completed activity + (charted ? 1 : 0) for the anomaly.
-    const activityFindings = done.findings.filter((f) => f.source === "activity").length;
-    const anomalyFindings = done.findings.filter((f) => f.source === "anomaly").length;
-    expect(activityFindings).toBe(expeditionActivitiesDone(done));
-    expect(anomalyFindings).toBe(done.anomalyCharted ? 1 : 0);
-    expect(expeditionScanFraction(done)).toBe(1);
+    // OC-G1: past the leg (and any detour) the Ground Ops window opens at the scanning anchor. The rest of the legacy
+    // walk (complete by a big span, one finding per activity, every activity done) is RETIRED with the legacy machine.
+    const past = advanceExpedition(exp, SHAKEDOWN_TRANSIT_SECONDS + 3600 + 5);
+    expect(past.phase === "scanning" || past.phase === "activities").toBe(true);
+    expect(past.groundOps!.startedAt).toBeTypeOf("number");
   });
 
+
   it("resolveExpeditions is a same-reference no-op once an expedition is complete", () => {
-    const exp = dispatch(freshState()).expedition!;
-    const complete = advanceExpedition(exp, 1_000_000);
-    expect(complete.phase).toBe("complete");
+    // OC-G1: a complete Ground Ops record (the minimum team may hold a task it cannot win forever, user Q4).
+    const complete: Expedition = { ...dispatch(freshState()).expedition!, phase: "complete" };
     // advanceExpedition on a complete expedition returns the SAME reference.
     expect(advanceExpedition(complete, 2_000_000)).toBe(complete);
   });
 
   it("claimExpedition removes a complete expedition and returns its findings", () => {
     let s = dispatch(freshState()).next;
-    // Advance the stored expedition to complete via the engine.
-    s = { ...s, gameTimeSeconds: 1_000_000 };
-    s = resolveExpeditions(s);
+    // OC-G1: the stored Ground Ops run, advanced by the engine, then marked complete with a finding (the minimum team
+    // may hold a task it cannot win forever, user Q4).
+    s = resolveExpeditions({ ...s, gameTimeSeconds: 1_000_000 });
+    s = { ...s, expeditions: [{ ...s.expeditions[0], phase: "complete", findings: [...s.expeditions[0].findings, { id: "f-1", source: "supplyCache", credits: 5 }] }] };
     const exp = s.expeditions[0];
     expect(exp.phase).toBe("complete");
 
@@ -340,11 +337,14 @@ describe("scanning — consumes the sensor array effect (better array / higher s
   ];
   const T = 200; // seconds into the scanning phase to sample
 
+  // OC-G1: the progress in the same time is T x the scan rate the Ground Ops scan walk reads (scanRatePerSecond).
+  const progressIn = (e: Expedition) => T * scanRatePerSecond(e, e.bodies[0]);
+
   it("higher sensors -> more scanned in the same time", () => {
     const low = makeExpedition({ phase: "scanning", sensorPower: 0, bodies: bodies() });
     const high = makeExpedition({ phase: "scanning", sensorPower: 50, bodies: bodies() });
-    const lowP = advanceExpedition(low, T).bodies[0].scanProgress;
-    const highP = advanceExpedition(high, T).bodies[0].scanProgress;
+    const lowP = progressIn(low);
+    const highP = progressIn(high);
     expect(highP).toBeGreaterThan(lowP);
   });
 
@@ -360,15 +360,15 @@ describe("scanning — consumes the sensor array effect (better array / higher s
       bodies: bodies(),
     });
     // Wide-beam net rate 0.8*1.5 = 1.2 > balanced 1.0, so it scans more in the same window.
-    const balP = advanceExpedition(balanced, T).bodies[0].scanProgress;
-    const wideP = advanceExpedition(wide, T).bodies[0].scanProgress;
+    const balP = progressIn(balanced);
+    const wideP = progressIn(wide);
     expect(wideP).toBeGreaterThan(balP);
   });
 
   it("a more hazardous body scans slower", () => {
     const calm = makeExpedition({ phase: "scanning", bodies: [{ id: "body-1", planetType: "terrestrial", scanTotal: 200, scanProgress: 0, hazard: 0, scanned: false, discoveries: [], activities: [] }] });
     const dangerous = makeExpedition({ phase: "scanning", bodies: [{ id: "body-1", planetType: "terrestrial", scanTotal: 200, scanProgress: 0, hazard: 0.8, scanned: false, discoveries: [], activities: [] }] });
-    expect(advanceExpedition(dangerous, T).bodies[0].scanProgress).toBeLessThan(advanceExpedition(calm, T).bodies[0].scanProgress);
+    expect(progressIn(dangerous)).toBeLessThan(progressIn(calm));
   });
 });
 
@@ -386,6 +386,7 @@ describe("PARITY: one big offline window == many small live ticks", () => {
   }
 
   // 40,000 single-tick steps: slow on a loaded machine, so an explicit budget over the 5 s default.
+  // OC-G1: a Ground Ops run (the legacy run this resolved is gone): it is far into its operations window by then.
   it("the expedition is byte-identical whether resolved in one jump or stepped per tick", () => {
     const base = dispatch(freshState()).next;
 
@@ -400,10 +401,10 @@ describe("PARITY: one big offline window == many small live ticks", () => {
     expect(big.gameTimeSeconds).toBe(small.gameTimeSeconds);
     // The whole expedition record must match exactly (phase, anchors, bodies, discoveries, findings).
     expect(big.expeditions).toEqual(small.expeditions);
-    // And the run was non-trivial: it reached complete with findings.
-    expect(big.expeditions[0].phase).toBe("complete");
-    expect(big.expeditions[0].findings.length).toBeGreaterThan(0);
-  }, 20_000);
+    // And the run was non-trivial: past its transit, its operations window open with history on the timeline.
+    expect(big.expeditions[0].phase).not.toBe("transit");
+    expect((big.expeditions[0].groundOps?.history ?? []).length).toBeGreaterThan(0);
+  }, 60_000);
 });
 
 // ============================================================================
@@ -467,8 +468,8 @@ function tallyPoolsOverSeeds(
         { id: "body-1", planetType, scanTotal: 100, scanProgress: 0, hazard: 0, scanned: false, discoveries: [], activities: [] },
       ],
     });
-    const done = advanceExpedition(exp, 10_000_000);
-    for (const d of done.bodies[0].discoveries) {
+    // OC-G1: the run's own discovery roll (rollBodyDiscoveries), the one a body takes when its scan completes.
+    for (const d of rollBodyDiscoveries(exp, exp.bodies[0], 0)) {
       if (d.kind === "landmark") surface++;
       else underground++;
     }
@@ -522,8 +523,9 @@ describe("E2b discovery roll — drawn from the planet-type pool, skewed by arra
           seed: (0x1234abcd + Math.imul(n + 1, 0x85ebca6b)) >>> 0,
           bodies: [{ id: "body-1", planetType: pt.id, scanTotal: 100, scanProgress: 0, hazard: 0, scanned: false, discoveries: [], activities: [] }],
         });
-        const done = advanceExpedition(exp, 10_000_000);
-        for (const d of done.bodies[0].discoveries) expect(eligible.has(d.poiId)).toBe(true);
+        const found = rollBodyDiscoveries(exp, exp.bodies[0], 0);
+        expect(found.length).toBeGreaterThan(0);
+        for (const d of found) expect(eligible.has(d.poiId)).toBe(true);
       }
     }
   });
@@ -550,8 +552,10 @@ describe("E2b discovery roll — drawn from the planet-type pool, skewed by arra
   });
 });
 
-describe("E2b Gas Giant — orbital-only, yet still yields activities (satellite ops)", () => {
-  it("gasGiant is the orbital-only type and still generates a full activity list at 100% scan", () => {
+// OC-G1: read on the run's own discovery roll (rollBodyDiscoveries); a hand-built run carries no study stamp, so its
+// gas giant rolls finds like a run dispatched before GG-2 (a study run studies it from the ship instead, GG-2).
+describe("E2b Gas Giant: orbital-only, yet still yields finds (satellite ops)", () => {
+  it("gasGiant is the orbital-only type and still rolls a full find list at 100% scan", () => {
     expect(getPlanetTypeById("gasGiant")!.orbitalOnly).toBe(true);
     let anyActivities = false;
     for (let n = 0; n < 40; n++) {
@@ -560,51 +564,18 @@ describe("E2b Gas Giant — orbital-only, yet still yields activities (satellite
         seed: (0x0a11ce ^ Math.imul(n + 1, 0x9e3779b9)) >>> 0,
         bodies: [{ id: "body-1", planetType: "gasGiant", scanTotal: 100, scanProgress: 0, hazard: 0.1, scanned: false, discoveries: [], activities: [] }],
       });
-      const done = advanceExpedition(exp, 10_000_000);
-      const body = done.bodies[0];
-      expect(body.scanned).toBe(true);
-      expect(body.discoveries.length).toBeGreaterThan(0); // still yields finds (flavored satellite ops)
-      expect(body.activities.length).toBe(body.discoveries.length);
-      expect(body.activities.every((a) => a.done)).toBe(true);
+      const found = rollBodyDiscoveries(exp, exp.bodies[0], 0);
+      expect(found.length).toBeGreaterThan(0); // still yields finds (flavored satellite ops)
       // Every gas-giant find is from the gas-giant eligible pool.
       const eligible = new Set<string>([...poisForPlanetType("gasGiant").surface, ...poisForPlanetType("gasGiant").underground].map((w) => w.poi.id));
-      for (const d of body.discoveries) expect(eligible.has(d.poiId)).toBe(true);
-      if (body.activities.length > 0) anyActivities = true;
+      for (const d of found) expect(eligible.has(d.poiId)).toBe(true);
+      if (found.length > 0) anyActivities = true;
     }
     expect(anyActivities).toBe(true);
   });
 });
 
-describe("E2b PARITY — a TYPED multi-body system is byte-identical big-jump vs stepped", () => {
-  // A hand-built system spanning several planet types (incl. the orbital-only Gas Giant + high-hazard
-  // types), advanced from transit. The closed-form invariant (E2a) must still hold with the E2b content:
-  // one big advance == many small stepped advances, byte-for-byte.
-  const make = () =>
-    makeExpedition({
-      phase: "transit",
-      shakedown: true,
-      seed: makeExpeditionSeed(EXPEDITION_DEFAULT_SEED, 7),
-      bodies: [
-        { id: "body-1", planetType: "toxic", scanTotal: 120, scanProgress: 0, hazard: planetTypeHazard("toxic"), scanned: false, discoveries: [], activities: [] },
-        { id: "body-2", planetType: "volcanic", scanTotal: 90, scanProgress: 0, hazard: planetTypeHazard("volcanic"), scanned: false, discoveries: [], activities: [] },
-        { id: "body-3", planetType: "gasGiant", scanTotal: 150, scanProgress: 0, hazard: planetTypeHazard("gasGiant"), scanned: false, discoveries: [], activities: [] },
-      ],
-    });
-
-  it("one 200k-second jump equals 100-second stepping", () => {
-    const big = advanceExpedition(make(), 200_000);
-    let stepped = make();
-    for (let t = 100; t <= 200_000; t += 100) stepped = advanceExpedition(stepped, t);
-    expect(stepped).toEqual(big);
-    expect(big.phase).toBe("complete");
-    // Non-trivial: every typed body scanned + yielded discoveries + activities.
-    for (const body of big.bodies) {
-      expect(body.scanned).toBe(true);
-      expect(body.discoveries.length).toBeGreaterThan(0);
-      expect(body.activities.every((a) => a.done)).toBe(true);
-    }
-  });
-});
+// (E2b PARITY on a hand-built typed multi-body LEGACY run: RETIRED by Wiring OC-G1 with the legacy machine.)
 
 // ============================================================================
 describe("SAVE migration v59 -> v60 backfills a body planetType", () => {
@@ -878,18 +849,20 @@ describe("D18: an expedition needs at least 1 Security + 1 Science away-team mem
 });
 
 describe("E2c anomaly opt-in — the toggle gates whether the mid-transit chart is attempted", () => {
+  // OC-G1: read just past the midpoint, still in transit (the hand-built record is not advanced into its window).
+  const MID_TRANSIT = SHAKEDOWN_TRANSIT_SECONDS * ANOMALY_CHECK_FRACTION + 1;
   it("opting OUT never charts (resolved at the midpoint, but no chart + no anomaly finding)", () => {
     // A hand-built transit expedition seeded so the OPT-IN run WOULD chart, to prove the opt-out gate.
     let seed = 0;
     for (let n = 1; n <= 60; n++) {
       const s = makeExpeditionSeed(EXPEDITION_DEFAULT_SEED, n);
-      const optedIn = advanceExpedition(makeExpedition({ phase: "transit", shakedown: true, seed: s, anomalyOptIn: true }), 1_000_000);
+      const optedIn = advanceExpedition(makeExpedition({ phase: "transit", shakedown: true, seed: s, anomalyOptIn: true }), MID_TRANSIT);
       if (optedIn.anomalyCharted) { seed = s; break; }
     }
     expect(seed).not.toBe(0); // found a charting seed
 
-    const optIn = advanceExpedition(makeExpedition({ phase: "transit", shakedown: true, seed, anomalyOptIn: true }), 1_000_000);
-    const optOut = advanceExpedition(makeExpedition({ phase: "transit", shakedown: true, seed, anomalyOptIn: false }), 1_000_000);
+    const optIn = advanceExpedition(makeExpedition({ phase: "transit", shakedown: true, seed, anomalyOptIn: true }), MID_TRANSIT);
+    const optOut = advanceExpedition(makeExpedition({ phase: "transit", shakedown: true, seed, anomalyOptIn: false }), MID_TRANSIT);
 
     // Opted IN with a charting seed: charted + an anomaly finding.
     expect(optIn.anomalyCharted).toBe(true);
