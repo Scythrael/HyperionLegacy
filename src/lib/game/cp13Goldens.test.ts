@@ -52,7 +52,31 @@ const MOVED: Record<string, unknown> = {
   "patrol:destroyer:inFlight": ["c478f282", "won:14", "1f045d80"],
   "expedition:orion:fresh": ["5d1b68ef", "6bdf381e", "33616467"],
 };
-const PINS: Record<string, unknown> = { ...CP13_PINS_PRE, ...MOVED };
+// GEAR WEAR step 5 review fix C1 (exact repair settling, 2026-11-09): the hull-family crew lift and the officers raise these ships' gear repair rates off the free 2, 40 and 80 a minute, so their pieces'
+// repair anchors are now encoded exactly from integers (the rate quantized to a thousandth of a per-mille a minute)
+// where the old float arithmetic drifted; only the state hashes move (with the old settle every pin here holds, checked
+// at the fix). C1_MOVED overlays the current pins, C1_MOVED_PRE the pre-slice pins.
+const C1_MOVED: Record<string, unknown> = {
+  "mission:prospectorMiner:ore:fresh": ["a56128bd", "552b05a4"],
+  "mission:generalFreighter:ore:fresh": ["a56128bd", "4bfb5de"],
+  "mission:prospectorMiner:survey:fresh": ["eb52323", "d5c13d6d"],
+  "patrol:destroyer:fresh": ["c478f282", "won:14", "37b07ac2"],
+  "patrolRepeat:destroyer:fresh": ["8f383097", "won:2500", "9402a616"],
+  "mission:prospectorMiner:ore:inFlight": ["a56128bd", "5543a630"],
+  "mission:generalFreighter:ore:inFlight": ["a56128bd", "b5af8610"],
+  "patrolRepeat:destroyer:inFlight": ["8f383097", "won:2500", "5b8da85f"],
+  "mission:prospectorMiner:ore:none": ["a56128bd", "db32b9f1"],
+};
+const C1_MOVED_PRE: Record<string, unknown> = {
+  "mission:prospectorMiner:ore:fresh": ["a56128bd", "5543a630"],
+  "mission:generalFreighter:ore:fresh": ["a56128bd", "b5af8610"],
+  "patrolRepeat:destroyer:fresh": ["8f383097", "won:2500", "5b8da85f"],
+  "mission:prospectorMiner:ore:inFlight": ["a56128bd", "5543a630"],
+  "mission:generalFreighter:ore:inFlight": ["a56128bd", "b5af8610"],
+  "patrolRepeat:destroyer:inFlight": ["8f383097", "won:2500", "5b8da85f"],
+  "mission:prospectorMiner:ore:none": ["a56128bd", "db32b9f1"],
+};
+const PINS: Record<string, unknown> = { ...CP13_PINS_PRE, ...MOVED, ...C1_MOVED };
 
 describe("Complement CP-13 goldens (captured before the hull-family module bonuses)", () => {
   it("every reading matches its pin (moves are named in MOVED)", () => {
@@ -66,6 +90,6 @@ describe("Complement CP-13 goldens (captured before the hull-family module bonus
   }, 600_000);
 
   it("with the bonus switched off every row returns to its pre-CP-13 pin", () => {
-    expect(withoutCp13(() => cp13Rows(withoutCp13))).toEqual(CP13_PINS_PRE);
+    expect(withoutCp13(() => cp13Rows(withoutCp13))).toEqual({ ...CP13_PINS_PRE, ...C1_MOVED_PRE });
   }, 600_000);
 });

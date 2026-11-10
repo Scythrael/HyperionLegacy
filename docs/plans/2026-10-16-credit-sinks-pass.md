@@ -121,6 +121,11 @@ hard caps (prices rise on a curve instead).
 
 ### S1. Quick Service: paid instant gear repair [PROPOSAL, from gear wear (user "Free auto + paid rush")]
 
+**DROPPED (user, 2026-11-09): S1 and its price call OC-C1 are not built.** The user answered Quick Service "None, always
+automatic (Recommended)": no paid rush and no instant repair; gear repair stays free and automatic (gear wear design,
+USER ANSWERS 2026-11-09). This pass may need a replacement sink in S1's place (the user's 2026-10-16 reason for a paid
+repair was finding proper credit sinks). Overtime on gear repair (speed only, never instant) is still built.
+
 - **What:** on a ship's care line, "Service now" returns its installed gear to Pristine at once for credits. The
   free automatic repair over time stays the default and is untouched.
 - **Why peaceful:** the user already chose "free auto + paid rush"; it saves waiting, never unlocks anything, and a
@@ -198,7 +203,7 @@ hard caps (prices rise on a curve instead).
 
 ## 6. OPEN CALLS (multiple-choice ready; recommended first)
 
-- **OC-C1, Quick Service price.** (a) Minutes left x 2 x gear tier, per piece (Recommended). (b) 2% of hull build
+- **OC-C1, Quick Service price.** DROPPED 2026-11-09 with S1 (user: "None, always automatic"). (a) Minutes left x 2 x gear tier, per piece (Recommended). (b) 2% of hull build
   credits x missing condition (the gear wear doc's figure). (c) Flat fee per ship. (d) Scaled to measured fleet income.
 - **OC-C2, Shipyard rush scope.** (a) Hull repairs and hull builds (Recommended). (b) Hull repairs only. (c) Also
   research and facility upgrades. (d) No Shipyard rush.

@@ -95,6 +95,7 @@ import {
   riskRewardBonus,
 } from "./game/riskFactors";
 import { MUSEUM_HAZARD_RESIST_MAX } from "./game/relics";
+import { OVERTIME_MAX_STEPS, OVERTIME_STEP_RATE } from "./game/processSpeed";
 // Safe first runs SF-6: the training runs and the curve, every number read from its owner (no typed number).
 import {
   FIRST_PATROL_WAVES,
@@ -851,6 +852,25 @@ export function personnelRostersBoardHelpText(): string {
 import { CAPTAIN_SOFT_CAP_GROWTH, CAPTAIN_SOFT_CAP_LEVEL } from "./game/model";
 export const CAPTAIN_SOFT_CAP_TEXT = `Captain levels never stop: there is no top level. Each level costs more experience than the one before it, and past level ${CAPTAIN_SOFT_CAP_LEVEL} each level also costs ${Math.round((CAPTAIN_SOFT_CAP_GROWTH - 1) * 100)}% more on top of that, compounding, so the climb slows the higher a captain goes.`;
 
+// 0.14.0 GEAR WEAR step 5: the "How gear wear works" topic (design doc section 8 and the approved mockup, Quick Service
+// dropped by the user 2026-11-09), every number read from the engine (gearWear.ts, gearWearDisplay.ts bands), so a
+// retune changes this text with it. gearWearStep5.test.ts checks each clause against the engine.
+import { REPAIR_RATES as GEAR_REPAIR_RATES, USE_WEAR_FLOOR as GEAR_USE_FLOOR, WEAR_EFFICIENCY_DEPTH } from "./game/gearWear";
+import { WEAR_BANDS, ratePercentText } from "./gearWearDisplay";
+const wearPct = (perMille: number): string => `${perMille / 10}%`;
+const WEAR_BAND_LINE = WEAR_BANDS.map((b, i) => {
+  if (i === 0) return `${b.name} (${wearPct(b.min)} and up)`;
+  const upTo = WEAR_BANDS[i - 1].min / 10 - 1;
+  return b.min > 0 ? `${b.name} (${wearPct(b.min)} to ${upTo}%)` : `${b.name} (below ${wearPct(WEAR_BANDS[i - 1].min)})`;
+}).join(", ");
+export const GEAR_WEAR_PARAGRAPHS: readonly string[] = [
+  `EVERYTHING WEARS IN ITS OWN WAY: cargo bays by hauls, FTL drives by distance, reactor cores and crew modules by time out on a mission, short-range run or expedition, sensors by scans, utility gear by its own job, member gear by fights, fieldwork and time on the ground, and weapons, shields, plating and drone pods by battle. A patrol wears its gear only through battle damage. ${TRAINING_WEAR_SENTENCE}`,
+  `CONDITION: a piece's card shows its condition as a bar, its band and a percent: ${WEAR_BAND_LINE}. Ordinary use stops at ${wearPct(GEAR_USE_FLOOR)}; only battle damage takes a piece lower. Wear never breaks, salvages or uninstalls anything and never blocks a run.`,
+  `WHAT WEAR DOES: a worn piece's own stat lines work a little weaker, on a smooth curve: almost nothing when lightly worn, ${Math.round((1 - WEAR_EFFICIENCY_DEPTH * (1 - GEAR_USE_FLOOR / 1000) ** 2) * 100)}% at ${wearPct(GEAR_USE_FLOOR)}, and never below ${Math.round((1 - WEAR_EFFICIENCY_DEPTH) * 100)}% even at 0. A weapon and the Reactor Core open each fight at their true condition instead (the reactor's power output always stays full). The FTL drive does both: its transit speed and engine efficiency work a little weaker, and it opens each fight at its true condition. Reach, the power budget, crew stations and equip requirements always read a piece as new.`,
+  `REPAIR IS AUTOMATIC AND FREE: it never needs you and never costs anything. Gear recovers ${ratePercentText(GEAR_REPAIR_RATES.home)} at home (a docked ship, every spare in storage), ${ratePercentText(GEAR_REPAIR_RATES.shipyardBay)} while its hull is in a Shipyard repair bay, ${ratePercentText(GEAR_REPAIR_RATES.fieldRepair)} while set down on an expedition field repair, and ${ratePercentText(GEAR_REPAIR_RATES.underway)} out on a run. Officer repair speed and a Damage Control Suite speed up every rate, the same way they shorten a hull repair. On a docked ship you may pay for Overtime from a piece's gear card: each step speeds all of that ship's gear repair by ${Math.round(OVERTIME_STEP_RATE * 100)}% of the normal rate, up to ${OVERTIME_MAX_STEPS} steps, priced by the whole repair job. It only ever speeds the repair, which stays free, and it ends when the gear is full or the ship leaves.`,
+  "WHERE TO SEE IT: tap a piece for its card (its band, what the wear does and when it is back to full). The Ship Systems board shows a small meter on every slot and a Gear chip in its header. Command Home shows one quiet Fleet care line, with hull repairs beside gear wear, only while something is recovering.",
+];
+
 export const HELP_TOPICS: HelpTopic[] = [
   {
     id: "crew",
@@ -1162,6 +1182,12 @@ On the order form, This order uses lists the qualities the order will draw, and 
     id: "combatGear",
     title: "Combat Gear",
     body: "Combat gear is the weapons, shield emitters, hull plating, and drone pods that decide how a warship fights. All four are craftable ship systems: research a blueprint at the Research Lab, fabricate it at the Fabricator, then install it onto a ship. Every ship starts with a free Standard-Issue set in each combat slot, so a hull is never unarmed even before you craft anything. You install combat gear on the ship's Ship Systems board (open the ship on the Ships tab), the same board used for the Cargo, FTL, Reactor, and Spec Utility slots. Every hull has weapon hardpoints (how many depends on the hull; purpose-built warships carry the most), one shield slot, one hull-plating slot, and, on a carrier only, drone bays for its drone pods. To install a piece, tap an empty slot, hardpoint, or bay, then tap a spare from the pool that opens; tap an installed piece to uninstall it, which leaves that slot bare and returns the piece to your spares (this is the same for every slot on the ship, combat and economy alike). Crafted gear is a real upgrade over the Standard-Issue floor: each piece carries a quality grade, a rarity, and an item level, and by the middle item levels good crafted weapons, shields, plating, and drone pods clearly outclass the baseline, raising both your survivability and your firepower.",
+  },
+  {
+    // 0.14.0 gear wear step 5: how gear wears and recovers (GEAR_WEAR_PARAGRAPHS above).
+    id: "gearWear",
+    title: "Gear wear",
+    body: GEAR_WEAR_PARAGRAPHS.join("\n\n"),
   },
   {
     id: "quartermaster",

@@ -19,6 +19,7 @@
 // CP11_CAPTURE = an output path: record every pin instead of asserting (the EM8_CAPTURE pattern).
 
 import { describe, expect, it } from "vitest";
+import { gw5ReadBack } from "./gearWearStep5Registry.fixture"; // Gear wear step 5: its deleted and flipped rows read back, innermost
 import { cp14OffForThisFile } from "./cp14Switch.fixture";
 // Complement CP-19: this file's pins predate the Personnel Rosters track (a new game's facility map gains its
 // pre-granted Level 1), so it runs with the slice off; cp19Goldens.test.ts pins the slice itself.
@@ -59,7 +60,7 @@ const CAPTURE = Boolean(import.meta.env.CP11_CAPTURE);
 const SHIP = "ship-1";
 const HULLS: readonly ShipTypeKey[] = ["aurora", "eir", "generalFreighter"];
 const shipOf = (s: GameState) => s.ships.find((x) => x.id === SHIP)!;
-const REGISTRY = cp12ReadBack(cp13ReadBack(cp14ReadBack(cp16ReadBack(cp18ReadBack(cp19ReadBack(WIRING_REGISTRY))))));
+const REGISTRY = cp12ReadBack(cp13ReadBack(cp14ReadBack(cp16ReadBack(cp18ReadBack(cp19ReadBack(gw5ReadBack(WIRING_REGISTRY)))))));
 
 function registryRows(): string[] {
   return cp11ReadBack(REGISTRY).map((e) => `${e.id}|${JSON.stringify(e.status)}|${e.probe ?? ""}|${e.contexts.join(",")}|${e.claim}`);

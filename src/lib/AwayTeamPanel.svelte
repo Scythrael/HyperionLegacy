@@ -50,6 +50,8 @@
   import { TEAM_KIND_GLYPHS } from "./ui/groundOpsAtoms";
   import RecruitmentBoard from "./RecruitmentBoard.svelte";
   import EquipmentTooltip, { equipmentRarityColor, statLabel } from "./EquipmentTooltip.svelte";
+  // 0.14.0 gear wear step 5: a member piece's condition block on its card (live, gearWearDisplay.ts).
+  import { pieceWearCard } from "./gearWearDisplay";
   import Icon from "./ui/Icon.svelte";
   import type { AwayMember, AwayTeamType, EquipmentInstance, GameState, GroundTeamKind, MemberSlotType } from "./game/model";
   import { GROUND_TEAM_NAME_MAX, type GroundSquadType } from "./game/groundTeams";
@@ -1348,7 +1350,7 @@
     bind:this={tipEl}
     style="left: {tipLeft}px; top: {tipTop}px; visibility: {tipVisible ? 'visible' : 'hidden'};"
   >
-    <EquipmentTooltip piece={tip.piece} />
+    <EquipmentTooltip piece={tip.piece} wear={pieceWearCard(state, tip.piece)} />
   </div>
 {/if}
 

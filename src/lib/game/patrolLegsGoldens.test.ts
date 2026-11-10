@@ -9,6 +9,11 @@ import { cp16OffForThisFile } from "./cp16Switch.fixture";
 // keep proving their own slice (cp16Goldens.test.ts pins what CP-16 moved: the missions counter, the notables and
 // the Hall of Command entry).
 cp16OffForThisFile();
+import { gearRepairJobOffForThisFile } from "./gearRepairJobSwitch.fixture";
+// Gear wear step 5 review fix (the Overtime price) came after every pin here: a ship that ends a run home with worn
+// gear gains its docked repair job record (ShipInstance.gearRepairJobMinutes), which moves only the state hash. The
+// file ticks without the record, so its pins keep proving their own slice (gearWearStep5Fixes.test.ts pins the record).
+gearRepairJobOffForThisFile();
 import { writeFileSync } from "node:fs";
 import { economyTick } from "./tick";
 import { hash } from "./firstRunsGoldens.fixture";

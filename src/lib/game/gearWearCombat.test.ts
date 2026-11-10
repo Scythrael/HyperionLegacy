@@ -43,6 +43,7 @@ import { runCountsOf } from "./runDifficulty";
 import { buildHomeDashboard } from "./homeDashboard";
 import { WIRING_REGISTRY } from "./wiring/registry";
 import { GW4_CHANGED, GW4_FLIPPED_LIVE } from "./gearWearCombatRegistry.fixture";
+import { gw5ReadBack } from "./gearWearStep5Registry.fixture";
 
 const RNG = () => 0.5;
 
@@ -320,7 +321,8 @@ describe("gear wear step 4: the Damage Control Suite (its fires and its lines)",
 
 describe("gear wear step 4: the registry (every row step 4 owned is live with a probe; gearWearCombatRegistry.fixture.ts reads the move back)", () => {
   it("the battle sources, the combat consumers, the suite's fires and lines and the toughness rows", () => {
-    const rows = WIRING_REGISTRY.filter((e) => GW4_FLIPPED_LIVE.has(e.id) || GW4_CHANGED.has(e.id));
+    // Read through step 5's read-back (step 5 closed the reactor row on the user's EM-4 answer), so this pins step 4's move.
+    const rows = gw5ReadBack(WIRING_REGISTRY).filter((e) => GW4_FLIPPED_LIVE.has(e.id) || GW4_CHANGED.has(e.id));
     expect(rows.length).toBe(GW4_FLIPPED_LIVE.size + GW4_CHANGED.size);
     for (const e of rows) {
       if (e.id === "wear:WEAR_EFFICIENCY:reactorCore:powerOutput") {

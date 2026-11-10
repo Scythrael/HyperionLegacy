@@ -6,8 +6,8 @@
 //
 // USER ANSWERS this binds (design USER ANSWERS, 2026-10-16): "Gentle" (use wears a piece to 60% at most, a fully worn
 // piece works at 75%: gearWear.ts useWear and the worn-gear view); "No wear on training; implants slow" (a training
-// run makes no wear event; the implant is the slowest source); "Free auto + paid rush" (every repair here is automatic
-// and free; the paid rush is step 5); "Separate, shown together" (hull damage stays its own Shipyard system: a hull in
+// run makes no wear event; the implant is the slowest source); repair is automatic and free (the paid rush was dropped,
+// user 2026-11-09 "None, always automatic"; step 5's Overtime only speeds a docked ship's rate); "Separate, shown together" (hull damage stays its own Shipyard system: a hull in
 // a repair bay only lends its gear the faster bay rate). Battle wear and the combat half are step 4 (see below).
 //
 // THE USE WEAR SOURCES, per kind (gearWear.ts WEAR_SOURCES, every amount through useWear: toughness-scaled, shrinking
@@ -91,10 +91,13 @@ import {
   applyBattleWearAt,
   pieceCondition,
   repairRatePerMinute,
+  decodeRepairAnchor,
+  encodeRepairAnchor,
+  repairRateQ,
   settlePiece,
   useWear,
   useWearRaw,
-  withPieceCondition,
+  withWornCondition,
   wornPieceView,
   type RepairContext,
   type RepairRateBonus,
@@ -102,6 +105,7 @@ import {
 import type { ShortRangeWearEvents } from "./shortRangeCycle";
 import { isFirstGatheringRun } from "./runDifficulty";
 import { studyDiveEvents } from "./gasGiantStudy";
+import { overtimeRate } from "./overtimeRate";
 
 // ============================================================================
 // The switch, the stamps and the run sheet
@@ -539,8 +543,7 @@ export function applyUseWear(piece: EquipmentInstance, raw: number, at: number):
   const c = pieceCondition(piece);
   const amount = useWear(raw, piece.durabilityMax, c);
   if (!(amount > 0)) return piece;
-  const anchor = piece.condition !== undefined && piece.conditionAt !== undefined ? piece.conditionAt : at;
-  return withPieceCondition(piece, c - amount, anchor);
+  return withWornCondition(piece, c - amount, at);
 }
 
 // ONE ship event on a ship piece at `at` (already settled to `at`): its use wear, then its battle wear (step 4; design
@@ -695,21 +698,163 @@ export function pieceRepairRate(
     bonuses = ship ? shipRepairBonuses(state, ship, favored, hullBonus) : {};
     cache?.set(key, bonuses);
   }
-  return repairRatePerMinute(context, bonuses);
+  const rate = repairRatePerMinute(context, bonuses);
+  // GEAR WEAR step 5, Overtime on gear repair: a docked ship's own installed pieces repair faster by its bought steps.
+  // Never a ship out on a run (the record is inert there and clears at the call's tail), never the span after a run
+  // ended within the call (postRun: the ship could not have bought it while out), never member gear or storage.
+  if (postRun || piece.fittedToShipId !== shipId || index.out.has(shipId) || (context !== "home" && context !== "shipyardBay")) return rate;
+  return rate * gearOvertimeMult(state, shipId);
+}
+
+// ============================================================================
+// GEAR WEAR step 5: Overtime on gear repair (processSpeed.ts buyGearRepairOvertime), the engine's read
+// ============================================================================
+
+const OVERTIME_MULT_CACHE = new WeakMap<readonly ShipInstance[], Map<string, number>>();
+
+// The repair rate multiplier a ship's bought Overtime steps give its docked gear (1 without a record). Pure (cached per
+// ships array, which every state change replaces).
+export function gearOvertimeMult(state: Pick<GameState, "ships">, shipId: string): number {
+  let byShip = OVERTIME_MULT_CACHE.get(state.ships);
+  if (byShip === undefined) {
+    byShip = new Map();
+    for (const s of state.ships) {
+      const steps = s.gearRepairSpeed?.overtimeSteps ?? 0;
+      if (steps > 0) byShip.set(s.id, overtimeRate(steps));
+    }
+    OVERTIME_MULT_CACHE.set(state.ships, byShip);
+  }
+  return byShip.get(shipId) ?? 1;
+}
+
+// A ship's INSTALLED pieces that are worn right now (livePieceCondition below full). Pure.
+export function shipWornPieces(state: GameState, shipId: string): EquipmentInstance[] {
+  return state.equipment.filter((p) => p.fittedToShipId === shipId && p.condition !== undefined && livePieceCondition(state, p) < CONDITION_FULL);
+}
+
+// Where a piece is recovering and how fast, for the readouts (the gear card, the ship header, the fleet care line) and
+// the Overtime price. `context` is the display context ("fieldRepair" while its ship is set down on a GO-8b leg right
+// now); `ratePerMinute` the rate it repairs at now (Overtime included); `minutesToFull` the minutes until it is back to
+// full where it is (a docked ship in a Shipyard bay: at the bay rate until the hull repair ends, then at the home rate),
+// null while its ship is out on a run (it repairs slowly underway and fully once home). `normal` reads the rates
+// WITHOUT Overtime (the Overtime price: the job's size at the normal rate). Pure.
+export interface GearRepairOutlook {
+  condition: number;
+  context: RepairContext;
+  ratePerMinute: number;
+  minutesToFull: number | null;
+}
+
+export function gearRepairOutlook(state: GameState, piece: EquipmentInstance, normal = false): GearRepairOutlook {
+  const condition = livePieceCondition(state, piece);
+  const index = repairContextIndex(state);
+  const base = pieceRepairContext(index, piece);
+  const shipId = pieceShipId(index, piece);
+  const context: RepairContext = base === "underway" && shipId !== null && index.field.has(shipId) ? "fieldRepair" : base;
+  const strip = (rate: number): number => (normal && shipId !== null ? rate / (piece.fittedToShipId === shipId && !index.out.has(shipId) ? gearOvertimeMult(state, shipId) : 1) : rate);
+  const ratePerMinute = strip(pieceRepairRate(state, index, piece, context));
+  const need = CONDITION_FULL - condition;
+  if (need <= 0) return { condition, context, ratePerMinute, minutesToFull: 0 };
+  if (context === "underway" || context === "fieldRepair" || !(ratePerMinute > 0)) return { condition, context, ratePerMinute, minutesToFull: null };
+  if (context === "shipyardBay" && shipId !== null) {
+    const repair = state.activeProcesses.find((p) => p.kind === "shipRepair" && p.effect.type === "clearShipDamage" && p.effect.shipId === shipId);
+    const bayMinutes = repair ? (repair.remainingTicks * state.tickDurationSeconds) / 60 : Infinity;
+    if (need <= ratePerMinute * bayMinutes) return { condition, context, ratePerMinute, minutesToFull: need / ratePerMinute };
+    const homeRate = strip(pieceRepairRate(state, index, piece, "home"));
+    return { condition, context, ratePerMinute, minutesToFull: bayMinutes + (need - ratePerMinute * bayMinutes) / homeRate };
+  }
+  return { condition, context, ratePerMinute, minutesToFull: need / ratePerMinute };
+}
+
+// The pieces of a docked ship settled to now at the rate they repair at now, then re-anchored for a NEW Overtime
+// multiplier (rebaseAnchor: the fraction of a per-mille the old rate banked carries over at the new rate), so a
+// purchase changes the rate from this instant on and never repairs time already spent. Pure.
+export function settleShipForRateChange(state: GameState, shipId: string, newMult: number): GameState {
+  const index = repairContextIndex(state);
+  const now = state.gameTimeSeconds;
+  const oldMult = gearOvertimeMult(state, shipId);
+  let changed = false;
+  const equipment = state.equipment.map((piece) => {
+    if (piece.fittedToShipId !== shipId || piece.condition === undefined) return piece;
+    const rate = pieceRepairRate(state, index, piece, pieceRepairContext(index, piece));
+    const settled = settlePiece(piece, now, rate);
+    const p = rebaseAnchor(settled, now, rate, (rate / oldMult) * newMult);
+    if (p !== piece) changed = true;
+    return p;
+  });
+  return changed ? { ...state, equipment } : state;
+}
+
+// The full length of a ship's docked gear repair job right now, in minutes at the NORMAL rate (no Overtime): the time
+// its slowest worn installed piece needs where it is. 0 with nothing worn; null while the ship is out on a run. Pure.
+export function shipGearJobMinutes(state: GameState, shipId: string): number | null {
+  let most = 0;
+  for (const piece of shipWornPieces(state, shipId)) {
+    const m = gearRepairOutlook(state, piece, true).minutesToFull;
+    if (m === null) return null;
+    most = Math.max(most, m);
+  }
+  return most;
+}
+
+// THE DOCKED GEAR REPAIR JOB (user 2026-11-09 "Match the existing rule": Overtime is priced by the job's FULL length,
+// fixed when bought): at the call's tail each docked ship with worn installed gear and no record gets one, its full
+// length at the normal rate (ShipInstance.gearRepairJobMinutes), read at the call's START when the ship was docked and
+// worn then (the call after a run came home, a worn piece installed between ticks, a save loaded docked and worn: the
+// job starts there, so one call, chunks and 1 s steps record the same length), else at its end (a docked piece worn
+// within the call). A ship out at the call's start or end has no job (it starts the next call). The job and any Overtime on it end once the
+// ship is out on a run (at the call's start or end) or none of its installed pieces is worn any more. A ship docked the
+// whole call only ever recovers, so clearing at any call boundary after it is full changes no piece (offline == live).
+// Pure.
+// The test-only seam golden files captured before the job record use to tick as before it (gearRepairJobSwitch.fixture
+// .ts): off, no job is recorded (Overtime still clears as before). Live in the game.
+export const GEAR_REPAIR_JOB_SWITCH = { live: true };
+
+function trackGearRepairJobs(before: GameState, state: GameState, index: RepairContextIndex, indexAfter: RepairContextIndex): GameState {
+  const worn = new Set<string>();
+  for (const p of state.equipment) if (p.fittedToShipId && p.condition !== undefined) worn.add(p.fittedToShipId);
+  if (worn.size === 0 && !state.ships.some((s) => s.gearRepairSpeed !== undefined || s.gearRepairJobMinutes !== undefined)) return state;
+  let wornBefore: Set<string> | null = null;
+  let changed = false;
+  const ships = state.ships.map((s) => {
+    const docked = !index.out.has(s.id) && !indexAfter.out.has(s.id) && worn.has(s.id);
+    if (!docked) {
+      if (s.gearRepairSpeed === undefined && s.gearRepairJobMinutes === undefined) return s;
+      changed = true;
+      const { gearRepairSpeed: _ot, gearRepairJobMinutes: _j, ...rest } = s;
+      return rest as ShipInstance;
+    }
+    if (s.gearRepairJobMinutes !== undefined || !GEAR_REPAIR_JOB_SWITCH.live) return s;
+    if (wornBefore === null) {
+      wornBefore = new Set<string>();
+      for (const p of before.equipment) if (p.fittedToShipId && p.condition !== undefined) wornBefore.add(p.fittedToShipId);
+    }
+    const from = wornBefore.has(s.id) ? before : state;
+    const minutes = shipGearJobMinutes(from, s.id) ?? shipGearJobMinutes(state, s.id) ?? 0;
+    changed = true;
+    return { ...s, gearRepairJobMinutes: minutes };
+  });
+  return changed ? { ...state, ships } : state;
 }
 
 // GEAR WEAR step 4 fix (design 7, "rate constant between anchors"): a piece settled to `at` at `oldRate` keeps the
 // time it has not yet turned into a whole per-mille (settlePiece carries the leftover by leaving its anchor behind).
-// Before it settles on at `newRate`, that leftover is re-expressed as the same FRACTION of a per-mille at the new rate:
-// the anchor moves to at - fraction x 60 / newRate. Without it a run ending into a faster context (underway, 2 a
-// minute, into home or a Shipyard bay) repaired the whole leftover underway time at the faster rate. A pristine piece,
-// an anchor at or after `at`, or no rate change returns the piece as it is. Pure.
+// Before it settles on at `newRate`, that leftover is re-expressed as the same FRACTION of a per-mille at the new rate.
+// Without it a run ending into a faster context (underway, 2 a minute, into home or a Shipyard bay) repaired the whole
+// leftover underway time at the faster rate. GEAR WEAR step 5 fix C1: in integers, the bank banked by `at` at the old
+// rate (decodeRepairAnchor) is kept as is (a fraction of a per-mille does not depend on the rate) and the anchor is
+// re-encoded from it at the new rate, at - bank / newRateQ (the same instant the old float arithmetic gave). A pristine
+// piece, an anchor at or after `at`, or no rate change returns the piece as it is. Pure.
 export function rebaseAnchor(piece: EquipmentInstance, at: number, oldRate: number, newRate: number): EquipmentInstance {
   if (piece.condition === undefined || piece.conditionAt === undefined || !(newRate > 0) || oldRate === newRate) return piece;
-  const leftover = at - piece.conditionAt;
-  if (!(leftover > 0)) return piece;
-  const fraction = Math.max(0, (oldRate * leftover) / 60);
-  return { ...piece, conditionAt: at - (fraction * 60) / newRate };
+  const p = settlePiece(piece, at, oldRate);
+  if (p.condition === undefined || p.conditionAt === undefined || !(at > p.conditionAt)) return p;
+  const oldQ = repairRateQ(oldRate);
+  const newQ = repairRateQ(newRate);
+  if (oldQ <= 0 || newQ <= 0) return p;
+  const { at: from, bank } = decodeRepairAnchor(p.conditionAt, oldQ);
+  const banked = bank + oldQ * (at - from);
+  return { ...p, conditionAt: encodeRepairAnchor(at, banked, newQ) };
 }
 
 // A piece's condition RIGHT NOW without writing it (the UI and the readouts, design 7 "reads compute condition
@@ -734,7 +879,12 @@ export function livePieceCondition(state: GameState, piece: EquipmentInstance): 
 // header for the rules. The SAME `after` reference when nothing changed. Pure.
 export function resolveGearWear(before: GameState, after: GameState, events: GearWearEvents | null): GameState {
   const hasEvents = events !== null && (events.ships.size > 0 || events.members.size > 0);
-  if (!hasEvents && !after.equipment.some((p) => p.condition !== undefined)) return after;
+  if (!hasEvents && !after.equipment.some((p) => p.condition !== undefined)) {
+    // GEAR WEAR step 5: a ship's gear repair job and its Overtime end once nothing on it is worn (or it left on a run).
+    return after.ships.some((s) => s.gearRepairSpeed !== undefined || s.gearRepairJobMinutes !== undefined)
+      ? trackGearRepairJobs(before, after, repairContextIndex(before), repairContextIndex(after))
+      : after;
+  }
   const now = after.gameTimeSeconds;
   const index = repairContextIndex(before);
   const indexAfter = repairContextIndex(after);
@@ -783,5 +933,6 @@ export function resolveGearWear(before: GameState, after: GameState, events: Gea
     if (p !== piece) changed = true;
     return p;
   });
-  return changed ? { ...after, equipment } : after;
+  // GEAR WEAR step 5: and a docked ship's gear repair job starts or ends (its Overtime with it).
+  return trackGearRepairJobs(before, changed ? { ...after, equipment } : after, index, indexAfter);
 }

@@ -47,7 +47,17 @@ const MOVED: Record<string, unknown> = {
   "retire:final": ["1d197944", "62129c60"],
   "save": ["77260b58", "1ef98ed0"],
 };
-const PINS: Record<string, unknown> = { ...CP16_PINS_PRE, ...MOVED };
+// GEAR WEAR step 5 review fix C1 (exact repair settling, 2026-11-09): the Eir's crew lift raises its gear repair rate off the free 2, 40 and 80 a minute, so their pieces'
+// repair anchors are now encoded exactly from integers (the rate quantized to a thousandth of a per-mille a minute)
+// where the old float arithmetic drifted; only the state hashes move (with the old settle every pin here holds, checked
+// at the fix). C1_MOVED overlays the current pins, C1_MOVED_PRE the pre-slice pins.
+const C1_MOVED: Record<string, unknown> = {
+  "shortRange:eir:tierOne": ["b00f4dc1", "7e3029f8"],
+};
+const C1_MOVED_PRE: Record<string, unknown> = {
+  "shortRange:eir:tierOne": ["bc1870ee", "a7f0f72b"],
+};
+const PINS: Record<string, unknown> = { ...CP16_PINS_PRE, ...MOVED, ...C1_MOVED };
 
 describe("Complement CP-16 goldens (captured before the Hall of Command)", () => {
   it("every reading matches its pin (moves are named in MOVED)", () => {
@@ -61,11 +71,11 @@ describe("Complement CP-16 goldens (captured before the Hall of Command)", () =>
   }, 600_000);
 
   it("with the slice switched off every row returns to its pre-CP-16 pin", () => {
-    expect(withoutCp16(() => cp16Rows())).toEqual(CP16_PINS_PRE);
+    expect(withoutCp16(() => cp16Rows())).toEqual({ ...CP16_PINS_PRE, ...C1_MOVED_PRE });
   }, 600_000);
 
   it("with the CP-16 records taken off every row returns to its pre-CP-16 pin (nothing else moved)", () => {
-    expect(cp16Rows(asPreCp16)).toEqual(CP16_PINS_PRE);
+    expect(cp16Rows(asPreCp16)).toEqual({ ...CP16_PINS_PRE, ...C1_MOVED_PRE });
   }, 600_000);
 
   it("the registry read-back names exactly the rows CP-16 added, each live", () => {

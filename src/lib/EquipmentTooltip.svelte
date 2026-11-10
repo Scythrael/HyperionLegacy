@@ -368,6 +368,7 @@
   // subject is an equipment instance (materials/ships/crafts carry no per-item actions).
   // ============================================================================
   import Icon from "./ui/Icon.svelte";
+  import { WEAR_BAND_TICKS, type PieceWearCard } from "./gearWearDisplay";
 
   // NEW primary API: the tagged subject. LEGACY: `piece` alone still works and maps to an
   // equipment subject, so the finished-gear call sites need no change.
@@ -388,6 +389,13 @@
   // WR-7 follow-up (OC-D5): the hull the host shows `piece` on, when it knows one (Ship Systems), so a favored-variety
   // piece says whether its "+10% on its ship type" applies there and its derived readouts read the favored lines.
   export let hostTypeKey: ShipTypeKey | undefined = undefined;
+  // GEAR WEAR step 5 (the approved mockup's gear card): the piece's condition block, read live by the host from the
+  // engine (gearWearDisplay.ts pieceWearCard): the bar with its band, the effect line, the worn lines and the care
+  // footer. Absent where the host has no live state for the piece (a craft reveal, the combat view's frozen fight).
+  export let wear: PieceWearCard | null = null;
+  // GEAR WEAR step 5 (the 2026-11-09 Overtime mockup, approved; user "Gear card only", "One tap"): buys the next gear
+  // repair Overtime step on the piece's ship. Absent = the strip shows its state but no button (a host that cannot buy).
+  export let onBuyGearOvertime: ((shipId: string) => void) | undefined = undefined;
 
   $: resolved = subject ?? (piece !== undefined ? ({ kind: "equipment", piece } as const) : null);
 
@@ -697,6 +705,55 @@
     {#if !collapsed}
     <!-- STATS block (above the divider) — varies by kind. -->
     {#if view.kind === "equipment"}
+      <!-- GEAR WEAR step 5 (the approved mockup's gear card): the condition bar with its band and percent (ticks at the
+           band edges), what it wears by, and the effect line. -->
+      {#if wear}
+        <div class="et-sec et-wear wear-b-{wear.band.key}">
+          <div class="et-wear-top">
+            <span>Condition{#if wear.wearsBy}&nbsp;<span class="et-wear-by">· wears by {wear.wearsBy}</span>{/if}</span>
+            <span><span class="wear-band-name">{wear.band.name}</span> <span class="wear-pct">{wear.percent}%</span></span>
+          </div>
+          <span class="wear-meter wide" role="meter" aria-valuemin="0" aria-valuemax="100" aria-valuenow={wear.percent} aria-label={`Condition ${wear.percent}%, ${wear.band.name}`}>
+            <i style="width: {wear.percent}%"></i>
+            {#each WEAR_BAND_TICKS as t (t)}<b style="left: {t}%"></b>{/each}
+          </span>
+          <div class="et-wear-effect"><b>{wear.lead}</b> {wear.effect}</div>
+          {#if wear.lines.length > 0}
+            <div class="et-wear-lines">
+              {#each wear.lines as line (line.key)}
+                <div><span>{statLabel(line.key)}</span><span><s>{fmtStat(line.was)}</s> <b>{fmtStat(line.now)}</b></span></div>
+              {/each}
+            </div>
+          {/if}
+          <div class="et-wear-care"><Icon name="gearCondition" /> <span>{wear.care}</span></div>
+          <!-- The Overtime strip (the 2026-11-09 mockup): per ship, one tap, every number from the engine's quote. -->
+          {#if wear.overtime}
+            {@const ot = wear.overtime}
+            <div class="et-ot" data-ot-state={ot.state}>
+              <div class="et-ot-row">
+                <span class="et-ot-tag" class:off={ot.state === "out"}><Icon name="overtime" /> Overtime</span>
+                <span class="et-ot-pips" title={`${ot.steps} of ${ot.maxSteps} steps`} aria-label={`${ot.steps} of ${ot.maxSteps} Overtime steps`}>
+                  {#each Array(ot.maxSteps) as _, i (i)}<i class:on={i < ot.steps}></i>{/each}
+                </span>
+                <span class="et-ot-n">{#if ot.steps > 0}<b>{ot.steps} of {ot.maxSteps}</b> · {ot.rateText}{:else}0 of {ot.maxSteps}{/if}</span>
+                {#if ot.state === "max"}
+                  <span class="et-ot-max"><Icon name="check" /> At its fastest</span>
+                {:else if ot.state === "buy" && onBuyGearOvertime}
+                  <button type="button" class="et-ot-btn" on:click={() => onBuyGearOvertime?.(ot.shipId)}>{ot.button}</button>
+                {:else}
+                  <span class="et-ot-btn off" aria-disabled="true">{ot.button}</span>
+                {/if}
+              </div>
+              {#if ot.state === "out"}
+                <div class="et-ot-why"><Icon name="info" /> <span>{ot.note}</span></div>
+              {:else}
+                {#if ot.when}<div class="et-ot-when">{ot.when}</div>{/if}
+                <div class="et-ot-dim">{ot.note}</div>
+              {/if}
+            </div>
+          {/if}
+        </div>
+      {/if}
       <!-- WEAPON COMBAT stats (damage range / accuracy / fire rate / range / family). These come
            from the weapon's base def folded with the rolled yield/accuracy, NOT the raw rolled
            lines below, so a weapon card shows what it actually fires. Shown first (the result), with
@@ -1063,6 +1120,158 @@
     padding: 9px 13px;
     font-size: var(--text-sm);
     color: var(--color-text-secondary);
+  }
+
+  /* GEAR WEAR step 5: the condition block (bar, band, effect, worn lines, care footer). The bar and the band colors
+     are global (app.css .wear-meter / .wear-b-*): calm, never red. */
+  .et-wear {
+    display: grid;
+    gap: 6px;
+    padding: 9px 13px;
+    font-size: var(--text-sm);
+  }
+  .et-wear-top {
+    display: flex;
+    justify-content: space-between;
+    gap: 8px;
+    color: var(--color-text-secondary);
+  }
+  .et-wear-by {
+    color: var(--color-text-dim);
+    font-size: var(--text-2xs);
+  }
+  .et-wear-effect {
+    color: var(--color-text-secondary);
+  }
+  .et-wear-effect b {
+    color: var(--color-text-primary);
+  }
+  .et-wear-lines {
+    display: grid;
+    gap: 3px;
+    font-size: var(--text-2xs);
+  }
+  .et-wear-lines div {
+    display: flex;
+    justify-content: space-between;
+    gap: 8px;
+    border-bottom: 1px dashed rgba(var(--color-accent-rgb), 0.15);
+  }
+  .et-wear-lines s {
+    color: var(--color-text-dim);
+  }
+  .et-wear-care {
+    display: flex;
+    gap: 6px;
+    align-items: flex-start;
+    padding: 6px 8px;
+    border: 1px solid rgba(var(--color-success-rgb, 52, 211, 153), 0.35);
+    background: rgba(var(--color-success-rgb, 52, 211, 153), 0.08);
+    color: var(--color-text-secondary);
+    font-size: var(--text-2xs);
+  }
+
+  /* The Overtime strip (the 2026-11-09 mockup), attached under the care footer, one border family. */
+  .et-ot {
+    display: grid;
+    gap: 5px;
+    margin-top: -7px;
+    padding: 7px 8px 8px;
+    border: 1px solid rgba(var(--color-accent-rgb), 0.22);
+    border-top: 1px dashed rgba(var(--color-accent-rgb), 0.28);
+    background: rgba(var(--color-accent-rgb), 0.03);
+    font-size: var(--text-2xs);
+    color: var(--color-text-secondary);
+  }
+  .et-ot-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 7px;
+  }
+  .et-ot-tag {
+    display: inline-flex;
+    gap: 5px;
+    align-items: center;
+    font-family: var(--font-mono);
+    font-size: var(--text-2xs);
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--color-accent-bright);
+  }
+  .et-ot-tag.off {
+    color: var(--color-text-dim);
+  }
+  .et-ot-pips {
+    display: inline-flex;
+    gap: 3px;
+    align-items: center;
+  }
+  .et-ot-pips i {
+    width: 9px;
+    height: 5px;
+    border: 1px solid rgba(var(--color-accent-rgb), 0.5);
+    border-radius: 1px;
+  }
+  .et-ot-pips i.on {
+    background: var(--color-accent);
+    border-color: var(--color-accent);
+  }
+  .et-ot-n {
+    font-family: var(--font-mono);
+    font-size: var(--text-2xs);
+    color: var(--color-text-dim);
+    white-space: nowrap;
+  }
+  .et-ot-n b {
+    color: var(--color-text-primary);
+    font-weight: 400;
+  }
+  .et-ot-btn {
+    margin-left: auto;
+    min-height: 26px;
+    padding: 3px 8px;
+    display: inline-flex;
+    gap: 5px;
+    align-items: center;
+    white-space: nowrap;
+    font: inherit;
+    font-family: var(--font-mono);
+    font-size: var(--text-2xs);
+    color: var(--color-accent);
+    background: rgba(var(--color-accent-rgb), 0.06);
+    border: 1px solid var(--color-border-strong);
+    border-radius: var(--corner, 2px);
+    cursor: pointer;
+  }
+  .et-ot-btn:hover:not(.off) {
+    background: rgba(var(--color-accent-rgb), 0.14);
+  }
+  .et-ot-btn.off {
+    cursor: default;
+    color: var(--color-text-dim);
+    border-color: rgba(98, 133, 145, 0.45);
+    border-style: dashed;
+    background: transparent;
+  }
+  .et-ot-max {
+    margin-left: auto;
+    display: inline-flex;
+    gap: 4px;
+    align-items: center;
+    white-space: nowrap;
+    font-family: var(--font-mono);
+    font-size: var(--text-2xs);
+    color: var(--color-success);
+  }
+  .et-ot-dim {
+    color: var(--color-text-dim);
+    font-size: var(--text-3xs);
+  }
+  .et-ot-why {
+    display: flex;
+    gap: 5px;
+    align-items: flex-start;
   }
 
   /* FLAVOR: secondary, under a divider (border-top), at the bottom. */

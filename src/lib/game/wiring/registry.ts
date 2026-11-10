@@ -184,7 +184,7 @@ import { RARITY_PROFILES } from "../rarityProfiles";
 import { ASCENSION_BUDGET_MULT } from "../ascension";
 import { AFFIX_DEFS, ESCALATION_ENEMIES_PER_LEVEL, HEIGHTENED_SENSES_KNEE, HEIGHTENED_SENSES_PER_LEVEL } from "../affixes";
 import { ENEMY_RANKS, ENEMY_RANK_IDS } from "../enemyRanks";
-import { OVERTIME_STEP_RATE } from "../processSpeed";
+import { OVERTIME_STEP_RATE, buyGearRepairOvertime } from "../processSpeed";
 import { SHORT_RANGE_TEMPLATES, SHORT_RANGE_TEMPLATE_KEYS } from "../shortRange";
 import { GAS_CANISTER_IDS, GAS_STUDY_USES, GIANT_CLASSES, NEBULA_KINDS, RESEARCH_FAMILIES, type GasCanisterId, type GasStudyUse } from "../gasGiantContent";
 // Gas Giant Study GG-7: the special blueprints and the canisters' consumers.
@@ -540,13 +540,21 @@ function pending(owner: string, contexts?: readonly ContextId[]): WiringStatus {
 // cycles probe (no-dead-stats) and crew:audit:pilotCunningReturn prove the consumer moves.
 // Gear wear (0.14.0, design docs/plans/2026-10-16-gear-wear-design.md section 11) owners: step 3 wires the use wear
 // sources, the repair contexts and the economy / ground efficiency; step 4 the combat half (battle wear, the
-// true-condition pools, shield / plating / pod efficiency); step 5 the UI and the optional paid repair. Each step
-// flips its entries live in the same commit. Step 4 flipped every entry it owned (the battle sources, the combat
-// consumers, the Damage Control Suite's fires and lines, the defense and pod toughness rows); the Reactor Core's power
-// output consumer is re-owned to the user's EM-4 open call (item 4, the drive lift reads it pristine as built).
+// true-condition pools, shield / plating / pod efficiency); step 5 the UI and Overtime on gear repair (Quick Service
+// dropped by the user, 2026-11-09; patrol use wear built and then REMOVED by the user, 2026-11-09 "Combat only on
+// patrols": a patrol wears its gear by battle alone). Each step flips its entries live in the same commit. Step 4 flipped
+// every entry it owned (the battle sources, the combat consumers, the Damage Control Suite's fires and lines, the
+// defense and pod toughness rows); the Reactor Core's power output consumer was re-owned to the user's EM-4 open call
+// (item 4, the drive lift reads it pristine as built). Step 5 took wear:audit:gearRepairOvertime live, and the user's
+// 2026-11-09 answer to that EM-4 call ("Stays full (Recommended)": wear never cuts reactor power output) closed the
+// reactor row as LIVE and not applicable (REACTOR_OUTPUT_STAYS_FULL).
 const GEAR_WEAR_STEP_3 = "gear wear step 3 (use wear sources, repair contexts and settling at events)";
-const EM4_WORN_OUTPUT_CALL = "the user's EM-4 open call (review item 4, material lines plan): the drive lift reads the Reactor Core's PRISTINE output as built ((a) keep pristine; (b) read the worn output); in combat the core's wear acts through its true-condition pool (wear:WEAR_SOURCES:reactorCore:hitsTaken), never a second penalty (user W3)";
-const GEAR_WEAR_STEP_5 = "gear wear step 5 (UI: condition bars, the care line, Quick gear repair and Overtime for credits)";
+// The user's answer to the EM-4 open call (2026-11-09, "Stays full (Recommended)"). Wear never cuts reactor power output:
+// every reader (the install gate, design 4.3; the combat power budget; the reactor surplus drive lift) reads the
+// PRISTINE output, and in combat the core's wear acts through its true-condition pool alone (user W3). The row is kept
+// LIVE with notApplicable (the registry's record of a deliberately unaffected stat), never left pending.
+const REACTOR_OUTPUT_STAYS_FULL =
+  "wear never cuts reactor power output (the user's answer to the EM-4 open call, 2026-11-09: \"Stays full (Recommended)\"): the install gate, the combat power budget and the reactor surplus drive lift all read the PRISTINE output; in combat the core's wear acts through its true-condition pool alone (wear:WEAR_SOURCES:reactorCore:hitsTaken, user W3)";
 // The user's T3 deferrals (capture 2026-10-15 section 3: "Move all five (Recommended)").
 const T3 = "capture 2026-10-15 section 3 T3 (moved to 0.14.x)";
 // G1-4: the guest quarters sources and the short-range template catalog are LIVE at mission:shortRange (the cycle
@@ -4746,9 +4754,9 @@ const AUDIT_ROWS: readonly { id: string; system: WiringSystem; claim: string; st
   // WR-11 (OC-H1 "Members too"): the Museum's Science team power also scales each named Science member's own fieldwork.
   { id: "relic:audit:scienceTeamPowerMembers", system: "relic", claim: "Museum Science team power scales each named Science member's own fieldwork (frozen at dispatch)", status: LIVE },
   { id: "salvage:audit:ascension", system: "salvage", claim: "ascension (always none)", status: pending("OC-C4") },
-  // K. Gear wear (0.14.0): the user's "Free auto + paid rush" and credit sinks "Quick gear repair" plus Overtime.
-  { id: "wear:audit:quickGearRepair", system: "wear", claim: "Quick gear repair: an optional instant gear repair for credits; the free automatic repair stays the default", status: pending(GEAR_WEAR_STEP_5) },
-  { id: "wear:audit:gearRepairOvertime", system: "wear", claim: "Overtime on gear repair: pay credits to speed a ship's gear recovery by a set percent (never doubling, never instant)", status: pending(GEAR_WEAR_STEP_5) },
+  // K. Gear wear (0.14.0): credit sinks Overtime on gear repair (gear wear step 5). The "Quick gear repair" row is gone:
+  // the user dropped Quick Service (2026-11-09, "None, always automatic": no paid rush and no instant repair).
+  { id: "wear:audit:gearRepairOvertime", system: "wear", claim: "Overtime on gear repair: pay credits to speed a docked ship's gear recovery by 25% of the normal rate a step (never doubling, never instant)", status: LIVE },
 ];
 
 function auditEntries(): WiringEntry[] {
@@ -5128,6 +5136,21 @@ function auditRowWiring(): Readonly<Record<string, Partial<EntryInput>>> {
       base: bareHull,
       on: reactorOutput(REACTOR_LIFT_PROBE_OUTPUT),
       off: reactorOutput(0),
+    },
+    // Gear wear step 5: one Overtime step bought on the docked fixture ship (its cargo bay worn to WEAR_FIXTURE_CONDITION)
+    // lifts the repair its gear gets in WEAR_REPAIR_MINUTES at home by OVERTIME_STEP_RATE (processSpeed.ts
+    // buyGearRepairOvertime; the engine's pass, gearWearEngine.ts pieceRepairRate).
+    "wear:audit:gearRepairOvertime": {
+      probe: "wear:repairGain" as ProbeId,
+      contexts: ["fleet"],
+      direction: "up",
+      curve: { kind: "linearRelative" },
+      magnitude: () => OVERTIME_STEP_RATE,
+      base: () => ({ ...wornCargoFixture(), credits: new Decimal(1e9) }),
+      on: (s) => wearRepairMinutes(buyGearRepairOvertime(s, WIRING_SHIP_ID).next, false),
+      off: (s) => wearRepairMinutes(s, false),
+      tolerance: 1,
+      note: "the ship docked at home; a step is refused while it is out on a run, so the lift acts only where it is docked; each step is priced by the repair job's full length, recorded when the job starts (user 2026-11-09 \"Match the existing rule\", gearWearStep5Fixes.test.ts), and bought from the gear card's Overtime button",
     },
     // Pause to repair: weapons worn so far down that the next cycle would break them pause; pristine gear relaunches.
     "ship:audit:patrolRepairPause": {
@@ -7400,9 +7423,17 @@ function wearEntries(): WiringEntry[] {
     // 0.13.6 (an infinite fuel budget: facility:audit:fuelAutoBuy); reach reads the pristine drive (design 4.3).
     "ftlDrive:engineEfficiency": pending("S4-A02 (the fuel-economy cleanup: a run's fuel price is engine efficiency's only run-time reader, unreachable since 0.13.6; reach reads the pristine drive, design 4.3)"),
     // The reactor's power output is read by the install gate (pristine), the combat power budget, where combat's own
-    // model is the authority (W3), and since E-MOD EM-4 the reactor surplus drive lift, which reads it pristine too
-    // ([PROVISIONAL], an open call for the user: reactorSurplus.ts).
-    "reactorCore:powerOutput": pending(EM4_WORN_OUTPUT_CALL),
+    // model is the authority (W3), and since E-MOD EM-4 the reactor surplus drive lift, which reads it pristine too.
+    // The user closed the EM-4 open call on 2026-11-09 ("Stays full (Recommended)"): wear never cuts it. Live, not
+    // applicable: there is nothing for wear to move (gearWearStep5Registry.fixture.ts reads it back to pending).
+    "reactorCore:powerOutput": {
+      claim: "A worn Reactor Core's power output stays full: wear never cuts it (its wear acts in combat through its true-condition pool)",
+      status: LIVE,
+      probe: undefined,
+      on: identity,
+      contexts: [],
+      notApplicable: REACTOR_OUTPUT_STAYS_FULL,
+    },
     "specUtility:lines": {
       // Gear wear step 4: and a Damage Control Suite's lines (the Shipyard repair speed, the patrol wave patch-up).
       contexts: ["mission:survey", "mission:shortRange", "expedition:groundOps", "shipyard", "patrol"],

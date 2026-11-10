@@ -97,6 +97,10 @@
   // equipmentRarityColor (its module-context export) is the SINGLE rarity->color
   // source the bay TILES also read, so tile border/dot and the tooltip never drift.
   import EquipmentTooltip, { equipmentRarityColor, equipmentIcon, equipmentSvgIcon, varietySvgIcon, blueprintIcon, type ItemTooltipSubject } from "./lib/EquipmentTooltip.svelte";
+  import { clampFloatingTip } from "./lib/floatingTip";
+  // 0.14.0 gear wear step 5: a spare's or loadout piece's condition block on its card, and the Command Home fleet care line.
+  import { fleetCare, gearOvertimePurchase, pieceWearCard } from "./lib/gearWearDisplay";
+  import { withPieceCondition } from "./lib/game/gearWear";
   // Radial Skill Web (Task 11b, minimal buildable integration), the pannable
   // fog-of-war talent web that REPLACES the old depth-row talent panels in
   // BOTH the Captain Talents and Homeworld Talents sub-tabs below. It owns its
@@ -5254,6 +5258,14 @@
     pushLog(`[DEV] +${formatNumber(new Decimal(amount))} credits (now ${formatNumber(state.credits)}).`);
   }
 
+  // [DEV] gear wear step 5 (design section 8 "Dev panel": "Wear all gear to N%" and "Restore all gear", for QA): set every
+  // piece (installed, member gear and spares) to `percent` condition anchored now, or back to pristine.
+  function devWearAllGear(percent: number) {
+    const at = state.gameTimeSeconds;
+    state = { ...state, equipment: state.equipment.map((p) => withPieceCondition(p, percent * 10, at)) };
+    pushLog(percent >= 100 ? "[DEV] Restored all gear to pristine." : `[DEV] Wore all gear to ${percent}%.`);
+  }
+
   // Grant a stack of the craft-chain materials so the mine -> refine -> fabricate flow
   // can be tested without grinding the (scarce) upstream drops, especially the UNCOMMON
   // Polysilicate Ore. Adds raw ores + the refined mats + marks them discovered so they
@@ -5865,6 +5877,17 @@
   // pass would, respects the same free-bay accounting + deterministic queue order, and
   // needs NO new tick action (reuses the existing exported pass). A no-op (same state
   // reference) when nothing can start, in which case the ship stays queued.
+  // GEAR WEAR step 5 (the 2026-11-09 Overtime mockup, approved; user "One tap"): the gear card's Overtime button buys
+  // the next step on a docked ship's gear repair (gearWearDisplay.ts gearOvertimePurchase: the engine's buy), saves and
+  // logs it. A refusal changes nothing (the card already shows why).
+  function buyGearOvertime(shipId: string) {
+    const r = gearOvertimePurchase(state, shipId);
+    if (!r.bought) return;
+    state = r.next;
+    doSave();
+    if (r.log) pushLog(r.log);
+  }
+
   function repairShipNow(shipId: string) {
     state = processShipRepairs(state);
     doSave();
@@ -8150,7 +8173,11 @@
   // The Armory editor's installed-item tooltip: a REAL floating card (fixed-positioned at the tapped
   // item name), NOT an inline div, so it overlays rather than reflowing the list. Same overflow-proof
   // idiom as facilityTip / the warehouse tile tooltip (clampArmoryTip flips it above / nudges it in).
-  let armoryTip: { itemId: string; x: number; y: number; anchorTop: number } | null = null;
+  // GEAR WEAR step 5 fix (2026-11-09): the card is now INTERACTIVE (its Overtime strip carries a one-tap
+  // button), so it takes pointer events (.armory-tip-card) and is placed by the shared clampFloatingTip
+  // (below the item name, start-aligned, then above, then beside), so it never covers its own item name
+  // when the viewport has room elsewhere. anchor is the item name's viewport rect at the tap.
+  let armoryTip: { itemId: string; x: number; y: number; anchor: { left: number; top: number; bottom: number; width: number } } | null = null;
   function toggleArmoryTip(e: Event, itemId: string) {
     e.stopPropagation();
     if (armoryTip && armoryTip.itemId === itemId) { armoryTip = null; return; }
@@ -8159,7 +8186,7 @@
       itemId,
       x: Math.max(8, Math.min(r.left, window.innerWidth - 8 - 320)),
       y: r.bottom + 6,
-      anchorTop: r.top,
+      anchor: { left: r.left, top: r.top, bottom: r.bottom, width: r.width },
     };
   }
   function handleArmoryTipOutside(e: PointerEvent) {
@@ -8178,8 +8205,19 @@
       node.style.top = `${armoryTip.y}px`;
       node.style.left = `${armoryTip.x}px`;
       const r = node.getBoundingClientRect();
-      if (r.bottom > window.innerHeight - 8) node.style.top = `${Math.max(8, armoryTip.anchorTop - r.height - 6)}px`;
-      if (r.right > window.innerWidth - 8) node.style.left = `${Math.max(8, window.innerWidth - 8 - r.width)}px`;
+      const { left, top } = clampFloatingTip({
+        anchorRect: armoryTip.anchor,
+        tipWidth: r.width,
+        tipHeight: r.height,
+        viewportW: window.innerWidth,
+        viewportH: window.innerHeight,
+        margin: 8,
+        gap: 6,
+        prefer: "below",
+        align: "start",
+      });
+      node.style.top = `${top}px`;
+      node.style.left = `${left}px`;
     };
     requestAnimationFrame(reposition);
     return { update: () => requestAnimationFrame(reposition) };
@@ -10397,6 +10435,8 @@
   // as the fleet ticks. buildHomeDashboard is a pure function (homeDashboard.ts); all the
   // hard derivation + availability logic lives there and is unit-tested in node.
   $: dashboardModel = buildHomeDashboard(state);
+  // 0.14.0 gear wear step 5 (OC-W8, W6): the fleet care line (gear wear and hull repairs together), or null to hide it.
+  $: fleetCareModel = fleetCare(state);
   // Keep the collapsed-ticker index in range as the prompt list shrinks (the player clears a
   // prompt by giving those orders), so the ticker never points past the end of needsOrders.
   $: if (needsTickerIndex >= dashboardModel.needsOrders.length) needsTickerIndex = 0;
@@ -11485,9 +11525,11 @@
   {@const armoryTipInst = loadoutInstance(armoryTip.itemId)}
   {#if armoryTipInst}
     <!-- The Armory editor's installed-item tooltip, floated at the tapped item name (real popover,
-         not an inline div). Same fixed-position + clamp idiom as facilityTip; pointer-events:none. -->
-    <div class="frow-tip-card" style="left: {armoryTip.x}px; top: {armoryTip.y}px;" role="tooltip" use:clampArmoryTip={armoryTip}>
-      <EquipmentTooltip piece={armoryTipInst} />
+         not an inline div). Same fixed-position idiom as facilityTip, but INTERACTIVE (.armory-tip-card):
+         its Overtime button must take the click (gear wear step 5 fix). A press inside it is already
+         exempt from handleArmoryTipOutside, so tapping Overtime buys with the card still open. -->
+    <div class="frow-tip-card armory-tip-card" style="left: {armoryTip.x}px; top: {armoryTip.y}px;" role="tooltip" use:clampArmoryTip={armoryTip}>
+      <EquipmentTooltip piece={armoryTipInst} onBuyGearOvertime={buyGearOvertime} wear={pieceWearCard(state, armoryTipInst)} />
     </div>
   {/if}
 {/if}
@@ -11631,7 +11673,7 @@
   {@const queueBlocked = salvageBayQueue.enqueueBlockReason}
   {@const queueCtl = enqueueControlFor(queueBlocked)}
   {@const busy = p.locked === true || salvageState !== "free"}
-  <EquipmentTooltip piece={p} />
+  <EquipmentTooltip piece={p} wear={pieceWearCard(state, p)} />
   <div class="spare-pop-acts">
     <button
       class="buy-btn"
@@ -14899,7 +14941,7 @@
                       ? enqueueBlockText(queueBlocked)
                       : `Takes about ${salvageDurationPreview(state, target)} in the bay once it starts.`}
               <Panel>
-                <EquipmentTooltip piece={sys}>
+                <EquipmentTooltip piece={sys} onBuyGearOvertime={buyGearOvertime} wear={pieceWearCard(state, sys)}>
                   <!-- ⚠️ DELIBERATELY LEFT ENABLED WHEN THE QUEUE IS FULL (queue-full popup,
                        2026-09-10). DO NOT fold `queueBlocked !== null` back into the disabled
                        expression: a disabled <button> cannot be clicked, so it could never open
@@ -17387,6 +17429,7 @@
           onInstall={installSystem}
           onUninstall={uninstallSystem}
           onRepair={repairShipNow}
+          onBuyGearOvertime={buyGearOvertime}
           onRename={handleRenameShip}
           onClose={returnFromShipPage}
           onOpenHelp={openHelpTopic}
@@ -19462,6 +19505,35 @@
             </section>
           {/if}
 
+          <!-- ============ FLEET CARE (gear wear step 5; OC-W8, W6) ============ -->
+          <!-- The approved mockup's section 4: one quiet line that reports gear wear and hull repairs together and
+               estimates when they are done. Reports only: no badge, no toast, no pulse, no button. Hidden entirely
+               while every ship's gear is pristine and no hull is damaged (gearWearDisplay.ts fleetCare). -->
+          {#if fleetCareModel !== null}
+            <section class="home-sec" aria-label="Fleet care">
+              <div class="home-sec-hd">
+                <span class="home-sec-h">Fleet care</span>
+                <span class="home-sec-rule"></span>
+              </div>
+              <div class="home-care wear-b-{fleetCareModel.band}">
+                <div class="home-care-top">
+                  <Icon name="gearCondition" size="1.25em" />
+                  <span class="home-care-big">Fleet gear <span class="wear-band-name">{fleetCareModel.percent}%</span></span>
+                  <span class="home-care-calm"><Icon name="check" /> Nothing needs you</span>
+                </div>
+                <p class="home-care-sum">{fleetCareModel.summary}</p>
+                {#each fleetCareModel.rows as row (row.shipId)}
+                  <div class="home-care-row wear-b-{row.band}">
+                    <span class="home-care-ship"><b>{row.name}</b>{#if row.hull} &middot; {row.hull}{/if}</span>
+                    <span class="wear-meter" aria-hidden="true"><i style="width: {row.percent}%"></i></span>
+                    <span class="wear-pct">{row.percent}%</span>
+                    <span class="home-care-eta">{row.status}</span>
+                  </div>
+                {/each}
+              </div>
+            </section>
+          {/if}
+
           <!-- ============ RECENTLY COMPLETED (finished orders) ============ -->
           <!-- 0.13.3 Unit 4.4b, the companion to IN PROGRESS: "what is running" above,
                "what just finished" below. Every row is one finished ORDER, not one job
@@ -20514,6 +20586,13 @@
             <button class="dev-btn" on:click={() => devGrantCredits(10000)}>+10K</button>
             <button class="dev-btn" on:click={() => devGrantCredits(100000)}>+100K</button>
             <button class="dev-btn" on:click={() => devGrantCredits(1000000)}>+1M</button>
+          </div>
+          <div class="dev-row">
+            <span class="dev-label">[DEV] Gear wear</span>
+            <button class="dev-btn" on:click={() => devWearAllGear(90)}>Wear all to 90%</button>
+            <button class="dev-btn" on:click={() => devWearAllGear(70)}>Wear all to 70%</button>
+            <button class="dev-btn" on:click={() => devWearAllGear(40)}>Wear all to 40%</button>
+            <button class="dev-btn" on:click={() => devWearAllGear(100)}>Restore all gear</button>
           </div>
           <div class="dev-row">
             <span class="dev-label">[DEV] Materials</span>
@@ -23856,6 +23935,9 @@
   /* The item-card variant of the facility ⓘ tooltip: hosts the generalized ItemTooltip. Same
      fixed / overflow-proof placement as .frow-tip, sized to the card (which caps its own width). */
   .frow-tip-card { position: fixed; z-index: 110; width: max-content; max-width: 320px; pointer-events: none; }
+  /* The Armory gear card carries the Overtime button, so it takes the pointer, and it is capped to the
+     viewport (scrolling inside) so the shared clamp can always fit it on screen. */
+  .frow-tip-card.armory-tip-card { pointer-events: auto; max-height: calc(100vh - 16px); overflow-y: auto; }
   .frow-tip.up { border-color: rgba(var(--color-warning-rgb), 0.45); }
   .frow-tip-title { font-size: var(--text-2xs); letter-spacing: 0.5px; text-transform: uppercase; color: var(--color-accent); }
   .frow-tip.up .frow-tip-title { color: var(--color-warning); }
@@ -24706,6 +24788,15 @@
   }
   /* The thin divider that fills the rest of the header row. */
   .home-sec-rule { flex: 1; height: 1px; background: var(--color-border); }
+  /* Gear wear step 5: the Fleet care block (the approved mockup's section 4). Quiet: no badge, no pulse, no red. */
+  .home-care { display: grid; gap: 6px; padding: 8px 10px; border: 1px solid var(--color-border); border-radius: var(--corner); }
+  .home-care-top { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; color: var(--wear-band); }
+  .home-care-big { font-weight: 700; font-size: var(--text-md, 1rem); color: var(--color-text-primary); }
+  .home-care-calm { display: inline-flex; align-items: center; gap: 4px; font-size: var(--text-xs); color: var(--color-success); }
+  .home-care-sum { margin: 0; font-size: var(--text-xs); color: var(--color-text-secondary); }
+  .home-care-row { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; gap: 4px 10px; align-items: center; font-size: var(--text-xs); padding: 4px 0; border-top: 1px solid var(--color-border); }
+  .home-care-ship { min-width: 0; overflow-wrap: anywhere; color: var(--color-text-primary); }
+  .home-care-eta { grid-column: 1 / -1; color: var(--color-text-secondary); }
 
   /* --- NEEDS YOUR ORDERS: amber "ready" prompts (each a full-width button) --- */
   .home-needs { display: flex; flex-direction: column; gap: 7px; }

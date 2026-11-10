@@ -1,8 +1,8 @@
 // GEAR WEAR (0.14.0), build order steps 1 and 2 of docs/plans/2026-10-16-gear-wear-design.md section 11: the
 // catalogs and the PURE helpers, plus (step 3) the WORN-GEAR VIEW the run readers fold their gear through and (step 4)
 // the COMBAT VIEW a battle folds its frozen gear through. The tick side of step 3 (the use wear sources, the repair
-// contexts and the settling) lives in gearWearEngine.ts, the battle sources of step 4 in gearWearCombat.ts; the UI (and
-// the optional paid repair) is step 5. Every catalog row is registered in the wiring registry with its owning step.
+// contexts and the settling) lives in gearWearEngine.ts, the battle sources of step 4 in gearWearCombat.ts; the UI is
+// step 5 (gearWearDisplay.ts). Every catalog row is registered in the wiring registry with its owning step.
 //
 // The user (OC-D14, 2026-10-16, verbatim): "Everything wears in different ways. Similar to reality. Use. Battle
 // damage. Etc. But can easily be repaired over time."
@@ -18,9 +18,10 @@
 //     start floor. Combat's own four-state model stays the authority there (no second efficiency penalty).
 //   - W9 + W10 "No wear on training; implants slow": a training run (safe first run) applies no wear at all (step 3
 //     skips it on the run's stamp); the implant wears by the slowest raw rate in WEAR_SOURCES.
-//   - W4 + W5 and the repair model "Free auto + paid rush": repair is automatic and FREE over time (REPAIR_RATES);
-//     an optional paid repair is added later for credits (credit sinks pass: "Quick gear repair" and the user's
-//     Overtime, both built in step 5), and nothing ever forces paying.
+//   - W4 + W5: repair is automatic and FREE over time (REPAIR_RATES). The 2026-10-16 "Free auto + paid rush" was
+//     replaced on 2026-11-09 by "None, always automatic": no paid rush and no instant repair (Quick Service dropped).
+//     Step 5 built only the user's Overtime (processSpeed.ts buyGearRepairOvertime: a docked ship's gear recovers a
+//     set percent faster, never instantly); nothing ever forces paying.
 //   - W6 "Separate, shown together": hull damage stays its own Shipyard system; nothing here touches it. A hull in a
 //     Shipyard repair bay only lends its gear the faster bay rate.
 //
@@ -219,6 +220,15 @@ export function withPieceCondition<T extends EquipmentInstance>(piece: T, condit
   return { ...piece, condition: c, conditionAt: atSeconds };
 }
 
+// A worn copy of the piece at `condition` that KEEPS its repair anchor when it already has one (a wear never resets the
+// repair clock: the banked fraction carries on); a pristine or unanchored piece is anchored at `atSeconds`. Back at
+// full, every condition field is removed. Pure.
+export function withWornCondition<T extends EquipmentInstance>(piece: T, condition: number, atSeconds: number): T {
+  const c = clampCondition(condition);
+  if (c >= CONDITION_FULL || piece.condition === undefined || piece.conditionAt === undefined) return withPieceCondition(piece, c, atSeconds);
+  return { ...piece, condition: c };
+}
+
 // The efficiency multiplier at a condition (design 4.1, user W7): 1 - depth x (1 - c / 1000)^2. Smooth and concave
 // in wear: 99.75% at 90%, 99% at 80%, 96% at the use floor, 75% at 0. Pure.
 export function wearEfficiency(condition: number): number {
@@ -290,30 +300,89 @@ export function repairRatePerMinute(context: RepairContext, bonuses: Partial<Rec
   return (REPAIR_RATES[context] * lift) / divisor;
 }
 
-// SETTLE (design 7): the condition at `nowSeconds` from an anchor, closed form: min(1000, c + floor(rate x elapsed /
-// 60)), the rate constant since the anchor. An anchor in the future (or no rate) changes nothing. Pure.
-export function settleCondition(condition: number, anchorSeconds: number, nowSeconds: number, ratePerMinute: number): number {
-  const c = clampCondition(condition);
-  const elapsed = nowSeconds - anchorSeconds;
-  if (!(elapsed > 0) || !(ratePerMinute > 0) || c >= CONDITION_FULL) return c;
-  return Math.min(CONDITION_FULL, c + Math.floor((ratePerMinute * elapsed) / 60));
+// GEAR WEAR step 5 fix C1 (exact settling, the crewHoursMs precedent): repair is INTEGER arithmetic. A rate in
+// per-mille a minute is quantized to repairRateQ = round(rate x 1000): the bank units it adds each second, where one
+// per-mille is REPAIR_BANK_PER_MILLE (60000) units. The stored anchor (conditionAt) is the exact instant the piece's
+// banked fraction was zero (as before), and every settle DECODES it into a whole second and an integer bank,
+// at = ceil(anchor) and bank = round(rateQ x (at - anchor)), works in integers, and ENCODES the result once from integers,
+// anchor = gainSecond - bank / rateQ, where the gain second is the first whole second the last per-mille was reached. The
+// decode is exact (the float error of an anchor below 1e9 s is under a thousandth of a unit), so nothing accumulates: the
+// stored bytes depend only on the instant settled to, never on how the span was chunked, at any game time (the old
+// anchor + gained x 60 / rate drifted by seconds of condition at 3e6 s; its 1e-7 settle slack is gone). Where the old
+// float arithmetic was exact (the free rates 2, 40 and 80 a minute from whole-second anchors) the stored bytes are the
+// same as before, so a save written before C1 settles on unchanged; any other float anchor decodes deterministically.
+export const REPAIR_BANK_PER_MILLE = 60_000;
+
+// A rate in per-mille a minute as bank units a second (0 for no rate). Pure.
+export function repairRateQ(ratePerMinute: number): number {
+  return ratePerMinute > 0 && Number.isFinite(ratePerMinute) ? Math.round(ratePerMinute * 1000) : 0;
 }
 
-// A piece settled to `nowSeconds` at `ratePerMinute` (repair folded in, the anchor moved). The anchor advances only by
-// the time the whole per-mille gained actually used (gained x 60 / rate), so the leftover fraction carries to the next
-// settle: many short settles give exactly what one long settle gives (offline == live), and a settle cadence shorter
-// than one per-mille's worth of time still repairs. With no gain the piece is returned as it is (the same reference);
-// back at full both fields are removed. A pristine piece is returned as it is. Pure.
+// Exact floor and ceiling of a / b for non-negative integers below 2^53 (b > 0): the float quotient corrected. Pure.
+function floorDiv(a: number, b: number): number {
+  let q = Math.floor(a / b);
+  while (q * b > a) q -= 1;
+  while ((q + 1) * b <= a) q += 1;
+  return q;
+}
+function ceilDiv(a: number, b: number): number {
+  const q = floorDiv(a, b);
+  return q * b === a ? q : q + 1;
+}
+
+// An anchor (the instant its banked fraction was zero) as a whole second and an integer bank at `rateQ`. Pure.
+export function decodeRepairAnchor(anchorSeconds: number, rateQ: number): { at: number; bank: number } {
+  let at = Math.ceil(anchorSeconds);
+  let bank = Math.round(rateQ * (at - anchorSeconds));
+  if (bank >= rateQ) {
+    at -= 1;
+    bank -= rateQ;
+  }
+  return { at, bank: Math.max(0, bank) };
+}
+
+// A whole second and an integer bank at `rateQ` as the stored anchor. Pure.
+export function encodeRepairAnchor(at: number, bank: number, rateQ: number): number {
+  return bank === 0 ? at : at - bank / rateQ;
+}
+
+// The settle in integers: the per-mille gained from the anchor to `nowSeconds` at `rateQ` (capped at `room`) and the new
+// anchor, or null when nothing is gained. Pure.
+function settleSteps(anchorSeconds: number, nowSeconds: number, rateQ: number, room: number): { gained: number; anchor: number } | null {
+  if (!(nowSeconds > anchorSeconds) || rateQ <= 0 || room <= 0) return null;
+  const { at, bank } = decodeRepairAnchor(anchorSeconds, rateQ);
+  const total = bank + rateQ * (nowSeconds - at);
+  if (total >= room * REPAIR_BANK_PER_MILLE) return { gained: room, anchor: nowSeconds };
+  const gained = Number.isInteger(total) ? floorDiv(total, REPAIR_BANK_PER_MILLE) : Math.floor(total / REPAIR_BANK_PER_MILLE);
+  if (gained <= 0) return null;
+  const owed = gained * REPAIR_BANK_PER_MILLE - bank;
+  const gainAt = owed <= 0 ? at : at + ceilDiv(owed, rateQ);
+  const nextBank = bank + rateQ * (gainAt - at) - gained * REPAIR_BANK_PER_MILLE;
+  return { gained, anchor: encodeRepairAnchor(gainAt, nextBank, rateQ) };
+}
+
+// SETTLE (design 7): the condition at `nowSeconds` from an anchor, closed form in integers (above): min(1000, c +
+// floor((bank + rateQ x (now - at)) / 60000)), the rate constant since the anchor. An anchor in the future (or no rate)
+// changes nothing. Pure.
+export function settleCondition(condition: number, anchorSeconds: number, nowSeconds: number, ratePerMinute: number): number {
+  const c = clampCondition(condition);
+  const step = settleSteps(anchorSeconds, nowSeconds, repairRateQ(ratePerMinute), CONDITION_FULL - c);
+  return step === null ? c : c + step.gained;
+}
+
+// A piece settled to `nowSeconds` at `ratePerMinute` (repair folded in, the anchor moved to the exact instant its last
+// whole per-mille was reached, encoded from integers), so the leftover fraction carries to the next settle: many short
+// settles give exactly what one long settle gives, byte for byte (offline == live), and a settle cadence shorter than one
+// per-mille's worth of time still repairs. With no gain the piece is returned as it is (the same reference); back at full
+// every condition field is removed. A pristine piece is returned as it is. Pure.
 export function settlePiece<T extends EquipmentInstance>(piece: T, nowSeconds: number, ratePerMinute: number): T {
   if (piece.condition === undefined) return piece;
   const before = pieceCondition(piece);
   // A worn piece with no anchor (a hand-edited save) starts recovering from now.
   if (piece.conditionAt === undefined) return withPieceCondition(piece, before, nowSeconds);
-  const anchor = piece.conditionAt;
-  const after = settleCondition(before, anchor, nowSeconds, ratePerMinute);
-  if (after === before) return piece;
-  const gained = after - before;
-  return withPieceCondition(piece, after, anchor + (gained * 60) / ratePerMinute);
+  const step = settleSteps(piece.conditionAt, nowSeconds, repairRateQ(ratePerMinute), CONDITION_FULL - before);
+  if (step === null) return piece;
+  return withPieceCondition(piece, before + step.gained, step.anchor);
 }
 
 // The durability a piece's combat pool OPENS at (user W3 "True condition": its real condition, no raised start floor):
@@ -418,8 +487,7 @@ export function applyBattleWearAt<T extends EquipmentInstance>(piece: T, raw: nu
   const c = pieceCondition(piece);
   const next = applyBattleWear(c, amount);
   if (next === c) return piece;
-  const anchor = piece.condition !== undefined && piece.conditionAt !== undefined ? piece.conditionAt : at;
-  return withPieceCondition(piece, next, anchor);
+  return withWornCondition(piece, next, at);
 }
 
 // ============================================================================

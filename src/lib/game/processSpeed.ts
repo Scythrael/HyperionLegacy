@@ -54,6 +54,8 @@ import { expeditionHomeNow } from "./gearWearEngine";
 import { itemTotal } from "./inventory";
 import { exceptionalSetsOfTier, getRelicTypeById, museumDepositExceptional, museumDepositGeneral } from "./relics";
 import { regionTierNumeral } from "./galaxy";
+import { overtimeRate } from "./overtimeRate";
+import { gearRepairOutlook, shipWornPieces, settleShipForRateChange } from "./gearWearEngine";
 
 // What a speed action points at: an in-flight timed process (by its "proc-N" id), a captain's current extraction
 // cycle or patrol route, or an expedition (by its "expedition-N" id).
@@ -66,8 +68,8 @@ export type ProcessRef =
 // Overtime
 // ============================================================================
 
-// (user) Each step adds 25% of the job's normal rate.
-export const OVERTIME_STEP_RATE = 0.25;
+// (user) Each step adds 25% of the job's normal rate (overtimeRate.ts, a leaf the gear wear engine reads too).
+export { OVERTIME_STEP_RATE, overtimeRate } from "./overtimeRate";
 // [PROPOSAL] Three steps: the fastest a job runs is 1.75x its normal rate (never double, never instant). The time
 // left shrinks to 80%, then 67%, then 57% of what it was at the normal rate, so each step saves less than the last.
 export const OVERTIME_MAX_STEPS = 3;
@@ -90,11 +92,6 @@ export const OVERTIME_PROCESS_KINDS: readonly TimedProcessKind[] = [
 ];
 // [PROPOSAL] Overtime is not sold for the last tick of a job (it would buy nothing worth its price).
 const OVERTIME_FINISHING_TICKS = 1;
-
-// A job's rate after `steps` Overtime steps, as a multiple of its normal rate.
-export function overtimeRate(steps: number): number {
-  return 1 + OVERTIME_STEP_RATE * steps;
-}
 
 // The rate a timed process runs at now (1 without Overtime).
 export function processRate(p: TimedProcess): number {
@@ -184,6 +181,101 @@ export function buyOvertime(
       : p,
   );
   return { next: { ...state, credits: state.credits.minus(quote.cost), activeProcesses }, bought: true, cost: quote.cost };
+}
+
+// ============================================================================
+// Overtime on GEAR REPAIR (gear wear step 5; the credit sinks pass USER ANSWERS: Overtime "for each of the above",
+// gear repair included). Gear repair is not a TimedProcess: a docked ship's worn gear recovers at a RATE (gearWear.ts
+// REPAIR_RATES, lifted by the hull repair's own bonuses), so Overtime lifts that rate instead of rescaling a countdown,
+// by the same rule as every other job: each step +25% of the normal rate (overtimeRate), at most OVERTIME_MAX_STEPS,
+// step k priced ceil(OVERTIME_CREDITS_PER_MINUTE x the job's minutes x its tier x k). The job is the ship's gear
+// recovery while it is docked (home or in a Shipyard bay); its minutes are its FULL length (user 2026-11-09 "Match the
+// existing rule", as a TimedProcess's durationTicks): the time its most worn installed piece needed at the NORMAL rate
+// when the job started (ShipInstance.gearRepairJobMinutes, recorded by the engine), never the time left, so the price
+// does not depend on when it is bought; frozen at the first step (gearRepairSpeed.jobMinutes) so every later step
+// prices the same job; its tier is the hull's. Refused while the ship is out on a run, when nothing on
+// it is worn, at the maximum, within one tick of full, or when the balance is short. The record clears once the ship
+// leaves on a run or its gear is back to full (gearWearEngine.ts). Free automatic repair stays the default (user
+// 2026-11-09: no instant repair, no paid rush); Overtime only ever speeds it, never finishes it.
+// ============================================================================
+
+export type GearRepairOvertimeBlockReason = "notFound" | "notEligible" | "nothingWorn" | "maxSteps" | "finishing" | "credits";
+
+export type GearRepairOvertimeQuote =
+  | { ok: true; step: number; cost: number; jobMinutes: number; minutesLeft: number; minutesLeftAfter: number }
+  | { ok: false; reason: GearRepairOvertimeBlockReason; cost?: number };
+
+// The minutes until a ship's installed gear is back to full where it is (its slowest piece), at the rate it repairs at
+// now, or at the NORMAL rate (`normal`, no Overtime). Null while the ship is out on a run. Pure.
+export function shipGearMinutesToFull(state: GameState, shipId: string, normal = false): number | null {
+  let most = 0;
+  for (const piece of shipWornPieces(state, shipId)) {
+    const m = gearRepairOutlook(state, piece, normal).minutesToFull;
+    if (m === null) return null;
+    most = Math.max(most, m);
+  }
+  return most;
+}
+
+// The full length of a ship's docked gear repair job, in minutes at the normal rate (the price's job size): the length
+// recorded when the job started (ShipInstance.gearRepairJobMinutes), or, before the engine's next tick has recorded it
+// (the job starts now) or when a more worn piece was installed since, the time left at the normal rate now. Pure.
+export function gearRepairJobMinutes(state: GameState, shipId: string): number {
+  const ship = state.ships.find((s) => s.id === shipId);
+  return Math.max(ship?.gearRepairJobMinutes ?? 0, shipGearMinutesToFull(state, shipId, true) ?? 0);
+}
+
+// The tier gear repair Overtime is priced at: the hull's (as a Shipyard repair's), never below 1. Pure.
+export function gearRepairOvertimeTier(state: GameState, shipId: string): number {
+  const ship = state.ships.find((s) => s.id === shipId);
+  return Math.max(1, ship ? SHIP_TYPES[ship.typeKey]?.tier ?? 1 : 1);
+}
+
+// The credits step `step` (1-based) of gear repair Overtime costs on a job of `jobMinutes`. Pure.
+export function gearRepairOvertimeStepCost(state: GameState, shipId: string, jobMinutes: number, step: number): number {
+  return Math.ceil(OVERTIME_CREDITS_PER_MINUTE * jobMinutes * gearRepairOvertimeTier(state, shipId) * step);
+}
+
+function shipOut(state: GameState, shipId: string): boolean {
+  const ship = state.ships.find((s) => s.id === shipId);
+  if (!ship) return false;
+  if (ship.assignedCaptainId !== null && state.captains.some((c) => c.id === ship.assignedCaptainId && c.mission !== null)) return true;
+  return state.expeditions.some((e) => e.shipId === shipId && e.phase !== "complete");
+}
+
+function withGearOvertimeSteps(state: GameState, shipId: string, steps: number, jobMinutes: number): GameState {
+  return { ...state, ships: state.ships.map((s) => (s.id === shipId ? { ...s, gearRepairSpeed: { overtimeSteps: steps, jobMinutes } } : s)) };
+}
+
+// Can the next gear repair Overtime step be bought on this ship, and at what price? Pure.
+export function canBuyGearRepairOvertime(state: GameState, shipId: string): GearRepairOvertimeQuote {
+  const ship = state.ships.find((s) => s.id === shipId);
+  if (!ship) return { ok: false, reason: "notFound" };
+  if (shipOut(state, shipId)) return { ok: false, reason: "notEligible" };
+  if (shipWornPieces(state, shipId).length === 0) return { ok: false, reason: "nothingWorn" };
+  const steps = ship.gearRepairSpeed?.overtimeSteps ?? 0;
+  if (steps >= OVERTIME_MAX_STEPS) return { ok: false, reason: "maxSteps" };
+  const minutesLeft = shipGearMinutesToFull(state, shipId) ?? 0;
+  if (minutesLeft * 60 <= state.tickDurationSeconds * OVERTIME_FINISHING_TICKS) return { ok: false, reason: "finishing" };
+  const step = steps + 1;
+  const jobMinutes = ship.gearRepairSpeed?.jobMinutes ?? gearRepairJobMinutes(state, shipId);
+  const cost = gearRepairOvertimeStepCost(state, shipId, jobMinutes, step);
+  if (state.credits.lt(cost)) return { ok: false, reason: "credits", cost };
+  const minutesLeftAfter = shipGearMinutesToFull(withGearOvertimeSteps(state, shipId, step, jobMinutes), shipId) ?? minutesLeft;
+  return { ok: true, step, cost, jobMinutes, minutesLeft, minutesLeftAfter };
+}
+
+// Buy the next gear repair Overtime step: charge the quoted price, settle the ship's gear to now at the old rate (its
+// banked fraction re-anchored to the new one) and record the step. A refusal returns the SAME state with the reason.
+export function buyGearRepairOvertime(
+  state: GameState,
+  shipId: string,
+): { next: GameState; bought: boolean; reason?: GearRepairOvertimeBlockReason; cost?: number } {
+  const quote = canBuyGearRepairOvertime(state, shipId);
+  if (!quote.ok) return { next: state, bought: false, reason: quote.reason, ...(quote.cost !== undefined ? { cost: quote.cost } : {}) };
+  const settled = settleShipForRateChange(state, shipId, overtimeRate(quote.step));
+  const next = withGearOvertimeSteps({ ...settled, credits: settled.credits.minus(quote.cost) }, shipId, quote.step, quote.jobMinutes);
+  return { next, bought: true, cost: quote.cost };
 }
 
 // ============================================================================

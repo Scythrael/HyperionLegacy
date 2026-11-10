@@ -525,3 +525,17 @@ button {
 :root[data-reduced-motion="on"] .research-bar-fill {
   animation-name: none !important;
 }
+
+/* 0.14.0 GEAR WEAR step 5 (the approved mockup's bands): the condition meter shared by the gear card, the Ship Systems
+   rows and the Command Home fleet care line (gearWearDisplay.ts). Calm on purpose: green fading to amber, never red,
+   no pulse. A band sets --wear-band; the bar and the percent read it. */
+.wear-b-pristine { --wear-band: var(--color-success); }
+.wear-b-sound { --wear-band: color-mix(in srgb, var(--color-success) 65%, var(--color-warning)); }
+.wear-b-worn { --wear-band: color-mix(in srgb, var(--color-success) 30%, var(--color-warning)); }
+.wear-b-battered { --wear-band: var(--color-warning); }
+.wear-meter { position: relative; display: inline-block; height: 6px; width: 64px; flex: none; border-radius: 3px; background: rgba(var(--color-accent-rgb), 0.12); overflow: hidden; vertical-align: middle; }
+.wear-meter.wide { display: block; width: 100%; height: 10px; border-radius: 5px; }
+.wear-meter > i { position: absolute; inset: 0 auto 0 0; background: var(--wear-band, var(--color-success)); border-radius: inherit; }
+.wear-meter > b { position: absolute; top: 0; bottom: 0; width: 1px; background: rgba(var(--color-accent-rgb), 0.35); }
+.wear-pct { font-variant-numeric: tabular-nums; font-size: 0.75rem; color: var(--wear-band, inherit); min-width: 3.2ch; text-align: right; }
+.wear-band-name { color: var(--wear-band, inherit); font-weight: 600; }

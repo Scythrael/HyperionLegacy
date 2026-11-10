@@ -1795,6 +1795,20 @@ export interface ShipInstance {
   // hull's empty teams (Ground + Ground, no pending flag) through groundTeams.ts shipGroundTeams. GO-2's slot
   // actions and the hire / fire / reassign sync write it; dispatch reads it since Ground Ops GO-7b.
   groundTeams?: ShipGroundTeam[];
+  // GEAR WEAR step 5 (0.14.0, credit sinks pass USER ANSWERS: Overtime "for each of the above", gear repair included;
+  // processSpeed.ts buyGearRepairOvertime): the Overtime steps bought on this ship's GEAR RECOVERY while it is docked
+  // (home or in a Shipyard bay) and the job's size in minutes, frozen at the first step (the price of every step reads
+  // it). Each step lifts the ship's installed pieces' repair rate by 25% of the normal rate while docked; the record
+  // clears once the ship leaves on a run or its installed gear is back to full (gearWearEngine.ts resolveGearWear).
+  // OPTIONAL, absent = no Overtime (every ship that never bought it), so no SAVE_VERSION bump.
+  gearRepairSpeed?: { overtimeSteps: number; jobMinutes: number };
+  // GEAR WEAR step 5 fix (user 2026-11-09 "Match the existing rule": Overtime is priced by the repair job's FULL length,
+  // like a TimedProcess's durationTicks): the docked gear repair job's full length in minutes at the NORMAL rate, written
+  // when the job starts (the first call that finds this ship docked for the whole call with worn installed gear and no
+  // record; read at the call's start) and cleared with the job (the ship leaves, or its
+  // gear is full). gearWearEngine.ts trackGearRepairJobs. OPTIONAL, no SAVE_VERSION bump: a ship docked worn in an older
+  // save starts its job record at the next tick.
+  gearRepairJobMinutes?: number;
   // FORWARD (not this pass): modules?, equipment?, reactorCore?, tierOverride?
 }
 
@@ -2169,7 +2183,8 @@ export interface EquipmentInstance {
   // Optional + additive.
   condition?: number;
   // The game time (state.gameTimeSeconds) the condition was last settled at (gearWear.ts settlePiece): repair is
-  // closed form from this anchor. Absent with `condition`.
+  // closed form from this anchor. Absent with `condition`. GEAR WEAR step 5 fix C1: the settle decodes it into a whole
+  // second and an integer bank and re-encodes it from integers (gearWear.ts decodeRepairAnchor), so it never drifts.
   conditionAt?: number;
   fittedToShipId: string | null;         // null = on no ship. THE ship-install authority (mirrors ShipInstance.assignedCaptainId); "spare?" is isSparePiece
   // ITEM LIFECYCLE 0.13.6 (Armory, Phase 3; DORMANT until the Armory build wires it). The THIRD

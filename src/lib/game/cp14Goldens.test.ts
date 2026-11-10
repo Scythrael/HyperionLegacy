@@ -70,7 +70,19 @@ const MOVED: Record<string, unknown> = {
   "expedition:orion:fresh": ["9b7820ac","53ef0134","9d6b2bd6"],
   "expedition:aurora:bare": ["739f92bf","b630c64d","120384b1"],
 };
-const PINS: Record<string, unknown> = { ...CP14_PINS_PRE, ...MOVED };
+// GEAR WEAR step 5 review fix C1 (exact repair settling, 2026-11-09): the Eir's Science and Medical crew lift raises its gear repair rate off the free 2, 40 and 80 a minute, so their pieces'
+// repair anchors are now encoded exactly from integers (the rate quantized to a thousandth of a per-mille a minute)
+// where the old float arithmetic drifted; only the state hashes move (with the old settle every pin here holds, checked
+// at the fix). C1_MOVED overlays the current pins, C1_MOVED_PRE the pre-slice pins.
+const C1_MOVED: Record<string, unknown> = {
+  "shortRange:eir:fresh": ["1b5ee8ce", "4e04de09"],
+  "shortRange:eir:inFlight": ["1b5ee8ce", "f48d7321"],
+};
+const C1_MOVED_PRE: Record<string, unknown> = {
+  "shortRange:eir:fresh": ["1b5ee8ce", "f48d7321"],
+  "shortRange:eir:inFlight": ["1b5ee8ce", "f48d7321"],
+};
+const PINS: Record<string, unknown> = { ...CP14_PINS_PRE, ...MOVED, ...C1_MOVED };
 
 describe("Complement CP-14 goldens (captured before hull base sensors and Science amplification)", () => {
   it("every reading matches its pin (moves are named in MOVED)", () => {
@@ -84,6 +96,6 @@ describe("Complement CP-14 goldens (captured before hull base sensors and Scienc
   }, 600_000);
 
   it("with the slice switched off every row returns to its pre-CP-14 pin", () => {
-    expect(withoutCp14(() => cp14Rows(withoutCp14))).toEqual(CP14_PINS_PRE);
+    expect(withoutCp14(() => cp14Rows(withoutCp14))).toEqual({ ...CP14_PINS_PRE, ...C1_MOVED_PRE });
   }, 600_000);
 });

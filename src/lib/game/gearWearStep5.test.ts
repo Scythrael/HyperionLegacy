@@ -1,0 +1,228 @@
+// GEAR WEAR step 5 (0.14.0, docs/plans/2026-10-16-gear-wear-design.md section 11 step 5, minus Quick Service per the
+// user's 2026-11-09 answer): Overtime on gear repair (the speed seam's rule on a ship's docked gear recovery) and the
+// wear UI's view models, all through the real engine. (Patrol use wear was built here and then REMOVED by the user,
+// 2026-11-09 "Combat only on patrols": a patrol wears its gear by battle alone; a regression test below.)
+
+import { describe, expect, it } from "vitest";
+import Decimal from "break_infinity.js";
+import { type EquipmentInstance, type GameState, type PatrolMissionState } from "./model";
+import { dispatchCaptainOnPatrol, economyTick } from "./tick";
+import { REPAIR_RATES, USE_WEAR_FLOOR, pieceCondition, withPieceCondition } from "./gearWear";
+import { gearOvertimeMult, gearRepairOutlook, livePieceCondition } from "./gearWearEngine";
+import {
+  OVERTIME_CREDITS_PER_MINUTE,
+  OVERTIME_MAX_STEPS,
+  buyGearRepairOvertime,
+  canBuyGearRepairOvertime,
+  gearRepairOvertimeStepCost,
+  gearRepairOvertimeTier,
+  shipGearMinutesToFull,
+} from "./processSpeed";
+import { onHull } from "./firstRunsGoldens.fixture";
+import { asPatrolVeteran } from "./awayTeamTestFixtures";
+import { withBattleWearOff } from "./battleWearSwitch.fixture";
+import { HELP_TOPICS, TRAINING_WEAR_SENTENCE } from "../helpTopics";
+import { WIRING_REGISTRY, releaseBlockers } from "./wiring/registry";
+import { gw5ReadBack } from "./gearWearStep5Registry.fixture";
+import { WEAR_BANDS, aboutMinutes, conditionPercent, fleetCare, pieceWearCard, shipGearSummary, wearBand, wearEffectText } from "../gearWearDisplay";
+
+const RNG = () => 0.5;
+const SHIP = "ship-1";
+const ROUTE = "crimsonReaverSweep" as const;
+
+function veteran(): GameState {
+  return asPatrolVeteran({ ...onHull("destroyer"), nextPatrolSeed: 1, credits: new Decimal(1_000_000) });
+}
+
+function stepped(s: GameState, n: number): GameState {
+  let out = s;
+  for (let i = 0; i < n; i++) out = economyTick(out, 1, RNG);
+  return out;
+}
+
+function chunked(s: GameState, n: number, chunk: number): GameState {
+  let out = s;
+  let left = n;
+  while (left > 0) {
+    const k = Math.min(chunk, left);
+    out = economyTick(out, k, RNG);
+    left -= k;
+  }
+  return out;
+}
+
+const pieces = (s: GameState): EquipmentInstance[] => s.equipment.filter((e) => e.fittedToShipId === SHIP);
+const slotCondition = (s: GameState, slot: string): number => pieceCondition(pieces(s).find((e) => e.slotType === slot)!);
+
+function wornDocked(c: number): GameState {
+  const s = veteran();
+  return { ...s, equipment: s.equipment.map((e) => (e.fittedToShipId === SHIP ? withPieceCondition(e, c, s.gameTimeSeconds) : e)) };
+}
+
+describe("gear wear step 5: patrols wear by battle only (user 2026-11-09 \"Combat only on patrols\")", () => {
+  it("with battle wear off, a Repeat patrol leaves every piece pristine (no use wear on a patrol)", () => {
+    const s = withBattleWearOff(() => stepped(dispatchCaptainOnPatrol(veteran(), 1, ROUTE, "balanced", true).next, 400));
+    expect(s.captains[0].mission).not.toBeNull();
+    expect(pieces(s).filter((e) => e.condition !== undefined)).toEqual([]);
+    expect(Object.keys(s.captains[0].mission as PatrolMissionState)).not.toContain("useWear");
+  });
+});
+
+describe("gear wear step 5: Overtime on gear repair (the speed seam's rule)", () => {
+  it("is refused while the ship is out, when nothing is worn, and at the maximum; priced 10 x job minutes x tier x step", () => {
+    expect(canBuyGearRepairOvertime(veteran(), SHIP)).toEqual({ ok: false, reason: "nothingWorn" });
+    expect(canBuyGearRepairOvertime(veteran(), "ship-nope")).toEqual({ ok: false, reason: "notFound" });
+    const out = dispatchCaptainOnPatrol(wornDocked(700), 1, ROUTE, "balanced", false).next;
+    expect(canBuyGearRepairOvertime(out, SHIP)).toEqual({ ok: false, reason: "notEligible" });
+    let s = wornDocked(700);
+    const job = shipGearMinutesToFull(s, SHIP, true)!;
+    expect(job).toBeCloseTo(300 / REPAIR_RATES.home, 9);
+    for (let step = 1; step <= OVERTIME_MAX_STEPS; step++) {
+      const q = canBuyGearRepairOvertime(s, SHIP);
+      expect(q.ok).toBe(true);
+      if (!q.ok) return;
+      expect(q.step).toBe(step);
+      expect(q.cost).toBe(Math.ceil(OVERTIME_CREDITS_PER_MINUTE * job * gearRepairOvertimeTier(s, SHIP) * step));
+      expect(q.cost).toBe(gearRepairOvertimeStepCost(s, SHIP, job, step));
+      expect(q.minutesLeftAfter).toBeLessThan(q.minutesLeft);
+      const before = s.credits;
+      s = buyGearRepairOvertime(s, SHIP).next;
+      expect(before.minus(s.credits).toNumber()).toBe(q.cost);
+    }
+    expect(canBuyGearRepairOvertime(s, SHIP)).toEqual({ ok: false, reason: "maxSteps" });
+    const poor = { ...wornDocked(700), credits: new Decimal(0) };
+    expect(canBuyGearRepairOvertime(poor, SHIP)).toMatchObject({ ok: false, reason: "credits" });
+  });
+
+  it("each step lifts the docked rate by 25% of normal (never doubling), and the record clears once the gear is full", () => {
+    const base = wornDocked(500);
+    const bought = buyGearRepairOvertime(base, SHIP).next;
+    expect(gearOvertimeMult(bought, SHIP)).toBe(1.25);
+    const piece = pieces(bought)[0];
+    expect(gearRepairOutlook(bought, piece).ratePerMinute).toBeCloseTo(REPAIR_RATES.home * 1.25, 9);
+    expect(gearRepairOutlook(bought, piece, true).ratePerMinute).toBeCloseTo(REPAIR_RATES.home, 9);
+    const sixty = (s: GameState) => slotCondition(stepped(s, 60 / s.tickDurationSeconds), "reactorCore");
+    expect(sixty(bought) - 500).toBe(Math.floor(REPAIR_RATES.home * 1.25));
+    expect(sixty(base) - 500).toBe(REPAIR_RATES.home);
+    let maxed = base;
+    for (let i = 0; i < OVERTIME_MAX_STEPS; i++) maxed = buyGearRepairOvertime(maxed, SHIP).next;
+    expect(gearOvertimeMult(maxed, SHIP)).toBeLessThan(2);
+    const full = stepped(bought, Math.ceil((600 / (REPAIR_RATES.home * 1.25)) * 60) / bought.tickDurationSeconds + 2);
+    expect(pieces(full).every((p) => p.condition === undefined)).toBe(true);
+    expect(full.ships[0].gearRepairSpeed).toBeUndefined();
+  });
+
+  it("offline == live with Overtime: one call == 997 s chunks == 1 s steps, at every step count", () => {
+    // Fix C1: byte-identical, no tolerance (whole-second anchors and an integer bank).
+    const same = (a: GameState, b: GameState) => {
+      expect(pieces(a)).toEqual(pieces(b));
+      expect(a.ships[0].gearRepairSpeed).toEqual(b.ships[0].gearRepairSpeed);
+    };
+    for (let steps = 1; steps <= OVERTIME_MAX_STEPS; steps++) {
+      let bought = wornDocked(300);
+      for (let i = 0; i < steps; i++) bought = buyGearRepairOvertime(bought, SHIP).next;
+      for (const N of [137, 500, 1100]) {
+        const live = stepped(bought, N);
+        same(economyTick(bought, N, RNG), live);
+        same(chunked(bought, N, 997), live);
+      }
+    }
+  });
+
+  it("is inert out on a run and clears when the ship leaves", () => {
+    const bought = buyGearRepairOvertime(wornDocked(700), SHIP).next;
+    const out = dispatchCaptainOnPatrol(bought, 1, ROUTE, "balanced", false).next;
+    const piece = pieces(out)[0];
+    expect(gearRepairOutlook(out, piece).ratePerMinute).toBeLessThan(REPAIR_RATES.home);
+    expect(economyTick(out, 1, RNG).ships[0].gearRepairSpeed).toBeUndefined();
+  });
+});
+
+describe("gear wear step 5: the registry move is exactly its own", () => {
+  it("Quick Service's row is gone, Overtime on gear repair is live, no use source acts on a patrol", () => {
+    expect(WIRING_REGISTRY.some((e) => e.id === "wear:audit:quickGearRepair")).toBe(false);
+    expect(WIRING_REGISTRY.find((e) => e.id === "wear:audit:gearRepairOvertime")?.status.kind).toBe("live");
+    // "Combat only on patrols" (user 2026-11-09): only the Damage Control Suite's fires (a use row) act at the patrol context.
+    const patrolUse = WIRING_REGISTRY.filter((e) => e.id.startsWith("wear:WEAR_SOURCES:") && e.contexts.includes("patrol") && !e.id.includes("hitsTaken"));
+    expect(patrolUse.map((e) => e.id).filter((id) => /minutes|distance/.test(id))).toEqual([]);
+    // Read back, every changed row is as step 4 left it (the earlier registry pins use gw5ReadBack, innermost).
+    const back = gw5ReadBack(WIRING_REGISTRY);
+    expect(back.find((e) => e.id === "wear:audit:quickGearRepair")?.status.kind).toBe("pending");
+    expect(back.find((e) => e.id === "wear:audit:gearRepairOvertime")?.status.kind).toBe("pending");
+    expect(back.length).toBe(WIRING_REGISTRY.length + 1);
+  });
+
+  it("the reactor's power output stays full (user 2026-11-09, the EM-4 open call): live, not applicable, read back to pending", () => {
+    const id = "wear:WEAR_EFFICIENCY:reactorCore:powerOutput";
+    const row = WIRING_REGISTRY.find((e) => e.id === id)!;
+    expect(row.status.kind).toBe("live");
+    expect(row.notApplicable).toMatch(/Stays full \(Recommended\)/);
+    expect(row.claim).toContain("stays full");
+    expect(row.probe).toBeUndefined();
+    expect(row.contexts).toEqual([]);
+    expect(releaseBlockers().some((e) => e.id === id)).toBe(false);
+    const back = gw5ReadBack(WIRING_REGISTRY).find((e) => e.id === id)!;
+    expect(back.status.kind === "pending" ? back.status.owner : "").toMatch(/^the user's EM-4 open call/);
+    expect(back.notApplicable).toBeUndefined();
+  });
+});
+
+describe("gear wear step 5: the wear UI's view models read the engine", () => {
+  it("bands: Pristine 95+, Sound 80+, Worn from the use floor, Battered below it; percent rounds down", () => {
+    expect(WEAR_BANDS.find((b) => b.key === "worn")?.min).toBe(USE_WEAR_FLOOR);
+    expect(wearBand(1000).name).toBe("Pristine");
+    expect(wearBand(949).name).toBe("Sound");
+    expect(wearBand(USE_WEAR_FLOOR).name).toBe("Worn");
+    expect(wearBand(USE_WEAR_FLOOR - 1).name).toBe("Battered");
+    expect(conditionPercent(999)).toBe(99);
+    expect(aboutMinutes(0.2)).toBe("about 1 min");
+    expect(aboutMinutes(80)).toBe("about 1 h 20 min");
+  });
+
+  it("the card: band, effect from the curve, worn lines, and the care footer from the repair outlook", () => {
+    const s = wornDocked(780);
+    const cargo = pieces(s).find((p) => p.slotType === "cargoBay")!;
+    const card = pieceWearCard(s, cargo);
+    expect(card.lead).toBe("Worn 78%.");
+    expect(card.effect).toBe("Its stat lines work at 98.8% of new.");
+    expect(card.wearsBy).toBe("hauls");
+    expect(card.lines.every((l) => l.now < l.was)).toBe(true);
+    expect(card.care).toBe(`Back to full in ${aboutMinutes(220 / REPAIR_RATES.home)} at home, on its own. Repair is always free.`);
+    expect(wearEffectText("weapon", 640)).toBe("Opens each fight at 64%.");
+    expect(wearEffectText("reactorCore", 640)).toBe("Each fight opens it at 64%. Its power output stays full.");
+    const pristine = pieceWearCard(veteran(), pieces(veteran())[0]);
+    expect(pristine.lead).toBe("Pristine.");
+    expect(pristine.care).toBe("Nothing to do.");
+  });
+
+  it("the Help topic reads the engine: bands, the use floor, the curve, the free rates, Overtime; no paid or instant repair", () => {
+    const topic = HELP_TOPICS.find((t) => t.id === "gearWear")!;
+    expect(topic.title).toBe("Gear wear");
+    for (const s of ["Pristine (95% and up)", "Sound (80% to 94%)", "Worn (60% to 79%)", "Battered (below 60%)", "Ordinary use stops at 60%", "96% at 60%", "never below 75%", "4% a minute at home", "8% a minute while its hull is in a Shipyard repair bay", "0.2% a minute out on a run", "never needs you and never costs anything", "pay for Overtime from a piece's gear card", "which stays free"]) {
+      expect(topic.body, s).toContain(s);
+    }
+    expect(topic.body).toContain(TRAINING_WEAR_SENTENCE);
+    expect(topic.body).not.toMatch(/Quick Service|instant/i);
+    expect(topic.body).not.toMatch(/—|--/);
+  });
+
+  it("the ship header and the fleet care line: hidden when pristine, report docked recovery and out-on-a-run truthfully", () => {
+    expect(fleetCare(veteran())).toBeNull();
+    expect(shipGearSummary(veteran(), SHIP).recovery).toBeNull();
+    const s = wornDocked(700);
+    const summary = shipGearSummary(s, SHIP);
+    expect(summary.percent).toBe(70);
+    expect(summary.recovery).toBe(`Recovering, full in ${aboutMinutes(300 / REPAIR_RATES.home)}`);
+    const care = fleetCare(s)!;
+    expect(care.rows).toHaveLength(1);
+    expect(care.summary).toBe(`1 ship recovering. Docked gear back to full in ${aboutMinutes(300 / REPAIR_RATES.home)}.`);
+    const out = dispatchCaptainOnPatrol(s, 1, ROUTE, "balanced", false).next;
+    // A patrol wears its gear by battle alone (user 2026-11-09 "Combat only on patrols"), and the line says so.
+    expect(fleetCare(out)!.rows[0].status).toBe("On patrol, gear wears only in battle and recovers fully once home");
+    // The summary counts it where it really is: out on patrol, not recovering at home (step 5 fix, 2026-11-09).
+    expect(fleetCare(out)!.summary).toBe("1 ship out on patrol.");
+    expect(fleetCare(out)!.summary).not.toContain("recovering");
+    expect(pieceWearCard(out, pieces(out)[0]).care).toContain("which battle damage can outpace");
+    expect(livePieceCondition(out, pieces(out)[0])).toBe(700);
+  });
+});
