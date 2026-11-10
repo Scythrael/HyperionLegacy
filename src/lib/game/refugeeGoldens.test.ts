@@ -60,6 +60,10 @@
 // withRefugeeBuffsOff), where they read the unstaffed values, which are golden 3's own pins.
 
 import { describe, expect, it } from "vitest";
+// WR-8b (enemy torpedoes) came after every pin here: the file runs with it off (enemyTorpedoSwitch.fixture.ts), so its
+// pins keep proving their own slice (enemyTorpedoGoldens.test.ts pins what WR-8b moved, enemyTorpedoes.test.ts proves it).
+import { enemyTorpedoesOffForThisFile } from "./enemyTorpedoSwitch.fixture";
+enemyTorpedoesOffForThisFile();
 import { gw5ReadBack } from "./gearWearStep5Registry.fixture"; // Gear wear step 5: its deleted and flipped rows read back, innermost
 import { otUiReadBack } from "./otUiRegistry.fixture"; // OT-UI: the Overtime row restated, read back innermost
 import { cp16OffForThisFile } from "./cp16Switch.fixture";
@@ -80,6 +84,8 @@ import { cp19ReadBack } from "./cp19Registry.fixture";
 import { ml5ReadBack } from "./ml5Registry.fixture";
 // Wiring WR-10 flipped twelve away rows after every pin here (wr10Registry.fixture.ts): read back innermost.
 import { wr10ReadBack } from "./wr10Registry.fixture";
+// WR-8b (enemy torpedoes) came after these pins: its registry rows are read back innermost.
+import { wr8bReadBack } from "./wr8bRegistry.fixture";
 import { writeFileSync } from "node:fs";
 import Decimal from "break_infinity.js";
 import { BLUEPRINTS, FACILITIES, REFINE_RECIPES, SHIP_TYPES, freshState, type EquipmentRarity, type GameState, type ShipTypeKey, type ShortRangeMissionState } from "./model";
@@ -561,7 +567,7 @@ describe("E5-0 golden 4: the wiring registry's ids and statuses", () => {
     // Complement CP-11's rows (cp11Registry.fixture.ts) came after and are held apart the same way.
     const added = new Set([...E5_ADDED_ENTRY_IDS, ...CP11_ADDED_ENTRY_IDS]);
     // Complement CP-12's flip of the obtainable row came after too (cp12ReadBack puts it back).
-    const lines = cp12ReadBack(cp13ReadBack(cp14ReadBack(cp16ReadBack(cp18ReadBack(cp19ReadBack(gw5ReadBack(ml5ReadBack(otUiReadBack(wr10ReadBack(WIRING_REGISTRY)))))))))).filter((e) => !added.has(e.id)).map((e) => `${e.id}|${e.status.kind}`);
+    const lines = cp12ReadBack(cp13ReadBack(cp14ReadBack(cp16ReadBack(cp18ReadBack(cp19ReadBack(gw5ReadBack(ml5ReadBack(otUiReadBack(wr10ReadBack(wr8bReadBack(WIRING_REGISTRY))))))))))).filter((e) => !added.has(e.id)).map((e) => `${e.id}|${e.status.kind}`);
     pin("registry", [lines.length, hash(lines)]);
   });
 });

@@ -634,6 +634,8 @@ interface ShotResult {
 	fired: boolean;
 	// How many projectiles connected (0 => the whole volley was evaded).
 	projectilesHit: number;
+	// WR-8b: how many of the shot's missiles a Defensive target's point defense shot down (0 for every other shot).
+	intercepted: number;
 	// Total damage dealt to the target across all projectiles (integer).
 	damage: number;
 	// True if any projectile critically hit.
@@ -1205,8 +1207,13 @@ export function fireWeapon(
 		weapon.missile === true && (target.defensive?.missileInterceptPct ?? 0) > 0 && target.weapons.some((w) => w.antiDrone === true && w.durability > 0)
 			? target.defensive!.missileInterceptPct
 			: 0;
+	// WR-8b: the missiles this shot lost to the guard (the battle log names a shot the point defense stopped).
+	let intercepted = 0;
 	for (let p = 0; p < weapon.projectileCount; p++) {
-		if (missileGuard > 0 && combat.chance(missileGuard, 100)) continue; // shot down: no hit roll, no damage
+		if (missileGuard > 0 && combat.chance(missileGuard, 100)) {
+			intercepted++;
+			continue; // shot down: no hit roll, no damage
+		}
 		// STEP 1/2: hit roll (one combat draw, always).
 		const hit = combat.chance(hitChance, 100);
 		if (!hit) continue; // missed projectile: no crit/damage draw, no damage
@@ -1439,6 +1446,7 @@ export function fireWeapon(
 	return {
 		fired: true,
 		projectilesHit,
+		intercepted,
 		damage: totalDealt,
 		crit: anyCrit,
 		attenuated: anyAttenuated,
@@ -2584,6 +2592,8 @@ export function resolveBattle(
 								crit: shot.crit,
 								attenuated: shot.attenuated,
 								projectilesHit: shot.projectilesHit,
+								// WR-8b: a missile the target's point defense shot down (the whole shot stopped: its own line).
+								...(evaded && shot.intercepted > 0 ? { intercepted: shot.intercepted } : {}),
 								// DISPLAY-ONLY damage split (Combat 0.13.0 combat-log options): the
 								// shield-absorbed vs hull-landed halves of `damage`, for the Simplified
 								// log style + the damage-color option. Present ONLY on a CONNECTING hit (a

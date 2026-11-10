@@ -65,7 +65,7 @@ import { damageControlEffect } from "./utilityGear";
 import { effectiveShipStats, officerCombatModsFromProfile, officerCombatProfile, shipCombatRulesStamp, shipCrewContribution, shipRepairSpeedBonus } from "./crewOverlay";
 // Complement CP-13: the Tactician bridge's weapon line (crewModules.ts imports no scan code, so no cycle).
 import { hullFamilyWeaponLine } from "./crewModules";
-import { ENCOUNTER_OPEN_DISTANCE, RULES_COMBAT_SPEED, stampCombatArgs } from "./combat/combatRules";
+import { ENCOUNTER_OPEN_DISTANCE, ENEMY_TORPEDO, RULES_COMBAT_SPEED, SHIP_EVENT_TORPEDO_PERMILLE_BY_TIER, TORPEDO_ROLL_UNITS, stampCombatArgs } from "./combat/combatRules";
 // WR-5b (0.14.0): the commanding captain's Tactician talents, frozen with the battle profile.
 import { shipCaptainCombatMods, withCaptainRepair } from "./captainTacticianEffects";
 import { CREW_STAT_KEYS } from "./crewBuffs";
@@ -78,7 +78,7 @@ import { addBattleWear, combatantPools, hullWearOnPlating, poolBattleWear, waveB
 // Safe first runs SF-2: the training run stamp's one read (pass-only events).
 import { isTrainingRun } from "./enemyRanks";
 // Safe first runs SF-3: an ordinary run on the curve (the check and wear scale, the enemy's strength and hazard ceiling).
-import { encounterHazard, rampEnemyScale, rampedPassChance, rampedStampOf, runRampOf } from "./runDifficulty";
+import { encounterHazard, rampEnemyScale, rampedChance, rampedPassChance, rampedStampOf, runOddsRampOf, runRampOf } from "./runDifficulty";
 // Field Kits FKR-8 (OC-F1): a Lure Beacon's salvage drop scale, rolled per use.
 import { fieldDeviceLureDial, fieldDeviceSalvageMult, fieldDeviceUseEffectiveness, fieldDevicesLive } from "./fieldKits";
 
@@ -88,6 +88,7 @@ export const SHIP_EVENT_SALT = 0x5c9e2b47; // the per-boundary event stream (the
 export const PROBE_BATTLE_SALT = 0x3d71a6e9; // a probe or cloaked-vessel battle
 export const PROBE_SALVAGE_SALT = 0x6f2c84b3; // a won battle's salvage haul
 export const GHOST_FIND_SALT = 0x1a9d5e77; // a sensor ghost's bonus discovery (expedition.ts, at the body's completion)
+export const SHIP_TORPEDO_SALT = 0x2b7e1517; // WR-8b: whether a probe or cloaked vessel carries a torpedo (one draw)
 
 // ===== The event table =====
 
@@ -475,11 +476,13 @@ export function shipEventEnemy(exp: Expedition, body: ExpeditionBody, bodyIndex:
   const k = (1 + PROBE_HAZARD_SCALE * hazard) * Math.max(0, 1 - (exp.ambushSoften ?? 0)) * curve;
   // WR-8: under the run's combat rules the vessel opens at range with its weapons' rule traits.
   const rules = exp.groundOps?.shipEventProfile?.battle?.combatRules !== undefined;
+  // WR-8b: on a run stamped with enemy torpedoes the vessel may carry one, after its own guns (shipEventCarriesTorpedo).
+  const weaponIds: WeaponId[] = [...hull.weapons, ...(shipEventCarriesTorpedo(exp, bodyIndex, step) ? [ENEMY_TORPEDO] : [])];
   const c = shipToCombatant({
     id,
     team: "enemy",
     stats: hull.stats,
-    weaponLoadout: hull.weapons.map((w, i) => makeWeaponInstance(w, `${id}-w${i}-${w}`)),
+    weaponLoadout: weaponIds.map((w, i) => makeWeaponInstance(w, `${id}-w${i}-${w}`)),
     stance: hull.stance,
     ...(rules ? { combatRules: true, position: ENCOUNTER_OPEN_DISTANCE, speed: RULES_COMBAT_SPEED } : {}),
   });
@@ -492,6 +495,32 @@ export function shipEventEnemy(exp: Expedition, body: ExpeditionBody, bodyIndex:
     return { ...w, yieldMin, yieldMax: Math.max(yieldMin, Math.round(w.yieldMax * k)) };
   });
   return c;
+}
+
+// WR-8b (0.14.0, enemy torpedoes; user 2026-11-10 "Simple now"): a ship event vessel's chance to carry a torpedo on run
+// `exp`, in whole permille: the run's tier's SHIP_EVENT_TORPEDO_PERMILLE_BY_TIER x its odds ramp (Tier I climbs the run
+// curve one run behind the enemies, like the affixes, the ambushes and the casters' Corroded; Tier II and up read full),
+// only on a run whose frozen combat rules carry enemyTorpedoes (every run dispatched since WR-8b), never on the training
+// run (it fights no battle) or a run without the curve stamp. Pure.
+export function shipEventTorpedoPermille(exp: Pick<Expedition, "difficulty" | "groundOps">): number {
+  if (exp.groundOps?.shipEventProfile?.battle?.combatRules?.enemyTorpedoes !== 1) return 0;
+  const stamp = rampedStampOf(exp);
+  if (stamp === null) return 0;
+  return Math.round(rampedChance(SHIP_EVENT_TORPEDO_PERMILLE_BY_TIER[stamp.tier], runOddsRampOf(exp)));
+}
+
+// WR-8b: the torpedo roll's seed (its own salt, keyed by the boundary). Pure.
+export function shipEventTorpedoSeed(exp: Pick<Expedition, "seed">, bodyIndex: number, step: number): number {
+  return (exp.seed ^ SHIP_TORPEDO_SALT ^ Math.imul(scanStepKey(bodyIndex, step) + 1, 0x9e3779b9)) >>> 0;
+}
+
+// WR-8b: whether the vessel at `body` boundary `step` carries a torpedo: one draw on its own stream (shipEventTorpedoSeed)
+// below the run's chance; no draw at 0. Every input is frozen at dispatch (the seed, the stamps), so a run replays the
+// same vessel however it is advanced. Pure.
+export function shipEventCarriesTorpedo(exp: Pick<Expedition, "seed" | "difficulty" | "groundOps">, bodyIndex: number, step: number): boolean {
+  const permille = shipEventTorpedoPermille(exp);
+  if (!(permille > 0)) return false;
+  return makeRng(shipEventTorpedoSeed(exp, bodyIndex, step)).nextInt(TORPEDO_ROLL_UNITS) < permille;
 }
 
 // The event's battle against `hull`: does the ship win (a draw is a loss), and (GEAR WEAR step 4, `tally`: a flagged

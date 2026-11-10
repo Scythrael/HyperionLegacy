@@ -2257,3 +2257,29 @@ stalls run 2 on 5 of 200 (2.5%, under the 5% bar: a margin of 5 runs); rank1si a
   that grows along the patrol ramp, and a ship-event torpedo chance that grows with expedition tier (gentle at Tier I).
   LOGGED for later: torpedoes (or an equivalent) on all ships at high tiers, and Safety Interlocks (SUGGESTIONS.md
   "SAFETY INTERLOCKS", the opt-in risk toggles; user: "Check documentation for the definition") raising enemy danger.
+
+#### WR-8b carry note (enemy torpedoes, built 2026-11-10 on f8d3623; two commits: goldens, then the wiring; no SAVE bump)
+
+**Built:** every new combat rules stamp carries `enemyTorpedoes: 1` (combat/combatRules.ts; test switch
+`ENEMY_TORPEDO_SWITCH`, enemyTorpedoSwitch.fixture.ts). Under it: every Corsair Carrier installs the Concussion Torpedo
+after its plasma (enemyWave.ts `params.torpedoes`); a Marauder carries one at `MARAUDER_TORPEDO_PERMILLE` on the patrol
+ramp (patrolProfile.ts `patrolMarauderTorpedoPermille`: `rampedChance` at `rampOddsFraction(completed)`, the WR-10
+Corroded mechanism; full on an unstamped veteran cycle; never on the training cycle), rolled per spawn on a private
+stream (waveSeed.ts `WAVE_TORPEDO_SEED_SALT` off the wave's enemy seed: the enemy stream never moves); a ship event's
+vessel carries one at `SHIP_EVENT_TORPEDO_PERMILLE_BY_TIER[tier]` x the run's odds ramp (shipScanEvents.ts
+`shipEventTorpedoPermille`, its own `SHIP_TORPEDO_SALT` keyed by the boundary; never on the training run). Every input is
+frozen at dispatch, so in-flight runs replay byte-identically. Truthfulness: the battle log, the simplified log and the
+arena name a torpedo the point defense shot down (`CombatEvent.intercepted`, flavor `missileIntercept`, "shot down");
+the patrol card's More info has a Torpedoes line (enemyTorpedoDisplay.ts `patrolTorpedoLine`); Help, Combat Patrols and
+Scan Events, have a TORPEDOES paragraph. Registry: `ship:wr8:defensiveMissileIntercept` LIVE (a measured probe: a
+Defensive Carrier's torpedo damage from a torpedo-armed Corsair Carrier), new LIVE rows `ship:wr8b:waveTorpedoes`,
+`ship:wr8b:marauderTorpedoRamp`, `ship:wr8b:shipEventTorpedoes`.
+
+**[PROVISIONAL]:** `MARAUDER_TORPEDO_PERMILLE` 400 (by completed patrols: 0, 0, 15, 42, 77, 119, 166, 218, 274, 316,
+then 400 from 10), `SHIP_EVENT_TORPEDO_PERMILLE_BY_TIER` 50 / 150 / 250 / 350 / 450 / 550 / 650 (Tier I x the odds ramp).
+
+**Measured (live loop, veteran, Standard Issue, Dispatch Once, 200 seeds, wins before and after):** Warband Balanced:
+Destroyer 30 to 16, Battleship 176 to 143, Carrier 76 to 39; Defensive: 30 to 26, 143 to 173, 85 to 65. Sweep: Destroyer
+200 to 197 (Balanced), 199 (Defensive); Battleship and Carrier 200. patrol-balance.test.ts is unchanged (its Warband
+bands run the forecast path without a stamp; its live Sweep floor holds at 98.5%). The ramp sweep is unchanged (D18 run 2
+stalls 5 of 200; rank1si completes 192 of 200 at full strength).

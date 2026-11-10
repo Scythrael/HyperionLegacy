@@ -735,6 +735,8 @@
   // for a patrol's hostile-pool summary; CombatStance types the player's per-patrol
   // stance choice fed to dispatchCaptainOnPatrol.
   import { PIRATE_HULLS } from "./lib/game/combat/enemyHulls";
+  // WR-8b: the patrol card's torpedo line (who carries torpedoes on a patrol sent now).
+  import { patrolTorpedoLine } from "./lib/enemyTorpedoDisplay";
   import type { CombatStance } from "./lib/game/combat/positioning";
   // Combat 1.0 (Unit 2.4): the two ADVISORY dispatch-card readouts. battleRating is the
   // "how geared am I" scalar; threatAssessment maps a seeded FULL-PATROL win/loss tally
@@ -18951,6 +18953,8 @@
                           <div class="mission-card-col">
                             <div class="mission-col-label">Encounter</div>
                             <div class="mission-req-line">Hostiles: {hostiles}</div>
+                            <!-- WR-8b: who carries torpedoes on a patrol sent now (enemyTorpedoDisplay.ts, engine numbers). -->
+                            {#if patrolTorpedoLine(state, def) !== null}<div class="mission-req-line">Torpedoes: {patrolTorpedoLine(state, def)}</div>{/if}
                             <div class="mission-req-line">Waves: {wavesLabel}</div>
                             <div class="mission-req-line">Route: out {shipRoute.transitOutTicks}t &middot; window {shipRoute.rollWindowTicks}t &middot; back {shipRoute.transitBackTicks}t</div>
                             {#if forecast !== null}<div class="mission-req-line">Battle Rating: {formatNumber(forecast.rating)}</div>{/if}

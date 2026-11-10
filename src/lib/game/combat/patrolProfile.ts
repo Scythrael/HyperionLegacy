@@ -19,8 +19,8 @@
 // ============================================================================
 
 import type { PatrolDef, PatrolDifficultyStamp } from "../model";
-import type { CombatRulesStamp } from "./combatRules";
-import { FIRST_PATROL_WAVES, isTrainingPatrol, patrolEnemyScale } from "../runDifficulty";
+import { MARAUDER_TORPEDO_PERMILLE, type CombatRulesStamp } from "./combatRules";
+import { FIRST_PATROL_WAVES, isTrainingPatrol, patrolEnemyScale, patrolStampOf, rampOddsFraction, rampedChance } from "../runDifficulty";
 import { PIRATE_HULLS, type PirateHullId } from "./enemyHulls";
 import type { EnemyWaveParams } from "./enemyWave";
 import { planWaveSchedule, patrolWaveParams } from "./waveSchedule";
@@ -51,7 +51,26 @@ export function patrolWaveEnemyParams(def: PatrolDef, stamped: Stamped, idPrefix
   // WR-8: a cycle under the combat rules fields its enemies under them (absent: the pre-WR-8 params exactly).
   const rules = stamped.combatRules !== undefined ? { combatRules: true } : {};
   if (isTrainingPatrol(stamped)) return { hullPool: [lightestPatrolHull(def)], enemyCountMin: 1, enemyCountMax: 1, idPrefix, ...rules };
-  return { hullPool: def.hullPool, enemyCountMin: def.enemyCountMin, enemyCountMax: def.enemyCountMax, idPrefix, ...rules };
+  // WR-8b: a cycle stamped with enemy torpedoes fields them (never the training cycle, above).
+  const torpedoes = patrolTorpedoesLive(stamped) ? { torpedoes: { marauderPermille: patrolMarauderTorpedoPermille(stamped) } } : {};
+  return { hullPool: def.hullPool, enemyCountMin: def.enemyCountMin, enemyCountMax: def.enemyCountMax, idPrefix, ...rules, ...torpedoes };
+}
+
+// WR-8b (0.14.0, enemy torpedoes; user 2026-11-10 "Simple now"): whether a cycle's enemies carry torpedoes: its combat
+// rules stamp carries enemyTorpedoes (every cycle started since WR-8b) and it is not the training cycle. Pure.
+export function patrolTorpedoesLive(stamped: Stamped): boolean {
+  return stamped.combatRules?.enemyTorpedoes === 1 && !isTrainingPatrol(stamped);
+}
+
+// WR-8b: a Marauder's chance to carry a torpedo on this cycle, in whole permille: MARAUDER_TORPEDO_PERMILLE on the
+// patrol ramp, the WR-10 Corroded mechanism (rampedChance at the odds position, one run behind the enemy curve:
+// runDifficulty.ts rampOddsFraction of the cycle's completed runs). Full on a cycle without a curve stamp (a veteran, the
+// curve at its top), 0 on the training cycle and on the first two ramped patrols. Pure.
+export function patrolMarauderTorpedoPermille(stamped: Stamped): number {
+  const s = patrolStampOf(stamped);
+  if (s === null) return MARAUDER_TORPEDO_PERMILLE;
+  if (s.firstRun) return 0;
+  return Math.round(rampedChance(MARAUDER_TORPEDO_PERMILLE, rampOddsFraction(s.completed)));
 }
 
 // WR-8 (0.14.0): the battle options a patrol wave resolves with: under the cycle's combat rules the guns pre-charge

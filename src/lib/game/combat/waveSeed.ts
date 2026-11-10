@@ -112,3 +112,10 @@ export const WAVE_LOOT_SEED_SALT = 0x165667b1; // xxHash PRIME32_5: odd, distinc
 // odd constant, checked against the repo to be distinct from every salt above, every mixer constant and every
 // other seed constant (e.g. RELIC_DEFAULT_SEED).
 export const WAVE_OUTPUT_ROUNDING_SEED_SALT = 0x6c8e9cf5;
+
+// WR-8b (0.14.0, enemy torpedoes): the TORPEDO salt. A wave's Marauders each roll whether they carry a torpedo on a
+// PRIVATE stream, makeRng(deriveWaveSeed(enemySeed, 0, WAVE_TORPEDO_SEED_SALT)) off the wave's own enemy seed
+// (enemyWave.ts), one draw per Marauder in spawn order, drawn only on a cycle stamped with enemy torpedoes. The enemy
+// stream (count and hull picks) never moves. An arbitrary odd constant, checked against the repo to be distinct from
+// every salt above, every mixer constant and every other salt (salts.test.ts).
+export const WAVE_TORPEDO_SEED_SALT = 0x7a3d91c5;

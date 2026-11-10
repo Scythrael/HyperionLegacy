@@ -7,6 +7,10 @@
 // and no new draw.
 
 import { describe, expect, it } from "vitest";
+// WR-8b (enemy torpedoes) came after every pin here: the file runs with it off (enemyTorpedoSwitch.fixture.ts), so its
+// pins keep proving their own slice (enemyTorpedoGoldens.test.ts pins what WR-8b moved, enemyTorpedoes.test.ts proves it).
+import { enemyTorpedoesOffForThisFile } from "./enemyTorpedoSwitch.fixture";
+enemyTorpedoesOffForThisFile();
 import Decimal from "break_infinity.js";
 import { SHIP_TYPES, withFavoredLines, type EquipmentInstance, type GameState, type PatrolMissionState, type ShipTypeKey } from "./model";
 import { PATROL_BREAK_MARGIN, PATROL_REPAIR_ON_PROJECTED_DEFEAT, projectedCycleBreak, canDispatchPatrol, recallCaptain, dispatchCaptainOnPatrol, economyTick, processShipRepairs, shipRepairDurationTicks, shipRepairGear } from "./tick";

@@ -32,6 +32,7 @@ import { asExpeditionVeteran, asPatrolVeteran, dispatchPastPropulsion } from "./
 import { onPatrolCurve, routeTicks } from "./safeFirstPatrol.fixture";
 import { patrolDifficultyAt } from "./runDifficulty";
 import { shipCombatRulesStamp } from "./crewOverlay";
+import { withEnemyTorpedoesOff } from "./enemyTorpedoSwitch.fixture";
 
 const TACTICIANS: ShipTypeKey[] = ["destroyer", "battleship", "carrier"];
 const ROUTES = Object.keys(PATROLS) as PatrolKey[];
@@ -115,8 +116,8 @@ export function torpedoTierRow(exp: Expedition, tier: RegionTier): string {
   return out.join(",");
 }
 
-function shipEventRow(hull: ShipTypeKey, seed: number | undefined): string[] {
-  const res = dispatchPastPropulsion(asExpeditionVeteran(withCrew(onHull(hull, seed), "d18")), "ship-1", 1, "cand-0");
+function shipEventRow(hull: ShipTypeKey, seed: number | undefined, dispatch: typeof dispatchPastPropulsion = dispatchPastPropulsion): string[] {
+  const res = dispatch(asExpeditionVeteran(withCrew(onHull(hull, seed), "d18")), "ship-1", 1, "cand-0");
   expect(res.success, `${hull}: ${res.reason}`).toBe(true);
   const done: Expedition = advanceExpedition(res.expedition!, SWEEP_END);
   const events = (done.scanEvents ?? []).filter((e) => e.kind === "shipEvent");
@@ -157,27 +158,106 @@ export const TORPEDO_GOLDEN_PRE: Record<string, unknown> = {
   "shipEvent:eir:202": ["probe:win", "7a7aef9b", "2/6 hull:0 setbacks:1", "7d6947c8"],
 };
 
-describe("WR-8b goldens: the pre-torpedo capture", () => {
-  it("stamp", () => expect(hash(shipCombatRulesStamp(onHull("destroyer"), onHull("destroyer").ships[0]))).toBe(TORPEDO_GOLDEN_PRE.stamp));
+// IN FLIGHT and the switch: every run below is DISPATCHED inside the switch (enemyTorpedoSwitch.fixture.ts: no stamp
+// carries enemyTorpedoes, a run started before WR-8b), then advanced by the live WR-8b engine. Every row reproduces its
+// pre-WR-8b capture byte for byte, so WR-8b moved nothing else and a run in flight replays exactly as it would have.
+const offPatrol: typeof dispatchCaptainOnPatrol = (...a) => withEnemyTorpedoesOff(() => dispatchCaptainOnPatrol(...a));
+const offExpedition: typeof dispatchPastPropulsion = (...a) => withEnemyTorpedoesOff(() => dispatchPastPropulsion(...a));
+
+describe("WR-8b goldens: in flight (dispatched before WR-8b, advanced by the WR-8b engine) == the pre-torpedo capture", () => {
+  it("stamp", () => expect(withEnemyTorpedoesOff(() => hash(shipCombatRulesStamp(onHull("destroyer"), onHull("destroyer").ships[0])))).toBe(TORPEDO_GOLDEN_PRE.stamp));
   for (const hull of TACTICIANS) {
     for (const key of ROUTES) {
-      it(`patrol ${hull} ${key}`, { timeout: 120_000 }, () => expect(torpedoPatrolRow(hull, key, "balanced", null)).toEqual(TORPEDO_GOLDEN_PRE[`patrol:${hull}:${key}`]));
-      it(`forecast ${hull} ${key}`, { timeout: 120_000 }, () => expect(forecast(hull, key)).toBe(TORPEDO_GOLDEN_PRE[`forecast:${hull}:${key}`]));
+      it(`patrol ${hull} ${key}`, { timeout: 120_000 }, () => expect(torpedoPatrolRow(hull, key, "balanced", null, offPatrol)).toEqual(TORPEDO_GOLDEN_PRE[`patrol:${hull}:${key}`]));
+      it(`forecast ${hull} ${key}`, { timeout: 120_000 }, () => expect(withEnemyTorpedoesOff(() => forecast(hull, key))).toBe(TORPEDO_GOLDEN_PRE[`forecast:${hull}:${key}`]));
     }
   }
   it("patrol carrier Warband Defensive", { timeout: 120_000 }, () =>
-    expect(torpedoPatrolRow("carrier", "crimsonReaverWarband", "standoff", null)).toEqual(TORPEDO_GOLDEN_PRE["patrol:carrier:warband:standoff"]));
+    expect(torpedoPatrolRow("carrier", "crimsonReaverWarband", "standoff", null, offPatrol)).toEqual(TORPEDO_GOLDEN_PRE["patrol:carrier:warband:standoff"]));
   for (const k of CURVE) {
     it(`patrol destroyer Sweep on the curve (${k} completed)`, { timeout: 120_000 }, () =>
-      expect(torpedoPatrolRow("destroyer", "crimsonReaverSweep", "balanced", k)).toEqual(TORPEDO_GOLDEN_PRE[`patrol:destroyer:sweep:c${k}`]));
+      expect(torpedoPatrolRow("destroyer", "crimsonReaverSweep", "balanced", k, offPatrol)).toEqual(TORPEDO_GOLDEN_PRE[`patrol:destroyer:sweep:c${k}`]));
   }
   it("ship battles by tier", { timeout: 120_000 }, () => {
-    const exp = torpedoRun();
+    const exp = torpedoRun(offExpedition);
     for (const tier of TIERS) expect(torpedoTierRow(exp, tier), `tier ${tier}`).toBe(TORPEDO_GOLDEN_PRE[`tier:${tier}`]);
   });
   for (const hull of EXPLORERS) {
     for (const seed of RUN_SEEDS) {
-      it(`ship events ${hull} ${seed ?? "default"}`, { timeout: 300_000 }, () => expect(shipEventRow(hull, seed)).toEqual(TORPEDO_GOLDEN_PRE[`shipEvent:${hull}:${seed ?? "default"}`]));
+      it(`ship events ${hull} ${seed ?? "default"}`, { timeout: 300_000 }, () => expect(shipEventRow(hull, seed, offExpedition)).toEqual(TORPEDO_GOLDEN_PRE[`shipEvent:${hull}:${seed ?? "default"}`]));
+    }
+  }
+});
+
+// THE LIVE GAME (WR-8b on). Every row moved; each move named:
+// - stamp: the stamp carries enemyTorpedoes: 1.
+// - patrol (every row): the dispatch record moves with the stamp. The Sweep rows move ONLY there: their Marauders at
+//   full strength (40%) and on the curve (4.2%, 16.6%, 31.6% at 3, 6, 9 completed) roll no torpedo on master seed 1, so
+//   the replay, the outcome, the ship and the end state are the capture's. Every Warband row moves its replay and end
+//   state: each Corsair Carrier fires a torpedo (and parks at the torpedo's long reach in its Defensive stance); on
+//   master seed 1 every outcome holds (all four won, as captured), with more hull lost on the way.
+// - forecast: the Warband reads harder: Destroyer 9 to 4 of 64 (Extreme), Battleship 52 to 46 (Likely to Worthy),
+//   Carrier 23 to 10 (Not Advised to Extreme). The Sweep forecasts hold (64 of 64).
+// - tiers: a vessel carrying a torpedo fights differently. Tier I (5%): one boundary (body 1, step 7) rolls one, and its
+//   two Cloaked Vessel fights flip to a loss. Tiers II and up (15% to 65%): the boundaries that roll one move; most flip
+//   to a loss, and one (body 1, step 1, the Cloaked Vessel striking first) flips to a win: with the torpedo its long
+//   guns carry more than half its expected damage, so its Balanced stance holds at long reach and its autocannon sits
+//   out (resolveBattle.ts stanceHoldDistance, BALANCED_FIREPOWER_SHARE), and a torpedo never opens an ambush.
+//   The Hostile Probe rows hold (the ship wins every one, as captured).
+// - shipEvent (Tier I veteran runs): only the whole run's hash moves (the stamp on the frozen battle profile); no
+//   vessel on these six runs rolls a torpedo at 5%, so every battle, event and outcome is the capture's.
+const TORPEDO_GOLDEN: Record<string, unknown> = {
+  "stamp": "a624de77",
+  "patrol:destroyer:crimsonReaverSweep": ["9b0b14e", "ba2ee129", "won", "6ad9f46c", "7ade5edc"],
+  "forecast:destroyer:crimsonReaverSweep": "64:guaranteed",
+  "patrol:destroyer:crimsonReaverWarband": ["71ea6749", "dea3ccfa", "won", "6ad9f46c", "c4d5948c"],
+  "forecast:destroyer:crimsonReaverWarband": "4:extreme",
+  "patrol:battleship:crimsonReaverSweep": ["143e32aa", "1ce1681f", "won", "c6dba9cb", "b5a20ae8"],
+  "forecast:battleship:crimsonReaverSweep": "64:guaranteed",
+  "patrol:battleship:crimsonReaverWarband": ["73b596d8", "bd3ae9bc", "won", "c6dba9cb", "3392d636"],
+  "forecast:battleship:crimsonReaverWarband": "46:worthy",
+  "patrol:carrier:crimsonReaverSweep": ["6ffa04e6", "9cc52b1a", "won", "ea909677", "98532b55"],
+  "forecast:carrier:crimsonReaverSweep": "64:guaranteed",
+  "patrol:carrier:crimsonReaverWarband": ["45bb13e0", "8900e3b", "won", "ea909677", "5063a217"],
+  "forecast:carrier:crimsonReaverWarband": "10:extreme",
+  "patrol:carrier:warband:standoff": ["d80d6eab", "3c465626", "won", "ea909677", "9dbf420e"],
+  "patrol:destroyer:sweep:c3": ["925219dc", "bd838264", "won", "6ad9f46c", "6ca4ceec"],
+  "patrol:destroyer:sweep:c6": ["cdfb539f", "e7d1e7fc", "won", "6ad9f46c", "2edb440b"],
+  "patrol:destroyer:sweep:c9": ["73d28278", "7e5649b", "won", "6ad9f46c", "2306786f"],
+  "tier:1": "p00:w0,p01:w0,p02:w0,p03:w0,p04:w0,p05:w0,p06:w0,p07:w0,p10:w0,p11:w0,p12:w0,p13:w0,p14:w0,p15:w0,p16:w0,p17:w0,cp00:w0,cp01:w0,cp02:w0,cp03:w0,cp04:w0,cp05:w0,cp06:w0,cp07:w0,cp10:w0,cp11:w0,cp12:w0,cp13:w0,cp14:w0,cp15:w0,cp16:w0,cp17:l41,cf00:w0,cf01:w0,cf02:w0,cf03:w0,cf04:l41,cf05:w0,cf06:w0,cf07:w0,cf10:w0,cf11:l41,cf12:w0,cf13:w0,cf14:w0,cf15:w0,cf16:w0,cf17:l41",
+  "tier:2": "p00:w0,p01:w0,p02:w0,p03:w0,p04:w0,p05:w0,p06:w0,p07:w0,p10:w0,p11:w0,p12:w0,p13:w0,p14:w0,p15:w0,p16:w0,p17:w0,cp00:l41,cp01:l41,cp02:l41,cp03:l41,cp04:l41,cp05:l41,cp06:l41,cp07:l41,cp10:w0,cp11:l41,cp12:w0,cp13:w0,cp14:w0,cp15:w0,cp16:l41,cp17:l41,cf00:l41,cf01:l41,cf02:l41,cf03:l41,cf04:l41,cf05:l41,cf06:l41,cf07:l41,cf10:w0,cf11:w0,cf12:w0,cf13:l41,cf14:w0,cf15:w0,cf16:l41,cf17:l41",
+  "tier:3": "p00:w0,p01:w0,p02:w0,p03:w0,p04:w0,p05:w0,p06:w0,p07:w0,p10:w0,p11:w0,p12:w0,p13:w0,p14:w0,p15:w0,p16:w0,p17:w0,cp00:l41,cp01:l41,cp02:l41,cp03:l41,cp04:l41,cp05:l41,cp06:l41,cp07:l41,cp10:w0,cp11:l41,cp12:w0,cp13:w0,cp14:l41,cp15:w0,cp16:l41,cp17:l41,cf00:l41,cf01:l41,cf02:l41,cf03:l41,cf04:l41,cf05:l41,cf06:l41,cf07:l41,cf10:w0,cf11:w0,cf12:w0,cf13:l41,cf14:l41,cf15:w0,cf16:l41,cf17:l41",
+  "tier:4": "p00:w0,p01:w0,p02:w0,p03:w0,p04:w0,p05:w0,p06:w0,p07:w0,p10:w0,p11:w0,p12:w0,p13:w0,p14:w0,p15:w0,p16:w0,p17:w0,cp00:l41,cp01:l41,cp02:l41,cp03:l41,cp04:l41,cp05:l41,cp06:l41,cp07:l41,cp10:w0,cp11:l41,cp12:w0,cp13:w0,cp14:l41,cp15:w0,cp16:l41,cp17:l41,cf00:l41,cf01:l41,cf02:l41,cf03:l41,cf04:l41,cf05:l41,cf06:l41,cf07:l41,cf10:w0,cf11:w0,cf12:w0,cf13:l41,cf14:l41,cf15:w0,cf16:l41,cf17:l41",
+  "tier:7": "p00:w0,p01:w0,p02:w0,p03:w0,p04:w0,p05:w0,p06:w0,p07:w0,p10:w0,p11:w0,p12:w0,p13:w0,p14:w0,p15:w0,p16:w0,p17:w0,cp00:l41,cp01:l41,cp02:l41,cp03:l41,cp04:l41,cp05:l41,cp06:l41,cp07:l41,cp10:w0,cp11:l41,cp12:w0,cp13:w0,cp14:l41,cp15:w0,cp16:l41,cp17:l41,cf00:l41,cf01:l41,cf02:l41,cf03:l41,cf04:l41,cf05:l41,cf06:l41,cf07:l41,cf10:w0,cf11:w0,cf12:w0,cf13:l41,cf14:l41,cf15:w0,cf16:l41,cf17:l41",
+  "shipEvent:orion:default": ["none", "628d0a82", "1/11 hull:0 setbacks:0", "f48e33d3"],
+  "shipEvent:orion:202": ["probe:win", "80f873f6", "3/7 hull:0 setbacks:0", "10bf1cef"],
+  "shipEvent:aurora:default": ["none", "628d0a82", "1/11 hull:0 setbacks:0", "98dd1810"],
+  "shipEvent:aurora:202": ["probe:win", "a0a9f50a", "3/7 hull:0 setbacks:0", "adc46055"],
+  "shipEvent:eir:default": ["none", "628d0a82", "1/11 hull:0 setbacks:0", "47af2be0"],
+  "shipEvent:eir:202": ["probe:win", "7a7aef9b", "2/6 hull:0 setbacks:1", "7dfc7782"],
+};
+
+describe("WR-8b goldens: the live game", () => {
+  it("stamp", () => expect(hash(shipCombatRulesStamp(onHull("destroyer"), onHull("destroyer").ships[0]))).toBe(TORPEDO_GOLDEN.stamp));
+  for (const hull of TACTICIANS) {
+    for (const key of ROUTES) {
+      it(`patrol ${hull} ${key}`, { timeout: 120_000 }, () => expect(torpedoPatrolRow(hull, key, "balanced", null)).toEqual(TORPEDO_GOLDEN[`patrol:${hull}:${key}`]));
+      it(`forecast ${hull} ${key}`, { timeout: 120_000 }, () => expect(forecast(hull, key)).toBe(TORPEDO_GOLDEN[`forecast:${hull}:${key}`]));
+    }
+  }
+  it("patrol carrier Warband Defensive", { timeout: 120_000 }, () =>
+    expect(torpedoPatrolRow("carrier", "crimsonReaverWarband", "standoff", null)).toEqual(TORPEDO_GOLDEN["patrol:carrier:warband:standoff"]));
+  for (const k of CURVE) {
+    it(`patrol destroyer Sweep on the curve (${k} completed)`, { timeout: 120_000 }, () =>
+      expect(torpedoPatrolRow("destroyer", "crimsonReaverSweep", "balanced", k)).toEqual(TORPEDO_GOLDEN[`patrol:destroyer:sweep:c${k}`]));
+  }
+  it("ship battles by tier", { timeout: 120_000 }, () => {
+    const exp = torpedoRun();
+    for (const tier of TIERS) expect(torpedoTierRow(exp, tier), `tier ${tier}`).toBe(TORPEDO_GOLDEN[`tier:${tier}`]);
+  });
+  for (const hull of EXPLORERS) {
+    for (const seed of RUN_SEEDS) {
+      it(`ship events ${hull} ${seed ?? "default"}`, { timeout: 300_000 }, () => expect(shipEventRow(hull, seed)).toEqual(TORPEDO_GOLDEN[`shipEvent:${hull}:${seed ?? "default"}`]));
     }
   }
 });

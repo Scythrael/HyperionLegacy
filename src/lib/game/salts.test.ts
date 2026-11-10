@@ -144,6 +144,7 @@ describe("salt registry (GO-4)", () => {
       "shipScanEvents.ts PROBE_BATTLE_SALT",
       "shipScanEvents.ts PROBE_SALVAGE_SALT",
       "shipScanEvents.ts GHOST_FIND_SALT",
+      "shipScanEvents.ts SHIP_TORPEDO_SALT", // WR-8b: a ship event vessel's torpedo roll
       "fieldKits.ts FIELD_DEVICE_SALT",
       "relics.ts RELIC_STUDY_SALT",
       "rarityProfiles.ts RARITY_EXTRAS_SALT",
@@ -155,6 +156,7 @@ describe("salt registry (GO-4)", () => {
       "combat/waveSeed.ts RELAUNCH_SEED_SALT",
       "combat/waveSeed.ts WAVE_LOOT_SEED_SALT",
       "combat/waveSeed.ts WAVE_OUTPUT_ROUNDING_SEED_SALT",
+      "combat/waveSeed.ts WAVE_TORPEDO_SEED_SALT", // WR-8b: a Marauder's torpedo roll
       "crewGraduation.ts NOTABLE_NAME_SALT",
       "crewGraduation.ts MANIFEST_NAME_SALT",
       "shortRange.ts SHORT_RANGE_BOARD_SALT",
