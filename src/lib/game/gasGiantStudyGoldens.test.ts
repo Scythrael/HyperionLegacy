@@ -67,7 +67,7 @@ import { resolveShipScanEvent } from "./shipScanEvents";
 import { startResearch } from "./tick";
 import { gasStudyItemIds } from "./gasGiantContent";
 import { GG1_RECIPE } from "./gasStudyGoldens.fixture";
-import { asPreG2Candidate, asPreG2NamesDispatch, asPreRanksDispatch, plainAwayMember, withoutG2NamesState, dispatchPastPropulsion, withoutStudy, asPreRelicBlanksDispatch, asPreNebulaDispatch } from "./awayTeamTestFixtures";
+import { asPreG2Candidate, asPreG2NamesDispatch, asPreRanksDispatch, plainAwayMember, withoutG2NamesState, dispatchPastPropulsion, withoutStudy, asPreRelicBlanksDispatch, asPreNebulaDispatch, G2_7_DERELICT_PINS, hasWolf359Derelict, withoutWolf359Derelict } from "./awayTeamTestFixtures";
 import { goldenJson, withV1Museum } from "./firstRunsGoldens.fixture";
 // WR-8 (0.14.0): every pin in this file was taken before the combat rules (combatRulesSwitch.fixture.ts), so the file
 // runs with them switched off and its pins keep proving WR-8 moved nothing else here (the rules stamp new patrol
@@ -525,8 +525,12 @@ describe("GG-3 golden: the three study runs, finished and claimed", () => {
       expect(done.phase, id).toBe("complete");
       const claim = claimExpedition({ ...res.next, expeditions: [done] }, done.id);
       expect(claim.success).toBe(true);
-      const deposits = { inventory: claim.next.inventory, credits: claim.next.credits.toString(), surveyLog: claim.next.surveyLog ?? null };
-      out[`${saveSeed === null ? "fresh" : saveSeed.toString(16)}:${id}`] = [
+      // G2-7 switch: a Wolf 359 claim's derelict entry comes off (G2_7_DERELICT_PINS traces which keys carry it).
+      const key = `${saveSeed === null ? "fresh" : saveSeed.toString(16)}:${id}`;
+      expect(hasWolf359Derelict(claim.next), key).toBe(G2_7_DERELICT_PINS.includes(`gasGiantStudyGoldens:${key}`));
+      const claimed = withoutWolf359Derelict(claim.next, res.next);
+      const deposits = { inventory: claimed.inventory, credits: claimed.credits.toString(), surveyLog: claimed.surveyLog ?? null };
+      out[key] = [
         hash(done.groundOps?.studyLegs ?? null),
         hash(done.findings.filter((f) => f.source === "study")),
         hash(done),

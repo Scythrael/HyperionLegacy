@@ -526,6 +526,33 @@ anything is charted returns the system to the ordinary candidates). For G2-6:
   sensors, transit, recall); the `fuel` topic gains deep-space reach. Numbers read from engine constants; the
   helpTopics text-rules test covers the new topic.
 
+**G2-7 carry note (built 2026-11-09).**
+- Map: G2-1 had already made the badges band-relative and centered the map on the homeworld. G2-7 adds tests over
+  the 200 placements: every badge inside its band AND the view box at every level, the homeworld dot at the
+  homeworld's own position (the core badge's distance is the homeworld's own distance from the core), two homeworlds
+  draw two centers, and the dispatch console's longer "Your homeworld" label (regionMapView) clears every badge and
+  dot. No layout change. NOT built: shading the enemy sectors on the map (the G2-1 / G2-2 carry notes hand it to G2-7,
+  the G2-7 section above does not list it, and it is a new visual on an approved card: needs a mockup; open call).
+- Wolf 359 (user 2026-11-02 "Quiet derelict field"): `expedition.ts wolf359DerelictEntry`, called by
+  `claimExpedition` after the run's own readouts: a new `SurveyDerelictEntry` (`kind: "derelict"`, model.ts) for the
+  first claimed run whose ship REACHED Wolf 359 (a recall in transit never arrived); once per save (guarded by any
+  derelict entry in the log). A claim draws nothing, so boards, seeds and upcoming draws are untouched; no
+  SAVE_VERSION bump (an optional list gains a kind). Survey Log: a "Derelict field" group after the nebulae (never
+  "first"), the card is the user's words only (Hulls: Many, old and unmarked; Drift: In loose formation; "The crew
+  held a moment of silence."), a GiantArt `derelict` portrait (generic hulls, one broken, beside a dim red star). The
+  claim log line `derelictClaimLine`. No wiring row: a record that changes nothing in play.
+- Help: new `expeditionTiers` topic (EXPEDITION_TIERS_PARAGRAPHS, every number from galaxy.ts, expedition.ts,
+  propulsion.ts, voyage.ts, riskFactors.ts; the refusal words from `expeditionGateText`); `subspaceTelescope` gains
+  YOUR HOMEWORLD (per-save placement, the map, upgrade under Facilities); `riskFactors` names enemy territory;
+  `objectiveDifficulty` says the tier is not an input but raises Combat risk, and what Tier III asks for; `fuel` gains
+  DEEP-SPACE REACH and the depot covers expeditions; `surveyLog` mentions one place that writes its own entry, unnamed.
+  CP-14's retired Tier II sensor gate is reflected (Tiers I and II ask for none).
+- Goldens: five claim pins moved, each a Wolf 359 claim (the list after the first run): gasGiantStudyGoldens
+  51f15e:cand-1-0, gasGiantNebulaLabGoldens 51f15e:cand-1-0 and 2b7c0d3:cand-1-0, gasGiantSpecialsGoldens
+  51f15e:cand-1-0, propulsionRecallGoldens orionTier1. The G2-7 switch (awayTeamTestFixtures.ts
+  `withoutWolf359Derelict`, `G2_7_DERELICT_PINS`) drops the one new entry and every pin holds at its old value; each
+  test asserts its claim holds the entry exactly when its key is listed. No pin re-pinned, no tolerance touched.
+
 ### G2-8: Antimatter burn and maintenance (after 15b; needs a mockup sign-off)
 
 - Depends on 15b's Antimatter Containment Cell item and its special-blueprint lane. Per open call 15

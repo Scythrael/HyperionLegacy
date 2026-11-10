@@ -67,7 +67,7 @@
         <article class="sl-card" aria-live="polite" bind:this={cardEl}>
           <div class="sl-head">
             <div class="sl-art">
-              <GiantArt giant={card.art} nebula={card.nebulaArt} label={card.subtitle} idBase="sl-{card.id}" />
+              <GiantArt giant={card.art} nebula={card.nebulaArt} derelict={card.derelict} label={card.subtitle} idBase="sl-{card.id}" />
             </div>
             <div class="sl-words">
               <h4 class="sl-title">{card.title}</h4>
@@ -78,6 +78,7 @@
                   <dd class:mono={row.mono}>{row.value}</dd>
                 {/each}
               </dl>
+              {#if card.note}<p class="sl-note">{card.note}</p>{/if}
             </div>
           </div>
           {#if card.star}
@@ -229,6 +230,12 @@
   }
   .mono {
     font-family: var(--font-mono);
+  }
+  .sl-note {
+    margin: 8px 0 0;
+    font-size: var(--text-xs);
+    font-style: italic;
+    color: var(--color-text-secondary);
   }
   .sl-h {
     margin: 12px 0 4px;

@@ -84,6 +84,13 @@ import { REFUGEE_BACKGROUNDS, REFUGEE_BACKGROUND_KEYS, REFUGEE_MATCH_SHARE_PER_S
 import { REFUGEE_TAPER_K, refugeeArrivalChance } from "./game/refugeeArrival";
 import { REFUGEE_FACILITY_LABELS } from "./refugeeDisplay";
 import { REFUGEE_BUFF_HELP } from "./helpTopics";
+// Expedition Tiers G2-7.
+import { ENEMY_SECTOR_WIDTH_PERMILLE, HOMEWORLD_MAX_FROM_SOL_LY, HOMEWORLD_MIN_FROM_SOL_LY, REGION_TIERS, REGION_TIER_NAMES } from "./game/galaxy";
+import { EXPEDITION_CANDIDATE_COUNT, FAMOUS_SYSTEM_ONE_IN, TIER_BODY_COUNT, recallBlockText } from "./game/expedition";
+import { DRIVE_CLASS_MAX, DRIVE_CLASS_REACH_MULT, buildableDriveClassMax, frontierSensorsNeeded } from "./game/propulsion";
+import { TIER_TRANSIT_HOURS, TUTORIAL_TRANSIT_SECONDS, VOYAGE_ANOMALY_DETOUR_PERMILLE, VOYAGE_BAND_SCALE_PERMILLE, VOYAGE_FLOOR_SECONDS, tierMinimumDriveClass, tierNominalSeconds } from "./game/voyage";
+import { trainingRunTransitSentence } from "./helpTopics";
+import { ENEMY_TERRITORY_COMBAT_STEP } from "./game/riskFactors";
 const articleFor = (word: string): string => (/^[AEIOU]/i.test(word) ? "an" : "a");
 const officer = (id: string): string => SENIOR_STAFF_BONUSES.find((x) => x.id === id)!.label;
 
@@ -569,6 +576,12 @@ describe("HELP_TOPICS", () => {
       expect(b).toContain(`The Elite Quarters blueprint (Lab tier ${regionTierNumeral(BLUEPRINTS.eliteQuartersBp.tier as RegionTier)})`);
     });
 
+    it("the Survey Log says one place leaves its own entry once, without naming it (G2-7)", () => {
+      const b = topic("surveyLog").body;
+      expect(b).toContain("One place in the galaxy also leaves an entry of its own, once, when you claim the first expedition that reached it");
+      expect(b).not.toMatch(/Wolf|derelict/i);
+    });
+
     it("the Survey Log: the Archive tab, the readout odds, the groups, the star lines and the nebula stages", () => {
       const b = topic("surveyLog").body;
       expect(archiveSubTabs(true).map((t) => t.label)).toEqual(["Archive", "Museum", "Survey Log"]);
@@ -816,6 +829,116 @@ describe("HELP_TOPICS", () => {
         expect(/—|–|-{2}/.test(topic(id).body), id).toBe(false);
       }
       expect(b()).toContain("a match counts");
+    });
+  });
+
+  // Expedition Tiers G2-7 (GO-19 item 4): the new topic and the telescope, risk, difficulty and fuel lines, every number
+  // read against its engine owner.
+  describe("Expedition Tiers (0.14.0 G2-7)", () => {
+    const topic = (id: string) => {
+      const t = HELP_TOPICS.find((x) => x.id === id);
+      expect(t, `missing help topic: ${id}`).toBeDefined();
+      return t!;
+    };
+    const T = (t: number) => `Tier ${regionTierNumeral(t as RegionTier)}`;
+    const b = () => topic("expeditionTiers").body;
+
+    it("has the topic, once, cross-linked from the telescope, risk, difficulty and fuel topics", () => {
+      expect(HELP_TOPICS.filter((t) => t.id === "expeditionTiers")).toHaveLength(1);
+      expect(topic("expeditionTiers").title).toBe("Expedition Tiers");
+      for (const id of ["subspaceTelescope", "riskFactors", "objectiveDifficulty", "fuel"]) expect(topic(id).body, id).toContain("Expedition Tiers topic");
+    });
+
+    it("regions and the homeworld: every region name, the candidates, real stars and the placement, from the engine", () => {
+      for (const t of REGION_TIERS) expect(b()).toContain(T(t));
+      expect(b()).toContain(`from ${T(1)} (the ${REGION_TIER_NAMES[1]}) out to ${T(7)} (the ${REGION_TIER_NAMES[7]})`);
+      expect(b()).toContain(`each region offers ${EXPEDITION_CANDIDATE_COUNT} candidate systems, nearest first`);
+      expect(b()).toContain(`about 1 in ${FAMOUS_SYSTEM_ONE_IN}`);
+      expect(b()).toContain(`${HOMEWORLD_MIN_FROM_SOL_LY} to ${HOMEWORLD_MAX_FROM_SOL_LY} light-years from Sol`);
+      // The telescope topic names where to upgrade and the per-player homeworld.
+      const tel = topic("subspaceTelescope").body;
+      expect(tel).toContain("Upgrade it from its card under Facilities");
+      expect(tel).toContain(`${HOMEWORLD_MIN_FROM_SOL_LY} to ${HOMEWORLD_MAX_FROM_SOL_LY} light-years from Sol`);
+      expect(tel).toMatch(/galaxy map is centered on your homeworld/);
+    });
+
+    it("deeper tiers: bodies, the haul and enemy territory, from the tables", () => {
+      expect(b()).toContain(`${TIER_BODY_COUNT[1][0]} to ${TIER_BODY_COUNT[1][1]} at ${T(1)}, ${TIER_BODY_COUNT[7][0]} to ${TIER_BODY_COUNT[7][1]} at ${T(7)}`);
+      expect(b()).toContain(`x${TIER_HAUL_MULT[1]} at ${T(1)} up to x${TIER_HAUL_MULT[7]} at ${T(7)}`);
+      const first = REGION_TIERS.find((t) => ENEMY_SECTOR_WIDTH_PERMILLE[t] > 0)!;
+      expect(b()).toContain(`${Math.round(ENEMY_SECTOR_WIDTH_PERMILLE[first] / 10)}% of its directions at ${T(first)} rising to ${Math.round(ENEMY_SECTOR_WIDTH_PERMILLE[7] / 10)}% at ${T(7)}`);
+      expect(ENEMY_TERRITORY_COMBAT_STEP).toBe(1);
+      expect(b()).toContain(`adds a step of ${RISK_FACTOR_NAMES.combat}`);
+      expect(topic("riskFactors").body).toContain(`a system in enemy territory adds a step of ${RISK_FACTOR_NAMES.combat}`);
+    });
+
+    it("the gates: explorer hulls, drive class per tier, frontier sensors (CP-14: no Tier II gate) and reach, from propulsion.ts", () => {
+      for (const hull of ["Orion", "Aurora", "Eir"]) expect(b()).toContain(hull);
+      for (const t of REGION_TIERS) expect(tierMinimumDriveClass(t)).toBe(t);
+      expect(b()).toContain(`Class I for ${T(1)}, up to Class VII for ${T(7)}`);
+      // CP-14 retired the Tier II gate: Tiers I and II ask for none; III to VII ask for their numbers.
+      expect(frontierSensorsNeeded(1)).toBe(0);
+      expect(frontierSensorsNeeded(2)).toBe(0);
+      expect(b()).toContain(`${T(1)} and ${T(2)} ask for none`);
+      const gated = REGION_TIERS.filter((t) => frontierSensorsNeeded(t) > 0);
+      expect(gated).toEqual([3, 4, 5, 6, 7]);
+      for (const t of gated) expect(b()).toContain(`${frontierSensorsNeeded(t)} at ${T(t)}`);
+      for (let c = 1; c <= DRIVE_CLASS_MAX; c++) expect(b()).toContain(`x${DRIVE_CLASS_REACH_MULT[c]} at Class ${regionTierNumeral(c as RegionTier)}`);
+      expect(b()).toContain('"Beyond this ship\'s reach"');
+      // The buildable ceiling sentence appears exactly when a class cannot be built today.
+      expect(b().includes("None can be built yet")).toBe(buildableDriveClassMax() < DRIVE_CLASS_MAX);
+      expect(b()).toMatch(/never gates a launch/);
+    });
+
+    it("transit: every tier's hours, the band scale, halving, the floor and the detour, from voyage.ts", () => {
+      const hours = (h: number) => (h < 24 ? `${h} hours` : h === 24 ? "1 day" : `${h / 24} days`);
+      for (const t of REGION_TIERS) expect(b()).toContain(`${T(t)} ${hours(TIER_TRANSIT_HOURS[t])}`);
+      expect(b()).toContain(`x${VOYAGE_BAND_SCALE_PERMILLE.near / 1000} of that and one at the far edge x${VOYAGE_BAND_SCALE_PERMILLE.far / 1000}`);
+      expect(b()).toContain("Each drive class above the tier's halves the leg");
+      expect(b()).toContain(`No leg is shorter than ${VOYAGE_FLOOR_SECONDS / 60} minutes`);
+      expect(b()).toContain(`${VOYAGE_ANOMALY_DETOUR_PERMILLE / 10}% of the outbound leg`);
+    });
+
+    it("the training run's line shows only while its trip equals the Tier I nominal (voyage.ts)", () => {
+      const line = `Your training run flies the same trip an ordinary ${T(1)} run to its system would.`;
+      expect(trainingRunTransitSentence(tierNominalSeconds(1), tierNominalSeconds(1))).toBe(` ${line}`);
+      expect(trainingRunTransitSentence(5, tierNominalSeconds(1))).toBe("");
+      expect(b().includes(line)).toBe(TUTORIAL_TRANSIT_SECONDS === tierNominalSeconds(1));
+    });
+
+    it("the telescope topic says the map hatches enemy territory once in range, Tier II out (G2-7 shading)", () => {
+      const first = REGION_TIERS.find((t) => ENEMY_SECTOR_WIDTH_PERMILLE[t] > 0)!;
+      const tel = topic("subspaceTelescope").body;
+      expect(tel).toContain(`From ${T(first)} out, once the range reaches a region, the map hatches that region's enemy territory sector`);
+      expect(tel).toContain('reads "part enemy"; a region beyond range shows none');
+    });
+
+    it("recall and resume: the 1:1 rule, the pickup, the refusal and the Resume list", () => {
+      expect(b()).toMatch(/flies home only the time it has flown out so far \(an anomaly detour does not count\)/);
+      expect(b()).toMatch(/one shared pickup/);
+      expect(b()).toMatch(/already on its way home cannot be recalled/);
+      expect(recallBlockText("returning")).toBe("The ship is already on its way home");
+      expect(b()).toMatch(/Resume list until you finish it or abandon it/);
+      expect(b()).toMatch(/recalled before anything was charted becomes a candidate again/);
+    });
+
+    it("the fuel topic gains deep-space reach and the depot's reach covers expeditions too", () => {
+      const f = topic("fuel").body;
+      expect(f).toContain("DEEP-SPACE REACH");
+      expect(f).toContain(`x${DRIVE_CLASS_REACH_MULT[1]} at Class I up to x${DRIVE_CLASS_REACH_MULT[DRIVE_CLASS_MAX]} at Class VII`);
+      expect(f).toContain("missions, patrols and expeditions alike");
+    });
+
+    it("follows the text rules: no em dash or double hyphen, no fit, no task, no warp, Roman numerals for every tier", () => {
+      for (const id of ["expeditionTiers", "subspaceTelescope", "riskFactors", "objectiveDifficulty", "fuel"]) {
+        const text = topic(id).body;
+        expect(text, id).not.toMatch(/—|–|-{2}/);
+        expect(text, id).not.toMatch(/\b(fit|fits|fitting|fitted|fitment)\b/i);
+        expect(text, id).not.toMatch(/\btasks?\b/i);
+        expect(text, id).not.toMatch(/\bwarp\b/i);
+        expect(text, id).not.toMatch(/\b(Tier|Tiers|Class) \d/);
+      }
+      expect(b()).not.toMatch(/Wolf/); // the nod stays a surprise
     });
   });
 

@@ -34,7 +34,7 @@ import { BLUEPRINTS, freshState, type AwayMember, type Expedition, type GameStat
 import { advanceExpedition, advanceExpeditionSeed, claimExpedition, expeditionCandidates, startExpedition } from "./expedition";
 import { applyTimeSkip } from "./processSpeed";
 import { installMissingCombatBaselines } from "./tick";
-import { asExpeditionVeteran, dispatchPastPropulsion, plainAwayMember, withoutRelicBlanks, withoutStudy } from "./awayTeamTestFixtures";
+import { asExpeditionVeteran, dispatchPastPropulsion, plainAwayMember, withoutRelicBlanks, withoutStudy, G2_7_DERELICT_PINS, hasWolf359Derelict, withoutWolf359Derelict } from "./awayTeamTestFixtures";
 import { FIELD_KITS_CATALOG_VERSION } from "./fieldKits";
 import { HELD_DRIVE_KEYS, PRE_G2_4_STORED_RUNS, withoutHeldDrives } from "./propulsionRecallGoldens.fixture";
 import { goldenJson } from "./firstRunsGoldens.fixture";
@@ -184,6 +184,9 @@ export function storedRunHashes(name: Name): string[] {
   const points = [Math.floor((T0 + arrival) / 2), arrival, Math.floor((arrival + anchorOf(tl, "activities")) / 2), windowEnd];
   const claim = claimExpedition({ ...state, gameTimeSeconds: done.phaseAnchorSeconds, expeditions: [done] }, done.id);
   expect(claim.success).toBe(true);
+  // G2-7 switch: a Wolf 359 claim's derelict entry comes off (G2_7_DERELICT_PINS traces which cases carry it).
+  expect(hasWolf359Derelict(claim.next), name).toBe(G2_7_DERELICT_PINS.includes(`propulsionRecallGoldens:${name}`));
+  claim.next = withoutWolf359Derelict(claim.next, state);
   const skip = applyTimeSkip({ ...state, gameTimeSeconds: T0 + 1_000 }, { kind: "expedition", id: exp.id });
   expect(skip.applied).toBe(true);
   return [hash(tl), ...points.map((t) => hash(advanceExpedition(exp, t))), hash(done), hash(claim.next), hash(skip.next.expeditions)];

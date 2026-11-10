@@ -36,7 +36,7 @@ import { advanceExpedition, claimExpedition, expeditionCandidates } from "./expe
 import { tick } from "./tick";
 import { addItemQuality } from "./inventory";
 import { ANCIENT_DATA_FRAGMENT_ID, RESEARCH_DATA_ITEM, RESEARCH_FAMILIES } from "./gasGiantContent";
-import { asPreRelicBlanksDispatch, dispatchPastPropulsion, plainAwayMember, withoutNebula, withoutPickupPause } from "./awayTeamTestFixtures";
+import { asPreRelicBlanksDispatch, dispatchPastPropulsion, plainAwayMember, withoutNebula, withoutPickupPause, G2_7_DERELICT_PINS, hasWolf359Derelict, withoutWolf359Derelict } from "./awayTeamTestFixtures";
 import { goldenJson } from "./firstRunsGoldens.fixture";
 import { heldDataQueue, setDataStudyPaused } from "./dataStudy";
 import { wr11OffForThisFile } from "./wr11Switch.fixture";
@@ -103,7 +103,11 @@ function nebulaRow(saveSeed: number, tier: number, slot: number): string[] {
   expect(done.phase, id).toBe("complete");
   const claim = claimExpedition({ ...res.next, expeditions: [done] }, done.id);
   expect(claim.success).toBe(true);
-  const deposits = { inventory: claim.next.inventory, credits: claim.next.credits.toString(), surveyLog: claim.next.surveyLog ?? null };
+  // G2-7 switch: a Wolf 359 claim's derelict entry comes off (G2_7_DERELICT_PINS traces which rows carry it).
+  const key = `${saveSeed.toString(16)}:${id}`;
+  expect(hasWolf359Derelict(claim.next), key).toBe(G2_7_DERELICT_PINS.includes(`gasGiantNebulaLabGoldens:${key}`));
+  const claimed = withoutWolf359Derelict(claim.next, res.next);
+  const deposits = { inventory: claimed.inventory, credits: claimed.credits.toString(), surveyLog: claimed.surveyLog ?? null };
   return [hash(cands), hash(exp), hash(done), hash(deposits)];
 }
 

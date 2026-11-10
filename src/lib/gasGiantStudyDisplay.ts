@@ -998,6 +998,25 @@ export interface SurveyGroupView {
   entries: { id: string; label: string; first: boolean }[]; // newest first
 }
 
+// Expedition Tiers G2-7 (user 2026-11-02, "Quiet derelict field (Recommended)": "Many old, unmarked hulls drift in loose
+// formation; the crew holds a moment of silence. Unnamed and original ... no franchise names, no named ships or
+// people."): the derelict field's words, the user's own, nothing added.
+export const DERELICT_FIELD_NAME = "Derelict field";
+export const DERELICT_FIELD_KV: readonly { label: string; value: string }[] = [
+  { label: "Hulls", value: "Many, old and unmarked" },
+  { label: "Drift", value: "In loose formation" },
+];
+export const DERELICT_FIELD_NOTE = "The crew held a moment of silence.";
+
+// The claim's log line when the claim wrote the derelict field's entry (the Survey Log gained its derelict entry),
+// else null. Pure.
+export function derelictClaimLine(before: readonly SurveyLogEntry[] | undefined, after: readonly SurveyLogEntry[] | undefined): string | null {
+  if ((before ?? []).some((e) => e.kind === "derelict")) return null;
+  const entry = (after ?? []).find((e) => e.kind === "derelict");
+  if (!entry) return null;
+  return `${entry.systemName}: many old, unmarked hulls drift in loose formation. The crew held a moment of silence.${SURVEY_LOG_LIVE ? " Logged in the Survey Log." : ""}`;
+}
+
 // The Survey Log's groups: giants by class (GIANT_CLASSES order), then nebulae by kind, each with its count and its
 // entries newest first; only groups with an entry. `first` marks each group's oldest entry ("first of its class"). Pure.
 export function surveyLogGroups(entries: readonly SurveyLogEntry[]): SurveyGroupView[] {
@@ -1015,6 +1034,11 @@ export function surveyLogGroups(entries: readonly SurveyLogEntry[]): SurveyGroup
   };
   for (const c of GIANT_CLASSES) add(c.id, giantClassDisplayName(c), entries.filter((e) => e.kind === "giant" && e.classId === c.id));
   for (const k of NEBULA_KINDS) add(k.id, k.name, entries.filter((e) => e.kind === "nebula" && e.kindId === k.id));
+  // Expedition Tiers G2-7: the derelict field (the Wolf 359 nod), after the nebulae. It is written once per save, so it
+  // is never marked "first of its class".
+  add("derelict", DERELICT_FIELD_NAME, entries.filter((e) => e.kind === "derelict"));
+  const last = groups[groups.length - 1];
+  if (last?.key === "derelict") for (const e of last.entries) e.first = false;
   return groups;
 }
 
@@ -1026,7 +1050,7 @@ export interface SurveyEntryView {
   title: string; // "OR-2817 d" | "OR-2817"
   subtitle: string; // "Ammonia-cloud giant, Sudarsky I · Tier II"
   first: boolean;
-  kind: "giant" | "nebula";
+  kind: "giant" | "nebula" | "derelict";
   classId: GiantClassId | null;
   kindId: NebulaKindId | null;
   art: GiantArt | null;
@@ -1035,11 +1059,32 @@ export interface SurveyEntryView {
   star: StarBarView | null;
   stage: number | null; // the nebula's life-cycle stage
   stageNote: string | null;
+  derelict: boolean; // G2-7: draw the derelict field's portrait (GiantArt's third drawing)
+  note: string | null; // G2-7: the derelict field's closing line
 }
 
 // The entry card of `entry` (every number derived from its stored class and mass). Pure.
 export function surveyEntryView(entry: SurveyLogEntry, all: readonly SurveyLogEntry[]): SurveyEntryView {
   const tier = `Tier ${regionTierNumeral(entry.tier)}`;
+  if (entry.kind === "derelict") {
+    return {
+      id: entry.id,
+      title: entry.systemName,
+      subtitle: `${DERELICT_FIELD_NAME} · ${tier}`,
+      first: false,
+      kind: "derelict",
+      classId: null,
+      kindId: null,
+      art: null,
+      nebulaArt: null,
+      kv: DERELICT_FIELD_KV.map((r) => ({ ...r, mono: false })),
+      star: null,
+      stage: null,
+      stageNote: null,
+      derelict: true,
+      note: DERELICT_FIELD_NOTE,
+    };
+  }
   if (entry.kind === "giant") {
     const def = giantClassById(entry.classId) ?? GIANT_CLASSES[0];
     const phys = giantPhysics(def, entry.massMilliJ);
@@ -1066,6 +1111,8 @@ export function surveyEntryView(entry: SurveyLogEntry, all: readonly SurveyLogEn
       star: starBarView(entry.massMilliJ),
       stage: null,
       stageNote: null,
+      derelict: false,
+      note: null,
     };
   }
   const kind = nebulaKindById(entry.kindId) ?? NEBULA_KINDS[0];
@@ -1089,6 +1136,8 @@ export function surveyEntryView(entry: SurveyLogEntry, all: readonly SurveyLogEn
     star: null,
     stage: kind.stage,
     stageNote: "Supernova and planetary nebula debris seeds the next molecular cloud, and the cycle starts again.",
+    derelict: false,
+    note: null,
   };
 }
 
