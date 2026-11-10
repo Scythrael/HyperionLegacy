@@ -23,6 +23,8 @@ import { withPatrolUseWearOff } from "./patrolUseWearSwitch.fixture";
 import { withBattleWearOff } from "./battleWearSwitch.fixture";
 import { PATROLS } from "./model";
 import { HELP_TOPICS, TRAINING_WEAR_SENTENCE } from "../helpTopics";
+import { WIRING_REGISTRY } from "./wiring/registry";
+import { GW5_PATROL_CONTEXT_IDS, gw5ReadBack } from "./gearWearStep5Registry.fixture";
 import { WEAR_BANDS, aboutMinutes, conditionPercent, fleetCare, pieceWearCard, shipGearSummary, wearBand, wearEffectText } from "../gearWearDisplay";
 
 const RNG = () => 0.5;
@@ -189,6 +191,23 @@ describe("gear wear step 5: Overtime on gear repair (the speed seam's rule)", ()
     const piece = pieces(out)[0];
     expect(gearRepairOutlook(out, piece).ratePerMinute).toBeLessThan(REPAIR_RATES.home);
     expect(economyTick(out, 1, RNG).ships[0].gearRepairSpeed).toBeUndefined();
+  });
+});
+
+describe("gear wear step 5: the registry move is exactly its own", () => {
+  it("Quick Service's row is gone, Overtime on gear repair is live, the five time and distance use sources act on a patrol", () => {
+    expect(WIRING_REGISTRY.some((e) => e.id === "wear:audit:quickGearRepair")).toBe(false);
+    expect(WIRING_REGISTRY.find((e) => e.id === "wear:audit:gearRepairOvertime")?.status.kind).toBe("live");
+    for (const id of GW5_PATROL_CONTEXT_IDS) {
+      const e = WIRING_REGISTRY.find((x) => x.id === id)!;
+      expect(e.status.kind, id).toBe("live");
+      expect(e.contexts, id).toContain("patrol");
+    }
+    // Read back, every changed row is as step 4 left it (the earlier registry pins use gw5ReadBack, innermost).
+    const back = gw5ReadBack(WIRING_REGISTRY);
+    expect(back.find((e) => e.id === "wear:audit:quickGearRepair")?.status.kind).toBe("pending");
+    expect(back.find((e) => e.id === "wear:audit:gearRepairOvertime")?.status.kind).toBe("pending");
+    expect(back.length).toBe(WIRING_REGISTRY.length + 1);
   });
 });
 
