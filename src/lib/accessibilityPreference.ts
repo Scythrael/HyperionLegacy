@@ -17,6 +17,7 @@
 // setting that throws is a setting that locks out the person who needs it.
 // ============================================================================
 
+import { writable, type Readable } from "svelte/store";
 import { safeGetItem, safeSetItem } from "./safeStorage";
 
 const UI_SCALE_KEY = "fleet_admiral_ui_scale";
@@ -156,6 +157,12 @@ export function saveColorBlindPalette(value: ColorBlindPalette): void {
   safeSetItem(COLORBLIND_PALETTE_KEY, value);
 }
 
+// The palette as APPLIED, published for components that paint outside the CSS token system (CP-20: the
+// Complement graph, whose Default preset follows this toggle). Seeded from storage on first import and
+// set by applyAccessibility below, so it changes on load and on every toggle through the same one path.
+const appliedColorBlindPalette = writable<ColorBlindPalette>(loadColorBlindPalette());
+export const colorBlindPaletteStore: Readable<ColorBlindPalette> = { subscribe: appliedColorBlindPalette.subscribe };
+
 // ---------------------------------------------------------------------------
 // APPLYING THEM
 // ---------------------------------------------------------------------------
@@ -176,6 +183,9 @@ export function applyAccessibility(settings: {
   reducedMotion: boolean;
   colorBlindPalette: ColorBlindPalette;
 }): void {
+  // Published before the document guard: a subscriber (the Complement graph) needs it even where no
+  // document root exists to stamp.
+  appliedColorBlindPalette.set(settings.colorBlindPalette);
   if (typeof document === "undefined") return;
   const root = document.documentElement;
   root.style.setProperty("--ui-scale", String(settings.uiScale));

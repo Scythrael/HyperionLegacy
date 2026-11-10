@@ -144,7 +144,7 @@
 <div class="wrap">
   <p class="eyebrow">Hyperion Legacy QA, 0.14.0 feature pass</p>
   <h1><span class="v">0.14.0</span> Complement graph colors (CP-20)</h1>
-  <p class="sub">Curated checklist for Complement CP-20 (plan docs/plans/2026-10-14-complement-and-acquisition-plan.md CP-20, Task 33; your pick 2026-11-02 OC-24 "Default, Colorblind, Mono"). Settings, UI, Accessibility gains <b>Complement graph colors</b>, a select with three presets for the rank bars on a ship's Complement tab. <b>Run this on staging</b> (devpreview.crystalisoft.com, the staging branch) with your migrated save, once 0.14.0 is deployed there (0.14.0 stays off staging until the wiring gate passes and you say go). Run each check once at <b>1280 px</b> (desktop) and once at <b>375 px</b> (mobile).</p>
+  <p class="sub">Curated checklist for Complement CP-20 (plan docs/plans/2026-10-14-complement-and-acquisition-plan.md CP-20, Task 33; your pick 2026-11-02 OC-24 "Default, Colorblind, Mono"). Settings, UI, Accessibility gains <b>Graph colors</b>, a select with three presets for the rank bars on a ship's Complement tab. Updated for your 2026-11-09 CP-20 calls: the label, fixed color-blind steps, and Default following the Color-blind palette toggle. <b>Run this on staging</b> (devpreview.crystalisoft.com, the staging branch) with your migrated save, once 0.14.0 is deployed there (0.14.0 stays off staging until the wiring gate passes and you say go). Run each check once at <b>1280 px</b> (desktop) and once at <b>375 px</b> (mobile).</p>
 
   <div class="progress-card">
     <div class="progress-top">
@@ -161,7 +161,7 @@
   </div>
 
   <div class="legend">
-    <p><b>What it does.</b> It repaints the Complement tab's division charts only: the cap bar behind each rank and the utilization bar in front. <b>Default</b> is today's look exactly (gray cap, red to yellow to green). <b>Color-blind safe</b> uses the Okabe-Ito colors, vermillion to orange to bluish green, on the same gray cap. <b>Monochrome</b> has no hue: a hatched gray cap and a fill that runs from dim gray (empty) to near white (full). The bar's height against its cap and the tooltip still give the number, so color is never the only cue.</p>
+    <p><b>What it does.</b> It repaints the Complement tab's division charts only: the cap bar behind each rank and the utilization bar in front. <b>Default</b> is today's look exactly (gray cap, red to yellow to green). <b>Color-blind safe</b> holds each bar at one of three Okabe-Ito colors on the same gray cap, never a blend: orange below a third full, amber from a third up to and including two thirds, bluish green above two thirds. <b>Monochrome</b> has no hue: a hatched gray cap and a fill in gray shades that runs from dim gray (empty) to near white (full). <b>The Color-blind palette toggle</b> (the row above) also switches the graph: while it is on, Default draws as Color-blind safe; Monochrome still overrides it. The bar's height against its cap and the tooltip still give the number, so color is never the only cue.</p>
     <p><b>Where it is stored.</b> On this device only (browser storage, one key per graph), never in your save. Deleting the save keeps it; another device keeps its own choice.</p>
     <p><b>Where to test.</b> Staging, <b>devpreview.crystalisoft.com</b>, on the 0.14.0 build, with your own migrated save and a ship that has some complement crew aboard (a mix of empty, part full and full ranks shows the ramp best).</p>
     <p><b>The three columns.</b> <b style="color:var(--claude)">Claude</b> is pre-filled and read-only: a tick means a test proves that rule (the "how" line names the file). <b style="color:var(--desk)">1280</b> and <b style="color:var(--mob)">375</b> are yours; your ticks are saved in this browser.</p>
@@ -179,9 +179,10 @@
     <h2>Builder notes (CP-20, 2026-11-09)</h2>
     <ol>
       <li><b>Default is unchanged.</b> The Default strings are the pre-CP-20 ones byte for byte, and a test compares them against the old expression at many fill levels.</li>
-      <li><b>Colors.</b> Default: cap #4c5666 to #333b48, fill hsl hue 0 to 60 to 120 (80% saturation, 62% lightness at the top). Color-blind safe: #d55e00, #e69f00, #009e73 at 0%, 50%, 100%, blended in between. Monochrome: fill #8c9198 to #f2f4f7, cap hatched #5a5f66 and #24272c.</li>
+      <li><b>Colors.</b> Default: cap #4c5666 to #333b48, fill hsl hue 0 to 60 to 120 (80% saturation, 62% lightness at the top). Color-blind safe: fixed steps, #d55e00 (orange) for a fill below 1/3, #e69f00 (amber) from 1/3 up to and including 2/3, #009e73 (bluish green) above 2/3. Exactly a third and exactly two thirds (for example 2 of 6 and 4 of 6) are amber. Monochrome: fill #8c9198 to #f2f4f7, cap hatched #5a5f66 and #24272c.</li>
       <li><b>Contrast.</b> The game's surfaces are all dark, so the check is against the deep background and the panel tint. Every Color-blind safe and Monochrome fill clears 3:1 there (lowest: vermillion 4.8:1 on the panel). Against the cap bar behind it, the emptiest fill sits near 2:1 in all three presets, the same as Default today; the height and the tooltip carry that case.</li>
-      <li><b>Live.</b> Changing the select repaints a Complement tab already open behind Settings, no reload.</li>
+      <li><b>Live.</b> Changing the select, or the Color-blind palette toggle, repaints a Complement tab already open behind Settings, no reload.</li>
+      <li><b>The toggle link.</b> The graph draws Monochrome if you chose it; else Color-blind safe if you chose it or the Color-blind palette toggle is on; else Default. The select keeps showing your own choice, so with the toggle on and Default chosen it still reads "Default" while the bars are color-blind safe (both descriptions say so). With the toggle off, Default is unchanged.</li>
       <li><b>Help.</b> There is no Complement Help topic yet (Task 34 owns it), so the graph key on the Complement tab now ends with "Graph colors: Settings, UI, Accessibility".</li>
       <li><b>Device only.</b> No engine or save change, no SAVE_VERSION bump, no wiring registry row.</li>
     </ol>
@@ -199,7 +200,8 @@ const SECTIONS = [
     { t: "No console errors opening Settings, changing the select, and returning to the Complement tab." },
   ]},
   { n: "1", title: "The setting", items: [
-    { t: "Settings, UI, Accessibility shows <b>Complement graph colors</b> under Color-blind palette, with <b>Default</b>, <b>Color-blind safe</b> and <b>Monochrome</b>. Its description says it changes the rank bars on a ship's Complement tab, on this device only.", tag: "theme" },
+    { t: "Settings, UI, Accessibility shows <b>Graph colors</b> under Color-blind palette, with <b>Default</b>, <b>Color-blind safe</b> and <b>Monochrome</b>. Its description says it changes the rank bars on a ship's Complement tab, on this device only, names the three steps and says the Color-blind palette setting also switches Default. A screen reader announces the select as \"Complement graph colors\".", tag: "theme" },
+    { t: "The <b>Color-blind palette</b> row's description now ends by saying it also switches the Complement graph's Default colors to color-blind safe ones.", tag: "theme" },
     { t: "Pick a preset with the Complement tab open behind Settings: the charts and the graph key repaint at once, no reload.", tag: "device" },
     { t: "Reload the page: the choice is still selected and the charts still use it.", c: true, how: "graphPalettePreference.test.ts (round-trips every preset)." },
     { t: "Delete or reset the save (or load another one): the choice stays. It is not in the save.", tag: "save" },
@@ -208,18 +210,25 @@ const SECTIONS = [
   ]},
   { n: "2", title: "The three presets", items: [
     { t: "<b>Default</b>: gray cap, red (empty) to yellow (half) to green (full) fill, the striped Crewman cap. Identical to before CP-20.", c: true, tag: "theme", how: "graphPalettePreference.test.ts (Default byte-identical)." },
-    { t: "<b>Color-blind safe</b>: vermillion (empty) to orange (half) to bluish green (full) fill on the same gray cap; the key's swatch shows that ramp.", c: true, tag: "theme", how: "graphPalettePreference.test.ts (hits the Okabe-Ito stops at 0%, 50% and 100%)." },
-    { t: "<b>Monochrome</b>: no hue anywhere in the chart. The cap is hatched, the fill is solid and gets lighter as the rank fills; empty, half and full ranks are easy to tell apart.", c: true, tag: "theme", how: "graphPalettePreference.test.ts (no hue, lighter as the rank fills, hatched cap)." },
+    { t: "<b>Color-blind safe</b>: every bar is one of three flat colors on the same gray cap, never an in-between shade: orange below a third full, amber from a third up to two thirds, bluish green above. The key's swatch shows three hard bands, a third each.", c: true, tag: "theme", how: "graphPalettePreference.test.ts (three fixed Okabe-Ito steps; never blends; key swatch bands)." },
+    { t: "On a rank at exactly a third or exactly two thirds (for example 2 of 6, or 4 of 6) the bar is <b>amber</b>; 1 of 4 is orange and 3 of 4 is bluish green.", c: true, tag: "save", how: "graphPalettePreference.test.ts (boundaries: exactly 1/3 and 2/3 are amber, integer ratios included)." },
+    { t: "<b>Monochrome</b>: no hue anywhere in the chart. The cap is hatched, the fill is a solid gray shade that gets lighter as the rank fills; empty, half and full ranks are easy to tell apart.", c: true, tag: "theme", how: "graphPalettePreference.test.ts (no hue, lighter as the rank fills, hatched cap)." },
     { t: "In every preset each fill stands out from the panel behind it, on a couple of theme colors and with High contrast on.", c: true, tag: "theme", how: "graphPalettePreference.test.ts (every Color-blind and Monochrome fill clears 3:1 on the game's surfaces)." },
     { t: "Hover or tap a bar in each preset: the tooltip still shows Assigned, Capacity and Utilization; the colors never carry information the tooltip lacks.", tag: "device" },
     { t: "An over-cap rank (CP-5) and the uncapped Crewman column read clearly in all three presets.", tag: "save" },
   ]},
-  { n: "3", title: "Help", items: [
+  { n: "3", title: "The Color-blind palette toggle", note: "Keep a Complement tab open behind Settings for these.", items: [
+    { t: "Graph colors on <b>Default</b>, turn the <b>Color-blind palette</b> toggle on: the charts and key switch to the color-blind safe steps at once, no reload. The select still reads Default.", c: true, tag: "device", how: "graphPalettePreference.test.ts (the effective store repaints live when either the preset or the toggle changes)." },
+    { t: "With the toggle still on, pick <b>Monochrome</b>: the charts go gray (Monochrome overrides the toggle). Pick Default again: back to the color-blind steps.", c: true, how: "graphPalettePreference.test.ts (resolveGraphPalette, every combination)." },
+    { t: "Turn the toggle off with Default chosen: the charts return to today's red, yellow and green exactly.", c: true, tag: "theme", how: "graphPalettePreference.test.ts (Default with the toggle off is byte-identical to pre-CP-20)." },
+    { t: "Reload with the toggle on and Default chosen: the charts open in the color-blind safe steps (the toggle is applied on load too).", c: true, how: "accessibilityPreference.ts applyAccessibility publishes the palette on load and on change; graphPalettePreference.test.ts drives it." },
+  ]},
+  { n: "4", title: "Help", items: [
     { t: "The graph key under the charts ends with <b>Graph colors: Settings, UI, Accessibility</b>, and wraps cleanly at 375 px.", tag: "device" },
   ]},
 ];
 
-const STORE = "hl-qa-0140-cp20-graph-colors-v1";
+const STORE = "hl-qa-0140-cp20-graph-colors-v2";
 let userState = {};
 try { userState = JSON.parse(localStorage.getItem(STORE) || "{}"); } catch (e) { userState = {}; }
 function save() { try { localStorage.setItem(STORE, JSON.stringify(userState)); } catch (e) {} }

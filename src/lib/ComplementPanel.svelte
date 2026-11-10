@@ -70,7 +70,7 @@
   import CrewTransferModal from "./CrewTransferModal.svelte";
   import type { CrewTransferEndpoint, CrewTransferPick, CrewTransferResult } from "./game/crewTransfer";
   import { transferSourceBlock } from "./crewTransferDisplay";
-  import { graphPalette, graphPaletteStore, graphUtilFill } from "./graphPalettePreference";
+  import { effectiveGraphPaletteStore, graphPalette, graphUtilFill } from "./graphPalettePreference";
 
   // --- Props ------------------------------------------------------------------
   // `state` is the whole GameState (read-only here); `shipId` selects the ship whose complement
@@ -208,8 +208,10 @@
   // The graph UTILIZATION color, by fill % with a VERTICAL light->dark fade. Graph palette,
   // deliberately separate from the console theme (per the spec). CP-20: the viewer picks the preset
   // in Settings (graphPalettePreference.ts, device-side, never the save); Default is the original
-  // red -> yellow -> green hue ramp, byte for byte. pct is clamped to [0,1].
-  const complementPaletteId = graphPaletteStore("complement");
+  // red -> yellow -> green hue ramp, byte for byte. The store is the RESOLVED palette: Default follows
+  // the global Color-blind palette toggle (resolveGraphPalette), and it repaints when either changes.
+  // pct is clamped to [0,1].
+  const complementPaletteId = effectiveGraphPaletteStore("complement");
   $: palette = graphPalette($complementPaletteId);
   function utilFill(pct: number): string {
     return graphUtilFill($complementPaletteId, pct);

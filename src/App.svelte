@@ -19684,7 +19684,7 @@
              more palettes exist (tritanopia / Pride), this graduates to a select. -->
         <SettingRow
           label="Color-blind palette"
-          description="Remaps the status colors (success / warning / danger) and the rarity ladder to a color-blind-safe set. Your theme's accent color is unchanged. Rarity always shows its name too, so tiers stay clear."
+          description="Remaps the status colors (success / warning / danger) and the rarity ladder to a color-blind-safe set. Your theme's accent color is unchanged. Rarity always shows its name too, so tiers stay clear. It also switches the Complement graph's Default colors to color-blind safe ones."
         >
           <Toggle
             label="Color-blind palette"
@@ -19698,10 +19698,12 @@
         </SettingRow>
 
         <!-- CP-20 (OC-24): the complement graph's colors. A select because there are three presets.
-             Device-side like every row here; the Complement tab's graph key points back to this row. -->
+             Device-side like every row here; the Complement tab's graph key points back to this row.
+             The select shows the CHOSEN preset; the graph draws the RESOLVED one (resolveGraphPalette
+             in graphPalettePreference.ts): Default follows the Color-blind palette toggle above. -->
         <SettingRow
-          label="Complement graph colors"
-          description="Changes the colors of the rank bars on a ship's Complement tab, on this device only. Color-blind safe uses the Okabe-Ito colors; Monochrome uses gray steps and a hatched cap bar."
+          label="Graph colors"
+          description="Changes the colors of the rank bars on a ship's Complement tab, on this device only. Color-blind safe holds each bar at one of three Okabe-Ito colors: orange below a third full, amber up to two thirds, bluish green above. Monochrome uses gray shades and a hatched cap bar. While the Color-blind palette setting above is on, Default also shows the color-blind safe colors; Monochrome still overrides it."
         >
           <select
             class="setting-select"
