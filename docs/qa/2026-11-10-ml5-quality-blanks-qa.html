@@ -1,0 +1,309 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>0.14.0 QA: Quality blanks (ML-5)</title>
+<style>
+  :root {
+    --bg: #070b12;
+    --bg-2: #0d1420;
+    --panel: #111a29;
+    --panel-2: #0b1220;
+    --line: #1f2c40;
+    --line-2: #2a3a54;
+    --text: #dce6f3;
+    --dim: #8497af;
+    --faint: #5d6d86;
+    --accent: #38e0ff;
+    --accent-2: #7cf6c9;
+    --claude: #b98bff;
+    --desk: #38e0ff;
+    --mob: #ffcc66;
+    --warn: #ffcc66;
+    --save: #ff9a6b;
+    --device: #7fb2ff;
+    --good: #6ff2b0;
+    --danger: #ff7a7a;
+    --shadow: 0 0 0 1px var(--line), 0 18px 40px -24px #000;
+  }
+  * { box-sizing: border-box; }
+  html { color-scheme: dark; }
+  body {
+    margin: 0;
+    background:
+      radial-gradient(1200px 600px at 78% -10%, rgba(56,224,255,0.10), transparent 60%),
+      radial-gradient(900px 500px at 8% 8%, rgba(185,139,255,0.08), transparent 55%),
+      var(--bg);
+    color: var(--text);
+    font: 14px/1.55 ui-sans-serif, system-ui, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    padding: env(safe-area-inset-top, 0) 0 calc(env(safe-area-inset-bottom, 0) + 48px);
+  }
+  .wrap { max-width: 980px; margin: 0 auto; padding: 28px 18px 0; }
+  a { color: var(--accent); }
+
+  .eyebrow { font-size: 11px; letter-spacing: 3px; text-transform: uppercase; color: var(--accent); opacity: 0.85; margin: 0 0 6px; }
+  h1 { font-size: clamp(22px, 4.4vw, 34px); line-height: 1.1; margin: 0 0 4px; text-wrap: balance; font-weight: 750; letter-spacing: 0.3px; }
+  h1 .v { color: var(--accent); }
+  .sub { color: var(--dim); margin: 0 0 20px; font-size: 13px; }
+
+  .progress-card {
+    background: linear-gradient(180deg, var(--panel), var(--panel-2));
+    border: 1px solid var(--line-2); border-radius: 16px; padding: 20px 22px; box-shadow: var(--shadow); margin-bottom: 20px;
+  }
+  .progress-top { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+  .pct { font-size: clamp(30px, 8vw, 52px); font-weight: 800; line-height: 1; letter-spacing: -1px; color: var(--accent);
+    text-shadow: 0 0 24px rgba(56,224,255,0.45); font-variant-numeric: tabular-nums; }
+  .pct small { font-size: 15px; font-weight: 600; color: var(--dim); margin-left: 8px; letter-spacing: 0; }
+  .rowcount { color: var(--text); font-size: 15px; font-weight: 650; font-variant-numeric: tabular-nums; }
+  .rowcount b { color: var(--accent-2); }
+  .bar { margin-top: 16px; height: 16px; border-radius: 999px; background: #0a1220; border: 1px solid var(--line-2); overflow: hidden; }
+  .bar > i { display: block; height: 100%; width: 0%; background: linear-gradient(90deg, #2bd0ff, #7cf6c9);
+    box-shadow: 0 0 18px rgba(56,224,255,0.6); border-radius: 999px; transition: width .35s cubic-bezier(.2,.8,.2,1); }
+  .substats { display: flex; gap: 18px; flex-wrap: wrap; margin-top: 14px; font-size: 12.5px; color: var(--dim); }
+  .substats .dot { display: inline-block; width: 9px; height: 9px; border-radius: 3px; margin-right: 7px; vertical-align: middle; }
+  .substats b { color: var(--text); font-variant-numeric: tabular-nums; }
+  .d-claude { background: var(--claude); box-shadow: 0 0 10px var(--claude); }
+  .d-desk { background: var(--desk); box-shadow: 0 0 10px var(--desk); }
+  .d-mob { background: var(--mob); box-shadow: 0 0 10px var(--mob); }
+
+  .legend { background: var(--panel-2); border: 1px solid var(--line); border-radius: 12px; padding: 14px 16px; margin-bottom: 26px; font-size: 12.5px; color: var(--dim); }
+  .legend p { margin: 0 0 8px; }
+  .legend p:last-child { margin-bottom: 0; }
+  .legend b { color: var(--text); }
+  .chip { display: inline-block; padding: 1px 8px; border-radius: 999px; font-size: 11px; font-weight: 650; letter-spacing: 0.3px; vertical-align: middle; }
+  .chip.save { color: var(--save); background: rgba(255,154,107,0.12); border: 1px solid rgba(255,154,107,0.4); }
+  .chip.device { color: var(--device); background: rgba(127,178,255,0.12); border: 1px solid rgba(127,178,255,0.4); }
+  .chip.theme { color: var(--accent-2); background: rgba(124,246,201,0.10); border: 1px solid rgba(124,246,201,0.35); }
+  .chip.later { color: var(--danger); background: rgba(255,122,122,0.10); border: 1px solid rgba(255,122,122,0.4); }
+  .toolbar { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-bottom: 22px; }
+  .btn { background: var(--panel); color: var(--text); border: 1px solid var(--line-2); border-radius: 8px; padding: 7px 13px; font-size: 12.5px; cursor: pointer; font-weight: 600; }
+  .btn:hover { border-color: var(--accent); color: var(--accent); }
+  .toolbar .note { color: var(--faint); font-size: 12px; }
+
+  section { margin-bottom: 26px; }
+  .sec-head { display: flex; align-items: center; gap: 12px; margin: 0 0 6px; }
+  .sec-num { font-variant-numeric: tabular-nums; font-weight: 800; color: var(--accent); font-size: 13px; letter-spacing: 1px;
+    background: rgba(56,224,255,0.08); border: 1px solid rgba(56,224,255,0.3); border-radius: 7px; padding: 3px 9px; min-width: 34px; text-align: center; }
+  .sec-title { font-size: 16px; font-weight: 700; letter-spacing: 0.2px; }
+  .sec-line { flex: 1; height: 1px; background: linear-gradient(90deg, var(--line-2), transparent); }
+  .sec-done { font-size: 11.5px; color: var(--faint); font-variant-numeric: tabular-nums; }
+  .sec-note { color: var(--dim); font-size: 12.5px; font-style: italic; margin: 0 0 10px; border-left: 2px solid var(--line-2); padding: 2px 0 2px 12px; }
+
+  .items { display: flex; flex-direction: column; gap: 2px; }
+  .col-head, .item { display: grid; grid-template-columns: 52px 52px 52px 1fr; gap: 10px; }
+  .col-head { align-items: center; padding: 4px 12px; font-size: 10.5px; letter-spacing: 1px; text-transform: uppercase; color: var(--faint); }
+  .col-head .ch { text-align: center; }
+  .col-head .ch.claude { color: var(--claude); }
+  .col-head .ch.desk { color: var(--desk); }
+  .col-head .ch.mob { color: var(--mob); }
+  .item { align-items: start; padding: 10px 12px; border-radius: 10px; border: 1px solid transparent; }
+  .item:nth-child(odd) { background: rgba(255,255,255,0.014); }
+  .item.done { background: rgba(124,246,201,0.05); border-color: rgba(124,246,201,0.18); }
+  .cell { display: flex; justify-content: center; padding-top: 1px; }
+
+  .cb { position: relative; width: 22px; height: 22px; }
+  .cb input { position: absolute; inset: 0; opacity: 0; margin: 0; cursor: pointer; }
+  .cb .box { width: 22px; height: 22px; border-radius: 6px; border: 2px solid var(--line-2); display: grid; place-items: center; transition: .12s; background: #0a1220; }
+  .cb .box svg { width: 13px; height: 13px; opacity: 0; transform: scale(.5); transition: .12s; }
+  .cb input:checked + .box svg { opacity: 1; transform: scale(1); }
+  .cb input:focus-visible + .box { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .cb.claude input:checked + .box { background: rgba(185,139,255,0.18); border-color: var(--claude); }
+  .cb.claude .box svg { color: var(--claude); }
+  .cb.desk input:checked + .box { background: rgba(56,224,255,0.18); border-color: var(--desk); }
+  .cb.desk .box svg { color: var(--desk); }
+  .cb.mob input:checked + .box { background: rgba(255,204,102,0.18); border-color: var(--mob); }
+  .cb.mob .box svg { color: var(--mob); }
+  .cb.desk input:not(:disabled):hover + .box { border-color: var(--desk); }
+  .cb.mob input:not(:disabled):hover + .box { border-color: var(--mob); }
+  .cb input:disabled { cursor: default; }
+  .cb.claude.empty .box { border-style: dashed; opacity: 0.5; }
+
+  .body .t { color: var(--text); }
+  .body .t .k { color: var(--accent-2); font-weight: 600; }
+  .meta { margin-top: 5px; display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+  .how { color: var(--dim); font-size: 12px; font-style: italic; margin-top: 4px; }
+  .how::before { content: "how: "; font-style: normal; color: var(--claude); opacity: 0.85; font-weight: 650; }
+
+  .findings { background: linear-gradient(180deg, rgba(124,246,201,0.06), transparent); border: 1px solid rgba(124,246,201,0.25); border-radius: 14px; padding: 18px 20px; margin-top: 12px; }
+  .findings h2 { margin: 0 0 6px; font-size: 15px; color: var(--good); letter-spacing: 0.3px; }
+  .findings ol { margin: 8px 0 0; padding-left: 20px; }
+  .findings li { margin-bottom: 10px; color: var(--dim); }
+  .findings li b { color: var(--text); }
+  .foot { margin-top: 26px; color: var(--faint); font-size: 11.5px; text-align: center; }
+
+  @media (max-width: 520px) {
+    .col-head, .item { grid-template-columns: 34px 34px 34px 1fr; gap: 6px; }
+    .item { padding: 10px 8px; }
+    .col-head { padding: 4px 8px; font-size: 9.5px; letter-spacing: 0.5px; }
+    .wrap { padding-left: 14px; padding-right: 14px; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <p class="eyebrow">Hyperion Legacy QA, 0.14.0 feature pass</p>
+  <h1><span class="v">0.14.0</span> Quality blanks: crafted gear keeps its material quality (ML-5)</h1>
+  <p class="sub">Curated checklist for Material Lines ML-5 (plan docs/plans/2026-10-17-material-lines-and-emod-plan.md "ML-5 Quality blanks (call L7 a)"; your 2026-10-19 answer to L7 "Yes, gear too (Recommended)": quality blanks). A Fabricator order now stamps the average quality of what it used on each equipment blank, the blank keeps it, and inspecting takes your highest quality blank first and starts the piece from that quality. <b>Run this on staging</b> (devpreview.crystalisoft.com, the staging branch) with your migrated save, once 0.14.0 is deployed there (0.14.0 stays off staging until the wiring gate passes and you say go). Run each check once at <b>1280 px</b> (desktop) and once at <b>375 px</b> (mobile), in both <b>light and dark</b> themes.</p>
+
+  <div class="progress-card">
+    <div class="progress-top">
+      <div class="pct" id="pct">0%<small id="pctlabel">ready</small></div>
+      <div class="rowcount"><b id="doneCount">0</b> / <span id="totalCount">0</span> checks complete</div>
+    </div>
+    <div class="bar"><i id="barFill"></i></div>
+    <div class="substats">
+      <span><span class="dot d-claude"></span>Claude (tests) <b id="claudeCount">0</b></span>
+      <span><span class="dot d-desk"></span>You at 1280 px <b id="deskCount">0</b></span>
+      <span><span class="dot d-mob"></span>You at 375 px <b id="mobCount">0</b></span>
+      <span style="color:var(--faint)">A row is complete when both of your columns are ticked.</span>
+    </div>
+  </div>
+
+  <div class="legend">
+    <p><b>What it does.</b> Blanks used to be one count per blueprint, all the same. Now each blueprint's blanks are split by quality, Q0 to Q5, like your materials. A Fabricator run works out the unit-weighted average quality of everything it used, rounded down (the same rule refined goods already follow), and its blank lands at that quality. Inspecting takes the highest quality blank you hold of that type first; the piece starts at the blank's quality and the usual quality roll can lift it further, never above Q5.</p>
+    <p><b>To see a quality above Q0</b> you need materials above Q0: a Refinery-Feed Rig (or a Yield or Survey Rig) on a mining ship lifts some delivered ore, and that quality carries through refining into the blank. Turn on <b>Use best materials</b> on a Fabricator order to spend your best stock first.</p>
+    <p><b>Where to test.</b> Staging, <b>devpreview.crystalisoft.com</b>, on the 0.14.0 build, with your own migrated save. Facilities, <b>Fabricator</b> (the order form), Facilities, <b>Refinery</b> (the Quality carries into crafts panel under the production lines), Logistics, <b>Crafted Blanks</b>, and Help, <b>Material lines and quality</b>.</p>
+    <p><b>The three columns.</b> <b style="color:var(--claude)">Claude</b> is pre-filled and read-only: a tick means a test proves that rule (the "how" line names the file). <b style="color:var(--desk)">1280</b> and <b style="color:var(--mob)">375</b> are yours; your ticks are saved in this browser.</p>
+    <p>Tags: <span class="chip save">needs real save</span> needs your migrated save. <span class="chip device">needs device</span> touch, a real phone, or a visual call. <span class="chip theme">light + dark</span> look at it in both themes.</p>
+  </div>
+
+  <div class="toolbar">
+    <button class="btn" type="button" id="resetBtn">Reset my columns</button>
+    <span class="note">Claude's column is read-only (it records what the tests prove).</span>
+  </div>
+
+  <div id="sections"></div>
+
+  <div class="findings">
+    <h2>Builder notes (ML-5, 2026-11-10)</h2>
+    <ol>
+      <li><b>Your save.</b> Every blank you hold loads at Q0, count for count (every blank was Q0 before). No SAVE_VERSION bump (still 71) and no migration step: the load wraps each old count into the Q0 bucket every time, which changes nothing once done, so it cannot clash with another slice's save step.</li>
+      <li><b>Crafts already running.</b> A Fabricator job started before this build carries no quality stamp, so its blank lands at Q0, as it would have.</li>
+      <li><b>Same rolls.</b> Inspecting reads the same seed and makes the same draws as before, so reloading before an inspect still gives the same piece. A Q2 blank inspects to exactly the piece a Q0 blank would have rolled, two qualities higher (Q5 at most); rarity, item level and lines are unchanged.</li>
+      <li><b>Wiring.</b> Two new live rows, each measured: <b>facility:audit:blankCarriedQuality</b> (a real Yield Rig run on Q2 stock lands its blank 2 qualities above the same run on Q0 stock) and <b>facility:audit:inspectCarriedQuality</b> (with a Q2 and a Q0 blank held, the inspect takes the Q2 and the piece lands 2 qualities above the Q0 blank's; Q2 so the Q5 cap can never clip the move).</li>
+      <li><b>Not built here.</b> No quality picker on the Crafted Blanks tab (inspect always takes the highest first, the plan's rule), and no quality on ships or field kits (your 2026-10-22 answer "Out for 0.14.0").</li>
+    </ol>
+  </div>
+
+  <p class="foot">0.14.0 Quality blanks QA, boxes persist in this browser only.</p>
+</div>
+
+<script>
+const TICK = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>';
+// c: a test proves it (how names the file). tag: "save" | "device" | "theme" | "later" | null.
+const SECTIONS = [
+  { n: "0", title: "Setup on staging", note: "Staging only: devpreview.crystalisoft.com on the 0.14.0 build, your migrated save.", items: [
+    { t: "Open staging and load your save. It loads clean. Logistics, <b>Crafted Blanks</b>: every blank you held before is still there with the same count.", c: true, tag: "save", how: "qualityBlanks.test.ts (an old save's flat counts load into Q0, count for count, twice over); ml5Goldens.test.ts (load: held)." },
+    { t: "Open one of those blanks: <b>By quality</b> shows a single <b>Q0</b> chip with the full count.", c: true, tag: "save", how: "ml5Goldens.test.ts (load: the buckets read [3])." },
+    { t: "No console errors opening the Fabricator, the Refinery, Crafted Blanks and Help, <b>Material lines and quality</b>." },
+  ]},
+  { n: "1", title: "The Fabricator order form", items: [
+    { t: "Pick any equipment blueprint (a ship system, a weapon, a drone pod, away-team gear). The <b>Use best materials</b> switch now shows (before, it showed only for components), starting off.", c: true, tag: "theme", how: "App.svelte (the bestOffered guard is gone); materialLinesDisplay.test.ts (the preview's walk equals the engine's)." },
+    { t: "Under it, <b>THIS ORDER USES</b> lists each input split by quality, and <b>Carried quality</b> reads <b>average X = QN, then the roll</b>. Turning the switch on spends the highest quality first and the figure updates.", c: true, tag: "theme", how: "materialLinesDisplay.test.ts (the readout equals the real job's stamp, lowest and best first)." },
+    { t: "At 375 px the switch, its note and the breakdown fit without sideways scrolling.", tag: "device" },
+  ]},
+  { n: "2", title: "A craft keeps its quality", note: "Needs equipment inputs above Q0 (check a material's tooltip, By quality). If you have none, Use best materials on stock that holds some.", items: [
+    { t: "Start the order and let it finish. Crafted Blanks: the blank's <b>By quality</b> chips show it at the quality the form's Carried quality said (not Q0).", c: true, tag: "save", how: "ml5Goldens.test.ts (blankBest: two Q2 blanks; blankLowest: one Q1 and one Q2); qualityBlanks.test.ts (the job stamps 3, the blank lands at Q3)." },
+    { t: "Hover a blank tile (desktop): the tooltip names the blueprint, the count and the split, for example <b>· Q0 3, Q2 1</b>.", tag: "theme" },
+    { t: "An order on Q0 stock only still makes Q0 blanks, exactly as before.", c: true, how: "ml5Goldens.test.ts (blankQ0: held); qualityBlanks.test.ts (a Q0 job stamps nothing)." },
+    { t: "Close the game while a blank craft is running and come back after it finished: the blank is there at the same quality as if you had watched.", c: true, how: "ml5Goldens.test.ts (each run stepped economyTick(_, 1) and as one offline tick() span agree, draw for draw)." },
+  ]},
+  { n: "3", title: "Inspecting", items: [
+    { t: "Open a blank with more than one quality. Product Inspection shows <b>Blanks held</b>, <b>By quality</b> chips, and <b>Inspect takes the highest quality first: the next piece starts at QN, then the usual roll.</b> with N the highest chip.", c: true, tag: "theme", how: "qualityBlanks.test.ts (highestBlankQuality; inspect takes Q3, then Q1, then the Q0s)." },
+    { t: "Inspect 1: the piece's quality is at least that N, the top chip drops by one and the line updates.", c: true, how: "qualityBlanks.test.ts (a quality-g blank inspects to g or more, every g, 20 seeds)." },
+    { t: "Max + Inspect a mixed stack: the pieces come out best blank first, and the Crafted Blanks tile disappears when the last one is inspected.", c: true, how: "qualityBlanks.test.ts (step by step [2,1], [2], [1], gone; the same save gives the same pieces)." },
+    { t: "Save, reload, inspect: the same piece you would have got without the reload.", c: true, tag: "save", how: "qualityBlanks.test.ts (reload before inspect re-rolls the same piece; the buckets round-trip)." },
+    { t: "At 375 px the chips wrap cleanly under Blanks held, and the stepper, Max and Inspect stay easy to tap.", tag: "device" },
+  ]},
+  { n: "4", title: "The Refinery panel and Help", items: [
+    { t: "Refinery, under the production lines: the <b>Quality carries into crafts</b> panel now has a second example, <b>Power Coupling Q2 + Cobalt Coil Q2 → Sprint Drive blank Q2 → Sprint Drive Q2+</b>, with the sentence <b>A Fabricator order stamps the same average on each equipment blank, and the blank keeps it. Inspecting takes your highest quality blank first; the piece starts at that quality, then the usual roll, up to Q5.</b>", c: true, tag: "theme", how: "materialLinesDisplay.test.ts (the example's figures, and the real Sprint Drive job on that stock lands a Q2 blank that inspects to Q2 or more)." },
+    { t: "Help, <b>Material lines and quality</b>: it no longer says fabricated equipment does not take on quality; a last paragraph says equipment keeps its quality, Crafted Blanks shows the split, and inspecting takes the highest quality first. Crafted Blanks' <b>How blanks work</b> tip says the same. No em dashes, US English.", c: true, tag: "theme", how: "materialLinesDisplay.test.ts (ML-7 Help topic, ML-5 lines); helpTopics.test.ts (topic shape, wording guards)." },
+    { t: "Debug, Wiring (DEV_MODE build only): the two new rows <b>facility:audit:blankCarriedQuality</b> and <b>facility:audit:inspectCarriedQuality</b> read live and on curve.", c: true, how: "ml5Goldens.test.ts (each row live, its probe moves by its magnitude, and the blank row reads no move with the slice off); the registry suite measures every live row." },
+  ]},
+];
+
+const STORE = "hl-qa-0140-ml5-quality-blanks-v1";
+let userState = {};
+try { userState = JSON.parse(localStorage.getItem(STORE) || "{}"); } catch (e) { userState = {}; }
+function save() { try { localStorage.setItem(STORE, JSON.stringify(userState)); } catch (e) {} }
+
+const CHIP = {
+  save: '<span class="chip save">needs real save</span>',
+  device: '<span class="chip device">needs device</span>',
+  theme: '<span class="chip theme">light + dark</span>',
+  later: '<span class="chip later">not in this build</span>',
+};
+
+function cb(kind, id, checked, disabled, label) {
+  const empty = (kind === "claude" && !checked) ? " empty" : "";
+  return '<span class="cb ' + kind + empty + '"><input type="checkbox" id="' + id + '" ' + (checked ? "checked " : "") + (disabled ? "disabled " : "") +
+    'aria-label="' + label + '"><span class="box">' + TICK + "</span></span>";
+}
+
+const secWrap = document.getElementById("sections");
+SECTIONS.forEach((sec, si) => {
+  const el = document.createElement("section");
+  let html = '<div class="sec-head"><span class="sec-num">' + sec.n + '</span><span class="sec-title">' + sec.title +
+    '</span><span class="sec-line"></span><span class="sec-done" id="secdone-' + si + '"></span></div>';
+  if (sec.note) html += '<p class="sec-note">' + sec.note + "</p>";
+  html += '<div class="items"><div class="col-head"><span class="ch claude">Claude</span><span class="ch desk">1280</span><span class="ch mob">375</span><span></span></div>';
+  sec.items.forEach((it, ii) => {
+    const key = si + "-" + ii;
+    const meta = it.tag ? '<div class="meta">' + (CHIP[it.tag] || "") + "</div>" : "";
+    const how = it.how ? '<div class="how">' + it.how + "</div>" : "";
+    html += '<div class="item" data-key="' + key + '">' +
+      '<div class="cell">' + cb("claude", "c-" + key, !!it.c, true, "Claude: covered by tests") + "</div>" +
+      '<div class="cell">' + cb("desk", "d-" + key, !!userState["d-" + key], false, "Checked at 1280 px") + "</div>" +
+      '<div class="cell">' + cb("mob", "m-" + key, !!userState["m-" + key], false, "Checked at 375 px") + "</div>" +
+      '<div class="body"><span class="t">' + it.t + "</span>" + meta + how + "</div></div>";
+  });
+  html += "</div>";
+  el.innerHTML = html;
+  secWrap.appendChild(el);
+});
+
+function isDone(key) { return !!userState["d-" + key] && !!userState["m-" + key]; }
+function recompute() {
+  let total = 0, done = 0, claude = 0, desk = 0, mob = 0;
+  SECTIONS.forEach((sec, si) => {
+    let secTotal = 0, secDone = 0;
+    sec.items.forEach((it, ii) => {
+      const key = si + "-" + ii;
+      total++; secTotal++;
+      if (it.c) claude++;
+      if (userState["d-" + key]) desk++;
+      if (userState["m-" + key]) mob++;
+      if (isDone(key)) { done++; secDone++; }
+      const row = secWrap.querySelector('.item[data-key="' + key + '"]');
+      if (row) row.classList.toggle("done", isDone(key));
+    });
+    const sd = document.getElementById("secdone-" + si);
+    if (sd) sd.textContent = secDone + " / " + secTotal;
+  });
+  const pctVal = total ? Math.round((done / total) * 100) : 0;
+  document.getElementById("pct").firstChild.textContent = pctVal + "%";
+  document.getElementById("barFill").style.width = pctVal + "%";
+  document.getElementById("doneCount").textContent = done;
+  document.getElementById("totalCount").textContent = total;
+  document.getElementById("claudeCount").textContent = claude;
+  document.getElementById("deskCount").textContent = desk;
+  document.getElementById("mobCount").textContent = mob;
+  document.getElementById("pctlabel").textContent = pctVal >= 100 ? "launch-ready" : (pctVal >= 60 ? "closing in" : "in progress");
+}
+
+secWrap.addEventListener("change", (e) => {
+  const inp = e.target;
+  if (!inp.id || (inp.id[0] !== "d" && inp.id[0] !== "m")) return;
+  if (inp.checked) userState[inp.id] = true; else delete userState[inp.id];
+  save(); recompute();
+});
+document.getElementById("resetBtn").addEventListener("click", () => {
+  userState = {}; save();
+  secWrap.querySelectorAll('input[id^="d-"], input[id^="m-"]').forEach((i) => (i.checked = false));
+  recompute();
+});
+recompute();
+</script>
+</body>
+</html>

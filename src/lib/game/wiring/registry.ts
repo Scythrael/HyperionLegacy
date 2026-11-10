@@ -280,6 +280,10 @@ import { relicStudyLanesAt } from "../relicIdentify";
 import { REFUGEE_BACKGROUNDS, REFUGEE_BACKGROUND_KEYS, REFUGEE_FACILITY_KEYS, type RefugeeBackground, type RefugeeFacilityKey } from "../refugees";
 import { refugeeFacilityBonus } from "../refugeeBuffs";
 import { offMatchBackground, refugeeBase, withRefugeePosted } from "./probes";
+// Material Lines ML-5: the quality blanks rows (their probes' blueprint and qualities, and the bucket writers).
+import { BLANK_PROBE_KEY, BLANK_PROBE_QUALITY, INSPECT_PROBE_QUALITY } from "./probes";
+import { addItemQuality } from "../inventory";
+import { depositBlanks } from "../qualityBlanks";
 
 // ============================================================================
 // Types (plan section 3.2)
@@ -3093,7 +3097,7 @@ const DIVISION_TEXT: Readonly<Record<CrewProfession, string>> = { security: "Sec
 // slot. Unchanged when the inspect is refused (the probe then reads no move).
 function craftedOn(key: string): Transform {
   return (s) => {
-    const held: GameState = { ...s, blanks: { ...s.blanks, [key]: new Decimal(1) } };
+    const held: GameState = { ...s, blanks: { ...s.blanks, [key]: [new Decimal(1)] } }; // one Q0 blank (ML-5 buckets)
     const after = inspectBlank(held, key);
     const minted = after.equipment.find((e) => !held.equipment.some((x) => x.id === e.id));
     if (minted === undefined) return s;
@@ -3106,7 +3110,7 @@ function craftedOn(key: string): Transform {
 // inspect is refused or the board has no tile for the piece's slot.
 function craftedFromTile(key: string): Transform {
   return (s) => {
-    const held: GameState = { ...s, blanks: { ...s.blanks, [key]: new Decimal(1) } };
+    const held: GameState = { ...s, blanks: { ...s.blanks, [key]: [new Decimal(1)] } }; // one Q0 blank (ML-5 buckets)
     const after = inspectBlank(held, key);
     const minted = after.equipment.find((e) => !held.equipment.some((x) => x.id === e.id));
     if (minted === undefined) return s;
@@ -4505,6 +4509,10 @@ const AUDIT_ROWS: readonly { id: string; system: WiringSystem; claim: string; st
   // WR-11 (OC-J3 "Sell now, recipes later"): it sells at the Quartermaster. E-MOD EM-8 gave it its recipe (the Precursor
   // Lens module, precursorLensBp) and dropped its reserve; the craft is the blueprint's own row.
   { id: "facility:audit:precursorCircuit", system: "facility", claim: "Precursor Circuit: salvage drops it and the Quartermaster buys it (it also crafts the Precursor Lens module)", status: LIVE },
+  // Material Lines ML-5 (L7 a, user 2026-10-19 "Yes, gear too"): quality blanks. A blank keeps the quality its
+  // fabricate job carried, and inspecting takes the highest quality first and starts the piece from it.
+  { id: "facility:audit:blankCarriedQuality", system: "facility", claim: "Quality blanks: a Fabricator job stamps the average quality of what it used, rounded down, on its blank, and the blank keeps that quality", status: LIVE },
+  { id: "facility:audit:inspectCarriedQuality", system: "facility", claim: "Inspecting a blank takes the highest quality held first; the piece starts from that quality, then the usual roll (Q5 at most)", status: LIVE },
   // D. Ship
   // WR-7 (OC-D6, user 2026-10-15 "Unlisted = never rolls"; B11 fixed): itemgen.ts varietyStatBias.
   { id: "ship:audit:statRatios", system: "ship", claim: "Variety statRatios list what a crafted piece rolls: a stat its variety does not list never rolls (a Hauler Hold, \"none into mass\", rolls no mass relief)", status: LIVE },
@@ -5097,6 +5105,16 @@ function wr11AuditWiring(): Readonly<Record<string, Partial<EntryInput>>> {
   };
 }
 
+// ML-5: the state's inventory with the Yield Rig's inputs (one job's worth) at `quality` only.
+function blankProbeStock(s: GameState, quality: number): GameState["inventory"] {
+  let inventory = { ...s.inventory };
+  for (const [id, n] of Object.entries(BLUEPRINTS[BLANK_PROBE_KEY].recipe.inputs)) {
+    delete inventory[id];
+    inventory = addItemQuality(inventory, id, new Decimal(n), quality);
+  }
+  return inventory;
+}
+
 function auditRowWiring(): Readonly<Record<string, Partial<EntryInput>>> {
   const emitter = (draw: number): Transform => (s) => installPiece(s, { slotType: "shieldEmitters", powerDraw: draw });
   const torpedo = (draw: number): Transform => (s) => installPiece(s, { slotType: "weapon", weaponType: "concussionTorpedo", powerDraw: draw });
@@ -5111,6 +5129,26 @@ function auditRowWiring(): Readonly<Record<string, Partial<EntryInput>>> {
     ...wr7AuditWiring(),
     ...wr11AuditWiring(),
     ...wr9AuditWiring(),
+    // Material Lines ML-5: one real Yield Rig job on Q2 stock against Q0 stock (its blank lands 2 buckets higher), and
+    // one inspect with a Q2 and a Q0 blank held against the Q0 blank alone (the Q2 is taken first; the same seeded
+    // roll lands 2 higher). Q2 rather than Q3 so the Q5 cap cannot clip the move: on reads min(5, 2 + roll), off reads
+    // the roll, and they differ by exactly 2 for any base roll up to Q3 (INSPECT_PROBE_QUALITY in probes.ts).
+    "facility:audit:blankCarriedQuality": {
+      probe: "blankCarriedQuality",
+      contexts: ["craft"],
+      curve: { kind: "linearAbsolute" },
+      magnitude: () => BLANK_PROBE_QUALITY,
+      on: (s) => ({ ...s, inventory: blankProbeStock(s, BLANK_PROBE_QUALITY) }),
+      off: (s) => ({ ...s, inventory: blankProbeStock(s, 0) }),
+    },
+    "facility:audit:inspectCarriedQuality": {
+      probe: "inspectedPieceQuality",
+      contexts: ["craft"],
+      curve: { kind: "linearAbsolute" },
+      magnitude: () => INSPECT_PROBE_QUALITY,
+      on: (s) => ({ ...s, blanks: { ...s.blanks, [BLANK_PROBE_KEY]: depositBlanks(depositBlanks({}, BLANK_PROBE_KEY, 1, 0), BLANK_PROBE_KEY, 1, INSPECT_PROBE_QUALITY)[BLANK_PROBE_KEY] } }),
+      off: (s) => ({ ...s, blanks: { ...s.blanks, [BLANK_PROBE_KEY]: [new Decimal(1)] } }),
+    },
     // Complement plan CP-5: the same empty passive ship as an Eir against as an Orion, auto-crewed by resolveCrew from a
     // deep pool: it seats exactly the difference of the two hulls' own totals (900 against 750).
     "crew:audit:commandCaps": {

@@ -58,7 +58,7 @@ const RECIPES: Readonly<Record<string, Record<string, number>>> = {
 const COMPONENT_INPUTS = new Set(["frameSegment", "powerCoupling", "structuralAssembly", "titaniumIngot", "polysilicateWafer"]);
 
 function minted(s: GameState, key: string): { state: GameState; id: string } {
-  const held: GameState = { ...s, blanks: { ...s.blanks, [key]: new Decimal(1) } };
+  const held: GameState = { ...s, blanks: { ...s.blanks, [key]: [new Decimal(1)] } };
   const after = inspectBlank(held, key);
   const piece = after.equipment.find((e) => !held.equipment.some((x) => x.id === e.id));
   if (piece === undefined) throw new Error(`no piece minted for ${key}`);
@@ -151,8 +151,8 @@ describe("CP-11: the crew module and early sensor array blueprints", () => {
       const line = startLine(s, "fabricate", key, { kind: "batch", remaining: 1 });
       expect(line.started, `${key} ${line.reason}`).toBe(true);
       s = line.next;
-      for (let i = 0; i < BLUEPRINTS[key].craftDurationTicks + 2 && !(s.blanks[key]?.gte(1) ?? false); i += 1) s = economyTick(s, 1, () => 0.5);
-      expect(s.blanks[key]?.gte(1), key).toBe(true);
+      for (let i = 0; i < BLUEPRINTS[key].craftDurationTicks + 2 && !(s.blanks[key]?.[0]?.gte(1) ?? false); i += 1) s = economyTick(s, 1, () => 0.5);
+      expect(s.blanks[key]?.[0]?.gte(1), key).toBe(true);
       const before = s.equipment.length;
       s = inspectBlank(s, key);
       expect(s.equipment.length, key).toBe(before + 1);

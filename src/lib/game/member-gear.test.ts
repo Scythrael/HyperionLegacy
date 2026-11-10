@@ -501,11 +501,11 @@ describe("member gear generation", () => {
       if (!(bp.key in BLUEPRINTS)) {
         // Hidden: kept out of BLUEPRINTS until the prospecting quests patch (or FKR-7 for the Impact Grenade), so no
         // surface can make one yet.
-        const held: GameState = { ...s0, blanks: { [bp.key]: new Decimal(1) } };
+        const held: GameState = { ...s0, blanks: { [bp.key]: [new Decimal(1)] } };
         expect(inspectBlank(held, bp.key), bp.key).toBe(held);
         continue;
       }
-      const s: GameState = { ...s0, blanks: { [bp.key]: new Decimal(1) } };
+      const s: GameState = { ...s0, blanks: { [bp.key]: [new Decimal(1)] } };
       const after = inspectBlank(s, bp.key);
       expect(after, bp.key).not.toBe(s);
       const minted = after.equipment[after.equipment.length - 1];

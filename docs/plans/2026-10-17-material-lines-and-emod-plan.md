@@ -408,6 +408,32 @@ inspect still re-rolls the same piece. Save: `bucketBlanksV70` appended to `MIGR
 into quality 0; a quality-g blank inspects to g or more; reload parity; the migration on a v69 fixture. **0.14.x
 candidate** if the user prefers (L7 b).
 
+> **Carry note (ML-5 built 2026-11-10, on feat 5339682).** Goldens first: `ml5Goldens.test.ts` captured a Yield Rig
+> line on Q0 + Q2 stock (best first and lowest first, stepped == one offline `tick()`, then every blank inspected), the
+> same on Q0 stock, a gear grant, and a load of the old flat blank shape. Moved by design: `blankBest` (59bec629 ->
+> 65f6c923, pieces 9083e26c -> c068c67c) and `blankLowest` (d226a429 -> d9ea4c59, pieces -> 80817b7f); draw counts
+> unchanged (0: the craft draws nothing, the inspect is private). `withoutMl5` (`ml5Switch.fixture.ts`,
+> `QUALITY_BLANKS_SWITCH.live` false: no job stamps a blank) reproduces both. `blankQ0`, `grant`, `load` held.
+> `goldenJson` (firstRunsGoldens.fixture.ts) writes a Q0-only blank (a one-bucket array) back as the old flat count,
+> the gear wear `durability` precedent, so no older golden file moved. Built: `qualityBlanks.ts` (the bucket store's
+> pure helpers and the switch); `blanks: Record<string, Decimal[]>`; `addBlank.inputQuality?` stamped by
+> `startProcess` on a fabricate job with ML-4's tally (`carries` extended); completion deposits into that bucket
+> (absent = Q0, so in-flight jobs land Q0); `inspectBlank` takes `highestBlankQuality` and passes it to
+> `mintCraftedPiece` as `inputQuality` (`craftOutputQuality(carried, rollQuality(...))`, same seed and draws);
+> `grant` deposits Q0. **Save:** no v72 and no MIGRATIONS entry: `hydrateDecimals` revives `blanks` through
+> `hydrateInventoryBuckets`, which wraps an old flat count into `[count]` (Q0) on every load (idempotent; save.ts
+> "WHAT v71 CONTAINS" item 3), so it cannot collide with another slice's step. This replaces the `bucketBlanksV70`
+> step planned above: the wrap follows the `withHomeworldV70` every-load precedent instead of a MIGRATIONS[69] entry.
+> Rollback caveat: an older build reads each blank array as one Decimal of its text ("3,1" parses as 3), keeping the
+> Q0 count and losing every Q1+ blank; that matters only on a staging rollback across ML-5. Wiring: two LIVE audit rows,
+> `facility:audit:blankCarriedQuality` (probe `blankCarriedQuality`) and `facility:audit:inspectCarriedQuality`
+> (probe `inspectedPieceQuality`). UI: the Fabricator's `bestOffered` guard is gone (switch + `CraftQualityPreview`
+> for every blueprint); Crafted Blanks shows "By quality" chips and the next inspect's quality; `QualityCarryPanel`
+> regains the Sprint Drive step (`blankCarryExample`, `BLANK_CARRY_RULE_TEXT`); Help `materialQuality` last
+> paragraph rewritten. QA: `docs/qa/2026-11-10-ml5-quality-blanks-qa.html`. **Patch note line:** "Crafted gear now
+> keeps the quality of its materials: each blank holds the average quality its craft used, and inspecting takes your
+> highest quality blank first, starting the piece from that quality."
+
 **ML-6 Deuterium as the reach input (S4-A05).** Per calls L8 and L9: an early source (a: Local Deuterium Skim visible
 again as an ordinary Tier I mining run, no fuel role, Repeat-friendly so it never needs a dedicated captain), and the
 Deuterium Canister (GG-1's item and refine) as an input to Class III+ FTL drive blueprints (authored by G2-4) and the

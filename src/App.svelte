@@ -1198,6 +1198,8 @@
   import QualityChips from "./lib/QualityChips.svelte";
   import QualityCarryPanel from "./lib/QualityCarryPanel.svelte";
   import { orderStockContext, qualityChips } from "./lib/ui/materialLinesDisplay";
+  // Material Lines ML-5: the quality-bucketed blank store's readers (Crafted Blanks shows exactly what it holds).
+  import { blankTotal, highestBlankQuality } from "./lib/game/qualityBlanks";
   import { refineJobDurationTicks } from "./lib/game/tick";
   // GEAR WEAR step 4: the cycle a patrol dispatched now would start (its frozen gear), for the dispatch forecast.
   import { patrolDispatchCycle } from "./lib/game/tick";
@@ -8038,9 +8040,10 @@
   // The blank rows for the Crafted Blanks tab: positive counts only, each resolved to its blueprint
   // label, sorted by name. Derived, so a completing craft (which grows state.blanks) or an inspect
   // (which shrinks it) re-renders the list automatically.
-  $: blankRows = Object.entries(state.blanks)
-    .filter(([, count]) => count.gt(0))
-    .map(([key, count]) => ({ key, count, label: BLUEPRINTS[key]?.label ?? key }))
+  // ML-5 (quality blanks): `count` is every quality together; `chips` is the store's own split (Q0 to Q5, held only).
+  $: blankRows = Object.keys(state.blanks)
+    .map((key) => ({ key, count: blankTotal(state.blanks, key), chips: qualityChips(state.blanks, key), label: BLUEPRINTS[key]?.label ?? key }))
+    .filter((r) => r.count.gt(0))
     .sort((a, b) => a.label.localeCompare(b.label));
 
   // E-CREW 0.14.0 (Task 10): the blank tiles grouped Ship Systems / Away-Team Gear / Implants (the
@@ -8076,7 +8079,10 @@
   $: blankFreeSlots = freeEquipmentSlots(state);
   $: selectedBlankHeld = selectedBlankKey === null
     ? 0
-    : Math.floor((state.blanks[selectedBlankKey] ?? new Decimal(0)).toNumber());
+    : Math.floor(blankTotal(state.blanks, selectedBlankKey).toNumber());
+  // ML-5: the open blank's split by quality, and the quality the next inspect takes (the highest held).
+  $: selectedBlankChips = selectedBlankKey === null ? [] : qualityChips(state.blanks, selectedBlankKey);
+  $: selectedBlankNextQuality = selectedBlankKey === null ? null : highestBlankQuality(state.blanks, selectedBlankKey);
   $: blankMaxN = Math.min(selectedBlankHeld, blankFreeSlots);
   // The panel renders only while the open blank is still held (selectedBlankHeld > 0), so a blank
   // inspected to zero drops its (now-gone) tile from the grid AND hides the panel, without a reactive
@@ -13316,9 +13322,10 @@
                              picked something (or on a save naming a retired key), which is what the
                              {#if xpBp} guard down there is for. -->
                         {@const xpBp = BLUEPRINTS[cfgRecipeKey]}
-                        <!-- Material Lines ML-4: only a stackable output carries the consumed quality today (an
-                             equipment blank keeps it once quality blanks land, ML-5), so the switch shows for those. -->
-                        {@const bestOffered = xpBp !== undefined && !blueprintMintsEquipmentInstance(xpBp)}
+                        <!-- Material Lines ML-4 + ML-5: every Fabricator output carries the consumed quality (a
+                             stackable output, and an equipment blank since quality blanks), so the switch shows for
+                             any picked blueprint. -->
+                        {@const bestOffered = xpBp !== undefined}
                         <div class="mission-card" style="margin-top: 10px;">
                           <div class="research-name">{#if isQueueOpener}<Icon name="queue" size={12} /> Queue · configure an order{:else}<Icon name="fabricator" size={12} /> Line {slotIndex + 1} · configure a craft{/if}</div>
 
@@ -13463,7 +13470,7 @@
                               <Toggle label="Use best materials" checked={cfgBestMaterials} on:change={(e) => (cfgBestMaterials = e.detail)} />
                               <span class="best-switch-text"><b aria-hidden="true">Use best materials</b><br /><span class="research-cost">{bestMaterialsNote(cfgBestMaterials)}</span></span>
                             </div>
-                            <!-- ML-7: the same breakdown as the Refinery's form (a stackable output carries quality). -->
+                            <!-- ML-7: the same breakdown as the Refinery's form (ML-5: an equipment blank carries it too). -->
                             <CraftQualityPreview
                               inventory={state.inventory}
                               perRun={perIteration}
@@ -16851,7 +16858,7 @@
               CRAFTED BLANKS
               <HelpTip
                 label="How blanks work"
-                text="Crafting produces blanks: identical, stackable, unrolled. Inspect one to roll it into a system with its own quality, rarity and stats. Rolled systems land in your spare bay under Ship Equipment (away-team gear and implants under Away-Team Gear), so inspecting is bounded by free bay space."
+                text="Crafting produces blanks: stackable and unrolled, each keeping the quality its materials carried (the average of what the run used, rounded down). Inspect one to roll it into a system with its own quality, rarity and stats; inspecting takes your highest quality blank first, and the piece starts at that quality before the roll. Rolled systems land in your spare bay under Ship Equipment (away-team gear and implants under Away-Team Gear), so inspecting is bounded by free bay space."
               />
             </div>
             {#if blankRows.length === 0}
@@ -16878,7 +16885,7 @@
                       class="systems-tile"
                       class:selected={selectedBlankKey === row.key}
                       style="--sys-rc: var(--color-accent);"
-                      title={`${row.label} · ${row.count.toString()} blank${row.count.eq(1) ? "" : "s"}`}
+                      title={`${row.label} · ${formatNumber(row.count)} blank${row.count.eq(1) ? "" : "s"} · ${row.chips.map((c) => `Q${c.quality} ${formatNumber(c.amount)}`).join(", ")}`}
                       on:click={() => selectBlankTile(row.key)}
                     >
                       <span class="systems-tile-dot"></span>
@@ -16902,6 +16909,12 @@
               <div class="panel-title">PRODUCT INSPECTION</div>
               <div class="research-name">{#if selMemberIc !== null}<Icon name={selMemberIc} />{:else}{blueprintIcon(selectedBlankKey)}{/if} {label}</div>
               <div class="research-cost">Blanks held: {selectedBlankHeld}</div>
+              <!-- ML-5 (quality blanks): the held split, exactly as the store holds it, and the quality the next
+                   inspect takes (highestBlankQuality, the engine's own rule). -->
+              <div class="research-cost">By quality: <QualityChips chips={selectedBlankChips} label="{label} blanks by quality" /></div>
+              {#if selectedBlankNextQuality !== null}
+                <div class="research-cost">Inspect takes the highest quality first: the next piece starts at Q{selectedBlankNextQuality}, then the usual roll.</div>
+              {/if}
               <div class="research-cost">Free spare-bay slots: {blankFreeSlots} / {equipmentStorageCap(state)}</div>
               {#if blankMaxN < 1}
                 <div class="systems-bay-upgrade-note" style="margin-top: 8px;">

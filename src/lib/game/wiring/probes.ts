@@ -121,6 +121,7 @@ import {
   shipRepairDurationTicks,
   shipyardBayCount,
   startProcess,
+  inspectBlank,
   startSalvageJob,
   resolveProcesses,
   relicStudySlotCount,
@@ -281,6 +282,7 @@ import { captainWaveRegenFraction, patrolWaveRewardMult, shipCaptainCombatMods }
 import { captainDroneDamage, captainProjectileDamage, incomingHitChance } from "../combat/captainEdge";
 import { applyProjectileDamage } from "../combat/resolveBattle";
 import { addItemQuality, itemTotal } from "../inventory";
+import { blankTotal, highestBlankQuality } from "../qualityBlanks";
 import { GROUND_CONDITIONS, conditionCureSeconds, memberBaySeconds } from "../medicalBay";
 import { loadoutSlotDefsForShipType } from "../armory";
 import { gambitProgramEquals } from "../memberGambits";
@@ -1381,8 +1383,36 @@ function fabricatorBonusShare(s: GameState): number {
     st = r.next;
   }
   const done = resolveProcesses(st, 1, () => 0.5).next;
-  const blanks = Number(done.blanks[FABRICATOR_SAMPLE_KEY] ?? 0);
+  const blanks = blankTotal(done.blanks, FABRICATOR_SAMPLE_KEY).toNumber(); // ML-5: every quality bucket
   return (blanks - FABRICATOR_SAMPLE_JOBS) / FABRICATOR_SAMPLE_JOBS;
+}
+
+// Material Lines ML-5 (quality blanks). The blueprint both probes craft and inspect (a Tier I spec utility rig), and
+// the quality the registry's on transforms give its stock and its blank.
+export const BLANK_PROBE_KEY = "yieldRigBp";
+export const BLANK_PROBE_QUALITY = 2;
+// Q2, not higher, on purpose: the piece lands at min(Q5, carried + the seeded base roll), so the on/off move equals this
+// constant only while the base roll stays at or under Q5 minus it. From Q2 the cap needs a base roll of Q4 (four
+// straight climbs at 0.001 each), so the probe's magnitude never rests on which seed the wiring base happens to hold.
+export const INSPECT_PROBE_QUALITY = 2;
+// The quality the blank of ONE real Yield Rig job lands at: started through startProcess on the state's own stock
+// ("Use best materials", the ML-4 tally), completed through resolveProcesses, read as the highest held bucket. -1 when
+// the job cannot start.
+function craftedBlankQuality(s: GameState): number {
+  const st: GameState = { ...s, activeProcesses: [], blanks: {} };
+  const inputs: Record<string, Decimal> = {};
+  for (const [id, n] of Object.entries(BLUEPRINTS[BLANK_PROBE_KEY].recipe.inputs)) inputs[id] = new Decimal(n);
+  const r = startProcess(st, "fabricateJob", inputs, 1, { type: "addBlank", blueprintKey: BLANK_PROBE_KEY }, undefined, "best");
+  if (!r.started) return -1;
+  const done = resolveProcesses(r.next, 1, () => 0.5).next;
+  return highestBlankQuality(done.blanks, BLANK_PROBE_KEY) ?? -1;
+}
+// The quality of the piece ONE inspect of the state's Yield Rig blanks mints (inspectBlank: the highest quality held
+// first, its seeded roll). -1 when nothing is inspected.
+function inspectedPieceQuality(s: GameState): number {
+  const after = inspectBlank(s, BLANK_PROBE_KEY);
+  if (after === s) return -1;
+  return after.equipment[after.equipment.length - 1].quality;
 }
 
 // CP-5: ship-1 emptied and passive, the pool replaced by 1,000 of every division at every rank (more than any hull
@@ -2220,6 +2250,15 @@ export const PROBES = {
   fabricatorBonusShare: {
     label: "the share of 1,000 real Fabricator jobs (startProcess, then resolveProcesses) delivering a second blank",
     read: (s) => fabricatorBonusShare(s),
+  },
+  // == ML-5: quality blanks ==
+  blankCarriedQuality: {
+    label: "the quality bucket one real Yield Rig job's blank lands in (startProcess best first, then resolveProcesses)",
+    read: (s) => craftedBlankQuality(s),
+  },
+  inspectedPieceQuality: {
+    label: "the quality of the piece one inspect of the held Yield Rig blanks mints (inspectBlank)",
+    read: (s) => inspectedPieceQuality(s),
   },
   patrolShieldPool: {
     label: "the dispatched patrol cycle's full shield pool (playerShield, from the frozen captain combat record)",

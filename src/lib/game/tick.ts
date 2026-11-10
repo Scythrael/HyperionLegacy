@@ -498,6 +498,8 @@ import {
 // Quality-bucketed inventory helpers (Equipment 0.11.0, Task 9a): every inventory
 // read/write routes through these so the economy is identical to the old scalar shape.
 import { itemTotal, addItemQuality, removeItemLowestFirst, removeItemHighestFirst, drawQualityTally, lowestStockedQuality } from "./inventory";
+// Material Lines ML-5: the quality-bucketed blank store (pure helpers, a leaf over inventory.ts).
+import { QUALITY_BLANKS_SWITCH, depositBlanks, highestBlankQuality, takeBlank } from "./qualityBlanks";
 // Captain custom-name validation seam (Combat 0.13.0, Task 1.4): renameCaptain
 // runs every proposed name through this single client-side chokepoint before it
 // touches state. See captainName.ts for the (deliberately minimal, bypassable)
@@ -7465,8 +7467,12 @@ export function startProcess(
   // Material Lines ML-4: a refine or fabricate job that deposits a stackable output (addItem) also tallies the
   // quality of what it consumes (the SAME walk the deduct makes) and stamps the unit-weighted average, rounded down,
   // as the effect's inputQuality (L6). Written only when above 0, so a job on Q0 stock is unchanged.
+  // Material Lines ML-5 (L7 a, quality blanks): a fabricate job that deposits a BLANK (addBlank) tallies and stamps
+  // the same way, so the blank keeps the quality (off only under the test switch, QUALITY_BLANKS_SWITCH).
   const highestFirst = materialPreference === "best";
-  const carries = effect.type === "addItem" && (kind === "refineJob" || kind === "fabricateJob");
+  const carries =
+    (effect.type === "addItem" && (kind === "refineJob" || kind === "fabricateJob")) ||
+    (effect.type === "addBlank" && kind === "fabricateJob" && QUALITY_BLANKS_SWITCH.live);
   const tally: ConsumedQuality = { units: new Decimal(0), qualityUnits: new Decimal(0) };
   let inventory = state.inventory;
   for (const itemId of Object.keys(inputs)) {
@@ -7478,7 +7484,8 @@ export function startProcess(
     inventory = highestFirst ? removeItemHighestFirst(inventory, itemId, inputs[itemId]) : removeItemLowestFirst(inventory, itemId, inputs[itemId]);
   }
   const carried = carries ? carriedQuality(tally) : 0;
-  const stampedEffect: ProcessEffect = carried > 0 && effect.type === "addItem" ? { ...effect, inputQuality: carried } : effect;
+  const stampedEffect: ProcessEffect =
+    carried > 0 && (effect.type === "addItem" || effect.type === "addBlank") ? { ...effect, inputQuality: carried } : effect;
 
   // id minted from nextProcessId as "proc-N" (the scheme TimedProcess.id / this
   // field's freshState seed document), then nextProcessId bumped so ids stay
@@ -12682,6 +12689,10 @@ function mintCraftedPiece(args: {
   // Exploration 0.14.0 (Phase E4b): the museum's craftingQuality fraction, threaded into rollQuality's
   // draw-count-invariant near-miss promotion. Optional (0 = bit-identical roll).
   qualityBonus?: number;
+  // Material Lines ML-5 (L7 a): the quality the inspected blank carries. The piece lands at
+  // craftOutputQuality(carried, the usual roll) (L6: carry + climb, Q5 at most), off the SAME draws. Absent or 0 (a
+  // Q0 blank, and every legacy addEquipment completion) = the roll alone, bit-identical.
+  inputQuality?: number;
 }): EquipmentInstance | null {
   const { bp, blueprintKey, rng, craftingLevel, faTalentBonus, gameTimeSeconds, allocateId } = args;
   const qualityBonus = args.qualityBonus ?? 0;
@@ -12690,7 +12701,7 @@ function mintCraftedPiece(args: {
   const hasShape =
     bp.equipmentOutput !== undefined || bp.weaponOutput !== undefined || bp.droneOutput !== undefined;
   if (!hasShape) return null;
-  const quality = rollQuality(rng, qualityBonus); // draw #1 (E4b: museum craftingQuality, same draws)
+  const quality = craftOutputQuality(args.inputQuality, rollQuality(rng, qualityBonus)); // draw #1 (E4b: museum craftingQuality, same draws; ML-5: the blank's carry)
   const rarity: EquipmentRarity = rollCraftedRarity(rng); // draw #2
   const iLevel = computeItemLevel({
     craftingLevel,
@@ -12761,9 +12772,14 @@ function inspectRollSeed(seed: number, blueprintKey: string): number {
 // (inspectRollSeed), and inspectSeed advances by ONE only on a COMMITTED inspect, so a reload BEFORE
 // inspecting re-rolls the SAME result. Crafting level is read HERE (at inspect), the locked design's
 // "read at inspect", and the grace window starts HERE, the design's "grace moves to instantiation".
+//
+// Material Lines ML-5 (L7 a, quality blanks): the blank taken is the HIGHEST quality held (a fixed rule, so the result
+// is still a pure function of the save), and its quality is the mint's carry (craftOutputQuality: carry + the usual
+// roll, Q5 at most). The seed derivation and the draw order are unchanged, so reload-before-inspect still re-rolls
+// the same piece.
 export function inspectBlank(state: GameState, blueprintKey: string): GameState {
-  const held = state.blanks[blueprintKey] ?? new Decimal(0);
-  if (held.lt(1)) return state; // no blank of this type: no-op
+  const carried = highestBlankQuality(state.blanks, blueprintKey);
+  if (carried === null) return state; // no whole blank of this type: no-op
   // Crafted Blanks 0.13.7: inspecting mints a spare crafted system, so it must honor the
   // SAME spare-bay cap the fabricate gate does (this closes a 0.13.6 gap where inspecting
   // ignored the cap and could overflow the bay). Bay full: no-op, leave the blank untouched.
@@ -12781,12 +12797,10 @@ export function inspectBlank(state: GameState, blueprintKey: string): GameState 
     gameTimeSeconds: state.gameTimeSeconds,
     allocateId: () => `equip-${mintedId}`,
     qualityBonus: museumBonuses(state).craftingQuality, // E4b: read at inspect, like craftingLevel
+    inputQuality: carried, // ML-5: the blank's own quality
   });
   if (minted === null) return state; // corrupt output shape: no-op, do not consume the blank
-  const remaining = held.minus(1);
-  const blanks = { ...state.blanks };
-  if (remaining.lte(0)) delete blanks[blueprintKey];
-  else blanks[blueprintKey] = remaining;
+  const blanks = takeBlank(state.blanks, blueprintKey, carried);
   return {
     ...state,
     equipment: [...state.equipment, minted],
@@ -13294,8 +13308,9 @@ export function resolveProcesses(
       // live parity draw order (the opposite of the addEquipment branch, which rolled here). Clones
       // the blank store once, the same value-identical-when-untouched discipline as `equipment`.
       // WR-6 (OC-B2): two blanks when Works Directorate's extra output was stamped on the job.
+      // ML-5 (quality blanks): the blank lands in the bucket of the quality its job carried (absent = Q0). No draw.
       const blankKey = process.effect.blueprintKey;
-      blanks = { ...blanks, [blankKey]: (blanks[blankKey] ?? new Decimal(0)).plus(completedBlankCount(process)) };
+      blanks = depositBlanks(blanks, blankKey, completedBlankCount(process), process.effect.inputQuality);
     } else if (process.effect.type === "equipmentStorageLevelUp") {
       // Equipment 0.11.0 (Task B2): a completed equipment-storage upgrade bumps the
       // spare-storage LEVEL by 1, so equipmentStorageCap (model.ts) derives the NEXT

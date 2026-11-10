@@ -21,7 +21,7 @@ describe("inspectBlank (Item Lifecycle 0.13.6)", () => {
   const KEY = "prospectorHoldBp"; // a real equipment blueprint (cargoBay / prospectorHold)
 
   function withBlanks(n: number) {
-    return { ...freshState(), blanks: { [KEY]: new Decimal(n) } };
+    return { ...freshState(), blanks: { [KEY]: [new Decimal(n)] } };
   }
 
   // Crafted Blanks 0.13.7: seed the spare bay with `occupied` stub spare crafted systems
@@ -44,7 +44,7 @@ describe("inspectBlank (Item Lifecycle 0.13.6)", () => {
   });
 
   it("no-ops on an unknown blueprint key even if a count exists (never consumes it)", () => {
-    const s: any = { ...freshState(), blanks: { notARealBlueprint: new Decimal(3) } };
+    const s: any = { ...freshState(), blanks: { notARealBlueprint: [new Decimal(3)] } };
     expect(inspectBlank(s, "notARealBlueprint")).toBe(s);
   });
 
@@ -106,7 +106,7 @@ describe("inspectBlanks (Crafted Blanks 0.13.7 bulk inspect)", () => {
   const KEY = "prospectorHoldBp";
 
   function withBlanks(n: number) {
-    return { ...freshState(), blanks: { [KEY]: new Decimal(n) } };
+    return { ...freshState(), blanks: { [KEY]: [new Decimal(n)] } };
   }
   function withBayOccupied(occupied: number, n: number) {
     const s = withBlanks(n);

@@ -12,6 +12,7 @@ import { drawQualityTally, getBucket, itemTotal, removeItemHighestFirst, removeI
 import { MAX_MATERIAL_QUALITY, carriedQuality, craftOutputQuality } from "./materialQuality";
 import { countedLcg, craftStateQ, lineQ, steppedQ } from "./materialQualityGoldens.fixture";
 import { bestMaterialsNote } from "../ui/materialQualityText";
+import { withoutMl5 } from "./ml5Switch.fixture";
 
 const D = (n: number) => new Decimal(n);
 const buckets = (s: GameState, item: string): string[] => (s.inventory[item] ?? []).map((b) => b.toString());
@@ -62,7 +63,7 @@ describe("ML-4 the carry formula (L6)", () => {
     expect(next.activeProcesses[0].effect).toMatchObject({ type: "addItem", inputQuality: 1 });
   });
 
-  it("only refine and fabricate jobs that deposit a stackable output stamp; Q0 stock stamps nothing", () => {
+  it("only refine and fabricate jobs stamp (a blank too since ML-5); Q0 stock stamps nothing", () => {
     const s = craftStateQ({ commonOre: [40] }, []);
     const r = REFINE_RECIPES.refineCommonOre;
     const q0 = startProcess(s, "refineJob", r.input, r.durationTicks, { type: "addItem", itemId: r.output.itemId, amount: r.output.amount }).next;
@@ -70,8 +71,12 @@ describe("ML-4 the carry formula (L6)", () => {
     const hi = craftStateQ({ commonOre: [0, 40] }, []);
     const upgrade = startProcess(hi, "facilityUpgrade", { commonOre: D(20) }, 10, { type: "addItem", itemId: "titaniumIngot", amount: D(1) }).next;
     expect("inputQuality" in upgrade.activeProcesses[0].effect).toBe(false);
+    // ML-5 (quality blanks): a fabricate job that deposits a blank stamps its carried quality too.
     const blank = startProcess(hi, "fabricateJob", { commonOre: D(20) }, 10, { type: "addBlank", blueprintKey: "yieldRigBp" }).next;
-    expect("inputQuality" in blank.activeProcesses[0].effect).toBe(false);
+    expect(blank.activeProcesses[0].effect).toEqual({ type: "addBlank", blueprintKey: "yieldRigBp", inputQuality: 1 });
+    // Off under the ML-5 switch (the pre-ML-5 job shape).
+    const off = withoutMl5(() => startProcess(hi, "fabricateJob", { commonOre: D(20) }, 10, { type: "addBlank", blueprintKey: "yieldRigBp" }).next);
+    expect("inputQuality" in off.activeProcesses[0].effect).toBe(false);
   });
 });
 

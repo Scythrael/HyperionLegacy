@@ -155,6 +155,8 @@ import { cp14ReadBack } from "./cp14Registry.fixture"; // Complement CP-14: its 
 import { cp16ReadBack } from "./cp16Registry.fixture"; // Complement CP-16: its added Hall of Command rows read back, innermost
 import { cp18ReadBack } from "./cp18Registry.fixture";
 import { cp19ReadBack } from "./cp19Registry.fixture";
+// Material Lines ML-5: its two added audit rows held apart (ml5Goldens.test.ts pins the slice).
+import { ml5ReadBack } from "./ml5Registry.fixture";
 import { hullCrewCapsOffForThisFile } from "./hullCrewCapsSwitch.fixture";
 // Complement plan CP-5 (per-hull crew caps): every pin here predates CP-5 and is about another slice, so the file runs
 // with the per-hull caps off (hullCrewCapsSwitch.fixture.ts); cp5Goldens.test.ts pins what CP-5 moved.
@@ -785,7 +787,7 @@ const E5_2_SLICE: RegistrySlice = { added: E5_2_ADDED_ENTRY_IDS };
 const E5_4_SLICE: RegistrySlice = { added: E5_4_ADDED_ENTRY_IDS };
 function registryPin(...given: readonly RegistrySlice[]): [number, string] {
   const slices = [RX_SLICE, RR_SLICE, FUSE_SLICE, ML2_SLICE, OC15_SLICE, R2_2_SLICE, R2_3_SLICE, R2_4_SLICE, R2_10_SLICE, G16_SLICE, ...G2_4_SLICES, ...G2_6_SLICES, ML3_SLICE, GG_STUDY_SLICE, EM7_SLICE, FKR11_SLICE, FKR8_SLICE, GW4_SLICE, OC_D5_SLICE, OC_D8_SLICE, OC_D8_LIFTS_SLICE, CP3_SLICE, E5_2_SLICE, E5_4_SLICE, ...given];
-  const rows = siReadBack(em4ReadBack(em3ReadBack(wr8ReadBack(wr11ReadBack(wr9ReadBack(em8ReadBack(cp5ReadBack(sf7ReadBack(cp11ReadBack(cp13ReadBack(cp14ReadBack(cp16ReadBack(cp18ReadBack(cp19ReadBack(WIRING_REGISTRY)))))))))))))).map((e) => ({ id: e.id, kind: e.status.kind as string })), (r) => r.id, (row) => ({ id: row[0], kind: row[1].kind as string }));
+  const rows = siReadBack(em4ReadBack(em3ReadBack(wr8ReadBack(wr11ReadBack(wr9ReadBack(em8ReadBack(cp5ReadBack(sf7ReadBack(cp11ReadBack(cp13ReadBack(cp14ReadBack(cp16ReadBack(cp18ReadBack(cp19ReadBack(ml5ReadBack(WIRING_REGISTRY))))))))))))))).map((e) => ({ id: e.id, kind: e.status.kind as string })), (r) => r.id, (row) => ({ id: row[0], kind: row[1].kind as string }));
   const lines = rows.filter((e) => !slices.some((sl) => sl.added?.has(e.id))).map((e) => {
     const flip = slices.find((sl) => sl.flipped?.has(e.id));
     return `${e.id}|${flip ? (flip.was ?? "pending") : e.kind}`;

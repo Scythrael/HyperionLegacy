@@ -178,7 +178,7 @@ describe("Standard-Issue member gear: the crafted budget floor", () => {
 
   it("the Fabricator's own mint at crafting level 1: item level 1, the floored lines", () => {
     const base = freshState();
-    const s: GameState = { ...base, craftingLevel: 1, blanks: { ...base.blanks, pulseRifleBp: new Decimal(1) } };
+    const s: GameState = { ...base, craftingLevel: 1, blanks: { ...base.blanks, pulseRifleBp: [new Decimal(1)] } };
     const next = inspectBlank(s, "pulseRifleBp");
     const piece = next.equipment[next.equipment.length - 1];
     expect(piece.iLevel).toBe(1);

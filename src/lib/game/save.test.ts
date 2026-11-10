@@ -156,8 +156,15 @@ describe("migrate, v48 -> v49 item-lifecycle dormant fields", () => {
   it("re-hydrates existing blank counts back into live Decimals through a serialize round trip", () => {
     const state: any = { ...freshState(), blanks: { autocannonBlueprint: new Decimal(1000) } };
     const migrated: any = migrate(deserialize(serialize(state, Date.now()))!);
-    expect(migrated.blanks.autocannonBlueprint).toBeInstanceOf(Decimal);
-    expect(migrated.blanks.autocannonBlueprint.toString()).toBe("1000");
+    // ML-5 (quality blanks): an old flat count loads as the Q0 bucket, a live Decimal.
+    expect(migrated.blanks.autocannonBlueprint).toHaveLength(1);
+    expect(migrated.blanks.autocannonBlueprint[0]).toBeInstanceOf(Decimal);
+    expect(migrated.blanks.autocannonBlueprint[0].toString()).toBe("1000");
+    // A bucketed store round-trips bucket for bucket.
+    const bucketed: any = { ...freshState(), blanks: { autocannonBlueprint: [new Decimal(2), new Decimal(0), new Decimal(5)] } };
+    const again: any = migrate(deserialize(serialize(bucketed, Date.now()))!);
+    expect(again.blanks.autocannonBlueprint.map((b: Decimal) => b.toString())).toEqual(["2", "0", "5"]);
+    expect(again.blanks.autocannonBlueprint[2]).toBeInstanceOf(Decimal);
   });
 });
 

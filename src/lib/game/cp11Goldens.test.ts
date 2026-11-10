@@ -37,6 +37,8 @@ import { cp14ReadBack } from "./cp14Registry.fixture"; // Complement CP-14: its 
 import { cp16ReadBack } from "./cp16Registry.fixture"; // Complement CP-16: its added Hall of Command rows read back, innermost
 import { cp18ReadBack } from "./cp18Registry.fixture";
 import { cp19ReadBack } from "./cp19Registry.fixture";
+// Material Lines ML-5: its two added audit rows held apart (ml5Goldens.test.ts pins the slice).
+import { ml5ReadBack } from "./ml5Registry.fixture";
 import { writeFileSync } from "node:fs";
 import Decimal from "break_infinity.js";
 import { BLUEPRINTS, EQUIPMENT_SLOTS, blueprintResearchable, freshState, type GameState, type ShipTypeKey } from "./model";
@@ -60,7 +62,7 @@ const CAPTURE = Boolean(import.meta.env.CP11_CAPTURE);
 const SHIP = "ship-1";
 const HULLS: readonly ShipTypeKey[] = ["aurora", "eir", "generalFreighter"];
 const shipOf = (s: GameState) => s.ships.find((x) => x.id === SHIP)!;
-const REGISTRY = cp12ReadBack(cp13ReadBack(cp14ReadBack(cp16ReadBack(cp18ReadBack(cp19ReadBack(gw5ReadBack(WIRING_REGISTRY)))))));
+const REGISTRY = cp12ReadBack(cp13ReadBack(cp14ReadBack(cp16ReadBack(cp18ReadBack(cp19ReadBack(gw5ReadBack(ml5ReadBack(WIRING_REGISTRY))))))));
 
 function registryRows(): string[] {
   return cp11ReadBack(REGISTRY).map((e) => `${e.id}|${JSON.stringify(e.status)}|${e.probe ?? ""}|${e.contexts.join(",")}|${e.claim}`);
@@ -83,7 +85,7 @@ function computePins(): { held: Record<string, string>; moved: Record<string, st
   // HELD: the existing quarters and sensor blueprints' inspect mint.
   for (const key of ["eliteQuartersBp", "bioResonanceArrayBp", "resonanceSensorArrayBp"]) {
     const s = wiringBase();
-    const after = inspectBlank({ ...s, blanks: { ...s.blanks, [key]: new Decimal(1) } }, key);
+    const after = inspectBlank({ ...s, blanks: { ...s.blanks, [key]: [new Decimal(1)] } }, key);
     held[`mint:${key}`] = hash(after.equipment.filter((e) => !s.equipment.some((x) => x.id === e.id)));
   }
   // HELD: every pre-CP-11 blueprint's research verdict at Lab 0 to 3, relics found or not.

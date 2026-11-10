@@ -5437,7 +5437,10 @@ export type ProcessEffect =
   // jobs carry `addBlank`. Carries NO Decimal (a plain blueprintKey; the +1 is applied at
   // completion), so hydrateDecimals skips it via its `"amount" in effect` guard, exactly like
   // addEquipment/addShip/unlockBlueprint.
-  | { type: "addBlank"; blueprintKey: string }
+  // Material Lines ML-5 (L7 a, user 2026-10-19 "Yes, gear too"): `inputQuality` is the carried quality ML-4 stamps on
+  // a fabricate job (the unit-weighted average of what it used, rounded down, written only when above 0). The blank
+  // lands in that quality's bucket and carries it into the inspect roll. Absent (every job started before ML-5) = Q0.
+  | { type: "addBlank"; blueprintKey: string; inputQuality?: number }
   // Equipment 0.11.0 (Task B2, Storage/Salvage): a completed EQUIPMENT-STORAGE upgrade
   // process bumps state.equipmentStorageLevel by ONE, so equipmentStorageCap derives the
   // NEXT rung's higher cap on read. This is the equipment-storage twin of facilityLevelUp:
@@ -9723,7 +9726,10 @@ export interface GameState {
   // millions, riding the same hydration machinery as `inventory`. NOTHING writes or reads this
   // yet; the craft->blank flip + inspect are the next increment. save.ts hydrates each count and
   // MIGRATIONS[48] backfills {} onto older saves.
-  blanks: Record<string, Decimal>;
+  // Material Lines ML-5 (quality blanks): each blueprint's blanks are QUALITY-BUCKETED like `inventory` (a Decimal[]
+  // indexed Q0 to Q5, grown lazily; qualityBlanks.ts). A save from before ML-5 held one count per key; save.ts
+  // hydrate wraps it into the Q0 bucket on every load.
+  blanks: Record<string, Decimal[]>;
   // The rolling INSPECT seed (DORMANT this increment). It advances by one per inspect so a reload
   // re-rolls identically (closing the save-scum hole) while blanks stay fungible; the roll derives
   // from this seed AND the item type. A plain number and a pure function of the save, so a server

@@ -52,6 +52,7 @@ import { addToInventory, itemCap, mintBuiltShip } from "./tick";
 import { advanceExpedition } from "./expedition";
 import { expeditionHomeNow } from "./gearWearEngine";
 import { itemTotal } from "./inventory";
+import { depositBlanks } from "./qualityBlanks";
 import { exceptionalSetsOfTier, getRelicTypeById, museumDepositExceptional, museumDepositGeneral } from "./relics";
 import { regionTierNumeral } from "./galaxy";
 import { overtimeRate } from "./overtimeRate";
@@ -431,9 +432,9 @@ export function grant(
 
   const gear = Object.entries(bundle.gear ?? {});
   if (gear.length > 0) {
-    const blanks = { ...next.blanks };
+    let blanks = next.blanks;
     for (const [key, n] of gear) {
-      blanks[key] = (blanks[key] ?? new Decimal(0)).plus(n);
+      blanks = depositBlanks(blanks, key, n); // ML-5: a granted blank is Q0 (no job carried a quality)
       parts.push(counted(n, `uninspected ${BLUEPRINTS[key].label.replace(/ Blueprint$/, "")}`));
     }
     next = { ...next, blanks };
