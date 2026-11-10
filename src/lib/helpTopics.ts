@@ -774,6 +774,25 @@ const PERSONNEL_ROSTERS_PARAGRAPHS: readonly string[] = [
   "FROM THE SHIP: a ship's Senior Staff and Complement tabs carry a roster picker. Choosing a roster changes nothing until you press Apply. When the ship's officers and notable crew match no saved roster and the roster would take an officer out of a seat, Apply first warns that the unsaved configuration will be lost, and you can cancel. When a roster's linked loadout is for another hull type, both the picker and the facility say the gear stays in the Armory before you apply. Apply waits while the ship is out on a mission, patrol or short-range run, or until its expedition is claimed, and while a pinned person is aboard a ship that is out.",
 ];
 
+// 0.14.0 GEAR WEAR step 5: the "How gear wear works" topic (design doc section 8 and the approved mockup, Quick Service
+// dropped by the user 2026-11-09), every number read from the engine (gearWear.ts, gearWearDisplay.ts bands), so a
+// retune changes this text with it. gearWearStep5.test.ts checks each clause against the engine.
+import { REPAIR_RATES as GEAR_REPAIR_RATES, USE_WEAR_FLOOR as GEAR_USE_FLOOR, WEAR_EFFICIENCY_DEPTH } from "./game/gearWear";
+import { WEAR_BANDS, ratePercentText } from "./gearWearDisplay";
+const wearPct = (perMille: number): string => `${perMille / 10}%`;
+const WEAR_BAND_LINE = WEAR_BANDS.map((b, i) => {
+  if (i === 0) return `${b.name} (${wearPct(b.min)} and up)`;
+  const upTo = WEAR_BANDS[i - 1].min / 10 - 1;
+  return b.min > 0 ? `${b.name} (${wearPct(b.min)} to ${upTo}%)` : `${b.name} (below ${wearPct(WEAR_BANDS[i - 1].min)})`;
+}).join(", ");
+export const GEAR_WEAR_PARAGRAPHS: readonly string[] = [
+  `EVERYTHING WEARS IN ITS OWN WAY: cargo bays by hauls, FTL drives by distance, reactor cores and crew modules by time out on a run, sensors by scans, utility gear by its own job, member gear by fights, fieldwork and time on the ground, and weapons, shields, plating and drone pods by battle. A patrol wears its reactor, drive and modules by the time and distance it flies, like any run. ${TRAINING_WEAR_SENTENCE}`,
+  `CONDITION: a piece's card shows its condition as a bar, its band and a percent: ${WEAR_BAND_LINE}. Ordinary use stops at ${wearPct(GEAR_USE_FLOOR)}; only battle damage takes a piece lower. Wear never breaks, salvages or uninstalls anything and never blocks a run.`,
+  `WHAT WEAR DOES: a worn piece's own stat lines work a little weaker, on a smooth curve: almost nothing when lightly worn, ${Math.round((1 - WEAR_EFFICIENCY_DEPTH * (1 - GEAR_USE_FLOOR / 1000) ** 2) * 100)}% at ${wearPct(GEAR_USE_FLOOR)}, and never below ${Math.round((1 - WEAR_EFFICIENCY_DEPTH) * 100)}% even at 0. A weapon, the Reactor Core and the FTL drive open each fight at their true condition instead. Reach, the power budget, crew stations and equip requirements always read a piece as new.`,
+  `REPAIR IS AUTOMATIC AND FREE: there is no button and no cost. Gear recovers ${ratePercentText(GEAR_REPAIR_RATES.home)} at home (a docked ship, every spare in storage), ${ratePercentText(GEAR_REPAIR_RATES.shipyardBay)} while its hull is in a Shipyard repair bay, ${ratePercentText(GEAR_REPAIR_RATES.fieldRepair)} while set down on an expedition field repair, and ${ratePercentText(GEAR_REPAIR_RATES.underway)} out on a run. Officer repair speed and a Damage Control Suite speed up every rate, the same way they shorten a hull repair.`,
+  "WHERE TO SEE IT: tap a piece for its card (its band, what the wear does and when it is back to full). The Ship Systems board shows a small meter on every slot and a Gear chip in its header. Command Home shows one quiet Fleet care line, with hull repairs beside gear wear, only while something is recovering.",
+];
+
 export const HELP_TOPICS: HelpTopic[] = [
   {
     id: "crew",
@@ -1077,6 +1096,12 @@ On the order form, This order uses lists the qualities the order will draw, and 
     id: "combatGear",
     title: "Combat Gear",
     body: "Combat gear is the weapons, shield emitters, hull plating, and drone pods that decide how a warship fights. All four are craftable ship systems: research a blueprint at the Research Lab, fabricate it at the Fabricator, then install it onto a ship. Every ship starts with a free Standard-Issue set in each combat slot, so a hull is never unarmed even before you craft anything. You install combat gear on the ship's Ship Systems board (open the ship on the Ships tab), the same board used for the Cargo, FTL, Reactor, and Spec Utility slots. Every hull has weapon hardpoints (how many depends on the hull; purpose-built warships carry the most), one shield slot, one hull-plating slot, and, on a carrier only, drone bays for its drone pods. To install a piece, tap an empty slot, hardpoint, or bay, then tap a spare from the pool that opens; tap an installed piece to uninstall it, which leaves that slot bare and returns the piece to your spares (this is the same for every slot on the ship, combat and economy alike). Crafted gear is a real upgrade over the Standard-Issue floor: each piece carries a quality grade, a rarity, and an item level, and by the middle item levels good crafted weapons, shields, plating, and drone pods clearly outclass the baseline, raising both your survivability and your firepower.",
+  },
+  {
+    // 0.14.0 gear wear step 5: how gear wears and recovers (GEAR_WEAR_PARAGRAPHS above).
+    id: "gearWear",
+    title: "Gear wear",
+    body: GEAR_WEAR_PARAGRAPHS.join("\n\n"),
   },
   {
     id: "quartermaster",

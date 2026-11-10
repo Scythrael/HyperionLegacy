@@ -618,6 +618,12 @@ export const ICON_PATHS = {
   // from the Leviathan Scale relic that unlocks it (`relicLeviathanScale`, overlapping scales) and from
   // `refugeeFarewell` (a leaf alone, larger, no panel).
   sensorBioResonance: ["M3.5 4.5l9 2.5v8l-9-2.5z", "M3.5 8.5l9 2.5", "M8 5.75v8", "M8 14v6", "M5 20.5h6", "M14.5 17.5c0-6 2.5-9.8 7-10.5-.4 6.2-3 9.8-7 10.5z", "M14.5 17.5l4.5-6"],
+
+  // --- 0.14.0 gear wear step 5 ---
+  // Gear condition: a gauge, a half dial over its base line with three ticks and the needle off its center (the wear
+  // UI's Gear chip and the Fleet care line). Kept apart from `relicTectonicKeystone` (a full arch on legs with a
+  // keystone) and from `tool` (a wrench): a dial reads as a reading, not as a repair action.
+  gearCondition: ["M4.5 17a7.5 7.5 0 0 1 15 0", "M12 9.5v1.7", "M6.7 11.7l1.2 1.2", "M17.3 11.7l-1.2 1.2", "M12 17l3.2-4.2", "M4 20.5h16"],
 } as const satisfies Record<string, readonly string[]>;
 
 /**

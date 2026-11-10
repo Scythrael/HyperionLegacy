@@ -95,6 +95,9 @@
   // equipmentRarityColor (its module-context export) is the SINGLE rarity->color
   // source the bay TILES also read, so tile border/dot and the tooltip never drift.
   import EquipmentTooltip, { equipmentRarityColor, equipmentIcon, equipmentSvgIcon, varietySvgIcon, blueprintIcon, type ItemTooltipSubject } from "./lib/EquipmentTooltip.svelte";
+  // 0.14.0 gear wear step 5: a spare's or loadout piece's condition block on its card, and the Command Home fleet care line.
+  import { fleetCare, pieceWearCard } from "./lib/gearWearDisplay";
+  import { withPieceCondition } from "./lib/game/gearWear";
   // Radial Skill Web (Task 11b, minimal buildable integration), the pannable
   // fog-of-war talent web that REPLACES the old depth-row talent panels in
   // BOTH the Captain Talents and Homeworld Talents sub-tabs below. It owns its
@@ -5234,6 +5237,14 @@
   function devGrantCredits(amount: number) {
     state = { ...state, credits: state.credits.plus(new Decimal(amount)) };
     pushLog(`[DEV] +${formatNumber(new Decimal(amount))} credits (now ${formatNumber(state.credits)}).`);
+  }
+
+  // [DEV] gear wear step 5 (design section 8 "Dev panel": "Wear all gear to N%" and "Restore all gear", for QA): set every
+  // piece (installed, member gear and spares) to `percent` condition anchored now, or back to pristine.
+  function devWearAllGear(percent: number) {
+    const at = state.gameTimeSeconds;
+    state = { ...state, equipment: state.equipment.map((p) => withPieceCondition(p, percent * 10, at)) };
+    pushLog(percent >= 100 ? "[DEV] Restored all gear to pristine." : `[DEV] Wore all gear to ${percent}%.`);
   }
 
   // Grant a stack of the craft-chain materials so the mine -> refine -> fabricate flow
@@ -10376,6 +10387,8 @@
   // as the fleet ticks. buildHomeDashboard is a pure function (homeDashboard.ts); all the
   // hard derivation + availability logic lives there and is unit-tested in node.
   $: dashboardModel = buildHomeDashboard(state);
+  // 0.14.0 gear wear step 5 (OC-W8, W6): the fleet care line (gear wear and hull repairs together), or null to hide it.
+  $: fleetCareModel = fleetCare(state);
   // Keep the collapsed-ticker index in range as the prompt list shrinks (the player clears a
   // prompt by giving those orders), so the ticker never points past the end of needsOrders.
   $: if (needsTickerIndex >= dashboardModel.needsOrders.length) needsTickerIndex = 0;
@@ -11452,7 +11465,7 @@
     <!-- The Armory editor's installed-item tooltip, floated at the tapped item name (real popover,
          not an inline div). Same fixed-position + clamp idiom as facilityTip; pointer-events:none. -->
     <div class="frow-tip-card" style="left: {armoryTip.x}px; top: {armoryTip.y}px;" role="tooltip" use:clampArmoryTip={armoryTip}>
-      <EquipmentTooltip piece={armoryTipInst} />
+      <EquipmentTooltip piece={armoryTipInst} wear={pieceWearCard(state, armoryTipInst)} />
     </div>
   {/if}
 {/if}
@@ -11596,7 +11609,7 @@
   {@const queueBlocked = salvageBayQueue.enqueueBlockReason}
   {@const queueCtl = enqueueControlFor(queueBlocked)}
   {@const busy = p.locked === true || salvageState !== "free"}
-  <EquipmentTooltip piece={p} />
+  <EquipmentTooltip piece={p} wear={pieceWearCard(state, p)} />
   <div class="spare-pop-acts">
     <button
       class="buy-btn"
@@ -14864,7 +14877,7 @@
                       ? enqueueBlockText(queueBlocked)
                       : `Takes about ${salvageDurationPreview(state, target)} in the bay once it starts.`}
               <Panel>
-                <EquipmentTooltip piece={sys}>
+                <EquipmentTooltip piece={sys} wear={pieceWearCard(state, sys)}>
                   <!-- ⚠️ DELIBERATELY LEFT ENABLED WHEN THE QUEUE IS FULL (queue-full popup,
                        2026-09-10). DO NOT fold `queueBlocked !== null` back into the disabled
                        expression: a disabled <button> cannot be clicked, so it could never open
@@ -19354,6 +19367,35 @@
             </section>
           {/if}
 
+          <!-- ============ FLEET CARE (gear wear step 5; OC-W8, W6) ============ -->
+          <!-- The approved mockup's section 4: one quiet line that reports gear wear and hull repairs together and
+               estimates when they are done. Reports only: no badge, no toast, no pulse, no button. Hidden entirely
+               while every ship's gear is pristine and no hull is damaged (gearWearDisplay.ts fleetCare). -->
+          {#if fleetCareModel !== null}
+            <section class="home-sec" aria-label="Fleet care">
+              <div class="home-sec-hd">
+                <span class="home-sec-h">Fleet care</span>
+                <span class="home-sec-rule"></span>
+              </div>
+              <div class="home-care wear-b-{fleetCareModel.band}">
+                <div class="home-care-top">
+                  <Icon name="gearCondition" size="1.25em" />
+                  <span class="home-care-big">Fleet gear <span class="wear-band-name">{fleetCareModel.percent}%</span></span>
+                  <span class="home-care-calm"><Icon name="check" /> Nothing needs you</span>
+                </div>
+                <p class="home-care-sum">{fleetCareModel.summary}</p>
+                {#each fleetCareModel.rows as row (row.shipId)}
+                  <div class="home-care-row wear-b-{row.band}">
+                    <span class="home-care-ship"><b>{row.name}</b> &middot; {row.hull}</span>
+                    <span class="wear-meter" aria-hidden="true"><i style="width: {row.percent}%"></i></span>
+                    <span class="wear-pct">{row.percent}%</span>
+                    <span class="home-care-eta">{row.status}</span>
+                  </div>
+                {/each}
+              </div>
+            </section>
+          {/if}
+
           <!-- ============ RECENTLY COMPLETED (finished orders) ============ -->
           <!-- 0.13.3 Unit 4.4b, the companion to IN PROGRESS: "what is running" above,
                "what just finished" below. Every row is one finished ORDER, not one job
@@ -20386,6 +20428,13 @@
             <button class="dev-btn" on:click={() => devGrantCredits(10000)}>+10K</button>
             <button class="dev-btn" on:click={() => devGrantCredits(100000)}>+100K</button>
             <button class="dev-btn" on:click={() => devGrantCredits(1000000)}>+1M</button>
+          </div>
+          <div class="dev-row">
+            <span class="dev-label">[DEV] Gear wear</span>
+            <button class="dev-btn" on:click={() => devWearAllGear(90)}>Wear all to 90%</button>
+            <button class="dev-btn" on:click={() => devWearAllGear(70)}>Wear all to 70%</button>
+            <button class="dev-btn" on:click={() => devWearAllGear(40)}>Wear all to 40%</button>
+            <button class="dev-btn" on:click={() => devWearAllGear(100)}>Restore all gear</button>
           </div>
           <div class="dev-row">
             <span class="dev-label">[DEV] Materials</span>
@@ -24578,6 +24627,15 @@
   }
   /* The thin divider that fills the rest of the header row. */
   .home-sec-rule { flex: 1; height: 1px; background: var(--color-border); }
+  /* Gear wear step 5: the Fleet care block (the approved mockup's section 4). Quiet: no badge, no pulse, no red. */
+  .home-care { display: grid; gap: 6px; padding: 8px 10px; border: 1px solid var(--color-border); border-radius: var(--corner); }
+  .home-care-top { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; color: var(--wear-band); }
+  .home-care-big { font-weight: 700; font-size: var(--text-md, 1rem); color: var(--color-text-primary); }
+  .home-care-calm { display: inline-flex; align-items: center; gap: 4px; font-size: var(--text-xs); color: var(--color-success); }
+  .home-care-sum { margin: 0; font-size: var(--text-xs); color: var(--color-text-secondary); }
+  .home-care-row { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; gap: 4px 10px; align-items: center; font-size: var(--text-xs); padding: 4px 0; border-top: 1px solid var(--color-border); }
+  .home-care-ship { min-width: 0; overflow-wrap: anywhere; color: var(--color-text-primary); }
+  .home-care-eta { grid-column: 1 / -1; color: var(--color-text-secondary); }
 
   /* --- NEEDS YOUR ORDERS: amber "ready" prompts (each a full-width button) --- */
   .home-needs { display: flex; flex-direction: column; gap: 7px; }

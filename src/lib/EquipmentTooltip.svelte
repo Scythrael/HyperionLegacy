@@ -368,6 +368,7 @@
   // subject is an equipment instance (materials/ships/crafts carry no per-item actions).
   // ============================================================================
   import Icon from "./ui/Icon.svelte";
+  import { WEAR_BAND_TICKS, type PieceWearCard } from "./gearWearDisplay";
 
   // NEW primary API: the tagged subject. LEGACY: `piece` alone still works and maps to an
   // equipment subject, so the finished-gear call sites need no change.
@@ -388,6 +389,10 @@
   // WR-7 follow-up (OC-D5): the hull the host shows `piece` on, when it knows one (Ship Systems), so a favored-variety
   // piece says whether its "+10% on its ship type" applies there and its derived readouts read the favored lines.
   export let hostTypeKey: ShipTypeKey | undefined = undefined;
+  // GEAR WEAR step 5 (the approved mockup's gear card): the piece's condition block, read live by the host from the
+  // engine (gearWearDisplay.ts pieceWearCard): the bar with its band, the effect line, the worn lines and the care
+  // footer. Absent where the host has no live state for the piece (a craft reveal, the combat view's frozen fight).
+  export let wear: PieceWearCard | null = null;
 
   $: resolved = subject ?? (piece !== undefined ? ({ kind: "equipment", piece } as const) : null);
 
@@ -697,6 +702,29 @@
     {#if !collapsed}
     <!-- STATS block (above the divider) — varies by kind. -->
     {#if view.kind === "equipment"}
+      <!-- GEAR WEAR step 5 (the approved mockup's gear card): the condition bar with its band and percent (ticks at the
+           band edges), what it wears by, and the effect line. -->
+      {#if wear}
+        <div class="et-sec et-wear wear-b-{wear.band.key}">
+          <div class="et-wear-top">
+            <span>Condition{#if wear.wearsBy} <span class="et-wear-by">wears by {wear.wearsBy}</span>{/if}</span>
+            <span><span class="wear-band-name">{wear.band.name}</span> <span class="wear-pct">{wear.percent}%</span></span>
+          </div>
+          <span class="wear-meter wide" role="meter" aria-valuemin="0" aria-valuemax="100" aria-valuenow={wear.percent} aria-label={`Condition ${wear.percent}%, ${wear.band.name}`}>
+            <i style="width: {wear.percent}%"></i>
+            {#each WEAR_BAND_TICKS as t (t)}<b style="left: {t}%"></b>{/each}
+          </span>
+          <div class="et-wear-effect"><b>{wear.lead}</b> {wear.effect}</div>
+          {#if wear.lines.length > 0}
+            <div class="et-wear-lines">
+              {#each wear.lines as line (line.key)}
+                <div><span>{statLabel(line.key)}</span><span><s>{fmtStat(line.was)}</s> <b>{fmtStat(line.now)}</b></span></div>
+              {/each}
+            </div>
+          {/if}
+          <div class="et-wear-care"><Icon name="gearCondition" /> <span>{wear.care}</span></div>
+        </div>
+      {/if}
       <!-- WEAPON COMBAT stats (damage range / accuracy / fire rate / range / family). These come
            from the weapon's base def folded with the rolled yield/accuracy, NOT the raw rolled
            lines below, so a weapon card shows what it actually fires. Shown first (the result), with
@@ -1063,6 +1091,55 @@
     padding: 9px 13px;
     font-size: var(--text-sm);
     color: var(--color-text-secondary);
+  }
+
+  /* GEAR WEAR step 5: the condition block (bar, band, effect, worn lines, care footer). The bar and the band colors
+     are global (app.css .wear-meter / .wear-b-*): calm, never red. */
+  .et-wear {
+    display: grid;
+    gap: 6px;
+    padding: 9px 13px;
+    font-size: var(--text-sm);
+  }
+  .et-wear-top {
+    display: flex;
+    justify-content: space-between;
+    gap: 8px;
+    color: var(--color-text-secondary);
+  }
+  .et-wear-by {
+    color: var(--color-text-dim);
+    font-size: var(--text-2xs);
+  }
+  .et-wear-effect {
+    color: var(--color-text-secondary);
+  }
+  .et-wear-effect b {
+    color: var(--color-text-primary);
+  }
+  .et-wear-lines {
+    display: grid;
+    gap: 3px;
+    font-size: var(--text-2xs);
+  }
+  .et-wear-lines div {
+    display: flex;
+    justify-content: space-between;
+    gap: 8px;
+    border-bottom: 1px dashed rgba(var(--color-accent-rgb), 0.15);
+  }
+  .et-wear-lines s {
+    color: var(--color-text-dim);
+  }
+  .et-wear-care {
+    display: flex;
+    gap: 6px;
+    align-items: flex-start;
+    padding: 6px 8px;
+    border: 1px solid rgba(var(--color-success-rgb, 52, 211, 153), 0.35);
+    background: rgba(var(--color-success-rgb, 52, 211, 153), 0.08);
+    color: var(--color-text-secondary);
+    font-size: var(--text-2xs);
   }
 
   /* FLAVOR: secondary, under a divider (border-top), at the bottom. */

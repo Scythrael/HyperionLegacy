@@ -296,6 +296,8 @@ export const ICON_SEMANTICS: Record<IconName, IconSemantic> = {
   sensorBalanced: "subject",
   sensorResonance: "subject",
   sensorBioResonance: "subject",
+  // 0.14.0 gear wear step 5: a reading of the gear's condition (a thing shown), not an action and not an alert.
+  gearCondition: "subject",
 };
 
 // ---------------------------------------------------------------------------

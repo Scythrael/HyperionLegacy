@@ -80,11 +80,14 @@
     moduleRowTiles,
     moduleTileCategory,
     moduleTileDrawText,
-    pieceConditionPercent,
     piecePowerDraw,
     powerBarView,
   } from "./ui/powerBarDisplay";
   import { pieceModuleLines } from "./ui/moduleEffectText";
+  // 0.14.0 gear wear step 5 (the approved mockup's section 2): a condition meter on every slot, the header's Gear chip,
+  // and the gear card's condition block, all read live from the engine (gearWearDisplay.ts).
+  import { conditionMeter, pieceWearCard, shipGearSummary } from "./gearWearDisplay";
+  const GEAR_WEAR_HELP_TOPIC_ID = "gearWear";
   import Icon from "./ui/Icon.svelte";
   // The Help topic the Power bar links to (helpTopics.ts; powerBarDisplay.test.ts holds the id to a real topic).
   const POWER_HELP_TOPIC_ID = "powerAndModules";
@@ -374,6 +377,10 @@
   $: safeState = { ...state, equipment: equipmentPool };
 
   $: ship = state.ships.find((s) => s.id === shipId) ?? null;
+  // Gear wear step 5: the header's Gear chip and recovery chip (read live; nothing to click, no warnings).
+  $: gearSummary = ship ? shipGearSummary(state, ship.id) : null;
+  // A slot's condition meter, read live from the stored state (the board's pieces are the stored ones).
+  $: meterOf = (p: EquipmentInstance) => conditionMeter(state, p);
   $: shipDef = ship ? SHIP_TYPES[ship.typeKey] : null;
   $: assignedCaptain =
     ship && ship.assignedCaptainId !== null
@@ -1559,6 +1566,15 @@
   }
 </script>
 
+<!-- GEAR WEAR step 5: a slot's small condition meter and percent at its right edge (the approved mockup's rows). -->
+{#snippet wearMeter(p: EquipmentInstance)}
+  {@const m = meterOf(p)}
+  <span class="ss-wear-cv wear-b-{m.band}" title={m.label}>
+    <span class="wear-meter" aria-hidden="true"><i style="width: {m.percent}%"></i></span>
+    <span class="wear-pct">{m.percent}%</span>
+  </span>
+{/snippet}
+
 <div class="ss-dialog" class:embedded>
   {#if !ship || !shipDef}
     <!-- Defensive: the target ship vanished (deleted / stale id). Never crash the
@@ -1639,6 +1655,25 @@
         <button class="ss-close" on:click={onClose} aria-label="Close Ship Systems">&#10005;</button>
       {/if}
     </header>
+
+    <!-- GEAR WEAR step 5 (the approved mockup's section 2): one summary chip (the mean condition of the installed
+         pieces) and, while anything is worn, where it is recovering and when it is back to full. Reports only: no
+         warning, no red, nothing to press. -->
+    {#if gearSummary}
+      <div class="ss-wear-head">
+        <span class="ss-wear-chip wear-b-{gearSummary.band}" title="The mean condition of this ship's installed gear">
+          <Icon name="gearCondition" /> Gear <b class="wear-band-name">{gearSummary.percent}%</b>
+        </span>
+        {#if gearSummary.recovery}
+          <span class="ss-wear-chip"><Icon name={gearSummary.context === "shipyardBay" ? "shipyard" : gearSummary.context === "home" ? "home" : "drive"} /> {gearSummary.recovery}</span>
+        {/if}
+        {#if onOpenHelp}
+          <button type="button" class="ss-help-link" on:click={() => onOpenHelp?.(GEAR_WEAR_HELP_TOPIC_ID)} aria-label="Help: Gear wear">
+            <Icon name="help" /> Gear wear
+          </button>
+        {/if}
+      </div>
+    {/if}
 
     <!-- DAMAGED BANNER (QA #3): a prominent repair strip while the ship is damaged. It
          states the install lock, shows the running repair's progress + ETA, and offers
@@ -1804,6 +1839,7 @@
                     </span>
                     <span class="ss-hp-name">{weaponName(weapon)}</span>
                     <span class="ss-hp-q">{weapon.rarity}</span>
+                    {@render wearMeter(weapon)}
                   </button>
                   <!-- STABLE ACTION BUTTONS (never in the tooltip). Swap opens the picker for
                        THIS hardpoint; Uninstall removes this exact weapon (a MULTI slot, so
@@ -1857,7 +1893,7 @@
                   <button
                     type="button"
                     class="ss-slot-info"
-                    aria-label={`${meta.label}: ${fitted.rarity} grade, iL ${fitted.iLevel}. Details.`}
+                    aria-label={`${meta.label}: ${fitted.rarity} grade, iL ${fitted.iLevel}, ${meterOf(fitted).label}. Details.`}
                     on:click={(e) => clickInfo(e, fitted)}
                     on:mouseenter={(e) => hoverTip(fitted, e.currentTarget)}
                     on:mouseleave={hoverOut}
@@ -1873,6 +1909,7 @@
                       <span class="ss-slot-label">{meta.label}</span>
                       <span class="ss-slot-sub">{fitted.rarity} &middot; iL {fitted.iLevel}</span>
                     </span>
+                    {@render wearMeter(fitted)}
                   </button>
                   <div class="ss-slot-actions">
                     <button class="ss-act ss-act-swap" disabled={editsBlocked} on:click={() => selectSlot(meta.slotType)}>Swap</button>
@@ -1917,7 +1954,7 @@
                   <button
                     type="button"
                     class="ss-slot-info"
-                    aria-label={`${meta.label}${variantLine ? `, ${variantLine}` : ""}${hullLine ? `, ${hullLine}` : ""}: ${fitted.rarity} grade, iL ${fitted.iLevel}. Details.`}
+                    aria-label={`${meta.label}${variantLine ? `, ${variantLine}` : ""}${hullLine ? `, ${hullLine}` : ""}: ${fitted.rarity} grade, iL ${fitted.iLevel}, ${meterOf(fitted).label}. Details.`}
                     on:click={(e) => clickInfo(e, fitted)}
                     on:mouseenter={(e) => hoverTip(fitted, e.currentTarget)}
                     on:mouseleave={hoverOut}
@@ -1944,6 +1981,7 @@
                         <span class="ss-slot-sub">{driveDrawText(fitted)}</span>
                       {/if}
                     </span>
+                    {@render wearMeter(fitted)}
                   </button>
                   <div class="ss-slot-actions">
                     <button class="ss-act ss-act-swap" disabled={editsBlocked} on:click={() => selectSlot(meta.slotType)}>Swap</button>
@@ -2002,7 +2040,7 @@
                 {:else}
                   {@const piece = t.piece}
                   {@const svg = equipmentSvgIcon(piece)}
-                  {@const cond = pieceConditionPercent(piece)}
+                  {@const cond = meterOf(piece).percent}
                   <div class="ss-mod-tile" class:sel={selectedSlot === piece.slotType && piece.slotType === "specUtility"} class:locked={editsBlocked} style="--tc: {equipmentRarityColor(piece.rarity)}">
                     <button
                       type="button"
@@ -2018,8 +2056,8 @@
                       <span class="ss-mod-glyph" aria-hidden="true">{#if svg !== null}<Icon name={svg} size={22} />{:else}{tileIcon(piece)}{/if}</span>
                       <span class="ss-mod-name">{spareLabel(piece)}</span>
                       <span class="ss-mod-sub">{piece.rarity} &middot; iL {piece.iLevel} &middot; {moduleTileDrawText(piece)}</span>
-                      <span class="ss-mod-wear" title={`Condition ${cond}%`} aria-hidden="true"><i style="width: {cond}%"></i></span>
-                      <span class="ss-mod-sub">Condition {cond}%</span>
+                      <!-- Gear wear step 5: the live condition (settled to now), in its band's color. -->
+                      {@render wearMeter(piece)}
                     </button>
                     <div class="ss-slot-actions">
                       {#if t.kind === "utility"}
@@ -2073,6 +2111,7 @@
                       </span>
                       <span class="ss-hp-name">{droneRoleName(pod.droneRole)}</span>
                       <span class="ss-hp-q">{pod.rarity}</span>
+                      {@render wearMeter(pod)}
                     </button>
                     <div class="ss-slot-actions">
                       <button class="ss-act ss-act-swap" disabled={editsBlocked} on:click={() => selectBay(bayIndex)}>Swap</button>
@@ -2435,7 +2474,7 @@
       on:pointerenter={cancelTipHide}
       on:pointerleave={scheduleTipHide}
     >
-      <EquipmentTooltip piece={tipPiece} shipPieces={fittedPieces} hostTypeKey={ship?.typeKey} />
+      <EquipmentTooltip piece={tipPiece} shipPieces={fittedPieces} hostTypeKey={ship?.typeKey} wear={pieceWearCard(state, tipPiece)} />
     </div>
   {/if}
 
@@ -3312,16 +3351,47 @@
     color: var(--color-text-dim);
     overflow-wrap: anywhere;
   }
-  .ss-mod-wear {
-    display: block;
-    height: 4px;
-    background: rgba(var(--color-accent-rgb), 0.1);
-    overflow: hidden;
+  /* GEAR WEAR step 5: the header strip (the Gear chip and the recovery chip) and a slot's meter at its right edge (the
+     meter itself and the band colors are global, app.css .wear-meter / .wear-b-*). */
+  .ss-wear-head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px 8px;
+    padding: 8px 14px;
+    border-bottom: 1px solid rgba(var(--color-accent-rgb), 0.12);
   }
-  .ss-mod-wear i {
-    display: block;
-    height: 100%;
-    background: var(--color-success);
+  .ss-wear-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 2px 9px;
+    border-radius: 999px;
+    border: 1px solid rgba(var(--color-accent-rgb), 0.25);
+    font-size: var(--text-3xs);
+    color: var(--color-text-dim);
+    white-space: nowrap;
+  }
+  .ss-wear-cv {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    margin-left: auto;
+    flex: none;
+  }
+  .ss-hp-info .ss-wear-cv,
+  .ss-mod-info .ss-wear-cv {
+    margin-left: 0;
+    margin-top: 4px;
+  }
+  .ss-hp-info .ss-wear-cv .wear-meter,
+  .ss-mod-info .ss-wear-cv .wear-meter {
+    width: 44px;
+  }
+  @media (max-width: 560px) {
+    .ss-slot-info .ss-wear-cv .wear-meter {
+      width: 40px;
+    }
   }
   .ss-mod-tile .ss-slot-actions {
     margin-top: auto;

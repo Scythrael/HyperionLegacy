@@ -581,3 +581,31 @@ take no wear by W9 when built.
   its place (hub note; the user's 2026-10-16 reason for a paid repair was finding proper credit sinks).
 - Gear wear step 5 (wear UI per the approved mockup, Overtime on repair, patrol use wear) is now unblocked. Check the
   mockup https://claude.ai/artifact/HRa9zUf1XRrPoh9tuinhEF for any Quick Service control before building and drop it.
+
+**Carry note, step 5 (built 2026-11-09 on feat 8d3809b; the 2026-11-09 answers).** Quick Service is REMOVED, per "None,
+always automatic": the approved mockup carried no Quick Service control (its own rule read "No instant-repair purchase"),
+so no control or text was built; the registry row `wear:audit:quickGearRepair` is deleted; credit sinks S1 and OC-C1 are
+not built (the credit sinks pass may want another sink, hub note above). The use floor stays 60% (unchanged code).
+Built: **the wear UI** from the mockup (`src/lib/gearWearDisplay.ts`, every number read from the engine): the gear card's
+condition block (bar with band ticks, "wears by", band and percent, the effect line, the worn lines with the pristine
+value struck through, the care footer "Back to full in about N min at home, on its own. No cost, no button."), on Ship
+Systems, spares, Armory pieces and member gear; a meter on every Ship Systems slot plus a "Gear N%" chip and a recovery
+chip; a **Fleet care** section on Command Home (Command Home has no Shipyard card, so W8's line is its own quiet section
+under In progress), showing hull repairs beside gear wear (W6), hidden when nothing is worn and no hull is damaged; a
+"Gear wear" Help topic; the Debug tab's "Wear all to N%" and "Restore all gear" (section 8). Two mockup lines follow later
+answers instead: the weapon line states the TRUE opening condition (W3), and a ship on a run reads "recovers slowly
+underway and fully once home" rather than a settle point. **Patrol use wear**: a patrol dispatched now is stamped
+(`PatrolMissionState.useWear`); each non-training cycle (`isTrainingPatrol` skipped, the SF-7 note) records its use where it
+ends (the reactor, crew and universal modules by the minutes flown, the drive by the route's round trip; a lost cycle in
+two parts, out to the defeat and the limp home), on the same events as its battle wear, and the relaunch projection
+includes it. **Overtime on gear repair** (the speed seam's rule, `processSpeed.ts buyGearRepairOvertime`): +25% of the
+normal rate a step on a DOCKED ship's installed gear (home or a Shipyard bay), at most 3 steps, step k priced
+ceil(10 x the job's minutes at the normal rate, frozen at step 1, x hull tier x k), refused out on a run, with nothing
+worn, at the maximum, within a tick of full or short of credits; settled and re-anchored at the purchase; cleared once the
+gear is full or the ship leaves (`ShipInstance.gearRepairSpeed`). No UI button, like every Overtime (the speed seam waits
+for a sketch). Goldens first (`gearWearStep5Goldens.test.ts`, 34 patrol rows captured on 8d3809b; the switch
+`patrolUseWearSwitch.fixture.ts` reproduces every row and in-flight runs fly byte-identical); the earlier golden files that
+pin patrols run with the switch off. Registry: the five time and distance use sources gain the `patrol` context;
+`wear:audit:gearRepairOvertime` is live. No SAVE_VERSION bump (two optional fields).
+Still open from earlier notes: the Survey Pair set tier still reads its module pieces pristine (step 4's log), and the
+combat view's "opened at N%, carried wear" cycle line (section 8) is not built (the mockup does not draw it).
