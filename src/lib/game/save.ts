@@ -2556,6 +2556,9 @@ const MIGRATIONS: Record<number, Migration> = {
   // PatrolMissionState.deckHandling and replenishCarryStart, and DroneSquadron.deckHandlingPpm / replenishCarryPpm
   // inside the patrol's playerDrones (an in-flight patrol keeps its seeded screen until the next relaunch freezes the
   // crew aboard). The Survey Aptitude and Spacer racials write no new field (scanSpeedBonus already exists).
+  // CP-4's rest (the Flight Deck's Integrity on Deck Handling, user 2026-11-10 "Build it") adds NOTHING here either,
+  // same rule: PatrolMissionState.deckHandlingSteady and DroneSquadron.deckHandlingSteadyPpm are optional and absent on
+  // everything from before it (an in-flight patrol replenishes as before until its next relaunch freezes the facet).
   // Gear wear step 4 (0.14.0, the combat half) adds NOTHING here either, same rule: PatrolMissionState
   // cycleStartCondition, the expedition stamp's `battle`, ShipEventBattle.gearWear, ExpeditionScanEvent.gearWear,
   // GroundFightRecord.armorWear and GroundWearTally.armor are optional and absent on everything from before it (an

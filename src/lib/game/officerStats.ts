@@ -26,6 +26,9 @@
 //                 (D12: the Complement never feeds weapons or shields). PER-SEAT ROWS (user-approved table,
 //                 design section 7, 2026-10-09; INTEGRITY_DETAIL_BY_DEPARTMENT):
 //                   Security / Flight Deck  the battle bonuses above (built first)
+//                   Flight Deck  also Deck Handling (complement plan CP-4's rest, user 2026-11-10 "Build it"): below
+//                                half hull a patrol's drones replenish at Deck Handling x (1 + facet), frozen per
+//                                cycle (PatrolMissionState.deckHandlingSteady, bridge.ts applyDeckHandling)
 //                   Engineering  below half hull: faster shield RECHARGE (a "recharge" profile entry)
 //                   Science      scanning a hazardous world: Expedition.hazardSteady joins the scan resist
 //                   Medical      a member who comes home INJURED: Expedition.injurySteady joins the care
@@ -336,7 +339,8 @@ export const CONSTITUTION_DETAIL_BY_DEPARTMENT: Readonly<Record<CrewProfession, 
 // user 2026-10-09). The XO reads its own line.
 export const INTEGRITY_DETAIL_BY_DEPARTMENT: Readonly<Record<CrewProfession, string>> = {
   security: "Below half hull in a patrol battle: weapon damage (Weapons Command, Inspiring Leader) and shield recharge (Shield Command)",
-  flightDeck: "Below half hull in a patrol battle: Evasive Command dodges more",
+  // CP-4's rest (user 2026-11-10 "Build it"): and Deck Handling's drone replenish, frozen per patrol cycle.
+  flightDeck: "Below half hull on a patrol: Evasive Command dodges more in battle, and Deck Handling crew rebuild lost drones faster",
   engineering: "Below half hull in a patrol battle: the shields recharge faster",
   science: "While scanning a hazardous world: the hazard slows the scan less",
   medical: "When away-team members come home injured: they recover sooner",

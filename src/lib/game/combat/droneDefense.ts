@@ -181,15 +181,26 @@ export const REPLENISH_PPM = 1_000_000;
 // while a drone is recovering (destroyed or disrupted), the ticks the progress would land on. Integer arithmetic, no
 // draw: one call per tick, so offline == live and the display replay (the same call) agrees. Mutates only the
 // squadron's carry; without Deck Handling it is exactly droneReplenishRate and touches nothing.
-export function replenishUnits(squadron: DroneSquadron): number {
+// 0.14.0 (CP-4's rest, user 2026-11-10 "Build it"): `belowHalfHull` is the caller's read of the ship's hull this tick
+// (hull x 2 < its folded hull max, the Integrity trigger resolveBattle uses). While it holds, a squadron carrying the
+// Flight Deck's Integrity (deckHandlingSteadyPpm) banks at that rate instead: Deck Handling x (1 + the facet). Without
+// the stamp the flag changes nothing.
+export function replenishUnits(squadron: DroneSquadron, belowHalfHull = false): number {
 	const base = squadron.droneReplenishRate;
-	const ppm = squadron.deckHandlingPpm ?? 0;
+	const ppm = deckHandlingPpmNow(squadron, belowHalfHull);
 	if (!(ppm > 0)) return base;
 	if (!squadron.drones.some((d) => !d.alive || d.status === "disrupted")) return base;
 	const total = base * ppm + (squadron.replenishCarryPpm ?? 0);
 	const extra = Math.floor(total / REPLENISH_PPM);
 	squadron.replenishCarryPpm = total - extra * REPLENISH_PPM;
 	return base + extra;
+}
+
+// 0.14.0 (CP-4's rest): the Deck Handling a squadron banks at right now, in parts per million: its Flight Deck Integrity
+// rate below half hull when it carries one, else its plain Deck Handling (0 without). Pure.
+export function deckHandlingPpmNow(squadron: DroneSquadron, belowHalfHull: boolean): number {
+	const steady = belowHalfHull ? squadron.deckHandlingSteadyPpm ?? 0 : 0;
+	return steady > 0 ? steady : squadron.deckHandlingPpm ?? 0;
 }
 
 export function replenishDrones(squadron: DroneSquadron, rateUnits: number): number {

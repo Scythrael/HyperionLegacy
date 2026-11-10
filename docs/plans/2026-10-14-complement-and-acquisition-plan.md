@@ -341,6 +341,27 @@ reproduced with `racialsSwitch.fixture.ts withRacialsOff`. NOT built (still CP-4
 facet on replenish below half hull, the Spacer long-haul ramp (0.14.x, T3; kept visible as the deferred registry row
 `crew:audit:spacerLongHaulRamp`), and CP-3's four Ground Ops consumers.
 
+**Carry note (2026-11-10, CP-4's rest: the Flight Deck Integrity facet on replenish; user "Build it", the audit
+leftovers in the wiring plan):** built as the plan proposed ("it takes the Flight Deck Integrity facet when below half
+hull", the E-CREW plan's Integrity rule "the department's buffs gain the Integrity facet" and its Task 21 carry "give it
+the Flight Deck's Integrity the same way"): while the ship is below half hull (hull x 2 < its folded hull max, the
+trigger `resolveBattle` already uses), Deck Handling is x (1 + the Flight Deck's Integrity facet), so the drones rebuild
+at droneReplenishRate x (1 + Deck Handling x (1 + facet)). The facet is `departmentFacet(flightDeck, integrity)`: the
+Pilot's 1% per point above 10 plus 40% of the XO's [PROVISIONAL: the facet's first-pass numbers, no new constant]. It
+only lifts a Deck Handling aboard (none, nothing to lift), and below half hull never pays less than above (peace).
+FROZEN per patrol cycle beside `deckHandling` (`PatrolMissionState.deckHandlingSteady`, dispatch and each relaunch,
+written only when > 0 and the Deck Handling is stored) and seeded onto the squadrons as
+`DroneSquadron.deckHandlingSteadyPpm` (`combat/bridge.ts applyDeckHandling`), banked in the same
+`replenishCarryPpm`. Readers: the between-wave replenish (`tick.ts`, `patrolReplay.ts`, `droneDefense.ts
+replenishUnits(squadron, belowHalfHull)`) and the in-combat replenish module (`resolveBattle`, `deckHandlingPpmNow`). A
+patrol in flight from before has no stamp and flies and replays exactly as before. No SAVE_VERSION bump. Registry: the
+live row `crew:audit:flightDeckIntegrityReplenish`, probe `patrolReplenishSteadyLift` (the Deck Handling extra below
+half hull over the extra above it: 1 + facet). Goldens: `cp4FlightDeckGoldens.test.ts` (captured first; only the
+steady fixture moves, each control is unchanged), reproduced with `cp4FlightDeckSwitch.fixture.ts withCp4FlightDeckOff`;
+the earlier registry pins read the row back (`cp4FlightDeckRegistry.fixture.ts`). Text: the Pilot's Integrity tooltip
+(`INTEGRITY_DETAIL_BY_DEPARTMENT.flightDeck`) and the Combat Patrols Help topic. QA:
+`docs/qa/2026-11-10-cp4-flight-deck-qa.html`.
+
 ### CP-5: Per-hull complement caps and division mixes (Task 24)
 
 **Files:** `model.ts` (`ShipTypeDef.complementCap?`, `complementDivisionWeights?`), `commandStructure.ts` (read the

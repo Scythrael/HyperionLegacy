@@ -726,6 +726,22 @@ function patrolReplenishShare(s: GameState): number {
   return units / (REPLENISH_PROBE_TICKS * first.droneReplenishRate);
 }
 
+// 0.14.0 (CP-4's rest, user 2026-11-10 "Build it"): the Deck Handling extra the dispatched cycle's first squadron banks
+// BELOW half hull over the extra it banks above it, every drone destroyed, through the consumer (replenishUnits with the
+// hull read): 1 + the Flight Deck's Integrity facet. 0 when the cycle fields no squadron or carries no Deck Handling.
+function patrolReplenishSteadyLift(s: GameState): number {
+  const first = dispatchedPatrol(s).playerDrones[0];
+  if (!first || first.droneReplenishRate <= 0) return 0;
+  const extra = (belowHalfHull: boolean): number => {
+    const sq: DroneSquadron = { ...first, replenishCarryPpm: 0, drones: first.drones.map((d) => ({ ...d, alive: false })) };
+    let units = 0;
+    for (let t = 0; t < REPLENISH_PROBE_TICKS; t++) units += replenishUnits(sq, belowHalfHull);
+    return units - REPLENISH_PROBE_TICKS * first.droneReplenishRate;
+  };
+  const above = extra(false);
+  return above > 0 ? extra(true) / above : 0;
+}
+
 // WR-5b: the mean damage of 1,000 raw-100 projectiles from the combatant's first weapon (Alpha Strike's opening shot
 // spent, unless `opening`), at a target `above` half hull or below it, through the seam fireWeapon calls.
 const SHOT_RAW = 100;
@@ -2160,6 +2176,11 @@ export const PROBES = {
   // (droneDefense.ts replenishUnits, Deck Handling banked), as a share of its plain rate over REPLENISH_PROBE_TICKS
   // ticks with every drone down: 1 + deckHandling, within one banked unit over the span.
   patrolReplenishShare: { label: "replenishUnits over a long recovery / (ticks x droneReplenishRate): 1 + Deck Handling", read: (s) => patrolReplenishShare(s) },
+  // 0.14.0 (CP-4's rest): the Flight Deck's Integrity on that replenish, below half hull against above it.
+  patrolReplenishSteadyLift: {
+    label: "replenishUnits' Deck Handling extra below half hull / above it, over a long recovery: 1 + the Flight Deck's Integrity",
+    read: (s) => patrolReplenishSteadyLift(s),
+  },
   battleDroneSquadrons: { label: "the squadron count: the patrol cycle's seed / the ship-event combatant", read: (s, ctx) => battleDrones(s, ctx).length },
   patrolRewardMult: {
     label: "patrolWaveRewardMult(0, the dispatched cycle's captainCombat): a won wave's loot and credit factor",

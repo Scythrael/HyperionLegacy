@@ -94,7 +94,9 @@ import { captainComplementMult, captainOfficerOutputMult, captainSensorsMult } f
 //                                                   rawShipCrewContribution, so every consumer inherits it)
 // The inert racials go live (0.14.0, user "everything wired" 2026-10-20), read off this map at dispatch:
 //   crew.droneHandling (Deck Handling + Belter)  -> the patrol cycle's drone replenish rate (shipDeckHandling, frozen
-//                                                   on PatrolMissionState.deckHandling; OC-1 "Faster drone replenish")
+//                                                   on PatrolMissionState.deckHandling; OC-1 "Faster drone replenish");
+//                                                   below half hull x (1 + the Flight Deck's Integrity), CP-4's rest
+//                                                   (PatrolMissionState.deckHandlingSteady)
 //   crew.surveyAptitude (Survey Aptitude + Vael and Outer-Colony) -> the expedition's scanSpeedBonus (shipSurveyAptitude,
 //                                                   frozen at dispatch; OC-4 "Faster scans")
 // and the Spacer racial rides OFFICER_TRANSIT_KEY (the sweeping transit speed, both legs and the voyage).
