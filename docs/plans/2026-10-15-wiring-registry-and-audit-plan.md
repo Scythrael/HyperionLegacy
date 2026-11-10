@@ -2133,6 +2133,10 @@ Recorded verbatim (the user picked each option by name; the line after it is the
   default. A changed program is merged so hires still get the built-in cure, heal, brace and Field Kits grenade rules.
 - **Still open:** OC-F14 (no answer yet; needs an answer and a sketch), and a mockup for an OC-F12 control. Do not build
   either.
+- **OC-F12 merge order (answered after the fix round, 2026-11-10):** "Built-in first (Recommended)". The built-in cure,
+  heal, brace and grenade rules a changed program lacks go AHEAD of the player's rules; each fires only when its
+  condition holds. The player's rules follow in their order. (This settles the builder's flagged interpretation below:
+  the merge stays as built.)
 
 ## WR-10 FIX ROUND BUILT (2026-11-10)
 
@@ -2160,7 +2164,8 @@ pre-WR-10 capture).
   program is merged (memberGambits.ts mergeWithBuiltInDefault): the built-in default's rules of each kind in Cure, Aid
   Heal, Brace and Throw Grenade that the copy has no rule of, in the built-in default's order (the Field Kits default
   once kits are live in runs, so both grenade rules), then the player's rules in their own order, all kept. The editor
-  notice says so. **[interpretation, flagged]** The brief said "the user's rules first, then any built-in rule kinds the
+  notice says so. **[interpretation, flagged; RESOLVED 2026-11-10: the user picked "Built-in first (Recommended)", so
+  the merge stays as built]** The brief said "the user's rules first, then any built-in rule kinds the
   copy lacks". Built that way, the merge would be inert: every preset ends with an attack on the nearest foe, which fires
   whenever a foe stands, so a rule after it never acts. The support rules go AHEAD instead (each fires only when its own
   condition holds, as in the built-in default). One line to flip if the user wants them after.
@@ -2170,13 +2175,15 @@ pre-WR-10 capture).
   fieldwork counts a little more at a higher rank.
 - **Fall Back** is described in the editor (its rule hint, gambitEditorDisplay.ts FALL_BACK_HINT) and in Help (Team
   Types and Squads, IN A FIGHT, with Suppress and Quick Draw).
-- **Registry.** Live with measuring probes: `away:AWAY_TRAITS:saboteur` (probe secSuppressLinger: the Suppressed rounds
-  the member's Suppress leaves over 200 seeded battles, no inflict piece) and `away:audit:quickDraw` (content probe: a
+- **Registry.** Live with measuring probes: Saboteur's no-inflict case on its own added row `away:audit:saboteurLinger`
+  (probe secSuppressLinger: the Suppressed rounds the member's Suppress leaves over 200 seeded battles, no inflict piece),
+  while `away:AWAY_TRAITS:saboteur` keeps its exact inflict-piece measurement (secInflictPermille, chanceAbsolute; the fix
+  round had first swapped that probe out, dropping the exact case) and goes live, and `away:audit:quickDraw` (content probe: a
   Stunned Quick Draw member acts in round 2). `away:GAMBIT_PROGRAMS:account` stays live (every hire reads the pair; the
   merge is measured), with a note that no control sets it; the missing control is its own new row,
   `away:audit:accountDefaultControl`, pending on OC-F12's mockup (the registry has no "partial / needs control" status).
   Pending entries under RELEASE_GATE: 23 before the fix round, 22 after (saboteur and quickDraw live, the control row
-  added; WR-10 still owns fieldRepairOrder OC-F14 and the control row).
+  added pending and saboteurLinger added live; WR-10 still owns fieldRepairOrder OC-F14 and the control row).
 - **Goldens moved (each traced).** wr10Goldens.test.ts: enemyFortification fights 5502e0e5 to 67e64e5b (the fixture run
   is at curve position 0, so no Corroded; with the odds ramp lifted to full the fights read 5502e0e5 again) and the custom
   hire 50ece9e5 to e24ce9f (the merge; the unmerged copy hashes to 50ece9e5). safeFirstRamp.test.ts sample: d18 run 2

@@ -55,11 +55,12 @@ const DEFAULT_SHAPE_IDS: ReadonlySet<string> = new Set([
 const REVIVE_NOTE_BEFORE = "revives the FIRST downed ally, not the wearer (B13, WR-10 OC-F2)";
 
 // The WR-10 FIX ROUND (user answers 2026-11-10): two more rows flipped pending -> live, Saboteur's trait row (OC-F4: its status
-// chance now stretches a landed Suppress, measured in battle with no inflict piece; before, live only with one) and the
-// Quick Draw audit row (OC-F5: the Stun and Fear shrug); the account pair row (OC-F12, the merge) and the Quick Draw trait
-// row changed their claim or note; and one row was ADDED, the account default control (pending on OC-F12's mockup).
+// chance now stretches a landed Suppress with no inflict piece, measured in battle by the added row
+// away:audit:saboteurLinger; the trait row keeps its exact inflict-piece measurement) and the Quick Draw audit row (OC-F5:
+// the Stun and Fear shrug); the account pair row (OC-F12, the merge) and the Quick Draw trait row changed their claim or
+// note; and two rows were ADDED, Saboteur's linger and the account default control (pending on OC-F12's mockup).
 // Each is put back as it stood on 5339682.
-export const WR10_FIX_ADDED_IDS: ReadonlySet<string> = new Set(["away:audit:accountDefaultControl"]);
+export const WR10_FIX_ADDED_IDS: ReadonlySet<string> = new Set(["away:audit:saboteurLinger", "away:audit:accountDefaultControl"]);
 type Shape = Pick<WiringEntry, "status" | "probe" | "contexts" | "direction" | "curve" | "note" | "claim">;
 export const WR10_FIX_BEFORE: Readonly<Record<string, Partial<Shape>>> = {
   "away:AWAY_TRAITS:saboteur": {

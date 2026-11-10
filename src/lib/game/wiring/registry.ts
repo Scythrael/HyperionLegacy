@@ -1112,17 +1112,19 @@ function traitEntry(t: AwayTraitDef): WiringEntry {
   switch (e.kind) {
     case "stat": {
       if (e.stat === "statusChance") {
-        // Saboteur. Wiring WR-10 fix round (OC-F4, user 2026-11-10 "Chance to last longer"): with no inflict piece worn the
-        // status chance now acts on the member's Suppress (a chance the Suppressed lasts one round longer, under the away
-        // rules), measured in battle; with an inflict piece it also lands the piece's statuses (secInflictPermille, the
-        // gear's own rows).
+        // Saboteur. With an inflict piece worn the status chance lands the piece's statuses: measured exactly here
+        // (secInflictPermille, the chance through its curve). Wiring WR-10 fix round (OC-F4, user 2026-11-10 "Chance to
+        // last longer"): with no inflict piece worn it now acts on the member's Suppress (a chance the Suppressed lasts
+        // one round longer, under the away rules), measured in battle by its own row, away:audit:saboteurLinger.
         return entry({
           ...common,
-          probe: "secSuppressLinger",
+          probe: "secInflictPermille",
           contexts: ["ground"],
-          curve: { kind: "event", metric: "the Suppressed rounds the member's Suppress leaves over seeded battles" },
-          magnitude: () => 1,
-          note: "measured with no inflict piece worn: the status chance stretches a landed Suppress (gambit.ts lingerSuppress)",
+          curve: { kind: "chanceAbsolute" },
+          magnitude: (c) => value(c) * 1000,
+          tolerance: 1,
+          base: () => wearPiece(withAwayTeam(wiringBase()), memberId, "memberTool", "stunGrenade", {}),
+          note: "measured with an inflict piece worn (the base wears a bare Stun Grenade); with none worn the chance stretches a landed Suppress (away:audit:saboteurLinger, OC-F4)",
         });
       }
       const probe: Record<string, ProbeId> = { accuracy: "secAccuracy", power: "secPower", armor: "secArmor", relicFind: "fieldRelicFind", hazardResist: "fieldHazardResist" };
@@ -4661,6 +4663,9 @@ const AUDIT_ROWS: readonly { id: string; system: WiringSystem; claim: string; st
   { id: "away:audit:medKitClaim", system: "away", claim: "The Med Kit's text claims no revive: it heals in a trained medic's hands", status: LIVE },
   // Wiring WR-10 fix round (OC-F5, user 2026-11-10 "Shrug off stun/fear once"): checked in wr10AuditWiring below.
   { id: "away:audit:quickDraw", system: "away", claim: "Quick Draw ignores Stun and Fear on the member's first turn after the enemies have acted (on every run dispatched since WR-10), besides acting first on the opening round", status: LIVE },
+  // Wiring WR-10 fix round (OC-F4, user 2026-11-10 "Chance to last longer"): Saboteur's no-inflict case, its own row so
+  // the trait row keeps its exact inflict-piece measurement. Checked in wr10AuditWiring below.
+  { id: "away:audit:saboteurLinger", system: "away", claim: "Saboteur with no inflict piece worn: its status chance is a chance a landed Suppress lasts one round longer (under the away rules)", status: LIVE },
   { id: "away:audit:scienceRank", system: "away", claim: "A Science member's rank multiplies their own fieldwork (OC-F7, on every run dispatched since WR-10)", status: LIVE },
   { id: "away:audit:fieldDeviceEffectiveness", system: "away", claim: "Field devices work at a rolled 50 to 75% per use (fieldKits.ts fieldDevicePercent; the old untrained / trained knob retired)", status: LIVE },
   // WR-8 settled mass and power draw (0 by design: member gear never moves ship stats) and gear wear step 3 made the
@@ -5062,6 +5067,18 @@ function wr10AuditWiring(): Readonly<Record<string, Partial<EntryInput>>> {
       note: "1 when the Med Kit's text promises no revive (its heal is away:groundEffect:heal)",
     },
     "away:audit:quickDraw": content("quickDrawShrug", "1 when a Stunned Quick Draw member acts on their first turn after the enemies have acted (stamped run vs older run)"),
+    // OC-F4: the Security member with Saboteur against without it, no inflict piece worn: the Suppressed rounds their
+    // Suppress leaves over seeded battles under the away rules (gambit.ts lingerSuppress).
+    "away:audit:saboteurLinger": {
+      probe: "secSuppressLinger",
+      contexts: ["ground"],
+      curve: { kind: "event", metric: "the Suppressed rounds the member's Suppress leaves over seeded battles" },
+      magnitude: () => 1,
+      base: () => withAwayTeam(wiringBase()),
+      on: (s) => editMember(s, WIRING_SECURITY_ID, { traits: ["saboteur"] }),
+      off: identity,
+      note: "no inflict piece worn: the status chance stretches a landed Suppress (the inflict-piece case is away:AWAY_TRAITS:saboteur)",
+    },
     "away:audit:statusPicker": content("casterCorrodes", "the casters of a Xeno-Flora Bloom guard that Corrode on a hit (stamped run vs older run)"),
     // A rank 8 Science member against the same member at rank 1, wearing a fieldwork piece: their own fieldwork on the
     // dispatched run grows by the rank factor (crewRank.ts rankMagnitudeFactor).
