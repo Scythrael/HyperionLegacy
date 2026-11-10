@@ -774,11 +774,15 @@ const PERSONNEL_ROSTERS_PARAGRAPHS: readonly string[] = [
   "FROM THE SHIP: a ship's Senior Staff and Complement tabs carry a roster picker. Choosing a roster changes nothing until you press Apply. When the ship's officers and notable crew match no saved roster and the roster would take an officer out of a seat, Apply first warns that the unsaved configuration will be lost, and you can cancel. When a roster's linked loadout is for another hull type, both the picker and the facility say the gear stays in the Armory before you apply. Apply waits while the ship is out on a mission, patrol or short-range run, or until its expedition is claimed, and while a pinned person is aboard a ship that is out.",
 ];
 
+// Complement CP-18: the soft captain level cap, in the engine's own numbers.
+import { CAPTAIN_SOFT_CAP_GROWTH, CAPTAIN_SOFT_CAP_LEVEL } from "./game/model";
+export const CAPTAIN_SOFT_CAP_TEXT = `Captain levels never stop: there is no top level. Each level costs more experience than the one before it, and past level ${CAPTAIN_SOFT_CAP_LEVEL} each level also costs ${Math.round((CAPTAIN_SOFT_CAP_GROWTH - 1) * 100)}% more on top of that, compounding, so the climb slows the higher a captain goes.`;
+
 export const HELP_TOPICS: HelpTopic[] = [
   {
     id: "crew",
     title: "Crew and Captains",
-    body: "Crew is your roster of captains, found on the Crew tab under Captain Roster. Each captain commands one ship and earns XP every tick while out on a mission, so leveling is steady rather than only paying out at the end of a run. Your Fleet Admiral level rises alongside them, and it climbs faster the more captains you have working at once. Some captain slots start locked and open up once you have both the required talent and a high enough Fleet Admiral level. A captain needs a ship assigned (from the ship's page on the Ships tab) before it can be dispatched on missions.",
+    body: `Crew is your roster of captains, found on the Crew tab under Captain Roster. Each captain commands one ship and earns XP every tick while out on a mission, so leveling is steady rather than only paying out at the end of a run. ${CAPTAIN_SOFT_CAP_TEXT} Your Fleet Admiral level rises alongside them, and it climbs faster the more captains you have working at once. Some captain slots start locked and open up once you have both the required talent and a high enough Fleet Admiral level. A captain needs a ship assigned (from the ship's page on the Ships tab) before it can be dispatched on missions.`,
   },
   {
     // 0.14.0 Complement CP-16: retirement's final warning and the Archive's Hall of Command (captainRetirement.ts,

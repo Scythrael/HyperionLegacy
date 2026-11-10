@@ -12,6 +12,10 @@ import { cp16OffForThisFile } from "./cp16Switch.fixture";
 // keep proving their own slice (cp16Goldens.test.ts pins what CP-16 moved: the missions counter, the notables and
 // the Hall of Command entry).
 cp16OffForThisFile();
+// Complement CP-18 (the soft captain level cap) came after every pin here: the mission captures fly a level 30 captain
+// past level 31, so the file runs with the slice off and its pins keep proving their own slice.
+import { cp18OffForThisFile } from "./cp18Switch.fixture";
+cp18OffForThisFile();
 import { cp14OffForThisFile } from "./cp14Switch.fixture";
 // Complement CP-14 (hull base sensors and Science amplification) came after every pin here: the file runs with the
 // slice off, so its pins keep proving their own slice (cp14Goldens.test.ts pins what CP-14 moved).

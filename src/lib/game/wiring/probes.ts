@@ -239,6 +239,8 @@ import { retirementExpMultiplier, retireCaptain } from "../captainRetirement";
 // Complement CP-16: the Hall of Command and the captain's command record.
 import { captainCommandNotables, hallOfCommandOf } from "../captainNotables";
 import type { CaptainNotableKind } from "../model";
+// Complement CP-18: the soft captain level cap (the probe's stored XP).
+import { xpForNextLevel } from "../model";
 import { transitBerthCount } from "../berths";
 import { shortRangeBoardSlots, startShortRangeCycle } from "../shortRangeBoard";
 import { newReactorLiftFlag } from "../reactorSurplus";
@@ -970,6 +972,20 @@ function hallEntryOnRetire(s: GameState) {
   if (next === s) return null;
   const hall = hallOfCommandOf(next);
   return hall.length > hallOfCommandOf(s).length ? hall[hall.length - 1] : null;
+}
+// Complement CP-18 (the soft captain level cap): what the next level costs captain 1, per level of the plain 300 * level
+// curve, MEASURED through a real flown second: the captain holds one and a half levels' price (so the award crosses
+// exactly one), flies one economyTick of a Short Ore Run, and the price is whatever the level-up drained from the XP.
+// 300 at or below the threshold; -1 when the flight or the level-up does not happen.
+function flownLevelPrice(s: GameState): number {
+  const level = captainOf(s).level;
+  const stored = xpForNextLevel(level) * 1.5;
+  const r = dispatchCaptainOnMission(editCaptain(s, { xp: new Decimal(stored) }), WIRING_CAPTAIN_ID, "shortOreRun");
+  if (!r.success) return -1;
+  const after = economyTick(r.next, 1, () => 0.5);
+  if (captainOf(after).level !== level + 1) return -1;
+  const awarded = after.lifetimeStats.captainXpAwarded.minus(r.next.lifetimeStats.captainXpAwarded);
+  return new Decimal(stored).plus(awarded).minus(captainOf(after).xp).toNumber() / level;
 }
 // Complement CP-16: how many firsts under command an expedition dispatch of ship-1 (the probe dispatch, dispatchRun's)
 // adds to captain 1's record. -1 when the dispatch is refused.
@@ -1989,6 +2005,8 @@ export const PROBES = {
   hallMissionsFlown: { label: "retireCaptain: the Hall of Command entry's missionsFlown", read: (s) => hallEntryOnRetire(s)?.missionsFlown ?? -1 },
   hallNotables: { label: "retireCaptain: the Hall of Command entry's notables (count)", read: (s) => hallEntryOnRetire(s)?.notables.length ?? -1 },
   hallEntries: { label: "GameState.hallOfCommand entries (count)", read: (s) => hallOfCommandOf(s).length },
+  // Complement CP-18: the XP a level-up drains from captain 1 on a flown second, per level of the plain curve.
+  captainLevelPrice: { label: "economyTick: the XP captain 1's next level-up drains, per level", read: flownLevelPrice },
   // Complement CP-16: the firsts under command an expedition dispatch of ship-1 records on captain 1 (-1 when refused).
   dispatchCommandFirsts: { label: "startExpedition: the firsts under command the dispatch records on its captain (count)", read: (s) => dispatchCommandFirsts(s) },
   claimCommandFirstRelic: { label: "claimExpedition: the first relic found the claim of a run with a relic records on its captain (count; -1 refused)", read: (s) => claimCommandFirstRelic(s) },

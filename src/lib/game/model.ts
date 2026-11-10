@@ -14237,8 +14237,43 @@ export function blueprintResearchable(state: GameState, key: string): boolean {
 // Captain XP now accrues PER ACTIVE TICK (see tickCaptainMission's per-whole-tick
 // award) instead of as a lump per completed cycle, so the per-level cost was
 // raised to keep early leveling from racing ahead under the faster drip.
+//
+// Complement CP-18 (the soft captain level cap, OC-23 "From level 30 (Recommended)", D23: never a hard cap): up to and
+// including the threshold the cost is 300 * level, byte for byte; past it, 300 * level * growth^(level - threshold), so
+// the threshold level's own cost is unchanged, level 31 costs 300 * 31 * 1.08, and levels never stop.
+//
+// ROUNDING: the factor is built by repeated multiplication and the cost rounded once with Math.round, never Math.pow.
+// IEEE-754 double multiplication and Math.round are exact on every platform; Math.pow is implementation-approximated
+// by the language spec (here it first disagrees with repeated multiplication at level 280), and a cost that differs in
+// one engine would split a level-up across devices. Every cost is a whole number and matches the exact rational rounded
+// through level 266 (a test checks it through BigInt). The costs are memoized by level (the fold reads this in hot
+// paths), so a read past the threshold is one array index once it has been built.
+//
+// CEILING: a cost past what a double holds (about level 9060, some 1e308 XP) stays at Number.MAX_VALUE, a finite price
+// Decimal can still compare and subtract, so even there the level still comes. Costs are safe integers through level 356.
+// PRECISION: Decimal's digits run out well before that. At a real, non-dyadic XP multiplier (one retirement's x1.05) the
+// stored XP of 1 s steps and of one call first differs at level 272, and the level itself first splits at level 301;
+// through level 271 the cuts agree to the byte (cp18SoftLevelCap.test.ts). With whole XP, an exact landing and one XP
+// short both hold through level 329. All of it is out of reach: level 272 alone costs some 1e13 XP, about 300,000 years
+// at 1 XP a second.
+export const CAPTAIN_SOFT_CAP_LEVEL = 30;
+export const CAPTAIN_SOFT_CAP_GROWTH = 1.08;
+// Test-only off switch for the golden files that pin the pre-slice curve (cp18Switch.fixture.ts).
+export const CAPTAIN_SOFT_CAP_SWITCH = { live: true };
+const softCapCosts: number[] = [300 * CAPTAIN_SOFT_CAP_LEVEL]; // index: levels past the threshold
+let softCapFactor = 1;
+let softCapSaturated = false;
+
 export function xpForNextLevel(level: number): number {
-  return 300 * level;
+  if (level <= CAPTAIN_SOFT_CAP_LEVEL || !CAPTAIN_SOFT_CAP_SWITCH.live) return 300 * level;
+  const levelsPast = Math.floor(level) - CAPTAIN_SOFT_CAP_LEVEL;
+  while (softCapCosts.length <= levelsPast && !softCapSaturated) {
+    softCapFactor *= CAPTAIN_SOFT_CAP_GROWTH;
+    const cost = Math.round(300 * (CAPTAIN_SOFT_CAP_LEVEL + softCapCosts.length) * softCapFactor);
+    if (Number.isFinite(cost)) softCapCosts.push(cost);
+    else softCapSaturated = true;
+  }
+  return softCapCosts[levelsPast] ?? Number.MAX_VALUE;
 }
 
 // Deliberately much steeper than a captain's own xpForNextLevel, the
