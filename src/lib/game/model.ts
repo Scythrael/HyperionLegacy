@@ -1802,6 +1802,13 @@ export interface ShipInstance {
   // clears once the ship leaves on a run or its installed gear is back to full (gearWearEngine.ts resolveGearWear).
   // OPTIONAL, absent = no Overtime (every ship that never bought it), so no SAVE_VERSION bump.
   gearRepairSpeed?: { overtimeSteps: number; jobMinutes: number };
+  // GEAR WEAR step 5 fix (user 2026-11-09 "Match the existing rule": Overtime is priced by the repair job's FULL length,
+  // like a TimedProcess's durationTicks): the docked gear repair job's full length in minutes at the NORMAL rate, written
+  // when the job starts (the first call that finds this ship docked for the whole call with worn installed gear and no
+  // record; read at the call's start) and cleared with the job (the ship leaves, or its
+  // gear is full). gearWearEngine.ts trackGearRepairJobs. OPTIONAL, no SAVE_VERSION bump: a ship docked worn in an older
+  // save starts its job record at the next tick.
+  gearRepairJobMinutes?: number;
   // FORWARD (not this pass): modules?, equipment?, reactorCore?, tierOverride?
 }
 
@@ -2176,8 +2183,14 @@ export interface EquipmentInstance {
   // Optional + additive.
   condition?: number;
   // The game time (state.gameTimeSeconds) the condition was last settled at (gearWear.ts settlePiece): repair is
-  // closed form from this anchor. Absent with `condition`.
+  // closed form from this anchor. Absent with `condition`. GEAR WEAR step 5 fix C1: the settle decodes it into a whole
+  // second and an integer bank and re-encodes it from integers (gearWear.ts decodeRepairAnchor), so it never drifts.
   conditionAt?: number;
+  // GEAR WEAR step 5 fix C2: a patrol's USE wear not yet worth a whole per-mille on this piece, AFTER the headroom curve
+  // (gearWear.ts USE_CARRY_PER_MILLE units), so a short route's use shrinks near the floor and settles where wear and
+  // upkeep balance. Written only while non-zero; dropped with the other condition fields once the piece is back to full.
+  // Optional + additive, no SAVE_VERSION bump.
+  useWearCarry?: number;
   fittedToShipId: string | null;         // null = on no ship. THE ship-install authority (mirrors ShipInstance.assignedCaptainId); "spare?" is isSparePiece
   // ITEM LIFECYCLE 0.13.6 (Armory, Phase 3; DORMANT until the Armory build wires it). The THIRD
   // fitment state: a system COMMITTED into a loadout carries the loadout's id here, which excludes it
@@ -4331,11 +4344,9 @@ export interface PatrolMissionState {
   // run records a USE event as each cycle ends (the reactor and crew modules the minutes it flew, the drive the
   // route's round trip; tick.ts tickCaptainPatrol), never on the training cycle (runDifficulty.ts isTrainingPatrol).
   // A patrol in flight from before step 5 has none and wears as it did. Optional, no SAVE bump.
+  // GEAR WEAR step 5 fix C2: each cycle's use is recorded exactly (its minutes and light-years); the fraction of a
+  // per-mille not yet taken carries on each PIECE after the headroom curve (EquipmentInstance.useWearCarry).
   useWear?: 1;
-  // GEAR WEAR step 5: the run's use not yet worth a whole per-mille (minutes underway and light-years), carried from
-  // cycle to cycle so a short route still wears (a 14 s Sweep cycle is under one per-mille on its own). Written only
-  // while non-zero; carried across relaunches like routesCompletedThisRun.
-  useCarry?: { minutes: number; lightYears: number };
   // OC-D8 follow-up (review finding, the Constitution run clock): the route ticks this RUN has flown over its completed
   // cycles, each cycle counting its own route (patrolRouteTicks of its frozen legs) less, on a cycle stamped cutFlown,
   // the ticks its return cut skipped; carried across relaunches like routesCompletedThisRun. It is the Constitution

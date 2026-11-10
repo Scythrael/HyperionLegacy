@@ -298,6 +298,8 @@ export const ICON_SEMANTICS: Record<IconName, IconSemantic> = {
   sensorBioResonance: "subject",
   // 0.14.0 gear wear step 5: a reading of the gear's condition (a thing shown), not an action and not an alert.
   gearCondition: "subject",
+  // The gear repair Overtime strip (2026-11-09 mockup): names the action a step buys (speed a job up).
+  overtime: "action",
 };
 
 // ---------------------------------------------------------------------------

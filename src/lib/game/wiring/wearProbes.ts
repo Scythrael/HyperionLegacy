@@ -45,7 +45,7 @@ import { equippedFor } from "../equipment";
 import { advanceExpedition, expeditionCandidates, startExpedition } from "../expedition";
 import { runCountsOf } from "../runDifficulty";
 import { shortRangeCycleWear } from "../shortRangeCycle";
-import { CONDITION_FULL, TOUGHNESS_REFERENCE, WEAR_SOURCES, patrolCycleGear, pieceCondition, withPieceCondition } from "../gearWear";
+import { CONDITION_FULL, TOUGHNESS_REFERENCE, USE_CARRY_PER_MILLE, WEAR_SOURCES, patrolCycleGear, pieceCondition, withPieceCondition } from "../gearWear";
 import {
   emptyWearEvents,
   expeditionWear,
@@ -56,7 +56,6 @@ import {
   runWearStamp,
   patrolEventWear,
   patrolRouteLightYears,
-  patrolUseCarry,
   shipCrewAboard,
   type MemberUseWear,
   type ShipUseWear,
@@ -258,14 +257,13 @@ function patrolCycleUseEvent(s: GameState): UseEvent {
   if (!r.success) throw new Error(`wear probe: patrol dispatch refused: ${r.reason}`);
   const m = captainOf(r.next).mission as PatrolMissionState;
   const end = patrolRouteTicks(patrolRouteOf(m)) - (m.returnCutTicks ?? 0);
-  // A run that has already banked a minute and 10 ly of use (PatrolMissionState.useCarry), so the cycle's event lands
-  // whole per-mille on any route length; the units are exactly what the engine's carry split records.
-  const banked = { minutes: 1, lightYears: 10 };
-  const mission: PatrolMissionState = { ...m, progressTicks: end - 1, nextWaveIndex: m.waveTicks.length, useCarry: banked };
+  // Step 5 fix C2: the cycle's use is recorded exactly (the route's minutes and round trip) and each piece carries the
+  // fraction of a per-mille it has not yet taken (EquipmentInstance.useWearCarry), so usePerUnit reads the wear taken
+  // as the whole per-mille plus the carry gained.
+  const mission: PatrolMissionState = { ...m, progressTicks: end - 1, nextWaveIndex: m.waveTicks.length };
   const before = editCaptain(r.next, { mission } as Partial<CaptainState>);
   const after = economyTick(before, 1, () => 0.5);
-  const split = patrolUseCarry(banked, (end * s.tickDurationSeconds) / 60, patrolRouteLightYears(PATROLS[WEAR_BATTLE_PATROL]));
-  const use = { minutesUnderway: split.minutes, lightYears: split.lightYears, crewed: shipCrewAboard(before, shipOf(before)) };
+  const use = { minutesUnderway: (end * s.tickDurationSeconds) / 60, lightYears: patrolRouteLightYears(PATROLS[WEAR_BATTLE_PATROL]), crewed: shipCrewAboard(before, shipOf(before)) };
   return { after, ship: m.useWear === 1 ? [patrolEventWear({ battle: {}, damageControlFires: 0, use })] : [], members: new Map() };
 }
 
@@ -325,7 +323,9 @@ function usePerUnit(s: GameState, ctx: ContextId, sourceId: string): number {
   const after = ev.after.equipment.find((e) => e.id === before.id);
   const units = unitsOf(sourceId, ev.ship, ev.members.get(wearMemberOf(source.slot)) ?? []);
   if (!after || !(units > 0)) return 0;
-  return (-(pieceCondition(before) - pieceCondition(after)) * source.per) / units;
+  // Step 5 fix C2: a patrol's exact use also leaves a carried fraction of a per-mille on the piece (useWearCarry).
+  const carried = ((after.useWearCarry ?? 0) - (before.useWearCarry ?? 0)) / USE_CARRY_PER_MILLE;
+  return (-(pieceCondition(before) - pieceCondition(after) + carried) * source.per) / units;
 }
 
 // ============================================================================

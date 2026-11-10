@@ -393,6 +393,9 @@
   // engine (gearWearDisplay.ts pieceWearCard): the bar with its band, the effect line, the worn lines and the care
   // footer. Absent where the host has no live state for the piece (a craft reveal, the combat view's frozen fight).
   export let wear: PieceWearCard | null = null;
+  // GEAR WEAR step 5 (the 2026-11-09 Overtime mockup, approved; user "Gear card only", "One tap"): buys the next gear
+  // repair Overtime step on the piece's ship. Absent = the strip shows its state but no button (a host that cannot buy).
+  export let onBuyGearOvertime: ((shipId: string) => void) | undefined = undefined;
 
   $: resolved = subject ?? (piece !== undefined ? ({ kind: "equipment", piece } as const) : null);
 
@@ -723,6 +726,32 @@
             </div>
           {/if}
           <div class="et-wear-care"><Icon name="gearCondition" /> <span>{wear.care}</span></div>
+          <!-- The Overtime strip (the 2026-11-09 mockup): per ship, one tap, every number from the engine's quote. -->
+          {#if wear.overtime}
+            {@const ot = wear.overtime}
+            <div class="et-ot" data-ot-state={ot.state}>
+              <div class="et-ot-row">
+                <span class="et-ot-tag" class:off={ot.state === "out"}><Icon name="overtime" /> Overtime</span>
+                <span class="et-ot-pips" title={`${ot.steps} of ${ot.maxSteps} steps`} aria-label={`${ot.steps} of ${ot.maxSteps} Overtime steps`}>
+                  {#each Array(ot.maxSteps) as _, i (i)}<i class:on={i < ot.steps}></i>{/each}
+                </span>
+                <span class="et-ot-n">{#if ot.steps > 0}<b>{ot.steps} of {ot.maxSteps}</b> · {ot.rateText}{:else}0 of {ot.maxSteps}{/if}</span>
+                {#if ot.state === "max"}
+                  <span class="et-ot-max"><Icon name="check" /> At its fastest</span>
+                {:else if ot.state === "buy" && onBuyGearOvertime}
+                  <button type="button" class="et-ot-btn" on:click={() => onBuyGearOvertime?.(ot.shipId)}>{ot.button}</button>
+                {:else}
+                  <span class="et-ot-btn off" aria-disabled="true">{ot.button}</span>
+                {/if}
+              </div>
+              {#if ot.state === "out"}
+                <div class="et-ot-why"><Icon name="info" /> <span>{ot.note}</span></div>
+              {:else}
+                {#if ot.when}<div class="et-ot-when">{ot.when}</div>{/if}
+                <div class="et-ot-dim">{ot.note}</div>
+              {/if}
+            </div>
+          {/if}
         </div>
       {/if}
       <!-- WEAPON COMBAT stats (damage range / accuracy / fire rate / range / family). These come
@@ -1140,6 +1169,109 @@
     background: rgba(var(--color-success-rgb, 52, 211, 153), 0.08);
     color: var(--color-text-secondary);
     font-size: var(--text-2xs);
+  }
+
+  /* The Overtime strip (the 2026-11-09 mockup), attached under the care footer, one border family. */
+  .et-ot {
+    display: grid;
+    gap: 5px;
+    margin-top: -7px;
+    padding: 7px 8px 8px;
+    border: 1px solid rgba(var(--color-accent-rgb), 0.22);
+    border-top: 1px dashed rgba(var(--color-accent-rgb), 0.28);
+    background: rgba(var(--color-accent-rgb), 0.03);
+    font-size: var(--text-2xs);
+    color: var(--color-text-secondary);
+  }
+  .et-ot-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 7px;
+  }
+  .et-ot-tag {
+    display: inline-flex;
+    gap: 5px;
+    align-items: center;
+    font-family: var(--font-mono);
+    font-size: var(--text-2xs);
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--color-accent-bright);
+  }
+  .et-ot-tag.off {
+    color: var(--color-text-dim);
+  }
+  .et-ot-pips {
+    display: inline-flex;
+    gap: 3px;
+    align-items: center;
+  }
+  .et-ot-pips i {
+    width: 9px;
+    height: 5px;
+    border: 1px solid rgba(var(--color-accent-rgb), 0.5);
+    border-radius: 1px;
+  }
+  .et-ot-pips i.on {
+    background: var(--color-accent);
+    border-color: var(--color-accent);
+  }
+  .et-ot-n {
+    font-family: var(--font-mono);
+    font-size: var(--text-2xs);
+    color: var(--color-text-dim);
+    white-space: nowrap;
+  }
+  .et-ot-n b {
+    color: var(--color-text-primary);
+    font-weight: 400;
+  }
+  .et-ot-btn {
+    margin-left: auto;
+    min-height: 26px;
+    padding: 3px 8px;
+    display: inline-flex;
+    gap: 5px;
+    align-items: center;
+    white-space: nowrap;
+    font: inherit;
+    font-family: var(--font-mono);
+    font-size: var(--text-2xs);
+    color: var(--color-accent);
+    background: rgba(var(--color-accent-rgb), 0.06);
+    border: 1px solid var(--color-border-strong);
+    border-radius: var(--corner, 2px);
+    cursor: pointer;
+  }
+  .et-ot-btn:hover:not(.off) {
+    background: rgba(var(--color-accent-rgb), 0.14);
+  }
+  .et-ot-btn.off {
+    cursor: default;
+    color: var(--color-text-dim);
+    border-color: rgba(98, 133, 145, 0.45);
+    border-style: dashed;
+    background: transparent;
+  }
+  .et-ot-max {
+    margin-left: auto;
+    display: inline-flex;
+    gap: 4px;
+    align-items: center;
+    white-space: nowrap;
+    font-family: var(--font-mono);
+    font-size: var(--text-2xs);
+    color: var(--color-success);
+  }
+  .et-ot-dim {
+    color: var(--color-text-dim);
+    font-size: var(--text-3xs);
+  }
+  .et-ot-why {
+    display: flex;
+    gap: 5px;
+    align-items: flex-start;
   }
 
   /* FLAVOR: secondary, under a divider (border-top), at the bottom. */

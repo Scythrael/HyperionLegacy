@@ -172,6 +172,10 @@
   // waiting a tick; when no Shipyard bay is free it is a safe no-op and the banner
   // explains the wait. Augments (never replaces) the existing auto-repair.
   export let onRepair: (shipId: string) => void;
+  // GEAR WEAR step 5 (the 2026-11-09 Overtime mockup, approved; user "Gear card only", "One tap"): buys the next gear
+  // repair Overtime step on this docked ship (App's buyGearOvertime: the engine's buy, save and log). The gear card
+  // carries the button; Fleet care on Command Home stays report-only.
+  export let onBuyGearOvertime: ((shipId: string) => void) | undefined = undefined;
   // Renamable Ships: routes a rename (or a clear) back to the host, which runs the
   // pure renameShip seam + doSave + pushLog exactly once. The panel owns only the
   // in-progress edit UI (the draft string + focus); it never mutates state itself.
@@ -2463,7 +2467,9 @@
        above; EquipmentTooltip renders its action footer only when a host passes slot content,
        so passing NONE here leaves it purely informational. This is the display-only-tooltips
        principle (design S1): actions never live in a hover / float surface. EquipmentTooltip's
-       internals stay preserved (the only branch edit was the df53dd5 blueprint name resolver). -->
+       internals stay preserved (the only branch edit was the df53dd5 blueprint name resolver).
+       ONE EXCEPTION (user 2026-11-09, the approved Overtime mockup, "Gear card only"): the gear card's Overtime strip
+       carries its one-tap button here; the grace-delay hover and the tap-pin keep it reachable. -->
   {#if activeTip}
     {@const tipPiece = activeTip.piece}
     <div
@@ -2474,7 +2480,7 @@
       on:pointerenter={cancelTipHide}
       on:pointerleave={scheduleTipHide}
     >
-      <EquipmentTooltip piece={tipPiece} shipPieces={fittedPieces} hostTypeKey={ship?.typeKey} wear={pieceWearCard(state, tipPiece)} />
+      <EquipmentTooltip piece={tipPiece} shipPieces={fittedPieces} hostTypeKey={ship?.typeKey} wear={pieceWearCard(state, tipPiece)} {onBuyGearOvertime} />
     </div>
   {/if}
 

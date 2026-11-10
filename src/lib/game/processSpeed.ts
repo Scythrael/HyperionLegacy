@@ -189,9 +189,11 @@ export function buyOvertime(
 // REPAIR_RATES, lifted by the hull repair's own bonuses), so Overtime lifts that rate instead of rescaling a countdown,
 // by the same rule as every other job: each step +25% of the normal rate (overtimeRate), at most OVERTIME_MAX_STEPS,
 // step k priced ceil(OVERTIME_CREDITS_PER_MINUTE x the job's minutes x its tier x k). The job is the ship's gear
-// recovery while it is docked (home or in a Shipyard bay); its minutes are the time its most worn installed piece needs
-// at the NORMAL rate when the first step is bought, frozen on the ship (ShipInstance.gearRepairSpeed.jobMinutes) so
-// every later step prices the same job; its tier is the hull's. Refused while the ship is out on a run, when nothing on
+// recovery while it is docked (home or in a Shipyard bay); its minutes are its FULL length (user 2026-11-09 "Match the
+// existing rule", as a TimedProcess's durationTicks): the time its most worn installed piece needed at the NORMAL rate
+// when the job started (ShipInstance.gearRepairJobMinutes, recorded by the engine), never the time left, so the price
+// does not depend on when it is bought; frozen at the first step (gearRepairSpeed.jobMinutes) so every later step
+// prices the same job; its tier is the hull's. Refused while the ship is out on a run, when nothing on
 // it is worn, at the maximum, within one tick of full, or when the balance is short. The record clears once the ship
 // leaves on a run or its gear is back to full (gearWearEngine.ts). Free automatic repair stays the default (user
 // 2026-11-09: no instant repair, no paid rush); Overtime only ever speeds it, never finishes it.
@@ -213,6 +215,14 @@ export function shipGearMinutesToFull(state: GameState, shipId: string, normal =
     most = Math.max(most, m);
   }
   return most;
+}
+
+// The full length of a ship's docked gear repair job, in minutes at the normal rate (the price's job size): the length
+// recorded when the job started (ShipInstance.gearRepairJobMinutes), or, before the engine's next tick has recorded it
+// (the job starts now) or when a more worn piece was installed since, the time left at the normal rate now. Pure.
+export function gearRepairJobMinutes(state: GameState, shipId: string): number {
+  const ship = state.ships.find((s) => s.id === shipId);
+  return Math.max(ship?.gearRepairJobMinutes ?? 0, shipGearMinutesToFull(state, shipId, true) ?? 0);
 }
 
 // The tier gear repair Overtime is priced at: the hull's (as a Shipyard repair's), never below 1. Pure.
@@ -248,7 +258,7 @@ export function canBuyGearRepairOvertime(state: GameState, shipId: string): Gear
   const minutesLeft = shipGearMinutesToFull(state, shipId) ?? 0;
   if (minutesLeft * 60 <= state.tickDurationSeconds * OVERTIME_FINISHING_TICKS) return { ok: false, reason: "finishing" };
   const step = steps + 1;
-  const jobMinutes = ship.gearRepairSpeed?.jobMinutes ?? shipGearMinutesToFull(state, shipId, true) ?? 0;
+  const jobMinutes = ship.gearRepairSpeed?.jobMinutes ?? gearRepairJobMinutes(state, shipId);
   const cost = gearRepairOvertimeStepCost(state, shipId, jobMinutes, step);
   if (state.credits.lt(cost)) return { ok: false, reason: "credits", cost };
   const minutesLeftAfter = shipGearMinutesToFull(withGearOvertimeSteps(state, shipId, step, jobMinutes), shipId) ?? minutesLeft;

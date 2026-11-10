@@ -5091,7 +5091,7 @@ function auditRowWiring(): Readonly<Record<string, Partial<EntryInput>>> {
       on: (s) => wearRepairMinutes(buyGearRepairOvertime(s, WIRING_SHIP_ID).next, false),
       off: (s) => wearRepairMinutes(s, false),
       tolerance: 1,
-      note: "the ship docked at home; a step is refused while it is out on a run, so the lift acts only where it is docked",
+      note: "the ship docked at home; a step is refused while it is out on a run, so the lift acts only where it is docked; each step is priced by the repair job's full length, recorded when the job starts (user 2026-11-09 \"Match the existing rule\", gearWearStep5Fixes.test.ts), and bought from the gear card's Overtime button",
     },
     // Pause to repair: weapons worn so far down that the next cycle would break them pause; pristine gear relaunches.
     "ship:audit:patrolRepairPause": {

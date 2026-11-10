@@ -96,7 +96,7 @@
   // source the bay TILES also read, so tile border/dot and the tooltip never drift.
   import EquipmentTooltip, { equipmentRarityColor, equipmentIcon, equipmentSvgIcon, varietySvgIcon, blueprintIcon, type ItemTooltipSubject } from "./lib/EquipmentTooltip.svelte";
   // 0.14.0 gear wear step 5: a spare's or loadout piece's condition block on its card, and the Command Home fleet care line.
-  import { fleetCare, pieceWearCard } from "./lib/gearWearDisplay";
+  import { fleetCare, gearOvertimePurchase, pieceWearCard } from "./lib/gearWearDisplay";
   import { withPieceCondition } from "./lib/game/gearWear";
   // Radial Skill Web (Task 11b, minimal buildable integration), the pannable
   // fog-of-war talent web that REPLACES the old depth-row talent panels in
@@ -5858,6 +5858,17 @@
   // pass would, respects the same free-bay accounting + deterministic queue order, and
   // needs NO new tick action (reuses the existing exported pass). A no-op (same state
   // reference) when nothing can start, in which case the ship stays queued.
+  // GEAR WEAR step 5 (the 2026-11-09 Overtime mockup, approved; user "One tap"): the gear card's Overtime button buys
+  // the next step on a docked ship's gear repair (gearWearDisplay.ts gearOvertimePurchase: the engine's buy), saves and
+  // logs it. A refusal changes nothing (the card already shows why).
+  function buyGearOvertime(shipId: string) {
+    const r = gearOvertimePurchase(state, shipId);
+    if (!r.bought) return;
+    state = r.next;
+    doSave();
+    if (r.log) pushLog(r.log);
+  }
+
   function repairShipNow(shipId: string) {
     state = processShipRepairs(state);
     doSave();
@@ -11465,7 +11476,7 @@
     <!-- The Armory editor's installed-item tooltip, floated at the tapped item name (real popover,
          not an inline div). Same fixed-position + clamp idiom as facilityTip; pointer-events:none. -->
     <div class="frow-tip-card" style="left: {armoryTip.x}px; top: {armoryTip.y}px;" role="tooltip" use:clampArmoryTip={armoryTip}>
-      <EquipmentTooltip piece={armoryTipInst} wear={pieceWearCard(state, armoryTipInst)} />
+      <EquipmentTooltip piece={armoryTipInst} onBuyGearOvertime={buyGearOvertime} wear={pieceWearCard(state, armoryTipInst)} />
     </div>
   {/if}
 {/if}
@@ -14877,7 +14888,7 @@
                       ? enqueueBlockText(queueBlocked)
                       : `Takes about ${salvageDurationPreview(state, target)} in the bay once it starts.`}
               <Panel>
-                <EquipmentTooltip piece={sys} wear={pieceWearCard(state, sys)}>
+                <EquipmentTooltip piece={sys} onBuyGearOvertime={buyGearOvertime} wear={pieceWearCard(state, sys)}>
                   <!-- ⚠️ DELIBERATELY LEFT ENABLED WHEN THE QUEUE IS FULL (queue-full popup,
                        2026-09-10). DO NOT fold `queueBlocked !== null` back into the disabled
                        expression: a disabled <button> cannot be clicked, so it could never open
@@ -17292,6 +17303,7 @@
           onInstall={installSystem}
           onUninstall={uninstallSystem}
           onRepair={repairShipNow}
+          onBuyGearOvertime={buyGearOvertime}
           onRename={handleRenameShip}
           onClose={returnFromShipPage}
           onOpenHelp={openHelpTopic}

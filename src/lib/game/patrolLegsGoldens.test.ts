@@ -13,6 +13,11 @@ import { patrolUseWearOffForThisFile } from "./patrolUseWearSwitch.fixture";
 // Gear wear step 5 (patrol use wear) came after every pin here: the file dispatches its patrols unstamped, so its pins
 // keep proving their own slice (gearWearStep5Goldens.test.ts pins what step 5 moved on a patrol).
 patrolUseWearOffForThisFile();
+import { gearRepairJobOffForThisFile } from "./gearRepairJobSwitch.fixture";
+// Gear wear step 5 review fix (the Overtime price) came after every pin here: a ship that ends a run home with worn
+// gear gains its docked repair job record (ShipInstance.gearRepairJobMinutes), which moves only the state hash. The
+// file ticks without the record, so its pins keep proving their own slice (gearWearStep5Fixes.test.ts pins the record).
+gearRepairJobOffForThisFile();
 import { writeFileSync } from "node:fs";
 import { economyTick } from "./tick";
 import { hash } from "./firstRunsGoldens.fixture";

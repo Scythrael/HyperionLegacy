@@ -2,7 +2,9 @@
 // approved as well. 10/10.", https://claude.ai/artifact/HRa9zUf1XRrPoh9tuinhEF, design doc section 8), with Quick
 // Service dropped (user 2026-11-09: "None, always automatic"):
 //   - the gear card's condition block (pieceWearCard): a bar with its band and percent, the effect line, the stat lines
-//     as worn ("was" struck through) and the care footer (back to full on its own, no cost, no button);
+//     as worn ("was" struck through) and the care footer (back to full on its own; repair is always free), plus the
+//     Overtime strip (gearOvertimeStrip, the 2026-11-09 Overtime mockup, user "Gear card only"; every number from the
+//     engine's quote, processSpeed.ts canBuyGearRepairOvertime);
 //   - the Ship Systems board's meters (conditionMeter) and its header chips (shipGearSummary);
 //   - the Command Home fleet care block (fleetCare, OC-W8 / W6): one quiet line that reports gear wear and hull
 //     repairs together, never a badge, a toast or a pulse, and is hidden entirely when nothing is worn or damaged.
@@ -11,7 +13,8 @@
 
 import { EQUIPMENT_SLOTS, SHIP_TYPES, type EquipmentInstance, type GameState, type ShipInstance } from "./game/model";
 import { CONDITION_FULL, USE_WEAR_FLOOR, WEAR_SOURCES, WEAR_VIEW_SLOTS, wearEfficiency, wornPieceView, type RepairContext } from "./game/gearWear";
-import { gearRepairOutlook, livePieceCondition, repairContextIndex } from "./game/gearWearEngine";
+import { gearOvertimeMult, gearRepairOutlook, livePieceCondition, repairContextIndex } from "./game/gearWearEngine";
+import { OVERTIME_MAX_STEPS, OVERTIME_STEP_RATE, buyGearRepairOvertime, canBuyGearRepairOvertime, shipGearMinutesToFull } from "./game/processSpeed";
 
 // ============================================================================
 // Bands (design 2.2, the approved mockup): calm names, no "Broken", no red
@@ -126,6 +129,8 @@ export interface PieceWearCard {
   lines: WearStatLine[];
   // The care footer: back to full on its own, where it is.
   care: string;
+  // The Overtime strip (a docked or out ship's installed piece with something worn), or null (hidden).
+  overtime: GearOvertimeStrip | null;
 }
 
 function contextPlace(context: RepairContext): string {
@@ -141,14 +146,22 @@ function contextPlace(context: RepairContext): string {
   }
 }
 
-// The care footer for a piece (the mockup: "Back to full in about 6 min at home, on its own. No cost, no button."). Pure.
+// The footer's last words (the Overtime mockup: "Repair is always free.", true at every Overtime step: Overtime buys
+// speed, never the repair).
+export const REPAIR_FREE_TEXT = "Repair is always free.";
+
+// The care footer for a piece (the Overtime mockup: "Back to full in about 8 min at home, on its own. Repair is always
+// free."; "with Overtime" once a step is bought). Out on a run it says what is true there (step 5 fix C2): the piece
+// recovers slowly, which use and battle can still outpace, and fully once home. Pure.
 export function pieceCareText(state: GameState, piece: EquipmentInstance): string {
   const o = gearRepairOutlook(state, piece);
   if (o.condition >= CONDITION_FULL) return "Nothing to do.";
+  if (o.context === "fieldRepair") return `Recovers ${ratePercentText(o.ratePerMinute)} while ${contextPlace(o.context)}, and fully once home. On its own; ${REPAIR_FREE_TEXT.toLowerCase()}`;
   if (o.minutesToFull === null) {
-    return `Recovers ${ratePercentText(o.ratePerMinute)} while ${contextPlace(o.context)}, and fully once home. On its own; no cost, no button.`;
+    return `Recovers ${ratePercentText(o.ratePerMinute)} underway, which use and battle can outpace, and fully once home. On its own; ${REPAIR_FREE_TEXT.toLowerCase()}`;
   }
-  return `Back to full in ${aboutMinutes(o.minutesToFull)} ${contextPlace(o.context)}, on its own. No cost, no button.`;
+  const how = piece.fittedToShipId && gearOvertimeMult(state, piece.fittedToShipId) > 1 ? "with Overtime" : "on its own";
+  return `Back to full in ${aboutMinutes(o.minutesToFull)} ${contextPlace(o.context)}, ${how}. ${REPAIR_FREE_TEXT}`;
 }
 
 // The whole condition block of a piece's card, read live (its condition settled to now without writing). Pure.
@@ -173,6 +186,128 @@ export function pieceWearCard(state: GameState, piece: EquipmentInstance): Piece
     effect: pristine ? "Operating like new." : wearEffectText(piece.slotType, condition),
     lines,
     care: pieceCareText(state, piece),
+    overtime: pristine ? null : gearOvertimeStrip(state, piece),
+  };
+}
+
+// ============================================================================
+// The Overtime strip on the gear card (the 2026-11-09 Overtime mockup, approved; user calls "Per ship", "One tap",
+// "Gear card only")
+// ============================================================================
+
+export type GearOvertimeState = "buy" | "credits" | "out" | "max";
+
+export interface GearOvertimeStrip {
+  shipId: string;
+  shipName: string;
+  steps: number; // bought so far (the pips)
+  maxSteps: number;
+  rateText: string | null; // "1.25x" once a step is bought
+  state: GearOvertimeState;
+  // The next step's exact price (buy, credits) and the credits still missing (credits).
+  cost: number | null;
+  need: number | null;
+  // The button's face: "+25% · 300 cr" (buy), "300 cr · need 120 more" (credits), "Docked only" (out); null at max.
+  button: string | null;
+  // The time line: the new time to full against the time now (buy, credits), the time to full (max).
+  when: string | null;
+  minutesLeft: number | null;
+  minutesAfter: number | null;
+  // The dim note (buy, credits, max) or the reason it is off (out).
+  note: string;
+}
+
+function credits(n: number): string {
+  return `${n.toLocaleString("en-US")} cr`;
+}
+
+// The Overtime strip for an installed ship piece, read from the engine's quote (cost, minutesLeft, minutesLeftAfter),
+// or null where the engine hides it: not on a ship, nothing worn on the ship, or within a tick of full. Pure.
+export function gearOvertimeStrip(state: GameState, piece: EquipmentInstance): GearOvertimeStrip | null {
+  const shipId = piece.fittedToShipId;
+  if (!shipId) return null;
+  const ship = state.ships.find((s) => s.id === shipId);
+  if (!ship) return null;
+  const name = shipName(ship);
+  const steps = ship.gearRepairSpeed?.overtimeSteps ?? 0;
+  const pct = `+${Math.round(OVERTIME_STEP_RATE * 100)}%`;
+  const rateText = steps > 0 ? `${Math.round((1 + OVERTIME_STEP_RATE * steps) * 100) / 100}x` : null;
+  const base = { shipId, shipName: name, steps, maxSteps: OVERTIME_MAX_STEPS, rateText };
+  const q = canBuyGearRepairOvertime(state, shipId);
+  if (q.ok) {
+    return {
+      ...base,
+      state: "buy",
+      cost: q.cost,
+      need: null,
+      button: `${pct} · ${credits(q.cost)}`,
+      when: `${steps === 0 ? `Speeds up all of ${name}'s gear: full` : `Next step: all of ${name}'s gear full`} in ${aboutMinutes(q.minutesLeftAfter)} instead of ${aboutMinutes(q.minutesLeft)}.`,
+      minutesLeft: q.minutesLeft,
+      minutesAfter: q.minutesLeftAfter,
+      note: steps === 0 ? `Optional. Docked ships only; clears when the gear is full or ${name} leaves.` : `Clears when the gear is full or ${name} leaves.`,
+    };
+  }
+  switch (q.reason) {
+    case "credits": {
+      const cost = q.cost ?? 0;
+      const need = Math.max(0, Math.ceil(cost - state.credits.toNumber()));
+      const left = shipGearMinutesToFull(state, shipId);
+      return {
+        ...base,
+        state: "credits",
+        cost,
+        need,
+        button: `${credits(cost)} · need ${need.toLocaleString("en-US")} more`,
+        when: left === null ? null : `All of ${name}'s gear full in ${aboutMinutes(left)}.`,
+        minutesLeft: left,
+        minutesAfter: null,
+        note: `Repair carries on free either way; clears when the gear is full or ${name} leaves.`,
+      };
+    }
+    case "notEligible":
+      return {
+        ...base,
+        state: "out",
+        cost: null,
+        need: null,
+        button: "Docked only",
+        when: null,
+        minutesLeft: null,
+        minutesAfter: null,
+        note: `Overtime works only while ${name} is docked. It is out on a run; once home, its gear recovers fast on its own.`,
+      };
+    case "maxSteps": {
+      const left = shipGearMinutesToFull(state, shipId);
+      return {
+        ...base,
+        state: "max",
+        cost: null,
+        need: null,
+        button: null,
+        when: left === null ? null : `All of ${name}'s gear full in ${aboutMinutes(left)}.`,
+        minutesLeft: left,
+        minutesAfter: null,
+        note: `Clears when the gear is full or ${name} leaves.`,
+      };
+    }
+    default:
+      // notFound, nothingWorn, finishing: hidden (the card reads "Nothing to do." or is about to).
+      return null;
+  }
+}
+
+// One tap on the strip's button (user "One tap": no confirm): the engine's buy (processSpeed.ts buyGearRepairOvertime)
+// and the log line the host pushes. A refusal changes nothing and logs nothing (the strip already shows why). Pure.
+export function gearOvertimePurchase(state: GameState, shipId: string): { next: GameState; bought: boolean; log: string | null } {
+  const q = canBuyGearRepairOvertime(state, shipId);
+  const r = buyGearRepairOvertime(state, shipId);
+  if (!r.bought || !q.ok) return { next: state, bought: false, log: null };
+  const ship = r.next.ships.find((s) => s.id === shipId);
+  const name = ship ? shipName(ship) : shipId;
+  return {
+    next: r.next,
+    bought: true,
+    log: `Overtime on ${name}'s gear repair: step ${q.step} of ${OVERTIME_MAX_STEPS} for ${credits(q.cost)}. All of its gear full in ${aboutMinutes(q.minutesLeftAfter)}.`,
   };
 }
 
@@ -226,7 +361,8 @@ export function shipGearSummary(state: GameState, shipId: string): ShipGearSumma
   const context = out ?? ctx;
   let recovery: string;
   if (out === "fieldRepair") recovery = "Field repair, recovering";
-  else if (out !== null) recovery = "Out on a run, recovering slowly";
+  // Step 5 fix C2: out on a run, use and battle can outpace the slow underway upkeep, so the chip never claims recovery.
+  else if (out !== null) recovery = "Out on a run, full once home";
   else recovery = `Recovering, full in ${aboutMinutes(most)}`;
   return { percent: conditionPercent(avg), band: wearBand(avg).key, worn, recovery, context, minutesToFull: out !== null ? null : most };
 }
@@ -277,7 +413,7 @@ export function fleetCare(state: GameState): FleetCareModel | null {
     const parts: string[] = [];
     if (damaged) parts.push(hullMinutes !== null ? `Hull in a Shipyard bay, ${aboutMinutes(hullMinutes)}` : "Hull waiting for a free Shipyard bay");
     if (summary.worn) {
-      if (summary.minutesToFull === null) parts.push(index.field.has(ship.id) ? "Set down for field repairs, gear recovering" : "Out on a run, gear recovers slowly underway and fully once home");
+      if (summary.minutesToFull === null) parts.push(index.field.has(ship.id) ? "Set down for field repairs, gear recovering" : "Out on a run, gear wears with use and recovers fully once home");
       else {
         docked += 1;
         dockedMinutes = Math.max(dockedMinutes, summary.minutesToFull);

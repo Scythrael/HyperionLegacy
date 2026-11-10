@@ -91,10 +91,14 @@ import {
   applyBattleWearAt,
   pieceCondition,
   repairRatePerMinute,
+  decodeRepairAnchor,
+  encodeRepairAnchor,
+  repairRateQ,
   settlePiece,
   useWear,
+  useWearCarried,
   useWearRaw,
-  withPieceCondition,
+  withWornCondition,
   wornPieceView,
   type RepairContext,
   type RepairRateBonus,
@@ -162,7 +166,7 @@ export function runGearView(state: GameState, shipId: string, stamp: RunWearStam
     if (p.fittedToShipId !== shipId) return p;
     const at = frozen[p.id];
     if (at === undefined && p.condition === undefined) return p;
-    const { condition: _c, conditionAt: _a, ...rest } = p;
+    const { condition: _c, conditionAt: _a, useWearCarry: _u, ...rest } = p;
     return wornPieceView(at === undefined ? (rest as EquipmentInstance) : { ...(rest as EquipmentInstance), condition: at });
   });
   return { ...state, equipment };
@@ -237,6 +241,9 @@ export interface ShipUseWear {
   bodiesScanned: number; // bodies scanned on an expedition (the sensor array; a Pathfinder Suite's fires)
   prospectingCycles: number; // extraction or survey cycles (a prospecting rig's fires: its yield line acts)
   crewed: boolean; // crew aboard (the bridge and quarters modules wear only then)
+  // GEAR WEAR step 5 fix C2: a patrol cycle's use, recorded EXACTLY (its minutes and light-years unfloored); each piece
+  // takes it through the headroom curve first and carries the fraction (gearWear.ts useWearCarried).
+  exact?: true;
   // GEAR WEAR step 4: a Damage Control Suite's fires (a patrol wave it patched, a Shipyard repair it shortened).
   damageControlFires?: number;
   // GEAR WEAR step 4: BATTLE wear at this instant, piece id -> raw per-mille before toughness (gearWearCombat.ts), taken
@@ -492,26 +499,28 @@ function utilityFires(piece: EquipmentInstance, w: ShipUseWear): number {
   return w.prospectingCycles;
 }
 
-// The raw per-mille a ship piece takes from one use event (before toughness and the floor, gearWear.ts useWear). Pure.
+// The raw per-mille a ship piece takes from one use event (before toughness and the floor, gearWear.ts useWear;
+// unfloored for a patrol's exact event, step 5 fix C2). Pure.
 export function shipPieceUseRaw(piece: EquipmentInstance, w: ShipUseWear): number {
+  const x = w.exact === true;
   switch (piece.slotType) {
     case "cargoBay":
-      return useWearRaw("cargoBay:haul", w.hauls);
+      return useWearRaw("cargoBay:haul", w.hauls, x);
     case "ftlDrive":
-      return useWearRaw("ftlDrive:distance", w.lightYears);
+      return useWearRaw("ftlDrive:distance", w.lightYears, x);
     case "reactorCore":
-      return useWearRaw("reactorCore:minutesRunning", w.minutesUnderway);
+      return useWearRaw("reactorCore:minutesRunning", w.minutesUnderway, x);
     case "bridge":
-      return w.crewed ? useWearRaw("bridge:minutesCrewed", w.minutesUnderway) : 0;
+      return w.crewed ? useWearRaw("bridge:minutesCrewed", w.minutesUnderway, x) : 0;
     case "quarters":
-      return w.crewed ? useWearRaw("quarters:minutesCrewed", w.minutesUnderway) : 0;
+      return w.crewed ? useWearRaw("quarters:minutesCrewed", w.minutesUnderway, x) : 0;
     // E-MOD EM-5 (user M9 "Slowly underway"): a universal module wears by time underway, crew or not.
     case "module":
-      return useWearRaw("module:minutesUnderway", w.minutesUnderway);
+      return useWearRaw("module:minutesUnderway", w.minutesUnderway, x);
     case "sensor":
-      return useWearRaw("sensor:surveyCycle", w.surveys) + useWearRaw("sensor:bodyScanned", w.bodiesScanned);
+      return useWearRaw("sensor:surveyCycle", w.surveys, x) + useWearRaw("sensor:bodyScanned", w.bodiesScanned, x);
     case "specUtility":
-      return useWearRaw("specUtility:effectFires", utilityFires(piece, w));
+      return useWearRaw("specUtility:effectFires", utilityFires(piece, w), x);
     default:
       return 0;
   }
@@ -542,15 +551,29 @@ export function applyUseWear(piece: EquipmentInstance, raw: number, at: number):
   const c = pieceCondition(piece);
   const amount = useWear(raw, piece.durabilityMax, c);
   if (!(amount > 0)) return piece;
-  const anchor = piece.condition !== undefined && piece.conditionAt !== undefined ? piece.conditionAt : at;
-  return withPieceCondition(piece, c - amount, anchor);
+  return withWornCondition(piece, c - amount, at);
+}
+
+// GEAR WEAR step 5 fix C2: a patrol cycle's EXACT use on a piece at `at` (already settled to `at`): curved at its
+// condition, then carried (gearWear.ts useWearCarried), the whole per-mille taken, the rest left on the piece
+// (useWearCarry, written only while non-zero). The piece as it is when nothing changes. Pure.
+export function applyCarriedUseWear(piece: EquipmentInstance, rawExact: number, at: number): EquipmentInstance {
+  if (!(rawExact > 0)) return piece;
+  const c = pieceCondition(piece);
+  const { amount, carry } = useWearCarried(rawExact, piece.durabilityMax, c, piece.useWearCarry ?? 0);
+  const worn = amount > 0 ? withWornCondition(piece, c - amount, at) : piece;
+  if ((worn.useWearCarry ?? 0) === carry) return worn;
+  if (carry > 0) return { ...worn, useWearCarry: carry };
+  const { useWearCarry: _u, ...rest } = worn;
+  return rest as EquipmentInstance;
 }
 
 // ONE ship event on a ship piece at `at` (already settled to `at`): its use wear, then its battle wear (step 4; design
 // 7: "settle, then wear"). The ONE function the tail pass, the cycle-start re-reads and the patrol cycle projection
 // share, so a projected condition is exactly the one the pass writes. Pure.
 export function applyShipWear(piece: EquipmentInstance, w: ShipUseWear, at: number): EquipmentInstance {
-  const used = applyUseWear(piece, shipPieceUseRaw(piece, w), at);
+  const raw = shipPieceUseRaw(piece, w);
+  const used = w.exact === true ? applyCarriedUseWear(piece, raw, at) : applyUseWear(piece, raw, at);
   return w.battle ? applyBattleWearAt(used, w.battle[piece.id] ?? 0, at) : used;
 }
 
@@ -611,33 +634,6 @@ export interface PatrolUseWear {
   crewed: boolean;
 }
 
-// The units of `sourceId` that make exactly the whole raw per-mille useWearRaw floors `units` to (the rest is a
-// fraction of a per-mille). Pure.
-function wholeUseUnits(sourceId: string, units: number): number {
-  const s = WEAR_SOURCES.find((w) => w.id === sourceId);
-  if (!s || !(s.raw > 0) || !(units > 0)) return 0;
-  return (useWearRaw(sourceId, units) * s.per) / s.raw;
-}
-
-// A patrol cycle's use with the run's carry: the minutes and light-years that make whole per-mille now (the reactor's
-// and the drive's rates; the crew modules and the universal modules share the reactor's per-minute rate), and the
-// remainder carried to the next cycle (undefined when nothing is left). A short route (a 14 s Sweep cycle is a quarter
-// of a minute) would otherwise round to nothing every cycle. Pure.
-export function patrolUseCarry(
-  carry: { minutes: number; lightYears: number } | undefined,
-  minutes: number,
-  lightYears: number,
-): { minutes: number; lightYears: number; carry: { minutes: number; lightYears: number } | undefined } {
-  const m = (carry?.minutes ?? 0) + minutes;
-  const ly = (carry?.lightYears ?? 0) + lightYears;
-  const wholeMinutes = wholeUseUnits("reactorCore:minutesRunning", m);
-  const wholeLy = wholeUseUnits("ftlDrive:distance", ly);
-  const restMinutes = m - wholeMinutes;
-  const restLy = ly - wholeLy;
-  const left = restMinutes > 1e-9 || restLy > 1e-9 ? { minutes: Math.max(0, restMinutes), lightYears: Math.max(0, restLy) } : undefined;
-  return { minutes: wholeMinutes, lightYears: wholeLy, carry: left };
-}
-
 // A patrol route's round trip in light-years (its authored legs, LY_PER_TICK, the mission distance rule). Pure.
 export function patrolRouteLightYears(def: Pick<PatrolDef, "transitOutTicks" | "transitBackTicks">): number {
   return (def.transitOutTicks + def.transitBackTicks) * LY_PER_TICK;
@@ -647,7 +643,7 @@ export function patrolRouteLightYears(def: Pick<PatrolDef, "transitOutTicks" | "
 // battle wear and Damage Control fires (step 4). Pure.
 export function patrolEventWear(ev: { battle: Readonly<Record<string, number>>; damageControlFires: number; use?: PatrolUseWear }): ShipUseWear {
   const battle = battleOnlyWear(ev.battle, ev.damageControlFires);
-  return ev.use ? { ...battle, minutesUnderway: ev.use.minutesUnderway, lightYears: ev.use.lightYears, crewed: ev.use.crewed } : battle;
+  return ev.use ? { ...battle, minutesUnderway: ev.use.minutesUnderway, lightYears: ev.use.lightYears, crewed: ev.use.crewed, exact: true } : battle;
 }
 
 // The empty use of a ship event that carries only battle wear or a Damage Control Suite fire (step 4).
@@ -852,36 +848,76 @@ export function settleShipForRateChange(state: GameState, shipId: string, newMul
   return changed ? { ...state, equipment } : state;
 }
 
-// The ships whose gear repair Overtime ends at the call's tail: the ship is out on a run (at the call's start or end)
-// or none of its installed pieces is worn any more. A ship docked the whole call only ever recovers, so clearing at any
-// call boundary after it is full changes no piece (offline == live). Pure.
-function clearFinishedGearOvertime(state: GameState, index: RepairContextIndex, indexAfter: RepairContextIndex): GameState {
-  if (!state.ships.some((s) => s.gearRepairSpeed !== undefined)) return state;
+// The full length of a ship's docked gear repair job right now, in minutes at the NORMAL rate (no Overtime): the time
+// its slowest worn installed piece needs where it is. 0 with nothing worn; null while the ship is out on a run. Pure.
+export function shipGearJobMinutes(state: GameState, shipId: string): number | null {
+  let most = 0;
+  for (const piece of shipWornPieces(state, shipId)) {
+    const m = gearRepairOutlook(state, piece, true).minutesToFull;
+    if (m === null) return null;
+    most = Math.max(most, m);
+  }
+  return most;
+}
+
+// THE DOCKED GEAR REPAIR JOB (user 2026-11-09 "Match the existing rule": Overtime is priced by the job's FULL length,
+// fixed when bought): at the call's tail each docked ship with worn installed gear and no record gets one, its full
+// length at the normal rate (ShipInstance.gearRepairJobMinutes), read at the call's START when the ship was docked and
+// worn then (the call after a run came home, a worn piece installed between ticks, a save loaded docked and worn: the
+// job starts there, so one call, chunks and 1 s steps record the same length), else at its end (a docked piece worn
+// within the call). A ship out at the call's start or end has no job (it starts the next call). The job and any Overtime on it end once the
+// ship is out on a run (at the call's start or end) or none of its installed pieces is worn any more. A ship docked the
+// whole call only ever recovers, so clearing at any call boundary after it is full changes no piece (offline == live).
+// Pure.
+// The test-only seam golden files captured before the job record use to tick as before it (gearRepairJobSwitch.fixture
+// .ts): off, no job is recorded (Overtime still clears as before). Live in the game.
+export const GEAR_REPAIR_JOB_SWITCH = { live: true };
+
+function trackGearRepairJobs(before: GameState, state: GameState, index: RepairContextIndex, indexAfter: RepairContextIndex): GameState {
   const worn = new Set<string>();
   for (const p of state.equipment) if (p.fittedToShipId && p.condition !== undefined) worn.add(p.fittedToShipId);
+  if (worn.size === 0 && !state.ships.some((s) => s.gearRepairSpeed !== undefined || s.gearRepairJobMinutes !== undefined)) return state;
+  let wornBefore: Set<string> | null = null;
   let changed = false;
   const ships = state.ships.map((s) => {
-    if (s.gearRepairSpeed === undefined) return s;
-    if (!index.out.has(s.id) && !indexAfter.out.has(s.id) && worn.has(s.id)) return s;
+    const docked = !index.out.has(s.id) && !indexAfter.out.has(s.id) && worn.has(s.id);
+    if (!docked) {
+      if (s.gearRepairSpeed === undefined && s.gearRepairJobMinutes === undefined) return s;
+      changed = true;
+      const { gearRepairSpeed: _ot, gearRepairJobMinutes: _j, ...rest } = s;
+      return rest as ShipInstance;
+    }
+    if (s.gearRepairJobMinutes !== undefined || !GEAR_REPAIR_JOB_SWITCH.live) return s;
+    if (wornBefore === null) {
+      wornBefore = new Set<string>();
+      for (const p of before.equipment) if (p.fittedToShipId && p.condition !== undefined) wornBefore.add(p.fittedToShipId);
+    }
+    const from = wornBefore.has(s.id) ? before : state;
+    const minutes = shipGearJobMinutes(from, s.id) ?? shipGearJobMinutes(state, s.id) ?? 0;
     changed = true;
-    const { gearRepairSpeed: _ot, ...rest } = s;
-    return rest as ShipInstance;
+    return { ...s, gearRepairJobMinutes: minutes };
   });
   return changed ? { ...state, ships } : state;
 }
 
 // GEAR WEAR step 4 fix (design 7, "rate constant between anchors"): a piece settled to `at` at `oldRate` keeps the
 // time it has not yet turned into a whole per-mille (settlePiece carries the leftover by leaving its anchor behind).
-// Before it settles on at `newRate`, that leftover is re-expressed as the same FRACTION of a per-mille at the new rate:
-// the anchor moves to at - fraction x 60 / newRate. Without it a run ending into a faster context (underway, 2 a
-// minute, into home or a Shipyard bay) repaired the whole leftover underway time at the faster rate. A pristine piece,
-// an anchor at or after `at`, or no rate change returns the piece as it is. Pure.
+// Before it settles on at `newRate`, that leftover is re-expressed as the same FRACTION of a per-mille at the new rate.
+// Without it a run ending into a faster context (underway, 2 a minute, into home or a Shipyard bay) repaired the whole
+// leftover underway time at the faster rate. GEAR WEAR step 5 fix C1: in integers, the bank banked by `at` at the old
+// rate (decodeRepairAnchor) is kept as is (a fraction of a per-mille does not depend on the rate) and the anchor is
+// re-encoded from it at the new rate, at - bank / newRateQ (the same instant the old float arithmetic gave). A pristine
+// piece, an anchor at or after `at`, or no rate change returns the piece as it is. Pure.
 export function rebaseAnchor(piece: EquipmentInstance, at: number, oldRate: number, newRate: number): EquipmentInstance {
   if (piece.condition === undefined || piece.conditionAt === undefined || !(newRate > 0) || oldRate === newRate) return piece;
-  const leftover = at - piece.conditionAt;
-  if (!(leftover > 0)) return piece;
-  const fraction = Math.max(0, (oldRate * leftover) / 60);
-  return { ...piece, conditionAt: at - (fraction * 60) / newRate };
+  const p = settlePiece(piece, at, oldRate);
+  if (p.condition === undefined || p.conditionAt === undefined || !(at > p.conditionAt)) return p;
+  const oldQ = repairRateQ(oldRate);
+  const newQ = repairRateQ(newRate);
+  if (oldQ <= 0 || newQ <= 0) return p;
+  const { at: from, bank } = decodeRepairAnchor(p.conditionAt, oldQ);
+  const banked = bank + oldQ * (at - from);
+  return { ...p, conditionAt: encodeRepairAnchor(at, banked, newQ) };
 }
 
 // A piece's condition RIGHT NOW without writing it (the UI and the readouts, design 7 "reads compute condition
@@ -907,8 +943,10 @@ export function livePieceCondition(state: GameState, piece: EquipmentInstance): 
 export function resolveGearWear(before: GameState, after: GameState, events: GearWearEvents | null): GameState {
   const hasEvents = events !== null && (events.ships.size > 0 || events.members.size > 0);
   if (!hasEvents && !after.equipment.some((p) => p.condition !== undefined)) {
-    // GEAR WEAR step 5: a ship's gear repair Overtime ends once nothing on it is worn (or it left on a run).
-    return after.ships.some((s) => s.gearRepairSpeed !== undefined) ? clearFinishedGearOvertime(after, repairContextIndex(before), repairContextIndex(after)) : after;
+    // GEAR WEAR step 5: a ship's gear repair job and its Overtime end once nothing on it is worn (or it left on a run).
+    return after.ships.some((s) => s.gearRepairSpeed !== undefined || s.gearRepairJobMinutes !== undefined)
+      ? trackGearRepairJobs(before, after, repairContextIndex(before), repairContextIndex(after))
+      : after;
   }
   const now = after.gameTimeSeconds;
   const index = repairContextIndex(before);
@@ -958,6 +996,6 @@ export function resolveGearWear(before: GameState, after: GameState, events: Gea
     if (p !== piece) changed = true;
     return p;
   });
-  // GEAR WEAR step 5: and a ship's gear repair Overtime ends once nothing on it is worn (or it left on a run).
-  return clearFinishedGearOvertime(changed ? { ...after, equipment } : after, index, indexAfter);
+  // GEAR WEAR step 5: and a docked ship's gear repair job starts or ends (its Overtime with it).
+  return trackGearRepairJobs(before, changed ? { ...after, equipment } : after, index, indexAfter);
 }

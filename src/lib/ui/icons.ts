@@ -624,6 +624,9 @@ export const ICON_PATHS = {
   // UI's Gear chip and the Fleet care line). Kept apart from `relicTectonicKeystone` (a full arch on legs with a
   // keystone) and from `tool` (a wrench): a dial reads as a reading, not as a repair action.
   gearCondition: ["M4.5 15.5a7.5 7.5 0 0 1 15 0", "M12 8v1.7", "M6.7 10.2l1.2 1.2", "M17.3 10.2l-1.2 1.2", "M12 15.5l3.2-4.2", "M4 19h16"],
+  // Overtime (the 2026-11-09 gear repair Overtime mockup): a clock with a forward chevron, "the same job, sooner". Kept
+  // apart from `clock` (no chevron) and from the plain chevrons (no dial).
+  overtime: ["M9.5 5.5a6.5 6.5 0 1 0 0 13 6.5 6.5 0 0 0 0-13z", "M9.5 8.5V12l2.2 1.4", "M17.5 8.5L21 12l-3.5 3.5"],
 } as const satisfies Record<string, readonly string[]>;
 
 /**

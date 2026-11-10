@@ -415,7 +415,6 @@ import {
   patrolEventWear,
   patrolRouteLightYears,
   patrolUseWearStamp,
-  patrolUseCarry,
   livePieceCondition,
   projectCycleConditions,
   shipRepairBonuses,
@@ -3684,21 +3683,17 @@ export function tickCaptainPatrol(
   // GEAR WEAR step 5 (patrol use wear, gearWearEngine.ts patrolEventWear): a stamped run's cycle records its USE where
   // it ends: `routeTicks` the route ticks it flew in this part, `lightYears` the round trip (0 for the part out to a
   // defeat; the limp home carries it). Never the training cycle (W9, SF-7 note), never without the engine's clock.
-  // The use not yet worth a whole per-mille carries on the mission to the next cycle (PatrolMissionState.useCarry), so
-  // a short route still wears over a Repeat run (gearWearEngine.ts patrolUseCarry). Per cycle, so chunking cannot
-  // change it.
+  // Step 5 fix C2: the use is recorded EXACTLY (a 14 s Sweep cycle is a quarter of a minute); each piece curves it at
+  // its condition and carries the fraction itself (gearWear.ts useWearCarried, EquipmentInstance.useWearCarry), so wear
+  // shrinks near the floor. Per cycle, so chunking cannot change it.
   const recordPatrolUse = (routeTicks: number, lightYears: number): void => {
     const clock = officerEffects.gearWear;
     if (mission === null || mission.useWear !== 1 || isTrainingPatrol(mission) || !clock || !(routeTicks > 0)) return;
-    const split = patrolUseCarry(mission.useCarry, (routeTicks * clock.secondsPerTick) / 60, lightYears);
-    if (split.carry === undefined) delete mission.useCarry;
-    else mission.useCarry = split.carry;
-    if (!(split.minutes > 0) && !(split.lightYears > 0)) return;
     gearWearEvents.push({
       atTicks: offsetNow(),
       battle: {},
       damageControlFires: 0,
-      use: { minutesUnderway: split.minutes, lightYears: split.lightYears, crewed: clock.crewed === true },
+      use: { minutesUnderway: (routeTicks * clock.secondsPerTick) / 60, lightYears, crewed: clock.crewed === true },
     });
   };
   let cyclePools = patrolCyclePools(hullType, shipDef, cycleGear, captain.mission);
@@ -4217,8 +4212,6 @@ export function tickCaptainPatrol(
           // ending no matter how many it actually flew, which is the exact failure the per-run
           // counter exists to prevent. Phase 0's comment on the factory predicted this line.
           mission.routesCompletedThisRun = routesThisRun;
-          // GEAR WEAR step 5: and the run's carried use (a fraction of a per-mille) into the new cycle.
-          if (cur.useCarry !== undefined) mission.useCarry = cur.useCarry;
           // OC-D8 follow-up: carried the same way (the new cycle's route length set above).
           persistRunRouteTicks(mission);
           if (pausesThisRun > 0) mission.repairPausesThisRun = pausesThisRun;
