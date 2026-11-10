@@ -547,6 +547,11 @@ anything is charted returns the system to the ordinary candidates). For G2-6:
   `objectiveDifficulty` says the tier is not an input but raises Combat risk, and what Tier III asks for; `fuel` gains
   DEEP-SPACE REACH and the depot covers expeditions; `surveyLog` mentions one place that writes its own entry, unnamed.
   CP-14's retired Tier II sensor gate is reflected (Tiers I and II ask for none).
+- Goldens: five claim pins moved, each a Wolf 359 claim (the list after the first run): gasGiantStudyGoldens
+  51f15e:cand-1-0, gasGiantNebulaLabGoldens 51f15e:cand-1-0 and 2b7c0d3:cand-1-0, gasGiantSpecialsGoldens
+  51f15e:cand-1-0, propulsionRecallGoldens orionTier1. The G2-7 switch (awayTeamTestFixtures.ts
+  `withoutWolf359Derelict`, `G2_7_DERELICT_PINS`) drops the one new entry and every pin holds at its old value; each
+  test asserts its claim holds the entry exactly when its key is listed. No pin re-pinned, no tolerance touched.
 
 ### G2-8: Antimatter burn and maintenance (after 15b; needs a mockup sign-off)
 
