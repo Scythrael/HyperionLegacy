@@ -2239,3 +2239,13 @@ and 1 do not move with WR-10 (the Corroded chance is 0 there, and these crews ca
 claims still hold: the stall count and the runs with a lost fight never fall as the curve rises; the weakest crew (d18)
 stalls run 2 on 5 of 200 (2.5%, under the 5% bar: a margin of 5 runs); rank1si at full strength completes 192 of 200
 (96%, over the 95% bar: a margin of 2 runs) and wins 359 of 369 vaults (97.3%, over 90%).
+
+## USER ANSWERS (2026-11-10): leftovers found by the 0.14.0 audit
+
+- S4-A02 old fuel economy (credit auto-buy, `FUEL_CREDITS_PER_UNIT`, `REFUEL_PENALTY_TICKS`, `refuelDelayTicks`,
+  unreachable since 0.13.6): "Remove it (Recommended)". The FTL drive's wear line `engineEfficiency` (it only fed the old
+  fuel price): "Drop that line (Recommended)"; a worn drive keeps its transit speed and true-condition fight effects.
+- WR-8 `defensiveMissileIntercept`: user "Enemy ships should have kinetic weapons where applicable.", clarified as
+  "Torpedoes on fitting enemies": give the Concussion Torpedo (missile trait) to enemy ship types where it makes sense;
+  the hub proposes WHICH enemies for the user's OK before building.
+- CP-4 rest, the Flight Deck Integrity facet on drone replenishment below half hull (was [PROPOSAL]): "Build it".
