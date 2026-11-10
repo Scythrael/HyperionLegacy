@@ -7,8 +7,18 @@ import Decimal from "break_infinity.js";
 import { FACILITIES, SUBSPACE_TELESCOPE_FACILITY_KEY, SUBSPACE_TELESCOPE_LEVELS, freshState, type GameState, type RegionTier } from "./game/model";
 import { startFacilityUpgrade } from "./game/tick";
 import { PROVISIONAL_HOMEWORLD, TELESCOPE_DEVELOPMENT_CYCLES, TELESCOPE_LORE, stateHomeworld, telescopeReadingAtLevel } from "./game/telescope";
-import { telescopeCardView, telescopeMapView, TELESCOPE_MAP_RADIUS } from "./telescopeCardDisplay";
-import { homeworldPlacement, type HomeworldPlacement } from "./game/galaxy";
+import {
+  enemySectorInReach,
+  telescopeCardView,
+  telescopeMapBearingPoint,
+  telescopeMapEnemyView,
+  telescopeMapRingRadius,
+  telescopeMapSectorRadii,
+  telescopeMapView,
+  TELESCOPE_MAP_RADIUS,
+} from "./telescopeCardDisplay";
+import { BEARING_TURN, ENEMY_SECTOR_WIDTH_PERMILLE, bearingDirection, homeworldPlacement, inEnemySector, type HomeworldPlacement } from "./game/galaxy";
+import { tierCandidateSystems } from "./game/expedition";
 
 // G2-1 (the SQ-7.4 carry note): the map's bounds, ring-fit, overlap and in-band tests run over the provisional
 // fixture AND 200 per-save placements.
@@ -360,5 +370,130 @@ describe("telescopeMapView: the galaxy map", () => {
         expect(p.y).toBeLessThanOrEqual(vy + vh);
       }
     }
+  });
+});
+
+// Expedition Tiers G2-7: the enemy territory shading (the approved 2026-11-09 mockup; user: "Hatch + dashed edge",
+// legend "Once a sector is in range", "\"Enemy territory\", hide out-of-range"). Display only.
+describe("telescopeMapEnemyView: enemy territory on the map", () => {
+  const SEEDED = HOMES.slice(1);
+  // The screen bearing (tenths of a degree, 0 up, clockwise) of a map point, from the homeworld at (200, 200).
+  const screenBearing = (x: number, y: number): number => {
+    const deg = (Math.atan2(x - 200, -(y - 200)) * 180) / Math.PI;
+    return (((deg * 10) % BEARING_TURN) + BEARING_TURN) % BEARING_TURN;
+  };
+  const insideWedge = (b: number, start: number, width: number): boolean => (b - start + BEARING_TURN) % BEARING_TURN < width;
+  const NONE = { sectors: [], tiers: [], legend: null, ariaSentence: "" };
+
+  it("each slice is its tier's band (near to far edge as ring radii) across its fixed wedge of bearings, from every homeworld", { timeout: 60_000 }, () => {
+    for (const home of SEEDED) {
+      expect(home.enemySectors.map((s) => s.tier), home.id).toEqual([2, 3, 4, 5, 6, 7]);
+      const view = telescopeMapEnemyView(TOP, home);
+      expect(view.sectors).toHaveLength(home.enemySectors.length);
+      for (const s of view.sectors) {
+        const src = home.enemySectors.find((e) => e.tier === s.tier)!;
+        const band = home.regionBandsLy[s.tier];
+        expect(s.startBearing).toBe(src.startBearing);
+        expect(s.widthBearing).toBe(src.widthBearing);
+        expect(s.widthBearing).toBe((ENEMY_SECTOR_WIDTH_PERMILLE[s.tier] * BEARING_TURN) / 1000);
+        expect(s.innerR).toBe(telescopeMapRingRadius(home, band.near));
+        expect(s.outerR).toBe(telescopeMapRingRadius(home, band.far));
+        expect(telescopeMapSectorRadii(home, s.tier)).toEqual({ innerR: s.innerR, outerR: s.outerR });
+        expect(s.outerR).toBeGreaterThan(s.innerR);
+        // The path starts on the inner arc at the start bearing and runs out to the outer arc.
+        const i0 = telescopeMapBearingPoint(s.startBearing, s.innerR);
+        expect(s.path.startsWith(`M${i0.x.toFixed(1)} ${i0.y.toFixed(1)} L`)).toBe(true);
+        expect(s.path).toMatch(/^M[-\d.]+ [-\d.]+ L[-\d.]+ [-\d.]+ A[\d.]+ [\d.]+ 0 [01] 1 [-\d.]+ [-\d.]+ L[-\d.]+ [-\d.]+ A[\d.]+ [\d.]+ 0 [01] 0 [-\d.]+ [-\d.]+Z$/);
+        expect(s.path).not.toContain("NaN");
+      }
+    }
+  });
+
+  it("the map's screen bearings are galaxy.ts bearings: 0 toward the Galactic Core, a quarter turn on to the right", () => {
+    for (const b of [0, 450, 900, 1_800, 2_700, 3_599]) {
+      const p = telescopeMapBearingPoint(b, 50);
+      const g = bearingDirection(b);
+      expect(p.x - 200).toBeCloseTo(g.x * 50, 6);
+      expect(p.y - 200).toBeCloseTo(g.y * 50, 6);
+    }
+    // From Sol's own spot (straight out from the core) the core dot lies along bearing 0, straight up.
+    const sol = telescopeMapView(8);
+    expect(sol.core.x).toBeCloseTo(200, 1);
+    expect(sol.core.y).toBeLessThan(200);
+  });
+
+  it("every candidate flagged enemy territory lands inside its tier's drawn slice, and no other candidate does", { timeout: 60_000 }, () => {
+    let flagged = 0;
+    for (let i = 0; i < 200; i++) {
+      const seed = (Math.imul(i + 7, 0x85ebca6b) ^ 0x1b873593) >>> 0;
+      const state = { ...freshState(seed), expeditionSeed: (Math.imul(i + 1, 0xc2b2ae35) >>> 0) || 1 };
+      const home = stateHomeworld(state);
+      const view = telescopeMapEnemyView(TOP, home);
+      for (const tier of [2, 3, 4, 5, 6, 7] as RegionTier[]) {
+        for (const c of tierCandidateSystems(state, tier, home)) {
+          // The candidate's map point, from its galactic direction and its distance on the rings' scale.
+          const dir = bearingDirection(c.bearing);
+          const r = telescopeMapRingRadius(home, c.distanceLy);
+          const b = Math.round(screenBearing(200 + dir.x * r, 200 + dir.y * r)) % BEARING_TURN;
+          const inSlice = view.sectors.some((s) => s.tier === tier && r >= s.innerR && r <= s.outerR && insideWedge(b, s.startBearing, s.widthBearing));
+          expect(inSlice, `${home.id} ${c.id}`).toBe(c.region.enemyTerritory);
+          expect(c.region.enemyTerritory).toBe(inEnemySector(home, tier, c.bearing));
+          if (c.region.enemyTerritory) flagged++;
+        }
+      }
+    }
+    expect(flagged).toBeGreaterThan(100);
+  });
+
+  it("the in-reach rule: a slice is drawn exactly when its tier is within the telescope's reach, never past the solid ring", { timeout: 60_000 }, () => {
+    for (const home of SEEDED) {
+      for (let level = 0; level <= TOP; level++) {
+        const reach = telescopeReadingAtLevel(level, home).reachTier;
+        const view = telescopeMapEnemyView(level, home);
+        const map = telescopeMapView(level, home);
+        expect(view.sectors.map((s) => s.tier), `${home.id} L${level}`).toEqual(home.enemySectors.filter((s) => s.tier <= reach).map((s) => s.tier));
+        for (const s of home.enemySectors) expect(enemySectorInReach(s, reach)).toBe(s.tier <= reach);
+        for (const s of view.sectors) expect(s.outerR, `${home.id} L${level} ${s.numeral}`).toBeLessThanOrEqual(map.ringR);
+        expect(view.tiers).toEqual(view.sectors.map((s) => s.tier));
+      }
+    }
+  });
+
+  it("every slice stays inside the view box, from every homeworld", { timeout: 60_000 }, () => {
+    for (const home of SEEDED) {
+      const map = telescopeMapView(TOP, home);
+      const [vx, vy, vw, vh] = map.viewBox.split(" ").map(Number);
+      for (const s of telescopeMapEnemyView(TOP, home).sectors) {
+        // A slice lies inside the disk of its outer radius around the homeworld.
+        expect(200 - s.outerR, `${home.id} ${s.numeral}`).toBeGreaterThanOrEqual(vx);
+        expect(200 + s.outerR).toBeLessThanOrEqual(vx + vw);
+        expect(200 - s.outerR).toBeGreaterThanOrEqual(vy);
+        expect(200 + s.outerR).toBeLessThanOrEqual(vy + vh);
+      }
+    }
+  });
+
+  it("the legend line, the key's tiers and the accessible sentence show only once a slice is in range", () => {
+    const home = SEEDED[0];
+    expect(telescopeReadingAtLevel(1, home).reachTier).toBe(1);
+    expect(telescopeMapEnemyView(1, home)).toEqual(NONE);
+    const l2 = telescopeMapEnemyView(2, home);
+    expect(l2.tiers).toEqual([2]);
+    expect(l2.legend).toBe("Hatched: enemy territory. Combat risk is one step higher there.");
+    expect(l2.ariaSentence).toBe("Hatched sectors are enemy territory in Tier II.");
+    expect(telescopeReadingAtLevel(TOP, home).reachTier).toBe(7);
+    expect(telescopeMapEnemyView(TOP, home).ariaSentence).toBe("Hatched sectors are enemy territory in Tiers II, III, IV, V, VI and VII.");
+    for (const h of SEEDED) {
+      for (let level = 0; level <= TOP; level++) {
+        const v = telescopeMapEnemyView(level, h);
+        expect(v.legend !== null).toBe(v.sectors.length > 0);
+        expect(v.ariaSentence !== "").toBe(v.sectors.length > 0);
+        for (const t of [v.legend ?? "", v.ariaSentence]) expect(t).not.toMatch(NO_EM_DASH);
+      }
+    }
+  });
+
+  it("the provisional fixture has no enemy territory, so its map reads exactly as before", () => {
+    for (let level = 0; level <= TOP; level++) expect(telescopeMapEnemyView(level)).toEqual(NONE);
   });
 });

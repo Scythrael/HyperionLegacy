@@ -17,6 +17,11 @@
 // homeworld (galaxy.ts stateHomeworld; the card reads it off the state, App.svelte passes it to the map). The map's
 // default, PROVISIONAL_HOMEWORLD (Sol's position), is the fixture the badges were hand-placed for.
 //
+// ENEMY TERRITORY (G2-7, the approved 2026-11-09 shading mockup, user: "Hatch + dashed edge", legend "Once a sector is
+// in range", "\"Enemy territory\", hide out-of-range"): telescopeMapEnemyView draws each of the homeworld's fixed
+// sectors (galaxy.ts enemySectors) that the telescope reaches as a hatched slice of its region's band, and says so in
+// words (a legend line, "part enemy" on the region's key row, one sentence in the map's accessible name).
+//
 // DISPLAY ONLY. Nothing here changes a rule.
 
 import { FACILITIES, SUBSPACE_TELESCOPE_FACILITY_KEY, type GameState, type RegionTier } from "./game/model";
@@ -32,7 +37,8 @@ import {
   type HomeworldPlacement,
   type TelescopeDetail,
 } from "./game/telescope";
-import { SOL_GALACTIC } from "./game/galaxy";
+import { BEARING_TURN, SOL_GALACTIC, type EnemySector } from "./game/galaxy";
+import { ENEMY_TERRITORY_COMBAT_STEP, RISK_FACTOR_NAMES } from "./game/riskFactors";
 
 const TIERS: readonly RegionTier[] = [1, 2, 3, 4, 5, 6, 7];
 
@@ -416,5 +422,99 @@ export function telescopeMapView(level: number, homeworld: HomeworldPlacement = 
     badges,
     ariaLabel: `Galaxy map centered on your homeworld. Subspace Telescope Level ${now.level} reaches ${lyLong(now.rangeLy)}, ${reachTierText(now.reachTier)}. ${nextSentence}`,
     legend: [`Solid ring: your range now, ${ly(now.rangeLy)}.`, nextLegend],
+  };
+}
+
+// ===== Enemy territory on the map (G2-7) =====
+//
+// Each homeworld has one fixed sector per Tier II to VII (galaxy.ts homeworldPlacement enemySectors, user G8): the
+// tier's band of distances across the bearings [startBearing, startBearing + widthBearing). The map is centered on the
+// homeworld, so a band is a ring and a sector is a slice of it: the inner arc at the band's near edge, the outer arc at
+// its far edge, on the same square-root scale as the rings (telescopeMapRingRadius). Bearing 0 points at the Galactic
+// Core (up on the map, galaxy.ts bearingDirection), and bearings run clockwise on screen.
+// THE IN-REACH RULE (user: "hide out-of-range"): a sector is drawn exactly when its tier is within the telescope's
+// reach at this level (tier <= reachTier). A reached region's whole band lies inside the solid ring (telescope.ts
+// rangeLyForReach is the farthest reached band's far edge), so a drawn slice never crosses the ring, and an unreached
+// region shows no slice. THE LEGEND (user: "Once a sector is in range"): its line shows only when at least one slice
+// is drawn. The provisional fixture has no sectors, so its map is unchanged.
+
+export interface TelescopeMapEnemySector {
+  tier: RegionTier;
+  numeral: string;
+  startBearing: number; // tenths of a degree, galaxy.ts
+  widthBearing: number;
+  innerR: number; // px from the homeworld: the band's near edge
+  outerR: number; // px: the band's far edge
+  path: string; // the closed slice
+}
+
+export interface TelescopeMapEnemyView {
+  sectors: TelescopeMapEnemySector[]; // in reach only, nearest tier first
+  tiers: RegionTier[]; // the tiers with a drawn slice (their key rows read "part enemy")
+  legend: string | null; // null until a slice is drawn
+  ariaSentence: string; // "" until a slice is drawn
+}
+
+// The map point (px) at `bearing` (tenths of a degree), `r` px from the homeworld. Pure.
+export function telescopeMapBearingPoint(bearing: number, r: number): { x: number; y: number } {
+  const a = (bearing / BEARING_TURN) * 2 * Math.PI;
+  return { x: CX + Math.sin(a) * r, y: CY - Math.cos(a) * r };
+}
+
+// A sector's slice bounds on this homeworld's map: the near and far edge of its tier's band as ring radii. Pure.
+export function telescopeMapSectorRadii(homeworld: HomeworldPlacement, tier: RegionTier): { innerR: number; outerR: number } {
+  const band = homeworld.regionBandsLy[tier];
+  return { innerR: telescopeMapRingRadius(homeworld, band.near), outerR: telescopeMapRingRadius(homeworld, band.far) };
+}
+
+// Whether a sector is drawn at this reach (the in-reach rule above). Pure.
+export function enemySectorInReach(sector: Pick<EnemySector, "tier">, reachTier: number): boolean {
+  return sector.tier <= reachTier;
+}
+
+function sectorPath(startBearing: number, widthBearing: number, innerR: number, outerR: number): string {
+  const end = startBearing + widthBearing;
+  const large = widthBearing > BEARING_TURN / 2 ? 1 : 0;
+  const f = (p: { x: number; y: number }): string => `${p.x.toFixed(1)} ${p.y.toFixed(1)}`;
+  const i0 = telescopeMapBearingPoint(startBearing, innerR);
+  const o0 = telescopeMapBearingPoint(startBearing, outerR);
+  const o1 = telescopeMapBearingPoint(end, outerR);
+  const i1 = telescopeMapBearingPoint(end, innerR);
+  return `M${f(i0)} L${f(o0)} A${outerR} ${outerR} 0 ${large} 1 ${f(o1)} L${f(i1)} A${innerR} ${innerR} 0 ${large} 0 ${f(i0)}Z`;
+}
+
+// "Tier II" / "Tiers II, III and V".
+function tierListText(tiers: readonly RegionTier[]): string {
+  const nums = tiers.map((t) => regionTierNumeral(t));
+  if (nums.length === 1) return `Tier ${nums[0]}`;
+  return `Tiers ${nums.slice(0, -1).join(", ")} and ${nums[nums.length - 1]}`;
+}
+
+// The enemy territory slices the map draws at this telescope level, and the words that go with them. Pure.
+export function telescopeMapEnemyView(level: number, homeworld: HomeworldPlacement = PROVISIONAL_HOMEWORLD): TelescopeMapEnemyView {
+  const { reachTier } = telescopeReadingAtLevel(level, homeworld);
+  const sectors: TelescopeMapEnemySector[] = homeworld.enemySectors
+    .filter((s) => enemySectorInReach(s, reachTier))
+    .slice()
+    .sort((a, b) => a.tier - b.tier)
+    .map((s) => {
+      const { innerR, outerR } = telescopeMapSectorRadii(homeworld, s.tier);
+      return {
+        tier: s.tier,
+        numeral: regionTierNumeral(s.tier),
+        startBearing: s.startBearing,
+        widthBearing: s.widthBearing,
+        innerR,
+        outerR,
+        path: sectorPath(s.startBearing, s.widthBearing, innerR, outerR),
+      };
+    });
+  const tiers = [...new Set(sectors.map((s) => s.tier))];
+  const steps = ENEMY_TERRITORY_COMBAT_STEP === 1 ? "one step" : `${ENEMY_TERRITORY_COMBAT_STEP} steps`;
+  return {
+    sectors,
+    tiers,
+    legend: sectors.length > 0 ? `Hatched: enemy territory. ${RISK_FACTOR_NAMES.combat} is ${steps} higher there.` : null,
+    ariaSentence: sectors.length > 0 ? `Hatched sectors are enemy territory in ${tierListText(tiers)}.` : "",
   };
 }

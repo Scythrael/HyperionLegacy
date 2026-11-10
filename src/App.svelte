@@ -52,7 +52,7 @@
   import ShortRangePanel from "./lib/ShortRangePanel.svelte";
   // Squads SQ-7.4: the Subspace Telescope Facilities card (its words and galaxy map are telescopeCardDisplay.ts).
   import TelescopeMap from "./lib/TelescopeMap.svelte";
-  import { telescopeCardView, telescopeMapView } from "./lib/telescopeCardDisplay";
+  import { telescopeCardView, telescopeMapEnemyView, telescopeMapView } from "./lib/telescopeCardDisplay";
   import { PROVISIONAL_HOMEWORLD, homeworldPlacement, isWellFormedHomeworld } from "./lib/game/galaxy";
   import { drawHomeworldSeed } from "./lib/homeworldEntropy";
   // Exploration 0.14.0 (E4c): the Research facility's Relics sub-tab + the Archive's Museum sub-tab.
@@ -10828,6 +10828,7 @@
   $: telescopeView = telescopeCardView(state, { duration: (t) => durationReadout(t, showTickCounts, state.tickDurationSeconds), homeworld: telescopeHome });
   $: telescopeLevelNow = telescopeView.level;
   $: telescopeMap = telescopeMapView(telescopeLevelNow, telescopeHome);
+  $: telescopeEnemy = telescopeMapEnemyView(telescopeLevelNow, telescopeHome);
   $: telescopeUpgradeCheck = canBuildFacilityUpgrade(state, SUBSPACE_TELESCOPE_FACILITY_KEY);
   $: telescopeUpgradeInFlight = state.activeProcesses.find(
     (p) =>
@@ -15654,7 +15655,7 @@
               <Panel>
                 <div class="panel-title">RANGE OVER THE GALAXY</div>
                 <div class="telescope-sub">Centered on your homeworld, on a square-root distance scale so the near rings stay readable. Badges I to VII are the regions.</div>
-                <TelescopeMap map={telescopeMap} />
+                <TelescopeMap map={telescopeMap} enemy={telescopeEnemy} />
               </Panel>
             </div>
           {:else if activeFoundryFacility === "docks"}
