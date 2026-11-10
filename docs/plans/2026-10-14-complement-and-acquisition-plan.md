@@ -894,6 +894,32 @@ the complement graph), Settings row, `ComplementPanel.svelte` reads it.
 Monochrome. Per-viewer convenience only, never in the save. **Tests:** preference round trip and fallback when storage
 throws. **UI:** a Settings select; no mockup needed.
 
+**CARRY NOTE (CP-20 built 2026-11-09, user pick OC-24 "Default, Colorblind, Mono"):** `src/lib/graphPalettePreference.ts`
+holds the presets, one localStorage key per graph (`fleet_admiral_graph_palette_complement`), a store so an open
+Complement tab repaints live, and `setGraphPalette` for Settings (Settings, UI, Accessibility, "Complement graph
+colors", under Color-blind palette). Default is the pre-CP-20 strings byte for byte (test-pinned). Color-blind safe:
+Okabe-Ito #d55e00 / #e69f00 / #009e73 at 0 / 50 / 100%, RGB-blended between, on the Default gray cap. Monochrome: fill
+#8c9198 to #f2f4f7 by fill, cap hatched #5a5f66 / #24272c. The game has only dark surfaces; every Color-blind safe and
+Monochrome fill clears 3:1 on them (test-pinned). The emptiest fill sits near 2:1 against the cap behind it in all three
+presets (as Default does today); bar height and the tooltip carry it. Help: no Complement topic exists yet, so the
+graph key ends with "Graph colors: Settings, UI, Accessibility"; Task 34's Complement topic should say the same. QA:
+`docs/qa/2026-11-09-cp20-graph-colors-qa.html`. No engine, save or wiring change.
+
+**Fix round (2026-11-09, the user's CP-20 calls plus the review's fixes; display only, no engine, save or wiring
+change; answers recorded verbatim under USER ANSWERS (2026-11-09): CP-20 calls):** supersedes the carry note's label,
+blend and toggle independence. The Settings row is now **"Graph colors"** (the select's `aria-label` stays "Complement
+graph colors"). Color-blind safe is FIXED STEPS, never a blend: `colorblindStep` puts a fill (current / cap, clamped to
+[0, 1]) below 1/3 on #d55e00 (orange), from 1/3 up to and including 2/3 on #e69f00 (amber), and above 2/3 on #009e73
+(bluish green); exactly 1/3 and exactly 2/3 are amber (integer ratios such as 2 of 6 and 4 of 6 compare equal to the
+boundaries, test-pinned). The key swatch shows the same three hard bands. Default follows the global "Color-blind
+palette" toggle: `accessibilityPreference.ts` now publishes the applied palette as `colorBlindPaletteStore`, set by
+`applyAccessibility` (the one writer, on load and on every toggle); the pure `resolveGraphPalette(chosen, colorBlind)`
+gives Monochrome if chosen, else Color-blind safe if chosen or the toggle is on, else Default; and
+`effectiveGraphPaletteStore` derives it from both stores, so an open Complement tab repaints when either changes.
+`ComplementPanel.svelte` reads the resolved store (source-scan test). The Settings select still shows the CHOSEN preset.
+Both Settings descriptions now say the toggle switches the graph's Default; the graph row says "gray shades" for the
+continuous Monochrome ramp. Default with the toggle off is still the pre-CP-20 strings byte for byte (test-pinned).
+
 ### CP-21: Close-out
 
 Help lines for every new player-facing rule (Task 34 owns the topics), carry notes in the E-CREW plan for every slice,
@@ -1203,3 +1229,12 @@ display: A a line per panel and a lock on each sub-tab; (9) benched list home: A
   with no silent outcomes.
 - Pulled crew: "Warn and log it (Recommended)". Before Apply, name who will be pulled from which ship and let the player
   cancel; the log line says so too. In both the ship dropdown and the facility.
+
+## USER ANSWERS (2026-11-09): CP-20 calls
+
+- Label: "\"Graph colors\" (Recommended)".
+- Color-blind preset shape: "Fixed steps (Recommended)". Hold the exact Okabe-Ito colors in steps (orange below a
+  third, amber to two thirds, bluish green above) so every bar is one of three distinct safe colors.
+- Global toggle: "Follow the toggle (Recommended)". When the global "Color-blind palette" setting is on, the graph's
+  Default switches to the color-blind safe colors automatically. Picking Monochrome still overrides it.
+- Naming: "Keep both names (Recommended)".

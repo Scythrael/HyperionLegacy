@@ -1,0 +1,314 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>0.14.0 QA: Complement graph colors (CP-20)</title>
+<style>
+  :root {
+    --bg: #070b12;
+    --bg-2: #0d1420;
+    --panel: #111a29;
+    --panel-2: #0b1220;
+    --line: #1f2c40;
+    --line-2: #2a3a54;
+    --text: #dce6f3;
+    --dim: #8497af;
+    --faint: #5d6d86;
+    --accent: #38e0ff;
+    --accent-2: #7cf6c9;
+    --claude: #b98bff;
+    --desk: #38e0ff;
+    --mob: #ffcc66;
+    --warn: #ffcc66;
+    --save: #ff9a6b;
+    --device: #7fb2ff;
+    --good: #6ff2b0;
+    --danger: #ff7a7a;
+    --shadow: 0 0 0 1px var(--line), 0 18px 40px -24px #000;
+  }
+  * { box-sizing: border-box; }
+  html { color-scheme: dark; }
+  body {
+    margin: 0;
+    background:
+      radial-gradient(1200px 600px at 78% -10%, rgba(56,224,255,0.10), transparent 60%),
+      radial-gradient(900px 500px at 8% 8%, rgba(185,139,255,0.08), transparent 55%),
+      var(--bg);
+    color: var(--text);
+    font: 14px/1.55 ui-sans-serif, system-ui, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    padding: env(safe-area-inset-top, 0) 0 calc(env(safe-area-inset-bottom, 0) + 48px);
+  }
+  .wrap { max-width: 980px; margin: 0 auto; padding: 28px 18px 0; }
+  a { color: var(--accent); }
+
+  .eyebrow { font-size: 11px; letter-spacing: 3px; text-transform: uppercase; color: var(--accent); opacity: 0.85; margin: 0 0 6px; }
+  h1 { font-size: clamp(22px, 4.4vw, 34px); line-height: 1.1; margin: 0 0 4px; text-wrap: balance; font-weight: 750; letter-spacing: 0.3px; }
+  h1 .v { color: var(--accent); }
+  .sub { color: var(--dim); margin: 0 0 20px; font-size: 13px; }
+
+  .progress-card {
+    background: linear-gradient(180deg, var(--panel), var(--panel-2));
+    border: 1px solid var(--line-2); border-radius: 16px; padding: 20px 22px; box-shadow: var(--shadow); margin-bottom: 20px;
+  }
+  .progress-top { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+  .pct { font-size: clamp(30px, 8vw, 52px); font-weight: 800; line-height: 1; letter-spacing: -1px; color: var(--accent);
+    text-shadow: 0 0 24px rgba(56,224,255,0.45); font-variant-numeric: tabular-nums; }
+  .pct small { font-size: 15px; font-weight: 600; color: var(--dim); margin-left: 8px; letter-spacing: 0; }
+  .rowcount { color: var(--text); font-size: 15px; font-weight: 650; font-variant-numeric: tabular-nums; }
+  .rowcount b { color: var(--accent-2); }
+  .bar { margin-top: 16px; height: 16px; border-radius: 999px; background: #0a1220; border: 1px solid var(--line-2); overflow: hidden; }
+  .bar > i { display: block; height: 100%; width: 0%; background: linear-gradient(90deg, #2bd0ff, #7cf6c9);
+    box-shadow: 0 0 18px rgba(56,224,255,0.6); border-radius: 999px; transition: width .35s cubic-bezier(.2,.8,.2,1); }
+  .substats { display: flex; gap: 18px; flex-wrap: wrap; margin-top: 14px; font-size: 12.5px; color: var(--dim); }
+  .substats .dot { display: inline-block; width: 9px; height: 9px; border-radius: 3px; margin-right: 7px; vertical-align: middle; }
+  .substats b { color: var(--text); font-variant-numeric: tabular-nums; }
+  .d-claude { background: var(--claude); box-shadow: 0 0 10px var(--claude); }
+  .d-desk { background: var(--desk); box-shadow: 0 0 10px var(--desk); }
+  .d-mob { background: var(--mob); box-shadow: 0 0 10px var(--mob); }
+
+  .legend { background: var(--panel-2); border: 1px solid var(--line); border-radius: 12px; padding: 14px 16px; margin-bottom: 26px; font-size: 12.5px; color: var(--dim); }
+  .legend p { margin: 0 0 8px; }
+  .legend p:last-child { margin-bottom: 0; }
+  .legend b { color: var(--text); }
+  .chip { display: inline-block; padding: 1px 8px; border-radius: 999px; font-size: 11px; font-weight: 650; letter-spacing: 0.3px; vertical-align: middle; }
+  .chip.save { color: var(--save); background: rgba(255,154,107,0.12); border: 1px solid rgba(255,154,107,0.4); }
+  .chip.device { color: var(--device); background: rgba(127,178,255,0.12); border: 1px solid rgba(127,178,255,0.4); }
+  .chip.theme { color: var(--accent-2); background: rgba(124,246,201,0.10); border: 1px solid rgba(124,246,201,0.35); }
+  .chip.later { color: var(--danger); background: rgba(255,122,122,0.10); border: 1px solid rgba(255,122,122,0.4); }
+  .toolbar { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-bottom: 22px; }
+  .btn { background: var(--panel); color: var(--text); border: 1px solid var(--line-2); border-radius: 8px; padding: 7px 13px; font-size: 12.5px; cursor: pointer; font-weight: 600; }
+  .btn:hover { border-color: var(--accent); color: var(--accent); }
+  .toolbar .note { color: var(--faint); font-size: 12px; }
+
+  section { margin-bottom: 26px; }
+  .sec-head { display: flex; align-items: center; gap: 12px; margin: 0 0 6px; }
+  .sec-num { font-variant-numeric: tabular-nums; font-weight: 800; color: var(--accent); font-size: 13px; letter-spacing: 1px;
+    background: rgba(56,224,255,0.08); border: 1px solid rgba(56,224,255,0.3); border-radius: 7px; padding: 3px 9px; min-width: 34px; text-align: center; }
+  .sec-title { font-size: 16px; font-weight: 700; letter-spacing: 0.2px; }
+  .sec-line { flex: 1; height: 1px; background: linear-gradient(90deg, var(--line-2), transparent); }
+  .sec-done { font-size: 11.5px; color: var(--faint); font-variant-numeric: tabular-nums; }
+  .sec-note { color: var(--dim); font-size: 12.5px; font-style: italic; margin: 0 0 10px; border-left: 2px solid var(--line-2); padding: 2px 0 2px 12px; }
+
+  .items { display: flex; flex-direction: column; gap: 2px; }
+  .col-head, .item { display: grid; grid-template-columns: 52px 52px 52px 1fr; gap: 10px; }
+  .col-head { align-items: center; padding: 4px 12px; font-size: 10.5px; letter-spacing: 1px; text-transform: uppercase; color: var(--faint); }
+  .col-head .ch { text-align: center; }
+  .col-head .ch.claude { color: var(--claude); }
+  .col-head .ch.desk { color: var(--desk); }
+  .col-head .ch.mob { color: var(--mob); }
+  .item { align-items: start; padding: 10px 12px; border-radius: 10px; border: 1px solid transparent; }
+  .item:nth-child(odd) { background: rgba(255,255,255,0.014); }
+  .item.done { background: rgba(124,246,201,0.05); border-color: rgba(124,246,201,0.18); }
+  .cell { display: flex; justify-content: center; padding-top: 1px; }
+
+  .cb { position: relative; width: 22px; height: 22px; }
+  .cb input { position: absolute; inset: 0; opacity: 0; margin: 0; cursor: pointer; }
+  .cb .box { width: 22px; height: 22px; border-radius: 6px; border: 2px solid var(--line-2); display: grid; place-items: center; transition: .12s; background: #0a1220; }
+  .cb .box svg { width: 13px; height: 13px; opacity: 0; transform: scale(.5); transition: .12s; }
+  .cb input:checked + .box svg { opacity: 1; transform: scale(1); }
+  .cb input:focus-visible + .box { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .cb.claude input:checked + .box { background: rgba(185,139,255,0.18); border-color: var(--claude); }
+  .cb.claude .box svg { color: var(--claude); }
+  .cb.desk input:checked + .box { background: rgba(56,224,255,0.18); border-color: var(--desk); }
+  .cb.desk .box svg { color: var(--desk); }
+  .cb.mob input:checked + .box { background: rgba(255,204,102,0.18); border-color: var(--mob); }
+  .cb.mob .box svg { color: var(--mob); }
+  .cb.desk input:not(:disabled):hover + .box { border-color: var(--desk); }
+  .cb.mob input:not(:disabled):hover + .box { border-color: var(--mob); }
+  .cb input:disabled { cursor: default; }
+  .cb.claude.empty .box { border-style: dashed; opacity: 0.5; }
+
+  .body .t { color: var(--text); }
+  .body .t .k { color: var(--accent-2); font-weight: 600; }
+  .meta { margin-top: 5px; display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+  .how { color: var(--dim); font-size: 12px; font-style: italic; margin-top: 4px; }
+  .how::before { content: "how: "; font-style: normal; color: var(--claude); opacity: 0.85; font-weight: 650; }
+
+  .findings { background: linear-gradient(180deg, rgba(124,246,201,0.06), transparent); border: 1px solid rgba(124,246,201,0.25); border-radius: 14px; padding: 18px 20px; margin-top: 12px; }
+  .findings h2 { margin: 0 0 6px; font-size: 15px; color: var(--good); letter-spacing: 0.3px; }
+  .findings ol { margin: 8px 0 0; padding-left: 20px; }
+  .findings li { margin-bottom: 10px; color: var(--dim); }
+  .findings li b { color: var(--text); }
+  .foot { margin-top: 26px; color: var(--faint); font-size: 11.5px; text-align: center; }
+
+  @media (max-width: 520px) {
+    .col-head, .item { grid-template-columns: 34px 34px 34px 1fr; gap: 6px; }
+    .item { padding: 10px 8px; }
+    .col-head { padding: 4px 8px; font-size: 9.5px; letter-spacing: 0.5px; }
+    .wrap { padding-left: 14px; padding-right: 14px; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <p class="eyebrow">Hyperion Legacy QA, 0.14.0 feature pass</p>
+  <h1><span class="v">0.14.0</span> Complement graph colors (CP-20)</h1>
+  <p class="sub">Curated checklist for Complement CP-20 (plan docs/plans/2026-10-14-complement-and-acquisition-plan.md CP-20, Task 33; your pick 2026-11-02 OC-24 "Default, Colorblind, Mono"). Settings, UI, Accessibility gains <b>Graph colors</b>, a select with three presets for the rank bars on a ship's Complement tab. Updated for your 2026-11-09 CP-20 calls: the label, fixed color-blind steps, and Default following the Color-blind palette toggle. <b>Run this on staging</b> (devpreview.crystalisoft.com, the staging branch) with your migrated save, once 0.14.0 is deployed there (0.14.0 stays off staging until the wiring gate passes and you say go). Run each check once at <b>1280 px</b> (desktop) and once at <b>375 px</b> (mobile).</p>
+
+  <div class="progress-card">
+    <div class="progress-top">
+      <div class="pct" id="pct">0%<small id="pctlabel">ready</small></div>
+      <div class="rowcount"><b id="doneCount">0</b> / <span id="totalCount">0</span> checks complete</div>
+    </div>
+    <div class="bar"><i id="barFill"></i></div>
+    <div class="substats">
+      <span><span class="dot d-claude"></span>Claude (tests) <b id="claudeCount">0</b></span>
+      <span><span class="dot d-desk"></span>You at 1280 px <b id="deskCount">0</b></span>
+      <span><span class="dot d-mob"></span>You at 375 px <b id="mobCount">0</b></span>
+      <span style="color:var(--faint)">A row is complete when both of your columns are ticked.</span>
+    </div>
+  </div>
+
+  <div class="legend">
+    <p><b>What it does.</b> It repaints the Complement tab's division charts only: the cap bar behind each rank and the utilization bar in front. <b>Default</b> is today's look exactly (gray cap, red to yellow to green). <b>Color-blind safe</b> holds each bar at one of three Okabe-Ito colors on the same gray cap, never a blend: orange below a third full, amber from a third up to and including two thirds, bluish green above two thirds. <b>Monochrome</b> has no hue: a hatched gray cap and a fill in gray shades that runs from dim gray (empty) to near white (full). <b>The Color-blind palette toggle</b> (the row above) also switches the graph: while it is on, Default draws as Color-blind safe; Monochrome still overrides it. The bar's height against its cap and the tooltip still give the number, so color is never the only cue.</p>
+    <p><b>Where it is stored.</b> On this device only (browser storage, one key per graph), never in your save. Deleting the save keeps it; another device keeps its own choice.</p>
+    <p><b>Where to test.</b> Staging, <b>devpreview.crystalisoft.com</b>, on the 0.14.0 build, with your own migrated save and a ship that has some complement crew aboard (a mix of empty, part full and full ranks shows the ramp best).</p>
+    <p><b>The three columns.</b> <b style="color:var(--claude)">Claude</b> is pre-filled and read-only: a tick means a test proves that rule (the "how" line names the file). <b style="color:var(--desk)">1280</b> and <b style="color:var(--mob)">375</b> are yours; your ticks are saved in this browser.</p>
+    <p>Tags: <span class="chip save">needs real save</span> needs your migrated save. <span class="chip device">needs device</span> touch, a real phone, or a visual call. <span class="chip theme">themes</span> look at it on a couple of theme colors, with High contrast on and off.</p>
+  </div>
+
+  <div class="toolbar">
+    <button class="btn" type="button" id="resetBtn">Reset my columns</button>
+    <span class="note">Claude's column is read-only (it records what the tests prove).</span>
+  </div>
+
+  <div id="sections"></div>
+
+  <div class="findings">
+    <h2>Builder notes (CP-20, 2026-11-09)</h2>
+    <ol>
+      <li><b>Default is unchanged.</b> The Default strings are the pre-CP-20 ones byte for byte, and a test compares them against the old expression at many fill levels.</li>
+      <li><b>Colors.</b> Default: cap #4c5666 to #333b48, fill hsl hue 0 to 60 to 120 (80% saturation, 62% lightness at the top). Color-blind safe: fixed steps, #d55e00 (orange) for a fill below 1/3, #e69f00 (amber) from 1/3 up to and including 2/3, #009e73 (bluish green) above 2/3. Exactly a third and exactly two thirds (for example 2 of 6 and 4 of 6) are amber. Monochrome: fill #8c9198 to #f2f4f7, cap hatched #5a5f66 and #24272c.</li>
+      <li><b>Contrast.</b> The game's surfaces are all dark, so the check is against the deep background and the panel tint. Every Color-blind safe and Monochrome fill clears 3:1 there (lowest: vermillion 4.8:1 on the panel). Against the cap bar behind it, the emptiest fill sits near 2:1 in all three presets, the same as Default today; the height and the tooltip carry that case.</li>
+      <li><b>Live.</b> Changing the select, or the Color-blind palette toggle, repaints a Complement tab already open behind Settings, no reload.</li>
+      <li><b>The toggle link.</b> The graph draws Monochrome if you chose it; else Color-blind safe if you chose it or the Color-blind palette toggle is on; else Default. The select keeps showing your own choice, so with the toggle on and Default chosen it still reads "Default" while the bars are color-blind safe (both descriptions say so). With the toggle off, Default is unchanged.</li>
+      <li><b>Help.</b> There is no Complement Help topic yet (Task 34 owns it), so the graph key on the Complement tab now ends with "Graph colors: Settings, UI, Accessibility".</li>
+      <li><b>Device only.</b> No engine or save change, no SAVE_VERSION bump, no wiring registry row.</li>
+    </ol>
+  </div>
+
+  <p class="foot">0.14.0 complement graph colors QA, boxes persist in this browser only.</p>
+</div>
+
+<script>
+const TICK = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>';
+// c: a test proves it (how names the file). tag: "save" | "device" | "theme" | "later" | null.
+const SECTIONS = [
+  { n: "0", title: "Setup on staging", note: "Staging only: devpreview.crystalisoft.com on the 0.14.0 build, your migrated save.", items: [
+    { t: "Open staging and load your save. It loads clean (CP-20 changes no save data). Open a ship with crew aboard, then its <b>Complement</b> tab: the charts look exactly as before.", c: true, tag: "save", how: "graphPalettePreference.test.ts (Default is byte-identical to the pre-CP-20 strings)." },
+    { t: "No console errors opening Settings, changing the select, and returning to the Complement tab." },
+  ]},
+  { n: "1", title: "The setting", items: [
+    { t: "Settings, UI, Accessibility shows <b>Graph colors</b> under Color-blind palette, with <b>Default</b>, <b>Color-blind safe</b> and <b>Monochrome</b>. Its description says it changes the rank bars on a ship's Complement tab, on this device only, names the three steps and says the Color-blind palette setting also switches Default. A screen reader announces the select as \"Complement graph colors\".", tag: "theme" },
+    { t: "The <b>Color-blind palette</b> row's description now ends by saying it also switches the Complement graph's Default colors to color-blind safe ones.", tag: "theme" },
+    { t: "Pick a preset with the Complement tab open behind Settings: the charts and the graph key repaint at once, no reload.", tag: "device" },
+    { t: "Reload the page: the choice is still selected and the charts still use it.", c: true, how: "graphPalettePreference.test.ts (round-trips every preset)." },
+    { t: "Delete or reset the save (or load another one): the choice stays. It is not in the save.", tag: "save" },
+    { t: "A blocked or full browser storage (for example a private window) still opens Settings and the Complement tab, in Default.", c: true, how: "graphPalettePreference.test.ts (falls back to Default when storage throws; junk falls back too)." },
+    { t: "At 375 px the select sits under its label and is fully reachable; at 1280 px it sits like the other selects in the panel.", tag: "device" },
+  ]},
+  { n: "2", title: "The three presets", items: [
+    { t: "<b>Default</b>: gray cap, red (empty) to yellow (half) to green (full) fill, the striped Crewman cap. Identical to before CP-20.", c: true, tag: "theme", how: "graphPalettePreference.test.ts (Default byte-identical)." },
+    { t: "<b>Color-blind safe</b>: every bar is one of three flat colors on the same gray cap, never an in-between shade: orange below a third full, amber from a third up to two thirds, bluish green above. The key's swatch shows three hard bands, a third each.", c: true, tag: "theme", how: "graphPalettePreference.test.ts (three fixed Okabe-Ito steps; never blends; key swatch bands)." },
+    { t: "On a rank at exactly a third or exactly two thirds (for example 2 of 6, or 4 of 6) the bar is <b>amber</b>; 1 of 4 is orange and 3 of 4 is bluish green.", c: true, tag: "save", how: "graphPalettePreference.test.ts (boundaries: exactly 1/3 and 2/3 are amber, integer ratios included)." },
+    { t: "<b>Monochrome</b>: no hue anywhere in the chart. The cap is hatched, the fill is a solid gray shade that gets lighter as the rank fills; empty, half and full ranks are easy to tell apart.", c: true, tag: "theme", how: "graphPalettePreference.test.ts (no hue, lighter as the rank fills, hatched cap)." },
+    { t: "In every preset each fill stands out from the panel behind it, on a couple of theme colors and with High contrast on.", c: true, tag: "theme", how: "graphPalettePreference.test.ts (every Color-blind and Monochrome fill clears 3:1 on the game's surfaces)." },
+    { t: "Hover or tap a bar in each preset: the tooltip still shows Assigned, Capacity and Utilization; the colors never carry information the tooltip lacks.", tag: "device" },
+    { t: "An over-cap rank (CP-5) and the uncapped Crewman column read clearly in all three presets.", tag: "save" },
+  ]},
+  { n: "3", title: "The Color-blind palette toggle", note: "Keep a Complement tab open behind Settings for these.", items: [
+    { t: "Graph colors on <b>Default</b>, turn the <b>Color-blind palette</b> toggle on: the charts and key switch to the color-blind safe steps at once, no reload. The select still reads Default.", c: true, tag: "device", how: "graphPalettePreference.test.ts (the effective store repaints live when either the preset or the toggle changes)." },
+    { t: "With the toggle still on, pick <b>Monochrome</b>: the charts go gray (Monochrome overrides the toggle). Pick Default again: back to the color-blind steps.", c: true, how: "graphPalettePreference.test.ts (resolveGraphPalette, every combination)." },
+    { t: "Turn the toggle off with Default chosen: the charts return to today's red, yellow and green exactly.", c: true, tag: "theme", how: "graphPalettePreference.test.ts (Default with the toggle off is byte-identical to pre-CP-20)." },
+    { t: "Reload with the toggle on and Default chosen: the charts open in the color-blind safe steps (the toggle is applied on load too).", c: true, how: "accessibilityPreference.ts applyAccessibility publishes the palette on load and on change; graphPalettePreference.test.ts drives it." },
+  ]},
+  { n: "4", title: "Help", items: [
+    { t: "The graph key under the charts ends with <b>Graph colors: Settings, UI, Accessibility</b>, and wraps cleanly at 375 px.", tag: "device" },
+  ]},
+];
+
+const STORE = "hl-qa-0140-cp20-graph-colors-v2";
+let userState = {};
+try { userState = JSON.parse(localStorage.getItem(STORE) || "{}"); } catch (e) { userState = {}; }
+function save() { try { localStorage.setItem(STORE, JSON.stringify(userState)); } catch (e) {} }
+
+const CHIP = {
+  save: '<span class="chip save">needs real save</span>',
+  device: '<span class="chip device">needs device</span>',
+  theme: '<span class="chip theme">themes</span>',
+  later: '<span class="chip later">not in this build</span>',
+};
+
+function cb(kind, id, checked, disabled, label) {
+  const empty = (kind === "claude" && !checked) ? " empty" : "";
+  return '<span class="cb ' + kind + empty + '"><input type="checkbox" id="' + id + '" ' + (checked ? "checked " : "") + (disabled ? "disabled " : "") +
+    'aria-label="' + label + '"><span class="box">' + TICK + "</span></span>";
+}
+
+const secWrap = document.getElementById("sections");
+SECTIONS.forEach((sec, si) => {
+  const el = document.createElement("section");
+  let html = '<div class="sec-head"><span class="sec-num">' + sec.n + '</span><span class="sec-title">' + sec.title +
+    '</span><span class="sec-line"></span><span class="sec-done" id="secdone-' + si + '"></span></div>';
+  if (sec.note) html += '<p class="sec-note">' + sec.note + "</p>";
+  html += '<div class="items"><div class="col-head"><span class="ch claude">Claude</span><span class="ch desk">1280</span><span class="ch mob">375</span><span></span></div>';
+  sec.items.forEach((it, ii) => {
+    const key = si + "-" + ii;
+    const meta = it.tag ? '<div class="meta">' + (CHIP[it.tag] || "") + "</div>" : "";
+    const how = it.how ? '<div class="how">' + it.how + "</div>" : "";
+    html += '<div class="item" data-key="' + key + '">' +
+      '<div class="cell">' + cb("claude", "c-" + key, !!it.c, true, "Claude: covered by tests") + "</div>" +
+      '<div class="cell">' + cb("desk", "d-" + key, !!userState["d-" + key], false, "Checked at 1280 px") + "</div>" +
+      '<div class="cell">' + cb("mob", "m-" + key, !!userState["m-" + key], false, "Checked at 375 px") + "</div>" +
+      '<div class="body"><span class="t">' + it.t + "</span>" + meta + how + "</div></div>";
+  });
+  html += "</div>";
+  el.innerHTML = html;
+  secWrap.appendChild(el);
+});
+
+function isDone(key) { return !!userState["d-" + key] && !!userState["m-" + key]; }
+function recompute() {
+  let total = 0, done = 0, claude = 0, desk = 0, mob = 0;
+  SECTIONS.forEach((sec, si) => {
+    let secTotal = 0, secDone = 0;
+    sec.items.forEach((it, ii) => {
+      const key = si + "-" + ii;
+      total++; secTotal++;
+      if (it.c) claude++;
+      if (userState["d-" + key]) desk++;
+      if (userState["m-" + key]) mob++;
+      if (isDone(key)) { done++; secDone++; }
+      const row = secWrap.querySelector('.item[data-key="' + key + '"]');
+      if (row) row.classList.toggle("done", isDone(key));
+    });
+    const sd = document.getElementById("secdone-" + si);
+    if (sd) sd.textContent = secDone + " / " + secTotal;
+  });
+  const pctVal = total ? Math.round((done / total) * 100) : 0;
+  document.getElementById("pct").firstChild.textContent = pctVal + "%";
+  document.getElementById("barFill").style.width = pctVal + "%";
+  document.getElementById("doneCount").textContent = done;
+  document.getElementById("totalCount").textContent = total;
+  document.getElementById("claudeCount").textContent = claude;
+  document.getElementById("deskCount").textContent = desk;
+  document.getElementById("mobCount").textContent = mob;
+  document.getElementById("pctlabel").textContent = pctVal >= 100 ? "launch-ready" : (pctVal >= 60 ? "closing in" : "in progress");
+}
+
+secWrap.addEventListener("change", (e) => {
+  const inp = e.target;
+  if (!inp.id || (inp.id[0] !== "d" && inp.id[0] !== "m")) return;
+  if (inp.checked) userState[inp.id] = true; else delete userState[inp.id];
+  save(); recompute();
+});
+document.getElementById("resetBtn").addEventListener("click", () => {
+  userState = {}; save();
+  secWrap.querySelectorAll('input[id^="d-"], input[id^="m-"]').forEach((i) => (i.checked = false));
+  recompute();
+});
+recompute();
+</script>
+</body>
+</html>
