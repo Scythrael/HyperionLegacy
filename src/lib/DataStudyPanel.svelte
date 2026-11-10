@@ -13,10 +13,15 @@
 
   import type { DataStudyView } from "./dataStudyDisplay";
   import Icon from "./ui/Icon.svelte";
+  import JobOvertimeStrip from "./JobOvertimeStrip.svelte";
+  import OvertimeRateChip from "./OvertimeRateChip.svelte";
 
   export let view: DataStudyView;
   // Turn auto-study off (true) or back on (false).
   export let onSetPaused: (paused: boolean) => void;
+  // OT-UI (user 2026-11-10 "One tap, always visible"): buys the next Overtime step on the study under way (App's
+  // buyJobOvertime). Absent = the strip shows its state but no button.
+  export let onBuyOvertime: ((processId: string) => void) | undefined = undefined;
 </script>
 
 <div class="ds-wrap">
@@ -47,7 +52,7 @@
           <div class="ds-cur-words">
             {#if view.current}
               <b>{view.current.name}</b>
-              <span class="ds-dim">{view.current.etaText}</span>
+              <span class="ds-dim ds-eta">{#if view.current.rateText}<OvertimeRateChip rate={view.current.rateText} />{/if}{view.current.etaText}</span>
             {:else}
               <b>{view.idleText}</b>
               <span class="ds-dim">{view.idleSub}</span>
@@ -64,6 +69,7 @@
         >
           <i style="width: {view.current ? view.current.progressPct : 0}%;" class:paused={view.paused}></i>
         </div>
+        {#if view.current?.overtime}<JobOvertimeStrip strip={view.current.overtime} onBuy={onBuyOvertime} />{/if}
         <p class="ds-dim ds-note">{view.note}</p>
         {#each view.fullWarnings as w, i (i)}<p class="ds-full">{w}</p>{/each}
 
@@ -248,6 +254,13 @@
     flex-direction: column;
     min-width: 0;
     font-size: var(--text-sm);
+  }
+  /* OT-UI: the rate chip leads the study's time line. */
+  .ds-eta {
+    display: inline-flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px;
   }
   .ds-prog {
     height: 8px;

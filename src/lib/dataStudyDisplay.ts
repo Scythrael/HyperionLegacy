@@ -34,6 +34,8 @@ import { researchDataIcon } from "./ui/gasStudyIcons";
 import { stockFill } from "./stockFillDisplay";
 import { formatNumber } from "./game/format";
 import type { IconName } from "./ui/icons";
+import { jobOvertimeStrip, jobRateText, type JobOvertimeStrip } from "./jobOvertimeDisplay";
+import { processWorkFraction } from "./game/processSpeed";
 
 // ===== Words =====
 
@@ -73,6 +75,11 @@ export interface DataStudyCurrentView {
   glyph: IconName;
   etaText: string; // "12 min 40 s left of 20 min" | "Paused, 12 min 40 s left of 20 min"
   progressPct: number;
+  // OT-UI (the 2026-11-10 Overtime buttons mockup, approved): the study's Overtime rate chip ("1.25x", null at the
+  // normal rate) and its strip (jobOvertimeDisplay.ts, in this row's own clock "12 min 40 s"; Paused with its reason
+  // while auto-study is off; null where the engine hides it, a study's last tick).
+  rateText: string | null;
+  overtime: JobOvertimeStrip | null;
 }
 export interface DataStudyQueueRow {
   key: string;
@@ -264,7 +271,11 @@ export function dataStudyView(state: GameState): DataStudyView {
       name: itemLabel(id),
       glyph: glyphOf(id),
       etaText: `${paused ? "Paused, " : ""}${ticksText(flight.remainingTicks)} left of ${ticksText(total)}`,
-      progressPct: Math.max(0, Math.min(100, ((total - flight.remainingTicks) / total) * 100)),
+      // OT-UI (user "Chip + no jump"): the WORK done, so an Overtime step never moves the bar (at the normal rate the
+      // old (total - remaining) / total). The study's "of 20 min" stays its normal length, as the mockup reads.
+      progressPct: Math.max(0, Math.min(100, (flight.durationTicks > 0 ? processWorkFraction(flight) : (total - flight.remainingTicks) / total) * 100)),
+      rateText: jobRateText(flight),
+      overtime: jobOvertimeStrip(state, flight, ticksText),
     };
   }
   const boostPct = Math.round(RESEARCH_BOOST_PER * 100);

@@ -300,6 +300,9 @@ export const ICON_SEMANTICS: Record<IconName, IconSemantic> = {
   gearCondition: "subject",
   // The gear repair Overtime strip (2026-11-09 mockup): names the action a step buys (speed a job up).
   overtime: "action",
+  // OT-UI (2026-11-10): the things two Command Home rows and the damaged banner name (a hull repair, a facility upgrade).
+  hullRepair: "subject",
+  facilityUpgrade: "subject",
 };
 
 // ---------------------------------------------------------------------------
