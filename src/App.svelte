@@ -16843,7 +16843,7 @@
                       class="systems-tile"
                       class:selected={selectedBlankKey === row.key}
                       style="--sys-rc: var(--color-accent);"
-                      title={`${row.label} · ${row.count.toString()} blank${row.count.eq(1) ? "" : "s"} · ${row.chips.map((c) => `Q${c.quality} ${c.amount.toString()}`).join(", ")}`}
+                      title={`${row.label} · ${formatNumber(row.count)} blank${row.count.eq(1) ? "" : "s"} · ${row.chips.map((c) => `Q${c.quality} ${formatNumber(c.amount)}`).join(", ")}`}
                       on:click={() => selectBlankTile(row.key)}
                     >
                       <span class="systems-tile-dot"></span>

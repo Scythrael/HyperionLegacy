@@ -32,11 +32,13 @@ export function depositBlanks(blanks: BlankStore, key: string, count: Decimal | 
   return addItemQuality(blanks, key, new Decimal(count), bucketOf(quality));
 }
 
-// The highest quality holding at least one whole blank of `key`, or null when none is held. Pure.
+// The highest quality holding at least one whole blank of `key`, or null when none is held. Only Q0 to Q5 are read
+// (the same clamp qualityChips uses), so a corrupt store with buckets past Q5 never names a quality the game lacks.
+// Pure.
 export function highestBlankQuality(blanks: BlankStore, key: string): number | null {
   const buckets = blanks[key];
   if (!buckets) return null;
-  for (let q = buckets.length - 1; q >= 0; q--) {
+  for (let q = Math.min(buckets.length, QUALITY_TIERS) - 1; q >= 0; q--) {
     if (buckets[q].gte(1)) return q;
   }
   return null;

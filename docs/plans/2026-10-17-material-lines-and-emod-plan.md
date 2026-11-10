@@ -422,7 +422,10 @@ candidate** if the user prefers (L7 b).
 > `mintCraftedPiece` as `inputQuality` (`craftOutputQuality(carried, rollQuality(...))`, same seed and draws);
 > `grant` deposits Q0. **Save:** no v72 and no MIGRATIONS entry: `hydrateDecimals` revives `blanks` through
 > `hydrateInventoryBuckets`, which wraps an old flat count into `[count]` (Q0) on every load (idempotent; save.ts
-> "WHAT v71 CONTAINS" item 3), so it cannot collide with another slice's step. Wiring: two LIVE audit rows,
+> "WHAT v71 CONTAINS" item 3), so it cannot collide with another slice's step. This replaces the `bucketBlanksV70`
+> step planned above: the wrap follows the `withHomeworldV70` every-load precedent instead of a MIGRATIONS[69] entry.
+> Rollback caveat: an older build reads each blank array as one Decimal of its text ("3,1" parses as 3), keeping the
+> Q0 count and losing every Q1+ blank; that matters only on a staging rollback across ML-5. Wiring: two LIVE audit rows,
 > `facility:audit:blankCarriedQuality` (probe `blankCarriedQuality`) and `facility:audit:inspectCarriedQuality`
 > (probe `inspectedPieceQuality`). UI: the Fabricator's `bestOffered` guard is gone (switch + `CraftQualityPreview`
 > for every blueprint); Crafted Blanks shows "By quality" chips and the next inspect's quality; `QualityCarryPanel`

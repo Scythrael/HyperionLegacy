@@ -5122,8 +5122,9 @@ function auditRowWiring(): Readonly<Record<string, Partial<EntryInput>>> {
     ...wr11AuditWiring(),
     ...wr9AuditWiring(),
     // Material Lines ML-5: one real Yield Rig job on Q2 stock against Q0 stock (its blank lands 2 buckets higher), and
-    // one inspect with a Q3 and a Q0 blank held against the Q0 blank alone (the Q3 is taken first; the same seeded
-    // roll lands 3 higher).
+    // one inspect with a Q2 and a Q0 blank held against the Q0 blank alone (the Q2 is taken first; the same seeded
+    // roll lands 2 higher). Q2 rather than Q3 so the Q5 cap cannot clip the move: on reads min(5, 2 + roll), off reads
+    // the roll, and they differ by exactly 2 for any base roll up to Q3 (INSPECT_PROBE_QUALITY in probes.ts).
     "facility:audit:blankCarriedQuality": {
       probe: "blankCarriedQuality",
       contexts: ["craft"],

@@ -21,7 +21,9 @@ import { countedLcg, craftStateQ } from "./materialQualityGoldens.fixture";
 import { withoutMl5 } from "./ml5Switch.fixture";
 import { ML5_ADDED_IDS, ml5ReadBack } from "./ml5Registry.fixture";
 import { CATALOGS, WIRING_REGISTRY } from "./wiring/registry";
-import { readProbe } from "./wiring/probes";
+import { INSPECT_PROBE_QUALITY, readProbe } from "./wiring/probes";
+import { QUALITY_TIERS } from "./inventory";
+import { blankTotal } from "./qualityBlanks";
 
 // The pre-change capture.
 const ML5_GOLDEN = {
@@ -50,24 +52,45 @@ interface BlankRun {
   qualities: number[];
 }
 
-// The Yield Rig line, stepped and offline off one seed (offline == live), then every blank inspected:
+// One run three ways off one seed: 1 s steps (economyTick, the live loop), 997 s chunks and one offline call. Each
+// must hold the SAME bytes (the serialized save) and take the same draws. Returns the stepped state and its draw count.
+// The chunks are tick() calls, as the relic identify queue's parity does (relicIdentify.test.ts): a fabricate line is
+// a process queue, and resolveProcesses' header records that the real economy never hands economyTick more than one
+// tick (a line starts its next job only after the call's ticks were counted, so a single economyTick(s, 997) starts
+// one job and drops the rest of the span), so tick() in 997 s pieces is the chunked path a player who returns several
+// times actually takes.
+function threeWays(s0: GameState, seconds: number, seed: number): { s: GameState; draws: number } {
+  expect(s0.tickDurationSeconds).toBe(1); // economyTick takes ticks: at 1 s a tick, a tick is a second
+  const live = countedLcg(seed);
+  let s = s0;
+  for (let i = 0; i < seconds; i++) s = economyTick(s, 1, live.rng);
+  const chunk = countedLcg(seed);
+  let c = s0;
+  for (let left = seconds; left > 0; left -= 997) c = tick(Math.min(997, left), c, chunk.rng);
+  const off = countedLcg(seed);
+  const o = tick(seconds, s0, off.rng);
+  const bytes = serialize(s, 1, 2);
+  expect(serialize(c, 1, 2)).toBe(bytes);
+  expect(serialize(o, 1, 2)).toBe(bytes);
+  expect(stateHash(c)).toBe(stateHash(s));
+  expect(stateHash(o)).toBe(stateHash(s));
+  expect(chunk.draws()).toBe(live.draws());
+  expect(off.draws()).toBe(live.draws());
+  return { s, draws: live.draws() };
+}
+
+// The Yield Rig line, stepped, chunked and offline off one seed (offline == live), then every blank inspected:
 // pins ["<state>:<draws>", "<pieces>", "<state after inspect>"], the state before the inspect and the pieces' qualities.
+// Both blanks land inside the run's one chunk (game seconds 171 and 341 of 400).
 function blankRun(stock: Record<string, number[]>, best: boolean, seed: number): BlankRun {
   const started = startLine(craftStateQ(stock, ["yieldRigBp"]), "fabricate", "yieldRigBp", { kind: "batch", remaining: 2 }, best ? "best" : undefined);
   expect(started.started).toBe(true);
-  const s0 = started.next;
-  const live = countedLcg(seed);
-  let s = s0;
-  for (let i = 0; i < RUN_TICKS; i++) s = economyTick(s, 1, live.rng);
-  const off = countedLcg(seed);
-  const o = tick(RUN_TICKS * s0.tickDurationSeconds, s0, off.rng);
-  expect(stateHash(o)).toBe(stateHash(s));
-  expect(off.draws()).toBe(live.draws());
+  const { s, draws } = threeWays(started.next, RUN_TICKS, seed);
   expect(s.fabricateLines).toHaveLength(0);
   const inspected = inspectBlanks(s, "yieldRigBp", 5);
   expect(inspected.inspected).toBe(2);
   return {
-    pins: [`${stateHash(s)}:${live.draws()}`, hash(inspected.pieces), stateHash(inspected.state)],
+    pins: [`${stateHash(s)}:${draws}`, hash(inspected.pieces), stateHash(inspected.state)],
     crafted: s,
     qualities: inspected.pieces.map((p) => p.quality),
   };
@@ -100,6 +123,33 @@ describe("ML-5 quality blanks: goldens", () => {
     const run = blankRun(Q0_STOCK, false, 0x5b3);
     expect(run.pins).toEqual(ML5_GOLDEN.blankQ0);
     expect(buckets(run.crafted)).toEqual(["2"]);
+  });
+
+  it("parity: an 8-job line over 1,500 s, blanks landing mid-chunk in both 997 s chunks, agrees byte for byte", () => {
+    // Lowest first on 2 Q0 wafers under Q2 stock: job 1 lands Q1, jobs 2 to 8 land Q2. A job completes every 170 s
+    // (game seconds 171, 341, ..., 1361), so blanks land inside the first chunk (0 to 997) AND the second (997 to
+    // 1,500), never on a chunk boundary.
+    const stock = { frameSegment: [0, 0, 16], polysilicateWafer: [2, 0, 14] };
+    const started = startLine(craftStateQ(stock, ["yieldRigBp"]), "fabricate", "yieldRigBp", { kind: "batch", remaining: 8 }, undefined);
+    expect(started.started).toBe(true);
+    const s0 = started.next;
+    // Where each blank lands, from 1 s steps: some inside each chunk, none on its edge.
+    const rng = countedLcg(0x5b4);
+    const lands: number[] = [];
+    let s = s0;
+    for (let i = 1; i <= 1500; i++) {
+      const before = blankTotal(s.blanks, "yieldRigBp");
+      s = economyTick(s, 1, rng.rng);
+      if (blankTotal(s.blanks, "yieldRigBp").gt(before)) lands.push(i);
+    }
+    expect(lands).toHaveLength(8);
+    expect(lands.some((t) => t < 997)).toBe(true);
+    expect(lands.some((t) => t > 997)).toBe(true);
+    expect(lands.every((t) => t % 997 !== 0)).toBe(true);
+    const run = threeWays(s0, 1500, 0x5b4);
+    expect(stateHash(run.s)).toBe(stateHash(s));
+    expect(run.s.fabricateLines).toHaveLength(0);
+    expect(buckets(run.s)).toEqual(["0", "1", "7"]);
   });
 
   it("grant: two uninspected Yield Rigs granted (held, at Q0)", () => {
@@ -138,6 +188,10 @@ describe("ML-5 quality blanks: goldens", () => {
       expect(off, id).toBeGreaterThanOrEqual(0);
       expect(on - off, id).toBe(e.magnitude(CATALOGS));
     }
+    // The inspect row's move is exact only while its base roll leaves room under the Q5 cap (INSPECT_PROBE_QUALITY).
+    const inspect = WIRING_REGISTRY.find((x) => x.id === "facility:audit:inspectCarriedQuality")!;
+    const ib = inspect.base();
+    expect(readProbe(inspect.probe!, inspect.off(ib), "craft")).toBeLessThanOrEqual(QUALITY_TIERS - 1 - INSPECT_PROBE_QUALITY);
     // And with the slice switched off, the blank row reads no move (the stamp is ML-5's).
     const carry = WIRING_REGISTRY.find((x) => x.id === "facility:audit:blankCarriedQuality")!;
     const b = carry.base();

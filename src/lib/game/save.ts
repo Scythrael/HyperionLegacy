@@ -123,7 +123,11 @@ import { withThirdBuffGrantedV70 } from "./crewThirdBuff";
 //   3. Material Lines ML-5 quality blanks (no bump, no MIGRATIONS entry): `blanks` becomes quality-bucketed
 //      (Decimal[] per blueprint, like `inventory`). hydrateDecimals revives it through hydrateInventoryBuckets, which
 //      wraps an old flat count into the Q0 bucket ([count]) on EVERY load: deterministic, lossless (every old blank
-//      was Q0) and idempotent, so it needs no version marker and cannot collide with another slice's step.
+//      was Q0) and idempotent, so it needs no version marker and cannot collide with another slice's step. This
+//      replaces the plan's `bucketBlanksV70` MIGRATIONS[69] step with the every-load posture withHomeworldV70 set (a
+//      save already at v70 or v71 reaches the wrap too). Rollback note: an OLDER build reads each blank array as one
+//      Decimal of its text ("3,1" parses as 3), so it keeps the Q0 count and LOSES every Q1+ blank. That matters
+//      only if staging rolls back across ML-5; production never runs a pre-ML-5 build on a 0.14.0 save.
 export const SAVE_VERSION = 71;
 export const SAVE_KEY = "fleet_admiral_save";
 

@@ -1391,7 +1391,10 @@ function fabricatorBonusShare(s: GameState): number {
 // the quality the registry's on transforms give its stock and its blank.
 export const BLANK_PROBE_KEY = "yieldRigBp";
 export const BLANK_PROBE_QUALITY = 2;
-export const INSPECT_PROBE_QUALITY = 3;
+// Q2, not higher, on purpose: the piece lands at min(Q5, carried + the seeded base roll), so the on/off move equals this
+// constant only while the base roll stays at or under Q5 minus it. From Q2 the cap needs a base roll of Q4 (four
+// straight climbs at 0.001 each), so the probe's magnitude never rests on which seed the wiring base happens to hold.
+export const INSPECT_PROBE_QUALITY = 2;
 // The quality the blank of ONE real Yield Rig job lands at: started through startProcess on the state's own stock
 // ("Use best materials", the ML-4 tally), completed through resolveProcesses, read as the highest held bucket. -1 when
 // the job cannot start.

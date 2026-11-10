@@ -46,6 +46,13 @@ describe("qualityBlanks.ts helpers", () => {
     expect(highestBlankQuality(none, KEY)).toBeNull();
     expect(b[KEY].length).toBe(5); // pure: the input store is untouched
   });
+
+  it("reads only Q0 to Q5: a corrupt 7-bucket store never names a quality past Q5 (the qualityChips clamp)", () => {
+    const corrupt = { [KEY]: [D(0), D(0), D(1), D(0), D(0), D(0), D(9)] };
+    expect(highestBlankQuality(corrupt, KEY)).toBe(2);
+    const onlyPastQ5 = { [KEY]: [D(0), D(0), D(0), D(0), D(0), D(0), D(9)] };
+    expect(highestBlankQuality(onlyPastQ5, KEY)).toBeNull();
+  });
 });
 
 describe("ML-5 engine", () => {
