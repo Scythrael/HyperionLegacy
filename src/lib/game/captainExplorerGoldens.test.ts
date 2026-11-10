@@ -20,6 +20,10 @@
 
 import { describe, expect, it } from "vitest";
 import { cp16OffForThisFile } from "./cp16Switch.fixture";
+// Complement CP-19: this file's pins predate the Personnel Rosters track (a new game's facility map gains its
+// pre-granted Level 1), so it runs with the slice off; cp19Goldens.test.ts pins the slice itself.
+import { cp19OffForThisFile } from "./cp19Switch.fixture";
+cp19OffForThisFile();
 // Complement CP-16 (the Hall of Command) came after every pin here: the file runs with the slice off, so its pins
 // keep proving their own slice (cp16Goldens.test.ts pins what CP-16 moved: the missions counter, the notables and
 // the Hall of Command entry).
@@ -215,7 +219,7 @@ const MOVES: Partial<Record<SecondaryTalentKey, Record<string, string>>> = {
   // Drillmaster: every promotion counter increment x1.08 (the mission's and patrol's hours and cycles, the claim's
   // objectives), and explorerCaptain.promotionMult 1.08 frozen on the run.
   commandCrew3: { dispatch: "9b88a3dc", done: "d1053e03", claim: "85cdad0e", mission: "365aba7b", patrol: "528fd482" },
-  // Recruiter: both boards 10 x 1.08 = 10.8, rounded up to 11.
+  // Recruiter: both boards 10 x 1.08 = 10.8, rounded up to 11. Held at CP-19's flat +1 (user 2026-11-09): 10 + 1 = 11.
   commandCrew4: { boards: "11/11" },
   // Legendary Captain: the complement AND the officers x1.10 (everything Inspiring Leader and Mentor move).
   commandCrew5: { sheet: "32c2c065", dispatch: "ba74462f", done: "877c44c6", mission: "716140ba", patrol: "3219b4ae" },

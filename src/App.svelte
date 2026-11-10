@@ -53,6 +53,8 @@
   // Squads SQ-7.4: the Subspace Telescope Facilities card (its words and galaxy map are telescopeCardDisplay.ts).
   import TelescopeMap from "./lib/TelescopeMap.svelte";
   import { telescopeCardView, telescopeMapEnemyView, telescopeMapView } from "./lib/telescopeCardDisplay";
+  // Complement CP-19: the Personnel Rosters upgrade track card (its words are personnelRostersTrackDisplay.ts).
+  import { rostersTrackView } from "./lib/personnelRostersTrackDisplay";
   import { PROVISIONAL_HOMEWORLD, homeworldPlacement, isWellFormedHomeworld } from "./lib/game/galaxy";
   import { drawHomeworldSeed } from "./lib/homeworldEntropy";
   // Exploration 0.14.0 (E4c): the Research facility's Relics sub-tab + the Archive's Museum sub-tab.
@@ -251,6 +253,8 @@
     SALVAGE_BAY_FACILITY_KEY,
     // Squads SQ-7.4: the stable "subspaceTelescope" facility key the telescope card's upgrade wiring reads.
     SUBSPACE_TELESCOPE_FACILITY_KEY,
+    // Complement CP-19: the Personnel Rosters track's facility key (its Upgrades tab reads it).
+    PERSONNEL_ROSTERS_FACILITY_KEY,
     // Shipyard (Phase 5, Task S5 UI), the stable "shipyard" facility key the Shipyard
     // rail entry + Build/Upgrades panel + founding/upgrade wiring reference (never the raw
     // string), mirroring RESEARCH_FACILITY_KEY / FABRICATOR_FACILITY_KEY. Drives the
@@ -2690,7 +2694,7 @@
 
   // CP-10 (user pick 6, 2026-11-02): Personnel Rosters gains a "Crew Pool" tab beside its saved rosters (CrewPoolPanel).
   // Defaults to "rosters" so the facility opens as it always has.
-  type PersonnelRostersSubTab = "rosters" | "crewPool";
+  type PersonnelRostersSubTab = "rosters" | "crewPool" | "upgrades";
   let activePersonnelRostersSubTab: PersonnelRostersSubTab = "rosters";
 
   // Ground Ops GO-17 UI: the Armory's TWO-tab axis. "ship" is the existing ship loadout console (unchanged);
@@ -4469,6 +4473,9 @@
       // Squads SQ-7.4: the telescope's development cycles are bought on its own card.
       case "subspaceTelescope":
         return "subspaceTelescope";
+      // Complement CP-19: the Personnel Rosters track is bought on its own card's Upgrades tab.
+      case "personnelRosters":
+        return "personnelRosters";
       case "warehouseT1":
       case "warehouseT2":
         return "warehouse";
@@ -4734,6 +4741,13 @@
         activeTab = "facilities";
         facilitiesView = "console";
         activeFoundryFacility = "subspaceTelescope";
+        break;
+      // Complement CP-19: the Personnel Rosters track's Upgrades tab.
+      case "personnelRosters":
+        activeTab = "facilities";
+        facilitiesView = "console";
+        activeFoundryFacility = "personnelRosters";
+        activePersonnelRostersSubTab = "upgrades";
         break;
       case "warehouseT1":
       case "warehouseT2":
@@ -10841,6 +10855,17 @@
       p.effect.facility === SUBSPACE_TELESCOPE_FACILITY_KEY
   );
 
+  // Complement CP-19: the Personnel Rosters upgrade track (the telescope card's pattern). Words, ladder and board sizes
+  // come from personnelRostersTrackDisplay.ts (pure, tested); the Upgrade button is the shared facilityUpgradeButton.
+  $: rostersView = rostersTrackView(state, { duration: (t) => durationReadout(t, showTickCounts, state.tickDurationSeconds) });
+  $: rostersUpgradeCheck = canBuildFacilityUpgrade(state, PERSONNEL_ROSTERS_FACILITY_KEY);
+  $: rostersUpgradeInFlight = state.activeProcesses.find(
+    (p) =>
+      p.kind === "facilityUpgrade" &&
+      p.effect.type === "facilityLevelUp" &&
+      p.effect.facility === PERSONNEL_ROSTERS_FACILITY_KEY
+  );
+
   // Fabricable count: researched blueprints whose tier the fabricator's LEVEL has reached
   // (the STABLE "you have the capability to craft this" count, NOT the transient
   // canFabricate.ok which flickers with live materials/slots). Paired with
@@ -11364,11 +11389,12 @@
       `${archiveCompletionVM.pct.toFixed(1)}% complete`,
       facilityAttention.has("archive")),
     // CREW 0.14.0 (phase 4d): Personnel Rosters, saved PEOPLE loadouts (the personnel counterpart to
-    // the Armory's gear loadouts). A SERVICE facility like the Armory: no FACILITIES entry, no
-    // founding, no level; the count comes straight off state.personnelRosters.
-    fpane("personnelRosters", "🧑‍🚀", FACILITY_LABELS.personnelRosters, "Personnel loadouts",
-      null, null,
-      `${state.personnelRosters.length} saved roster${state.personnelRosters.length === 1 ? "" : "s"}`,
+    // the Armory's gear loadouts). Complement CP-19 gave it a level track (pre-granted Level 1): each rung grows both
+    // candidate boards, so the card shows its level, an upgrade row while a rung builds, and the board size.
+    fpane("personnelRosters", "🧑‍🚀", FACILITY_LABELS.personnelRosters, `Level ${rostersView.level}`,
+      null,
+      facilityUpgrade(rostersUpgradeInFlight, FACILITY_LABELS.personnelRosters),
+      `${state.personnelRosters.length} saved roster${state.personnelRosters.length === 1 ? "" : "s"} · Board ${rostersView.board}`,
       facilityAttention.has("personnelRosters")),
   ];
 
@@ -11430,6 +11456,7 @@
         return { tabs: [
           { key: "rosters", label: "Rosters" },
           { key: "crewPool", label: "Crew Pool" },
+          { key: "upgrades", label: "Upgrades" },
         ], active: activePersonnelRostersSubTab, onSelect: (key) => (activePersonnelRostersSubTab = key as PersonnelRostersSubTab) };
       default:
         return null;
@@ -16371,6 +16398,79 @@
                 {/each}
               </div>
             </Panel>
+          {:else if activeFoundryFacility === "personnelRosters" && activePersonnelRostersSubTab === "upgrades"}
+            <!-- Complement CP-19 (OC-17; user 2026-11-02 "Personnel Rosters track (Recommended)"): the Personnel Rosters
+                 upgrade track, the Subspace Telescope card's pattern (SQ-7.4). Each rung adds candidate slots to BOTH
+                 boards (officers and away-team recruits). Every word and number comes from personnelRostersTrackDisplay.ts
+                 (pure, tested); the Upgrade button is the SHARED facilityUpgradeButton on canBuildFacilityUpgrade /
+                 doStartFacilityUpgrade. Credits and time only (the answer names no other gate). -->
+            <div class="telescope-grid">
+              <Panel>
+                <div class="telescope-head">
+                  <span class="telescope-badge" aria-hidden="true"><Icon name="recruit" size={20} /></span>
+                  <div class="telescope-head-text">
+                    <div class="panel-title">CANDIDATE BOARDS</div>
+                    <div class="telescope-sub">{rostersView.subtitle}</div>
+                  </div>
+                </div>
+                <p class="telescope-lore">{rostersView.lore}</p>
+                <div class="telescope-stats">
+                  <div class="telescope-stat"><div class="k">Board size</div><div class="v">{rostersView.boardText}</div><div class="s">Officers and away-team recruits</div></div>
+                  <div class="telescope-stat"><div class="k">Level</div><div class="v">{rostersView.level} of {rostersView.maxLevel}</div></div>
+                </div>
+                {#if rostersView.recruiterLine}
+                  <div class="research-cost">{rostersView.recruiterLine}</div>
+                {/if}
+
+                {#if rostersView.maxed || !rostersView.next}
+                  <p class="research-status">Fully upgraded.</p>
+                {:else}
+                  {@const nx = rostersView.next}
+                  {@const creditsMet = state.credits.gte(nx.credits)}
+                  <div class="research-name">Next: Level {rostersView.level} → {nx.level}</div>
+                  <div class="research-cost">{nx.gainLine}</div>
+                  <div class="research-cost">Board: {nx.boardNow} → {nx.boardNext} candidates per board</div>
+                  <!-- While a rung builds, its credits are already paid: the readiness rows and the button give way to
+                       the in-progress block below (the telescope card's rule). -->
+                  {#if !rostersUpgradeInFlight}
+                  <div class="research-cost">Duration: {durationReadout(nx.durationTicks, showTickCounts, state.tickDurationSeconds)}</div>
+                  <div class="research-cost" style="color: {creditsMet ? 'var(--color-success)' : 'var(--color-danger)'}">
+                    {#if creditsMet}<Icon name="check" size={12} />{:else}<Icon name="warning" size={12} />{/if} Cost: ◈ {formatNumber(nx.credits)} (have {formatNumber(state.credits)})
+                  </div>
+                  {@render facilityUpgradeButton(
+                    PERSONNEL_ROSTERS_FACILITY_KEY,
+                    rostersUpgradeCheck,
+                    `Upgrade · Level ${rostersView.level} → ${nx.level}`,
+                    () => doStartFacilityUpgrade(PERSONNEL_ROSTERS_FACILITY_KEY)
+                  )}
+                  {/if}
+                {/if}
+
+                {#if rostersUpgradeInFlight}
+                  {@const progress = rostersUpgradeInFlight.durationTicks > 0
+                    ? (rostersUpgradeInFlight.durationTicks - rostersUpgradeInFlight.remainingTicks) / rostersUpgradeInFlight.durationTicks
+                    : 1}
+                  <div class="research-name" style="margin-top: 10px;"><Icon name="clock" size={12} /> Level {rostersView.level + 1} in progress…</div>
+                  <div class="research-bar-track">
+                    <div class="research-bar-fill" style="width:{Math.min(100, progress * 100)}%"></div>
+                  </div>
+                  <div class="research-readout">{remainingReadout(rostersUpgradeInFlight.remainingTicks, rostersUpgradeInFlight.durationTicks, showTickCounts, state.tickDurationSeconds)}</div>
+                {/if}
+
+                <div class="telescope-ladder-title">Levels</div>
+                <ol class="telescope-ladder">
+                  {#each rostersView.ladder as row (row.level)}
+                    <li class="telescope-rung st-{row.status}">
+                      <span class="telescope-rung-lv">{row.level}</span>
+                      <span class="telescope-rung-what">
+                        {row.boardText}{#if row.statusText}<span class="telescope-rung-status">{row.statusText}</span>{/if}
+                      </span>
+                      <span class="telescope-rung-cost">{row.costText}</span>
+                    </li>
+                  {/each}
+                </ol>
+              </Panel>
+            </div>
           {:else if activeFoundryFacility === "personnelRosters" && activePersonnelRostersSubTab === "crewPool"}
             <!-- CP-10 (user pick 6): the CREW POOL tab. The crew waiting at home, the same Crew Groups table as a ship,
                  a Manifest, and "Send N to a ship..." (pick 7: the only place crew are taken from the pool). -->

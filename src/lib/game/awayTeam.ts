@@ -65,7 +65,7 @@ import { reserveBerthsUsed, shipCrewCapacity, shipTeamKinds, type CrewAboard, ty
 import { PROSPECTING_BOARD_SLOTS, squadTypeUnlocked } from "./prospecting";
 // Ground Ops (GO-3): the racial physical perks the snapshot freezes. medicalBay.ts imports model.ts types only.
 import { memberPerksFor } from "./medicalBay";
-// WR-5c: the board size (the stored size x the best Recruiter captain, rounded up; pure, imports only model.ts).
+// WR-5c / CP-19: the board size (the stored size + the Personnel Rosters track + the best Recruiter's flat +1; pure, imports only model.ts).
 import { candidateBoardSize } from "./captainExplorerEffects";
 
 // ============================================================================
@@ -324,7 +324,7 @@ function rollCandidateOf(teamType: AwayTeamType, rng: Rng, seed: number, id: str
 // shared slots alone (pinned by prospectingHidden.golden.test.ts).
 export function awayRecruitCandidates(state: GameState): AwayMember[] {
   const windowIndex = officerRosterWindowIndex(state);
-  // WR-5c: the stored size x the best Recruiter captain's factor, rounded up (captainExplorerEffects.ts candidateBoardSize).
+  // WR-5c / CP-19: the stored size + the track's slots + the best Recruiter's flat +1 (captainExplorerEffects.ts candidateBoardSize).
   const size = candidateBoardSize(state);
   const baseSeed = state.awayRecruitSeed >>> 0;
   const hired = new Set(state.awayMembers.map((m) => m.hiredFrom).filter((id) => id !== undefined));

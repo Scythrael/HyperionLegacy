@@ -147,7 +147,7 @@ AF-2), the GO-16 gambit editor, GO-17 loadouts and the Subspace Telescope landed
 | **29** Final-retirement warning + Hall of Command | **Not built** | `MAX_CAPTAIN_RETIREMENTS` 5 (`captainRetirement.ts` 39); the retire modal (App 20176 to 20191) has no final warning; no `hallOfCommand` symbol; captains carry no missions-flown counter (`CaptainState`, `model.ts` 3855 to 3910). | CP-16. |
 | **30** Roster dropdown on the ship screen | **Partly** | The linked loadout now travels with the roster (GO-17 `4ba3d06`, `personnelRosters.ts` 268 to 273, `withLinkedLoadout`); this was Task 18's carry, now done. Apply exists only inside the Personnel Rosters facility (`PersonnelRostersPanel.svelte` 538). | CP-17 (dropdown + the locked "unsaved roster" warning, crew spec 443 to 445). |
 | **31** Soft captain level cap | **Not built** | `xpForNextLevel = 300 * level` (`model.ts` 10948); retirement gate is level 25 (`captainRetirement.ts` 34). | CP-18. |
-| **32** Candidate board expansion | **Not built** | `SENIOR_STAFF_ROSTER_BASE` 10 (`model.ts` 6485); both boards read `seniorStaffRosterSize` (`seniorStaff.ts` 509, `awayTeam.ts` 285). **Overlap found:** the captain secondary talent Recruiter already promises "+candidate roster size" (`model.ts` 12089, `candidateRosterSize` 0.08) and nothing reads it. Personnel Rosters is a service facility with no levels (App 10294 to 10300). | CP-19 (home is OC-17). |
+| **32** Candidate board expansion | **Built by CP-19 (2026-11-09); was: Not built** | `SENIOR_STAFF_ROSTER_BASE` 10 (`model.ts` 6485); both boards read `seniorStaffRosterSize` (`seniorStaff.ts` 509, `awayTeam.ts` 285). **Overlap found:** the captain secondary talent Recruiter already promises "+candidate roster size" (`model.ts` 12089, `candidateRosterSize` 0.08) and nothing reads it. Personnel Rosters is a service facility with no levels (App 10294 to 10300). | CP-19 (home is OC-17). |
 | **33** Graph color option | **Not built** | `ComplementPanel.svelte` 149 to 153 hard-codes its hsl ramp; the colorblind palette (`accessibilityPreference.ts`) is a separate axis; preference modules like `tickBarPreference.ts` are the pattern. | CP-20. |
 | **G5** Bridge / Quarters ship-type bonuses | **Not built** | Only Focused Command keys off the hull (`crewModules.ts` `HULL_ROLE_SEATS`). SMS-1 proposes one bonus line per hull family for each slot (unanswered). | CP-13 (after OC-13). |
 | **G6** Sensor roles | **Partly** | Built: sensors fold (E1a), foreknowledge thresholds (`expedition.ts` 298 to 301), scan speed by sensors (`SCAN_SENSOR_COEFF`, 206), the sensor ghost and the **cloaked vessel** ship event (GO-8, `shipScanEvents.ts`; so SMS open call 7 is already settled in code), the telescope ship lift at sensors 40 (SQ-5). Missing: hull base sensors (S4-B04, no field on `ShipTypeDef`), Science crew / officer amplification (S4-I31), patrol cloak / threat detection (S4-I30: the combat engine's Particle-Trace Detector draw exists, `resolveBattle.ts` 1369 to 1375, nothing feeds it and no patrol opens cloaked), frontier gating (S4-I29: no region unlock exists; G2 owns region unlocks and the reach gate). | CP-14 (base sensors + amplification), CP-15 (combat detection, after OC-19); frontier gating moves to the G2 plan [PROPOSAL, OC-18]. |
@@ -885,6 +885,44 @@ Reads stay `seniorStaffRosterSize` (both boards). Decide in the same call whethe
 **Determinism:** a larger board appends slots; existing slots' candidates are unchanged (slot-keyed seeds). **Tests:**
 board grows by 2 per level; slot 0..9 candidates identical before and after. **UI:** a facility card like the
 telescope (SQ-7.4 pattern); no new mockup if it reuses that card.
+
+**Built (2026-11-09, per USER ANSWERS 2026-11-02 CP-19 / OC-17 + OC-C4):** `model.ts PERSONNEL_ROSTERS_LEVELS` drives
+`FACILITIES.personnelRosters` (new effect member `{ addCandidateSlots }`): Level 1 pre-granted (0 slots on top of the
+stored base 10), then Levels 2 to 6 at 3,000 / 6,000 / 9,000 / 12,000 / 15,000 credits, +2 slots each (20 at Level 6,
+the track's top rung like every facility track). Durations 120 / 240 / 420 / 720 / 1,200 ticks are the telescope's
+first five cycles, [PROVISIONAL] (the answer says "time" with no number). Credits + time only, no FA gate. Reads:
+`candidateBoardSize` (captainExplorerEffects.ts, the one reader both boards use) = (stored `seniorStaffRosterSize` +
+`personnelRostersBoardSlots` + the best Recruiter's flat +1 (fix round, USER ANSWERS 2026-11-09 below; was x the best
+Recruiter, rounded up); derived on read, so nothing is mirrored into the stored field. Save: no bump (still v71). `save.ts withPersonnelRostersTrackV71` (idempotent `?? { level: 1 }`) rides
+`MIGRATIONS[70]` because v71 has not reached staging, and `migrate` also runs it on every load (the withHomeworldV70
+posture) for dev saves already at v71. UI: Personnel Rosters gains an Upgrades tab with the telescope card (board now
+and next, cost, time, ladder; the Recruiter's share named). Help: the Personnel Rosters topic's CANDIDATE BOARDS
+paragraph. Goldens: `cp19Goldens.*`, switch `cp19Switch.fixture.ts`, read-back `cp19Registry.fixture.ts`. The
+`board:level6` and `upgrade:*` golden rows were ADDED AFTER the capture on feat 3a7c544; their pre-slice pins were
+taken through the switch (`withoutCp19`, which reproduces every captured row), the cp18 `mission:realRate` precedent.
+Registry: 12 live rows `facility:FACILITIES:personnelRosters:<0..5>` (officerBoard) and `...:<i>:recruits`
+(recruitBoard): 10 EFFECT rows (Levels 2 to 6, +2 slots each, linearAbsolute) and 2 BASE-VALUE PINS (Level 1 equals
+the stored base of 10; the Debug panel leaves the pins unmeasured, since a Recruiter's +1 sits on top on a real save).
+QA: `docs/qa/2026-11-09-cp19-rosters-track-qa.html`.
+**Recruiter finding:** the answer called the talent "currently dead", but WR-5c (2026-10-17, "Best one counts"
+2026-10-19) had already wired it: x1.08 on the whole board, rounded up. With the track that was +1 at Levels 1 and 2
+(11, 13) and +2 from Level 3 (16, 18, 20, 22), where the answer says "+1 slot". Settled by the user below.
+
+**USER ANSWERS (2026-11-09): CP-19 calls**
+- Recruiter: "Flat +1 always (Recommended)". The Recruiter always adds exactly one candidate slot to each board,
+  matching the 2026-11-02 answer.
+- Times: "Use those times (Recommended)". 120/240/420/720/1200 s, still [PROVISIONAL] for the 0.16.0 balance pass.
+
+**Fix round (2026-11-09, per the answers above):** the Recruiter (commandCrew4) is now catalog
+`{ type: "flatAdd", stat: "candidateBoardSlots", amount: 1 }` (new effect member), and `candidateBoardSize` = stored
+size + track slots + the best Recruiter's amount (best one counts, fleet-wide, as WR-5c wired it). The talent has no
+ranks (owned or not, cost 1), so "+1 slot on the D23 curve" reduces to the flat +1; no curve was invented. Boards with
+a Recruiter: 11, 13, 15, 17, 19, 21 at Levels 1 to 6. Talent text, Help line, card ("Includes +1"), registry rows
+(linearAbsolute, exact, no tolerance) updated. Golden move: `board:level6`'s Recruiter half 22 to 21 (traced by the
+read-back test in `cp19Goldens.test.ts`: the old pins are a 22-slot board, the new pins its first 21 slots). WR-5c's
+`commandCrew4: { boards: "11/11" }` held (10 + 1 = 10 x 1.08 rounded up). Also: the card's gain line names the
+rung's own +2; Help says existing candidates keep their places; `withPersonnelRostersTrackV71` reseeds Level 1 over
+a malformed entry (not an object, null, or a level below 1).
 
 ### CP-20: Graph color option (Task 33)
 

@@ -24,6 +24,10 @@ import { shipCrewCapacity, shipReserveBerths, validCompositions } from "./ground
 import { emptyGroundTeams } from "./groundTeams";
 import { memberWearersText } from "../awayGearDisplay";
 import { hash, withV1Museum } from "./firstRunsGoldens.fixture";
+// Complement CP-19: this file's pins predate the Personnel Rosters track (a new game's facility map gains its
+// pre-granted Level 1), so it runs with the slice off; cp19Goldens.test.ts pins the slice itself.
+import { cp19OffForThisFile } from "./cp19Switch.fixture";
+cp19OffForThisFile();
 
 // Captured at 5f9342a (feat/crew-0.14.0's tip), before any Prospecting edit.
 const PINS: Readonly<Record<string, string>> = {

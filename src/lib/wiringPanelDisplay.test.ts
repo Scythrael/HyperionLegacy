@@ -146,6 +146,23 @@ describe("wiring panel: owned sources measure their live contribution", () => {
     expect(r.readings[0].onCurve).toBe(true);
   });
 
+  // Complement CP-19 fix round (user 2026-11-09 "Flat +1 always"): on a save with a Recruiter and bought rungs, every
+  // Personnel Rosters effect row and both Recruiter rows read on their curve; the Level 1 base-value pins are left
+  // unmeasured (the Recruiter's +1 sits on top of the base on a real save).
+  it("a Recruiter save with Personnel Rosters rungs: no board row reads off curve", () => {
+    const s = withFacilityLevel(editCaptain(newGame(), { unlockedSecondaryTalents: ["commandCrew4"] }), "personnelRosters", 4);
+    const rows = measureWiringSync(s, DEPS).filter((r) => r.id.includes("personnelRosters") || r.id.includes("commandCrew4"));
+    expect(rows).toHaveLength(14);
+    for (const r of rows) for (const reading of r.readings) expect(reading.onCurve, `${r.id} ${JSON.stringify(reading)}`).not.toBe(false);
+    for (const i of [1, 2, 3]) {
+      const r = rowOf(rows, `facility:FACILITIES:personnelRosters:${i}`);
+      expect([r.verdict, r.readings[0].now! - r.readings[0].without!, r.readings[0].onCurve]).toEqual(["contributing", 2, true]);
+    }
+    const recruiter = rowOf(rows, "captain:SECONDARY_CAPTAIN_TALENTS:commandCrew4:recruits");
+    expect([recruiter.readings[0].now, recruiter.readings[0].without, recruiter.readings[0].onCurve]).toEqual([17, 16, true]);
+    expect(rowOf(rows, "facility:FACILITIES:personnelRosters:0").readings).toEqual([]);
+  });
+
   it("a Homeworld talent and a facility rung above the starting level", () => {
     const s = withFacilityLevel(withHomeworld(newGame(), ["fleetLogisticsHub"]), "refinery", 3);
     const rows = measureWiringSync(s, DEPS);

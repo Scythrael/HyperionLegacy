@@ -18,6 +18,7 @@ import {
   SHIP_DOCKS_BASE,
   SHIP_TYPES,
   SUBSPACE_TELESCOPE_FACILITY_KEY,
+  PERSONNEL_ROSTERS_FACILITY_KEY,
   type CrewBucket,
   type EquipmentInstance,
   type GameState,
@@ -344,7 +345,13 @@ const ADAPTERS: Readonly<Record<string, Adapter>> = {
   },
   FACILITIES: (e, v, key) => {
     const [fkey, i] = key.split(":");
-    return rung(e, v, (v.facilities[fkey]?.level ?? 0) > Number(i));
+    const ownsIt = (v.facilities[fkey]?.level ?? 0) > Number(i);
+    // Complement CP-19: the Personnel Rosters Level 1 rows are BASE-VALUE PINS (equals the stored base board of 10,
+    // proven on the registry fixture). On a real save a Recruiter's flat +1 sits on top of that base, so the pin's
+    // expected value is not this save's; the rows above it (each rung's own +2) are measured as usual.
+    if (ownsIt && fkey === PERSONNEL_ROSTERS_FACILITY_KEY && Number(i) === 0)
+      return { ownership: "owned", measure: false, note: "the base-board pin (Level 1 adds nothing); the registry fixture measures it" };
+    return rung(e, v, ownsIt);
   },
   // E5-4: a background posted at its match, or anyone posted off match at a facility.
   REFUGEE_BACKGROUNDS: (_e, v, key) =>

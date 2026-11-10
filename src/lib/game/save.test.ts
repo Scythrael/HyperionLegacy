@@ -2181,6 +2181,8 @@ describe("migrate, Ship Production Economy Phase 1: inventory/discovered/facilit
       salvageBay: { level: 0 },
       // Squads SQ-1 (MIGRATIONS[67]): the Subspace Telescope's founding Level 1, pre-granted.
       subspaceTelescope: { level: 1 },
+      // Complement CP-19 (MIGRATIONS[70] and every load): the Personnel Rosters track's pre-granted Level 1.
+      personnelRosters: { level: 1 },
     });
     expect(migrated.activeProcesses).toEqual([]);
     expect(migrated.nextProcessId).toBe(1);
@@ -2283,6 +2285,8 @@ describe("migrate, Ship Production Economy Phase 1: inventory/discovered/facilit
       salvageBay: { level: 0 },
       // Squads SQ-1 (MIGRATIONS[67]): the Subspace Telescope's founding Level 1, pre-granted.
       subspaceTelescope: { level: 1 },
+      // Complement CP-19 (MIGRATIONS[70] and every load): the Personnel Rosters track's pre-granted Level 1.
+      personnelRosters: { level: 1 },
     });
     expect(migrated.activeProcesses).toEqual([]);
     expect(migrated.nextProcessId).toBe(1);
@@ -2335,6 +2339,8 @@ describe("migrate, Ship Production Economy Phase 1: inventory/discovered/facilit
       salvageBay: { level: 0 },
       // Squads SQ-1 (MIGRATIONS[67]): the Subspace Telescope's founding Level 1, pre-granted.
       subspaceTelescope: { level: 1 },
+      // Complement CP-19 (MIGRATIONS[70] and every load): the Personnel Rosters track's pre-granted Level 1.
+      personnelRosters: { level: 1 },
     });
     expect(migrated.facilities).toEqual(original.facilities);
     expect(migrated.activeProcesses).toEqual([]);
@@ -2421,7 +2427,7 @@ describe("migrate, Tiered Warehouse facility backfill (v18 -> v19)", () => {
     // level 0) AND MIGRATIONS[41] (v41->v42, Salvage Lanes, seeds salvageBay level 0). So
     // the FINAL facilities map holds all NINE keys, not the three MIGRATIONS[18] alone
     // produces.
-    expect(Object.keys(migrated.facilities).sort()).toEqual(["fabricator", "fuelStorage", "missionControl", "refinery", "research", "salvageBay", "shipyard", "subspaceTelescope", "warehouseT1", "warehouseT2"]);
+    expect(Object.keys(migrated.facilities).sort()).toEqual(["fabricator", "fuelStorage", "missionControl", "personnelRosters", "refinery", "research", "salvageBay", "shipyard", "subspaceTelescope", "warehouseT1", "warehouseT2"]);
     expect(migrated.facilities.refinery).toEqual({ level: 2 }); // untouched
     expect(migrated.facilities.warehouseT1).toEqual({ level: 0 }); // seeded
     expect(migrated.facilities.warehouseT2).toEqual({ level: 0 }); // seeded (locked)
@@ -2543,6 +2549,8 @@ describe("migrate, Tiered Warehouse facility backfill (v18 -> v19)", () => {
       salvageBay: { level: 0 },
       // Squads SQ-1 (MIGRATIONS[67]): the Subspace Telescope's founding Level 1, pre-granted.
       subspaceTelescope: { level: 1 },
+      // Complement CP-19 (MIGRATIONS[70] and every load): the Personnel Rosters track's pre-granted Level 1.
+      personnelRosters: { level: 1 },
     });
     expect(migrated.facilities).toEqual(original.facilities);
   });
@@ -2604,7 +2612,7 @@ describe("migrate, refine-order backfill (v19 -> v20)", () => {
     // (v22->v23, Fabricator Task F6, seeds fabricator level 1) AND MIGRATIONS[24] (v24->v25,
     // Shipyard Task S6, seeds shipyard level 0), so the FINAL facilities map carries those five
     // in addition to the three the pre-existing v19 shape held (all preserved value-for-value).
-    expect(migrated.facilities).toEqual({ refinery: { level: 1 }, warehouseT1: { level: 2 }, warehouseT2: { level: 0 }, fuelStorage: { level: 0 }, missionControl: { level: 1 }, research: { level: 1 }, fabricator: { level: 1 }, shipyard: { level: 0 }, salvageBay: { level: 0 }, subspaceTelescope: { level: 1 } });
+    expect(migrated.facilities).toEqual({ refinery: { level: 1 }, warehouseT1: { level: 2 }, warehouseT2: { level: 0 }, fuelStorage: { level: 0 }, missionControl: { level: 1 }, research: { level: 1 }, fabricator: { level: 1 }, shipyard: { level: 0 }, salvageBay: { level: 0 }, subspaceTelescope: { level: 1 }, personnelRosters: { level: 1 } });
     expect(itemTotal(migrated.inventory, "commonOre").equals(750)).toBe(true);
     // ITEM-MERGE (0.11.0 Tasks A1/A2, v28->v29): refinedMaterial (20) folds into titaniumIngot
     // and components (2) is dropped; the itemsRefined lifetimeStats tally below is NOT touched.

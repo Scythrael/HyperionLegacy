@@ -5747,7 +5747,13 @@ export type FacilityUpgradeEffect =
   // telescopeReading takes them from the HIGHEST reached rung that carries this member.
   // Property-presence narrowing like every member above, so it is inert to every existing
   // consumer, and only FACILITIES.subspaceTelescope sets it.
-  | { telescope: { reachTier: number; detail: number } };
+  | { telescope: { reachTier: number; detail: number } }
+  // --- Personnel Rosters board expansion (Complement CP-19, OC-17) -------------------
+  // +N candidate slots on BOTH candidate boards (the officer board and the away-team recruit board), summed across
+  // the reached rungs on top of the stored base board (personnelRostersBoardSlots below; captainExplorerEffects.ts
+  // candidateBoardSize is the one board-size reader). Property-presence narrowing like every member above, so it is
+  // inert to every existing consumer, and only FACILITIES.personnelRosters sets it.
+  | { addCandidateSlots: number };
 
 // One rung of a facility's upgrade track = the requirements to reach the NEXT
 // level. `materials` are deducted ATOMICALLY at start by startProcess (design §4).
@@ -6099,6 +6105,46 @@ function labTierRung(row: LabFabricatorTierRungDef): FacilityUpgradeDef {
 }
 function fabricatorTierRung(row: LabFabricatorTierRungDef): FacilityUpgradeDef {
   return { materials: {}, credits: new Decimal(row.credits), durationTicks: row.durationTicks, effect: { addFabricateSlots: row.fabricateSlots }, requiresFleetAdminLevel: row.fleetAdminLevel };
+}
+
+// Personnel Rosters board expansion (Complement CP-19, plan 2026-10-14 CP-19 / OC-17; credit sinks pass OC-C4).
+// User 2026-11-02 (CP-19 / OC-17 + OC-C4): "Personnel Rosters track (Recommended)": an upgrade track on the existing
+// Personnel Rosters card, 5 rungs, +2 candidate slots each (10 -> 20, both boards), 3,000 x rung credits + time.
+// No new facility.
+//
+// Pre-granted at Level 1 (freshState, and the v70 -> v71 step plus every load for an older save: save.ts
+// withPersonnelRostersTrackV71), like the Subspace Telescope: Level 1 is the board every save already has (the stored
+// SENIOR_STAFF_ROSTER_BASE, 10), so it grants nothing on top. Each later row is one bought rung, +2 slots on both
+// boards. The track ends at Level 6 (20 slots): the facility framework's top rung, as every facility track has one.
+// The Recruiter captain talent (commandCrew4) adds a flat +1 slot on top (candidateBoardSize; user 2026-11-09).
+// Costs are credits + time only (the user's answer names no FA gate and no materials; a gate the card cannot show is
+// a trap). Credits are 3,000 x the rung number (the answer). The durations are the Subspace Telescope's duration
+// ladder for its first five bought cycles, ⚠️ PROVISIONAL (the answer says "time" with no number; the 0.16.0
+// balancing pass may retune them).
+export interface PersonnelRostersLevelDef {
+  level: number;         // the level this row REACHES
+  credits: number;       // 3,000 x the bought rung's number (user 2026-11-02); 0 for the pre-granted Level 1
+  durationTicks: number; // [PROVISIONAL] the telescope's ladder
+  boardSlots: number;    // candidate slots this row adds to both boards
+}
+export const PERSONNEL_ROSTERS_SLOTS_PER_RUNG = 2;
+export const PERSONNEL_ROSTERS_LEVELS: readonly PersonnelRostersLevelDef[] = [
+  { level: 1, credits: 0, durationTicks: 0, boardSlots: 0 },
+  { level: 2, credits: 3_000, durationTicks: 120, boardSlots: PERSONNEL_ROSTERS_SLOTS_PER_RUNG },
+  { level: 3, credits: 6_000, durationTicks: 240, boardSlots: PERSONNEL_ROSTERS_SLOTS_PER_RUNG },
+  { level: 4, credits: 9_000, durationTicks: 420, boardSlots: PERSONNEL_ROSTERS_SLOTS_PER_RUNG },
+  { level: 5, credits: 12_000, durationTicks: 720, boardSlots: PERSONNEL_ROSTERS_SLOTS_PER_RUNG },
+  { level: 6, credits: 15_000, durationTicks: 1_200, boardSlots: PERSONNEL_ROSTERS_SLOTS_PER_RUNG },
+];
+// The table as facility rungs (upgrades[i] reaches level i + 1). The founding row has no credits field and no
+// duration, so it is free and instant like the telescope's; it is never built in normal play (pre-granted).
+function buildPersonnelRostersUpgrades(): FacilityUpgradeDef[] {
+  return PERSONNEL_ROSTERS_LEVELS.map((row) => ({
+    materials: {},
+    ...(row.credits > 0 ? { credits: new Decimal(row.credits) } : {}),
+    durationTicks: row.durationTicks,
+    effect: { addCandidateSlots: row.boardSlots },
+  }));
 }
 
 export const FACILITIES: Record<string, FacilityDef> = {
@@ -6592,6 +6638,12 @@ export const FACILITIES: Record<string, FacilityDef> = {
   subspaceTelescope: {
     label: "Subspace Telescope",
     upgrades: buildSubspaceTelescopeUpgrades(),
+  },
+  // --- Personnel Rosters (Complement CP-19): see PERSONNEL_ROSTERS_LEVELS above. The card was a service facility
+  // with no level until CP-19; its saved rosters and crew pool are unchanged, the track only grows the boards.
+  personnelRosters: {
+    label: "Personnel Rosters",
+    upgrades: buildPersonnelRostersUpgrades(),
   },
 };
 
@@ -14192,6 +14244,39 @@ export const SALVAGE_BAY_FACILITY_KEY = "salvageBay";
 // for the raw "subspaceTelescope" literal SQ-1 already seeds at level 1 (freshState + SAVE v68).
 export const SUBSPACE_TELESCOPE_FACILITY_KEY = "subspaceTelescope";
 
+// Complement CP-19: the Personnel Rosters track's key in GameState.facilities (the single source of the raw
+// "personnelRosters" literal there; GameState.personnelRosters, the saved roster LIST, is a different field).
+export const PERSONNEL_ROSTERS_FACILITY_KEY = "personnelRosters";
+// Test-only off switch for the golden files that pin the pre-slice game (cp19Switch.fixture.ts): OFF, a new game and
+// a loaded save carry no track key and the boards read the stored size alone, exactly as before CP-19.
+export const PERSONNEL_ROSTERS_TRACK_SWITCH = { live: true };
+
+// The Personnel Rosters level (absent = 0, the facility framework's posture; freshState and save.ts seed 1). Pure.
+export function personnelRostersLevel(state: Pick<GameState, "facilities">): number {
+  const raw = state.facilities?.[PERSONNEL_ROSTERS_FACILITY_KEY]?.level;
+  return typeof raw === "number" && Number.isFinite(raw) ? Math.max(0, Math.floor(raw)) : 0;
+}
+
+// The candidate slots a track at `level` adds to both boards: the sum of the reached rungs' addCandidateSlots (a
+// level past the track reads the top rung). 0 at Level 1 (and at 0 or absent). Pure.
+export function personnelRostersSlotsAtLevel(level: number): number {
+  if (!PERSONNEL_ROSTERS_TRACK_SWITCH.live) return 0;
+  const upgrades = FACILITIES[PERSONNEL_ROSTERS_FACILITY_KEY]?.upgrades ?? [];
+  const reached = Math.min(Math.max(0, Math.floor(level) || 0), upgrades.length);
+  let slots = 0;
+  for (let i = 0; i < reached; i++) {
+    const effect = upgrades[i].effect;
+    if ("addCandidateSlots" in effect) slots += Math.max(0, Math.floor(effect.addCandidateSlots));
+  }
+  return slots;
+}
+
+// The slots this save's track adds to both boards (captainExplorerEffects.ts candidateBoardSize adds them to the
+// stored seniorStaffRosterSize, with the Recruiter's flat +1 on top). Pure.
+export function personnelRostersBoardSlots(state: Pick<GameState, "facilities">): number {
+  return personnelRostersSlotsAtLevel(personnelRostersLevel(state));
+}
+
 // OC-15: the highest blueprint tier the Research Lab / the Fabricator serves right now (its level, 0 when absent;
 // a level-N facility researches / crafts tier N and below, up to LAB_FABRICATOR_TOP_TIER). The ONE public reader for
 // everything gated on the Lab or Fabricator tier outside the blueprint gates themselves (Relics v2 R2-3's
@@ -15094,13 +15179,15 @@ export const SECONDARY_TALENT_BRANCHES: readonly SecondaryTalentBranch[] = [
 //                   (a chance, a share or a factor, per id; its tree's reader module reads it).
 //   creditTrickle - credits per tick paid while the captain is docked (Trade Routes).
 //   levelLift     - WR-5c: whole LEVELS added to a named display ladder (Foreknowledge: the telescope detail).
+//   flatAdd       - Complement CP-19: a flat whole number added to a named count (Recruiter: candidate board slots).
 export type CaptainSecondaryTalentEffect =
   | { type: "none" }
   | { type: "statMult"; stat: string; mult: number }
   | { type: "procChance"; chance: number }
   | { type: "capstone"; id: string; magnitude?: number }
   | { type: "creditTrickle"; perTick: number }
-  | { type: "levelLift"; stat: string; levels: number };
+  | { type: "levelLift"; stat: string; levels: number }
+  | { type: "flatAdd"; stat: string; amount: number };
 
 // Mirrors CaptainTalentDef's shape (branch/label/cost/neighbors/effect/flavor/x/y), plus `tree` +
 // `rung`. `cost` is always 1 secondary point. `neighbors` is bidirectional by convention (like the
@@ -15442,7 +15529,9 @@ export const SECONDARY_CAPTAIN_TALENTS: Record<SecondaryTalentKey, CaptainSecond
     tree: "explorer", branch: "commandCrew", rung: 4,
     label: "Recruiter", cost: 1, // util
     x: 414, y: -73, neighbors: ["commandCrew3", "commandCrew5"],
-    effect: { type: "statMult", stat: "candidateRosterSize", mult: 0.08 }, // +candidate roster size / +crew capacity
+    // Complement CP-19 (USER ANSWERS 2026-11-09 "Flat +1 always"): exactly one more candidate slot on each board (was
+    // WR-5c's x1.08 rounded up, which matched +1 only on the base board of 10).
+    effect: { type: "flatAdd", stat: "candidateBoardSlots", amount: 1 },
     flavor: "The best hands in the sector hear you are hiring and come looking for you.",
   },
   commandCrew5: {
@@ -16269,7 +16358,9 @@ export function freshState(homeworldSeed?: number): GameState {
     // this identical shape through the v41->v42 migration (save.ts, MIGRATIONS[41]), and
     // would behave identically even without it (facilityLevel reads an absent key as 0); the
     // migration exists so a fresh save and a migrated save stay indistinguishable in SHAPE.
-    facilities: { refinery: { level: 0 }, warehouseT1: { level: 0 }, warehouseT2: { level: 0 }, fuelStorage: { level: 0 }, missionControl: { level: 1 }, research: { level: 1 }, fabricator: { level: 1 }, shipyard: { level: 0 }, salvageBay: { level: 0 }, subspaceTelescope: { level: 1 } },
+    // Complement CP-19: the Personnel Rosters track at its pre-granted Level 1 (the base board; an old save gets the same
+    // seed through save.ts withPersonnelRostersTrackV71). Off only under the test switch (PERSONNEL_ROSTERS_TRACK_SWITCH).
+    facilities: { refinery: { level: 0 }, warehouseT1: { level: 0 }, warehouseT2: { level: 0 }, fuelStorage: { level: 0 }, missionControl: { level: 1 }, research: { level: 1 }, fabricator: { level: 1 }, shipyard: { level: 0 }, salvageBay: { level: 0 }, subspaceTelescope: { level: 1 }, ...(PERSONNEL_ROSTERS_TRACK_SWITCH.live ? { [PERSONNEL_ROSTERS_FACILITY_KEY]: { level: 1 } } : {}) },
     activeProcesses: [],
     nextProcessId: 1,
     // Crafting Allocation Redesign Task C2: no production lines on a fresh save; the
