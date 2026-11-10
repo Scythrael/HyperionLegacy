@@ -32,6 +32,7 @@ import {
   EQUIPMENT_SLOTS,
   EQUIPMENT_STORAGE_RUNGS,
   FACILITIES,
+  SENIOR_STAFF_ROSTER_BASE,
   MISSION_CONTROL_UNLOCK_COMPLETIONS,
   GENERAL_QUARTERS_GUEST_PERK,
   GRENADE_CARRY_PER_LINE,
@@ -1935,6 +1936,33 @@ function facilityRungEntries(): WiringEntry[] {
       // are in FACILITIES and enumerate here (facility:FACILITIES:missionControl:1 and :2); the level 2 rung's
       // completion gate is facility:audit:missionControlUnlock's check.
       else if ("addShortRangeSlot" in eff) out.push(entry({ ...common, probe: "shortRangeSlots", contexts: ["mission:shortRange"], magnitude: () => 1 }));
+      // Complement CP-19 (OC-17): a Personnel Rosters rung appends its slots to BOTH candidate boards, each measured on
+      // its own board (the officer board on the rung's id, the recruit board on ":recruits"). The pre-granted Level 1
+      // rung adds nothing on top of the stored base, so it reads as what it is: the base board, exactly (equals).
+      else if ("addCandidateSlots" in eff) {
+        const slots = num("addCandidateSlots");
+        const both = (part: string | null, probe: ProbeId): WiringEntry =>
+          i === 0
+            ? entry({
+                ...common,
+                ...(part ? { id: `${common.id}:${part}`, source: { catalog: "FACILITIES", key: `${fkey}:${i}:${part}` } } : {}),
+                probe,
+                contexts: ["fleet"],
+                direction: "none",
+                curve: { kind: "equals" },
+                magnitude: (c) => SENIOR_STAFF_ROSTER_BASE + slots(c),
+                note: "the pre-granted Level 1: today's base board, nothing added (an old save loads here)",
+              })
+            : entry({
+                ...common,
+                ...(part ? { id: `${common.id}:${part}`, source: { catalog: "FACILITIES", key: `${fkey}:${i}:${part}` } } : {}),
+                probe,
+                contexts: ["fleet"],
+                magnitude: slots,
+                note: "appended slots: the earlier slots' candidates are unchanged (slot-keyed seeds)",
+              });
+        out.push(both(null, "officerBoard"), both("recruits", "recruitBoard"));
+      }
       else if ("telescope" in eff) {
         const t = eff.telescope as { detail: number; reachTier: number };
         const prev = i > 0 ? ((fdef.upgrades[i - 1].effect as unknown as { telescope: { detail: number; reachTier: number } }).telescope) : { detail: 0, reachTier: 0 };

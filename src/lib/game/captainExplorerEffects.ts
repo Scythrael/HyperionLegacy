@@ -25,6 +25,7 @@ import {
   SECONDARY_CAPTAIN_TALENTS,
   SENIOR_STAFF_ROSTER_BASE,
   commandingCaptain,
+  personnelRostersBoardSlots,
   type CaptainState,
   type ExpeditionScanParams,
   type ExplorerCaptainRun,
@@ -172,10 +173,13 @@ export function shipPromotionMult(state: Pick<GameState, "captains" | "ships">, 
 // fleet-wide, so there is no "own ship" here. User 2026-10-19 ("Best one counts"): the boards use the highest
 // Recruiter owned by any captain of the fleet; a second captain owning it adds nothing. Slots are keyed by index, so a
 // larger board appends candidates and leaves the others as they were. Exactly the stored size without a Recruiter.
+// Complement CP-19: the board the Recruiter scales is the stored size PLUS the Personnel Rosters track's slots
+// (model.ts personnelRostersBoardSlots: +2 per bought rung, 0 at the pre-granted Level 1), so a bought rung appends
+// slots to both boards and the Recruiter's factor applies to the whole board.
 // Pure.
 const BOARD_ROUNDING_GUARD = 1e-9; // a float product a hair above a whole number (10 x 1.0000000001) stays that number
-export function candidateBoardSize(state: Pick<GameState, "captains" | "seniorStaffRosterSize">): number {
-  const base = Math.max(0, state.seniorStaffRosterSize ?? SENIOR_STAFF_ROSTER_BASE);
+export function candidateBoardSize(state: Pick<GameState, "captains" | "seniorStaffRosterSize" | "facilities">): number {
+  const base = Math.max(0, state.seniorStaffRosterSize ?? SENIOR_STAFF_ROSTER_BASE) + personnelRostersBoardSlots(state);
   let mult = 1;
   for (const c of state.captains) mult = Math.max(mult, factor(c, "commandCrew4"));
   return mult === 1 ? base : Math.ceil(base * mult - BOARD_ROUNDING_GUARD);

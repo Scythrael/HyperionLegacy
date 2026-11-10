@@ -299,6 +299,8 @@ describe("Phase 1, facility/process reservation fields (additive)", () => {
       // Squads SQ-1 (SAVE v68): the Subspace Telescope is pre-granted at its founding Level 1 (design 6.2),
       // like the Research Lab and Mission Control, so Tier I is never a blind launch.
       subspaceTelescope: { level: 1 },
+      // Complement CP-19: the Personnel Rosters track at its pre-granted Level 1 (the base candidate board of 10).
+      personnelRosters: { level: 1 },
     });
   });
 

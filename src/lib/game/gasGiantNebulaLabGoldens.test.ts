@@ -17,6 +17,10 @@ import { describe, expect, it } from "vitest";
 // (gearWearSwitch.fixture.ts), so they keep proving nothing else moved. gearWearGoldens.test.ts pins the wear.
 import { gearWearOffInThisFile } from "./gearWearSwitch.fixture";
 import { wr9OffForThisFile } from "./wr9Switch.fixture";
+// Complement CP-19: this file's pins predate the Personnel Rosters track (a new game's facility map gains its
+// pre-granted Level 1), so it runs with the slice off; cp19Goldens.test.ts pins the slice itself.
+import { cp19OffForThisFile } from "./cp19Switch.fixture";
+cp19OffForThisFile();
 
 // Wiring WR-9: this file's pins are about other slices and were captured before WR-9; it runs with WR-9 off (the
 // WR-9 moves are pinned and proven in wr9Goldens.test.ts), so every pin here keeps proving its own slice exactly.

@@ -9,6 +9,10 @@ import { CP18_PINS_PRE, cp18Rows } from "./cp18Goldens.fixture";
 import { withoutCp18 } from "./cp18Switch.fixture";
 import { CP18_ADDED_IDS, cp18ReadBack } from "./cp18Registry.fixture";
 import { WIRING_REGISTRY } from "./wiring/registry";
+// Complement CP-19: this file's pins predate the Personnel Rosters track (a new game's facility map gains its
+// pre-granted Level 1), so it runs with the slice off; cp19Goldens.test.ts pins the slice itself.
+import { cp19OffForThisFile } from "./cp19Switch.fixture";
+cp19OffForThisFile();
 
 const CAPTURE = import.meta.env.CP18_CAPTURE as string | undefined;
 

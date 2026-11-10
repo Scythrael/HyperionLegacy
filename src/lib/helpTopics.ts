@@ -772,7 +772,22 @@ const PERSONNEL_ROSTERS_PARAGRAPHS: readonly string[] = [
   "SAVED ROSTERS: Personnel Rosters, in Facilities, saves a ship's people as a named roster: the officer you pin to each bridge seat and the notable crew you pin, in a priority order. A roster can also link an Armory ship loadout and one squad loadout per ground team. Only a roster with Include Senior Staff & Complement turned on can be applied.",
   "APPLYING: a roster seats its pinned officers (an officer already in that seat goes back to unassigned, and seats the roster does not pin keep their officer), brings its pinned notable crew aboard in priority order up to the ship's caps, then fills the remaining berths from the crew pool. Those fill-in crew are not written back to the roster, and no crew already aboard is sent away. A pinned officer or notable crew member serving on another idle ship moves to this one: Apply first names each of them and the ship they would leave, you can cancel, and the log records the move. A linked loadout goes on first, so the caps reflect its gear; a loadout worn by another ship stays on that ship, and one for another hull type or over the ship's power stays in the Armory.",
   "FROM THE SHIP: a ship's Senior Staff and Complement tabs carry a roster picker. Choosing a roster changes nothing until you press Apply. When the ship's officers and notable crew match no saved roster and the roster would take an officer out of a seat, Apply first warns that the unsaved configuration will be lost, and you can cancel. When a roster's linked loadout is for another hull type, both the picker and the facility say the gear stays in the Armory before you apply. Apply waits while the ship is out on a mission, patrol or short-range run, or until its expedition is claimed, and while a pinned person is aboard a ship that is out.",
+  personnelRostersBoardHelpText(),
 ];
+
+// Complement CP-19: how big the candidate boards are and how to grow them, in the engine's own numbers
+// (model.ts PERSONNEL_ROSTERS_LEVELS, SENIOR_STAFF_ROSTER_BASE; captainExplorerEffects.ts for the Recruiter).
+import { PERSONNEL_ROSTERS_LEVELS, PERSONNEL_ROSTERS_SLOTS_PER_RUNG, SENIOR_STAFF_ROSTER_BASE } from "./game/model";
+export function personnelRostersBoardHelpText(): string {
+  const bought = PERSONNEL_ROSTERS_LEVELS.filter((r) => r.credits > 0 || r.durationTicks > 0);
+  const top = SENIOR_STAFF_ROSTER_BASE + PERSONNEL_ROSTERS_LEVELS.reduce((sum, r) => sum + r.boardSlots, 0);
+  const topLevel = PERSONNEL_ROSTERS_LEVELS[PERSONNEL_ROSTERS_LEVELS.length - 1].level;
+  const prices = bought.map((r) => r.credits.toLocaleString("en-US"));
+  const priceList = prices.length > 1 ? `${prices.slice(0, -1).join(", ")} and ${prices[prices.length - 1]}` : prices.join("");
+  const recruiter = SECONDARY_CAPTAIN_TALENTS.commandCrew4;
+  const recruiterPct = recruiter.effect.type === "statMult" ? Math.round(recruiter.effect.mult * 100) : 0;
+  return `CANDIDATE BOARDS: the officer board and the away-team recruit board each show ${SENIOR_STAFF_ROSTER_BASE} candidates at Personnel Rosters Level 1, where every save starts. The facility's Upgrades tab grows both boards: each level adds ${PERSONNEL_ROSTERS_SLOTS_PER_RUNG} candidate slots to each board, up to ${top} at Level ${topLevel}, and costs credits (${priceList}) and a build time shown on the card. New slots join the end of the board; the candidates already on it stay the same. A captain with the ${recruiter.label} talent adds ${recruiterPct}% on top, rounded up (the best one in the fleet counts).`;
+}
 
 // Complement CP-18: the soft captain level cap, in the engine's own numbers.
 import { CAPTAIN_SOFT_CAP_GROWTH, CAPTAIN_SOFT_CAP_LEVEL } from "./game/model";

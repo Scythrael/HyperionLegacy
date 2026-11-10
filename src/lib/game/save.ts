@@ -5,7 +5,7 @@
 import LZString from "lz-string";
 import Decimal from "break_infinity.js";
 import { QUALITY_TIERS } from "./inventory";
-import { type GameState, type MissionPhase, type ShortRangeMissionState, freshCaptains, freshLifetimeStats, requiredTicksForPhase, missionDefWithoutShip, MISSIONS, SHIP_TYPES, seedStandardIssueForShip, STANDARD_ISSUE_ILEVEL, SI_PLATING_HP, SI_EMITTER_CAP, SI_EMITTER_RECHARGE, isStandardIssueBaseline, withStandardIssueMemberLines, withScienceLineSwap, AUTO_SALVAGE_RARITIES_NONE, AUTO_SALVAGE_GRACE_SECONDS_DEFAULT, SENIOR_STAFF_DEFAULT_SEED, SENIOR_STAFF_ROSTER_BASE, EXPEDITION_DEFAULT_SEED, DEFAULT_GAMBIT_PROGRAMS, RELIC_DEFAULT_SEED, awayRecruitSeedFrom, normalizeEquipmentRarity, normalizeEquipmentAscension } from "./model";
+import { type GameState, type MissionPhase, type ShortRangeMissionState, freshCaptains, freshLifetimeStats, requiredTicksForPhase, missionDefWithoutShip, MISSIONS, SHIP_TYPES, seedStandardIssueForShip, STANDARD_ISSUE_ILEVEL, SI_PLATING_HP, SI_EMITTER_CAP, SI_EMITTER_RECHARGE, isStandardIssueBaseline, withStandardIssueMemberLines, withScienceLineSwap, AUTO_SALVAGE_RARITIES_NONE, AUTO_SALVAGE_GRACE_SECONDS_DEFAULT, SENIOR_STAFF_DEFAULT_SEED, SENIOR_STAFF_ROSTER_BASE, EXPEDITION_DEFAULT_SEED, DEFAULT_GAMBIT_PROGRAMS, RELIC_DEFAULT_SEED, awayRecruitSeedFrom, normalizeEquipmentRarity, normalizeEquipmentAscension, PERSONNEL_ROSTERS_FACILITY_KEY, PERSONNEL_ROSTERS_TRACK_SWITCH } from "./model";
 // E-CREW (Task 2): the v64->v65 step backfills each officer's stats through the officer stat roll
 // (a neutral stub until Task 19, the real seeded roll since). Task 19's v65->v66 step re-rolls the
 // stub-era neutral lines through the same roll. One-way import: seniorStaff.ts is a pure leaf over
@@ -117,6 +117,9 @@ import { withThirdBuffGrantedV70 } from "./crewThirdBuff";
 //      or the run in flight) on the frozen seven-template draw and the Evacuation template joins only after it. A save
 //      with no board gets { version: 1, nextCycle: {}, evacuationFrom } (every slot at cycle 0, stamped 1). See
 //      withEvacuationStampV71. `refugees` needs no step: absent reads as nobody yet (refugees.ts refugeesOf).
+//   2. Complement CP-19 (no bump, v71 not yet on staging): `facilities.personnelRosters` at its pre-granted Level 1
+//      (the base board of 10; nothing changes until a rung is bought). Idempotent, so migrate also runs it on every
+//      load. See withPersonnelRostersTrackV71.
 export const SAVE_VERSION = 71;
 export const SAVE_KEY = "fleet_admiral_save";
 
@@ -2656,8 +2659,27 @@ const MIGRATIONS: Record<number, Migration> = {
   69: (state: any, ctx: MigrationContext): any =>
     dropRetiredDurabilityV70(withSoftCapSnapshotV70(withMuseumV2V70(withHomeworldV70(withRunCountsV70(dropRetiredFuelV70(state)), ctx.homeworldEntropy)))),
   // v70 -> v71 (0.14.0 E5-1 Refugee Posts): the board's per-slot evacuation stamp (withEvacuationStampV71).
-  70: (state: any): any => withEvacuationStampV71(state),
+  // Complement CP-19 rides the same step (no bump; v71 has not reached staging): the Personnel Rosters track's
+  // pre-granted Level 1 (withPersonnelRostersTrackV71), which migrate ALSO runs on every load.
+  70: (state: any): any => withPersonnelRostersTrackV71(withEvacuationStampV71(state)),
 };
+
+// Complement CP-19 (plan 2026-10-14 CP-19 / OC-17; user 2026-11-02 "Personnel Rosters track (Recommended)"): the
+// Personnel Rosters track at its pre-granted Level 1, the telescope's v67 -> v68 seed posture (an existing value is
+// kept). Level 1 adds no slot (model.ts PERSONNEL_ROSTERS_LEVELS), so an old save keeps today's board of 10 and
+// nothing changes until the player buys a rung. Folded into the v70 -> v71 step rather than a v72 bump because it is
+// IDEMPOTENT (`??` fills only an absent key) and v71 has not reached staging; migrate runs it on EVERY load too (the
+// withHomeworldV70 posture), so a dev save already at v71 from a build before CP-19 gains the key on its next load.
+// Hardened: a non-object state passes through; a non-object facilities map is left as it is (the framework reads an
+// absent key as level 0, which reads the same base board). Plain data. Off under the test switch.
+export function withPersonnelRostersTrackV71(state: any): any {
+  if (!PERSONNEL_ROSTERS_TRACK_SWITCH.live) return state;
+  if (!state || typeof state !== "object") return state;
+  const facilities = state.facilities;
+  if (facilities !== undefined && (facilities === null || typeof facilities !== "object" || Array.isArray(facilities))) return state;
+  if (facilities?.[PERSONNEL_ROSTERS_FACILITY_KEY] !== undefined) return state;
+  return { ...state, facilities: { ...facilities, [PERSONNEL_ROSTERS_FACILITY_KEY]: { level: 1 } } };
+}
 
 // The v70 -> v71 E5-1 step: stamp every board slot the save has with `evacuationFrom[slot] = nextCycle(slot) + 1`
 // (plan Numbers, "Stamp offset" [PROPOSAL]): the cycle the slot shows now (its preview, or the job in flight) keeps the
@@ -3098,6 +3120,8 @@ export function migrate(save: SaveFile, homeworldEntropy?: number): GameState {
   // Wiring WR-9 fix round (user 2026-10-31 "Yes, grant on load"): crew at a three-buff rank rolled before WR-9 roll
   // their third buff once, from their own identity's seed (crewThirdBuff.ts); identity once every such crewmember holds one.
   state = withThirdBuffGrantedV70(state);
+  // Complement CP-19: the Personnel Rosters track's pre-granted Level 1 for a save already at v71 (identity once seeded).
+  state = withPersonnelRostersTrackV71(state);
   // Hydrate the SHAPE first (Decimals, quality buckets), THEN reconcile any over-cap stack
   // down to its warehouse cap. clampInventoryToCaps needs the hydrated Decimal inventory +
   // the facility levels (both present after hydrateDecimals) to resolve each item's cap. It

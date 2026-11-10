@@ -15,8 +15,15 @@
 //   save:noTrack     : the same save with the track's key taken off the raw bytes (a v71 save from a build before the
 //                      slice), through deserialize + migrate.
 //   save:v70         : the same save stamped v70 (the v70 -> v71 step runs), through deserialize + migrate.
+//   board:level6     : (added after the capture) both boards with the track at Level 6, and with a Recruiter too.
+//   upgrade:<cut>    : (added after the capture) the first rung bought on the mission state, then 1000 s in 1 s steps,
+//                      one call and 997 s chunks: the rung finishes mid-span (the three agree), plus the level reached.
+//   The two added rows' pre-slice pins were captured through the switch (cp19Switch.fixture.ts withoutCp19), the cp18
+//   mission:realRate precedent: before CP-19 the track did not exist, so the level is ignored and nothing is bought.
 
-import { freshState, type GameState } from "./model";
+import Decimal from "break_infinity.js";
+import { freshState, personnelRostersLevel, type GameState } from "./model";
+import { startFacilityUpgrade } from "./tick";
 import { seniorStaffCandidates, OFFICER_ROSTER_WINDOW_SECONDS } from "./seniorStaff";
 import { awayRecruitCandidates } from "./awayTeam";
 import { deserialize, migrate, serialize, type SaveFile } from "./save";
@@ -65,7 +72,14 @@ export function cp19Rows(): Record<string, unknown> {
   got["fresh:stateHash"] = stateHash(fresh);
   for (const w of CP19_WINDOWS) got[`board:${w}`] = boards(atWindow(wiringBase(), w));
   got["board:recruiter"] = boards(withRecruiter(wiringBase()));
+  const level6 = { ...wiringBase(), facilities: { ...wiringBase().facilities, [TRACK_KEY]: { level: 6 } } };
+  got["board:level6"] = [...boards(level6), ...boards(withRecruiter(level6))];
   const start = cp16MissionStart();
+  const bought = startFacilityUpgrade({ ...start, credits: new Decimal(1_000_000) }, TRACK_KEY).next;
+  for (const [cut, chunk] of [["steps", 1], ["oneCall", 1000], ["chunks", 997]] as const) {
+    const end = steppedBy(bought, 1000, chunk);
+    got[`upgrade:${cut}`] = [stateHash(end), personnelRostersLevel(end)];
+  }
   got["mission:steps"] = stateHash(steppedBy(start, 1000, 1));
   got["mission:oneCall"] = stateHash(steppedBy(start, 1000, 1000));
   got["mission:chunks"] = stateHash(steppedBy(start, 1000, 997));
@@ -87,6 +101,11 @@ export const CP19_PINS_PRE: Record<string, unknown> = {
   "board:1": [10, "22117c51", 10, "d6831831"],
   "board:7": [10, "bb2fec00", 10, "52a22504"],
   "board:recruiter": [11, "544d0573", 11, "d01f97c"],
+  // Added after the capture; pre-slice pins captured through the switch (withoutCp19), which reproduces every row above.
+  "board:level6": [10, "395ffda9", 10, "810463ea", 11, "544d0573", 11, "d01f97c"],
+  "upgrade:steps": ["69db926a", 0],
+  "upgrade:oneCall": ["69db926a", 0],
+  "upgrade:chunks": ["69db926a", 0],
   "mission:steps": "69db926a",
   "mission:oneCall": "69db926a",
   "mission:chunks": "69db926a",

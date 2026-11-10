@@ -454,6 +454,9 @@ describe("buildHomeDashboard, needs-orders + caught-up (Unit 2)", () => {
         // Squads SQ-7.4: the Subspace Telescope is pre-granted at level 1 (its real seed); its next cycle wants
         // 4,000 credits + FA level 3, so it is not startable here. Level 0 would expose the free founding rung.
         subspaceTelescope: { level: 1 },
+        // Complement CP-19: Personnel Rosters is pre-granted at level 1 too (its real seed); its next level wants
+        // 3,000 credits, so it is not startable here.
+        personnelRosters: { level: 1 },
       },
     };
     const model = buildHomeDashboard(blank);

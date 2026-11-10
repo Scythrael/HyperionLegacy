@@ -59,8 +59,9 @@ export const hash = (v: unknown): string => fnv(goldenJson(v));
 // section 3.3) and G2-1's stored `homeworld` (the G2-0 withoutG2State precedent). A no-op today; it keeps every
 // whole-state golden byte-identical across those additions, so only a real behavior change moves one. Pure.
 // E5-1: and without the board's evacuation stamp the v70 -> v71 step writes on an old save.
+// Complement CP-19: and without the Personnel Rosters track at its pre-granted Level 1 (withoutPreGrantedRostersTrack).
 export function stateHash(state: GameState): string {
-  const rest = { ...withoutEvacuationStamp(withV1Museum(state)) } as Record<string, unknown>;
+  const rest = { ...withoutPreGrantedRostersTrack(withoutEvacuationStamp(withV1Museum(state))) } as Record<string, unknown>;
   delete rest.runCounts;
   delete rest.homeworld;
   return hash(rest);
@@ -79,6 +80,20 @@ export function withoutEvacuationStamp<T>(value: T): T {
   const emptyCursor = !boardRest.nextCycle || Object.keys(boardRest.nextCycle).length === 0;
   if (emptyCursor) return rest as T;
   return { ...(value as object), shortRangeBoard: boardRest } as T;
+}
+
+// Complement CP-19 (the Personnel Rosters track): a state without `facilities.personnelRosters` while it is exactly the
+// pre-granted Level 1 every new game and every loaded save now carries (freshState, the v70 -> v71 step, every load).
+// Level 1 adds nothing to either candidate board, so every whole-state golden captured before CP-19 keeps proving that
+// nothing ELSE moved (the withoutEvacuationStamp precedent). Any other level (a bought rung) is returned as it is, so a
+// real board change moves the golden; cp19Goldens.test.ts pins the raw key itself. Pure: a shallow copy.
+export function withoutPreGrantedRostersTrack<T>(value: T): T {
+  const facilities = (value as { facilities?: Record<string, unknown> } | null)?.facilities;
+  if (!facilities || typeof facilities !== "object") return value;
+  const track = facilities.personnelRosters as { level?: unknown } | undefined;
+  if (!track || typeof track !== "object" || Object.keys(track).length !== 1 || track.level !== 1) return value;
+  const { personnelRosters: _track, ...rest } = facilities;
+  return { ...(value as object), facilities: rest } as T;
 }
 
 // Relics v2 R2-1: a state with its Museum v2 record shown in the v1 form every whole-state golden captured before
@@ -114,8 +129,9 @@ export function withV1Museum<T>(value: T): T {
 // shallow copy.
 // Relics v2 R2-1: it also shows the Museum v2 record in its v1 form (withV1Museum above), for the same reason: every
 // whole-state golden that hashes through it was captured with the v1 `relicMuseum`.
+// Complement CP-19: and without the Personnel Rosters track at its pre-granted Level 1 (withoutPreGrantedRostersTrack).
 export function withoutRunCounts<T>(input: T): T {
-  const value = withV1Museum(input);
+  const value = withoutPreGrantedRostersTrack(withV1Museum(input));
   if (!value || typeof value !== "object" || !("runCounts" in value)) return value;
   const rest = { ...value } as Record<string, unknown>;
   delete rest.runCounts;
