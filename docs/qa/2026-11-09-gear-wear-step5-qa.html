@@ -162,7 +162,7 @@
 
   <div class="legend">
     <p><b>What it does.</b> Condition runs 0 to 100%. The bands are <b>Pristine</b> (95% and up), <b>Sound</b> (80% to 94%), <b>Worn</b> (60% to 79%) and <b>Battered</b> (below 60%, battle damage only). Ordinary use stops at 60%. Repair is automatic and free: 4% a minute at home, 8% a minute while the hull is in a Shipyard repair bay, 4% a minute on a field repair, 0.2% a minute out on a run. Nothing breaks, nothing is uninstalled, no run is ever blocked.</p>
-    <p><b>Quick Service is gone.</b> There is no paid repair, no instant repair and no "repair now" button for gear anywhere (your 2026-11-09 answer). The mockup's "No cost, no button" care line is the whole story.</p>
+    <p><b>Quick Service is gone.</b> There is no paid repair, no instant repair and no "repair now" button for gear anywhere (your 2026-11-09 answer). Repair stays free and automatic; the only purchase is the optional <b>Overtime</b> button on a docked ship's gear card (your approved 2026-11-09 Overtime mockup), which only speeds the repair up.</p>
     <p><b>Where to test.</b> Staging, <b>devpreview.crystalisoft.com</b>, on the 0.14.0 build, with your own migrated save. The Debug tab (a DEV_MODE build) has <b>[DEV] Gear wear</b> buttons: Wear all to 90% / 70% / 40% and Restore all gear, so you can see every band without flying.</p>
     <p><b>The three columns.</b> <b style="color:var(--claude)">Claude</b> is pre-filled and read-only: a tick means a test proves that rule (the "how" line names the file). <b style="color:var(--desk)">1280</b> and <b style="color:var(--mob)">375</b> are yours; your ticks are saved in this browser.</p>
     <p>Tags: <span class="chip save">needs real save</span> needs your migrated save. <span class="chip device">needs device</span> touch, a real phone, or a visual call. <span class="chip theme">light + dark</span> look at it in both themes. <span class="chip later">not in this build</span> not built here.</p>
@@ -184,6 +184,7 @@
       <li><b>Overtime on gear repair</b> is built in the engine and registry, by the speed seam's rule (+25% of the normal rate a step, three steps at most, step k costs 10 x the job's minutes x the hull tier x k, docked ships only). Like every other Overtime it has no button yet (the speed seam waits for an Overtime sketch). See section 5.</li>
       <li><b>Patrol use wear.</b> A patrol dispatched after this update wears its reactor, drive and modules each cycle (never its training cycle). A patrol already in flight at the update flies on exactly as before.</li>
       <li><b>No save change.</b> Two optional fields (a patrol's use wear stamp, a ship's Overtime record), no SAVE_VERSION bump.</li>
+      <li><b>Review fix round (2026-11-09).</b> C1: gear repair now settles in exact whole numbers (whole-second anchors and an integer bank), so offline and live agree to the byte at any game time. C2: a patrol's use wear shrinks as a piece nears 60%, so a Repeat patrol settles instead of grinding to 60% (use alone, a destroyer on Repeat Sweep: reactor 84% and drive 91% after 10 hours, where wear and the underway upkeep balance). Overtime is priced by the repair job's FULL length (fixed whenever it is bought). The Overtime button is built on the gear card (your answers "Per ship", "One tap", "Gear card only"). The care footer now ends "Repair is always free."; out on a run the lines say use can outpace the slow underway upkeep. Four new optional fields (a piece's repair bank and carried patrol use, a ship's repair job length), no SAVE_VERSION bump.</li>
     </ol>
   </div>
 
@@ -201,8 +202,9 @@ const SECTIONS = [
   { n: "1", title: "The gear card (mockup section 1)", items: [
     { t: "Wear all to 70%, open a ship and tap a Cargo Bay: the card shows <b>Condition</b>, <b>wears by hauls</b>, a bar with ticks at 60, 80 and 95, and <b>Worn 70%.</b> Its stat lines work at 97.8% of new.", c: true, tag: "theme", how: "gearWearStep5.test.ts (the card: band, effect from the curve)." },
     { t: "The worn lines list each of its own lines with the new value struck through beside the worn one (Cargo Capacity, for example).", c: true, how: "gearWearStep5.test.ts (worn lines are below the pristine values)." },
-    { t: "The care footer reads <b>Back to full in about 8 min at home, on its own. No cost, no button.</b> (about 8 min from 70% at 4% a minute). Watch it count down.", c: true, tag: "theme", how: "gearWearStep5.test.ts (the care footer from the repair outlook)." },
+    { t: "The care footer reads <b>Back to full in about 8 min at home, on its own. Repair is always free.</b> (about 8 min from 70% at 4% a minute). Watch it count down. After an Overtime step it says <b>with Overtime</b>.", c: true, tag: "theme", how: "gearWearStep5.test.ts (the care footer from the repair outlook)." },
     { t: "A weapon card reads <b>Opens each fight at 70%.</b>; a Reactor Core <b>Each fight opens it at 70%. Its power output stays full.</b>; an FTL drive also says <b>Reach is never reduced.</b>", c: true, how: "gearWearStep5.test.ts (wearEffectText)." },
+    { t: "A piece on a ship that is out on a run reads <b>Recovers 0.2% a minute underway, which use and battle can outpace, and fully once home.</b>", c: true, how: "gearWearDisplay.ts pieceCareText (step 5 fix C2)." },
     { t: "Shield emitters, plating and drone pods read <b>In battle it works at N% of new.</b>; a module <b>In battle its effect works at N% of new.</b>", c: false },
     { t: "A pristine piece reads <b>Pristine.</b> Operating like new. and <b>Nothing to do.</b>", c: true, how: "gearWearStep5.test.ts (pristine card)." },
     { t: "The same block shows on a spare in Logistics, Ship Equipment, on an Armory loadout piece and on a member's gear (Away Team tab).", tag: "save" },
@@ -210,15 +212,16 @@ const SECTIONS = [
   ]},
   { n: "2", title: "The Ship Systems board (mockup section 2)", items: [
     { t: "Every installed slot (weapons, shields, plating, drone bays, Cargo, FTL, Reactor, Spec Utility, Bridge, Quarters, Sensor, module tiles) has a small meter and percent at its edge, in its band color. Empty slots have none.", tag: "theme" },
-    { t: "Under the header: one <b>Gear N%</b> chip (the mean condition of the installed pieces). While something is worn, a second chip: <b>Recovering, full in about N min</b> at home, or <b>Out on a run, recovering slowly</b> while out.", c: true, tag: "theme", how: "gearWearStep5.test.ts (shipGearSummary)." },
+    { t: "Under the header: one <b>Gear N%</b> chip (the mean condition of the installed pieces). While something is worn, a second chip: <b>Recovering, full in about N min</b> at home, or <b>Out on a run, full once home</b> while out.", c: true, tag: "theme", how: "gearWearStep5.test.ts (shipGearSummary)." },
     { t: "The chip strip's <b>Gear wear</b> link opens Help, Gear wear.", tag: "device" },
-    { t: "Nothing on the board asks for a click: no repair button for gear, no badge, no pulse.", tag: "theme" },
+    { t: "Nothing on the board itself asks for a click: no repair button for gear, no badge, no pulse. (Overtime lives only on the gear card, section 5.)", tag: "theme" },
     { t: "At 375 px the meters stay on the row (they never push the Swap / Uninstall buttons off screen) and the chips wrap.", tag: "device" },
   ]},
   { n: "3", title: "Fleet care on Command Home (mockup section 4)", items: [
     { t: "With everything pristine and no damaged hull, Command Home shows <b>no</b> Fleet care section.", c: true, how: "gearWearStep5.test.ts (fleetCare is null when pristine)." },
     { t: "Wear all to 70%: a <b>Fleet care</b> section appears: <b>Fleet gear 70%</b>, <b>Nothing needs you</b>, a summary such as <b>3 ships recovering. Docked gear back to full in about 8 min.</b> and one row per ship with its meter and <b>Docked, gear full in about N min</b>.", c: true, tag: "theme", how: "gearWearStep5.test.ts (summary and row text)." },
-    { t: "A ship out on a run reads <b>Out on a run, gear recovers slowly underway and fully once home</b>.", c: true, tag: "save", how: "gearWearStep5.test.ts (out on a run)." },
+    { t: "A ship out on a run reads <b>Out on a run, gear wears with use and recovers fully once home</b>.", c: true, tag: "save", how: "gearWearStep5.test.ts (out on a run)." },
+    { t: "Fleet care has <b>no</b> Overtime button (your answer \"Gear card only\"): it only reports.", tag: "theme" },
     { t: "Lose a patrol: the ship's row also says <b>Hull in a Shipyard bay, about N min</b> (or waiting for a free bay) beside its gear, so hull and gear read as one recovery (W6).", tag: "save" },
     { t: "Restore all gear: the section disappears again (within a tick).", tag: "save" },
   ]},
@@ -227,13 +230,21 @@ const SECTIONS = [
     { t: "Your very first patrol on a new save (the training run) leaves no wear at all.", c: true, how: "gearWearStep5Goldens.test.ts (the training cycle records no use wear)." },
     { t: "A patrol that was already out when the update landed keeps flying exactly as before.", c: true, how: "gearWearStep5Goldens.test.ts (in flight at the update, byte-identical)." },
     { t: "Offline catch-up gives the same gear as watching live.", c: true, how: "gearWearStep5.test.ts (one call == 997 s chunks == 1 s steps)." },
+    { t: "A ship left on Repeat Sweep for a few hours: its reactor and drive settle and stay (on use alone the reactor holds at 84%, the drive at about 91%; never sliding to 60%).", c: true, tag: "save", how: "gearWearStep5Fixes.test.ts (C2: a Repeat Sweep settles)." },
   ]},
-  { n: "5", title: "Overtime on gear repair (engine only)", items: [
+  { n: "5", title: "Overtime on gear repair (the gear card button)", items: [
     { t: "Engine rule, proved by tests: on a docked ship with worn gear, each Overtime step lifts its gear's repair rate by 25% of normal (at most 3 steps, 1.75x), step k costs ceil(10 x the job's minutes x hull tier x k), refused while the ship is out, when nothing is worn, at 3 steps or when credits are short; it clears when the gear is full or the ship leaves.", c: true, how: "gearWearStep5.test.ts (Overtime describe); wiring registry wear:audit:gearRepairOvertime (live)." },
-    { t: "No Overtime button anywhere in the game yet (for gear or for any other job): it waits for your Overtime sketch.", tag: "later" },
+    { t: "Price: step k costs 10 x the job's FULL length in minutes x hull tier x k, the length recorded when the docked repair job began, so buying it late costs the same as buying it early.", c: true, how: "gearWearStep5Fixes.test.ts (Overtime price)." },
+    { t: "Wear all to 70%, open a docked ship's Ship Systems and tap (or hover) a worn piece: under the care footer an <b>OVERTIME</b> strip shows three empty pips, <b>0 of 3</b>, a button <b>+25% · N cr</b> and <b>Speeds up all of SHIP's gear: full in about X min instead of about Y min.</b>", c: true, tag: "theme", how: "gearWearStep5Fixes.test.ts (the strip reads the engine's quote)." },
+    { t: "One tap buys it (no confirm): credits drop by exactly N, the System Log reads <b>Overtime on SHIP's gear repair: step 1 of 3 for N cr. All of its gear full in about X min.</b>, the pips show <b>1 of 3 · 1.25x</b> and the next price is shown.", c: true, tag: "save", how: "gearWearStep5Fixes.test.ts (one tap buys the step)." },
+    { t: "After 3 steps the strip reads <b>3 of 3 · 1.75x</b> and <b>At its fastest</b> (no button).", c: true, how: "gearWearStep5Fixes.test.ts." },
+    { t: "On a ship that is out on a run the button is a dashed <b>Docked only</b> with the reason under it.", c: true, tag: "theme", how: "gearWearStep5Fixes.test.ts (out on a run)." },
+    { t: "Short of credits: the button is dashed and reads <b>N cr · need M more</b>.", c: true, how: "gearWearStep5Fixes.test.ts." },
+    { t: "Desktop: hover a piece, move onto the card and click the button before it hides. Phone (375 px): tap a piece to pin the card, tap the button; the card stays pinned.", tag: "device" },
+    { t: "Send the ship out: the Overtime record clears; the gear card shows the strip off again.", c: true, tag: "save", how: "gearWearStep5.test.ts (inert out on a run, clears when the ship leaves)." },
   ]},
   { n: "6", title: "Help", items: [
-    { t: "Help, <b>Gear wear</b>: how each kind wears, the four bands, the 60% use floor, the curve (96% at 60%, never below 75%), the free repair rates, and where each readout lives. No mention of paid or instant repair. No em dashes, US English.", c: true, tag: "theme", how: "gearWearStep5.test.ts (the Help topic reads the engine); helpTopics.test.ts (shape and wording guards)." },
+    { t: "Help, <b>Gear wear</b>: how each kind wears, the four bands, the 60% use floor, the curve (96% at 60%, never below 75%), the free repair rates, Overtime on a docked ship's gear card (it only speeds repair, which stays free), and where each readout lives. The drive line says its transit speed is reduced AND it opens fights at its condition; the reactor's power output stays full. No mention of instant repair. No em dashes, US English.", c: true, tag: "theme", how: "gearWearStep5.test.ts (the Help topic reads the engine); helpTopics.test.ts (shape and wording guards)." },
   ]},
 ];
 

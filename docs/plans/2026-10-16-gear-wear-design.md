@@ -609,3 +609,55 @@ pin patrols run with the switch off. Registry: the five time and distance use so
 `wear:audit:gearRepairOvertime` is live. No SAVE_VERSION bump (two optional fields).
 Still open from earlier notes: the Survey Pair set tier still reads its module pieces pristine (step 4's log), and the
 combat view's "opened at N%, carried wear" cycle line (section 8) is not built (the mockup does not draw it).
+
+## USER ANSWERS (2026-11-09): step 5 review
+
+- **Overtime button:** "Yes, sketch it first (Recommended)". Mockup: `docs/mockups/2026-11-09-gear-repair-overtime-mockup.html`.
+  The user then APPROVED the mockup (2026-11-09), so the button is built in the step 5 fix round, with these calls:
+  - **Scope:** "Per ship (Recommended)". One purchase speeds up all of a docked ship's gear repairs, as the engine is
+    built.
+  - **Buying:** "One tap (Recommended)". The button shows the exact next-step cost and the new time to full. One tap
+    buys it, with no confirm.
+  - **Placement:** "Gear card only (Recommended)". The button is on the gear card ONLY, not on the Fleet care rows on
+    Command Home; Fleet care stays report-only. (This differs from the mockup's drawn option A.)
+- **Fleet care placement:** "Under In progress (Recommended)", as built.
+- **Patrol wear rates:** "Keep the approved rates (Recommended)".
+- **Overtime price:** "Match the existing rule (Recommended)". Price by the repair job's FULL length, fixed when bought,
+  like every other Overtime.
+- **Reactor power:** "Stays full (Recommended)". Wear never cuts reactor power output (closes the open EM-4 call).
+
+**Carry note, step 5 review fix round (2026-11-09, the answers above).**
+- **C1, exact settling.** Repair is integer arithmetic (the crewHoursMs precedent): a rate is quantized to
+  `repairRateQ = round(rate x 1000)` bank units a second, one per-mille being 60000 units (`gearWear.ts
+  REPAIR_BANK_PER_MILLE`). The stored anchor stays `conditionAt`, the exact instant the banked fraction was zero, but
+  every settle decodes it into a whole second and an integer bank (`decodeRepairAnchor`: at = ceil(anchor), bank =
+  round(rateQ x (at - anchor)), exact below 1e9 s), works in integers (the canonical gain second is the first whole
+  second the last per-mille was reached) and encodes once from integers (`encodeRepairAnchor`: at - bank / rateQ), so
+  nothing accumulates. One call, 997 s chunks and 1 s steps store the same bytes at 3e6, 3e7 and 1e8 s for rates 50,
+  70 and 100 (and through the tail pass with Overtime), with no tolerance; the 1e-7 settle slack is gone. Builder's
+  choice against the reviewer's literal shape (an integer `conditionAt` plus a `conditionBank` field): this encoding is
+  the same exact integer state, and where the old float arithmetic was already exact (the free rates 2, 40 and 80 from
+  whole-second anchors) it writes the very bytes the old code wrote, so no save field, no migration and no golden pin
+  moved for C1 (a drifted anchor in an older save decodes deterministically). The rebase keeps the banked fraction and
+  re-encodes it at the new rate.
+- **C2, patrol use wear settles.** A patrol cycle's use is recorded EXACTLY (its minutes and light-years); each piece
+  curves it at its condition (toughness x (c - 600) / 400) and only then carries the fraction itself
+  (`EquipmentInstance.useWearCarry`, `gearWear.ts useWearCarried`; no "at least 1"), so wear shrinks near the floor
+  and balances the underway upkeep. The run's minutes carry on the mission (`PatrolMissionState.useCarry`) is gone.
+  Measured, use alone, a destroyer on Repeat Sweep after 10 hours: reactor 840 (exactly its balance point, 600 + 400 x
+  2 / (4 x 100 / 120)) and FTL drive 912; before, the reactor ground to 600 by 210 minutes. With the approved rates
+  (user "Keep the approved rates") the reactor's balance is 84%, below 3.4's "near 90%" target; the target needs a
+  rate change, which is the user's call. Training cycles and runs in flight from before step 5 record no use.
+- **Overtime price.** Priced by the repair job's FULL length (user "Match the existing rule"): the engine records the
+  docked gear repair job's length at the normal rate when the job starts (`ShipInstance.gearRepairJobMinutes`, the
+  tail pass's `trackGearRepairJobs`; cleared with the job), and every step prices that length (frozen at step 1 as
+  before), so buying late costs what buying early does.
+- **Overtime button** (the approved mockup, "Per ship", "One tap", "Gear card only"): the gear card's Overtime strip
+  (`gearWearDisplay.ts gearOvertimeStrip`, every number from `canBuyGearRepairOvertime`): pips 0 to 3, the next
+  step's exact price and the new time to full, one tap buys and logs it (`gearOvertimePurchase`, App
+  `buyGearOvertime`); a dashed "Docked only" with the reason on a ship out on a run; "At its fastest" at 3 of 3; the
+  price and what is missing when short of credits. Fleet care stays report-only. The care footer ends "Repair is always
+  free." ("with Overtime" once bought); out on a run it says use and battle can outpace the slow underway upkeep.
+- **Help:** the drive line says its transit speed weakens AND it opens fights at its condition; the reactor's power
+  output stays full (user "Stays full"); "no button and no cost" is replaced by the Overtime line.
+- Save: two optional fields (`useWearCarry`, `gearRepairJobMinutes`), no SAVE_VERSION step.
