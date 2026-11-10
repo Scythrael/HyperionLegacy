@@ -6,8 +6,8 @@
 //
 // USER ANSWERS this binds (design USER ANSWERS, 2026-10-16): "Gentle" (use wears a piece to 60% at most, a fully worn
 // piece works at 75%: gearWear.ts useWear and the worn-gear view); "No wear on training; implants slow" (a training
-// run makes no wear event; the implant is the slowest source); "Free auto + paid rush" (every repair here is automatic
-// and free; the paid rush is step 5); "Separate, shown together" (hull damage stays its own Shipyard system: a hull in
+// run makes no wear event; the implant is the slowest source); repair is automatic and free (the paid rush was dropped,
+// user 2026-11-09 "None, always automatic"; step 5's Overtime only speeds a docked ship's rate); "Separate, shown together" (hull damage stays its own Shipyard system: a hull in
 // a repair bay only lends its gear the faster bay rate). Battle wear and the combat half are step 4 (see below).
 //
 // THE USE WEAR SOURCES, per kind (gearWear.ts WEAR_SOURCES, every amount through useWear: toughness-scaled, shrinking
@@ -102,6 +102,9 @@ import {
 import type { ShortRangeWearEvents } from "./shortRangeCycle";
 import { isFirstGatheringRun } from "./runDifficulty";
 import { studyDiveEvents } from "./gasGiantStudy";
+import { overtimeRate } from "./overtimeRate";
+import { LY_PER_TICK } from "./fuel";
+import type { PatrolDef } from "./model";
 
 // ============================================================================
 // The switch, the stamps and the run sheet
@@ -580,6 +583,73 @@ export function projectCycleConditions(
   return out;
 }
 
+// ============================================================================
+// GEAR WEAR step 5: PATROL USE WEAR (design 3.1 "on any run"; SF-7 note: skip the training cycle)
+// ============================================================================
+//
+// A patrol cycle wears its ship like any run: the reactor core and (crew aboard) the crew modules by the minutes the
+// cycle flew, the universal modules by the same minutes, and the FTL drive by the route's round trip in light-years
+// (the route's authored legs, as a mission's distance reads its def). The event lands where the cycle ends: a won
+// route at its end (the minutes it flew, its return cut included), a lost one in two parts, the minutes out to the
+// defeat at the defeat and the limp home (its minutes and the round trip) as the wreck reaches base, each known at its
+// own instant so one call, chunks and 1 s steps agree. Only a run stamped at dispatch (PatrolMissionState.useWear)
+// records it, and never its training cycle (runDifficulty.ts isTrainingPatrol), as the battle sources do.
+
+// The test-only seam golden files captured before step 5 use to dispatch as before (patrolUseWearSwitch.fixture.ts).
+// Live in the game.
+export const PATROL_USE_WEAR_SWITCH = { live: true };
+
+// The stamp a patrol is dispatched with: 1 while the use sources are live (undefined otherwise). Pure.
+export function patrolUseWearStamp(): 1 | undefined {
+  return PATROL_USE_WEAR_SWITCH.live && gearWearLive() ? 1 : undefined;
+}
+
+// One patrol cycle's use, as tickCaptainPatrol records it.
+export interface PatrolUseWear {
+  minutesUnderway: number;
+  lightYears: number;
+  crewed: boolean;
+}
+
+// The units of `sourceId` that make exactly the whole raw per-mille useWearRaw floors `units` to (the rest is a
+// fraction of a per-mille). Pure.
+function wholeUseUnits(sourceId: string, units: number): number {
+  const s = WEAR_SOURCES.find((w) => w.id === sourceId);
+  if (!s || !(s.raw > 0) || !(units > 0)) return 0;
+  return (useWearRaw(sourceId, units) * s.per) / s.raw;
+}
+
+// A patrol cycle's use with the run's carry: the minutes and light-years that make whole per-mille now (the reactor's
+// and the drive's rates; the crew modules and the universal modules share the reactor's per-minute rate), and the
+// remainder carried to the next cycle (undefined when nothing is left). A short route (a 14 s Sweep cycle is a quarter
+// of a minute) would otherwise round to nothing every cycle. Pure.
+export function patrolUseCarry(
+  carry: { minutes: number; lightYears: number } | undefined,
+  minutes: number,
+  lightYears: number,
+): { minutes: number; lightYears: number; carry: { minutes: number; lightYears: number } | undefined } {
+  const m = (carry?.minutes ?? 0) + minutes;
+  const ly = (carry?.lightYears ?? 0) + lightYears;
+  const wholeMinutes = wholeUseUnits("reactorCore:minutesRunning", m);
+  const wholeLy = wholeUseUnits("ftlDrive:distance", ly);
+  const restMinutes = m - wholeMinutes;
+  const restLy = ly - wholeLy;
+  const left = restMinutes > 1e-9 || restLy > 1e-9 ? { minutes: Math.max(0, restMinutes), lightYears: Math.max(0, restLy) } : undefined;
+  return { minutes: wholeMinutes, lightYears: wholeLy, carry: left };
+}
+
+// A patrol route's round trip in light-years (its authored legs, LY_PER_TICK, the mission distance rule). Pure.
+export function patrolRouteLightYears(def: Pick<PatrolDef, "transitOutTicks" | "transitBackTicks">): number {
+  return (def.transitOutTicks + def.transitBackTicks) * LY_PER_TICK;
+}
+
+// A patrol wear event as the ship event the tail pass and the relaunch projection apply: its use (step 5), then its
+// battle wear and Damage Control fires (step 4). Pure.
+export function patrolEventWear(ev: { battle: Readonly<Record<string, number>>; damageControlFires: number; use?: PatrolUseWear }): ShipUseWear {
+  const battle = battleOnlyWear(ev.battle, ev.damageControlFires);
+  return ev.use ? { ...battle, minutesUnderway: ev.use.minutesUnderway, lightYears: ev.use.lightYears, crewed: ev.use.crewed } : battle;
+}
+
 // The empty use of a ship event that carries only battle wear or a Damage Control Suite fire (step 4).
 export function battleOnlyWear(battle: Readonly<Record<string, number>> | undefined, damageControlFires = 0): ShipUseWear {
   return { ...NO_SHIP_USE, crewed: false, ...(damageControlFires > 0 ? { damageControlFires } : {}), ...(battle && Object.keys(battle).length > 0 ? { battle } : {}) };
@@ -695,7 +765,109 @@ export function pieceRepairRate(
     bonuses = ship ? shipRepairBonuses(state, ship, favored, hullBonus) : {};
     cache?.set(key, bonuses);
   }
-  return repairRatePerMinute(context, bonuses);
+  const rate = repairRatePerMinute(context, bonuses);
+  // GEAR WEAR step 5, Overtime on gear repair: a docked ship's own installed pieces repair faster by its bought steps.
+  // Never a ship out on a run (the record is inert there and clears at the call's tail), never the span after a run
+  // ended within the call (postRun: the ship could not have bought it while out), never member gear or storage.
+  if (postRun || piece.fittedToShipId !== shipId || index.out.has(shipId) || (context !== "home" && context !== "shipyardBay")) return rate;
+  return rate * gearOvertimeMult(state, shipId);
+}
+
+// ============================================================================
+// GEAR WEAR step 5: Overtime on gear repair (processSpeed.ts buyGearRepairOvertime), the engine's read
+// ============================================================================
+
+const OVERTIME_MULT_CACHE = new WeakMap<readonly ShipInstance[], Map<string, number>>();
+
+// The repair rate multiplier a ship's bought Overtime steps give its docked gear (1 without a record). Pure (cached per
+// ships array, which every state change replaces).
+export function gearOvertimeMult(state: Pick<GameState, "ships">, shipId: string): number {
+  let byShip = OVERTIME_MULT_CACHE.get(state.ships);
+  if (byShip === undefined) {
+    byShip = new Map();
+    for (const s of state.ships) {
+      const steps = s.gearRepairSpeed?.overtimeSteps ?? 0;
+      if (steps > 0) byShip.set(s.id, overtimeRate(steps));
+    }
+    OVERTIME_MULT_CACHE.set(state.ships, byShip);
+  }
+  return byShip.get(shipId) ?? 1;
+}
+
+// A ship's INSTALLED pieces that are worn right now (livePieceCondition below full). Pure.
+export function shipWornPieces(state: GameState, shipId: string): EquipmentInstance[] {
+  return state.equipment.filter((p) => p.fittedToShipId === shipId && p.condition !== undefined && livePieceCondition(state, p) < CONDITION_FULL);
+}
+
+// Where a piece is recovering and how fast, for the readouts (the gear card, the ship header, the fleet care line) and
+// the Overtime price. `context` is the display context ("fieldRepair" while its ship is set down on a GO-8b leg right
+// now); `ratePerMinute` the rate it repairs at now (Overtime included); `minutesToFull` the minutes until it is back to
+// full where it is (a docked ship in a Shipyard bay: at the bay rate until the hull repair ends, then at the home rate),
+// null while its ship is out on a run (it repairs slowly underway and fully once home). `normal` reads the rates
+// WITHOUT Overtime (the Overtime price: the job's size at the normal rate). Pure.
+export interface GearRepairOutlook {
+  condition: number;
+  context: RepairContext;
+  ratePerMinute: number;
+  minutesToFull: number | null;
+}
+
+export function gearRepairOutlook(state: GameState, piece: EquipmentInstance, normal = false): GearRepairOutlook {
+  const condition = livePieceCondition(state, piece);
+  const index = repairContextIndex(state);
+  const base = pieceRepairContext(index, piece);
+  const shipId = pieceShipId(index, piece);
+  const context: RepairContext = base === "underway" && shipId !== null && index.field.has(shipId) ? "fieldRepair" : base;
+  const strip = (rate: number): number => (normal && shipId !== null ? rate / (piece.fittedToShipId === shipId && !index.out.has(shipId) ? gearOvertimeMult(state, shipId) : 1) : rate);
+  const ratePerMinute = strip(pieceRepairRate(state, index, piece, context));
+  const need = CONDITION_FULL - condition;
+  if (need <= 0) return { condition, context, ratePerMinute, minutesToFull: 0 };
+  if (context === "underway" || context === "fieldRepair" || !(ratePerMinute > 0)) return { condition, context, ratePerMinute, minutesToFull: null };
+  if (context === "shipyardBay" && shipId !== null) {
+    const repair = state.activeProcesses.find((p) => p.kind === "shipRepair" && p.effect.type === "clearShipDamage" && p.effect.shipId === shipId);
+    const bayMinutes = repair ? (repair.remainingTicks * state.tickDurationSeconds) / 60 : Infinity;
+    if (need <= ratePerMinute * bayMinutes) return { condition, context, ratePerMinute, minutesToFull: need / ratePerMinute };
+    const homeRate = strip(pieceRepairRate(state, index, piece, "home"));
+    return { condition, context, ratePerMinute, minutesToFull: bayMinutes + (need - ratePerMinute * bayMinutes) / homeRate };
+  }
+  return { condition, context, ratePerMinute, minutesToFull: need / ratePerMinute };
+}
+
+// The pieces of a docked ship settled to now at the rate they repair at now, then re-anchored for a NEW Overtime
+// multiplier (rebaseAnchor: the fraction of a per-mille the old rate banked carries over at the new rate), so a
+// purchase changes the rate from this instant on and never repairs time already spent. Pure.
+export function settleShipForRateChange(state: GameState, shipId: string, newMult: number): GameState {
+  const index = repairContextIndex(state);
+  const now = state.gameTimeSeconds;
+  const oldMult = gearOvertimeMult(state, shipId);
+  let changed = false;
+  const equipment = state.equipment.map((piece) => {
+    if (piece.fittedToShipId !== shipId || piece.condition === undefined) return piece;
+    const rate = pieceRepairRate(state, index, piece, pieceRepairContext(index, piece));
+    const settled = settlePiece(piece, now, rate);
+    const p = rebaseAnchor(settled, now, rate, (rate / oldMult) * newMult);
+    if (p !== piece) changed = true;
+    return p;
+  });
+  return changed ? { ...state, equipment } : state;
+}
+
+// The ships whose gear repair Overtime ends at the call's tail: the ship is out on a run (at the call's start or end)
+// or none of its installed pieces is worn any more. A ship docked the whole call only ever recovers, so clearing at any
+// call boundary after it is full changes no piece (offline == live). Pure.
+function clearFinishedGearOvertime(state: GameState, index: RepairContextIndex, indexAfter: RepairContextIndex): GameState {
+  if (!state.ships.some((s) => s.gearRepairSpeed !== undefined)) return state;
+  const worn = new Set<string>();
+  for (const p of state.equipment) if (p.fittedToShipId && p.condition !== undefined) worn.add(p.fittedToShipId);
+  let changed = false;
+  const ships = state.ships.map((s) => {
+    if (s.gearRepairSpeed === undefined) return s;
+    if (!index.out.has(s.id) && !indexAfter.out.has(s.id) && worn.has(s.id)) return s;
+    changed = true;
+    const { gearRepairSpeed: _ot, ...rest } = s;
+    return rest as ShipInstance;
+  });
+  return changed ? { ...state, ships } : state;
 }
 
 // GEAR WEAR step 4 fix (design 7, "rate constant between anchors"): a piece settled to `at` at `oldRate` keeps the
@@ -734,7 +906,10 @@ export function livePieceCondition(state: GameState, piece: EquipmentInstance): 
 // header for the rules. The SAME `after` reference when nothing changed. Pure.
 export function resolveGearWear(before: GameState, after: GameState, events: GearWearEvents | null): GameState {
   const hasEvents = events !== null && (events.ships.size > 0 || events.members.size > 0);
-  if (!hasEvents && !after.equipment.some((p) => p.condition !== undefined)) return after;
+  if (!hasEvents && !after.equipment.some((p) => p.condition !== undefined)) {
+    // GEAR WEAR step 5: a ship's gear repair Overtime ends once nothing on it is worn (or it left on a run).
+    return after.ships.some((s) => s.gearRepairSpeed !== undefined) ? clearFinishedGearOvertime(after, repairContextIndex(before), repairContextIndex(after)) : after;
+  }
   const now = after.gameTimeSeconds;
   const index = repairContextIndex(before);
   const indexAfter = repairContextIndex(after);
@@ -783,5 +958,6 @@ export function resolveGearWear(before: GameState, after: GameState, events: Gea
     if (p !== piece) changed = true;
     return p;
   });
-  return changed ? { ...after, equipment } : after;
+  // GEAR WEAR step 5: and a ship's gear repair Overtime ends once nothing on it is worn (or it left on a run).
+  return clearFinishedGearOvertime(changed ? { ...after, equipment } : after, index, indexAfter);
 }

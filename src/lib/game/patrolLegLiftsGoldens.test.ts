@@ -9,6 +9,10 @@ import { cp16OffForThisFile } from "./cp16Switch.fixture";
 // keep proving their own slice (cp16Goldens.test.ts pins what CP-16 moved: the missions counter, the notables and
 // the Hall of Command entry).
 cp16OffForThisFile();
+import { patrolUseWearOffForThisFile } from "./patrolUseWearSwitch.fixture";
+// Gear wear step 5 (patrol use wear) came after every pin here: the file dispatches its patrols unstamped, so its pins
+// keep proving their own slice (gearWearStep5Goldens.test.ts pins what step 5 moved on a patrol).
+patrolUseWearOffForThisFile();
 import { hullCrewCapsOffForThisFile } from "./hullCrewCapsSwitch.fixture";
 // Complement plan CP-5 (per-hull crew caps): every pin here predates CP-5 and is about another slice, so the file runs
 // with the per-hull caps off (hullCrewCapsSwitch.fixture.ts); cp5Goldens.test.ts pins what CP-5 moved.

@@ -1,8 +1,8 @@
 // GEAR WEAR (0.14.0), build order steps 1 and 2 of docs/plans/2026-10-16-gear-wear-design.md section 11: the
 // catalogs and the PURE helpers, plus (step 3) the WORN-GEAR VIEW the run readers fold their gear through and (step 4)
 // the COMBAT VIEW a battle folds its frozen gear through. The tick side of step 3 (the use wear sources, the repair
-// contexts and the settling) lives in gearWearEngine.ts, the battle sources of step 4 in gearWearCombat.ts; the UI (and
-// the optional paid repair) is step 5. Every catalog row is registered in the wiring registry with its owning step.
+// contexts and the settling) lives in gearWearEngine.ts, the battle sources of step 4 in gearWearCombat.ts; the UI is
+// step 5 (gearWearDisplay.ts). Every catalog row is registered in the wiring registry with its owning step.
 //
 // The user (OC-D14, 2026-10-16, verbatim): "Everything wears in different ways. Similar to reality. Use. Battle
 // damage. Etc. But can easily be repaired over time."
@@ -18,9 +18,10 @@
 //     start floor. Combat's own four-state model stays the authority there (no second efficiency penalty).
 //   - W9 + W10 "No wear on training; implants slow": a training run (safe first run) applies no wear at all (step 3
 //     skips it on the run's stamp); the implant wears by the slowest raw rate in WEAR_SOURCES.
-//   - W4 + W5 and the repair model "Free auto + paid rush": repair is automatic and FREE over time (REPAIR_RATES);
-//     an optional paid repair is added later for credits (credit sinks pass: "Quick gear repair" and the user's
-//     Overtime, both built in step 5), and nothing ever forces paying.
+//   - W4 + W5: repair is automatic and FREE over time (REPAIR_RATES). The 2026-10-16 "Free auto + paid rush" was
+//     replaced on 2026-11-09 by "None, always automatic": no paid rush and no instant repair (Quick Service dropped).
+//     Step 5 built only the user's Overtime (processSpeed.ts buyGearRepairOvertime: a docked ship's gear recovers a
+//     set percent faster, never instantly); nothing ever forces paying.
 //   - W6 "Separate, shown together": hull damage stays its own Shipyard system; nothing here touches it. A hull in a
 //     Shipyard repair bay only lends its gear the faster bay rate.
 //
@@ -290,13 +291,21 @@ export function repairRatePerMinute(context: RepairContext, bonuses: Partial<Rec
   return (REPAIR_RATES[context] * lift) / divisor;
 }
 
+// The float slack a settle allows (per-mille), far below any real fraction a 1 s tick can bank.
+const SETTLE_EPSILON = 1e-7;
+
 // SETTLE (design 7): the condition at `nowSeconds` from an anchor, closed form: min(1000, c + floor(rate x elapsed /
 // 60)), the rate constant since the anchor. An anchor in the future (or no rate) changes nothing. Pure.
 export function settleCondition(condition: number, anchorSeconds: number, nowSeconds: number, ratePerMinute: number): number {
   const c = clampCondition(condition);
   const elapsed = nowSeconds - anchorSeconds;
   if (!(elapsed > 0) || !(ratePerMinute > 0) || c >= CONDITION_FULL) return c;
-  return Math.min(CONDITION_FULL, c + Math.floor((ratePerMinute * elapsed) / 60));
+  // GEAR WEAR step 5: SETTLE_EPSILON absorbs the float error a non-integer anchor carries (a rate that is not a divisor
+  // of 60 seconds a per-mille, such as an Overtime step's 50 a minute: its anchor moves 1.2 s per per-mille), so a
+  // per-mille that is due is never lost to 0.9999999: one call, chunks and 1 s steps reach the same CONDITION at any
+  // rate (the stored anchor of a rate like that can differ by float noise, far below a microsecond, as with the hull
+  // repair bonuses' rates before step 5).
+  return Math.min(CONDITION_FULL, c + Math.floor((ratePerMinute * elapsed) / 60 + SETTLE_EPSILON));
 }
 
 // A piece settled to `nowSeconds` at `ratePerMinute` (repair folded in, the anchor moved). The anchor advances only by

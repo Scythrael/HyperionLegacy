@@ -1795,6 +1795,13 @@ export interface ShipInstance {
   // hull's empty teams (Ground + Ground, no pending flag) through groundTeams.ts shipGroundTeams. GO-2's slot
   // actions and the hire / fire / reassign sync write it; dispatch reads it since Ground Ops GO-7b.
   groundTeams?: ShipGroundTeam[];
+  // GEAR WEAR step 5 (0.14.0, credit sinks pass USER ANSWERS: Overtime "for each of the above", gear repair included;
+  // processSpeed.ts buyGearRepairOvertime): the Overtime steps bought on this ship's GEAR RECOVERY while it is docked
+  // (home or in a Shipyard bay) and the job's size in minutes, frozen at the first step (the price of every step reads
+  // it). Each step lifts the ship's installed pieces' repair rate by 25% of the normal rate while docked; the record
+  // clears once the ship leaves on a run or its installed gear is back to full (gearWearEngine.ts resolveGearWear).
+  // OPTIONAL, absent = no Overtime (every ship that never bought it), so no SAVE_VERSION bump.
+  gearRepairSpeed?: { overtimeSteps: number; jobMinutes: number };
   // FORWARD (not this pass): modules?, equipment?, reactorCore?, tierOverride?
 }
 
@@ -4319,6 +4326,16 @@ export interface PatrolMissionState {
   // freezes (legTicks). Written only when non-zero; a patrol in flight from before has none and flies as it did (no
   // SAVE_VERSION bump).
   pilotCunning?: number;
+  // GEAR WEAR step 5 (patrol use wear, design 3.1; SF-7 note: skip the training cycle): the run's use wear stamp,
+  // written at dispatch while gear wear's use sources are live and carried to every relaunched cycle. Only a stamped
+  // run records a USE event as each cycle ends (the reactor and crew modules the minutes it flew, the drive the
+  // route's round trip; tick.ts tickCaptainPatrol), never on the training cycle (runDifficulty.ts isTrainingPatrol).
+  // A patrol in flight from before step 5 has none and wears as it did. Optional, no SAVE bump.
+  useWear?: 1;
+  // GEAR WEAR step 5: the run's use not yet worth a whole per-mille (minutes underway and light-years), carried from
+  // cycle to cycle so a short route still wears (a 14 s Sweep cycle is under one per-mille on its own). Written only
+  // while non-zero; carried across relaunches like routesCompletedThisRun.
+  useCarry?: { minutes: number; lightYears: number };
   // OC-D8 follow-up (review finding, the Constitution run clock): the route ticks this RUN has flown over its completed
   // cycles, each cycle counting its own route (patrolRouteTicks of its frozen legs) less, on a cycle stamped cutFlown,
   // the ticks its return cut skipped; carried across relaunches like routesCompletedThisRun. It is the Constitution

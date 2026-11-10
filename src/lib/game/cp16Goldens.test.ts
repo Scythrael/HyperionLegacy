@@ -9,6 +9,10 @@ import { CP16_PINS_PRE, cp16Rows } from "./cp16Goldens.fixture";
 import { asPreCp16, withoutCp16 } from "./cp16Switch.fixture";
 import { CP16_ADDED_IDS, cp16ReadBack } from "./cp16Registry.fixture";
 import { WIRING_REGISTRY } from "./wiring/registry";
+import { patrolUseWearOffForThisFile } from "./patrolUseWearSwitch.fixture";
+// Gear wear step 5 (patrol use wear) came after every pin here: the file dispatches its patrols unstamped, so its pins
+// keep proving their own slice (gearWearStep5Goldens.test.ts pins what step 5 moved on a patrol).
+patrolUseWearOffForThisFile();
 
 const CAPTURE = import.meta.env.CP16_CAPTURE as string | undefined;
 

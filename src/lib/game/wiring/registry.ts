@@ -183,7 +183,7 @@ import { RARITY_PROFILES } from "../rarityProfiles";
 import { ASCENSION_BUDGET_MULT } from "../ascension";
 import { AFFIX_DEFS, ESCALATION_ENEMIES_PER_LEVEL, HEIGHTENED_SENSES_KNEE, HEIGHTENED_SENSES_PER_LEVEL } from "../affixes";
 import { ENEMY_RANKS, ENEMY_RANK_IDS } from "../enemyRanks";
-import { OVERTIME_STEP_RATE } from "../processSpeed";
+import { OVERTIME_STEP_RATE, buyGearRepairOvertime } from "../processSpeed";
 import { SHORT_RANGE_TEMPLATES, SHORT_RANGE_TEMPLATE_KEYS } from "../shortRange";
 import { GAS_CANISTER_IDS, GAS_STUDY_USES, GIANT_CLASSES, NEBULA_KINDS, RESEARCH_FAMILIES, type GasCanisterId, type GasStudyUse } from "../gasGiantContent";
 // Gas Giant Study GG-7: the special blueprints and the canisters' consumers.
@@ -539,13 +539,14 @@ function pending(owner: string, contexts?: readonly ContextId[]): WiringStatus {
 // cycles probe (no-dead-stats) and crew:audit:pilotCunningReturn prove the consumer moves.
 // Gear wear (0.14.0, design docs/plans/2026-10-16-gear-wear-design.md section 11) owners: step 3 wires the use wear
 // sources, the repair contexts and the economy / ground efficiency; step 4 the combat half (battle wear, the
-// true-condition pools, shield / plating / pod efficiency); step 5 the UI and the optional paid repair. Each step
-// flips its entries live in the same commit. Step 4 flipped every entry it owned (the battle sources, the combat
-// consumers, the Damage Control Suite's fires and lines, the defense and pod toughness rows); the Reactor Core's power
-// output consumer is re-owned to the user's EM-4 open call (item 4, the drive lift reads it pristine as built).
+// true-condition pools, shield / plating / pod efficiency); step 5 the UI, patrol use wear and Overtime on gear repair
+// (Quick Service dropped by the user, 2026-11-09). Each step flips its entries live in the same commit. Step 4 flipped
+// every entry it owned (the battle sources, the combat consumers, the Damage Control Suite's fires and lines, the
+// defense and pod toughness rows); the Reactor Core's power output consumer is re-owned to the user's EM-4 open call
+// (item 4, the drive lift reads it pristine as built). Step 5 added the patrol context to the five time and distance use
+// sources (WEAR_PATROL_USE_CONTEXTS) and took wear:audit:gearRepairOvertime live.
 const GEAR_WEAR_STEP_3 = "gear wear step 3 (use wear sources, repair contexts and settling at events)";
 const EM4_WORN_OUTPUT_CALL = "the user's EM-4 open call (review item 4, material lines plan): the drive lift reads the Reactor Core's PRISTINE output as built ((a) keep pristine; (b) read the worn output); in combat the core's wear acts through its true-condition pool (wear:WEAR_SOURCES:reactorCore:hitsTaken), never a second penalty (user W3)";
-const GEAR_WEAR_STEP_5 = "gear wear step 5 (UI: condition bars, the care line, Quick gear repair and Overtime for credits)";
 // The user's T3 deferrals (capture 2026-10-15 section 3: "Move all five (Recommended)").
 const T3 = "capture 2026-10-15 section 3 T3 (moved to 0.14.x)";
 // G1-4: the guest quarters sources and the short-range template catalog are LIVE at mission:shortRange (the cycle
@@ -4694,9 +4695,9 @@ const AUDIT_ROWS: readonly { id: string; system: WiringSystem; claim: string; st
   // WR-11 (OC-H1 "Members too"): the Museum's Science team power also scales each named Science member's own fieldwork.
   { id: "relic:audit:scienceTeamPowerMembers", system: "relic", claim: "Museum Science team power scales each named Science member's own fieldwork (frozen at dispatch)", status: LIVE },
   { id: "salvage:audit:ascension", system: "salvage", claim: "ascension (always none)", status: pending("OC-C4") },
-  // K. Gear wear (0.14.0): the user's "Free auto + paid rush" and credit sinks "Quick gear repair" plus Overtime.
-  { id: "wear:audit:quickGearRepair", system: "wear", claim: "Quick gear repair: an optional instant gear repair for credits; the free automatic repair stays the default", status: pending(GEAR_WEAR_STEP_5) },
-  { id: "wear:audit:gearRepairOvertime", system: "wear", claim: "Overtime on gear repair: pay credits to speed a ship's gear recovery by a set percent (never doubling, never instant)", status: pending(GEAR_WEAR_STEP_5) },
+  // K. Gear wear (0.14.0): credit sinks Overtime on gear repair (gear wear step 5). The "Quick gear repair" row is gone:
+  // the user dropped Quick Service (2026-11-09, "None, always automatic": no paid rush and no instant repair).
+  { id: "wear:audit:gearRepairOvertime", system: "wear", claim: "Overtime on gear repair: pay credits to speed a docked ship's gear recovery by 25% of the normal rate a step (never doubling, never instant)", status: LIVE },
 ];
 
 function auditEntries(): WiringEntry[] {
@@ -5076,6 +5077,21 @@ function auditRowWiring(): Readonly<Record<string, Partial<EntryInput>>> {
       base: bareHull,
       on: reactorOutput(REACTOR_LIFT_PROBE_OUTPUT),
       off: reactorOutput(0),
+    },
+    // Gear wear step 5: one Overtime step bought on the docked fixture ship (its cargo bay worn to WEAR_FIXTURE_CONDITION)
+    // lifts the repair its gear gets in WEAR_REPAIR_MINUTES at home by OVERTIME_STEP_RATE (processSpeed.ts
+    // buyGearRepairOvertime; the engine's pass, gearWearEngine.ts pieceRepairRate).
+    "wear:audit:gearRepairOvertime": {
+      probe: "wear:repairGain" as ProbeId,
+      contexts: ["fleet"],
+      direction: "up",
+      curve: { kind: "linearRelative" },
+      magnitude: () => OVERTIME_STEP_RATE,
+      base: () => ({ ...wornCargoFixture(), credits: new Decimal(1e9) }),
+      on: (s) => wearRepairMinutes(buyGearRepairOvertime(s, WIRING_SHIP_ID).next, false),
+      off: (s) => wearRepairMinutes(s, false),
+      tolerance: 1,
+      note: "the ship docked at home; a step is refused while it is out on a run, so the lift acts only where it is docked",
     },
     // Pause to repair: weapons worn so far down that the next cycle would break them pause; pristine gear relaunches.
     "ship:audit:patrolRepairPause": {
@@ -7154,13 +7170,16 @@ function reactorTechEntries(): WiringEntry[] {
 // cycle, a delivered non-training short-range cycle, a stamped expedition coming home).
 const WEAR_MISSION_CONTEXTS: ContextId[] = ["mission:extraction", "mission:survey", "mission:transport", "mission:shortRange"];
 const WEAR_RUN_CONTEXTS: ContextId[] = [...WEAR_MISSION_CONTEXTS, "expedition:groundOps"];
+// Gear wear step 5 (patrol use wear): a stamped, non-training patrol cycle wears the reactor, the drive, the crew modules
+// and the universal modules by its own use too (wearProbes.ts patrolCycleUseEvent: a cycle ending through the live engine).
+const WEAR_PATROL_USE_CONTEXTS: ContextId[] = [...WEAR_RUN_CONTEXTS, "patrol"];
 const WEAR_USE_CONTEXTS: Readonly<Record<string, ContextId[]>> = {
   "cargoBay:haul": WEAR_MISSION_CONTEXTS,
-  "ftlDrive:distance": WEAR_RUN_CONTEXTS,
-  "reactorCore:minutesRunning": WEAR_RUN_CONTEXTS,
-  "bridge:minutesCrewed": WEAR_RUN_CONTEXTS,
-  "quarters:minutesCrewed": WEAR_RUN_CONTEXTS,
-  "module:minutesUnderway": WEAR_RUN_CONTEXTS,
+  "ftlDrive:distance": WEAR_PATROL_USE_CONTEXTS,
+  "reactorCore:minutesRunning": WEAR_PATROL_USE_CONTEXTS,
+  "bridge:minutesCrewed": WEAR_PATROL_USE_CONTEXTS,
+  "quarters:minutesCrewed": WEAR_PATROL_USE_CONTEXTS,
+  "module:minutesUnderway": WEAR_PATROL_USE_CONTEXTS,
   "sensor:surveyCycle": ["mission:survey", "mission:shortRange"],
   "sensor:bodyScanned": ["expedition:groundOps"],
   // Gear wear step 4: and a Damage Control Suite's fires (a Shipyard repair it shortens, a patrol wave it patches).

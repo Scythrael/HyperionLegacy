@@ -128,8 +128,10 @@ describe("the expedition reach gate reads the pristine voyage (design 4.3: no ga
 // the run stamps, the ground tally and the pieces' condition and anchor. Proven here on each kind of run they fly. (A
 // fixture that carries crafted, lined gear also folds its wear from cycle 2 by the re-read rule, user 2026-10-21:
 // gearWearGoldens.test.ts pins those moves.)
+// Gear wear step 5: a patrol's use wear stamp and its carried use (useWear, useCarry) are wear fields too.
+const WEAR_FIELDS = new Set(["gearWear", "wearTally", "condition", "conditionAt", "useWear", "useCarry"]);
 function withoutWearFields(s: GameState): string {
-  return JSON.stringify(s, (k, v) => (k === "gearWear" || k === "wearTally" || k === "condition" || k === "conditionAt" ? undefined : v));
+  return JSON.stringify(s, (k, v) => (WEAR_FIELDS.has(k) ? undefined : v));
 }
 
 const RUNS: [string, () => GameState][] = [
