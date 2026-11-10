@@ -319,3 +319,25 @@ built; OC-S6 "up to 30 days" as built.
 - OC-C4 (candidate board expansion cost): answered with CP-19, "Personnel Rosters track (Recommended)", credits + time,
   3,000 x rung (see the complement plan's 2026-11-02 answers).
 - Endless telescope cycles past level 8: named "Deep Field Refinement" (levels shown as "Refinement N").
+
+## OT-UI builder note (2026-11-09): nothing built, open calls for the user
+
+The OT-UI slice (Overtime UI and Deep Field Refinement) stopped before code: every remaining piece needs a user call
+or a mockup sign-off.
+
+- **Overtime buttons (Shipyard builds and repairs, research incl. data studies, facility upgrades incl. the Docks,
+  berths, storage tracks and telescope rungs):** need a mockup. The speed seam design says "an Overtime button needs a
+  sketch first", and the 2026-11-09 approval in the gear wear design covers "Gear card only". The engine is ready
+  (`canBuyOvertime` / `buyOvertime`, registry row `facility:SPEED_SEAM:overtime`). The mockup should also settle: one
+  tap or a confirm (answered for gear repair only), the progress bar under Overtime (`processWorkFraction`), and the
+  completion log that back-dates a sped-up job's start (Known display item above).
+- **Deep Field Refinement, its lever:** the user's words (2026-10-16) are that the cycles raise the chance to spot
+  rare planet aspects. No aspect slot and no aspects exist yet (E5 plan, 2026-11-03), and the aspects "are designed
+  with the user later". A cycle bonus built now would act on nothing (inert). Choices for the user: design the aspect
+  hook and its first aspects first, then build the cycles; or give the cycles a lever that acts today and move it to
+  aspects later (which lever is the user's call).
+- **Deep Field Refinement, its numbers:** S3's cost (250,000 x 1.5^(n - 1) credits, 30 minutes a cycle) and its bonus
+  curve are still [PROPOSAL]; no user answer. For reference, the proposed costs: Refinement 1 = 250,000, 2 = 375,000,
+  5 = 1,265,625, 10 = about 9,610,840.
+- **Deep Field Refinement, the card:** past level 8 the telescope card reads "Fully upgraded" today; showing
+  "Refinement N" and the next cycle there is a card change to sketch for sign-off.
