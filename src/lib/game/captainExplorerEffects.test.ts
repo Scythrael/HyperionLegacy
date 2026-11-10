@@ -197,9 +197,12 @@ describe("WR-5c Expedition & Relics", () => {
 describe("WR-5c Command & Crew", () => {
   // User 2026-10-19 ("Best one counts"): the fleet-wide boards use the best Recruiter owned by any captain; owning it
   // twice adds nothing (replaces the built compounding, which made two Recruiters 10 x 1.08 x 1.08 -> 12).
-  it("Recruiter: 10 x 1.08 rounds up to 11 on both boards; a second Recruiter captain adds nothing (best one counts)", () => {
+  // Complement CP-19 (user 2026-11-09 "Flat +1 always"): a flat slot at any board size (was 10 x 1.08 rounded up).
+  it("Recruiter: 10 + 1 = 11 on both boards; a second Recruiter captain adds nothing (best one counts)", () => {
     const one = own(wiringBase(), "commandCrew4");
-    expect(candidateBoardSize(one)).toBe(Math.ceil(SENIOR_STAFF_ROSTER_BASE * (1 + mag("commandCrew4"))));
+    expect(mag("commandCrew4")).toBe(1);
+    expect(candidateBoardSize(one)).toBe(SENIOR_STAFF_ROSTER_BASE + mag("commandCrew4"));
+    expect(candidateBoardSize({ ...one, seniorStaffRosterSize: 40 })).toBe(41);
     const two = { ...one, captains: [...one.captains, { ...one.captains[0], id: 2 }] };
     expect(candidateBoardSize(two)).toBe(candidateBoardSize(one));
     // A Recruiter on a second captain only (the first owns none) still counts.
@@ -240,7 +243,7 @@ describe("WR-5c text: every explorer node says exactly what it does (no placehol
     }
     expect(explorerTalentText("surveySensors1")).toBe("+5% ship sensors (surveys, expedition scans and the telescope's ship lift)");
     expect(explorerTalentText("commandCrew4")).toBe(
-      "+8% candidate board size, rounded up (+1 on each board of 10); fleet-wide, the best Recruiter counts and a second one adds nothing",
+      "+1 candidate slot on each candidate board (officers and away-team recruits), at any board size; fleet-wide, the best Recruiter counts and a second one adds nothing",
     );
     expect(explorerTalentText("extraction1")).toBeNull();
   });

@@ -97,7 +97,8 @@ export function rostersTrackView(state: GameState, options: RostersTrackOptions 
   if (!maxed) {
     const rung = track[level];
     const boardNext = boardAtLevel(state, level + 1);
-    const added = boardNext - board;
+    // The rung's OWN slots (its catalog +2), not the board difference: the "Board: X -> Y" line shows the totals.
+    const added = "addCandidateSlots" in rung.effect ? Math.max(0, Math.floor(rung.effect.addCandidateSlots)) : boardNext - board;
     next = {
       level: level + 1,
       credits: rung.credits?.toNumber() ?? 0,

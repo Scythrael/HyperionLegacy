@@ -45,13 +45,17 @@ describe("CP-19 the Personnel Rosters track card", () => {
     const v = rostersTrackView(s);
     expect(v.board).toBe(13);
     expect(v.recruiterLine).toBe("Includes +1 from your Recruiter captain talent.");
-    expect(v.next?.boardNext).toBe(16);
-    expect(v.next?.gainLine).toBe("Level 3 adds 3 candidate slots to each board.");
+    expect(v.next?.boardNext).toBe(15);
+    // The gain line is the rung's own +2; the board line (13 -> 15) carries the totals.
+    expect(v.next?.gainLine).toBe("Level 3 adds 2 candidate slots to each board.");
+    expect(v.ladder.map((r) => r.boardText)).toEqual([11, 13, 15, 17, 19, 21].map((n) => `${n} candidates per board`));
+    const top = rostersTrackView(editCaptain(atLevel(wiringBase(), 6), { unlockedSecondaryTalents: ["commandCrew4"] }));
+    expect([top.board, top.recruiterLine]).toEqual([21, "Includes +1 from your Recruiter captain talent."]);
   });
 
   it("Help says the board size and how to grow it, in the engine's numbers", () => {
     expect(personnelRostersBoardHelpText()).toBe(
-      "CANDIDATE BOARDS: the officer board and the away-team recruit board each show 10 candidates at Personnel Rosters Level 1, where every save starts. The facility's Upgrades tab grows both boards: each level adds 2 candidate slots to each board, up to 20 at Level 6, and costs credits (3,000, 6,000, 9,000, 12,000 and 15,000) and a build time shown on the card. New slots join the end of the board; the candidates already on it stay the same. A captain with the Recruiter talent adds 8% on top, rounded up (the best one in the fleet counts).",
+      "CANDIDATE BOARDS: the officer board and the away-team recruit board each show 10 candidates at Personnel Rosters Level 1, where every save starts. The facility's Upgrades tab grows both boards: each level adds 2 candidate slots to each board, up to 20 at Level 6, and costs credits (3,000, 6,000, 9,000, 12,000 and 15,000) and a build time shown on the card. New slots add candidates without changing the ones already on the board: existing candidates keep their places. A captain with the Recruiter talent adds 1 more candidate slot to each board at every level (the best one in the fleet counts; a second adds nothing).",
     );
   });
 });

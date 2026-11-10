@@ -1369,11 +1369,11 @@ const PROSPECTOR_SEAMS: Readonly<
 };
 
 // The catalog magnitude of a secondary node (a statMult's mult, a procChance's chance, a capstone's magnitude, a
-// trickle's perTick, a levelLift's levels). Every tree's entries read it.
+// trickle's perTick, a levelLift's levels, a flatAdd's amount). Every tree's entries read it.
 function secondaryMagnitude(key: SecondaryTalentKey): (c: Catalogs) => number {
   return (c) => {
     const e = c.SECONDARY_CAPTAIN_TALENTS[key].effect;
-    return e.type === "statMult" ? e.mult : e.type === "procChance" ? e.chance : e.type === "capstone" ? e.magnitude ?? 0 : e.type === "creditTrickle" ? e.perTick : e.type === "levelLift" ? e.levels : 0;
+    return e.type === "statMult" ? e.mult : e.type === "procChance" ? e.chance : e.type === "capstone" ? e.magnitude ?? 0 : e.type === "creditTrickle" ? e.perTick : e.type === "levelLift" ? e.levels : e.type === "flatAdd" ? e.amount : 0;
   };
 }
 
@@ -1534,8 +1534,9 @@ function explorerSecondaryEntries(key: SecondaryTalentKey): WiringEntry[] {
       ];
     case "commandCrew4":
       return [
-        node(null, { probe: "officerBoard", contexts: ["fleet"], curve: rel, tolerance: 1, note: "rounded up to whole candidates" }),
-        node("recruits", { probe: "recruitBoard", contexts: ["fleet"], curve: rel, tolerance: 1, note: "rounded up to whole candidates" }),
+        // Complement CP-19 (user 2026-11-09 "Flat +1 always"): a flat slot on each board, exact (was x1.08 rounded up).
+        node(null, { probe: "officerBoard", contexts: ["fleet"], curve: { kind: "linearAbsolute" }, note: "a flat +1 slot at any board size" }),
+        node("recruits", { probe: "recruitBoard", contexts: ["fleet"], curve: { kind: "linearAbsolute" }, note: "a flat +1 slot at any board size" }),
       ];
     case "commandCrew5":
       return [
@@ -1937,8 +1938,12 @@ function facilityRungEntries(): WiringEntry[] {
       // completion gate is facility:audit:missionControlUnlock's check.
       else if ("addShortRangeSlot" in eff) out.push(entry({ ...common, probe: "shortRangeSlots", contexts: ["mission:shortRange"], magnitude: () => 1 }));
       // Complement CP-19 (OC-17): a Personnel Rosters rung appends its slots to BOTH candidate boards, each measured on
-      // its own board (the officer board on the rung's id, the recruit board on ":recruits"). The pre-granted Level 1
-      // rung adds nothing on top of the stored base, so it reads as what it is: the base board, exactly (equals).
+      // its own board (the officer board on the rung's id, the recruit board on ":recruits"). Six rungs x two boards =
+      // 12 rows: 10 EFFECT rows (Levels 2 to 6, +2 slots each, linearAbsolute) and 2 BASE-VALUE PINS (the pre-granted
+      // Level 1 adds nothing on top of the stored base, so it reads as what it is: the base board, exactly, equals).
+      // The Recruiter's flat +1 (user 2026-11-09) adds the same slot at every level, so an effect row's step is +2 on
+      // any save; the Debug panel leaves the two pins unmeasured (panelOwnership.ts), since a Recruiter's +1 sits on
+      // top of the base on a real save.
       else if ("addCandidateSlots" in eff) {
         const slots = num("addCandidateSlots");
         const both = (part: string | null, probe: ProbeId): WiringEntry =>

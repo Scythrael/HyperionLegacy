@@ -171,7 +171,7 @@
       <tr><td>5</td><td style="text-align:right;padding:0 12px">18</td><td style="text-align:right;padding:0 12px">12,000</td><td style="text-align:right;padding-left:12px">12 minutes</td></tr>
       <tr><td>6</td><td style="text-align:right;padding:0 12px">20</td><td style="text-align:right;padding:0 12px">15,000</td><td style="text-align:right;padding-left:12px">20 minutes</td></tr>
     </table>
-    <p><b>The Recruiter.</b> A captain with the Recruiter talent still adds 8% to the whole board, rounded up, and only the best one in the fleet counts: 11 at Level 1, 13 at Level 2, 22 at Level 6. The card shows the board you will actually see, the Recruiter's share included, and says how much of it is the Recruiter's.</p>
+    <p><b>The Recruiter.</b> Your 2026-11-09 answer "Flat +1 always": a captain with the Recruiter talent adds exactly one candidate slot to each board at every level, and only the best one in the fleet counts (a second adds nothing): 11, 13, 15, 17, 19 and 21 at Levels 1 to 6. The card shows the board you will actually see, the Recruiter's share included, and says <b>Includes +1 from your Recruiter captain talent.</b></p>
     <p><b>Where to test.</b> Staging, <b>devpreview.crystalisoft.com</b>, on the 0.14.0 build, with your own migrated save. Facilities, <b>Personnel Rosters</b>, the new <b>Upgrades</b> tab. You need 3,000 credits for the first level.</p>
     <p><b>The three columns.</b> <b style="color:var(--claude)">Claude</b> is pre-filled and read-only: a tick means a test proves that rule (the "how" line names the file). <b style="color:var(--desk)">1280</b> and <b style="color:var(--mob)">375</b> are yours; your ticks are saved in this browser.</p>
     <p>Tags: <span class="chip save">needs real save</span> needs your migrated save. <span class="chip device">needs device</span> touch, a real phone, or a visual call. <span class="chip theme">light + dark</span> look at it in both themes.</p>
@@ -188,10 +188,11 @@
     <h2>Builder notes (CP-19, 2026-11-09)</h2>
     <ol>
       <li><b>Your save.</b> Loads at Personnel Rosters Level 1 with the same 10 candidates on each board as before. Nothing changes until you buy a level. No SAVE_VERSION bump (still 71): the Level 1 seed rides the v70 to v71 step and also runs on every load, because it only fills a missing value.</li>
-      <li><b>The candidates you already see stay put.</b> Each board slot rolls its candidate from its own seed, so a larger board adds new slots at the end and slots 1 to 10 keep exactly the same people (a test checks every level at several roster windows).</li>
-      <li><b>Time.</b> Your answer set the credits (3,000 x the level bought) and "time" without a number, so the times reuse the Subspace Telescope's first five development cycles (2, 4, 7, 12 and 20 minutes). Marked provisional for the 0.16.0 balancing pass.</li>
-      <li><b>The top.</b> Level 6 (20 candidates) is the track's last level, like every facility track's last rung; the Recruiter's 8% still applies on top.</li>
-      <li><b>Wiring.</b> Twelve new live rows, one per level on each board: <b>facility:FACILITIES:personnelRosters:0</b> to <b>:5</b> (the officer board) and the same with <b>:recruits</b> (the recruit board), each measuring the real board.</li>
+      <li><b>The candidates you already see stay put.</b> Each board slot rolls its candidate from its own seed, so a larger board adds new slots after the shared ones and slots 1 to 10 keep exactly the same people in their places (a test checks every level at several roster windows).</li>
+      <li><b>Time.</b> Your 2026-11-09 answer "Use those times": 2, 4, 7, 12 and 20 minutes (120, 240, 420, 720 and 1,200 s, the Subspace Telescope's first five development cycles). Still provisional for the 0.16.0 balancing pass.</li>
+      <li><b>The top.</b> Level 6 (20 candidates) is the track's last level, like every facility track's last rung; a Recruiter makes it 21.</li>
+      <li><b>The Recruiter.</b> Your 2026-11-09 answer "Flat +1 always": it was 8% of the whole board, rounded up (22 at Level 6); now it is exactly +1 at every level. The talent has no ranks (owned or not), so the flat +1 is its whole effect. Its talent text now reads "+1 candidate slot on each candidate board".</li>
+      <li><b>Wiring.</b> Twelve new live rows, one per level on each board: <b>facility:FACILITIES:personnelRosters:0</b> to <b>:5</b> (the officer board) and the same with <b>:recruits</b> (the recruit board). Ten are effect rows (Levels 2 to 6, +2 each); the two Level 1 rows pin the base board of 10 and show as unmeasured on your save.</li>
     </ol>
   </div>
 
@@ -203,7 +204,7 @@ const TICK = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-
 // c: a test proves it (how names the file). tag: "save" | "device" | "theme" | "later" | null.
 const SECTIONS = [
   { n: "0", title: "Setup on staging", note: "Staging only: devpreview.crystalisoft.com on the 0.14.0 build, your migrated save.", items: [
-    { t: "Open staging and load your save. It loads clean, and Facilities, <b>Personnel Rosters</b> reads <b>Level 1</b> with <b>Board 10</b> (or 11 with a Recruiter captain) under its saved roster count.", c: true, tag: "save", how: "cp19RostersTrack.test.ts (an old save loads at Level 1 with the board of 10); cp19Goldens.test.ts (save:noTrack, save:v70)." },
+    { t: "Open staging and load your save. It loads clean, and Facilities, <b>Personnel Rosters</b> reads <b>Level 1</b> with <b>Board 10</b> (or 11 with a Recruiter captain) under its saved roster count.", c: true, tag: "save", how: "cp19RostersTrack.test.ts (an old save loads at Level 1 with the board of 10; a malformed track entry reseeds Level 1); cp19Goldens.test.ts (save:noTrack, save:v70)." },
     { t: "No console errors opening Personnel Rosters and each of its three tabs (Rosters, Crew Pool, Upgrades), and Help, <b>Personnel Rosters</b>." },
   ]},
   { n: "1", title: "The Upgrades tab", items: [
@@ -216,19 +217,22 @@ const SECTIONS = [
     { t: "Press <b>Upgrade · Level 1 → 2</b>: 3,000 credits leave at once, the card shows <b>Level 2 in progress…</b> with a bar and the time left, and the Personnel Rosters card on the Facilities grid shows an Upgrade row.", c: true, how: "cp19RostersTrack.test.ts (costs 3,000 credits and its time); personnelRostersTrackDisplay.test.ts (In progress)." },
     { t: "Without the credits the button is disabled and says why.", c: true, how: "cp19RostersTrack.test.ts (refuses without the credits)." },
     { t: "When it finishes, the card reads Level 2 and both boards show 12 candidates: the officer board (a ship's Senior Staff hire list) and the away-team recruit board.", c: true, tag: "save", how: "cp19RostersTrack.test.ts (both boards grow by 2 per level)." },
-    { t: "Note the first candidates on each board before the level finishes. After it, those 10 are exactly the same people in the same order; the 2 new ones are added at the end.", c: true, tag: "save", how: "cp19RostersTrack.test.ts (slots 0 to 9 identical before and after, at several windows; new slots append)." },
+    { t: "Note the first candidates on each board before the level finishes. After it, those 10 are exactly the same people in the same order and places; the 2 new ones join the board after them.", c: true, tag: "save", how: "cp19RostersTrack.test.ts (slots 0 to 9 identical before and after, at several windows; new slots append)." },
     { t: "Close the game while a level is building and come back after it should have finished: it is done, and the board matches what it would be had you watched it.", c: true, how: "cp19RostersTrack.test.ts (one call, 997 s chunks and 1 s steps agree with a level finishing mid-span); cp19Goldens.test.ts (mission rows held)." },
     { t: "Buy up to Level 6: 20 candidates per board, the card says <b>Fully upgraded.</b>", c: true, how: "cp19RostersTrack.test.ts (refuses once the track is at its top level); personnelRostersTrackDisplay.test.ts (top)." },
   ]},
   { n: "3", title: "The Recruiter", note: "Skip if no captain of yours owns the Recruiter talent.", items: [
-    { t: "With a Recruiter captain the card reads the board you really see (11 at Level 1, 13 at Level 2, 22 at Level 6) and says <b>Includes +N from your Recruiter captain talent.</b>", c: true, tag: "save", how: "personnelRostersTrackDisplay.test.ts (the Recruiter's share); cp19RostersTrack.test.ts (11 and 22)." },
+    { t: "With a Recruiter captain the card reads the board you really see (11 at Level 1, 13 at Level 2, 21 at Level 6), the Levels list reads 11, 13, 15, 17, 19 and 21, and the card says <b>Includes +1 from your Recruiter captain talent.</b>", c: true, tag: "save", how: "personnelRostersTrackDisplay.test.ts (the Recruiter's share, the ladder, the top); cp19RostersTrack.test.ts (11 to 21, a second Recruiter adds nothing); cp19Goldens.test.ts (board:level6, traced 22 to 21)." },
+    { t: "With a Recruiter at Level 2, Next still reads <b>Level 3 adds 2 candidate slots to each board.</b> and <b>Board: 13 → 15 candidates per board</b>.", c: true, tag: "save", how: "personnelRostersTrackDisplay.test.ts (the gain line is the rung's own +2; the board line carries the totals)." },
+    { t: "Captain talents, the <b>Recruiter</b> node reads <b>+1 candidate slot on each candidate board (officers and away-team recruits), at any board size</b>, the best Recruiter counting and a second one adding nothing.", c: true, tag: "theme", how: "captainExplorerEffects.test.ts (the talent text)." },
+    { t: "Debug, Wiring (DEV_MODE build only), with a Recruiter captain and a level or more bought: the Personnel Rosters and Recruiter rows read on curve (none off curve), and each bought level reads +2.", c: true, how: "wiringPanelDisplay.test.ts (a Recruiter save with Personnel Rosters rungs: no board row reads off curve)." },
   ]},
   { n: "4", title: "Help", items: [
-    { t: "Help, <b>Personnel Rosters</b>, has a <b>CANDIDATE BOARDS</b> paragraph: 10 at Level 1, +2 per level on each board up to 20 at Level 6, the credits (3,000, 6,000, 9,000, 12,000 and 15,000) and a time shown on the card, new slots join the end, and the Recruiter's 8%. No em dashes, US English.", c: true, tag: "theme", how: "personnelRostersTrackDisplay.test.ts (Help in the engine's numbers); helpTopics.test.ts (topic shape, the em dash and wording guards)." },
+    { t: "Help, <b>Personnel Rosters</b>, has a <b>CANDIDATE BOARDS</b> paragraph: 10 at Level 1, +2 per level on each board up to 20 at Level 6, the credits (3,000, 6,000, 9,000, 12,000 and 15,000) and a time shown on the card, existing candidates keep their places, and the Recruiter's flat +1 slot on each board at every level. No em dashes, US English.", c: true, tag: "theme", how: "personnelRostersTrackDisplay.test.ts (Help in the engine's numbers); helpTopics.test.ts (topic shape, the em dash and wording guards)." },
   ]},
 ];
 
-const STORE = "hl-qa-0140-cp19-rosters-track-v1";
+const STORE = "hl-qa-0140-cp19-rosters-track-v2";
 let userState = {};
 try { userState = JSON.parse(localStorage.getItem(STORE) || "{}"); } catch (e) { userState = {}; }
 function save() { try { localStorage.setItem(STORE, JSON.stringify(userState)); } catch (e) {} }

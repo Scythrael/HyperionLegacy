@@ -42,7 +42,7 @@ function owns(captain: CaptainState | undefined | null, key: SecondaryTalentKey)
 }
 
 // The node's configured magnitude: a statMult's mult, a procChance's chance, a capstone's magnitude, a trickle's
-// perTick, a levelLift's levels; 0 for a gateway. Pure.
+// perTick, a levelLift's levels, a flatAdd's amount; 0 for a gateway. Pure.
 export function secondaryTalentMagnitude(key: SecondaryTalentKey): number {
   const e = SECONDARY_CAPTAIN_TALENTS[key].effect;
   switch (e.type) {
@@ -56,6 +56,8 @@ export function secondaryTalentMagnitude(key: SecondaryTalentKey): number {
       return e.perTick;
     case "levelLift":
       return e.levels;
+    case "flatAdd":
+      return e.amount;
     case "none":
       return 0;
   }
@@ -264,6 +266,8 @@ function genericText(effect: CaptainSecondaryTalentEffect): string {
       return `+${effect.perTick}/tick while docked`;
     case "levelLift":
       return `+${effect.levels} ${humanize(effect.stat)}`;
+    case "flatAdd":
+      return `+${effect.amount} ${humanize(effect.stat)}`;
   }
 }
 

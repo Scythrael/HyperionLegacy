@@ -6116,7 +6116,7 @@ function fabricatorTierRung(row: LabFabricatorTierRungDef): FacilityUpgradeDef {
 // withPersonnelRostersTrackV71), like the Subspace Telescope: Level 1 is the board every save already has (the stored
 // SENIOR_STAFF_ROSTER_BASE, 10), so it grants nothing on top. Each later row is one bought rung, +2 slots on both
 // boards. The track ends at Level 6 (20 slots): the facility framework's top rung, as every facility track has one.
-// The Recruiter captain talent (commandCrew4) still multiplies the whole board on top (candidateBoardSize).
+// The Recruiter captain talent (commandCrew4) adds a flat +1 slot on top (candidateBoardSize; user 2026-11-09).
 // Costs are credits + time only (the user's answer names no FA gate and no materials; a gate the card cannot show is
 // a trap). Credits are 3,000 x the rung number (the answer). The durations are the Subspace Telescope's duration
 // ladder for its first five bought cycles, ⚠️ PROVISIONAL (the answer says "time" with no number; the 0.16.0
@@ -14261,7 +14261,7 @@ export function personnelRostersSlotsAtLevel(level: number): number {
 }
 
 // The slots this save's track adds to both boards (captainExplorerEffects.ts candidateBoardSize adds them to the
-// stored seniorStaffRosterSize before the Recruiter's factor). Pure.
+// stored seniorStaffRosterSize, with the Recruiter's flat +1 on top). Pure.
 export function personnelRostersBoardSlots(state: Pick<GameState, "facilities">): number {
   return personnelRostersSlotsAtLevel(personnelRostersLevel(state));
 }
@@ -15168,13 +15168,15 @@ export const SECONDARY_TALENT_BRANCHES: readonly SecondaryTalentBranch[] = [
 //                   (a chance, a share or a factor, per id; its tree's reader module reads it).
 //   creditTrickle - credits per tick paid while the captain is docked (Trade Routes).
 //   levelLift     - WR-5c: whole LEVELS added to a named display ladder (Foreknowledge: the telescope detail).
+//   flatAdd       - Complement CP-19: a flat whole number added to a named count (Recruiter: candidate board slots).
 export type CaptainSecondaryTalentEffect =
   | { type: "none" }
   | { type: "statMult"; stat: string; mult: number }
   | { type: "procChance"; chance: number }
   | { type: "capstone"; id: string; magnitude?: number }
   | { type: "creditTrickle"; perTick: number }
-  | { type: "levelLift"; stat: string; levels: number };
+  | { type: "levelLift"; stat: string; levels: number }
+  | { type: "flatAdd"; stat: string; amount: number };
 
 // Mirrors CaptainTalentDef's shape (branch/label/cost/neighbors/effect/flavor/x/y), plus `tree` +
 // `rung`. `cost` is always 1 secondary point. `neighbors` is bidirectional by convention (like the
@@ -15516,7 +15518,9 @@ export const SECONDARY_CAPTAIN_TALENTS: Record<SecondaryTalentKey, CaptainSecond
     tree: "explorer", branch: "commandCrew", rung: 4,
     label: "Recruiter", cost: 1, // util
     x: 414, y: -73, neighbors: ["commandCrew3", "commandCrew5"],
-    effect: { type: "statMult", stat: "candidateRosterSize", mult: 0.08 }, // +candidate roster size / +crew capacity
+    // Complement CP-19 (USER ANSWERS 2026-11-09 "Flat +1 always"): exactly one more candidate slot on each board (was
+    // WR-5c's x1.08 rounded up, which matched +1 only on the base board of 10).
+    effect: { type: "flatAdd", stat: "candidateBoardSlots", amount: 1 },
     flavor: "The best hands in the sector hear you are hiring and come looking for you.",
   },
   commandCrew5: {

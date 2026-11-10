@@ -92,11 +92,16 @@ describe("CP-19 the boards", () => {
     }
   });
 
-  it("the Recruiter multiplies the whole board (best one counts): 11 at Level 1, 22 at Level 6", () => {
+  // User 2026-11-09 "Flat +1 always": the Recruiter adds exactly one slot at every level (was x1.08 rounded up: 22 at L6).
+  it("the Recruiter adds a flat +1 at every level (best one counts): 11 at Level 1, 21 at Level 6", () => {
     const s = withRecruiter(wiringBase());
-    expect(candidateBoardSize(s)).toBe(11);
-    expect(candidateBoardSize(atLevel(s, 6))).toBe(22);
+    expect([1, 2, 3, 4, 5, 6].map((l) => candidateBoardSize(atLevel(s, l)))).toEqual([11, 13, 15, 17, 19, 21]);
+    expect(officerIds(atLevel(s, 6))).toHaveLength(21);
+    expect(recruitIds(atLevel(s, 6))).toHaveLength(21);
     expect(officerIds(atLevel(s, 6)).slice(0, 11)).toEqual(officerIds(s));
+    // A second captain with a Recruiter adds nothing.
+    const two = { ...s, captains: [...s.captains, { ...s.captains[0], id: 2 }] };
+    expect(candidateBoardSize(atLevel(two, 6))).toBe(21);
   });
 });
 
@@ -175,6 +180,20 @@ describe("CP-19 the save", () => {
     const junk = { facilities: [1] };
     expect(withPersonnelRostersTrackV71(junk)).toBe(junk);
     expect(withPersonnelRostersTrackV71({}).facilities).toEqual({ [KEY]: { level: 1 } });
+  });
+
+  it("a malformed track entry (not an object, null, an array, or a level below 1 / not a number) reseeds Level 1", () => {
+    for (const bad of [null, 3, "x", [2], {}, { level: 0 }, { level: -2 }, { level: 0.5 }, { level: Number.NaN }, { level: "4" }]) {
+      const out = withPersonnelRostersTrackV71({ facilities: { refinery: { level: 2 }, [KEY]: bad } });
+      expect(out.facilities, JSON.stringify(bad)).toEqual({ refinery: { level: 2 }, [KEY]: { level: 1 } });
+      expect(withPersonnelRostersTrackV71(out)).toBe(out);
+    }
+    // Through a load: a save whose track entry is null loads at Level 1 with the board of 10.
+    const file = deserialize(serialize(freshState(), 0, 0))!;
+    (file.state as { facilities: Record<string, unknown> }).facilities[KEY] = null;
+    const loaded = migrate(file, 1);
+    expect(loaded.facilities[KEY]).toEqual({ level: 1 });
+    expect(seniorStaffCandidates(loaded)).toHaveLength(10);
   });
 
   it("with the slice switched off a new game and a loaded save carry no key and the boards read the stored size", () => {

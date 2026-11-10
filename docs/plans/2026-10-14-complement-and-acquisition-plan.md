@@ -892,18 +892,37 @@ stored base 10), then Levels 2 to 6 at 3,000 / 6,000 / 9,000 / 12,000 / 15,000 c
 the track's top rung like every facility track). Durations 120 / 240 / 420 / 720 / 1,200 ticks are the telescope's
 first five cycles, [PROVISIONAL] (the answer says "time" with no number). Credits + time only, no FA gate. Reads:
 `candidateBoardSize` (captainExplorerEffects.ts, the one reader both boards use) = (stored `seniorStaffRosterSize` +
-`personnelRostersBoardSlots`) x the best Recruiter, rounded up; derived on read, so nothing is mirrored into the
-stored field. Save: no bump (still v71). `save.ts withPersonnelRostersTrackV71` (idempotent `?? { level: 1 }`) rides
+`personnelRostersBoardSlots` + the best Recruiter's flat +1 (fix round, USER ANSWERS 2026-11-09 below; was x the best
+Recruiter, rounded up); derived on read, so nothing is mirrored into the stored field. Save: no bump (still v71). `save.ts withPersonnelRostersTrackV71` (idempotent `?? { level: 1 }`) rides
 `MIGRATIONS[70]` because v71 has not reached staging, and `migrate` also runs it on every load (the withHomeworldV70
 posture) for dev saves already at v71. UI: Personnel Rosters gains an Upgrades tab with the telescope card (board now
 and next, cost, time, ladder; the Recruiter's share named). Help: the Personnel Rosters topic's CANDIDATE BOARDS
-paragraph. Goldens: `cp19Goldens.*`, switch `cp19Switch.fixture.ts`, read-back `cp19Registry.fixture.ts`. Registry:
-12 live rows `facility:FACILITIES:personnelRosters:<0..5>` (officerBoard) and `...:<i>:recruits` (recruitBoard).
+paragraph. Goldens: `cp19Goldens.*`, switch `cp19Switch.fixture.ts`, read-back `cp19Registry.fixture.ts`. The
+`board:level6` and `upgrade:*` golden rows were ADDED AFTER the capture on feat 3a7c544; their pre-slice pins were
+taken through the switch (`withoutCp19`, which reproduces every captured row), the cp18 `mission:realRate` precedent.
+Registry: 12 live rows `facility:FACILITIES:personnelRosters:<0..5>` (officerBoard) and `...:<i>:recruits`
+(recruitBoard): 10 EFFECT rows (Levels 2 to 6, +2 slots each, linearAbsolute) and 2 BASE-VALUE PINS (Level 1 equals
+the stored base of 10; the Debug panel leaves the pins unmeasured, since a Recruiter's +1 sits on top on a real save).
 QA: `docs/qa/2026-11-09-cp19-rosters-track-qa.html`.
 **Recruiter finding:** the answer called the talent "currently dead", but WR-5c (2026-10-17, "Best one counts"
-2026-10-19) had already wired it: x1.08 on the whole board, rounded up. Kept as built (nothing reverted). With the
-track that is +1 at Levels 1 and 2 (11, 13) and +2 from Level 3 (16, 18, 20, 22), where the answer says "+1 slot".
-OPEN CALL for the user: keep the 8% (grows with the board) or make it a flat +1 at every level.
+2026-10-19) had already wired it: x1.08 on the whole board, rounded up. With the track that was +1 at Levels 1 and 2
+(11, 13) and +2 from Level 3 (16, 18, 20, 22), where the answer says "+1 slot". Settled by the user below.
+
+**USER ANSWERS (2026-11-09): CP-19 calls**
+- Recruiter: "Flat +1 always (Recommended)". The Recruiter always adds exactly one candidate slot to each board,
+  matching the 2026-11-02 answer.
+- Times: "Use those times (Recommended)". 120/240/420/720/1200 s, still [PROVISIONAL] for the 0.16.0 balance pass.
+
+**Fix round (2026-11-09, per the answers above):** the Recruiter (commandCrew4) is now catalog
+`{ type: "flatAdd", stat: "candidateBoardSlots", amount: 1 }` (new effect member), and `candidateBoardSize` = stored
+size + track slots + the best Recruiter's amount (best one counts, fleet-wide, as WR-5c wired it). The talent has no
+ranks (owned or not, cost 1), so "+1 slot on the D23 curve" reduces to the flat +1; no curve was invented. Boards with
+a Recruiter: 11, 13, 15, 17, 19, 21 at Levels 1 to 6. Talent text, Help line, card ("Includes +1"), registry rows
+(linearAbsolute, exact, no tolerance) updated. Golden move: `board:level6`'s Recruiter half 22 to 21 (traced by the
+read-back test in `cp19Goldens.test.ts`: the old pins are a 22-slot board, the new pins its first 21 slots). WR-5c's
+`commandCrew4: { boards: "11/11" }` held (10 + 1 = 10 x 1.08 rounded up). Also: the card's gain line names the
+rung's own +2; Help says existing candidates keep their places; `withPersonnelRostersTrackV71` reseeds Level 1 over
+a malformed entry (not an object, null, or a level below 1).
 
 ### CP-20: Graph color option (Task 33)
 

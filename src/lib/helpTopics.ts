@@ -785,8 +785,8 @@ export function personnelRostersBoardHelpText(): string {
   const prices = bought.map((r) => r.credits.toLocaleString("en-US"));
   const priceList = prices.length > 1 ? `${prices.slice(0, -1).join(", ")} and ${prices[prices.length - 1]}` : prices.join("");
   const recruiter = SECONDARY_CAPTAIN_TALENTS.commandCrew4;
-  const recruiterPct = recruiter.effect.type === "statMult" ? Math.round(recruiter.effect.mult * 100) : 0;
-  return `CANDIDATE BOARDS: the officer board and the away-team recruit board each show ${SENIOR_STAFF_ROSTER_BASE} candidates at Personnel Rosters Level 1, where every save starts. The facility's Upgrades tab grows both boards: each level adds ${PERSONNEL_ROSTERS_SLOTS_PER_RUNG} candidate slots to each board, up to ${top} at Level ${topLevel}, and costs credits (${priceList}) and a build time shown on the card. New slots join the end of the board; the candidates already on it stay the same. A captain with the ${recruiter.label} talent adds ${recruiterPct}% on top, rounded up (the best one in the fleet counts).`;
+  const recruiterSlots = recruiter.effect.type === "flatAdd" ? recruiter.effect.amount : 0;
+  return `CANDIDATE BOARDS: the officer board and the away-team recruit board each show ${SENIOR_STAFF_ROSTER_BASE} candidates at Personnel Rosters Level 1, where every save starts. The facility's Upgrades tab grows both boards: each level adds ${PERSONNEL_ROSTERS_SLOTS_PER_RUNG} candidate slots to each board, up to ${top} at Level ${topLevel}, and costs credits (${priceList}) and a build time shown on the card. New slots add candidates without changing the ones already on the board: existing candidates keep their places. A captain with the ${recruiter.label} talent adds ${recruiterSlots} more candidate slot${recruiterSlots === 1 ? "" : "s"} to each board at every level (the best one in the fleet counts; a second adds nothing).`;
 }
 
 // Complement CP-18: the soft captain level cap, in the engine's own numbers.

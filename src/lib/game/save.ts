@@ -2671,13 +2671,18 @@ const MIGRATIONS: Record<number, Migration> = {
 // IDEMPOTENT (`??` fills only an absent key) and v71 has not reached staging; migrate runs it on EVERY load too (the
 // withHomeworldV70 posture), so a dev save already at v71 from a build before CP-19 gains the key on its next load.
 // Hardened: a non-object state passes through; a non-object facilities map is left as it is (the framework reads an
-// absent key as level 0, which reads the same base board). Plain data. Off under the test switch.
+// absent key as level 0, which reads the same base board). A track entry that is not an object, is null or an array,
+// or carries a level that is not a finite number of at least 1 counts as MISSING and is reseeded { level: 1 } (every
+// save owns at least the pre-granted Level 1; a valid level of 1 or more is kept as it is). Plain data. Off under the
+// test switch.
 export function withPersonnelRostersTrackV71(state: any): any {
   if (!PERSONNEL_ROSTERS_TRACK_SWITCH.live) return state;
   if (!state || typeof state !== "object") return state;
   const facilities = state.facilities;
   if (facilities !== undefined && (facilities === null || typeof facilities !== "object" || Array.isArray(facilities))) return state;
-  if (facilities?.[PERSONNEL_ROSTERS_FACILITY_KEY] !== undefined) return state;
+  const track = facilities?.[PERSONNEL_ROSTERS_FACILITY_KEY];
+  const level = track && typeof track === "object" && !Array.isArray(track) ? track.level : undefined;
+  if (typeof level === "number" && Number.isFinite(level) && level >= 1) return state;
   return { ...state, facilities: { ...facilities, [PERSONNEL_ROSTERS_FACILITY_KEY]: { level: 1 } } };
 }
 
