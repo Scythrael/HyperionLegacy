@@ -19,7 +19,7 @@
 // CP11_CAPTURE = an output path: record every pin instead of asserting (the EM8_CAPTURE pattern).
 
 import { describe, expect, it } from "vitest";
-import { gw5ReadBack } from "./gearWearStep5Registry.fixture"; // Gear wear step 5: its deleted, flipped and patrol-context rows read back, innermost
+import { gw5ReadBack } from "./gearWearStep5Registry.fixture"; // Gear wear step 5: its deleted and flipped rows read back, innermost
 import { cp14OffForThisFile } from "./cp14Switch.fixture";
 // Complement CP-14 (hull base sensors and Science amplification) came after every pin here: the file runs with the
 // slice off, so its pins keep proving their own slice (cp14Goldens.test.ts pins what CP-14 moved).

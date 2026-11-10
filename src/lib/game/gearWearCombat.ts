@@ -35,9 +35,6 @@ export interface PatrolWearEvent {
   atTicks: number;
   battle: BattleWearMap;
   damageControlFires: number;
-  // GEAR WEAR step 5 (patrol use wear): a stamped cycle's USE at its end (gearWearEngine.ts patrolEventWear). Absent on
-  // every battle event.
-  use?: { minutesUnderway: number; lightYears: number; crewed: boolean };
 }
 
 // The engine's clock for a patrol call (economyTick passes it): the call's starting instant, the tick length and the
@@ -48,8 +45,6 @@ export interface PatrolWearClock {
   underwayRate: number;
   // Pause to repair (user 2026-10-27): the ship's home repair rate, which a paused Repeat patrol repairs at.
   homeRate: number;
-  // GEAR WEAR step 5 (patrol use wear): crew aboard (the crew modules wear only then). Absent = none aboard.
-  crewed?: boolean;
 }
 
 // Record one wave's (or a cycle end's) wear at `atTicks`, when it took anything. Mutates `events`.

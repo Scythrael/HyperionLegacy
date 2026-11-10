@@ -60,7 +60,7 @@
 // withRefugeeBuffsOff), where they read the unstaffed values, which are golden 3's own pins.
 
 import { describe, expect, it } from "vitest";
-import { gw5ReadBack } from "./gearWearStep5Registry.fixture"; // Gear wear step 5: its deleted, flipped and patrol-context rows read back, innermost
+import { gw5ReadBack } from "./gearWearStep5Registry.fixture"; // Gear wear step 5: its deleted and flipped rows read back, innermost
 import { cp16OffForThisFile } from "./cp16Switch.fixture";
 // Complement CP-16 (the Hall of Command) came after every pin here: the file runs with the slice off, so its pins
 // keep proving their own slice (cp16Goldens.test.ts pins what CP-16 moved: the missions counter, the notables and

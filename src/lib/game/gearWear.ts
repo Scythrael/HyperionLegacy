@@ -208,14 +208,13 @@ export function pieceCondition(piece: Pick<EquipmentInstance, "condition">): num
   return piece.condition === undefined ? CONDITION_FULL : clampCondition(piece.condition);
 }
 
-// A copy of the piece at `condition`, anchored at `atSeconds` (game time). Back at full, every condition field is removed
-// (condition, conditionAt and a patrol's carried use, useWearCarry), so a recovered piece serializes exactly as a
-// pristine one (design 6.1). Pure.
+// A copy of the piece at `condition`, anchored at `atSeconds` (game time). Back at full, BOTH fields are removed, so
+// a recovered piece serializes exactly as a pristine one (design 6.1). Pure.
 export function withPieceCondition<T extends EquipmentInstance>(piece: T, condition: number, atSeconds: number): T {
   const c = clampCondition(condition);
   if (c >= CONDITION_FULL) {
-    if (piece.condition === undefined && piece.conditionAt === undefined && piece.useWearCarry === undefined) return piece;
-    const { condition: _c, conditionAt: _a, useWearCarry: _u, ...rest } = piece;
+    if (piece.condition === undefined && piece.conditionAt === undefined) return piece;
+    const { condition: _c, conditionAt: _a, ...rest } = piece;
     return rest as T;
   }
   return { ...piece, condition: c, conditionAt: atSeconds };
@@ -257,32 +256,10 @@ export function toughnessScale(raw: number, durabilityMax: number): number {
 }
 
 // A use source's raw per-mille for `units` of its event (the FTL drive: per 10 ly, so 25 ly is 2). Pure.
-// `exact` (GEAR WEAR step 5 fix C2, a patrol's use): the unfloored amount, a fraction of a per-mille included.
-export function useWearRaw(sourceId: string, units: number, exact = false): number {
+export function useWearRaw(sourceId: string, units: number): number {
   const s = WEAR_SOURCE_BY_ID.get(sourceId);
   if (!s || s.mode !== "use" || !(units > 0)) return 0;
-  return exact ? (s.raw * units) / s.per : Math.floor((s.raw * units) / s.per);
-}
-
-// GEAR WEAR step 5 fix C2: the units a patrol's carried use wear is kept in (a millionth of a per-mille).
-export const USE_CARRY_PER_MILLE = 1_000_000;
-
-// USE WEAR WITH A CARRY (GEAR WEAR step 5 fix C2, design 3.1 "settles where wear and upkeep balance instead of grinding
-// down"): a patrol cycle's EXACT raw amount (a 14 s Sweep cycle is under one per-mille) scaled by toughness and by the
-// headroom curve FIRST, x (c - floor) / (1000 - floor), at the piece's condition at the event, and only then carried:
-// the whole per-mille of carry + curved amount is taken (never more than the headroom, so never below the use floor) and
-// the rest carries on the piece. No "at least 1": the curve acts on every event, so wear shrinks near the floor and
-// balances the underway upkeep. Integer units, one add per event, so any chunking gives the same carry. Pure.
-export function useWearCarried(rawExact: number, durabilityMax: number, condition: number, carry: number): { amount: number; carry: number } {
-  const c = clampCondition(condition);
-  const headroom = c - USE_WEAR_FLOOR;
-  const held = carry > 0 && Number.isFinite(carry) ? Math.floor(carry) : 0;
-  if (headroom <= 0 || !(rawExact > 0)) return { amount: 0, carry: held };
-  const max = durabilityMax > 0 ? durabilityMax : TOUGHNESS_REFERENCE;
-  const units = Math.floor((rawExact * TOUGHNESS_REFERENCE * headroom * USE_CARRY_PER_MILLE) / (max * (CONDITION_FULL - USE_WEAR_FLOOR)));
-  const total = held + units;
-  const whole = Math.floor(total / USE_CARRY_PER_MILLE);
-  return { amount: Math.min(whole, headroom), carry: total - whole * USE_CARRY_PER_MILLE };
+  return Math.floor((s.raw * units) / s.per);
 }
 
 // A battle source's raw per-mille: raw x lost / max (a pool source: the pool points lost over the pool size). Pure.
@@ -455,7 +432,7 @@ export function combatGearView(gear: readonly EquipmentInstance[], conditions: R
   return gear.map((piece) => {
     const frozen = conditions[piece.id];
     const c = frozen === undefined ? CONDITION_FULL : clampCondition(frozen);
-    const { condition: _c, conditionAt: _a, useWearCarry: _u, ...rest } = piece;
+    const { condition: _c, conditionAt: _a, ...rest } = piece;
     const base = (c >= CONDITION_FULL ? rest : { ...rest, condition: c }) as EquipmentInstance;
     const copy = WEAR_VIEW_SLOTS.has(piece.slotType) && c < CONDITION_FULL ? wornPieceView(base) : base;
     COMBAT_CONDITION.set(copy, c);

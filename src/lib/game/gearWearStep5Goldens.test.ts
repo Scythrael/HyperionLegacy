@@ -9,10 +9,10 @@
 //                   `si` (Standard Issue, pristine) and `worn` (ship-1's pieces preset worn), four hulls x both routes x
 //                   Dispatch Once and Repeatedly; `crew` (a destroyer with a crew aboard: its crew modules wear too).
 //
-// PRE (below) is that capture. With the step 5 switch OFF (patrolUseWearSwitch.fixture.ts: no patrol is use-stamped)
-// every row reproduces PRE byte for byte, and a patrol DISPATCHED inside the switch (a run in flight at the update)
-// and then flown by the live engine reproduces it too. LIVE is the step 5 engine; each row that moved is named in
-// MOVES with why. A training cycle (the save's first patrol) records no use wear (W9, SF-7).
+// PRE (below) is that capture. Step 5 first made patrols wear their reactor, drive and modules by USE; the user removed
+// that (2026-11-09, "Combat only on patrols": a patrol wears its gear by battle damage alone, exactly as before step 5),
+// so the step 5 engine as it stands must fly every row byte for byte as PRE: the 34 rows returned to their PRE pins
+// (verified, not re-captured; the LIVE pins and the switch are gone). The training cycle still takes no wear (W9, SF-7).
 
 import { describe, expect, it } from "vitest";
 import { cp16OffForThisFile } from "./cp16Switch.fixture";
@@ -26,7 +26,6 @@ import { dispatchCaptainOnPatrol, economyTick } from "./tick";
 import { hash, onHull, stateHash } from "./firstRunsGoldens.fixture";
 import { asPatrolVeteran } from "./awayTeamTestFixtures";
 import { pieceCondition, withPieceCondition } from "./gearWear";
-import * as wearEngine from "./gearWearEngine";
 
 const HULLS: ShipTypeKey[] = ["generalFreighter", "destroyer", "battleship", "carrier"];
 const ROUTES = Object.keys(PATROLS) as PatrolKey[];
@@ -48,19 +47,6 @@ const WORN: Readonly<Record<string, number>> = {
   bridge: 880,
   quarters: 880,
 };
-
-// The step 5 switch, read through the module so this file also runs on the pre-step-5 engine (the capture).
-function useWearOff<T>(run: () => T): T {
-  const sw = (wearEngine as unknown as { PATROL_USE_WEAR_SWITCH?: { live: boolean } }).PATROL_USE_WEAR_SWITCH;
-  if (sw === undefined) return run();
-  const was = sw.live;
-  sw.live = false;
-  try {
-    return run();
-  } finally {
-    sw.live = was;
-  }
-}
 
 const patrolOf = (s: GameState): PatrolMissionState | null => s.captains[0].mission as PatrolMissionState | null;
 
@@ -85,10 +71,8 @@ function conditions(s: GameState): string {
 }
 
 // One patrol, 1 s ticks until the captain idles (Once) or MAX_CYCLES cycles started (Repeat: then recalled home).
-// `inFlight`: dispatched inside the step 5 switch (a run from before step 5), then flown by the live engine.
-function patrolRun(state: GameState, key: PatrolKey, repeat: boolean, label: string, mode: "live" | "off" | "inFlight"): string[] {
-  const go = () => dispatchCaptainOnPatrol(state, 1, key, "balanced", repeat);
-  const r = mode === "live" ? go() : useWearOff(go);
+function patrolRun(state: GameState, key: PatrolKey, repeat: boolean, label: string): string[] {
+  const r = dispatchCaptainOnPatrol(state, 1, key, "balanced", repeat);
   expect(r.success, `${label}: ${r.reason}`).toBe(true);
   const fly = (): string[] => {
     const row = [hash(structuredClone(r.next.captains[0].mission))];
@@ -111,7 +95,7 @@ function patrolRun(state: GameState, key: PatrolKey, repeat: boolean, label: str
     row.push(`${s.ships[0].damaged === true ? "lost" : "won"}:${ticks}`, hash(s.ships[0]), stateHash(s), conditions(s));
     return row;
   };
-  return mode === "off" ? useWearOff(fly) : fly();
+  return fly();
 }
 
 interface Case {
@@ -136,54 +120,20 @@ for (const route of ROUTES) CASES.push({ key: `patrol:crew:destroyer:${route}:re
 if (CAPTURE) {
   it("captures (GW5_CAPTURE)", () => {
     const out: Record<string, string[]> = {};
-    for (const c of CASES) out[c.key] = patrolRun(c.state(), c.route, c.repeat, c.key, CAPTURE === "pre" ? "off" : "live");
+    for (const c of CASES) out[c.key] = patrolRun(c.state(), c.route, c.repeat, c.key);
     writeFileSync((import.meta.env.GW5_OUT as string | undefined) ?? "gw5.json", JSON.stringify(out, null, 1));
   }, 600_000);
 } else {
-  describe("gear wear step 5 goldens: patrol use wear", () => {
-    it("the step 5 switch reproduces every PRE row (no patrol is use-stamped)", () => {
-      for (const c of CASES) expect(patrolRun(c.state(), c.route, c.repeat, c.key, "off"), c.key).toEqual(PRE[c.key]);
+  describe("gear wear step 5 goldens: patrols wear by battle only (user 2026-11-09 \"Combat only on patrols\")", () => {
+    it("the step 5 engine flies every row byte for byte as PRE (no patrol use wear)", () => {
+      for (const c of CASES) expect(patrolRun(c.state(), c.route, c.repeat, c.key), c.key).toEqual(PRE[c.key]);
     });
 
-    it("a patrol in flight at the update (dispatched before step 5) flies on byte-identical", () => {
-      for (const c of CASES) expect(patrolRun(c.state(), c.route, c.repeat, c.key, "inFlight"), c.key).toEqual(PRE[c.key]);
-    });
-
-    it("LIVE: every row as the step 5 engine flies it", () => {
-      for (const c of CASES) expect(patrolRun(c.state(), c.route, c.repeat, c.key, "live"), c.key).toEqual(LIVE[c.key]);
-    });
-
-    // MOVES, named: every row moves at its dispatch record (the new `useWear: 1` stamp, carried to each relaunch), and
-    // from there only by USE wear: each cycle's end takes the reactor core's minutes and the drive's round trip (the
-    // crew modules' minutes too with crew aboard and a module installed; none of these hulls installs one) off the
-    // pieces, a few per-mille on these short routes, and a relaunched cycle opens its reactor and drive pools at that
-    // lower condition (its record and state hashes move). Nothing else moves: the waves, the outcome and its tick are
-    // PRE's on every row (checked here), and every other slot's final condition is PRE's.
-    it("the moves are use wear only: the outcome and its tick never change, only the reactor, the drive and the modules wear", () => {
-      const USE_SLOTS = new Set(["reactorCore", "ftlDrive", "bridge", "quarters", "module"]);
-      for (const c of CASES) {
-        const pre = PRE[c.key];
-        const live = LIVE[c.key];
-        expect(live.find((x) => /^(won|lost):/.test(x)), c.key).toBe(pre.find((x) => /^(won|lost):/.test(x)));
-        expect(live[0], `${c.key}: the dispatch record carries the new stamp`).not.toBe(pre[0]);
-        const before = pre[pre.length - 1].split(" ");
-        const after = live[live.length - 1].split(" ");
-        expect(after.length).toBe(before.length);
-        after.forEach((entry, i) => {
-          const [slot, v] = entry.split("=");
-          const [, w] = before[i].split("=");
-          if (USE_SLOTS.has(slot)) expect(Number(v), `${c.key} ${slot}`).toBeLessThanOrEqual(Number(w));
-          else expect(v, `${c.key} ${slot}`).toBe(w);
-        });
-      }
-    });
-
-    it("the training cycle (the save's first patrol) records no use wear (W9, SF-7)", () => {
+    it("the training cycle (the save's first patrol) takes no wear (W9, SF-7)", () => {
       // A fresh save: its first patrol is the training run. Its only cycle ends with every piece as it was dispatched.
       const fresh = { ...onHull("destroyer"), nextPatrolSeed: 1, credits: new Decimal(100_000) };
       const r = dispatchCaptainOnPatrol(fresh, 1, ROUTES[0], "balanced", false);
       expect(r.success).toBe(true);
-      expect(patrolOf(r.next)?.useWear).toBe(1);
       let s = r.next;
       let ticks = 0;
       while (patrolOf(s) !== null && ticks < 6000) {
@@ -232,45 +182,4 @@ const PRE: Readonly<Record<string, readonly string[]>> = {
   "patrol:worn:carrier:crimsonReaverWarband:repeat": ["76867275", "relaunch:1011", "b981054d", "a6661099", "lost:1033", "73109288", "329d302f", "cargoBay=1000 ftlDrive=910 reactorCore=917 specUtility=1000 weapon=900 weapon=860 shieldEmitters=850 hullPlating=844 droneBay=700"],
   "patrol:crew:destroyer:crimsonReaverSweep:repeat": ["8f383097", "relaunch:14", "51f9a0f0", "4ca016e0", "relaunch:28", "c41a2975", "a4367788", "won:42", "577a666", "7872a7eb", "cargoBay=1000 ftlDrive=880 reactorCore=893 specUtility=1000 weapon=860 weapon=870 weapon=910 weapon=920 shieldEmitters=766 hullPlating=1000"],
   "patrol:crew:destroyer:crimsonReaverWarband:repeat": ["9f5cb74", "relaunch:339", "9361352", "4c561411", "lost:352", "2e01cff7", "a1f5478a", "cargoBay=1000 ftlDrive=940 reactorCore=950 specUtility=1000 weapon=940 weapon=910 weapon=910 weapon=930 shieldEmitters=850 hullPlating=844"],
-};
-
-// LIVE: the step 5 engine (GW5_CAPTURE=live), re-captured at the step 5 review fixes (2026-11-09): C2 curves each
-// cycle's use at the piece's condition BEFORE carrying it, and the carry now lives on each piece (useWearCarry), so
-// every row's state hash moves and the use-worn slots wear a little less (several rows now end on PRE's conditions,
-// their use still in the carry). C1 moved no row (the free rates settle to the same bytes as before).
-const LIVE: Readonly<Record<string, readonly string[]>> = {
-  "patrol:si:generalFreighter:crimsonReaverSweep:once": ["d534b75", "won:14", "b2f38143", "7c44a5f1", "cargoBay=1000 ftlDrive=830 reactorCore=892 specUtility=1000 weapon=820 weapon=870 shieldEmitters=817 hullPlating=909"],
-  "patrol:si:generalFreighter:crimsonReaverSweep:repeat": ["c48133c4", "relaunch:14", "4e6c7da3", "e0f81575", "relaunch:28", "b6cb7be1", "2a0db733", "won:42", "b2f38143", "968106ae", "cargoBay=1000 ftlDrive=640 reactorCore=758 specUtility=1000 weapon=630 weapon=750 shieldEmitters=493 hullPlating=904"],
-  "patrol:si:generalFreighter:crimsonReaverWarband:once": ["16d41a93", "lost:20", "701a58f1", "6a74a4a8", "cargoBay=1000 ftlDrive=870 reactorCore=825 specUtility=1000 weapon=920 weapon=800 shieldEmitters=796 hullPlating=845"],
-  "patrol:si:generalFreighter:crimsonReaverWarband:repeat": ["45ed6602", "lost:20", "701a58f1", "6a74a4a8", "cargoBay=1000 ftlDrive=870 reactorCore=825 specUtility=1000 weapon=920 weapon=800 shieldEmitters=796 hullPlating=845"],
-  "patrol:si:destroyer:crimsonReaverSweep:once": ["c14d88b5", "won:14", "6ad9f46c", "d5404eed", "cargoBay=1000 ftlDrive=950 reactorCore=967 specUtility=1000 weapon=930 weapon=940 weapon=960 weapon=960 shieldEmitters=857 hullPlating=1000"],
-  "patrol:si:destroyer:crimsonReaverSweep:repeat": ["f2c5f04", "relaunch:14", "fe41eb23", "72d71bb2", "relaunch:28", "fbf9fd0f", "689c824a", "won:42", "6ad9f46c", "3bf704d8", "cargoBay=1000 ftlDrive=879 reactorCore=892 specUtility=1000 weapon=860 weapon=870 weapon=910 weapon=920 shieldEmitters=766 hullPlating=1000"],
-  "patrol:si:destroyer:crimsonReaverWarband:once": ["35506cca", "won:20", "6ad9f46c", "ad28a205", "cargoBay=1000 ftlDrive=960 reactorCore=917 specUtility=1000 weapon=920 weapon=890 weapon=890 weapon=860 shieldEmitters=788 hullPlating=937"],
-  "patrol:si:destroyer:crimsonReaverWarband:repeat": ["152b5e9f", "relaunch:339", "acded4a5", "254e27c2", "lost:352", "44b4c6b5", "806855b7", "cargoBay=1000 ftlDrive=940 reactorCore=950 specUtility=1000 weapon=940 weapon=910 weapon=910 weapon=930 shieldEmitters=850 hullPlating=844"],
-  "patrol:si:battleship:crimsonReaverSweep:once": ["7dfa9691", "won:18", "c6dba9cb", "b750ac0b", "cargoBay=1000 ftlDrive=970 reactorCore=992 specUtility=1000 weapon=980 weapon=990 weapon=990 weapon=970 weapon=980 weapon=1000 shieldEmitters=974 hullPlating=1000"],
-  "patrol:si:battleship:crimsonReaverSweep:repeat": ["3bd9c436", "relaunch:18", "c955ac45", "286d341b", "relaunch:36", "3438ec36", "8bcaf4ab", "won:54", "c6dba9cb", "dc40eadd", "cargoBay=1000 ftlDrive=920 reactorCore=967 specUtility=1000 weapon=951 weapon=951 weapon=961 weapon=951 weapon=941 weapon=960 shieldEmitters=951 hullPlating=1000"],
-  "patrol:si:battleship:crimsonReaverWarband:once": ["515e331f", "won:28", "c6dba9cb", "5d5b5497", "cargoBay=1000 ftlDrive=990 reactorCore=974 specUtility=1000 weapon=960 weapon=970 weapon=940 weapon=960 weapon=980 weapon=930 shieldEmitters=969 hullPlating=995"],
-  "patrol:si:battleship:crimsonReaverWarband:repeat": ["7ca373c8", "relaunch:134", "a104ff5f", "dbc591aa", "lost:161", "afe73d75", "6c56f4ef", "cargoBay=1000 ftlDrive=820 reactorCore=908 specUtility=1000 weapon=820 weapon=850 weapon=840 weapon=860 weapon=810 weapon=870 shieldEmitters=835 hullPlating=846"],
-  "patrol:si:carrier:crimsonReaverSweep:once": ["5c678905", "won:16", "ea909677", "23901646", "cargoBay=1000 ftlDrive=940 reactorCore=942 specUtility=1000 weapon=920 weapon=920 shieldEmitters=967 hullPlating=1000 droneBay=775"],
-  "patrol:si:carrier:crimsonReaverSweep:repeat": ["7fa6deee", "relaunch:16", "fbd3895a", "6e3f638b", "relaunch:32", "c76fdc3e", "80ba83be", "won:48", "ea909677", "9559fd2d", "cargoBay=1000 ftlDrive=850 reactorCore=900 specUtility=1000 weapon=821 weapon=851 shieldEmitters=962 hullPlating=1000 droneBay=589"],
-  "patrol:si:carrier:crimsonReaverWarband:once": ["823c12df", "won:26", "ea909677", "19d7e88b", "cargoBay=1000 ftlDrive=930 reactorCore=941 specUtility=1000 weapon=900 weapon=880 shieldEmitters=989 hullPlating=979 droneBay=664"],
-  "patrol:si:carrier:crimsonReaverWarband:repeat": ["dc6c60c0", "relaunch:531", "cb852d7a", "ee181dc8", "lost:553", "73109288", "51481b58", "cargoBay=1000 ftlDrive=910 reactorCore=917 specUtility=1000 weapon=900 weapon=860 shieldEmitters=850 hullPlating=844 droneBay=700"],
-  "patrol:worn:generalFreighter:crimsonReaverSweep:once": ["aab31931", "won:14", "b2f38143", "603a6233", "cargoBay=900 ftlDrive=640 reactorCore=644 specUtility=750 weapon=520 weapon=560 shieldEmitters=463 hullPlating=495"],
-  "patrol:worn:generalFreighter:crimsonReaverSweep:repeat": ["595c9f28", "relaunch:14", "6fe78193", "3bace2b5", "relaunch:28", "982dcf0b", "338209d5", "won:42", "b2f38143", "2ec6eade", "cargoBay=901 ftlDrive=331 reactorCore=396 specUtility=751 weapon=281 weapon=311 shieldEmitters=15 hullPlating=433"],
-  "patrol:worn:generalFreighter:crimsonReaverWarband:once": ["c17779fb", "lost:20", "ba00cf2d", "78c3814b", "cargoBay=900 ftlDrive=690 reactorCore=602 specUtility=750 weapon=630 weapon=500 shieldEmitters=455 hullPlating=445"],
-  "patrol:worn:generalFreighter:crimsonReaverWarband:repeat": ["e662d1ac", "relaunch:601", "2afba2e", "a7835863", "lost:617", "701a58f1", "9a25dcb1", "cargoBay=1000 ftlDrive=980 reactorCore=934 specUtility=1000 weapon=970 weapon=950 shieldEmitters=850 hullPlating=844"],
-  "patrol:worn:destroyer:crimsonReaverSweep:once": ["3cc0ce48", "won:14", "6ad9f46c", "a475050", "cargoBay=900 ftlDrive=770 reactorCore=727 specUtility=750 weapon=630 weapon=640 weapon=660 weapon=660 shieldEmitters=503 hullPlating=600"],
-  "patrol:worn:destroyer:crimsonReaverSweep:repeat": ["fd6df0df", "relaunch:14", "e7c8c507", "6bd4577a", "relaunch:28", "6062e724", "bcb36a0f", "won:42", "6ad9f46c", "7c448083", "cargoBay=901 ftlDrive=681 reactorCore=654 specUtility=751 weapon=531 weapon=531 weapon=581 weapon=621 shieldEmitters=376 hullPlating=601"],
-  "patrol:worn:destroyer:crimsonReaverWarband:once": ["f8f6be25", "won:20", "6ad9f46c", "34bbf78f", "cargoBay=900 ftlDrive=780 reactorCore=677 specUtility=750 weapon=620 weapon=590 weapon=590 weapon=560 shieldEmitters=437 hullPlating=537"],
-  "patrol:worn:destroyer:crimsonReaverWarband:repeat": ["dc60010e", "relaunch:866", "acded4a5", "3cd993f", "lost:879", "44b4c6b5", "f38b9329", "cargoBay=1000 ftlDrive=940 reactorCore=950 specUtility=1000 weapon=940 weapon=910 weapon=910 weapon=930 shieldEmitters=850 hullPlating=844"],
-  "patrol:worn:battleship:crimsonReaverSweep:once": ["efe223c5", "won:18", "c6dba9cb", "3b77d3ce", "cargoBay=900 ftlDrive=790 reactorCore=752 specUtility=750 weapon=680 weapon=690 weapon=690 weapon=670 weapon=680 weapon=700 shieldEmitters=623 hullPlating=600"],
-  "patrol:worn:battleship:crimsonReaverSweep:repeat": ["cc3ae7b2", "relaunch:18", "2d9af6d8", "df5f7483", "relaunch:36", "e5a8fb73", "39515df6", "won:54", "c6dba9cb", "1345c506", "cargoBay=901 ftlDrive=741 reactorCore=728 specUtility=751 weapon=651 weapon=651 weapon=661 weapon=651 weapon=641 weapon=661 shieldEmitters=600 hullPlating=601"],
-  "patrol:worn:battleship:crimsonReaverWarband:once": ["653c9ec3", "won:28", "c6dba9cb", "7b95967c", "cargoBay=900 ftlDrive=810 reactorCore=735 specUtility=750 weapon=660 weapon=670 weapon=640 weapon=660 weapon=680 weapon=630 shieldEmitters=618 hullPlating=595"],
-  "patrol:worn:battleship:crimsonReaverWarband:repeat": ["9e61f4", "relaunch:637", "a104ff5f", "5542a0ba", "lost:664", "afe73d75", "4a72def1", "cargoBay=1000 ftlDrive=820 reactorCore=908 specUtility=1000 weapon=820 weapon=850 weapon=840 weapon=860 weapon=810 weapon=870 shieldEmitters=835 hullPlating=846"],
-  "patrol:worn:carrier:crimsonReaverSweep:once": ["6537055b", "won:16", "ea909677", "cbb524d0", "cargoBay=900 ftlDrive=760 reactorCore=702 specUtility=750 weapon=620 weapon=620 shieldEmitters=619 hullPlating=600 droneBay=493"],
-  "patrol:worn:carrier:crimsonReaverSweep:repeat": ["c3ac7efc", "relaunch:16", "b07f2677", "cb2e323c", "relaunch:32", "db0c94df", "11d433f2", "won:48", "ea909677", "2aa61c90", "cargoBay=901 ftlDrive=661 reactorCore=645 specUtility=751 weapon=521 weapon=511 shieldEmitters=615 hullPlating=601 droneBay=232"],
-  "patrol:worn:carrier:crimsonReaverWarband:once": ["57dff529", "won:26", "ea909677", "90fa5112", "cargoBay=900 ftlDrive=750 reactorCore=702 specUtility=750 weapon=610 weapon=580 shieldEmitters=640 hullPlating=579 droneBay=344"],
-  "patrol:worn:carrier:crimsonReaverWarband:repeat": ["7dff7702", "relaunch:1011", "cb852d7a", "fb8e6172", "lost:1033", "73109288", "cec8c996", "cargoBay=1000 ftlDrive=910 reactorCore=917 specUtility=1000 weapon=900 weapon=860 shieldEmitters=850 hullPlating=844 droneBay=700"],
-  "patrol:crew:destroyer:crimsonReaverSweep:repeat": ["f2c5f04", "relaunch:14", "fe41eb23", "5c0b06f4", "relaunch:28", "fbf9fd0f", "9e5f80d2", "won:42", "577a666", "5d1e2c6e", "cargoBay=1000 ftlDrive=879 reactorCore=892 specUtility=1000 weapon=860 weapon=870 weapon=910 weapon=920 shieldEmitters=766 hullPlating=1000"],
-  "patrol:crew:destroyer:crimsonReaverWarband:repeat": ["152b5e9f", "relaunch:339", "acded4a5", "d915b240", "lost:352", "2e01cff7", "de49b85f", "cargoBay=1000 ftlDrive=940 reactorCore=950 specUtility=1000 weapon=940 weapon=910 weapon=910 weapon=930 shieldEmitters=850 hullPlating=844"],
 };

@@ -146,19 +146,29 @@ function contextPlace(context: RepairContext): string {
   }
 }
 
+// Is this ship out on a patrol (its captain's mission)? A patrol wears its gear by battle alone (user 2026-11-09
+// "Combat only on patrols"). Pure.
+export function shipOnPatrol(state: GameState, shipId: string): boolean {
+  const ship = state.ships.find((s) => s.id === shipId);
+  if (!ship || ship.assignedCaptainId === null) return false;
+  return state.captains.some((c) => c.id === ship.assignedCaptainId && c.mission?.kind === "patrol");
+}
+
 // The footer's last words (the Overtime mockup: "Repair is always free.", true at every Overtime step: Overtime buys
 // speed, never the repair).
 export const REPAIR_FREE_TEXT = "Repair is always free.";
 
 // The care footer for a piece (the Overtime mockup: "Back to full in about 8 min at home, on its own. Repair is always
 // free."; "with Overtime" once a step is bought). Out on a run it says what is true there (step 5 fix C2): the piece
-// recovers slowly, which use and battle can still outpace, and fully once home. Pure.
+// recovers slowly, which wear can still outpace, and fully once home. On a patrol only battle wears it (user 2026-11-09
+// "Combat only on patrols"); on any other run use and battle. Pure.
 export function pieceCareText(state: GameState, piece: EquipmentInstance): string {
   const o = gearRepairOutlook(state, piece);
   if (o.condition >= CONDITION_FULL) return "Nothing to do.";
   if (o.context === "fieldRepair") return `Recovers ${ratePercentText(o.ratePerMinute)} while ${contextPlace(o.context)}, and fully once home. On its own; ${REPAIR_FREE_TEXT.toLowerCase()}`;
   if (o.minutesToFull === null) {
-    return `Recovers ${ratePercentText(o.ratePerMinute)} underway, which use and battle can outpace, and fully once home. On its own; ${REPAIR_FREE_TEXT.toLowerCase()}`;
+    const outpace = piece.fittedToShipId && shipOnPatrol(state, piece.fittedToShipId) ? "battle damage" : "use and battle";
+    return `Recovers ${ratePercentText(o.ratePerMinute)} underway, which ${outpace} can outpace, and fully once home. On its own; ${REPAIR_FREE_TEXT.toLowerCase()}`;
   }
   const how = piece.fittedToShipId && gearOvertimeMult(state, piece.fittedToShipId) > 1 ? "with Overtime" : "on its own";
   return `Back to full in ${aboutMinutes(o.minutesToFull)} ${contextPlace(o.context)}, ${how}. ${REPAIR_FREE_TEXT}`;
@@ -361,7 +371,8 @@ export function shipGearSummary(state: GameState, shipId: string): ShipGearSumma
   const context = out ?? ctx;
   let recovery: string;
   if (out === "fieldRepair") recovery = "Field repair, recovering";
-  // Step 5 fix C2: out on a run, use and battle can outpace the slow underway upkeep, so the chip never claims recovery.
+  // Step 5 fix C2: out on a run, wear (battle on a patrol; use and battle elsewhere) can outpace the slow underway upkeep,
+  // so the chip never claims recovery.
   else if (out !== null) recovery = "Out on a run, full once home";
   else recovery = `Recovering, full in ${aboutMinutes(most)}`;
   return { percent: conditionPercent(avg), band: wearBand(avg).key, worn, recovery, context, minutesToFull: out !== null ? null : most };
@@ -413,7 +424,11 @@ export function fleetCare(state: GameState): FleetCareModel | null {
     const parts: string[] = [];
     if (damaged) parts.push(hullMinutes !== null ? `Hull in a Shipyard bay, ${aboutMinutes(hullMinutes)}` : "Hull waiting for a free Shipyard bay");
     if (summary.worn) {
-      if (summary.minutesToFull === null) parts.push(index.field.has(ship.id) ? "Set down for field repairs, gear recovering" : "Out on a run, gear wears with use and recovers fully once home");
+      if (summary.minutesToFull === null) {
+        // A patrol wears its gear by battle alone (user 2026-11-09 "Combat only on patrols"); any other run by use too.
+        const out = shipOnPatrol(state, ship.id) ? "On patrol, gear wears only in battle and recovers fully once home" : "Out on a run, gear wears with use and recovers fully once home";
+        parts.push(index.field.has(ship.id) ? "Set down for field repairs, gear recovering" : out);
+      }
       else {
         docked += 1;
         dockedMinutes = Math.max(dockedMinutes, summary.minutesToFull);

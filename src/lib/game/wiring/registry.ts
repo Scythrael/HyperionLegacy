@@ -539,12 +539,12 @@ function pending(owner: string, contexts?: readonly ContextId[]): WiringStatus {
 // cycles probe (no-dead-stats) and crew:audit:pilotCunningReturn prove the consumer moves.
 // Gear wear (0.14.0, design docs/plans/2026-10-16-gear-wear-design.md section 11) owners: step 3 wires the use wear
 // sources, the repair contexts and the economy / ground efficiency; step 4 the combat half (battle wear, the
-// true-condition pools, shield / plating / pod efficiency); step 5 the UI, patrol use wear and Overtime on gear repair
-// (Quick Service dropped by the user, 2026-11-09). Each step flips its entries live in the same commit. Step 4 flipped
+// true-condition pools, shield / plating / pod efficiency); step 5 the UI and Overtime on gear repair (Quick Service
+// dropped by the user, 2026-11-09; patrol use wear built and then REMOVED by the user, 2026-11-09 "Combat only on
+// patrols": a patrol wears its gear by battle alone). Each step flips its entries live in the same commit. Step 4 flipped
 // every entry it owned (the battle sources, the combat consumers, the Damage Control Suite's fires and lines, the
 // defense and pod toughness rows); the Reactor Core's power output consumer is re-owned to the user's EM-4 open call
-// (item 4, the drive lift reads it pristine as built). Step 5 added the patrol context to the five time and distance use
-// sources (WEAR_PATROL_USE_CONTEXTS) and took wear:audit:gearRepairOvertime live.
+// (item 4, the drive lift reads it pristine as built). Step 5 took wear:audit:gearRepairOvertime live.
 const GEAR_WEAR_STEP_3 = "gear wear step 3 (use wear sources, repair contexts and settling at events)";
 const EM4_WORN_OUTPUT_CALL = "the user's EM-4 open call (review item 4, material lines plan): the drive lift reads the Reactor Core's PRISTINE output as built ((a) keep pristine; (b) read the worn output); in combat the core's wear acts through its true-condition pool (wear:WEAR_SOURCES:reactorCore:hitsTaken), never a second penalty (user W3)";
 // The user's T3 deferrals (capture 2026-10-15 section 3: "Move all five (Recommended)").
@@ -7170,16 +7170,13 @@ function reactorTechEntries(): WiringEntry[] {
 // cycle, a delivered non-training short-range cycle, a stamped expedition coming home).
 const WEAR_MISSION_CONTEXTS: ContextId[] = ["mission:extraction", "mission:survey", "mission:transport", "mission:shortRange"];
 const WEAR_RUN_CONTEXTS: ContextId[] = [...WEAR_MISSION_CONTEXTS, "expedition:groundOps"];
-// Gear wear step 5 (patrol use wear): a stamped, non-training patrol cycle wears the reactor, the drive, the crew modules
-// and the universal modules by its own use too (wearProbes.ts patrolCycleUseEvent: a cycle ending through the live engine).
-const WEAR_PATROL_USE_CONTEXTS: ContextId[] = [...WEAR_RUN_CONTEXTS, "patrol"];
 const WEAR_USE_CONTEXTS: Readonly<Record<string, ContextId[]>> = {
   "cargoBay:haul": WEAR_MISSION_CONTEXTS,
-  "ftlDrive:distance": WEAR_PATROL_USE_CONTEXTS,
-  "reactorCore:minutesRunning": WEAR_PATROL_USE_CONTEXTS,
-  "bridge:minutesCrewed": WEAR_PATROL_USE_CONTEXTS,
-  "quarters:minutesCrewed": WEAR_PATROL_USE_CONTEXTS,
-  "module:minutesUnderway": WEAR_PATROL_USE_CONTEXTS,
+  "ftlDrive:distance": WEAR_RUN_CONTEXTS,
+  "reactorCore:minutesRunning": WEAR_RUN_CONTEXTS,
+  "bridge:minutesCrewed": WEAR_RUN_CONTEXTS,
+  "quarters:minutesCrewed": WEAR_RUN_CONTEXTS,
+  "module:minutesUnderway": WEAR_RUN_CONTEXTS,
   "sensor:surveyCycle": ["mission:survey", "mission:shortRange"],
   "sensor:bodyScanned": ["expedition:groundOps"],
   // Gear wear step 4: and a Damage Control Suite's fires (a Shipyard repair it shortens, a patrol wave it patches).

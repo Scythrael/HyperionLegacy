@@ -96,7 +96,6 @@ import {
   repairRateQ,
   settlePiece,
   useWear,
-  useWearCarried,
   useWearRaw,
   withWornCondition,
   wornPieceView,
@@ -107,8 +106,6 @@ import type { ShortRangeWearEvents } from "./shortRangeCycle";
 import { isFirstGatheringRun } from "./runDifficulty";
 import { studyDiveEvents } from "./gasGiantStudy";
 import { overtimeRate } from "./overtimeRate";
-import { LY_PER_TICK } from "./fuel";
-import type { PatrolDef } from "./model";
 
 // ============================================================================
 // The switch, the stamps and the run sheet
@@ -166,7 +163,7 @@ export function runGearView(state: GameState, shipId: string, stamp: RunWearStam
     if (p.fittedToShipId !== shipId) return p;
     const at = frozen[p.id];
     if (at === undefined && p.condition === undefined) return p;
-    const { condition: _c, conditionAt: _a, useWearCarry: _u, ...rest } = p;
+    const { condition: _c, conditionAt: _a, ...rest } = p;
     return wornPieceView(at === undefined ? (rest as EquipmentInstance) : { ...(rest as EquipmentInstance), condition: at });
   });
   return { ...state, equipment };
@@ -241,9 +238,6 @@ export interface ShipUseWear {
   bodiesScanned: number; // bodies scanned on an expedition (the sensor array; a Pathfinder Suite's fires)
   prospectingCycles: number; // extraction or survey cycles (a prospecting rig's fires: its yield line acts)
   crewed: boolean; // crew aboard (the bridge and quarters modules wear only then)
-  // GEAR WEAR step 5 fix C2: a patrol cycle's use, recorded EXACTLY (its minutes and light-years unfloored); each piece
-  // takes it through the headroom curve first and carries the fraction (gearWear.ts useWearCarried).
-  exact?: true;
   // GEAR WEAR step 4: a Damage Control Suite's fires (a patrol wave it patched, a Shipyard repair it shortened).
   damageControlFires?: number;
   // GEAR WEAR step 4: BATTLE wear at this instant, piece id -> raw per-mille before toughness (gearWearCombat.ts), taken
@@ -499,28 +493,26 @@ function utilityFires(piece: EquipmentInstance, w: ShipUseWear): number {
   return w.prospectingCycles;
 }
 
-// The raw per-mille a ship piece takes from one use event (before toughness and the floor, gearWear.ts useWear;
-// unfloored for a patrol's exact event, step 5 fix C2). Pure.
+// The raw per-mille a ship piece takes from one use event (before toughness and the floor, gearWear.ts useWear). Pure.
 export function shipPieceUseRaw(piece: EquipmentInstance, w: ShipUseWear): number {
-  const x = w.exact === true;
   switch (piece.slotType) {
     case "cargoBay":
-      return useWearRaw("cargoBay:haul", w.hauls, x);
+      return useWearRaw("cargoBay:haul", w.hauls);
     case "ftlDrive":
-      return useWearRaw("ftlDrive:distance", w.lightYears, x);
+      return useWearRaw("ftlDrive:distance", w.lightYears);
     case "reactorCore":
-      return useWearRaw("reactorCore:minutesRunning", w.minutesUnderway, x);
+      return useWearRaw("reactorCore:minutesRunning", w.minutesUnderway);
     case "bridge":
-      return w.crewed ? useWearRaw("bridge:minutesCrewed", w.minutesUnderway, x) : 0;
+      return w.crewed ? useWearRaw("bridge:minutesCrewed", w.minutesUnderway) : 0;
     case "quarters":
-      return w.crewed ? useWearRaw("quarters:minutesCrewed", w.minutesUnderway, x) : 0;
+      return w.crewed ? useWearRaw("quarters:minutesCrewed", w.minutesUnderway) : 0;
     // E-MOD EM-5 (user M9 "Slowly underway"): a universal module wears by time underway, crew or not.
     case "module":
-      return useWearRaw("module:minutesUnderway", w.minutesUnderway, x);
+      return useWearRaw("module:minutesUnderway", w.minutesUnderway);
     case "sensor":
-      return useWearRaw("sensor:surveyCycle", w.surveys, x) + useWearRaw("sensor:bodyScanned", w.bodiesScanned, x);
+      return useWearRaw("sensor:surveyCycle", w.surveys) + useWearRaw("sensor:bodyScanned", w.bodiesScanned);
     case "specUtility":
-      return useWearRaw("specUtility:effectFires", utilityFires(piece, w), x);
+      return useWearRaw("specUtility:effectFires", utilityFires(piece, w));
     default:
       return 0;
   }
@@ -554,26 +546,11 @@ export function applyUseWear(piece: EquipmentInstance, raw: number, at: number):
   return withWornCondition(piece, c - amount, at);
 }
 
-// GEAR WEAR step 5 fix C2: a patrol cycle's EXACT use on a piece at `at` (already settled to `at`): curved at its
-// condition, then carried (gearWear.ts useWearCarried), the whole per-mille taken, the rest left on the piece
-// (useWearCarry, written only while non-zero). The piece as it is when nothing changes. Pure.
-export function applyCarriedUseWear(piece: EquipmentInstance, rawExact: number, at: number): EquipmentInstance {
-  if (!(rawExact > 0)) return piece;
-  const c = pieceCondition(piece);
-  const { amount, carry } = useWearCarried(rawExact, piece.durabilityMax, c, piece.useWearCarry ?? 0);
-  const worn = amount > 0 ? withWornCondition(piece, c - amount, at) : piece;
-  if ((worn.useWearCarry ?? 0) === carry) return worn;
-  if (carry > 0) return { ...worn, useWearCarry: carry };
-  const { useWearCarry: _u, ...rest } = worn;
-  return rest as EquipmentInstance;
-}
-
 // ONE ship event on a ship piece at `at` (already settled to `at`): its use wear, then its battle wear (step 4; design
 // 7: "settle, then wear"). The ONE function the tail pass, the cycle-start re-reads and the patrol cycle projection
 // share, so a projected condition is exactly the one the pass writes. Pure.
 export function applyShipWear(piece: EquipmentInstance, w: ShipUseWear, at: number): EquipmentInstance {
-  const raw = shipPieceUseRaw(piece, w);
-  const used = w.exact === true ? applyCarriedUseWear(piece, raw, at) : applyUseWear(piece, raw, at);
+  const used = applyUseWear(piece, shipPieceUseRaw(piece, w), at);
   return w.battle ? applyBattleWearAt(used, w.battle[piece.id] ?? 0, at) : used;
 }
 
@@ -604,46 +581,6 @@ export function projectCycleConditions(
     if (c < CONDITION_FULL) out[piece.id] = c;
   }
   return out;
-}
-
-// ============================================================================
-// GEAR WEAR step 5: PATROL USE WEAR (design 3.1 "on any run"; SF-7 note: skip the training cycle)
-// ============================================================================
-//
-// A patrol cycle wears its ship like any run: the reactor core and (crew aboard) the crew modules by the minutes the
-// cycle flew, the universal modules by the same minutes, and the FTL drive by the route's round trip in light-years
-// (the route's authored legs, as a mission's distance reads its def). The event lands where the cycle ends: a won
-// route at its end (the minutes it flew, its return cut included), a lost one in two parts, the minutes out to the
-// defeat at the defeat and the limp home (its minutes and the round trip) as the wreck reaches base, each known at its
-// own instant so one call, chunks and 1 s steps agree. Only a run stamped at dispatch (PatrolMissionState.useWear)
-// records it, and never its training cycle (runDifficulty.ts isTrainingPatrol), as the battle sources do.
-
-// The test-only seam golden files captured before step 5 use to dispatch as before (patrolUseWearSwitch.fixture.ts).
-// Live in the game.
-export const PATROL_USE_WEAR_SWITCH = { live: true };
-
-// The stamp a patrol is dispatched with: 1 while the use sources are live (undefined otherwise). Pure.
-export function patrolUseWearStamp(): 1 | undefined {
-  return PATROL_USE_WEAR_SWITCH.live && gearWearLive() ? 1 : undefined;
-}
-
-// One patrol cycle's use, as tickCaptainPatrol records it.
-export interface PatrolUseWear {
-  minutesUnderway: number;
-  lightYears: number;
-  crewed: boolean;
-}
-
-// A patrol route's round trip in light-years (its authored legs, LY_PER_TICK, the mission distance rule). Pure.
-export function patrolRouteLightYears(def: Pick<PatrolDef, "transitOutTicks" | "transitBackTicks">): number {
-  return (def.transitOutTicks + def.transitBackTicks) * LY_PER_TICK;
-}
-
-// A patrol wear event as the ship event the tail pass and the relaunch projection apply: its use (step 5), then its
-// battle wear and Damage Control fires (step 4). Pure.
-export function patrolEventWear(ev: { battle: Readonly<Record<string, number>>; damageControlFires: number; use?: PatrolUseWear }): ShipUseWear {
-  const battle = battleOnlyWear(ev.battle, ev.damageControlFires);
-  return ev.use ? { ...battle, minutesUnderway: ev.use.minutesUnderway, lightYears: ev.use.lightYears, crewed: ev.use.crewed, exact: true } : battle;
 }
 
 // The empty use of a ship event that carries only battle wear or a Damage Control Suite fire (step 4).

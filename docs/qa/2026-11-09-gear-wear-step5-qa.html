@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-<title>0.14.0 QA: Gear wear step 5 (wear UI, patrol use wear, Overtime on repair)</title>
+<title>0.14.0 QA: Gear wear step 5 (wear UI, Overtime on repair)</title>
 <style>
   :root {
     --bg: #070b12;
@@ -143,8 +143,8 @@
 <body>
 <div class="wrap">
   <p class="eyebrow">Hyperion Legacy QA, 0.14.0 feature pass</p>
-  <h1><span class="v">0.14.0</span> Gear wear step 5: the wear UI, patrol use wear, Overtime on repair</h1>
-  <p class="sub">Curated checklist for gear wear step 5 (design docs/plans/2026-10-16-gear-wear-design.md section 8 and its USER ANSWERS; the approved mockup, "10/10", 2026-11-02; the 2026-11-09 answers: the 60% use floor stays, and Quick Service is dropped, "None, always automatic"). Every piece of gear now shows its condition: a bar and band on its card, a meter on every Ship Systems slot, a Gear chip on the ship, and one quiet Fleet care block on Command Home. Patrols now wear their reactor, drive and modules by use like every other run. <b>Run this on staging</b> (devpreview.crystalisoft.com, the staging branch) with your migrated save, once 0.14.0 is deployed there (0.14.0 stays off staging until the wiring gate passes and you say go). Run each check once at <b>1280 px</b> (desktop) and once at <b>375 px</b> (mobile), in both <b>light and dark</b> themes.</p>
+  <h1><span class="v">0.14.0</span> Gear wear step 5: the wear UI, Overtime on repair</h1>
+  <p class="sub">Curated checklist for gear wear step 5 (design docs/plans/2026-10-16-gear-wear-design.md section 8 and its USER ANSWERS; the approved mockup, "10/10", 2026-11-02; the 2026-11-09 answers: the 60% use floor stays, and Quick Service is dropped, "None, always automatic"). Every piece of gear now shows its condition: a bar and band on its card, a meter on every Ship Systems slot, a Gear chip on the ship, and one quiet Fleet care block on Command Home. Patrols wear gear by battle damage only ("Combat only on patrols", 2026-11-09). <b>Run this on the local dev build</b> (localhost:5173) for now; the real-save rows wait for staging (devpreview.crystalisoft.com), since 0.14.0 stays off staging until the wiring gate passes and you say go. Run each check once at <b>1280 px</b> (desktop) and once at <b>375 px</b> (mobile), in both <b>light and dark</b> themes.</p>
 
   <div class="progress-card">
     <div class="progress-top">
@@ -163,7 +163,7 @@
   <div class="legend">
     <p><b>What it does.</b> Condition runs 0 to 100%. The bands are <b>Pristine</b> (95% and up), <b>Sound</b> (80% to 94%), <b>Worn</b> (60% to 79%) and <b>Battered</b> (below 60%, battle damage only). Ordinary use stops at 60%. Repair is automatic and free: 4% a minute at home, 8% a minute while the hull is in a Shipyard repair bay, 4% a minute on a field repair, 0.2% a minute out on a run. Nothing breaks, nothing is uninstalled, no run is ever blocked.</p>
     <p><b>Quick Service is gone.</b> There is no paid repair, no instant repair and no "repair now" button for gear anywhere (your 2026-11-09 answer). Repair stays free and automatic; the only purchase is the optional <b>Overtime</b> button on a docked ship's gear card (your approved 2026-11-09 Overtime mockup), which only speeds the repair up.</p>
-    <p><b>Where to test.</b> Staging, <b>devpreview.crystalisoft.com</b>, on the 0.14.0 build, with your own migrated save. The Debug tab (a DEV_MODE build) has <b>[DEV] Gear wear</b> buttons: Wear all to 90% / 70% / 40% and Restore all gear, so you can see every band without flying.</p>
+    <p><b>Where to test.</b> 0.14.0 stays off staging until the wiring gate passes and you say go, so for now run it on the local dev build (<b>localhost:5173</b>, a DEV_MODE build with <code>VITE_DEV_MODE=true</code> in .env.local). The <b>needs real save</b> rows wait for staging (devpreview.crystalisoft.com) with your migrated save, once 0.14.0 is deployed there. The Debug tab (a DEV_MODE build) has <b>[DEV] Gear wear</b> buttons: Wear all to 90% / 70% / 40% and Restore all gear, so you can see every band without flying.</p>
     <p><b>The three columns.</b> <b style="color:var(--claude)">Claude</b> is pre-filled and read-only: a tick means a test proves that rule (the "how" line names the file). <b style="color:var(--desk)">1280</b> and <b style="color:var(--mob)">375</b> are yours; your ticks are saved in this browser.</p>
     <p>Tags: <span class="chip save">needs real save</span> needs your migrated save. <span class="chip device">needs device</span> touch, a real phone, or a visual call. <span class="chip theme">light + dark</span> look at it in both themes. <span class="chip later">not in this build</span> not built here.</p>
   </div>
@@ -181,10 +181,10 @@
       <li><b>Quick Service removed.</b> Nothing in the UI offers a paid or instant gear repair. Its registry row (Quick gear repair) is deleted, and the design doc records the removal. The mockup itself carried no Quick Service control ("No instant-repair purchase").</li>
       <li><b>Two mockup lines superseded by your earlier calls.</b> The mockup said a weapon "opens each fight at no less than 70%"; your W3 answer is true condition, so the card says "Opens each fight at N%" with the real number. The mockup's Repeat freighter line "settles near 90%" is not shown: the line reads "Out on a run, gear recovers slowly underway and fully once home", which is always true.</li>
       <li><b>Where the Fleet care line lives.</b> Command Home has no Shipyard card, so the line is its own quiet <b>Fleet care</b> section under In progress (hidden when nothing is worn and no hull is damaged), with hull repairs shown beside gear wear (W6).</li>
-      <li><b>Overtime on gear repair</b> is built in the engine and registry, by the speed seam's rule (+25% of the normal rate a step, three steps at most, step k costs 10 x the job's minutes x the hull tier x k, docked ships only). Like every other Overtime it has no button yet (the speed seam waits for an Overtime sketch). See section 5.</li>
-      <li><b>Patrol use wear.</b> A patrol dispatched after this update wears its reactor, drive and modules each cycle (never its training cycle). A patrol already in flight at the update flies on exactly as before.</li>
-      <li><b>No save change.</b> Two optional fields (a patrol's use wear stamp, a ship's Overtime record), no SAVE_VERSION bump.</li>
-      <li><b>Review fix round (2026-11-09).</b> C1: gear repair now settles in exact whole numbers (whole-second anchors and an integer bank), so offline and live agree to the byte at any game time. C2: a patrol's use wear shrinks as a piece nears 60%, so a Repeat patrol settles instead of grinding to 60% (use alone, a destroyer on Repeat Sweep: reactor 84% and drive 91% after 10 hours, where wear and the underway upkeep balance). Overtime is priced by the repair job's FULL length (fixed whenever it is bought). The Overtime button is built on the gear card (your answers "Per ship", "One tap", "Gear card only"). The care footer now ends "Repair is always free."; out on a run the lines say use can outpace the slow underway upkeep. Four new optional fields (a piece's repair bank and carried patrol use, a ship's repair job length), no SAVE_VERSION bump.</li>
+      <li><b>Overtime on gear repair</b> is built in the engine and registry, by the speed seam's rule (+25% of the normal rate a step, three steps at most, step k costs 10 x the job's minutes x the hull tier x k, docked ships only). Its button is on the gear card (your approved 2026-11-09 Overtime mockup). See section 5.</li>
+      <li><b>Combat only on patrols</b> (your 2026-11-09 answer). Patrols wear gear only through battle damage, exactly as before step 5. The patrol use wear built earlier in step 5 (a hub inference, not your request) is removed. Gathering runs, expeditions and short-range runs keep their use wear.</li>
+      <li><b>No save change.</b> Two optional fields (a ship's Overtime record and its repair job length), no SAVE_VERSION bump.</li>
+      <li><b>Review fix round (2026-11-09).</b> C1: gear repair now settles in exact whole numbers (whole-second anchors and an integer bank), so offline and live agree to the byte at any game time. (C2, patrol use wear's carry, is gone with patrol use wear.) Overtime is priced by the repair job's FULL length (fixed whenever it is bought). The Overtime button is built on the gear card (your answers "Per ship", "One tap", "Gear card only"). The care footer now ends "Repair is always free."; out on a run the lines say wear can outpace the slow underway upkeep (on a patrol, battle damage only). No new save field for C1 (the anchor encodes the bank), no SAVE_VERSION bump.</li>
     </ol>
   </div>
 
@@ -195,8 +195,8 @@
 const TICK = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>';
 // c: a test proves it (how names the file). tag: "save" | "device" | "theme" | "later" | null.
 const SECTIONS = [
-  { n: "0", title: "Setup on staging", note: "Staging only: devpreview.crystalisoft.com on the 0.14.0 build, your migrated save.", items: [
-    { t: "Open staging and load your save. It loads clean (no save version change). No console errors opening a ship, a gear card, Command Home and Help, Gear wear.", tag: "save" },
+  { n: "0", title: "Setup", note: "Local dev build (localhost:5173, DEV_MODE) until 0.14.0 goes to staging; the real-save rows on staging (devpreview.crystalisoft.com) once you say go.", items: [
+    { t: "Open the build and load your save. It loads clean (no save version change). No console errors opening a ship, a gear card, Command Home and Help, Gear wear.", tag: "save" },
     { t: "Debug tab: <b>[DEV] Gear wear</b> has Wear all to 90% / 70% / 40% and Restore all gear, and each logs a [DEV] line.", tag: "save" },
   ]},
   { n: "1", title: "The gear card (mockup section 1)", items: [
@@ -204,7 +204,7 @@ const SECTIONS = [
     { t: "The worn lines list each of its own lines with the new value struck through beside the worn one (Cargo Capacity, for example).", c: true, how: "gearWearStep5.test.ts (worn lines are below the pristine values)." },
     { t: "The care footer reads <b>Back to full in about 8 min at home, on its own. Repair is always free.</b> (about 8 min from 70% at 4% a minute). Watch it count down. After an Overtime step it says <b>with Overtime</b>.", c: true, tag: "theme", how: "gearWearStep5.test.ts (the care footer from the repair outlook)." },
     { t: "A weapon card reads <b>Opens each fight at 70%.</b>; a Reactor Core <b>Each fight opens it at 70%. Its power output stays full.</b>; an FTL drive also says <b>Reach is never reduced.</b>", c: true, how: "gearWearStep5.test.ts (wearEffectText)." },
-    { t: "A piece on a ship that is out on a run reads <b>Recovers 0.2% a minute underway, which use and battle can outpace, and fully once home.</b>", c: true, how: "gearWearDisplay.ts pieceCareText (step 5 fix C2)." },
+    { t: "A piece on a ship that is out on a mission or expedition reads <b>Recovers 0.2% a minute underway, which use and battle can outpace, and fully once home.</b> On a patrol it reads <b>...which battle damage can outpace...</b>", c: true, how: "gearWearDisplay.ts pieceCareText; gearWearStep5.test.ts (the patrol line)." },
     { t: "Shield emitters, plating and drone pods read <b>In battle it works at N% of new.</b>; a module <b>In battle its effect works at N% of new.</b>", c: false },
     { t: "A pristine piece reads <b>Pristine.</b> Operating like new. and <b>Nothing to do.</b>", c: true, how: "gearWearStep5.test.ts (pristine card)." },
     { t: "The same block shows on a spare in Logistics, Ship Equipment, on an Armory loadout piece and on a member's gear (Away Team tab).", tag: "save" },
@@ -220,17 +220,15 @@ const SECTIONS = [
   { n: "3", title: "Fleet care on Command Home (mockup section 4)", items: [
     { t: "With everything pristine and no damaged hull, Command Home shows <b>no</b> Fleet care section.", c: true, how: "gearWearStep5.test.ts (fleetCare is null when pristine)." },
     { t: "Wear all to 70%: a <b>Fleet care</b> section appears: <b>Fleet gear 70%</b>, <b>Nothing needs you</b>, a summary such as <b>3 ships recovering. Docked gear back to full in about 8 min.</b> and one row per ship with its meter and <b>Docked, gear full in about N min</b>.", c: true, tag: "theme", how: "gearWearStep5.test.ts (summary and row text)." },
-    { t: "A ship out on a run reads <b>Out on a run, gear wears with use and recovers fully once home</b>.", c: true, tag: "save", how: "gearWearStep5.test.ts (out on a run)." },
+    { t: "A ship out on a mission or expedition reads <b>Out on a run, gear wears with use and recovers fully once home</b>; a ship on a patrol reads <b>On patrol, gear wears only in battle and recovers fully once home</b>.", c: true, tag: "save", how: "gearWearStep5.test.ts (the patrol row)." },
     { t: "Fleet care has <b>no</b> Overtime button (your answer \"Gear card only\"): it only reports.", tag: "theme" },
     { t: "Lose a patrol: the ship's row also says <b>Hull in a Shipyard bay, about N min</b> (or waiting for a free bay) beside its gear, so hull and gear read as one recovery (W6).", tag: "save" },
     { t: "Restore all gear: the section disappears again (within a tick).", tag: "save" },
   ]},
-  { n: "4", title: "Patrol use wear", items: [
-    { t: "Send a veteran ship on a patrol and let a route finish: its Reactor Core and FTL drive cards show a little use wear (a few tenths of a percent on a short route), beside the battle wear. Weapons, shields and plating wear only by battle.", c: true, tag: "save", how: "gearWearStep5.test.ts (each cycle wears the reactor and the drive by use); gearWearStep5Goldens.test.ts (34 patrol rows: only the reactor, the drive and the modules move)." },
-    { t: "Your very first patrol on a new save (the training run) leaves no wear at all.", c: true, how: "gearWearStep5Goldens.test.ts (the training cycle records no use wear)." },
-    { t: "A patrol that was already out when the update landed keeps flying exactly as before.", c: true, how: "gearWearStep5Goldens.test.ts (in flight at the update, byte-identical)." },
-    { t: "Offline catch-up gives the same gear as watching live.", c: true, how: "gearWearStep5.test.ts (one call == 997 s chunks == 1 s steps)." },
-    { t: "A ship left on Repeat Sweep for a few hours: its reactor and drive settle and stay (on use alone the reactor holds at 84%, the drive at about 91%; never sliding to 60%).", c: true, tag: "save", how: "gearWearStep5Fixes.test.ts (C2: a Repeat Sweep settles)." },
+  { n: "4", title: "Patrols: combat only (your 2026-11-09 answer)", items: [
+    { t: "Send a veteran ship on a patrol and let a route finish: only battle wears its gear (weapons, shields, plating, drone pods, and the reactor and drive by hits taken). No use wear from the route's time or distance.", c: true, tag: "save", how: "gearWearStep5.test.ts (battle wear off: a Repeat patrol leaves every piece pristine); gearWearStep5Goldens.test.ts (all 34 patrol rows fly byte for byte as before step 5)." },
+    { t: "Your very first patrol on a new save (the training run) leaves no wear at all.", c: true, how: "gearWearStep5Goldens.test.ts (the training cycle takes no wear)." },
+    { t: "A gathering mission still wears its cargo bay, drive and reactor by use (unchanged).", c: true, how: "gearWearGoldens.test.ts; wiring registry wear:WEAR_SOURCES:* (live at the mission contexts)." },
   ]},
   { n: "5", title: "Overtime on gear repair (the gear card button)", items: [
     { t: "Engine rule, proved by tests: on a docked ship with worn gear, each Overtime step lifts its gear's repair rate by 25% of normal (at most 3 steps, 1.75x), step k costs ceil(10 x the job's minutes x hull tier x k), refused while the ship is out, when nothing is worn, at 3 steps or when credits are short; it clears when the gear is full or the ship leaves.", c: true, how: "gearWearStep5.test.ts (Overtime describe); wiring registry wear:audit:gearRepairOvertime (live)." },
@@ -248,7 +246,7 @@ const SECTIONS = [
   ]},
 ];
 
-const STORE = "hl-qa-0140-gear-wear-step5-v1";
+const STORE = "hl-qa-0140-gear-wear-step5-v2";
 let userState = {};
 try { userState = JSON.parse(localStorage.getItem(STORE) || "{}"); } catch (e) { userState = {}; }
 function save() { try { localStorage.setItem(STORE, JSON.stringify(userState)); } catch (e) {} }

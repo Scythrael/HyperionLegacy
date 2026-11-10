@@ -412,9 +412,6 @@ import {
   shortRangeWear,
   // GEAR WEAR step 4: the patrol cycle projection, the battle-only events and the live condition a dispatch freezes.
   battleOnlyWear,
-  patrolEventWear,
-  patrolRouteLightYears,
-  patrolUseWearStamp,
   livePieceCondition,
   projectCycleConditions,
   shipRepairBonuses,
@@ -3680,22 +3677,6 @@ export function tickCaptainPatrol(
   // stamped cycle's pools (the start it opened at and its ceilings) for the cycle's pool wear (null: an unstamped
   // cycle, which wears nothing); and the offset a stamped cycle's patrol ended at.
   const gearWearEvents: PatrolWearEvent[] = [];
-  // GEAR WEAR step 5 (patrol use wear, gearWearEngine.ts patrolEventWear): a stamped run's cycle records its USE where
-  // it ends: `routeTicks` the route ticks it flew in this part, `lightYears` the round trip (0 for the part out to a
-  // defeat; the limp home carries it). Never the training cycle (W9, SF-7 note), never without the engine's clock.
-  // Step 5 fix C2: the use is recorded EXACTLY (a 14 s Sweep cycle is a quarter of a minute); each piece curves it at
-  // its condition and carries the fraction itself (gearWear.ts useWearCarried, EquipmentInstance.useWearCarry), so wear
-  // shrinks near the floor. Per cycle, so chunking cannot change it.
-  const recordPatrolUse = (routeTicks: number, lightYears: number): void => {
-    const clock = officerEffects.gearWear;
-    if (mission === null || mission.useWear !== 1 || isTrainingPatrol(mission) || !clock || !(routeTicks > 0)) return;
-    gearWearEvents.push({
-      atTicks: offsetNow(),
-      battle: {},
-      damageControlFires: 0,
-      use: { minutesUnderway: (routeTicks * clock.secondsPerTick) / 60, lightYears, crewed: clock.crewed === true },
-    });
-  };
   let cyclePools = patrolCyclePools(hullType, shipDef, cycleGear, captain.mission);
   let endedAtTicks: number | null = null;
   // GEAR WEAR step 4 (pause to repair): the home repair windows of the pauses that closed this call (absolute game
@@ -3789,8 +3770,6 @@ export function tickCaptainPatrol(
         stopReason = "defeat"; // wall-stop: a defeated patrol limped home and ended damaged
         endReason = "defeat"; // 0.13.4 Phase 2: ending #1 of 4 in this function
         if (cyclePools !== null) endedAtTicks = offsetNow(); // GEAR WEAR step 4: the stamped run ends here
-        // GEAR WEAR step 5: the limp home's use (its own minutes and the route's round trip) as the wreck reaches base.
-        recordPatrolUse(limpHomeTicks, patrolRouteLightYears(def));
         mission = null;
         break;
       }
@@ -3992,8 +3971,6 @@ export function tickCaptainPatrol(
         // GEAR WEAR step 4: the defeat ends the cycle's fighting, so its pools' wear lands with this wave's.
         if (waveWear !== null && cyclePools !== null) addBattleWear(waveWear, poolBattleWear(cycleGear ?? [], cyclePools.start, cyclePools.max, mission.playerSystemDurability));
         recordPatrolWear(gearWearEvents, offsetNow(), waveWear, damageControlFired);
-        // GEAR WEAR step 5: the minutes out to the defeat (the limp home records its own as it reaches base).
-        recordPatrolUse(progress, 0);
         continue;
       }
       // GEAR WEAR step 4: a won (or broken-off) wave's wear, at its offset.
@@ -4037,8 +4014,6 @@ export function tickCaptainPatrol(
         if (cyclePools !== null) {
           recordPatrolWear(gearWearEvents, offsetNow(), poolBattleWear(cycleGear ?? [], cyclePools.start, cyclePools.max, mission.playerSystemDurability), false);
         }
-        // GEAR WEAR step 5: the route's use (the ticks it flew, its return cut included, and its round trip).
-        recordPatrolUse(progress, patrolRouteLightYears(def));
         // A full route flown + player alive = one patrol COMPLETED (won). Count it (win-only: a
         // defeat broke out above and never reaches here), keyed into missionsCompleted below.
         routesCompleted += 1;
@@ -4144,8 +4119,6 @@ export function tickCaptainPatrol(
             hullWeapon: cur.hullBonus === 1 ? officerEffects.hullWeapon : undefined,
             // WR-9 fix round: and the run's Pilot Cunning stamp (absent stays absent).
             pilotCunning: cur.pilotCunning,
-            // GEAR WEAR step 5: and the run's use wear stamp (absent stays absent).
-            useWear: cur.useWear,
           });
           return { mission: minted, gear: nextGear };
         })()
@@ -4447,8 +4420,7 @@ function relaunchCycleConditions(
 ): Record<string, number> | undefined {
   if (!clock || !installedGear || !battleWearLive() || isTrainingPatrol({ difficulty })) return undefined;
   const at = (ticks: number) => clock.startSeconds + ticks * clock.secondsPerTick;
-  // GEAR WEAR step 5: with each cycle's use (patrolEventWear), so the next cycle opens at what the tail pass writes.
-  const timed = events.map((ev) => ({ at: at(ev.atTicks), wear: patrolEventWear(ev) }));
+  const timed = events.map((ev) => ({ at: at(ev.atTicks), wear: battleOnlyWear(ev.battle, ev.damageControlFires) }));
   return projectCycleConditions(installedGear, timed, at(offsetTicks), clock.underwayRate, windows, clock.homeRate);
 }
 
@@ -5064,8 +5036,6 @@ export function economyTick(
                   // WR-7 follow-up (OC-D5): on the run's favored-spec stamp, as the tail pass reads it.
                   underwayRate: repairRatePerMinute("underway", shipRepairBonuses(state, patrolShip, patrolFavored, patrolHullBonus)),
                   homeRate: repairRatePerMinute("home", shipRepairBonuses(state, patrolShip, patrolFavored, patrolHullBonus)),
-                  // GEAR WEAR step 5: crew aboard, for a cycle's use on the crew modules.
-                  crewed: shipCrewAboard(state, patrolShip),
                 },
               }
             : {},
@@ -5074,8 +5044,7 @@ export function economyTick(
         // instant a stamped patrol ended (its pieces settle underway up to it, then at home or in a bay).
         if (patrolShip) {
           for (const ev of patrolResult.gearWear) {
-            // GEAR WEAR step 5: a cycle's use rides the same events (patrolEventWear).
-            pushShipWear(wearEvents, patrolShip.id, state.gameTimeSeconds + ev.atTicks * state.tickDurationSeconds, patrolEventWear(ev));
+            pushShipWear(wearEvents, patrolShip.id, state.gameTimeSeconds + ev.atTicks * state.tickDurationSeconds, battleOnlyWear(ev.battle, ev.damageControlFires));
           }
           // Pause to repair: its home windows settle at the home rate, and each pause and resume reads in the log.
           if (patrolResult.repairWindows.length > 0) wearEvents.pauseWindows.set(patrolShip.id, patrolResult.repairWindows);
@@ -6536,9 +6505,6 @@ function freshPatrolMission(args: {
   // WR-9 fix round (user 2026-10-31): the run's Pilot Cunning stamp (dispatch: pilotCunningStamp; relaunch: the run's
   // own). Stored only when present.
   pilotCunning?: number;
-  // GEAR WEAR step 5: the run's use wear stamp (dispatch: patrolUseWearStamp; relaunch: the run's own). Stored only
-  // when present.
-  useWear?: 1;
 }): PatrolMissionState {
   const { patrolKey, stance, masterSeed, repeatDispatch, shipDef, hullType, installedGear, officerCombat, captainCombat } = args;
   const deckHandling = args.deckHandling ?? 0;
@@ -6628,7 +6594,6 @@ function freshPatrolMission(args: {
     ...(args.hullWeapon !== undefined && args.hullWeapon > 0 ? { hullWeapon: args.hullWeapon } : {}),
     ...(args.legTicks !== undefined ? { legTicks: { ...args.legTicks } } : {}),
     ...(args.pilotCunning !== undefined ? { pilotCunning: args.pilotCunning } : {}),
-    ...(args.useWear === 1 ? { useWear: 1 as const } : {}),
   };
 }
 
@@ -7058,8 +7023,6 @@ export function dispatchCaptainOnPatrol(
     legTicks,
     // WR-9 fix round: read above.
     pilotCunning,
-    // GEAR WEAR step 5 (patrol use wear): a patrol dispatched now records each cycle's use (never its training cycle).
-    useWear: patrolUseWearStamp(),
   });
 
   const captains = [...state.captains];

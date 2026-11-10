@@ -625,6 +625,11 @@ combat view's "opened at N%, carried wear" cycle line (section 8) is not built (
 - **Overtime price:** "Match the existing rule (Recommended)". Price by the repair job's FULL length, fixed when bought,
   like every other Overtime.
 - **Reactor power:** "Stays full (Recommended)". Wear never cuts reactor power output (closes the open EM-4 call).
+- **Patrol use wear (user, 2026-11-09, verbatim): "Combat only on patrols".** Patrols wear gear ONLY through battle
+  damage, exactly as before step 5. Gathering runs, expeditions and the other existing use wear sources keep their use
+  wear. Note: the "patrol use wear" item in step 5's scope was a hub inference from the per-kind list, not a user
+  request, and the user has rejected it. It is REMOVED (the carry note below). This also retires the "Patrol wear
+  rates" answer above (it was about the rates of the removed patrol use events).
 
 **Carry note, step 5 review fix round (2026-11-09, the answers above).**
 - **C1, exact settling.** Repair is integer arithmetic (the crewHoursMs precedent): a rate is quantized to
@@ -661,3 +666,19 @@ combat view's "opened at N%, carried wear" cycle line (section 8) is not built (
 - **Help:** the drive line says its transit speed weakens AND it opens fights at its condition; the reactor's power
   output stays full (user "Stays full"); "no button and no cost" is replaced by the Overtime line.
 - Save: two optional fields (`useWearCarry`, `gearRepairJobMinutes`), no SAVE_VERSION step.
+
+**Carry note, "Combat only on patrols" (2026-11-09, the user's answer above).** Patrol use wear is REMOVED; a patrol
+wears its gear by battle damage alone, byte for byte as before step 5. Removed: the dispatch stamp
+(`PatrolMissionState.useWear`, `patrolUseWearStamp`, `PATROL_USE_WEAR_SWITCH` and `patrolUseWearSwitch.fixture.ts`),
+each cycle's use event (`tick.ts recordPatrolUse`, `PatrolWearEvent.use`, `PatrolWearClock.crewed`,
+`gearWearEngine.ts patrolEventWear` / `patrolRouteLightYears` / `PatrolUseWear`) and the curve-first carry that only
+patrols used (C2: `gearWear.ts useWearCarried`, `USE_CARRY_PER_MILLE`, the `exact` use raw, `EquipmentInstance.useWearCarry`,
+`applyCarriedUseWear`, `ShipUseWear.exact`). `tick.ts`, `gearWearCombat.ts` and `wiring/wearProbes.ts` are back to
+feat 8d3809b exactly. Kept: Overtime on gear repair and C1's exact integer settling (not patrol use wear); gathering,
+expedition and short-range use wear are unchanged. Goldens: the 34 step 5 patrol rows fly as their PRE pins with the
+live engine (verified, not re-captured; the LIVE pins are gone), and the twelve golden files that ran with the patrol
+use switch off run with nothing switched now, every pin unchanged. Registry: the five time and distance use sources lose
+the `patrol` context (step 4's rows again); the step 5 read-back fixture keeps only its Quick Service and Overtime rows.
+UI: the care footer on a patrolling ship reads "which battle damage can outpace", Fleet care reads "On patrol, gear
+wears only in battle and recovers fully once home", and Help says a patrol wears its gear only through battle damage.
+A dev save that carries a stale `useWear` stamp or `useWearCarry` is harmless (both are ignored). No SAVE_VERSION step.

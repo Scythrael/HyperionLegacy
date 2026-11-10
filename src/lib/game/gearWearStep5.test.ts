@@ -1,13 +1,14 @@
 // GEAR WEAR step 5 (0.14.0, docs/plans/2026-10-16-gear-wear-design.md section 11 step 5, minus Quick Service per the
-// user's 2026-11-09 answer): patrol use wear (each non-training cycle records its use), Overtime on gear repair (the
-// speed seam's rule on a ship's docked gear recovery) and the wear UI's view models, all through the real engine.
+// user's 2026-11-09 answer): Overtime on gear repair (the speed seam's rule on a ship's docked gear recovery) and the
+// wear UI's view models, all through the real engine. (Patrol use wear was built here and then REMOVED by the user,
+// 2026-11-09 "Combat only on patrols": a patrol wears its gear by battle alone; a regression test below.)
 
 import { describe, expect, it } from "vitest";
 import Decimal from "break_infinity.js";
 import { type EquipmentInstance, type GameState, type PatrolMissionState } from "./model";
 import { dispatchCaptainOnPatrol, economyTick } from "./tick";
-import { CONDITION_FULL, REPAIR_RATES, USE_WEAR_FLOOR, pieceCondition, withPieceCondition } from "./gearWear";
-import { gearOvertimeMult, gearRepairOutlook, livePieceCondition, patrolRouteLightYears } from "./gearWearEngine";
+import { REPAIR_RATES, USE_WEAR_FLOOR, pieceCondition, withPieceCondition } from "./gearWear";
+import { gearOvertimeMult, gearRepairOutlook, livePieceCondition } from "./gearWearEngine";
 import {
   OVERTIME_CREDITS_PER_MINUTE,
   OVERTIME_MAX_STEPS,
@@ -19,12 +20,10 @@ import {
 } from "./processSpeed";
 import { onHull } from "./firstRunsGoldens.fixture";
 import { asPatrolVeteran } from "./awayTeamTestFixtures";
-import { withPatrolUseWearOff } from "./patrolUseWearSwitch.fixture";
 import { withBattleWearOff } from "./battleWearSwitch.fixture";
-import { PATROLS } from "./model";
 import { HELP_TOPICS, TRAINING_WEAR_SENTENCE } from "../helpTopics";
 import { WIRING_REGISTRY } from "./wiring/registry";
-import { GW5_PATROL_CONTEXT_IDS, gw5ReadBack } from "./gearWearStep5Registry.fixture";
+import { gw5ReadBack } from "./gearWearStep5Registry.fixture";
 import { WEAR_BANDS, aboutMinutes, conditionPercent, fleetCare, pieceWearCard, shipGearSummary, wearBand, wearEffectText } from "../gearWearDisplay";
 
 const RNG = () => 0.5;
@@ -60,64 +59,12 @@ function wornDocked(c: number): GameState {
   return { ...s, equipment: s.equipment.map((e) => (e.fittedToShipId === SHIP ? withPieceCondition(e, c, s.gameTimeSeconds) : e)) };
 }
 
-describe("gear wear step 5: patrol use wear", () => {
-  it("a patrol is stamped at dispatch and carries the stamp to every relaunch", () => {
-    const r = dispatchCaptainOnPatrol(veteran(), 1, ROUTE, "balanced", true);
-    expect((r.next.captains[0].mission as PatrolMissionState).useWear).toBe(1);
-    const s = stepped(r.next, 40);
-    const m = s.captains[0].mission as PatrolMissionState | null;
-    if (m !== null) expect(m.useWear).toBe(1);
-    expect(withPatrolUseWearOff(() => (dispatchCaptainOnPatrol(veteran(), 1, ROUTE, "balanced", true).next.captains[0].mission as PatrolMissionState).useWear)).toBeUndefined();
-  });
-
-  it("each cycle wears the reactor and the drive by use (battle wear off: nothing else touches them)", () => {
-    // A Repeat patrol read the tick its 8th cycle starts (still out, so no home repair has run yet). A Sweep cycle is
-    // 14 s, a quarter of a minute: its use carries from cycle to cycle until it is worth a whole per-mille.
-    const fly = (off: boolean) =>
-      withBattleWearOff(() => {
-        const go = () => dispatchCaptainOnPatrol(veteran(), 1, ROUTE, "balanced", true);
-        const r = off ? withPatrolUseWearOff(go) : go();
-        let seed = (r.next.captains[0].mission as PatrolMissionState).masterSeed;
-        let s = r.next;
-        let cycles = 1;
-        for (let t = 0; t < 4000 && cycles < 8; t++) {
-          s = economyTick(s, 1, RNG);
-          const m = s.captains[0].mission as PatrolMissionState | null;
-          if (m === null) break;
-          if (m.masterSeed !== seed) {
-            seed = m.masterSeed;
-            cycles += 1;
-          }
-        }
-        expect(cycles).toBe(8);
-        return s;
-      });
-    const on = fly(false);
-    const off = fly(true);
-    expect(slotCondition(off, "reactorCore")).toBe(CONDITION_FULL);
-    expect(slotCondition(off, "ftlDrive")).toBe(CONDITION_FULL);
-    expect(slotCondition(on, "reactorCore")).toBeLessThan(CONDITION_FULL);
-    expect(slotCondition(on, "ftlDrive")).toBeLessThan(CONDITION_FULL);
-    // Use wear never touches the weapons or the defenses, and never goes below the use floor.
-    for (const slot of ["weapon", "shieldEmitters", "hullPlating", "cargoBay"]) expect(slotCondition(on, slot), slot).toBe(CONDITION_FULL);
-    expect(slotCondition(on, "reactorCore")).toBeGreaterThan(USE_WEAR_FLOOR);
-  });
-
-  it("offline == live: one economyTick call == 997 s chunks == 1 s steps on a Repeat patrol", () => {
-    const r = dispatchCaptainOnPatrol(veteran(), 1, ROUTE, "balanced", true);
-    const N = 3000;
-    const one = economyTick(r.next, N, RNG);
-    const steps = stepped(r.next, N);
-    const chunks = chunked(r.next, N, 997);
-    expect(pieces(chunks)).toEqual(pieces(steps));
-    expect(pieces(one)).toEqual(pieces(steps));
-    expect(one.captains[0].mission).toEqual(steps.captains[0].mission);
-    expect(chunks.captains[0].mission).toEqual(steps.captains[0].mission);
-  });
-
-  it("the route's distance is its authored round trip in light-years", () => {
-    const def = PATROLS[ROUTE];
-    expect(patrolRouteLightYears(def)).toBeCloseTo((def.transitOutTicks + def.transitBackTicks) * 0.5, 12);
+describe("gear wear step 5: patrols wear by battle only (user 2026-11-09 \"Combat only on patrols\")", () => {
+  it("with battle wear off, a Repeat patrol leaves every piece pristine (no use wear on a patrol)", () => {
+    const s = withBattleWearOff(() => stepped(dispatchCaptainOnPatrol(veteran(), 1, ROUTE, "balanced", true).next, 400));
+    expect(s.captains[0].mission).not.toBeNull();
+    expect(pieces(s).filter((e) => e.condition !== undefined)).toEqual([]);
+    expect(Object.keys(s.captains[0].mission as PatrolMissionState)).not.toContain("useWear");
   });
 });
 
@@ -192,14 +139,12 @@ describe("gear wear step 5: Overtime on gear repair (the speed seam's rule)", ()
 });
 
 describe("gear wear step 5: the registry move is exactly its own", () => {
-  it("Quick Service's row is gone, Overtime on gear repair is live, the five time and distance use sources act on a patrol", () => {
+  it("Quick Service's row is gone, Overtime on gear repair is live, no use source acts on a patrol", () => {
     expect(WIRING_REGISTRY.some((e) => e.id === "wear:audit:quickGearRepair")).toBe(false);
     expect(WIRING_REGISTRY.find((e) => e.id === "wear:audit:gearRepairOvertime")?.status.kind).toBe("live");
-    for (const id of GW5_PATROL_CONTEXT_IDS) {
-      const e = WIRING_REGISTRY.find((x) => x.id === id)!;
-      expect(e.status.kind, id).toBe("live");
-      expect(e.contexts, id).toContain("patrol");
-    }
+    // "Combat only on patrols" (user 2026-11-09): only the Damage Control Suite's fires (a use row) act at the patrol context.
+    const patrolUse = WIRING_REGISTRY.filter((e) => e.id.startsWith("wear:WEAR_SOURCES:") && e.contexts.includes("patrol") && !e.id.includes("hitsTaken"));
+    expect(patrolUse.map((e) => e.id).filter((id) => /minutes|distance/.test(id))).toEqual([]);
     // Read back, every changed row is as step 4 left it (the earlier registry pins use gw5ReadBack, innermost).
     const back = gw5ReadBack(WIRING_REGISTRY);
     expect(back.find((e) => e.id === "wear:audit:quickGearRepair")?.status.kind).toBe("pending");
@@ -258,7 +203,9 @@ describe("gear wear step 5: the wear UI's view models read the engine", () => {
     expect(care.rows).toHaveLength(1);
     expect(care.summary).toBe(`1 ship recovering. Docked gear back to full in ${aboutMinutes(300 / REPAIR_RATES.home)}.`);
     const out = dispatchCaptainOnPatrol(s, 1, ROUTE, "balanced", false).next;
-    expect(fleetCare(out)!.rows[0].status).toBe("Out on a run, gear wears with use and recovers fully once home");
+    // A patrol wears its gear by battle alone (user 2026-11-09 "Combat only on patrols"), and the line says so.
+    expect(fleetCare(out)!.rows[0].status).toBe("On patrol, gear wears only in battle and recovers fully once home");
+    expect(pieceWearCard(out, pieces(out)[0]).care).toContain("which battle damage can outpace");
     expect(livePieceCondition(out, pieces(out)[0])).toBe(700);
   });
 });

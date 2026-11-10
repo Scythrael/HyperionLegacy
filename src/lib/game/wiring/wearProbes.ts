@@ -16,7 +16,6 @@
 import {
   EQUIPMENT_SLOTS,
   MISSIONS,
-  PATROLS,
   patrolRouteOf,
   patrolRouteTicks,
   SUBSPACE_TELESCOPE_FACILITY_KEY,
@@ -45,7 +44,7 @@ import { equippedFor } from "../equipment";
 import { advanceExpedition, expeditionCandidates, startExpedition } from "../expedition";
 import { runCountsOf } from "../runDifficulty";
 import { shortRangeCycleWear } from "../shortRangeCycle";
-import { CONDITION_FULL, TOUGHNESS_REFERENCE, USE_CARRY_PER_MILLE, WEAR_SOURCES, patrolCycleGear, pieceCondition, withPieceCondition } from "../gearWear";
+import { CONDITION_FULL, TOUGHNESS_REFERENCE, WEAR_SOURCES, patrolCycleGear, pieceCondition, withPieceCondition } from "../gearWear";
 import {
   emptyWearEvents,
   expeditionWear,
@@ -54,9 +53,6 @@ import {
   resolveGearWear,
   runShipStats,
   runWearStamp,
-  patrolEventWear,
-  patrolRouteLightYears,
-  shipCrewAboard,
   type MemberUseWear,
   type ShipUseWear,
 } from "../gearWearEngine";
@@ -248,28 +244,9 @@ function patrolPatchEvent(s: GameState): UseEvent {
   return { after: st, ship: [{ hauls: 0, lightYears: 0, minutesUnderway: 0, surveys: 0, bodiesScanned: 0, prospectingCycles: 0, crewed: false, damageControlFires: 1 }], members: new Map() };
 }
 
-// GEAR WEAR step 5 (patrol use wear): one stamped, non-training patrol cycle of ship-1 ending through the live engine:
-// dispatched (Dispatch Once), then set on its route's last tick with every wave behind it and its pools untouched, so
-// the one economyTick that ends it records only the cycle's USE (the minutes it flew, the route's round trip). Pure.
-function patrolCycleUseEvent(s: GameState): UseEvent {
-  const ready = asPatrolVeteranSave(installMissingCombatBaselines(s));
-  const r = dispatchCaptainOnPatrol(ready, WIRING_CAPTAIN_ID, WEAR_BATTLE_PATROL, "balanced", false);
-  if (!r.success) throw new Error(`wear probe: patrol dispatch refused: ${r.reason}`);
-  const m = captainOf(r.next).mission as PatrolMissionState;
-  const end = patrolRouteTicks(patrolRouteOf(m)) - (m.returnCutTicks ?? 0);
-  // Step 5 fix C2: the cycle's use is recorded exactly (the route's minutes and round trip) and each piece carries the
-  // fraction of a per-mille it has not yet taken (EquipmentInstance.useWearCarry), so usePerUnit reads the wear taken
-  // as the whole per-mille plus the carry gained.
-  const mission: PatrolMissionState = { ...m, progressTicks: end - 1, nextWaveIndex: m.waveTicks.length };
-  const before = editCaptain(r.next, { mission } as Partial<CaptainState>);
-  const after = economyTick(before, 1, () => 0.5);
-  const use = { minutesUnderway: (end * s.tickDurationSeconds) / 60, lightYears: patrolRouteLightYears(PATROLS[WEAR_BATTLE_PATROL]), crewed: shipCrewAboard(before, shipOf(before)) };
-  return { after, ship: m.useWear === 1 ? [patrolEventWear({ battle: {}, damageControlFires: 0, use })] : [], members: new Map() };
-}
-
 function useEvent(s: GameState, ctx: ContextId, sourceId: string): UseEvent {
   if (ctx === "shipyard") return shipyardRepairEvent(s);
-  if (ctx === "patrol") return sourceId === "specUtility:effectFires" ? patrolPatchEvent(s) : patrolCycleUseEvent(s);
+  if (ctx === "patrol") return patrolPatchEvent(s);
   if (ctx === "mission:shortRange") return shortRangeCycleEvent(s, sourceId);
   if (ctx === "expedition:groundOps") return expeditionHomeEvent(s);
   const key = MISSION_OF[ctx];
@@ -323,9 +300,7 @@ function usePerUnit(s: GameState, ctx: ContextId, sourceId: string): number {
   const after = ev.after.equipment.find((e) => e.id === before.id);
   const units = unitsOf(sourceId, ev.ship, ev.members.get(wearMemberOf(source.slot)) ?? []);
   if (!after || !(units > 0)) return 0;
-  // Step 5 fix C2: a patrol's exact use also leaves a carried fraction of a per-mille on the piece (useWearCarry).
-  const carried = ((after.useWearCarry ?? 0) - (before.useWearCarry ?? 0)) / USE_CARRY_PER_MILLE;
-  return (-(pieceCondition(before) - pieceCondition(after) + carried) * source.per) / units;
+  return (-(pieceCondition(before) - pieceCondition(after)) * source.per) / units;
 }
 
 // ============================================================================
@@ -496,10 +471,7 @@ function patrolBattlePerUnit(s: GameState, sourceId: string, slot: string, raw: 
   if (mission.cycleStartCondition === undefined) return 0;
   const measure = battleMeasure(sourceId, raw, replayPatrol(r.next, captainOf(r.next)), mission, WIRING_SHIP_ID);
   if (!measure || !(measure.f > 0)) return 0;
-  // GEAR WEAR step 5: the cycle flies without its use wear stamp, so the reading is the battle source alone (the
-  // reactor and the drive also wear by use at the cycle's end; wear:use:* reads that at the patrol context).
-  const { useWear: _use, ...battleOnly } = mission;
-  let st = editCaptain(r.next, { mission: battleOnly } as Partial<CaptainState>);
+  let st = r.next;
   for (let t = 0; t < measure.tick; t++) st = economyTick(st, 1, () => 0.5);
   const after = st.equipment.find((e) => e.id === piece.id);
   if (!after) return 0;

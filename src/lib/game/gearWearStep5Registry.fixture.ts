@@ -1,11 +1,11 @@
 // GEAR WEAR step 5 (0.14.0): the registry read-back the earlier registry pins use to prove step 5's registry move is
 // exactly its own (the gearWearCombatRegistry / cp16Registry precedent). TEST-ONLY.
 //
-// Step 5 moved the registry in three ways, all its own:
+// Step 5 moved the registry in two ways, all its own:
 //   - wear:audit:quickGearRepair is DELETED (user 2026-11-09, Quick Service dropped: "None, always automatic");
-//   - wear:audit:gearRepairOvertime went LIVE (claim rewritten, wired through auditRowWiring);
-//   - the five time and distance use sources (the reactor, the drive, the bridge, the quarters and the universal
-//     modules) gained the `patrol` context (patrol use wear).
+//   - wear:audit:gearRepairOvertime went LIVE (claim rewritten, wired through auditRowWiring).
+// (Patrol use wear gave five use sources the `patrol` context; the user removed it, 2026-11-09 "Combat only on
+// patrols", so those rows are step 4's again and need no read-back.)
 // The read-back restores every one as step 4 left it, the deleted row back in its place.
 
 import type { WiringEntry, WiringStatus } from "./wiring/registry";
@@ -19,10 +19,6 @@ const OVERTIME_CLAIM = "Overtime on gear repair: pay credits to speed a ship's g
 
 const pending = (owner: string): WiringStatus => ({ kind: "pending", owner });
 
-// The use sources step 5 gave the patrol context.
-export const GW5_PATROL_CONTEXT_IDS: ReadonlySet<string> = new Set(
-  ["ftlDrive:distance", "reactorCore:minutesRunning", "bridge:minutesCrewed", "quarters:minutesCrewed", "module:minutesUnderway"].map((id) => `wear:WEAR_SOURCES:${id}`),
-);
 export const GW5_FLIPPED_LIVE: ReadonlySet<string> = new Set([OVERTIME_ID]);
 export const GW5_REMOVED_IDS: ReadonlySet<string> = new Set([QUICK_ID]);
 
@@ -35,7 +31,6 @@ function asPendingAudit(e: WiringEntry, id: string, claim: string): WiringEntry 
 // One entry as step 4 left it (the overtime row comes back with the deleted Quick Service row before it).
 export function gw5EntriesBack(e: WiringEntry): WiringEntry[] {
   if (e.id === OVERTIME_ID) return [asPendingAudit(e, QUICK_ID, QUICK_CLAIM), asPendingAudit(e, OVERTIME_ID, OVERTIME_CLAIM)];
-  if (GW5_PATROL_CONTEXT_IDS.has(e.id)) return [{ ...e, contexts: e.contexts.filter((c) => c !== "patrol") }];
   return [e];
 }
 

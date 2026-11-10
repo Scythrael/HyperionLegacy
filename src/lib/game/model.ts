@@ -2186,11 +2186,6 @@ export interface EquipmentInstance {
   // closed form from this anchor. Absent with `condition`. GEAR WEAR step 5 fix C1: the settle decodes it into a whole
   // second and an integer bank and re-encodes it from integers (gearWear.ts decodeRepairAnchor), so it never drifts.
   conditionAt?: number;
-  // GEAR WEAR step 5 fix C2: a patrol's USE wear not yet worth a whole per-mille on this piece, AFTER the headroom curve
-  // (gearWear.ts USE_CARRY_PER_MILLE units), so a short route's use shrinks near the floor and settles where wear and
-  // upkeep balance. Written only while non-zero; dropped with the other condition fields once the piece is back to full.
-  // Optional + additive, no SAVE_VERSION bump.
-  useWearCarry?: number;
   fittedToShipId: string | null;         // null = on no ship. THE ship-install authority (mirrors ShipInstance.assignedCaptainId); "spare?" is isSparePiece
   // ITEM LIFECYCLE 0.13.6 (Armory, Phase 3; DORMANT until the Armory build wires it). The THIRD
   // fitment state: a system COMMITTED into a loadout carries the loadout's id here, which excludes it
@@ -4339,14 +4334,6 @@ export interface PatrolMissionState {
   // freezes (legTicks). Written only when non-zero; a patrol in flight from before has none and flies as it did (no
   // SAVE_VERSION bump).
   pilotCunning?: number;
-  // GEAR WEAR step 5 (patrol use wear, design 3.1; SF-7 note: skip the training cycle): the run's use wear stamp,
-  // written at dispatch while gear wear's use sources are live and carried to every relaunched cycle. Only a stamped
-  // run records a USE event as each cycle ends (the reactor and crew modules the minutes it flew, the drive the
-  // route's round trip; tick.ts tickCaptainPatrol), never on the training cycle (runDifficulty.ts isTrainingPatrol).
-  // A patrol in flight from before step 5 has none and wears as it did. Optional, no SAVE bump.
-  // GEAR WEAR step 5 fix C2: each cycle's use is recorded exactly (its minutes and light-years); the fraction of a
-  // per-mille not yet taken carries on each PIECE after the headroom curve (EquipmentInstance.useWearCarry).
-  useWear?: 1;
   // OC-D8 follow-up (review finding, the Constitution run clock): the route ticks this RUN has flown over its completed
   // cycles, each cycle counting its own route (patrolRouteTicks of its frozen legs) less, on a cycle stamped cutFlown,
   // the ticks its return cut skipped; carried across relaunches like routesCompletedThisRun. It is the Constitution

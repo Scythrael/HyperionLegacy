@@ -1,12 +1,12 @@
 // GEAR WEAR step 5 review fixes (docs/plans/2026-10-16-gear-wear-design.md, USER ANSWERS 2026-11-09: step 5 review):
 //   C1: repair settles in exact integer arithmetic (whole-second anchors, an integer bank, the rate quantized), so one
 //       call, 997 s chunks and 1 s steps store the SAME bytes at any game time, with no tolerance anywhere.
-//   C2: a patrol's use wear is curved BEFORE it is carried (gearWear.ts useWearCarried), so a Repeat patrol settles where
-//       wear and the underway upkeep balance instead of grinding to the 60% use floor.
+//   (C2, a patrol's use wear curved before it is carried, is gone with patrol use wear itself: the user removed it,
+//   2026-11-09 "Combat only on patrols".)
 
 import { describe, expect, it } from "vitest";
 import Decimal from "break_infinity.js";
-import { type EquipmentInstance, type GameState, type PatrolMissionState } from "./model";
+import { type EquipmentInstance, type GameState } from "./model";
 import { dispatchCaptainOnPatrol, economyTick } from "./tick";
 import {
   CONDITION_FULL,
@@ -14,13 +14,7 @@ import {
   REPAIR_RATES,
   decodeRepairAnchor,
   repairRateQ,
-  TOUGHNESS_REFERENCE,
-  USE_CARRY_PER_MILLE,
-  USE_WEAR_FLOOR,
-  WEAR_SOURCES,
-  pieceCondition,
   settlePiece,
-  useWearCarried,
   withPieceCondition,
 } from "./gearWear";
 import { emptyWearEvents, rebaseAnchor, resolveGearWear } from "./gearWearEngine";
@@ -28,8 +22,6 @@ import { OVERTIME_CREDITS_PER_MINUTE, buyGearRepairOvertime, canBuyGearRepairOve
 import { aboutMinutes, gearOvertimePurchase, gearOvertimeStrip, pieceWearCard } from "../gearWearDisplay";
 import { onHull } from "./firstRunsGoldens.fixture";
 import { asPatrolVeteran } from "./awayTeamTestFixtures";
-import { withBattleWearOff } from "./battleWearSwitch.fixture";
-import { withPatrolUseWearOff } from "./patrolUseWearSwitch.fixture";
 
 const RNG = () => 0.5;
 const SHIP = "ship-1";
@@ -154,90 +146,6 @@ describe("C1: exact settling at large game times", () => {
         expect(pieces(run(bought, need, need)).every((p) => p.condition === undefined)).toBe(true);
       }
     }
-  });
-});
-
-describe("C2: a patrol's use wear is curved before it is carried", () => {
-  it("useWearCarried: the curve acts on every event (no 'at least 1'), shrinks to nothing at the floor, carries the rest", () => {
-    // A quarter-minute of reactor use (raw 1 a 15 s) at full on a reference piece: 1 per-mille, nothing carried.
-    expect(useWearCarried(1, TOUGHNESS_REFERENCE, CONDITION_FULL, 0)).toEqual({ amount: 1, carry: 0 });
-    // Halfway to the floor the same event is half a per-mille: carried, not rounded up to 1.
-    expect(useWearCarried(1, TOUGHNESS_REFERENCE, 800, 0)).toEqual({ amount: 0, carry: USE_CARRY_PER_MILLE / 2 });
-    expect(useWearCarried(1, TOUGHNESS_REFERENCE, 800, USE_CARRY_PER_MILLE / 2)).toEqual({ amount: 1, carry: 0 });
-    // At the floor use takes nothing at all.
-    expect(useWearCarried(50, TOUGHNESS_REFERENCE, USE_WEAR_FLOOR, 0).amount).toBe(0);
-  });
-
-  // A Repeat Sweep flown for `minutes` in 1 s ticks (battle wear off: use alone), each piece read at every cycle start
-  // in the last hour.
-  function repeatSweep(minutes: number): Map<string, number[]> {
-    return withBattleWearOff(() => {
-      const r = dispatchCaptainOnPatrol(veteranAt(0), 1, ROUTE, "balanced", true);
-      expect(r.success).toBe(true);
-      let st = r.next;
-      const trace = new Map<string, number[]>();
-      let seed = (st.captains[0].mission as PatrolMissionState).masterSeed;
-      for (let t = 1; t <= minutes * 60; t++) {
-        st = economyTick(st, 1, RNG);
-        const m = st.captains[0].mission as PatrolMissionState | null;
-        expect(m).not.toBeNull();
-        if (m!.masterSeed !== seed) {
-          seed = m!.masterSeed;
-          if (t > (minutes - 60) * 60) for (const p of pieces(st)) trace.set(p.slotType, [...(trace.get(p.slotType) ?? []), pieceCondition(p)]);
-        }
-      }
-      return trace;
-    });
-  }
-
-  it("on use alone, a Repeat Sweep SETTLES where wear and upkeep balance (never grinds to the floor) and stays there", () => {
-    // Before the fix the destroyer's reactor went 939, 880, ... 600 by 210 minutes. Now each piece approaches its balance
-    // point (wear x (c - 600) / 400 = the underway upkeep) and holds: the reactor (toughness 120, 4 a minute at full)
-    // at 600 + 400 x 2 / (4 x 100 / 120) = 840.
-    const trace = repeatSweep(600);
-    const reactor = WEAR_SOURCES.find((w) => w.id === "reactorCore:minutesRunning")!;
-    const balance = USE_WEAR_FLOOR + ((CONDITION_FULL - USE_WEAR_FLOOR) * REPAIR_RATES.underway) / ((reactor.raw * TOUGHNESS_REFERENCE) / 120);
-    expect(balance).toBe(840);
-    const r = trace.get("reactorCore")!;
-    expect(r.length).toBeGreaterThan(100);
-    for (const c of r) expect(Math.abs(c - balance)).toBeLessThanOrEqual(4);
-    // The drive settles too (its own balance point, by light-years), in the Sound band or better, flat in the last hour.
-    const d = trace.get("ftlDrive")!;
-    expect(Math.min(...d)).toBeGreaterThanOrEqual(800);
-    expect(Math.max(...d) - Math.min(...d)).toBeLessThanOrEqual(4);
-    // Use never touches the weapons or the defenses.
-    for (const slot of ["weapon", "shieldEmitters", "hullPlating", "cargoBay"]) expect(Math.min(...trace.get(slot)!), slot).toBe(CONDITION_FULL);
-  });
-
-  it("parity: one economyTick call == 997 s chunks == 1 s steps on a long Repeat patrol (use and battle wear)", () => {
-    const r = dispatchCaptainOnPatrol(veteranAt(0), 1, ROUTE, "balanced", true);
-    const N = 4000;
-    let steps = r.next;
-    for (let i = 0; i < N; i++) steps = economyTick(steps, 1, RNG);
-    let chunks = r.next;
-    for (let left = N; left > 0; left -= Math.min(997, left)) chunks = economyTick(chunks, Math.min(997, left), RNG);
-    const one = economyTick(r.next, N, RNG);
-    expect(pieces(chunks)).toEqual(pieces(steps));
-    expect(pieces(one)).toEqual(pieces(steps));
-    expect(one.captains[0].mission).toEqual(steps.captains[0].mission);
-  });
-
-  it("the training cycle records no use wear and leaves no carry (W9, SF-7)", () => {
-    const fresh = { ...onHull("destroyer"), nextPatrolSeed: 1, credits: new Decimal(100_000) };
-    const r = dispatchCaptainOnPatrol(fresh, 1, ROUTE, "balanced", false);
-    let s = r.next;
-    for (let t = 0; t < 6000 && s.captains[0].mission !== null; t++) s = economyTick(s, 1, RNG);
-    expect(pieces(s).filter((e) => e.condition !== undefined || e.useWearCarry !== undefined)).toEqual([]);
-  });
-
-  it("a patrol in flight from before step 5 (unstamped) records no use and carries nothing", () => {
-    const r = withPatrolUseWearOff(() => dispatchCaptainOnPatrol(veteranAt(0), 1, ROUTE, "balanced", true));
-    const s = withBattleWearOff(() => {
-      let st = r.next;
-      for (let t = 0; t < 600; t++) st = economyTick(st, 1, RNG);
-      return st;
-    });
-    expect(pieces(s).filter((e) => e.condition !== undefined || e.useWearCarry !== undefined)).toEqual([]);
   });
 });
 
