@@ -1182,6 +1182,12 @@ export const WR10_SWITCH = { live: true };
 // Always live in the game.
 export const WR9_SWITCH = { live: true };
 
+// Test switch only (the same pattern, complement plan CP-4's rest, user 2026-11-10 "Build it"): off, a patrol cycle
+// freezes no Flight Deck Integrity on its Deck Handling (PatrolMissionState.deckHandlingSteady), so its drones replenish
+// at the same rate above and below half hull, and a golden can show that the pins the facet moved return. Always live in
+// the game.
+export const CP4_FLIGHT_DECK_INTEGRITY_SWITCH = { live: true };
+
 // Test switch only (the same pattern, OC-D8 follow-up): off, a cycle freezes its legs at the sweeping speed alone (the
 // rule before Fast Departure / Fast Return reached patrols), so a golden can show that the pins the lifts moved return.
 // Always live in the game.
