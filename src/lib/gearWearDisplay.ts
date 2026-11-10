@@ -394,7 +394,7 @@ export interface FleetCareRow {
 export interface FleetCareModel {
   percent: number;
   band: WearBandKey;
-  summary: string; // "2 ships recovering. Docked gear back to full in about 12 min."
+  summary: string; // "2 ships recovering. Docked gear back to full in about 12 min. 1 ship out on patrol."
   rows: FleetCareRow[];
 }
 
@@ -414,6 +414,13 @@ export function fleetCare(state: GameState): FleetCareModel | null {
   const all: number[] = [];
   let docked = 0;
   let dockedMinutes = 0;
+  // The summary counts each listed ship by where it really is (step 5 fix, 2026-11-09: a ship out on patrol was
+  // counted as "recovering"). Recovering = at home (docked gear or a hull in a Shipyard bay) or set down for field
+  // repairs; a ship underway is out on patrol or out on a run; a damaged hull with no free bay is waiting.
+  let recovering = 0;
+  let onPatrol = 0;
+  let onRun = 0;
+  let waiting = 0;
   const index = repairContextIndex(state);
   for (const ship of state.ships) {
     const summary = shipGearSummary(state, ship.id);
@@ -435,14 +442,25 @@ export function fleetCare(state: GameState): FleetCareModel | null {
         parts.push(`${damaged ? "Gear" : "Docked, gear"} full in ${aboutMinutes(summary.minutesToFull)}`);
       }
     }
+    if (index.out.has(ship.id)) {
+      if (index.field.has(ship.id)) recovering += 1;
+      else if (shipOnPatrol(state, ship.id)) onPatrol += 1;
+      else onRun += 1;
+    } else if (summary.worn || hullMinutes !== null) recovering += 1;
+    else waiting += 1;
     // The hull class shows beside a custom name only (an unnamed ship's name IS its hull label).
     rows.push({ shipId: ship.id, name: shipName(ship), hull: ship.name ? SHIP_TYPES[ship.typeKey]?.label ?? ship.typeKey : null, percent: summary.percent, band: summary.band, status: parts.join(". ") });
   }
   if (rows.length === 0) return null;
   const avg = Math.floor(mean(all));
-  const n = rows.length;
-  let summary = `${n} ${n === 1 ? "ship" : "ships"} recovering.`;
-  if (docked > 0) summary += ` Docked gear back to full in ${aboutMinutes(dockedMinutes)}.`;
+  const ships = (n: number): string => `${n} ${n === 1 ? "ship" : "ships"}`;
+  const said: string[] = [];
+  if (recovering > 0) said.push(`${ships(recovering)} recovering.`);
+  if (docked > 0) said.push(`Docked gear back to full in ${aboutMinutes(dockedMinutes)}.`);
+  if (onPatrol > 0) said.push(`${ships(onPatrol)} out on patrol.`);
+  if (onRun > 0) said.push(`${ships(onRun)} out on a run.`);
+  if (waiting > 0) said.push(`${ships(waiting)} waiting for a free Shipyard bay.`);
+  const summary = said.join(" ");
   return { percent: conditionPercent(avg), band: wearBand(avg).key, summary, rows };
 }
 

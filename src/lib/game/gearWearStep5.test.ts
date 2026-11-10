@@ -22,7 +22,7 @@ import { onHull } from "./firstRunsGoldens.fixture";
 import { asPatrolVeteran } from "./awayTeamTestFixtures";
 import { withBattleWearOff } from "./battleWearSwitch.fixture";
 import { HELP_TOPICS, TRAINING_WEAR_SENTENCE } from "../helpTopics";
-import { WIRING_REGISTRY } from "./wiring/registry";
+import { WIRING_REGISTRY, releaseBlockers } from "./wiring/registry";
 import { gw5ReadBack } from "./gearWearStep5Registry.fixture";
 import { WEAR_BANDS, aboutMinutes, conditionPercent, fleetCare, pieceWearCard, shipGearSummary, wearBand, wearEffectText } from "../gearWearDisplay";
 
@@ -151,6 +151,20 @@ describe("gear wear step 5: the registry move is exactly its own", () => {
     expect(back.find((e) => e.id === "wear:audit:gearRepairOvertime")?.status.kind).toBe("pending");
     expect(back.length).toBe(WIRING_REGISTRY.length + 1);
   });
+
+  it("the reactor's power output stays full (user 2026-11-09, the EM-4 open call): live, not applicable, read back to pending", () => {
+    const id = "wear:WEAR_EFFICIENCY:reactorCore:powerOutput";
+    const row = WIRING_REGISTRY.find((e) => e.id === id)!;
+    expect(row.status.kind).toBe("live");
+    expect(row.notApplicable).toMatch(/Stays full \(Recommended\)/);
+    expect(row.claim).toContain("stays full");
+    expect(row.probe).toBeUndefined();
+    expect(row.contexts).toEqual([]);
+    expect(releaseBlockers().some((e) => e.id === id)).toBe(false);
+    const back = gw5ReadBack(WIRING_REGISTRY).find((e) => e.id === id)!;
+    expect(back.status.kind === "pending" ? back.status.owner : "").toMatch(/^the user's EM-4 open call/);
+    expect(back.notApplicable).toBeUndefined();
+  });
 });
 
 describe("gear wear step 5: the wear UI's view models read the engine", () => {
@@ -205,6 +219,9 @@ describe("gear wear step 5: the wear UI's view models read the engine", () => {
     const out = dispatchCaptainOnPatrol(s, 1, ROUTE, "balanced", false).next;
     // A patrol wears its gear by battle alone (user 2026-11-09 "Combat only on patrols"), and the line says so.
     expect(fleetCare(out)!.rows[0].status).toBe("On patrol, gear wears only in battle and recovers fully once home");
+    // The summary counts it where it really is: out on patrol, not recovering at home (step 5 fix, 2026-11-09).
+    expect(fleetCare(out)!.summary).toBe("1 ship out on patrol.");
+    expect(fleetCare(out)!.summary).not.toContain("recovering");
     expect(pieceWearCard(out, pieces(out)[0]).care).toContain("which battle damage can outpace");
     expect(livePieceCondition(out, pieces(out)[0])).toBe(700);
   });

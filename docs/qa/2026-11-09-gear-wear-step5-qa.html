@@ -144,7 +144,7 @@
 <div class="wrap">
   <p class="eyebrow">Hyperion Legacy QA, 0.14.0 feature pass</p>
   <h1><span class="v">0.14.0</span> Gear wear step 5: the wear UI, Overtime on repair</h1>
-  <p class="sub">Curated checklist for gear wear step 5 (design docs/plans/2026-10-16-gear-wear-design.md section 8 and its USER ANSWERS; the approved mockup, "10/10", 2026-11-02; the 2026-11-09 answers: the 60% use floor stays, and Quick Service is dropped, "None, always automatic"). Every piece of gear now shows its condition: a bar and band on its card, a meter on every Ship Systems slot, a Gear chip on the ship, and one quiet Fleet care block on Command Home. Patrols wear gear by battle damage only ("Combat only on patrols", 2026-11-09). <b>Run this on the local dev build</b> (localhost:5173) for now; the real-save rows wait for staging (devpreview.crystalisoft.com), since 0.14.0 stays off staging until the wiring gate passes and you say go. Run each check once at <b>1280 px</b> (desktop) and once at <b>375 px</b> (mobile), in both <b>light and dark</b> themes.</p>
+  <p class="sub">Curated checklist for gear wear step 5 (design docs/plans/2026-10-16-gear-wear-design.md section 8 and its USER ANSWERS; the approved mockup, "10/10", 2026-11-02; the 2026-11-09 answers: the 60% use floor stays, and Quick Service is dropped, "None, always automatic"). Every piece of gear now shows its condition: a bar and band on its card, a meter on every Ship Systems slot, a Gear chip on the ship, and one quiet Fleet care block on Command Home. Patrols wear gear by battle damage only ("Combat only on patrols", 2026-11-09). <b>Run this on staging</b> (devpreview.crystalisoft.com, the staging branch) with your migrated save, once 0.14.0 is deployed there (0.14.0 stays off staging until the wiring gate passes and you say go). Run each check once at <b>1280 px</b> (desktop) and once at <b>375 px</b> (mobile), in both <b>light and dark</b> themes.</p>
 
   <div class="progress-card">
     <div class="progress-top">
@@ -163,7 +163,7 @@
   <div class="legend">
     <p><b>What it does.</b> Condition runs 0 to 100%. The bands are <b>Pristine</b> (95% and up), <b>Sound</b> (80% to 94%), <b>Worn</b> (60% to 79%) and <b>Battered</b> (below 60%, battle damage only). Ordinary use stops at 60%. Repair is automatic and free: 4% a minute at home, 8% a minute while the hull is in a Shipyard repair bay, 4% a minute on a field repair, 0.2% a minute out on a run. Nothing breaks, nothing is uninstalled, no run is ever blocked.</p>
     <p><b>Quick Service is gone.</b> There is no paid repair, no instant repair and no "repair now" button for gear anywhere (your 2026-11-09 answer). Repair stays free and automatic; the only purchase is the optional <b>Overtime</b> button on a docked ship's gear card (your approved 2026-11-09 Overtime mockup), which only speeds the repair up.</p>
-    <p><b>Where to test.</b> 0.14.0 stays off staging until the wiring gate passes and you say go, so for now run it on the local dev build (<b>localhost:5173</b>, a DEV_MODE build with <code>VITE_DEV_MODE=true</code> in .env.local). The <b>needs real save</b> rows wait for staging (devpreview.crystalisoft.com) with your migrated save, once 0.14.0 is deployed there. The Debug tab (a DEV_MODE build) has <b>[DEV] Gear wear</b> buttons: Wear all to 90% / 70% / 40% and Restore all gear, so you can see every band without flying.</p>
+    <p><b>Where to test.</b> Staging, <b>devpreview.crystalisoft.com</b>, on the 0.14.0 build, with your own migrated save. The Debug tab (a DEV_MODE build) has <b>[DEV] Gear wear</b> buttons: Wear all to 90% / 70% / 40% and Restore all gear, so you can see every band without flying.</p>
     <p><b>The three columns.</b> <b style="color:var(--claude)">Claude</b> is pre-filled and read-only: a tick means a test proves that rule (the "how" line names the file). <b style="color:var(--desk)">1280</b> and <b style="color:var(--mob)">375</b> are yours; your ticks are saved in this browser.</p>
     <p>Tags: <span class="chip save">needs real save</span> needs your migrated save. <span class="chip device">needs device</span> touch, a real phone, or a visual call. <span class="chip theme">light + dark</span> look at it in both themes. <span class="chip later">not in this build</span> not built here.</p>
   </div>
@@ -195,8 +195,8 @@
 const TICK = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>';
 // c: a test proves it (how names the file). tag: "save" | "device" | "theme" | "later" | null.
 const SECTIONS = [
-  { n: "0", title: "Setup", note: "Local dev build (localhost:5173, DEV_MODE) until 0.14.0 goes to staging; the real-save rows on staging (devpreview.crystalisoft.com) once you say go.", items: [
-    { t: "Open the build and load your save. It loads clean (no save version change). No console errors opening a ship, a gear card, Command Home and Help, Gear wear.", tag: "save" },
+  { n: "0", title: "Setup on staging", note: "Staging only: devpreview.crystalisoft.com on the 0.14.0 build, your migrated save.", items: [
+    { t: "Open staging and load your save. It loads clean (no save version change). No console errors opening a ship, a gear card, Command Home and Help, Gear wear.", tag: "save" },
     { t: "Debug tab: <b>[DEV] Gear wear</b> has Wear all to 90% / 70% / 40% and Restore all gear, and each logs a [DEV] line.", tag: "save" },
   ]},
   { n: "1", title: "The gear card (mockup section 1)", items: [
@@ -220,7 +220,7 @@ const SECTIONS = [
   { n: "3", title: "Fleet care on Command Home (mockup section 4)", items: [
     { t: "With everything pristine and no damaged hull, Command Home shows <b>no</b> Fleet care section.", c: true, how: "gearWearStep5.test.ts (fleetCare is null when pristine)." },
     { t: "Wear all to 70%: a <b>Fleet care</b> section appears: <b>Fleet gear 70%</b>, <b>Nothing needs you</b>, a summary such as <b>3 ships recovering. Docked gear back to full in about 8 min.</b> and one row per ship with its meter and <b>Docked, gear full in about N min</b>.", c: true, tag: "theme", how: "gearWearStep5.test.ts (summary and row text)." },
-    { t: "A ship out on a mission or expedition reads <b>Out on a run, gear wears with use and recovers fully once home</b>; a ship on a patrol reads <b>On patrol, gear wears only in battle and recovers fully once home</b>.", c: true, tag: "save", how: "gearWearStep5.test.ts (the patrol row)." },
+    { t: "A ship out on a mission or expedition reads <b>Out on a run, gear wears with use and recovers fully once home</b>; a ship on a patrol reads <b>On patrol, gear wears only in battle and recovers fully once home</b>. The summary counts it where it really is: <b>1 ship out on patrol.</b> (or <b>out on a run</b>), never as recovering.", c: true, tag: "save", how: "gearWearStep5.test.ts (the patrol row and the summary)." },
     { t: "Fleet care has <b>no</b> Overtime button (your answer \"Gear card only\"): it only reports.", tag: "theme" },
     { t: "Lose a patrol: the ship's row also says <b>Hull in a Shipyard bay, about N min</b> (or waiting for a free bay) beside its gear, so hull and gear read as one recovery (W6).", tag: "save" },
     { t: "Restore all gear: the section disappears again (within a tick).", tag: "save" },
@@ -238,7 +238,7 @@ const SECTIONS = [
     { t: "After 3 steps the strip reads <b>3 of 3 · 1.75x</b> and <b>At its fastest</b> (no button).", c: true, how: "gearWearStep5Fixes.test.ts." },
     { t: "On a ship that is out on a run the button is a dashed <b>Docked only</b> with the reason under it.", c: true, tag: "theme", how: "gearWearStep5Fixes.test.ts (out on a run)." },
     { t: "Short of credits: the button is dashed and reads <b>N cr · need M more</b>.", c: true, how: "gearWearStep5Fixes.test.ts." },
-    { t: "Desktop: hover a piece, move onto the card and click the button before it hides. Phone (375 px): tap a piece to pin the card, tap the button; the card stays pinned.", tag: "device" },
+    { t: "Desktop: hover a mid-screen piece and rest 3 s: the card opens beside the tile (not over it) and stays steady, no flicker. Move onto the card and click the button: it buys and the card stays. Phone (375 px): tap a piece to pin the card, tap the button: it buys and the card stays pinned. The Armory loadout card's button takes the click too.", tag: "device" },
     { t: "Send the ship out: the Overtime record clears; the gear card shows the strip off again.", c: true, tag: "save", how: "gearWearStep5.test.ts (inert out on a run, clears when the ship leaves)." },
   ]},
   { n: "6", title: "Help", items: [
