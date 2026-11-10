@@ -619,13 +619,10 @@ export const MISSIONS: Record<
     primaryMaterial: "commonOre", // == lootTable.common (§3.4 auto-stop)
     tier: "I",
     fleetAdminXpPerTick: 1,
-    // FUEL v2 (F3) friendlier bump 10 -> 30, KEPT through the 2026-07-15 FUEL_PER_TICK
-    // 0.1 -> 1 retune. NOTE: at FUEL_PER_TICK 1 this reward NO LONGER exceeds the worst-case
-    // auto-buy cost (Freighter need 50 * FUEL_CREDITS_PER_UNIT 5 = 250cr for an empty tank) --
-    // and it does not NEED to: the non-bricking guarantee is now the Fuel Depot's refining
-    // outpacing consumption from a full starting tank, not credit-funded auto-buy (see the
-    // reframed sustainability test in fuel-consumption-v2.test.ts). This is just a generous
-    // reward. FIRST-PASS TUNABLE, same spirit as this file's other placeholders.
+    // FUEL v2 (F3) friendlier bump 10 -> 30, KEPT through the 2026-07-15 FUEL_PER_TICK 0.1 -> 1
+    // retune. The fuel cost it was once sized against is gone (fuel is a reach stat since 0.13.6, and
+    // WR-13 removed the credit auto-buy), so this is just a generous reward. FIRST-PASS TUNABLE, same
+    // spirit as this file's other placeholders.
     creditsPerCycle: 30,
     unlockLevel: 1, // available from a fresh save (missionControl seeds at level 1)
   },
@@ -649,9 +646,7 @@ export const MISSIONS: Record<
     tier: "I",
     fleetAdminXpPerTick: 1,
     // FUEL v2 (F3) friendlier bump 20 -> 75, KEPT through the 2026-07-15 FUEL_PER_TICK retune.
-    // At FUEL_PER_TICK 1 this no longer exceeds the worst-case auto-buy cost (Freighter
-    // need 140 * 5 = 700cr), and need not, for the same reason as shortOreRun (refining, not
-    // credit auto-buy, is the non-bricking mechanism). A generous reward; FIRST-PASS TUNABLE.
+    // No fuel cost remains to size it against (see shortOreRun). A generous reward; FIRST-PASS TUNABLE.
     creditsPerCycle: 75,
     unlockLevel: 1, // available from a fresh save (missionControl seeds at level 1)
   },
@@ -669,7 +664,7 @@ export const MISSIONS: Record<
     primaryMaterial: "scrapAlloy", // == lootTable.common (§3.4 auto-stop)
     tier: "I",
     fleetAdminXpPerTick: 1, // INTEGER, see MissionDef's closed-form parity trap; Task 2 owns XP retune
-    creditsPerCycle: 50, // FUEL v2 (F3) bump 30 -> 50, KEPT through the 2026-07-15 retune (at FUEL_PER_TICK 1 the worst-case auto-buy is now need 90 * 5 = 450cr; refining, not this reward, is the non-bricking mechanism); tunable
+    creditsPerCycle: 50, // FUEL v2 (F3) bump 30 -> 50, KEPT through the 2026-07-15 retune (no fuel cost remains to size it against, see shortOreRun); tunable
     unlockLevel: 1, // USER REVISION 2026-07-14: default-available (all 4 missions unlock at the
     // level-1 seed). Was 2 (behind the deferred mission-control unlock upgrade). See the
     // MissionDef.unlockLevel comment + FACILITIES.missionControl for why that rung is deferred.
@@ -692,7 +687,7 @@ export const MISSIONS: Record<
     primaryMaterial: "fibrousBiomass", // == lootTable.common (§3.4 auto-stop)
     tier: "I",
     fleetAdminXpPerTick: 1, // INTEGER, see MissionDef's closed-form parity trap; Task 2 owns XP retune
-    creditsPerCycle: 60, // FUEL v2 (F3) bump 35 -> 60, KEPT through the 2026-07-15 retune (at FUEL_PER_TICK 1 the worst-case auto-buy is now need 110 * 5 = 550cr; refining, not this reward, is the non-bricking mechanism); tunable
+    creditsPerCycle: 60, // FUEL v2 (F3) bump 35 -> 60, KEPT through the 2026-07-15 retune (no fuel cost remains to size it against, see shortOreRun); tunable
     unlockLevel: 1, // USER REVISION 2026-07-14: default-available (see salvageWreckage's note +
     // the MissionDef.unlockLevel comment). Was 2 (behind the now-deferred unlock upgrade).
     requiresCaptainLevel: 3, // slightly above Salvage's 2, CAPABILITY gate, KEPT (see salvageWreckage)
@@ -4435,10 +4430,11 @@ export function missionCycleTiming(missionDef: RunMissionDef): MissionCycleTimin
 //   cargoCapacity / transitSpeedMult / extractionYieldMult , the original three,
 //       consumed by effectiveMissionDef (cargo + transit) and the extraction-yield
 //       seam in tick.ts. BINDING.
-//   engineEfficiency / fuelCapacity , lifted from the hull's fuel stats so the fuel
-//       math can read the EQUIPMENT-FOLDED value from one place. engineEfficiency
-//       BINDS (economyTick prices fuelPerCycle from it, canDispatch prices `need`
-//       from it); fuelCapacity BINDS the canDispatch RANGE gate.
+//   engineEfficiency / fuelCapacity , lifted from the hull's fuel stats so the reach
+//       math can read the EQUIPMENT-FOLDED value from one place. Both BIND the REACH
+//       (fuel.ts: fuelCapacity x (1 + engineEfficiency)), which every dispatch gate reads
+//       (tick.ts shipReachesRoundTrip). Nothing prices a per-cycle fuel cost any more
+//       (WR-13 removed the old fuel economy).
 //   powerOutput / powerDraw / mass , the POWER BUDGET (E-MOD EM-1) and the mass the fold's
 //       Mass penalty consumes INTERNALLY (surfaced too, for display). powerOutput = the hull's
 //       basePowerOutput + every installed powerOutput line (the reactor implicit); powerDraw =

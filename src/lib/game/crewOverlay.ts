@@ -5,8 +5,8 @@
 //
 //   1. effectiveShipStats(state, ship): the crew-boosted derived stats. It computes the PURE
 //      shipDerivedStats(ship, equippedFor(state, ship)) fold and then layers the ship's crew
-//      contribution on top as an OVERLAY (mirroring the engineEfficiency overlay economyTick already
-//      does at the fuelPerCycle seam). shipDerivedStats itself stays crew-free + pure; the crew fold
+//      contribution on top as an OVERLAY (the folded stats overlaid on the hull's static def, the
+//      way the reach gates read them). shipDerivedStats itself stays crew-free + pure; the crew fold
 //      lives here so LIVE, OFFLINE, PATROL, and the fuel/range gates all read ONE crew-boosted number.
 //      Every consumer of a ship's derived stats routes through this, so crew is applied consistently
 //      (inconsistent application across sites is the top bug risk this module exists to prevent).

@@ -50,6 +50,7 @@ import {
   type Expedition,
   type ExpeditionActivity,
   type ExpeditionBody,
+  type ExpeditionDiscovery,
   type ExpeditionFinding,
   type GameState,
   type GroundOpsFactors,
@@ -100,7 +101,7 @@ import {
 import { resolveTaskFight, taskFightSeconds, type GroundFightTeam } from "./groundFight";
 import { HELPER_MIN_TIER, groundTaskClearOdds, groundTaskThreat } from "./groundThreat";
 import { threatAssessment, tierAtLeast, type ThreatAssessment } from "./combat/threatAssessment";
-import { groundSiteLabel, poiRelicOddsMult } from "./expeditionContent";
+import { getPoiById, groundSiteLabel, poiRelicOddsMult } from "./expeditionContent";
 import { activityRelicFindBonus, rollRelicToken, taskRelicSeed } from "./gambit";
 import { relicBlankStamp } from "./relicBlanks";
 import { fieldworkEffect } from "./fieldwork";
@@ -117,6 +118,7 @@ import {
   riskRewardBonus,
   runAffixCatalog,
   runDifficultyTier,
+  taskChainFollowUp,
   taskDifficultyScore,
   tierNeeds,
 } from "./riskFactors";
@@ -1579,12 +1581,41 @@ function finishWork(exp: Expedition, ops: GroundOpsState, team: GroundTeamRun, r
     task.status = "done";
     task.done = true;
     task.completedAt = t;
-    // TASK CHAINS (user #14) hook point: a completed task may reveal a follow-up here (riskFactors.ts
-    // taskChainFollowUp; not built in SQ-4).
+    // TASK CHAINS (user #14, WR-13): a completed task may reveal a follow-up on its body, planned at this instant
+    // (before the crew returns, so the run cannot close on it). No chain is authored today (riskFactors.ts).
+    revealFollowUpTask(exp, ref, t);
     returnCrew(exp, ops, team, crew, ref, t, []);
     return;
   }
   startFight(exp, ops, team, ref, t);
+}
+
+// The task for discovery `discovery`, body `body`'s k-th task (its id is its position). The ONE builder of a body's
+// tasks: expedition.ts assignDiscoveriesAndActivities maps a scanned body's discoveries through it, and a task chain
+// reveal (revealFollowUpTask) appends through it. Pure.
+export function bodyTaskFor(exp: Pick<Expedition, "id">, body: Pick<ExpeditionBody, "id">, discovery: Pick<ExpeditionDiscovery, "poiId">, k: number): ExpeditionActivity {
+  return { id: `${exp.id}-${body.id}-act-${k}`, bodyId: body.id, poiId: discovery.poiId, done: false };
+}
+
+// TASK CHAINS (user #14; WR-13, OC-C4 "Keep tested hooks"): the task `ref` just completed at `t`. When
+// riskFactors.ts taskChainFollowUp names a follow-up site for it, that site joins the same body exactly as a scan's
+// discovery does: one more discovery (its pool's kind; a site outside the catalog, a hostile or clearing site, is a
+// landmark) and its task (bodyTaskFor), stamped by initGroundTasks (it touches only the unstamped new task) and
+// planned for the deployed teams by planNewTasks (a crew that cannot cover it skips it with its log line). Called
+// once per task, from the one place a task completes (finishWork), inside the window's event at `t`, so a reveal
+// lands at the same instant however the run is stepped. The new task takes the next flat index after its body's
+// tasks, so the flat index (the seed key) of every task on a LATER body moves up by one from `t` on. No chain is
+// authored today (TASK_CHAIN_FOLLOW_UPS is empty), so nothing is revealed. Mutates the working clone.
+function revealFollowUpTask(exp: Expedition, ref: GroundTaskRef, t: number): void {
+  const poiId = taskChainFollowUp(ref.task.poiId);
+  if (poiId === null) return;
+  const body = ref.body;
+  const kind: ExpeditionDiscovery["kind"] = getPoiById(poiId)?.pool === "underground" ? "underground" : "landmark";
+  const discovery: ExpeditionDiscovery = { id: `${exp.id}-${body.id}-disc-${body.discoveries.length}`, kind, poiId };
+  body.discoveries.push(discovery);
+  body.activities.push(bodyTaskFor(exp, body, discovery, body.activities.length));
+  initGroundTasks(exp, ref.bodyIndex);
+  planNewTasks(exp, ref.bodyIndex, t);
 }
 
 // GEAR WEAR step 3 (a run stamped Expedition.gearWear only): count one ground fight or fieldwork step for each listed

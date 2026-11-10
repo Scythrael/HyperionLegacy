@@ -5,7 +5,8 @@
 //   removed         : facility:audit:fuelAutoBuy (S4-A02 "Remove it": the old fuel economy is gone),
 //                     wear:WEAR_EFFICIENCY:ftlDrive:engineEfficiency (the drive's engine efficiency wear line, "Drop that
 //                     line"), facility:audit:itemEquipStats (OC-C4: ItemDef.equipStats, no planned use, deleted);
-//   pending -> seam : the six OC-C4 framework hook rows ("Keep tested hooks"); the gear gates row also changed its claim.
+//   pending -> seam : the six OC-C4 framework hook rows ("Keep tested hooks"); the gear gates and objective hooks rows
+//                     also changed their claims (the WR-13 fix round made both claims name what is tested).
 // wr13ReadBack puts each removed row back in its place and each flipped row's status (and claim) back as they stood on
 // 717bba3. Apply it innermost.
 
@@ -24,6 +25,7 @@ export const WR13_FLIPPED_BEFORE: Readonly<Record<string, WiringEntry["status"]>
 export const WR13_FLIPPED_IDS: ReadonlySet<string> = new Set(Object.keys(WR13_FLIPPED_BEFORE));
 const CLAIM_BEFORE: Readonly<Record<string, string>> = {
   "captain:audit:gearGates": "Gear gates minCaptainLevel / requiresTalent / captainSpec (no slot sets them)",
+  "away:audit:objectiveHooks": "taskChainFollowUp, calmObjective, affix weightFor (no caller)",
 };
 
 // The removed rows, each re-inserted right after the row it followed. Built off a sibling of the same kind (an audit row

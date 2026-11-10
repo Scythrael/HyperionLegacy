@@ -2283,3 +2283,30 @@ deletes `ItemDef.equipStats` (no planned use, the equipmentSlots precedent), so 
 **Registry:** `wr13Registry.fixture.ts` `wr13ReadBack` (innermost in every registry chain) puts the three removed rows
 back in place and the six flips back to pending; gearWearRegistry.fixture.ts reads the removed wear row back too.
 Release gate pending: 19 -> 10.
+
+**WR-13 fix round (review findings, 2026-11-10):**
+- **Gear gates, all four tested.** `canFitEquipment` (equipment.ts) now gates `minCaptainLevel` (the captain's level),
+  `requiresTalent` (the captain owns it, primary or secondary tree) and `requiresResearch` (the same
+  `blueprintUnlocked` read as the B1 rung gate), after the captainSpec block. A parked hull refuses the captain gates
+  with `captainSpecParked`; the research gate is account-wide, so a parked hull with the blueprint researched installs.
+  New refusal reasons `captainLevel` / `captainTalent` / `researchLocked` with their install wording in both reason
+  switches (App.svelte, ShipSystemsPanel.svelte). equipment.test.ts lends each requirement to the Spec Utility slot
+  (parked, below, at; restored in `finally`). No slot sets one, so no golden moved. The row's claim names all four.
+- **Task chains wired (user #14).** `taskChainFollowUp` reads `TASK_CHAIN_FOLLOW_UPS` (riskFactors.ts, an empty map:
+  no chain is authored, that is content). groundOps.ts `finishWork` calls `revealFollowUpTask` where a task reaches
+  100%: a named follow-up site joins the same body as one more discovery and task through the scan's own builder
+  (`bodyTaskFor`, now shared with expedition.ts `assignDiscoveriesAndActivities`), stamped by `initGroundTasks` and
+  planned by `planNewTasks`. Known effect for the content pass: the new task takes the next flat index after its body,
+  so the seed key of every task on a later body moves up by one from that instant (deterministic either way).
+  groundOpsTaskChain.test.ts lends a Crashed Ship to Derelict Outpost chain on the GO-7b parity run: revealed once,
+  planned, the run identical to the unlent one up to the completion, and big == 997 s chunks == 1 s steps. No golden
+  moved. The objective hooks row's claim is rewritten (calmObjective has a caller: affixes.ts rollObjectiveAffixes).
+- **Fuel leftovers.** Stale comments made truthful (model.ts mission rewards and ShipDerivedStats, crewOverlay.ts,
+  tick.ts dispatch gates); the never-returned `fuelEmpty` dispatch reason is removed from both dispatch unions with its
+  "Not enough fuel or credits to refuel" text (no player text promises an auto-buy now). fuel.test.ts adds a parity
+  case over the legacy in-flight cycle (1-tick steps == one economyTick call).
+- **`refuelDelayTicks: 0` stays on purpose.** The constant stamp on a fresh cycle is kept so the state-hash goldens do
+  not move (the "held for a hub call" above is settled this way unless the hub says re-pin).
+- **Why `salvage:audit:ascension` stays a seam** although the OC-C4 proposal listed it for deletion: the later user
+  answer "Plumbing only (Recommended)" (docs/plans/2026-10-22-rarity-quality-readiness-capture.md line 61) gave
+  ascension a planned use, and RR-4 built tested plumbing for it (ascension.test.ts).

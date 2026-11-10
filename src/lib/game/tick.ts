@@ -2306,8 +2306,8 @@ export function tickCaptainMission(
   // by tick(). Always present (zeroed on the early-outs), never undefined.
   lifetimeStatsDelta: MissionLifetimeStatsDelta;
   // Infrastructure 0.13.4 (Phase 3 Unit 3.2): how many berths this call actually CLAIMED, so
-  // economyTick can draw its shared budget down before the next captain is processed. Normally 0 or 1; a call long enough to complete a
-  // whole cycle and start another return leg can claim more than once.
+  // economyTick can draw its shared budget down before the next captain is processed. Normally 0 or 1; a call
+  // long enough to complete a whole cycle and start another return leg can claim more than once.
   berthsClaimed: number;
   // GEAR WEAR step 3: the instant (ticks into this call) each completed cycle delivered, in order. Absent on the
   // early-outs (nothing delivered).
@@ -2615,9 +2615,10 @@ export function tickCaptainMission(
   // flag the condition and every step below are the original ones (byte-identical).
   while (mission !== null && (remaining > 0 || mission.speed?.instantComplete === true)) {
     const skipping = mission.speed?.instantComplete === true;
-    // WR-13 (S4-A02, the old fuel economy removed): nothing stamps a non-zero refuel delay any more. The one tolerant read left
-    // is a LEGACY cycle in flight from a pre-0.13.6 save whose fuel was auto-bought (its ordersReceived ran 2 ticks
-    // longer); it plays out exactly as it was saved, and the next cycle stamps the constant 0 (kept so the state goldens hold). Absent reads 0.
+    // WR-13 (S4-A02, the old fuel economy removed): nothing stamps a non-zero refuel delay any more. The one
+    // tolerant read left is a LEGACY cycle in flight from a pre-0.13.6 save whose fuel was auto-bought (its
+    // ordersReceived ran 2 ticks longer); it plays out exactly as it was saved, and the next cycle stamps the
+    // constant 0 (kept so the state goldens hold). Absent reads 0.
     // E-CREW (Task 21): missionPhaseTicks = requiredTicksForPhase, except a packed hold's faster unload
     // (Operations Integrity); the cargo is fixed while unloading, so the length is constant in the phase.
     // WR-9 (OC-E4): on the return leg of a cycle whose Pilot roll lands, the leg runs a tick shorter (pilotCutReturnLeg),
@@ -3515,7 +3516,8 @@ export function tickCaptainPatrol(
   let shipDamaged = false;
   // Combat 0.13.0 (offline recap "why did it stop early"): the wall-stop reason to stamp onto
   // the RETURNED captain, set ONLY at a genuine wall-stop below (the limp-home defeat end; the
-  // truly-broke relaunch went with the old fuel economy, WR-13), left undefined on a clean completion / recall. Set at the SAME
+  // truly-broke relaunch went with the old fuel economy, WR-13), left undefined on a clean completion / recall.
+  // Set at the SAME
   // deterministic branch live and offline, and it touches no RNG draw / outcome / ordering, so
   // offline stays byte-identical to live. Folded into the return as `stopReason ??
   // captain.lastStopReason` so a call that does NOT wall-stop preserves whatever was there.
@@ -5899,7 +5901,8 @@ export function tick(
 //                  run's haul would land over a full warehouse and the auto-stop would idle
 //                  the captain on the very next tick after burning a round trip's fuel
 //   fuelCapacity, the hull's tank is physically too small for the round trip (RANGE)
-//   fuelEmpty   , the shared fuel tank can't cover the round trip's cost (RESOURCE)
+// WR-13 (S4-A02 "Remove it"): the old fuelEmpty RESOURCE reason is gone with the fuel economy (nothing returned it
+// since 0.13.6: fuel is a reach stat and refuel is instant and free).
 // NOTE: there is deliberately NO `credits` reason: dispatch spends nothing (fuel is a reach stat since 0.13.6;
 // WR-4 retired Buy Fuel). Adding a credit gate here would be a ghost gate that never fires.
 export type DispatchBlockReason =
@@ -5911,8 +5914,7 @@ export type DispatchBlockReason =
   | "noShip"
   | "needsRepair"
   | "materialAtCap"
-  | "fuelCapacity"
-  | "fuelEmpty";
+  | "fuelCapacity";
 
 // ============================================================================
 // REACH FOR A REAL SHIP (0.13.9 hotfix): the ONE reading both dispatch gates AND every range
@@ -5995,7 +5997,7 @@ export function shipRangeLightYears(state: GameState, ship: ShipInstance): numbe
 // reason surfaces when several fail at once (ok itself is order-independent, all must
 // pass): identity (noCaptain) -> status (busy) -> unlock (locked) -> captain capability
 // (captainLevel) -> hull existence (noShip) -> repair state (needsRepair) -> hull capability
-// (cargo) -> warehouse (materialAtCap) -> fuel RANGE (fuelCapacity) -> fuel RESOURCE (fuelEmpty).
+// (cargo) -> warehouse (materialAtCap) -> fuel RANGE (fuelCapacity).
 // captainLevel is checked BEFORE noShip on purpose: it's a property of the CAPTAIN alone,
 // needs no hull, and is the more useful thing to tell the player first. materialAtCap sits
 // just before the fuel gates: it's a transient logistics condition (the destination
@@ -6080,10 +6082,9 @@ export function canDispatch(
     return { ok: false, reason: "materialAtCap" };
   }
 
-  // --- Fuel gates (Task 5, folded in here). fuelNeeded reads the BASE mission's transit
-  // legs scaled by engineEfficiency (see fuel.ts). Task 14: price it from the FOLDED
-  // engineEfficiency (overlaid on the static ShipTypeDef, as economyTick does) so the
-  // dispatch estimate matches the loop's per-cycle burn exactly.
+  // --- Fuel gates (Task 5, folded in here). The reach reads the BASE mission's transit legs
+  // against the FOLDED fuelCapacity and engineEfficiency (see fuel.ts). WR-13: no per-cycle fuel
+  // cost is priced any more (the old fuel economy is gone).
   // REACH (0.13.6 fuel-to-reach): fuel is a RANGE stat, not a depleting resource. The ONLY fuel
   // gate is whether the hull's fuel capacity covers the round trip (its reach). This is the exact
   // pre-0.13.6 `fuelCapacity < need` capacity check (need = fuelNeeded with the folded efficiency),
@@ -6600,8 +6601,9 @@ export type PatrolDispatchBlockReason =
   // with no emitter simply flies with 0 shields (emitters ARE the shield source), both silent player
   // choices. So the old noWeapon / noShieldEmitter / noHullPlating block reasons are DELETED here.
   | "noReactor"        // the ship's reactorCore slot is EMPTY (no power = cannot dispatch; physically impossible)
-  | "fuelCapacity"     // the hull's tank is physically too small for the round trip (RANGE)
-  | "fuelEmpty";       // the shared fuel tank can't cover the round trip's cost AND the shortfall is unaffordable (RESOURCE)
+  | "fuelCapacity";    // the hull's tank is physically too small for the round trip (RANGE)
+// WR-13 (S4-A02 "Remove it"): the old fuelEmpty RESOURCE reason is gone with the fuel economy (never returned since
+// 0.13.6).
 
 // canDispatchPatrol: THE single consolidated patrol-dispatch gate. Pure predicate, reads
 // state + the static PATROLS/SHIP_TYPES tables, mutates + spends nothing. The ONE source
@@ -6611,10 +6613,10 @@ export type PatrolDispatchBlockReason =
 // GATE ORDER (cheapest/most-fundamental first, determines WHICH reason surfaces when
 // several fail): identity (noCaptain) -> status (busy) -> hull existence (noShip) -> hull
 // CAPABILITY (notCombatHull) -> repair state (needsRepair) -> POWER (noReactor) -> fuel
-// RANGE (fuelCapacity) -> fuel RESOURCE (fuelEmpty). notCombatHull is checked right after
+// RANGE (fuelCapacity). notCombatHull is checked right after
 // the hull is resolved (it is a property of the hull, cheaper + more useful to report than
-// any fuel arithmetic). Fuel is priced from the SAME equipment-folded engineEfficiency the
-// extraction gate uses, so a patrol's dispatch estimate matches what 9b.5b will burn.
+// any fuel arithmetic). The reach reads the SAME equipment-folded engineEfficiency the
+// extraction gate uses.
 //
 // Combat-defense rework (Unit 3): the reactor is the ONLY hard combat-gear block (no power =
 // physically cannot fly). A missing weapon is not a block, it is surfaced as a NON-blocking
@@ -6679,10 +6681,9 @@ export function canDispatchPatrol(
   // choices (no block, no advisory): a bare hull keeps its innateHullArmor, and no emitter = 0 shields.
   const noWeaponAdvisory = !fittedGear.some((e) => e.slotType === "weapon");
 
-  // --- Fuel gates: price the round trip from the patrol's transit legs (fuelForRoundTrip),
-  // using the EQUIPMENT-FOLDED engineEfficiency (overlaid on the static ShipTypeDef, as
-  // canDispatch does), so the dispatch estimate matches the loop's per-cycle burn. With no
-  // gear fitted the fold is an identity. The folded fuelCapacity gates RANGE.
+  // --- Fuel gates: the patrol's transit legs against the EQUIPMENT-FOLDED fuelCapacity and
+  // engineEfficiency (overlaid on the static ShipTypeDef, as canDispatch does). With no gear
+  // installed the fold is an identity. No per-cycle fuel cost is priced (WR-13).
   // Crew 0.14.0 ("CREW GOES LIVE"): shipReachDef reads effectiveShipStats, which folds crew on
   // top (same as canDispatch + the patrol arm in economyTick), so the range gate reads the
   // crew-boosted numbers the patrol loop actually burns against. With no crew it equals the pure

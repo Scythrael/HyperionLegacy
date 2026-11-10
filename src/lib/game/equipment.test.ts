@@ -451,6 +451,57 @@ describe("equipRequirement gate", () => {
     expect(canFitEquipment(withCaptainSpec(withHull(withEquipment(freshState(), rig()), "prospectorMiner"), "tactical"), "ship-1", "equip-1")).toEqual({ ok: true });
   });
 
+  // WR-13 fix round (same seam): the other three requirement gates, each lent to the slot alone and restored after.
+  function withLentRequirement(extra: EquipRequirement, body: (base: GameState) => void): void {
+    const slot = EQUIPMENT_SLOTS.specUtility as { equipRequirement?: EquipRequirement };
+    const saved = slot.equipRequirement;
+    slot.equipRequirement = { ...saved, ...extra };
+    try {
+      body(withHull(withEquipment(freshState(), rig()), "prospectorMiner"));
+    } finally {
+      slot.equipRequirement = saved;
+    }
+    expect(slot.equipRequirement).toBe(saved);
+  }
+  const withCaptain = (state: GameState, over: Partial<GameState["captains"][number]>): GameState => ({
+    ...state,
+    captains: [{ ...state.captains[0], ...over }],
+  });
+
+  it("OC-C4 seam: a declared minCaptainLevel gates on the captain's level (parked, below, at, above)", () => {
+    withLentRequirement({ minCaptainLevel: 5 }, (base) => {
+      expect(canFitEquipment(parked(base), "ship-1", "equip-1")).toEqual({ ok: false, reason: "captainSpecParked" });
+      expect(canFitEquipment(withCaptain(base, { level: 4 }), "ship-1", "equip-1")).toEqual({ ok: false, reason: "captainLevel" });
+      expect(canFitEquipment(withCaptain(base, { level: 5 }), "ship-1", "equip-1")).toEqual({ ok: true });
+      expect(canFitEquipment(withCaptain(base, { level: 9 }), "ship-1", "equip-1")).toEqual({ ok: true });
+    });
+  });
+
+  it("OC-C4 seam: a declared requiresTalent gates on the captain owning it (primary or secondary tree)", () => {
+    withLentRequirement({ requiresTalent: "prospectorKeenEyeI" }, (base) => {
+      expect(canFitEquipment(parked(base), "ship-1", "equip-1")).toEqual({ ok: false, reason: "captainSpecParked" });
+      expect(canFitEquipment(withCaptain(base, { unlockedCaptainTalents: [], unlockedSecondaryTalents: [] }), "ship-1", "equip-1")).toEqual({ ok: false, reason: "captainTalent" });
+      expect(canFitEquipment(withCaptain(base, { unlockedCaptainTalents: ["prospectorHub"] }), "ship-1", "equip-1")).toEqual({ ok: false, reason: "captainTalent" });
+      expect(canFitEquipment(withCaptain(base, { unlockedCaptainTalents: ["prospectorHub", "prospectorKeenEyeI"] }), "ship-1", "equip-1")).toEqual({ ok: true });
+    });
+    withLentRequirement({ requiresTalent: "extraction1" }, (base) => {
+      expect(canFitEquipment(withCaptain(base, { unlockedSecondaryTalents: [] }), "ship-1", "equip-1")).toEqual({ ok: false, reason: "captainTalent" });
+      expect(canFitEquipment(withCaptain(base, { unlockedSecondaryTalents: ["extraction1"] }), "ship-1", "equip-1")).toEqual({ ok: true });
+    });
+  });
+
+  it("OC-C4 seam: a declared requiresResearch gates on the researched blueprint (account-wide, parked included)", () => {
+    withLentRequirement({ requiresResearch: "frameSegmentBp" }, (base) => {
+      const locked = { ...base, researchedBlueprints: [] };
+      const researched = { ...base, researchedBlueprints: ["frameSegmentBp"] };
+      expect(canFitEquipment(locked, "ship-1", "equip-1")).toEqual({ ok: false, reason: "researchLocked" });
+      expect(canFitEquipment({ ...base, researchedBlueprints: ["powerCouplingBp"] }, "ship-1", "equip-1")).toEqual({ ok: false, reason: "researchLocked" });
+      expect(canFitEquipment(researched, "ship-1", "equip-1")).toEqual({ ok: true });
+      // The research gate needs no captain: a parked hull with the blueprint researched installs it.
+      expect(canFitEquipment(parked(researched), "ship-1", "equip-1")).toEqual({ ok: true });
+    });
+  });
+
   it("a UNIVERSAL slot (cargoBay) has no spec/hull gate, fits any hull + captain", () => {
     // General Freighter, captain with no spec: a cargoBay piece still fits.
     const cargo = makeEquip({ id: "equip-1", slotType: "cargoBay", fittedToShipId: null });

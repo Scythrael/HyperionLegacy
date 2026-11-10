@@ -4530,10 +4530,9 @@ function medicalEntries(): WiringEntry[] {
 const OC_C4_HOOKS = 'OC-C4 (user 2026-10-15): "Keep tested hooks (Recommended)"';
 const AUDIT_ROWS: readonly { id: string; system: WiringSystem; claim: string; status: WiringStatus }[] = [
   // A. Captain
-  // WR-13 (OC-C4 "Keep tested hooks"): the captainSpec install gate is the tested hook (equipment.test.ts "OC-C4 seam");
-  // minCaptainLevel / requiresTalent / requiresResearch are declared on EquipRequirement with no gate logic yet (they
-  // layer on with the first slot that uses them, equipment.ts canFitEquipment).
-  { id: "captain:audit:gearGates", system: "captain", claim: "The captainSpec gear install gate (parked, no spec, wrong spec refused; no slot declares one today); minCaptainLevel / requiresTalent are declared, with no gate logic yet", status: { kind: "seam", owner: "the first slot or variety that declares a captain requirement", userRef: OC_C4_HOOKS } },
+  // WR-13 (OC-C4 "Keep tested hooks"): all four EquipRequirement install gates in equipment.ts canFitEquipment, each
+  // proven by an "OC-C4 seam" test in equipment.test.ts that lends the requirement to a slot (no slot sets one today).
+  { id: "captain:audit:gearGates", system: "captain", claim: "The captainSpec, minCaptainLevel, requiresTalent and requiresResearch gear install gates (a parked hull refuses the captain gates; a wrong spec, a lower level, a missing talent or an unresearched blueprint refuses; no slot declares one today)", status: { kind: "seam", owner: "the first slot or variety that declares a captain requirement", userRef: OC_C4_HOOKS } },
   // C. Facilities, items, fuel
   { id: "facility:audit:requiresResearch", system: "facility", claim: "The requiresResearch rung gate (B1 fixed in WR-4: it checks the researched blueprint; no rung lists one yet)", status: { kind: "seam", owner: "the first facility rung that lists a research prerequisite", userRef: OC_C4_HOOKS } },
   { id: "facility:audit:requiresFacilityLevels", system: "facility", claim: "requiresFacilityLevels rung gate (correct, no rung uses it); its twin requiresMissionCompletions is live on the Short-Range board's level 2 rung (G1-6, facility:audit:missionControlUnlock)", status: { kind: "seam", owner: "the first facility rung that depends on another facility's level", userRef: OC_C4_HOOKS } },
@@ -4744,7 +4743,10 @@ const AUDIT_ROWS: readonly { id: string; system: WiringSystem; claim: string; st
         'objective affixes capture (user 2026-10-14): "build anything that might be needed in the future to implement a difficulty system for this, but we\'re not focusing on higher difficulty tiers over the actual unlockable tiers" (timing answer: the affix system plus hooks for future difficulty tiers in 0.14.0)',
     },
   },
-  { id: "away:audit:objectiveHooks", system: "away", claim: "taskChainFollowUp, calmObjective, affix weightFor (no caller)", status: { kind: "seam", owner: "the ground-ops content pass (task chains, calm objectives, conditional affix weights)", userRef: OC_C4_HOOKS } },
+  // WR-13 fix round: task chains are wired (groundOps.ts finishWork reveals a follow-up through revealFollowUpTask,
+  // groundOpsTaskChain.test.ts lends a chain); calmObjective is the calm pool target rollObjectiveAffixes rolls; an
+  // affix's weightFor is read by affixRollWeight (groundOpsOutcroppings.test.ts lends one).
+  { id: "away:audit:objectiveHooks", system: "away", claim: "Objective hooks: a completed task reveals its taskChainFollowUp site on its body (no chain authored); the calmObjective affix pool (a calm objective rolls from it; no affix targets it yet); an affix weightFor hook decides its roll weight (no affix sets one)", status: { kind: "seam", owner: "the ground-ops content pass (task chains, calm objectives, conditional affix weights)", userRef: OC_C4_HOOKS } },
   // G. Expedition content
   // WR-11: rendered on the objective card and the queue row (expeditionContent.ts groundSiteFlavor).
   { id: "expedition:audit:siteFlavor", system: "expedition", claim: "Hostile and clearing site flavor: shown on the objective card and the queue row", status: LIVE },

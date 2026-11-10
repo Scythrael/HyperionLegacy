@@ -5156,8 +5156,6 @@
           ? "Out of reach for this ship"
           : outOfReachText((def.transitOutTicks + def.transitBackTicks) * LY_PER_TICK, captainId);
       }
-      case "fuelEmpty":
-        return "Not enough fuel or credits to refuel";
     }
     // Compile-time exhaustiveness guard (same discipline as PATROL_PHASE_LABEL and the
     // rest of this epic): every case above returns, so `reason` narrows to `never` here.
@@ -5681,6 +5679,13 @@
         return "captain spec does not match this piece";
       case "captainSpecParked":
         return "assign a matching captain first (hull is parked)";
+      // WR-13 (OC-C4 seam): the captain level / talent and research install gates.
+      case "captainLevel":
+        return "captain level is too low for this piece";
+      case "captainTalent":
+        return "captain lacks the talent this piece needs";
+      case "researchLocked":
+        return "research this piece's blueprint first";
       case "slotNotInstallable":
         return "this slot is not installable";
       // Crafting 0.13.3 (Unit 2.1): the piece is reserved by a queued salvage order.
@@ -9989,10 +9994,6 @@
       case "fuelCapacity":
         // 0.13.9: reach wording (fuel is reach since 0.13.6), with the real numbers when known.
         return outOfReachText(distanceLightYears(mission), captainId);
-      case "fuelEmpty":
-        // Fuel Economy v2 (F3): a short tank now auto-buys the shortfall from credits; this
-        // reason fires only when the shortfall is ALSO unaffordable (truly broke).
-        return "Not enough fuel or credits to refuel";
       case "busy":
         return "Captain is already on a mission";
       case "noShip":

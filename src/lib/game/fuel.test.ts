@@ -129,6 +129,21 @@ describe("WR-13 (S4-A02): the old fuel economy is gone, and a save from it still
     expect(repeated.phase).toBe("ordersReceived");
     expect(repeated.refuelDelayTicks ?? 0).toBe(0);
   });
+
+  it("PARITY over the legacy cycle: 1-tick steps == one economyTick call (the delayed cycle and the repeat after it)", () => {
+    const { next } = dispatchCaptainOnMission(freshState(), 1, "shortOreRun");
+    const legacy = { ...next, captains: next.captains.map((c, i) => (i === 0 ? { ...c, mission: { ...(c.mission as CaptainMissionState), refuelDelayTicks: 2 } } : c)) };
+    const loaded = migrate(deserialize(serialize(legacy, 0)) as SaveFile);
+    const rng = () => 0.5;
+    const N = SHORT_RUN_CYCLE_TICKS + 2 + 10; // the delayed cycle, then 10 ticks into the repeat
+    const big = economyTick(loaded, N, rng);
+    let stepped = loaded;
+    for (let i = 0; i < N; i += 1) stepped = economyTick(stepped, 1, rng);
+    expect(stepped).toEqual(big);
+    const mission = big.captains[0].mission as CaptainMissionState;
+    expect(mission.phase).toBe("transitOut");
+    expect(mission.refuelDelayTicks ?? 0).toBe(0);
+  });
 });
 
 describe("dispatch fuel gate: REACH only (dispatchCaptainOnMission)", () => {
