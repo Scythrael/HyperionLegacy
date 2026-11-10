@@ -708,3 +708,11 @@ names in game text (the Wolf 359 nod stays original).
 "Quiet derelict field (Recommended)": a one-time Survey Log entry. Many old, unmarked hulls drift in loose formation;
 the crew holds a moment of silence. Unnamed and original (the Captain's Sigil rule): no franchise names, no named
 ships or people. Triggers once.
+
+## USER ANSWERS (2026-11-09): G2-7 calls and the enemy-sector shading mockup
+
+- Wolf 359 derelict field timing: "At the claim (Recommended)". Old saves: "No retro grant (Recommended)".
+- Enemy-sector shading on the telescope map: "Mock it up now (Recommended)", then mockup
+  docs/mockups/2026-11-09-telescope-enemy-shading-mockup.html "Approve both (Recommended)" with: style "Hatch + dashed
+  edge (Recommended)"; legend "Once a sector is in range (Recommended)"; label and range "\"Enemy territory\", hide
+  out-of-range (Recommended)". Built as a small G2-7 follow-up.

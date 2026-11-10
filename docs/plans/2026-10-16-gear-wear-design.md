@@ -581,3 +581,12 @@ take no wear by W9 when built.
   its place (hub note; the user's 2026-10-16 reason for a paid repair was finding proper credit sinks).
 - Gear wear step 5 (wear UI per the approved mockup, Overtime on repair, patrol use wear) is now unblocked. Check the
   mockup https://claude.ai/artifact/HRa9zUf1XRrPoh9tuinhEF for any Quick Service control before building and drop it.
+
+## USER ANSWERS (2026-11-09): Overtime button mockup APPROVED
+
+Mockup docs/mockups/2026-11-09-gear-repair-overtime-mockup.html: "Approve both (Recommended)". Calls: scope "Per ship
+(Recommended)" (one purchase speeds all of a docked ship's gear repairs, as the engine is built); "One tap
+(Recommended)" (the button shows the exact cost and new time; no confirm); placement "Gear card only (Recommended)"
+(NOT on the Fleet care rows; Fleet care stays report-only, differing from the mockup's drawn option A). Footer wording
+from the mockup: "on its own. Repair is always free."; the Help line "there is no button and no cost" must change to
+match.

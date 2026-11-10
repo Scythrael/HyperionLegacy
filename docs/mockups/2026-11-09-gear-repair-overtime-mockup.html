@@ -1,0 +1,441 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Gear repair Overtime</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Orbitron:wght@500;700&family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+  /* Tokens copied from src/app.css (default cyan theme), the same set as the E5 / CP-9 / CP-10 mockups,
+     plus the gear wear step 5 band colors (app.css .wear-b-*) and the rarity color the card border reads. */
+  :root {
+    color-scheme: dark;
+    --corner: 2px;
+    --color-bg-deep: #060a12; --color-bg-mid: #0a1120; --color-bg-raised: #0c1626;
+    --color-panel-bg: rgba(20, 40, 60, 0.32); --color-panel-bg-strong: rgba(103, 232, 249, 0.06);
+    --color-border: rgba(103, 232, 249, 0.18); --color-border-strong: rgba(103, 232, 249, 0.4);
+    --color-accent: #67e8f9; --color-accent-bright: #8ff0e0; --color-accent-rgb: 103, 232, 249;
+    --color-text-primary: #e6f4f8; --color-text-secondary: #8fa3ad; --color-text-dim: #628591;
+    --color-warning: #fbbf24; --color-warning-rgb: 251, 191, 36; --color-danger: #f87171; --color-success: #34d399; --color-success-rgb: 52, 211, 153;
+    --rarity-stellar: #4fa3f2;
+    --font-display: "Orbitron", sans-serif; --font-body: "Space Grotesk", "Inter", sans-serif; --font-mono: "JetBrains Mono", monospace;
+    --text-3xs: 9px; --text-2xs: 10px; --text-xs: 11px; --text-sm: 12px; --text-md: 13px; --text-lg: 15px;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; }
+  body { background: var(--color-bg-deep); color: var(--color-text-primary); font-family: var(--font-body); font-size: 13px; line-height: 1.45; padding: 24px 16px 60px; overflow-x: hidden; }
+  .wrap { max-width: 1340px; margin: 0 auto; display: grid; gap: 30px; min-width: 0; }
+  h1 { font-family: var(--font-display); font-size: 20px; letter-spacing: .08em; margin: 0 0 6px; }
+  .intro { margin: 0; color: var(--color-text-secondary); max-width: 100ch; }
+  .intro b { color: var(--color-text-primary); }
+  .prop { color: var(--color-warning); font-family: var(--font-mono); font-size: 10.5px; }
+  .label { font-family: var(--font-display); font-size: 12px; letter-spacing: .18em; color: var(--color-accent); text-transform: uppercase; margin: 0 0 8px; }
+  .note { color: var(--color-text-secondary); font-size: 12px; margin: 8px 0 0; max-width: 100ch; }
+  .note b { color: var(--color-text-primary); }
+  .stage { border: 1px solid var(--color-border); border-radius: var(--corner); background: radial-gradient(900px 400px at 70% -10%, rgba(103,232,249,.07), transparent 60%), var(--color-bg-mid); padding: 18px 12px; overflow-x: auto; }
+  .frames { display: flex; gap: 18px; flex-wrap: wrap; align-items: flex-start; }
+  .frame-cap { font-family: var(--font-mono); font-size: 11px; color: var(--color-text-dim); margin: 0 0 6px; }
+  svg.g { width: 14px; height: 14px; flex: 0 0 auto; vertical-align: -2px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+
+  /* App shell (from the E5 mockup) */
+  .shell { background: var(--color-bg-deep); border: 1px solid var(--color-border-strong); border-radius: var(--corner); box-shadow: 0 20px 60px rgba(0,0,0,.5); overflow: hidden; }
+  .shell.desk { width: 1280px; }
+  .shell.phone { width: 375px; max-width: 100%; }
+  .topbar { display: flex; justify-content: space-between; align-items: center; padding: 10px 16px; border-bottom: 1px solid var(--color-border); font-family: var(--font-display); font-size: 12px; letter-spacing: .14em; gap: 8px; }
+  .topbar .res { font-family: var(--font-mono); font-size: 11px; color: var(--color-text-secondary); letter-spacing: 0; }
+  .crumb { padding: 8px 16px 0; font-family: var(--font-mono); font-size: 10.5px; letter-spacing: .12em; color: var(--color-text-dim); text-transform: uppercase; }
+  .crumb b { color: var(--color-accent-bright); font-weight: 600; }
+  .content { padding: 14px 16px 18px; display: flex; flex-direction: column; gap: 10px; background: var(--color-panel-bg); }
+  .phone .content { padding: 12px; }
+  .phone .topbar { padding: 9px 12px; }
+  .phone .crumb { padding: 8px 12px 0; }
+
+  /* Wear bands (app.css, gear wear step 5): calm, green fading to amber, never red */
+  .wear-b-pristine { --wear-band: var(--color-success); }
+  .wear-b-sound { --wear-band: color-mix(in srgb, var(--color-success) 65%, var(--color-warning)); }
+  .wear-b-worn { --wear-band: color-mix(in srgb, var(--color-success) 30%, var(--color-warning)); }
+  .wear-b-battered { --wear-band: var(--color-warning); }
+  .wear-meter { position: relative; display: inline-block; height: 6px; width: 64px; flex: none; border-radius: 3px; background: rgba(var(--color-accent-rgb), 0.12); overflow: hidden; vertical-align: middle; }
+  .wear-meter.wide { display: block; width: 100%; height: 10px; border-radius: 5px; }
+  .wear-meter > i { position: absolute; inset: 0 auto 0 0; background: var(--wear-band, var(--color-success)); border-radius: inherit; }
+  .wear-meter > b { position: absolute; top: 0; bottom: 0; width: 1px; background: rgba(var(--color-accent-rgb), 0.35); }
+  .wear-pct { font-variant-numeric: tabular-nums; font-size: 12px; color: var(--wear-band, inherit); min-width: 3.2ch; text-align: right; }
+  .wear-band-name { color: var(--wear-band, inherit); font-weight: 600; }
+
+  /* Ship Systems (ShipSystemsPanel.svelte: .ss-wear-head, .ss-wear-chip, .ss-slot) */
+  .ss { border: 1px solid var(--color-border); background: var(--color-panel-bg); }
+  .ss-hd { display: flex; align-items: center; gap: 10px; padding: 10px 14px; border-bottom: 1px solid var(--color-border); }
+  .ss-hd .nm { font-family: var(--font-display); font-size: 13px; letter-spacing: .1em; }
+  .ss-hd .sub { font-size: var(--text-xs); color: var(--color-text-secondary); }
+  .ss-hd .st { margin-left: auto; font-family: var(--font-mono); font-size: 10.5px; color: var(--color-success); display: inline-flex; gap: 5px; align-items: center; }
+  .ss-wear-head { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; padding: 8px 14px; border-bottom: 1px solid rgba(var(--color-accent-rgb), 0.12); }
+  .ss-wear-chip { display: inline-flex; align-items: center; gap: 5px; padding: 2px 9px; border-radius: 999px; border: 1px solid rgba(var(--color-accent-rgb), 0.25); font-size: 10.5px; color: var(--color-text-dim); white-space: nowrap; }
+  .ss-wear-chip b { font-weight: 600; }
+  .ss-help { font-size: 10.5px; color: var(--color-accent); display: inline-flex; gap: 4px; align-items: center; }
+  .ss-body { display: grid; grid-template-columns: minmax(0, 1fr) 330px; gap: 16px; padding: 12px 14px 14px; align-items: start; }
+  .ss-grp { font-family: var(--font-mono); font-size: 10px; letter-spacing: .12em; text-transform: uppercase; color: var(--color-text-dim); margin: 4px 0 2px; }
+  .ss-slots { display: grid; gap: 6px; }
+  .ss-slot { display: flex; align-items: center; gap: 10px; padding: 7px 9px; background: rgba(var(--color-accent-rgb), 0.05); border: 1px solid var(--color-border); }
+  .ss-slot.sel { border-color: var(--color-accent-bright); background: rgba(var(--color-accent-rgb), .1); }
+  .ss-tile { width: 34px; height: 34px; flex: none; border: 1px solid var(--tc, var(--color-border-strong)); display: grid; place-items: center; color: var(--tc, var(--color-accent)); }
+  .ss-tile svg.g { width: 18px; height: 18px; }
+  .ss-txt { display: flex; flex-direction: column; min-width: 0; flex: 1; }
+  .ss-slot-label { font-size: var(--text-sm); color: var(--color-text-primary); }
+  .ss-slot-sub { font-size: var(--text-2xs); color: var(--color-text-secondary); }
+  .ss-cv { display: inline-flex; align-items: center; gap: 6px; flex: none; }
+  .ss-act { font-size: 11px; color: var(--color-accent); border: 1px solid var(--color-border-strong); padding: 3px 9px; background: rgba(var(--color-accent-rgb), .06); }
+
+  /* The gear card (EquipmentTooltip.svelte: .et, .et-hd, .et-r1, .et-q, .et-r2, .et-wear*) */
+  .et { border: 2px solid var(--et-accent); background: linear-gradient(rgba(var(--color-accent-rgb), 0.04), rgba(var(--color-accent-rgb), 0.04)), var(--color-bg-deep); box-shadow: 0 6px 22px rgba(0, 0, 0, 0.45); color: var(--color-text-primary); width: 330px; max-width: 100%; }
+  .et.stellar { --et-accent: var(--rarity-stellar); }
+  .et-hd { padding: 11px 13px 10px; border-bottom: 1px solid var(--color-border); }
+  .et-r1 { display: flex; align-items: center; gap: 8px; }
+  .et-r1 .ic { color: var(--et-accent); }
+  .et-r1 .ic svg.g { width: 20px; height: 20px; }
+  .et-name { flex: 1; font-weight: 700; font-size: var(--text-lg); color: var(--et-accent); }
+  .et-q { font-size: var(--text-xs); font-weight: 700; background: rgba(var(--color-accent-rgb), 0.08); border: 1px solid var(--color-border); padding: 1px 7px; text-transform: uppercase; letter-spacing: .04em; color: var(--et-accent); }
+  .et-r2 { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 5px; font-size: 11.5px; color: var(--color-text-secondary); }
+  .et-r2 .sep { opacity: .5; }
+  .et-wear { display: grid; gap: 6px; padding: 9px 13px; font-size: var(--text-sm); }
+  .et-wear-top { display: flex; justify-content: space-between; gap: 8px; color: var(--color-text-secondary); }
+  .et-wear-by { color: var(--color-text-dim); font-size: var(--text-2xs); }
+  .et-wear-effect { color: var(--color-text-secondary); }
+  .et-wear-effect b { color: var(--color-text-primary); }
+  .et-wear-care { display: flex; gap: 6px; align-items: flex-start; padding: 6px 8px; border: 1px solid rgba(var(--color-success-rgb), 0.35); background: rgba(var(--color-success-rgb), 0.08); color: var(--color-text-secondary); font-size: var(--text-2xs); }
+  .et-wear-care svg.g { color: var(--color-success); margin-top: 1px; }
+  .et-wear-care .chg { color: var(--color-text-primary); }
+  .et-rest { padding: 9px 13px; border-top: 1px solid var(--color-border); display: grid; gap: 5px; }
+  .ph-line { height: 7px; border-radius: 2px; background: rgba(var(--color-accent-rgb), .08); }
+  .ph-cap { font-family: var(--font-mono); font-size: 9.5px; color: var(--color-text-dim); }
+
+  /* NEW: the Overtime strip, attached under the care footer (same width, one border family) */
+  .ot { border: 1px solid rgba(var(--color-accent-rgb), .22); border-top: 1px dashed rgba(var(--color-accent-rgb), .28); margin-top: -7px; padding: 7px 8px 8px; background: rgba(var(--color-accent-rgb), .03); display: grid; gap: 5px; font-size: var(--text-2xs); color: var(--color-text-secondary); }
+  .ot-row { display: flex; align-items: center; gap: 7px; }
+  .ot-tag { font-family: var(--font-mono); font-size: 10px; letter-spacing: .1em; text-transform: uppercase; color: var(--color-accent-bright); display: inline-flex; gap: 5px; align-items: center; }
+  .pips { display: inline-flex; gap: 3px; align-items: center; }
+  .pips i { width: 9px; height: 5px; border: 1px solid rgba(var(--color-accent-rgb), .5); border-radius: 1px; }
+  .pips i.on { background: var(--color-accent); border-color: var(--color-accent); }
+  .ot-n { font-family: var(--font-mono); font-size: 10px; color: var(--color-text-dim); white-space: nowrap; }
+  .ot-n b { color: var(--color-text-primary); font-weight: 400; }
+  .ot-btn { margin-left: auto; font: inherit; font-family: var(--font-mono); font-size: 10.5px; color: var(--color-accent); background: rgba(var(--color-accent-rgb), .06); border: 1px solid var(--color-border-strong); border-radius: var(--corner); padding: 3px 8px; min-height: 26px; display: inline-flex; gap: 5px; align-items: center; white-space: nowrap; }
+  .ot-btn .cost { color: var(--color-text-primary); }
+  .ot-btn.off { color: var(--color-text-dim); border-color: rgba(98,133,145,.45); border-style: dashed; background: transparent; }
+  .ot-when { color: var(--color-text-secondary); }
+  .ot-when b { color: var(--color-text-primary); font-weight: 500; font-family: var(--font-mono); font-size: 10px; }
+  .ot-when s { color: var(--color-text-dim); }
+  .ot-dim { color: var(--color-text-dim); font-size: 9.5px; }
+  .ot-why { display: flex; gap: 5px; align-items: flex-start; color: var(--color-text-secondary); }
+  .ot-why svg.g { color: var(--color-text-dim); width: 12px; height: 12px; margin-top: 1px; }
+  .ot-max { margin-left: auto; white-space: nowrap; font-family: var(--font-mono); font-size: 10px; color: var(--color-success); display: inline-flex; gap: 4px; align-items: center; }
+
+  /* Command Home Fleet care (App.svelte .home-sec, .home-care*) */
+  .home-sec-hd { display: flex; align-items: center; gap: 8px; margin: 0 0 8px; }
+  .home-sec-h { font-family: var(--font-display); font-size: var(--text-xs); letter-spacing: 0.09em; text-transform: uppercase; color: var(--color-text-secondary); }
+  .home-sec-rule { flex: 1; height: 1px; background: var(--color-border); }
+  .home-act { display: grid; gap: 5px; }
+  .act-row { display: grid; grid-template-columns: 18px minmax(0, 1fr) 160px 70px; gap: 10px; align-items: center; padding: 6px 9px; border: 1px solid var(--color-border); font-size: var(--text-xs); color: var(--color-text-secondary); }
+  .act-row svg.g { color: var(--color-accent); }
+  .act-row b { color: var(--color-text-primary); font-weight: 500; }
+  .act-track { height: 5px; background: rgba(255,255,255,.07); border: 1px solid var(--color-border); }
+  .act-track i { display: block; height: 100%; background: var(--color-accent); }
+  .act-t { font-family: var(--font-mono); font-size: 10.5px; text-align: right; }
+  .home-care { display: grid; gap: 6px; padding: 8px 10px; border: 1px solid var(--color-border); border-radius: var(--corner); }
+  .home-care-top { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; color: var(--wear-band); }
+  .home-care-big { font-weight: 700; font-size: var(--text-md); color: var(--color-text-primary); }
+  .home-care-calm { display: inline-flex; align-items: center; gap: 4px; font-size: var(--text-xs); color: var(--color-success); }
+  .home-care-sum { margin: 0; font-size: var(--text-xs); color: var(--color-text-secondary); }
+  .home-care-row { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; gap: 4px 10px; align-items: center; font-size: var(--text-xs); padding: 4px 0; border-top: 1px solid var(--color-border); }
+  .home-care-ship { min-width: 0; color: var(--color-text-primary); }
+  .home-care-ship .hull { color: var(--color-text-secondary); }
+  .home-care-eta { grid-column: 1 / -1; color: var(--color-text-secondary); display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  .home-care-eta .ot-btn { margin-left: auto; }
+  .home-care-eta .pips { margin-left: 2px; }
+
+  /* Open-call callouts (from CP-10 / E5) */
+  .oc { border: 1px dashed rgba(var(--color-warning-rgb), .65); background: rgba(var(--color-warning-rgb), .06); border-radius: var(--corner); padding: 8px 10px; font-size: 12px; color: var(--color-text-secondary); max-width: 520px; }
+  .oc .t { font-family: var(--font-mono); font-size: 10.5px; letter-spacing: .1em; color: var(--color-warning); text-transform: uppercase; margin-bottom: 4px; }
+  .oc .ab { display: grid; grid-template-columns: 18px 1fr; gap: 2px 6px; }
+  .oc .ab b { font-family: var(--font-mono); color: var(--color-warning); }
+  .oc .drawn { font-family: var(--font-mono); font-size: 10px; color: var(--color-text-dim); margin-top: 4px; }
+  .ocrow { display: flex; gap: 12px; flex-wrap: wrap; margin-top: 12px; }
+  ol.calls { margin: 0; padding-left: 20px; display: grid; gap: 7px; color: var(--color-text-secondary); max-width: 104ch; }
+  ol.calls b { color: var(--color-text-primary); }
+  .callout { font-family: var(--font-mono); font-size: 10px; color: var(--color-warning); display: flex; gap: 6px; align-items: center; margin: 0 0 4px; }
+  .callout::before { content: ""; width: 14px; height: 1px; background: var(--color-warning); }
+  .glyphs { display: flex; gap: 18px; align-items: end; color: var(--color-accent); }
+  .glyphs div { display: grid; justify-items: center; gap: 4px; font-family: var(--font-mono); font-size: 10px; color: var(--color-text-dim); }
+  .glyphs svg.g { stroke-width: 1.8; }
+
+  /* Phone */
+  .phone .ss-body { grid-template-columns: minmax(0, 1fr); padding: 10px 12px 12px; }
+  .phone .ss-hd, .phone .ss-wear-head { padding-left: 12px; padding-right: 12px; }
+  .phone .et { width: 100%; }
+  .sheet { border-top: 1px solid var(--color-border-strong); background: var(--color-bg-raised); border-radius: 6px 6px 0 0; box-shadow: 0 -12px 40px rgba(0,0,0,.6); padding: 0 0 10px; }
+  .sheet .grab { width: 40px; height: 4px; border-radius: 2px; background: var(--color-border-strong); margin: 8px auto 8px; }
+  .sheet .et { border-left: 0; border-right: 0; box-shadow: none; }
+  .sheet .acts { display: flex; gap: 6px; padding: 10px 12px 0; }
+  .phonedim { background: rgba(2,5,10,.72); display: flex; flex-direction: column; justify-content: flex-end; min-height: 560px; }
+</style>
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <defs>
+    <!-- Real glyphs from src/lib/ui/icons.ts (stroke paths, 24 x 24) -->
+    <symbol id="i-gearCondition" viewBox="0 0 24 24"><path d="M4.5 15.5a7.5 7.5 0 0 1 15 0"/><path d="M12 8v1.7"/><path d="M6.7 10.2l1.2 1.2"/><path d="M17.3 10.2l-1.2 1.2"/><path d="M12 15.5l3.2-4.2"/><path d="M4 19h16"/></symbol>
+    <symbol id="i-home" viewBox="0 0 24 24"><path d="M4 11l8-7 8 7"/><path d="M6 9.5V20h12V9.5"/><path d="M10 20v-5h4v5"/></symbol>
+    <symbol id="i-drive" viewBox="0 0 24 24"><path d="M9.5 2.5h5v5h-5z"/><path d="M10 7.5L6.5 16h11L14 7.5"/><path d="M9 19l-.5 2.5"/><path d="M12 19v2.5"/><path d="M15 19l.5 2.5"/></symbol>
+    <symbol id="i-shipyard" viewBox="0 0 24 24"><path d="M3 4h18"/><path d="M6 4v5"/><path d="M18 4v5"/><path d="M12 21l5-9H7z"/></symbol>
+    <symbol id="i-check" viewBox="0 0 24 24"><path d="M4 12.5l5 5L20 6.5"/></symbol>
+    <symbol id="i-help" viewBox="0 0 24 24"><path d="M8 8.6a4 4 0 1 1 5.8 3.6c-1.1.5-1.8 1.5-1.8 2.7v.5"/><path d="M12 19.2v.2"/></symbol>
+    <symbol id="i-info" viewBox="0 0 24 24"><path d="M12 3a9 9 0 1 1 0 18 9 9 0 0 1 0-18z"/><path d="M12 11v6"/><path d="M12 7.5v.5"/></symbol>
+    <symbol id="i-clock" viewBox="0 0 24 24"><path d="M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18z"/><path d="M12 7.5V12l3 2"/></symbol>
+    <symbol id="i-ship" viewBox="0 0 24 24"><path d="M12 3l8 17-8-4-8 4z"/></symbol>
+    <!-- Slot tile glyphs below (weapon, plating) are simplified stand-ins; the build keeps equipmentSvgIcon -->
+    <symbol id="i-weapon" viewBox="0 0 24 24"><path d="M3 15h13l4-3-4-3H3z"/><path d="M7 15v4M11 15v3"/></symbol>
+    <symbol id="i-plating" viewBox="0 0 24 24"><path d="M12 3l8 3v6c0 4.5-3.4 8-8 9-4.6-1-8-4.5-8-9V6z"/></symbol>
+    <symbol id="i-power" viewBox="0 0 24 24"><path d="M13 2.5L5 13.5h6l-1 8 8-11h-6z"/></symbol>
+    <symbol id="i-research" viewBox="0 0 24 24"><path d="M10 3v6.5L5.2 18a2 2 0 0 0 1.7 3h10.2a2 2 0 0 0 1.7-3L14 9.5V3"/><path d="M9 3h6"/><path d="M8.4 14h7.2"/></symbol>
+    <!-- [PROPOSAL] NEW glyph `overtime`: a clock with a forward chevron (needs its ICON_SEMANTICS row at build) -->
+    <symbol id="i-overtime" viewBox="0 0 24 24"><path d="M9.5 5.5a6.5 6.5 0 1 0 0 13 6.5 6.5 0 0 0 0-13z"/><path d="M9.5 8.5V12l2.2 1.4"/><path d="M17.5 8.5L21 12l-3.5 3.5"/></symbol>
+  </defs>
+</svg>
+
+<div class="wrap">
+  <div>
+    <h1>Gear repair: Overtime</h1>
+    <p class="intro">Hyperion Legacy 0.14.0, gear wear step 5 follow-up (OT-UI, gear repair only), for sign-off before the build. The engine is already built (<b>processSpeed.ts buyGearRepairOvertime</b>): each Overtime step adds <b>+25% of the normal repair rate</b>, at most <b>3 steps</b> (1.75x, never instant). Step k costs <b>ceil(10 x job minutes x hull tier x k)</b> credits, where the job is the ship's slowest worn piece at the normal rate, frozen when step 1 is bought. It works <b>only on a docked ship</b> (at home or in a Shipyard bay) and clears when the gear is full or the ship leaves. It is <b>per ship</b> in the engine: one purchase speeds every worn piece on that ship.</p>
+    <p class="note">Sample numbers are the engine's real rule on a sample ship: <b>Kestrel</b>, a Destroyer (hull tier 2), docked at home (4% a minute). Its most worn piece is Hull Plating at 40%, so the job is 15 min: steps cost <b>300 / 600 / 900 cr</b> and bring the whole ship's time to full from about 15 min to about 12, 10, then 9 min. The Railgun shown is at 70% (about 8 min alone). Repair itself stays free and automatic; Overtime is a quiet, optional extra and nothing ever asks for it.</p>
+  </div>
+
+  <!-- ===================== 1 ===================== -->
+  <section>
+    <p class="label">1. Docked ship, gear card open (desktop 1280 px)</p>
+    <div class="stage">
+      <div class="shell desk">
+        <div class="topbar"><span>HYPERION LEGACY</span><span class="res">Credits 48,210 · FA 14 · Day 96</span></div>
+        <div class="crumb">Logistics / Ships / Kestrel / <b>Ship Systems</b></div>
+        <div class="content">
+          <div class="ss">
+            <div class="ss-hd"><svg class="g"><use href="#i-ship"/></svg><span class="nm">KESTREL</span><span class="sub">Destroyer · Tier 2</span><span class="st"><svg class="g"><use href="#i-home"/></svg>Docked</span></div>
+            <div class="ss-wear-head">
+              <span class="ss-wear-chip wear-b-worn"><svg class="g"><use href="#i-gearCondition"/></svg>Gear <b class="wear-band-name">77%</b></span>
+              <span class="ss-wear-chip"><svg class="g"><use href="#i-home"/></svg>Recovering, full in about 15 min</span>
+              <span class="ss-help"><svg class="g"><use href="#i-help"/></svg>Gear wear</span>
+            </div>
+            <div class="ss-body">
+              <div class="ss-slots">
+                <div class="ss-grp">Weapons</div>
+                <div class="ss-slot sel"><span class="ss-tile" style="--tc: var(--rarity-stellar)"><svg class="g"><use href="#i-weapon"/></svg></span><span class="ss-txt"><span class="ss-slot-label">Railgun</span><span class="ss-slot-sub">Stellar · iL 42</span></span><span class="ss-cv wear-b-worn"><span class="wear-meter"><i style="width:70%"></i></span><span class="wear-pct">70%</span></span><span class="ss-act">Swap</span></div>
+                <div class="ss-grp">Defense</div>
+                <div class="ss-slot"><span class="ss-tile"><svg class="g"><use href="#i-plating"/></svg></span><span class="ss-txt"><span class="ss-slot-label">Hull Plating</span><span class="ss-slot-sub">Augmented · iL 38</span></span><span class="ss-cv wear-b-battered"><span class="wear-meter"><i style="width:40%"></i></span><span class="wear-pct">40%</span></span><span class="ss-act">Swap</span></div>
+                <div class="ss-slot"><span class="ss-tile"><svg class="g"><use href="#i-plating"/></svg></span><span class="ss-txt"><span class="ss-slot-label">Shield Emitter</span><span class="ss-slot-sub">Standard · iL 30</span></span><span class="ss-cv wear-b-sound"><span class="wear-meter"><i style="width:88%"></i></span><span class="wear-pct">88%</span></span><span class="ss-act">Swap</span></div>
+                <div class="ss-grp">Core</div>
+                <div class="ss-slot"><span class="ss-tile"><svg class="g"><use href="#i-power"/></svg></span><span class="ss-txt"><span class="ss-slot-label">Reactor Core</span><span class="ss-slot-sub">Augmented · iL 36</span></span><span class="ss-cv wear-b-pristine"><span class="wear-meter"><i style="width:96%"></i></span><span class="wear-pct">96%</span></span><span class="ss-act">Swap</span></div>
+                <div class="ss-slot"><span class="ss-tile"><svg class="g"><use href="#i-drive"/></svg></span><span class="ss-txt"><span class="ss-slot-label">FTL Drive</span><span class="ss-slot-sub">Standard · iL 30</span></span><span class="ss-cv wear-b-sound"><span class="wear-meter"><i style="width:91%"></i></span><span class="wear-pct">91%</span></span><span class="ss-act">Swap</span></div>
+                <p class="note" style="margin:6px 0 0">Rows, meters and header chips are as built in step 5, unchanged. Only the gear card gains the Overtime strip.</p>
+              </div>
+
+              <!-- The gear card (hover / tap on the Railgun) -->
+              <div>
+                <p class="callout">state A: docked, 0 of 3 steps</p>
+                <div class="et stellar">
+                  <div class="et-hd">
+                    <div class="et-r1"><span class="ic"><svg class="g"><use href="#i-weapon"/></svg></span><span class="et-name">Railgun</span><span class="et-q">Stellar</span></div>
+                    <div class="et-r2"><span>Weapon</span><span class="sep">·</span><span>iL 42</span><span class="sep">·</span><span>on Kestrel</span></div>
+                  </div>
+                  <div class="et-wear wear-b-worn">
+                    <div class="et-wear-top"><span>Condition <span class="et-wear-by">· wears by hits taken</span></span><span><span class="wear-band-name">Worn</span> <span class="wear-pct">70%</span></span></div>
+                    <span class="wear-meter wide"><i style="width:70%"></i><b style="left:60%"></b><b style="left:80%"></b><b style="left:95%"></b></span>
+                    <div class="et-wear-effect"><b>Worn 70%.</b> Opens each fight at 70%.</div>
+                    <div class="et-wear-care"><svg class="g"><use href="#i-gearCondition"/></svg><span>Back to full in about 8 min at home, on its own. <span class="chg">Repair is always free.</span></span></div>
+                    <div class="ot">
+                      <div class="ot-row"><span class="ot-tag"><svg class="g"><use href="#i-overtime"/></svg>Overtime</span><span class="pips" title="0 of 3 steps"><i></i><i></i><i></i></span><span class="ot-n">0 of 3</span><span class="ot-btn">+25% · <span class="cost">300 cr</span></span></div>
+                      <div class="ot-when">Speeds up all of Kestrel's gear: full in <b>about 12 min</b> instead of <s>about 15 min</s>.</div>
+                      <div class="ot-dim">Optional. Docked ships only; clears when the gear is full or Kestrel leaves.</div>
+                    </div>
+                  </div>
+                  <div class="et-rest"><div class="ph-cap">Combat stats, implicits, primaries: unchanged</div><div class="ph-line" style="width:82%"></div><div class="ph-line" style="width:64%"></div><div class="ph-line" style="width:72%"></div></div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="ocrow">
+        <div class="oc"><div class="t">Open call 1 · per ship or per piece</div><div class="ab"><b>A</b><span>Per ship, as the engine is built: one purchase speeds every worn piece on the ship, and the strip says so ("all of Kestrel's gear", the whole ship's time to full). Any piece's card on that ship shows the same strip.</span><b>B</b><span>Per piece: only the piece on the card speeds up, priced on that piece's own minutes. Needs an engine change (the record and the price move from the ship to the piece).</span></div><div class="drawn">Drawn: A</div></div>
+        <div class="oc"><div class="t">Open call 2 · confirm before spending</div><div class="ab"><b>A</b><span>One tap buys the step. The price and the new time are on screen before the tap, the amounts are small and nothing is lost. A short log line records it.</span><b>B</b><span>The tap opens a small confirm ("Overtime step 1 for 300 cr: Kestrel full in about 12 min. Buy / Keep as is").</span></div><div class="drawn">Drawn: A</div></div>
+      </div>
+      <p class="note">Footer wording: step 5's "No cost, no button." can no longer stand, so the footer now ends <b>"on its own. Repair is always free."</b> That stays true at every step, because Overtime buys speed, never the repair. The Help topic's line "there is no button and no cost" needs the same fix (for example: "Repair is automatic and free and never needs you. On a docked ship you may pay for Overtime to speed it up.").</p>
+    </div>
+  </section>
+
+  <!-- ===================== 2 ===================== -->
+  <section>
+    <p class="label">2. The other states of the strip (same card, desktop)</p>
+    <div class="stage"><div class="frames">
+      <div>
+        <p class="frame-cap">B · docked, after step 1 (1 of 3)</p>
+        <div class="et stellar">
+          <div class="et-hd"><div class="et-r1"><span class="ic"><svg class="g"><use href="#i-weapon"/></svg></span><span class="et-name">Railgun</span><span class="et-q">Stellar</span></div><div class="et-r2"><span>Weapon</span><span class="sep">·</span><span>iL 42</span><span class="sep">·</span><span>on Kestrel</span></div></div>
+          <div class="et-wear wear-b-worn">
+            <div class="et-wear-top"><span>Condition <span class="et-wear-by">· wears by hits taken</span></span><span><span class="wear-band-name">Worn</span> <span class="wear-pct">70%</span></span></div>
+            <span class="wear-meter wide"><i style="width:70%"></i><b style="left:60%"></b><b style="left:80%"></b><b style="left:95%"></b></span>
+            <div class="et-wear-effect"><b>Worn 70%.</b> Opens each fight at 70%.</div>
+            <div class="et-wear-care"><svg class="g"><use href="#i-gearCondition"/></svg><span>Back to full in about 6 min at home, with Overtime. <span class="chg">Repair is always free.</span></span></div>
+            <div class="ot">
+              <div class="ot-row"><span class="ot-tag"><svg class="g"><use href="#i-overtime"/></svg>Overtime</span><span class="pips"><i class="on"></i><i></i><i></i></span><span class="ot-n"><b>1 of 3</b> · 1.25x</span><span class="ot-btn">+25% · <span class="cost">600 cr</span></span></div>
+              <div class="ot-when">Next step: all of Kestrel's gear full in <b>about 10 min</b> instead of <s>about 12 min</s>.</div>
+              <div class="ot-dim">Clears when the gear is full or Kestrel leaves.</div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div>
+        <p class="frame-cap">C · ship out on a run (disabled, with the reason)</p>
+        <div class="et stellar">
+          <div class="et-hd"><div class="et-r1"><span class="ic"><svg class="g"><use href="#i-weapon"/></svg></span><span class="et-name">Railgun</span><span class="et-q">Stellar</span></div><div class="et-r2"><span>Weapon</span><span class="sep">·</span><span>iL 42</span><span class="sep">·</span><span>on Kestrel, on patrol</span></div></div>
+          <div class="et-wear wear-b-worn">
+            <div class="et-wear-top"><span>Condition <span class="et-wear-by">· wears by hits taken</span></span><span><span class="wear-band-name">Worn</span> <span class="wear-pct">70%</span></span></div>
+            <span class="wear-meter wide"><i style="width:70%"></i><b style="left:60%"></b><b style="left:80%"></b><b style="left:95%"></b></span>
+            <div class="et-wear-effect"><b>Worn 70%.</b> Opens each fight at 70%.</div>
+            <div class="et-wear-care"><svg class="g"><use href="#i-drive"/></svg><span>Recovers 0.2% a minute while underway, and fully once home. On its own; <span class="chg">repair is always free.</span></span></div>
+            <div class="ot">
+              <div class="ot-row"><span class="ot-tag" style="color:var(--color-text-dim)"><svg class="g"><use href="#i-overtime"/></svg>Overtime</span><span class="pips"><i></i><i></i><i></i></span><span class="ot-n">0 of 3</span><span class="ot-btn off">Docked only</span></div>
+              <div class="ot-why"><svg class="g"><use href="#i-info"/></svg><span>Overtime works only while Kestrel is docked. It is out on a patrol; once home, its gear recovers fast on its own.</span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div>
+        <p class="frame-cap">D · at the maximum (3 of 3)</p>
+        <div class="et stellar">
+          <div class="et-hd"><div class="et-r1"><span class="ic"><svg class="g"><use href="#i-weapon"/></svg></span><span class="et-name">Railgun</span><span class="et-q">Stellar</span></div><div class="et-r2"><span>Weapon</span><span class="sep">·</span><span>iL 42</span><span class="sep">·</span><span>on Kestrel</span></div></div>
+          <div class="et-wear wear-b-worn">
+            <div class="et-wear-top"><span>Condition <span class="et-wear-by">· wears by hits taken</span></span><span><span class="wear-band-name">Worn</span> <span class="wear-pct">70%</span></span></div>
+            <span class="wear-meter wide"><i style="width:70%"></i><b style="left:60%"></b><b style="left:80%"></b><b style="left:95%"></b></span>
+            <div class="et-wear-effect"><b>Worn 70%.</b> Opens each fight at 70%.</div>
+            <div class="et-wear-care"><svg class="g"><use href="#i-gearCondition"/></svg><span>Back to full in about 5 min at home, with Overtime. <span class="chg">Repair is always free.</span></span></div>
+            <div class="ot">
+              <div class="ot-row"><span class="ot-tag"><svg class="g"><use href="#i-overtime"/></svg>Overtime</span><span class="pips"><i class="on"></i><i class="on"></i><i class="on"></i></span><span class="ot-n"><b>3 of 3</b> · 1.75x</span><span class="ot-max"><svg class="g"><use href="#i-check"/></svg>At its fastest</span></div>
+              <div class="ot-when">All of Kestrel's gear full in <b>about 9 min</b>.</div>
+              <div class="ot-dim">Clears when the gear is full or Kestrel leaves.</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <p class="note">Other engine refusals, not drawn: <b>short of credits</b> shows the button dashed as "300 cr · need 120 more"; <b>within one tick of full</b> and <b>nothing worn</b> hide the strip (the card then reads "Nothing to do." as built). Times in B and D are drawn as bought at once; in play they count down from the moment of the purchase. Every number would come from <b>canBuyGearRepairOvertime</b> (cost, minutesLeft, minutesLeftAfter), never from the UI.</p>
+    </div>
+  </section>
+
+  <!-- ===================== 3 ===================== -->
+  <section>
+    <p class="label">3. Command Home, Fleet care under In progress (desktop)</p>
+    <div class="stage">
+      <div class="shell" style="width:900px">
+        <div class="topbar"><span>HYPERION LEGACY</span><span class="res">Credits 48,210 · FA 14 · Day 96</span></div>
+        <div class="crumb">Home / <b>Command</b></div>
+        <div class="content">
+          <div>
+            <div class="home-sec-hd"><span class="home-sec-h">In progress</span><span class="home-sec-rule"></span></div>
+            <div class="home-act">
+              <div class="act-row"><svg class="g"><use href="#i-research"/></svg><span><b>Research Lab</b> · Hull Plating II</span><span class="act-track"><i style="width:28%"></i></span><span class="act-t">14 min</span></div>
+              <div class="act-row"><svg class="g"><use href="#i-shipyard"/></svg><span><b>Shipyard</b> · Hull repair, Vela</span><span class="act-track"><i style="width:60%"></i></span><span class="act-t">4 min</span></div>
+            </div>
+          </div>
+          <div>
+            <div class="home-sec-hd"><span class="home-sec-h">Fleet care</span><span class="home-sec-rule"></span></div>
+            <div class="home-care wear-b-worn">
+              <div class="home-care-top"><svg class="g" style="width:16px;height:16px"><use href="#i-gearCondition"/></svg><span class="home-care-big">Fleet gear <span class="wear-band-name">83%</span></span><span class="home-care-calm"><svg class="g"><use href="#i-check"/></svg>Nothing needs you</span></div>
+              <p class="home-care-sum">3 ships recovering. Docked gear back to full in about 15 min.</p>
+              <div class="home-care-row wear-b-worn"><span class="home-care-ship"><b>Kestrel</b> <span class="hull">· Destroyer</span></span><span class="wear-meter"><i style="width:77%"></i></span><span class="wear-pct">77%</span>
+                <span class="home-care-eta">Docked, gear full in about 15 min<span class="ot-btn"><svg class="g"><use href="#i-overtime"/></svg>Overtime +25% · <span class="cost">300 cr</span></span><span class="pips"><i></i><i></i><i></i></span></span></div>
+              <div class="home-care-row wear-b-sound"><span class="home-care-ship"><b>Vela</b> <span class="hull">· Hauler</span></span><span class="wear-meter"><i style="width:85%"></i></span><span class="wear-pct">85%</span>
+                <span class="home-care-eta">Hull in a Shipyard bay, about 4 min. Gear full in about 2 min<span class="ot-btn"><svg class="g"><use href="#i-overtime"/></svg>Overtime +25% · <span class="cost">19 cr</span></span><span class="pips"><i></i><i></i><i></i></span></span></div>
+              <div class="home-care-row wear-b-sound"><span class="home-care-ship"><b>Orion</b></span><span class="wear-meter"><i style="width:92%"></i></span><span class="wear-pct">92%</span>
+                <span class="home-care-eta">Out on a run, gear recovers slowly underway and fully once home</span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="ocrow">
+        <div class="oc"><div class="t">Open call 3 · where else it appears</div><div class="ab"><b>A</b><span>Also on each docked ship's Fleet care row on Command Home, as drawn: the same step price and pips, nothing on a ship that is out. Fleet care was "reports only, no button" (W8); this is its first control, kept small and text-only, and "Nothing needs you" stays true.</span><b>B</b><span>Gear card only (plus the Ship Systems header strip beside the recovery chip, the ship-level home under 1A). Fleet care stays report-only.</span></div><div class="drawn">Drawn: A</div></div>
+      </div>
+      <p class="note">Vela shows the bay rate: its hull is in a Shipyard repair bay (8% a minute), so its 15% of wear is a 2 min job on a Tier 1 hull and step 1 costs 19 cr. Orion is unnamed, so its hull class is not repeated (as built).</p>
+    </div>
+  </section>
+
+  <!-- ===================== 4 ===================== -->
+  <section>
+    <p class="label">4. Phone 375 px</p>
+    <div class="stage"><div class="frames">
+      <div>
+        <p class="frame-cap">Phone · gear card as a bottom sheet (state B, 1 of 3)</p>
+        <div class="shell phone">
+          <div class="topbar"><span>HYPERION</span><span class="res">48,210 cr · Day 96</span></div>
+          <div class="phonedim">
+            <div class="sheet">
+              <div class="grab"></div>
+              <div class="et stellar">
+                <div class="et-hd"><div class="et-r1"><span class="ic"><svg class="g"><use href="#i-weapon"/></svg></span><span class="et-name">Railgun</span><span class="et-q">Stellar</span></div><div class="et-r2"><span>Weapon</span><span class="sep">·</span><span>iL 42</span><span class="sep">·</span><span>on Kestrel</span></div></div>
+                <div class="et-wear wear-b-worn">
+                  <div class="et-wear-top"><span>Condition <span class="et-wear-by">· hits taken</span></span><span><span class="wear-band-name">Worn</span> <span class="wear-pct">70%</span></span></div>
+                  <span class="wear-meter wide"><i style="width:70%"></i><b style="left:60%"></b><b style="left:80%"></b><b style="left:95%"></b></span>
+                  <div class="et-wear-effect"><b>Worn 70%.</b> Opens each fight at 70%.</div>
+                  <div class="et-wear-care"><svg class="g"><use href="#i-gearCondition"/></svg><span>Back to full in about 6 min at home, with Overtime. <span class="chg">Repair is always free.</span></span></div>
+                  <div class="ot">
+                    <div class="ot-row"><span class="ot-tag"><svg class="g"><use href="#i-overtime"/></svg>Overtime</span><span class="pips"><i class="on"></i><i></i><i></i></span><span class="ot-n"><b>1 of 3</b></span><span class="ot-btn" style="min-height:32px">+25% · <span class="cost">600 cr</span></span></div>
+                    <div class="ot-when">All of Kestrel's gear full in <b>about 10 min</b> instead of <s>about 12</s>.</div>
+                    <div class="ot-dim">Clears when the gear is full or Kestrel leaves.</div>
+                  </div>
+                </div>
+              </div>
+              <div class="acts"><span class="ot-btn" style="margin:0;min-height:32px;font-family:var(--font-body);font-size:12px">Swap</span><span class="ot-btn" style="margin:0;min-height:32px;font-family:var(--font-body);font-size:12px;color:var(--color-text-secondary);border-color:var(--color-border);background:transparent">Close</span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div>
+        <p class="frame-cap">Phone · Fleet care on Command Home</p>
+        <div class="shell phone">
+          <div class="topbar"><span>HYPERION</span><span class="res">48,210 cr · Day 96</span></div>
+          <div class="crumb">Home / <b>Command</b></div>
+          <div class="content">
+            <div class="home-sec-hd"><span class="home-sec-h">Fleet care</span><span class="home-sec-rule"></span></div>
+            <div class="home-care wear-b-worn">
+              <div class="home-care-top"><svg class="g" style="width:16px;height:16px"><use href="#i-gearCondition"/></svg><span class="home-care-big">Fleet gear <span class="wear-band-name">83%</span></span><span class="home-care-calm"><svg class="g"><use href="#i-check"/></svg>Nothing needs you</span></div>
+              <p class="home-care-sum">3 ships recovering. Docked gear back to full in about 15 min.</p>
+              <div class="home-care-row wear-b-worn"><span class="home-care-ship"><b>Kestrel</b> <span class="hull">· Destroyer</span></span><span class="wear-meter" style="width:48px"><i style="width:77%"></i></span><span class="wear-pct">77%</span>
+                <span class="home-care-eta">Docked, gear full in about 15 min</span>
+                <span class="home-care-eta" style="margin-top:-2px"><span class="pips"><i></i><i></i><i></i></span><span class="ot-btn" style="min-height:32px"><svg class="g"><use href="#i-overtime"/></svg>Overtime +25% · <span class="cost">300 cr</span></span></span></div>
+              <div class="home-care-row wear-b-sound"><span class="home-care-ship"><b>Orion</b></span><span class="wear-meter" style="width:48px"><i style="width:92%"></i></span><span class="wear-pct">92%</span>
+                <span class="home-care-eta">Out on a run, gear recovers slowly underway and fully once home</span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div style="max-width:375px">
+        <p class="frame-cap">[PROPOSAL] new glyph <code>overtime</code> at 16 / 28 / 56 px</p>
+        <div class="glyphs">
+          <div><svg class="g" style="width:16px;height:16px"><use href="#i-overtime"/></svg>16</div>
+          <div><svg class="g" style="width:28px;height:28px"><use href="#i-overtime"/></svg>28</div>
+          <div><svg class="g" style="width:56px;height:56px;stroke-width:1.4"><use href="#i-overtime"/></svg>56</div>
+        </div>
+        <p class="note">A clock with a forward chevron: "the same job, sooner". It joins icons.ts with an ICON_SEMANTICS row and gets the usual size check at build. The other glyphs here are the real ones from icons.ts (gearCondition, home, drive, shipyard, check, info, help, clock, research, power); the weapon and plating slot tiles are simple stand-ins.</p>
+        <p class="note">On phone the step button keeps a 32 px tap height and drops to its own line on Fleet care, so a tap on the row never lands on the button by accident.</p>
+      </div>
+    </div></div>
+  </section>
+
+  <section>
+    <p class="label">Open calls, in one list</p>
+    <ol class="calls">
+      <li><b>Per ship or per piece:</b> A per ship, as the engine is built, the strip naming the whole ship's time (drawn) or B per piece, which needs an engine change.</li>
+      <li><b>Confirm before spending:</b> A one tap buys, price and new time shown first (drawn) or B a small confirm with Buy / Keep as is.</li>
+      <li><b>Where else it appears:</b> A also on docked ships' Fleet care rows on Command Home (drawn) or B gear card and Ship Systems header only, Fleet care stays report-only.</li>
+    </ol>
+    <p class="note">Unchanged from step 5: no Quick Service, no instant repair, no warning colors, no toast. Overtime never appears on a ship that is out and never prompts; the free automatic repair is always the default.</p>
+  </section>
+</div>
+</body>
+</html>
