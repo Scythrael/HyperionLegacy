@@ -1,0 +1,675 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Overtime buttons on running jobs</title>
+<style>
+  /* Tokens copied from src/app.css (default cyan theme), the same set as the approved 2026-11-09 gear repair
+     Overtime mockup. Self-contained: no web fonts are loaded, so the font stacks fall back to system faces. */
+  :root {
+    color-scheme: dark;
+    --corner: 2px;
+    --color-bg-deep: #060a12; --color-bg-mid: #0a1120; --color-bg-raised: #0c1626;
+    --color-panel-bg: rgba(20, 40, 60, 0.32); --color-panel-bg-strong: rgba(103, 232, 249, 0.06);
+    --color-border: rgba(103, 232, 249, 0.18); --color-border-strong: rgba(103, 232, 249, 0.4);
+    --color-accent: #67e8f9; --color-accent-bright: #8ff0e0; --color-accent-rgb: 103, 232, 249;
+    --color-text-primary: #e6f4f8; --color-text-secondary: #8fa3ad; --color-text-dim: #628591;
+    --color-warning: #fbbf24; --color-warning-rgb: 251, 191, 36; --color-danger: #f87171; --color-success: #34d399; --color-success-rgb: 52, 211, 153;
+    --font-display: "Orbitron", "Segoe UI", sans-serif; --font-body: "Space Grotesk", "Inter", "Segoe UI", sans-serif; --font-mono: "JetBrains Mono", Consolas, monospace;
+    --text-3xs: 9px; --text-2xs: 10px; --text-xs: 11px; --text-sm: 12px; --text-md: 13px; --text-lg: 15px;
+    --space-1: 2px; --space-2: 4px; --space-3: 6px; --space-4: 8px; --space-5: 10px; --space-6: 14px;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; }
+  body { background: var(--color-bg-deep); color: var(--color-text-primary); font-family: var(--font-body); font-size: 13px; line-height: 1.45; padding: 24px 16px 60px; overflow-x: hidden; }
+  .wrap { max-width: 1440px; margin: 0 auto; display: grid; gap: 30px; min-width: 0; }
+  h1 { font-family: var(--font-display); font-size: 20px; letter-spacing: .08em; margin: 0 0 6px; }
+  .intro { margin: 0 0 6px; color: var(--color-text-secondary); max-width: 112ch; }
+  .intro b, .note b { color: var(--color-text-primary); }
+  .label { font-family: var(--font-display); font-size: 12px; letter-spacing: .18em; color: var(--color-accent); text-transform: uppercase; margin: 0 0 8px; }
+  .note { color: var(--color-text-secondary); font-size: 12px; margin: 8px 0 0; max-width: 112ch; }
+  .stage { border: 1px solid var(--color-border); border-radius: var(--corner); background: radial-gradient(900px 400px at 70% -10%, rgba(103,232,249,.07), transparent 60%), var(--color-bg-mid); padding: 18px 12px; overflow-x: auto; }
+  .pair { display: flex; gap: 18px; flex-wrap: wrap; align-items: flex-start; }
+  .frame-cap { font-family: var(--font-mono); font-size: 11px; color: var(--color-text-dim); margin: 0 0 6px; }
+  svg.g { width: 14px; height: 14px; flex: 0 0 auto; vertical-align: -2px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+  code { font-family: var(--font-mono); font-size: 11px; color: var(--color-accent-bright); }
+
+  /* Jobs table */
+  table.jobs { border-collapse: collapse; font-size: 12px; width: 100%; max-width: 1200px; }
+  table.jobs th, table.jobs td { text-align: left; padding: 5px 10px 5px 0; border-bottom: 1px solid var(--color-border); vertical-align: top; }
+  table.jobs th { font-family: var(--font-mono); font-size: 10px; letter-spacing: .1em; text-transform: uppercase; color: var(--color-text-dim); font-weight: 400; }
+  table.jobs td { color: var(--color-text-secondary); }
+  table.jobs td b { color: var(--color-text-primary); font-weight: 500; }
+  table.jobs td.m { font-family: var(--font-mono); font-size: 11px; white-space: nowrap; }
+
+  /* App shell */
+  .shell { background: var(--color-bg-deep); border: 1px solid var(--color-border-strong); border-radius: var(--corner); box-shadow: 0 20px 60px rgba(0,0,0,.5); overflow: hidden; }
+  .shell.desk { width: 900px; }
+  .shell.phone { width: 375px; max-width: 100%; }
+  .topbar { display: flex; justify-content: space-between; align-items: center; padding: 10px 16px; border-bottom: 1px solid var(--color-border); font-family: var(--font-display); font-size: 12px; letter-spacing: .14em; gap: 8px; }
+  .topbar .res { font-family: var(--font-mono); font-size: 11px; color: var(--color-text-secondary); letter-spacing: 0; }
+  .crumb { padding: 8px 16px 0; font-family: var(--font-mono); font-size: 10.5px; letter-spacing: .12em; color: var(--color-text-dim); text-transform: uppercase; }
+  .crumb b { color: var(--color-accent-bright); font-weight: 600; }
+  .content { padding: 14px 16px 18px; display: flex; flex-direction: column; gap: 12px; background: var(--color-panel-bg); }
+  .cols { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 12px; align-items: start; }
+  .phone .content { padding: 12px; }
+  .phone .topbar { padding: 9px 12px; }
+  .phone .crumb { padding: 8px 12px 0; }
+  .phone .cols { grid-template-columns: minmax(0, 1fr); }
+
+  /* Panel and the shared job rows (App.svelte .panel-title, .research-*, .mission-card, .buy-btn) */
+  .panel { border: 1px solid var(--color-border); background: var(--color-panel-bg); padding: 12px; min-width: 0; }
+  .panel-title { font-size: var(--text-xs); letter-spacing: 1.5px; color: var(--color-accent); margin-bottom: 12px; font-weight: 600; text-transform: uppercase; }
+  .research-name { font-size: var(--text-md); font-weight: 600; margin-bottom: 6px; display: flex; gap: 6px; align-items: center; }
+  .research-name svg.g { width: 12px; height: 12px; }
+  .research-cost { font-size: var(--text-sm); color: var(--color-text-secondary); margin-bottom: 10px; }
+  .research-bar-track { position: relative; height: 10px; background: var(--color-panel-bg-strong); border: 1px solid rgba(var(--color-accent-rgb), 0.14); overflow: hidden; margin-bottom: 6px; clip-path: polygon(4px 0, calc(100% - 4px) 0, 100% 4px, 100% calc(100% - 4px), calc(100% - 4px) 100%, 4px 100%, 0 calc(100% - 4px), 0 4px); }
+  .research-bar-fill { height: 100%; background: var(--color-accent); }
+  .research-readout { font-size: var(--text-xs); color: var(--color-text-secondary); text-align: right; }
+  .mission-card { padding: 12px; border-radius: var(--corner); background: var(--color-panel-bg-strong); border: 1px solid rgba(var(--color-accent-rgb), 0.12); }
+  .buy-btn { background: rgba(var(--color-accent-rgb), 0.15); border: 1px solid var(--color-border-strong); padding: 8px 10px; color: var(--color-accent-bright); font-size: var(--text-sm); font-family: var(--font-mono); }
+  .buy-btn:disabled { opacity: .55; }
+  .docks-cap-head { display: flex; justify-content: space-between; align-items: center; gap: 10px; margin-bottom: 6px; }
+  .docks-cap-head .research-cost { margin: 0; }
+  .upgrade-inflight-line { display: inline-flex; align-items: center; gap: 6px; font-size: var(--text-xs); color: var(--color-text-dim); font-style: italic; }
+  .upgrade-inflight-line svg.g { width: 12px; height: 12px; }
+  .ph-line { height: 7px; border-radius: 2px; background: rgba(var(--color-accent-rgb), .08); margin: 4px 0; }
+  .ph-cap { font-family: var(--font-mono); font-size: 9.5px; color: var(--color-text-dim); }
+  .ghost { opacity: .5; }
+
+  /* NEW: the readout line with the Overtime rate marker (proposal) */
+  .rd { display: flex; align-items: center; gap: 8px; }
+  .rd .research-readout { margin-left: auto; }
+  .ot-rate { display: inline-flex; align-items: center; gap: 4px; font-family: var(--font-mono); font-size: var(--text-2xs); color: var(--color-accent-bright); border: 1px solid rgba(var(--color-accent-rgb), .35); background: rgba(var(--color-accent-rgb), .06); border-radius: var(--corner); padding: 0 5px; line-height: 16px; white-space: nowrap; }
+  .ot-rate svg.g { width: 11px; height: 11px; }
+  /* Open call 3 B: the bar itself carries Overtime (a brighter, hatched fill) */
+  .research-bar-fill.hatch { background: repeating-linear-gradient(115deg, var(--color-accent-bright) 0 5px, var(--color-accent) 5px 9px); }
+
+  /* NEW: the Overtime strip (EquipmentTooltip.svelte .et-ot*, as built for gear repair), docked under a job row */
+  .ot { border: 1px solid rgba(var(--color-accent-rgb), .22); border-top: 1px dashed rgba(var(--color-accent-rgb), .28); margin-top: 6px; padding: 7px 8px 8px; background: rgba(var(--color-accent-rgb), .03); display: grid; gap: 5px; font-size: var(--text-2xs); color: var(--color-text-secondary); }
+  .ot-row { display: flex; flex-wrap: wrap; align-items: center; gap: 7px; }
+  .ot-tag { font-family: var(--font-mono); font-size: 10px; letter-spacing: .1em; text-transform: uppercase; color: var(--color-accent-bright); display: inline-flex; gap: 5px; align-items: center; }
+  .ot-tag.off { color: var(--color-text-dim); }
+  .pips { display: inline-flex; gap: 3px; align-items: center; }
+  .pips i { width: 9px; height: 5px; border: 1px solid rgba(var(--color-accent-rgb), .5); border-radius: 1px; }
+  .pips i.on { background: var(--color-accent); border-color: var(--color-accent); }
+  .ot-n { font-family: var(--font-mono); font-size: 10px; color: var(--color-text-dim); white-space: nowrap; }
+  .ot-n b { color: var(--color-text-primary); font-weight: 400; }
+  .ot-btn { margin-left: auto; font: inherit; font-family: var(--font-mono); font-size: 10.5px; color: var(--color-accent); background: rgba(var(--color-accent-rgb), .06); border: 1px solid var(--color-border-strong); border-radius: var(--corner); padding: 3px 8px; min-height: 26px; display: inline-flex; gap: 5px; align-items: center; white-space: nowrap; cursor: pointer; }
+  .ot-btn .cost { color: var(--color-text-primary); }
+  .ot-btn.off { color: var(--color-text-dim); border-color: rgba(98,133,145,.45); border-style: dashed; background: transparent; cursor: default; }
+  .ot-when { color: var(--color-text-secondary); }
+  .ot-when b { color: var(--color-text-primary); font-weight: 500; font-family: var(--font-mono); font-size: 10px; }
+  .ot-when s { color: var(--color-text-dim); }
+  .ot-dim { color: var(--color-text-dim); font-size: 9.5px; }
+  .ot-why { display: flex; gap: 5px; align-items: flex-start; color: var(--color-text-secondary); }
+  .ot-why svg.g { color: var(--color-text-dim); width: 12px; height: 12px; margin-top: 1px; }
+  .ot-max { margin-left: auto; white-space: nowrap; font-family: var(--font-mono); font-size: 10px; color: var(--color-success); display: inline-flex; gap: 4px; align-items: center; }
+  .phone .ot-btn { min-height: 32px; }
+
+  /* Ship Systems damaged banner (ShipSystemsPanel.svelte .ss-repair*) */
+  .ss { border: 1px solid var(--color-border); background: var(--color-panel-bg); }
+  .ss-hd { display: flex; align-items: center; gap: 10px; padding: 10px 14px; border-bottom: 1px solid var(--color-border); }
+  .ss-hd .nm { font-family: var(--font-display); font-size: 13px; letter-spacing: .1em; }
+  .ss-hd .sub { font-size: var(--text-xs); color: var(--color-text-secondary); }
+  .ss-repair { padding: 11px 14px; border-bottom: 1px solid rgba(var(--color-accent-rgb), 0.25); background: rgba(248, 113, 113, 0.12); }
+  .ss-repair-top { display: flex; align-items: center; gap: 8px; font-size: var(--text-md); font-weight: 650; color: var(--color-danger); }
+  .ss-repair-msg { font-size: var(--text-sm); color: var(--color-text-secondary); margin: 4px 0 8px; line-height: 1.4; }
+  .ss-repair-row { display: flex; align-items: center; gap: 10px; }
+  .ss-repair-bar { flex: 1; height: 8px; border-radius: var(--corner); background: rgba(255, 255, 255, 0.08); overflow: hidden; }
+  .ss-repair-bar i { display: block; height: 100%; background: linear-gradient(90deg, var(--color-warning), var(--color-success)); }
+  .ss-repair-eta { font-family: var(--font-mono); font-size: var(--text-xs); color: var(--color-text-dim); white-space: nowrap; }
+  .ss-repair .ot { background: rgba(6, 10, 18, .35); }
+  .ss-rest { padding: 12px 14px; }
+  .flag { font-family: var(--font-mono); font-size: 9.5px; color: var(--color-warning); border: 1px dashed rgba(var(--color-warning-rgb), .6); padding: 0 4px; margin-left: 4px; font-weight: 400; }
+
+  /* Data study card (DataStudyPanel.svelte .ds-*) */
+  .ds-card { display: flex; flex-direction: column; gap: 8px; padding: 12px; min-width: 0; background: rgba(var(--color-accent-rgb), 0.04); border: 1px solid rgba(var(--color-accent-rgb), 0.14); border-radius: var(--corner); }
+  .ds-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; }
+  .ds-h { margin: 0; font-family: var(--font-display); font-size: var(--text-sm); letter-spacing: 0.06em; color: var(--color-text-primary); font-weight: 600; }
+  .ds-dim { font-size: var(--text-xs); color: var(--color-text-dim); font-family: var(--font-body); letter-spacing: 0; font-weight: 400; }
+  .ds-switch { display: inline-flex; align-items: center; gap: 8px; min-height: 32px; padding: 4px 10px; font: inherit; font-size: var(--text-xs); color: var(--color-text-primary); background: transparent; border: 1px solid rgba(var(--color-accent-rgb), 0.4); border-radius: var(--corner); }
+  .ds-knob { position: relative; width: 30px; height: 16px; border-radius: 8px; background: var(--color-text-dim); flex: none; }
+  .ds-knob::after { content: ""; position: absolute; top: 2px; left: 2px; width: 12px; height: 12px; border-radius: 50%; background: var(--color-bg-deep); }
+  .ds-cur { display: flex; align-items: center; gap: 10px; margin-top: 4px; }
+  .ds-cur-glyph { display: inline-flex; color: var(--color-accent-bright); }
+  .ds-cur-glyph svg.g { width: 28px; height: 28px; stroke-width: 1.5; }
+  .ds-cur-words { display: flex; flex-direction: column; min-width: 0; font-size: var(--text-sm); }
+  .ds-prog { height: 8px; background: var(--color-bg-mid); border: 1px solid rgba(var(--color-accent-rgb), 0.2); border-radius: var(--corner); overflow: hidden; }
+  .ds-prog i { display: block; height: 100%; background: var(--color-text-dim); }
+  .ds-card .ot { margin-top: 0; }
+
+  /* Telescope card (App.svelte .telescope-*) */
+  .telescope-head { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
+  .telescope-head .panel-title { margin-bottom: 0; }
+  .telescope-badge { width: 34px; height: 34px; flex: 0 0 34px; display: grid; place-items: center; border: 1px solid var(--color-border-strong); border-radius: var(--corner); color: var(--color-accent); background: rgba(var(--color-accent-rgb), 0.06); }
+  .telescope-badge svg.g { width: 20px; height: 20px; }
+  .telescope-sub { font-size: var(--text-xs); color: var(--color-text-dim); }
+  .telescope-ladder-title { margin-top: 14px; font-size: var(--text-2xs); letter-spacing: 0.12em; text-transform: uppercase; color: var(--color-text-dim); font-weight: 600; }
+  .telescope-ladder { list-style: none; margin: 6px 0 0; padding: 0; display: grid; gap: 5px; }
+  .telescope-rung { display: grid; grid-template-columns: 26px minmax(0, 1fr) auto; gap: 4px 8px; align-items: center; font-size: var(--text-xs); padding: 5px 8px; border: 1px solid var(--color-border); border-radius: var(--corner); color: var(--color-text-secondary); }
+  .telescope-rung-lv { font-family: var(--font-mono); font-weight: 700; color: var(--color-text-dim); }
+  .telescope-rung-status { font-size: var(--text-2xs); font-weight: 600; border: 1px solid currentColor; border-radius: 999px; padding: 0 6px; white-space: nowrap; }
+  .telescope-rung.st-current { border-color: var(--color-accent); background: rgba(var(--color-accent-rgb), 0.08); color: var(--color-text-primary); }
+  .telescope-rung.st-current .telescope-rung-lv, .telescope-rung.st-current .telescope-rung-status { color: var(--color-accent); }
+  .telescope-rung.st-building { border-style: dashed; border-color: var(--color-warning); }
+  .telescope-rung.st-building .telescope-rung-status { color: var(--color-warning); }
+
+  /* Command Home rows (App.svelte .home-row, .home-l1/.home-l2, .home-eta, .home-bar, .done-*) */
+  .home-sec-hd { display: flex; align-items: center; gap: 8px; margin: 0 0 8px; }
+  .home-sec-h { font-family: var(--font-display); font-size: var(--text-xs); letter-spacing: 0.09em; text-transform: uppercase; color: var(--color-text-secondary); }
+  .home-sec-rule { flex: 1; height: 1px; background: var(--color-border); }
+  .home-list { display: grid; gap: 6px; }
+  .home-row { display: flex; align-items: center; gap: 10px; width: 100%; min-width: 0; padding: 9px 11px; background: var(--color-panel-bg-strong); border: 1px solid var(--color-border); }
+  .home-ico { flex: none; width: 18px; text-align: center; color: var(--color-accent); }
+  .home-row-body { flex: 1; min-width: 0; }
+  .home-l1 { display: block; font-size: 11.5px; color: var(--color-text-primary); font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .home-l2 { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 7px; margin-top: 4px; }
+  .home-eta { margin-left: auto; font-size: var(--text-2xs); font-family: var(--font-mono); color: var(--color-text-secondary); white-space: nowrap; }
+  .home-bar { display: block; height: 3px; border-radius: var(--corner); background: var(--color-bg-deep); overflow: hidden; margin-top: 6px; }
+  .home-bar > i { display: block; height: 100%; background: var(--color-accent); }
+  .home-chev { color: var(--color-text-dim); }
+  .home-wrapb { display: flex; align-items: stretch; gap: 6px; }
+  .home-wrapb .home-row { flex: 1; }
+  .home-side { flex: none; font-family: var(--font-mono); font-size: 10px; color: var(--color-accent); background: rgba(var(--color-accent-rgb), .06); border: 1px solid var(--color-border-strong); padding: 0 8px; display: inline-flex; align-items: center; gap: 4px; }
+  .done-row { border: 1px solid var(--color-border); background: var(--color-panel-bg-strong); }
+  .done-head { display: flex; align-items: stretch; }
+  .done-line { flex: 1; min-width: 0; display: flex; gap: var(--space-3); align-items: baseline; font-size: var(--text-sm); padding: 9px 11px; }
+  .done-line .home-ico { align-self: center; }
+  .done-time { font-family: var(--font-mono); color: var(--color-text-dim); width: 68px; flex: none; text-align: right; }
+  .done-sep { color: var(--color-text-dim); }
+  .done-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .done-expand { flex: none; width: 34px; border-left: 1px solid var(--color-border); color: var(--color-text-dim); display: grid; place-items: center; }
+  .done-detail { padding: var(--space-3) var(--space-4) var(--space-4); border-top: 1px solid var(--color-border); }
+  .done-dl { display: grid; grid-template-columns: minmax(90px, auto) 1fr; gap: var(--space-1) var(--space-5); margin: 0; font-size: var(--text-sm); }
+  .done-dl dt { font-family: var(--font-mono); font-size: var(--text-2xs); letter-spacing: 0.09em; text-transform: uppercase; color: var(--color-text-dim); padding-top: 2px; }
+  .done-dl dd { margin: 0; color: var(--color-text-primary); }
+  .done-dl dd.bad { color: var(--color-text-secondary); text-decoration: line-through; text-decoration-color: rgba(248,113,113,.7); }
+  .done-dl dd .dim { color: var(--color-text-secondary); }
+  .syslog { font-family: var(--font-mono); font-size: 11px; color: var(--color-text-secondary); border-left: 2px solid rgba(var(--color-accent-rgb), .3); padding: 3px 0 3px 9px; }
+  .syslog .t { color: var(--color-text-dim); margin-right: 8px; }
+
+  /* Standalone state strips */
+  .states { display: grid; grid-template-columns: repeat(auto-fill, minmax(330px, 1fr)); gap: 16px; }
+  .state-card { border: 1px solid var(--color-border); background: var(--color-panel-bg); padding: 10px 12px; }
+  .state-card .ot { margin-top: 8px; }
+
+  /* Callouts and open calls (from the gear repair mockup) */
+  .callout { font-family: var(--font-mono); font-size: 10px; color: var(--color-warning); display: flex; gap: 6px; align-items: center; margin: 8px 0 4px; }
+  .callout::before { content: ""; width: 14px; height: 1px; background: var(--color-warning); }
+  .oc { border: 1px dashed rgba(var(--color-warning-rgb), .65); background: rgba(var(--color-warning-rgb), .06); border-radius: var(--corner); padding: 8px 10px; font-size: 12px; color: var(--color-text-secondary); max-width: 560px; }
+  .oc .t { font-family: var(--font-mono); font-size: 10.5px; letter-spacing: .1em; color: var(--color-warning); text-transform: uppercase; margin-bottom: 4px; }
+  .oc .ab { display: grid; grid-template-columns: 18px 1fr; gap: 2px 6px; }
+  .oc .ab b { font-family: var(--font-mono); color: var(--color-warning); }
+  .oc .drawn { font-family: var(--font-mono); font-size: 10px; color: var(--color-text-dim); margin-top: 4px; }
+  .ocrow { display: flex; gap: 12px; flex-wrap: wrap; margin-top: 12px; }
+  ol.calls { margin: 0; padding-left: 22px; display: grid; gap: 8px; color: var(--color-text-secondary); max-width: 112ch; }
+  ol.calls b { color: var(--color-text-primary); }
+  .mini { display: grid; gap: 8px; margin-top: 8px; }
+  .mini .lbl { font-family: var(--font-mono); font-size: 10px; color: var(--color-text-dim); }
+</style>
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <defs>
+    <symbol id="i-overtime" viewBox="0 0 24 24"><path d="M9.5 5.5a6.5 6.5 0 1 0 0 13 6.5 6.5 0 0 0 0-13z"/><path d="M9.5 8.5V12l2.2 1.4"/><path d="M17.5 8.5L21 12l-3.5 3.5"/></symbol>
+    <symbol id="i-clock" viewBox="0 0 24 24"><path d="M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18z"/><path d="M12 7.5V12l3 2"/></symbol>
+    <symbol id="i-shipyard" viewBox="0 0 24 24"><path d="M3 4h18"/><path d="M6 4v5"/><path d="M18 4v5"/><path d="M12 21l5-9H7z"/></symbol>
+    <symbol id="i-research" viewBox="0 0 24 24"><path d="M10 3v6.5L5.2 18a2 2 0 0 0 1.7 3h10.2a2 2 0 0 0 1.7-3L14 9.5V3"/><path d="M9 3h6"/><path d="M8.4 14h7.2"/></symbol>
+    <symbol id="i-docks" viewBox="0 0 24 24"><path d="M3 14h18"/><path d="M6 14v6"/><path d="M18 14v6"/><path d="M12 3l4 8H8z"/></symbol>
+    <symbol id="i-telescope" viewBox="0 0 24 24"><path d="M5 8a7 7 0 0 0 9 9z"/><path d="M9.5 12.5l4-4"/><path d="M7 16l1.5 4.5"/><path d="M5 20.5h7"/><path d="M16 4.5a3.5 3.5 0 0 1 3.5 3.5"/><path d="M16.5 1.5a6.5 6.5 0 0 1 6 6"/></symbol>
+    <symbol id="i-researchData" viewBox="0 0 24 24"><path d="M12 3l6.5 3.8v7.4L12 21l-6.5-6.8V6.8z"/><path d="M9 10h6"/><path d="M9 13.5h4"/></symbol>
+    <symbol id="i-check" viewBox="0 0 24 24"><path d="M4 12.5l5 5L20 6.5"/></symbol>
+    <symbol id="i-info" viewBox="0 0 24 24"><path d="M12 3a9 9 0 1 1 0 18 9 9 0 0 1 0-18z"/><path d="M12 11v6"/><path d="M12 7.5v.5"/></symbol>
+    <symbol id="i-warning" viewBox="0 0 24 24"><path d="M12 4L2.5 20h19z"/><path d="M12 10v4"/><path d="M12 16.9v.2"/></symbol>
+    <symbol id="i-pause" viewBox="0 0 24 24"><path d="M8.5 5v14"/><path d="M15.5 5v14"/></symbol>
+    <symbol id="i-ship" viewBox="0 0 24 24"><path d="M12 3l8 17-8-4-8 4z"/></symbol>
+    <symbol id="i-warehouse" viewBox="0 0 24 24"><path d="M3 10l9-6 9 6v11H3z"/><path d="M8 21v-7h8v7"/><path d="M8 17.5h8"/></symbol>
+    <symbol id="i-chev" viewBox="0 0 24 24"><path d="M6 9l6 6 6-6"/></symbol>
+  </defs>
+</svg>
+
+<div class="wrap">
+  <div>
+    <h1>Overtime buttons on running jobs</h1>
+    <p class="intro">Hyperion Legacy 0.14.0, the OT-UI slice, for sign-off before the build. It follows the approved gear repair strip (2026-11-09) and the built one (<code>EquipmentTooltip.svelte .et-ot</code>, <code>gearWearDisplay.ts gearOvertimeStrip</code>): <b>one tap buys the next step</b>, the button shows <b>the exact next-step cost</b>, the line under it shows <b>the new time</b>, pips count <b>0 to 3 steps</b>, a disabled state says <b>why</b>, and the top state reads <b>At its fastest</b>.</p>
+    <p class="intro">The engine is already built: <code>processSpeed.ts canBuyOvertime / buyOvertime</code>. Each step adds <b>+25% of the normal rate</b>, at most <b>3 steps</b> (1.75x, never instant). Step k costs <b>ceil(10 x the job's full minutes x its tier x k)</b>. The minutes are the job's <b>whole length</b> (<code>durationTicks</code>), never the time left, so a step costs the same whenever it is bought, and the price is fixed for that job. Buying rescales the time left; the job's size and its Fleet Admiral XP do not change.</p>
+    <p class="note">Every sample number below is the engine's rule on real catalog data at the default 1 second tick, with no facility or Museum speed bonus. Every number in the build would come from the engine's quote, never from the UI.</p>
+  </div>
+
+  <section>
+    <p class="label">0. The jobs covered (confirmed in code)</p>
+    <div class="stage">
+      <table class="jobs">
+        <thead><tr><th>Job kind</th><th>Where its progress row lives today</th><th>Tier it is priced at</th><th>Sample (full length, tier: steps 1 / 2 / 3)</th></tr></thead>
+        <tbody>
+          <tr><td class="m">shipBuild</td><td><b>Shipyard, BUILDING card</b> (App.svelte <code>activeShipBuild</code>: .mission-card, .research-bar-*, remainingReadout)</td><td>the hull's tier</td><td>Destroyer, 10 min, Tier 2: <b>200 / 400 / 600 cr</b></td></tr>
+          <tr><td class="m">shipRepair</td><td><b>Ship Systems, damaged banner</b> (ShipSystemsPanel.svelte .ss-repair-row, formatEta). No row on the Shipyard console.</td><td>the hull's tier</td><td>Destroyer full repair, 5 min 20 s, Tier 2: <b>107 / 214 / 320 cr</b></td></tr>
+          <tr><td class="m">researchProject</td><td><b>Research Lab, the blueprint's card</b> (App.svelte, <code>{:else if job}</code> bar + readout)</td><td>the blueprint's tier</td><td>Class V Drive Blueprint, 5 min 20 s, Tier 5: <b>267 / 534 / 800 cr</b></td></tr>
+          <tr><td class="m">dataStudy</td><td><b>Research Lab, Data study tab</b> (DataStudyPanel.svelte .ds-cur + .ds-prog)</td><td>always 1 (no branch in <code>overtimeTier</code>)</td><td>any study, 20 min, Tier 1: <b>200 / 400 / 600 cr</b></td></tr>
+          <tr><td class="m">facilityUpgrade</td><td><b>Every facility card's in-flight row</b> ("Currently upgrading...", "Development cycle N in progress...", "Establishing the Shipyard..."): the same .research-bar-* + readout</td><td>the rung being built</td><td>Subspace Telescope cycle 5, 12 min, Tier 5: <b>600 / 1,200 / 1,800 cr</b></td></tr>
+          <tr><td class="m">docksExpansion</td><td><b>Shipyard, DOCKS</b>: only "Upgrade already in progress", <b>no bar, no time</b></td><td>the rung (berths past 8, plus 1)</td><td>Docks rung 2, 6 min, Tier 2: <b>120 / 240 / 360 cr</b></td></tr>
+          <tr><td class="m">transitBerthExpansion</td><td><b>Shipyard, DOCKS, Docking bays</b>: the same text-only line</td><td>the rung (docking bays, plus 1)</td><td>same shape as the Docks row</td></tr>
+          <tr><td class="m">equipmentStorageUpgrade</td><td><b>Systems Bay header</b> (Armory and away-team gear tabs): the same text-only line</td><td>the rung (storage level, plus 1)</td><td>same shape as the Docks row</td></tr>
+        </tbody>
+      </table>
+      <p class="note">Source: <code>OVERTIME_PROCESS_KINDS</code> in processSpeed.ts (Shipyard builds and repairs, research incl. data studies (GG-5), facility upgrades incl. the Docks, docking bays and storage tracks). Not offered, by the same list: refining, crafting, salvage, relic study, missions, patrols, expeditions. Every facility card's in-flight row is one <code>facilityUpgrade</code>, so one strip design covers all of them (Refinery, Fabricator, Research Lab, Salvage Bay, Mission Control, Fuel Depot, Personnel Rosters, Shipyard founding, Subspace Telescope).</p>
+    </div>
+  </section>
+
+  <section>
+    <p class="label">1. Shipyard: a hull build and a Docks expansion</p>
+    <div class="stage">
+      <div class="pair">
+        <div>
+          <p class="frame-cap">Desktop 900 px · Facilities / Shipyard</p>
+          <div class="shell desk">
+            <div class="topbar"><span>HYPERION LEGACY</span><span class="res">Credits 48,210 · FA 14 · Day 96</span></div>
+            <div class="crumb">Facilities / <b>Shipyard</b></div>
+            <div class="content">
+              <div class="cols">
+                <div class="panel">
+                  <div class="panel-title">Shipyard</div>
+                  <div class="research-cost">Shipyard level: 2</div>
+                  <div class="mission-card">
+                    <div class="research-name"><svg class="g"><use href="#i-shipyard"/></svg> BUILDING · Destroyer</div>
+                    <div class="research-bar-track"><div class="research-bar-fill" style="width:40%"></div></div>
+                    <div class="research-readout">06:00 remaining</div>
+                    <p class="callout">new: the strip, 0 of 3</p>
+                    <div class="ot">
+                      <div class="ot-row"><span class="ot-tag"><svg class="g"><use href="#i-overtime"/></svg>Overtime</span><span class="pips" title="0 of 3 steps"><i></i><i></i><i></i></span><span class="ot-n">0 of 3</span><button class="ot-btn">+25% · <span class="cost">200 cr</span></button></div>
+                      <div class="ot-when">Done in <b>04:48</b> instead of <s>06:00</s>.</div>
+                      <div class="ot-dim">Optional. Priced on the whole 10 min build at Tier 2, so a step costs the same whenever you buy it.</div>
+                    </div>
+                  </div>
+                  <div class="ghost" style="margin-top:10px"><div class="ph-cap">Hull cards (Build, Add to queue): unchanged</div><div class="ph-line" style="width:80%"></div><div class="ph-line" style="width:60%"></div></div>
+                </div>
+                <div class="panel">
+                  <div class="panel-title">Docks</div>
+                  <div class="docks-cap-head"><div class="research-cost">Berths: 9 / 9</div><div class="upgrade-inflight-line"><svg class="g"><use href="#i-clock"/></svg> Upgrade already in progress</div></div>
+                  <p class="callout">new: a slim bar and time (none today), then the strip</p>
+                  <div class="research-bar-track"><div class="research-bar-fill" style="width:25%"></div></div>
+                  <div class="research-readout">04:30 remaining</div>
+                  <div class="ot">
+                    <div class="ot-row"><span class="ot-tag"><svg class="g"><use href="#i-overtime"/></svg>Overtime</span><span class="pips"><i></i><i></i><i></i></span><span class="ot-n">0 of 3</span><button class="ot-btn">+25% · <span class="cost">120 cr</span></button></div>
+                    <div class="ot-when">Done in <b>03:36</b> instead of <s>04:30</s>.</div>
+                    <div class="ot-dim">Optional. Priced on the whole 6 min rung at Tier 2.</div>
+                  </div>
+                  <div class="docks-cap-head" style="margin-top:12px"><div class="research-cost">Docking bays: 1 / 2 in use</div><button class="buy-btn" disabled>Add Docking Bay</button></div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div>
+          <p class="frame-cap">Phone 375 px · same screen</p>
+          <div class="shell phone">
+            <div class="topbar"><span>HYPERION</span><span class="res">48,210 cr · Day 96</span></div>
+            <div class="crumb">Facilities / <b>Shipyard</b></div>
+            <div class="content">
+              <div class="panel">
+                <div class="panel-title">Shipyard</div>
+                <div class="mission-card">
+                  <div class="research-name"><svg class="g"><use href="#i-shipyard"/></svg> BUILDING · Destroyer</div>
+                  <div class="research-bar-track"><div class="research-bar-fill" style="width:40%"></div></div>
+                  <div class="research-readout">06:00 remaining</div>
+                  <div class="ot">
+                    <div class="ot-row"><span class="ot-tag"><svg class="g"><use href="#i-overtime"/></svg>Overtime</span><span class="pips"><i></i><i></i><i></i></span><span class="ot-n">0 of 3</span><button class="ot-btn">+25% · <span class="cost">200 cr</span></button></div>
+                    <div class="ot-when">Done in <b>04:48</b> instead of <s>06:00</s>.</div>
+                    <div class="ot-dim">Priced on the whole 10 min build at Tier 2.</div>
+                  </div>
+                </div>
+              </div>
+              <div class="panel">
+                <div class="panel-title">Docks</div>
+                <div class="docks-cap-head"><div class="research-cost">Berths: 9 / 9</div><div class="upgrade-inflight-line"><svg class="g"><use href="#i-clock"/></svg> In progress</div></div>
+                <div class="research-bar-track"><div class="research-bar-fill" style="width:25%"></div></div>
+                <div class="research-readout">04:30 remaining</div>
+                <div class="ot">
+                  <div class="ot-row"><span class="ot-tag"><svg class="g"><use href="#i-overtime"/></svg>Overtime</span><span class="pips"><i></i><i></i><i></i></span><span class="ot-n">0 of 3</span><button class="ot-btn">+25% · <span class="cost">120 cr</span></button></div>
+                  <div class="ot-when">Done in <b>03:36</b> instead of <s>04:30</s>.</div>
+                </div>
+              </div>
+            </div>
+          </div>
+          <p class="note" style="max-width:375px">On phone the button keeps a 32 px tap height. The dim pricing line is shortened; the first strip a player sees per session could carry it in full.</p>
+        </div>
+      </div>
+      <div class="ocrow">
+        <div class="oc"><div class="t">Open call 6 · the three text-only rows</div><div class="ab"><b>A</b><span>Docks, Docking bays and the Systems Bay show only "Upgrade already in progress" today. Give each a slim bar and its time (the shared .research-bar-* row), then the strip, as drawn on Docks.</span><b>B</b><span>Leave those three rows as text. The engine still allows Overtime there, but no screen offers it (or only Command Home does, per open call 7 B).</span></div><div class="drawn">Drawn: A</div></div>
+      </div>
+      <p class="note">The BUILDING card keeps its deliberate "no cancel" rule; Overtime only adds speed. A queued build behind this one starts at the normal rate: Overtime belongs to one running job and never carries over.</p>
+    </div>
+  </section>
+
+  <section>
+    <p class="label">2. Research Lab: a blueprint project (1 of 3 bought) and a paused data study</p>
+    <div class="stage">
+      <div class="pair">
+        <div>
+          <p class="frame-cap">Desktop 900 px · Facilities / Research Lab</p>
+          <div class="shell desk">
+            <div class="topbar"><span>HYPERION LEGACY</span><span class="res">Credits 48,210 · FA 14 · Day 96</span></div>
+            <div class="crumb">Facilities / Research Lab (<b>Projects</b>, <b>Data study</b>) and <b>Mission Control</b></div>
+            <div class="content">
+              <div class="cols">
+                <div class="mission-card">
+                  <div class="research-name">Class V Drive Blueprint</div>
+                  <div class="ghost"><div class="ph-cap">Crafts line: unchanged</div><div class="ph-line" style="width:85%"></div></div>
+                  <div class="research-cost">Cost: ◈ 24,000 · 05:20</div>
+                  <div class="research-bar-track"><div class="research-bar-fill" style="width:41%"></div></div>
+                  <div class="rd"><span class="ot-rate" title="Overtime 1 of 3"><svg class="g"><use href="#i-overtime"/></svg>1.25x</span><span class="research-readout">02:32 remaining</span></div>
+                  <p class="callout">rate marker on the readout line (open call 3)</p>
+                  <div class="ot">
+                    <div class="ot-row"><span class="ot-tag"><svg class="g"><use href="#i-overtime"/></svg>Overtime</span><span class="pips"><i class="on"></i><i></i><i></i></span><span class="ot-n"><b>1 of 3</b> · 1.25x</span><button class="ot-btn">+25% · <span class="cost">534 cr</span></button></div>
+                    <div class="ot-when">Next step: done in <b>02:07</b> instead of <s>02:32</s>.</div>
+                    <div class="ot-dim">Priced on the whole 5 min 20 s project at Tier 5.</div>
+                  </div>
+                  <p class="note" style="font-size:11px">Several projects running at once each carry their own strip.</p>
+                </div>
+                <div class="ds-card">
+                  <div class="ds-head"><span class="ds-h">Lane 1 of 1 <span class="ds-dim">Lab level 3</span></span><span class="ds-switch"><span class="ds-knob"></span><svg class="g"><use href="#i-pause"/></svg>Auto-study <span>Off</span></span></div>
+                  <div class="ds-cur"><span class="ds-cur-glyph"><svg class="g"><use href="#i-researchData"/></svg></span><span class="ds-cur-words"><b>Propulsion Data</b><span class="ds-dim">Paused, 12 min 40 s left of 20 min</span></span></div>
+                  <div class="ds-prog"><i style="width:37%"></i></div>
+                  <p class="callout">disabled, with the reason (engine reason "paused")</p>
+                  <div class="ot">
+                    <div class="ot-row"><span class="ot-tag off"><svg class="g"><use href="#i-overtime"/></svg>Overtime</span><span class="pips"><i></i><i></i><i></i></span><span class="ot-n">0 of 3</span><span class="ot-btn off">Paused</span></div>
+                    <div class="ot-why"><svg class="g"><use href="#i-info"/></svg><span>Auto-study is off, so this study is not counting down. Turn it back on to use Overtime.</span></div>
+                  </div>
+                  <p class="ds-dim" style="margin:0">Overtime speeds only the study under way; the next one starts at the normal rate.</p>
+                </div>
+              </div>
+              <div class="panel">
+                <div class="panel-title">Mission Control</div>
+                <div class="research-name">Currently upgrading...</div>
+                <div class="research-bar-track"><div class="research-bar-fill" style="width:23%"></div></div>
+                <div class="research-readout">03:05 remaining</div>
+                <div class="ot">
+                  <div class="ot-row"><span class="ot-tag"><svg class="g"><use href="#i-overtime"/></svg>Overtime</span><span class="pips"><i></i><i></i><i></i></span><span class="ot-n">0 of 3</span><button class="ot-btn">+25% · <span class="cost">120 cr</span></button></div>
+                  <div class="ot-when">Done in <b>02:28</b> instead of <s>03:05</s>.</div>
+                  <div class="ot-dim">Optional. Priced on the whole 4 min rung at Tier 3 (the level being built).</div>
+                </div>
+                <p class="note" style="font-size:11px">A facility upgrade sample beside the Lab (Mission Control, level 2 to 3). Every facility's in-flight row takes the same strip. Late rungs cost much more: the plan's own example, Telescope cycle 8 (45 min, Tier 8), is 3,600 / 7,200 / 10,800 cr.</p>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div>
+          <p class="frame-cap">Phone 375 px · the project card and the data study</p>
+          <div class="shell phone">
+            <div class="topbar"><span>HYPERION</span><span class="res">48,210 cr · Day 96</span></div>
+            <div class="crumb">Research Lab / <b>Projects</b></div>
+            <div class="content">
+              <div class="mission-card">
+                <div class="research-name">Class V Drive Blueprint</div>
+                <div class="research-cost">Cost: ◈ 24,000 · 05:20</div>
+                <div class="research-bar-track"><div class="research-bar-fill" style="width:41%"></div></div>
+                <div class="rd"><span class="ot-rate"><svg class="g"><use href="#i-overtime"/></svg>1.25x</span><span class="research-readout">02:32 remaining</span></div>
+                <div class="ot">
+                  <div class="ot-row"><span class="ot-tag"><svg class="g"><use href="#i-overtime"/></svg>Overtime</span><span class="pips"><i class="on"></i><i></i><i></i></span><span class="ot-n"><b>1 of 3</b></span><button class="ot-btn">+25% · <span class="cost">534 cr</span></button></div>
+                  <div class="ot-when">Next step: done in <b>02:07</b> instead of <s>02:32</s>.</div>
+                </div>
+              </div>
+              <div class="ds-card">
+                <div class="ds-cur"><span class="ds-cur-glyph"><svg class="g"><use href="#i-researchData"/></svg></span><span class="ds-cur-words"><b>Propulsion Data</b><span class="ds-dim">Paused, 12 min 40 s left of 20 min</span></span></div>
+                <div class="ds-prog"><i style="width:37%"></i></div>
+                <div class="ot">
+                  <div class="ot-row"><span class="ot-tag off"><svg class="g"><use href="#i-overtime"/></svg>Overtime</span><span class="pips"><i></i><i></i><i></i></span><span class="ot-n">0 of 3</span><span class="ot-btn off">Paused</span></div>
+                  <div class="ot-why"><svg class="g"><use href="#i-info"/></svg><span>Auto-study is off, so this study is not counting down. Turn it back on to use Overtime.</span></div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <p class="note">Sample: the project is 2:00 in, step 1 was bought at 1:20 (4:00 left became 3:12). The data study's "of 20 min" stays the study's normal length under Overtime, as its own etaText already reads.</p>
+    </div>
+  </section>
+
+  <section>
+    <p class="label">3. Subspace Telescope cycle at its fastest, and a Shipyard hull repair</p>
+    <div class="stage">
+      <div class="pair">
+        <div>
+          <p class="frame-cap">Desktop 900 px · Facilities / Subspace Telescope and Logistics / Ships / Kestrel</p>
+          <div class="shell desk">
+            <div class="topbar"><span>HYPERION LEGACY</span><span class="res">Credits 48,210 · FA 14 · Day 96</span></div>
+            <div class="content">
+              <div class="cols">
+                <div class="panel">
+                  <div class="telescope-head"><span class="telescope-badge"><svg class="g"><use href="#i-telescope"/></svg></span><div><div class="panel-title">Subspace Telescope</div><div class="telescope-sub">Level 4</div></div></div>
+                  <div class="research-name"><svg class="g"><use href="#i-clock"/></svg> Development cycle 5 in progress...</div>
+                  <div class="research-bar-track"><div class="research-bar-fill" style="width:54%"></div></div>
+                  <div class="rd"><span class="ot-rate"><svg class="g"><use href="#i-overtime"/></svg>1.75x</span><span class="research-readout">03:10 remaining</span></div>
+                  <p class="callout">max state, as built for gear</p>
+                  <div class="ot">
+                    <div class="ot-row"><span class="ot-tag"><svg class="g"><use href="#i-overtime"/></svg>Overtime</span><span class="pips"><i class="on"></i><i class="on"></i><i class="on"></i></span><span class="ot-n"><b>3 of 3</b> · 1.75x</span><span class="ot-max"><svg class="g"><use href="#i-check"/></svg>At its fastest</span></div>
+                    <div class="ot-when">Done in <b>03:10</b>.</div>
+                  </div>
+                  <div class="telescope-ladder-title">Development cycles</div>
+                  <ol class="telescope-ladder">
+                    <li class="telescope-rung st-current"><span class="telescope-rung-lv">4</span><span class="ph-line" style="width:70%"></span><span class="telescope-rung-status">Current</span></li>
+                    <li class="telescope-rung st-building"><span class="telescope-rung-lv">5</span><span class="ph-line" style="width:64%"></span><span class="telescope-rung-status">Building</span></li>
+                    <li class="telescope-rung"><span class="telescope-rung-lv">6</span><span class="ph-line" style="width:58%"></span><span class="ph-cap">ladder unchanged</span></li>
+                  </ol>
+                </div>
+                <div class="ss">
+                  <div class="ss-hd"><svg class="g"><use href="#i-ship"/></svg><span class="nm">KESTREL</span><span class="sub">Destroyer · Tier 2</span></div>
+                  <div class="ss-repair">
+                    <div class="ss-repair-top"><svg class="g"><use href="#i-warning"/></svg> Ship damaged · returned from a lost patrol <span class="flag">emoji today, see call 9</span></div>
+                    <div class="ss-repair-msg">Your ship is damaged. It needs repair before you can install new ship systems.</div>
+                    <div class="ss-repair-row"><div class="ss-repair-bar"><i style="width:25%"></i></div><div class="ss-repair-eta">~4m left</div></div>
+                    <div class="ot">
+                      <div class="ot-row"><span class="ot-tag"><svg class="g"><use href="#i-overtime"/></svg>Overtime</span><span class="pips"><i></i><i></i><i></i></span><span class="ot-n">0 of 3</span><button class="ot-btn">+25% · <span class="cost">107 cr</span></button></div>
+                      <div class="ot-when">Repaired in <b>~3m 12s</b> instead of <s>~4m</s>.</div>
+                      <div class="ot-dim">Optional. Priced on the whole 5 min 20 s repair at Tier 2.</div>
+                    </div>
+                  </div>
+                  <div class="ss-rest ghost"><div class="ph-cap">Gear wear header, slots: unchanged</div><div class="ph-line" style="width:80%"></div><div class="ph-line" style="width:66%"></div></div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div>
+          <p class="frame-cap">Phone 375 px · the repair banner</p>
+          <div class="shell phone">
+            <div class="topbar"><span>HYPERION</span><span class="res">48,210 cr · Day 96</span></div>
+            <div class="crumb">Ships / <b>Kestrel</b></div>
+            <div class="ss" style="border:0">
+              <div class="ss-repair">
+                <div class="ss-repair-top"><svg class="g"><use href="#i-warning"/></svg> Ship damaged</div>
+                <div class="ss-repair-msg">Your ship is damaged. It needs repair before you can install new ship systems.</div>
+                <div class="ss-repair-row"><div class="ss-repair-bar"><i style="width:25%"></i></div><div class="ss-repair-eta">~4m left</div></div>
+                <div class="ot">
+                  <div class="ot-row"><span class="ot-tag"><svg class="g"><use href="#i-overtime"/></svg>Overtime</span><span class="pips"><i></i><i></i><i></i></span><span class="ot-n">0 of 3</span><button class="ot-btn">+25% · <span class="cost">107 cr</span></button></div>
+                  <div class="ot-when">Repaired in <b>~3m 12s</b> instead of <s>~4m</s>.</div>
+                </div>
+              </div>
+            </div>
+          </div>
+          <p class="note" style="max-width:375px">The repair banner is the only place a running hull repair shows its own bar, so the strip sits there. Its time speaks the banner's own format.</p>
+        </div>
+      </div>
+      <div class="ocrow">
+        <div class="oc"><div class="t">Open call 8 · the time format on the strip</div><div class="ab"><b>A</b><span>Each strip speaks its host row's own clock: "04:48" on Shipyard and facility rows, "~3m 12s" on the repair banner, "12 min 40 s" on the data study. The two numbers on screen never disagree.</span><b>B</b><span>One format everywhere, "about 5 min", as on the gear card.</span></div><div class="drawn">Drawn: A</div></div>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <p class="label">4. Every state of the strip</p>
+    <div class="stage">
+      <div class="states">
+        <div class="state-card">
+          <p class="frame-cap">A · can buy (0 of 3)</p>
+          <div class="ot">
+            <div class="ot-row"><span class="ot-tag"><svg class="g"><use href="#i-overtime"/></svg>Overtime</span><span class="pips"><i></i><i></i><i></i></span><span class="ot-n">0 of 3</span><button class="ot-btn">+25% · <span class="cost">200 cr</span></button></div>
+            <div class="ot-when">Done in <b>04:48</b> instead of <s>06:00</s>.</div>
+            <div class="ot-dim">Optional. Priced on the whole 10 min build at Tier 2, so a step costs the same whenever you buy it.</div>
+          </div>
+        </div>
+        <div class="state-card">
+          <p class="frame-cap">B · after a step (2 of 3)</p>
+          <div class="ot">
+            <div class="ot-row"><span class="ot-tag"><svg class="g"><use href="#i-overtime"/></svg>Overtime</span><span class="pips"><i class="on"></i><i class="on"></i><i></i></span><span class="ot-n"><b>2 of 3</b> · 1.5x</span><button class="ot-btn">+25% · <span class="cost">600 cr</span></button></div>
+            <div class="ot-when">Next step: done in <b>02:00</b> instead of <s>02:20</s>.</div>
+          </div>
+        </div>
+        <div class="state-card">
+          <p class="frame-cap">C · short of credits (engine reason "credits")</p>
+          <div class="ot">
+            <div class="ot-row"><span class="ot-tag"><svg class="g"><use href="#i-overtime"/></svg>Overtime</span><span class="pips"><i class="on"></i><i></i><i></i></span><span class="ot-n"><b>1 of 3</b> · 1.25x</span><span class="ot-btn off">1,200 cr · need 50 more</span></div>
+            <div class="ot-when">Done in <b>06:24</b>.</div>
+            <div class="ot-dim">The job carries on at its current speed either way.</div>
+          </div>
+        </div>
+        <div class="state-card">
+          <p class="frame-cap">D · data study paused (engine reason "paused")</p>
+          <div class="ot">
+            <div class="ot-row"><span class="ot-tag off"><svg class="g"><use href="#i-overtime"/></svg>Overtime</span><span class="pips"><i></i><i></i><i></i></span><span class="ot-n">0 of 3</span><span class="ot-btn off">Paused</span></div>
+            <div class="ot-why"><svg class="g"><use href="#i-info"/></svg><span>Auto-study is off, so this study is not counting down. Turn it back on to use Overtime.</span></div>
+          </div>
+        </div>
+        <div class="state-card">
+          <p class="frame-cap">E · at the maximum (3 of 3)</p>
+          <div class="ot">
+            <div class="ot-row"><span class="ot-tag"><svg class="g"><use href="#i-overtime"/></svg>Overtime</span><span class="pips"><i class="on"></i><i class="on"></i><i class="on"></i></span><span class="ot-n"><b>3 of 3</b> · 1.75x</span><span class="ot-max"><svg class="g"><use href="#i-check"/></svg>At its fastest</span></div>
+            <div class="ot-when">Done in <b>03:10</b>.</div>
+          </div>
+        </div>
+        <div class="state-card">
+          <p class="frame-cap">Hidden (as the gear strip hides)</p>
+          <p class="note" style="margin:0">The strip is not drawn on a job's <b>last tick</b> (reason "finishing": it would buy nothing), on a job the tutorial <b>time skip</b> finished (reason "skipped"), or on any job kind outside the list above. A refusal at tap time changes nothing and logs nothing.</p>
+        </div>
+      </div>
+      <p class="note">Sample C: Telescope cycle 5 (step 2 costs 1,200 cr) with 1,150 cr on hand. The step's price never changes while the job runs, so "need 50 more" is exact.</p>
+      <div class="ocrow">
+        <div class="oc"><div class="t">Open call 1 · one tap or a confirm</div><div class="ab"><b>A</b><span>One tap buys the step, as on the gear card. Price and new time are on screen before the tap, and a short System Log line records it.</span><b>B</b><span>A small confirm for these jobs only ("Overtime step 1 for 200 cr: done in 04:48. Buy / Keep as is"), since facility steps run to thousands of credits.</span></div><div class="drawn">Drawn: A</div></div>
+        <div class="oc"><div class="t">Open call 2 · where the strip shows</div><div class="ab"><b>A</b><span>On every running job's own progress row, always open, as drawn (fewest taps).</span><b>B</b><span>Collapsed: the row shows only a small "Overtime" link with the pips; a tap opens the strip under it, a second tap buys.</span></div><div class="drawn">Drawn: A</div></div>
+      </div>
+      <div class="syslog" style="margin-top:12px"><span class="t">10:07 PM</span>Overtime on the Destroyer build: step 1 of 3 for 200 cr. Done in 04:48.</div>
+      <p class="note">The System Log line at purchase, mirroring the gear one ("Overtime on Kestrel's gear repair: step 1 of 3 for 300 cr. ...").</p>
+    </div>
+  </section>
+
+  <section>
+    <p class="label">5. The progress bar under Overtime</p>
+    <div class="stage">
+      <div class="pair">
+        <div class="panel" style="width:420px">
+          <div class="mini">
+            <div class="lbl">Today's formula, (full - left) / full: the bar JUMPS at the purchase</div>
+            <div class="research-bar-track"><div class="research-bar-fill" style="width:40%"></div></div><div class="research-readout">before: 06:00 remaining</div>
+            <div class="research-bar-track"><div class="research-bar-fill" style="width:52%"></div></div><div class="research-readout">just after step 1: 04:48 remaining</div>
+            <div class="lbl" style="margin-top:6px">Proposed, <code>processWorkFraction</code> (work done): the bar holds, then moves faster</div>
+            <div class="research-bar-track"><div class="research-bar-fill" style="width:40%"></div></div><div class="rd"><span class="ot-rate"><svg class="g"><use href="#i-overtime"/></svg>1.25x</span><span class="research-readout">just after step 1: 04:48 remaining</span></div>
+          </div>
+        </div>
+        <div class="panel" style="width:420px">
+          <div class="mini">
+            <div class="lbl">Marker A (drawn): glyph + "1.25x" chip on the readout line</div>
+            <div class="research-bar-track"><div class="research-bar-fill" style="width:65%"></div></div><div class="rd"><span class="ot-rate"><svg class="g"><use href="#i-overtime"/></svg>1.5x</span><span class="research-readout">02:20 remaining</span></div>
+            <div class="lbl" style="margin-top:6px">Marker B: the fill itself turns bright and hatched, rate in the readout</div>
+            <div class="research-bar-track"><div class="research-bar-fill hatch" style="width:65%"></div></div><div class="research-readout">1.5x · 02:20 remaining</div>
+          </div>
+        </div>
+      </div>
+      <div class="ocrow">
+        <div class="oc"><div class="t">Open call 3 · the bar marker</div><div class="ab"><b>A</b><span>A small chip, the Overtime glyph and the rate in the built format ("1.25x", "1.5x", "1.75x"), at the left of the readout line. Bar colors stay as they are.</span><b>B</b><span>The bar fill itself changes (brighter, hatched) while sped up; the rate joins the readout text.</span></div><div class="drawn">Drawn: A</div></div>
+        <div class="oc"><div class="t">Open call 4 · what the bar measures</div><div class="ab"><b>A</b><span>The rows that offer Overtime switch to <code>processWorkFraction</code> (the engine's honest "work done"): a purchase never moves the bar, it just fills faster.</span><b>B</b><span>Keep today's formula everywhere: the bar jumps forward at each purchase (40% to 52% above) and then moves at the same pace as before.</span></div><div class="drawn">Drawn: A</div></div>
+      </div>
+      <p class="note">With the "show tick counts" setting on, today's readout reads "288 / 600 ticks · 04:48 remaining" after a step: the first number is real time left, the second the job's normal length. Kept as is unless you want it changed.</p>
+    </div>
+  </section>
+
+  <section>
+    <p class="label">6. Command Home: In progress, and the completion log</p>
+    <div class="stage">
+      <div class="pair">
+        <div>
+          <p class="frame-cap">Desktop 900 px · Home / Command</p>
+          <div class="shell desk">
+            <div class="topbar"><span>HYPERION LEGACY</span><span class="res">Credits 48,210 · FA 14 · Day 96</span></div>
+            <div class="crumb">Home / <b>Command</b></div>
+            <div class="content">
+              <div>
+                <div class="home-sec-hd"><span class="home-sec-h">In progress</span><span class="home-sec-rule"></span></div>
+                <div class="home-list">
+                  <div class="home-row"><span class="home-ico"><svg class="g"><use href="#i-research"/></svg></span><span class="home-row-body"><span class="home-l1">Researching, Class V Drive Blueprint</span><span class="home-l2"><span class="ot-rate"><svg class="g"><use href="#i-overtime"/></svg>1.25x</span><span class="home-eta">02:32 remaining</span></span><span class="home-bar"><i style="width:41%"></i></span></span><span class="home-chev"><svg class="g"><use href="#i-chev"/></svg></span></div>
+                  <div class="home-row"><span class="home-ico"><svg class="g"><use href="#i-shipyard"/></svg></span><span class="home-row-body"><span class="home-l1">Building, Destroyer</span><span class="home-l2"><span class="home-eta">06:00 remaining</span></span><span class="home-bar"><i style="width:40%"></i></span></span><span class="home-chev"><svg class="g"><use href="#i-chev"/></svg></span></div>
+                </div>
+                <p class="note">Each row here is already one button that opens its console, so a second button cannot sit inside it. Drawn: the rate chip only, no button.</p>
+              </div>
+              <div>
+                <div class="home-sec-hd"><span class="home-sec-h">Recently completed</span><span class="home-sec-rule"></span></div>
+                <div class="cols">
+                  <div>
+                    <p class="frame-cap">Today (misdated)</p>
+                    <div class="done-row">
+                      <div class="done-head"><span class="done-line"><span class="home-ico"><svg class="g"><use href="#i-shipyard"/></svg></span><span class="done-time">10:12 PM</span><span class="done-sep">·</span><span class="done-text">Built, Destroyer</span></span><span class="done-expand"><svg class="g" style="transform:rotate(180deg)"><use href="#i-chev"/></svg></span></div>
+                      <div class="done-detail"><dl class="done-dl"><dt>Entry source</dt><dd>Shipyard</dd><dt>Action</dt><dd>Built, Destroyer</dd><dt>Time elapsed</dt><dd class="bad">took 10:00</dd><dt>When</dt><dd>just now (10:12 PM)</dd></dl></div>
+                    </div>
+                    <p class="note" style="font-size:11px">The log stamps the start as "finish minus the full length" (tick.ts <code>completionStartedAtMs</code>), so a sped-up build reads as started at 10:02 PM and taking 10:00. It started at 10:03:40 and took 8:20.</p>
+                  </div>
+                  <div>
+                    <p class="frame-cap">Proposed (truthful)</p>
+                    <div class="done-row">
+                      <div class="done-head"><span class="done-line"><span class="home-ico"><svg class="g"><use href="#i-shipyard"/></svg></span><span class="done-time">10:12 PM</span><span class="done-sep">·</span><span class="done-text">Built, Destroyer</span></span><span class="done-expand"><svg class="g" style="transform:rotate(180deg)"><use href="#i-chev"/></svg></span></div>
+                      <div class="done-detail"><dl class="done-dl"><dt>Entry source</dt><dd>Shipyard</dd><dt>Action</dt><dd>Built, Destroyer</dd><dt>Time elapsed</dt><dd>took 08:20 with Overtime <span class="dim">(10:00 at the normal rate)</span></dd><dt>Overtime</dt><dd>2 of 3 steps</dd><dt>When</dt><dd>just now (10:12 PM)</dd></dl></div>
+                    </div>
+                    <p class="note" style="font-size:11px">Needs one small engine field: each purchase adds its <code>ticksSaved</code> (already in the quote) to the job's speed record, and the start is stamped as finish minus (full length minus time saved). Optional, no save migration. The compact line is unchanged.</p>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div>
+          <p class="frame-cap">Phone 375 px · the same two sections</p>
+          <div class="shell phone">
+            <div class="topbar"><span>HYPERION</span><span class="res">48,210 cr · Day 96</span></div>
+            <div class="crumb">Home / <b>Command</b></div>
+            <div class="content">
+              <div class="home-sec-hd"><span class="home-sec-h">In progress</span><span class="home-sec-rule"></span></div>
+              <div class="home-row"><span class="home-ico"><svg class="g"><use href="#i-research"/></svg></span><span class="home-row-body"><span class="home-l1">Researching, Class V Drive Blueprint</span><span class="home-l2"><span class="ot-rate"><svg class="g"><use href="#i-overtime"/></svg>1.25x</span><span class="home-eta">02:32 remaining</span></span><span class="home-bar"><i style="width:41%"></i></span></span></div>
+              <div class="home-sec-hd" style="margin-top:6px"><span class="home-sec-h">Recently completed</span><span class="home-sec-rule"></span></div>
+              <div class="done-row">
+                <div class="done-head"><span class="done-line"><span class="done-time">10:12 PM</span><span class="done-sep">·</span><span class="done-text">Built, Destroyer</span></span><span class="done-expand"><svg class="g" style="transform:rotate(180deg)"><use href="#i-chev"/></svg></span></div>
+                <div class="done-detail"><dl class="done-dl"><dt>Time elapsed</dt><dd>took 08:20 with Overtime <span class="dim">(10:00 at the normal rate)</span></dd><dt>Overtime</dt><dd>2 of 3 steps</dd><dt>When</dt><dd>just now (10:12 PM)</dd></dl></div>
+              </div>
+            </div>
+          </div>
+          <div class="home-wrapb" style="margin-top:14px;max-width:375px">
+            <div class="home-row"><span class="home-ico"><svg class="g"><use href="#i-shipyard"/></svg></span><span class="home-row-body"><span class="home-l1">Building, Destroyer</span><span class="home-l2"><span class="home-eta">06:00 remaining</span></span><span class="home-bar"><i style="width:40%"></i></span></span></div>
+            <span class="home-side"><svg class="g"><use href="#i-overtime"/></svg>200 cr</span>
+          </div>
+          <p class="note" style="max-width:375px">Above: open call 7 B, a sibling Overtime button beside the row (not drawn as the default).</p>
+        </div>
+      </div>
+      <div class="ocrow">
+        <div class="oc"><div class="t">Open call 5 · the completion log line</div><div class="ab"><b>A</b><span>"took 08:20 with Overtime (10:00 at the normal rate)" plus an "Overtime: 2 of 3 steps" line, from the small engine field above.</span><b>B</b><span>No engine change: a sped-up job drops "Time elapsed" (it cannot be told truly today) and shows only "Overtime: 2 of 3 steps".</span></div><div class="drawn">Drawn: A</div></div>
+        <div class="oc"><div class="t">Open call 7 · Command Home</div><div class="ab"><b>A</b><span>Rate chip only on In progress rows, no button: the rows stay one tap to the console, where the strip is. Matches the gear answer ("Gear card only").</span><b>B</b><span>A small sibling button beside each eligible row (step price, one tap), as in the phone sample.</span></div><div class="drawn">Drawn: A</div></div>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <p class="label">Open calls, in one list</p>
+    <ol class="calls">
+      <li><b>One tap or a confirm:</b> A one tap buys, as the gear card (drawn) or B a small Buy / Keep as is confirm for these jobs, since facility steps reach thousands of credits.</li>
+      <li><b>Where the strip shows:</b> A on every running job's progress row, always open (drawn) or B collapsed behind a small "Overtime" link that opens it.</li>
+      <li><b>The bar marker:</b> A a glyph and "1.25x" chip on the readout line (drawn) or B a brighter, hatched bar fill with the rate in the readout text.</li>
+      <li><b>What the bar measures:</b> A the Overtime rows switch to <code>processWorkFraction</code>, so a purchase never moves the bar (drawn) or B keep today's formula, so the bar jumps forward at each purchase.</li>
+      <li><b>The completion log line:</b> A "took 08:20 with Overtime (10:00 at the normal rate)" plus "Overtime: 2 of 3 steps", from one small engine field (drawn) or B no engine change, drop "Time elapsed" on sped-up jobs and show only the steps.</li>
+      <li><b>Docks, Docking bays and the Systems Bay:</b> A give those text-only "Upgrade already in progress" lines a slim bar, time and strip (drawn) or B leave them as text, with no Overtime offered there.</li>
+      <li><b>Command Home In progress:</b> A rate chip only, no button, the rows stay one tap to the console (drawn) or B a small sibling Overtime button beside each eligible row.</li>
+      <li><b>Time format on the strip:</b> A each strip uses its host row's clock ("04:48", "~3m 12s", "12 min 40 s") (drawn) or B "about 5 min" everywhere, as on the gear card.</li>
+      <li><b>Emoji on rows this slice touches:</b> A swap them for SVG glyphs while there: the damaged banner's wrench (ShipSystemsPanel.svelte), and Command Home's repair and facility icons, which fall back to emoji (App.svelte HOME_ICON_GLYPH) (drawn with stand-in glyphs) or B leave them for a separate pass.</li>
+    </ol>
+    <p class="note">Unchanged by this slice: the engine's prices, steps and refusals; no Overtime on refining, crafting, salvage, relic study, missions, patrols or expeditions; no cancel on a build; nothing ever prompts for Overtime. The glyph is the one already in icons.ts (<code>overtime</code>). The other glyphs here are the real icons.ts ones (clock, shipyard, research, docks, telescope, researchData, check, info, warning, pause, ship); the chevron is a stand-in.</p>
+  </section>
+</div>
+</body>
+</html>

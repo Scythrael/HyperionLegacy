@@ -346,3 +346,15 @@ or a mockup sign-off.
   5 = 1,265,625, 10 = about 9,610,840.
 - **Deep Field Refinement, the card:** past level 8 the telescope card reads "Fully upgraded" today; showing
   "Refinement N" and the next cycle there is a card change to sketch for sign-off.
+
+## USER ANSWERS (2026-11-10): OT-UI
+
+- Overtime UI: "Yes, mock it up (Recommended)". Mockup docs/mockups/2026-11-10-overtime-buttons-mockup.html "Approve
+  (Recommended)" with: "One tap, always visible (Recommended)"; "Chip + no jump (Recommended)" (a 1.25x style rate chip
+  on the time line; bars measure work done so a purchase never makes the bar jump); "Show both times (Recommended)"
+  (completion log "took 8:20 with Overtime (10:00 at the normal rate)", needs a small engine field); "Yes, add bar +
+  Overtime (Recommended)" (docks expansion, transit berths, equipment storage get a bar, time and the strip); "Rate chip
+  only (Recommended)" on Command Home (no buy button there); "Match each row (Recommended)" (time format);
+  "Replace them now (Recommended)" (emoji on the rows this build touches become SVG glyphs).
+- Deep Field Refinement: "Wait for aspects (Recommended)". Rare planet aspects are designed with the user first; Deep
+  Field Refinement ships together with them (possibly after 0.14.0). Nothing inert ships now.
