@@ -238,7 +238,7 @@ export function shipGearSummary(state: GameState, shipId: string): ShipGearSumma
 export interface FleetCareRow {
   shipId: string;
   name: string;
-  hull: string;
+  hull: string | null; // the hull class, beside a custom name only
   percent: number;
   band: WearBandKey;
   status: string; // "Docked, full in about 12 min" / "Hull in a Shipyard bay, about 4 min. Gear full in about 6 min"
@@ -284,7 +284,8 @@ export function fleetCare(state: GameState): FleetCareModel | null {
         parts.push(`${damaged ? "Gear" : "Docked, gear"} full in ${aboutMinutes(summary.minutesToFull)}`);
       }
     }
-    rows.push({ shipId: ship.id, name: shipName(ship), hull: SHIP_TYPES[ship.typeKey]?.label ?? ship.typeKey, percent: summary.percent, band: summary.band, status: parts.join(". ") });
+    // The hull class shows beside a custom name only (an unnamed ship's name IS its hull label).
+    rows.push({ shipId: ship.id, name: shipName(ship), hull: ship.name ? SHIP_TYPES[ship.typeKey]?.label ?? ship.typeKey : null, percent: summary.percent, band: summary.band, status: parts.join(". ") });
   }
   if (rows.length === 0) return null;
   const avg = Math.floor(mean(all));

@@ -623,7 +623,7 @@ export const ICON_PATHS = {
   // Gear condition: a gauge, a half dial over its base line with three ticks and the needle off its center (the wear
   // UI's Gear chip and the Fleet care line). Kept apart from `relicTectonicKeystone` (a full arch on legs with a
   // keystone) and from `tool` (a wrench): a dial reads as a reading, not as a repair action.
-  gearCondition: ["M4.5 17a7.5 7.5 0 0 1 15 0", "M12 9.5v1.7", "M6.7 11.7l1.2 1.2", "M17.3 11.7l-1.2 1.2", "M12 17l3.2-4.2", "M4 20.5h16"],
+  gearCondition: ["M4.5 15.5a7.5 7.5 0 0 1 15 0", "M12 8v1.7", "M6.7 10.2l1.2 1.2", "M17.3 10.2l-1.2 1.2", "M12 15.5l3.2-4.2", "M4 19h16"],
 } as const satisfies Record<string, readonly string[]>;
 
 /**

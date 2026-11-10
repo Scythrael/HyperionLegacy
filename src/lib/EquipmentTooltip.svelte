@@ -707,7 +707,7 @@
       {#if wear}
         <div class="et-sec et-wear wear-b-{wear.band.key}">
           <div class="et-wear-top">
-            <span>Condition{#if wear.wearsBy} <span class="et-wear-by">wears by {wear.wearsBy}</span>{/if}</span>
+            <span>Condition{#if wear.wearsBy}&nbsp;<span class="et-wear-by">· wears by {wear.wearsBy}</span>{/if}</span>
             <span><span class="wear-band-name">{wear.band.name}</span> <span class="wear-pct">{wear.percent}%</span></span>
           </div>
           <span class="wear-meter wide" role="meter" aria-valuemin="0" aria-valuemax="100" aria-valuenow={wear.percent} aria-label={`Condition ${wear.percent}%, ${wear.band.name}`}>

@@ -3388,9 +3388,15 @@
   .ss-mod-info .ss-wear-cv .wear-meter {
     width: 44px;
   }
+  /* On a phone the meter takes its own line under the slot's name (the mockup's 560 px rule), so it never squeezes the
+     name or the Swap / Uninstall buttons. */
   @media (max-width: 560px) {
-    .ss-slot-info .ss-wear-cv .wear-meter {
-      width: 40px;
+    .ss-slot-info {
+      flex-wrap: wrap;
+    }
+    .ss-slot-info .ss-wear-cv {
+      flex-basis: 100%;
+      margin-left: 0;
     }
   }
   .ss-mod-tile .ss-slot-actions {

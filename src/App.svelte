@@ -19386,7 +19386,7 @@
                 <p class="home-care-sum">{fleetCareModel.summary}</p>
                 {#each fleetCareModel.rows as row (row.shipId)}
                   <div class="home-care-row wear-b-{row.band}">
-                    <span class="home-care-ship"><b>{row.name}</b> &middot; {row.hull}</span>
+                    <span class="home-care-ship"><b>{row.name}</b>{#if row.hull} &middot; {row.hull}{/if}</span>
                     <span class="wear-meter" aria-hidden="true"><i style="width: {row.percent}%"></i></span>
                     <span class="wear-pct">{row.percent}%</span>
                     <span class="home-care-eta">{row.status}</span>
