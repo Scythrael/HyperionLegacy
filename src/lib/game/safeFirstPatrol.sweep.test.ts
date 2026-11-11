@@ -6,14 +6,15 @@
 //              defeat, no limp, no damage, the route off the curve; Repeat flies on at the curve's floor). 40,000
 //              patrols. The backstop (a lost wave breaks off) must never have fired: no lost wave at all.
 //   2. curve : Dispatch Once over master seeds 0 to 399 (CURVE_SEEDS; 0 to 199 before WR-8 answer 5) at every curve
-//              position (0 to 10 won routes after the safe patrol), every hull x both routes: wins never rise as the curve climbs (per hull and route), the top of
-//              the curve equals a veteran's (full strength), the whole table pinned.
+//              position (0 to 11 won routes after the safe patrol; 0 to 10 before WR-8b), every hull x both routes:
+//              wins never rise as the curve climbs (per hull and route), the top of the curve (c11 since WR-8b, c10
+//              before) equals a veteran's (full strength), the whole table pinned.
 // The default run's fixed sample is safeFirstPatrol.test.ts.
 
 import { describe, expect, it } from "vitest";
 import { SWEEP } from "./firstRunsGoldens.fixture";
 import { HULLS, ROUTES, onPatrolCurve, patrolBase, patrolWon, proveTrainingPatrol } from "./safeFirstPatrol.fixture";
-import { N_FULL, runCountsOf } from "./runDifficulty";
+import { N_FULL, RAMP_ODDS_LAG, runCountsOf } from "./runDifficulty";
 import type { GameState } from "./model";
 
 const SEEDS = 1000;
@@ -73,18 +74,54 @@ const CURVE_SEEDS = 400;
 // Full strength (c10) is unchanged. The early Sweep is 400 of 400 through c4 on every hull.
 // WR-8 follow-up review fix 3 (2026-10-23: the evasive state is read after the move) moved 48 cells by 9 of 400 at most
 // (Runner Sweep c7 267, was 276; Freighter Warband c0 unchanged at 373, c10 5, was 6); every row still falls.
+//
+// WR-8b enemy torpedoes (merge becc53ea, 2026-11-10) re-pin, traced 2026-11-11. The table gains a twelfth column (c11):
+// by the user's 2026-11-10 answer "Smooth it out (Recommended)" the Marauder torpedo chance climbs 0, 0, 1.5, 4.2, 7.7,
+// 11.9, 16.6, 21.8, 27.4, 31.6, 35.8% and reaches full strength (40%) only from 11 completed patrols, so c10 is no
+// longer a veteran's fight and the full-strength check moved to c11 (CURVE_POSITIONS below). Attribution: with WR-8b
+// off (enemyTorpedoSwitch.fixture.ts withEnemyTorpedoesOff) every row below reproduces its 2026-10-23 pin exactly, its
+// c11 equal to its c10 and to the veteran's; with every later patrol, combat and ramp switch off as well (OC-D8 legs,
+// its leg lifts and run clock, gear wear steps 3 and 4, OC-D5 favored spec, WR-9, WR-10, CP-13, CP-14, CP-18, EM-4) the
+// same, so WR-8b alone moved the table (the Runner and Miner rows included: their early cells move with the Corsair
+// Carrier's torpedo and the Marauder chance, nothing older). Moved rows, old (c0 to c10) to new (c0 to c11):
+//   generalFreighter Sweep  : 400 400 400 400 400 400 400 399 392 371 351 to 400 400 400 400 400 400 398 389 361 328 306 297
+//   generalFreighter Warband: 373 362 314 257 163 95 41 24 11 7 5 to 315 285 259 203 114 57 22 13 6 4 3 3
+//   prospectorHauler Sweep  : 400 400 400 400 400 400 400 400 398 392 377 to 400 400 400 400 400 400 400 395 384 358 333 326
+//   prospectorHauler Warband: 392 382 361 328 220 146 81 40 24 13 9 to 345 333 302 241 160 96 39 23 15 9 4 3
+//   prospectorRunner Sweep  : 400 400 400 400 400 396 357 267 211 208 206 to 400 400 400 399 399 389 340 251 210 207 206 206
+//   prospectorRunner Warband: 167 141 95 49 22 9 3 2 1 1 1 to 136 108 76 41 18 6 3 1 1 1 1 1
+//   prospectorMiner Sweep   : 400 400 400 400 400 398 373 341 247 208 208 to 400 400 400 399 399 395 357 313 232 207 207 207
+//   prospectorMiner Warband : 239 204 133 75 38 15 4 2 1 1 1 to 198 163 108 60 24 11 4 1 1 1 1 1
+//   destroyer Sweep         : 400 400 400 400 400 400 400 400 400 400 400 to 400 400 400 400 400 400 400 400 400 400 396 394
+//   destroyer Warband       : 399 397 394 389 367 332 259 192 132 98 64 to 395 391 382 374 346 294 206 139 93 60 33 33
+//   battleship Warband      : 400 400 400 400 400 400 397 392 380 367 348 to 400 400 400 400 400 399 394 386 362 338 289 287
+//   carrier Warband         : 400 400 400 399 389 375 343 293 246 198 149 to 386 375 374 363 345 297 250 198 143 113 82 78
+//   orion Sweep             : 400 400 400 400 400 400 400 397 385 357 331 to 400 400 400 400 400 400 399 389 363 317 292 283
+//   orion Warband           : 189 162 125 88 50 23 13 8 5 3 2 to 157 134 126 89 68 40 20 14 8 2 1 1
+//   aurora Sweep            : 400 400 400 400 400 400 400 396 382 353 327 to 400 400 400 400 400 400 399 388 359 313 288 279
+//   aurora Warband          : 169 147 108 75 44 23 13 8 5 3 2 to 143 112 109 84 65 40 18 12 9 2 1 1
+//   eir Sweep               : 400 400 400 400 400 400 399 393 372 351 304 to 400 400 400 400 400 400 398 376 346 306 266 259
+//   eir Warband             : 196 171 129 90 56 25 12 6 3 2 2 to 161 146 133 93 66 37 16 9 2 1 1 1
+// Unmoved (gaining only the c11 column, 400): battleship Sweep and carrier Sweep. Every row still falls, and c11 equals
+// the veteran's on every hull and route. The early Sweep is no longer 400 of 400 through c4 on every hull (the Runner
+// and the Miner lose one seed from c3, the Marauder chance at 4.2%).
 const CURVE_WINS: Record<string, [number[], number[]]> = {
-  generalFreighter: [[400, 400, 400, 400, 400, 400, 400, 399, 392, 371, 351], [373, 362, 314, 257, 163, 95, 41, 24, 11, 7, 5]],
-  prospectorHauler: [[400, 400, 400, 400, 400, 400, 400, 400, 398, 392, 377], [392, 382, 361, 328, 220, 146, 81, 40, 24, 13, 9]],
-  prospectorRunner: [[400, 400, 400, 400, 400, 396, 357, 267, 211, 208, 206], [167, 141, 95, 49, 22, 9, 3, 2, 1, 1, 1]],
-  prospectorMiner: [[400, 400, 400, 400, 400, 398, 373, 341, 247, 208, 208], [239, 204, 133, 75, 38, 15, 4, 2, 1, 1, 1]],
-  destroyer: [[400, 400, 400, 400, 400, 400, 400, 400, 400, 400, 400], [399, 397, 394, 389, 367, 332, 259, 192, 132, 98, 64]],
-  battleship: [[400, 400, 400, 400, 400, 400, 400, 400, 400, 400, 400], [400, 400, 400, 400, 400, 400, 397, 392, 380, 367, 348]],
-  carrier: [[400, 400, 400, 400, 400, 400, 400, 400, 400, 400, 400], [400, 400, 400, 399, 389, 375, 343, 293, 246, 198, 149]],
-  orion: [[400, 400, 400, 400, 400, 400, 400, 397, 385, 357, 331], [189, 162, 125, 88, 50, 23, 13, 8, 5, 3, 2]],
-  aurora: [[400, 400, 400, 400, 400, 400, 400, 396, 382, 353, 327], [169, 147, 108, 75, 44, 23, 13, 8, 5, 3, 2]],
-  eir: [[400, 400, 400, 400, 400, 400, 399, 393, 372, 351, 304], [196, 171, 129, 90, 56, 25, 12, 6, 3, 2, 2]],
+  generalFreighter: [[400, 400, 400, 400, 400, 400, 398, 389, 361, 328, 306, 297], [315, 285, 259, 203, 114, 57, 22, 13, 6, 4, 3, 3]],
+  prospectorHauler: [[400, 400, 400, 400, 400, 400, 400, 395, 384, 358, 333, 326], [345, 333, 302, 241, 160, 96, 39, 23, 15, 9, 4, 3]],
+  prospectorRunner: [[400, 400, 400, 399, 399, 389, 340, 251, 210, 207, 206, 206], [136, 108, 76, 41, 18, 6, 3, 1, 1, 1, 1, 1]],
+  prospectorMiner: [[400, 400, 400, 399, 399, 395, 357, 313, 232, 207, 207, 207], [198, 163, 108, 60, 24, 11, 4, 1, 1, 1, 1, 1]],
+  destroyer: [[400, 400, 400, 400, 400, 400, 400, 400, 400, 400, 396, 394], [395, 391, 382, 374, 346, 294, 206, 139, 93, 60, 33, 33]],
+  battleship: [[400, 400, 400, 400, 400, 400, 400, 400, 400, 400, 400, 400], [400, 400, 400, 400, 400, 399, 394, 386, 362, 338, 289, 287]],
+  carrier: [[400, 400, 400, 400, 400, 400, 400, 400, 400, 400, 400, 400], [386, 375, 374, 363, 345, 297, 250, 198, 143, 113, 82, 78]],
+  orion: [[400, 400, 400, 400, 400, 400, 399, 389, 363, 317, 292, 283], [157, 134, 126, 89, 68, 40, 20, 14, 8, 2, 1, 1]],
+  aurora: [[400, 400, 400, 400, 400, 400, 399, 388, 359, 313, 288, 279], [143, 112, 109, 84, 65, 40, 18, 12, 9, 2, 1, 1]],
+  eir: [[400, 400, 400, 400, 400, 400, 398, 376, 346, 306, 266, 259], [161, 146, 133, 93, 66, 37, 16, 9, 2, 1, 1, 1]],
 };
+
+// The curve positions measured, c0 to c11: the enemy curve tops out at c10 (N_FULL - 1), and since the WR-8b fix round
+// (user 2026-11-10 "Smooth it out (Recommended)") the Marauder torpedo chance, on the odds ramp RAMP_ODDS_LAG patrols
+// behind, reaches full strength one patrol later, so the top of the curve (the last column) is c11.
+const CURVE_POSITIONS = N_FULL + RAMP_ODDS_LAG;
 
 function asVeteran(state: GameState): GameState {
   const counts = runCountsOf(state);
@@ -96,14 +133,14 @@ describe.runIf(SWEEP)("SF-4 the patrol curve (gated): wins never rise as the cur
     it(`${hull}: wins of ${CURVE_SEEDS} at every curve position, both routes`, { timeout: 600_000 }, () => {
       const rows = ROUTES.map((key) => {
         const row: number[] = [];
-        for (let c = 0; c < N_FULL; c++) {
+        for (let c = 0; c < CURVE_POSITIONS; c++) {
           let wins = 0;
           for (let seed = 0; seed < CURVE_SEEDS; seed++) if (patrolWon(onPatrolCurve(patrolBase(hull, seed), c), key, seed)) wins += 1;
           row.push(wins);
         }
         let veteran = 0;
         for (let seed = 0; seed < CURVE_SEEDS; seed++) if (patrolWon(asVeteran(patrolBase(hull, seed)), key, seed)) veteran += 1;
-        expect(row[N_FULL - 1], `${hull} ${key}: the top of the curve is full strength`).toBe(veteran);
+        expect(row[CURVE_POSITIONS - 1], `${hull} ${key}: the top of the curve (c11) is full strength`).toBe(veteran);
         for (let c = 1; c < row.length; c++) expect(row[c], `${hull} ${key} c${c}`).toBeLessThanOrEqual(row[c - 1]);
         return row;
       });
