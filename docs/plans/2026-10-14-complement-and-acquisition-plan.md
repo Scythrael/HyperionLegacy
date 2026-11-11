@@ -454,7 +454,7 @@ Unassigned reasons, the recruit board, member gear refusals, App refusal logs. U
 Senior Staff and Complement, disabled controls with visible reasons, Apply disabled with the reason and locked ships
 marked "(crew locked)" in its picker, a "Crew locked" badge on Ships roster rows. Left unlocked: captain hull
 reassignment (`tick.ts` `assignShipToCaptain`) checks only `captain.mission`, so a captain can swap hulls while
-their ship is on an expedition (decision for the user). OC-11 (auto-crew pause) not built, still open.
+their ship is on an expedition (decision for the user; CLOSED 2026-10-17 by S1 "Lock it", 0a077ca5, crewLock.ts captainMoveLock). OC-11 (auto-crew pause) not built, still open.
 
 ### CP-7: Transfer (Task 25 engine)
 
@@ -1365,5 +1365,5 @@ the user and were NOT built (listed below).
    track durations (120 / 240 / 420 / 720 / 1,200 s), `CAPTAIN_SOFT_CAP_GROWTH` 1.08, the transport size and window
    (12 crew per 1,800 s).
 
-Also still recorded elsewhere: a captain can swap hulls while their ship is on an expedition (CP-6 note 2); CP-15 and
+Closed since: CP-6 note 2 (hull swap while the ship is on an expedition) by S1 "Lock it" (0a077ca5, captainMoveLock); CP-15 and
 the Spacer long-haul ramp are 0.14.x (T3).

@@ -983,7 +983,7 @@ the complement to the pool; SAVE v69 `repairOrphanedShipRefsV69`) and the lock 7
 one predicate and typed reasons for every crew change, the complement mode toggle and captain retirement). The
 benched list is named "Unassigned" (OC-12; "Reserve" means aboard but unslotted) on every ship's Away Team tab; CP-10
 added the lock marks on the sub-tabs. The injury bar uses the stored recovery start. Tests `salvageCrew.test.ts`,
-`crewLock.test.ts`. Still the user's call (CP-6 note): a captain can swap hulls while their ship is on an expedition.
+`crewLock.test.ts`. CP-6 note 2 (hull swap while the ship is on an expedition) is closed by S1 "Lock it" (2026-10-17, 0a077ca5, crewLock.ts captainMoveLock).
 
 ---
 
