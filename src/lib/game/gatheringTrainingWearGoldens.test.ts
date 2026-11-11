@@ -18,6 +18,9 @@
 // slice (orderingGoldens.test.ts pins the order move and proves it moved order only).
 import { canonicalOrderOffForThisFile } from "./orderingSwitch.fixture";
 canonicalOrderOffForThisFile();
+// Ordering determinism part 2 (canonicalOrder.ts: inventory keys and a call's completion log in one order) came after every pin here, traced order-only: the file runs with it off (ordering2Switch.fixture.ts).
+import { ordering2OffForThisFile } from "./ordering2Switch.fixture";
+ordering2OffForThisFile();
 import { describe, expect, it } from "vitest";
 import { cp16OffForThisFile } from "./cp16Switch.fixture";
 // Complement CP-16 (the Hall of Command) came after every pin here: the file runs with the slice off, so its pins

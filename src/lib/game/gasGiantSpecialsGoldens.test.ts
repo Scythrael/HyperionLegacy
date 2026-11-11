@@ -14,6 +14,9 @@
 //   3. the Ancient Data Fragment's odds over every tier and a range of probe ratings (the Resonance Sensor Array lifts
 //      them only on a run that froze its bonus at dispatch).
 
+// Ordering determinism part 2 (canonicalOrder.ts: inventory keys and a call's completion log in one order) came after every pin here, traced order-only: the file runs with it off (ordering2Switch.fixture.ts).
+import { ordering2OffForThisFile } from "./ordering2Switch.fixture";
+ordering2OffForThisFile();
 import { describe, expect, it } from "vitest";
 // Wiring WR-10 (the away rules stamped at dispatch, a hire's account program) came after every pin here: the whole file
 // runs with WR-10 off (wr10Switch.fixture.ts), so its pins keep proving their own slice (wr10Goldens.test.ts pins WR-10's).

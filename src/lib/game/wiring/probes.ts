@@ -279,7 +279,7 @@ import type { ShipDerivedStats } from "../model";
 import { captainWaveRegenFraction, patrolWaveRewardMult, shipCaptainCombatMods } from "../captainTacticianEffects";
 import { captainDroneDamage, captainProjectileDamage, incomingHitChance } from "../combat/captainEdge";
 import { applyProjectileDamage } from "../combat/resolveBattle";
-import { addItemQuality, itemTotal } from "../inventory";
+import { addItemQuality, itemTotal, setItemBuckets } from "../inventory";
 import { blankTotal, highestBlankQuality } from "../qualityBlanks";
 import { GROUND_CONDITIONS, conditionCureSeconds, memberBaySeconds } from "../medicalBay";
 import { loadoutSlotDefsForShipType } from "../armory";
@@ -3813,7 +3813,7 @@ function readContent(id: string, s: GameState): number {
       // runs switch (fieldKits.ts FIELD_KITS_RUNS_LIVE, the argument the dispatch console's Launch leaves out) for a crew
       // whose Warehouse holds FIELD_KITS_SWITCH_PROBE_STOCK First Aid Kits; off: the same launch with kits off. The
       // extras the run carries (each member's default pack holds one First Aid Kit, so the stock is the limit).
-      const ready = withAwayTeam({ ...s, inventory: { ...s.inventory, firstAidKit: [new Decimal(FIELD_KITS_SWITCH_PROBE_STOCK)] } });
+      const ready = withAwayTeam({ ...s, inventory: setItemBuckets(s.inventory, "firstAidKit", [new Decimal(FIELD_KITS_SWITCH_PROBE_STOCK)]) });
       const cand = expeditionCandidates(ready, WIRING_SHIP_ID)[0];
       // G2-4: past the propulsion gates (see dispatchRun); the runs switch is the argument under test.
       const res = on

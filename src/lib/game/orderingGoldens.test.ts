@@ -3,6 +3,9 @@
 //
 // ORDERING_CAPTURE = an output path: record every row instead of asserting.
 
+// Ordering determinism part 2 (canonicalOrder.ts: inventory keys and a call's completion log in one order) came after every pin here, traced order-only: the file runs with it off (ordering2Switch.fixture.ts).
+import { ordering2OffForThisFile } from "./ordering2Switch.fixture";
+ordering2OffForThisFile();
 import { describe, expect, it } from "vitest";
 import { writeFileSync } from "node:fs";
 import { ORDERING_PINS_PRE, orderingRows } from "./orderingGoldens.fixture";

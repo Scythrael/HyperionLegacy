@@ -11,6 +11,9 @@
 //     recipe waits for the new input (no throw, no negative bucket) and resumes when stocked
 //   - the text fixes T1 to T8, and no Quartermaster kit price moved.
 
+// Ordering determinism part 2 (canonicalOrder.ts: inventory keys and a call's completion log in one order) came after every pin here, traced order-only: the file runs with it off (ordering2Switch.fixture.ts).
+import { ordering2OffForThisFile } from "./ordering2Switch.fixture";
+ordering2OffForThisFile();
 import { GAS_CANISTER_IDS } from "./gasGiantContent";
 import { describe, expect, it } from "vitest";
 import Decimal from "break_infinity.js";

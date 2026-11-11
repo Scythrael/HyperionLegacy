@@ -13,6 +13,9 @@
 // UNCHANGED: the piece each reworked blank rolls (a crafted piece never reads its recipe; already crafted gear keeps
 // every stat). Test-only.
 
+// Ordering determinism part 2 (canonicalOrder.ts: inventory keys and a call's completion log in one order) came after every pin here, traced order-only: the file runs with it off (ordering2Switch.fixture.ts).
+import { ordering2OffForThisFile } from "./ordering2Switch.fixture";
+ordering2OffForThisFile();
 import { describe, expect, it } from "vitest";
 import { withoutGg7Content } from "./gasGiantSpecials.fixture";
 // E-MOD EM-8 came after this capture: the Precursor Lens's blueprint, variety and the circuit's recipe held apart.

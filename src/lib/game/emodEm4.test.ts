@@ -259,14 +259,9 @@ describe("EM-4 the run flag", () => {
 
 // ===== offline == live =====
 
-function canonical(v: unknown): unknown {
-  if (Array.isArray(v)) return v.map(canonical);
-  if (v !== null && typeof v === "object") return Object.fromEntries(Object.keys(v).sort().map((k) => [k, canonical((v as Record<string, unknown>)[k])]));
-  return v;
-}
-// Object keys sorted (the inventory key order wrinkle, its own follow-up); `discovered` compared as it stands (the
-// ordering determinism slice, canonicalOrder.ts, keeps it in one order however the time is cut).
-const json = (s: GameState) => JSON.stringify(canonical(JSON.parse(JSON.stringify(s))));
+// STRICT: the whole state as JSON, no key order or list normalized (the ordering determinism slices, canonicalOrder.ts,
+// keep `discovered`, the inventory's keys and the completion log in one order however the time is cut).
+const json = (s: GameState) => JSON.stringify(s);
 function stepped(s: GameState, n: number): GameState {
   let out = s;
   for (let i = 0; i < n; i++) out = economyTick(out, 1, RNG);

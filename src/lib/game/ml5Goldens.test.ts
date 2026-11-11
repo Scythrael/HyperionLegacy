@@ -10,6 +10,9 @@
 //   grant       : a gear grant (processSpeed.ts grant: two uninspected Yield Rigs). Must HOLD.
 //   load        : a save holding 3 Yield Rig blanks in the old scalar shape, loaded. Must HOLD (into quality 0).
 
+// Ordering determinism part 2 (canonicalOrder.ts: inventory keys and a call's completion log in one order) came after every pin here, traced order-only: the file runs with it off (ordering2Switch.fixture.ts).
+import { ordering2OffForThisFile } from "./ordering2Switch.fixture";
+ordering2OffForThisFile();
 import { describe, expect, it } from "vitest";
 import Decimal from "break_infinity.js";
 import { type GameState } from "./model";
