@@ -935,12 +935,13 @@ describe("HELP_TOPICS", () => {
     });
 
     it("recall and resume: the 1:1 rule, the pickup, the refusal and the Resume list", () => {
-      expect(b()).toMatch(/flies home only the time it has flown out so far \(an anomaly detour does not count\)/);
+      expect(b()).toMatch(/flies home only the share of the trip it has flown \(an anomaly detour does not count\)/);
+      expect(b()).toMatch(/The list stays the same until you launch to one of its systems/);
       expect(b()).toMatch(/one shared pickup/);
       expect(b()).toMatch(/already on its way home cannot be recalled/);
       expect(recallBlockText("returning")).toBe("The ship is already on its way home");
       expect(b()).toMatch(/Resume list until you finish it or abandon it/);
-      expect(b()).toMatch(/recalled before anything was charted becomes a candidate again/);
+      expect(b()).toMatch(/recalled before anything was charted becomes a candidate again, until the next fresh list is drawn/);
     });
 
     it("the fuel topic gains deep-space reach and the depot's reach covers expeditions too", () => {
@@ -1065,3 +1066,12 @@ describe("Combat Patrols: the drone rebuild between waves", () => {
     expect(b).not.toMatch(/\u2014|-{2}|\bfit/);
   });
 });
+// G2-9 close-out (user 2026-11-11 "Everything"): every tier the player reads is a Roman numeral, so no Help text may
+// write a tier as an Arabic number ("tier 1", "tier-1", "Tier 3").
+describe("Roman numerals for every tier in Help", () => {
+  it("no Help paragraph writes a tier as an Arabic number", () => {
+    const all = JSON.stringify(HELP_TOPICS);
+    expect(all.match(/\btier[- ]\d/gi) ?? []).toEqual([]);
+  });
+});
+

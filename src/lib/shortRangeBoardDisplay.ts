@@ -17,6 +17,7 @@
 // (the component formats ticks with the player's own preference).
 
 import Decimal from "break_infinity.js";
+import { tierNumeral } from "./game/galaxy";
 import { MISSIONS, MISSION_CONTROL_BOARD_RUNGS, SHORT_RANGE_PHASE_LABEL, shipDisplayLabel, type CaptainState, type GameState, type MissionKey, type ShipInstance, type ShortRangePhase } from "./game/model";
 import {
   SHORT_RANGE_CATEGORIES,
@@ -119,9 +120,9 @@ export const SHORT_RANGE_WAY_IN: Readonly<Record<ShortRangeCategory, string>> = 
 // The ONE place the rule is named; shortRangeBestReady reads it.
 export const SHORT_RANGE_PREPICK_RULE = "widestMargin" as const;
 
-const TIER_NUMERAL: Readonly<Record<ShortRangeTier, string>> = { 1: "I", 2: "II" };
+// Tiers read as Roman numerals through the one shared formatter (galaxy.ts tierNumeral).
 export function shortRangeTierNumeral(tier: ShortRangeTier): string {
-  return TIER_NUMERAL[tier];
+  return tierNumeral(tier);
 }
 
 // G1-7: the training run and the slow start in the player's words, every number read from the engine (the share of
@@ -141,7 +142,7 @@ export function shortRangeFullSizeRun(tier: ShortRangeTier = RAMP_MAX_TIER as Sh
 const sharePct = (run: number): string => `${Math.round(shortRangeRunShare(run) * 100)}%`;
 const RAMP_TIERS = (Object.keys(SHORT_RANGE_SHEETS).map(Number) as ShortRangeTier[]).filter((t) => t <= RAMP_MAX_TIER);
 const FULL_TIERS = (Object.keys(SHORT_RANGE_SHEETS).map(Number) as ShortRangeTier[]).filter((t) => t > RAMP_MAX_TIER);
-const tierWords = (tiers: readonly ShortRangeTier[]): string => tiers.map((t) => `Tier ${TIER_NUMERAL[t]}`).join(" and ");
+const tierWords = (tiers: readonly ShortRangeTier[]): string => tiers.map((t) => `Tier ${tierNumeral(t)}`).join(" and ");
 export const SHORT_RANGE_TRAINING_NOTE =
   `Every job type's first run is a training run: the smallest job, no gear wear, ${SHORT_RANGE_TUTORIAL_TICKS_SCALE === 1 ? "normal length" : SHORT_RANGE_TUTORIAL_TICKS_SCALE < 1 ? "a shorter trip" : "a longer trip"}. ` +
   `After it, ${tierWords(RAMP_TIERS)} jobs grow on the slow start (run 2 at ${sharePct(2)}, run 6 about ${sharePct(6)}, run 9 about ${sharePct(9)}, full from run ${shortRangeFullSizeRun()}).` +
@@ -190,7 +191,7 @@ export function shortRangeBars(state: GameState, ship: ShipInstance, tier: Short
 // A tier's sheet as one line (a locked slot's card). Pure.
 export function shortRangeSheetText(tier: ShortRangeTier): string {
   const s = SHORT_RANGE_SHEETS[tier];
-  return `Tier ${TIER_NUMERAL[tier]} sheet: ${s.range} ly, Cargo ${s.cargo}, Guest quarters ${s.guests}, Sensors ${s.sensors}, Engineering ${s.engineering}, Security ${s.security}`;
+  return `Tier ${tierNumeral(tier)} sheet: ${s.range} ly, Cargo ${s.cargo}, Guest quarters ${s.guests}, Sensors ${s.sensors}, Engineering ${s.engineering}, Security ${s.security}`;
 }
 
 // ===== the job =====
@@ -657,5 +658,5 @@ export function shortRangeBoardView(state: GameState): ShortRangeBoardView {
 export function missionControlRungSlotText(rungEffect: unknown, slotNumber: number): string | null {
   if (!rungEffect || typeof rungEffect !== "object" || !("addShortRangeSlot" in rungEffect)) return null;
   const tier = (rungEffect as { addShortRangeSlot: ShortRangeTier }).addShortRangeSlot;
-  return `Opens Short-Range slot ${slotNumber} (Tier ${TIER_NUMERAL[tier]})`;
+  return `Opens Short-Range slot ${slotNumber} (Tier ${tierNumeral(tier)})`;
 }

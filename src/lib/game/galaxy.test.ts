@@ -4,8 +4,12 @@
 
 import { describe, expect, it } from "vitest";
 import { freshState, type GameState, type RegionTier } from "./model";
+import { makeRng } from "./combat/rng";
 import {
+  CORE_AIMED_SECTOR_TIERS,
+  ENEMY_SECTOR_SALT,
   ENEMY_SECTOR_WIDTH_PERMILLE,
+  coreBearingFrom,
   HOMEWORLD_MAX_FROM_SOL_LY,
   HOMEWORLD_MIN_FROM_SOL_LY,
   NEAREST_STAR_LY,
@@ -19,6 +23,7 @@ import {
   regionBandsFrom,
   regionTierNumeral,
   stateHomeworld,
+  tierNumeral,
 } from "./galaxy";
 import * as telescope from "./telescope";
 import { rangeLyForReach, systemDistanceLy, telescopeReadingAtLevel } from "./telescope";
@@ -124,6 +129,46 @@ describe("G2-1: enemy territory as fixed sectors on each player's map (user G8)"
         expect(s.widthBearing).toBe((ENEMY_SECTOR_WIDTH_PERMILLE[s.tier] * 3600) / 1000);
       }
     }
+  });
+
+  // G2-9 close-out (user 2026-11-11, "Everything (Recommended)"): one shared formatter for every tier in the game.
+  it("tierNumeral: Roman numerals for any whole tier, the region ladder reads through it", () => {
+    expect([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 12, 14, 19, 40, 90, 400, 1994].map(tierNumeral)).toEqual([
+      "I", "II", "III", "IV", "V", "VI", "VII", "VIII", "IX", "X", "XII", "XIV", "XIX", "XL", "XC", "CD", "MCMXCIV",
+    ]);
+    expect([0, -1, 2.5, 4_000].map(tierNumeral)).toEqual(["0", "-1", "2.5", "4000"]);
+    for (const t of TIERS) expect(regionTierNumeral(t)).toBe(tierNumeral(t));
+  });
+
+  // G2-9 close-out (user 2026-11-11, "Label + point inward (Recommended)"): Tiers VI and VII lie toward the core, so
+  // their slices point at the drawn core (its bearing in the slice's middle half); Tiers II to V keep their drawn start.
+  it("Tier VI and VII sectors point toward the Galactic Core; Tiers II to V keep their drawn bearing (the draws unchanged)", () => {
+    expect(CORE_AIMED_SECTOR_TIERS).toEqual([6, 7]);
+    const offsets = new Set<number>();
+    for (const seed of SEEDS.slice(0, 1_000)) {
+      const home = homeworldPlacement(seed);
+      const core = coreBearingFrom(home.galactic);
+      // The drawn core: within a few tenths of a degree of straight up (the homeworld sits 10 to 120 ly from Sol).
+      expect(Math.min(core, 3600 - core)).toBeLessThanOrEqual(3);
+      const rng = makeRng((seed ^ ENEMY_SECTOR_SALT) >>> 0);
+      const drawn = TIERS.map(() => rng.nextInt(3600));
+      for (const s of home.enemySectors) {
+        if (CORE_AIMED_SECTOR_TIERS.includes(s.tier)) {
+          const into = (core - s.startBearing + 3600) % 3600;
+          expect(into, `${seed} tier ${s.tier}`).toBeGreaterThanOrEqual(Math.floor(s.widthBearing / 4));
+          expect(into).toBeLessThanOrEqual(Math.floor(s.widthBearing / 4) + Math.floor(s.widthBearing / 2));
+          expect(inEnemySector(home, s.tier, core)).toBe(true);
+          offsets.add(into);
+        } else {
+          expect(s.startBearing).toBe(drawn[s.tier - 1]);
+        }
+      }
+    }
+    // Still varied from save to save.
+    expect(offsets.size).toBeGreaterThan(300);
+    expect(coreBearingFrom({ x: 0, y: 26_500 })).toBe(0);
+    expect(coreBearingFrom({ x: 0, y: 0 })).toBe(0);
+    expect(coreBearingFrom({ x: 1_000, y: 0 })).toBe(2700);
   });
 
   it("placed deterministically from the same seed, and differently for different players", () => {

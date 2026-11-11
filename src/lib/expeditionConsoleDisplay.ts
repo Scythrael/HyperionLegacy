@@ -189,7 +189,7 @@ export function tierFactsView(state: GameState, tier: RegionTier): TierFactsView
   const home = stateHomeworld(state);
   const band = home.regionBandsLy[tier];
   const shared = REGION_TIERS.filter((t) => t !== tier && home.regionBandsLy[t].near === band.near && home.regionBandsLy[t].far === band.far);
-  const sharedText = shared.length > 0 ? ` (shared with ${shared.map((t) => regionTierNumeral(t)).join(", ")})` : "";
+  const sharedText = shared.length > 0 ? ` (shared with ${shared.length === 1 ? "Tier" : "Tiers"} ${shared.map((t) => regionTierNumeral(t)).join(", ")})` : "";
   const nominal = tierNominalSeconds(tier);
   const near = (nominal * VOYAGE_BAND_SCALE_PERMILLE.near) / 1_000;
   const far = (nominal * VOYAGE_BAND_SCALE_PERMILLE.far) / 1_000;
@@ -557,8 +557,11 @@ export function recallConfirmView(state: GameState, exp: Expedition, shipName: s
   let line: string;
   if (p.phase === "transit") {
     line = `It flies home in ${voyageSpanText(p.returnSeconds)}, the distance it has covered so far.`;
-    stops.push("Nothing has been charted yet.");
-    if (p.held === "candidate" && tier !== undefined) stops.push(`${sys} goes back to the Tier ${regionTierNumeral(tier)} candidates: launch to it again any time.`);
+    // G2-9 close-out: a RESUMED run turned back before arrival still holds the bodies an earlier trip charted.
+    if (exp.bodies.some((b) => b.scanned)) stops.push("Nothing new is charted on this trip; the bodies charted before and the objectives' progress stay as they were.");
+    else stops.push("Nothing has been charted yet.");
+    if (p.held === "resume") stops.push(`${sys} stays open: any explorer can resume it and pick up where you left off (finished scans stay done, the trip is flown again).`);
+    else if (p.held === "candidate" && tier !== undefined) stops.push(`${sys} goes back to the Tier ${regionTierNumeral(tier)} candidates until you next launch to a system on the list.`);
     else stops.push(`${sys} does not stay open to resume.`);
   } else {
     const leg = Math.max(0, p.returnSeconds - p.pickupSeconds);
@@ -573,7 +576,7 @@ export function recallConfirmView(state: GameState, exp: Expedition, shipName: s
       if (exp.groundOps) stops.push("The medical bay treats the injured on the way.");
     } else stops.push("Nothing has been charted yet.");
     if (p.held === "resume") stops.push(`${sys} stays open: any explorer can resume it and pick up where you left off (finished scans stay done, the trip is flown again).`);
-    else if (p.held === "candidate" && tier !== undefined) stops.push(`${sys} goes back to the Tier ${regionTierNumeral(tier)} candidates.`);
+    else if (p.held === "candidate" && tier !== undefined) stops.push(`${sys} goes back to the Tier ${regionTierNumeral(tier)} candidates until you next launch to a system on the list.`);
     else stops.push(`${sys} does not stay open to resume.`);
   }
   return { title: `Recall ${shipName}?`, line, stops, keepText: "Keep going", recallText: "Recall home" };

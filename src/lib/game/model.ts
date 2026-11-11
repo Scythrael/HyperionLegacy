@@ -10088,6 +10088,12 @@ export interface GameState {
   // oldest first. OPTIONAL: absent until the first recall that leaves one, so every save keeps its exact shape. Plain
   // data: no SAVE bump, hydrateDecimals carries it through its `...state` spread.
   heldSystems?: HeldSystem[];
+  // Expedition Tiers G2-9 close-out: how many launches went to a HELD system (startExpedition, "held-<id>"). Such a
+  // launch is not from the candidate list and draws no new list, so the Wolf 359 clock (expedition.ts listDraws: the
+  // dispatches less these) does not count it. OPTIONAL: absent reads 0 and is written only by a held launch, so a save
+  // that never made one keeps its exact shape and its list (no load step, no SAVE bump). A plain number,
+  // hydrateDecimals carries it through its `...state` spread.
+  heldLaunches?: number;
   // Gas Giant Study GG-3 (plan docs/plans/2026-10-17-gas-giant-study-plan.md section 3.3): the SURVEY LOG, one entry per
   // ship study whose Survey Log readout hit (15%, user 2026-10-09), appended in claim order by
   // expedition.ts depositExpeditionFindings. Every displayed number derives from the entry's stored fields (the
@@ -10594,7 +10600,7 @@ export const ITEMS: Record<string, ItemDef> = {
     subCategory: "oresMetals",
     tier: 2,
     rarity: "uncommon",
-    unlockHint: "An uncommon strike on the Lunar Mine Contract. A Tier 2 material: it is kept at the base cap until Warehouse (Tier II) is unlocked.",
+    unlockHint: "An uncommon strike on the Lunar Mine Contract. A Tier II material: it is kept at the base cap until Warehouse (Tier II) is unlocked.",
     flavor: "Impossibly compacted rock from the deep lunar seams, heavy enough to need its own warehouse tier.",
   },
   // --- Catalog scaffold (Phase 2 Warehouse), UNOBTAINABLE PLACEHOLDERS -------

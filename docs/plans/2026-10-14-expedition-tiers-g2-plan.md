@@ -467,6 +467,10 @@ anything is charted returns the system to the ordinary candidates). For G2-6:
   `resume: { heldId, scannedBodies }` and `anomalyResolved: true`; its window opens with `startedAt` moved back by the
   charted bodies' clock (`ops.scanClockSkip`), the step cursor past them, their remaining objectives planned for the
   new teams. **[PROPOSAL]** a returned ordinary candidate has no expiry or cap (it stays until launched).
+  **ANSWERED (user 2026-10-21, `2026-10-19-merge-batch-answers.md` "2026-10-21 calls (late)"): "No limit, refresh
+  normally (Recommended)": an ordinary candidate again.** No cap, and it refreshes like the list's own three: it rolls
+  off with the next list draw. The build kept it until launched; the G2-9 close-out fixed that (startExpedition drops
+  every returned candidate on a dispatch from the list). The resume records are unchanged.
 - Goldens: every pin unchanged (the stored voyage-era records, G2-0, G2-3); the two new audit rows held apart like
   G2-4's. Registry: `expedition:audit:recall` and `expedition:audit:resumableSystems` pending G2-6 (no player can
   recall until the button). No Overtime on expeditions: nothing here is paid.
@@ -555,6 +559,11 @@ anything is charted returns the system to the ordinary candidates). For G2-6:
 
 ### G2-8: Antimatter burn and maintenance (after 15b; needs a mockup sign-off)
 
+**MOVED TO 0.14.x** (wiring capture T3, user 2026-10-15, "Move all five (Recommended)": the antimatter burn is among
+the five; recorded in `2026-10-17-gas-giant-study-plan.md` "Already moved to 0.14.x (no call)" and the 2026-10-26
+session resume notes "Moved to 0.14.x: EM-9, G2-8, CP-15, the Spacer ramp"). Nothing in 0.14.0 shows it: no burn
+choice, no maintenance period, no Help line. The section below stays as the 0.14.x design.
+
 - Depends on 15b's Antimatter Containment Cell item and its special-blueprint lane. Per open call 15
   **[PROPOSAL]**: a ship with the Annihilation Core installed may burn cells AT DISPATCH (a stored choice, so the run
   stays a pure function of its record): each burn halves the outbound transit, at most one burn per leg, cells per burn
@@ -576,49 +585,68 @@ names in game text (the Wolf 359 nod stays original).
 
 ## 4. OPEN CALLS for the user
 
+All answered or moved (marked at the G2-9 close-out, 2026-11-11): each call names its answer below it.
+
 1. **Where homeworlds sit.** [PROPOSAL] a random point inside the Local Bubble, 10 to 120 ly from Sol, so Tier I stays
    "local", Wolf 359 stays a Tier I system, crew transports from Earth stay plausible, and players differ by tens of
    ly. Alt: anywhere in the Orion Arm (the Local Bubble may become Tier II for some). Alt: anywhere in the galaxy (the
    named ladder no longer means the same thing to every player).
+   **ANSWERED** (G1, 2026-10-16): "Local Bubble, 10-120 ly (Recommended)".
 2. **Existing saves.** [PROPOSAL] each gets its own random placement at the v70 migration (candidate distances change,
    display only). Alt: existing saves keep the near-Sol provisional spot, only new games are random.
+   **ANSWERED** (G2, 2026-10-16): "Random for everyone (Recommended)".
 3. **Where propulsion comes from.** [PROPOSAL] Class II to VII FTL drive blueprints from the Research Lab (needs Lab
    tiers 3 to 7). Alt: an account-wide propulsion research track that raises every drive's class. Alt: class from the
    drive's rarity band (no new items).
+   **ANSWERED** (G3, 2026-10-16): "A combination of higher tier ships and better drive blueprints/stats/etc."
 4. **The reach scale.** [PROPOSAL A] one reach stat in real light-years: today's range x an exponential drive class
    multiplier x the Engineering ramp, with `LY_PER_TICK` rescaled (every mission and patrol LY readout grows; gates do
    not change). Alt B: the drive class alone gates tiers (fuel and range gear do nothing on expeditions). Alt C: the
    mockup's per-region ratings in today's LY units (T1 60 to T7 420).
+   **ANSWERED** (G4, 2026-10-16): "One reach stat (Recommended)"; LY_PER_TICK not rescaled (approved 2026-10-21).
 5. **Transit times.** [PROPOSAL] one-way at the minimum class: I 2 h, II 4 h, III 8 h, IV 12 h, V 24 h, VI 72 h,
    VII 168 h; 0.75 to 1.25 by band position; halved per class above the minimum; 30 minute floor; anomaly detour 25% of
    outbound. Alt: pure distance over speed (section G2-3 shows why the ladder collapses). Alt: flat per tier.
+   **ANSWERED** (G5, 2026-10-16): "2h to 168h ladder (Recommended)"; the band scale x0.8 to x1.2 (2026-10-20).
 6. **The shakedown.** [PROPOSAL] keep the 30 minute inaugural run (the saga's "dip your toes" onboarding). Alt: the
    first run is a normal 2 hour Tier I.
+   **ANSWERED** (moot): SF-2 retired the shakedown before G2-3; the training run flies the Tier I trip.
 7. **Frontier sensors (locked I.6).** [PROPOSAL] sensors I 0, II 10, III 20, IV 30, V 40, VI 55, VII 65 to attempt a
    tier. Alt: sensors shape only what a scan reveals (fewer gates, but it reopens a locked decision).
+   **ANSWERED** (G7, 2026-10-16): "Sensor gate per tier (Recommended)"; CP-14 later cleared Tier II (Tiers I and II ask for none).
 8. **Enemy territory.** [PROPOSAL] a per-system chance by tier, I 0, II 5, III 15, IV 25, V 35, VI 45, VII 50 percent.
    Alt: fixed sectors on each player's map, shaded on the telescope map. (No enemy faction is named; it stays
    "enemy territory".)
+   **ANSWERED** (G8, 2026-10-16): "Fixed sectors on the map" (the Alt); the shading approved 2026-11-09, labeled and aimed 2026-11-11.
 9. **The 18 banked names.** [PROPOSAL] retire them from new candidates (in-flight runs keep theirs). Alt: keep them as
    rare hand-named finds beside the real stars.
+   **ANSWERED** (G9, 2026-10-16): "Retire them (Recommended)".
 10. **Wolf 359 and its easter egg.** [PROPOSAL] Wolf 359 is guaranteed in the first Tier I list after the shakedown;
     its nod is yours to name (an original idea, for example a field of very old derelict hulls with a one-time
     Survey Log entry). Alt: a rare find like the other real stars.
+    **ANSWERED** (G10, 2026-10-16): "Guaranteed early (Recommended)"; the nod (2026-11-02): "Quiet derelict field (Recommended)".
 11. **Looking around.** [PROPOSAL] pick a region, see its three nearest candidates, pick one (today's console per
     tier). Alt: the mockup's on-arrival sweep with a "Search for" preference.
+    **ANSWERED** (G11, 2026-10-16): "Region, then 3 nearest (Recommended)".
 12. **"You retain your progress."** [PROPOSAL] a recalled run brings its findings home and the system is logged at its
     completion %; no return to it in 0.14.0. Alt: the system stays resumable for that ship (bigger: stored bodies and
     objectives, a skip-the-scan relaunch).
+    **ANSWERED** (G12, 2026-10-16): "Resumable" (any explorer, until finished, pick up where you left off).
 13. **Recall friction.** [PROPOSAL] one confirm naming the return time. Alt: no confirm (inform only).
+    **ANSWERED** (G13, 2026-10-16): "One confirm (Recommended)".
 14. **Recall mid-detour.** [PROPOSAL] anomaly detour time does not count as distance flown. Alt: it counts.
+    **ANSWERED** (G14, 2026-10-16): "Tiers set the time (Recommended)": the detour is not distance flown.
 15. **The antimatter burn.** [PROPOSAL] name Annihilation Core (yours to confirm); burn at dispatch only; halves a leg;
     one burn per leg; maintenance at home of 50% of the time saved; built after 15b. Alt: burn any time mid-transit.
     Which slot holds the Core (an FTL drive variety, or an E-MOD module) is open.
+    **MOVED TO 0.14.x** with G2-8 (wiring capture T3, 2026-10-15, "Move all five (Recommended)"); the name and slot stay open there.
 16. **Tier reward.** [PROPOSAL] G2 adds the mockup's per-tier haul multiplier (I 1, II 1.25, III 1.5, IV 1.8, V 2.2,
     VI 2.7, VII 3.3); relic odds stay G3. Alt: leave all reward to G3 and the balance pass (higher tiers would pay the
     same haul for a week's trip).
+    **ANSWERED** (G16, 2026-10-16): "Haul x1 to x3.3 now (Recommended)".
 17. **Bodies per tier.** [PROPOSAL] Tier I keeps 1 to 3; deeper tiers grow to the mockup's ranges (up to 3 to 5).
     Alt: 1 to 3 everywhere.
+    **ANSWERED** (G17, 2026-10-16): "Grows with tier (Recommended)".
 18. **Hazard by tier (Ground Ops balance finding).** [PROPOSAL] G2 caps Tier I and II body hazard so the unwinnable
     vault rolls cannot occur in the practice tiers. Alt: leave hazard to planet type and solve it in the ground fight.
     **ANSWERED** (safe first runs plan, USER ANSWERS 2026-10-16, SF7): "Cap by tier (Recommended)": enemies read hazard
@@ -626,35 +654,52 @@ names in game text (the Wolf 359 nod stays original).
     Built by SF-3 (runDifficulty.ts `encounterHazard`), not in G2. Marked at the SF-7 close-out (2026-11-02).
 19. **Set and forget.** [PROPOSAL] no "Repeat in this region" in 0.14.0 (your #8: "needs additional figuring out").
     Alt: Repeat for Tiers I and II only.
+    **ANSWERED** (G19, 2026-10-16): "Not in 0.14.0 (Recommended)".
 20. **Drive class wording.** [PROPOSAL] "Class IV drive", Roman numerals, no franchise "warp" term. Alt: a decimal
     speed rating shown on a compressive scale (your Warp 9.995 example, in our own words).
+    **ANSWERED** (G20, 2026-10-16): "Class IV drive" (Recommended).
 21. **Tier III vs IV distance.** [PROPOSAL] keep the approved ladder; a Tier IV trip is longer than Tier III though
     Sagittarius is nearer (tiers are difficulty, distance shifts time only inside a tier). Alt: Tier IV trips run
     shorter.
+    **ANSWERED** (G21, 2026-10-16): "Tiers set the time (Recommended)".
 
 ## 5. QA list (desktop 1280 px and mobile 375 px)
+
+Refreshed at the G2-9 close-out (2026-11-11); the full sheet is `docs/qa/2026-11-11-g2-expedition-tiers-qa.html`.
 
 1. Fresh save: the console shows seven region tabs; Tier I ready; II to VII say the first unmet gate in plain words.
 2. Tier I candidate: region, distance from your homeworld, about 2 h one-way (by its band position), reach bar met.
 3. Two fresh saves show different homeworld positions and different distances; the telescope map badges sit in their
    bands with nothing overlapping, at Levels 1 and 8, at 375 px.
 4. An existing save loads (v69 -> v70); an expedition already in flight finishes exactly as before.
-5. Install a Class II drive: Tier II opens if reach and sensors allow; transit reads about 4 h; a Class III drive
-   halves it.
-6. A small-tank combat hull with a Class II drive: "Beyond this ship's reach" with both numbers.
+5. Install a Class II drive: Tier II opens if reach allows (CP-14 retired the Tier II sensor gate: Tiers I and II ask
+   for no frontier sensors); transit reads about 4 h; a Class III drive halves it.
+6. An explorer with a short range (a small tank) and a Class II drive, on a far Tier II system: "Beyond this ship's
+   reach" with both numbers. (A combat hull never gets that far: it reads "not an explorer" first.)
 7. Seat an Engineering officer with Constitution: the reach bar grows on long voyages only.
-8. Frontier sensors: a ship below the tier's threshold is refused with the number; above it, allowed.
+8. Frontier sensors (Tier III and deeper): a ship below the tier's threshold is refused with the number; above it,
+   allowed.
 9. Blind launch to a tier beyond the telescope: the existing warning appears; the launch proceeds.
-10. Recall mid-transit at 40%: return time equals the time flown; the ship arrives home; claim frees the captain.
+10. Recall mid-transit at 40%: the return is 40% of the return leg (a share of the return leg, so Fast Return crew
+    shorten it); the ship arrives home; claim frees the captain.
 11. Recall during ground work: teams come up, the return starts after the pickup, finished work is in the claim,
     an objective at 60% shows its progress logged.
 12. Recall refused while already returning.
-13. Wolf 359 appears in the first Tier I list after the shakedown; its nod triggers once.
-14. Mission and patrol eligibility unchanged for every ship (LY numbers may read larger if call 4 A is chosen).
+13. Wolf 359 appears in the first Tier I list after the first run; its nod triggers once.
+14. Mission and patrol eligibility unchanged for every ship; LY readouts are not rescaled (approved 2026-10-21).
 15. Help: the Expedition Tiers topic, the telescope topic (says where to upgrade), the fuel topic; no em dash, no
     "task", no "fit", Roman numerals everywhere a tier shows.
-16. After G2-8: burn cells at dispatch, outbound halves, maintenance blocks the next launch with a countdown.
+16. G2-8 (antimatter burn, maintenance) moved to 0.14.x: nothing to check in 0.14.0.
 17. Regression: Ground Ops runs, affixes, field repair, telescope card, recommendation and forecast at Tier I.
+18. (G2-9) Launch to a held system: every tier's list on screen stays the same, Wolf 359 included.
+19. (G2-9) A system recalled before arrival is a candidate again until the next launch from the list, then rolls off;
+    a resumable system stays until finished or abandoned.
+20. (G2-9) Recall a resumed run before it arrives: the confirm says the charted bodies stay as they were and the
+    system stays open (never "Nothing has been charted yet").
+21. (G2-9) Telescope map: each hatched slice carries its Roman numeral (III and IV told apart); the Tier VI and VII
+    slices point toward the drawn Galactic Core; readable at 375 px.
+22. (G2-9) Roman numerals everywhere a tier shows: research headers, gear and blueprint tiers, hull tooltips, warehouse
+    tiers, Overtime pricing, Short-Range, expeditions.
 
 ## 6. Scope and size (honest)
 
@@ -756,3 +801,28 @@ rolls off with the next list draw (fix, no new call).
   Tier VI and VII slices aimed toward the drawn core.
 - Roman numeral scope: "Everything (Recommended)": every tier anywhere in the game shows as Roman numerals (research,
   gear, blueprints, expeditions).
+
+**G2-9 fix pass carry note (built 2026-11-11, on top of 523faa86).**
+- List clock: `expedition.ts listDraws` = dispatches less `GameState.heldLaunches` (new optional key, written only by a
+  held launch; absent reads 0, so no load step and no SAVE bump). A held launch leaves every tier's list deep-equal and a
+  veteran's `wolf359List` stamp matched (`expeditionRecall.test.ts`, proven to fail with the count switched off).
+- Returned candidates: a dispatch FROM THE LIST drops every `heldSystems` record of kind "candidate" (it rolls off with
+  the list); resume records stay. Confirm text: "goes back to the Tier N candidates until you next launch to a system on
+  the list". Help RESUME line: "...a candidate again, until the next fresh list is drawn".
+- Recall confirm in transit: a run holding charted bodies (a resumed run) says "Nothing new is charted on this trip; the
+  bodies charted before and the objectives' progress stay as they were." and, held "resume", that it stays open.
+- Map: each drawn sector carries `label` (telescopeCardDisplay.ts `placeSectorLabels`, `SECTOR_LABEL_SIZE` 8.5, the
+  badge numerals' size): the first clear spot inside the slice (preferring one no other tier's slice covers), else just
+  outside it (up to `SECTOR_LABEL_BESIDE_PX`); tested over 200 homeworlds at every level. Sectors: galaxy.ts
+  `CORE_AIMED_SECTOR_TIERS` [6, 7] place the slice from the same draw so `coreBearingFrom(home)` lies in its middle
+  half (draws unchanged; Tiers II to V untouched). Derived from the seed, so old saves get it on load; frozen run stamps
+  and held records keep their flags.
+- Numerals: galaxy.ts `tierNumeral` is the one formatter (`regionTierNumeral`, `driveClassNumeral`,
+  `shortRangeTierNumeral`, relics, captain firsts and relic icons read it); App.svelte research headers, gear iLevel rows,
+  blueprint tier pickers, Lab / Fabricator "unlocks Tier N blueprints", warehouse tiers and note, the hull tooltip,
+  Overtime pricing and its Help line, an item hint. Facility LEVELS stay numbers; mission tiers were already numerals.
+- Registry: new LIVE `expedition:audit:enemyTerritory` (probe `consoleCombatGrade`, transform `withEnemySectorPick`);
+  `away:audit:tierDormant` no longer claims enemy territory. `g29Registry.fixture.ts g29ReadBack` (innermost in the six
+  registry pin chains) holds both apart.
+- Goldens: no game pin moved; only the registry chains gained the read-back. The two officer Ground Ops pins failing at
+  523faa86 are pre-existing (WR-8b; feat's baa81fb2 traces them).
