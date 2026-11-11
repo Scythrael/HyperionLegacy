@@ -1052,3 +1052,16 @@ describe("HELP_TOPICS: retirement and the Hall of Command (CP-16)", () => {
     expect(b).not.toMatch(/\u2014|-{2}|\bfit/);
   });
 });
+
+// Complement plan CP-4's rest (user 2026-11-10 "Build it"): the patrol topic names Deck Handling's drone rebuild and the
+// Flight Deck's Integrity lift below half hull, both set per patrol cycle; fix round (user 2026-11-11 "Flight Deck's own
+// only"): the lift is on the Flight Deck's own Deck Handling.
+describe("Combat Patrols: the drone rebuild between waves", () => {
+  it("names Deck Handling and the Flight Deck's Integrity below half hull", () => {
+    const b = HELP_TOPICS.find((t) => t.id === "patrols")!.body;
+    expect(b).toContain("lost drones rebuild between waves");
+    expect(b).toContain("while the hull is below half, the Flight Deck's Integrity");
+    expect(b).toContain("makes the Flight Deck's own Deck Handling stronger");
+    expect(b).not.toMatch(/\u2014|-{2}|\bfit/);
+  });
+});

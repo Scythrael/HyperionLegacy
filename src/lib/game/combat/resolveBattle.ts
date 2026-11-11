@@ -57,6 +57,8 @@ import {
 	replenishDrones,
 	supportCleanse,
 	REPLENISH_PPM,
+	deckHandlingPpmNow,
+	hullBelowHalf,
 } from "./droneDefense";
 import type { Defender } from "./droneDefense";
 import { makeRng, makeStreams, type Rng } from "./rng";
@@ -2954,8 +2956,10 @@ export function resolveBattle(
 				// it exact integer, releasing whole progress units and carrying the rest.
 				// 0.14.0 (CP-4, OC-1): a squadron with Deck Handling banks in parts per million too, so its
 				// rate x (1 + deckHandling) releases exact whole units; without it the original bank, unchanged.
+				// CP-4's rest (user 2026-11-10 "Build it"): below half hull, the squadron's Flight Deck Integrity rate
+				// (deckHandlingSteadyPpm) when it carries one, the same ppm unit, so the bank is unchanged in kind.
 				const key = `${self.id}:${squadron.id}`;
-				const ppm = squadron.deckHandlingPpm ?? 0;
+				const ppm = deckHandlingPpmNow(squadron, hullBelowHalf(self.hull, self.hullMax));
 				const scale = ppm > 0 ? REPLENISH_PPM + ppm : 1;
 				const unit = 100 * TENTHS_PER_SECOND * (ppm > 0 ? REPLENISH_PPM : 1);
 				const banked =

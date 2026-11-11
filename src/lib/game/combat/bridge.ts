@@ -618,11 +618,14 @@ export function defaultDronesForHull(hullType: CombatHullType, idPrefix: string)
 // Commander, Wolfpack) shape the seeded screen (combat/captainEdge.ts applyCaptainDrones). Absent = unchanged.
 // 0.14.0 (CP-4, OC-1): `deckHandling` is the cycle's frozen Deck Handling (PatrolMissionState.deckHandling), folded
 // after the captain's nodes (applyDeckHandling). Absent or 0 = unchanged.
+// 0.14.0 (CP-4's rest): `deckHandlingSteady` is the cycle's frozen Flight Deck Integrity lift
+// (PatrolMissionState.deckHandlingSteady), the Deck Handling it adds below half hull. Absent or 0 = unchanged.
 export function installedDronesForPatrol(
   installedGear: EquipmentInstance[],
   idPrefix: string,
   captainCombat?: CaptainCombatMods,
   deckHandling?: number,
+  deckHandlingSteady?: number,
 ): DroneSquadron[] {
   return applyDeckHandling(
     applyCaptainDrones(
@@ -632,6 +635,7 @@ export function installedDronesForPatrol(
       captainCombat,
     ),
     deckHandling,
+    deckHandlingSteady,
   );
 }
 
@@ -650,10 +654,20 @@ export function withReplenishCarry(squadrons: DroneSquadron[], carries: readonly
   return squadrons.map((sq, i) => ((carries[i] ?? 0) > 0 && (sq.deckHandlingPpm ?? 0) > 0 ? { ...sq, replenishCarryPpm: carries[i] } : sq));
 }
 
-export function applyDeckHandling(squadrons: DroneSquadron[], deckHandling: number | undefined): DroneSquadron[] {
+// 0.14.0 (complement plan CP-4's rest, user 2026-11-10 "Build it"; plan: "it takes the Flight Deck Integrity facet when
+// below half hull"): `steady` is the Deck Handling the Flight Deck's Integrity adds below half hull, the facet x the
+// Flight Deck's OWN Deck Handling (crewOverlay.ts shipFlightDeckIntegrityDeckHandling; fix round, user 2026-11-11
+// "Flight Deck's own only": Deck Handling from other seats, other departments or the captain is not lifted). Like every
+// Integrity row, the department's own buff gains the facet while the ship is below half hull: each squadron also
+// carries the rate it banks at then, Deck Handling + steady, in parts per million (deckHandlingSteadyPpm;
+// droneDefense.ts replenishUnits and resolveBattle pick it while hull x 2 < hull max). It only lifts a Deck Handling
+// already aboard: without Deck Handling there is nothing to lift, and the stamp is written only when it is above the
+// plain rate. [PROVISIONAL] magnitude: the facet's first-pass 1% per point above 10.
+export function applyDeckHandling(squadrons: DroneSquadron[], deckHandling: number | undefined, steady?: number): DroneSquadron[] {
   const ppm = Math.round((deckHandling ?? 0) * REPLENISH_PPM);
   if (!(ppm > 0) || squadrons.length === 0) return squadrons;
-  return squadrons.map((sq) => ({ ...sq, deckHandlingPpm: ppm }));
+  const steadyPpm = (steady ?? 0) > 0 ? Math.round(((deckHandling ?? 0) + (steady ?? 0)) * REPLENISH_PPM) : 0;
+  return squadrons.map((sq) => ({ ...sq, deckHandlingPpm: ppm, ...(steadyPpm > ppm ? { deckHandlingSteadyPpm: steadyPpm } : {}) }));
 }
 
 // defaultSystemDurabilityForHull: build a combat hull's FULL (no-wear) per-system durability

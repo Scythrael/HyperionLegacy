@@ -140,7 +140,7 @@ import type { WeaponId } from "../combat/weapons";
 import { fireWeapon, resolveBattle } from "../combat/resolveBattle";
 import { makeWeaponInstance } from "../combat/weapons";
 import { makeSquadron } from "../combat/drones";
-import { replenishUnits } from "../combat/droneDefense";
+import { recoverPatrolDrones, replenishUnits } from "../combat/droneDefense";
 import { generateEnemyWave } from "../combat/enemyWave";
 import type { PirateHullId } from "../combat/enemyHulls";
 import { STATUS_EFFECT_DEFS, activeStatDelta, applyEffect, tickEffects } from "../combat/statusEffects";
@@ -721,6 +721,29 @@ function patrolReplenishShare(s: GameState): number {
   let units = 0;
   for (let t = 0; t < REPLENISH_PROBE_TICKS; t++) units += replenishUnits(sq);
   return units / (REPLENISH_PROBE_TICKS * first.droneReplenishRate);
+}
+
+// 0.14.0 (CP-4's rest, user 2026-11-10 "Build it"): the Deck Handling extra the dispatched cycle's first squadron banks
+// BELOW half hull over the extra it banks above it, a drone destroyed, through the consumer: 1 + the Flight Deck's
+// Integrity facet x the Flight Deck's own share of the Deck Handling (user 2026-11-11 "Flight Deck's own only"). 0 when
+// the cycle fields no squadron or carries no Deck Handling.
+// Fix round: driven through the live loop's own recovery step (droneDefense.ts recoverPatrolDrones) at the cycle's real
+// hull pool, full against one point below half (a fresh cycle starts at its folded hull max), so a hull read that never
+// fires reads 1 and fails the row. One drone held far below a rebuild counts every unit paid.
+const STEADY_PROBE_FLOOR = -1e15;
+function patrolReplenishSteadyLift(s: GameState): number {
+  const m = dispatchedPatrol(s);
+  const first = m.playerDrones[0];
+  if (!first || first.droneReplenishRate <= 0 || first.drones.length === 0) return 0;
+  const hullMax = m.playerHull;
+  const extra = (hull: number): number => {
+    const drone = { ...first.drones[0], alive: false, status: "refabricating" as const, refabProgress: STEADY_PROBE_FLOOR };
+    const sq: DroneSquadron = { ...first, replenishCarryPpm: 0, drones: [drone] };
+    for (let t = 0; t < REPLENISH_PROBE_TICKS; t++) recoverPatrolDrones([sq], hull, hullMax);
+    return sq.drones[0].refabProgress - STEADY_PROBE_FLOOR - REPLENISH_PROBE_TICKS * first.droneReplenishRate;
+  };
+  const above = extra(hullMax);
+  return above > 0 ? extra(Math.ceil(hullMax / 2) - 1) / above : 0;
 }
 
 // WR-5b: the mean damage of 1,000 raw-100 projectiles from the combatant's first weapon (Alpha Strike's opening shot
@@ -2139,6 +2162,11 @@ export const PROBES = {
   // (droneDefense.ts replenishUnits, Deck Handling banked), as a share of its plain rate over REPLENISH_PROBE_TICKS
   // ticks with every drone down: 1 + deckHandling, within one banked unit over the span.
   patrolReplenishShare: { label: "replenishUnits over a long recovery / (ticks x droneReplenishRate): 1 + Deck Handling", read: (s) => patrolReplenishShare(s) },
+  // 0.14.0 (CP-4's rest): the Flight Deck's Integrity on that replenish, below half hull against above it.
+  patrolReplenishSteadyLift: {
+    label: "recoverPatrolDrones' Deck Handling extra below half hull / above it, over a long recovery: 1 + the Flight Deck's Integrity x its own share",
+    read: (s) => patrolReplenishSteadyLift(s),
+  },
   battleDroneSquadrons: { label: "the squadron count: the patrol cycle's seed / the ship-event combatant", read: (s, ctx) => battleDrones(s, ctx).length },
   patrolRewardMult: {
     label: "patrolWaveRewardMult(0, the dispatched cycle's captainCombat): a won wave's loot and credit factor",

@@ -48,6 +48,7 @@ import {
   patrolLegTicksFor,
   patrolLegTicksForStats,
   PATROL_RUN_CLOCK_SWITCH,
+  CP4_FLIGHT_DECK_INTEGRITY_SWITCH,
   patrolRouteOf,
   patrolRouteTicks,
   type PatrolLegTicks,
@@ -310,7 +311,7 @@ import type { CombatStance } from "./combat/positioning";
 // the carry-state squadron shape the deep-clone helper preserves.
 import { generateEnemyWave } from "./combat/enemyWave";
 import { resolveBattle } from "./combat/resolveBattle";
-import { replenishDrones, replenishUnits } from "./combat/droneDefense";
+import { recoverPatrolDrones } from "./combat/droneDefense";
 import type { DroneSquadron } from "./combat/drones";
 // Combat 0.13.0 (Phase 12b-1): the SHARED per-wave leaves. buildPatrolPlayerCombatant
 // builds the wave's player combatant from the carry-state; regenPatrolShield is the
@@ -389,6 +390,7 @@ import {
   shipRepairSpeedBonus,
   shipCrewContribution,
   shipDeckHandling,
+  shipFlightDeckIntegrityDeckHandling,
   shipCombatRulesStamp,
   hullSensorsStamp,
   type OfficerCombatEntry,
@@ -3406,6 +3408,8 @@ export function tickCaptainPatrol(
     homeGuardShield?: number;
     // 0.14.0 (CP-4, OC-1): the crew's Deck Handling a relaunch freezes onto its new cycle (0 / absent = none).
     deckHandling?: number;
+    // 0.14.0 (CP-4's rest): the Flight Deck's Integrity lift a relaunch freezes onto its new cycle (0 / absent = none).
+    deckHandlingSteady?: number;
     // WR-8 (0.14.0): the combat rules stamp a relaunch freezes onto its new cycle (crewOverlay.ts shipCombatRulesStamp:
     // the ship's combat speed now). Absent = the new cycle is unstamped (a test call; the app always passes it).
     combatRules?: CombatRulesStamp;
@@ -3894,10 +3898,10 @@ export function tickCaptainPatrol(
         mission.playerShield,
         foldedDefense.shieldRecharge,
       );
-      for (const squadron of mission.playerDrones) {
-        // 0.14.0 (CP-4): plus the whole units the cycle's Deck Handling has banked (replenishUnits).
-        replenishDrones(squadron, replenishUnits(squadron));
-      }
+      // 0.14.0 (CP-4): plus the whole units the cycle's Deck Handling has banked (replenishUnits). CP-4's rest: below
+      // half hull (the folded pool the waves fight with; hull does not regen here, so it holds for the whole stretch) the
+      // cycle's Flight Deck Integrity lifts it. The shared step the display replay takes (recoverPatrolDrones).
+      recoverPatrolDrones(mission.playerDrones, mission.playerHull, foldedDefense.hullMax);
     }
 
     // Keep the persisted coarse phase consistent with the route position (derive-and-store).
@@ -3996,6 +4000,8 @@ export function tickCaptainPatrol(
             captainCombat: patrolCaptainCombatMods(captain, officerEffects.homeGuardShield ?? 1),
             // 0.14.0 (CP-4, OC-1): and the crew's Deck Handling aboard now (economyTick's live read).
             deckHandling: officerEffects.deckHandling ?? 0,
+            // CP-4's rest: and the Flight Deck's Integrity aboard now, its lift below half hull.
+            deckHandlingSteady: officerEffects.deckHandlingSteady ?? 0,
             // and the Deck Handling bank its squadrons had not paid out yet, carried into the new cycle.
             replenishCarry: cur.playerDrones.map((sq) => sq.replenishCarryPpm ?? 0),
             // E-CREW (Task 21): Engineering's Cunning roll for the new cycle, keyed on its own masterSeed.
@@ -4858,6 +4864,9 @@ export function economyTick(
                 homeGuardShield: homeGuardPatrolShieldMult(state),
                 // 0.14.0 (CP-4): Deck Handling, for the next cycle's frozen record (0 without the key).
                 deckHandling: shipDeckHandling(state, patrolShip, patrolHullBonus),
+                // CP-4's rest: and the Flight Deck's Integrity lift below half hull, on its own Deck Handling only (user
+                // 2026-11-11 "Flight Deck's own only"; 0 without the facet).
+                deckHandlingSteady: shipFlightDeckIntegrityDeckHandling(state, patrolShip, patrolHullBonus),
                 // WR-8: the combat rules and combat speed, for the next cycle's frozen record.
                 combatRules: shipCombatRulesStamp(state, patrolShip, patrolFavored, patrolHullBonus),
                 // WR-7 follow-up OC-D8: the transit speed the next cycle freezes its legs at (the sheet the fuel reads).
@@ -6273,6 +6282,10 @@ function freshPatrolMission(args: {
   // 0.14.0 (CP-4, OC-1 "Faster drone replenish"): the cycle's Deck Handling (crewOverlay.ts shipDeckHandling: the
   // Flight Deck buff + the Belter racial), folded into the seeded screen's replenish rate. Stored only when > 0.
   deckHandling?: number;
+  // 0.14.0 (CP-4's rest, user 2026-11-10 "Build it"): the cycle's Flight Deck Integrity lift (crewOverlay.ts
+  // shipFlightDeckIntegrityDeckHandling: the facet x the Flight Deck's own Deck Handling), the Deck Handling it adds
+  // below half hull. Stored only when > 0, the Deck Handling is stored, and the slice's switch is live.
+  deckHandlingSteady?: number;
   // 0.14.0 (CP-4): a relaunch's carried Deck Handling bank, squadron by squadron (bridge.ts withReplenishCarry). Stored
   // as replenishCarryStart only when one is > 0, so the display replay seeds the same bank.
   replenishCarry?: readonly number[];
@@ -6302,6 +6315,8 @@ function freshPatrolMission(args: {
 }): PatrolMissionState {
   const { patrolKey, stance, masterSeed, repeatDispatch, shipDef, hullType, installedGear, officerCombat, captainCombat } = args;
   const deckHandling = args.deckHandling ?? 0;
+  // CP-4's rest: the facet acts only on a Deck Handling aboard (the test switch off: never stamped).
+  const deckHandlingSteady = CP4_FLIGHT_DECK_INTEGRITY_SWITCH.live && deckHandling > 0 ? args.deckHandlingSteady ?? 0 : 0;
   const freeRepairTicks = args.freeRepairTicks ?? 0;
   const returnCutTicks = args.returnCutTicks ?? 0;
   // factionId + wave params BOTH come from this one def lookup (no caller-passed def that
@@ -6320,8 +6335,8 @@ function freshPatrolMission(args: {
   // cycle's Deck Handling speeds its replenishment (unchanged at 0).
   const playerDrones = withReplenishCarry(
     installedGear
-      ? installedDronesForPatrol(installedGear, `patrol-${masterSeed}-p`, captainCombat, deckHandling)
-      : applyDeckHandling(applyCaptainDrones(defaultDronesForHull(hullType, `patrol-${masterSeed}-p`), captainCombat), deckHandling),
+      ? installedDronesForPatrol(installedGear, `patrol-${masterSeed}-p`, captainCombat, deckHandling, deckHandlingSteady)
+      : applyDeckHandling(applyCaptainDrones(defaultDronesForHull(hullType, `patrol-${masterSeed}-p`), captainCombat), deckHandling, deckHandlingSteady),
     args.replenishCarry,
   );
   const replenishCarryStart = playerDrones.map((sq) => sq.replenishCarryPpm ?? 0);
@@ -6331,6 +6346,8 @@ function freshPatrolMission(args: {
     // 0.14.0 (CP-4): stored only when it acts: some Deck Handling aboard AND a drone screen to replenish (a destroyer
     // or battleship cycle carries no squadron, so its record is unchanged).
     ...(deckHandling > 0 && playerDrones.length > 0 ? { deckHandling } : {}),
+    // CP-4's rest: stored beside it, only when the facet is > 0 and the Deck Handling it lifts is stored.
+    ...(deckHandlingSteady > 0 && playerDrones.length > 0 ? { deckHandlingSteady } : {}),
     ...(replenishCarryStart.some((c) => c > 0) ? { replenishCarryStart } : {}),
     ...(freeRepairTicks > 0 ? { freeRepairTicks } : {}),
     ...(returnCutTicks > 0 ? { returnCutTicks } : {}),
@@ -6802,6 +6819,9 @@ export function dispatchCaptainOnPatrol(
     returnCutTicks,
     // 0.14.0 (CP-4, OC-1 "Faster drone replenish"): freeze the crew's Deck Handling onto the first cycle (0 = none).
     deckHandling: shipDeckHandling(state, ship),
+    // CP-4's rest (user 2026-11-10 "Build it"): and the Flight Deck's Integrity lift below half hull, on its own Deck
+    // Handling only (user 2026-11-11 "Flight Deck's own only"; 0 = none).
+    deckHandlingSteady: shipFlightDeckIntegrityDeckHandling(state, ship),
     // Safe first runs SF-4: read above.
     difficulty,
     // WR-8: the first cycle starts under the combat rules at the ship's combat speed now.

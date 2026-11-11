@@ -79,7 +79,7 @@ import { damageControlEffect } from "../utilityGear";
 import { captainWaveRegenFraction } from "../captainTacticianEffects";
 import { generateEnemyWaveDetailed } from "./enemyWave";
 import { resolveBattle } from "./resolveBattle";
-import { replenishDrones, replenishUnits } from "./droneDefense";
+import { recoverPatrolDrones } from "./droneDefense";
 import { PIRATE_HULLS, type PirateHullId } from "./enemyHulls";
 import type {
   Combatant,
@@ -319,10 +319,9 @@ export function resolvePatrolWaves(input: ResolvePatrolWavesInput): ResolvePatro
     const recoveryTicks = routeTick - prevWaveTick - 1;
     for (let r = 0; r < recoveryTicks; r++) {
       carryShield = regenPatrolShield(foldedDefense.shieldMax, carryShield, foldedDefense.shieldRecharge);
-      for (const squadron of carryDrones) {
-        // 0.14.0 (CP-4): the same banked Deck Handling the live loop pays (replenishUnits).
-        replenishDrones(squadron, replenishUnits(squadron));
-      }
+      // 0.14.0 (CP-4): the same banked Deck Handling the live loop pays, with its Flight Deck Integrity below half hull
+      // (CP-4's rest): the live loop's own step (recoverPatrolDrones; the hull does not regen between waves).
+      recoverPatrolDrones(carryDrones, carryHull, foldedDefense.hullMax);
     }
 
     // E4d: the Damage Control Suite's between-wave hull patch-up, the SAME shared leaf at the SAME point
@@ -526,7 +525,11 @@ export function resolveMissionCycle(
   // WR-5b: the cycle's frozen captain record shapes the seeded screen exactly as freshPatrolMission did.
   const captainCombat = mission.captainCombat;
   // 0.14.0 (CP-4, OC-1): and the cycle's frozen Deck Handling, exactly as freshPatrolMission seeded the live screen.
-  const startDrones = withReplenishCarry(installedDronesForPatrol(installedGear, `patrol-${mission.masterSeed}-p`, captainCombat, mission.deckHandling), mission.replenishCarryStart);
+  // CP-4's rest: with the cycle's frozen Flight Deck Integrity (absent on a cycle without it: unchanged).
+  const startDrones = withReplenishCarry(
+    installedDronesForPatrol(installedGear, `patrol-${mission.masterSeed}-p`, captainCombat, mission.deckHandling, mission.deckHandlingSteady),
+    mission.replenishCarryStart,
+  );
 
   // Combat-defense BLOCKER fix (2026-08-27): the FULL hull/shield start pools folded from the ship's
   // INSTALLED gear (the SAME pool the wave combatant fights with, and the SAME seed freshPatrolMission

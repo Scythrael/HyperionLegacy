@@ -1177,6 +1177,12 @@ export const WR10_SWITCH = { live: true };
 // Always live in the game.
 export const WR9_SWITCH = { live: true };
 
+// Test switch only (the same pattern, complement plan CP-4's rest, user 2026-11-10 "Build it"): off, a patrol cycle
+// freezes no Flight Deck Integrity lift on its Deck Handling (PatrolMissionState.deckHandlingSteady), so its drones replenish
+// at the same rate above and below half hull, and a golden can show that the pins the facet moved return. Always live in
+// the game.
+export const CP4_FLIGHT_DECK_INTEGRITY_SWITCH = { live: true };
+
 // Test switch only (the same pattern, OC-D8 follow-up): off, a cycle freezes its legs at the sweeping speed alone (the
 // rule before Fast Departure / Fast Return reached patrols), so a golden can show that the pins the lifts moved return.
 // Always live in the game.
@@ -4225,6 +4231,16 @@ export interface PatrolMissionState {
   // with, carried over from the cycle before at a relaunch, so the display replay seeds the same bank. OPTIONAL,
   // written only when one is > 0.
   replenishCarryStart?: number[];
+  // 0.14.0 (complement plan CP-4's rest, user 2026-11-10 "Build it"): the Deck Handling the Flight Deck's INTEGRITY
+  // adds below half hull, FROZEN when this cycle starts beside deckHandling: the department's facet (officerStats.ts
+  // departmentFacet: the Pilot's, plus the XO's share) x the Flight Deck's OWN Deck Handling (its crew and the Pilot;
+  // fix round, user 2026-11-11 "Flight Deck's own only": crewOverlay.ts shipFlightDeckIntegrityDeckHandling). While the
+  // ship is below half hull its Deck Handling is deckHandling + it, so a carrier's drones rebuild faster when it is badly
+  // hurt. Seeded onto the squadrons as DroneSquadron.deckHandlingSteadyPpm (combat/bridge.ts applyDeckHandling), read
+  // the same way by the live loop and the display replay. OPTIONAL, written only when > 0 AND deckHandling is (no
+  // SAVE_VERSION bump): a cycle without it, or one in flight from before it, replenishes as before.
+  // [PROVISIONAL] magnitude: the facet's first-pass 1% per point above 10.
+  deckHandlingSteady?: number;
   // E-CREW 0.14.0 (Task 21): the Engineering department's CUNNING over-delivery for THIS cycle ("a free
   // repair tick"), rolled when the cycle starts (dispatch / relaunch) from the cycle's masterSeed on its own
   // keyed stream (officerStats.ts cunningProc) and frozen here. If the cycle ends in defeat, the limp-home
