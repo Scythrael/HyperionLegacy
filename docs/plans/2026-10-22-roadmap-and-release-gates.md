@@ -91,20 +91,23 @@ Both wrinkles above are fixed at the source (`src/lib/game/canonicalOrder.ts`). 
 captain over the whole call before the next, then processes and the other passes, so a big call meets captain 1's later
 find (or first completion) before captain 2's earlier one; 1 s steps meet them in time order. Fix: `discovered` and the
 four lifetime tally maps (itemsGathered, itemsRefined, itemsCrafted, missionsCompleted) are re-sorted into canonical
-(code unit) order whenever an entry is ADDED (addToInventory, the carried field kits' return, the lifetime fold, the
-refine and fabricate tallies). Sorting at insert rather than first-seen time order: time order would need the exact game
+(code unit) order whenever an entry is ADDED (addToInventory, a salvage payout's reveal, the carried field kits'
+return, the lifetime fold, the refine and fabricate tallies). Sorting at insert rather than first-seen time order: time order would need the exact game
 second of every grant from every pass, and two events inside one live step would still tie; nothing reads either list's
 order (the UI reads `discovered` as a set, the tallies by key or as a sum). Values unchanged; old saves load as they are
 (no reorder on load, no SAVE_VERSION bump), and their first new entry sorts the whole list the same way in every
-chunking. The first-find relic registry (`relicDiscovered`) is not touched. Goldens first: `orderingGoldens.*` (pins
+chunking. The first-find relic registry (`relicDiscovered`) is not touched: the relic study lanes already deposit it in
+completion order in every chunking (a parity case proves it). Goldens first: `orderingGoldens.*` (pins
 captured on 2c66d749), switch `orderingSwitch.fixture.ts`, parity `orderingParity.test.ts` (one call == 997 s chunks ==
-1 s steps, byte for byte); `cp16HallOfCommand` and `cp14HullSensors` no longer normalize order. 48 older golden files
+1 s steps, byte for byte); `cp16HallOfCommand`, `cp14HullSensors` and `emodEm4` no longer normalize `discovered`. 48 older golden files
 moved; each now runs with the slice off (`canonicalOrderOffForThisFile`), and a trace run (every JSON.stringify seen
 with these lists in canonical order, slice on against off) matched hash for hash in all of them except save stamps that
 also differ between two runs with the slice on.
 Still open, same family: the key ORDER of `inventory` differs between chunkings when one call meets two new items in
 another order (shortRangeCycle, refugeeGoldens and emodEm4 parity tests sort object keys for it); a fix would put
-inventory keys in canonical order and move most whole-state goldens, so it needs its own call. NOT fixed, different
+inventory keys in canonical order and move most whole-state goldens, so it needs its own call. Also found: the
+completion log lists relic studies that finish inside one call in process array order, 1 s steps in completion order
+(a player-visible list, so its fix wants the completion time order, not a sort). NOT fixed, different
 family: one economyTick call spends one transit berth budget (the EM-4 precedent), so a call spanning more homecomings
 than the free berths differs in VALUES (a 4 hour one-call run of two captains lands 10 long-run cycles instead of 60);
 making it chunk-independent needs a time-ordered berth scheduler across captains. Production and the offline catch-up

@@ -15,6 +15,10 @@
 // Re-sorting the WHOLE list or map whenever an entry is added (rather than only placing the new entry) also makes an
 // older save in first-seen order land on the same order however the time after it is cut: the first addition in any
 // chunking sorts it. A save is loaded as it is (nothing reordered on load, no SAVE_VERSION bump). Pure: never mutates.
+//
+// The first-find relic registry (`relicDiscovered`) is left out: its writers inside economyTick (the relic study lanes,
+// tick.ts resolveRelicStudies) already deposit in completion order however the time is cut (orderingParity.test.ts),
+// and its other writers (a grant bundle in processSpeed.ts, the dev Museum grant) are single actions, not chunked time.
 
 // The test-only switch golden files use to prove what the slice moved (orderingSwitch.fixture.ts). With it OFF an
 // entry is appended in the order a call meets it: the game before the slice exactly.

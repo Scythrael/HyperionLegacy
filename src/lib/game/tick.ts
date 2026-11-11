@@ -13216,7 +13216,8 @@ export function resolveProcesses(
         // set). Covers the loot roll (a material salvage) and, harmlessly, the already-discovered
         // materials an equipment recycle refunds.
         for (const [itemId, qty] of Object.entries(resolved.recovered)) {
-          if (qty > 0 && !discovered.includes(itemId)) discovered = [...discovered, itemId];
+          // Ordering determinism (canonicalOrder.ts): a revealed item lands in canonical order.
+          if (qty > 0) discovered = withDiscovered(discovered, itemId);
         }
       }
       // resolved === null: a STALE or refused target (already salvaged, since installed,
