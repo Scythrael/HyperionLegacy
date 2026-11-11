@@ -2257,3 +2257,9 @@ stalls run 2 on 5 of 200 (2.5%, under the 5% bar: a margin of 5 runs); rank1si a
   that grows along the patrol ramp, and a ship-event torpedo chance that grows with expedition tier (gentle at Tier I).
   LOGGED for later: torpedoes (or an equivalent) on all ships at high tiers, and Safety Interlocks (SUGGESTIONS.md
   "SAFETY INTERLOCKS", the opt-in risk toggles; user: "Check documentation for the definition") raising enemy danger.
+- **USER ANSWERS (2026-11-10), WR-8b balance after the build** (veteran, Standard Issue, 200 seeds; Warband Balanced
+  wins Destroyer 15% to 8%, Battleship 88% to 72%, Carrier 38% to 20%; Defensive now the better pick for every hull):
+  - Warband difficulty: "Keep, tune in 0.16.0 (Recommended)". The measured numbers stand, all torpedo chances stay
+    [PROVISIONAL] for the 0.16.0 balancing patch. patrol-balance.test.ts must measure the live path honestly.
+  - Marauder 31.6% to 40% jump at 10 patrols: "Smooth it out (Recommended)": the 9th and 10th patrols step up like the
+    rest, ending at the same 40%.
