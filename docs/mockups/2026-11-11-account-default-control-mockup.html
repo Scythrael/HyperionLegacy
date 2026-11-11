@@ -1,0 +1,388 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Account default program for new hires (OC-F12 control)</title>
+<style>
+  /* Tokens copied from src/app.css (default cyan theme), the same set as the approved 2026-11-09 and 2026-11-10
+     mockups. Self-contained: no web fonts are loaded, so the font stacks fall back to system faces. */
+  :root {
+    color-scheme: dark;
+    --corner: 2px;
+    --color-bg-deep: #060a12; --color-bg-mid: #0a1120; --color-bg-raised: #0c1626;
+    --color-panel-bg: rgba(20, 40, 60, 0.32); --color-panel-bg-strong: rgba(103, 232, 249, 0.06);
+    --color-border: rgba(103, 232, 249, 0.18); --color-border-strong: rgba(103, 232, 249, 0.4);
+    --color-accent: #67e8f9; --color-accent-bright: #8ff0e0; --color-accent-rgb: 103, 232, 249;
+    --color-text-primary: #e6f4f8; --color-text-secondary: #8fa3ad; --color-text-dim: #628591;
+    --color-warning: #fbbf24; --color-warning-rgb: 251, 191, 36; --color-danger: #f87171; --color-success: #34d399; --color-success-rgb: 52, 211, 153;
+    --font-display: "Orbitron", "Segoe UI", sans-serif; --font-body: "Space Grotesk", "Inter", "Segoe UI", sans-serif; --font-mono: "JetBrains Mono", Consolas, monospace;
+    --text-3xs: 9px; --text-2xs: 10px; --text-xs: 11px; --text-sm: 12px; --text-md: 13px; --text-lg: 15px;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; }
+  body { background: var(--color-bg-deep); color: var(--color-text-primary); font-family: var(--font-body); font-size: 13px; line-height: 1.45; padding: 24px 16px 60px; overflow-x: hidden; }
+  .wrap { max-width: 1440px; margin: 0 auto; display: grid; grid-template-columns: minmax(0, 1fr); gap: 30px; min-width: 0; }
+  h1 { font-family: var(--font-display); font-size: 20px; letter-spacing: .08em; margin: 0 0 6px; }
+  .intro { margin: 0 0 6px; color: var(--color-text-secondary); max-width: 112ch; }
+  .intro b, .note b { color: var(--color-text-primary); }
+  .label { font-family: var(--font-display); font-size: 12px; letter-spacing: .18em; color: var(--color-accent); text-transform: uppercase; margin: 0 0 8px; }
+  .note { color: var(--color-text-secondary); font-size: 12px; margin: 8px 0 0; max-width: 112ch; }
+  .stage { border: 1px solid var(--color-border); border-radius: var(--corner); background: radial-gradient(900px 400px at 70% -10%, rgba(103,232,249,.07), transparent 60%), var(--color-bg-mid); padding: 18px 12px; overflow-x: auto; }
+  .pair { display: flex; gap: 18px; flex-wrap: wrap; align-items: flex-start; }
+  .frame-cap { font-family: var(--font-mono); font-size: 11px; color: var(--color-text-dim); margin: 0 0 6px; }
+  svg.g { width: 14px; height: 14px; flex: 0 0 auto; vertical-align: -2px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+  code { font-family: var(--font-mono); font-size: 11px; color: var(--color-accent-bright); }
+
+  table.jobs { border-collapse: collapse; font-size: 12px; width: 100%; max-width: 1200px; }
+  table.jobs th, table.jobs td { text-align: left; padding: 5px 10px 5px 0; border-bottom: 1px solid var(--color-border); vertical-align: top; }
+  table.jobs th { font-family: var(--font-mono); font-size: 10px; letter-spacing: .1em; text-transform: uppercase; color: var(--color-text-dim); font-weight: 400; }
+  table.jobs td { color: var(--color-text-secondary); }
+  table.jobs td b { color: var(--color-text-primary); font-weight: 500; }
+
+  /* App shell */
+  .shell { background: var(--color-bg-deep); border: 1px solid var(--color-border-strong); border-radius: var(--corner); box-shadow: 0 20px 60px rgba(0,0,0,.5); overflow: hidden; }
+  .shell.desk { width: 900px; }
+  .shell.phone { width: 375px; max-width: 100%; }
+  .topbar { display: flex; justify-content: space-between; align-items: center; padding: 10px 16px; border-bottom: 1px solid var(--color-border); font-family: var(--font-display); font-size: 12px; letter-spacing: .14em; gap: 8px; }
+  .topbar .res { font-family: var(--font-mono); font-size: 11px; color: var(--color-text-secondary); letter-spacing: 0; }
+  .crumb { padding: 8px 16px 0; font-family: var(--font-mono); font-size: 10.5px; letter-spacing: .12em; color: var(--color-text-dim); text-transform: uppercase; }
+  .crumb b { color: var(--color-accent-bright); font-weight: 600; }
+  .content { padding: 14px 16px 18px; display: flex; flex-direction: column; gap: 12px; background: var(--color-panel-bg); }
+  .phone .content { padding: 12px 10px; }
+  .phone .topbar { padding: 9px 12px; }
+  .phone .crumb { padding: 8px 12px 0; }
+  .ph-line { height: 7px; border-radius: 2px; background: rgba(var(--color-accent-rgb), .08); margin: 4px 0; }
+  .ph-cap { font-family: var(--font-mono); font-size: 9.5px; color: var(--color-text-dim); }
+  .ghost { opacity: .5; }
+
+  /* App.svelte section header */
+  .home-sec-hd { display: flex; align-items: center; gap: 8px; }
+  .home-sec-h { font-family: var(--font-display); font-size: var(--text-xs); letter-spacing: 0.09em; text-transform: uppercase; color: var(--color-text-secondary); white-space: nowrap; }
+  .home-sec-rule { flex: 1; height: 1px; background: var(--color-border); }
+
+  /* GambitEditorPanel.svelte (.ge-*) */
+  .ge { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+  .ge-pick { display: flex; flex-wrap: wrap; gap: 10px 16px; align-items: flex-end; }
+  .ge-field { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+  .ge-part-tag { font-family: var(--font-mono); font-size: var(--text-2xs); letter-spacing: .1em; text-transform: uppercase; color: var(--color-text-dim); display: inline-flex; gap: 4px; align-items: center; }
+  .ge-select { font: inherit; font-size: var(--text-sm); color: var(--color-text-primary); background: var(--color-bg-mid); border: 1px solid rgba(var(--color-accent-rgb), .3); border-radius: var(--corner); padding: 5px 8px; min-width: 150px; }
+  .ge-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+  .ge-chip { display: inline-flex; align-items: center; gap: 6px; padding: 5px 9px; font: inherit; font-size: var(--text-xs); color: var(--color-text-secondary); background: rgba(var(--color-accent-rgb), .05); border: 1px solid rgba(var(--color-accent-rgb), .18); border-radius: var(--corner); }
+  .ge-chip.active { border-color: var(--color-accent); background: rgba(var(--color-accent-rgb), .14); color: var(--color-text-primary); }
+  .ge-chip-name { color: var(--color-text-primary); }
+  .ge-chip-sub { font-size: var(--text-2xs); color: var(--color-text-dim); }
+  .ge-chip-mark { display: inline-flex; color: var(--color-accent); }
+  .ge-chip-mark.home { color: var(--color-warning); }
+  .badge { display: inline-flex; align-items: center; justify-content: center; min-width: 22px; height: 22px; padding: 0 4px; background: var(--color-bg-mid); border: 1px solid var(--color-border-strong); border-radius: var(--corner); color: var(--color-accent); font-family: var(--font-display); font-weight: 700; font-size: var(--text-xs); }
+  .ge-member-hd { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 10px; }
+  .ge-member-name { font-family: var(--font-display); font-size: var(--text-md); letter-spacing: .05em; }
+  .ge-current { font-size: var(--text-2xs); color: var(--color-text-dim); }
+  .ge-current b { color: var(--color-text-secondary); }
+  .ge-presets { display: flex; flex-direction: column; gap: 8px; padding-top: 8px; border-top: 1px solid rgba(var(--color-accent-rgb), .12); }
+  .ge-section-tag { font-family: var(--font-mono); font-size: var(--text-2xs); letter-spacing: .12em; text-transform: uppercase; color: var(--color-accent-bright); }
+  .ge-preset-row { display: flex; flex-wrap: wrap; gap: 6px; }
+  .ge-preset { display: inline-flex; align-items: center; gap: 4px; padding: 6px 12px; font: inherit; font-size: var(--text-xs); color: var(--color-text-secondary); background: rgba(var(--color-accent-rgb), .06); border: 1px solid rgba(var(--color-accent-rgb), .18); border-radius: 999px; }
+  .ge-preset.active { border-color: var(--color-accent); background: rgba(var(--color-accent-rgb), .16); color: var(--color-text-primary); font-weight: 700; }
+  .ge-squad-row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; }
+  .ge-action-btn { flex: 0 0 auto; padding: 7px 14px; font: inherit; font-size: var(--text-sm); color: var(--color-text-primary); background: rgba(var(--color-accent-rgb), .1); border: 1px solid rgba(var(--color-accent-rgb), .4); border-radius: var(--corner); display: inline-flex; gap: 6px; align-items: center; cursor: pointer; white-space: nowrap; }
+  .ge-action-btn:disabled { opacity: .45; cursor: not-allowed; }
+  .ge-action-btn.quiet { background: none; color: var(--color-text-secondary); }
+  .ge-note { margin: 0; font-size: var(--text-2xs); color: var(--color-text-dim); line-height: 1.5; min-width: 0; flex: 1 1 200px; }
+  .ge-note b { color: var(--color-text-secondary); font-weight: 500; }
+  .ge-notice { margin: 0; padding: 8px 10px; border-radius: 6px; font-size: var(--text-xs); line-height: 1.5; color: var(--color-text-secondary); border: 1px dashed rgba(var(--color-accent-rgb), .3); }
+  .ge-notice.struck { text-decoration: line-through; text-decoration-color: rgba(248,113,113,.7); opacity: .7; }
+  .phone .ge-action-btn { min-height: 36px; }
+  .phone .ge-select { min-width: 0; width: 100%; }
+
+  /* NEW: the account default status line (option A) and card (option B) */
+  .hd-line { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; padding: 8px 10px; border: 1px solid rgba(var(--color-accent-rgb), .22); border-top: 1px dashed rgba(var(--color-accent-rgb), .28); background: rgba(var(--color-accent-rgb), .03); font-size: var(--text-xs); color: var(--color-text-secondary); }
+  .hd-line b { color: var(--color-text-primary); font-weight: 500; }
+  .hd-tag { font-family: var(--font-mono); font-size: 10px; letter-spacing: .1em; text-transform: uppercase; color: var(--color-accent-bright); display: inline-flex; gap: 5px; align-items: center; white-space: nowrap; }
+  .hd-tag.off { color: var(--color-text-dim); }
+  .hd-words { flex: 1 1 220px; min-width: 0; }
+  .mini-btn { font: inherit; font-family: var(--font-mono); font-size: 10.5px; color: var(--color-accent); background: rgba(var(--color-accent-rgb), .06); border: 1px solid var(--color-border-strong); border-radius: var(--corner); padding: 3px 8px; min-height: 26px; display: inline-flex; gap: 5px; align-items: center; white-space: nowrap; cursor: pointer; }
+  .mini-btn.off { color: var(--color-text-dim); border-color: rgba(98,133,145,.45); border-style: dashed; background: transparent; cursor: default; }
+  .phone .mini-btn { min-height: 32px; }
+  .hd-card { border: 1px solid rgba(var(--color-accent-rgb), .22); background: rgba(var(--color-accent-rgb), .03); padding: 10px 12px; display: grid; gap: 8px; min-width: 0; }
+  .hd-card-hd { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 6px 10px; }
+  .hd-card-h { font-family: var(--font-display); font-size: var(--text-sm); letter-spacing: .06em; font-weight: 600; display: inline-flex; gap: 6px; align-items: center; }
+  .hd-card-sub { font-size: var(--text-2xs); color: var(--color-text-dim); }
+  .rules { list-style: none; margin: 0; padding: 0; display: grid; gap: 3px; font-size: var(--text-xs); color: var(--color-text-secondary); }
+  .rules li { display: grid; grid-template-columns: 24px minmax(0, 1fr) auto; gap: 6px; align-items: center; padding: 3px 6px; border: 1px solid rgba(var(--color-accent-rgb), .1); background: rgba(var(--color-accent-rgb), .03); }
+  .rules li .o { font-family: var(--font-mono); font-size: 10px; color: var(--color-text-dim); }
+  .rules li .r { min-width: 0; }
+  .rules li .r svg.g { width: 12px; height: 12px; color: var(--color-text-dim); }
+  .rules li .src { font-family: var(--font-mono); font-size: 9.5px; color: var(--color-text-dim); border: 1px solid rgba(98,133,145,.45); padding: 0 4px; white-space: nowrap; }
+  .rules li.mine .src { color: var(--color-accent); border-color: rgba(var(--color-accent-rgb), .45); }
+  .ok-line { display: flex; gap: 6px; align-items: flex-start; font-size: var(--text-xs); color: var(--color-success); }
+  .why { display: flex; gap: 5px; align-items: flex-start; font-size: var(--text-2xs); color: var(--color-text-secondary); }
+  .why svg.g { color: var(--color-text-dim); width: 12px; height: 12px; margin-top: 1px; }
+
+  /* States grid */
+  .states { display: grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); gap: 16px; }
+  .state-card { border: 1px solid var(--color-border); background: var(--color-panel-bg); padding: 10px 12px; min-width: 0; display: grid; gap: 8px; align-content: start; }
+  .state-h { font-family: var(--font-mono); font-size: 10.5px; letter-spacing: .08em; text-transform: uppercase; color: var(--color-accent-bright); }
+  .state-sub { font-size: 11px; color: var(--color-text-dim); margin-top: -6px; }
+
+  /* Callouts and open calls (house style) */
+  .callout { font-family: var(--font-mono); font-size: 10px; color: var(--color-warning); display: flex; gap: 6px; align-items: center; margin: 4px 0 0; }
+  .callout::before { content: ""; width: 14px; height: 1px; background: var(--color-warning); }
+  .oc { border: 1px dashed rgba(var(--color-warning-rgb), .65); background: rgba(var(--color-warning-rgb), .06); border-radius: var(--corner); padding: 8px 10px; font-size: 12px; color: var(--color-text-secondary); max-width: min(560px, 100%); }
+  .oc .t { font-family: var(--font-mono); font-size: 10.5px; letter-spacing: .1em; color: var(--color-warning); text-transform: uppercase; margin-bottom: 4px; }
+  .ocrow { display: flex; gap: 12px; flex-wrap: wrap; margin-top: 12px; }
+  ol.calls { margin: 0; padding-left: 22px; display: grid; gap: 8px; color: var(--color-text-secondary); max-width: 112ch; }
+  ol.calls b { color: var(--color-text-primary); }
+  .flag { font-family: var(--font-mono); font-size: 9.5px; color: var(--color-warning); border: 1px dashed rgba(var(--color-warning-rgb), .6); padding: 0 4px; margin-left: 4px; font-weight: 400; white-space: nowrap; }
+</style>
+</head>
+<body>
+<!-- Glyph path data copied from src/lib/ui/icons.ts (recruit, security, check, info, warning, lock, chevronRight, close). -->
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <defs>
+    <symbol id="i-recruit" viewBox="0 0 24 24"><path d="M10 11a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7z"/><path d="M3.5 20c.6-3.6 3.2-6 6.5-6s5.9 2.4 6.5 6"/><path d="M19 8v6M16 11h6"/></symbol>
+    <symbol id="i-security" viewBox="0 0 24 24"><path d="M12 3l8 3v6c0 4.5-3.4 8-8 9-4.6-1-8-4.5-8-9V6z"/></symbol>
+    <symbol id="i-check" viewBox="0 0 24 24"><path d="M4 12.5l5 5L20 6.5"/></symbol>
+    <symbol id="i-info" viewBox="0 0 24 24"><path d="M12 3a9 9 0 1 1 0 18 9 9 0 0 1 0-18z"/><path d="M12 11v6"/><path d="M12 7.5v.5"/></symbol>
+    <symbol id="i-warning" viewBox="0 0 24 24"><path d="M12 4L2.5 20h19z"/><path d="M12 10v4"/><path d="M12 16.9v.2"/></symbol>
+    <symbol id="i-lock" viewBox="0 0 24 24"><path d="M6 11h12a1 1 0 0 1 1 1v8a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1v-8a1 1 0 0 1 1-1z"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></symbol>
+    <symbol id="i-chevronRight" viewBox="0 0 24 24"><path d="M9 6l6 6-6 6"/></symbol>
+    <symbol id="i-close" viewBox="0 0 24 24"><path d="M6 6l12 12"/><path d="M18 6L6 18"/></symbol>
+  </defs>
+</svg>
+
+<div class="wrap">
+  <div>
+    <h1>Account default program for new hires (OC-F12 control)</h1>
+    <p class="intro">Hyperion Legacy 0.14.0, Wiring WR-10, the control half of <b>OC-F12</b>, for your sign-off before any build. Your answers so far: <b>"Account-wide defaults"</b> (the account default is given to newly hired members), <b>"Merge with built-in"</b> (2026-11-10) and <b>"Built-in first"</b> (the merge order). All three are built and live. What is missing is a way to <b>set or clear</b> the default: no screen has written it since GO-16 hid the old editor (registry row <code>away:audit:accountDefaultControl</code>, pending on this mockup).</p>
+    <p class="note">Names and programs are samples: ship Wayfarer, team Alpha, Security members Okafor (Decapitate), Reyes (the built-in default) and Lindqvist (Custom). The preset titles, rule labels and the merge are the game's own.</p>
+  </div>
+
+  <section>
+    <p class="label">0. What the engine does today (confirmed in code)</p>
+    <div class="stage">
+      <table class="jobs">
+        <thead><tr><th>Piece</th><th>Where</th><th>What it does</th></tr></thead>
+        <tbody>
+          <tr><td><b>The stored pair</b></td><td><code>model.ts:8718</code> DEFAULT_GAMBIT_PROGRAMS, <code>state.gambitPrograms</code></td><td>One Security program and one Science program per account. A fresh save stores the <b>Balanced</b> preset's program (Balanced is defined as this pair). The Science half is never read by a hire (Science never fights).</td></tr>
+          <tr><td><b>Read at every hire</b></td><td><code>awayTeam.ts:517</code> accountProgramForHire, <code>:531</code> hireAwayMember</td><td>A <b>Security</b> hire only. If the stored Security program <b>equals the fresh default</b> (Balanced), the hire runs the built-in default, as before. Otherwise the hire gets its own <b>merged copy</b>.</td></tr>
+          <tr><td><b>The merge</b></td><td><code>memberGambits.ts:96</code> mergeWithBuiltInDefault</td><td>Your answer, built: the built-in Cure, Aid Heal, Brace and Throw Grenade rules the program lacks go <b>first</b>, in the built-in order; the player's rules follow in their order, all kept. Each added rule fires only when it applies.</td></tr>
+          <tr><td><b>Who it changes</b></td><td><code>awayTeam.ts:531 to 540</code></td><td><b>Only members hired after it is set.</b> Existing members, and every launched run (programs freeze at launch), never change.</td></tr>
+          <tr><td><b>On screen today</b></td><td><code>GambitEditorPanel.svelte:449</code>, <code>gambitEditorDisplay.ts:89, 95</code></td><td>A dashed notice at the foot of the editor, shown only when the stored pair differs from the fresh one: "Your older account-wide tactical protocols are still saved: each Security member you hire starts with a copy..." No button sets or clears it.</td></tr>
+          <tr><td><b>Needed for the control</b></td><td>new</td><td>Two small pure actions (set the Security half from a member's program; put it back to the fresh default) and their do* handlers in App.svelte. No new rule, no save change: the field already exists.</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section>
+    <p class="label">1. Option A: a row in the editor's preset block, and the foot notice becomes a status line</p>
+    <div class="stage">
+      <div class="pair">
+        <div>
+          <p class="frame-cap">Desktop 900 px · Operations / Exploration, Away-Team Tactical Protocols</p>
+          <div class="shell desk">
+            <div class="topbar"><span>HYPERION LEGACY</span><span class="res">Credits 48,210 · FA 14 · Day 96</span></div>
+            <div class="crumb">Operations / <b>Exploration</b></div>
+            <div class="content">
+              <div class="ghost"><div class="ph-cap">Expedition Console: unchanged</div><div class="ph-line" style="width:90%"></div></div>
+              <div class="home-sec-hd"><span class="home-sec-h">Away-Team Tactical Protocols</span><span class="home-sec-rule"></span></div>
+              <div class="ge">
+                <div class="ge-pick">
+                  <label class="ge-field"><span class="ge-part-tag">Ship</span><select class="ge-select"><option>Wayfarer</option></select></label>
+                  <div class="ge-field"><span class="ge-part-tag">Ground team</span><div class="ge-chips"><span class="ge-chip active"><span class="badge">A</span><span class="ge-chip-name">Alpha</span><span class="ge-chip-sub">3 Security</span><span class="ge-chip-mark"><svg class="g"><use href="#i-check"/></svg></span></span><span class="ge-chip"><span class="badge">B</span><span class="ge-chip-name">Bravo</span><span class="ge-chip-sub">2 Security</span></span></div></div>
+                </div>
+                <div class="ge-field"><span class="ge-part-tag"><svg class="g" style="width:12px;height:12px"><use href="#i-security"/></svg> Security squad</span><div class="ge-chips"><span class="ge-chip active"><span class="ge-chip-name">Okafor</span><span class="ge-chip-sub">Decapitate</span><span class="ge-chip-mark"><svg class="g"><use href="#i-check"/></svg></span></span><span class="ge-chip"><span class="ge-chip-name">Reyes</span><span class="ge-chip-sub">Default</span></span><span class="ge-chip"><span class="ge-chip-name">Lindqvist</span><span class="ge-chip-sub">Custom</span></span></div></div>
+                <div class="ge-member-hd"><span class="ge-member-name">Okafor</span><span class="ge-current">Own program: <b>Decapitate</b></span></div>
+                <div class="ghost"><div class="ph-cap">Rule list (4 rules), Add rule: unchanged</div><div class="ph-line" style="width:95%"></div><div class="ph-line" style="width:95%"></div><div class="ph-line" style="width:95%"></div></div>
+                <div class="ge-presets">
+                  <span class="ge-section-tag">Apply preset</span>
+                  <div class="ge-preset-row"><span class="ge-preset">Establish Dominance</span><span class="ge-preset active"><svg class="g" style="width:12px;height:12px"><use href="#i-check"/></svg> Decapitate</span><span class="ge-preset">Turtle Club President</span><span class="ge-preset">Triage</span><span class="ge-preset">Balanced</span><span class="ge-preset">Custom</span></div>
+                  <p class="ge-note">A preset replaces Okafor's rules. Programs are frozen at launch, so nothing changes an expedition already in flight.</p>
+                  <div class="ge-squad-row"><button class="ge-action-btn">Copy to squad</button><span class="ge-note">Gives Reyes and Lindqvist a copy of this program.</span></div>
+                  <div class="ge-squad-row"><button class="ge-action-btn">Use default</button><span class="ge-note">Back to the built-in default: full targeting, attack and defense, grenades at the largest group (one charge kept for an Elite or a Boss), no automatic kit use.</span></div>
+                  <div class="ge-squad-row"><button class="ge-action-btn"><svg class="g"><use href="#i-recruit"/></svg>Set for new hires</button><span class="ge-note">Every Security member you hire from now on starts with a copy of Okafor's program, plus the built-in cure, heal, brace and grenade rules it lacks, placed first. Nobody already hired changes.</span></div>
+                  <p class="callout">new: the third row</p>
+                </div>
+                <div class="hd-line"><span class="hd-tag off"><svg class="g"><use href="#i-recruit"/></svg>New hires</span><span class="hd-words">New Security hires start on the <b>built-in default</b>.</span><span class="mini-btn off">Clear</span></div>
+                <p class="callout">new: replaces the dashed notice; always shown, so the player can see what a hire gets</p>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div>
+          <p class="frame-cap">Phone 375 px · same editor, after tapping Set for new hires</p>
+          <div class="shell phone">
+            <div class="topbar"><span>HYPERION</span><span class="res">48,210 cr · Day 96</span></div>
+            <div class="crumb">Operations / <b>Exploration</b></div>
+            <div class="content">
+              <div class="home-sec-hd"><span class="home-sec-h">Away-Team Tactical Protocols</span><span class="home-sec-rule"></span></div>
+              <div class="ge">
+                <div class="ge-member-hd"><span class="ge-member-name">Okafor</span><span class="ge-current">Own program: <b>Decapitate</b></span></div>
+                <div class="ghost"><div class="ph-cap">Pick, rule list, presets, Copy to squad, Use default: unchanged</div><div class="ph-line"></div><div class="ph-line" style="width:80%"></div></div>
+                <div class="ge-presets">
+                  <div class="ge-squad-row"><button class="ge-action-btn" disabled><svg class="g"><use href="#i-recruit"/></svg>Set for new hires</button><span class="ge-note">This is already the program new Security hires start with.</span></div>
+                </div>
+                <div class="hd-line"><span class="hd-tag"><svg class="g"><use href="#i-recruit"/></svg>New hires</span><span class="hd-words">New Security hires start with <b>Decapitate</b> (from Okafor), the built-in support rules first.</span><button class="mini-btn">Clear</button></div>
+                <div class="ok-line"><svg class="g"><use href="#i-check"/></svg><span>Saved. Your next Security hire starts with this program.</span></div>
+              </div>
+            </div>
+          </div>
+          <p class="note" style="max-width:375px">On phone each note sits beside its button or wraps under it; buttons keep a 36 px tap height. The "Saved" line is a one-time confirmation that fades.</p>
+        </div>
+      </div>
+      <div class="ocrow">
+        <div class="oc"><div class="t">Why A</div>It sits with the other "spread this program" actions (Copy to squad, Use default), one tap, and adds one line at the foot. Cost: the player sees the hire default only as a name, not its rules.</div>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <p class="label">2. Option B: a "New Security hires" card at the foot of the editor, with the program spelled out</p>
+    <div class="stage">
+      <div class="pair">
+        <div>
+          <p class="frame-cap">Desktop 900 px · the foot of the editor (the part above is unchanged)</p>
+          <div class="shell desk">
+            <div class="topbar"><span>HYPERION LEGACY</span><span class="res">Credits 48,210 · FA 14 · Day 96</span></div>
+            <div class="crumb">Operations / <b>Exploration</b></div>
+            <div class="content">
+              <div class="home-sec-hd"><span class="home-sec-h">Away-Team Tactical Protocols</span><span class="home-sec-rule"></span></div>
+              <div class="ge">
+                <div class="ghost"><div class="ph-cap">Pick (Wayfarer, Alpha, Okafor), rule list, presets, Copy to squad, Use default: unchanged</div><div class="ph-line" style="width:95%"></div><div class="ph-line" style="width:80%"></div><div class="ph-line" style="width:90%"></div></div>
+                <div class="hd-card">
+                  <div class="hd-card-hd"><span class="hd-card-h"><svg class="g"><use href="#i-recruit"/></svg>New Security hires</span><span class="hd-card-sub">Read at each hire; nobody already hired changes</span></div>
+                  <div style="font-size:var(--text-xs);color:var(--color-text-secondary)">Start with <b style="color:var(--color-text-primary);font-weight:500">Decapitate</b>, set from Okafor. A hire gets this copy of their own:</div>
+                  <ol class="rules">
+                    <li><span class="o">#1</span><span class="r">Ally: has status <svg class="g"><use href="#i-chevronRight"/></svg> Cure</span><span class="src">built-in</span></li>
+                    <li><span class="o">#2</span><span class="r">Ally: HP below 50% <svg class="g"><use href="#i-chevronRight"/></svg> Aid Heal</span><span class="src">built-in</span></li>
+                    <li><span class="o">#3</span><span class="r">Self: HP below 25% <svg class="g"><use href="#i-chevronRight"/></svg> Brace</span><span class="src">built-in</span></li>
+                    <li><span class="o">#4</span><span class="r">Foe: highest threat, Elite or stronger <svg class="g"><use href="#i-chevronRight"/></svg> Throw Grenade</span><span class="src">built-in</span></li>
+                    <li><span class="o">#5</span><span class="r">Foe: largest group <svg class="g"><use href="#i-chevronRight"/></svg> Throw Grenade, keep 1 for a Boss</span><span class="src">built-in</span></li>
+                    <li class="mine"><span class="o">#6</span><span class="r">Foe: is healer <svg class="g"><use href="#i-chevronRight"/></svg> Attack</span><span class="src">yours</span></li>
+                    <li class="mine"><span class="o">#7</span><span class="r">Foe: is caster <svg class="g"><use href="#i-chevronRight"/></svg> Attack</span><span class="src">yours</span></li>
+                    <li class="mine"><span class="o">#8</span><span class="r">Foe: highest threat <svg class="g"><use href="#i-chevronRight"/></svg> Attack</span><span class="src">yours</span></li>
+                    <li class="mine"><span class="o">#9</span><span class="r">Foe: nearest <svg class="g"><use href="#i-chevronRight"/></svg> Attack</span><span class="src">yours</span></li>
+                  </ol>
+                  <div class="ge-squad-row"><button class="ge-action-btn" disabled><svg class="g"><use href="#i-recruit"/></svg>Use Okafor's program</button><button class="ge-action-btn quiet">Back to built-in</button><span class="ge-note">Okafor's program is already the one new hires get. The built-in rules fire only when they apply.</span></div>
+                </div>
+                <p class="callout">new: replaces the dashed notice</p>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div>
+          <p class="frame-cap">Phone 375 px · nothing set yet, Okafor picked</p>
+          <div class="shell phone">
+            <div class="topbar"><span>HYPERION</span><span class="res">48,210 cr · Day 96</span></div>
+            <div class="crumb">Operations / <b>Exploration</b></div>
+            <div class="content">
+              <div class="home-sec-hd"><span class="home-sec-h">Away-Team Tactical Protocols</span><span class="home-sec-rule"></span></div>
+              <div class="ge">
+                <div class="ghost"><div class="ph-cap">Editor above: unchanged</div><div class="ph-line"></div><div class="ph-line" style="width:70%"></div></div>
+                <div class="hd-card">
+                  <div class="hd-card-hd"><span class="hd-card-h"><svg class="g"><use href="#i-recruit"/></svg>New Security hires</span></div>
+                  <div style="font-size:var(--text-xs);color:var(--color-text-secondary)">Start on the <b style="color:var(--color-text-primary);font-weight:500">built-in default</b>: full targeting, attack and defense, grenades at the largest group (one charge kept for an Elite or a Boss), no automatic kit use.</div>
+                  <div class="ge-squad-row"><button class="ge-action-btn"><svg class="g"><use href="#i-recruit"/></svg>Use Okafor's program</button></div>
+                  <div class="ge-squad-row"><button class="ge-action-btn quiet" disabled>Back to built-in</button></div>
+                  <p class="ge-note">Each new hire would start with Decapitate, the built-in cure, heal, brace and grenade rules placed first. Nobody already hired changes.</p>
+                </div>
+              </div>
+            </div>
+          </div>
+          <p class="note" style="max-width:375px">On phone the two buttons stack. The rule list (desktop) shows on phone too once a program is set; nine short rows.</p>
+        </div>
+      </div>
+      <div class="ocrow">
+        <div class="oc"><div class="t">Why B</div>The player sees exactly what a hire starts with, including the merged rules (your "built-in first" order, made visible). Cost: a taller block at the foot of the editor, always shown.</div>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <p class="label">3. Every state (A's row and status line; B shows the same words in its card)</p>
+    <div class="stage">
+      <div class="states">
+        <div class="state-card">
+          <div class="state-h">Available · nothing set</div>
+          <div class="state-sub">Fresh save, member with an own program picked</div>
+          <div class="ge-squad-row"><button class="ge-action-btn"><svg class="g"><use href="#i-recruit"/></svg>Set for new hires</button><span class="ge-note">Every Security member you hire from now on starts with a copy of Okafor's program.</span></div>
+          <div class="hd-line"><span class="hd-tag off"><svg class="g"><use href="#i-recruit"/></svg>New hires</span><span class="hd-words">Start on the <b>built-in default</b>.</span><span class="mini-btn off">Clear</span></div>
+        </div>
+        <div class="state-card">
+          <div class="state-h">In progress</div>
+          <div class="state-sub">None: setting or clearing is instant and free, like Use default</div>
+          <div class="why"><svg class="g"><use href="#i-info"/></svg><span>No timer and no cost. It takes effect at the next hire.</span></div>
+        </div>
+        <div class="state-card">
+          <div class="state-h">Done · set</div>
+          <div class="state-sub">Just tapped; the line names the program and where it came from</div>
+          <div class="hd-line"><span class="hd-tag"><svg class="g"><use href="#i-recruit"/></svg>New hires</span><span class="hd-words">Start with <b>Decapitate</b> (from Okafor), the built-in support rules first.</span><button class="mini-btn">Clear</button></div>
+          <div class="ok-line"><svg class="g"><use href="#i-check"/></svg><span>Saved. Your next Security hire starts with this program.</span></div>
+        </div>
+        <div class="state-card">
+          <div class="state-h">Done · cleared</div>
+          <div class="state-sub">After Clear (A) or Back to built-in (B)</div>
+          <div class="hd-line"><span class="hd-tag off"><svg class="g"><use href="#i-recruit"/></svg>New hires</span><span class="hd-words">Start on the <b>built-in default</b>.</span><span class="mini-btn off">Clear</span></div>
+          <div class="ok-line"><svg class="g"><use href="#i-check"/></svg><span>Cleared. New hires start on the built-in default again.</span></div>
+        </div>
+        <div class="state-card">
+          <div class="state-h">Disabled · already the hire default</div>
+          <div class="state-sub">The picked member's program equals the stored one</div>
+          <div class="ge-squad-row"><button class="ge-action-btn" disabled><svg class="g"><use href="#i-recruit"/></svg>Set for new hires</button><span class="ge-note">This is already the program new Security hires start with.</span></div>
+        </div>
+        <div class="state-card">
+          <div class="state-h">Disabled · member runs the built-in default</div>
+          <div class="state-sub">Reyes has no program of their own</div>
+          <div class="ge-squad-row"><button class="ge-action-btn" disabled><svg class="g"><use href="#i-recruit"/></svg>Set for new hires</button><span class="ge-note">Reyes runs the built-in default. To give new hires the built-in default, use Clear.</span></div>
+        </div>
+        <div class="state-card">
+          <div class="state-h">Disabled · no Security member picked</div>
+          <div class="state-sub">No ship fields a team, or nobody is slotted</div>
+          <div class="hd-line"><span class="hd-tag"><svg class="g"><use href="#i-recruit"/></svg>New hires</span><span class="hd-words">Start with <b>Decapitate</b>, the built-in support rules first.</span><button class="mini-btn">Clear</button></div>
+          <div class="why"><svg class="g"><use href="#i-info"/></svg><span>Pick a Security member above to set their program for new hires.</span></div>
+          <p class="note" style="font-size:11px;margin:0">The status line and Clear stay usable without a pick.</p>
+        </div>
+        <div class="state-card">
+          <div class="state-h">Question · the Balanced program <span class="flag">engine rule</span></div>
+          <div class="state-sub">Okafor runs exactly the Balanced preset</div>
+          <div class="ge-squad-row"><button class="ge-action-btn" disabled><svg class="g"><use href="#i-recruit"/></svg>Set for new hires</button><span class="ge-note">Balanced cannot be a hire default: hires start on the built-in default instead. <span class="flag">question 3</span></span></div>
+          <p class="note" style="font-size:11px;margin:0">The engine treats a stored Balanced program as "nothing set" (it is the fresh value), so setting it would silently give hires the built-in default, which is not Balanced.</p>
+        </div>
+        <div class="state-card">
+          <div class="state-h">Question · an empty program</div>
+          <div class="state-sub">Lindqvist's Custom program has no rules</div>
+          <div class="ge-squad-row"><button class="ge-action-btn"><svg class="g"><use href="#i-recruit"/></svg>Set for new hires</button><span class="ge-note"><svg class="g" style="width:12px;height:12px;color:var(--color-warning)"><use href="#i-warning"/></svg> Hires would get only the built-in cure, heal, brace and grenade rules, and no attack rule. <span class="flag">question 4</span></span></div>
+        </div>
+        <div class="state-card">
+          <div class="state-h">Launched ship</div>
+          <div class="state-sub">Okafor's ship is on an expedition</div>
+          <div class="why"><svg class="g"><use href="#i-lock"/></svg><span>This ship is on an expedition: its teams fight with the programs they launched with. Changes apply from the next launch.</span></div>
+          <div class="ge-squad-row"><button class="ge-action-btn"><svg class="g"><use href="#i-recruit"/></svg>Set for new hires</button><span class="ge-note">Still available: it touches only future hires, never a run.</span></div>
+        </div>
+        <div class="state-card">
+          <div class="state-h">Today's notice, retired</div>
+          <div class="state-sub">gambitEditorDisplay.ts ACCOUNT_PAIR_NOTICE</div>
+          <p class="ge-notice struck">Your older account-wide tactical protocols are still saved: each Security member you hire starts with a copy, which you can change like any member's own. The copy also gets the built-in default's cure, heal, brace and grenade rules it lacks, placed ahead of your rules...</p>
+          <p class="note" style="font-size:11px;margin:0">Replaced by A's status line or B's card. "Older" stops being true once a control sets it.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <p class="label">4. Your calls</p>
+    <div class="stage">
+      <ol class="calls">
+        <li><b>Layout: A (a "Set for new hires" row with the preset actions, a one-line status with Clear) or B (a "New Security hires" card with the merged rules spelled out)?</b></li>
+        <li><b>Button words.</b> Drawn: "Set for new hires" and "Clear" (A); "Use Okafor's program" and "Back to built-in" (B). Keep, or your words?</li>
+        <li><b>The Balanced program (engine rule, not decided).</b> A stored Balanced program means "nothing set", so it cannot be a hire default today. Options: (a) keep the rule and disable Set for Balanced with that reason, as drawn; (b) change the engine so Balanced can be chosen (a stored marker for "nothing set"; a small save change).</li>
+        <li><b>An empty program.</b> Setting a program with no rules gives hires only the built-in support rules and no attack. Allow with the warning (drawn), or block it?</li>
+        <li><b>Clear: the Security half only, or the whole pair?</b> The stored Science half is never read by a hire, but a changed one keeps today's notice showing on old saves. Proposal: Clear puts both halves back to the fresh pair.</li>
+        <li><b>Existing members.</b> The engine changes only new hires (your "given to newly hired members"). Copy to squad already covers a squad. Leave it there, or add "also give to everyone already hired"? (Not in the engine; new work.)</li>
+      </ol>
+    </div>
+  </section>
+</div>
+</body>
+</html>

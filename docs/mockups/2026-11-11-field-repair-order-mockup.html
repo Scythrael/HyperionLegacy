@@ -1,0 +1,481 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Player-ordered field repair (OC-F14)</title>
+<style>
+  /* Tokens copied from src/app.css (default cyan theme), the same set as the approved 2026-11-09 and 2026-11-10
+     mockups. Self-contained: no web fonts are loaded, so the font stacks fall back to system faces. */
+  :root {
+    color-scheme: dark;
+    --corner: 2px;
+    --color-bg-deep: #060a12; --color-bg-mid: #0a1120; --color-bg-raised: #0c1626;
+    --color-panel-bg: rgba(20, 40, 60, 0.32); --color-panel-bg-strong: rgba(103, 232, 249, 0.06);
+    --color-border: rgba(103, 232, 249, 0.18); --color-border-strong: rgba(103, 232, 249, 0.4);
+    --color-accent: #67e8f9; --color-accent-bright: #8ff0e0; --color-accent-rgb: 103, 232, 249;
+    --color-text-primary: #e6f4f8; --color-text-secondary: #8fa3ad; --color-text-dim: #628591;
+    --color-warning: #fbbf24; --color-warning-rgb: 251, 191, 36; --color-danger: #f87171; --color-success: #34d399; --color-success-rgb: 52, 211, 153;
+    --font-display: "Orbitron", "Segoe UI", sans-serif; --font-body: "Space Grotesk", "Inter", "Segoe UI", sans-serif; --font-mono: "JetBrains Mono", Consolas, monospace;
+    --text-3xs: 9px; --text-2xs: 10px; --text-xs: 11px; --text-sm: 12px; --text-md: 13px; --text-lg: 15px;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; }
+  body { background: var(--color-bg-deep); color: var(--color-text-primary); font-family: var(--font-body); font-size: 13px; line-height: 1.45; padding: 24px 16px 60px; overflow-x: hidden; }
+  .wrap { max-width: 1440px; margin: 0 auto; display: grid; grid-template-columns: minmax(0, 1fr); gap: 30px; min-width: 0; }
+  h1 { font-family: var(--font-display); font-size: 20px; letter-spacing: .08em; margin: 0 0 6px; }
+  .intro { margin: 0 0 6px; color: var(--color-text-secondary); max-width: 112ch; }
+  .intro b, .note b { color: var(--color-text-primary); }
+  .label { font-family: var(--font-display); font-size: 12px; letter-spacing: .18em; color: var(--color-accent); text-transform: uppercase; margin: 0 0 8px; }
+  .note { color: var(--color-text-secondary); font-size: 12px; margin: 8px 0 0; max-width: 112ch; }
+  .stage { border: 1px solid var(--color-border); border-radius: var(--corner); background: radial-gradient(900px 400px at 70% -10%, rgba(103,232,249,.07), transparent 60%), var(--color-bg-mid); padding: 18px 12px; overflow-x: auto; }
+  .pair { display: flex; gap: 18px; flex-wrap: wrap; align-items: flex-start; }
+  .frame-cap { font-family: var(--font-mono); font-size: 11px; color: var(--color-text-dim); margin: 0 0 6px; }
+  svg.g { width: 14px; height: 14px; flex: 0 0 auto; vertical-align: -2px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+  code { font-family: var(--font-mono); font-size: 11px; color: var(--color-accent-bright); }
+
+  table.jobs { border-collapse: collapse; font-size: 12px; width: 100%; max-width: 1200px; }
+  table.jobs th, table.jobs td { text-align: left; padding: 5px 10px 5px 0; border-bottom: 1px solid var(--color-border); vertical-align: top; }
+  table.jobs th { font-family: var(--font-mono); font-size: 10px; letter-spacing: .1em; text-transform: uppercase; color: var(--color-text-dim); font-weight: 400; }
+  table.jobs td { color: var(--color-text-secondary); }
+  table.jobs td b { color: var(--color-text-primary); font-weight: 500; }
+
+  /* App shell */
+  .shell { background: var(--color-bg-deep); border: 1px solid var(--color-border-strong); border-radius: var(--corner); box-shadow: 0 20px 60px rgba(0,0,0,.5); overflow: hidden; }
+  .shell.desk { width: 900px; }
+  .shell.phone { width: 375px; max-width: 100%; }
+  .topbar { display: flex; justify-content: space-between; align-items: center; padding: 10px 16px; border-bottom: 1px solid var(--color-border); font-family: var(--font-display); font-size: 12px; letter-spacing: .14em; gap: 8px; }
+  .topbar .res { font-family: var(--font-mono); font-size: 11px; color: var(--color-text-secondary); letter-spacing: 0; }
+  .crumb { padding: 8px 16px 0; font-family: var(--font-mono); font-size: 10.5px; letter-spacing: .12em; color: var(--color-text-dim); text-transform: uppercase; }
+  .crumb b { color: var(--color-accent-bright); font-weight: 600; }
+  .content { padding: 14px 16px 18px; display: flex; flex-direction: column; gap: 12px; background: var(--color-panel-bg); }
+  .phone .content { padding: 12px 10px; }
+  .phone .topbar { padding: 9px 12px; }
+  .phone .crumb { padding: 8px 12px 0; }
+  .ph-line { height: 7px; border-radius: 2px; background: rgba(var(--color-accent-rgb), .08); margin: 4px 0; }
+  .ph-cap { font-family: var(--font-mono); font-size: 9.5px; color: var(--color-text-dim); }
+  .ghost { opacity: .5; }
+
+  /* ExpeditionPanel.svelte in-progress view (.exp-body, .exp-hdr, .exp-btn) */
+  .exp-body { display: flex; flex-direction: column; gap: 12px; padding: 12px; background: rgba(var(--color-accent-rgb), 0.04); border: 1px solid rgba(var(--color-accent-rgb), 0.14); border-radius: var(--corner); min-width: 0; }
+  .phone .exp-body { padding: 10px 8px; }
+  .exp-hdr { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+  .exp-hdr-main { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+  .exp-hdr-system { font-family: var(--font-display); font-size: var(--text-lg); }
+  .exp-hdr-sub { font-size: var(--text-2xs); letter-spacing: .04em; text-transform: uppercase; color: var(--color-text-dim); }
+  .exp-hdr-btns { display: flex; gap: 6px; flex-wrap: wrap; }
+  .exp-btn { padding: 7px 14px; border-radius: var(--corner); border: 1px solid rgba(var(--color-accent-rgb), 0.4); background: rgba(var(--color-accent-rgb), 0.1); color: var(--color-text-primary); font: inherit; font-size: var(--text-sm); white-space: nowrap; display: inline-flex; align-items: center; gap: 6px; cursor: pointer; }
+  .exp-btn.quiet { background: none; color: var(--color-text-secondary); }
+  .exp-btn.primary { background: var(--color-accent); border-color: var(--color-accent); color: var(--color-bg-deep); }
+  .exp-btn:disabled { opacity: .5; cursor: not-allowed; }
+  .exp-section-tag { font-family: var(--font-mono); font-size: var(--text-2xs); letter-spacing: .12em; text-transform: uppercase; color: var(--color-accent-bright); }
+  .hull-sub { color: var(--color-warning); }
+
+  /* GroundTeamTimeline.svelte (.gt-*) */
+  .gt { --lane-work: color-mix(in srgb, var(--color-accent-bright) 32%, transparent); --lane-fight: color-mix(in srgb, var(--color-danger) 38%, transparent); --lane-travel: color-mix(in srgb, var(--color-text-dim) 30%, transparent); --lane-load: color-mix(in srgb, var(--color-warning) 30%, transparent); --lane-scan: color-mix(in srgb, var(--color-accent) 20%, transparent); --lane-pause: color-mix(in srgb, var(--color-danger) 30%, transparent); --lane-leg: color-mix(in srgb, var(--color-text-secondary) 42%, transparent); --lane-repair: color-mix(in srgb, var(--color-warning) 55%, transparent); container-type: inline-size; display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+  .gt-head { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 8px; }
+  .gt-tag { font-family: var(--font-mono); font-size: var(--text-2xs); letter-spacing: .08em; text-transform: uppercase; color: var(--color-text-dim); }
+  .gt-mode { display: inline-flex; border: 1px solid rgba(var(--color-accent-rgb), .35); border-radius: var(--corner); overflow: hidden; }
+  .gt-mode span { padding: 4px 10px; font-size: var(--text-xs); color: var(--color-text-secondary); }
+  .gt-mode span.on { background: rgba(var(--color-accent-rgb), .18); color: var(--color-text-primary); }
+  .gt-lanes { display: flex; flex-direction: column; padding: 4px 10px; border: 1px solid rgba(var(--color-accent-rgb), .16); border-radius: var(--corner); background: rgba(var(--color-accent-rgb), .03); }
+  .gt-lane { display: grid; grid-template-columns: minmax(150px, 210px) minmax(0, 1fr); column-gap: 12px; row-gap: 4px; align-items: center; padding: 8px 0; border-bottom: 1px solid rgba(var(--color-accent-rgb), .1); }
+  .gt-lane:last-child { border-bottom: 0; }
+  .gt-lane-id { display: flex; align-items: center; gap: 8px; min-width: 0; }
+  .gt-lane-words { display: flex; flex-direction: column; min-width: 0; }
+  .gt-lane-name { font-size: var(--text-sm); font-weight: 600; }
+  .gt-lane-kind { font-weight: normal; font-size: var(--text-2xs); color: var(--color-text-dim); }
+  .gt-lane-now { font-size: var(--text-2xs); color: var(--color-text-secondary); }
+  .badge { display: inline-flex; align-items: center; justify-content: center; min-width: 30px; height: 30px; padding: 0 6px; background: var(--color-bg-mid); border: 1px solid var(--color-border-strong); border-radius: var(--corner); color: var(--color-accent); font-family: var(--font-display); font-weight: 700; font-size: var(--text-md); flex: none; }
+  .gt-ship-badge { display: inline-grid; place-items: center; width: 30px; height: 30px; flex: none; border: 1px solid var(--color-border-strong); border-radius: var(--corner); background: var(--color-bg-mid); color: var(--color-text-secondary); }
+  .gt-track { position: relative; height: 28px; border: 1px solid rgba(var(--color-accent-rgb), .2); border-radius: var(--corner); background: var(--color-bg-mid); overflow: hidden; }
+  .gt-seg { position: absolute; top: 0; bottom: 0; display: flex; align-items: center; justify-content: center; gap: 3px; overflow: hidden; white-space: nowrap; font-size: var(--text-2xs); border-right: 1px solid rgba(6,10,18,.6); }
+  .gt-seg svg.g { width: 12px; height: 12px; }
+  .gt-seg.current { box-shadow: inset 0 0 0 2px var(--color-accent-bright); }
+  .c-work { background: var(--lane-work); } .c-fight { background: var(--lane-fight); } .c-travel { background: var(--lane-travel); } .c-load { background: var(--lane-load); }
+  .c-scan { background: var(--lane-scan); } .c-pause { background: var(--lane-pause); } .c-leg { background: var(--lane-leg); } .c-repair { background: var(--lane-repair); }
+  .gt-steps { grid-column: 2; font-size: var(--text-2xs); color: var(--color-text-dim); }
+  .gt-key { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 6px 14px; font-size: var(--text-2xs); color: var(--color-text-dim); }
+  .gt-key li { display: inline-flex; align-items: center; gap: 5px; }
+  .gt-swatch { display: inline-block; width: 14px; height: 10px; border-radius: 2px; border: 1px solid rgba(var(--color-accent-rgb), .25); }
+  .gt-key svg.g { width: 12px; height: 12px; }
+  @container (max-width: 560px) {
+    .gt-lane { grid-template-columns: minmax(0, 1fr); }
+    .gt-steps, .fr { grid-column: 1; }
+  }
+
+  /* NEW (option A): the field repair strip on the Ship lane, the approved Overtime strip's shape (.ot) */
+  .fr { grid-column: 2; border: 1px solid rgba(var(--color-accent-rgb), .22); border-top: 1px dashed rgba(var(--color-accent-rgb), .28); padding: 7px 8px 8px; background: rgba(var(--color-accent-rgb), .03); display: grid; gap: 5px; font-size: var(--text-2xs); color: var(--color-text-secondary); min-width: 0; }
+  .fr-row { display: flex; flex-wrap: wrap; align-items: center; gap: 7px; }
+  .fr-tag { font-family: var(--font-mono); font-size: 10px; letter-spacing: .1em; text-transform: uppercase; color: var(--color-accent-bright); display: inline-flex; gap: 5px; align-items: center; white-space: nowrap; }
+  .fr-tag.off { color: var(--color-text-dim); }
+  .hull { position: relative; flex: 1 1 110px; min-width: 90px; height: 8px; background: var(--color-bg-mid); border: 1px solid rgba(var(--color-accent-rgb), .2); border-radius: var(--corner); }
+  .hull i { position: absolute; left: 0; top: 0; bottom: 0; background: var(--color-warning); opacity: .75; }
+  .hull b { position: absolute; top: -3px; bottom: -3px; width: 0; border-left: 1px dashed var(--color-text-secondary); }
+  .fr-n { font-family: var(--font-mono); font-size: 10px; color: var(--color-text-dim); white-space: nowrap; }
+  .fr-n b { color: var(--color-text-primary); font-weight: 400; }
+  .fr-btn { margin-left: auto; font: inherit; font-family: var(--font-mono); font-size: 10.5px; color: var(--color-accent); background: rgba(var(--color-accent-rgb), .06); border: 1px solid var(--color-border-strong); border-radius: var(--corner); padding: 3px 8px; min-height: 26px; display: inline-flex; gap: 5px; align-items: center; white-space: nowrap; cursor: pointer; }
+  .fr-btn.off { color: var(--color-text-dim); border-color: rgba(98,133,145,.45); border-style: dashed; background: transparent; cursor: default; }
+  .fr-btn.going { color: var(--color-warning); border-color: rgba(var(--color-warning-rgb), .6); border-style: solid; background: rgba(var(--color-warning-rgb), .06); cursor: default; }
+  .fr-btn.ok { color: var(--color-success); border-color: rgba(var(--color-success-rgb), .55); border-style: solid; background: transparent; cursor: default; }
+  .phone .fr-btn { min-height: 32px; }
+  .fr-when { color: var(--color-text-secondary); }
+  .fr-when b { color: var(--color-text-primary); font-weight: 500; font-family: var(--font-mono); font-size: 10px; }
+  .fr-dim { color: var(--color-text-dim); font-size: 9.5px; }
+  .fr-why { display: flex; gap: 5px; align-items: flex-start; color: var(--color-text-secondary); }
+  .fr-why svg.g { color: var(--color-text-dim); width: 12px; height: 12px; margin-top: 1px; }
+  .fr-prog { height: 4px; background: var(--color-bg-mid); border-radius: var(--corner); overflow: hidden; }
+  .fr-prog i { display: block; height: 100%; background: var(--color-warning); }
+  @container (max-width: 560px) { .fr { grid-column: 1; } }
+
+  /* Option B: the confirm, ActionModal + .exp-recall-confirm */
+  .modal { border: 1px solid var(--color-border-strong); background: var(--color-bg-raised); border-radius: var(--corner); box-shadow: 0 16px 48px rgba(0,0,0,.6); max-width: 420px; }
+  .modal-hd { display: flex; justify-content: space-between; align-items: center; padding: 10px 14px; border-bottom: 1px solid var(--color-border); font-family: var(--font-display); font-size: 12px; letter-spacing: .1em; }
+  .modal-bd { padding: 12px 14px; font-size: var(--text-sm); color: var(--color-text-secondary); }
+  .modal-bd p { display: flex; gap: 6px; align-items: flex-start; margin: 0 0 6px; }
+  .modal-bd ul { margin: 6px 0; padding-left: 18px; }
+  .modal-bd b { color: var(--color-text-primary); font-weight: 500; }
+  .modal-ft { display: flex; justify-content: flex-end; gap: 8px; padding: 10px 14px; border-top: 1px solid var(--color-border); }
+  .dim-overlay { background: rgba(0,0,0,.55); padding: 26px 12px; display: grid; place-items: center; }
+
+  /* States grid */
+  .states { display: grid; grid-template-columns: repeat(auto-fill, minmax(330px, 1fr)); gap: 16px; }
+  .state-card { border: 1px solid var(--color-border); background: var(--color-panel-bg); padding: 10px 12px; min-width: 0; }
+  .state-card .fr { margin-top: 8px; }
+  .state-h { font-family: var(--font-mono); font-size: 10.5px; letter-spacing: .08em; text-transform: uppercase; color: var(--color-accent-bright); }
+  .state-sub { font-size: 11px; color: var(--color-text-dim); margin-top: 2px; }
+  .nowline { margin-top: 6px; font-size: var(--text-2xs); color: var(--color-text-secondary); display: flex; gap: 6px; align-items: center; }
+  .nowline svg.g { width: 14px; height: 14px; color: var(--color-text-secondary); }
+
+  /* Callouts and open calls (house style) */
+  .callout { font-family: var(--font-mono); font-size: 10px; color: var(--color-warning); display: flex; gap: 6px; align-items: center; margin: 8px 0 4px; }
+  .callout::before { content: ""; width: 14px; height: 1px; background: var(--color-warning); }
+  .oc { border: 1px dashed rgba(var(--color-warning-rgb), .65); background: rgba(var(--color-warning-rgb), .06); border-radius: var(--corner); padding: 8px 10px; font-size: 12px; color: var(--color-text-secondary); max-width: min(560px, 100%); }
+  .oc .t { font-family: var(--font-mono); font-size: 10.5px; letter-spacing: .1em; color: var(--color-warning); text-transform: uppercase; margin-bottom: 4px; }
+  .oc .ab { display: grid; grid-template-columns: 18px 1fr; gap: 2px 6px; }
+  .oc .ab b { font-family: var(--font-mono); color: var(--color-warning); }
+  .oc .drawn { font-family: var(--font-mono); font-size: 10px; color: var(--color-text-dim); margin-top: 4px; }
+  .ocrow { display: flex; gap: 12px; flex-wrap: wrap; margin-top: 12px; }
+  ol.calls { margin: 0; padding-left: 22px; display: grid; gap: 8px; color: var(--color-text-secondary); max-width: 112ch; }
+  ol.calls b { color: var(--color-text-primary); }
+  .flag { font-family: var(--font-mono); font-size: 9.5px; color: var(--color-warning); border: 1px dashed rgba(var(--color-warning-rgb), .6); padding: 0 4px; margin-left: 4px; font-weight: 400; white-space: nowrap; }
+</style>
+</head>
+<body>
+<!-- Glyph path data copied from src/lib/ui/icons.ts (ship, shipyard, hullRepair, clock, check, info, warning, recall, discovery, tool, close). -->
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <defs>
+    <symbol id="i-ship" viewBox="0 0 24 24"><path d="M12 3l8 17-8-4-8 4z"/></symbol>
+    <symbol id="i-shipyard" viewBox="0 0 24 24"><path d="M3 4h18"/><path d="M6 4v5"/><path d="M18 4v5"/><path d="M12 21l5-9H7z"/></symbol>
+    <symbol id="i-hullRepair" viewBox="0 0 24 24"><path d="M3 4.5h18v15H3z"/><path d="M12 4.5l-1.3 2.5 1.6 2"/><path d="M12 15l-1.4 2.2 1.1 2.3"/><path d="M6.5 9h11v6h-11z"/><path d="M9 12h.01M15 12h.01"/></symbol>
+    <symbol id="i-clock" viewBox="0 0 24 24"><path d="M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18z"/><path d="M12 7.5V12l3 2"/></symbol>
+    <symbol id="i-check" viewBox="0 0 24 24"><path d="M4 12.5l5 5L20 6.5"/></symbol>
+    <symbol id="i-info" viewBox="0 0 24 24"><path d="M12 3a9 9 0 1 1 0 18 9 9 0 0 1 0-18z"/><path d="M12 11v6"/><path d="M12 7.5v.5"/></symbol>
+    <symbol id="i-warning" viewBox="0 0 24 24"><path d="M12 4L2.5 20h19z"/><path d="M12 10v4"/><path d="M12 16.9v.2"/></symbol>
+    <symbol id="i-recall" viewBox="0 0 24 24"><path d="M17 20v-9a5 5 0 0 0-10 0v2"/><path d="M4 10.5l3 3 3-3"/></symbol>
+    <symbol id="i-discovery" viewBox="0 0 24 24"><path d="M11 3c.6 4.3 1.9 5.9 6 6.5-4.1.6-5.4 2.2-6 6.5-.6-4.3-1.9-5.9-6-6.5 4.1-.6 5.4-2.2 6-6.5z"/><path d="M19 15v4M17 17h4"/></symbol>
+    <symbol id="i-tool" viewBox="0 0 24 24"><path d="M19.8 7.2a5 5 0 0 1-6.5 6.5L7 20a2.1 2.1 0 0 1-3-3l6.3-6.3a5 5 0 0 1 6.5-6.5L13.5 7.5l3 3z"/></symbol>
+    <symbol id="i-close" viewBox="0 0 24 24"><path d="M6 6l12 12"/><path d="M18 6L6 18"/></symbol>
+  </defs>
+</svg>
+
+<div class="wrap">
+  <div>
+    <h1>Player-ordered field repair (OC-F14)</h1>
+    <p class="intro">Hyperion Legacy 0.14.0, Wiring WR-10, open call <b>OC-F14</b>, for your answer and sign-off before any build. The engine path exists and is tested; <b>no screen offers it</b> (registry row <code>away:audit:fieldRepairOrder</code>, pending). The first question is still whether to have it at all; if yes, pick a layout below.</p>
+    <p class="note">Example run on every frame: the ship's frozen hull pool is <b>400</b>, it carries <b>48</b> hull damage (a failed debris check, 16, plus a lost probe fight, 32), no Engineering repair speed and no Damage Control Suite. System, body and team names are samples. Every time shown is the engine's formula on those numbers; a build would read them from the engine, never from the UI.</p>
+  </div>
+
+  <section>
+    <p class="label">0. What the engine does today (confirmed in code)</p>
+    <div class="stage">
+      <table class="jobs">
+        <thead><tr><th>Piece</th><th>Where</th><th>What it does</th></tr></thead>
+        <tbody>
+          <tr><td><b>The order</b></td><td><code>expedition.ts:3141</code> canOrderFieldRepair, <code>:3149</code> orderFieldRepair</td><td>Advances the run to now, checks it, stores a repair leg <b>starting now</b>, or when the ship is back from a leg already under way (a pickup), then settles. A refusal changes nothing. Free: no credits, no materials.</td></tr>
+          <tr><td><b>Refusals</b></td><td><code>groundOps.ts:2719</code> fieldRepairBlock, <code>:2729</code> its words</td><td>No damage: "The ship has no damage to repair". A repair already stored and not finished: "The ship is already setting down for repairs". Ground operations over (or recalled): "The ground operations are over: the Shipyard will repair the ship at home". A run from before GO-8b: "This expedition launched before field repairs". Plus: not a Ground Operations run (no strip at all).</td></tr>
+          <tr><td><b>Where it sets down</b></td><td><code>groundOps.ts:2699</code> fieldRepairSite, <code>:2672</code></td><td>The nearest Terrestrial, Ocean, Arid or Frozen body to the body being scanned (the last body once the scan is done; ties go to the lower one). None in the system: it repairs <b>in orbit</b> where it is. The player does not pick the site.</td></tr>
+          <tr><td><b>How long</b></td><td><code>groundOps.ts:2712</code>, <code>model.ts:1903</code>, <code>groundOps.ts:451</code></td><td>The Shipyard's time (20 s + 0.5 s per hull point, shortened by repair speed and the Damage Control Suite) <b>x2 on the ground, x3 in orbit</b>, plus <b>5m each way</b> when the site is another body. Example, 48 damage: 1m 28s on the ground, 2m 12s in orbit.</td></tr>
+          <tr><td><b>What it fixes</b></td><td><code>groundOps.ts:2766</code>, <code>:2684</code></td><td>All the hull damage the run carries at the order. Damage taken after the order stays for a later repair.</td></tr>
+          <tr><td><b>Costs and gains</b></td><td><code>groundOps.ts:2656 to 2667</code>, <code>gearWear.ts:147</code>, <code>shipScanEvents.ts:243</code></td><td>The scan <b>waits</b> for the whole leg; the ground teams <b>keep working</b>; a team pickup waits until the repair is done. While set down, the gear aboard (the ship's and its members') recovers at the field rate (40, vs 2 underway). Later ship battles this run start with the repaired hull. Without it, damage left at claim goes to the Shipyard, and a damaged ship cannot launch another expedition until repaired.</td></tr>
+          <tr><td><b>Automatic repair</b></td><td><code>groundOps.ts:2774</code>, <code>expedition.ts:2223</code></td><td>Unchanged: at <b>25%</b> of the hull pool (100 of 400 here) the ship sets down on its own, the same leg marked "after heavy damage". The order is the same leg earlier, marked "ordered".</td></tr>
+          <tr><td><b>Recall</b></td><td><code>groundOps.ts:1244</code></td><td>Recalling during a repair stops it; the hull comes home with its damage.</td></tr>
+          <tr><td><b>Not in the engine</b></td><td></td><td>Cancelling an ordered repair, a partial repair, choosing the site. Not drawn below; see the questions.</td></tr>
+          <tr><td><b>On screen today</b></td><td><code>GroundTeamTimeline.svelte</code>, <code>groundOpsTimelineDisplay.ts:495, 710</code></td><td>The Ship lane already draws a repair leg (the "field repair" segment, shipyard glyph) and its words. <b>The run's hull damage is not shown anywhere</b> during a run; both layouts add a hull readout.</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section>
+    <p class="label">1. Option A: a strip on the Ship lane (one tap, preview always visible)</p>
+    <div class="stage">
+      <div class="pair">
+        <div>
+          <p class="frame-cap">Desktop 900 px · Operations / Exploration, an expedition's in-progress view</p>
+          <div class="shell desk">
+            <div class="topbar"><span>HYPERION LEGACY</span><span class="res">Credits 48,210 · FA 14 · Day 96</span></div>
+            <div class="crumb">Operations / <b>Exploration</b> / Expedition Console</div>
+            <div class="content">
+              <div class="exp-body">
+                <div class="exp-hdr">
+                  <div class="exp-hdr-main"><span class="exp-hdr-system">Vela 9</span><span class="exp-hdr-sub">Wayfarer · Capt. Ilsen</span></div>
+                  <div class="exp-hdr-btns"><button class="exp-btn quiet"><svg class="g"><use href="#i-recall"/></svg>Recall</button></div>
+                </div>
+                <div class="ghost"><div class="ph-cap">Phase stepper, system scan cards, task queues: unchanged</div><div class="ph-line" style="width:90%"></div><div class="ph-line" style="width:70%"></div></div>
+                <div class="gt">
+                  <div class="gt-head"><span class="gt-tag">Ground operations · team timelines</span><div class="gt-mode"><span class="on">Recent</span><span>Whole run</span></div></div>
+                  <div class="gt-lanes">
+                    <div class="gt-lane">
+                      <div class="gt-lane-id"><span class="badge">A</span><div class="gt-lane-words"><span class="gt-lane-name">Alpha <span class="gt-lane-kind">Survey team</span></span><span class="gt-lane-now">Working · 6m left</span></div></div>
+                      <div class="gt-track"><span class="gt-seg c-travel" style="left:0;width:12%"></span><span class="gt-seg c-work" style="left:12%;width:40%"><svg class="g"><use href="#i-tool"/></svg>working</span><span class="gt-seg c-load" style="left:52%;width:8%"></span><span class="gt-seg c-work current" style="left:60%;width:40%"><svg class="g"><use href="#i-tool"/></svg>working</span></div>
+                    </div>
+                    <div class="gt-lane">
+                      <div class="gt-lane-id"><span class="gt-ship-badge"><svg class="g" style="width:16px;height:16px"><use href="#i-ship"/></svg></span><div class="gt-lane-words"><span class="gt-lane-name">Ship</span><span class="gt-lane-now">Scanning Vela 9 c · Arid</span></div></div>
+                      <div class="gt-track"><span class="gt-seg c-scan" style="left:0;width:38%"><svg class="g"><use href="#i-discovery"/></svg>scan b</span><span class="gt-seg c-pause" style="left:38%;width:6%"></span><span class="gt-seg c-scan current" style="left:44%;width:56%"><svg class="g"><use href="#i-discovery"/></svg>scan c</span></div>
+                      <div class="fr">
+                        <div class="fr-row"><span class="fr-tag"><svg class="g"><use href="#i-hullRepair"/></svg>Hull</span><span class="hull" title="48 of 400 damage; the ship repairs on its own at 100"><i style="width:12%"></i><b style="left:25%"></b></span><span class="fr-n"><b>48</b> damage of 400 · auto at 100</span><button class="fr-btn"><svg class="g"><use href="#i-shipyard"/></svg>Order field repair</button></div>
+                        <div class="fr-when">Sets down at <b>Vela 9 c · Arid</b>, the body it scans: repairs in <b>1m 28s</b>, no flight. The scan waits that long; the teams keep working.</div>
+                        <div class="fr-dim">Free. Fixes all 48 damage. Without it the ship repairs on its own at 100, or in the Shipyard at home.</div>
+                      </div>
+                      <div class="gt-steps">Ship's steps (4)</div>
+                    </div>
+                  </div>
+                  <ul class="gt-key"><li><i class="gt-swatch c-scan"></i><svg class="g"><use href="#i-discovery"/></svg>scanning</li><li><i class="gt-swatch c-pause"></i>scan pause</li><li><i class="gt-swatch c-leg"></i><svg class="g"><use href="#i-ship"/></svg>recovery leg</li><li><i class="gt-swatch c-repair"></i><svg class="g"><use href="#i-shipyard"/></svg>field repair</li></ul>
+                </div>
+              </div>
+            </div>
+          </div>
+          <p class="callout">new: the strip under the Ship lane's track, in the Overtime strip's shape (approved 2026-11-10)</p>
+        </div>
+        <div>
+          <p class="frame-cap">Phone 375 px · same view (the lane stacks under 560 px)</p>
+          <div class="shell phone">
+            <div class="topbar"><span>HYPERION</span><span class="res">48,210 cr · Day 96</span></div>
+            <div class="crumb">Operations / <b>Exploration</b></div>
+            <div class="content">
+              <div class="exp-body">
+                <div class="exp-hdr">
+                  <div class="exp-hdr-main"><span class="exp-hdr-system">Vela 9</span><span class="exp-hdr-sub">Wayfarer · Capt. Ilsen</span></div>
+                  <div class="exp-hdr-btns"><button class="exp-btn quiet"><svg class="g"><use href="#i-recall"/></svg>Recall</button></div>
+                </div>
+                <div class="gt">
+                  <div class="gt-head"><span class="gt-tag">Ground operations · team timelines</span></div>
+                  <div class="gt-lanes">
+                    <div class="gt-lane">
+                      <div class="gt-lane-id"><span class="gt-ship-badge"><svg class="g" style="width:16px;height:16px"><use href="#i-ship"/></svg></span><div class="gt-lane-words"><span class="gt-lane-name">Ship</span><span class="gt-lane-now">Scanning Vela 9 c · Arid</span></div></div>
+                      <div class="gt-track"><span class="gt-seg c-scan" style="left:0;width:38%"></span><span class="gt-seg c-pause" style="left:38%;width:6%"></span><span class="gt-seg c-scan current" style="left:44%;width:56%"><svg class="g"><use href="#i-discovery"/></svg>scan c</span></div>
+                      <div class="fr">
+                        <div class="fr-row"><span class="fr-tag"><svg class="g"><use href="#i-hullRepair"/></svg>Hull</span><span class="hull"><i style="width:12%"></i><b style="left:25%"></b></span><span class="fr-n"><b>48</b> of 400 · auto at 100</span></div>
+                        <div class="fr-row"><button class="fr-btn" style="margin-left:0"><svg class="g"><use href="#i-shipyard"/></svg>Order field repair</button></div>
+                        <div class="fr-when">Sets down at <b>Vela 9 c</b>, the body it scans: <b>1m 28s</b>, no flight. The scan waits; the teams keep working.</div>
+                      </div>
+                      <div class="gt-steps">Ship's steps (4)</div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+          <p class="note" style="max-width:375px">On phone the button drops to its own row with a 32 px tap height; the dim "Free. Fixes all..." line is cut for space.</p>
+        </div>
+      </div>
+      <div class="ocrow">
+        <div class="oc"><div class="t">Why A</div>The control sits where the repair then draws (the Ship lane), the preview is visible before the tap, and one tap orders it, like Overtime. Cost: the strip takes a few lines on every damaged run.</div>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <p class="label">2. Option B: a header button beside Recall, with a confirm (the Recall pattern)</p>
+    <div class="stage">
+      <div class="pair">
+        <div>
+          <p class="frame-cap">Desktop 900 px · the run header, then the confirm</p>
+          <div class="shell desk">
+            <div class="topbar"><span>HYPERION LEGACY</span><span class="res">Credits 48,210 · FA 14 · Day 96</span></div>
+            <div class="crumb">Operations / <b>Exploration</b> / Expedition Console</div>
+            <div class="content">
+              <div class="exp-body">
+                <div class="exp-hdr">
+                  <div class="exp-hdr-main"><span class="exp-hdr-system">Vela 9</span><span class="exp-hdr-sub">Wayfarer · Capt. Ilsen</span><span class="exp-hdr-sub hull-sub">Hull damage 48 of 400 · repairs on its own at 100</span></div>
+                  <div class="exp-hdr-btns"><button class="exp-btn quiet"><svg class="g"><use href="#i-hullRepair"/></svg>Field repair</button><button class="exp-btn quiet"><svg class="g"><use href="#i-recall"/></svg>Recall</button></div>
+                </div>
+                <div class="ghost"><div class="ph-cap">Phase stepper, scan cards, queues, timelines: unchanged (the Ship lane draws the leg once ordered)</div><div class="ph-line" style="width:90%"></div><div class="ph-line" style="width:70%"></div><div class="ph-line" style="width:80%"></div></div>
+              </div>
+              <div class="dim-overlay">
+                <div class="modal">
+                  <div class="modal-hd"><span>FIELD REPAIR</span><svg class="g"><use href="#i-close"/></svg></div>
+                  <div class="modal-bd">
+                    <p><svg class="g"><use href="#i-shipyard"/></svg><span>Wayfarer sets down at <b>Vela 9 c · Arid</b>, the body it scans, and repairs all <b>48</b> hull damage.</span></p>
+                    <ul><li>Repairing: <b>1m 28s</b>, no flight</li><li>The scan waits that long; the teams keep working</li><li>A team pickup waits until the repair is done</li><li>Free</li></ul>
+                  </div>
+                  <div class="modal-ft"><button class="exp-btn quiet">Not now</button><button class="exp-btn primary">Set down now</button></div>
+                </div>
+              </div>
+            </div>
+          </div>
+          <p class="callout">new: the hull line in the header, the Field repair button, the confirm</p>
+        </div>
+        <div>
+          <p class="frame-cap">Phone 375 px · header, then the confirm</p>
+          <div class="shell phone">
+            <div class="topbar"><span>HYPERION</span><span class="res">48,210 cr · Day 96</span></div>
+            <div class="crumb">Operations / <b>Exploration</b></div>
+            <div class="content">
+              <div class="exp-body">
+                <div class="exp-hdr">
+                  <div class="exp-hdr-main"><span class="exp-hdr-system">Vela 9</span><span class="exp-hdr-sub">Wayfarer · Capt. Ilsen</span><span class="exp-hdr-sub hull-sub">Hull damage 48 of 400 · auto at 100</span></div>
+                  <div class="exp-hdr-btns"><button class="exp-btn quiet"><svg class="g"><use href="#i-hullRepair"/></svg>Field repair</button><button class="exp-btn quiet"><svg class="g"><use href="#i-recall"/></svg>Recall</button></div>
+                </div>
+              </div>
+              <div class="dim-overlay" style="padding:16px 6px">
+                <div class="modal">
+                  <div class="modal-hd"><span>FIELD REPAIR</span><svg class="g"><use href="#i-close"/></svg></div>
+                  <div class="modal-bd">
+                    <p><svg class="g"><use href="#i-shipyard"/></svg><span>Sets down at <b>Vela 9 c · Arid</b> and repairs all <b>48</b> damage.</span></p>
+                    <ul><li>Repairing: <b>1m 28s</b>, no flight</li><li>The scan waits; the teams keep working</li><li>Free</li></ul>
+                  </div>
+                  <div class="modal-ft"><button class="exp-btn quiet">Not now</button><button class="exp-btn primary">Set down now</button></div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="ocrow">
+        <div class="oc"><div class="t">Why B</div>Run-level orders live together (Field repair, Recall); the view stays as it is. Cost: two taps, and a disabled header button needs its reason on a line under it (phones have no hover), drawn in section 3 as B's variant.</div>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <p class="label">3. Every state (drawn as option A's strip; B shows the same words in its header line)</p>
+    <div class="stage">
+      <div class="states">
+        <div class="state-card">
+          <div class="state-h">Available · site is another body</div>
+          <div class="state-sub">Ship scans Vela 9 b · Barren; nearest repair world is c</div>
+          <div class="fr">
+            <div class="fr-row"><span class="fr-tag"><svg class="g"><use href="#i-hullRepair"/></svg>Hull</span><span class="hull"><i style="width:12%"></i><b style="left:25%"></b></span><span class="fr-n"><b>48</b> of 400</span><button class="fr-btn"><svg class="g"><use href="#i-shipyard"/></svg>Order field repair</button></div>
+            <div class="fr-when">Flies to <b>Vela 9 c · Arid</b> (<b>5m</b>), repairs <b>1m 28s</b>, flies back (<b>5m</b>). The scan waits <b>11m 28s</b>.</div>
+          </div>
+        </div>
+        <div class="state-card">
+          <div class="state-h">Available · no world to set down on</div>
+          <div class="state-sub">Only Barren, Volcanic, Toxic and gas giant bodies in the system</div>
+          <div class="fr">
+            <div class="fr-row"><span class="fr-tag"><svg class="g"><use href="#i-hullRepair"/></svg>Hull</span><span class="hull"><i style="width:12%"></i><b style="left:25%"></b></span><span class="fr-n"><b>48</b> of 400</span><button class="fr-btn"><svg class="g"><use href="#i-shipyard"/></svg>Order field repair</button></div>
+            <div class="fr-when">No world here to set down on: repairs <b>in orbit</b>, <b>2m 12s</b> (three times the Shipyard's time).</div>
+          </div>
+        </div>
+        <div class="state-card">
+          <div class="state-h">Ordered · waiting for a pickup</div>
+          <div class="state-sub">The ship was flying to pick up Bravo when ordered</div>
+          <div class="nowline"><svg class="g"><use href="#i-ship"/></svg>Flying to pick up Bravo · arrives in 2m 40s</div>
+          <div class="fr">
+            <div class="fr-row"><span class="fr-tag"><svg class="g"><use href="#i-hullRepair"/></svg>Hull</span><span class="hull"><i style="width:12%"></i><b style="left:25%"></b></span><span class="fr-n"><b>48</b> of 400</span><span class="fr-btn going"><svg class="g"><use href="#i-clock"/></svg>Ordered</span></div>
+            <div class="fr-when">Starts when the ship is back from the pickup, in <b>7m 40s</b>.</div>
+          </div>
+        </div>
+        <div class="state-card">
+          <div class="state-h">In progress · setting course</div>
+          <div class="state-sub">Ship lane segment "field repair" is current</div>
+          <div class="nowline"><svg class="g"><use href="#i-shipyard"/></svg>Setting course for a field repair · arrives in 3m 5s</div>
+          <div class="fr">
+            <div class="fr-row"><span class="fr-tag"><svg class="g"><use href="#i-hullRepair"/></svg>Hull</span><span class="hull"><i style="width:12%"></i><b style="left:25%"></b></span><span class="fr-n"><b>48</b> of 400</span><span class="fr-btn going"><svg class="g"><use href="#i-shipyard"/></svg>Repairing</span></div>
+            <div class="fr-prog"><i style="width:17%"></i></div>
+            <div class="fr-when">Back on the scan in <b>9m 33s</b>.</div>
+          </div>
+        </div>
+        <div class="state-card">
+          <div class="state-h">In progress · set down, repairing</div>
+          <div class="state-sub">Gear on the ship recovers at the field rate meanwhile</div>
+          <div class="nowline"><svg class="g"><use href="#i-shipyard"/></svg>Setting down for repairs at Vela 9 c · Arid · 52s left</div>
+          <div class="fr">
+            <div class="fr-row"><span class="fr-tag"><svg class="g"><use href="#i-hullRepair"/></svg>Hull</span><span class="hull"><i style="width:12%"></i><b style="left:25%"></b></span><span class="fr-n"><b>48</b> of 400</span><span class="fr-btn going"><svg class="g"><use href="#i-shipyard"/></svg>Repairing</span></div>
+            <div class="fr-prog"><i style="width:49%"></i></div>
+            <div class="fr-when">Damage clears when the repair ends, then <b>5m</b> back.</div>
+          </div>
+        </div>
+        <div class="state-card">
+          <div class="state-h">In progress · flying back</div>
+          <div class="state-sub">The damage is gone at the repair's end</div>
+          <div class="nowline"><svg class="g"><use href="#i-ship"/></svg>Repaired, flying back · 3m 40s left</div>
+          <div class="fr">
+            <div class="fr-row"><span class="fr-tag"><svg class="g"><use href="#i-hullRepair"/></svg>Hull</span><span class="hull"><b style="left:25%"></b></span><span class="fr-n"><b>0</b> of 400</span><span class="fr-btn ok"><svg class="g"><use href="#i-check"/></svg>Repaired</span></div>
+            <div class="fr-prog"><i style="width:68%"></i></div>
+          </div>
+        </div>
+        <div class="state-card">
+          <div class="state-h">Done</div>
+          <div class="state-sub">Back on the scan; the leg stays in the Ship's steps</div>
+          <div class="fr">
+            <div class="fr-row"><span class="fr-tag off"><svg class="g"><use href="#i-hullRepair"/></svg>Hull</span><span class="hull"><b style="left:25%"></b></span><span class="fr-n"><b>0</b> of 400</span><span class="fr-btn off">No damage</span></div>
+            <div class="fr-why"><svg class="g"><use href="#i-check"/></svg><span>Field repair at Vela 9 c · Arid (ordered): flying 5m, repairing 1m 28s, flying back 5m; fixes 48 hull. 4m ago.</span></div>
+          </div>
+          <p class="note" style="font-size:11px">The last line is the Ship's step text the engine already writes (repairLegWords).</p>
+        </div>
+        <div class="state-card">
+          <div class="state-h">Disabled · no damage</div>
+          <div class="state-sub">A fresh run, or every hit already repaired</div>
+          <div class="fr">
+            <div class="fr-row"><span class="fr-tag off"><svg class="g"><use href="#i-hullRepair"/></svg>Hull</span><span class="hull"><b style="left:25%"></b></span><span class="fr-n"><b>0</b> of 400</span><span class="fr-btn off">Order field repair</span></div>
+            <div class="fr-why"><svg class="g"><use href="#i-info"/></svg><span>The ship has no damage to repair.</span></div>
+          </div>
+          <p class="note" style="font-size:11px">Question 4: show the strip at all with no damage, or hide it until the first hit?</p>
+        </div>
+        <div class="state-card">
+          <div class="state-h">Disabled · an automatic repair is on</div>
+          <div class="state-sub">Damage reached 100: the ship set down on its own</div>
+          <div class="nowline"><svg class="g"><use href="#i-shipyard"/></svg>Setting down for repairs at Vela 9 c · Arid · 1m 40s left</div>
+          <div class="fr">
+            <div class="fr-row"><span class="fr-tag off"><svg class="g"><use href="#i-hullRepair"/></svg>Hull</span><span class="hull"><i style="width:26%"></i><b style="left:25%"></b></span><span class="fr-n"><b>104</b> of 400</span><span class="fr-btn going"><svg class="g"><use href="#i-shipyard"/></svg>Repairing</span></div>
+            <div class="fr-why"><svg class="g"><use href="#i-info"/></svg><span>The ship is already setting down for repairs (after heavy damage).</span></div>
+          </div>
+        </div>
+        <div class="state-card">
+          <div class="state-h">Disabled · operations over</div>
+          <div class="state-sub">Return transit, or the run was recalled</div>
+          <div class="fr">
+            <div class="fr-row"><span class="fr-tag off"><svg class="g"><use href="#i-hullRepair"/></svg>Hull</span><span class="hull"><i style="width:12%"></i><b style="left:25%"></b></span><span class="fr-n"><b>48</b> of 400</span><span class="fr-btn off">Order field repair</span></div>
+            <div class="fr-why"><svg class="g"><use href="#i-info"/></svg><span>The ground operations are over: the Shipyard will repair the ship at home.</span></div>
+          </div>
+        </div>
+        <div class="state-card">
+          <div class="state-h">Disabled · an older run</div>
+          <div class="state-sub">Dispatched before field repairs existed (no frozen repair profile)</div>
+          <div class="fr">
+            <div class="fr-row"><span class="fr-tag off"><svg class="g"><use href="#i-hullRepair"/></svg>Hull</span><span class="fr-btn off">Order field repair</span></div>
+            <div class="fr-why"><svg class="g"><use href="#i-info"/></svg><span>This expedition launched before field repairs.</span></div>
+          </div>
+        </div>
+        <div class="state-card">
+          <div class="state-h">Option B · disabled header button</div>
+          <div class="state-sub">The reason sits on the header's hull line</div>
+          <div class="exp-hdr" style="margin-top:8px">
+            <div class="exp-hdr-main"><span class="exp-hdr-system">Vela 9</span><span class="exp-hdr-sub">Hull damage 0 of 400 · nothing to repair</span></div>
+            <div class="exp-hdr-btns"><button class="exp-btn quiet" disabled><svg class="g"><use href="#i-hullRepair"/></svg>Field repair</button></div>
+          </div>
+        </div>
+      </div>
+      <p class="note">Not drawn: a run that is not a Ground Operations run (no hull readout and no strip at all), and the Recall confirm. Recalling during a repair stops it and the hull comes home with its damage; the Recall confirm could say so <span class="flag">optional, new words</span>.</p>
+    </div>
+  </section>
+
+  <section>
+    <p class="label">4. Your calls</p>
+    <div class="stage">
+      <ol class="calls">
+        <li><b>OC-F14 itself: have it?</b> Proposal: build the control (the hull readout and the order). Alternative: delete the engine path (orderFieldRepair, the "ordered" mark) and keep only the automatic repair at 25%.</li>
+        <li><b>Layout: A (strip on the Ship lane, one tap) or B (header button beside Recall, with a confirm)?</b> Drawn both; A is the Overtime strip's pattern, B is the Recall pattern.</li>
+        <li><b>Confirm or not?</b> With A, the preview is on screen before the tap; the order cannot be cancelled once given (the engine has no cancel; only Recall stops it). One tap, or one tap plus a confirm?</li>
+        <li><b>The hull readout</b> is new (no screen shows a run's hull damage today). Show it on every Ground Operations run, or only once the ship has taken damage?</li>
+        <li><b>Engine question, flagged, not decided:</b> when the scanned body is not a repair world, the engine always flies to the nearest one, even when repairing in orbit would be quicker. Example: 48 damage is 11m 28s with the trip (5m each way) against 2m 12s in orbit. Keep as built, or have the order take the quicker of the two? (An engine change; the automatic repair would follow the same rule.)</li>
+        <li><b>A cancel?</b> Not in the engine. Leave it out (the order is short and free), or add a cancel before the ship arrives? (New engine work.)</li>
+      </ol>
+    </div>
+  </section>
+</div>
+</body>
+</html>
