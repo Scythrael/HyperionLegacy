@@ -2324,3 +2324,10 @@ Release gate pending: 19 -> 10.
 - **Why `salvage:audit:ascension` stays a seam** although the OC-C4 proposal listed it for deletion: the later user
   answer "Plumbing only (Recommended)" (docs/plans/2026-10-22-rarity-quality-readiness-capture.md line 61) gave
   ascension a planned use, and RR-4 built tested plumbing for it (ascension.test.ts).
+- **USER ANSWERS (2026-11-11), OC-G1 open calls after the build** (production and staging never had expeditions; the
+  pre-SQ-4 Ground Ops runs exist only in local dev saves):
+  - `FIGHT_POINTS_MIN` / `SURVEY_AMBUSH_CHANCE` pre-SQ-4 fallbacks: "Keep, sweep later (Recommended)". Keep them;
+    LOGGED: one later cleanup pass for all the "dispatched before X" leftovers together (pre-SQ-4 fallbacks, pre-GO-8
+    draw 1 at chance 0, `PRE_FKR8_DEVICE_EFFECTIVENESS`, ...).
+  - `fuseLogLine` (fieldKitsDisplay.ts) and `rankedEnemyName` (enemyRanks.ts), both without a caller: "Delete the helpers
+    (Recommended)". The animated ground fight replay after 0.14.0 stays logged as planned (SUGGESTIONS.md).
