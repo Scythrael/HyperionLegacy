@@ -482,7 +482,7 @@
                     aria-pressed={assigned.favorite === true}
                     title={assigned.favorite ? "Favorited" : "Favorite this officer"}
                     on:click={() => onToggleOfficerFavorite(assigned.id)}
-                  >{assigned.favorite ? "★" : "☆"}</button>
+                  ><Icon name="star" size={13} /></button>
                 {/if}
               </span>
               <select
@@ -521,7 +521,7 @@
                       aria-pressed={n.favorite === true}
                       title={n.favorite ? "Favorited" : "Favorite this crew member"}
                       on:click={() => onToggleNotableFavorite(n.id)}
-                    >{n.favorite ? "★" : "☆"}</button>
+                    ><Icon name="star" size={13} /></button>
                   </span>
                   <span class="pr-pin-sub">{crewRankLabel(n.rank)} · {raceLabel(n.race)}</span>
                 </span>
@@ -531,13 +531,13 @@
                     aria-label={`Move ${n.name} up`}
                     disabled={i === 0}
                     on:click={() => moveNotable(n.id, "up")}
-                  >▲</button>
+                  ><Icon name="chevronUp" size={10} /></button>
                   <button
                     type="button"
                     aria-label={`Move ${n.name} down`}
                     disabled={i === pinnedNotables.length - 1}
                     on:click={() => moveNotable(n.id, "down")}
-                  >▼</button>
+                  ><Icon name="chevronDown" size={10} /></button>
                 </span>
                 <button type="button" class="pr-mini" on:click={() => unpinNotable(n.id)}>remove</button>
               </div>
@@ -562,12 +562,12 @@
                     aria-pressed={n.favorite === true}
                     title={n.favorite ? "Favorited" : "Favorite this crew member"}
                     on:click={() => onToggleNotableFavorite(n.id)}
-                  >{n.favorite ? "★" : "☆"}</button>
+                  ><Icon name="star" size={13} /></button>
                   <span class="pr-pin">
                     <span class="pr-pin-name">{n.name}</span>
                     <span class="pr-pin-sub">{crewRankLabel(n.rank)} · {raceLabel(n.race)}</span>
                   </span>
-                  <button type="button" class="pr-mini" on:click={() => pinNotable(n.id)}>add ↓</button>
+                  <button type="button" class="pr-mini" on:click={() => pinNotable(n.id)}>add <Icon name="arrowDown" size={11} /></button>
                 </div>
               {/each}
             </div>
@@ -1041,6 +1041,10 @@
   }
   .pr-star.on {
     color: var(--color-warning, #fbbf24);
+  }
+  /* CP-21: the SVG star fills when favorited (the CP-9 notable card's rule), outlined otherwise. */
+  .pr-star.on :global(svg) {
+    fill: currentColor;
   }
   .pr-star:hover,
   .pr-star:focus-visible {
