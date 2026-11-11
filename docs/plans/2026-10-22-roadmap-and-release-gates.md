@@ -112,3 +112,33 @@ family: one economyTick call spends one transit berth budget (the EM-4 precedent
 than the free berths differs in VALUES (a 4 hour one-call run of two captains lands 10 long-run cycles instead of 60);
 making it chunk-independent needs a time-ordered berth scheduler across captains. Production and the offline catch-up
 step 1 s, so players are unaffected.
+
+## Ordering determinism part 2 BUILT (2026-11-11)
+
+Both "still open" order wrinkles above are fixed at the source (`src/lib/game/canonicalOrder.ts`, part 2 section).
+(1) `inventory` key order: every inventory write goes through ONE seam, `inventory.ts setItemBuckets` (addItemQuality,
+removeItemQuality, removeItemLowestFirst, removeItemHighestFirst and ensureItem return through it, and every engine
+writer uses those: addToInventory, refining and fabricating, salvage, expedition claims, transports, the Quartermaster,
+field kits, relic and Museum flows, debug grants; the field kits switch probe now calls it too). A NEW key puts the
+whole map in canonical (code unit) order; a key already held keeps its place (the hot path: one spread, no sort). A
+deleted key leaves the rest in their order (only the save migration and a dev probe delete). Not routed, by design: the
+save migration builds an old save's map in its stored order (old saves load as they are, no SAVE_VERSION bump; their
+first new key sorts them the same way in every chunking), and the Material Lines explainer builds a local example map,
+not state. No UI reads the order (the Warehouse and every surface iterate the ITEMS catalog; the engine's own key walks,
+the cap clamp and the load-time discovery reconcile, act per key). (2) The completion log: resolveProcesses now queues
+each completion's record (with the levels as they stood) and folds them by the whole tick each completed on, then by
+process id ("proc-9" before "proc-10"), so one call logs and numbers them as 1 s steps do. Entry text and stamps are
+unchanged; only the order and the `done-N` numbering of entries completing in one call can differ from before (within
+one 1 s step, same-tick completions now go by process id, not array position: relicsV2IdentifyGoldens golden 3).
+Goldens first: `ordering2Goldens.*` (pins captured on 29993f09), switch `ordering2Switch.fixture.ts`, parity
+`ordering2Parity.test.ts` (one call == 997 s chunks == 1 s steps, byte for byte, each case failing with the switch
+off; an old save in first-seen order included). The shortRangeCycle, refugeeGoldens and emodEm4 parity checks and the
+orderingParity salvage and relic cases are now strict JSON compares (shortRangeCycle and orderingParity fail with part 2
+off; refugeeGoldens and emodEm4 already agreed once part 1 held). 55 older golden files moved; each runs with part 2 off
+(`ordering2OffForThisFile`), and a trace run (every JSON.stringify with the inventory keys and the log normalized, part 2
+on against off) matched hash for hash in all 55 except save stamps that also differ between two runs with it on.
+Perf: addToInventory on a held key (55 keys) about 820 ns before, 780 ns after (noise); a 4 hour catch-up in 1 s steps
+about 775 to 835 ms before, 645 to 665 ms after (noise, no regression). Still open (found reading the code, not
+fixed): economyTick appends the patrol and short-range lines AFTER resolveProcesses' records, so a call in which a
+patrol ends BEFORE a process completes logs the process first while 1 s steps log the patrol first (ordering across
+passes would need every pass's completion tick). No parity run meets it; production and the catch-up step 1 s.
