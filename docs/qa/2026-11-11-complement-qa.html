@@ -1,0 +1,335 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>0.14.0 QA: Complement and Acquisition, full sheet (CP-0 to CP-21)</title>
+<style>
+  :root {
+    --bg: #070b12;
+    --bg-2: #0d1420;
+    --panel: #111a29;
+    --panel-2: #0b1220;
+    --line: #1f2c40;
+    --line-2: #2a3a54;
+    --text: #dce6f3;
+    --dim: #8497af;
+    --faint: #5d6d86;
+    --accent: #38e0ff;
+    --accent-2: #7cf6c9;
+    --claude: #b98bff;
+    --desk: #38e0ff;
+    --mob: #ffcc66;
+    --warn: #ffcc66;
+    --save: #ff9a6b;
+    --device: #7fb2ff;
+    --good: #6ff2b0;
+    --danger: #ff7a7a;
+    --shadow: 0 0 0 1px var(--line), 0 18px 40px -24px #000;
+  }
+  * { box-sizing: border-box; }
+  html { color-scheme: dark; }
+  body {
+    margin: 0;
+    background:
+      radial-gradient(1200px 600px at 78% -10%, rgba(56,224,255,0.10), transparent 60%),
+      radial-gradient(900px 500px at 8% 8%, rgba(185,139,255,0.08), transparent 55%),
+      var(--bg);
+    color: var(--text);
+    font: 14px/1.55 ui-sans-serif, system-ui, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    padding: env(safe-area-inset-top, 0) 0 calc(env(safe-area-inset-bottom, 0) + 48px);
+  }
+  .wrap { max-width: 980px; margin: 0 auto; padding: 28px 18px 0; }
+  a { color: var(--accent); }
+
+  .eyebrow { font-size: 11px; letter-spacing: 3px; text-transform: uppercase; color: var(--accent); opacity: 0.85; margin: 0 0 6px; }
+  h1 { font-size: clamp(22px, 4.4vw, 34px); line-height: 1.1; margin: 0 0 4px; text-wrap: balance; font-weight: 750; letter-spacing: 0.3px; }
+  h1 .v { color: var(--accent); }
+  .sub { color: var(--dim); margin: 0 0 20px; font-size: 13px; }
+
+  .progress-card {
+    background: linear-gradient(180deg, var(--panel), var(--panel-2));
+    border: 1px solid var(--line-2); border-radius: 16px; padding: 20px 22px; box-shadow: var(--shadow); margin-bottom: 20px;
+  }
+  .progress-top { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+  .pct { font-size: clamp(30px, 8vw, 52px); font-weight: 800; line-height: 1; letter-spacing: -1px; color: var(--accent);
+    text-shadow: 0 0 24px rgba(56,224,255,0.45); font-variant-numeric: tabular-nums; }
+  .pct small { font-size: 15px; font-weight: 600; color: var(--dim); margin-left: 8px; letter-spacing: 0; }
+  .rowcount { color: var(--text); font-size: 15px; font-weight: 650; font-variant-numeric: tabular-nums; }
+  .rowcount b { color: var(--accent-2); }
+  .bar { margin-top: 16px; height: 16px; border-radius: 999px; background: #0a1220; border: 1px solid var(--line-2); overflow: hidden; }
+  .bar > i { display: block; height: 100%; width: 0%; background: linear-gradient(90deg, #2bd0ff, #7cf6c9);
+    box-shadow: 0 0 18px rgba(56,224,255,0.6); border-radius: 999px; transition: width .35s cubic-bezier(.2,.8,.2,1); }
+  .substats { display: flex; gap: 18px; flex-wrap: wrap; margin-top: 14px; font-size: 12.5px; color: var(--dim); }
+  .substats .dot { display: inline-block; width: 9px; height: 9px; border-radius: 3px; margin-right: 7px; vertical-align: middle; }
+  .substats b { color: var(--text); font-variant-numeric: tabular-nums; }
+  .d-claude { background: var(--claude); box-shadow: 0 0 10px var(--claude); }
+  .d-desk { background: var(--desk); box-shadow: 0 0 10px var(--desk); }
+  .d-mob { background: var(--mob); box-shadow: 0 0 10px var(--mob); }
+
+  .legend { background: var(--panel-2); border: 1px solid var(--line); border-radius: 12px; padding: 14px 16px; margin-bottom: 26px; font-size: 12.5px; color: var(--dim); }
+  .legend p { margin: 0 0 8px; }
+  .legend p:last-child { margin-bottom: 0; }
+  .legend b { color: var(--text); }
+  .chip { display: inline-block; padding: 1px 8px; border-radius: 999px; font-size: 11px; font-weight: 650; letter-spacing: 0.3px; vertical-align: middle; }
+  .chip.save { color: var(--save); background: rgba(255,154,107,0.12); border: 1px solid rgba(255,154,107,0.4); }
+  .chip.device { color: var(--device); background: rgba(127,178,255,0.12); border: 1px solid rgba(127,178,255,0.4); }
+  .chip.theme { color: var(--accent-2); background: rgba(124,246,201,0.10); border: 1px solid rgba(124,246,201,0.35); }
+  .chip.later { color: var(--danger); background: rgba(255,122,122,0.10); border: 1px solid rgba(255,122,122,0.4); }
+  .toolbar { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-bottom: 22px; }
+  .btn { background: var(--panel); color: var(--text); border: 1px solid var(--line-2); border-radius: 8px; padding: 7px 13px; font-size: 12.5px; cursor: pointer; font-weight: 600; }
+  .btn:hover { border-color: var(--accent); color: var(--accent); }
+  .toolbar .note { color: var(--faint); font-size: 12px; }
+
+  section { margin-bottom: 26px; }
+  .sec-head { display: flex; align-items: center; gap: 12px; margin: 0 0 6px; }
+  .sec-num { font-variant-numeric: tabular-nums; font-weight: 800; color: var(--accent); font-size: 13px; letter-spacing: 1px;
+    background: rgba(56,224,255,0.08); border: 1px solid rgba(56,224,255,0.3); border-radius: 7px; padding: 3px 9px; min-width: 34px; text-align: center; }
+  .sec-title { font-size: 16px; font-weight: 700; letter-spacing: 0.2px; }
+  .sec-line { flex: 1; height: 1px; background: linear-gradient(90deg, var(--line-2), transparent); }
+  .sec-done { font-size: 11.5px; color: var(--faint); font-variant-numeric: tabular-nums; }
+  .sec-note { color: var(--dim); font-size: 12.5px; font-style: italic; margin: 0 0 10px; border-left: 2px solid var(--line-2); padding: 2px 0 2px 12px; }
+
+  .items { display: flex; flex-direction: column; gap: 2px; }
+  .col-head, .item { display: grid; grid-template-columns: 52px 52px 52px 1fr; gap: 10px; }
+  .col-head { align-items: center; padding: 4px 12px; font-size: 10.5px; letter-spacing: 1px; text-transform: uppercase; color: var(--faint); }
+  .col-head .ch { text-align: center; }
+  .col-head .ch.claude { color: var(--claude); }
+  .col-head .ch.desk { color: var(--desk); }
+  .col-head .ch.mob { color: var(--mob); }
+  .item { align-items: start; padding: 10px 12px; border-radius: 10px; border: 1px solid transparent; }
+  .item:nth-child(odd) { background: rgba(255,255,255,0.014); }
+  .item.done { background: rgba(124,246,201,0.05); border-color: rgba(124,246,201,0.18); }
+  .cell { display: flex; justify-content: center; padding-top: 1px; }
+
+  .cb { position: relative; width: 22px; height: 22px; }
+  .cb input { position: absolute; inset: 0; opacity: 0; margin: 0; cursor: pointer; }
+  .cb .box { width: 22px; height: 22px; border-radius: 6px; border: 2px solid var(--line-2); display: grid; place-items: center; transition: .12s; background: #0a1220; }
+  .cb .box svg { width: 13px; height: 13px; opacity: 0; transform: scale(.5); transition: .12s; }
+  .cb input:checked + .box svg { opacity: 1; transform: scale(1); }
+  .cb input:focus-visible + .box { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .cb.claude input:checked + .box { background: rgba(185,139,255,0.18); border-color: var(--claude); }
+  .cb.claude .box svg { color: var(--claude); }
+  .cb.desk input:checked + .box { background: rgba(56,224,255,0.18); border-color: var(--desk); }
+  .cb.desk .box svg { color: var(--desk); }
+  .cb.mob input:checked + .box { background: rgba(255,204,102,0.18); border-color: var(--mob); }
+  .cb.mob .box svg { color: var(--mob); }
+  .cb.desk input:not(:disabled):hover + .box { border-color: var(--desk); }
+  .cb.mob input:not(:disabled):hover + .box { border-color: var(--mob); }
+  .cb input:disabled { cursor: default; }
+  .cb.claude.empty .box { border-style: dashed; opacity: 0.5; }
+
+  .body .t { color: var(--text); }
+  .body .t .k { color: var(--accent-2); font-weight: 600; }
+  .meta { margin-top: 5px; display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+  .how { color: var(--dim); font-size: 12px; font-style: italic; margin-top: 4px; }
+  .how::before { content: "how: "; font-style: normal; color: var(--claude); opacity: 0.85; font-weight: 650; }
+
+  .findings { background: linear-gradient(180deg, rgba(124,246,201,0.06), transparent); border: 1px solid rgba(124,246,201,0.25); border-radius: 14px; padding: 18px 20px; margin-top: 12px; }
+  .findings h2 { margin: 0 0 6px; font-size: 15px; color: var(--good); letter-spacing: 0.3px; }
+  .findings ol { margin: 8px 0 0; padding-left: 20px; }
+  .findings li { margin-bottom: 10px; color: var(--dim); }
+  .findings li b { color: var(--text); }
+  .foot { margin-top: 26px; color: var(--faint); font-size: 11.5px; text-align: center; }
+
+  @media (max-width: 520px) {
+    .col-head, .item { grid-template-columns: 34px 34px 34px 1fr; gap: 6px; }
+    .item { padding: 10px 8px; }
+    .col-head { padding: 4px 8px; font-size: 9.5px; letter-spacing: 0.5px; }
+    .wrap { padding-left: 14px; padding-right: 14px; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <p class="eyebrow">Hyperion Legacy QA, 0.14.0 crew pass</p>
+  <h1><span class="v">0.14.0</span> Complement and Acquisition, full sheet (CP-0 to CP-21)</h1>
+  <p class="sub">The curated close-out checklist for the whole complement plan (docs/plans/2026-10-14-complement-and-acquisition-plan.md, section 6, plus the CP-21 close-out): the dead crew buffs made live, per-hull berths, the crew lock, salvage that loses nobody, transfers and the crew pool, notables and the manifest, crew modules and sensor arrays, hull bonuses, hull sensors, the final retirement and the Hall of Command, the roster picker, the soft level cap, bigger candidate boards, graph colors, the new Help topics and the crew pool speed fix. <b>Run this on staging</b> (devpreview.crystalisoft.com, the staging branch) with your migrated save, once 0.14.0 is deployed there (0.14.0 stays off staging until the wiring gate passes and you say go). Run each check once at <b>1280 px</b> (desktop) and once at <b>375 px</b> (mobile, no sideways page scroll), in both <b>light and dark</b> themes.</p>
+  <div class="progress-card">
+    <div class="progress-top">
+      <div class="pct" id="pct">0%<small id="pctlabel">ready</small></div>
+      <div class="rowcount"><b id="doneCount">0</b> / <span id="totalCount">0</span> checks complete</div>
+    </div>
+    <div class="bar"><i id="barFill"></i></div>
+    <div class="substats">
+      <span><span class="dot d-claude"></span>Claude (tests) <b id="claudeCount">0</b></span>
+      <span><span class="dot d-desk"></span>You at 1280 px <b id="deskCount">0</b></span>
+      <span><span class="dot d-mob"></span>You at 375 px <b id="mobCount">0</b></span>
+      <span style="color:var(--faint)">A row is complete when both of your columns are ticked.</span>
+    </div>
+  </div>
+
+  <div class="legend">
+    <p><b>What this covers.</b> Every player-facing rule the complement plan built, checked once end to end. The per-slice sheets (CP-5, CP-9, CP-10, CP-11 to CP-14, CP-16 to CP-20, CP-4's rest) go deeper; this one walks the whole crew layer as a player meets it.</p>
+    <p><b>Where to test.</b> Staging, <b>devpreview.crystalisoft.com</b>, on the 0.14.0 build, with your own migrated save. Ships (a ship's Senior Staff, Away Team and Complement tabs, Ship Systems), Facilities (Personnel Rosters with its Crew Pool and Upgrades tabs, Research Lab, Fabricator), Ops, the Archive, Prestige, Settings and Help.</p>
+    <p><b>The three columns.</b> <b style="color:var(--claude)">Claude</b> is pre-filled and read-only: a tick means a test proves that rule (the "how" line names the file). <b style="color:var(--desk)">1280</b> and <b style="color:var(--mob)">375</b> are yours; your ticks are saved in this browser.</p>
+    <p>Tags: <span class="chip save">needs real save</span> needs your migrated save. <span class="chip device">needs device</span> touch, a real phone, or a visual call. <span class="chip theme">light + dark</span> look at it in both themes. <span class="chip later">not in this build</span> waits on your call.</p>
+  </div>
+  <div class="toolbar">
+    <button class="btn" type="button" id="resetBtn">Reset my columns</button>
+    <span class="note">Claude's column is read-only (it records what the tests prove).</span>
+  </div>
+
+  <div id="sections"></div>
+
+  <div class="findings">
+    <h2>Builder notes (CP-21 close-out, 2026-11-11)</h2>
+    <ol>
+      <li><b>Your save.</b> No SAVE_VERSION change in the close-out. The crew pool speed fix stores nothing: it remembers, in memory only, that a full ship took nobody from an unchanged pool.</li>
+      <li><b>Speed.</b> A fleet whose berths are all full keeps every transport in the pool. After 35 days (about 20,000 crew waiting) each game second used to cost about 12 ms, so a long offline catch-up could take minutes; it now costs about 0.02 ms. Nothing it decides changed (whole-state goldens captured before the fix hold, one call, 997 s chunks and 1 s steps alike).</li>
+      <li><b>Waiting on your calls.</b> Where the notable crew ticker sits; whether the crew pool should be bounded (surplus sent somewhere); whether Deck Handling should also act inside combat; an "assign to ship" button for an unassigned notable; the CP-11 distinct recipes sign-off; the provisional numbers for the 0.16.0 balance pass.</li>
+      <li><b>Deferred to 0.14.x (T3).</b> CP-15 patrol cloak and threat detection, and the Spacer long-haul ramp (the Spacer racial is live as transit speed).</li>
+    </ol>
+  </div>
+  <p class="foot">0.14.0 Complement and Acquisition full QA, boxes persist in this browser only.</p>
+</div>
+
+<script>
+const TICK = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>';
+// c: a test proves it (how names the file). tag: "save" | "device" | "theme" | "later" | null.
+const SECTIONS = [
+  { n: "0", title: "Setup on staging", note: "Staging only: devpreview.crystalisoft.com on the 0.14.0 build, your migrated save.", items: [
+    { t: "Open staging and load your save. It loads clean: every ship keeps its crew, officers and notables, and nobody points at a ship that is gone.", c: true, tag: "save", how: "salvageCrew.test.ts (the v69 orphan repair, idempotent); save.test.ts." },
+    { t: "No console errors opening a ship's Senior Staff, Away Team and Complement tabs, Personnel Rosters (all tabs), the Archive, Settings and Help." },
+  ]},
+  { n: "1", title: "Crew buffs that now do something (CP-1 to CP-4)", items: [
+    { t: "No newly arrived crew group shows <b>Craft Duplicate</b>. An old group that has it reads <b>Craft Duplicate Chance (Held for homeworld staffing)</b>.", c: true, tag: "save", how: "crewGenerationDraws.test.ts (no new crew rolls it, draw counts unchanged); crewBuffs.test.ts (the held label)." },
+    { t: "A ship with Damage Control, Mission Turnaround or Crew Output crew repairs, unloads or delivers faster or more (Ship Systems shows Repair Speed and Mission Output with the complement's part); a ship without them is unchanged.", c: true, tag: "save", how: "complementGoldens.test.ts with the CP-2 switch; crewOverlay.test.ts." },
+    { t: "A new Ground Ops run with Security, Medical or Science crew buffs: squad max HP, debuff resists, heals, medical bay time and scan speed move; a run launched before the update resolves as before.", c: true, tag: "save", how: "complementCp3.test.ts; complementCp3Goldens.test.ts (a run without the fields is byte-identical)." },
+    { t: "A carrier with Deck Handling (or Belter) crew rebuilds lost drones faster on a patrol; below half hull the Flight Deck's own share is lifted by its Integrity (see the CP-4 sheet).", c: true, tag: "save", how: "racialsWired.test.ts; cp4FlightDeck.test.ts." },
+  ]},
+  { n: "2", title: "Berths and over cap (CP-5)", items: [
+    { t: "A ship's Complement tab reads <b>N / M berths</b>; the Eir has 900, the Orion and Aurora 750. The Shipyard build card shows the hull's crew berths.", c: true, tag: "theme", how: "cp5HullCaps.test.ts; cp5Goldens.test.ts." },
+    { t: "Uninstall a ship's Crew Quarters: nobody is removed. The panel says <b>Over capacity</b> (or marks a division <b>Over cap</b>) and the ship takes no new crew there until it is back under.", c: true, tag: "save", how: "cp5HullCaps.test.ts (no tick ever removes crew); cp12Goldens.test.ts keep:* (install, fill, uninstall, fill again)." },
+  ]},
+  { n: "3", title: "The crew lock (CP-6)", items: [
+    { t: "Send a ship out (a mission, a patrol, a short-range run, an expedition until claimed). Every crew control on its Senior Staff, Away Team and Complement tabs is disabled with the reason, its sub-tabs carry a lock, and the Auto-crew toggle reads <b>(paused while out)</b>. Favorites and the Manifest still work.", c: true, tag: "theme", how: "crewLock.test.ts (every crew action refuses while out with a typed reason)." },
+    { t: "When the ship is home (or its expedition claimed), every control works again, and an Auto-crew ship fills from the pool on the next tick.", c: true, how: "crewLock.test.ts; crewPoolGuardGoldens.test.ts lock (paused while out, then fills once home)." },
+    { t: "Retiring a captain whose ship is on an expedition, or salvaging a hull that is on one, is refused with the reason.", c: true, how: "crewLock.test.ts; salvageCrew.test.ts (shipOnExpedition)." },
+  ]},
+  { n: "4", title: "Salvage loses nobody (CP-6)", items: [
+    { t: "Salvage a crewed hull. The confirm names who goes back. Its away-team members appear under <b>Unassigned</b> on every ship's Away Team tab (with Move aboard and Fire, and the gear they wear), its officers wait under Available Officers, its notables are unassigned, and its crew land in the Crew Pool.", c: true, tag: "save", how: "salvageCrew.test.ts (releaseShipPeople, atomic)." },
+    { t: "Save, reload: nothing points at the removed ship.", c: true, tag: "save", how: "salvageCrew.test.ts (no record names a missing hull; the v69 repair)." },
+  ]},
+  { n: "5", title: "Transfers and the Crew Pool (CP-7, CP-10)", items: [
+    { t: "Personnel Rosters, <b>Crew Pool</b> tab: the headcount, six division tiles, the table of groups and a Manifest. Pick 12 crew and <b>Send N to a ship...</b> to a manual ship: they move, row by row.", c: true, tag: "theme", how: "crewTransfer.test.ts; crewTransferDisplay.test.ts (every count from one transferCrew preview)." },
+    { t: "Ask for more than a ship can take: each short row names the cap that stopped it (berths, the division, or the rank), and the button shows what will move.", c: true, how: "crewTransferDisplay.test.ts." },
+    { t: "An Auto-crew ship cannot be a transfer target or source until it is switched to manual; the picker offers the switch.", c: true, how: "crewTransfer.test.ts (autoCrew refusal, Manual ships only)." },
+  ]},
+  { n: "6", title: "Notables and the Manifest (CP-8, CP-9)", items: [
+    { t: "On a ship's Complement tab, <b>Graduate one</b> on a group: the confirm shows the name they get; the group drops by one and the named notable appears, marked just graduated. The ship's caps and buffs do not change.", c: true, tag: "theme", how: "crewGraduation.test.ts (count drops by one, the notable keeps the group's signature); complementTableDisplay.test.ts." },
+    { t: "<b>Send back</b> a notable: they leave the ship and keep their name; an Auto-crew ship refills the berth from the pool on the next tick. <b>Retire</b> one: the confirm says no penalty, it frees a slot, and it cannot be undone.", c: true, how: "crewGraduation.test.ts; crewPoolGuardGoldens.test.ts freed:sendBack." },
+    { t: "With 50 notables in the fleet (aboard a ship or not), Graduate is disabled with the reason.", c: true, how: "crewGraduation.test.ts (notableCap)." },
+    { t: "Open the <b>Manifest</b> on a full Orion: it opens fast, pages through every crew member, and the same person keeps the same name when you open it again.", c: true, tag: "device", how: "crewGraduation.test.ts (manifestRows is pure and stable)." },
+    { t: "The notable crew ticker: placement waits on your call (not described in Help yet).", tag: "later" },
+  ]},
+  { n: "7", title: "Crew modules and sensor arrays (CP-11, CP-12)", items: [
+    { t: "A fresh save researches and crafts a <b>Wide-Beam Array</b>, a <b>Balanced Command</b> and a <b>Utilitarian Quarters</b> (Research has a Crew Modules section, the Fabricator a Crew Modules group), with no relic.", c: true, how: "cp11CrewModuleBlueprints.test.ts." },
+    { t: "Install all three from the ship's Ship Systems tiles (Sensor Suite, Bridge Module, Crew Quarters); each tile shows its variant line. The Archive shows the new rows.", c: true, tag: "theme", how: "cp12BridgeQuartersTiles.test.ts; cp12Goldens.test.ts." },
+  ]},
+  { n: "8", title: "Hull bonuses and hull sensors (CP-13, CP-14)", items: [
+    { t: "A Bridge Module or Crew Quarters tile shows <b>Hull bonus on &lt;family&gt;</b>; the stat breakdown lists Hull bonus. Move the module to a hull of another family: the line changes.", c: true, tag: "theme", how: "cp13HullFamily.test.ts." },
+    { t: "Explorers show base sensors (Aurora 35, Orion 25, Eir 15; warships 10) in the Sensors popover with Science crew and Science officer buckets; foreknowledge and the telescope lift react.", c: true, how: "cp14HullSensors.test.ts." },
+  ]},
+  { n: "9", title: "Captains: retirement and the soft cap (CP-16, CP-18)", items: [
+    { t: "A captain's 5th retirement shows the final-retirement warning before you confirm. The Archive's <b>Hall of Command</b> lists the retirement once, with level, missions flown, the in-game day and notable moments.", c: true, tag: "save", how: "cp16HallOfCommand.test.ts; hallOfCommandDisplay.test.ts." },
+    { t: "Captain levels past 30 cost more XP (level 31 to 32 is 10,044, was 9,300); nothing at or below level 30 changes.", c: true, how: "cp18SoftLevelCap.test.ts." },
+  ]},
+  { n: "10", title: "Rosters and candidate boards (CP-17, CP-19)", items: [
+    { t: "A ship's Senior Staff or Complement tab: pick a roster in the picker and press Apply (choosing changes nothing). An unsaved setup that would lose an officer warns first; anyone pulled from another ship is named before you confirm and logged after.", c: true, tag: "theme", how: "shipRosterDisplay.test.ts." },
+    { t: "Personnel Rosters, <b>Upgrades</b>: each level adds 2 candidates to both the officer board and the recruit board (10 to 20); candidates already on a board keep their places.", c: true, how: "cp19RostersTrack.test.ts; cp19Goldens.test.ts (slots 0 to 9 unchanged)." },
+  ]},
+  { n: "11", title: "Graph colors (CP-20)", items: [
+    { t: "Settings, UI, Accessibility, <b>Graph colors</b>: Default, Color-blind safe, Monochrome. An open Complement tab repaints at once and the choice survives a reload; in a private window it falls back quietly to Default.", c: true, tag: "theme", how: "graphPalettePreference.test.ts (round trip, storage that throws)." },
+    { t: "With the global Color-blind palette on, Default shows the color-blind safe steps; Monochrome still overrides it.", c: true, how: "graphPalettePreference.test.ts (resolveGraphPalette)." },
+  ]},
+  { n: "12", title: "CP-21 close-out: Help, glyphs and speed", items: [
+    { t: "Help has five new topics: <b>Complement and the Crew Pool</b>, <b>Senior Staff and Officer Stats</b>, <b>Recruiting</b>, <b>Away-Team Members</b> and <b>Implants</b>. Each reads true against what you see (berths per hull, the 50 notables, Manual ships only, the racials and their sizes, Graph colors). No em dashes, US English.", c: true, tag: "theme", how: "helpTopicsCrew.test.ts (every number read from the engine); helpTopics.test.ts (text rules, topic cross-links)." },
+    { t: "Personnel Rosters, a roster's seats and crew lists: the favorite marks are SVG stars (filled when favorited), the reorder buttons are SVG chevrons and <b>add</b> carries an SVG arrow. A hull's tooltip shows the ship glyph, not an emoji. Check the marks at both widths.", tag: "device" },
+    { t: "Leave a fleet whose berths are all full closed for a long while (a day or more) and come back: the catch-up finishes quickly and the crew pool count matches the transports that arrived.", c: true, tag: "save", how: "crewPool.perf.test.ts (npm run test:perf: a 35-day pool, 6-hour catch-up, under 0.25 ms a step); crewPoolGuardGoldens.test.ts (outcomes unchanged)." },
+  ]},
+];
+const STORE = "hl-qa-0140-complement-full-v1";
+let userState = {};
+try { userState = JSON.parse(localStorage.getItem(STORE) || "{}"); } catch (e) { userState = {}; }
+function save() { try { localStorage.setItem(STORE, JSON.stringify(userState)); } catch (e) {} }
+
+const CHIP = {
+  save: '<span class="chip save">needs real save</span>',
+  device: '<span class="chip device">needs device</span>',
+  theme: '<span class="chip theme">light + dark</span>',
+  later: '<span class="chip later">not in this build</span>',
+};
+
+function cb(kind, id, checked, disabled, label) {
+  const empty = (kind === "claude" && !checked) ? " empty" : "";
+  return '<span class="cb ' + kind + empty + '"><input type="checkbox" id="' + id + '" ' + (checked ? "checked " : "") + (disabled ? "disabled " : "") +
+    'aria-label="' + label + '"><span class="box">' + TICK + "</span></span>";
+}
+
+const secWrap = document.getElementById("sections");
+SECTIONS.forEach((sec, si) => {
+  const el = document.createElement("section");
+  let html = '<div class="sec-head"><span class="sec-num">' + sec.n + '</span><span class="sec-title">' + sec.title +
+    '</span><span class="sec-line"></span><span class="sec-done" id="secdone-' + si + '"></span></div>';
+  if (sec.note) html += '<p class="sec-note">' + sec.note + "</p>";
+  html += '<div class="items"><div class="col-head"><span class="ch claude">Claude</span><span class="ch desk">1280</span><span class="ch mob">375</span><span></span></div>';
+  sec.items.forEach((it, ii) => {
+    const key = si + "-" + ii;
+    const meta = it.tag ? '<div class="meta">' + (CHIP[it.tag] || "") + "</div>" : "";
+    const how = it.how ? '<div class="how">' + it.how + "</div>" : "";
+    html += '<div class="item" data-key="' + key + '">' +
+      '<div class="cell">' + cb("claude", "c-" + key, !!it.c, true, "Claude: covered by tests") + "</div>" +
+      '<div class="cell">' + cb("desk", "d-" + key, !!userState["d-" + key], false, "Checked at 1280 px") + "</div>" +
+      '<div class="cell">' + cb("mob", "m-" + key, !!userState["m-" + key], false, "Checked at 375 px") + "</div>" +
+      '<div class="body"><span class="t">' + it.t + "</span>" + meta + how + "</div></div>";
+  });
+  html += "</div>";
+  el.innerHTML = html;
+  secWrap.appendChild(el);
+});
+
+function isDone(key) { return !!userState["d-" + key] && !!userState["m-" + key]; }
+function recompute() {
+  let total = 0, done = 0, claude = 0, desk = 0, mob = 0;
+  SECTIONS.forEach((sec, si) => {
+    let secTotal = 0, secDone = 0;
+    sec.items.forEach((it, ii) => {
+      const key = si + "-" + ii;
+      total++; secTotal++;
+      if (it.c) claude++;
+      if (userState["d-" + key]) desk++;
+      if (userState["m-" + key]) mob++;
+      if (isDone(key)) { done++; secDone++; }
+      const row = secWrap.querySelector('.item[data-key="' + key + '"]');
+      if (row) row.classList.toggle("done", isDone(key));
+    });
+    const sd = document.getElementById("secdone-" + si);
+    if (sd) sd.textContent = secDone + " / " + secTotal;
+  });
+  const pctVal = total ? Math.round((done / total) * 100) : 0;
+  document.getElementById("pct").firstChild.textContent = pctVal + "%";
+  document.getElementById("barFill").style.width = pctVal + "%";
+  document.getElementById("doneCount").textContent = done;
+  document.getElementById("totalCount").textContent = total;
+  document.getElementById("claudeCount").textContent = claude;
+  document.getElementById("deskCount").textContent = desk;
+  document.getElementById("mobCount").textContent = mob;
+  document.getElementById("pctlabel").textContent = pctVal >= 100 ? "launch-ready" : (pctVal >= 60 ? "closing in" : "in progress");
+}
+
+secWrap.addEventListener("change", (e) => {
+  const inp = e.target;
+  if (!inp.id || (inp.id[0] !== "d" && inp.id[0] !== "m")) return;
+  if (inp.checked) userState[inp.id] = true; else delete userState[inp.id];
+  save(); recompute();
+});
+document.getElementById("resetBtn").addEventListener("click", () => {
+  userState = {}; save();
+  secWrap.querySelectorAll('input[id^="d-"], input[id^="m-"]').forEach((i) => (i.checked = false));
+  recompute();
+});
+recompute();
+</script>
+</body>
+</html>

@@ -17,7 +17,8 @@
 // combatGear, queues, craftingLevels, autoSalvage, quartermaster, relics, and the 0.14.0 ground set:
 // groundTeams, groundOperations, returnTrip, objectiveDifficulty, affixes, reinforcing, riskFactors,
 // subspaceTelescope, scanEvents, Field Kits FKR-11's enemyRanks and fieldKits, and Gas Giant Study GG-8's gasGiants,
-// galileoProbe, gasCanisters, dataStudy, ancientData and surveyLog, Short-Range Missions G1-7's shortRange, Refugee Posts E5-7's refugees, and Complement CP-17's personnelRosters) are welcome and
+// galileoProbe, gasCanisters, dataStudy, ancientData and surveyLog, Short-Range Missions G1-7's shortRange, Refugee Posts E5-7's refugees, Complement CP-17's personnelRosters, and the CP-21 close-out's complement,
+// officerStats, recruitment, awayMembers and implants) are welcome and
 // help orient a new player, but the nine above must always be present.
 //
 // ⚠️ THIS MANUAL IS PART OF A RELEASE, NOT A ONE-TIME WRITE-UP. Crafting 0.13.3
@@ -915,11 +916,136 @@ const WEAR_BAND_LINE = WEAR_BANDS.map((b, i) => {
   return b.min > 0 ? `${b.name} (${wearPct(b.min)} to ${upTo}%)` : `${b.name} (below ${wearPct(WEAR_BANDS[i - 1].min)})`;
 }).join(", ");
 export const GEAR_WEAR_PARAGRAPHS: readonly string[] = [
-  `EVERYTHING WEARS IN ITS OWN WAY: cargo bays by hauls, FTL drives by distance, reactor cores and crew modules by time out on a mission, short-range run or expedition, sensors by scans, utility gear by its own job, member gear by fights, fieldwork and time on the ground, and weapons, shields, plating and drone pods by battle. A patrol wears its gear only through battle damage. ${TRAINING_WEAR_SENTENCE}`,
+  `EVERYTHING WEARS IN ITS OWN WAY: cargo bays by hauls, FTL drives by distance, reactor cores and crew modules by time out on a mission, short-range run or expedition, universal modules by time underway on those runs too, sensors by scans, utility gear by its own job, member gear by fights, fieldwork and time on the ground, and weapons, shields, plating and drone pods by battle. A patrol wears its gear only through battle damage; a Damage Control Suite's wear when it patches a patrol wave counts as combat wear. ${TRAINING_WEAR_SENTENCE}`,
   `CONDITION: a piece's card shows its condition as a bar, its band and a percent: ${WEAR_BAND_LINE}. Ordinary use stops at ${wearPct(GEAR_USE_FLOOR)}; only battle damage takes a piece lower. Wear never breaks, salvages or uninstalls anything and never blocks a run.`,
   `WHAT WEAR DOES: a worn piece's own stat lines work a little weaker, on a smooth curve: almost nothing when lightly worn, ${Math.round((1 - WEAR_EFFICIENCY_DEPTH * (1 - GEAR_USE_FLOOR / 1000) ** 2) * 100)}% at ${wearPct(GEAR_USE_FLOOR)}, and never below ${Math.round((1 - WEAR_EFFICIENCY_DEPTH) * 100)}% even at 0. A weapon and the Reactor Core open each fight at their true condition instead (the reactor's power output always stays full). The FTL drive does both: its transit speed works a little weaker, and it opens each fight at its true condition. Reach, the power budget, crew stations and equip requirements always read a piece as new.`,
-  `REPAIR IS AUTOMATIC AND FREE: it never needs you and never costs anything. Gear recovers ${ratePercentText(GEAR_REPAIR_RATES.home)} at home (a docked ship, every spare in storage), ${ratePercentText(GEAR_REPAIR_RATES.shipyardBay)} while its hull is in a Shipyard repair bay, ${ratePercentText(GEAR_REPAIR_RATES.fieldRepair)} while set down on an expedition field repair, and ${ratePercentText(GEAR_REPAIR_RATES.underway)} out on a run. Officer repair speed and a Damage Control Suite speed up every rate, the same way they shorten a hull repair. On a docked ship you may pay for Overtime from a piece's gear card: each step speeds all of that ship's gear repair by ${Math.round(OVERTIME_STEP_RATE * 100)}% of the normal rate, up to ${OVERTIME_MAX_STEPS} steps, priced by the whole repair job. It only ever speeds the repair, which stays free, and it ends when the gear is full or the ship leaves.`,
-  "WHERE TO SEE IT: tap a piece for its card (its band, what the wear does and when it is back to full). The Ship Systems board shows a small meter on every slot and a Gear chip in its header. Command Home shows one quiet Fleet care line, with hull repairs beside gear wear, only while something is recovering.",
+  `REPAIR IS AUTOMATIC: it never needs you. Repair itself is always free. Gear recovers ${ratePercentText(GEAR_REPAIR_RATES.home)} at home (a docked ship, every spare in storage, a Repeat patrol paused to repair), ${ratePercentText(GEAR_REPAIR_RATES.shipyardBay)} while its hull is in a Shipyard repair bay (kept until the gear is full, even after the hull is done), ${ratePercentText(GEAR_REPAIR_RATES.fieldRepair)} while set down on an expedition field repair, and ${ratePercentText(GEAR_REPAIR_RATES.underway)} out on a run. Officer repair speed and a Damage Control Suite speed up every rate, the same way they shorten a hull repair. On a docked ship you may pay for Overtime from a piece's gear card: each step speeds all of that ship's gear repair by ${Math.round(OVERTIME_STEP_RATE * 100)}% of the normal rate, up to ${OVERTIME_MAX_STEPS} steps, priced by the whole repair job. It only ever speeds the repair, which stays free, and it ends when the gear is full or the ship leaves on a run (a Repeat patrol that repairs first before it leaves keeps it until it heads out). It works during a Repeat patrol's repair pause too (the ship is home): it speeds the pause, and the patrol heads back out as soon as its combat gear is full.`,
+  "WHERE TO SEE IT: tap a piece for its card (its band, what the wear does and when it is back to full). The Ship Systems board shows a small meter on every slot and a Gear chip in its header. Command Home shows one quiet Fleet care section while any gear is worn or a hull is damaged: ships recovering at home or in a Shipyard bay, worn ships out on patrol or on a run, and hulls waiting for a free Shipyard bay.",
+];
+
+// ============================================================================
+// CP-21 close-out (E-CREW Task 34): the Complement, Senior Staff, Recruiting, Implants and Away-Team Members topics,
+// every number read from the engine (transports.ts, commandStructure.ts, crewRaces.ts, seniorStaff.ts, officerStats.ts,
+// awayTeam.ts), every rule true to the code that enforces it (crewLock.ts, crewTransfer.ts, crewGraduation.ts,
+// crewOverlay.ts resolveCrew, salvage.ts, memberEquipment.ts).
+// ============================================================================
+import { TRANSPORT_BATCH_SIZE, TRANSPORT_WINDOW_SECONDS } from "./game/transports";
+import { CIVIC_CHARTER_TRANSPORT_CREW, HOMEWORLD_TALENTS, NOTABLE_CREW_CAP } from "./game/model";
+import { CREW_PROFESSIONS, commandStructureForHull } from "./game/commandStructure";
+import { CREW_RACES } from "./game/crewRaces";
+import { GRAPH_PALETTE_IDS, GRAPH_PALETTE_LABELS } from "./graphPalettePreference";
+import {
+  OFFICER_PROMOTION_STATS_RAISED,
+  OFFICER_PROMOTION_STAT_POINTS,
+  OFFICER_ROSTER_WINDOW_SECONDS,
+  OFFICER_STAT_INFO,
+  OFFICER_STAT_KEYS,
+  OFFICER_STAT_ROLL_MAX,
+  SENIOR_STAFF_SEATS,
+} from "./game/seniorStaff";
+import { OFFICER_FACET_PER_POINT, OFFICER_STAT_NEUTRAL, XO_DEPARTMENT_SHARE } from "./game/officerStats";
+import { AUGMENT_AFFINITY_RACES, STATUS_RESIST_CAP, implantSlotsFor } from "./game/awayTeam";
+import { buffCountForRank } from "./game/crewRank";
+import { UNASSIGNED_INTRO } from "./awayTeamDisplay";
+import type { CrewRace } from "./game/model";
+
+const listAnd = (items: readonly string[]): string =>
+  items.length > 1 ? `${items.slice(0, -1).join(", ")} and ${items[items.length - 1]}` : items.join("");
+// A share (0.0005) as a short percent ("0.05%"), never more than two decimals.
+const crewSharePct = (v: number): string => `${Math.round(v * 10000) / 100}%`;
+const raceLabel = (r: CrewRace): string => CREW_RACES[r].label;
+const TRANSPORT_MINUTES = TRANSPORT_WINDOW_SECONDS / 60;
+const CIVIC_CHARTER_LABEL = Object.values(HOMEWORLD_TALENTS).find((t) => t.effect?.type === "transportCrewBonus")?.label ?? "Civic Charter";
+const OFFICER_BOARD_MINUTES = OFFICER_ROSTER_WINDOW_SECONDS / 60;
+
+// Every hull's berths, in SHIP_TYPES order ("General Freighter 30").
+export const HULL_BERTHS_LINE = listAnd(
+  (Object.keys(SHIP_TYPES) as ShipTypeKey[]).map((h) => `${SHIP_TYPES[h].label} ${commandStructureForHull(h).total.toLocaleString("en-US")}`),
+);
+
+// The six racials the Complement topic explains, each read from its race (per crew member and per officer).
+const RACIAL_WHAT: readonly { race: CrewRace; what: string }[] = [
+  { race: "belter", what: "Deck Handling: the ship's drone squadrons rebuild faster on a patrol" },
+  { race: "spacer", what: "transit speed: both legs of a mission and an expedition's voyage go faster" },
+  { race: "vael", what: "Survey Aptitude: faster scans on an expedition, set when the ship launches" },
+  { race: "outerColony", what: "Survey Aptitude, as the Vael" },
+  { race: "earthBorn", what: "Crew Effectiveness (above)" },
+  { race: "stheni", what: "Damage Control: faster hull repairs, at the Shipyard and on an expedition's field repair" },
+];
+export const COMPLEMENT_RACIAL_LINES: readonly string[] = RACIAL_WHAT.map(({ race, what }) => {
+  const rb = CREW_RACES[race].racialBonus;
+  return `- ${raceLabel(race)}: ${what}. Each crew member adds ${crewSharePct(rb.complement)}, an officer ${crewSharePct(rb.seniorStaff)}.`;
+});
+
+export const COMPLEMENT_PARAGRAPHS: readonly string[] = [
+  `WHERE CREW COME FROM: a crew transport arrives every ${TRANSPORT_MINUTES} minutes of game time with ${TRANSPORT_BATCH_SIZE} new crew (the ${CIVIC_CHARTER_LABEL} Homeworld talent adds ${CIVIC_CHARTER_TRANSPORT_CREW} more), and they wait in the crew pool. Open a ship on the Ships tab: its Complement tab shows who serves aboard, in ${CREW_PROFESSIONS.length} divisions (${listAnd(CREW_PROFESSIONS.map((p) => DEPARTMENT_LABEL[p]))}), each with its ranks. Crew with the same origin, division, rank, rarity and buffs travel together as one group.`,
+  `BERTHS: every hull has a fixed number of crew berths: ${HULL_BERTHS_LINE}. Each division and each rank has its own share of them. Crew Quarters add berths (the Elite Quarters add none), and the Complement tab shows the base and the module's share. A notable crew member aboard holds a berth too.`,
+  "OVER CAP: when a ship holds more crew than its berths, for example after its Crew Quarters come off or are swapped for fewer berths, nobody is removed. It simply takes no new crew where it is over until it is back under, and the Complement tab says Over capacity, or marks the division Over cap.",
+  "AUTO-CREW AND MANUAL: with Auto-crew on (the default), the ship fills itself from the pool: its specialty divisions first, then the highest ranks first, within its caps. Turn Auto-crew off and the ship is manual: it never fills on its own and takes only the crew you send it. While a ship is out on a mission, patrol or short-range run, or until its expedition is claimed, auto-crew pauses (the toggle reads paused while out) and every crew change is locked; it fills again on the first tick after it is home. Favorites and the Manifest still work while it is out.",
+  "TRANSFERS: pick crew groups on a ship's Complement tab and press Transfer to move them to another ship or back to the crew pool, or send crew from the Crew Pool tab to a ship. Manual ships only: a ship on Auto-crew must be switched to manual first, and the picker offers it. A ship takes only what its berths allow; the picker shows how many each row will move and names the cap that stops a short row.",
+  "THE CREW POOL: Personnel Rosters, in Facilities, has a Crew Pool tab: how many crew are waiting, per division, with the same table of groups and a Manifest. Crew sent back from a ship and the crew of a salvaged hull land there too. The pool has no limit.",
+  `NOTABLE CREW: Graduate one turns one crew member of a group into a named notable, assigned to the same ship. It is identity only: the ship's caps and buffs do not change. The fleet holds at most ${NOTABLE_CREW_CAP} notables, aboard a ship or not. Send back unassigns a notable from the ship (they keep their name, and a Personnel roster can assign them again). Retire lets a notable leave the fleet with your thanks: no penalty, it frees a notable slot, and it cannot be undone.`,
+  "THE MANIFEST: lists every crew member aboard (or in the pool) by name, a page at a time. The names are made up when you open it and never saved; a crew member keeps the same name while they stay in their group.",
+  `UNASSIGNED: salvaging a hull never loses anyone. Its crew go back to the pool, its officers wait under Available Officers, its notables are unassigned, and its away-team members appear in the Unassigned list on every ship's Away Team tab: ${UNASSIGNED_INTRO}`,
+  "CREW EFFECTIVENESS: a Medical crew buff and the Earth-born racial. It makes every other crew buff on the ship stronger, each bit worth a little less than the last, with no cap. It never boosts itself, the officers' own bonuses, or the Science crew's and Science officer's sensor lifts.",
+  ["RACIALS: every crew member and officer carries a small bonus from their origin. Among them:", ...COMPLEMENT_RACIAL_LINES].join("\n"),
+  `GRAPH COLORS: Settings, UI, Accessibility, Graph colors changes the colors of the rank bars on this device: ${listAnd(GRAPH_PALETTE_IDS.map((id) => GRAPH_PALETTE_LABELS[id]))}. While the Color-blind palette setting is on, Default shows the color-blind safe colors; Monochrome still overrides it.`,
+];
+
+const SEAT_NAMES: Readonly<Record<(typeof SENIOR_STAFF_SEATS)[number], string>> = {
+  executive: "Executive Officer",
+  pilot: "Pilot",
+  operations: "Operations",
+  science: "Science",
+  tactical: "Tactical",
+  medical: "Medical",
+  engineering: "Engineering",
+};
+export const OFFICER_STATS_PARAGRAPHS: readonly string[] = [
+  `SEATS: a ship's Senior Staff tab has ${SENIOR_STAFF_SEATS.length} bridge seats, one officer each: ${listAnd(SENIOR_STAFF_SEATS.map((s) => SEAT_NAMES[s]))}. An officer serves only in the seat of their own type. Each seat heads a department: Tactical heads Security, the Pilot heads the Flight Deck, and the others head their namesake. The Executive Officer adds ${Math.round(XO_DEPARTMENT_SHARE * 100)}% of their own stats' effect to every department.`,
+  `HIRING: an empty seat lists the officer candidates for it, and Hire seats one at once, free. The candidates change every ${OFFICER_BOARD_MINUTES} minutes of game time (the Personnel Rosters topic says how big the board is). Hired officers without a seat wait under Available Officers, ready to assign. Dismiss lets an officer go for good.`,
+  "BONUSES: each officer brings two different bonuses, rolled when they first appear, from their seat's own list and a list any seat can roll; the rarer bonuses roll less often. They act on the ship the officer is seated on, and a Bridge Module, some captain talents and the Museum make them stronger.",
+  [
+    `STATS: ${listAnd(OFFICER_STAT_KEYS.map((k) => OFFICER_STAT_INFO[k].label))}, each rolled 1 to ${OFFICER_STAT_ROLL_MAX}. Only the points above ${OFFICER_STAT_NEUTRAL} count, ${Math.round(OFFICER_FACET_PER_POINT * 100)}% each, and a stat at ${OFFICER_STAT_NEUTRAL} or lower costs nothing. Each shapes the department the officer heads:`,
+    ...OFFICER_STAT_KEYS.map((k) => `- ${OFFICER_STAT_INFO[k].label} (${OFFICER_STAT_INFO[k].facet}): ${OFFICER_STAT_INFO[k].effect}`),
+    "Officer stats never affect away teams on a planet.",
+  ].join("\n"),
+  `RANKS AND PROMOTION: ${listAnd(OFFICER_RANK_ORDER.map((r) => officerRankLabel(r)))}. A new officer starts as a ${officerRankLabel(OFFICER_RANK_ORDER[0])}. The officer's card lists what the next rank needs (missions completed, hours on runs, hostile ships destroyed, and at the last step an objective completed by the ship's squads); once every line is met, Promote. A promotion makes both bonuses stronger and adds ${OFFICER_PROMOTION_STAT_POINTS} points to each of the officer's ${OFFICER_PROMOTION_STATS_RAISED} highest stats.`,
+  "ORIGIN: an officer carries their origin's racial bonus at the officer's size (the Complement and the Crew Pool topic lists the racials).",
+  "WHILE THE SHIP IS OUT: on a mission, patrol or short-range run, or until its expedition is claimed, its officers cannot be hired, seated, unseated or dismissed. Promoting and favorites still work.",
+];
+
+const traitRanks = (): string => {
+  const groups: { count: number; from: number; to: number }[] = [];
+  for (let r = 1; r <= 8; r += 1) {
+    const n = buffCountForRank(r as Parameters<typeof buffCountForRank>[0]);
+    const last = groups[groups.length - 1];
+    if (last && last.count === n) last.to = r;
+    else groups.push({ count: n, from: r, to: r });
+  }
+  return listAnd(groups.map((g) => `${g.count} at ${g.from === g.to ? `rank ${g.from}` : `ranks ${g.from} to ${g.to}`}`));
+};
+export const RECRUITMENT_PARAGRAPHS: readonly string[] = [
+  `THE RECRUITMENT BOARD: every ship's Away Team tab has it. It lists candidates for Security and Science squads and changes every ${OFFICER_BOARD_MINUTES} minutes of game time; it is as big as the officer board (the Personnel Rosters topic says how to grow both). Hiring is free: pick the ship and press Hire. A hired candidate leaves the board and is slotted into the first empty slot of their squad type.`,
+  `CANDIDATES: a card shows the name, rank, origin, squad and specialty, each trait with what it does, and the implant slots. Higher ranks are rarer and carry more traits (${traitRanks()}). A member's rank never changes.`,
+  "LIMITS: a ship holds as many members as its squad slots and reserve berths. When Hire cannot go ahead, it says why: the ship is out on a run, the squad type is full along with the reserve, or the candidate is gone.",
+];
+
+const AFFINITY = listAnd([...AUGMENT_AFFINITY_RACES].map(raceLabel));
+export const IMPLANTS_PARAGRAPHS: readonly string[] = [
+  `Implants are away-team gear worn by a member, never by an officer. Every member has ${implantSlotsFor({ race: "earthBorn" })} implant slot; ${AFFINITY} members (augment affinity, shown on their card) have ${implantSlotsFor({ race: [...AUGMENT_AFFINITY_RACES][0] })}.`,
+  "GETTING ONE: research an implant's blueprint at the Research Lab, then craft it at the Fabricator. Each implant names the squad type that can use it.",
+  `INSTALLING: tap an implant chip on the member's card on the Away Team tab. When every slot is full, choose which implant it replaces. An implant's lines raise the member's stats or their resist to a status; no resist goes past ${Math.round(STATUS_RESIST_CAP * 100)}%.`,
+  "THE NEURAL BACKUP: a unique implant. Only one can be worn in the whole fleet (spares can wait in storage). Once per battle it may revive its wearer.",
+  "Firing a member returns their gear and implants to storage. Implants, like all member gear, stay as they are while the ship is out on a run.",
+];
+
+export const AWAY_MEMBERS_PARAGRAPHS: readonly string[] = [
+  "MEMBERS: each member's card on a ship's Away Team tab shows their specialty, traits, gear (one Armor, one Weapon and one Tool) and implants. Install gear from a cell; installing into a full cell sends the old piece back to storage. Move sends a member to another ship, wearing their gear. Fire lets them go and returns their gear and implants to storage.",
+  "INJURIES: a member still in the medical bay when the expedition is claimed comes home Injured for the bay time left. They cannot deploy until they recover, and their card shows the time left. Their gear stays on them.",
+  `UNASSIGNED: members with no ship, for example after their hull was salvaged, are listed on every ship's Away Team tab. ${UNASSIGNED_INTRO}`,
+  "WHILE THE SHIP IS OUT: on a mission, patrol or short-range run, or until its expedition is claimed, its members cannot be hired, fired or moved, and their gear and implants cannot change.",
+  "The Team Types and Squads topic covers squads, the reserve and deploying; the Recruiting topic covers the board.",
 ];
 
 export const HELP_TOPICS: HelpTopic[] = [
@@ -941,6 +1067,36 @@ export const HELP_TOPICS: HelpTopic[] = [
     id: "personnelRosters",
     title: "Personnel Rosters",
     body: PERSONNEL_ROSTERS_PARAGRAPHS.join("\n\n"),
+  },
+  {
+    // CP-21 close-out (E-CREW Task 34, "Complement Active Mode" and the rest of the complement slices CP-5 to CP-10, CP-20).
+    id: "complement",
+    title: "Complement and the Crew Pool",
+    body: COMPLEMENT_PARAGRAPHS.join("\n\n"),
+  },
+  {
+    // CP-21 close-out (E-CREW Task 34, "Officer Stats").
+    id: "officerStats",
+    title: "Senior Staff and Officer Stats",
+    body: OFFICER_STATS_PARAGRAPHS.join("\n\n"),
+  },
+  {
+    // CP-21 close-out (E-CREW Task 34, "Recruitment").
+    id: "recruitment",
+    title: "Recruiting",
+    body: RECRUITMENT_PARAGRAPHS.join("\n\n"),
+  },
+  {
+    // CP-21 close-out (E-CREW Task 34, "Away Teams": the members; Team Types and Squads covers the squads).
+    id: "awayMembers",
+    title: "Away-Team Members",
+    body: AWAY_MEMBERS_PARAGRAPHS.join("\n\n"),
+  },
+  {
+    // CP-21 close-out (E-CREW Task 34, "Implants").
+    id: "implants",
+    title: "Implants",
+    body: IMPLANTS_PARAGRAPHS.join("\n\n"),
   },
   {
     id: "missions",

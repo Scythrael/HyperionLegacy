@@ -454,7 +454,7 @@ Unassigned reasons, the recruit board, member gear refusals, App refusal logs. U
 Senior Staff and Complement, disabled controls with visible reasons, Apply disabled with the reason and locked ships
 marked "(crew locked)" in its picker, a "Crew locked" badge on Ships roster rows. Left unlocked: captain hull
 reassignment (`tick.ts` `assignShipToCaptain`) checks only `captain.mission`, so a captain can swap hulls while
-their ship is on an expedition (decision for the user). OC-11 (auto-crew pause) not built, still open.
+their ship is on an expedition (decision for the user; CLOSED 2026-10-17 by S1 "Lock it", 0a077ca5, crewLock.ts captainMoveLock). OC-11 (auto-crew pause) not built, still open.
 
 ### CP-7: Transfer (Task 25 engine)
 
@@ -748,7 +748,11 @@ case. **Patch notes (truthfulness):** a survey or short-range run already out wh
 base sensors or the Science lifts at its next cycle; it carries no hullSensors stamp and flies as dispatched. Only runs
 dispatched after the update read them (the Determinism line above, "yields more from the next cycle", is superseded).
 
-### CP-15: Patrol cloak and threat detection (G6 part 2) [blocked on OC-19]
+### CP-15: Patrol cloak and threat detection (G6 part 2) [blocked on OC-19] **DEFERRED to 0.14.x (T3)**
+
+**Status (2026-11-11, CP-21 close-out):** not built in 0.14.0. Moved to 0.14.x with OC-19 (session resume notes
+2026-10-26, "Moved to 0.14.x: EM-9, G2-8, CP-15, the Spacer ramp"; the wiring registry keeps `particleTraceDetector`
+and sensors at patrol as deferred rows owned by CP-15). The plan below stands for that release.
 
 **Files:** `combat/bridge.ts` (the player combatant's `particleTraceDetector` from sensors, `rating / (rating + K)`
 [PROPOSAL K 60]), `combat/patrolWave.ts` / `enemyWave.ts` (a rare cloaked-raider opener), `model.ts`
@@ -1025,8 +1029,11 @@ the RELEASE_GATE run of `no-dead-stats.test.ts`, the curated desktop + mobile QA
     talent only.
 18. **Frontier gating** (SMS 5). [PROPOSAL] move it into the G2 Expedition Tiers plan, which owns region unlocks and
     the reach gate, with a sensor threshold per region tier. Alt: sensors gate only how much a scan reveals.
+    **ANSWERED** (via the G2 plan's open call 7 / G7, 2026-10-16): "Sensor gate per tier (Recommended)"; built in G2
+    (`propulsion.ts FRONTIER_SENSORS`), and CP-14's fix round retired the dead Tier II gate.
 19. **Patrol cloak detection** (SMS 6). [PROPOSAL] sensors set the existing detector chance at rating / (rating + 60),
     and patrols gain a rare cloaked-raider opening. Alt: detection only, no new opener (it would then do nothing).
+    **DEFERRED** to 0.14.x (T3) with CP-15 (session resume notes 2026-10-26); still unanswered, ask with that release.
 20. **Science amplification numbers** (SMS 8). [PROPOSAL] crew 8% x ln(1 + heads / 25); Science seat +12% by rank.
 21. **Sensor lift stacking** (SMS 9). [PROPOSAL] each lift multiplies (today's pattern). Alt: lifts add first.
 22. **Hall of Command.** [PROPOSAL] game-time stamp shown as an in-game day, a missions counter that starts now, no
@@ -1320,3 +1327,43 @@ boosts only the Flight Deck's own drone handling.
   the Flight Deck's own share with torpedoes live.
 - [PROVISIONAL] the facet is linear like every other Integrity row; balancing in 0.16.0. QA:
   docs/qa/2026-11-10-cp4-flight-deck-qa.html.
+
+## CP-21 close-out (2026-11-11)
+
+A read-only close-out review found five items; this pass built them (on feat 8bf79c6b). Four other findings wait on
+the user and were NOT built (listed below).
+
+- **Crew pool perf guard** (`crewOverlay.ts resolveCrew`, a pure optimization). Once every passive berth is full each
+  transport stays in the pool, and every 1 s tick copied the pool and re-scanned it rank by rank for every passive ship;
+  an offline catch-up runs one economyTick per second. Now: no window due uses the pool as it is (the SAME state comes
+  back when nobody moved); a ship whose bulk plus notables reach its total berths is skipped before the pool is copied;
+  a ship that took nobody from the same pool under the same caps, notables, quarters bonus and lean is remembered
+  (`NO_FILL_MEMO`, a WeakMap per complement object, never saved: after a load the first tick fills in full). Goldens
+  first: `crewPoolGuardGoldens.test.ts` (seven whole-state pins, one call == 997 s chunks == 1 s steps, captured on
+  8bf79c6b, none moved). `crewPoolGuard.test.ts`: every skip equals a fresh fill on a structured clone, including across
+  the CP-5 caps switch. Perf: new `crewPool.perf.test.ts` (in `npm run test:perf`): a 35-day pool (20,120 crew) over an
+  eight-ship full fleet, 6-hour catch-up: 11,861 us per step before, 18.8 us after; budget 0.25 ms per step.
+- **Help** (E-CREW Task 34): new topics `complement`, `officerStats`, `recruitment`, `awayMembers`, `implants`, every
+  number from the engine, pinned in `helpTopicsCrew.test.ts`. The notable ticker's placement is not described.
+- **QA**: `docs/qa/2026-11-11-complement-qa.html`, the full desktop (1280) + mobile (375) sheet from section 6 plus the
+  close-out.
+- **Docs**: E-CREW carry notes for Tasks 23 to 29, 32, 33, 34 and G5 / G6; CP-15 marked deferred; OC-18 answered (G2),
+  OC-19 deferred.
+- **Glyphs**: Personnel Rosters' text stars, triangles and arrow are SVG (`star` filled when favorited, `chevronUp` /
+  `chevronDown`, `arrowDown`); the hull tooltip's satellite emoji is the `ship` glyph. No new glyph.
+
+**OPEN user calls (re-present, most important first):**
+1. Bounding `crewPool`: with every berth full the pool grows by a transport every 30 minutes forever (the perf guard
+   keeps it cheap, but it is unbounded). Send the surplus somewhere, cap it, or leave it.
+2. Where the notable crew ticker sits (the marquee is built; its placement is the user's call).
+3. Deck Handling's in-combat scope: the in-combat replenish module banks Deck Handling too (CP-4 carry note); keep, or
+   between waves only.
+4. An "assign to ship" button for an unassigned notable (today only applying a Personnel roster seats one).
+5. CP-11 distinct recipes sign-off (Engineering, Science and Guest Wing quarters, marked [PROPOSAL]).
+6. The [PROVISIONAL] numbers for the 0.16.0 balance pass: `CREW_EFFECTIVENESS_KNEE` 0.2, the CP-5 division weights and
+   the Eir lean order, the Integrity facet (1% per point, 40% XO), `CREW_MODULE_BLUEPRINT_COSTS`, the Personnel Rosters
+   track durations (120 / 240 / 420 / 720 / 1,200 s), `CAPTAIN_SOFT_CAP_GROWTH` 1.08, the transport size and window
+   (12 crew per 1,800 s).
+
+Closed since: CP-6 note 2 (hull swap while the ship is on an expedition) by S1 "Lock it" (0a077ca5, captainMoveLock); CP-15 and
+the Spacer long-haul ramp are 0.14.x (T3).

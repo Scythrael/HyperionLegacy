@@ -536,7 +536,7 @@
     | null;
 
   // G1-1: the header's SVG glyph for a variety that draws one (the Guest Wing), else null (the emoji `icon` draws).
-  $: svgIcon = view === null ? null : view.kind === "equipment" ? equipmentSvgIcon(view.piece) : view.kind === "craft" ? varietySvgIcon(view.preview?.varietyKey ?? null, view.preview?.slotType) : null;
+  $: svgIcon = view === null ? null : view.kind === "equipment" ? equipmentSvgIcon(view.piece) : view.kind === "craft" ? varietySvgIcon(view.preview?.varietyKey ?? null, view.preview?.slotType) : view.kind === "ship" ? "ship" : null;
 
   const NEUTRAL = "var(--color-text-secondary)";
   const DIM = "var(--color-text-dim)";
@@ -612,7 +612,8 @@
       return {
         kind: "ship",
         accent: NEUTRAL,
-        icon: "🛰️",
+        // CP-21: the hull draws the SVG ship glyph (svgIcon below), never an emoji.
+        icon: "",
         name: def.label,
         chip: "Hull",
         chipColor: NEUTRAL,

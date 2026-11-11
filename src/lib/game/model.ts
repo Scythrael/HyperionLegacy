@@ -1798,6 +1798,11 @@ export interface ShipInstance {
   // gear is full). gearWearEngine.ts trackGearRepairJobs. OPTIONAL, no SAVE_VERSION bump: a ship docked worn in an older
   // save starts its job record at the next tick.
   gearRepairJobMinutes?: number;
+  // GEAR WEAR close-out (user 2026-11-11 "Keep the bay rate"): set when this ship's hull repair ended in a Shipyard bay
+  // with its gear still worn, so its gear keeps the doubled bay rate until it is full (hull Overtime never makes the
+  // gear slower). Cleared once its gear is full or it leaves on a run (gearWearEngine.ts trackGearRepairJobs). OPTIONAL,
+  // absent = no kept rate, so no SAVE_VERSION bump.
+  gearBayRate?: 1;
   // FORWARD (not this pass): modules?, equipment?, reactorCore?, tierOverride?
 }
 
@@ -4301,7 +4306,10 @@ export interface PatrolMissionState {
   // projectedCycleBreak: its next cycle would break a worn system) instead of relaunching: the instant the pause began (game seconds) and the whole ticks
   // left before it resumes. Absent on every other run.
   // `first`: set at dispatch (user 2026-10-27 "Repair first, then go": the run repairs, then flies its first cycle).
-  repairPause?: { from: number; ticksRemaining: number; first?: true };
+  // GEAR WEAR close-out (user 2026-11-11 "Allow Overtime in pauses"): `overtime`, each gear repair Overtime step bought
+  // during the pause, at its instant (game seconds) and the steps then in force: from that instant the ship's installed
+  // pieces repair at the home rate x overtimeRate(steps) (gearWearEngine.ts pauseRepairWindows). Absent = none bought.
+  repairPause?: { from: number; ticksRemaining: number; first?: true; overtime?: { at: number; steps: number }[] };
   // The times this run has paused to repair (user "Count on the run": its one completion log entry says so), carried
   // across relaunches like routesCompletedThisRun. Absent until the first pause.
   repairPausesThisRun?: number;

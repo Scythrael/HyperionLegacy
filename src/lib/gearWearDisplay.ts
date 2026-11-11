@@ -13,7 +13,7 @@
 
 import { EQUIPMENT_SLOTS, SHIP_TYPES, type EquipmentInstance, type GameState, type ShipInstance } from "./game/model";
 import { CONDITION_FULL, USE_WEAR_FLOOR, WEAR_SOURCES, WEAR_VIEW_SLOTS, wearEfficiency, wornPieceView, type RepairContext } from "./game/gearWear";
-import { gearOvertimeMult, gearRepairOutlook, livePieceCondition, repairContextIndex } from "./game/gearWearEngine";
+import { gearOvertimeMult, gearRepairOutlook, livePieceCondition, pausedPatrolOf, repairContextIndex } from "./game/gearWearEngine";
 import { OVERTIME_MAX_STEPS, OVERTIME_STEP_RATE, buyGearRepairOvertime, canBuyGearRepairOvertime, shipGearMinutesToFull } from "./game/processSpeed";
 
 // ============================================================================
@@ -162,9 +162,17 @@ export const REPAIR_FREE_TEXT = "Repair is always free.";
 // free."; "with Overtime" once a step is bought). Out on a run it says what is true there (step 5 fix C2): the piece
 // recovers slowly, which wear can still outpace, and fully once home. On a patrol only battle wears it (user 2026-11-09
 // "Combat only on patrols"); on any other run use and battle. Pure.
+// GEAR WEAR close-out: a Repeat patrol paused to repair is home, repairing at the home rate (with Overtime once bought),
+// so the footer says so: back to full in N min, or, for a piece that needs longer than the pause, when the patrol heads
+// back out (it then recovers slowly underway).
 export function pieceCareText(state: GameState, piece: EquipmentInstance): string {
   const o = gearRepairOutlook(state, piece);
   if (o.condition >= CONDITION_FULL) return "Nothing to do.";
+  if (o.pauseMinutesLeft !== undefined) {
+    const how = piece.fittedToShipId && gearOvertimeMult(state, piece.fittedToShipId) > 1 ? "with Overtime" : "on its own";
+    if (o.minutesToFull !== null) return `Repairing at home while its patrol pauses: back to full in ${aboutMinutes(o.minutesToFull)}, ${how}. ${REPAIR_FREE_TEXT}`;
+    return `Repairing at home while its patrol pauses; it heads back out in ${aboutMinutes(o.pauseMinutesLeft)}, then recovers slowly underway. ${REPAIR_FREE_TEXT}`;
+  }
   if (o.context === "fieldRepair") return `Recovers ${ratePercentText(o.ratePerMinute)} while ${contextPlace(o.context)}, and fully once home. On its own; ${REPAIR_FREE_TEXT.toLowerCase()}`;
   if (o.minutesToFull === null) {
     const outpace = piece.fittedToShipId && shipOnPatrol(state, piece.fittedToShipId) ? "battle damage" : "use and battle";
@@ -244,6 +252,9 @@ export function gearOvertimeStrip(state: GameState, piece: EquipmentInstance): G
   const rateText = steps > 0 ? `${Math.round((1 + OVERTIME_STEP_RATE * steps) * 100) / 100}x` : null;
   const base = { shipId, shipName: name, steps, maxSteps: OVERTIME_MAX_STEPS, rateText };
   const q = canBuyGearRepairOvertime(state, shipId);
+  // GEAR WEAR close-out (user 2026-11-11 "Allow Overtime in pauses"): a Repeat patrol paused to repair is home; the
+  // strip speeds the pause, its times are when the gear is full and the patrol heads back out.
+  if (pausedPatrolOf(state, shipId) !== null) return pausedOvertimeStrip(state, base, name, steps, pct, q);
   if (q.ok) {
     return {
       ...base,
@@ -306,6 +317,64 @@ export function gearOvertimeStrip(state: GameState, piece: EquipmentInstance): G
   }
 }
 
+// The strip on a Repeat patrol paused to repair (gearOvertimeStrip). Pure.
+function pausedOvertimeStrip(
+  state: GameState,
+  base: Pick<GearOvertimeStrip, "shipId" | "shipName" | "steps" | "maxSteps" | "rateText">,
+  name: string,
+  steps: number,
+  pct: string,
+  q: ReturnType<typeof canBuyGearRepairOvertime>,
+): GearOvertimeStrip | null {
+  const left = shipGearMinutesToFull(state, base.shipId);
+  // (the pause waits on the combat gear: gearWearEngine.ts REPAIR_PAUSE_SLOTS)
+  const back = (m: number): string => `${name}'s combat gear full and back on patrol in ${aboutMinutes(m)}`;
+  if (q.ok) {
+    return {
+      ...base,
+      state: "buy",
+      cost: q.cost,
+      need: null,
+      button: `${pct} · ${credits(q.cost)}`,
+      when: `${steps === 0 ? "Speeds up the repair pause" : "Next step"}: ${back(q.minutesLeftAfter)} instead of ${aboutMinutes(q.minutesLeft)}.`,
+      minutesLeft: q.minutesLeft,
+      minutesAfter: q.minutesLeftAfter,
+      note: steps === 0 ? `Optional. The patrol heads back out as soon as its combat gear is full; clears when it does.` : `Clears when ${name} heads back out.`,
+    };
+  }
+  switch (q.reason) {
+    case "credits": {
+      const cost = q.cost ?? 0;
+      const need = Math.max(0, Math.ceil(cost - state.credits.toNumber()));
+      return {
+        ...base,
+        state: "credits",
+        cost,
+        need,
+        button: `${credits(cost)} · need ${need.toLocaleString("en-US")} more`,
+        when: left === null ? null : `${back(left).charAt(0).toUpperCase()}${back(left).slice(1)}.`,
+        minutesLeft: left,
+        minutesAfter: null,
+        note: `Repair carries on free either way; the patrol heads back out when its combat gear is full.`,
+      };
+    }
+    case "maxSteps":
+      return {
+        ...base,
+        state: "max",
+        cost: null,
+        need: null,
+        button: null,
+        when: left === null ? null : `${back(left).charAt(0).toUpperCase()}${back(left).slice(1)}.`,
+        minutesLeft: left,
+        minutesAfter: null,
+        note: `Clears when ${name} heads back out.`,
+      };
+    default:
+      return null;
+  }
+}
+
 // One tap on the strip's button (user "One tap": no confirm): the engine's buy (processSpeed.ts buyGearRepairOvertime)
 // and the log line the host pushes. A refusal changes nothing and logs nothing (the strip already shows why). Pure.
 export function gearOvertimePurchase(state: GameState, shipId: string): { next: GameState; bought: boolean; log: string | null } {
@@ -314,6 +383,14 @@ export function gearOvertimePurchase(state: GameState, shipId: string): { next: 
   if (!r.bought || !q.ok) return { next: state, bought: false, log: null };
   const ship = r.next.ships.find((s) => s.id === shipId);
   const name = ship ? shipName(ship) : shipId;
+  // GEAR WEAR close-out: in a repair pause the line shows both times (the Overtime "Show both times" rule).
+  if (pausedPatrolOf(state, shipId) !== null) {
+    return {
+      next: r.next,
+      bought: true,
+      log: `Overtime on ${name}'s repair pause: step ${q.step} of ${OVERTIME_MAX_STEPS} for ${credits(q.cost)}. Its combat gear is full and the patrol heads back out in ${aboutMinutes(q.minutesLeftAfter)} instead of ${aboutMinutes(q.minutesLeft)}.`,
+    };
+  }
   return {
     next: r.next,
     bought: true,
@@ -361,6 +438,26 @@ export function shipGearSummary(state: GameState, shipId: string): ShipGearSumma
   let most = 0;
   let out: RepairContext | null = null;
   let ctx: RepairContext | null = null;
+  // GEAR WEAR close-out: a Repeat patrol paused to repair is home and repairing (never "Out on a run").
+  const pause = pausedPatrolOf(state, shipId);
+  if (pause !== null) {
+    let full = true;
+    pieces.forEach((p, i) => {
+      if (conds[i] >= CONDITION_FULL) return;
+      const o = gearRepairOutlook(state, p);
+      if (o.minutesToFull === null) full = false;
+      else most = Math.max(most, o.minutesToFull);
+    });
+    const back = (pause.ticksRemaining * state.tickDurationSeconds) / 60;
+    return {
+      percent: conditionPercent(avg),
+      band: wearBand(avg).key,
+      worn,
+      recovery: full ? `Repairing at home, full in ${aboutMinutes(most)}` : `Repairing at home, back out in ${aboutMinutes(back)}`,
+      context: "home",
+      minutesToFull: full ? most : null,
+    };
+  }
   pieces.forEach((p, i) => {
     if (conds[i] >= CONDITION_FULL) return;
     const o = gearRepairOutlook(state, p);
@@ -430,6 +527,15 @@ export function fleetCare(state: GameState): FleetCareModel | null {
     if (!summary.worn && !damaged) continue;
     const parts: string[] = [];
     if (damaged) parts.push(hullMinutes !== null ? `Hull in a Shipyard bay, ${aboutMinutes(hullMinutes)}` : "Hull waiting for a free Shipyard bay");
+    // GEAR WEAR close-out: a Repeat patrol paused to repair is home and repairing, counted as recovering.
+    const pause = pausedPatrolOf(state, ship.id);
+    if (pause !== null && summary.worn) {
+      const back = (pause.ticksRemaining * state.tickDurationSeconds) / 60;
+      parts.push(summary.minutesToFull !== null ? `Repairing at home while its patrol pauses, gear full in ${aboutMinutes(summary.minutesToFull)}` : `Repairing at home while its patrol pauses, back out in ${aboutMinutes(back)}`);
+      recovering += 1;
+      rows.push({ shipId: ship.id, name: shipName(ship), hull: ship.name ? SHIP_TYPES[ship.typeKey]?.label ?? ship.typeKey : null, percent: summary.percent, band: summary.band, status: parts.join(". ") });
+      continue;
+    }
     if (summary.worn) {
       if (summary.minutesToFull === null) {
         // A patrol wears its gear by battle alone (user 2026-11-09 "Combat only on patrols"); any other run by use too.
