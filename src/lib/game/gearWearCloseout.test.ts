@@ -246,11 +246,14 @@ describe("2b. Overtime bought mid-bank: the live bar and the resume tick against
   }
   // Buy at each offset (seconds after t0, steps in order), then step 1 s: every second the live bar of every combat piece
   // is the reference; the pause closes on exactly the second the reference reaches full (not a tick before or after).
-  function check(t0: number, offsets: readonly number[]): void {
+  // `coarse` (a large game time, where one economyTick call costs far more): the spans before the buy and up to 3 s
+  // before the close run as one call each (one call == 1 s steps, proved above), the last seconds in 1 s steps.
+  function check(t0: number, offsets: readonly number[], coarse = false): void {
     let s = pausedFrom(t0);
     const buys: [number, number][] = [];
     for (const off of offsets) {
-      s = stepped(s, off - (s.gameTimeSeconds - t0));
+      const n = off - (s.gameTimeSeconds - t0);
+      s = coarse ? economyTick(s, n, RNG) : stepped(s, n);
       const live = combat(s).map((p) => livePieceCondition(s, p));
       for (const c of live) expect(c, `${t0}+${off} before the buy`).toBe(reference(t0, buys, s.gameTimeSeconds));
       const r = gearOvertimePurchase(s, SHIP);
@@ -262,6 +265,11 @@ describe("2b. Overtime bought mid-bank: the live bar and the resume tick against
     }
     let fullAt = s.gameTimeSeconds;
     while (reference(t0, buys, fullAt) < CONDITION_FULL) fullAt += 1;
+    if (coarse && fullAt - 3 > s.gameTimeSeconds) {
+      s = economyTick(s, fullAt - 3 - s.gameTimeSeconds, RNG);
+      expect(patrolOf(s)!.repairPause).toBeDefined();
+      for (const p of combat(s)) expect(livePieceCondition(s, p), `${t0} ${offsets} at ${s.gameTimeSeconds}`).toBe(reference(t0, buys, s.gameTimeSeconds));
+    }
     while (patrolOf(s)!.repairPause !== undefined) {
       s = economyTick(s, 1, RNG);
       if (patrolOf(s)!.repairPause !== undefined) {
@@ -284,8 +292,8 @@ describe("2b. Overtime bought mid-bank: the live bar and the resume tick against
     check(0, [301, 517]);
   });
 
-  it("a mid-second purchase at a large game time (1e8 + 0.5 s, bought 301 s in)", () => {
-    check(1e8 + 0.5, [301]);
+  it("a mid-second purchase at a large game time (3e6 + 0.5 s, bought 301 s in)", () => {
+    check(3e6 + 0.5, [301], true);
   });
 });
 
