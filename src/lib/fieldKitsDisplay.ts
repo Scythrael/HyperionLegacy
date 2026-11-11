@@ -64,7 +64,7 @@ import {
 } from "./game/fieldKitsRun";
 import { chargesLeftFor } from "./game/fieldKitsGrenades";
 import { pieceCarryLines, snapshotMembers, toolCharges } from "./game/awayTeam";
-import { GAMBIT_STATUSES, shipSupportHeads, type GambitLogEvent } from "./game/gambit";
+import { GAMBIT_STATUSES, shipSupportHeads } from "./game/gambit";
 import { fieldKitsFightProgram, memberGambitProgram } from "./game/memberGambits";
 import { deployableGroundTeams, groundTeamName, type GroundTeamReadiness } from "./game/groundTeams";
 import { shipGroundTeams } from "./game/groundTeamSlots";
@@ -213,32 +213,6 @@ export const TIMED_FUSE_TEXT = "Timed fuse: detonates at the start of the throwe
 // timedFusesLive: a catalog 1 run, in flight before the fuse, detonates every grenade on contact). Pure.
 export function grenadeFuseText(grenade: Pick<GrenadeTraits, "fuse">, timedFuses: boolean): string {
   return timedFuses && grenade.fuse ? TIMED_FUSE_TEXT : CONTACT_FUSE_TEXT;
-}
-
-// The battle log's fuse lines, or null for any other event: a timed throw ("Security primes a grenade at enemy Bruiser:
-// it detonates at the start of Vale's next turn"), its detonation ("Vale's grenade detonates on the enemy Bruiser group:
-// 2 hit, 1 moved clear: -34 HP, affliction applied, 1 DOWNED") and a grenade the fight ended before ("Vale's grenade
-// never went off: the fight ended first, so its charge comes back"). `who` and `target` are the readout's names for
-// the actor and the target; `name` the thrower's own name (absent: `who`). Pure.
-export function fuseLogLine(ev: GambitLogEvent, who: string, target: string, name?: string): string | null {
-  const thrower = name || who;
-  if (ev.action === "throwGrenade" && ev.primed) {
-    return `${who} primes a grenade${target ? ` at ${target}` : ""}: it detonates at the start of ${thrower}'s next turn`;
-  }
-  if (ev.action === "grenadeRefunded") return `${thrower}'s grenade never went off: the fight ended first, so its charge comes back`;
-  if (ev.action !== "grenadeDetonates") return null;
-  const b = ev.blast ?? { hit: 0, movedClear: 0, missed: 0, downed: 0, afflicted: 0 };
-  const reach: string[] = [];
-  if (b.hit > 0) reach.push(`${b.hit} hit`);
-  if (b.movedClear > 0) reach.push(`${b.movedClear} moved clear`);
-  if (b.missed > 0) reach.push(`${b.missed} missed`);
-  const tail: string[] = [];
-  if (ev.hpDelta && ev.hpDelta < 0) tail.push(`${ev.hpDelta} HP`);
-  if (b.afflicted > 0) tail.push("affliction applied");
-  if (b.downed > 0) tail.push(`${b.downed} DOWNED`);
-  const head = `${thrower}'s grenade detonates${target ? ` on the ${target} group` : ""}`;
-  if (reach.length === 0) return `${head}: nobody left in reach`;
-  return tail.length > 0 ? `${head}: ${reach.join(", ")}: ${tail.join(", ")}` : `${head}: ${reach.join(", ")}`;
 }
 
 // ===== The free set =====

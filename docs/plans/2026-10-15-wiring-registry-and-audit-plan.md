@@ -2381,3 +2381,58 @@ OPEN CALL: ship-event torpedoes cannot be intercepted, because ship events have 
   244 torpedo cycles, the bank pays, the control pays nothing).
 - Text: the card line names the Defensive stance and a working Point-Defense Array or EMP Cannon; Help uses the display
   name "Point-Defense Array"; combatRules.ts no longer claims a user answer on the ship-event intercept.
+
+## OC-G1 BUILT (2026-11-10): the legacy expedition path deleted
+
+User answer (2026-10-16): "Delete it (Recommended)": remove the pre-Ground-Ops path and its legacy-only effects; a dev
+save with an old in-flight run gets that run finished at load. Production and staging (0.13.11.3) never had expeditions.
+
+- What "legacy" was: a run WITHOUT its `groundOps` record (dispatched before GO-7b, 2026-10-12), resolved by the E2a/E3
+  machine: the scan-time ground battles (resolveScanEncounter, softenAmbush, their loss pauses on the ACTIVITY_SECONDS
+  window grid), the activities phase (resolveExpeditionActivity: MAX_BATTLE_ATTEMPTS retries, the EVAC_REWARD_FRACTION
+  evacuation haul, the D18 no-team evacuation), the run-wide sit-out (scanDownedBefore / activityDownedBefore), and the
+  claim's FLAT 2 h injury (applyExpeditionInjuries / injuryRecoverySeconds). All deleted, with their re-derived battle
+  logs in the console (the legacy activity readout, the scan track's "View battle log"), the run-level
+  `Expedition.hullInjuryShare` stamp (only the legacy claim read it; the bay reads GroundOpsFactors.hullInjuryShare),
+  the three legacy salts (COMBAT_SALT, SCAN_BATTLE_SALT, SCAN_DROP_SALT; values recorded in gambit.ts, never reuse them)
+  and the probes / contexts (`expedition:legacy`, legacyInjurySeconds, expEncounterChance; runSecHp / runSecHeal now read
+  the Ground Ops squad, taskFightTeam).
+- Save safety, no SAVE_VERSION bump: save.ts finishLegacyExpeditionsOnLoad runs on EVERY load (identity once none is
+  left): a legacy run not yet complete becomes "complete" with the findings it holds (nothing more rolled); the claim
+  deposits them and brings the whole team home ready (no bay, so no injury). A legacy run already complete is
+  untouched. advanceExpedition applies the same rule (finishLegacyExpedition) as the engine's guard. Old records keep
+  their shapes (ExpeditionScanEvent "encounter", downedMemberIds, ExpeditionFinding.evacuated stay in the type; the scan
+  track still words a stored battle). Tested in legacyExpeditionFinish.test.ts.
+- Determinism: every Ground Ops run resolves exactly as before (the shared scan walk, the step roll's two draws and the
+  supply caches are untouched; a pre-GO-8 run still rolls draw 1 at chance 0).
+- Registry: away:MEMBER_PERKS:stoneskin LIVE (medbay; its legacy context went with the legacy claim; the perk itself is
+  unchanged, its battle half stays live); away:audit:legacyOnly LIVE (content:ocg1:legacyFinished);
+  expedition:audit:legacyFallbacks LIVE (content:ocg1:riskFreeFallbacks): FIGHT_POINTS_DEFAULT is also the live default
+  for an unrated site, and FIGHT_POINTS_MIN / SURVEY_AMBUSH_CHANCE serve a Ground Ops run without risk grades (pre-SQ-4),
+  which is NOT the pre-Ground-Ops path the answer named. OPEN CALL for the user: finish pre-SQ-4 Ground Ops runs at load
+  too and delete those two fallbacks (many risk-free Ground Ops goldens would be retired with them)?
+- Goldens retired (each proved only the legacy path): groundOpsLegacy.test.ts (the GO-7b legacy hashes), fieldKitsGoldens
+  `legacy` / `legacyDevices`, the legacy resolution and claim halves of officerBonuses `expedition`, officerStatFacets
+  `expedition` (every table) and complementGoldens `legacyA` / `legacyB` (their dispatch-record hashes are HELD
+  unchanged), the legacy pins in groundTasks / gambit / injuries / scanEncounters / awayRoster / fieldwork / medicalBay /
+  cp13HullFamily / processSpeed / shipScanEvents / expedition tests, the G2-0 `stored:legacy` golden and parity
+  (expeditionTiersGoldens; its stored v69 record now proves the load step finishes it and claims) and the legacy half
+  of relicsV2Goldens golden 2. Every registry snapshot golden holds through ocg1Registry.fixture.ts (ocg1ReadBack puts
+  the four changed rows back; applied innermost, the wr10ReadBack precedent). Live checks that ran through the legacy engine were
+  re-pointed to the Ground Ops consumers (taskFullHaul, taskWorkSeconds, the bay's conditionCureSeconds, scanRatePerSecond,
+  rollBodyDiscoveries, taskFightTeam). The sensitivity vacuity floor dropped 1 -> 0 (Stoneskin's legacy context).
+- Liveness: the battle probe now reads the Ground Ops objective fights and squad (an overgrown body so Poison resists
+  read), and the ship-event probe the softened hostile probe / cloaked vessel (Security Cunning's ambushSoften).
+- Noticed, not changed: fieldKitsDisplay.ts fuseLogLine had its only UI caller in the deleted legacy battle log (a Ground
+  Ops fight's round log has no screen yet); kept for that screen.
+
+#### OC-G1 fix round (71ce5b8b, merged 2026-11-11)
+
+- User 2026-11-11 kept the pre-SQ-4 fallbacks ("Keep, sweep later"); the `expedition:audit:legacyFallbacks` claim says
+  what each still serves (`FIGHT_POINTS_DEFAULT` the live unrated-site default; `FIGHT_POINTS_MIN` and
+  `SURVEY_AMBUSH_CHANCE` only runs dispatched before SQ-4).
+- `fuseLogLine` and `rankedEnemyName` deleted with their tests (user "Delete the helpers").
+- Resolved-run neutrality restored: one Ground Ops run through claim in officerBonuses, officerStatFacets and
+  complementGoldens; neutral officers equal no officers.
+- The sensitivity vacuity guard is pinned exactly at 1 and named (`ship:gearLine:sensors @ patrol`, CP-15); a new
+  partial context must be named there.

@@ -4,7 +4,7 @@
 
 import { describe, expect, it } from "vitest";
 import Decimal from "break_infinity.js";
-import { GENERAL_QUARTERS_GUEST_PERK, PATROLS, SHIP_TYPES, shipDerivedStats, type Expedition, type GameState, type PatrolKey, type ShipSpec, type ShipTypeKey } from "./model";
+import { GENERAL_QUARTERS_GUEST_PERK, PATROLS, SHIP_TYPES, shipDerivedStats, type GameState, type PatrolKey, type ShipSpec, type ShipTypeKey } from "./model";
 import { effectiveShipStats, shipCrewContribution } from "./crewOverlay";
 import {
   HULL_FAMILY_MODULE_BONUS,
@@ -20,11 +20,10 @@ import {
 } from "./crewModules";
 import { dispatchCaptainOnMission, dispatchCaptainOnPatrol, economyTick, tick } from "./tick";
 import { replayPatrol } from "./combat/patrolReplay";
-import { installPiece, shipOf, wiringBase, withBuckets, bucketOf, withAwayTeam, dispatchRun, WIRING_SECURITY_ID } from "./wiring/probes";
+import { installPiece, shipOf, wiringBase, withBuckets, bucketOf, withAwayTeam, dispatchRun } from "./wiring/probes";
 import { applyHullWeaponLine, combatHullTypeOf, shipToCombatant } from "./combat/bridge";
 import type { Combatant } from "./combat/types";
 import { battleRating } from "./combat/rating";
-import { applyExpeditionInjuries, INJURY_BASE_RECOVERY_SECONDS } from "./injuries";
 import { buildShipRoster } from "./shipRoster";
 import { onHull, stateHash } from "./firstRunsGoldens.fixture";
 import { asPatrolVeteran } from "./awayTeamTestFixtures";
@@ -203,26 +202,16 @@ describe("CP-13 hull-family bonuses", () => {
     expect(hullFamilyBonusLine(better, shipOf(better), piece)).toContain(`guest quarters +${Math.round(GENERAL_QUARTERS_GUEST_PERK * scale * 1000) / 10}%`);
   });
 
-  it("the Tactician injury perk also acts on the legacy claim: frozen at dispatch, a run without it recovers as before", () => {
+  // Wiring OC-G1 (user 2026-10-16 "Delete it"): the legacy claim this perk also acted on is deleted, so its test (the
+  // legacy flat injury shortened by the run's frozen Expedition.hullInjuryShare) is RETIRED; what stays is that the
+  // dispatch freezes the perk for the medical bay only (GroundOpsFactors.hullInjuryShare), never a run-level copy.
+  it("the Tactician injury perk is frozen for the medical bay only (OC-G1: no run-level legacy copy)", () => {
     const at = withAwayTeam(quarters(withBuckets(wiringBase("destroyer"), [])));
-    const legacyRun = (run: Expedition): Expedition => ({
-      ...run,
-      groundOps: undefined,
-      risk: undefined,
-      scanEvents: [{ bodyIndex: 0, step: 1, kind: "encounter", outcome: "loss", downedMemberIds: [WIRING_SECURITY_ID] }],
-    });
-    const recovery = (run: Expedition) => applyExpeditionInjuries(at, legacyRun(run)).injuries.find((i) => i.memberId === WIRING_SECURITY_ID)?.recoverySeconds;
     const fresh = dispatchRun(at);
-    expect(fresh.hullInjuryShare).toBeCloseTo(0.15, 12);
-    expect(fresh.hullInjuryShare).toBe(fresh.groundOps?.factors.hullInjuryShare);
-    expect(recovery(fresh)).toBe(Math.round(INJURY_BASE_RECOVERY_SECONDS / 1.15));
-    // A run dispatched before the fix round (no stamp) recovers exactly as before, though the module is installed now.
-    const before = withoutCp13(() => dispatchRun(at));
-    expect(before.hullInjuryShare).toBeUndefined();
-    expect(recovery(before)).toBe(INJURY_BASE_RECOVERY_SECONDS);
-    expect(recovery(before)).toBe(withoutCp13(() => recovery(before)));
+    expect(fresh.groundOps?.factors.hullInjuryShare).toBeCloseTo(0.15, 12);
+    expect("hullInjuryShare" in fresh).toBe(false);
     // Off a Tactician hull nothing is stamped.
-    expect(dispatchRun(withAwayTeam(quarters(withBuckets(wiringBase("orion"), [])))).hullInjuryShare).toBeUndefined();
+    expect(dispatchRun(withAwayTeam(quarters(withBuckets(wiringBase("orion"), [])))).groundOps?.factors.hullInjuryShare).toBeUndefined();
   });
 
   it("the bay perks show their real effect on the ship: other care makes them save less", () => {

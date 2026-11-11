@@ -40,7 +40,7 @@ import { resolveCrew } from "./crewOverlay";
 import { editShip, installPiece, wiringBase, withRunningJobs } from "./wiring/probes";
 import { WIRING_REGISTRY } from "./wiring/registry";
 import { OTUI_RESTATED_ID, otUiReadBack } from "./otUiRegistry.fixture";
-import { asLegacyDispatch, asPreCurveDispatch, ensureMinimumAwayTeam, plainAwayMember, withSlottedAwayTeams, dispatchPastPropulsion } from "./awayTeamTestFixtures";
+import { asPreCurveDispatch, ensureMinimumAwayTeam, plainAwayMember, withSlottedAwayTeams, dispatchPastPropulsion } from "./awayTeamTestFixtures";
 import {
   OVERTIME_CREDITS_PER_MINUTE,
   OVERTIME_MAX_STEPS,
@@ -635,32 +635,10 @@ describe("time skip: a patrol route runs through to its end on the next tick", (
   });
 });
 
-describe("time skip: an expedition finishes at once with the findings its run would have produced", () => {
-  const legacyRun = () => {
-    const ready = ensureMinimumAwayTeam(freshState(), "ship-1");
-    const cands = expeditionCandidates(ready, "ship-1");
-    const r = asLegacyDispatch(dispatchPastPropulsion(ready, "ship-1", 1, cands[0].id, true));
-    expect(r.success).toBe(true);
-    return r.next;
-  };
-
-  it("completes now, and matches the run advanced naturally in ten-minute steps", () => {
-    const s = legacyRun();
-    const ref: ProcessRef = { kind: "expedition", id: s.expeditions[0].id };
-    const r = applyTimeSkip(s, ref);
-    expect(r.applied).toBe(true);
-    const skipped = r.next.expeditions[0];
-    expect(skipped.phase).toBe("complete");
-    expect(skipped.speed?.instantComplete).toBe(true);
-    expect(r.next.gameTimeSeconds).toBe(s.gameTimeSeconds); // the game clock does not move
-    let natural = s.expeditions[0];
-    for (let t = 600; natural.phase !== "complete"; t += 600) natural = advanceExpedition(natural, t);
-    const { speed: _speed, ...rest } = skipped;
-    void _speed;
-    expect(rest).toEqual(natural);
-    expect(canApplyTimeSkip(r.next, ref)).toEqual({ ok: false, reason: "complete" });
-  });
-
+// Wiring OC-G1 (user 2026-10-16 "Delete it"): "completes now, and matches the run advanced naturally in ten-minute steps"
+// pinned the time skip on a LEGACY run (the deleted engine path) and is RETIRED with it; the Ground Ops time skip is
+// pinned in the next describe.
+describe("time skip: an expedition that cannot finish is refused", () => {
   it("refuses a run that cannot finish on its own (a team that keeps failing) and a missing run", () => {
     const ready = ensureMinimumAwayTeam(freshState(), "ship-1");
     const cands = expeditionCandidates(ready, "ship-1");

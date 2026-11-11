@@ -8136,11 +8136,9 @@ export interface ExpeditionActivity {
   bodyId: string;
   poiId: string; // the PoI this task came from (expeditionContent.ts POI_CATALOG id)
   done: boolean; // set by the resolver when the task completes
-  // E-CREW 0.14.0 (Task 16): the Security members DOWN at the end of this task's battles (every attempt,
-  // in order of first going down), written when the task resolves and only when someone went down. With
-  // ExpeditionScanEvent.downedMemberIds it is the run's record of who SITS OUT the rest of the run (user
-  // rule, 2026-10-07) and who comes home injured at claim (injuries.ts). OPTIONAL and absent-safe (absent =
-  // nobody went down), so no SAVE_VERSION bump: a task resolved before Task 16 simply records no one.
+  // E-CREW 0.14.0 (Task 16): the Security members DOWN at the end of a LEGACY (pre-Ground-Ops) task's battles.
+  // Wiring OC-G1 deleted the legacy resolver: nothing writes or reads it any more; only an old save's finished legacy
+  // run may still carry it (kept in the type so that record stays well formed). OPTIONAL.
   downedMemberIds?: string[];
   // Ground Operations 0.14.0 (GO-4, D25): the TASK fields of a Ground Ops run (groundTasks.ts reads them;
   // GO-7b stamps them when a body's scan completes). ALL OPTIONAL and absent on a legacy run's activities, so
@@ -8391,8 +8389,8 @@ export interface DataStudyHeldEntry {
 // records where the finding came from so E4 can route each provenance differently.
 //
 // E-CREW 0.14.0 (Task 14): two scan-phase sources join. "encounter" is the enemy drops of a WON random
-// encounter during scanning (materials + credits, never a relic); "supplyCache" is the scan-step random
-// EVENT (a small material + credit find). Both deposit exactly like an activity finding (no relic).
+// encounter during a LEGACY run's scan (OC-G1: only on an old save's finished legacy run); "supplyCache" is the
+// scan-step random EVENT (a small material + credit find). Both deposit exactly like an activity finding (no relic).
 export interface ExpeditionFinding {
   id: string; // stable, "<expeditionId>-find-<n>"
   // Gas Giant Study GG-3: "study" is a ship study of an orbital body (gasGiantStudy.ts rollStudyReward): canisters
@@ -8403,7 +8401,7 @@ export interface ExpeditionFinding {
   materials?: Record<string, number>; // itemId -> quantity gathered (E4 deposits these)
   credits?: number; // credits recovered
   relic?: ExpeditionRelicToken | null; // an UNIDENTIFIED relic token when the roll hit (E4 identifies it), else null/unset
-  evacuated?: boolean; // true when the task was LOST after every attempt (evacuated: a reduced "always win something" payload)
+  evacuated?: boolean; // a legacy (pre-Ground-Ops) run's LOST task (a reduced payload); OC-G1: only in an old save's record
   // Gas Giant Study GG-3: a study's Survey Log readout (the claim appends it to GameState.surveyLog). Absent otherwise.
   survey?: SurveyLogEntry;
 }
@@ -8810,7 +8808,7 @@ export interface Expedition {
   // --- E3a away-team SNAPSHOT (captured at dispatch, exactly like the sensor snapshot above) ------------
   // The away team's derived combat strength + team kit, snapshotted at dispatch (startExpedition, from the
   // ship's crew via deriveAwayTeam; D19: the program pair below is no longer snapshotted). Resolution
-  // (the E3 gambit ground battles in resolveActivitiesPhase) reads ONLY these stored fields, so it is a
+  // (the Ground Ops objective fights, groundFight.ts) reads ONLY these stored fields, so it is a
   // pure function of the stored expedition -- the tick chain (advanceExpedition) needs no GameState, and
   // one-big == many-small parity holds by construction (the snapshot is a fixed input, not a live read).
   // Nothing the player changes mid-flight alters an in-flight run, matching the sensor snapshot's "the
@@ -8838,9 +8836,8 @@ export interface Expedition {
   // resolution stays a pure function of the stored expedition (offline == live by construction). D18
   // (user, 2026-10-06): startExpedition refuses a ship without at least 1 ready Security AND 1 ready Science
   // member, so every NEW expedition carries a roster. The field stays OPTIONAL for expeditions launched
-  // before D18: readers treat absent as two empty squads, and with no Security member a ground task fields
-  // NO team (there is no anonymous stand-in any more) and evacuates without a battle (gambit.ts
-  // resolveExpeditionActivity). The strengths above stay the squad-wide crew layer on top of the members.
+  // before D18: readers treat absent as two empty squads (a ground task fields NO team: there is no anonymous
+  // stand-in any more). The strengths above stay the squad-wide crew layer on top of the members.
   roster?: AwayRosterSnapshot;
   // E-CREW 0.14.0 (Task 14): RANDOM ENCOUNTERS during scan progress (design D10).
   // All OPTIONAL and additive (no SAVE_VERSION bump). `encounterSteps` is the number of equal steps each
@@ -8890,10 +8887,10 @@ export interface Expedition {
   // E-CREW 0.14.0 (Task 21): the OFFICER STAT FACETS that reach this run, frozen at dispatch like the fields
   // above (officerStats.ts; small named fields for the Ground Operations redesign, D25, to carry forward).
   // OPTIONAL, written only when non-zero (absent = no effect, no SAVE_VERSION bump).
-  //   ambushSoften        : Security's CUNNING over-delivery (rolled at dispatch): the run's random scan
-  //                         encounters field enemies at (1 - this) health and power (gambit.ts).
-  //   quickRecovery       : Medical's CUNNING over-delivery (rolled at dispatch): added to the care divisor
-  //                         of every injury this run brings home (injuries.ts).
+  //   ambushSoften        : Security's CUNNING over-delivery (rolled at dispatch): the run's ship events are
+  //                         softened by (1 - this) (shipScanEvents.ts).
+  //   quickRecovery       : Medical's CUNNING over-delivery (rolled at dispatch): added to the medical bay's
+  //                         care divisor (medicalBay.ts bayCareFrom).
   //   recoveryTurnaround  : Medical's CONSTITUTION facet (shorter post-mission turnaround): also added to
   //                         that care divisor.
   //   rampScience         : Science's CONSTITUTION facet: the run's crew rare find (the relic roll) grows by
@@ -8910,17 +8907,13 @@ export interface Expedition {
   //                  hours since dispatch when it starts).
   //   hazardSteady : the Science department's INTEGRITY facet: added to the run's hazard resist while
   //                  SCANNING (a hazardous world slows the scan less; resistedHazard bounds the sum).
-  //   injurySteady : the Medical department's INTEGRITY facet: added to the care divisor of every member who
-  //                  comes home INJURED (injuries.ts).
+  //   injurySteady : the Medical department's INTEGRITY facet: added to the medical bay's care divisor for
+  //                  INJURY-class conditions (medicalBay.ts).
   rampReturn?: number;
   hazardSteady?: number;
   injurySteady?: number;
-  // Complement CP-13 fix round (user 2026-11-04 "Yes, both paths, new runs only (Recommended)"): the Tactician quarters
-  // module's hull-family perk, "injured crew recover 15% faster" (crewModules.ts hullFamilyQuartersPerk "injuryRecovery"),
-  // frozen at dispatch for the legacy (non-Ground-Ops) claim's care divisor (injuries.ts applyExpeditionInjuries); the
-  // Ground Ops bay reads its own frozen copy (GroundOpsFactors.hullInjuryShare). Written only when non-zero: absent on
-  // every run dispatched before it, which recovers exactly as before. No SAVE bump.
-  hullInjuryShare?: number;
+  // (Wiring OC-G1 deleted the run-level `hullInjuryShare` the legacy claim read; the Ground Ops bay reads its own frozen
+  // copy, GroundOpsFactors.hullInjuryShare. A save that stored it keeps an unread key.)
   // How many step boundaries (flat across bodies, in scan order) have been rolled. The once-only latch
   // that keeps a boundary from rolling twice however the advance is chunked. Absent = 0.
   scanStepCursor?: number;
@@ -9147,11 +9140,9 @@ export type EnemyRank = "weak" | "normal" | "strong" | "elite" | "boss";
 
 // E-CREW 0.14.0 (Task 14): one thing that happened at a scan step boundary. `step` is the boundary
 // number (1..encounterSteps - 1: boundary N sits at N / encounterSteps of the body's scan).
-//   encounter   : a Security battle. `outcome` win adds the enemy drops (`findingId`); loss withdraws the
-//                 team to orbit and pauses this body's scan for `pauseSeconds` (until the next activity
-//                 window). `downedMemberIds` lists the Security members down at the battle's end, win or
-//                 lose (Task 16: they sit out every later battle of the run, gambit.ts scanDownedBefore,
-//                 and come home injured at claim, injuries.ts).
+//   encounter   : a LEGACY (pre-Ground-Ops) run's scan-time Security battle (win adds the enemy drops, loss paused
+//                 the scan; `downedMemberIds` lists who went down). Wiring OC-G1 deleted the legacy resolver: no
+//                 run rolls one any more; only an old save's finished legacy run may still carry one.
 //   supplyCache : the step roll's random EVENT, a small find (`findingId`).
 //   shipEvent   : Ground Operations GO-8 (user 9b.6): a SHIP-SIDE event on a flagged run with ship events
 //                 (shipScanEvents.ts): `event` names it, `outcome` is pass / fail (a check) or win / loss (a

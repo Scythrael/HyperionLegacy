@@ -1,8 +1,9 @@
 <script lang="ts">
   // ScanTrack.svelte: one body's SCAN TRACK (0.14.0, Ground Operations GO-15, the EC-M section 5 layout): the rail
-  // filled to the scanned share, a pip per recorded scan event (ship events, supply caches; a legacy run's ground
-  // battles) at its step, and the log lines in plain words. A pip is a button: it marks its log line (and a screen
-  // reader hears the whole outcome from its name). A legacy ground battle's line offers its re-derived battle log.
+  // filled to the scanned share, a pip per recorded scan event (ship events, supply caches; an old save's finished
+  // legacy run may still show its ground battles) at its step, and the log lines in plain words. A pip is a button: it
+  // marks its log line (and a screen reader hears the whole outcome from its name). (Wiring OC-G1 deleted the legacy
+  // battle's re-derived round log with the legacy resolver.)
   // Pure presentation over scanTrackDisplay.ts scanTrackView (tested).
 
   import type { ScanTrackView } from "./scanTrackDisplay";
@@ -11,21 +12,8 @@
   export let track: ScanTrackView;
   // A unique prefix for the log line ids (one track per body).
   export let idBase: string;
-  // A legacy ground battle's round log, read on demand (gambit.ts deriveScanEncounterLog through the panel).
-  export let battleLines: (step: number) => { key: string; text: string; round: boolean; enemy: boolean; down: boolean }[] = () => [];
 
   let selected: string | null = null;
-  let openLogs: Record<string, ReturnType<typeof battleLines>> = {};
-
-  function toggleLog(key: string, step: number): void {
-    if (openLogs[key]) {
-      const next = { ...openLogs };
-      delete next[key];
-      openLogs = next;
-      return;
-    }
-    openLogs = { ...openLogs, [key]: battleLines(step) };
-  }
 </script>
 
 <div class="st">
@@ -58,22 +46,6 @@
           <span class="st-text">
             <span class="st-glyph" aria-hidden="true"><Icon name={pip.glyph} size={12} /></span>
             {pip.sentence}
-            {#if pip.battleLog}
-              <button type="button" class="st-log-toggle" aria-expanded={openLogs[pip.key] !== undefined} on:click={() => toggleLog(pip.key, pip.step)}>
-                {openLogs[pip.key] ? "Hide battle log" : "View battle log"}
-              </button>
-              {#if openLogs[pip.key]}
-                <span class="st-battle">
-                  {#if openLogs[pip.key].length === 0}
-                    <span class="st-battle-line dim">No battle record for this step.</span>
-                  {:else}
-                    {#each openLogs[pip.key] as line (line.key)}
-                      <span class="st-battle-line" class:round={line.round} class:enemy={line.enemy} class:down={line.down}>{line.text}</span>
-                    {/each}
-                  {/if}
-                </span>
-              {/if}
-            {/if}
           </span>
         </li>
       {/each}
@@ -136,8 +108,7 @@
   .st-pip.on {
     box-shadow: 0 0 0 2px rgba(var(--color-accent-rgb), 0.55);
   }
-  .st-pip:focus-visible,
-  .st-log-toggle:focus-visible {
+  .st-pip:focus-visible {
     outline: 2px solid var(--color-accent-bright);
     outline-offset: 2px;
   }
@@ -182,45 +153,6 @@
   }
   .st-line.t-bad .st-glyph {
     color: var(--color-warning);
-  }
-  .st-log-toggle {
-    display: inline-block;
-    margin-left: 4px;
-    padding: 0 6px;
-    font: inherit;
-    font-size: var(--text-2xs);
-    color: var(--color-accent-bright);
-    background: transparent;
-    border: 1px solid rgba(var(--color-accent-rgb), 0.35);
-    border-radius: 4px;
-    cursor: pointer;
-  }
-  .st-battle {
-    display: flex;
-    flex-direction: column;
-    gap: 1px;
-    margin-top: 4px;
-    padding: 4px 6px;
-    border-left: 2px solid rgba(var(--color-accent-rgb), 0.3);
-  }
-  .st-battle-line {
-    color: var(--color-text-secondary);
-  }
-  .st-battle-line.round {
-    color: var(--color-text-dim);
-    text-transform: uppercase;
-    letter-spacing: 0.06em;
-    margin-top: 2px;
-  }
-  .st-battle-line.enemy {
-    color: var(--color-text-dim);
-  }
-  .st-battle-line.down {
-    color: var(--color-warning);
-  }
-  .st-battle-line.dim {
-    font-style: italic;
-    color: var(--color-text-dim);
   }
   .st-empty {
     font-size: var(--text-2xs);

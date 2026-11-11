@@ -26,7 +26,7 @@
 // where fightNumber = the task's fightCount when the fight starts, so every attempt meets a fresh encounter
 // ("a fresh encounter per attempt") and a retry never replays a loss. Like the legacy battle, the guard's
 // generation and the fight both read makeRng(seed), and Neural Backup rolls on its own stream off the same
-// seed (gambit.ts NEURAL_BACKUP_SALT), never a draw on the fight's. Never the legacy COMBAT_SALT stream and
+// seed (gambit.ts NEURAL_BACKUP_SALT), never a draw on the fight's. Never the legacy COMBAT_SALT stream (retired by OC-G1) and
 // never a shared one. The result reads only the stored run and the arguments, so offline == live.
 //
 // SAFE FIRST RUNS (SF-2): on a training run (enemyRanks.ts isTrainingRun) the guard reads hazard 0 and the training

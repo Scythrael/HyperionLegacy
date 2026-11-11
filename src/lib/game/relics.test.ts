@@ -57,10 +57,11 @@ import {
   summarizeExpeditionFindings,
   expeditionCandidates,
   advanceExpedition,
+  rollBodyDiscoveries,
   SENSOR_REVEAL_RELIC,
   SENSOR_REVEAL_HAZARD,
 } from "./expedition";
-import { asLegacyDispatch, ensureMinimumAwayTeam, dispatchPastPropulsion } from "./awayTeamTestFixtures";
+import { ensureMinimumAwayTeam, dispatchPastPropulsion } from "./awayTeamTestFixtures";
 import {
   tick,
   economyTick,
@@ -232,17 +233,15 @@ describe("PoI -> relic set: ONE source of truth for the reward roll AND the fore
       const fk = cand.foreknowledge;
       expect(fk.relicSets).not.toBeNull();
       expect("relicSignature" in fk).toBe(false); // WR-11: the always-true flag is gone; relicSets is the lead
-      // Commit this candidate and run it to completion; derive the sets from its real discoveries.
-      // A legacy run (asLegacyDispatch) always completes; the discoveries are the same on either engine.
-      const raw = dispatchPastPropulsion(s, "ship-1", 1, cand.id);
-      const res = asLegacyDispatch(raw);
-      // Gas Giant Study GG-2: the committed run keeps its study stamp (asLegacyDispatch takes it off with the other
-      // later stamps), so a gas giant sources no relic set in the preview and none in the run.
-      const study = raw.expedition!.study;
-      const done = advanceExpedition(study ? { ...res.expedition!, study } : res.expedition!, 10_000_000);
-      expect(done.phase).toBe("complete");
+      // Commit this candidate; derive the sets from the discoveries its bodies roll when their scans complete (the run's
+      // own roll, rollBodyDiscoveries). Wiring OC-G1: this used to run a legacy twin to completion; the roll is the same
+      // one. Gas Giant Study GG-2: the committed run keeps its study stamp, so a gas giant sources no relic set in the
+      // preview and none in the run.
+      const run = dispatchPastPropulsion(s, "ship-1", 1, cand.id).expedition!;
       const found = new Set<RelicSetId>();
-      for (const b of done.bodies) for (const d of b.discoveries) found.add(relicSetForPoi(d.poiId)!);
+      run.bodies.forEach((b, i) => {
+        for (const d of rollBodyDiscoveries(run, b, i)) found.add(relicSetForPoi(d.poiId)!);
+      });
       expect(fk.relicSets).toEqual(RELIC_SETS.map((x) => x.id).filter((id) => found.has(id)));
     }
   });

@@ -7,8 +7,8 @@
 //   - a flagged run with ship events (GO-8, user 9b.6): debris field, hostile probe, sensor ghost, cloaked vessel,
 //     radiation storm; a probe or cloaked vessel whose boarders got aboard (GO-9) takes the `boarding` glyph;
 //   - any run with scan steps: a supply cache (the step roll's small find);
-//   - a LEGACY run (no groundOps): its ground battles (Task 14), each with a re-derivable battle log
-//     (gambit.ts deriveScanEncounterLog, which the panel calls on demand).
+//   - a LEGACY run (no groundOps; Wiring OC-G1 finishes one at load, so only an old save's run awaiting its claim): its
+//     stored ground battles (Task 14), in words (their re-derived round log went with the legacy resolver).
 //
 // WHY a .ts beside the panel: this repo has no Svelte component test harness, so every choice worth gating (which
 // glyph, which outcome words, which tone, what the log line says) lives here as pure functions over the stored run,
@@ -45,7 +45,6 @@ export interface ScanPipView {
   sentence: string; // the log line
   ariaLabel: string; // "At 30% of the scan: Debris field, Hit. <sentence>"
   title: string; // the pip's tooltip: "30%: Debris field, Hit. Scan paused 2m" (outcome and pause)
-  battleLog: boolean; // a legacy ground battle: the panel can re-derive its round log
 }
 
 export interface ScanTrackView {
@@ -231,7 +230,9 @@ function shipEventWords(run: ScanTrackRun, event: ExpeditionScanEvent, kind: Shi
 function battleWords(run: ScanTrackRun, event: ExpeditionScanEvent): PipWords {
   const won = event.outcome === "win";
   const downed = event.downedMemberIds?.length ?? 0;
-  const downText = downed > 0 ? ` ${plural(downed, "member", "members")} downed (they come home injured, never lost).` : "";
+  // Wiring OC-G1: no "come home injured" clause. A legacy run is finished as it stood (no injury is stamped), so only
+  // "never lost" holds.
+  const downText = downed > 0 ? ` ${plural(downed, "member", "members")} downed (never lost).` : "";
   let line: string;
   if (won) {
     const drops = findingContentsText(findingOf(run, event));
@@ -285,7 +286,6 @@ export function scanTrackView(run: ScanTrackRun, bodyIndex: number): ScanTrackVi
         pauseText,
         ariaLabel: `At ${atText} of the scan: ${w.name}, ${w.outcome}. ${w.sentence}`,
         title: `${atText}: ${w.name}, ${w.outcome}${pauseText ? `. ${pauseText}` : ""}`,
-        battleLog: ev.kind === "encounter",
       };
     });
   const emptyText = pips.length > 0 ? null : body.scanned ? "No scan events: a calm scan." : "No scan events yet.";

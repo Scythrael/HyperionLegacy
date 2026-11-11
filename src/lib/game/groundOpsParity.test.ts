@@ -8,9 +8,9 @@
 
 import { describe, expect, it } from "vitest";
 import { freshState, type AwayMember, type Expedition } from "./model";
-import { advanceExpedition, expeditionCandidates, expeditionPhaseFraction, scanRatePerSecond } from "./expedition";
+import { advanceExpedition, expeditionCandidates, expeditionPhaseFraction, scanRatePerSecond, scanStepRoll } from "./expedition";
 import { IN_SYSTEM_LEG_SECONDS, groundShipPosition, scanClockAt, scanClockToTime } from "./groundOps";
-import { asPreFieldKitsDispatch, plainAwayMember, withSlottedAwayTeams, withoutEnemyRanks, withoutGroundOps, withoutShipEvents, dispatchPastPropulsion } from "./awayTeamTestFixtures";
+import { asPreFieldKitsDispatch, plainAwayMember, withSlottedAwayTeams, withoutEnemyRanks, withoutShipEvents, dispatchPastPropulsion } from "./awayTeamTestFixtures";
 import { deserialize, migrate, serialize, type SaveFile } from "./save";
 
 const member = (id: string, teamType: AwayMember["teamType"], over: Partial<AwayMember> = {}): AwayMember => ({
@@ -140,10 +140,11 @@ describe("GO-7b the combined operations window (user Q1) on a real run", () => {
   it("a flagged run rolls no scan-time ground battle (user 9b.6); its supply caches sit on the same step draws", () => {
     const far = advanceExpedition(exp, open + 200_000);
     expect((far.scanEvents ?? []).some((ev) => ev.kind === "encounter")).toBe(false);
-    const legacy = advanceExpedition(withoutGroundOps(exp), open + 200_000);
-    const key = (ev: { bodyIndex: number; step: number }) => `${ev.bodyIndex}:${ev.step}`;
-    const flaggedCaches = new Set((far.scanEvents ?? []).filter((ev) => ev.kind === "supplyCache").map(key));
-    for (const ev of legacy.scanEvents ?? []) if (ev.kind === "supplyCache") expect(flaggedCaches.has(key(ev))).toBe(true);
+    // Wiring OC-G1: this compared the caches against the run's LEGACY twin (deleted with the legacy path); each cache is
+    // now checked against its own step roll's draw 2 (scanStepRoll), the draw a legacy run read at the same position.
+    const caches = (far.scanEvents ?? []).filter((ev) => ev.kind === "supplyCache");
+    expect(caches.length).toBeGreaterThan(0);
+    for (const ev of caches) expect(scanStepRoll(exp, ev.bodyIndex, ev.step, 0).supplyCache).toBe(true);
   });
 });
 

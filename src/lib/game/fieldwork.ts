@@ -3,8 +3,8 @@
 // Security fights; SCIENCE does the fieldwork. This module turns the expedition's frozen Science roster
 // (Expedition.roster.science, snapshotted at dispatch by awayTeam.ts snapshotAwayRoster) into the three
 // fieldwork levers the expedition engine reads:
-//   - SPEED   (expedition.ts activityDurationSeconds): how long one ground task takes;
-//   - YIELD   (gambit.ts resolveExpeditionActivity): the haul multiplier (materials + credits);
+//   - SPEED   (groundTasks.ts taskWorkSeconds): how long one ground task takes;
+//   - YIELD   (groundTasks.ts taskFullHaul): the haul multiplier (materials + credits);
 //   - RELIC   (gambit.ts activityRelicFindBonus): a lift on the relic chance;
 // plus HAZARD (expedition.ts scanRatePerSecond): the party's hazard resistance, which cuts the scan's
 // hazard slowdown on a hostile body (the Hazard Suit's "hazard slow cut").

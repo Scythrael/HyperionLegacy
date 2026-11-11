@@ -18,7 +18,6 @@ import {
   isTrainingRun,
   rankAtLeast,
   rankedEnemies,
-  rankedEnemyName,
   ranksLive,
   withEnemyRanks,
   type EnemyRank,
@@ -171,14 +170,6 @@ describe("FKR-1 the record and display helpers", () => {
     expect(rankedEnemies(guard())).toBeUndefined(); // an unranked guard
     expect(rankedEnemies(withEnemyRanks(guard(), "boss"))).toEqual({ "enemy-striker-1": "boss" });
     expect(rankedEnemies([{ id: "a", rank: "weak" }, { id: "b" }, { id: "c", rank: "elite" }])).toEqual({ a: "weak", c: "elite" });
-  });
-
-  it('rankedEnemyName: "Elite Bruiser"; a Normal or unranked enemy is just its role name', () => {
-    expect(rankedEnemyName("elite", "Bruiser")).toBe("Elite Bruiser");
-    expect(rankedEnemyName("boss", "Caster")).toBe("Boss Caster");
-    expect(rankedEnemyName("weak", "Swarm")).toBe("Weak Swarm");
-    expect(rankedEnemyName("normal", "Striker")).toBe("Striker");
-    expect(rankedEnemyName(undefined, "Healer")).toBe("Healer");
   });
 
   it("rankAtLeast orders the ranks (FKR-6's 'Elite or stronger'); absent reads Normal", () => {

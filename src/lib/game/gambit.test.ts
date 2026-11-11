@@ -7,12 +7,14 @@
 //   - ENEMY ROLES: healer heals a wounded ally; caster afflicts on hit.
 //   - FULL BATTLE: a smart (kill-the-healer) program WINS; a lazy (attack-nearest) program does WORSE
 //     on the same seeds (proves gambit depth is load-bearing).
-//   - EVACUATE->RETRY: an unwinnable activity loses every attempt, evacuates, still yields a partial finding.
 //   - REWARDS: the relic roll REUSES the salvage tiers + yields an UNIDENTIFIED relic at a chance; a
 //     non-relic PoI never yields one (E4a: the relic-bearing set is DERIVED from relics.ts).
-//   - PARITY: a typed multi-body expedition whose activities resolve REAL gambit fights is byte-identical
-//     big-jump vs stepped.
 //   - SAVE migration v61 -> v62 seeds the default gambit program pair + backfills the expedition snapshot.
+//
+// Wiring OC-G1 (user 2026-10-16 "Delete it"): the legacy activity resolver (resolveExpeditionActivity: a win's
+// finding, the evacuation and its retries, MAX_BATTLE_ATTEMPTS) and the legacy run's PARITY test are RETIRED with the
+// legacy path, each having proved only it. Ground Ops objective fights, rewards and parity are proven in
+// groundFight.test.ts, groundTasks.test.ts and groundOpsParity.test.ts.
 
 import { describe, it, expect } from "vitest";
 import {
@@ -37,19 +39,16 @@ import {
   buildRosterCombatants,
   generateEncounter,
   deriveAwayTeam,
-  resolveExpeditionActivity,
   rollRelicToken,
   GAMBIT_PRESETS,
   GAMBIT_STATUSES,
   ENEMY_ROLE_PROGRAMS,
   RELIC_BEARING_POIS,
-  MAX_BATTLE_ATTEMPTS,
   type GroundCombatant,
   type BattleState,
 } from "./gambit";
-import { advanceExpedition, makeExpeditionSeed } from "./expedition";
-import { planetTypeHazard, POI_CATALOG } from "./expeditionContent";
-import { RELIC_SETS, relicSetForPoi } from "./relics";
+import { POI_CATALOG } from "./expeditionContent";
+import { RELIC_SETS } from "./relics";
 import { migrate, type SaveFile } from "./save";
 import { makeRng } from "./combat/rng";
 
@@ -76,41 +75,6 @@ function mk(id: string, side: "team" | "enemy", role: GroundCombatant["role"], o
 
 function bs(combatants: GroundCombatant[], over: Partial<BattleState> = {}): BattleState {
   return { combatants, round: 0, teamKit: 0, tauntedBy: null, ...over };
-}
-
-// A minimal expedition carrying an away-team snapshot + a scanned body with activities, for the resolver
-// + parity tests. Defaults to a neutral team; callers override strengths / programs / bodies.
-function makeExp(over: Partial<Expedition> = {}): Expedition {
-  return {
-    id: "expedition-1",
-    shipId: "ship-1",
-    captainId: 1,
-    targetSystemId: "keplersReach",
-    systemName: "Kepler's Reach",
-    sensorArrayId: null,
-    scanParams: { scanRateMult: 1, coverageWidth: 1, landmarkOddsBias: 0, undergroundPoiOddsBias: 0 },
-    sensorPower: 0,
-    phase: "transit",
-    phaseAnchorSeconds: 0,
-    shakedown: true,
-    bodies: [
-      { id: "body-1", planetType: "terrestrial", scanTotal: 100, scanProgress: 0, hazard: planetTypeHazard("terrestrial"), scanned: false, discoveries: [], activities: [] },
-    ],
-    anomalyResolved: false,
-    anomalyCharted: false,
-    anomalyOptIn: true,
-    findings: [],
-    seed: 12345,
-    securityStrength: 0,
-    scienceStrength: 0,
-    teamKit: 2,
-    gambitPrograms: cloneProgs(DEFAULT_GAMBIT_PROGRAMS),
-    // E4b museum snapshot: neutral (an empty museum), so every pre-E4b assertion is unchanged.
-    scanSpeedBonus: 0,
-    relicFindBonus: 0,
-    hazardResist: 0,
-    ...over,
-  };
 }
 
 // D18: a plain snapshotted Security member (rank 1, no traits or gear). Since the anonymous crew-derived
@@ -395,78 +359,6 @@ describe("full battle — gambit depth is load-bearing", () => {
 });
 
 // ============================================================================
-describe("resolveExpeditionActivity — win yields real findings; a lost task evacuates + retries", () => {
-  it("a strong team WINS an easy task and yields a real material + credit finding", () => {
-    // D18 DELIBERATE FIXTURE CHANGE: a named Security squad (the anonymous detail is gone).
-    const exp = makeExp({ securityStrength: 40, scienceStrength: 20, teamKit: 6, roster: secRoster(3) });
-    const body = exp.bodies[0]; // terrestrial, low hazard
-    const activity = { id: "expedition-1-body-1-act-0", bodyId: "body-1", poiId: "caveNetwork", done: false };
-    const res = resolveExpeditionActivity(exp, body, activity, 0);
-    expect(res.outcome).toBe("win");
-    expect(res.finding.source).toBe("activity");
-    expect(res.finding.poiId).toBe("caveNetwork");
-    expect(Object.keys(res.finding.materials ?? {}).length).toBeGreaterThan(0);
-    expect(res.finding.credits ?? 0).toBeGreaterThan(0);
-    // E4a INTENTIONAL CHANGE: caveNetwork now SOURCES the Deep Earth relic set (relics.ts RELIC_SET_BY_POI),
-    // so it is relic-bearing and a win MAY carry a relic (it used to be asserted null here). Whatever
-    // rolled, it is an UNIDENTIFIED token, and claiming it routes to Deep Earth.
-    expect(relicSetForPoi("caveNetwork")).toBe("deepEarth");
-    if (res.finding.relic) expect(res.finding.relic.unidentified).toBe(true);
-    expect(res.finding.evacuated).toBeUndefined();
-  });
-
-  // E-CREW Task 16 DELIBERATE CHANGE (user rule: a member downed in ANY battle sits out the rest of the
-  // run): the lone member wiped in attempt 1 is out, so there is nobody left for attempts 2 and 3 (before
-  // Task 16 the same member stood back up and lost all MAX_BATTLE_ATTEMPTS). Retries still happen when a
-  // lost attempt (a round-cap timeout) leaves someone standing.
-  it("a bare team LOSES a brutal task, EVACUATES (no retry once wiped), and still keeps a partial haul", () => {
-    // A 0-strength team vs a very-high-hazard Subterranean Civilization (healer + caster + bruiser + striker).
-    // D18 DELIBERATE FIXTURE CHANGE: one plain named member (the anonymous detail is gone); with NO member
-    // at all the task would evacuate without fighting (0 attempts), which awayRoster.test.ts covers.
-    const exp = makeExp({
-      securityStrength: 0,
-      scienceStrength: 0,
-      teamKit: 0,
-      roster: secRoster(1),
-      bodies: [{ id: "body-1", planetType: "toxic", scanTotal: 100, scanProgress: 0, hazard: planetTypeHazard("toxic"), scanned: false, discoveries: [], activities: [] }],
-    });
-    const body = exp.bodies[0];
-    const activity = { id: "expedition-1-body-1-act-0", bodyId: "body-1", poiId: "subterraneanCivilization", done: false };
-    const res = resolveExpeditionActivity(exp, body, activity, 0);
-    expect(res.outcome).toBe("evacuated");
-    expect(res.attempts).toBe(1); // wiped in attempt 1: the downed member sits out the retries
-    expect(res.attempts).toBeLessThan(MAX_BATTLE_ATTEMPTS);
-    expect(res.downedMemberIds).toEqual(["member-1"]);
-    expect(res.finding.evacuated).toBe(true);
-    expect(res.finding.relic ?? null).toBeNull(); // no relic on an evacuation
-    expect(Object.keys(res.finding.materials ?? {}).length).toBeGreaterThan(0); // always win SOMETHING
-  });
-
-  it("Task 16: a lost attempt that leaves the team STANDING (a round-cap timeout) still retries", () => {
-    // An unkillable member who cannot hurt anyone (power 0: every landed hit does the 1 HP minimum) against
-    // a pack with a healer: no clear, no wipe, so every attempt times out with the member up.
-    const tank = secSnap("member-1", {
-      groundStats: { hp: 200, power: -1, armor: 0, accuracy: 0, statusChance: 0, fieldwork: 0, relicFind: 0, hazardResist: 0 },
-      gambit: [{ target: "foeNearest", action: "attack" }],
-    });
-    const exp = makeExp({ securityStrength: 0, teamKit: 0, roster: { security: [tank], science: [] } });
-    const activity = { id: "expedition-1-body-1-act-0", bodyId: "body-1", poiId: "subterraneanCivilization", done: false };
-    const res = resolveExpeditionActivity(exp, exp.bodies[0], activity, 0);
-    expect(res.outcome).toBe("evacuated");
-    expect(res.attempts).toBe(MAX_BATTLE_ATTEMPTS);
-    expect(res.downedMemberIds).toEqual([]);
-  });
-
-  it("is deterministic: the same expedition + activity + index resolves identically", () => {
-    const exp = makeExp({ securityStrength: 12, scienceStrength: 6, roster: secRoster(2) });
-    const activity = { id: "expedition-1-body-1-act-0", bodyId: "body-1", poiId: "crashedShip", done: false };
-    const a = resolveExpeditionActivity(exp, exp.bodies[0], activity, 2);
-    const b = resolveExpeditionActivity(exp, exp.bodies[0], activity, 2);
-    expect(a).toEqual(b);
-  });
-});
-
-// ============================================================================
 describe("rewards — the relic roll REUSES the salvage tiers", () => {
   const poolTiers = SALVAGE_LOOT_POOLS.intactReactorCore;
 
@@ -634,40 +526,6 @@ describe("presets + crew derivation", () => {
     expect(crewedTeam.securityStrength).toBeGreaterThan(0);
     expect(crewedTeam.scienceStrength).toBeGreaterThan(0);
     expect(crewedTeam.securityStrength).toBeGreaterThan(crewedTeam.scienceStrength); // more security crew
-  });
-});
-
-// ============================================================================
-describe("PARITY — a typed expedition whose activities resolve REAL gambit fights", () => {
-  const make = () =>
-    makeExp({
-      phase: "transit",
-      shakedown: true,
-      seed: makeExpeditionSeed(0x2545f491, 9),
-      securityStrength: 14,
-      scienceStrength: 7,
-      teamKit: 4,
-      roster: secRoster(3), // D18: a named squad fights (there is no anonymous detail any more)
-      bodies: [
-        { id: "body-1", planetType: "arid", scanTotal: 110, scanProgress: 0, hazard: planetTypeHazard("arid"), scanned: false, discoveries: [], activities: [] },
-        { id: "body-2", planetType: "frozen", scanTotal: 90, scanProgress: 0, hazard: planetTypeHazard("frozen"), scanned: false, discoveries: [], activities: [] },
-      ],
-    });
-
-  it("one big jump equals stepped, and the findings carry real reward payloads", () => {
-    const big = advanceExpedition(make(), 300_000);
-    let stepped = make();
-    for (let t = 100; t <= 300_000; t += 100) stepped = advanceExpedition(stepped, t);
-    expect(stepped).toEqual(big);
-    expect(big.phase).toBe("complete");
-    // Non-trivial: activities resolved into REAL findings (materials present on the activity findings).
-    const activityFindings = big.findings.filter((f) => f.source === "activity");
-    expect(activityFindings.length).toBeGreaterThan(0);
-    for (const f of activityFindings) {
-      expect(f.poiId).toBeDefined();
-      expect(Object.keys(f.materials ?? {}).length).toBeGreaterThan(0);
-      expect(typeof f.credits).toBe("number");
-    }
   });
 });
 

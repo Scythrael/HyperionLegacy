@@ -11,8 +11,8 @@
 //     fieldwork resist PLUS the Security members' own resist, the Assault Hardsuit line) cuts that slowdown.
 //
 // DETERMINISM: no new RNG draws. The only roll here is the task's full haul (taskFullHaul), on the SAME
-// keyed reward stream the legacy resolver uses (gambit.ts taskRewardSeed), so one task keeps one reward
-// roll whichever engine resolves it. Module graph: model, fieldwork, relics, gambit; never expedition.ts
+// keyed reward stream the legacy resolver used (gambit.ts taskRewardSeed; OC-G1 deleted that resolver), so one
+// task keeps one reward roll. Module graph: model, fieldwork, relics, gambit; never expedition.ts
 // (expedition.ts imports this module for ACTIVITY_SECONDS, and GO-7's groundOps.ts sits between them).
 
 import type { BodyRiskGrades, Expedition, ExpeditionActivity, ExpeditionBody, ExpeditionRegionStamp, SnapshotMember } from "./model";
@@ -39,7 +39,7 @@ import {
 
 // The base work time of ONE ground task for a bare party (no Science fieldwork, a calm world). Moved here
 // from expedition.ts at GO-4 (expedition.ts re-exports it unchanged) so this module never imports
-// expedition.ts. The legacy activities phase (expedition.ts activityDurationSeconds) reads the same value.
+// expedition.ts. (The legacy activities phase that read it too went with OC-G1.)
 export const ACTIVITY_SECONDS = 600; // ~10 min IRL per ground-team task
 
 // ===== Fight points (user 9b.2) =====
@@ -228,7 +228,7 @@ export const TASK_MIN_WORK_SECONDS = 1;
 // rounded to whole seconds, floored at TASK_MIN_WORK_SECONDS. museumResist = exp.hazardResist (the frozen
 // museum + gear resist); teamHazardResist = taskTeamHazardResist (Science fieldwork resist + the Security
 // Assault Hardsuit line). resistedHazard bounds the summed resist, so the slowdown never goes below 1. On a
-// hazard-0 body with one team holding the whole roster this is exactly the legacy activityDurationSeconds.
+// hazard-0 body with one team holding the whole roster this is exactly the legacy task time (OC-G1 deleted it).
 // A work STEP lasts (to - from) of this (GO-7b). Squads SQ-4: a body with FLORA (risk-aware runs only) slows the
 // dig by riskFactors.ts floraWorkMult (exactly 1 without it, so every other body is unchanged). Pure (reads the
 // stored run only).
@@ -262,7 +262,7 @@ export function taskWorkSeconds(
 // ===== The task's full haul (the reused legacy reward stream) =====
 
 // A task's FULL material + credit haul, rolled ONCE on the task's keyed reward stream (gambit.ts
-// taskRewardSeed: the SAME key the legacy resolver uses for this flat index), on the body's RAW hazard
+// taskRewardSeed: the SAME key the legacy resolver used for this flat index), on the body's RAW hazard
 // (resisting a world's danger makes the work easier, not the find poorer), scaled by the yieldMult of the
 // team set banking it. segmentHaul splits it across the task's segments. For one team holding the whole
 // roster it equals the legacy win haul exactly. Squads SQ-4 (user #6, "The greater the risk, the greater the

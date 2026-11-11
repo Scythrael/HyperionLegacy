@@ -2921,8 +2921,8 @@ function moduleEntries(): WiringEntry[] {
 //   division lifts      a Guest Wing (no crew boost of its own, so the move is the lift alone) on a crew of one
 //                       signature division carrying a live sheet key: the bonus part above the hull grows by the lift.
 //   perks               the rare-roll threshold of a stamped run; the Ground Ops bay's frozen care (a Fracture for the
-//                       Tactician's injuries-only share, a Health cure for the Explorer's every-condition share; the
-//                       Tactician's share also on the legacy claim, expedition:legacy); the General guest quarters on
+//                       Tactician's injuries-only share, a Health cure for the Explorer's every-condition share); the
+//                       General guest quarters on
 //                       the sheet (G1-1's perk, scaled like the rest since the CP-13 fix round, rounded to whole berths).
 // A line added to the catalog without a seam here throws at build, so nothing in it can hide unmeasured.
 const HULL_FAMILY_HULL: Readonly<Record<ShipSpec, ShipTypeKey>> = { general: "generalFreighter", prospector: "prospectorMiner", tactician: "destroyer", explorer: "orion" };
@@ -3029,15 +3029,15 @@ function hullFamilyEntries(): WiringEntry[] {
             ...perkCommon,
             claim: `Crew Quarters on a ${label} hull: injured crew recover ${Math.round(fam.quarters.perkSize * 100)}% faster in the medical bay`,
             probe: "runBayFractureSeconds",
-            // CP-13 fix round (user 2026-11-04 "Yes, both paths, new runs only"): the legacy claim reads the share the run
-            // froze at dispatch (Expedition.hullInjuryShare, injuries.ts applyExpeditionInjuries).
-            contexts: ["medbay", "expedition:legacy"],
+            // CP-13 fix round (user 2026-11-04 "Yes, both paths, new runs only"); Wiring OC-G1 (user "Delete it") deleted
+            // the legacy claim, so the medical bay is the one path.
+            contexts: ["medbay"],
             direction: "down",
             curve: { kind: "divisor" },
             tolerance: 1,
             magnitude: (c) => c.HULL_FAMILY_MODULE_BONUS[spec].quarters.perkSize,
             base: () => withAwayTeam(bare(hull)),
-            note: "injury-class conditions only (a Fracture here; the legacy claim's 2 hour injury); its Health twin is ship:audit:hullFamilyInjuriesOnly",
+            note: "injury-class conditions only (a Fracture here); its Health twin is ship:audit:hullFamilyInjuriesOnly",
           }),
           entry({
             id: "ship:audit:hullFamilyInjuriesOnly",
@@ -4493,12 +4493,9 @@ function medicalEntries(): WiringEntry[] {
       magnitude: () => STONESKIN_INJURY_MULT - 1,
       tolerance: 1,
       on: sourceOn,
-      status: pending("OC-G1 (the legacy claim ignores perks, injuries.ts:93)", ["expedition:legacy"]),
-      // An Ossir Security member (the race carries the perk) vs an Earth-born one: the legacy injury path's recovery
-      // time. (The in-battle half is its own entry below, live since Field Kits FKR-4.)
-      flatChecks: {
-        "expedition:legacy": { probe: "legacyInjurySeconds", base: () => withAwayTeam(wiringBase()), on: ossir, off: identity },
-      },
+      // Wiring OC-G1 (user 2026-10-16 "Delete it"): the legacy claim that ignored perks is gone with the legacy path, so the
+      // bay (the claim's only path) is the whole claim. (The in-battle half is its own entry below, live since FKR-4.)
+      status: LIVE,
     }),
     // Field Kits FKR-4: Stoneskin's battle half (D24 "Chances of receiving physical ailments is reduced by 25%, but if
     // they do land, they last for 25% longer"): on a Field Kits run's fight an Ossir member's resist roll against a
@@ -4724,7 +4721,9 @@ const AUDIT_ROWS: readonly { id: string; system: WiringSystem; claim: string; st
   // measured), but GO-16 hid the old editor, so no control sets or clears it: only a save that set it before GO-16 has a
   // changed pair. The control is a new screen element and needs the user's mockup.
   { id: "away:audit:accountDefaultControl", system: "away", claim: "A control to set or clear the account default program (no screen sets the account pair since GO-16)", status: pending("WR-10, OC-F12 mockup (a set / clear account default control in the Tactical Protocols editor)") },
-  { id: "away:audit:legacyOnly", system: "away", claim: "Legacy-only: MAX_BATTLE_ATTEMPTS, EVAC_REWARD_FRACTION, ENCOUNTER_DROP_SCALE, scan ground battles, softenAmbush, the flat 2 h injury", status: pending("OC-G1") },
+  // Wiring OC-G1 (user 2026-10-16 "Delete it (Recommended)"): the legacy path and its legacy-only effects are deleted; a
+  // legacy run still in a save is finished at load (save.ts finishLegacyExpeditionsOnLoad, tested in legacyExpeditionFinish.test.ts).
+  { id: "away:audit:legacyOnly", system: "away", claim: "Legacy-only: MAX_BATTLE_ATTEMPTS, EVAC_REWARD_FRACTION, ENCOUNTER_DROP_SCALE, scan ground battles, softenAmbush, the flat 2 h injury: deleted with the legacy path (OC-G1); a legacy run in a save is finished at load", status: LIVE },
   // Expedition Tiers G2-6: the region picker offers every tier, so the tier rows read on a player's launch (the run's
   // risk profile at the picked tier). The tier haul and the tier body counts have their own rows (the G2-2 review
   // note); the future difficulty tiers keep theirs (nothing designed yet).
@@ -4781,7 +4780,13 @@ const AUDIT_ROWS: readonly { id: string; system: WiringSystem; claim: string; st
   // WR-11 (OC-G6 "Model Ocean only"): Ocean's slower surface work is modeled (PLANET_TYPES surfaceWorkMult); the Frozen and
   // Toxic comments are dropped.
   { id: "expedition:audit:planetComments", system: "expedition", claim: "Planet comments: Ocean's slower surface work is modeled; the Frozen and Toxic comments are dropped", status: LIVE },
-  { id: "expedition:audit:legacyFallbacks", system: "expedition", claim: "FIGHT_POINTS_DEFAULT / MIN, SURVEY_AMBUSH_CHANCE (old runs only)", status: pending("OC-G1") },
+  // Wiring OC-G1: these are NOT the pre-Ground-Ops path the user deleted, and they are kept (user 2026-11-11 "Keep, sweep
+  // later"). FIGHT_POINTS_DEFAULT is the live default for a site the fight-point table does not rate (groundTasks.ts
+  // riskFightPointCount, every risk-aware run) and the same default on a run without risk grades; FIGHT_POINTS_MIN and
+  // SURVEY_AMBUSH_CHANCE act ONLY on a Ground Ops run without risk grades (dispatched before SQ-4: groundTasks.ts
+  // fightPointCount, groundOps.ts groundTaskAmbushChance), like every other per-stamp fallback, each covered by its test
+  // (groundTasks.test.ts, groundOpsSquads.test.ts).
+  { id: "expedition:audit:legacyFallbacks", system: "expedition", claim: "Kept fallbacks, not the deleted pre-Ground-Ops path: FIGHT_POINTS_DEFAULT (the live default for a site the fight-point table does not rate); FIGHT_POINTS_MIN and SURVEY_AMBUSH_CHANCE (only a Ground Ops run dispatched before SQ-4, without risk grades)", status: LIVE },
   // H. Relics v2 R2-2 (relicBlanks.ts): live on every new run at Tier I; the rest waits for the slice that reaches it.
   { id: "relic:audit:blankTiers", system: "relic", claim: "Relic blanks above Tier I: RELIC_BLANK_WEIGHTS II to VII (a deeper find rolls rarer on the same chance, user call 13 \"Better rarity only\")", status: LIVE },
   { id: "relic:audit:blankCulture", system: "relic", claim: "A blank's culture (cultureForBody, stamped on every new run's relic): the culture study reads it", status: pending("Relics v2 R2-6 (cultures: study points and the name reveal)") },
@@ -5250,6 +5255,25 @@ function auditRowWiring(): Readonly<Record<string, Partial<EntryInput>>> {
     ...wr7AuditWiring(),
     ...wr11AuditWiring(),
     ...wr9AuditWiring(),
+    // Wiring OC-G1 (user 2026-10-16 "Delete it"): the legacy path is gone (a legacy run is finished, never walked; the
+    // load step is tested in legacyExpeditionFinish.test.ts), and the pre-SQ-4 fallbacks it did not cover read as claimed.
+    "away:audit:legacyOnly": {
+      probe: "content:ocg1:legacyFinished" as ProbeId,
+      contexts: ["expedition:groundOps"],
+      direction: "none",
+      curve: { kind: "equals" },
+      magnitude: () => 1,
+      base: () => withAwayTeam(wiringBase()),
+      note: "1 when the engine finishes a legacy run (complete, its findings unchanged) instead of resolving it",
+    },
+    "expedition:audit:legacyFallbacks": {
+      probe: "content:ocg1:riskFreeFallbacks" as ProbeId,
+      contexts: ["expedition:groundOps"],
+      direction: "none",
+      curve: { kind: "equals" },
+      magnitude: () => 1,
+      note: "1 when the risk-free ambush chance, the fight point floor and the unrated-site default read as claimed",
+    },
     // Material Lines ML-5: one real Yield Rig job on Q2 stock against Q0 stock (its blank lands 2 buckets higher), and
     // one inspect with a Q2 and a Q0 blank held against the Q0 blank alone (the Q2 is taken first; the same seeded
     // roll lands 2 higher). Q2 rather than Q3 so the Q5 cap cannot clip the move: on reads min(5, 2 + roll), off reads
@@ -6116,7 +6140,6 @@ export function flatControl(probe: ProbeId, ctx: ContextId): Transform | null {
     case "missionCycleOutput":
       return (s) => seatOfficer(s, "executive", ["xo.commandOutput"]);
     case "injuryCare":
-    case "legacyInjurySeconds":
       return (s) => withBuckets(s, [bucketOf("medical", "med.reducedLosses")]);
     case "sheetYield":
       return shipPiece("extractionYieldMult", LINE_POINTS);

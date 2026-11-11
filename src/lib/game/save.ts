@@ -128,6 +128,9 @@ import { withThirdBuffGrantedV70 } from "./crewThirdBuff";
 //      save already at v70 or v71 reaches the wrap too). Rollback note: an OLDER build reads each blank array as one
 //      Decimal of its text ("3,1" parses as 3), so it keeps the Q0 count and LOSES every Q1+ blank. That matters
 //      only if staging rolls back across ML-5; production never runs a pre-ML-5 build on a 0.14.0 save.
+//   4. Wiring OC-G1 (no bump, no MIGRATIONS entry): a LEGACY expedition still out (no `groundOps` record: dispatched
+//      before GO-7b, only in a dev save) is FINISHED on every load (finishLegacyExpeditionsOnLoad): set "complete" with
+//      the findings it holds, claimed as usual. Idempotent. An older build reads a complete run as it always did.
 export const SAVE_VERSION = 71;
 export const SAVE_KEY = "fleet_admiral_save";
 
@@ -2497,8 +2500,8 @@ const MIGRATIONS: Record<number, Migration> = {
   // copy a later retune of the default could no longer reach. The account pair (state.gambitPrograms)
   // stays stored untouched; no battle reads it. Expedition.roster is optional too:
   // D18 removed the anonymous Security detail, so an in-flight expedition without a Security member fields
-  // no team and each of its ground tasks evacuates without a battle (gambit.ts resolveExpeditionActivity);
-  // nothing to backfill. An old save's Science program stays stored as-is (GambitPrograms keeps its
+  // no team and each of its ground tasks evacuated without a battle (the legacy activity resolver, since
+  // deleted in Wiring OC-G1: a legacy run now finishes with its findings as they were); nothing to backfill. An old save's Science program stays stored as-is (GambitPrograms keeps its
   // shape); nothing executes it.
   // E-CREW Task 16 adds NOTHING here either: ExpeditionActivity.downedMemberIds and
   // AwayMember.injuredAtSeconds are optional and ABSENT MEANS the neutral value (nobody went down in that
@@ -3058,6 +3061,28 @@ function fallbackHomeworldEntropy(save: SaveFile): number {
   return h;
 }
 
+// Wiring OC-G1 (user 2026-10-16 "Delete it (Recommended)": remove the pre-Ground-Ops path and its legacy-only effects;
+// "a dev save with an old in-flight run gets that run finished at load"). A LEGACY expedition is one without its
+// `groundOps` record: every run dispatched since GO-7b (2026-10-12) carries one, so only a 0.14.0 dev or QA save from
+// before GO-7b can hold one (production and staging never had expeditions). The legacy resolver is gone, so a legacy
+// run still out (any phase but "complete") is FINISHED here: its phase becomes "complete" with the findings it already
+// holds (nothing more is rolled), and the player claims it as usual (expedition.ts claimExpedition: the findings
+// deposit, the team comes home ready, no injury, since the flat injury went with the legacy claim). A legacy run
+// already complete is untouched. Deterministic (no draw, no clock), every-load and idempotent (the withHomeworldV70
+// posture; the SAME reference once nothing is left to finish), so it needs no SAVE_VERSION bump. expedition.ts
+// advanceExpedition applies the same rule (finishLegacyExpedition) as the engine's own guard. Hardened: a non-array
+// expeditions field and a junk entry pass through untouched.
+export function finishLegacyExpeditionsOnLoad(state: any): any {
+  if (!state || typeof state !== "object" || !Array.isArray(state.expeditions)) return state;
+  let changed = false;
+  const expeditions = state.expeditions.map((e: any) => {
+    if (!e || typeof e !== "object" || e.groundOps || e.phase === "complete") return e;
+    changed = true;
+    return { ...e, phase: "complete" };
+  });
+  return changed ? { ...state, expeditions } : state;
+}
+
 // The v68 -> v69 step, exported so its hardening can be tested on raw shapes the full load cannot hydrate.
 // Every record naming a ship id that is NOT in state.ships is released the way salvage now releases people
 // (salvage.ts releaseShipPeople): an away member's and an officer's assignedShipId -> null, a notable's
@@ -3140,6 +3165,8 @@ export function migrate(save: SaveFile, homeworldEntropy?: number): GameState {
   state = withThirdBuffGrantedV70(state);
   // Complement CP-19: the Personnel Rosters track's pre-granted Level 1 for a save already at v71 (identity once seeded).
   state = withPersonnelRostersTrackV71(state);
+  // Wiring OC-G1 (user 2026-10-16 "Delete it"): a legacy expedition still out is finished (identity once none is left).
+  state = finishLegacyExpeditionsOnLoad(state);
   // Hydrate the SHAPE first (Decimals, quality buckets), THEN reconcile any over-cap stack
   // down to its warehouse cap. clampInventoryToCaps needs the hydrated Decimal inventory +
   // the facility levels (both present after hydrateDecimals) to resolve each item's cap. It

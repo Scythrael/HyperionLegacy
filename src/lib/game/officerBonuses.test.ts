@@ -64,7 +64,8 @@ import {
 } from "./crewOverlay";
 import { CREW_STAT_KEYS } from "./crewBuffs";
 import { SENIOR_STAFF_BONUSES, getSeniorStaffBonusById } from "./seniorStaffBonuses";
-import { buildRosterCombatants, expeditionTeamCombatants, generateEncounter, resolveGroundBattle, type GambitLogEvent, type GroundCombatant } from "./gambit";
+import { buildRosterCombatants, generateEncounter, resolveGroundBattle, type GambitLogEvent, type GroundCombatant } from "./gambit";
+import { taskFightTeam } from "./groundFight";
 import { snapshotAwayRoster } from "./awayTeam";
 import { makeRng } from "./combat/rng";
 import { itemTotal } from "./inventory";
@@ -82,10 +83,11 @@ wr11OffForThisFile();
 // route's legs too (patrolLegsSwitch.fixture.ts; patrolLegsGoldens.test.ts pins the legs).
 const withCombatRulesAndLegsOff = <T>(run: () => T): T => withCombatRulesOff(() => withPatrolLegsOff(run));
 
-// Ground Ops (GO-7b): this file pins LEGACY expedition runs (goldens captured before Ground Ops): every dispatch
-// slots the members in hire order (dispatch reads the slotted ground teams) and resolves without the groundOps
-// flag (asLegacyDispatch), exactly the record the pre-switch dispatch produced.
-const legacyStart: typeof dispatchPastPropulsion = (state, ...rest) => asPreG2NamesDispatch(asLegacyDispatch(dispatchPastPropulsion(withSlottedAwayTeams(state), ...rest)));
+// Every dispatch slots the members in hire order (dispatch reads the slotted ground teams). Wiring OC-G1: the runs are
+// Ground Ops runs; the expedition golden below hashes only the DISPATCH RECORD, as the pre-GO-7b dispatch wrote it
+// (asLegacyDispatch strips the later flags from the record; nothing resolves it).
+const start: typeof dispatchPastPropulsion = (state, ...rest) => asPreG2NamesDispatch(dispatchPastPropulsion(withSlottedAwayTeams(state), ...rest));
+const preGroundOpsRecord: typeof dispatchPastPropulsion = (state, ...rest) => asPreG2NamesDispatch(asLegacyDispatch(dispatchPastPropulsion(withSlottedAwayTeams(state), ...rest)));
 
 // ===== fixtures =====
 
@@ -201,17 +203,30 @@ const GOLDEN: Record<string, string | string[]> = {
   "patrol:battleship:state": "6f0d2f1e",
   "patrol:battleship:replays": ["10a14de7", "4074234d", "16dfcddc", "a816e123", "c9dec81", "ef111092", "847f08c8", "535d66ee"],
   repair: "b439b3e9",
-  expedition: [
-    "29c9f4b8/507ab2c1/a1bc9cbc",
-    "79cb18b/26ca8146/6a84984c",
-    "3c126cd4/de7fb9ad/a1bc9cbc",
-    "6634649d/e40fffa1/a1bc9cbc",
-    "7fdee9a2/ab424b1f/6a84984c",
-    "e57f36c2/60ca262a/6a84984c",
-    "9f72ec67/55d98c05/a1bc9cbc",
-    "fa4bcf63/9e119688/a1bc9cbc",
-  ],
+  // Wiring OC-G1: each pin was "dispatch record / legacy resolution / legacy claim injuries"; the last two proved only
+  // the deleted legacy path and are RETIRED, the dispatch record hash (first of the three) is held unchanged.
+  expedition: ["29c9f4b8", "79cb18b", "3c126cd4", "6634649d", "7fdee9a2", "e57f36c2", "9f72ec67", "fa4bcf63"],
+  // Wiring OC-G1 fix round: one Ground Ops run resolved and claimed, "dispatch record / resolved run / claimed state
+  // without the officers", captured on the engine of the OC-G1 fix round (the end-to-end half the retired legacy pins
+  // carried). The real assertion is the equality below: a seated officer carrying no live bonus changes nothing.
+  groundOps: "a725ca70/355c21b5/9d3f2838",
 };
+
+// A Ground Ops run (live dispatch) resolved to the end and claimed: its three hashes. The officers are stripped from the
+// claimed state (their own records differ by construction: one fixture seats one, the other none).
+function groundOpsRunHash(officers: SeniorStaffOfficer[]): string {
+  const s: GameState = { ...freshState(), awayMembers: GOLDEN_ROSTER, nextAwayMemberId: 100, expeditionSeed: 0x2468ace, officers };
+  const res = start(s, "ship-1", 1, expeditionCandidates(s, "ship-1")[0].id);
+  expect(res.success).toBe(true);
+  expect(res.expedition!.groundOps).toBeDefined();
+  const done = advanceExpedition(res.expedition!, 1_000_000);
+  expect(done.phase).toBe("complete");
+  // The fixture really fights (the run's battles are what the officers could reach).
+  expect(done.groundOps!.history.some((r) => r.step === "fight")).toBe(true);
+  const claimed = claimExpedition({ ...res.next, expeditions: [done] }, done.id);
+  expect(claimed.success).toBe(true);
+  return [res.expedition, done, { ...claimed.next, officers: [] }].map((x) => fnv(goldenJson(x))).join("/");
+}
 
 describe("neutrality: no officer = byte-identical to before Task 20 (golden)", () => {
   it("extraction, survey and transport runs through economyTick", () => {
@@ -248,18 +263,26 @@ describe("neutrality: no officer = byte-identical to before Task 20 (golden)", (
     expect(fnv(goldenJson(processShipRepairs(installMissingCombatBaselines(s)).activeProcesses))).toBe(GOLDEN.repair);
   });
 
-  it("expeditions: the dispatch record, the resolved run and the claim injuries", () => {
+  it("expeditions: the dispatch record (OC-G1 retired the legacy resolution and claim halves)", () => {
     const s0: GameState = { ...freshState(), awayMembers: GOLDEN_ROSTER, nextAwayMemberId: 100 };
     const runs: string[] = [];
     for (let i = 0; i < 8; i++) {
       const s = { ...s0, expeditionSeed: (0x2468ace + i * 7919) >>> 0 };
-      const res = legacyStart(s, "ship-1", 1, expeditionCandidates(s, "ship-1")[0].id);
+      const res = preGroundOpsRecord(s, "ship-1", 1, expeditionCandidates(s, "ship-1")[0].id);
       expect(res.success).toBe(true);
-      const done = advanceExpedition(res.expedition!, 1_000_000);
-      const claimed = claimExpedition({ ...res.next, expeditions: [done] }, done.id);
-      runs.push(fnv(goldenJson(res.expedition)) + "/" + fnv(goldenJson(done)) + "/" + fnv(goldenJson(claimed.next.awayMembers)));
+      runs.push(fnv(goldenJson(res.expedition)));
     }
     expect(runs).toEqual(GOLDEN.expedition);
+  });
+
+  // Wiring OC-G1 fix round: the expedition pins above hash only the dispatch record now, so this restores a resolved
+  // run: the same Ground Ops run with no officer and with a seated officer whose only bonus is an unknown id (nothing
+  // live) is byte-identical through the claim.
+  it("expeditions: a Ground Ops run through claim, no officer = a seated officer with no live bonus", () => {
+    const neutral: SeniorStaffOfficer = { ...officerWith("ops.cargoExpand"), bonuses: [{ id: "test.none", magnitude: 0 }, { id: "test.none", magnitude: 0 }] };
+    const plain = groundOpsRunHash([]);
+    expect(groundOpsRunHash([neutral])).toBe(plain);
+    expect(plain).toBe(GOLDEN.groundOps);
   });
 
   it("a ship whose officers carry only non-combat bonuses freezes NO combat record", () => {
@@ -643,7 +666,7 @@ describe("away-team bonuses (Fleet Triage, Morale Anchor)", () => {
     nextAwayMemberId: 100,
     officers,
   });
-  const dispatch = (s: GameState) => legacyStart(s, "ship-1", 1, expeditionCandidates(s, "ship-1")[0].id);
+  const dispatch = (s: GameState) => start(s, "ship-1", 1, expeditionCandidates(s, "ship-1")[0].id);
 
   it("freezes squadTriage / squadFearResist at dispatch (only when non-zero)", () => {
     const plain = dispatch(withOfficers([])).expedition!;
@@ -716,10 +739,14 @@ describe("away-team bonuses (Fleet Triage, Morale Anchor)", () => {
     expect(iron[0].resists!.fear!).toBeLessThan(1000);
   });
 
-  it("the run's battles read the frozen fields (expeditionTeamCombatants), and offline == live", () => {
+  // Wiring OC-G1: the squad is read on the Ground Ops objective fight (groundFight.ts taskFightTeam), the legacy builder
+  // having gone with the legacy path.
+  it("the run's battles read the frozen fields (taskFightTeam), and offline == live", () => {
     const s = withOfficers([officerWith("med.fleetTriage"), officerWith("xo.moraleAnchor", "executive", "officer-2")]);
     const res = dispatch(s);
-    const team = expeditionTeamCombatants(res.expedition!, "x");
+    const ops = res.expedition!.groundOps!;
+    const team = taskFightTeam(res.expedition!, ops.teams.map((t, i) => ({ securityIds: t.securityIds, securityShare: ops.factors.securityShare[i] ?? 0 })), { id: "x", fightCount: 0 });
+    expect(team.length).toBeGreaterThan(0);
     expect(team.every((c) => c.careMult === 1.15 && (c.resists?.fear ?? 0) >= 80)).toBe(true);
     // Reseating the officers after dispatch never changes the run (it reads only the stored record).
     const big = advanceExpedition(res.expedition!, 1_000_000);
@@ -756,7 +783,7 @@ describe("every officer bonus is live (or pending in this release)", () => {
     const shipValues = (s: GameState) => {
       const ship = s.ships[0];
       const rosterState = { ...s, awayMembers: GOLDEN_ROSTER, nextAwayMemberId: 100 };
-      const exp = legacyStart(rosterState, "ship-1", 1, expeditionCandidates(rosterState, "ship-1")[0].id).expedition!;
+      const exp = start(rosterState, "ship-1", 1, expeditionCandidates(rosterState, "ship-1")[0].id).expedition!;
       return JSON.stringify({
         stats: effectiveShipStats(s, ship),
         combat: officerCombatMods(s, ship) ?? null,

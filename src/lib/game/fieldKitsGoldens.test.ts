@@ -5,9 +5,8 @@
 // (awayTeamTestFixtures.ts; today it strips nothing, from FK-6 on it strips the flag, packs, treatment and the
 // fight record's kit fields), then hashed at five checkpoints, its phase read at 2,000,000 s, and its claim hashed.
 //
-//   legacy        : no groundOps (the oldest engine path still live; a lone Security member, scan-time encounters).
-//   legacyDevices : no groundOps, a Shroud Emitter and two Lure Beacons worn (the scan ENCOUNTER chance and step roll
-//                   at every boundary are hashed too: scanEncounterChance reads the device dial; FKR-8 keeps it at full strength on such a run).
+//   (legacy, legacyDevices: RETIRED by Wiring OC-G1, user 2026-10-16 "Delete it": the two runs without groundOps pinned
+//                   only the deleted legacy engine path; their golden, parity and event-boundary parity tests went with it.)
 //   preSq4        : a Ground Ops run dispatched before SQ-4 (no risk profile, BOTH Ground teams deploy).
 //   riskAware     : a risk-aware run before AF-1 (Tier IV enemy territory, no affix flag: SQ-4 + clearing).
 //   affixCat1     : affix catalog 1 (AF-1): a Reinforcing objective, a weak crew, a loss raises the ALERT.
@@ -42,7 +41,7 @@ import { gearWearOffInThisFile } from "./gearWearSwitch.fixture";
 gearWearOffInThisFile();
 import Decimal from "break_infinity.js";
 import { EQUIPMENT_SLOTS, FIELD_KITS_PLAYER_LIVE, freshState, grenadeCraftPool, type AwayMember, type BodyRiskGrades, type EquipmentInstance, type Expedition, type ExpeditionActivity, type ExpeditionBody, type GameState, type GroundStepRecord, type ShipGroundTeam } from "./model";
-import { advanceExpedition, claimExpedition, expeditionCandidates, scanEncounterChance, scanStepRoll, shipScanEventChance, squadEncounterBias, PRE_FKR8_DEVICE_EFFECTIVENESS } from "./expedition";
+import { advanceExpedition, claimExpedition, expeditionCandidates, scanStepRoll, shipScanEventChance, squadEncounterBias, PRE_FKR8_DEVICE_EFFECTIVENESS } from "./expedition";
 import { bodyFloraGrade, generateRiskProfile, type ExpeditionRegion } from "./riskFactors";
 import { groundOpsAssignIdle, groundOpsBodyScanned, initGroundTasks, taskCover } from "./groundOps";
 import { alertLevelAt, rollReinforcements, type ObjectiveAffix } from "./affixes";
@@ -55,7 +54,7 @@ import { resistedHazard } from "./relics";
 import { inspectBlank } from "./tick";
 import { applyGroundTeamLoadout, checkInGroundTeamLoadout, createGroundTeamLoadout } from "./armory";
 import { deserialize, migrate, serialize } from "./save";
-import { asPreG2NamesDispatch, plainAwayMember, withSlottedAwayTeams, withoutAffixes, withoutFieldKits, withoutFieldKitsState, withoutGroundOps, withoutRisk, withoutSafeFirstRuns, dispatchPastPropulsion } from "./awayTeamTestFixtures";
+import { asPreG2NamesDispatch, plainAwayMember, withSlottedAwayTeams, withoutAffixes, withoutFieldKits, withoutFieldKitsState, withoutRisk, withoutSafeFirstRuns, dispatchPastPropulsion } from "./awayTeamTestFixtures";
 // SF-1: whole states hash without the run counters (seeded by freshState, written by a claim), absent before SF-1.
 import { withoutRunCounts, goldenJson } from "./firstRunsGoldens.fixture";
 // WR-8 (0.14.0): every pin in this file was taken before the combat rules (combatRulesSwitch.fixture.ts), so the file
@@ -241,16 +240,16 @@ function tool(id: string, variety: string, wearer: string): EquipmentInstance {
 }
 
 // The device-read chance and the step roll at EVERY scan boundary of the run (bodyIndex, step 1..steps-1), at the
-// dispatch hour and 24 h out (the Constitution ramp's clock): the ship-event chance on a Ground Ops run, the scan
-// encounter chance on a legacy one. FK-7 multiplies the device dial per boundary on flagged runs only; an unflagged
-// run keeps exactly these.
+// dispatch hour and 24 h out (the Constitution ramp's clock): the ship-event chance (every fixture here is a Ground Ops
+// run since OC-G1 retired the legacy ones). FK-7 multiplies the device dial per boundary on flagged runs only; an
+// unflagged run keeps exactly these.
 function boundaryReads(exp: Expedition): unknown[] {
   const steps = exp.encounterSteps ?? 1;
   const out: unknown[] = [];
   exp.bodies.forEach((body, i) => {
     for (let k = 1; k < steps; k += 1) {
       for (const hours of [0, 24]) {
-        const chance = exp.groundOps ? shipScanEventChance(exp, body, hours) : scanEncounterChance(exp, body, undefined, hours);
+        const chance = shipScanEventChance(exp, body, hours);
         out.push([i, k, hours, chance, scanStepRoll(exp, i, k, hours)]);
       }
     }
@@ -258,8 +257,8 @@ function boundaryReads(exp: Expedition): unknown[] {
   return out;
 }
 
-// Does the run roll at its scan boundaries (a legacy run with encounters, or a Ground Ops run with ship events)?
-const rollsBoundaries = (exp: Expedition): boolean => (exp.groundOps ? shipEventsLive(exp) : (exp.encounterSteps ?? 0) >= 1);
+// Does the run roll at its scan boundaries (a Ground Ops run with ship events)?
+const rollsBoundaries = (exp: Expedition): boolean => shipEventsLive(exp);
 
 // Every step record the run's history has shown at the checkpoints (the display history is capped, so the union of
 // the one-call reads), in time order. Pure.
@@ -272,10 +271,8 @@ function seenHistory(exp: Expedition): GroundStepRecord[] {
 }
 
 // The MID-RUN checkpoints read off the fixture's own history: the middle of the first bay stay and of the first
-// recovery leg (whichever the run has). A legacy run has no timeline; it moves between the first two checkpoints,
-// so it takes T0 + 10,000. Whole seconds. Pure.
+// recovery leg (whichever the run has). Whole seconds. Pure.
 function midRunPoints(exp: Expedition): number[] {
-  if (!exp.groundOps) return [T0 + 10_000];
   const out: number[] = [];
   const bay = seenHistory(exp).find((r) => r.step === "bay" && r.endedAt > r.startedAt + 2);
   if (bay) out.push(Math.floor((bay.startedAt + bay.endedAt) / 2));
@@ -300,7 +297,6 @@ function eventTimes(exp: Expedition, to: number): number[] {
 
 // The 1 s parity window (see the parity test). Pure.
 function liveWindow(exp: Expedition, hand: boolean): [number, number] {
-  if (!exp.groundOps) return [T0, T0 + 60_000];
   if (hand) return [T0, T0 + 3 * 3600];
   const open = advanceExpedition(exp, T0 + 30_000).groundOps!.startedAt!;
   return [open, open + 3600];
@@ -319,36 +315,6 @@ const ossirOver = { "member-1": { race: "ossir" as AwayMember["race"] } };
 const BLEED = { id: "bleed" as const, magnitude: 7, remaining: 8 };
 
 const FIXTURES: Record<string, Fixture> = {
-  legacy: {
-    build: () => {
-      const s = withSlottedAwayTeams({ ...freshState(), awayMembers: [member("member-1", "security"), member("member-11", "science")], nextAwayMemberId: 100, expeditionSeed: 0x1236456, gameTimeSeconds: T0 });
-      const d = dispatch(s);
-      return { next: d.next, exp: withoutGroundOps(d.exp) };
-    },
-    check: (done, exp) => {
-      expect("groundOps" in exp).toBe(false);
-      expect((done.scanEvents ?? []).some((e) => e.kind === "encounter")).toBe(true);
-    },
-  },
-  legacyDevices: {
-    build: () => {
-      const s = withSlottedAwayTeams({
-        ...freshState(),
-        awayMembers: [member("member-1", "security"), member("member-2", "security"), member("member-3", "security"), member("member-11", "science")],
-        equipment: [...freshState().equipment, tool("equip-901", "shroudEmitter", "member-1"), tool("equip-902", "lureBeacon", "member-2"), tool("equip-903", "lureBeacon", "member-3")],
-        nextAwayMemberId: 100,
-        expeditionSeed: 0x1236456,
-        gameTimeSeconds: T0,
-      });
-      const d = dispatch(s);
-      return { next: d.next, exp: withoutGroundOps(d.exp) };
-    },
-    check: (done, exp) => {
-      expect("groundOps" in exp).toBe(false);
-      expect(squadEncounterBias(exp.roster!.security, PRE_FKR8_DEVICE_EFFECTIVENESS)).toBeCloseTo(0.4);
-      expect((done.scanEvents ?? []).some((e) => e.kind === "encounter")).toBe(true);
-    },
-  },
   preSq4: {
     build: () => {
       const s = withSlottedAwayTeams(
@@ -504,8 +470,6 @@ const FIXTURES: Record<string, Fixture> = {
 // whole-state hash, and for every run that rolls at its scan boundaries the hash of every boundary's chance and roll. Cross-check: riskAware is the AF-1 gate's
 // tierFourEnemy fixture (groundOpsAffixes.test.ts) and reproduces its capture exactly.
 const GOLDEN: Record<string, string[]> = {
-  legacy: ["2334d1e4", "7827d5f", "7827d5f", "7827d5f", "7827d5f", "@10000", "7a0f8e82", "complete", "248b166f", "411d91c7"],
-  legacyDevices: ["e370d698", "e35978c5", "e35978c5", "e35978c5", "e35978c5", "@10000", "8b50e55a", "complete", "173ba45c", "4efebfef"],
   preSq4: ["14e59e6b", "e9001ad8", "e9001ad8", "e9001ad8", "e9001ad8", "@8681", "aa0093f4", "@8595", "a74719e", "complete", "1a2cddd"],
   riskAware: ["5b204c68", "8ea32568", "b3a4fc92", "b3a4fc92", "b3a4fc92", "@10789", "a8fd81ea", "@17484", "dcef27b8", "complete", "2da25f", "aecdd3ab"],
   affixCat1: ["a125b2d7", "d17642e1", "d17642e1", "d17642e1", "d17642e1", "@1151", "4a98f97f", "@551", "4a98f97f", "complete", "453305c1", "3f9ea2db"],
@@ -557,7 +521,7 @@ function wholeRunSuites(tag: string, fixtures: Record<string, Fixture>, golden: 
         // 997 s chunks from dispatch to the last checkpoint.
         const far = CHECKPOINTS[CHECKPOINTS.length - 1];
         expect(chunked(exp, T0, far, 997)).toEqual(advanceExpedition(exp, far));
-        // 1 s steps over the busy stretch: a legacy run's first 60,000 s; a Ground Ops run's first hour of the window
+        // 1 s steps over the busy stretch: the run's first hour of the window
         // (a hand-built run's first 3 hours), from a one-call advance to the window's opening.
         const [from, to] = liveWindow(exp, f.hand === true);
         const start = from === T0 ? exp : advanceExpedition(exp, from);

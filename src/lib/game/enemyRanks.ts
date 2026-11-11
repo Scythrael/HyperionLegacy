@@ -184,11 +184,6 @@ export function rankedEnemies(enemies: readonly Pick<GroundCombatant, "id" | "ra
   return out;
 }
 
-// The player-facing name of a ranked enemy: "Elite Bruiser" (a Normal enemy, or no rank, is just its role name). Pure.
-export function rankedEnemyName(rank: EnemyRank | undefined, roleName: string): string {
-  return rank === undefined || rank === "normal" ? roleName : `${ENEMY_RANKS[rank].label} ${roleName}`;
-}
-
 // Is `rank` at least `min` (FKR-6's "target is Elite or stronger")? Absent reads Normal. Pure.
 // Field Kits FKR-6 hardening: a rule's `min` comes from a stored save, so an unknown one (a hostile or damaged save) is
 // never met and never throws; an unknown `rank` reads Normal.

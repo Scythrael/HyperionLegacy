@@ -123,10 +123,8 @@ describe("salt registry (GO-4)", () => {
       "expedition.ts CANDIDATE_BEARING_SALT",
       "expedition.ts FAMOUS_SYSTEM_SALT",
       "expedition.ts BODY_COUNT_SALT",
-      "gambit.ts COMBAT_SALT",
+      // (Wiring OC-G1 retired gambit.ts COMBAT_SALT, SCAN_BATTLE_SALT and SCAN_DROP_SALT with the legacy path.)
       "gambit.ts REWARD_SALT",
-      "gambit.ts SCAN_BATTLE_SALT",
-      "gambit.ts SCAN_DROP_SALT",
       "gambit.ts SUPPLY_CACHE_SALT",
       "gambit.ts NEURAL_BACKUP_SALT",
       "gambit.ts GRENADE_FUSE_SALT",
