@@ -9,6 +9,12 @@
 import { canonicalOrderOffForThisFile } from "./orderingSwitch.fixture";
 canonicalOrderOffForThisFile();
 import { describe, expect, it } from "vitest";
+// Gear wear close-out (2026-11-11: "Make it exact", "Keep the bay rate") came after every pin here: the file runs with it
+// off (gearWearCloseoutSwitch.fixture.ts), so its pins keep proving their own slice (gearWearCloseoutGoldens.test.ts and
+// gearWearCloseout.test.ts pin and prove what the close-out moved: leftover underway seconds at a run's end, a repair
+// pause's or a field repair leg's edges credited at the rate that applied; gear keeping the bay rate until full).
+import { gearWearCloseoutOffForThisFile, withCloseoutOn } from "./gearWearCloseoutSwitch.fixture";
+gearWearCloseoutOffForThisFile();
 // WR-8b (enemy torpedoes) came after every pin here: the file runs with it off (enemyTorpedoSwitch.fixture.ts), so its
 // pins keep proving their own slice (enemyTorpedoGoldens.test.ts pins what WR-8b moved, enemyTorpedoes.test.ts proves it).
 import { enemyTorpedoesOffForThisFile } from "./enemyTorpedoSwitch.fixture";
@@ -71,7 +77,44 @@ const keyedHash = (s: GameState): string => {
   return hash(Object.fromEntries(Object.keys(r).sort().map((k) => [k, hash(r[k])])));
 };
 
+// Gear wear close-out (2026-11-11): this file runs with the close-out off (its pins above are the switch-off
+// reproduction). With it ON, only the rows named here move, each pinned (and the same with the lifts off, the trace).
+// Cause, "Keep the bay rate" alone (with only "Make it exact" on, nothing here moves): these Warband Repeat runs are
+// lost, limp home and go into a Shipyard bay; their hull repair ends before their worn gear is full, and the gear now
+// keeps the bay rate (ShipInstance.gearBayRate) instead of dropping to the home rate, which moves the state hash.
+// GWCLOSE_ON_CAPTURE = an output path: write the moved rows there instead of asserting.
+const CLOSEOUT_ON_LIFTS: Record<string, unknown> = {
+  "repeat:prospectorRunner:crimsonReaverWarband:out": "1963cf20",
+  "repeat:prospectorRunner:crimsonReaverWarband:back": "3500e262",
+  "repeat:prospectorRunner:crimsonReaverWarband:both": "8b2dfcea",
+  "repeat:aurora:crimsonReaverWarband:out": "5b2a084c",
+  "repeat:aurora:crimsonReaverWarband:back": "d784630d",
+  "repeat:aurora:crimsonReaverWarband:both": "6a70d732",
+};
+const CLOSEOUT_ON_LIFTS_OFF: Record<string, unknown> = {
+  "repeat:prospectorRunner:crimsonReaverWarband:out": "bc51fe9b",
+  "repeat:prospectorRunner:crimsonReaverWarband:back": "c6de5ec",
+  "repeat:prospectorRunner:crimsonReaverWarband:both": "6046185",
+  "repeat:aurora:crimsonReaverWarband:out": "5b2a084c",
+  "repeat:aurora:crimsonReaverWarband:back": "d784630d",
+  "repeat:aurora:crimsonReaverWarband:both": "6a70d732",
+};
+const movedFrom = (now: Record<string, unknown>, pins: Record<string, unknown>): Record<string, unknown> =>
+  Object.fromEntries(Object.entries(now).filter(([k, v]) => JSON.stringify(v) !== JSON.stringify(pins[k])));
+
 describe("OC-D8 follow-up goldens (patrol leg lifts, the Constitution run clock)", () => {
+  it("close-out ON: every reading is its pin but the close-out's named moves (lifts on, and the lifts-off trace)", () => {
+    const on = withCloseoutOn(() => withCrewHoursFloat(() => ({ ...liftsRows(), ...constRows() })));
+    const off = withCloseoutOn(() => withCrewHoursFloat(() => withPatrolLegLiftsOff(liftsRows)));
+    const offPins = Object.fromEntries(Object.keys(off).map((k) => [k, LIFTS_PINS_PRE[k]]));
+    if (import.meta.env.GWCLOSE_ON_CAPTURE) {
+      writeFileSync(String(import.meta.env.GWCLOSE_ON_CAPTURE), JSON.stringify({ on: movedFrom(on, { ...LIFTS_PINS_PRE, ...LIFTS_PINS_MOVED }), off: movedFrom(off, offPins) }, null, 1));
+      return;
+    }
+    expect(on).toEqual({ ...LIFTS_PINS_PRE, ...LIFTS_PINS_MOVED, ...CLOSEOUT_ON_LIFTS });
+    expect(off).toEqual({ ...offPins, ...CLOSEOUT_ON_LIFTS_OFF });
+  }, 600_000);
+
   it("every reading matches its pin (the pre-change pins, with the follow-up's moves re-pinned)", () => {
     const now = withCrewHoursFloat(() => ({ ...liftsRows(), ...constRows() }));
     if (CAPTURE) {

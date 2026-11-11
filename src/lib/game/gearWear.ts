@@ -174,7 +174,9 @@ export interface WearEfficiencyConsumer {
 export const WEAR_EFFICIENCY: readonly WearEfficiencyConsumer[] = [
   { id: "cargoBay:cargoCapacity", slot: "cargoBay", reads: "cargo capacity", combat: false },
   { id: "ftlDrive:transitSpeed", slot: "ftlDrive", reads: "transit speed", combat: false },
-  { id: "reactorCore:powerOutput", slot: "reactorCore", reads: "power output where something consumes it (never the install gate)", combat: false },
+  // User 2026-11-09 "Stays full (Recommended)": wear never cuts the reactor's power output (the install gate, the combat
+  // power budget and the drive lift all read it as new); its wear acts in battle through its true-condition pool.
+  { id: "reactorCore:powerOutput", slot: "reactorCore", reads: "nothing: its power output stays full at any condition (its wear acts in battle through its true-condition pool)", combat: false },
   { id: "specUtility:lines", slot: "specUtility", reads: "its lines (prospecting yields, repair speed, wave hull regen, scan speed, hazard resist)", combat: false },
   { id: "sensor:lines", slot: "sensor", reads: "scan rate, coverage and foreknowledge", combat: false },
   { id: "bridge:crewEfficiency", slot: "bridge", reads: "crew efficiency (never the station count)", combat: false },
@@ -382,6 +384,20 @@ export function settlePiece<T extends EquipmentInstance>(piece: T, nowSeconds: n
   const step = settleSteps(piece.conditionAt, nowSeconds, repairRateQ(ratePerMinute), CONDITION_FULL - before);
   if (step === null) return piece;
   return withPieceCondition(piece, before + step.gained, step.anchor);
+}
+
+// GEAR WEAR close-out (user 2026-11-11 "Allow Overtime in pauses"): the whole seconds from `nowSeconds` until a piece
+// whose anchor encodes its bank at `ratePerMinute` (settled to `nowSeconds` at that rate) is back to full at that rate,
+// in the settle's own integers, so a countdown of that many seconds ends exactly as the last per-mille lands. 0 when
+// pristine; Infinity without a rate. Pure.
+export function secondsToFull(piece: Pick<EquipmentInstance, "condition" | "conditionAt">, nowSeconds: number, ratePerMinute: number): number {
+  if (piece.condition === undefined) return 0;
+  const rateQ = repairRateQ(ratePerMinute);
+  if (rateQ <= 0) return Infinity;
+  const { at, bank } = decodeRepairAnchor(piece.conditionAt ?? nowSeconds, rateQ);
+  const need = (CONDITION_FULL - pieceCondition(piece)) * REPAIR_BANK_PER_MILLE - bank;
+  if (need <= 0) return 0;
+  return Math.max(0, at + ceilDiv(need, rateQ) - nowSeconds);
 }
 
 // The durability a piece's combat pool OPENS at (user W3 "True condition": its real condition, no raised start floor):

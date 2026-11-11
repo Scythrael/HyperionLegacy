@@ -73,6 +73,7 @@ import {
   type Expedition,
   type GameState,
   type MissionKey,
+  type PatrolMissionState,
   type RunWearStamp,
   type ShipDerivedStats,
   type ShipInstance,
@@ -94,6 +95,7 @@ import {
   decodeRepairAnchor,
   encodeRepairAnchor,
   repairRateQ,
+  secondsToFull,
   settlePiece,
   useWear,
   useWearRaw,
@@ -258,10 +260,33 @@ export interface MemberUseWear {
 }
 
 // A span of a run in which its ship repaired at the FIELD REPAIR rate instead of the underway one: a GO-8b leg, from
-// the ship setting down (arrivesAt) to the repair done (repairedAt).
+// the ship setting down (arrivesAt) to the repair done (repairedAt). Pause to repair: a paused Repeat patrol's home
+// window, at the home rate.
 export interface RepairWindow {
   from: number;
   to: number;
+  // GEAR WEAR close-out (user 2026-11-11 "Allow Overtime in pauses"): the Overtime multiplier a repair pause's window
+  // runs the ship's OWN installed pieces at from this window's start (pauseRepairWindows splits a pause at each step
+  // bought). Absent = the plain window rate. Member gear never takes it (as docked Overtime).
+  overtime?: number;
+}
+
+// GEAR WEAR close-out (user 2026-11-11 "Make it exact (Recommended)": leftover underway seconds at a context change are
+// credited at the rate that actually applied). A piece's anchor encodes its banked fraction of a per-mille at the rate
+// in force since it (design 7, "rate constant between anchors"), so wherever the rate changes inside a span (a repair
+// pause's or a field repair leg's edges, a run's end) the fraction is re-expressed at the new rate there (rebaseAnchor):
+// up to about 30 s of underway time was credited at the home rate before (up to about 2%). The test-only seam golden
+// files captured before it use to settle as before (gearWearCloseoutSwitch.fixture.ts). Live in the game.
+export const REPAIR_EXACT_EDGES_SWITCH = { live: true };
+
+// GEAR WEAR close-out (user 2026-11-11 "Keep the bay rate (Recommended)"): a ship whose hull repair ends in a Shipyard
+// bay with its gear still worn keeps the doubled bay rate on its gear until the gear is full (ShipInstance.gearBayRate),
+// so hull Overtime never makes the gear slower. The same test-only seam. Live in the game.
+export const GEAR_BAY_RATE_KEPT_SWITCH = { live: true };
+
+// The rate a window runs a piece at: the window rate, times its Overtime on the ship's own installed pieces. Pure.
+function windowRateOf(w: RepairWindow, windowRate: number, own: boolean): number {
+  return own && w.overtime !== undefined ? windowRate * w.overtime : windowRate;
 }
 
 export interface TimedWear<W> {
@@ -284,10 +309,15 @@ export interface GearWearEvents {
   // GEAR WEAR step 4 (pause to repair, user 2026-10-27): shipId -> the home repair windows of a Repeat patrol's pauses
   // that closed within the call (its pieces settle at the HOME rate inside them, in order with its battle wear).
   pauseWindows: Map<string, RepairWindow[]>;
+  // GEAR WEAR close-out (user 2026-11-11 "Make it exact"): the ships whose run in the call carries a gear wear stamp (a
+  // stamped captain mission, short-range run or expedition, a stamped patrol cycle): their pieces are walked exactly
+  // (each window's edges and the run's end credited at the rate that applied, REPAIR_EXACT_EDGES_SWITCH). A run with no
+  // stamp (in flight from before gear wear, as every run in a 0.13.x save) settles exactly as it always did.
+  exactRuns: Set<string>;
 }
 
 export function emptyWearEvents(): GearWearEvents {
-  return { ships: new Map(), members: new Map(), runEnds: new Map(), fieldWindows: new Map(), rateCarry: new Set(), pauseWindows: new Map() };
+  return { ships: new Map(), members: new Map(), runEnds: new Map(), fieldWindows: new Map(), rateCarry: new Set(), pauseWindows: new Map(), exactRuns: new Set() };
 }
 
 // An expedition's field repair windows (each GO-8b leg the ship set down on, clipped to `upTo`), in time order. Pure.
@@ -298,10 +328,25 @@ export function expeditionFieldWindows(exp: Pick<Expedition, "groundOps">, upTo:
     .sort((a, b) => a.from - b.from);
 }
 
-// Settle `piece` to `t` at `rate`, except inside `windows`, where it settles at `windowRate`: split at each window edge
-// past its anchor, so a field repair acts on exactly the span the ship was set down. Pure.
-export function settleScheduled(piece: EquipmentInstance, t: number, rate: number, windows: readonly RepairWindow[] | undefined, windowRate: number): EquipmentInstance {
+// Settle `piece` to `t` at `rate`, except inside `windows`, where it settles at `windowRate` (a window's Overtime on the
+// ship's `own` installed pieces): split at each window edge past its anchor, so a field repair or a repair pause acts on
+// exactly the span the ship was set down or home. Exact (REPAIR_EXACT_EDGES_SWITCH): the banked fraction is re-expressed
+// at each edge's new rate. Pure.
+export function settleScheduled(
+  piece: EquipmentInstance,
+  t: number,
+  rate: number,
+  windows: readonly RepairWindow[] | undefined,
+  windowRate: number,
+  own = true,
+): EquipmentInstance {
   if (!windows || windows.length === 0 || piece.condition === undefined) return settlePiece(piece, t, rate);
+  return REPAIR_EXACT_EDGES_SWITCH.live ? settleWalk(piece, -Infinity, t, rate, windows, windowRate, own).piece : settleScheduledLegacy(piece, t, rate, windows, windowRate, own);
+}
+
+// The settle before the close-out (REPAIR_EXACT_EDGES_SWITCH off): each call walks from the piece's anchor and carries
+// its banked fraction across an edge unchanged. Pure.
+function settleScheduledLegacy(piece: EquipmentInstance, t: number, rate: number, windows: readonly RepairWindow[], windowRate: number, own: boolean): EquipmentInstance {
   let p = piece;
   for (const w of windows) {
     const cursor = p.conditionAt ?? t;
@@ -309,10 +354,106 @@ export function settleScheduled(piece: EquipmentInstance, t: number, rate: numbe
     if (w.to <= cursor) continue;
     if (w.from > cursor) p = settlePiece(p, w.from, rate);
     if (p.condition === undefined) break;
-    p = settlePiece(p, Math.min(w.to, t), windowRate);
+    p = settlePiece(p, Math.min(w.to, t), windowRateOf(w, windowRate, own));
   }
   return settlePiece(p, t, rate);
 }
+
+// THE EXACT WALK (user 2026-11-11 "Make it exact"): from `pos` (where the walk already settled the piece to; -Infinity
+// for a stored piece, whose anchor then marks it) to `t`, at `rate` outside the windows and each window's rate inside,
+// the banked fraction re-expressed at every edge where the rate changes (rebaseAnchor), so each second is credited at
+// the rate that applied. Returns the piece and the rate its anchor is encoded at (the rate in force at `t`). A stored
+// anchor never sits inside a window with a bank at another rate (a pause or a field leg is walked whole in the call it
+// closes, and leaving it re-encodes at the outside rate), so the walk reads one inside a window as already entered. Pure.
+function settleWalk(
+  piece: EquipmentInstance,
+  pos: number,
+  t: number,
+  rate: number,
+  windows: readonly RepairWindow[],
+  windowRate: number,
+  own: boolean,
+): { piece: EquipmentInstance; rate: number } {
+  let p = piece;
+  let cur = rate;
+  if (p.condition === undefined) return { piece: p, rate };
+  let cursor = Math.max(pos, p.conditionAt ?? t);
+  for (const w of windows) {
+    if (p.condition === undefined) return { piece: p, rate };
+    if (w.to <= cursor) continue;
+    if (w.from >= t) break;
+    const wr = windowRateOf(w, windowRate, own);
+    // Entering at its start (the walk got there: from before it, or from the end of a back-to-back window, a pause split
+    // at an Overtime step): the banked fraction is re-expressed at its rate. Already past its start: entered already.
+    if (w.from >= cursor) {
+      if (w.from > cursor) {
+        p = settlePiece(p, w.from, cur);
+        cursor = w.from;
+        if (p.condition === undefined) return { piece: p, rate };
+      }
+      p = rebaseAnchor(p, cursor, cur, wr);
+    }
+    cur = wr;
+    const end = Math.min(w.to, t);
+    p = settlePiece(p, end, cur);
+    cursor = end;
+    if (end >= w.to && p.condition !== undefined) {
+      p = rebaseAnchor(p, end, cur, rate);
+      cur = rate;
+    }
+  }
+  if (p.condition === undefined) return { piece: p, rate };
+  return { piece: settlePiece(p, t, cur), rate: cur };
+}
+
+// A piece's settle through one span step by step (the tail pass and the relaunch projection settle it to each event,
+// take the event, then go on): the walk's position is carried between steps, so each window is entered and left once.
+// Not `exact` (REPAIR_EXACT_EDGES_SWITCH off, or a run with no gear wear stamp), every step walks from the anchor as
+// before. A fresh walker per piece. Pure.
+export function scheduledWalker(
+  rate: number,
+  windows: readonly RepairWindow[] | undefined,
+  windowRate: number,
+  own = true,
+  exact = REPAIR_EXACT_EDGES_SWITCH.live,
+): (piece: EquipmentInstance, t: number) => EquipmentInstance {
+  let pos = -Infinity;
+  return (piece, t) => {
+    let p: EquipmentInstance;
+    if (!windows || windows.length === 0 || piece.condition === undefined) p = settlePiece(piece, t, rate);
+    else if (exact) p = settleWalk(piece, pos, t, rate, windows, windowRate, own).piece;
+    else p = settleScheduledLegacy(piece, t, rate, windows, windowRate, own);
+    pos = Math.max(pos, t);
+    return p;
+  };
+}
+
+// A repair pause's home window from its start to `to`, split at each Overtime step bought during it (each part carries
+// the steps then in force as its `overtime` multiplier). Empty while `to` is not past its start. Pure.
+export function pauseRepairWindows(pause: { from: number; overtime?: readonly { at: number; steps: number }[] }, to: number): RepairWindow[] {
+  const out: RepairWindow[] = [];
+  let from = pause.from;
+  let mult: number | undefined;
+  for (const o of pause.overtime ?? []) {
+    const at = Math.max(from, Math.min(o.at, to));
+    if (at > from) out.push(mult === undefined ? { from, to: at } : { from, to: at, overtime: mult });
+    from = at;
+    mult = overtimeRate(o.steps);
+  }
+  if (to > from) out.push(mult === undefined ? { from, to } : { from, to, overtime: mult });
+  return out;
+}
+
+// [OPEN CALL, user to decide] (GEAR WEAR close-out, a builder's rule the user has NOT decided): a docked ship's gear
+// repair Overtime carries into a "Repair first, then go" pause at dispatch (the ship never left home), so that pause
+// repairs at the bought rate and is shorter (tick.ts dispatchCaptainOnPatrol). false = it clears at dispatch, as when
+// any ship leaves (the record then clears at the next tick: trackGearRepairJobs keeps it only on a pause that carries
+// Overtime steps). One line.
+export const DOCKED_OVERTIME_CARRIES_INTO_FIRST_PAUSE = true;
+
+// GEAR WEAR step 4 (pause to repair): the combat pieces a repair pause waits on (every system a fight reads; the pause
+// lasts until each is back to full at the home rate). tick.ts reads it for the pause's length.
+export const REPAIR_PAUSE_SLOTS: ReadonlySet<string> = new Set(["weapon", "reactorCore", "ftlDrive", "shieldEmitters", "hullPlating", "droneBay"]);
 
 export function pushShipWear(events: GearWearEvents, shipId: string, at: number, wear: ShipUseWear): void {
   const list = events.ships.get(shipId);
@@ -439,6 +580,7 @@ export function recordExpeditionWear(before: GameState, after: GameState, events
     const home = exp.phaseAnchorSeconds;
     events.runEnds.set(exp.shipId, home + shift);
     if (exp.gearWear?.battle === 1) events.rateCarry.add(exp.shipId);
+    if (exp.gearWear !== undefined) events.exactRuns.add(exp.shipId);
     const windows = expeditionFieldWindows(exp, home).map((w) => ({ from: w.from + shift, to: w.to + shift }));
     if (windows.length > 0) events.fieldWindows.set(exp.shipId, windows);
     const ship = after.ships.find((s) => s.id === exp.shipId);
@@ -575,9 +717,12 @@ export function projectCycleConditions(
 ): Record<string, number> {
   const out: Record<string, number> = {};
   for (const piece of pieces) {
+    // (the close-out's exact walk, as the tail pass walks it; every piece here is the ship's own, so a pause's Overtime
+    // acts on it)
+    const walk = scheduledWalker(rate, windows, windowRate);
     let p = piece;
-    for (const ev of events) if (ev.at <= at) p = applyShipWear(settleScheduled(p, ev.at, rate, windows, windowRate), ev.wear, ev.at);
-    const c = pieceCondition(settleScheduled(p, at, rate, windows, windowRate));
+    for (const ev of events) if (ev.at <= at) p = applyShipWear(walk(p, ev.at), ev.wear, ev.at);
+    const c = pieceCondition(walk(p, at));
     if (c < CONDITION_FULL) out[piece.id] = c;
   }
   return out;
@@ -603,7 +748,12 @@ export interface RepairContextIndex {
   // Complement CP-13 (OC-13): ships out on a captain run stamped with the hull-family stamp (hullBonus === 1). A ship out
   // on a run NOT in this set reads its crew's repair speed without the quarters' division lift (shipRepairBonuses).
   readonly hullBonusRun: ReadonlySet<string>;
+  // GEAR WEAR close-out: ships whose Repeat patrol is paused to repair (home, repairing: its pieces' live reads and the
+  // Overtime strip), with the pause. Still `out` for the call-by-call pass (the pause's window settles as it closes).
+  readonly paused: ReadonlyMap<string, RepairPauseRecord>;
 }
+
+export type RepairPauseRecord = NonNullable<PatrolMissionState["repairPause"]>;
 
 // Where every ship is at `state.gameTimeSeconds`, for the repair contexts. Pure.
 export function repairContextIndex(state: GameState): RepairContextIndex {
@@ -611,6 +761,7 @@ export function repairContextIndex(state: GameState): RepairContextIndex {
   const out = new Set<string>();
   const favoredRun = new Set<string>();
   const hullBonusRun = new Set<string>();
+  const paused = new Map<string, RepairPauseRecord>();
   for (const ship of state.ships) {
     if (ship.assignedCaptainId === null) continue;
     const captain = state.captains.find((c) => c.id === ship.assignedCaptainId);
@@ -618,6 +769,7 @@ export function repairContextIndex(state: GameState): RepairContextIndex {
       out.add(ship.id);
       if ((captain.mission as { favoredSpec?: unknown }).favoredSpec === 1) favoredRun.add(ship.id);
       if ((captain.mission as { hullBonus?: unknown }).hullBonus === 1) hullBonusRun.add(ship.id);
+      if (captain.mission.kind === "patrol" && captain.mission.repairPause !== undefined) paused.set(ship.id, captain.mission.repairPause);
     }
   }
   // A ship on an expedition is underway for the whole run, its field repair legs included: those settle at the field
@@ -631,9 +783,11 @@ export function repairContextIndex(state: GameState): RepairContextIndex {
   }
   const bay = new Set<string>();
   for (const p of state.activeProcesses) if (p.kind === "shipRepair" && p.effect.type === "clearShipDamage") bay.add(p.effect.shipId);
+  // GEAR WEAR close-out ("Keep the bay rate"): a docked ship whose hull left the bay with its gear worn keeps the bay rate.
+  if (GEAR_BAY_RATE_KEPT_SWITCH.live) for (const ship of state.ships) if (ship.gearBayRate === 1 && !out.has(ship.id)) bay.add(ship.id);
   const memberShip = new Map<string, string | null>();
   for (const m of state.awayMembers) memberShip.set(m.id, m.assignedShipId ?? null);
-  return { out, bay, field, memberShip, favoredRun, hullBonusRun };
+  return { out, bay, field, memberShip, favoredRun, hullBonusRun, paused };
 }
 
 // The ship a piece rides with: its own ship, or its member's. null = in storage (a spare, an Armory piece). Pure.
@@ -734,29 +888,79 @@ export function shipWornPieces(state: GameState, shipId: string): EquipmentInsta
 
 // Where a piece is recovering and how fast, for the readouts (the gear card, the ship header, the fleet care line) and
 // the Overtime price. `context` is the display context ("fieldRepair" while its ship is set down on a GO-8b leg right
-// now); `ratePerMinute` the rate it repairs at now (Overtime included); `minutesToFull` the minutes until it is back to
-// full where it is (a docked ship in a Shipyard bay: at the bay rate until the hull repair ends, then at the home rate),
-// null while its ship is out on a run (it repairs slowly underway and fully once home). `normal` reads the rates
+// now; "home" while its Repeat patrol is paused to repair); `ratePerMinute` the rate it repairs at now (Overtime
+// included); `minutesToFull` the minutes until it is back to full where it is (a docked ship in a Shipyard bay: at the
+// bay rate, which its gear keeps until full, user 2026-11-11 "Keep the bay rate"; a paused patrol: at the home rate, or
+// null when the patrol heads back out first), null while its ship is out on a run (it repairs slowly underway and
+// fully once home). `pauseMinutesLeft`: a paused patrol's minutes until it heads back out. `normal` reads the rates
 // WITHOUT Overtime (the Overtime price: the job's size at the normal rate). Pure.
 export interface GearRepairOutlook {
   condition: number;
   context: RepairContext;
   ratePerMinute: number;
   minutesToFull: number | null;
+  pauseMinutesLeft?: number;
+}
+
+// A ship's Repeat patrol paused to repair right now (its pause), or null. Pure.
+export function pausedPatrolOf(state: GameState, shipId: string): RepairPauseRecord | null {
+  const ship = state.ships.find((s) => s.id === shipId);
+  if (!ship || ship.assignedCaptainId === null) return null;
+  const m = state.captains.find((c) => c.id === ship.assignedCaptainId)?.mission;
+  return m && m.kind === "patrol" && m.repairPause !== undefined ? m.repairPause : null;
+}
+
+// GEAR WEAR close-out (user 2026-11-11 "Allow Overtime in pauses"): the whole ticks a paused patrol's pause needs from
+// now for every combat piece installed on the ship (REPAIR_PAUSE_SLOTS, what the pause waits on) to be back to full at
+// the home rate with `steps` of Overtime: each piece settled to now through the pause, its banked fraction carried to
+// the new rate, its seconds to full counted in the settle's own integers (gearWear.ts secondsToFull), so the patrol
+// heads out on the tick its gear is full. At least 1; null when the ship is not paused. Pure.
+export function pauseResumeTicks(state: GameState, shipId: string, steps: number): number | null {
+  if (pausedPatrolOf(state, shipId) === null) return null;
+  const index = repairContextIndex(state);
+  const now = state.gameTimeSeconds;
+  const mult = steps > 0 ? overtimeRate(steps) : 1;
+  let most = 0;
+  for (const piece of state.equipment) {
+    if (piece.fittedToShipId !== shipId || piece.condition === undefined || !REPAIR_PAUSE_SLOTS.has(piece.slotType)) continue;
+    const live = settlePieceNow(state, index, piece);
+    const rate = pieceRepairRate(state, index, piece, "home") * mult;
+    most = Math.max(most, secondsToFull(rebaseAnchor(live.piece, now, live.rate, rate), now, rate));
+  }
+  return Math.max(1, Math.ceil(most / state.tickDurationSeconds));
+}
+
+// A paused patrol's Overtime multiplier on its own installed pieces right now (the last step bought in the pause). Pure.
+export function pauseOvertimeMult(pause: RepairPauseRecord): number {
+  const steps = pause.overtime?.at(-1)?.steps ?? 0;
+  return steps > 0 ? overtimeRate(steps) : 1;
 }
 
 export function gearRepairOutlook(state: GameState, piece: EquipmentInstance, normal = false): GearRepairOutlook {
-  const condition = livePieceCondition(state, piece);
   const index = repairContextIndex(state);
+  const condition = pieceCondition(settlePieceNow(state, index, piece).piece);
   const base = pieceRepairContext(index, piece);
   const shipId = pieceShipId(index, piece);
+  // GEAR WEAR close-out: a Repeat patrol paused to repair is home, repairing at the home rate (its Overtime on its own
+  // installed pieces), until the pause ends.
+  const pause = shipId !== null ? index.paused.get(shipId) : undefined;
+  if (pause !== undefined) {
+    const mult = !normal && piece.fittedToShipId === shipId ? pauseOvertimeMult(pause) : 1;
+    const ratePerMinute = pieceRepairRate(state, index, piece, "home") * mult;
+    const pauseMinutesLeft = (pause.ticksRemaining * state.tickDurationSeconds) / 60;
+    const need = CONDITION_FULL - condition;
+    if (need <= 0) return { condition, context: "home", ratePerMinute, minutesToFull: 0, pauseMinutesLeft };
+    const minutes = ratePerMinute > 0 ? need / ratePerMinute : Infinity;
+    return { condition, context: "home", ratePerMinute, minutesToFull: minutes <= pauseMinutesLeft ? minutes : null, pauseMinutesLeft };
+  }
   const context: RepairContext = base === "underway" && shipId !== null && index.field.has(shipId) ? "fieldRepair" : base;
   const strip = (rate: number): number => (normal && shipId !== null ? rate / (piece.fittedToShipId === shipId && !index.out.has(shipId) ? gearOvertimeMult(state, shipId) : 1) : rate);
   const ratePerMinute = strip(pieceRepairRate(state, index, piece, context));
   const need = CONDITION_FULL - condition;
   if (need <= 0) return { condition, context, ratePerMinute, minutesToFull: 0 };
   if (context === "underway" || context === "fieldRepair" || !(ratePerMinute > 0)) return { condition, context, ratePerMinute, minutesToFull: null };
-  if (context === "shipyardBay" && shipId !== null) {
+  // GEAR WEAR close-out ("Keep the bay rate"): the gear keeps the bay rate until it is full, whenever the hull leaves.
+  if (context === "shipyardBay" && shipId !== null && !GEAR_BAY_RATE_KEPT_SWITCH.live) {
     const repair = state.activeProcesses.find((p) => p.kind === "shipRepair" && p.effect.type === "clearShipDamage" && p.effect.shipId === shipId);
     const bayMinutes = repair ? (repair.remainingTicks * state.tickDurationSeconds) / 60 : Infinity;
     if (need <= ratePerMinute * bayMinutes) return { condition, context, ratePerMinute, minutesToFull: need / ratePerMinute };
@@ -810,14 +1014,48 @@ export function shipGearJobMinutes(state: GameState, shipId: string): number | n
 // .ts): off, no job is recorded (Overtime still clears as before). Live in the game.
 export const GEAR_REPAIR_JOB_SWITCH = { live: true };
 
+// GEAR WEAR close-out: two more records ride the same tail.
+//   - "Keep the bay rate" (GEAR_BAY_RATE_KEPT_SWITCH): a ship that was in a Shipyard bay at the call's start, whose hull
+//     repair is gone by its end, docked with its installed gear still worn, is marked (ShipInstance.gearBayRate) and
+//     keeps the bay rate while it stays docked and worn. The call the hull leaves in settles at the bay rate (the
+//     context it started in), so one call, chunks and 1 s steps agree.
+//   - "Allow Overtime in pauses": a Repeat patrol paused to repair at the call's start and end keeps its Overtime record
+//     while its installed gear is worn (the pause record holds the rates the engine reads, pauseRepairWindows) and
+//     records no job (the pause is the job: processSpeed.ts gearRepairJobMinutes). The call it resumes in clears both.
 function trackGearRepairJobs(before: GameState, state: GameState, index: RepairContextIndex, indexAfter: RepairContextIndex): GameState {
   const worn = new Set<string>();
   for (const p of state.equipment) if (p.fittedToShipId && p.condition !== undefined) worn.add(p.fittedToShipId);
-  if (worn.size === 0 && !state.ships.some((s) => s.gearRepairSpeed !== undefined || s.gearRepairJobMinutes !== undefined)) return state;
+  if (worn.size === 0 && !state.ships.some((s) => s.gearRepairSpeed !== undefined || s.gearRepairJobMinutes !== undefined || s.gearBayRate !== undefined)) return state;
   let wornBefore: Set<string> | null = null;
   let changed = false;
-  const ships = state.ships.map((s) => {
-    const docked = !index.out.has(s.id) && !indexAfter.out.has(s.id) && worn.has(s.id);
+  let hullInBay: Set<string> | null = null;
+  const ships = state.ships.map((s0) => {
+    const docked = !index.out.has(s0.id) && !indexAfter.out.has(s0.id) && worn.has(s0.id);
+    let s = s0;
+    if (GEAR_BAY_RATE_KEPT_SWITCH.live && (s.gearBayRate !== undefined || (docked && index.bay.has(s.id)))) {
+      if (hullInBay === null) {
+        hullInBay = new Set<string>();
+        for (const p of state.activeProcesses) if (p.kind === "shipRepair" && p.effect.type === "clearShipDamage") hullInBay.add(p.effect.shipId);
+      }
+      const keep = docked && (s.gearBayRate === 1 || (index.bay.has(s.id) && !hullInBay.has(s.id)));
+      if (keep && s.gearBayRate !== 1) {
+        s = { ...s, gearBayRate: 1 };
+        changed = true;
+      } else if (!keep && s.gearBayRate !== undefined) {
+        const { gearBayRate: _b, ...rest } = s;
+        s = rest as ShipInstance;
+        changed = true;
+      }
+    }
+    // (the SAME pause at both ends: a call that resumed and paused again has left on a run in between)
+    if (index.paused.has(s.id) && index.paused.get(s.id)?.from === indexAfter.paused.get(s.id)?.from) {
+      // (only while the pause itself carries Overtime steps: with the docked carry-over off, a dispatch's record clears)
+      const keepOvertime = worn.has(s.id) && s.gearRepairSpeed !== undefined && (index.paused.get(s.id)?.overtime?.length ?? 0) > 0;
+      if (s.gearRepairJobMinutes === undefined && (keepOvertime || s.gearRepairSpeed === undefined)) return s;
+      changed = true;
+      const { gearRepairSpeed: ot, gearRepairJobMinutes: _j, ...rest } = s;
+      return (keepOvertime ? { ...rest, gearRepairSpeed: ot } : rest) as ShipInstance;
+    }
     if (!docked) {
       if (s.gearRepairSpeed === undefined && s.gearRepairJobMinutes === undefined) return s;
       changed = true;
@@ -861,13 +1099,56 @@ export function rebaseAnchor(piece: EquipmentInstance, at: number, oldRate: numb
 // without writing"): settled from its anchor at its current context's rate. Pure.
 export function livePieceCondition(state: GameState, piece: EquipmentInstance): number {
   if (piece.condition === undefined) return pieceCondition(piece);
-  const index = repairContextIndex(state);
-  const context = pieceRepairContext(index, piece);
+  return pieceCondition(settlePieceNow(state, repairContextIndex(state), piece).piece);
+}
+
+// A piece settled to now without writing, exactly as the tail pass will write it (the live reads, the Overtime quote
+// and the recall of a paused patrol), and the rate its anchor is then encoded at (the rate in force now): an
+// expedition's field repair legs at the field rate; GEAR WEAR close-out, a Repeat patrol paused to repair at the home
+// rate from the pause's start (its Overtime steps on the ship's own installed pieces), so the bar is live through the
+// pause and never jumps when it closes. Pure.
+export function settlePieceNow(state: GameState, index: RepairContextIndex, piece: EquipmentInstance): { piece: EquipmentInstance; rate: number } {
+  const now = state.gameTimeSeconds;
+  const rate = pieceRepairRate(state, index, piece, pieceRepairContext(index, piece));
+  if (piece.condition === undefined) return { piece, rate };
   const shipId = pieceShipId(index, piece);
-  const exp = shipId === null ? undefined : state.expeditions.find((e) => e.shipId === shipId && e.phase !== "complete");
-  const windows = exp ? expeditionFieldWindows(exp, state.gameTimeSeconds) : undefined;
-  const rate = pieceRepairRate(state, index, piece, context);
-  return pieceCondition(settleScheduled(piece, state.gameTimeSeconds, rate, windows, pieceRepairRate(state, index, piece, "fieldRepair")));
+  const pause = shipId === null ? undefined : index.paused.get(shipId);
+  let windows: RepairWindow[] | undefined;
+  let windowRate = rate;
+  if (pause !== undefined) {
+    windows = pauseRepairWindows(pause, now);
+    windowRate = pieceRepairRate(state, index, piece, "home");
+  } else {
+    const exp = shipId === null ? undefined : state.expeditions.find((e) => e.shipId === shipId && e.phase !== "complete");
+    windows = exp ? expeditionFieldWindows(exp, now) : undefined;
+    windowRate = pieceRepairRate(state, index, piece, "fieldRepair");
+  }
+  if (!windows || windows.length === 0) return { piece: settlePiece(piece, now, rate), rate };
+  const own = piece.fittedToShipId === shipId;
+  if (!REPAIR_EXACT_EDGES_SWITCH.live) return { piece: settleScheduledLegacy(piece, now, rate, windows, windowRate, own), rate };
+  return settleWalk(piece, -Infinity, now, rate, windows, windowRate, own);
+}
+
+// GEAR WEAR close-out ("Make it exact", and the bar never jumps): a Repeat patrol recalled during its repair pause ends
+// at once (tick.ts recallCaptain), docked. Its pieces are settled to now through the pause (as the live read shows them)
+// and their banked fraction re-expressed at the docked rate they settle at from here, so the underway time before the
+// pause is never credited at the home rate. `before` holds the paused run, `after` the run ended. Off
+// (REPAIR_EXACT_EDGES_SWITCH), `after` as it is. Pure.
+export function settleRecalledPause(before: GameState, after: GameState, shipId: string): GameState {
+  if (!REPAIR_EXACT_EDGES_SWITCH.live) return after;
+  const index = repairContextIndex(before);
+  if (!index.paused.has(shipId)) return after;
+  const indexAfter = repairContextIndex(after);
+  const now = before.gameTimeSeconds;
+  let changed = false;
+  const equipment = after.equipment.map((piece) => {
+    if (piece.condition === undefined || pieceShipId(index, piece) !== shipId) return piece;
+    const live = settlePieceNow(before, index, piece);
+    const p = rebaseAnchor(live.piece, now, live.rate, pieceRepairRate(after, indexAfter, piece, pieceRepairContext(indexAfter, piece)));
+    if (p !== piece) changed = true;
+    return p;
+  });
+  return changed ? { ...after, equipment } : after;
 }
 
 // ============================================================================
@@ -881,7 +1162,7 @@ export function resolveGearWear(before: GameState, after: GameState, events: Gea
   const hasEvents = events !== null && (events.ships.size > 0 || events.members.size > 0);
   if (!hasEvents && !after.equipment.some((p) => p.condition !== undefined)) {
     // GEAR WEAR step 5: a ship's gear repair job and its Overtime end once nothing on it is worn (or it left on a run).
-    return after.ships.some((s) => s.gearRepairSpeed !== undefined || s.gearRepairJobMinutes !== undefined)
+    return after.ships.some((s) => s.gearRepairSpeed !== undefined || s.gearRepairJobMinutes !== undefined || s.gearBayRate !== undefined)
       ? trackGearRepairJobs(before, after, repairContextIndex(before), repairContextIndex(after))
       : after;
   }
@@ -913,7 +1194,11 @@ export function resolveGearWear(before: GameState, after: GameState, events: Gea
       ...(memberWear ?? []).map((ev) => ({ at: ev.at, apply: (x: EquipmentInstance) => applyMemberWear(x, ev.wear, ev.at) })),
     ];
     timed.sort((a, b) => a.at - b.at);
-    for (const ev of timed) p = ev.apply(settleScheduled(p, ev.at, rate, windows, fieldRate));
+    // (the close-out's exact walk on a stamped run: a window is entered and left once, its edges credited at the rate
+    // that applied; a pause's Overtime only on the ship's own installed pieces)
+    const exact = REPAIR_EXACT_EDGES_SWITCH.live && shipId !== null && events !== null && events.exactRuns.has(shipId);
+    const walk = scheduledWalker(rate, windows, fieldRate, shipId !== null && piece.fittedToShipId === shipId, exact);
+    for (const ev of timed) p = ev.apply(walk(p, ev.at));
     if (context === "underway") {
       if (contextAfter !== "underway") {
         // The run ended within the call: underway (and its field legs) up to the instant it ended, then the new
@@ -921,10 +1206,12 @@ export function resolveGearWear(before: GameState, after: GameState, events: Gea
         const end = Math.min(now, (shipId !== null ? events?.runEnds.get(shipId) : undefined) ?? now);
         // WR-7 follow-up (OC-D5): the new context reads the ship off its run (postRun), as the next call would.
         const afterRate = pieceRepairRate(before, index, piece, contextAfter, bonuses, true);
-        p = settleScheduled(p, end, rate, windows, fieldRate);
+        p = walk(p, end);
         // GEAR WEAR step 4: on a step 4 stamped run the fraction of a per-mille the slow underway rate banked by the end
         // carries into the new context at ITS rate (rebaseAnchor), so the new rate never repairs time spent underway.
-        if (shipId !== null && events?.rateCarry.has(shipId)) p = rebaseAnchor(p, end, rate, afterRate);
+        // GEAR WEAR close-out (user 2026-11-11 "Make it exact"): on every stamped run (a captain mission, a short-range
+        // run, an expedition), not only a step 4 one.
+        if (shipId !== null && (exact || events?.rateCarry.has(shipId))) p = rebaseAnchor(p, end, rate, afterRate);
         p = settlePiece(p, now, afterRate);
       }
     } else {

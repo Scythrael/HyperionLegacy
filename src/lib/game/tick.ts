@@ -417,6 +417,13 @@ import {
   projectCycleConditions,
   shipRepairBonuses,
   type RepairWindow,
+  // GEAR WEAR close-out: a pause's windows (split at its Overtime steps), the combat pieces a pause waits on, a recalled
+  // pause settled exactly, and a docked ship's Overtime carried into a first pause.
+  pauseRepairWindows,
+  REPAIR_PAUSE_SLOTS,
+  settleRecalledPause,
+  gearOvertimeMult,
+  DOCKED_OVERTIME_CARRIES_INTO_FIRST_PAUSE,
 } from "./gearWearEngine";
 // GEAR WEAR step 4 (user 2026-10-28): a Repeat cycle's projection (the replay leaves resolve the cycle about to fly).
 import { resolveMissionCycle } from "./combat/patrolReplay";
@@ -3651,7 +3658,8 @@ export function tickCaptainPatrol(
       }
       const clock = officerEffects.gearWear;
       if (clock) {
-        pauseWindows.push({ from: pause.from, to: clock.startSeconds + offsetNow() * clock.secondsPerTick });
+        // GEAR WEAR close-out ("Allow Overtime in pauses"): split at each Overtime step bought during the pause.
+        pauseWindows.push(...pauseRepairWindows(pause, clock.startSeconds + offsetNow() * clock.secondsPerTick));
         gearWearEvents.push({ atTicks: offsetNow(), battle: {}, damageControlFires: 0 });
       }
       const { repairPause: _pause, ...rest } = mission;
@@ -4236,7 +4244,6 @@ export const PATROL_BREAK_MARGIN = 0;
 // destroyer's Repeat Sweep without it: worn shields (25%) and worn weapons lost cycle 27 to a fight the projection saw
 // coming. false restores the systems-only trigger.
 export const PATROL_REPAIR_ON_PROJECTED_DEFEAT = true;
-const REPAIR_PAUSE_SLOTS: ReadonlySet<string> = new Set(["weapon", "reactorCore", "ftlDrive", "shieldEmitters", "hullPlating", "droneBay"]);
 
 // Would `mission` (a cycle about to fly, its gear frozen in its cycleStartCondition) break a worn combat system
 // mid-cycle (or, PATROL_REPAIR_ON_PROJECTED_DEFEAT, be destroyed in it)? False when no combat piece is worn (repair could not help) or the cycle is unstamped. Pure.
@@ -4898,6 +4905,8 @@ export function economyTick(
           }
           // Pause to repair: its home windows settle at the home rate, and each pause and resume reads in the log.
           if (patrolResult.repairWindows.length > 0) wearEvents.pauseWindows.set(patrolShip.id, patrolResult.repairWindows);
+          // GEAR WEAR close-out ("Make it exact"): a stamped cycle (its pause, its end) is walked exactly.
+          if (patrolResult.repairWindows.length > 0 || patrolResult.endedAtTicks !== null) wearEvents.exactRuns.add(patrolShip.id);
 
           if (patrolResult.endedAtTicks !== null) {
             wearEvents.runEnds.set(patrolShip.id, state.gameTimeSeconds + patrolResult.endedAtTicks * state.tickDurationSeconds);
@@ -5069,6 +5078,8 @@ export function economyTick(
           for (const w of sr.wear) pushShipWear(wearEvents, srShip.id, state.gameTimeSeconds + w.atTicks * state.tickDurationSeconds, shortRangeWear(w.events, crewed));
         }
         if (srShip && sr.endedAtTicks !== null) wearEvents.runEnds.set(srShip.id, state.gameTimeSeconds + sr.endedAtTicks * state.tickDurationSeconds);
+        // GEAR WEAR close-out ("Make it exact"): a stamped run's end is credited exactly.
+        if (srShip && sr.endedAtTicks !== null && captain.mission.gearWear !== undefined) wearEvents.exactRuns.add(srShip.id);
         if (sr.ended !== null) {
           shortRangeEndings.push({ captainId: captain.id, ...sr.ended });
           shortRangeEndTicks.push(Math.max(1, Math.ceil((sr.endedAtTicks ?? ticksElapsed) - 1e-9)));
@@ -5335,7 +5346,11 @@ export function economyTick(
       if (wearStamp && shipStats) {
         const ends = cycleEndTicks ?? [];
         for (const ev of missionWear) pushShipWear(wearEvents, ship.id, ev.at, ev.wear);
-        if (updated.mission === null) wearEvents.runEnds.set(ship.id, state.gameTimeSeconds + (ends.length > 0 ? ends[ends.length - 1] : 0) * state.tickDurationSeconds);
+        if (updated.mission === null) {
+          wearEvents.runEnds.set(ship.id, state.gameTimeSeconds + (ends.length > 0 ? ends[ends.length - 1] : 0) * state.tickDurationSeconds);
+          // GEAR WEAR close-out ("Make it exact"): a stamped run's end is credited exactly.
+          wearEvents.exactRuns.add(ship.id);
+        }
       }
     }
     // Complement CP-16: the missions this captain flew (each delivered cycle) and the level milestones it reached.
@@ -6852,17 +6867,26 @@ export function dispatchCaptainOnPatrol(
   // that its first cycle would break is dispatched (never blocked) with its home repair pause already set: it repairs,
   // then flies its first cycle (its gear re-frozen as repaired).
   // (User 2026-10-28: only when the first cycle's projection breaks a worn system.)
+  // GEAR WEAR close-out ("Allow Overtime in pauses"): a docked ship's gear repair Overtime carries into its first pause
+  // (it never left home): the pause repairs at the bought rate and is that much shorter.
+  // [OPEN CALL, user to decide]: gearWearEngine.ts DOCKED_OVERTIME_CARRIES_INTO_FIRST_PAUSE (false = clears at dispatch).
+  const dockedSteps = DOCKED_OVERTIME_CARRIES_INTO_FIRST_PAUSE ? ship.gearRepairSpeed?.overtimeSteps ?? 0 : 0;
   const firstPause = repeatDispatch && cycle.cycleStartCondition
     ? cycleRepairPause(mission, ship.id, hullType, installedGear, {
         startSeconds: state.gameTimeSeconds,
         secondsPerTick: state.tickDurationSeconds,
         // WR-7 follow-up (OC-D5): on the stamp this dispatch just wrote, as the tail pass reads it.
         underwayRate: repairRatePerMinute("underway", shipRepairBonuses(state, ship, mission.favoredSpec === 1, mission.hullBonus === 1)),
-        homeRate: repairRatePerMinute("home", shipRepairBonuses(state, ship, mission.favoredSpec === 1, mission.hullBonus === 1)),
+        homeRate: repairRatePerMinute("home", shipRepairBonuses(state, ship, mission.favoredSpec === 1, mission.hullBonus === 1)) * (dockedSteps > 0 ? gearOvertimeMult(state, ship.id) : 1),
       })
     : 0;
   if (firstPause > 0) {
-    mission.repairPause = { from: state.gameTimeSeconds, ticksRemaining: firstPause, first: true };
+    mission.repairPause = {
+      from: state.gameTimeSeconds,
+      ticksRemaining: firstPause,
+      first: true,
+      ...(dockedSteps > 0 ? { overtime: [{ at: state.gameTimeSeconds, steps: dockedSteps }] } : {}),
+    };
     mission.repairPausesThisRun = 1;
   }
   captains[idx] = { ...captains[idx], mission, lastStopReason: undefined };
@@ -6938,8 +6962,11 @@ export function recallCaptain(state: GameState, captainId: number, nowMs: number
     // card's "home repairing" stays true); its pieces settle on at the home rate. Its one run entry says so.
     const captains = [...state.captains];
     captains[idx] = { ...captains[idx], mission: null };
+    // GEAR WEAR close-out ("Make it exact"): its pieces settled through the pause to now and carried into the docked rate.
+    const shipId = state.ships.find((sh) => sh.assignedCaptainId === captainId)?.id;
+    const docked = shipId === undefined ? { ...state, captains } : settleRecalledPause(state, { ...state, captains }, shipId);
     const ended = appendPatrolCompletions(
-      { ...state, captains },
+      docked,
       [{ captainId, patrolKey: mission.patrolKey, reason: "recalled", routes: mission.routesCompletedThisRun ?? 0, repairPauses: mission.repairPausesThisRun ?? 0 }],
       nowMs,
     );

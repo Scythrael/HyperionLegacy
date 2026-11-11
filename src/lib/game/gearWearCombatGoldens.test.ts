@@ -30,6 +30,12 @@
 import { canonicalOrderOffForThisFile } from "./orderingSwitch.fixture";
 canonicalOrderOffForThisFile();
 import { describe, expect, it } from "vitest";
+// Gear wear close-out (2026-11-11: "Make it exact", "Keep the bay rate") came after every pin here: the file runs with it
+// off (gearWearCloseoutSwitch.fixture.ts), so its pins keep proving their own slice (gearWearCloseoutGoldens.test.ts and
+// gearWearCloseout.test.ts pin and prove what the close-out moved: leftover underway seconds at a run's end, a repair
+// pause's or a field repair leg's edges credited at the rate that applied; gear keeping the bay rate until full).
+import { gearWearCloseoutOffForThisFile, withCloseoutOn } from "./gearWearCloseoutSwitch.fixture";
+gearWearCloseoutOffForThisFile();
 // WR-8b (enemy torpedoes) came after every pin here: the file runs with it off (enemyTorpedoSwitch.fixture.ts), so its
 // pins keep proving their own slice (enemyTorpedoGoldens.test.ts pins what WR-8b moved, enemyTorpedoes.test.ts proves it).
 import { enemyTorpedoesOffForThisFile } from "./enemyTorpedoSwitch.fixture";
@@ -897,6 +903,41 @@ describe("gear wear step 4 goldens: an IN-FLIGHT Repeat run, stamped from its ne
       expect(row, id).toEqual(GOLDEN[`inflight:${id}`]);
     });
   }
+});
+
+// Gear wear close-out (2026-11-11): the live game and the in-flight Repeat runs with the close-out ON (this file runs
+// with it off: its pins above are the switch-off reproduction). Only the rows it moves differ from GOLDEN, each pinned in
+// CLOSEOUT_ON with its cause:
+//   patrol:modules:battleship:crimsonReaverWarband:repeat ("Make it exact"): its worn modules (650, anchored at
+//     dispatch) entered the cycle's repair pause 22 s after their anchor; the old walk credited those 22 underway
+//     seconds at the home rate (14 per-mille), so the modules ended at 722 where they read 735.
+// GWCLOSE_ON_CAPTURE = an output path: write the rows that differ from GOLDEN there instead of asserting.
+const CLOSEOUT_ON_CAPTURE = import.meta.env.GWCLOSE_ON_CAPTURE as string | undefined;
+const CLOSEOUT_ON: Record<string, string[]> = {
+  "patrol:modules:battleship:crimsonReaverWarband:repeat": ["353aa350", "c3504eb9", "relaunch:128", "dfad1e78", "f24b8aa7", "93be1bb4", "lost:146", "ccfe2305", "c300c056", "cargoBay=1000 ftlDrive=790 reactorCore=900 specUtility=1000 weapon=810 weapon=850 weapon=850 weapon=850 weapon=780 weapon=860 shieldEmitters=835 hullPlating=846 module=722 module=722"],
+};
+describe("gear wear close-out ON: every row is GOLDEN's but the close-out's named moves", () => {
+  const moved: Record<string, string[]> = {};
+  const cases: [string, () => string[]][] = [
+    ...Object.entries(ROWS).map(([id, row]) => [id, () => row.run(false)] as [string, () => string[]]),
+    ...INFLIGHT_REPEAT.map(([hull, key, variant]) => {
+      const id = `patrol:${variant}:${hull}:${key}:repeat`;
+      return [`inflight:${id}`, () => patrolRun(patrolBase(hull, variant), key, true, id, true)] as [string, () => string[]];
+    }),
+  ];
+  for (const [id, run] of cases) {
+    it.skipIf(CAPTURE)(id, () => {
+      const value = withCloseoutOn(run);
+      if (CLOSEOUT_ON_CAPTURE) {
+        if (JSON.stringify(value) !== JSON.stringify(GOLDEN[id])) moved[id] = value;
+        return;
+      }
+      expect(value, id).toEqual(CLOSEOUT_ON[id] ?? GOLDEN[id]);
+    });
+  }
+  it.runIf(CLOSEOUT_ON_CAPTURE !== undefined)("writes", () => {
+    writeFileSync(String(CLOSEOUT_ON_CAPTURE), JSON.stringify(moved, null, 1));
+  });
 });
 
 describe.runIf(CAPTURE)("gear wear step 4 capture (GW4_CAPTURE = an output path): write the goldens there", () => {
