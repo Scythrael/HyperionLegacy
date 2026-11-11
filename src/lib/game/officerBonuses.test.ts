@@ -1,3 +1,4 @@
+import { withEnemyTorpedoesOff } from "./enemyTorpedoSwitch.fixture";
 // E-CREW 0.14.0 (Task 20): OFFICER BONUSES GO LIVE (design 6.1 + D12).
 //
 // Covers, bonus by bonus, that every Senior Staff bonus a player can roll now does something, and where:
@@ -210,6 +211,9 @@ const GOLDEN: Record<string, string | string[]> = {
   // without the officers", captured on the engine of the OC-G1 fix round (the end-to-end half the retired legacy pins
   // carried). The real assertion is the equality below: a seated officer carrying no live bonus changes nothing.
   groundOps: "a725ca70/355c21b5/9d3f2838",
+  // WR-8b (enemy torpedoes) merged before the OC-G1 fix round reached feat: the live run now carries the torpedo stamp
+  // (dispatch record and resolved run move, the claim does not). With torpedoes off the pin above reproduces exactly.
+  groundOpsTorpedoes: "1f732f74/a4e963fd/9d3f2838",
 };
 
 // A Ground Ops run (live dispatch) resolved to the end and claimed: its three hashes. The officers are stripped from the
@@ -282,7 +286,8 @@ describe("neutrality: no officer = byte-identical to before Task 20 (golden)", (
     const neutral: SeniorStaffOfficer = { ...officerWith("ops.cargoExpand"), bonuses: [{ id: "test.none", magnitude: 0 }, { id: "test.none", magnitude: 0 }] };
     const plain = groundOpsRunHash([]);
     expect(groundOpsRunHash([neutral])).toBe(plain);
-    expect(plain).toBe(GOLDEN.groundOps);
+    expect(plain).toBe(GOLDEN.groundOpsTorpedoes);
+    expect(withEnemyTorpedoesOff(() => groundOpsRunHash([]))).toBe(GOLDEN.groundOps);
   });
 
   it("a ship whose officers carry only non-combat bonuses freezes NO combat record", () => {

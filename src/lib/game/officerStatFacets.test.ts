@@ -1,3 +1,4 @@
+import { withEnemyTorpedoesOff } from "./enemyTorpedoSwitch.fixture";
 // E-CREW 0.14.0 (Task 21): OFFICER STAT FACETS (design D13, section 7; mockup 7b).
 //
 // NEUTRALITY first: a fully seated bridge whose officers all carry the neutral 10/10/10/10 line resolves
@@ -570,6 +571,9 @@ function cp3OffExpeditions(run: () => Record<string, string | string[]>): Record
 // without the officers", captured on the engine of the OC-G1 fix round (the end-to-end half the retired legacy pins
 // carried). The real assertion is the equality: the all-10 bridge and the stat-less bridge resolve it identically.
 const GROUND_OPS_NEUTRAL_RUN = "d72d5d34/b244cf0d/336c02f9";
+// WR-8b (enemy torpedoes) merged before the OC-G1 fix round reached feat: the live run carries the torpedo stamp (record
+// and resolved run move, the claim does not). With torpedoes off the pin above reproduces exactly.
+const GROUND_OPS_NEUTRAL_RUN_TORPEDOES = "9de9c168/dd76c89/336c02f9";
 
 // A Ground Ops run (live dispatch) for one bridge stat assignment, resolved to the end and claimed. The officers are
 // stripped from the claimed state (their stat lines differ by construction).
@@ -592,7 +596,8 @@ describe("neutrality: an all-10 bridge = byte-identical to before Task 21 (golde
   it("a Ground Ops run through claim: the all-10 bridge = the stat-less bridge", () => {
     const neutral = groundOpsRunHash(() => NEUTRAL);
     expect(groundOpsRunHash(() => undefined)).toBe(neutral);
-    expect(neutral).toBe(GROUND_OPS_NEUTRAL_RUN);
+    expect(neutral).toBe(GROUND_OPS_NEUTRAL_RUN_TORPEDOES);
+    expect(withEnemyTorpedoesOff(() => groundOpsRunHash(() => NEUTRAL))).toBe(GROUND_OPS_NEUTRAL_RUN);
   });
 
   // WR-8 (0.14.0): captured before the combat rules, so these fly with them switched off (combatRulesSwitch.fixture.ts;

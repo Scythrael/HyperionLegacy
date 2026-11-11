@@ -15,6 +15,7 @@
 import type { IconName } from "./icons";
 import { hazardResistEffectParts } from "./hazardResistText";
 import type { RelicSetId } from "../game/model";
+import { tierNumeral } from "../game/galaxy";
 import {
   MUSEUM_PER_COPY_BONUS,
   RELIC_SETS,
@@ -25,14 +26,14 @@ import {
   type RelicRarity,
 } from "../game/relics";
 
-const TIER_NUMERAL: readonly string[] = ["", "I", "II", "III", "IV", "V", "VI", "VII"];
+// Tiers read as Roman numerals through the one shared formatter (galaxy.ts tierNumeral).
 
 // The tier stagger (user 2026-10-27): where a relic type starts turning up, for the Museum's undiscovered tile beside
 // its set's "From:" sites ("Tier IV+"). Empty for a type that turns up at every tier (Tier I) or an unknown id. Pure.
 export function relicFirstTierLabel(relicId: string): string {
   const tier = getRelicTypeById(relicId)?.firstTier;
   if (tier === undefined || tier <= 1) return "";
-  return tier >= 7 ? `Tier ${TIER_NUMERAL[7]}` : `Tier ${TIER_NUMERAL[tier]}+`;
+  return tier >= 7 ? `Tier ${tierNumeral(7)}` : `Tier ${tierNumeral(tier)}+`;
 }
 
 // relic id -> its glyph. Exhaustive over the 17 locked relics (relicIcons.test.ts asserts every RELICS id

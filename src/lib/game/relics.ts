@@ -44,6 +44,7 @@ import type { EquipmentRarity, GameState, MuseumV2, RegionTier, RegionTierKey, R
 import type { ExpeditionPoiId } from "./expeditionContent";
 import { makeRng } from "./combat/rng";
 import { diminishing } from "./diminishing";
+import { tierNumeral } from "./galaxy";
 
 // ============================================================================
 // Stats (the closed union E4b wires into consumers)
@@ -1015,7 +1016,7 @@ export interface ExceptionalSetDef {
   fullSet: readonly { stat: MuseumStat; value: number }[]; // granted once every piece is held
 }
 
-const ROMAN: Readonly<Record<RegionTier, string>> = { 1: "I", 2: "II", 3: "III", 4: "IV", 5: "V", 6: "VI", 7: "VII" };
+// Tiers read as Roman numerals through the one shared formatter (galaxy.ts tierNumeral).
 
 // The letter of a tier's i-th exceptional set (0 -> "a", 1 -> "b", ...), DERIVED so a fourth set in a tier gets "d" and
 // an id can never read "undefined". Throws past "z" (26 sets in one tier), which no catalog may reach. Pure.
@@ -1038,7 +1039,7 @@ export const EXCEPTIONAL_SETS: readonly ExceptionalSetDef[] = (() => {
         pieces.push({
           id: `${id}-p${k}`,
           setId: id,
-          label: `[PROPOSAL] Tier ${ROMAN[tier]} Set ${letter.toUpperCase()} piece ${k}`,
+          label: `[PROPOSAL] Tier ${tierNumeral(tier)} Set ${letter.toUpperCase()} piece ${k}`,
           stat: EXCEPTIONAL_PIECE_STAT_CYCLE[cursor % EXCEPTIONAL_PIECE_STAT_CYCLE.length],
           value,
         });
@@ -1047,7 +1048,7 @@ export const EXCEPTIONAL_SETS: readonly ExceptionalSetDef[] = (() => {
       out.push({
         id,
         tier,
-        label: `[PROPOSAL] Tier ${ROMAN[tier]} Exceptional Set ${letter.toUpperCase()}`,
+        label: `[PROPOSAL] Tier ${tierNumeral(tier)} Exceptional Set ${letter.toUpperCase()}`,
         pieces,
         fullSet: [{ stat: pieces[0].stat, value: value * EXCEPTIONAL_FULL_SET_MULT }],
       });

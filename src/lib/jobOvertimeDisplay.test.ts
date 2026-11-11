@@ -10,6 +10,7 @@ import { buildHomeDashboard } from "./game/homeDashboard";
 import { formatClock } from "./game/format";
 import { setDataStudyPaused } from "./game/dataStudy";
 import { OVERTIME_PROCESS_KINDS, buyOvertime } from "./game/processSpeed";
+import { tierNumeral } from "./game/galaxy";
 import { jobLengthText, jobOvertimePurchase, jobOvertimeStrip, jobRateText, jobSubject, overtimeElapsedText } from "./jobOvertimeDisplay";
 
 const RNG = () => 0.5;
@@ -45,7 +46,7 @@ describe("the strip, as the mockup draws it", () => {
     expect(strip.cost).toBe(200);
     expect(strip.button).toBe("+25% · 200 cr");
     expect(strip.when).toEqual({ lead: "Done in", time: "04:48", was: "06:00" });
-    expect(strip.note).toBe("Optional. Priced on the whole 10 min build at Tier 2");
+    expect(strip.note).toBe("Optional. Priced on the whole 10 min build at Tier II");
     expect(strip.noteTail).toBe(", so a step costs the same whenever you buy it");
   });
 
@@ -58,7 +59,7 @@ describe("the strip, as the mockup draws it", () => {
     expect(strip.rateText).toBe("1.5x");
     expect(strip.cost).toBe(600);
     expect(strip.when?.lead).toBe("Next step: done in");
-    expect(strip.note).toBe("Priced on the whole 10 min build at Tier 2.");
+    expect(strip.note).toBe("Priced on the whole 10 min build at Tier II.");
     expect(strip.noteTail).toBe("");
     expect(jobRateText(job(s, id))).toBe("1.5x");
   });
@@ -114,20 +115,20 @@ describe("the strip, as the mockup draws it", () => {
     // The Docks, docking bays and Systems Bay have no level: their tier is the expansion's number, said bare (the
     // approved mockup). The engine rule: processSpeed.ts overtimeTier.
     const docksNote = jobOvertimeStrip(docks.s, job(docks.s, docks.id), clock)!.note;
-    expect(docksNote).toBe("Optional. Priced on the whole 6 min rung at Tier 1");
+    expect(docksNote).toBe("Optional. Priced on the whole 6 min rung at Tier I");
     const bay = withJob("transitBerthExpansion", 360, { type: "transitBerthLevelUp" });
     const bayNote = jobOvertimeStrip(bay.s, job(bay.s, bay.id), clock)!.note;
-    expect(bayNote).toBe(`Optional. Priced on the whole 6 min rung at Tier ${(bay.s.transitBerthCapacity ?? 0) + 1}`);
+    expect(bayNote).toBe(`Optional. Priced on the whole 6 min rung at Tier ${tierNumeral((bay.s.transitBerthCapacity ?? 0) + 1)}`);
     const sys = withJob("equipmentStorageUpgrade", 360, { type: "equipmentStorageLevelUp" });
     const sysNote = jobOvertimeStrip(sys.s, job(sys.s, sys.id), clock)!.note;
-    expect(sysNote).toBe(`Optional. Priced on the whole 6 min rung at Tier ${sys.s.equipmentStorageLevel + 1}`);
+    expect(sysNote).toBe(`Optional. Priced on the whole 6 min rung at Tier ${tierNumeral(sys.s.equipmentStorageLevel + 1)}`);
     const fac = withJob("facilityUpgrade", 360, { type: "facilityLevelUp", facility: "refinery" });
     expect(jobOvertimeStrip(fac.s, job(fac.s, fac.id), clock)!.note).toContain(
-      `6 min rung at Tier ${(fac.s.facilities.refinery?.level ?? 0) + 1} (the level being built)`,
+      `6 min rung at Tier ${tierNumeral((fac.s.facilities.refinery?.level ?? 0) + 1)} (level ${(fac.s.facilities.refinery?.level ?? 0) + 1} being built)`,
     );
     const tel = withJob("facilityUpgrade", 720, { type: "facilityLevelUp", facility: "subspaceTelescope" });
     expect(jobOvertimeStrip(tel.s, job(tel.s, tel.id), clock)!.note).toContain(
-      `12 min cycle at Tier ${(tel.s.facilities.subspaceTelescope?.level ?? 0) + 1} (the cycle being run)`,
+      `12 min cycle at Tier ${tierNumeral((tel.s.facilities.subspaceTelescope?.level ?? 0) + 1)} (the cycle being run)`,
     );
     expect(jobSubject(tel.s, job(tel.s, tel.id))).toMatch(/^the Subspace Telescope cycle \d+$/);
   });
@@ -203,7 +204,7 @@ describe("long jobs: the log lines read hours and days", () => {
     const { s: start, id } = withJob("shipBuild", 10_800, DESTROYER);
     let s = tick(3_600, start, RNG, T0 + 3_600_000); // 2:00:00 left
     const p = job(s, id);
-    expect(jobOvertimeStrip(s, p, clock)!.note).toBe("Optional. Priced on the whole 3 h build at Tier 2");
+    expect(jobOvertimeStrip(s, p, clock)!.note).toBe("Optional. Priced on the whole 3 h build at Tier II");
     const r = jobOvertimePurchase(s, p.id, clock);
     expect(r.bought).toBe(true);
     expect(r.log).toMatch(/^Overtime on the Destroyer build: step 1 of 3 for .+ cr\. Done in 1:36:00\.$/);

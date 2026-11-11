@@ -446,6 +446,7 @@ export interface TelescopeMapEnemySector {
   innerR: number; // px from the homeworld: the band's near edge
   outerR: number; // px: the band's far edge
   path: string; // the closed slice
+  label: TelescopeMapLabel; // G2-9: the slice's tier numeral, inside the slice
 }
 
 export interface TelescopeMapEnemyView {
@@ -483,6 +484,111 @@ function sectorPath(startBearing: number, widthBearing: number, innerR: number, 
   return `M${f(i0)} L${f(o0)} A${outerR} ${outerR} 0 ${large} 1 ${f(o1)} L${f(i1)} A${innerR} ${innerR} 0 ${large} 0 ${f(i0)}Z`;
 }
 
+// ===== The slice labels (G2-9 close-out, user 2026-11-11 "Label + point inward (Recommended)") =====
+//
+// Tiers III and IV share one ring, so a hatched slice alone does not say whose it is: each slice carries its tier's
+// Roman numeral, small, INSIDE the slice. The spot is the first of a fixed list of points in the slice (its middle
+// first, then out toward its edges) whose text box clears every badge, the home and core dots, the two map labels,
+// the labels already placed and the view box, preferring a point no other tier's slice covers; a slice that cannot
+// hold it gets it just outside, past its outer edge or one of its straight edges. Deterministic.
+export const SECTOR_LABEL_SIZE = 8.5;
+const SECTOR_LABEL_BEARING_STEPS = [0.5, 0.35, 0.65, 0.2, 0.8, 0.1, 0.9] as const;
+const SECTOR_LABEL_RADIUS_STEPS = [0.5, 0.3, 0.7] as const;
+const SECTOR_LABEL_CLEARANCE = 1;
+// How far past a slice's outer edge, or past one of its straight edges, its label sits when the slice cannot hold it
+// (px: about one label height, then further out until it clears); SECTOR_LABEL_BESIDE_PX is the farthest.
+const SECTOR_LABEL_BESIDE_STEPS_PX = [7, 13, 19, 25, 31, 37] as const;
+export const SECTOR_LABEL_BESIDE_PX = SECTOR_LABEL_BESIDE_STEPS_PX[SECTOR_LABEL_BESIDE_STEPS_PX.length - 1];
+
+interface LabelBox {
+  x0: number;
+  x1: number;
+  y0: number;
+  y1: number;
+}
+// A label's approximate text box (about 0.6 em per character, cap height above the baseline). Exported for the tests.
+export function telescopeMapLabelBox(l: TelescopeMapLabel): LabelBox {
+  const w = l.text.length * l.size * 0.6;
+  const x0 = l.anchor === "start" ? l.x : l.anchor === "middle" ? l.x - w / 2 : l.x - w;
+  return { x0, x1: x0 + w, y0: l.y - l.size * 0.75, y1: l.y + l.size * 0.2 };
+}
+const boxesMeet = (a: LabelBox, b: LabelBox, pad: number): boolean => a.x0 < b.x1 + pad && b.x0 < a.x1 + pad && a.y0 < b.y1 + pad && b.y0 < a.y1 + pad;
+const boxMeetsCircle = (b: LabelBox, cx: number, cy: number, r: number): boolean => {
+  const nx = Math.max(b.x0, Math.min(cx, b.x1));
+  const ny = Math.max(b.y0, Math.min(cy, b.y1));
+  return Math.hypot(nx - cx, ny - cy) < r;
+};
+const inWedge = (b: number, start: number, width: number): boolean => (b - start + BEARING_TURN * 2) % BEARING_TURN < width;
+
+function placeSectorLabels(
+  slices: readonly Omit<TelescopeMapEnemySector, "label">[],
+  map: TelescopeMapView,
+): TelescopeMapLabel[] {
+  const [vx, vy, vw, vh] = map.viewBox.split(" ").map(Number);
+  const fixed = [telescopeMapLabelBox(map.homeLabel), telescopeMapLabelBox(map.coreLabel)];
+  const circles = [
+    ...map.badges.map((b) => ({ x: b.x, y: b.y, r: map.badgeR })),
+    { x: map.home.x, y: map.home.y, r: 4 },
+    { x: map.core.x, y: map.core.y, r: 3.5 },
+  ];
+  const placed: LabelBox[] = [];
+  return slices.map((s) => {
+    const at = (fb: number, fr: number): TelescopeMapLabel => {
+      const p = telescopeMapBearingPoint(s.startBearing + s.widthBearing * fb, s.innerR + (s.outerR - s.innerR) * fr);
+      return { x: round1(p.x), y: round1(p.y + SECTOR_LABEL_SIZE * 0.3), text: s.numeral, size: SECTOR_LABEL_SIZE, anchor: "middle" };
+    };
+    const clear = (l: TelescopeMapLabel): boolean => {
+      const b = telescopeMapLabelBox(l);
+      if (b.x0 < vx || b.x1 > vx + vw || b.y0 < vy || b.y1 > vy + vh) return false;
+      if (circles.some((c) => boxMeetsCircle(b, c.x, c.y, c.r + SECTOR_LABEL_CLEARANCE))) return false;
+      return ![...fixed, ...placed].some((o) => boxesMeet(b, o, SECTOR_LABEL_CLEARANCE));
+    };
+    // Is the label's point inside another tier's drawn slice (the shared ring)?
+    const shared = (fb: number, fr: number): boolean => {
+      const bearing = s.startBearing + s.widthBearing * fb;
+      const r = s.innerR + (s.outerR - s.innerR) * fr;
+      return slices.some((o) => o.tier !== s.tier && r >= o.innerR && r <= o.outerR && inWedge(bearing, o.startBearing, o.widthBearing));
+    };
+    let pick: TelescopeMapLabel | null = null;
+    for (const allowShared of [false, true]) {
+      for (const fb of SECTOR_LABEL_BEARING_STEPS) {
+        for (const fr of SECTOR_LABEL_RADIUS_STEPS) {
+          if (!allowShared && shared(fb, fr)) continue;
+          const l = at(fb, fr);
+          if (clear(l)) {
+            pick = l;
+            break;
+          }
+        }
+        if (pick) break;
+      }
+      if (pick) break;
+    }
+    // A slice too small or too crowded to hold its label (Tier II beside the homeworld, its badge and its label) gets
+    // it just beyond its outer edge, on a bearing inside the slice.
+    const beside = (fb: number, px: number): TelescopeMapLabel => {
+      const p = telescopeMapBearingPoint(s.startBearing + s.widthBearing * fb, s.outerR + px);
+      return { x: round1(p.x), y: round1(p.y + SECTOR_LABEL_SIZE * 0.3), text: s.numeral, size: SECTOR_LABEL_SIZE, anchor: "middle" };
+    };
+    // ...or just past one of its two straight edges, at the middle of the band.
+    const flank = (side: -1 | 1, px: number): TelescopeMapLabel => {
+      const r = (s.innerR + s.outerR) / 2;
+      const edge = side < 0 ? s.startBearing : s.startBearing + s.widthBearing;
+      const p = telescopeMapBearingPoint(edge + side * ((px / Math.max(1, r)) * BEARING_TURN) / (2 * Math.PI), r);
+      return { x: round1(p.x), y: round1(p.y + SECTOR_LABEL_SIZE * 0.3), text: s.numeral, size: SECTOR_LABEL_SIZE, anchor: "middle" };
+    };
+    for (const px of SECTOR_LABEL_BESIDE_STEPS_PX) {
+      for (const l of [...SECTOR_LABEL_BEARING_STEPS.map((fb) => beside(fb, px)), flank(-1, px), flank(1, px)]) {
+        if (pick) break;
+        if (clear(l)) pick = l;
+      }
+    }
+    const label = pick ?? at(0.5, 0.5);
+    placed.push(telescopeMapLabelBox(label));
+    return label;
+  });
+}
+
 // "Tier II" / "Tiers II, III and V".
 function tierListText(tiers: readonly RegionTier[]): string {
   const nums = tiers.map((t) => regionTierNumeral(t));
@@ -493,7 +599,7 @@ function tierListText(tiers: readonly RegionTier[]): string {
 // The enemy territory slices the map draws at this telescope level, and the words that go with them. Pure.
 export function telescopeMapEnemyView(level: number, homeworld: HomeworldPlacement = PROVISIONAL_HOMEWORLD): TelescopeMapEnemyView {
   const { reachTier } = telescopeReadingAtLevel(level, homeworld);
-  const sectors: TelescopeMapEnemySector[] = homeworld.enemySectors
+  const slices: Omit<TelescopeMapEnemySector, "label">[] = homeworld.enemySectors
     .filter((s) => enemySectorInReach(s, reachTier))
     .slice()
     .sort((a, b) => a.tier - b.tier)
@@ -509,6 +615,8 @@ export function telescopeMapEnemyView(level: number, homeworld: HomeworldPlaceme
         path: sectorPath(s.startBearing, s.widthBearing, innerR, outerR),
       };
     });
+  const labels = slices.length > 0 ? placeSectorLabels(slices, telescopeMapView(level, homeworld)) : [];
+  const sectors: TelescopeMapEnemySector[] = slices.map((s, i) => ({ ...s, label: labels[i] }));
   const tiers = [...new Set(sectors.map((s) => s.tier))];
   const steps = ENEMY_TERRITORY_COMBAT_STEP === 1 ? "one step" : `${ENEMY_TERRITORY_COMBAT_STEP} steps`;
   return {

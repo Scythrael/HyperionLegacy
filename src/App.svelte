@@ -55,7 +55,7 @@
   import { telescopeCardView, telescopeMapEnemyView, telescopeMapView } from "./lib/telescopeCardDisplay";
   // Complement CP-19: the Personnel Rosters upgrade track card (its words are personnelRostersTrackDisplay.ts).
   import { rostersTrackView } from "./lib/personnelRostersTrackDisplay";
-  import { PROVISIONAL_HOMEWORLD, homeworldPlacement, isWellFormedHomeworld } from "./lib/game/galaxy";
+  import { PROVISIONAL_HOMEWORLD, homeworldPlacement, isWellFormedHomeworld, tierNumeral } from "./lib/game/galaxy";
   import { drawHomeworldSeed } from "./lib/homeworldEntropy";
   // Exploration 0.14.0 (E4c): the Research facility's Relics sub-tab + the Archive's Museum sub-tab.
   import RelicStudyPanel from "./lib/RelicStudyPanel.svelte";
@@ -139,6 +139,7 @@
     // navigation into that category's web (see selectedCategory/viewCategory).
     categoryCards,
     MISSIONS,
+    RETIRED_MISSION_KEYS,
     // Combat 0.13.0 (Phase 9b.5d): the static Combat Patrol content the new
     // Operations > Combat Patrols surface enumerates. PATROLS is the patrol roster
     // (label / wave band / transit legs / hull pool), FACTIONS supplies the fought
@@ -2250,8 +2251,8 @@
   // cards AND the "is this tier's storage unlocked?" check for tier panels.
   // T1 is the BASE tier (available from level 0); T2 is the unlock stub.
   const WAREHOUSE_TIERS: { tier: number; key: string; label: string }[] = [
-    { tier: 1, key: "warehouseT1", label: "Tier 1" },
-    { tier: 2, key: "warehouseT2", label: "Tier 2" },
+    { tier: 1, key: "warehouseT1", label: "Tier I" },
+    { tier: 2, key: "warehouseT2", label: "Tier II" },
   ];
 
   // A tier's storage is "unlocked" when its warehouse facility is built. T1 is
@@ -10764,8 +10765,8 @@
   // 0.13.6 fuel-to-reach: the "localFuelRun" (Local Deuterium Skim) bootstrap mission is HIDDEN
   // everywhere in the UI (fuel is no longer mined; shortOreRun is the level-1 starter). It stays in
   // MISSIONS as a vestigial entry for the content-patch cleanup, but is filtered out of every list.
-  $: unlockedMissionKeys = (Object.keys(MISSIONS) as MissionKey[]).filter((k) => k !== "localFuelRun" && missionUnlocked(state, k));
-  $: lockedMissionKeys = (Object.keys(MISSIONS) as MissionKey[]).filter((k) => k !== "localFuelRun" && !missionUnlocked(state, k));
+  $: unlockedMissionKeys = (Object.keys(MISSIONS) as MissionKey[]).filter((k) => !RETIRED_MISSION_KEYS.includes(k) && missionUnlocked(state, k));
+  $: lockedMissionKeys = (Object.keys(MISSIONS) as MissionKey[]).filter((k) => !RETIRED_MISSION_KEYS.includes(k) && !missionUnlocked(state, k));
 
   // --- Fuel Depot (WR-4, OC-C1: the FLEET REACH track) ---
   // Its level, the next rung, the shared Build gate, the in-flight upgrade, and the fleet reach bonus the built
@@ -12783,7 +12784,7 @@
                           <label style="display: inline-flex; align-items: center; gap: 6px;">
                             Tier
                             <select class="modal-input" bind:value={cfgTier} aria-label="Tier">
-                              <option value={1}>Tier 1</option>
+                              <option value={1}>Tier I</option>
                             </select>
                           </label>
                           <!-- Item dropdown: every refine recipe, labelled by its output item. -->
@@ -13155,7 +13156,7 @@
                   <div class="cl-tiers">
                     {#each craftedILevelByTier as row (row.tier)}
                       <div class="cl-tier" class:cl-tier-max={row.readout.atCeiling}>
-                        <span class="home-l1">Tier {row.tier} gear: iLevel {row.readout.iLevel} of {row.readout.ceiling}</span>
+                        <span class="home-l1">Tier {tierNumeral(row.tier)} gear: iLevel {row.readout.iLevel} of {row.readout.ceiling}</span>
                         <!-- THE TIER CAP, said in the row rather than only in the paragraph
                              below, because the confusing moment is per tier: one tier can be
                              finished while another is still climbing. WRAPS on purpose (no
@@ -13163,7 +13164,7 @@
                              explanation the player cannot read in full is no explanation. -->
                         <span class="cl-state" class:cl-state-max={row.readout.atCeiling}>
                           {#if row.readout.atCeiling}
-                            At the ceiling. More crafting levels do not raise Tier {row.tier} gear any further. A higher-tier blueprint has a higher ceiling.
+                            At the ceiling. More crafting levels do not raise Tier {tierNumeral(row.tier)} gear any further. A higher-tier blueprint has a higher ceiling.
                           {:else}
                             {row.readout.ceiling - row.readout.iLevel} more item levels before this tier is capped.
                           {/if}
@@ -13385,7 +13386,7 @@
                               Tier
                               <select class="modal-input" value={cfgTier} on:change={(e) => onFabricateTierChange(Number((e.target as HTMLSelectElement).value))} aria-label="Tier">
                                 {#each availableFabricateTiers as t}
-                                  <option value={t}>Tier {t}</option>
+                                  <option value={t}>Tier {tierNumeral(t)}</option>
                                 {/each}
                               </select>
                             </label>
@@ -13508,7 +13509,7 @@
                                   faTalentBonus: craftingItemLevelBonus(state),
                                 })}
                                 <div class="cfg-line cfg-line-dim">
-                                  Mints at iLevel {iLevel.iLevel} of {iLevel.ceiling} (Tier {xpBp.tier} ceiling){#if iLevel.atCeiling}{" "}· at the ceiling, more crafting levels do not raise this tier{/if}
+                                  Mints at iLevel {iLevel.iLevel} of {iLevel.ceiling} (Tier {tierNumeral(xpBp.tier)} ceiling){#if iLevel.atCeiling}{" "}· at the ceiling, more crafting levels do not raise this tier{/if}
                                 </div>
                               {/if}
                             </div>
@@ -13626,7 +13627,7 @@
                        WITHIN each branch (no whitespace-only text at a block boundary,
                        which Svelte would trim) so the " · " separator renders. -->
                   <div class="research-cost">
-                    {#if "addFabricateSlots" in eff}Grants: +{eff.addFabricateSlots} craft slot{eff.addFabricateSlots === 1 ? "" : "s"}{#if fabricatorUnlocksNextTier}{" "}· unlocks Tier {fabricatorLevel + 1} blueprints{/if}{:else}Grants: unlocks Tier {fabricatorLevel + 1} blueprints{/if}
+                    {#if "addFabricateSlots" in eff}Grants: +{eff.addFabricateSlots} craft slot{eff.addFabricateSlots === 1 ? "" : "s"}{#if fabricatorUnlocksNextTier}{" "}· unlocks Tier {tierNumeral(fabricatorLevel + 1)} blueprints{/if}{:else}Grants: unlocks Tier {tierNumeral(fabricatorLevel + 1)} blueprints{/if}
                   </div>
                   <div class="research-cost">Duration: {durationReadout(nextFabricatorUpgrade.durationTicks, showTickCounts, state.tickDurationSeconds)}</div>
 
@@ -13806,9 +13807,9 @@
                        PILL here, deliberately: the pills elsewhere state a used / total the
                        panel already renders, and a per-tier researched / available count is a
                        NEW derivation, which is out of scope for a presentation pass. The label
-                       string "Tier {n}" is unchanged. -->
+                       reads "Tier" and the tier in Roman numerals (G2-9 close-out: numerals everywhere). -->
                   <div class="home-sec-hd" style="margin-top: 12px;">
-                    <span class="home-sec-h"><Icon name="research" size={12} /> Tier {group.tier}</span>
+                    <span class="home-sec-h"><Icon name="research" size={12} /> Tier {tierNumeral(group.tier)}</span>
                     <span class="home-sec-rule"></span>
                   </div>
                   <!-- E-CREW 0.14.0 (Task 10): inside each tier, member blueprints gather into trailing
@@ -14034,7 +14035,7 @@
                        whitespace-only text at a block boundary, which Svelte would trim) so
                        the " · " separator renders. -->
                   <div class="research-cost">
-                    {#if "addResearchSlots" in eff}Grants: +{eff.addResearchSlots} research slot{eff.addResearchSlots === 1 ? "" : "s"}{#if researchUnlocksNextTier}{" "}· unlocks Tier {researchLevel + 1} blueprints{/if}{:else}Grants: unlocks Tier {researchLevel + 1} blueprints{/if}
+                    {#if "addResearchSlots" in eff}Grants: +{eff.addResearchSlots} research slot{eff.addResearchSlots === 1 ? "" : "s"}{#if researchUnlocksNextTier}{" "}· unlocks Tier {tierNumeral(researchLevel + 1)} blueprints{/if}{:else}Grants: unlocks Tier {tierNumeral(researchLevel + 1)} blueprints{/if}
                   </div>
                   <div class="research-cost">Duration: {durationReadout(nextResearchUpgrade.durationTicks, showTickCounts, state.tickDurationSeconds)}</div>
 
@@ -14283,7 +14284,7 @@
 
                     {#if isUnlockRung}
                       <p class="research-status" style="margin-top: 6px;">
-                        Unlocks {wt.label} storage. Its first expansion needs a Tier-{wt.tier} material you can't reach yet.
+                        Unlocks {wt.label} storage. Its first expansion needs a Tier {tierNumeral(wt.tier)} material you can't reach yet.
                       </p>
                     {/if}
 
@@ -17004,7 +17005,7 @@
               {@const unlockRung = FACILITIES[`warehouseT${activeMaterialsTier}`]?.upgrades[0]}
               {@const unlockIds = unlockRung ? Object.keys(unlockRung.materials) : []}
               <p class="warehouse-locked-note">
-                Tier {activeMaterialsTier} items are kept at the base cap until this tier's storage is unlocked: <b>unlock it in the Warehouse (Facilities)</b>{#if unlockRung && unlockIds.length > 0} ({formatNumber(unlockRung.materials[unlockIds[0]])} [{ITEMS[unlockIds[0]]?.label ?? unlockIds[0]}]){/if} to raise the cap.
+                Tier {tierNumeral(activeMaterialsTier)} items are kept at the base cap until this tier's storage is unlocked: <b>unlock it in the Warehouse (Facilities)</b>{#if unlockRung && unlockIds.length > 0} ({formatNumber(unlockRung.materials[unlockIds[0]])} [{ITEMS[unlockIds[0]]?.label ?? unlockIds[0]}]){/if} to raise the cap.
               </p>
             {/if}
 
@@ -18701,7 +18702,7 @@
               <!-- Mining missions ONLY: exclude the free bootstrap (localFuelRun) AND every
                    exploration missionType (survey | transport), which live on the Exploration tab
                    now. All mining is Tier I, so the tier filter + the missionType exclusion agree. -->
-              {@const miningMissions = (Object.entries(MISSIONS) as [MissionKey, typeof MISSIONS[MissionKey]][]).filter(([key, def]) => key !== "localFuelRun" && def.tier === "I" && def.missionType !== "survey" && def.missionType !== "transport")}
+              {@const miningMissions = (Object.entries(MISSIONS) as [MissionKey, typeof MISSIONS[MissionKey]][]).filter(([key, def]) => !RETIRED_MISSION_KEYS.includes(key) && def.tier === "I" && def.missionType !== "survey" && def.missionType !== "transport")}
 
               <div class="home-sec-hd">
                 <span class="home-sec-h">Available Missions</span>

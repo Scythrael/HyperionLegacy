@@ -5,6 +5,7 @@
 import { describe, expect, it } from "vitest";
 import { WIRING_REGISTRY } from "./wiring/registry";
 import { G2_6_ADDED_ENTRY_IDS, G2_6_FLIPPED_BEFORE } from "./expeditionConsoleRegistry.fixture";
+import { G2_9_ADDED_ENTRY_IDS, g29ReadBack } from "./g29Registry.fixture";
 
 const G2_6_AUDIT_LIVE = [
   "expedition:audit:driveClassTierGate",
@@ -47,5 +48,23 @@ describe("G2-6 the wiring registry: the console's rows are live", () => {
   it("no row still waits on G2-6", () => {
     const waiting = WIRING_REGISTRY.filter((e) => (e.status.kind === "pending" || e.status.kind === "deferred") && /^G2-6\b/.test(e.status.owner)).map((e) => e.id);
     expect(waiting).toEqual([]);
+  });
+});
+
+// G2-9 close-out (bug-check 2026-11-11): the tier row's probe reads only the tier, so enemy territory has its own row
+// with its own probe (consoleCombatGrade: the same candidate inside vs outside its tier's sector) and the tier row no
+// longer claims it. g29ReadBack (the registry pins) leaves exactly these two moves out.
+describe("G2-9 the wiring registry: enemy territory has its own probed row", () => {
+  it("the enemy territory row is live at Ground Ops on consoleCombatGrade; the tier row claims no enemy territory", () => {
+    const enemy = WIRING_REGISTRY.find((e) => e.id === "expedition:audit:enemyTerritory")!;
+    expect(enemy.status.kind).toBe("live");
+    expect(enemy.probe).toBe("consoleCombatGrade");
+    expect(enemy.contexts).toContain("expedition:groundOps");
+    const tier = WIRING_REGISTRY.find((e) => e.id === "away:audit:tierDormant")!;
+    expect(tier.claim).not.toMatch(/enemy territory/i);
+    expect([...G2_9_ADDED_ENTRY_IDS]).toEqual(["expedition:audit:enemyTerritory"]);
+    const back = g29ReadBack(WIRING_REGISTRY);
+    expect(back).toHaveLength(WIRING_REGISTRY.length - 1);
+    expect(back.find((e) => e.id === "away:audit:tierDormant")!.claim).toMatch(/enemy territory \(the homeworld's fixed sectors\)/);
   });
 });

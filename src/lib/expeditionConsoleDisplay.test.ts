@@ -154,8 +154,8 @@ describe("G2-6 the tier facts, the ship line and the locked panel", () => {
     expect(one.bodiesText).toBe("1 to 3 bodies");
     expect(one.haulText).toBe("Haul x1");
     expect(one.telescopeText).toBe("Telescope: Graded");
-    expect(tierFactsView(s, 3).bandText).toMatch(/\(shared with IV\)$/);
-    expect(tierFactsView(s, 4).bandText).toMatch(/\(shared with III\)$/);
+    expect(tierFactsView(s, 3).bandText).toMatch(/\(shared with Tier IV\)$/);
+    expect(tierFactsView(s, 4).bandText).toMatch(/\(shared with Tier III\)$/);
     expect(tierFactsView(s, 7).timeText).toBe("About 7d one way at Class VII, 5d 14h to 8d 10h by distance");
     expect(tierFactsView(s, 7).telescopeText).toBe("Telescope: beyond range");
     expect(tierFactsView(s, 2).haulText).toBe("Haul x1.25");
@@ -363,7 +363,32 @@ describe("G2-6 recall: the one confirm, the recalled stepper and the claim (user
     const v = recallConfirmView(now, run, "Orion")!;
     expect(v.stops[0]).toBe("Nothing has been charted yet.");
     expect(v.stops.some((x) => /Objectives in progress/.test(x))).toBe(false);
-    expect(v.stops[v.stops.length - 1]).toMatch(/goes back to the Tier I candidates\.$/);
+    expect(v.stops[v.stops.length - 1]).toBe(`${exp.systemName} goes back to the Tier I candidates until you next launch to a system on the list.`);
+  });
+
+  // G2-9 close-out (bug-check 2026-11-11): a RESUMED run recalled before it arrives again still holds the bodies an
+  // earlier trip charted, so the confirm must not say "nothing charted" and must say the system stays open.
+  it("a resumed run recalled in transit: its charted bodies stay as they were and the system stays open", () => {
+    const { s, exp } = flying();
+    const t = firstAt(exp, (e) => e.bodies[0].scanned) + 60;
+    const recalled = recallExpedition(at({ ...s, expeditions: [advanceExpedition(exp, t)] }, t), exp.id);
+    const home = advanceExpedition(recalled.expeditions[0], t + 5_000_000);
+    expect(home.phase).toBe("complete");
+    const back = at({ ...recalled, expeditions: [] }, home.phaseAnchorSeconds);
+    const heldId = resumableSystems(back)[0].id;
+    const again = startExpedition(back, "ship-1", 1, heldId);
+    expect(again.success, again.reason).toBe(true);
+    const run = again.expedition!;
+    expect(run.resume).toBeDefined();
+    const mid = at(again.next, back.gameTimeSeconds + 600);
+    const p = recallPreview(mid, run.id);
+    expect(p.ok && p.preview.phase).toBe("transit");
+    expect(p.ok && p.preview.held).toBe("resume");
+    const v = recallConfirmView(mid, run, "Orion")!;
+    expect(v.stops).not.toContain("Nothing has been charted yet.");
+    expect(v.stops[0]).toBe("Nothing new is charted on this trip; the bodies charted before and the objectives' progress stay as they were.");
+    expect(v.stops[1]).toMatch(/stays open: any explorer can resume it/);
+    expect(v.stops.some((x) => /goes back to the Tier/.test(x) || /does not stay open/.test(x))).toBe(false);
   });
 
   it("a run from before G2-2 (no region stamp) recalled in transit: it does not stay open to resume", () => {

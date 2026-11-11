@@ -341,6 +341,27 @@ reproduced with `racialsSwitch.fixture.ts withRacialsOff`. NOT built (still CP-4
 facet on replenish below half hull, the Spacer long-haul ramp (0.14.x, T3; kept visible as the deferred registry row
 `crew:audit:spacerLongHaulRamp`), and CP-3's four Ground Ops consumers.
 
+**Carry note (2026-11-10, CP-4's rest: the Flight Deck Integrity facet on replenish; user "Build it", the audit
+leftovers in the wiring plan):** built as the plan proposed ("it takes the Flight Deck Integrity facet when below half
+hull", the E-CREW plan's Integrity rule "the department's buffs gain the Integrity facet" and its Task 21 carry "give it
+the Flight Deck's Integrity the same way"): while the ship is below half hull (hull x 2 < its folded hull max, the
+trigger `resolveBattle` already uses), Deck Handling is x (1 + the Flight Deck's Integrity facet), so the drones rebuild
+at droneReplenishRate x (1 + Deck Handling x (1 + facet)). The facet is `departmentFacet(flightDeck, integrity)`: the
+Pilot's 1% per point above 10 plus 40% of the XO's [PROVISIONAL: the facet's first-pass numbers, no new constant]. It
+only lifts a Deck Handling aboard (none, nothing to lift), and below half hull never pays less than above (peace).
+FROZEN per patrol cycle beside `deckHandling` (`PatrolMissionState.deckHandlingSteady`, dispatch and each relaunch,
+written only when > 0 and the Deck Handling is stored) and seeded onto the squadrons as
+`DroneSquadron.deckHandlingSteadyPpm` (`combat/bridge.ts applyDeckHandling`), banked in the same
+`replenishCarryPpm`. Readers: the between-wave replenish (`tick.ts`, `patrolReplay.ts`, `droneDefense.ts
+replenishUnits(squadron, belowHalfHull)`) and the in-combat replenish module (`resolveBattle`, `deckHandlingPpmNow`). A
+patrol in flight from before has no stamp and flies and replays exactly as before. No SAVE_VERSION bump. Registry: the
+live row `crew:audit:flightDeckIntegrityReplenish`, probe `patrolReplenishSteadyLift` (the Deck Handling extra below
+half hull over the extra above it: 1 + facet). Goldens: `cp4FlightDeckGoldens.test.ts` (captured first; only the
+steady fixture moves, each control is unchanged), reproduced with `cp4FlightDeckSwitch.fixture.ts withCp4FlightDeckOff`;
+the earlier registry pins read the row back (`cp4FlightDeckRegistry.fixture.ts`). Text: the Pilot's Integrity tooltip
+(`INTEGRITY_DETAIL_BY_DEPARTMENT.flightDeck`) and the Combat Patrols Help topic. QA:
+`docs/qa/2026-11-10-cp4-flight-deck-qa.html`.
+
 ### CP-5: Per-hull complement caps and division mixes (Task 24)
 
 **Files:** `model.ts` (`ShipTypeDef.complementCap?`, `complementDivisionWeights?`), `commandStructure.ts` (read the
@@ -1283,3 +1304,19 @@ Review found the built facet multiplies the WHOLE `crew.droneHandling` pool (Bel
 seats, Belter crew in other departments, a Belter captain), while every other Integrity row boosts only that
 department's own bonuses. User: "Flight Deck's own only (Recommended)": match the other Integrity bonuses; the facet
 boosts only the Flight Deck's own drone handling.
+
+### CP-4 rest BUILT and merged (2026-11-11): the Flight Deck Integrity facet on replenish
+
+- Built 902bee9d / 5ff93e76; review clean. Fix round 4900ea48 (user 2026-11-11 "Flight Deck's own only"): the Flight
+  Deck's Integrity now lifts only the Flight Deck's own Deck Handling (its crew and the Pilot). Belter officers in other
+  seats (the XO included), Belter crew in other departments and a Belter captain still add Deck Handling but take no
+  facet. `PatrolMissionState.deckHandlingSteady` freezes the lift (facet x own share; crewOverlay.ts
+  `shipFlightDeckIntegrityDeckHandling`); below half hull, squadrons bank at Deck Handling + lift. The live loop and the
+  replay share droneDefense.ts `recoverPatrolDrones`; the registry probe drives it at the real hull pool.
+- Re-merge onto feat (f19d06dc, cb0cbf06): WR-8b torpedoes alone moved the CP-4 pins (bisected: WR-13 and OC-G1 change no
+  hash; torpedoes off reproduces every capture). The Corsair Carrier torpedo sinks the held Balanced ramp 0.2 carrier in
+  its first relaunched cycle, so the trigger is never reached, matching the Warband shift the user kept on 2026-11-10.
+  Both cp4 files run with torpedoes off; a new torpedoes-on test (Defensive, ramp 0.1) proves the facet still lifts only
+  the Flight Deck's own share with torpedoes live.
+- [PROVISIONAL] the facet is linear like every other Integrity row; balancing in 0.16.0. QA:
+  docs/qa/2026-11-10-cp4-flight-deck-qa.html.

@@ -54,6 +54,10 @@
         <text x={b.x} y={b.y + 3} text-anchor="middle">{b.numeral}</text>
       </g>
     {/each}
+    <!-- G2-9 (user 2026-11-11 "Label + point inward"): each hatched slice names its tier (III and IV share a ring). -->
+    {#each sectors as s (s.tier)}
+      <text class="tm-enemy-label" x={s.label.x} y={s.label.y} text-anchor={s.label.anchor} font-size={s.label.size}>{s.label.text}</text>
+    {/each}
     <text class="tm-label" x={map.homeLabel.x} y={map.homeLabel.y} text-anchor={map.homeLabel.anchor}>{map.homeLabel.text}</text>
     <text class="tm-label small" x={map.coreLabel.x} y={map.coreLabel.y} text-anchor={map.coreLabel.anchor}>{map.coreLabel.text}</text>
   </svg>
@@ -104,6 +108,8 @@
   .tm-key.dashed { border-top: 2px dashed var(--color-warning); }
   /* Enemy territory (G2-7): a thin hatch in the danger hue at low strength with a dashed edge, no pulse. */
   .tm-enemy { stroke: rgba(248, 113, 113, 0.45); stroke-width: 0.8; stroke-dasharray: 2 2; }
+  /* G2-9: the slice's tier numeral, small, in the danger hue with a halo so it reads over the hatch and the arms. */
+  .tm-enemy-label { fill: var(--color-danger); font-weight: 700; font-family: var(--font-mono, monospace); paint-order: stroke; stroke: var(--color-bg-deep); stroke-width: 2.5px; stroke-linejoin: round; pointer-events: none; }
   .tm-key.hatch { height: 10px; border: 1px dashed rgba(248, 113, 113, 0.55); background: repeating-linear-gradient(45deg, rgba(248, 113, 113, 0.5) 0 1px, rgba(248, 113, 113, 0.06) 1px 4px); }
   .tm-key.hatch.sm { flex: 0 0 12px; width: 12px; height: 8px; display: inline-block; vertical-align: -1px; }
   .tm-part { font-size: var(--text-2xs, 11px); color: var(--color-text-secondary); white-space: nowrap; margin-left: 4px; display: inline-flex; gap: 4px; align-items: center; }

@@ -140,7 +140,7 @@ import type { WeaponId } from "../combat/weapons";
 import { fireWeapon, resolveBattle } from "../combat/resolveBattle";
 import { makeWeaponInstance } from "../combat/weapons";
 import { makeSquadron } from "../combat/drones";
-import { replenishUnits } from "../combat/droneDefense";
+import { recoverPatrolDrones, replenishUnits } from "../combat/droneDefense";
 import { generateEnemyWave } from "../combat/enemyWave";
 import type { PirateHullId } from "../combat/enemyHulls";
 import { STATUS_EFFECT_DEFS, activeStatDelta, applyEffect, tickEffects } from "../combat/statusEffects";
@@ -178,7 +178,7 @@ import { driveClassReachMult, expeditionTierGates, shipDriveClass } from "../pro
 import { LY_PER_TICK } from "../fuel";
 import { tripReachRamp } from "../tick";
 import { REGION_TIERS } from "../galaxy";
-import { tierHaulMult } from "../riskFactors";
+import { ENEMY_TERRITORY_COMBAT_STEP, systemRiskGrades, tierHaulMult } from "../riskFactors";
 import { relicBlankStamp, relicBlankTable } from "../relicBlanks";
 import {
   GAMBIT_STATUSES,
@@ -721,6 +721,29 @@ function patrolReplenishShare(s: GameState): number {
   let units = 0;
   for (let t = 0; t < REPLENISH_PROBE_TICKS; t++) units += replenishUnits(sq);
   return units / (REPLENISH_PROBE_TICKS * first.droneReplenishRate);
+}
+
+// 0.14.0 (CP-4's rest, user 2026-11-10 "Build it"): the Deck Handling extra the dispatched cycle's first squadron banks
+// BELOW half hull over the extra it banks above it, a drone destroyed, through the consumer: 1 + the Flight Deck's
+// Integrity facet x the Flight Deck's own share of the Deck Handling (user 2026-11-11 "Flight Deck's own only"). 0 when
+// the cycle fields no squadron or carries no Deck Handling.
+// Fix round: driven through the live loop's own recovery step (droneDefense.ts recoverPatrolDrones) at the cycle's real
+// hull pool, full against one point below half (a fresh cycle starts at its folded hull max), so a hull read that never
+// fires reads 1 and fails the row. One drone held far below a rebuild counts every unit paid.
+const STEADY_PROBE_FLOOR = -1e15;
+function patrolReplenishSteadyLift(s: GameState): number {
+  const m = dispatchedPatrol(s);
+  const first = m.playerDrones[0];
+  if (!first || first.droneReplenishRate <= 0 || first.drones.length === 0) return 0;
+  const hullMax = m.playerHull;
+  const extra = (hull: number): number => {
+    const drone = { ...first.drones[0], alive: false, status: "refabricating" as const, refabProgress: STEADY_PROBE_FLOOR };
+    const sq: DroneSquadron = { ...first, replenishCarryPpm: 0, drones: [drone] };
+    for (let t = 0; t < REPLENISH_PROBE_TICKS; t++) recoverPatrolDrones([sq], hull, hullMax);
+    return sq.drones[0].refabProgress - STEADY_PROBE_FLOOR - REPLENISH_PROBE_TICKS * first.droneReplenishRate;
+  };
+  const above = extra(hullMax);
+  return above > 0 ? extra(Math.ceil(hullMax / 2) - 1) / above : 0;
 }
 
 // WR-5b: the mean damage of 1,000 raw-100 projectiles from the combatant's first weapon (Alpha Strike's opening shot
@@ -1755,6 +1778,38 @@ const consoleRun = (s: GameState): Expedition | null => {
   const r = consoleLaunch(s);
   return r && r.success && r.expedition ? r.expedition : null;
 };
+// Expedition Tiers G2-9 close-out (the enemy territory probe): `s` with a stored homeworld under which the console's
+// pick at its deepest ready tier lies INSIDE (or OUTSIDE) that tier's fixed enemy sector (galaxy.ts inEnemySector). The
+// candidate's seed and bearing do not depend on the homeworld (its distance and the sectors do), so both sides search
+// for the SAME pick: inside, the first seed from 1 whose pick is enemy territory and whose drawn Combat grade has room
+// for the step; outside, the first seed whose pick is that candidate outside the sector. Deterministic; throws when the
+// search finds none (a fixture that cannot show the rule is a bug).
+const SECTOR_SEARCH_SEEDS = 4_000;
+function sectorHomeworldPick(s: GameState, seed: number): { s: GameState; pick: CandidateSystem } | null {
+  const at: GameState = { ...s, homeworld: { version: 1, seed } };
+  const tier = deepestReadyTier(at);
+  if (tier === 0 || tier < 2) return null;
+  return { s: at, pick: consolePick(readyForRun(at), tier) };
+}
+export function withEnemySectorPick(s: GameState, inside: boolean): GameState {
+  let target: CandidateSystem | null = null;
+  let insideState: GameState | null = null;
+  for (let seed = 1; seed <= SECTOR_SEARCH_SEEDS && target === null; seed++) {
+    const r = sectorHomeworldPick(s, seed);
+    if (!r || !r.pick.region.enemyTerritory) continue;
+    const open = systemRiskGrades(r.pick.seed, { tier: r.pick.tier, enemyTerritory: false }).combat;
+    if (systemRiskGrades(r.pick.seed, r.pick.region).combat !== open + ENEMY_TERRITORY_COMBAT_STEP) continue;
+    target = r.pick;
+    insideState = r.s;
+  }
+  if (target === null || insideState === null) throw new Error("withEnemySectorPick: no homeworld puts the console pick in enemy territory");
+  if (inside) return insideState;
+  for (let seed = 1; seed <= SECTOR_SEARCH_SEEDS; seed++) {
+    const r = sectorHomeworldPick(s, seed);
+    if (r && r.pick.id === target.id && r.pick.seed === target.seed && !r.pick.region.enemyTerritory) return r.s;
+  }
+  throw new Error("withEnemySectorPick: no homeworld puts the same pick outside enemy territory");
+}
 // The recall probe's moment: a quarter of the outbound leg flown (before the anomaly check at the midpoint), so the
 // recalled run flies home in a quarter of its return leg (1:1, user #7).
 export const RECALL_PROBE_SHARE = 0.25;
@@ -1854,6 +1909,10 @@ export const PROBES = {
   consoleRiskTier: {
     label: "the region tier of the risk profile a console launch to the deepest tier ship-1 can attempt freezes (RISK_TIER_ODDS, hostile sites, SCIENCE_HEAVY, the affix rows read it); 0 when refused",
     read: (s) => consoleRun(s)?.risk?.tier ?? 0,
+  },
+  consoleCombatGrade: {
+    label: "the system Combat grade of the risk profile a console launch to the deepest tier ship-1 can attempt freezes (enemy territory adds ENEMY_TERRITORY_COMBAT_STEP); -1 when refused",
+    read: (s) => consoleRun(s)?.risk?.system?.combat ?? -1,
   },
   consoleOutbound: {
     label: "the outbound leg (seconds) of the voyage a console launch to the deepest tier ship-1 can attempt freezes; 0 when refused",
@@ -2139,6 +2198,11 @@ export const PROBES = {
   // (droneDefense.ts replenishUnits, Deck Handling banked), as a share of its plain rate over REPLENISH_PROBE_TICKS
   // ticks with every drone down: 1 + deckHandling, within one banked unit over the span.
   patrolReplenishShare: { label: "replenishUnits over a long recovery / (ticks x droneReplenishRate): 1 + Deck Handling", read: (s) => patrolReplenishShare(s) },
+  // 0.14.0 (CP-4's rest): the Flight Deck's Integrity on that replenish, below half hull against above it.
+  patrolReplenishSteadyLift: {
+    label: "recoverPatrolDrones' Deck Handling extra below half hull / above it, over a long recovery: 1 + the Flight Deck's Integrity x its own share",
+    read: (s) => patrolReplenishSteadyLift(s),
+  },
   battleDroneSquadrons: { label: "the squadron count: the patrol cycle's seed / the ship-event combatant", read: (s, ctx) => battleDrones(s, ctx).length },
   patrolRewardMult: {
     label: "patrolWaveRewardMult(0, the dispatched cycle's captainCombat): a won wave's loot and credit factor",

@@ -34,6 +34,16 @@ against code and plans found these TRUE GAPS, now 0.14.0 scope (each needs a sho
   automatically through `SHORT_RANGE_TEMPLATE_KEYS`.
 - **G2 Expedition tiers:** galaxy-region unlocks (proposed real regions, Local Bubble to Galactic Core), distance and
   difficulty, the reach gate, recall (A4 had no task).
+  *G2 close-out carry note (G2-9, 2026-11-11; plan `2026-10-14-expedition-tiers-g2-plan.md`, its carry notes and "G2-9
+  close-out review"):* BUILT G2-0 to G2-7 and the G2-9 fix pass; G2-8 (the antimatter burn and maintenance) MOVED to
+  0.14.x (wiring capture T3). Seven region tiers from a per-save homeworld (SAVE v70), candidates per tier (real stars,
+  Wolf 359 and its derelict field), the voyage ladder, drive class / reach / frontier sensor gates, recall with
+  resumable systems, the dispatch console, and the telescope map with labeled enemy sectors (Tiers VI and VII aimed at
+  the core). Every tier anywhere in the game reads in Roman numerals through ONE formatter (galaxy.ts `tierNumeral`,
+  user 2026-11-11 "Everything"). For later work: the Wolf 359 list clock counts LIST DRAWS (expedition.ts `listDraws`:
+  dispatches less `GameState.heldLaunches`), so a held launch never rerolls the list; a system recalled before arrival
+  is an ordinary candidate until the next list draw; enemy territory has its own wiring row
+  (`expedition:audit:enemyTerritory`). Full QA sheet: `docs/qa/2026-11-11-g2-expedition-tiers-qa.html`.
 - **G3 Relics v2:** unidentified relics, Research Lab identification into per-tier pools with exceptional per-tier
   sets, short-mission drops at lower rates, cultures with revealed names, soft cap (~1000) and D23 diminishing
   returns on the museum. The endless-only bonus line waits for endless mode (deferred to 0.14.x); 0.14.0 keeps

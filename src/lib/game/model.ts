@@ -837,6 +837,22 @@ export const MISSIONS: Record<
 
 export type MissionKey = keyof typeof MISSIONS;
 
+// Missions kept in MISSIONS for old saves but hidden from every list (0.13.6 fuel-to-reach retired the Local
+// Deuterium Skim; the Cometary Ice Harvest is the Tier I Deuterium Ice source now). The one list the UI reads.
+export const RETIRED_MISSION_KEYS: readonly MissionKey[] = ["localFuelRun"];
+
+// The items a mission can actually deposit: its common floor, plus its uncommon and rare items when those chances are
+// above 0. A transport run delivers no loot (the deposit is suppressed in tickCaptainMission), so it reads empty.
+// Pure; the Refinery's material line sources read it, so a new or changed loot table can never drift from them.
+export function missionDeliverableItems(key: MissionKey): string[] {
+  const def = MISSIONS[key];
+  if (!def || def.missionType === "transport") return [];
+  const items = [def.lootTable.common];
+  if (def.uncommonChance > 0) items.push(def.lootTable.uncommon);
+  if (def.rareChance > 0) items.push(def.lootTable.rare);
+  return items;
+}
+
 // Per-mission per-tick XP RATE (Progression Pacing Rework, Task 3 --
 // docs/plans/2026-07-11-progression-pacing-rework-*). The base amount of XP a
 // mission is worth per WHOLE extraction tick, BEFORE any future captain-talent
@@ -1176,6 +1192,12 @@ export const WR10_SWITCH = { live: true };
 // generated crewmember rolls no third buff (CrewSignature.buff3Id), so a golden can show that the pins WR-9 moved return.
 // Always live in the game.
 export const WR9_SWITCH = { live: true };
+
+// Test switch only (the same pattern, complement plan CP-4's rest, user 2026-11-10 "Build it"): off, a patrol cycle
+// freezes no Flight Deck Integrity lift on its Deck Handling (PatrolMissionState.deckHandlingSteady), so its drones replenish
+// at the same rate above and below half hull, and a golden can show that the pins the facet moved return. Always live in
+// the game.
+export const CP4_FLIGHT_DECK_INTEGRITY_SWITCH = { live: true };
 
 // Test switch only (the same pattern, OC-D8 follow-up): off, a cycle freezes its legs at the sweeping speed alone (the
 // rule before Fast Departure / Fast Return reached patrols), so a golden can show that the pins the lifts moved return.
@@ -4230,6 +4252,16 @@ export interface PatrolMissionState {
   // with, carried over from the cycle before at a relaunch, so the display replay seeds the same bank. OPTIONAL,
   // written only when one is > 0.
   replenishCarryStart?: number[];
+  // 0.14.0 (complement plan CP-4's rest, user 2026-11-10 "Build it"): the Deck Handling the Flight Deck's INTEGRITY
+  // adds below half hull, FROZEN when this cycle starts beside deckHandling: the department's facet (officerStats.ts
+  // departmentFacet: the Pilot's, plus the XO's share) x the Flight Deck's OWN Deck Handling (its crew and the Pilot;
+  // fix round, user 2026-11-11 "Flight Deck's own only": crewOverlay.ts shipFlightDeckIntegrityDeckHandling). While the
+  // ship is below half hull its Deck Handling is deckHandling + it, so a carrier's drones rebuild faster when it is badly
+  // hurt. Seeded onto the squadrons as DroneSquadron.deckHandlingSteadyPpm (combat/bridge.ts applyDeckHandling), read
+  // the same way by the live loop and the display replay. OPTIONAL, written only when > 0 AND deckHandling is (no
+  // SAVE_VERSION bump): a cycle without it, or one in flight from before it, replenishes as before.
+  // [PROVISIONAL] magnitude: the facet's first-pass 1% per point above 10.
+  deckHandlingSteady?: number;
   // E-CREW 0.14.0 (Task 21): the Engineering department's CUNNING over-delivery for THIS cycle ("a free
   // repair tick"), rolled when the cycle starts (dispatch / relaunch) from the cycle's masterSeed on its own
   // keyed stream (officerStats.ts cunningProc) and frozen here. If the cycle ends in defeat, the limp-home
@@ -10080,6 +10112,12 @@ export interface GameState {
   // oldest first. OPTIONAL: absent until the first recall that leaves one, so every save keeps its exact shape. Plain
   // data: no SAVE bump, hydrateDecimals carries it through its `...state` spread.
   heldSystems?: HeldSystem[];
+  // Expedition Tiers G2-9 close-out: how many launches went to a HELD system (startExpedition, "held-<id>"). Such a
+  // launch is not from the candidate list and draws no new list, so the Wolf 359 clock (expedition.ts listDraws: the
+  // dispatches less these) does not count it. OPTIONAL: absent reads 0 and is written only by a held launch, so a save
+  // that never made one keeps its exact shape and its list (no load step, no SAVE bump). A plain number,
+  // hydrateDecimals carries it through its `...state` spread.
+  heldLaunches?: number;
   // Gas Giant Study GG-3 (plan docs/plans/2026-10-17-gas-giant-study-plan.md section 3.3): the SURVEY LOG, one entry per
   // ship study whose Survey Log readout hit (15%, user 2026-10-09), appended in claim order by
   // expedition.ts depositExpeditionFindings. Every displayed number derives from the entry's stored fields (the
@@ -10447,9 +10485,10 @@ export interface ItemDef {
   band?: ItemBand;
   // SELLABLE (0.13.6): credits per unit at the Quartermaster's Sell counter. An item is
   // sellable IFF this is defined; canSell rejects everything else, so a locked / non-sellable
-  // good can never be sold even as the catalogue grows. Only DEPRECATED stock carries it for now
-  // (Deuterium Ice, orphaned by fuel-to-reach); widening it to live goods is a later, balance-
-  // gated decision. The value is DERIVED from the item's prior worth (see deuteriumIce).
+  // good can never be sold even as the catalogue grows. Today: Deuterium Ice (0.13.6), Salvaged Circuitry and the
+  // Precursor Circuit (SALVAGE_DROP_SELL_VALUE) and every Gas Storage Canister (GG-1); the Quartermaster Help topic
+  // reads this list (helpTopics.ts SELL_COUNTER_TEXT). Widening it to other live goods is a balance-gated decision.
+  // Deuterium Ice's value is DERIVED from the item's prior worth (see deuteriumIce).
   sellValue?: number;
   // RETIRED STOCK (0.14.0): set only on an item the game no longer uses for anything but the Sell counter. The Sell
   // shelf tags exactly these rows "Retired" (quartermaster.ts isRetiredStock). No item carries it today: Deuterium Ice
@@ -10556,8 +10595,9 @@ export const ITEMS: Record<string, ItemDef> = {
     rarity: "common",
     // The common floor of the Cometary Ice Harvest (reactor fuel ladder, 0.14.0; the retired localFuelRun was its old
     // source). Gas Giant Study GG-1: it refines into a Deuterium Canister (REFINE_RECIPES.refineDeuteriumCanister), the
-    // fuel every Reactor Core blueprint takes.
-    unlockHint: "Harvested from a passing comet on the Cometary Ice Harvest run. Refine it into Deuterium Canisters for Reactor Core blueprints; raw ice fetches only a few credits at the Quartermaster.",
+    // fuel every Reactor Core blueprint takes; G2-4's Class III and higher FTL Drive blueprints take it too (ML close-out
+    // 2026-11-11 named that use here; helpTopics.test.ts holds the class to DEUTERIUM_DRIVE_MIN_CLASS).
+    unlockHint: "Harvested from a passing comet on the Cometary Ice Harvest run. Refine it into Deuterium Canisters for Reactor Core blueprints and Class III and higher FTL Drive blueprints; raw ice fetches only a few credits at the Quartermaster.",
     // ML-1: the flavor no longer tells the player to cook it down at the Fuel Depot (that pipeline retired in 0.13.6).
     // Reactor fuel ladder (0.14.0): it comes off a comet now and ends up as reactor fuel, never FTL fuel.
     flavor: "Deuterium-laced water ice cut from a passing comet: common, bulky, and worth little until it is pressed into reactor fuel.",
@@ -10586,7 +10626,7 @@ export const ITEMS: Record<string, ItemDef> = {
     subCategory: "oresMetals",
     tier: 2,
     rarity: "uncommon",
-    unlockHint: "An uncommon strike on the Lunar Mine Contract. A Tier 2 material: it is kept at the base cap until Warehouse (Tier II) is unlocked.",
+    unlockHint: "An uncommon strike on the Lunar Mine Contract. A Tier II material: it is kept at the base cap until Warehouse (Tier II) is unlocked.",
     flavor: "Impossibly compacted rock from the deep lunar seams, heavy enough to need its own warehouse tier.",
   },
   // --- Catalog scaffold (Phase 2 Warehouse), UNOBTAINABLE PLACEHOLDERS -------
