@@ -51,8 +51,19 @@ against code and plans found these TRUE GAPS, now 0.14.0 scope (each needs a sho
 - **G4 Chat-event ledger:** record chat-worthy events (first: a relic set completed) for when chat lands; pairs with
   the unowned S19 milestone ledger.
 - **G5 Bridge and Crew Quarters ship-type bonuses** (beyond Focused Command), plus bridge and quarters blueprints.
+  *Carry (2026-11-04, built as Complement CP-13; tag `slice/cp-13-hull-family`, merge 658014cc):* one catalog,
+  `crewModules.ts HULL_FAMILY_MODULE_BONUS`, a module gives the bonus of the hull it is installed on, scaled like the
+  module (the General guest perk too, fix round 7097b859); the Tactician weapon line frozen per patrol cycle and per
+  expedition battle. Tests `cp13Goldens.test.ts`, `cp13HullFamily.test.ts`. The blueprints are Task 28 (CP-11). Full note
+  under CP-13 in `2026-10-14-complement-and-acquisition-plan.md`.
 - **G6 Sensor roles:** explorer base sensors (S4-B04), frontier gating, combat cloak / threat detection, Science crew
   and officer sensor amplification (S4-I29/30/31).
+  *Carry (2026-11-04, built as Complement CP-14; tag `slice/cp-14-hull-sensors`, merge 15c3baec):* `model.ts
+  HULL_BASE_SENSORS` (Aurora 35, Orion 25, Eir 15, warships 10) and the Science crew and seat lifts
+  (`crewOverlay.ts applyScienceSensorLift`), stamped at dispatch; the dead Tier II frontier gate retired (fix round
+  c2dbc9da). Frontier gating itself moved to G2 (complement OC-18; G2 open call 7, "Sensor gate per tier", built there).
+  Tests `cp14Goldens.test.ts`, `cp14HullSensors.test.ts`. **Combat cloak / threat detection (CP-15) is DEFERRED to
+  0.14.x (T3)** with OC-19; its registry rows stay deferred (`particleTraceDetector`, sensors at patrol).
 - **G7 Per-planet / per-system completion %** (S2-65; D25 "% completion of the system").
 - **G8 Phase-level items with no tasks yet:** E-MOD universal modules, E-CAP captain identity + achievements, the
   power grid (S4-A03), deuterium as a reach-crafting input (S4-A05), Material Lines, gas giant study (15b).
@@ -900,6 +911,17 @@ rollable set with a comment pointing at SUGGESTIONS "CRAFT-DUPLICATE CREW BUFF")
 Existing buckets that already carry craft duplicate keep it in the save but it contributes nothing and the UI
 labels it "Held for homeworld staffing" (no dead-roll surprise). Tests: each pool key changes its consumer.
 
+**Carry (2026-10-14 to 2026-11-11, built as Complement CP-0 to CP-4):** CP-0 goldens ddb259b7
+(`complementGoldens.test.ts`, `crewGenerationDraws.test.ts`); CP-1 craft duplicate held d6f9fe6e (`crewBuffs.ts
+HELD_CREW_BUFF_IDS`, one draw per pick as before); CP-2 ship-side consumers 6c3ab523 (Damage Control, Mission
+Turnaround, Crew Output, Crew Effectiveness with `CREW_EFFECTIVENESS_KNEE` 0.2 [PROVISIONAL]); the inert racials
+896a8cb2 (Belter Deck Handling, Vael and Outer-Colony Survey Aptitude, Spacer as transit speed; `racialsGoldens`,
+`racialsWired`); CP-3 Ground Ops consumers 90f34780 (tag `slice/cp-3-ground-ops-complement`; `complementCp3*.test.ts`);
+CP-4's rest, the Flight Deck's own Integrity on replenish (tag `slice/cp-4-flight-deck`, merge ddafa609;
+`cp4FlightDeck*.test.ts`). The Spacer long-haul ramp is DEFERRED to 0.14.x (T3; registry row
+`crew:audit:spacerLongHaulRamp`). Open for the user: Deck Handling's in-combat scope. Full notes under CP-0 to CP-4 in
+`2026-10-14-complement-and-acquisition-plan.md`.
+
 ### Task 24: Per-hull complement caps
 
 **Files:** `src/lib/game/commandStructure.ts` (`commandStructureForHull` ~143, `SPEC_BASE_TOTAL` ~47), `model.ts`
@@ -908,11 +930,23 @@ Caps move to per-hull values with the spec values as defaults (so a hull without
 Eir a larger cap than Orion/Aurora. Over-cap existing complements clamp through the existing load-time clamp path.
 Tests: Eir > Orion; a hull without overrides is byte-identical.
 
+**Carry (2026-11-02, built as Complement CP-5; tag `slice/cp-5-crew-caps`, merge a9b3de69):** `ShipTypeDef.complementCap`
+/ `complementDivisionWeights` (Eir 900, Aurora 750 Science lean, Carrier and Battleship leans; no division shrinks) and
+the lean-first fill. The "load-time clamp path" did not exist: OC-6 "Never evict" instead (over cap takes no more, the
+panel says Over capacity). Tests `cp5Goldens.test.ts`, `cp5HullCaps.test.ts`; QA `docs/qa/2026-11-02-cp5-crew-caps-qa.html`.
+
 ### Task 25: Active-mode transfer + sort/filter/multi-select
 
 **Files:** new pure `transferCrew(state, fromShipId | "pool", toShipId | "pool", signatureKeys, counts)` in
 `crew.ts` or `autoCrew.ts` (cap-aware via `remainingCapacityForSignature`), `ComplementPanel.svelte`, `App.svelte`.
 Tests: transfer respects division and rank caps; partial transfer when the target fills; locked ships refuse.
+
+**Carry (2026-10-19 / 2026-11-02, built as Complement CP-7 engine and CP-10 UI):** CP-7 1aa3905e, a new module
+`crewTransfer.ts` (`transferCrew`, Manual ships only per OC-7, cap-aware with notables and the quarters bonus,
+`crewTransfer.test.ts`); CP-10 (tag `slice/cp-10-transfer-pool`, merge 19e5ac46) the transfer picker
+(`CrewTransferModal.svelte`, `crewTransferDisplay.ts`, every count from one engine preview) and the Personnel Rosters
+Crew Pool tab. Sort / filter / multi-select is CP-9's crew groups table (`complementTableDisplay.ts`). QA
+`docs/qa/2026-11-02-cp10-transfer-pool-qa.html`.
 
 ### Task 26: Graduate + manifest
 
@@ -920,6 +954,14 @@ Tests: transfer respects division and rank caps; partial transfer when the targe
 `NotableCrewMember` with a name from `generateCrewIdentity`, bumps `nextNotableId`, respects the notable cap),
 `ComplementPanel.svelte` (Graduate button + confirm modal from the mockup; Manifest view generating names lazily
 from the bucket seed, never stored). Tests: count drops by one, notable created, cap refuses, manifest is pure.
+
+**Carry (2026-10-19 / 2026-11-02, built as Complement CP-8 engine and CP-9 UI):** CP-8 18920fe9 (merge 778c30ab), a new
+module `crewGraduation.ts` (graduate, `NOTABLE_CREW_CAP` 50 fleet-wide, send back keeps the name, `manifestRows`), and
+`resolveCrew` counts assigned notables and pauses a passive ship while it is out (OC-11). CP-9 (tag
+`slice/cp-9-complement-table`, merge 94e27b32) the crew groups table, the Graduate confirm, Send back, Retire (user
+"Allow Retire"), the paged read-only Manifest and the notable marquee. Tests `crewGraduation.test.ts`,
+`complementTableDisplay.test.ts`; QA `docs/qa/2026-11-02-cp9-complement-manifest-qa.html`. Open for the user: the
+notable ticker's placement, and an "assign to ship" action for an unassigned notable (today only a roster does it).
 
 ### Task 27: Mission lock
 
@@ -935,6 +977,14 @@ already handled; test that no member points at a removed ship. **Reserve list (f
 can ever become invisible. Also replace Task 6's provisional injury bar (2h nominal span) with the real recovery
 start once Task 16 stores it.
 
+**Carry (2026-10-14 / 2026-11-02, built as Complement CP-6 and CP-10):** CP-6 core 1c69b471 + e671a354 (salvage
+refuses a hull on an expedition, releases everyone atomically: members unassigned, officers and notables unassigned,
+the complement to the pool; SAVE v69 `repairOrphanedShipRefsV69`) and the lock 767be76f + 918baf67 (`crewLock.ts`:
+one predicate and typed reasons for every crew change, the complement mode toggle and captain retirement). The
+benched list is named "Unassigned" (OC-12; "Reserve" means aboard but unslotted) on every ship's Away Team tab; CP-10
+added the lock marks on the sub-tabs. The injury bar uses the stored recovery start. Tests `salvageCrew.test.ts`,
+`crewLock.test.ts`. Still the user's call (CP-6 note): a captain can swap hulls while their ship is on an expedition.
+
 ---
 
 ## Stage 9: Acquisition
@@ -948,6 +998,14 @@ Check `generateEquipment` stamps `moduleVariant` for bridge/quarters (it does fo
 mints its variant; a new player can research + craft a Wide-Beam array with no relic; tiles render.
 Verify in preview: install a Balanced Command bridge module on the Aurora and see the officer amplification change.
 
+**Carry (2026-11-03, built as Complement CP-11 and CP-12):** CP-11 (tag `slice/cp-11-crew-blueprints`, merge 3c676c02)
+fifteen ordinary blueprints in `model.ts CREW_MODULE_BLUEPRINTS` (tier I Balanced Command, Utilitarian Quarters, Guest
+Wing, Wide-Beam and Balanced Arrays; tier II the rest; Flag Command at tier III), no relic gate; costs
+[PROVISIONAL]; the distinct recipes for three quarters pairs await the user's sign-off. CP-12 (tag
+`slice/cp-12-bridge-quarters`, merge fff4fb5f) the Bridge Module and Crew Quarters tiles (`shipSystemTiles.ts`), the
+slot renamed Sensor Suite, a Crew Modules section in Research and the Fabricator. Tests `cp11*.test.ts`,
+`cp12*.test.ts`; QA `docs/qa/2026-11-03-cp11-crew-modules-qa.html`, `docs/qa/2026-11-03-cp12-bridge-quarters-qa.html`.
+
 ---
 
 ## Stage 10: Small fixes
@@ -957,6 +1015,11 @@ Verify in preview: install a Balanced Command bridge module on the Aurora and se
 last, show a warning callout. Hall of Command: `GameState.hallOfCommand?: { name, ranks, missions, retiredAtSeconds }[]`
 appended by `retireCaptain` (optional field, no bump needed beyond v65; fold into `MIGRATIONS[64]` if v65 has not
 shipped). Archive gets a "Hall of Command" subsection. Tests: entry appended once per retirement.
+
+**Carry (2026-11-06, built as Complement CP-16; tag `slice/cp-16-hall-of-command`, merge a9dd6e17):** the final-retirement
+callout, `GameState.hallOfCommand` (one entry per retirement), `CaptainState.missionsFlown` and the captain's notable
+moments (`captainNotables.ts`: level milestones every 10, firsts), the Archive's HALL OF COMMAND panel, Help topic
+`hallOfCommand`. No SAVE bump. Tests `cp16Goldens.test.ts`, `cp16HallOfCommand.test.ts`, `hallOfCommandDisplay.test.ts`.
 
 ### Task 30: Roster dropdown on the ship personnel screen
 A select on `SeniorStaffPanel.svelte` / ship personnel view listing saved rosters; applies via `applyRoster`
@@ -977,9 +1040,19 @@ level (first-pass 1.08^(level-30)). Below the threshold byte-identical. Tests bo
 A Homeworld (or Personnel) timed upgrade raising `seniorStaffRosterSize` by 2 per level up to 20; the recruit
 board reads the same size. Reuse the existing timed-upgrade machinery (`docksExpansion` pattern). Tests.
 
+**Carry (2026-11-09, built as Complement CP-19; tag `slice/cp-19-rosters-track`, merge 02a6227f):** a Personnel Rosters
+upgrade track on the facility framework (`model.ts PERSONNEL_ROSTERS_LEVELS`, Levels 2 to 6, +2 slots each, 10 to 20 on
+both boards), the Recruiter talent a flat +1; existing candidates keep their places; durations [PROVISIONAL]. Tests
+`cp19Goldens.test.ts`, `cp19RostersTrack.test.ts`; QA `docs/qa/2026-11-09-cp19-rosters-track-qa.html`.
+
 ### Task 33: Graph color option
 A per-graph color setting in Settings (localStorage preference module like `tickBarPreference.ts`, one key per
 graph, starting with the complement graph). Verify in preview.
+
+**Carry (2026-11-09, built as Complement CP-20; tag `slice/cp-20-graph-colors`, merge bca3b254):**
+`graphPalettePreference.ts`, Settings, UI, Accessibility, "Graph colors": Default, Color-blind safe (fixed Okabe-Ito
+steps) and Monochrome; Default follows the global Color-blind palette toggle. Per device, never in the save. Tests
+`graphPalettePreference.test.ts`; QA `docs/qa/2026-11-09-cp20-graph-colors-qa.html`.
 
 ---
 
@@ -989,6 +1062,11 @@ graph, starting with the complement graph). Verify in preview.
 `src/lib/helpTopics.ts`: add topics for Away Teams, Recruitment, Implants, Officer Stats, Complement Active Mode;
 rewrite the `fuel` topic for fuel-to-reach and remove the Fuel Depot mention from the Homeworld topic (inventory
 A8; wrong in prod since 0.13.6). Test: the existing help-topic shape test passes.
+
+**Carry (2026-11-11, Complement CP-21 close-out):** topics `complement` (Complement and the Crew Pool, the active
+mode included), `officerStats`, `recruitment`, `awayMembers` and `implants` added, every number from the engine,
+pinned in `helpTopicsCrew.test.ts`. The fuel topic already reads as reach (0.13.9 test). The notable ticker's placement
+is not described until the user places it.
 
 ### Task 34b: Consolidate SAVE_VERSION pins (chore)
 `save.test.ts` repeats `expect(SAVE_VERSION).toBe(N)` about 25 times and `.version).toBe(N)` about 11 times, so
