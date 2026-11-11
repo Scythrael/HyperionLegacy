@@ -64,8 +64,9 @@ export function patrolTorpedoesLive(stamped: Stamped): boolean {
 
 // WR-8b: a Marauder's chance to carry a torpedo on this cycle, in whole permille: MARAUDER_TORPEDO_PERMILLE on the
 // patrol ramp, the WR-10 Corroded mechanism (rampedChance at the odds position, one run behind the enemy curve:
-// runDifficulty.ts rampOddsFraction of the cycle's completed runs). Full on a cycle without a curve stamp (a veteran, the
-// curve at its top), 0 on the training cycle and on the first two ramped patrols. Pure.
+// runDifficulty.ts rampOddsFraction of the cycle's completed runs). Full on a cycle without a curve stamp (a veteran, or
+// past the odds ramp's top: runDifficulty.ts patrolDifficultyAt keeps stamping one patrol past the enemy curve's top, so
+// that step is a step like the rest), 0 on the training cycle and on the first two ramped patrols. Pure.
 export function patrolMarauderTorpedoPermille(stamped: Stamped): number {
   const s = patrolStampOf(stamped);
   if (s === null) return MARAUDER_TORPEDO_PERMILLE;

@@ -21,6 +21,18 @@ export function withEnemyTorpedoesOff<T>(run: () => T): T {
   }
 }
 
+// The other way round (the WR-8b fix round): inside a file that runs with WR-8b off, one call with it ON (the live game:
+// every run started inside carries enemy torpedoes), the file's setting restored after.
+export function withEnemyTorpedoesOn<T>(run: () => T): T {
+  const was = ENEMY_TORPEDO_SWITCH.stampNewRuns;
+  ENEMY_TORPEDO_SWITCH.stampNewRuns = true;
+  try {
+    return run();
+  } finally {
+    ENEMY_TORPEDO_SWITCH.stampNewRuns = was;
+  }
+}
+
 // For a golden FILE captured before WR-8b whose pins are about another slice: the whole file runs with WR-8b off, and
 // its pins keep proving that slice moved nothing else. Called once at the file's top level, restored after its last test.
 export function enemyTorpedoesOffForThisFile(): void {

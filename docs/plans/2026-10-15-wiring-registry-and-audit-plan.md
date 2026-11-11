@@ -2257,6 +2257,12 @@ stalls run 2 on 5 of 200 (2.5%, under the 5% bar: a margin of 5 runs); rank1si a
   that grows along the patrol ramp, and a ship-event torpedo chance that grows with expedition tier (gentle at Tier I).
   LOGGED for later: torpedoes (or an equivalent) on all ships at high tiers, and Safety Interlocks (SUGGESTIONS.md
   "SAFETY INTERLOCKS", the opt-in risk toggles; user: "Check documentation for the definition") raising enemy danger.
+- **USER ANSWERS (2026-11-10), WR-8b balance after the build** (veteran, Standard Issue, 200 seeds; Warband Balanced
+  wins Destroyer 15% to 8%, Battleship 88% to 72%, Carrier 38% to 20%; Defensive now the better pick for every hull):
+  - Warband difficulty: "Keep, tune in 0.16.0 (Recommended)". The measured numbers stand, all torpedo chances stay
+    [PROVISIONAL] for the 0.16.0 balancing patch. patrol-balance.test.ts must measure the live path honestly.
+  - Marauder 31.6% to 40% jump at 10 patrols: "Smooth it out (Recommended)": the 9th and 10th patrols step up like the
+    rest, ending at the same 40%.
 
 #### WR-8b carry note (enemy torpedoes, built 2026-11-10 on f8d3623; two commits: goldens, then the wiring; no SAVE bump)
 
@@ -2276,10 +2282,35 @@ Defensive Carrier's torpedo damage from a torpedo-armed Corsair Carrier), new LI
 `ship:wr8b:marauderTorpedoRamp`, `ship:wr8b:shipEventTorpedoes`.
 
 **[PROVISIONAL]:** `MARAUDER_TORPEDO_PERMILLE` 400 (by completed patrols: 0, 0, 15, 42, 77, 119, 166, 218, 274, 316,
-then 400 from 10), `SHIP_EVENT_TORPEDO_PERMILLE_BY_TIER` 50 / 150 / 250 / 350 / 450 / 550 / 650 (Tier I x the odds ramp).
+then 400 from 10; smoothed in the fix round below), `SHIP_EVENT_TORPEDO_PERMILLE_BY_TIER` 50 / 150 / 250 / 350 / 450 / 550 / 650 (Tier I x the odds ramp).
 
 **Measured (live loop, veteran, Standard Issue, Dispatch Once, 200 seeds, wins before and after):** Warband Balanced:
 Destroyer 30 to 16, Battleship 176 to 143, Carrier 76 to 39; Defensive: 30 to 26, 143 to 173, 85 to 65. Sweep: Destroyer
-200 to 197 (Balanced), 199 (Defensive); Battleship and Carrier 200. patrol-balance.test.ts is unchanged (its Warband
+200 to 197 (Balanced), 199 (Defensive); Battleship and Carrier 200. patrol-balance.test.ts is unchanged (fixed in the fix round below) (its Warband
 bands run the forecast path without a stamp; its live Sweep floor holds at 98.5%). The ramp sweep is unchanged (D18 run 2
 stalls 5 of 200; rank1si completes 192 of 200 at full strength).
+
+OPEN CALL: ship-event torpedoes cannot be intercepted, because ship events have no stance; needs the user's OK.
+
+**Fix round (2026-11-10, after the review and the two answers above):**
+- Marauder top step smoothed (user "Smooth it out (Recommended)"): runDifficulty.ts `patrolDifficultyAt` keeps writing
+  the patrol stamp one patrol past the enemy curve's top (a non-veteran at 10 completed: ramp 1, completed 10) while the
+  odds ramp `rampOddsFraction` is below 1, only while new runs carry enemy torpedoes (combatRules.ts
+  `newRunsCarryEnemyTorpedoes`). The chance by completed patrols is now 0, 0, 15, 42, 77, 119, 166, 218, 274, 316, 358,
+  then 400 from 11 [PROVISIONAL]. The early curve is untouched (the first two patrols after training read 0). Nothing
+  else reads that stamp differently: its ramp 1 is full enemy strength (patrolEnemyScale 1, the same waves and
+  enemies), it is not the training cycle, a Repeat run hands it on unchanged; Corroded (WR-10) reads the expedition
+  stamp, not the patrol one. Veterans stay unstamped. Moved pins: enemyTorpedoGoldens.test.ts gains c10 and c11 Sweep
+  rows (c10 live: the dispatch record carries the stamp, 2a6af07e; replay, outcome, ship and state are the veteran's;
+  c11 is the veteran's record, 9b0b14e); every switched-off file is unchanged. Registry claim, Help (35.8% after 10, 40%
+  from 11) and the QA sheet updated.
+- patrol-balance.test.ts measures the live forecast path (App.svelte patrolForecastFor mirrored: patrolDifficultyAt,
+  shipCombatRulesStamp, the route, the folded start pools). It had run with no stamp (the pre-WR-8 fight). Measured
+  (N=64): Warband carrier 15.6% (Extreme; was ~75% on the old path), crafted carrier 98.4%, bays empty 6.3%, destroyer
+  6.3%, battleship 71.9%; economy hulls 0% on the Warband. The carrier's floor moved 0.40 to 0.10 per the answer above
+  [PROVISIONAL]; every other invariant holds as written.
+- Torpedoes-on variants: gearWearCombat.test.ts (a destroyer's Repeat Sweep: 94 cycles checked before a lost fight, 12
+  needed pauses, 18 torpedo cycles) and racialsWired.test.ts (the Belter bank on master seed 3, a run that survives:
+  244 torpedo cycles, the bank pays, the control pays nothing).
+- Text: the card line names the Defensive stance and a working Point-Defense Array or EMP Cannon; Help uses the display
+  name "Point-Defense Array"; combatRules.ts no longer claims a user answer on the ship-event intercept.

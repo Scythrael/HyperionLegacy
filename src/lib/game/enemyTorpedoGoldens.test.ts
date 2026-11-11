@@ -39,7 +39,9 @@ const ROUTES = Object.keys(PATROLS) as PatrolKey[];
 const EXPLORERS: ShipTypeKey[] = ["orion", "aurora", "eir"];
 const RUN_SEEDS: (number | undefined)[] = [undefined, 202];
 const TIERS: RegionTier[] = [1, 2, 3, 4, 7];
-const CURVE: number[] = [3, 6, 9];
+// 10 and 11 (the WR-8b fix round, user 2026-11-10 "Smooth it out (Recommended)"): the enemy curve's top, where the
+// stamp is now kept one more patrol for the Marauder's torpedo odds, and the first unstamped patrol after it.
+const CURVE: number[] = [3, 6, 9, 10, 11];
 const RNG = (): number => 0.5;
 
 const patrolOf = (s: GameState): PatrolMissionState | null => s.captains[0].mission as PatrolMissionState | null;
@@ -145,6 +147,10 @@ export const TORPEDO_GOLDEN_PRE: Record<string, unknown> = {
   "patrol:destroyer:sweep:c3": ["f17a3614", "bd838264", "won", "6ad9f46c", "6ca4ceec"],
   "patrol:destroyer:sweep:c6": ["48c8c555", "e7d1e7fc", "won", "6ad9f46c", "2edb440b"],
   "patrol:destroyer:sweep:c9": ["149cbfa0", "7e5649b", "won", "6ad9f46c", "2306786f"],
+  // Added in the fix round with the switch on its off side: before WR-8b the curve's top (10 completed) and past it
+  // (11) wrote no stamp, so both rows are the veteran Sweep row above, byte for byte.
+  "patrol:destroyer:sweep:c10": ["c478f282", "ba2ee129", "won", "6ad9f46c", "7ade5edc"],
+  "patrol:destroyer:sweep:c11": ["c478f282", "ba2ee129", "won", "6ad9f46c", "7ade5edc"],
   "tier:1": "p00:w0,p01:w0,p02:w0,p03:w0,p04:w0,p05:w0,p06:w0,p07:w0,p10:w0,p11:w0,p12:w0,p13:w0,p14:w0,p15:w0,p16:w0,p17:w0,cp00:w0,cp01:w0,cp02:w0,cp03:w0,cp04:w0,cp05:w0,cp06:w0,cp07:w0,cp10:w0,cp11:w0,cp12:w0,cp13:w0,cp14:w0,cp15:w0,cp16:w0,cp17:w0,cf00:w0,cf01:w0,cf02:w0,cf03:w0,cf04:l41,cf05:w0,cf06:w0,cf07:w0,cf10:w0,cf11:l41,cf12:w0,cf13:w0,cf14:w0,cf15:w0,cf16:w0,cf17:w0",
   "tier:2": "p00:w0,p01:w0,p02:w0,p03:w0,p04:w0,p05:w0,p06:w0,p07:w0,p10:w0,p11:w0,p12:w0,p13:w0,p14:w0,p15:w0,p16:w0,p17:w0,cp00:l41,cp01:l41,cp02:l41,cp03:l41,cp04:l41,cp05:l41,cp06:l41,cp07:l41,cp10:w0,cp11:w0,cp12:w0,cp13:w0,cp14:w0,cp15:w0,cp16:w0,cp17:w0,cf00:l41,cf01:l41,cf02:l41,cf03:l41,cf04:l41,cf05:l41,cf06:l41,cf07:l41,cf10:w0,cf11:l41,cf12:w0,cf13:w0,cf14:w0,cf15:w0,cf16:w0,cf17:w0",
   "tier:3": "p00:w0,p01:w0,p02:w0,p03:w0,p04:w0,p05:w0,p06:w0,p07:w0,p10:w0,p11:w0,p12:w0,p13:w0,p14:w0,p15:w0,p16:w0,p17:w0,cp00:l41,cp01:l41,cp02:l41,cp03:l41,cp04:l41,cp05:l41,cp06:l41,cp07:l41,cp10:w0,cp11:w0,cp12:w0,cp13:w0,cp14:w0,cp15:w0,cp16:w0,cp17:w0,cf00:l41,cf01:l41,cf02:l41,cf03:l41,cf04:l41,cf05:l41,cf06:l41,cf07:l41,cf10:w0,cf11:l41,cf12:w0,cf13:w0,cf14:w0,cf15:w0,cf16:w0,cf17:w0",
@@ -193,7 +199,11 @@ describe("WR-8b goldens: in flight (dispatched before WR-8b, advanced by the WR-
 // - stamp: the stamp carries enemyTorpedoes: 1.
 // - patrol (every row): the dispatch record moves with the stamp. The Sweep rows move ONLY there: their Marauders at
 //   full strength (40%) and on the curve (4.2%, 16.6%, 31.6% at 3, 6, 9 completed) roll no torpedo on master seed 1, so
-//   the replay, the outcome, the ship and the end state are the capture's. Every Warband row moves its replay and end
+//   the replay, the outcome, the ship and the end state are the capture's. The fix round's top step (user 2026-11-10
+//   "Smooth it out (Recommended)"): at 10 completed the record also carries the curve stamp (ramp 1, completed 10:
+//   full enemy strength, the Marauder at 35.8%), at 11 none (40%, the veteran's record, 9b0b14e); before the fix 10
+//   read as 11 does. Neither chance rolls a torpedo on master seed 1, so both replays are the veteran's (ba2ee129).
+//   Every Warband row moves its replay and end
 //   state: each Corsair Carrier fires a torpedo (and parks at the torpedo's long reach in its Defensive stance); on
 //   master seed 1 every outcome holds (all four won, as captured), with more hull lost on the way.
 // - forecast: the Warband reads harder: Destroyer 9 to 4 of 64 (Extreme), Battleship 52 to 46 (Likely to Worthy),
@@ -224,6 +234,8 @@ const TORPEDO_GOLDEN: Record<string, unknown> = {
   "patrol:destroyer:sweep:c3": ["925219dc", "bd838264", "won", "6ad9f46c", "6ca4ceec"],
   "patrol:destroyer:sweep:c6": ["cdfb539f", "e7d1e7fc", "won", "6ad9f46c", "2edb440b"],
   "patrol:destroyer:sweep:c9": ["73d28278", "7e5649b", "won", "6ad9f46c", "2306786f"],
+  "patrol:destroyer:sweep:c10": ["2a6af07e", "ba2ee129", "won", "6ad9f46c", "7ade5edc"],
+  "patrol:destroyer:sweep:c11": ["9b0b14e", "ba2ee129", "won", "6ad9f46c", "7ade5edc"],
   "tier:1": "p00:w0,p01:w0,p02:w0,p03:w0,p04:w0,p05:w0,p06:w0,p07:w0,p10:w0,p11:w0,p12:w0,p13:w0,p14:w0,p15:w0,p16:w0,p17:w0,cp00:w0,cp01:w0,cp02:w0,cp03:w0,cp04:w0,cp05:w0,cp06:w0,cp07:w0,cp10:w0,cp11:w0,cp12:w0,cp13:w0,cp14:w0,cp15:w0,cp16:w0,cp17:l41,cf00:w0,cf01:w0,cf02:w0,cf03:w0,cf04:l41,cf05:w0,cf06:w0,cf07:w0,cf10:w0,cf11:l41,cf12:w0,cf13:w0,cf14:w0,cf15:w0,cf16:w0,cf17:l41",
   "tier:2": "p00:w0,p01:w0,p02:w0,p03:w0,p04:w0,p05:w0,p06:w0,p07:w0,p10:w0,p11:w0,p12:w0,p13:w0,p14:w0,p15:w0,p16:w0,p17:w0,cp00:l41,cp01:l41,cp02:l41,cp03:l41,cp04:l41,cp05:l41,cp06:l41,cp07:l41,cp10:w0,cp11:l41,cp12:w0,cp13:w0,cp14:w0,cp15:w0,cp16:l41,cp17:l41,cf00:l41,cf01:l41,cf02:l41,cf03:l41,cf04:l41,cf05:l41,cf06:l41,cf07:l41,cf10:w0,cf11:w0,cf12:w0,cf13:l41,cf14:w0,cf15:w0,cf16:l41,cf17:l41",
   "tier:3": "p00:w0,p01:w0,p02:w0,p03:w0,p04:w0,p05:w0,p06:w0,p07:w0,p10:w0,p11:w0,p12:w0,p13:w0,p14:w0,p15:w0,p16:w0,p17:w0,cp00:l41,cp01:l41,cp02:l41,cp03:l41,cp04:l41,cp05:l41,cp06:l41,cp07:l41,cp10:w0,cp11:l41,cp12:w0,cp13:w0,cp14:l41,cp15:w0,cp16:l41,cp17:l41,cf00:l41,cf01:l41,cf02:l41,cf03:l41,cf04:l41,cf05:l41,cf06:l41,cf07:l41,cf10:w0,cf11:w0,cf12:w0,cf13:l41,cf14:l41,cf15:w0,cf16:l41,cf17:l41",

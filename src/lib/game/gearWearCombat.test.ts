@@ -9,7 +9,7 @@
 import { describe, expect, it } from "vitest";
 // WR-8b (enemy torpedoes) came after every pin here: the file runs with it off (enemyTorpedoSwitch.fixture.ts), so its
 // pins keep proving their own slice (enemyTorpedoGoldens.test.ts pins what WR-8b moved, enemyTorpedoes.test.ts proves it).
-import { enemyTorpedoesOffForThisFile } from "./enemyTorpedoSwitch.fixture";
+import { enemyTorpedoesOffForThisFile, withEnemyTorpedoesOn } from "./enemyTorpedoSwitch.fixture";
 enemyTorpedoesOffForThisFile();
 import Decimal from "break_infinity.js";
 import { SHIP_TYPES, withFavoredLines, type EquipmentInstance, type GameState, type PatrolMissionState, type ShipTypeKey } from "./model";
@@ -368,17 +368,24 @@ describe("gear wear step 4: pause to repair (user 2026-10-27; the trigger 2026-1
 
   // A Repeat Sweep flown for `cycles` relaunches in 1 s steps: no cycle ever flies into a projected break of a worn
   // system, and each pause came exactly when the cycle about to fly would have broken one.
-  function longRepeat(hull: ShipTypeKey, cycles: number): { pauses: number; relaunches: number } {
+  // (lost: the run ended on a lost fight; torpedoCycles: the relaunched cycles stamped with enemy torpedoes whose
+  // display replay fields at least one, the WR-8b variant's proof that it fought them.)
+  function longRepeat(hull: ShipTypeKey, cycles: number): { pauses: number; relaunches: number; lost: boolean; torpedoCycles: number } {
     let s = dispatch(veteran(hull), true);
     let relaunches = 0;
     let seed = patrolOf(s)!.masterSeed;
     let wasPaused = false;
     let pauses = 0;
+    let lost = false;
+    let torpedoCycles = 0;
     let wornAtPause: Record<string, number> | null = null;
     for (let t = 0; t < 400_000 && relaunches < cycles && patrolOf(s) !== null; t++) {
       s = economyTick(s, 1, RNG);
       const m = patrolOf(s);
-      if (m === null) break; // a fight lost to the dice is accepted (user 2026-10-28)
+      if (m === null) {
+        lost = true;
+        break; // a fight lost to the dice is accepted (user 2026-10-28)
+      }
       if (m.repairPause !== undefined && !wasPaused && m.repairPause.first !== true) {
         pauses += 1;
         const paused = s;
@@ -389,6 +396,7 @@ describe("gear wear step 4: pause to repair (user 2026-10-27; the trigger 2026-1
         seed = m.masterSeed;
         relaunches += 1;
         const worn = Object.keys(m.cycleStartCondition ?? {}).length > 0;
+        if (m.combatRules?.enemyTorpedoes === 1 && JSON.stringify(replayPatrol(s, s.captains[0]).waves).includes("concussionTorpedo")) torpedoCycles += 1;
         if (worn) expect(breaks(s), `${hull} cycle ${relaunches}: a worn system never breaks mid-cycle`).toBe(false);
         // Exactly then: the cycle the pause held back (this same cycle, at the gear it would have opened with) breaks.
         if (wornAtPause !== null) {
@@ -397,7 +405,7 @@ describe("gear wear step 4: pause to repair (user 2026-10-27; the trigger 2026-1
         }
       }
     }
-    return { pauses, relaunches };
+    return { pauses, relaunches, lost, torpedoCycles };
   }
 
   for (const hull of ["destroyer", "battleship"] as const) {
@@ -407,6 +415,20 @@ describe("gear wear step 4: pause to repair (user 2026-10-27; the trigger 2026-1
       expect(r.pauses).toBeGreaterThan(0);
     }, 600_000);
   }
+
+  // WR-8b fix round: the same rule against the live enemies (WR-8b on: the Sweep's Marauders carry torpedoes at full
+  // strength, 40%). Every relaunched cycle is checked inside longRepeat exactly as above (a worn system never flies
+  // into a break; each pause was needed); the run may end on a fight lost to the dice (user 2026-10-28), so the count
+  // asserted is the cycles flown before it, and the run must have fought torpedoes and paused to repair.
+  it("a destroyer's Repeat Sweep against the live enemies (torpedoes on): no worn system flies into a break; it pauses when one would", () => {
+    // Measured 2026-11-10 (master seed 1): 94 relaunches checked before the run lost a fight, 12 pauses, 18 cycles
+    // that fielded a torpedo. At least 50 checked cycles, so the rule is exercised over a long run, not a few cycles.
+    const r = withEnemyTorpedoesOn(() => longRepeat("destroyer", 100));
+    if (!r.lost) expect(r.relaunches).toBe(100);
+    expect(r.relaunches).toBeGreaterThanOrEqual(50);
+    expect(r.torpedoCycles).toBeGreaterThan(0);
+    expect(r.pauses).toBeGreaterThan(0);
+  }, 600_000);
 
   it("the trigger: a cycle that would break a worn system repairs first; one that would not flies worn", () => {
     const breaking = dispatch(wornAt(veteran("destroyer"), ["weapon"], 20), true);

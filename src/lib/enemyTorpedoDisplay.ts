@@ -9,6 +9,7 @@
 import { DEFENSIVE_STANCE, MARAUDER_TORPEDO_PERMILLE, SHIP_EVENT_TORPEDO_PERMILLE_BY_TIER } from "./game/combat/combatRules";
 import { patrolMarauderTorpedoPermille } from "./game/combat/patrolProfile";
 import { PIRATE_HULLS } from "./game/combat/enemyHulls";
+import { weaponDisplayName } from "./game/combat/combatView";
 import { N_FULL, RAMP_MAX_TIER, isFirstRun, patrolDifficultyAt, rampFraction, rampOddsFraction } from "./game/runDifficulty";
 import type { GameState, PatrolDef, RegionTier } from "./game/model";
 import { regionTierNumeral } from "./game/galaxy";
@@ -24,13 +25,22 @@ function tierName(t: number): string {
 const CARRIER = PIRATE_HULLS.corsairCarrier.name;
 const MARAUDER = PIRATE_HULLS.marauder.name;
 const INTERCEPT = permillePct(DEFENSIVE_STANCE.missileInterceptPct * 10);
+// The weapons that shoot torpedoes down, by their display names (combat/combatView.ts).
+const INTERCEPTORS = `a working ${weaponDisplayName("pointDefenseArray")} or ${weaponDisplayName("empCannon")}`;
 
 // The Marauder's chance after `completed` patrol runs (the training patrol not counted), as a dispatch then stamps it:
-// the curve's stamp below the top, full from the top on (patrolDifficultyAt writes no stamp there). Pure.
+// the curve's stamp while the odds ramp is below its top (runDifficulty.ts patrolDifficultyAt stamps one patrol past
+// the enemy curve's top, the WR-8b fix round's smoothed step), full from there on (no stamp). Pure.
 export function marauderTorpedoPermilleAfter(completed: number): number {
-  if (completed >= N_FULL - 1) return MARAUDER_TORPEDO_PERMILLE;
+  if (rampOddsFraction(completed) >= 1) return MARAUDER_TORPEDO_PERMILLE;
   return patrolMarauderTorpedoPermille({ difficulty: { version: 1, firstRun: false, ramp: rampFraction(completed), tier: RAMP_MAX_TIER, completed } });
 }
+// The first completed-run count at which a Marauder carries one at full strength (the odds ramp at its top).
+export const MARAUDER_FULL_AFTER = (() => {
+  let c = 0;
+  while (rampOddsFraction(c) < 1) c += 1;
+  return c;
+})();
 // The first completed-run count at which a Marauder can carry a torpedo (the odds ramp lifts off 0).
 const MARAUDER_FIRST_AFTER = (() => {
   for (let c = 0; c < N_FULL; c++) if (rampOddsFraction(c) > 0) return c;
@@ -49,11 +59,11 @@ export function patrolTorpedoLine(state: GameState, def: Pick<PatrolDef, "hullPo
   }
   if (parts.length === 0) return null;
   const text = parts.join("; ");
-  return `${text.charAt(0).toUpperCase()}${text.slice(1)}. Point defense shoots torpedoes down only in the Defensive stance.`;
+  return `${text.charAt(0).toUpperCase()}${text.slice(1)}. Point defense shoots torpedoes down only in the Defensive stance, with ${INTERCEPTORS}.`;
 }
 
 // The Combat Patrols Help paragraph.
-export const PATROL_TORPEDO_HELP = `TORPEDOES: some pirates carry a Concussion Torpedo, a slow, heavy missile. Every ${CARRIER} installs one beside its plasma. A ${MARAUDER} may carry one: never on the training patrol or your first ${MARAUDER_FIRST_AFTER} patrols after it, then more often as your patrols go on (${permillePct(marauderTorpedoPermilleAfter(4))} after 4 completed patrols, ${permillePct(marauderTorpedoPermilleAfter(7))} after 7), and ${permillePct(MARAUDER_TORPEDO_PERMILLE)} from ${N_FULL - 1} completed patrols on. Only a ship flying Defensive with a working Point Defense Array or EMP Cannon can shoot torpedoes down (about ${INTERCEPT} of them); in Aggressive or Balanced every torpedo gets its shot. The patrol card's More info lists who carries them for a patrol you send now, and the Threat Assessment counts them.`;
+export const PATROL_TORPEDO_HELP = `TORPEDOES: some pirates carry a Concussion Torpedo, a slow, heavy missile. Every ${CARRIER} installs one beside its plasma. A ${MARAUDER} may carry one: never on the training patrol or your first ${MARAUDER_FIRST_AFTER} patrols after it, then more often as your patrols go on (${permillePct(marauderTorpedoPermilleAfter(4))} after 4 completed patrols, ${permillePct(marauderTorpedoPermilleAfter(7))} after 7, ${permillePct(marauderTorpedoPermilleAfter(MARAUDER_FULL_AFTER - 1))} after ${MARAUDER_FULL_AFTER - 1}), and ${permillePct(MARAUDER_TORPEDO_PERMILLE)} from ${MARAUDER_FULL_AFTER} completed patrols on. Only a ship flying Defensive with ${INTERCEPTORS} can shoot torpedoes down (about ${INTERCEPT} of them); in Aggressive or Balanced every torpedo gets its shot. The patrol card's More info lists who carries them for a patrol you send now, and the Threat Assessment counts them.`;
 
 const TIERS = Object.keys(SHIP_EVENT_TORPEDO_PERMILLE_BY_TIER).map(Number).sort((a, b) => a - b) as (keyof typeof SHIP_EVENT_TORPEDO_PERMILLE_BY_TIER)[];
 const FIRST_TIER = TIERS[0];

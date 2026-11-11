@@ -82,6 +82,12 @@ export const POWER_SUPPLY_SWITCH: { stampNewRuns: boolean } = { stampNewRuns: tr
 // app.
 export const ENEMY_TORPEDO_SWITCH: { stampNewRuns: boolean } = { stampNewRuns: true };
 
+// Whether a run starting now is stamped with enemy torpedoes (newCombatRulesStamp below writes enemyTorpedoes): both
+// test switches on, always true in the app. Read by runDifficulty.ts patrolDifficultyAt (the WR-8b fix round's top step).
+export function newRunsCarryEnemyTorpedoes(): boolean {
+  return COMBAT_RULES_SWITCH.stampNewRuns && ENEMY_TORPEDO_SWITCH.stampNewRuns;
+}
+
 // The stamp a run starting now carries for a ship of combat speed `speed`, the installed system qualities and the
 // power supply percent (undefined while the test switch is off).
 export function newCombatRulesStamp(speed: number, reactorQuality = 0, ftlQuality = 0, powerSupplyPercent = 100): CombatRulesStamp | undefined {
@@ -110,7 +116,7 @@ export const MARAUDER_TORPEDO_PERMILLE = 400;
 // run's expedition tier, in whole permille. User: "Starting off a bit more generous, but as you go up in tier ...
 // enemies become far more dangerous." Gentle at Tier I (and on the Tier I ramp, x the run's odds ramp, so 0 on the
 // first ramped runs), rising each tier. Never on the training run (it fights no battle). A ship event has no stance, so
-// no point defense shoots these down (the user accepted that).
+// no point defense shoots these down (an OPEN CALL for the user, logged in the WR-8b carry note).
 export const SHIP_EVENT_TORPEDO_PERMILLE_BY_TIER: Readonly<Record<1 | 2 | 3 | 4 | 5 | 6 | 7, number>> = {
   1: 50,
   2: 150,

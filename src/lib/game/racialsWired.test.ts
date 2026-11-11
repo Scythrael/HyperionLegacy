@@ -12,7 +12,7 @@
 import { describe, expect, it } from "vitest";
 // WR-8b (enemy torpedoes) came after every pin here: the file runs with it off (enemyTorpedoSwitch.fixture.ts), so its
 // pins keep proving their own slice (enemyTorpedoGoldens.test.ts pins what WR-8b moved, enemyTorpedoes.test.ts proves it).
-import { enemyTorpedoesOffForThisFile } from "./enemyTorpedoSwitch.fixture";
+import { enemyTorpedoesOffForThisFile, withEnemyTorpedoesOn } from "./enemyTorpedoSwitch.fixture";
 enemyTorpedoesOffForThisFile();
 import { asPatrolVeteran, dispatchPastPropulsion } from "./awayTeamTestFixtures";
 import { freshState, outboundLegSpeed, returnLegSpeed, type CaptainState, type CrewBucket, type GameState, type PatrolMissionState } from "./model";
@@ -116,6 +116,61 @@ describe("Belter + Deck Handling: a patrol cycle's drones replenish faster", () 
     expect(replay.available).toBe(true);
     const start = patrolOf(belter.s).replenishCarryStart;
     if (start) expect(JSON.stringify(replay)).toContain(`"replenishCarryPpm":`);
+  });
+
+  // WR-8b fix round: the same long Repeat patrol against the live enemies (WR-8b on: the Sweep's Marauders carry
+  // torpedoes at full strength, 40%). The bank must still pay, carry across relaunches and stay off for another race.
+  it("ONE Belter crewman moves the replenish against the live enemies too (torpedoes on, a run that survives)", () => {
+    const run = (s0: GameState) =>
+      withEnemyTorpedoesOn(() => {
+        let s = dispatched(asPatrolVeteran(s0), true);
+        const first = patrolOf(s);
+        expect(first.combatRules?.enemyTorpedoes).toBe(1);
+        let last = first;
+        let prev = first.playerDrones.map((sq) => sq.replenishCarryPpm ?? 0);
+        let paid = 0;
+        let carriedOver = false;
+        let relaunches = 0;
+        let torpedoCycles = 0;
+        let lost = false;
+        for (let i = 0; i < 20_000; i++) {
+          const seed = last.masterSeed;
+          s = economyTick(s, 1, () => 0.5);
+          const m = s.captains[0].mission as PatrolMissionState | null;
+          if (m === null) {
+            lost = true;
+            break;
+          }
+          const now = m.playerDrones.map((sq) => sq.replenishCarryPpm ?? 0);
+          if (now.some((c, j) => c < (prev[j] ?? 0))) paid += 1; // the bank released a whole unit
+          if (m.masterSeed !== seed) {
+            relaunches += 1;
+            if ((m.replenishCarryStart ?? []).some((c) => c > 0)) carriedOver = true;
+            if (JSON.stringify(replayPatrol(s, s.captains[0]).waves).includes("concussionTorpedo")) torpedoCycles += 1;
+          }
+          prev = now;
+          last = m;
+        }
+        return { first, last, paid, carriedOver, relaunches, torpedoCycles, lost };
+      });
+    // Master seed 3: a run that survives all 20,000 s against the live enemies (the default seed 1 loses a fight on its
+    // 16th cycle, before the bank has paid a unit; seeds 1 to 40 scanned 2026-11-10, 4 survive). It fights 244 cycles
+    // that field a torpedo. Every check below reads the whole run.
+    const SEED = 3;
+    const one = [bucket("flightDeck", "belter", "flight.transitOut", 1)];
+    const belter = run({ ...withCrew(combatBase("carrier"), one), nextPatrolSeed: SEED });
+    const control = run({ ...withCrew(combatBase("carrier"), [bucket("flightDeck", "spacer", "flight.transitOut", 1)]), nextPatrolSeed: SEED });
+    expect(belter.lost).toBe(false);
+    expect(control.lost).toBe(false);
+    expect(belter.first.deckHandling).toBe(CREW_RACES.belter.racialBonus.complement);
+    expect(belter.last.deckHandling).toBe(CREW_RACES.belter.racialBonus.complement);
+    expect(belter.torpedoCycles).toBeGreaterThan(0);
+    expect(belter.carriedOver).toBe(true);
+    expect(belter.paid).toBeGreaterThan(0);
+    // The same patrol with a crewman of another race replenishes on the plain rate only.
+    expect(control.torpedoCycles).toBeGreaterThan(0);
+    expect(control.paid).toBe(0);
+    expect(control.last.playerDrones.every((sq) => sq.deckHandlingPpm === undefined)).toBe(true);
   });
 
   it("a hull without drones keeps an empty screen; a ship without the key writes nothing", () => {

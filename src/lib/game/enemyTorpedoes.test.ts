@@ -42,7 +42,13 @@ import {
   HOSTILE_PROBE_HULL,
   CLOAKED_VESSEL_HULL,
 } from "./shipScanEvents";
-import { N_FULL, PATROL_RULES_RAMP_FLOOR, rampFraction } from "./runDifficulty";
+import {
+  N_FULL,
+  PATROL_RULES_RAMP_FLOOR,
+  patrolDifficultyAt,
+  patrolEnemyScale,
+  rampFraction,
+} from "./runDifficulty";
 import { replayPatrol } from "./combat/patrolReplay";
 import { onHull, stateHash, withCrew } from "./firstRunsGoldens.fixture";
 import {
@@ -181,7 +187,7 @@ describe("WR-8b: patrol waves", () => {
       0,
     );
     let last = 0;
-    for (let c = 2; c < N_FULL - 1; c++) {
+    for (let c = 2; c < N_FULL; c++) {
       const p = patrolMarauderTorpedoPermille({ difficulty: curveStamp(c) });
       expect(p, `completed ${c}`).toBeGreaterThan(last);
       expect(p).toBeLessThan(MARAUDER_TORPEDO_PERMILLE);
@@ -189,12 +195,55 @@ describe("WR-8b: patrol waves", () => {
     }
     expect(patrolMarauderTorpedoPermille({})).toBe(MARAUDER_TORPEDO_PERMILLE); // no curve stamp: full strength
     // The display reads the same numbers.
-    expect(marauderTorpedoPermilleAfter(N_FULL - 1)).toBe(
+    expect(marauderTorpedoPermilleAfter(N_FULL)).toBe(
       MARAUDER_TORPEDO_PERMILLE,
     );
     expect(marauderTorpedoPermilleAfter(4)).toBe(
       patrolMarauderTorpedoPermille({ difficulty: curveStamp(4) }),
     );
+  });
+
+  // The WR-8b fix round (user 2026-11-10, "Smooth it out (Recommended)": the 9th and 10th patrols step up like the
+  // rest, ending at the same 40%). The live dispatch's stamp (patrolDifficultyAt) read at every completed-patrol
+  // count: 0, 0, 1.5%, 4.2%, 7.7%, 11.9%, 16.6%, 21.8%, 27.4%, 31.6%, 35.8% (the 11th patrol after the training
+  // patrol, completed 10: the enemy curve's top, the odds ramp one run behind it), then 40% with no stamp.
+  it("the whole curve a dispatch stamps, with no jump at the top: 31.6%, 35.8%, then 40%", () => {
+    const CURVE = [0, 0, 15, 42, 77, 119, 166, 218, 274, 316, 358, 400, 400];
+    const base = onHull("carrier");
+    const stamps = CURVE.map((_, c) => patrolDifficultyAt(onPatrolCurve(base, c)));
+    expect(
+      stamps.map((difficulty) => patrolMarauderTorpedoPermille({ difficulty })),
+    ).toEqual(CURVE);
+    expect(CURVE.map((_, c) => marauderTorpedoPermilleAfter(c))).toEqual(CURVE);
+    // Completed 10 is the enemy curve's top: full enemy strength, still stamped for the odds; completed 11 is unstamped.
+    expect(stamps[10]).toEqual({
+      version: 1,
+      firstRun: false,
+      ramp: 1,
+      tier: 1,
+      completed: 10,
+    });
+    expect(patrolEnemyScale({ difficulty: stamps[10], combatRules: STAMP })).toBe(1);
+    expect(stamps[11]).toBeUndefined();
+    expect(stamps[12]).toBeUndefined();
+    // Every step is a step: the top two climb by no more than the steps before them (the old 31.6% to 40% jump).
+    const steps = CURVE.slice(3, 12).map((p, i) => p - CURVE[i + 2]);
+    expect(Math.max(...steps.slice(-2))).toBeLessThanOrEqual(
+      Math.max(...steps.slice(0, -2)),
+    );
+    // A veteran stays unstamped (full strength, 40%), and a build with WR-8b off stores what it did (no stamp at 10).
+    expect(patrolDifficultyAt(asPatrolVeteran(base))).toBeUndefined();
+    expect(
+      withEnemyTorpedoesOff(() => patrolDifficultyAt(onPatrolCurve(base, 10))),
+    ).toBeUndefined();
+    // The training patrol is untouched.
+    expect(patrolDifficultyAt(base)).toEqual({
+      version: 1,
+      firstRun: true,
+      ramp: 0,
+      tier: 1,
+      completed: 0,
+    });
   });
 
   it("only a stamped cycle that is not the training cycle fields torpedoes", () => {
@@ -539,7 +588,10 @@ describe("WR-8b: the player-facing text", () => {
     expect(vet).toContain(
       `a Marauder carries one ${MARAUDER_TORPEDO_PERMILLE / 10}% of the time`,
     );
-    expect(vet).toContain("only in the Defensive stance");
+    // The card names the condition Help names: the Defensive stance AND a working interceptor (display names).
+    expect(vet).toContain(
+      "only in the Defensive stance, with a working Point-Defense Array or EMP Cannon",
+    );
     expect(
       patrolTorpedoLine(onPatrolCurve(fresh, 0), PATROLS.crimsonReaverSweep),
     ).toContain("No Marauder carries one yet");
@@ -550,6 +602,13 @@ describe("WR-8b: the player-facing text", () => {
       `${DEFENSIVE_STANCE.missileInterceptPct}%`,
     );
     expect(PATROL_TORPEDO_HELP).toContain("first 2 patrols after it");
+    // The smoothed top (WR-8b fix round): the last ramped step, then full one patrol after the enemy curve's top.
+    expect(PATROL_TORPEDO_HELP).toContain("35.8% after 10");
+    expect(PATROL_TORPEDO_HELP).toContain("40% from 11 completed patrols on");
+    expect(PATROL_TORPEDO_HELP).toContain(
+      "a working Point-Defense Array or EMP Cannon",
+    );
+    expect(PATROL_TORPEDO_HELP).not.toContain("Point Defense Array");
     expect(SHIP_EVENT_TORPEDO_HELP).toContain(
       "cannot shoot these torpedoes down",
     );
