@@ -723,7 +723,14 @@ LIVE pins only on the rows it moved, each traced).
   own integers (`pauseResumeTicks`, `gearWear.ts secondsToFull`): the patrol heads out on the tick its gear is full.
   Nothing is settled at the purchase; the pause's window is split at each step (`pauseRepairWindows`) and settles as it
   closes, so one call, 997 s chunks and 1 s steps write the same bytes. The purchase log shows both times ("heads back
-  out in X instead of Y"). A docked ship's Overtime carries into a "Repair first, then go" pause (it never left home).
+  out in X instead of Y"). **[OPEN CALL, user to decide]** A docked ship's Overtime carries into a "Repair first, then
+  go" pause (it never left home): a builder's rule the user has not decided, kept as built for now; switching to "clears
+  at dispatch" is one line (`gearWearEngine.ts DOCKED_OVERTIME_CARRIES_INTO_FIRST_PAUSE = false`).
+  Review fix (2026-11-11, Critical): a purchase splits the pause into back-to-back windows, and the walk now enters the
+  second at its own rate even though it starts on the second the first ends (it decoded an underway-encoded bank at the
+  bought rate: up to about 2.4% over-credit a purchase, combat gear full 10 to 20 ticks before the patrol resumed).
+  `gearWearCloseout.test.ts` checks purchases at 301 s, 302 s, two steps, and mid-second at 1e8 s against a hand-built
+  exact reference, and that the patrol resumes on exactly the tick its combat gear is full.
 - **"Keep the bay rate".** A ship whose hull repair ends in a bay with its gear worn is marked
   (`ShipInstance.gearBayRate`) and its gear keeps the bay rate until full (cleared once full or when it leaves);
   `gearRepairOutlook` no longer splits bay and home. Re-measured (620-tick hull repair, gear at 0): 14.7 min, and 19.1

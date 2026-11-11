@@ -327,7 +327,8 @@ function pausedOvertimeStrip(
   q: ReturnType<typeof canBuyGearRepairOvertime>,
 ): GearOvertimeStrip | null {
   const left = shipGearMinutesToFull(state, base.shipId);
-  const back = (m: number): string => `${name}'s gear full and back on patrol in ${aboutMinutes(m)}`;
+  // (the pause waits on the combat gear: gearWearEngine.ts REPAIR_PAUSE_SLOTS)
+  const back = (m: number): string => `${name}'s combat gear full and back on patrol in ${aboutMinutes(m)}`;
   if (q.ok) {
     return {
       ...base,
@@ -338,7 +339,7 @@ function pausedOvertimeStrip(
       when: `${steps === 0 ? "Speeds up the repair pause" : "Next step"}: ${back(q.minutesLeftAfter)} instead of ${aboutMinutes(q.minutesLeft)}.`,
       minutesLeft: q.minutesLeft,
       minutesAfter: q.minutesLeftAfter,
-      note: steps === 0 ? `Optional. The patrol heads back out as soon as its gear is full; clears when it does.` : `Clears when ${name} heads back out.`,
+      note: steps === 0 ? `Optional. The patrol heads back out as soon as its combat gear is full; clears when it does.` : `Clears when ${name} heads back out.`,
     };
   }
   switch (q.reason) {
@@ -354,7 +355,7 @@ function pausedOvertimeStrip(
         when: left === null ? null : `${back(left).charAt(0).toUpperCase()}${back(left).slice(1)}.`,
         minutesLeft: left,
         minutesAfter: null,
-        note: `Repair carries on free either way; the patrol heads back out when its gear is full.`,
+        note: `Repair carries on free either way; the patrol heads back out when its combat gear is full.`,
       };
     }
     case "maxSteps":
@@ -387,7 +388,7 @@ export function gearOvertimePurchase(state: GameState, shipId: string): { next: 
     return {
       next: r.next,
       bought: true,
-      log: `Overtime on ${name}'s repair pause: step ${q.step} of ${OVERTIME_MAX_STEPS} for ${credits(q.cost)}. Its gear is full and the patrol heads back out in ${aboutMinutes(q.minutesLeftAfter)} instead of ${aboutMinutes(q.minutesLeft)}.`,
+      log: `Overtime on ${name}'s repair pause: step ${q.step} of ${OVERTIME_MAX_STEPS} for ${credits(q.cost)}. Its combat gear is full and the patrol heads back out in ${aboutMinutes(q.minutesLeftAfter)} instead of ${aboutMinutes(q.minutesLeft)}.`,
     };
   }
   return {

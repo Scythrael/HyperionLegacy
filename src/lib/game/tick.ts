@@ -420,6 +420,7 @@ import {
   REPAIR_PAUSE_SLOTS,
   settleRecalledPause,
   gearOvertimeMult,
+  DOCKED_OVERTIME_CARRIES_INTO_FIRST_PAUSE,
 } from "./gearWearEngine";
 // GEAR WEAR step 4 (user 2026-10-28): a Repeat cycle's projection (the replay leaves resolve the cycle about to fly).
 import { resolveMissionCycle } from "./combat/patrolReplay";
@@ -6843,14 +6844,15 @@ export function dispatchCaptainOnPatrol(
   // (User 2026-10-28: only when the first cycle's projection breaks a worn system.)
   // GEAR WEAR close-out ("Allow Overtime in pauses"): a docked ship's gear repair Overtime carries into its first pause
   // (it never left home): the pause repairs at the bought rate and is that much shorter.
-  const dockedSteps = ship.gearRepairSpeed?.overtimeSteps ?? 0;
+  // [OPEN CALL, user to decide]: gearWearEngine.ts DOCKED_OVERTIME_CARRIES_INTO_FIRST_PAUSE (false = clears at dispatch).
+  const dockedSteps = DOCKED_OVERTIME_CARRIES_INTO_FIRST_PAUSE ? ship.gearRepairSpeed?.overtimeSteps ?? 0 : 0;
   const firstPause = repeatDispatch && cycle.cycleStartCondition
     ? cycleRepairPause(mission, ship.id, hullType, installedGear, {
         startSeconds: state.gameTimeSeconds,
         secondsPerTick: state.tickDurationSeconds,
         // WR-7 follow-up (OC-D5): on the stamp this dispatch just wrote, as the tail pass reads it.
         underwayRate: repairRatePerMinute("underway", shipRepairBonuses(state, ship, mission.favoredSpec === 1, mission.hullBonus === 1)),
-        homeRate: repairRatePerMinute("home", shipRepairBonuses(state, ship, mission.favoredSpec === 1, mission.hullBonus === 1)) * gearOvertimeMult(state, ship.id),
+        homeRate: repairRatePerMinute("home", shipRepairBonuses(state, ship, mission.favoredSpec === 1, mission.hullBonus === 1)) * (dockedSteps > 0 ? gearOvertimeMult(state, ship.id) : 1),
       })
     : 0;
   if (firstPause > 0) {

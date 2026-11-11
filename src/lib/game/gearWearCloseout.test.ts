@@ -107,7 +107,7 @@ describe("1. a paused patrol's gear reads home and repairing, live, and never ju
     const strip = gearOvertimeStrip(s, weapon)!;
     expect(strip.state).toBe("buy");
     expect(strip.button).not.toBe("Docked only");
-    expect(strip.when).toMatch(/^Speeds up the repair pause: .*'s gear full and back on patrol in about \d+ min instead of about \d+ min\.$/);
+    expect(strip.when).toMatch(/^Speeds up the repair pause: .*'s combat gear full and back on patrol in about \d+ min instead of about \d+ min\.$/);
     const chip = shipGearSummary(s, SHIP);
     expect(chip.recovery).toMatch(/^Repairing at home, full in about \d+ min$/);
     expect(chip.context).toBe("home");
@@ -149,7 +149,7 @@ describe("2. Overtime during a repair pause (user 2026-11-11 'Allow Overtime in 
     expect(r.bought).toBe(true);
     const name = gearOvertimeStrip(s0, combat(s0)[0])!.shipName;
     expect(r.log).toBe(
-      `Overtime on ${name}'s repair pause: step 1 of 3 for ${q.cost.toLocaleString("en-US")} cr. Its gear is full and the patrol heads back out in ${aboutMinutes(q.minutesLeftAfter)} instead of ${aboutMinutes(q.minutesLeft)}.`,
+      `Overtime on ${name}'s repair pause: step 1 of 3 for ${q.cost.toLocaleString("en-US")} cr. Its combat gear is full and the patrol heads back out in ${aboutMinutes(q.minutesLeftAfter)} instead of ${aboutMinutes(q.minutesLeft)}.`,
     );
     expect(s0.credits.minus(r.next.credits).toNumber()).toBe(q.cost);
     const after = patrolOf(r.next)!.repairPause!;
@@ -215,6 +215,77 @@ describe("2. Overtime during a repair pause (user 2026-11-11 'Allow Overtime in 
     expect(pause.ticksRemaining).toBeLessThan(plain.ticksRemaining);
     // Kept through the pause, gone once it heads out.
     expect(economyTick(r, 1, RNG).ships[0].gearRepairSpeed?.overtimeSteps).toBe(1);
+  });
+});
+
+// Review 2026-11-11 (Critical): a purchase splits the pause into back-to-back windows; the second window must be entered
+// with its own rate even though it starts on the very second the first ends. Checked against a HAND-BUILT exact reference
+// (not the walk against itself), at purchase seconds where the bank is NOT zero, and at a mid-second large game time.
+describe("2b. Overtime bought mid-bank: the live bar and the resume tick against a hand-built exact reference", () => {
+  const Q_HOME = repairRateQ(REPAIR_RATES.home); // 40,000 bank units a second; one per-mille is 60,000
+  // A combat piece at 20, anchored (bank 0) at the pause's start t0, with Overtime steps bought at [instant, steps].
+  function reference(t0: number, buys: readonly [number, number][], t: number): number {
+    let units = 0;
+    let from = t0;
+    let q = Q_HOME;
+    for (const [at, steps] of buys) {
+      if (t <= at) break;
+      units += q * (at - from);
+      from = at;
+      q = repairRateQ(REPAIR_RATES.home * (1 + 0.25 * steps));
+    }
+    units += q * Math.max(0, t - from);
+    return Math.min(CONDITION_FULL, 20 + Math.floor(units / REPAIR_BANK_PER_MILLE));
+  }
+  function pausedFrom(t0: number): GameState {
+    const base = { ...veteran(), gameTimeSeconds: t0 };
+    const r = dispatchCaptainOnPatrol(wornAt(base, COMBAT, 20), 1, "crimsonReaverSweep", "balanced", true);
+    expect(r.success, r.reason).toBe(true);
+    expect(patrolOf(r.next)!.repairPause?.from).toBe(t0);
+    return r.next;
+  }
+  // Buy at each offset (seconds after t0, steps in order), then step 1 s: every second the live bar of every combat piece
+  // is the reference; the pause closes on exactly the second the reference reaches full (not a tick before or after).
+  function check(t0: number, offsets: readonly number[]): void {
+    let s = pausedFrom(t0);
+    const buys: [number, number][] = [];
+    for (const off of offsets) {
+      s = stepped(s, off - (s.gameTimeSeconds - t0));
+      const live = combat(s).map((p) => livePieceCondition(s, p));
+      for (const c of live) expect(c, `${t0}+${off} before the buy`).toBe(reference(t0, buys, s.gameTimeSeconds));
+      const r = gearOvertimePurchase(s, SHIP);
+      expect(r.bought, `${t0}+${off}`).toBe(true);
+      s = r.next;
+      buys.push([s.gameTimeSeconds, buys.length + 1]);
+      // The bar does not move at the purchase.
+      for (const p of combat(s)) expect(livePieceCondition(s, p), `${t0}+${off} at the buy`).toBe(reference(t0, buys, s.gameTimeSeconds));
+    }
+    let fullAt = s.gameTimeSeconds;
+    while (reference(t0, buys, fullAt) < CONDITION_FULL) fullAt += 1;
+    while (patrolOf(s)!.repairPause !== undefined) {
+      s = economyTick(s, 1, RNG);
+      if (patrolOf(s)!.repairPause !== undefined) {
+        for (const p of combat(s)) expect(livePieceCondition(s, p), `${t0} ${offsets} at ${s.gameTimeSeconds}`).toBe(reference(t0, buys, s.gameTimeSeconds));
+      }
+    }
+    // Relaunch tick == the tick the combat gear is full.
+    expect(s.gameTimeSeconds, `${t0} ${offsets} resumes`).toBe(fullAt);
+    expect(reference(t0, buys, fullAt - 1)).toBeLessThan(CONDITION_FULL);
+    const opened = patrolOf(s)!.cycleStartCondition ?? {};
+    expect(combat(s).filter((p) => opened[p.id] !== undefined), `${t0} ${offsets}`).toEqual([]);
+  }
+
+  it("bought at 301 s and at 302 s (a bank in flight), one step", () => {
+    check(0, [301]);
+    check(0, [302]);
+  });
+
+  it("two steps at banked seconds (301 s, then 517 s)", () => {
+    check(0, [301, 517]);
+  });
+
+  it("a mid-second purchase at a large game time (1e8 + 0.5 s, bought 301 s in)", () => {
+    check(1e8 + 0.5, [301]);
   });
 });
 

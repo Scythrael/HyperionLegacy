@@ -383,10 +383,14 @@ function settleWalk(
     if (w.to <= cursor) continue;
     if (w.from >= t) break;
     const wr = windowRateOf(w, windowRate, own);
-    if (w.from > cursor) {
-      p = settlePiece(p, w.from, cur);
-      cursor = w.from;
-      if (p.condition === undefined) return { piece: p, rate };
+    // Entering at its start (the walk got there: from before it, or from the end of a back-to-back window, a pause split
+    // at an Overtime step): the banked fraction is re-expressed at its rate. Already past its start: entered already.
+    if (w.from >= cursor) {
+      if (w.from > cursor) {
+        p = settlePiece(p, w.from, cur);
+        cursor = w.from;
+        if (p.condition === undefined) return { piece: p, rate };
+      }
       p = rebaseAnchor(p, cursor, cur, wr);
     }
     cur = wr;
@@ -439,6 +443,13 @@ export function pauseRepairWindows(pause: { from: number; overtime?: readonly { 
   if (to > from) out.push(mult === undefined ? { from, to } : { from, to, overtime: mult });
   return out;
 }
+
+// [OPEN CALL, user to decide] (GEAR WEAR close-out, a builder's rule the user has NOT decided): a docked ship's gear
+// repair Overtime carries into a "Repair first, then go" pause at dispatch (the ship never left home), so that pause
+// repairs at the bought rate and is shorter (tick.ts dispatchCaptainOnPatrol). false = it clears at dispatch, as when
+// any ship leaves (the record then clears at the next tick: trackGearRepairJobs keeps it only on a pause that carries
+// Overtime steps). One line.
+export const DOCKED_OVERTIME_CARRIES_INTO_FIRST_PAUSE = true;
 
 // GEAR WEAR step 4 (pause to repair): the combat pieces a repair pause waits on (every system a fight reads; the pause
 // lasts until each is back to full at the home rate). tick.ts reads it for the pause's length.
@@ -1038,7 +1049,8 @@ function trackGearRepairJobs(before: GameState, state: GameState, index: RepairC
     }
     // (the SAME pause at both ends: a call that resumed and paused again has left on a run in between)
     if (index.paused.has(s.id) && index.paused.get(s.id)?.from === indexAfter.paused.get(s.id)?.from) {
-      const keepOvertime = worn.has(s.id) && s.gearRepairSpeed !== undefined;
+      // (only while the pause itself carries Overtime steps: with the docked carry-over off, a dispatch's record clears)
+      const keepOvertime = worn.has(s.id) && s.gearRepairSpeed !== undefined && (index.paused.get(s.id)?.overtime?.length ?? 0) > 0;
       if (s.gearRepairJobMinutes === undefined && (keepOvertime || s.gearRepairSpeed === undefined)) return s;
       changed = true;
       const { gearRepairSpeed: ot, gearRepairJobMinutes: _j, ...rest } = s;

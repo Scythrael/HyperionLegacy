@@ -2017,11 +2017,11 @@ should not roll on ship crew (no dead rolls).
 
 - **REPAIR STATION (user, 2026-10-16, future).** "A repair station later that can repair up to specific tiers of gear."
   A facility for gear repair by tier; also a credit sink. See docs/plans/2026-10-16-gear-wear-design.md USER ANSWERS.
-- **CREW TRAINING (user, 2026-10-16, future).** crew training (user request, wording not found; ask). Where it comes
-  from: the credit sinks pass's S6 "Crew and officer training" [PROPOSAL] (pay credits and time to move a crew member or
-  officer toward their next level); the user's pick "Cleanups (all)" logs the Repair Station and crew training as future
-  ideas (docs/plans/2026-10-16-credit-sinks-pass.md, USER ANSWERS 2026-10-16). Not 0.14.0. Logged at the gear wear
-  close-out (2026-11-11).
+- **CREW TRAINING (hub S6 proposal; user chose to log it, 2026-10-16 "Cleanups (all)", future).** The credit sinks
+  pass's S6 "Crew and officer training" [PROPOSAL]: pay credits and time to move a crew member or officer toward their
+  next level. The user's pick "Cleanups (all)" logs the Repair Station and crew training as future ideas
+  (docs/plans/2026-10-16-credit-sinks-pass.md, USER ANSWERS 2026-10-16). Not 0.14.0. Logged at the gear wear close-out
+  (2026-11-11).
 - **CREDIT SINKS (user, recurring).** The user keeps flagging that credits need proper sinks (telescope costs 2026-10-12,
   repairs 2026-10-16). Needs its own planning pass.
 
