@@ -733,8 +733,9 @@ LIVE pins only on the rows it moved, each traced).
   only a step 4 stamped run did). Runs with no stamp (every run in a 0.13.x save) settle as before. Moved: a mission's
   and a short-range run's end (the drive 1000 to 993, the reactor 1000 to 984 at the end; docked marks trail by up to
   about 2%, then catch up), and the step 4 golden `patrol:modules:battleship:crimsonReaverWarband:repeat` (its worn
-  modules entered a pause 22 s after their anchor: 735 to 722; that file and `gearWearGoldens.test.ts` now run with the
-  close-out off, their pins unchanged).
+  modules entered a pause 22 s after their anchor: 735 to 722). That file, `gearWearGoldens.test.ts`,
+  `patrolLegsGoldens.test.ts` and `patrolLegLiftsGoldens.test.ts` now run with the close-out off, their pins unchanged;
+  the cp11 and cp12 goldens read the restated registry claim back (`gwCloseRegistry.fixture.ts`).
 - **"Yes, it's combat wear".** The Damage Control Suite's patrol fires stay; the registry claim
   (`wear:WEAR_SOURCES:specUtility:effectFires`) and Help say it counts as combat wear.
 - **Text.** Help: "Repair itself is always free" (Overtime is paid), universal modules by time underway (true:
