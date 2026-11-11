@@ -4673,7 +4673,7 @@ const AUDIT_ROWS: readonly { id: string; system: WiringSystem; claim: string; st
   // WR-9 fix round (user 2026-10-31 "Missions, short-range, patrols"): every run with a trip home.
   { id: "crew:audit:pilotCunningReturn", system: "crew", claim: "The Pilot's Cunning: each cycle of a mission, short-range run or patrol, a chance the return leg is one tick shorter (stamped at dispatch)", status: LIVE },
   // Complement plan CP-4's rest (user 2026-11-10 "Build it"): the Flight Deck's Integrity on Deck Handling's replenish.
-  { id: "crew:audit:flightDeckIntegrityReplenish", system: "crew", claim: "The Flight Deck's Integrity: below half hull, a patrol's Deck Handling rebuilds lost drones x (1 + the facet) faster (frozen per patrol cycle)", status: LIVE },
+  { id: "crew:audit:flightDeckIntegrityReplenish", system: "crew", claim: "The Flight Deck's Integrity: below half hull, the Flight Deck's own Deck Handling (its crew and the Pilot) rebuilds lost drones x (1 + the facet) faster (frozen per patrol cycle)", status: LIVE },
   // F. Away team and ground
   { id: "away:audit:shroudLureGroundOps", system: "away", claim: "Shroud Emitter and Lure Beacon work on the ground (OC-F1): they scale a crew's ambush chance on a calm objective, rolled per use", status: LIVE },
   // Wiring WR-10 (OC-F2 "Revives the wearer", B13; OC-F3 "Fix the flavor"): checks in wr10AuditWiring below.
@@ -5233,8 +5233,9 @@ function auditRowWiring(): Readonly<Record<string, Partial<EntryInput>>> {
     ...wr11AuditWiring(),
     ...wr9AuditWiring(),
     // Complement plan CP-4's rest: a Pilot with Integrity 20 against one at 10, on a carrier with Deck Handling aboard
-    // (the fixture Pilot is a Belter, whose racial is Deck Handling): the extra the dispatched cycle's squadron banks
-    // below half hull, over the extra above it, rises from 1 to 1 + the facet.
+    // (the fixture Pilot is a Belter, whose racial is Deck Handling, and the ship's only source of it, so all of it is the
+    // Flight Deck's own: user 2026-11-11 "Flight Deck's own only"): the extra the dispatched cycle's squadron banks below
+    // half hull, over the extra above it, rises from 1 to 1 + the facet.
     "crew:audit:flightDeckIntegrityReplenish": {
       probe: "patrolReplenishSteadyLift",
       contexts: ["patrol"],

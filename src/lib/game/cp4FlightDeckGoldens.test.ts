@@ -4,8 +4,9 @@
 // hull falls below half), flown 3,000 economyTick seconds; each pins the dispatch record, the display replay every 300 s
 // and the state at the end (the fixtures live in cp4FlightDeck.fixture.ts):
 //
-//   steady   : a carrier with Deck Handling crew (150 Belter crewmen), a Pilot and an XO at Integrity 20. The one
-//              fixture the facet acts on: its drones recover between waves while the hull is below half.
+//   steady   : a carrier with Deck Handling crew (150 Belter crewmen), a Belter Pilot and a Belter XO at Integrity 20.
+//              The one fixture the facet acts on: its drones recover between waves while the hull is below half. The
+//              XO's racial is Deck Handling from another seat, which the facet does not lift (user 2026-11-11).
 //   neutral  : the same carrier with the two officers at Integrity 10 (the facet is 0): a control.
 //   noDeck   : Integrity 20 officers of a race with no Deck Handling racial, and crew without the key: a control (the
 //              facet multiplies Deck Handling, so with none it has nothing to act on).
@@ -54,10 +55,15 @@ const BEFORE: Record<Key, string[]> = {
 
 // The pins today. Each move names its reason; an unchanged pin equals BEFORE.
 const GOLDEN: Record<Key, string[]> = {
-  // MOVES: the cycle freezes the Flight Deck's Integrity beside its Deck Handling (dispatch record: deckHandlingSteady,
-  // and each squadron's deckHandlingSteadyPpm), and the drones recovering while the hull is below half bank at
-  // Deck Handling x (1 + it), so the replays and the state move.
-  steady: ["35c75dc5", "e598fd29", "e598fd29", "e598fd29", "cc1bfcac", "322b6369", "704339bb", "704339bb", "fe3e1d4f", "2dfb7a77", "2dfb7a77", "69ae5ac6"],
+  // MOVES: the cycle freezes the Flight Deck's Integrity lift beside its Deck Handling (dispatch record:
+  // deckHandlingSteady, and each squadron's deckHandlingSteadyPpm), and the drones recovering while the hull is below
+  // half bank at Deck Handling + it, so the replays and the state move.
+  // Re-pinned in the fix round (user 2026-11-11 "Flight Deck's own only": the facet lifts only the Flight Deck's own
+  // Deck Handling). This fixture's XO is a Belter, whose racial is Deck Handling from another seat, so its share is no
+  // longer lifted: the frozen lift is now the facet x the Flight Deck's own part (the 150 crew and the Pilot), every hash
+  // from the dispatch record on moves with it. Was: "35c75dc5", "e598fd29" x3, "cc1bfcac", "322b6369", "704339bb" x2,
+  // "fe3e1d4f", "2dfb7a77" x2, "69ae5ac6". The controls below and the switched-off captures are unchanged.
+  steady: ["1f0dbb15", "621ec6bd", "621ec6bd", "621ec6bd", "f1eba02c", "48dac89f", "aceed7b1", "aceed7b1", "e897603b", "fb6da9b9", "fb6da9b9", "2ee05938"],
   // Unchanged (the controls): Integrity 10 is a facet of 0; with no Deck Handling there is nothing to lift; a destroyer
   // fields no drones.
   neutral: BEFORE.neutral,

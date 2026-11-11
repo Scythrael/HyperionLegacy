@@ -27,7 +27,7 @@
 // and deterministic in (pool order, caps). See docs/plans/2026-09-22-crew-0.14.0-plan.md
 // ("Engine seams" 1/4/5).
 
-import type { EquipmentInstance, GameState, ShipInstance, ShipDerivedStats, ShipSpec, SeniorStaffOfficer, CrewSignature, CrewBucket, OfficerCombatMods, SeniorStaffSeat, PromotionObjectiveKind } from "./model";
+import type { EquipmentInstance, GameState, ShipInstance, ShipDerivedStats, ShipSpec, SeniorStaffOfficer, CrewSignature, CrewBucket, CrewProfession, OfficerCombatMods, SeniorStaffSeat, PromotionObjectiveKind } from "./model";
 import { equipmentStatMods, shipDerivedStats, MASS_SPEED_DRAG, SHIP_TYPES, CREW_HOURS_MS_SWITCH, HULL_SENSORS_SWITCH } from "./model";
 import { combatSpeedFor, newCombatRulesStamp, type CombatRulesStamp } from "./combat/combatRules";
 import { powerSupplyPercent } from "./combat/power";
@@ -54,7 +54,7 @@ import {
 // TYPES from model.ts + the leaf PRNG, so this import adds no cycle.
 import { museumBonuses, type MuseumStat } from "./relics";
 // E-CREW 0.14.0 (Task 21): the officer stat facets (pure; imports no crew overlay code, so no cycle).
-import { constitutionRamp, departmentFacet, departmentStrengthMultipliers, seatFacet } from "./officerStats";
+import { constitutionRamp, departmentFacet, departmentStrengthMultipliers, seatFacet, DEPARTMENT_OF_SEAT } from "./officerStats";
 // WR-5a (0.14.0): the commanding captain's secondary-tree ship-stat lifts (pure; imports only model.ts).
 import { captainShipLifts, commandingCaptain, type CaptainShipLifts } from "./captainSecondaryEffects";
 import { diminishing } from "./diminishing";
@@ -95,8 +95,9 @@ import { captainComplementMult, captainOfficerOutputMult, captainSensorsMult } f
 // The inert racials go live (0.14.0, user "everything wired" 2026-10-20), read off this map at dispatch:
 //   crew.droneHandling (Deck Handling + Belter)  -> the patrol cycle's drone replenish rate (shipDeckHandling, frozen
 //                                                   on PatrolMissionState.deckHandling; OC-1 "Faster drone replenish");
-//                                                   below half hull x (1 + the Flight Deck's Integrity), CP-4's rest
-//                                                   (PatrolMissionState.deckHandlingSteady)
+//                                                   below half hull plus the Flight Deck's Integrity x its OWN share,
+//                                                   CP-4's rest (shipFlightDeckIntegrityDeckHandling, frozen on
+//                                                   PatrolMissionState.deckHandlingSteady)
 //   crew.surveyAptitude (Survey Aptitude + Vael and Outer-Colony) -> the expedition's scanSpeedBonus (shipSurveyAptitude,
 //                                                   frozen at dispatch; OC-4 "Faster scans")
 // and the Spacer racial rides OFFICER_TRANSIT_KEY (the sweeping transit speed, both legs and the voyage).
@@ -366,7 +367,13 @@ export function scaleCrewContribution(crew: Record<string, number>, crewBonus: n
 }
 
 // The UN-amplified crew contribution (the pre-E4b body of shipCrewContribution, unchanged).
-function rawShipCrewContribution(state: GameState, ship: ShipInstance, hullBonus: boolean): Record<string, number> {
+// CP-4's rest fix round (user 2026-11-11 "Flight Deck's own only"): `dept` keeps only that department's OWN sources in
+// the map: its complement crew (buckets and assigned notables of that profession) and the officer heading it (the seat
+// DEPARTMENT_OF_SEAT names), the way officerCombatProfile gives each seat's bonuses its own department's facet. Every
+// amplifier still reads the whole ship (the Crew Effectiveness lift sums every bucket; the quarters, Strength and
+// captain multipliers are per bucket), so a source counts exactly what it counts in the full map. The captain's racial,
+// the other seats (the XO included) and the other departments' crew are left out. Absent = the full map, unchanged.
+function rawShipCrewContribution(state: GameState, ship: ShipInstance, hullBonus: boolean, dept?: CrewProfession): Record<string, number> {
   const out: Record<string, number> = {};
   const add = (key: string, value: number): void => {
     if (value === 0) return;
@@ -447,13 +454,17 @@ function rawShipCrewContribution(state: GameState, ship: ShipInstance, hullBonus
     // crewEffectivenessMultiplier (D23 curve). It never scales itself, and the officers' own bonuses (added below) are
     // not scaled. Exactly 1 without it, and then every value is added as before (no float op).
     const lift = crewEffectivenessMultiplier((rollup[EFFECTIVENESS_KEY] ?? 0) + officerEffectivenessRacials(state, ship, bridgeMod));
-    for (const key of Object.keys(rollup)) add(key, lift === 1 || key === EFFECTIVENESS_KEY ? rollup[key] : rollup[key] * lift);
+    // CP-4's rest fix round: with `dept`, only that department's crew are added (at the whole ship's lift).
+    const kept = dept === undefined ? rollup : rollupBuckets(buckets.filter((b) => b.profession === dept), contrib);
+    for (const key of Object.keys(kept)) add(key, lift === 1 || key === EFFECTIVENESS_KEY ? kept[key] : kept[key] * lift);
   }
 
   // --- Senior Staff officers assigned to THIS ship (assignedShipId is the assignment authority).
   const hullSpec = hullSpecOf(ship);
   for (const officer of state.officers) {
     if (officer.assignedShipId !== ship.id) continue;
+    // CP-4's rest fix round: with `dept`, only the officer heading it.
+    if (dept !== undefined && DEPARTMENT_OF_SEAT[officer.seat] !== dept) continue;
     // A BRIDGE module amplifies this officer's whole output (both bonuses + the racial). 1 with no
     // bridge module, so the multiply is a no-op and the pre-module numbers are preserved exactly.
     // WR-5c: x the captain's officer output (Mentor, Legendary Captain), exactly 1 without them.
@@ -477,13 +488,15 @@ function rawShipCrewContribution(state: GameState, ship: ShipInstance, hullBonus
 
   // WR-6 (OC-A43, "Same as an officer"): the commanding captain's racial, at the officer magnitude x CAPTAIN_RACIAL_SCALE.
   // The captain is not an officer, so neither the bridge module nor its own Mentor scales it. Nothing without a race.
-  const captainRacial = captainRacialBonus(captain);
+  // CP-4's rest fix round: the captain sits no department's seat, so a `dept` map leaves it out.
+  const captainRacial = dept === undefined ? captainRacialBonus(captain) : undefined;
   if (captainRacial) add(captainRacial.statKey, captainRacial.magnitude);
 
   // E-CREW 0.14.0 (Task 21): the Operations department's CONSTITUTION facet, its share of a shorter
   // post-mission turnaround: it rides the officer-only turnaround key (faster unloading, applyOfficerLifts)
   // beside Veteran Instincts' unload half. add() skips a 0, so an all-10 bridge writes nothing.
-  add(OFFICER_TURNAROUND_KEY, departmentFacet(state, ship, "operations", "constitution"));
+  // CP-4's rest fix round: it is Operations' own, so a `dept` map keeps it only for Operations.
+  if (dept === undefined || dept === "operations") add(OFFICER_TURNAROUND_KEY, departmentFacet(state, ship, "operations", "constitution"));
 
   return out;
 }
@@ -777,6 +790,30 @@ export function shipMissionOutputBonus(state: GameState, ship: ShipInstance, hul
 export function shipDeckHandling(state: GameState, ship: ShipInstance, hullBonus = true): number {
   if (!carriesCrewKey(state, ship, CREW_STAT_KEYS.droneHandling)) return 0;
   return Math.max(0, shipCrewContribution(state, ship, museumBonuses(state), hullBonus)[CREW_STAT_KEYS.droneHandling] ?? 0);
+}
+
+// CP-4's rest fix round (user 2026-11-11 "Flight Deck's own only": "match the other Integrity bonuses"): the Flight
+// Deck's OWN Deck Handling, the part of shipDeckHandling its own crew and the Pilot bring (rawShipCrewContribution with
+// `dept`, every amplifier included: the quarters module, Strength, Crew Effectiveness, the bridge module, the captain's
+// officer output and the museum's crewBonuses). Belter officers in other seats (the XO included), Belter crew in other
+// departments and a Belter captain are not in it. 0 without the key. Pure.
+export function shipFlightDeckDeckHandling(state: GameState, ship: ShipInstance, hullBonus = true): number {
+  if (!carriesCrewKey(state, ship, CREW_STAT_KEYS.droneHandling)) return 0;
+  const own = scaleCrewContribution(rawShipCrewContribution(state, ship, hullBonus, "flightDeck"), museumBonuses(state).crewBonuses);
+  return Math.max(0, own[CREW_STAT_KEYS.droneHandling] ?? 0);
+}
+
+// CP-4's rest (user 2026-11-10 "Build it"; fix round, user 2026-11-11 "Flight Deck's own only"): the Deck Handling the
+// Flight Deck's Integrity adds while the hull is below half, the department's facet (the Pilot's, plus the XO's share)
+// x the Flight Deck's OWN Deck Handling above, like every Integrity row gives a seat's facet to that seat's bonuses only.
+// Frozen per patrol cycle (PatrolMissionState.deckHandlingSteady); the cycle's squadrons then replenish at Deck Handling
+// + it below half hull (combat/bridge.ts applyDeckHandling). 0 without the facet or without the Flight Deck's own
+// Deck Handling. [PROVISIONAL] magnitude: the facet's first-pass 1% per point above 10. Pure.
+export function shipFlightDeckIntegrityDeckHandling(state: GameState, ship: ShipInstance, hullBonus = true): number {
+  const facet = departmentFacet(state, ship, "flightDeck", "integrity");
+  if (!(facet > 0)) return 0;
+  const own = shipFlightDeckDeckHandling(state, ship, hullBonus);
+  return own > 0 ? facet * own : 0;
 }
 
 // Survey Aptitude (crew.surveyAptitude: the Science buff and the Vael and Outer-Colony racials; complement plan CP-3,

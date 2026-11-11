@@ -1,17 +1,18 @@
 // Complement plan CP-4's rest (user 2026-11-10 "Build it"; the plan: "it takes the Flight Deck Integrity facet when below
-// half hull"): while the ship is below half hull, its Deck Handling (the Flight Deck crew's drone replenish) gains the
-// Flight Deck's Integrity facet, x (1 + facet), frozen per patrol cycle beside the Deck Handling it lifts.
+// half hull"): while the ship is below half hull, the Flight Deck's OWN Deck Handling (its crew and the Pilot) gains the
+// Flight Deck's Integrity facet, x (1 + facet), frozen per patrol cycle beside the Deck Handling it lifts. Fix round (user
+// 2026-11-11 "Flight Deck's own only"): Deck Handling from other seats, other departments or the captain is not lifted.
 
 import { describe, expect, it } from "vitest";
-import type { GameState, PatrolMissionState } from "./model";
+import type { CrewBucket, GameState, PatrolMissionState } from "./model";
 import { economyTick, tick } from "./tick";
 import { replayPatrol } from "./combat/patrolReplay";
 import { applyDeckHandling, installedDronesForPatrol } from "./combat/bridge";
 import { REPLENISH_PPM, deckHandlingPpmNow, replenishUnits } from "./combat/droneDefense";
-import { shipDeckHandling } from "./crewOverlay";
+import { shipDeckHandling, shipFlightDeckDeckHandling, shipFlightDeckIntegrityDeckHandling } from "./crewOverlay";
 import { departmentFacet, officerStatFacet, officerStatTooltip, XO_DEPARTMENT_SHARE } from "./officerStats";
-import { combatBase } from "./wiring/probes";
-import { CP4_FIXTURES, STAT_20, cp4Crewed, cp4Dispatched, steadyTick } from "./cp4FlightDeck.fixture";
+import { combatBase, seatOfficer } from "./wiring/probes";
+import { CP4_FIXTURES, STAT_10, STAT_20, cp4Crewed, cp4Dispatched, flightBucket, steadyTick } from "./cp4FlightDeck.fixture";
 import { withCp4FlightDeckOff } from "./cp4FlightDeckSwitch.fixture";
 
 const patrolOf = (s: GameState): PatrolMissionState => s.captains[0].mission as PatrolMissionState;
@@ -26,13 +27,21 @@ describe("CP-4's rest: the Flight Deck's Integrity on Deck Handling, below half 
     expect(facet).toBeCloseTo(officerStatFacet(STAT_20.integrity) * (1 + XO_DEPARTMENT_SHARE), 12);
     const dh = shipDeckHandling(s, ship);
     expect(dh).toBeGreaterThan(0);
+    // User 2026-11-11 "Flight Deck's own only": the fixture XO is a Belter too, and its racial is Deck Handling from
+    // another seat, so the Flight Deck's own part is the whole less the XO's racial (no amplifier aboard).
+    const own = shipFlightDeckDeckHandling(s, ship);
+    expect(own).toBeCloseTo(dh - 0.05, 12);
+    const lift = shipFlightDeckIntegrityDeckHandling(s, ship);
+    expect(lift).toBe(facet * own);
     const m = patrolOf(cp4Dispatched(CP4_FIXTURES.steady));
     expect(m.deckHandling).toBe(dh);
-    expect(m.deckHandlingSteady).toBe(facet);
+    expect(m.deckHandlingSteady).toBe(lift);
     expect(m.playerDrones.length).toBeGreaterThan(0);
     for (const sq of m.playerDrones) {
       expect(sq.deckHandlingPpm).toBe(Math.round(dh * REPLENISH_PPM));
-      expect(sq.deckHandlingSteadyPpm).toBe(Math.round(dh * (1 + facet) * REPLENISH_PPM));
+      expect(sq.deckHandlingSteadyPpm).toBe(Math.round((dh + lift) * REPLENISH_PPM));
+      // Not the whole pool x (1 + facet): the XO's share is not lifted.
+      expect(sq.deckHandlingSteadyPpm).toBeLessThan(Math.round(dh * (1 + facet) * REPLENISH_PPM));
     }
   });
 
@@ -49,11 +58,12 @@ describe("CP-4's rest: the Flight Deck's Integrity on Deck Handling, below half 
     });
   });
 
-  it("the bank pays Deck Handling x (1 + facet) below half hull and the plain Deck Handling above it", () => {
+  it("the bank pays Deck Handling + the Flight Deck's lift below half hull and the plain Deck Handling above it", () => {
     const gear = combatBase("carrier").equipment.filter((e) => e.fittedToShipId === "ship-1");
-    const [dh, facet] = [0.25, 0.14];
-    const sq = applyDeckHandling(installedDronesForPatrol(gear, "t"), dh, facet)[0];
-    expect(sq.deckHandlingSteadyPpm).toBe(Math.round(dh * (1 + facet) * REPLENISH_PPM));
+    // The lift is the facet (0.14) x the Flight Deck's own Deck Handling (0.2 of the 0.25 aboard).
+    const [dh, lift] = [0.25, 0.14 * 0.2];
+    const sq = applyDeckHandling(installedDronesForPatrol(gear, "t"), dh, lift)[0];
+    expect(sq.deckHandlingSteadyPpm).toBe(Math.round((dh + lift) * REPLENISH_PPM));
     const down = () => ({ ...sq, drones: sq.drones.map((d) => ({ ...d, alive: false })) });
     const ticks = 10_000;
     const pay = (below: boolean) => {
@@ -70,7 +80,7 @@ describe("CP-4's rest: the Flight Deck's Integrity on Deck Handling, below half 
     // Without the stamp the flag changes nothing.
     const plain = applyDeckHandling(installedDronesForPatrol(gear, "t"), dh)[0];
     expect(deckHandlingPpmNow(plain, true)).toBe(deckHandlingPpmNow(plain, false));
-    expect(installedDronesForPatrol(gear, "t", undefined, dh, facet)).toEqual(applyDeckHandling(installedDronesForPatrol(gear, "t"), dh, facet));
+    expect(installedDronesForPatrol(gear, "t", undefined, dh, lift)).toEqual(applyDeckHandling(installedDronesForPatrol(gear, "t"), dh, lift));
   });
 
   it("the steady patrol reaches the trigger, and its drones recover more there than the switched-off run's", () => {
@@ -171,7 +181,8 @@ describe("CP-4's rest: the Flight Deck's Integrity on Deck Handling, below half 
     expect(patrolOf(s).deckHandlingSteady).toBeUndefined();
     // Raise the seated Pilot's Integrity mid-run: the running cycle keeps its record, the next one freezes the new facet.
     s = { ...s, officers: s.officers.map((o) => (o.seat === "pilot" ? { ...o, stats: { ...STAT_20 } } : o)) };
-    const want = departmentFacet(s, s.ships[0], "flightDeck", "integrity");
+    expect(departmentFacet(s, s.ships[0], "flightDeck", "integrity")).toBeGreaterThan(0);
+    const want = shipFlightDeckIntegrityDeckHandling(s, s.ships[0]);
     expect(want).toBeGreaterThan(0);
     const seed = patrolOf(s).masterSeed;
     let relaunched = false;
@@ -185,8 +196,58 @@ describe("CP-4's rest: the Flight Deck's Integrity on Deck Handling, below half 
     expect(patrolOf(s).deckHandlingSteady).toBe(want);
   });
 
-  it("the Pilot's Integrity tooltip names the faster drone replenish below half hull", () => {
+  it("the Pilot's Integrity tooltip names the faster drone replenish below half hull, on the Flight Deck's own Deck Handling", () => {
     expect(officerStatTooltip("integrity", "pilot")).toMatch(/Deck Handling/);
     expect(officerStatTooltip("integrity", "pilot")).toMatch(/below half hull/i);
+    expect(officerStatTooltip("integrity", "pilot")).toMatch(/the Flight Deck's own Deck Handling/);
+  });
+
+  // Fix round (user 2026-11-11 "Flight Deck's own only": "match the other Integrity bonuses"): a Belter in another seat,
+  // Belter crew in another department and a Belter captain all add Deck Handling, and none of it takes the facet; the
+  // Flight Deck's own crew and Pilot do.
+  it("Deck Handling from another seat, another department or the captain is not lifted; the Flight Deck's own is", () => {
+    const PILOT_20 = { race: "stationBorn" as const, stats: STAT_20 };
+    const flight: CrewBucket = flightBucket("belter", "flight.droneHandling", 150);
+    const security: CrewBucket = { ...flightBucket("belter", "sec.boarding", 100), profession: "security" };
+    // The Flight Deck alone: a Station-born Pilot at Integrity 20 (no Deck Handling racial), its Belter Deck Handling crew.
+    const crewed = (buckets: CrewBucket[]): GameState => {
+      const s = seatOfficer(cp4Crewed({ ...CP4_FIXTURES.steady, integrity: STAT_10, race: "stationBorn" }), "pilot", [], PILOT_20);
+      return { ...s, ships: s.ships.map((sh) => (sh.id === "ship-1" ? { ...sh, complement: { mode: "active", buckets } } : sh)) };
+    };
+    const alone = crewed([flight]);
+    const ship = (s: GameState) => s.ships[0];
+    const facet = departmentFacet(alone, ship(alone), "flightDeck", "integrity");
+    expect(facet).toBeCloseTo(officerStatFacet(STAT_20.integrity), 12);
+    const own = shipFlightDeckDeckHandling(alone, ship(alone));
+    expect(own).toBe(shipDeckHandling(alone, ship(alone)));
+    expect(shipFlightDeckIntegrityDeckHandling(alone, ship(alone))).toBe(facet * own);
+    const others: Record<string, GameState> = {
+      // A Belter at Tactical (another seat): its racial is Deck Handling.
+      tactical: seatOfficer(alone, "tactical", [], { race: "belter", stats: STAT_10 }),
+      // A Belter XO at Integrity 10 (its share of the facet is 0): its own racial is another seat's.
+      executive: seatOfficer(alone, "executive", [], { race: "belter", stats: STAT_10 }),
+      // Belter crew in Security (another department): the Belter per-head racial.
+      security: crewed([flight, security]),
+      // A Belter captain commanding the ship.
+      captain: { ...alone, captains: alone.captains.map((c, i) => (i === 0 ? { ...c, race: "belter" as const } : c)) },
+    };
+    for (const [name, s] of Object.entries(others)) {
+      const dh = shipDeckHandling(s, ship(s));
+      // The other source adds Deck Handling to the pool...
+      expect(dh, name).toBeGreaterThan(own + 1e-9);
+      // ...but the Flight Deck's own part, and the lift it takes, are unchanged.
+      expect(shipFlightDeckDeckHandling(s, ship(s)), name).toBeCloseTo(own, 12);
+      expect(shipFlightDeckIntegrityDeckHandling(s, ship(s)), name).toBeCloseTo(facet * own, 12);
+      // Dispatched: below half hull the squadrons bank at the pool + the Flight Deck's lift, not the pool x (1 + facet).
+      const m = patrolOf(cp4Dispatched(CP4_FIXTURES.steady, s));
+      expect(m.deckHandling, name).toBe(dh);
+      for (const sq of m.playerDrones) {
+        expect(sq.deckHandlingSteadyPpm, name).toBe(Math.round((dh + m.deckHandlingSteady!) * REPLENISH_PPM));
+        expect(sq.deckHandlingSteadyPpm!, name).toBeLessThan(Math.round(dh * (1 + facet) * REPLENISH_PPM));
+      }
+      expect(m.deckHandlingSteady!, name).toBeCloseTo(facet * own, 12);
+    }
+    // The captain really commands ship-1 (the guard above would pass vacuously otherwise).
+    expect(others.captain.ships[0].assignedCaptainId).toBe(others.captain.captains[0].id);
   });
 });

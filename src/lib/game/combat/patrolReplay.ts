@@ -79,7 +79,7 @@ import { damageControlEffect } from "../utilityGear";
 import { captainWaveRegenFraction } from "../captainTacticianEffects";
 import { generateEnemyWaveDetailed } from "./enemyWave";
 import { resolveBattle } from "./resolveBattle";
-import { replenishDrones, replenishUnits } from "./droneDefense";
+import { recoverPatrolDrones } from "./droneDefense";
 import { PIRATE_HULLS, type PirateHullId } from "./enemyHulls";
 import type {
   Combatant,
@@ -317,15 +317,11 @@ export function resolvePatrolWaves(input: ResolvePatrolWavesInput): ResolvePatro
     // that is exactly (routeTick - prevWaveTick - 1) ticks. Apply the SAME per-tick
     // recovery that many times so the carry-state entering this wave is byte-identical.
     const recoveryTicks = routeTick - prevWaveTick - 1;
-    // 0.14.0 (CP-4's rest): the same below-half-hull read the live loop makes (the hull does not regen between waves).
-    const belowHalfHull = carryHull * 2 < foldedDefense.hullMax;
     for (let r = 0; r < recoveryTicks; r++) {
       carryShield = regenPatrolShield(foldedDefense.shieldMax, carryShield, foldedDefense.shieldRecharge);
-      for (const squadron of carryDrones) {
-        // 0.14.0 (CP-4): the same banked Deck Handling the live loop pays (replenishUnits), with its Flight Deck
-        // Integrity below half hull.
-        replenishDrones(squadron, replenishUnits(squadron, belowHalfHull));
-      }
+      // 0.14.0 (CP-4): the same banked Deck Handling the live loop pays, with its Flight Deck Integrity below half hull
+      // (CP-4's rest): the live loop's own step (recoverPatrolDrones; the hull does not regen between waves).
+      recoverPatrolDrones(carryDrones, carryHull, foldedDefense.hullMax);
     }
 
     // E4d: the Damage Control Suite's between-wave hull patch-up, the SAME shared leaf at the SAME point

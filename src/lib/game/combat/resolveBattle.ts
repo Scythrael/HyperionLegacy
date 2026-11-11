@@ -58,6 +58,7 @@ import {
 	supportCleanse,
 	REPLENISH_PPM,
 	deckHandlingPpmNow,
+	hullBelowHalf,
 } from "./droneDefense";
 import type { Defender } from "./droneDefense";
 import { makeRng, makeStreams, type Rng } from "./rng";
@@ -2948,7 +2949,7 @@ export function resolveBattle(
 				// CP-4's rest (user 2026-11-10 "Build it"): below half hull, the squadron's Flight Deck Integrity rate
 				// (deckHandlingSteadyPpm) when it carries one, the same ppm unit, so the bank is unchanged in kind.
 				const key = `${self.id}:${squadron.id}`;
-				const ppm = deckHandlingPpmNow(squadron, self.hull * 2 < self.hullMax);
+				const ppm = deckHandlingPpmNow(squadron, hullBelowHalf(self.hull, self.hullMax));
 				const scale = ppm > 0 ? REPLENISH_PPM + ppm : 1;
 				const unit = 100 * TENTHS_PER_SECOND * (ppm > 0 ? REPLENISH_PPM : 1);
 				const banked =

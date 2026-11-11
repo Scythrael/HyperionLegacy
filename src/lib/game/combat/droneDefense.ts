@@ -183,7 +183,8 @@ export const REPLENISH_PPM = 1_000_000;
 // squadron's carry; without Deck Handling it is exactly droneReplenishRate and touches nothing.
 // 0.14.0 (CP-4's rest, user 2026-11-10 "Build it"): `belowHalfHull` is the caller's read of the ship's hull this tick
 // (hull x 2 < its folded hull max, the Integrity trigger resolveBattle uses). While it holds, a squadron carrying the
-// Flight Deck's Integrity (deckHandlingSteadyPpm) banks at that rate instead: Deck Handling x (1 + the facet). Without
+// Flight Deck's Integrity (deckHandlingSteadyPpm) banks at that rate instead: Deck Handling + the facet x the Flight
+// Deck's own Deck Handling (user 2026-11-11 "Flight Deck's own only"). Without
 // the stamp the flag changes nothing.
 export function replenishUnits(squadron: DroneSquadron, belowHalfHull = false): number {
 	const base = squadron.droneReplenishRate;
@@ -201,6 +202,21 @@ export function replenishUnits(squadron: DroneSquadron, belowHalfHull = false): 
 export function deckHandlingPpmNow(squadron: DroneSquadron, belowHalfHull: boolean): number {
 	const steady = belowHalfHull ? squadron.deckHandlingSteadyPpm ?? 0 : 0;
 	return steady > 0 ? steady : squadron.deckHandlingPpm ?? 0;
+}
+
+// 0.14.0 (CP-4's rest): the Integrity trigger every Flight Deck Integrity reader uses, hull x 2 below the hull max (the
+// folded pool the waves fight with). Pure.
+export function hullBelowHalf(hull: number, hullMax: number): boolean {
+	return hull * 2 < hullMax;
+}
+
+// 0.14.0 (CP-4's rest fix round): ONE between-wave tick of a patrol's drone recovery, the step the live loop (tick.ts
+// tickCaptainPatrol) and the display replay (patrolReplay.ts resolvePatrolWaves) both take: every squadron replenishes
+// its replenishUnits, with the Flight Deck's Integrity while the hull is below half (hullBelowHalf). The wiring probe
+// patrolReplenishSteadyLift drives this same step, so a hull read that never fires fails its row. Mutates the squadrons.
+export function recoverPatrolDrones(squadrons: readonly DroneSquadron[], hull: number, hullMax: number): void {
+	const belowHalfHull = hullBelowHalf(hull, hullMax);
+	for (const squadron of squadrons) replenishDrones(squadron, replenishUnits(squadron, belowHalfHull));
 }
 
 export function replenishDrones(squadron: DroneSquadron, rateUnits: number): number {
