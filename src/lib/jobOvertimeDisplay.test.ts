@@ -124,7 +124,7 @@ describe("the strip, as the mockup draws it", () => {
     expect(sysNote).toBe(`Optional. Priced on the whole 6 min rung at Tier ${tierNumeral(sys.s.equipmentStorageLevel + 1)}`);
     const fac = withJob("facilityUpgrade", 360, { type: "facilityLevelUp", facility: "refinery" });
     expect(jobOvertimeStrip(fac.s, job(fac.s, fac.id), clock)!.note).toContain(
-      `6 min rung at Tier ${tierNumeral((fac.s.facilities.refinery?.level ?? 0) + 1)} (the level being built)`,
+      `6 min rung at Tier ${tierNumeral((fac.s.facilities.refinery?.level ?? 0) + 1)} (level ${(fac.s.facilities.refinery?.level ?? 0) + 1} being built)`,
     );
     const tel = withJob("facilityUpgrade", 720, { type: "facilityLevelUp", facility: "subspaceTelescope" });
     expect(jobOvertimeStrip(tel.s, job(tel.s, tel.id), clock)!.note).toContain(

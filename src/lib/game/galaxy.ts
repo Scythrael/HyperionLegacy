@@ -15,11 +15,13 @@
 //   across a wedge of bearings whose width is the tier's share of a full turn (ENEMY_SECTOR_WIDTH_PERMILLE, the open
 //   call 8 percentages), so a system at a uniform bearing is in enemy territory at that rate; Tier I has none.
 //   G2-2 HOOK: a candidate gets a bearing (its own salt) and reads inEnemySector; the telescope map shades the sectors
-//   (G2-7). Nothing reads the sectors yet. G2-9 close-out (user 2026-11-11, "Label + point inward"): the Tier VI and VII
+//   (G2-7); launched runs freeze the flag in their stamps. G2-9 close-out (user 2026-11-11, "Label + point inward"): the Tier VI and VII
 //   sectors are aimed at the Galactic Core (CORE_AIMED_SECTOR_TIERS).
 //
 // DISPLAY ONLY at G2-1: the placement moves the light-years the telescope and the candidates show; no run reads it.
-// Determinism: integer draws only (makeRng, nextInt); the placement is lattice points (no trigonometry in a draw).
+// Determinism: integer draws only (makeRng, nextInt); the placement is lattice points. One exception: coreBearingFrom
+// uses atan2 to aim the Tier VI and VII sectors; over every homeworld lattice point (241 x 241) the nearest value to a
+// rounding edge is 5e-4, so the result is identical on every browser.
 //
 // Module graph: model (types only), combat/rng. Imported by telescope.ts (re-exports), expedition.ts and the UI.
 

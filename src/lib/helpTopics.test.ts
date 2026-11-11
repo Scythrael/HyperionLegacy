@@ -1053,3 +1053,13 @@ describe("HELP_TOPICS: retirement and the Hall of Command (CP-16)", () => {
     expect(b).not.toMatch(/\u2014|-{2}|\bfit/);
   });
 });
+
+// G2-9 close-out (user 2026-11-11 "Everything"): every tier the player reads is a Roman numeral, so no Help text may
+// write a tier as an Arabic number ("tier 1", "tier-1", "Tier 3").
+describe("Roman numerals for every tier in Help", () => {
+  it("no Help paragraph writes a tier as an Arabic number", () => {
+    const all = JSON.stringify(HELP_TOPICS);
+    expect(all.match(/\btier[- ]\d/gi) ?? []).toEqual([]);
+  });
+});
+

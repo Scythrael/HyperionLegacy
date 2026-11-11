@@ -105,7 +105,7 @@ function pricing(state: GameState, p: TimedProcess, steps: number): { note: stri
   // run; the Docks, docking bays and Systems Bay have no level, so their tier is the expansion's number, said bare.
   const e = p.effect;
   const level =
-    e.type === "facilityLevelUp" ? (e.facility === "subspaceTelescope" ? " (the cycle being run)" : " (the level being built)") : "";
+    e.type === "facilityLevelUp" ? (e.facility === "subspaceTelescope" ? " (the cycle being run)" : ` (level ${tier} being built)`) : "";
   const head = `Priced on the whole ${length} ${jobNoun(p)} at Tier ${tierNumeral(tier)}${level}`;
   return steps === 0 ? { note: `Optional. ${head}`, noteTail: ", so a step costs the same whenever you buy it" } : { note: `${head}.`, noteTail: "" };
 }
