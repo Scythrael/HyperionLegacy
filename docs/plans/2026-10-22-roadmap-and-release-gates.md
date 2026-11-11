@@ -99,7 +99,7 @@ order (the UI reads `discovered` as a set, the tallies by key or as a sum). Valu
 chunking. The first-find relic registry (`relicDiscovered`) is not touched: the relic study lanes already deposit it in
 completion order in every chunking (a parity case proves it). Goldens first: `orderingGoldens.*` (pins
 captured on 2c66d749), switch `orderingSwitch.fixture.ts`, parity `orderingParity.test.ts` (one call == 997 s chunks ==
-1 s steps, byte for byte); `cp16HallOfCommand`, `cp14HullSensors` and `emodEm4` no longer normalize `discovered`. 48 older golden files
+1 s steps, byte for byte); `cp16HallOfCommand`, `cp14HullSensors` and `emodEm4` no longer normalize `discovered`. 49 older golden files (cp4FlightDeckGoldens among them, merged from feat)
 moved; each now runs with the slice off (`canonicalOrderOffForThisFile`), and a trace run (every JSON.stringify seen
 with these lists in canonical order, slice on against off) matched hash for hash in all of them except save stamps that
 also differ between two runs with the slice on.
