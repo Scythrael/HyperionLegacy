@@ -3,6 +3,9 @@
 // clearing roll (every run dispatched before the follow-up) resolves exactly as before (goldens captured BEFORE the
 // change), then the clearing rules: the roll, the stamping, the labels, Strike alone, Survey never.
 
+// Ordering determinism part 2 (canonicalOrder.ts: inventory keys and a call's completion log in one order) came after every pin here, traced order-only: the file runs with it off (ordering2Switch.fixture.ts).
+import { ordering2OffForThisFile } from "./ordering2Switch.fixture";
+ordering2OffForThisFile();
 import { describe, expect, it } from "vitest";
 // Wiring WR-10 (the away rules stamped at dispatch, a hire's account program) came after every pin here: the whole file
 // runs with WR-10 off (wr10Switch.fixture.ts), so its pins keep proving their own slice (wr10Goldens.test.ts pins WR-10's).

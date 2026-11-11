@@ -22,6 +22,9 @@
 // slice (orderingGoldens.test.ts pins the order move and proves it moved order only).
 import { canonicalOrderOffForThisFile } from "./orderingSwitch.fixture";
 canonicalOrderOffForThisFile();
+// Ordering determinism part 2 (canonicalOrder.ts: inventory keys and a call's completion log in one order) came after every pin here, traced order-only: the file runs with it off (ordering2Switch.fixture.ts).
+import { ordering2OffForThisFile } from "./ordering2Switch.fixture";
+ordering2OffForThisFile();
 import { E5_2_ADDED_ENTRY_IDS, E5_4_ADDED_ENTRY_IDS } from "./refugeeRegistry.fixture";
 import { describe, expect, it } from "vitest";
 // WR-8b (enemy torpedoes) came after every pin here: the file runs with it off (enemyTorpedoSwitch.fixture.ts), so its

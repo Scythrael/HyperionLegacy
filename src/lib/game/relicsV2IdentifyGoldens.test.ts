@@ -8,6 +8,9 @@
 //   4. the relic-study lane count per Research Lab level 0 to 7.
 // NEVER regenerate these from a later build. A slice that moves one names it and the reason in its commit.
 
+// Ordering determinism part 2 (canonicalOrder.ts: inventory keys and a call's completion log in one order) came after every pin here, traced order-only: the file runs with it off (ordering2Switch.fixture.ts).
+import { ordering2OffForThisFile } from "./ordering2Switch.fixture";
+ordering2OffForThisFile();
 import { describe, it, expect } from "vitest";
 import { freshState, type EquipmentRarity, type GameState, type RelicSetId, type RelicVaultToken, type TimedProcess } from "./model";
 import { RELIC_SETS } from "./relics";
