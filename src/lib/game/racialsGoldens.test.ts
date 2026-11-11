@@ -15,6 +15,11 @@
 // The wiring commit re-pins ONLY what a racial moves (GOLDEN), each with its reason beside it, and proves the move
 // with the racials switched off (racialsSwitch.fixture.ts): every fixture then reproduces its capture (BEFORE).
 
+// The ordering determinism slice (canonicalOrder.ts: `discovered` and the lifetime tally maps kept in canonical order)
+// came after every pin here: the file runs with it off (orderingSwitch.fixture.ts), so its pins keep proving their own
+// slice (orderingGoldens.test.ts pins the order move and proves it moved order only).
+import { canonicalOrderOffForThisFile } from "./orderingSwitch.fixture";
+canonicalOrderOffForThisFile();
 import { describe, expect, it } from "vitest";
 // Wiring WR-10 (the away rules stamped at dispatch, a hire's account program) came after every pin here: the whole file
 // runs with WR-10 off (wr10Switch.fixture.ts), so its pins keep proving their own slice (wr10Goldens.test.ts pins WR-10's).

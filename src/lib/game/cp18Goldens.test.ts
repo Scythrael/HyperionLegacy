@@ -3,6 +3,11 @@
 //
 // CP18_CAPTURE = an output path: record every row instead of asserting.
 
+// The ordering determinism slice (canonicalOrder.ts: `discovered` and the lifetime tally maps kept in canonical order)
+// came after every pin here: the file runs with it off (orderingSwitch.fixture.ts), so its pins keep proving their own
+// slice (orderingGoldens.test.ts pins the order move and proves it moved order only).
+import { canonicalOrderOffForThisFile } from "./orderingSwitch.fixture";
+canonicalOrderOffForThisFile();
 import { describe, expect, it } from "vitest";
 import { writeFileSync } from "node:fs";
 import { CP18_PINS_PRE, cp18Rows } from "./cp18Goldens.fixture";

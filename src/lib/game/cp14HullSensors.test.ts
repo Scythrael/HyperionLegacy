@@ -215,9 +215,9 @@ describe("CP-14 determinism: the hullSensors stamp", () => {
 
   it("one economyTick call == 997 s chunks == 1 s steps for a stamped short-range run and a stamped survey", () => {
     const rng = () => 0.5;
-    // `discovered` is a set kept in first-seen order, and one call sees a cycle's finds in another order than 1 s steps
-    // (the emodEm4.test.ts precedent sorts it): compared sorted.
-    const hashOf = (s: GameState): string => stateHash({ ...s, discovered: [...s.discovered].sort() });
+    // The whole state as it is: the ordering determinism slice (canonicalOrder.ts) keeps `discovered` in canonical order,
+    // so one call and 1 s steps list a cycle's finds alike.
+    const hashOf = (s: GameState): string => stateHash(s);
     const stepped = (s: GameState, n: number): GameState => {
       let out = s;
       for (let i = 0; i < n; i++) out = economyTick(out, 1, rng);

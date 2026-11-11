@@ -17,6 +17,11 @@
 //   mission  : two captain missions on a General Freighter with a crafted Reactor Core and the power crew, 700 s.
 //   registry : the wiring registry snapshot (id, status, contexts, probe) and the E-MOD owned rows by name.
 
+// The ordering determinism slice (canonicalOrder.ts: `discovered` and the lifetime tally maps kept in canonical order)
+// came after every pin here: the file runs with it off (orderingSwitch.fixture.ts), so its pins keep proving their own
+// slice (orderingGoldens.test.ts pins the order move and proves it moved order only).
+import { canonicalOrderOffForThisFile } from "./orderingSwitch.fixture";
+canonicalOrderOffForThisFile();
 import { E5_2_ADDED_ENTRY_IDS, E5_4_ADDED_ENTRY_IDS } from "./refugeeRegistry.fixture";
 import { describe, expect, it } from "vitest";
 // WR-8b (enemy torpedoes) came after every pin here: the file runs with it off (enemyTorpedoSwitch.fixture.ts), so its

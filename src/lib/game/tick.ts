@@ -214,6 +214,7 @@ import {
 import { identifyRelic, relicStudySeed, relicStudyDurationTicks, museumBonuses, museumDepositGeneral } from "./relics";
 import { identifyGeneralRelic, vaultTokenCultureId, vaultTokenRegionTier } from "./relicBlanks";
 // Relics v2 R2-3: identification v2 (the keyed three-draw roll and its deposit) and the lanes by Lab level.
+import { inCanonicalKeyOrder, withDiscovered } from "./canonicalOrder";
 import { RELIC_STUDY_VERSION, applyRelicIdentification, identifyRelicV2, relicIdentificationId, relicStudyLanesAt } from "./relicIdentify";
 // Gas Giant Study GG-5: the Research Lab's data study lane (dataStudy.ts imports neither this file nor expedition.ts).
 import { ANCIENT_DATA_FRAGMENT_ID } from "./gasGiantContent";
@@ -619,10 +620,14 @@ function mergeLifetimeStatMap(
   delta: Record<string, Decimal>
 ): Record<string, Decimal> {
   const merged: Record<string, Decimal> = { ...base };
+  let added = false;
   for (const key of Object.keys(delta)) {
+    if (merged[key] === undefined) added = true;
     merged[key] = (merged[key] ?? new Decimal(0)).plus(delta[key]);
   }
-  return merged;
+  // Ordering determinism (canonicalOrder.ts): a new key puts the map in canonical key order, so the key order does not
+  // depend on which captain a call folds first.
+  return added ? inCanonicalKeyOrder(merged) : merged;
 }
 
 // Progression Pacing Rework (Task 7): folds ONE captain's per-call
@@ -4509,8 +4514,8 @@ export function addToInventory(
   }
   // DISCOVERY IS GATED ON THE REQUESTED amount (unchanged): receiving a positive
   // amount reveals the item even if the clamp discarded all of it.
-  const nextDiscovered =
-    amount.gt(0) && !discovered.includes(itemId) ? [...discovered, itemId] : discovered;
+  // Ordering determinism (canonicalOrder.ts): a new find lands in canonical order, not in the order the call met it.
+  const nextDiscovered = amount.gt(0) ? withDiscovered(discovered, itemId) : discovered;
   return { inventory: nextInventory, discovered: nextDiscovered };
 }
 
@@ -12881,12 +12886,11 @@ export function resolveProcesses(
       if (process.kind === "refineJob") {
         const itemId = process.effect.itemId;
         const priorRefined = lifetimeStats.itemsRefined[itemId] ?? new Decimal(0);
+        const refined = { ...lifetimeStats.itemsRefined, [itemId]: priorRefined.plus(process.effect.amount) };
         lifetimeStats = {
           ...lifetimeStats,
-          itemsRefined: {
-            ...lifetimeStats.itemsRefined,
-            [itemId]: priorRefined.plus(process.effect.amount),
-          },
+          // Ordering determinism (canonicalOrder.ts): a new key lands in canonical key order.
+          itemsRefined: lifetimeStats.itemsRefined[itemId] === undefined ? inCanonicalKeyOrder(refined) : refined,
         };
       } else if (process.kind === "fabricateJob") {
         // Fabricator (Phase 4, Task F2): a completed FABRICATE JOB accrues the per-item
@@ -12899,12 +12903,11 @@ export function resolveProcesses(
         // add (fresh maps); an item absent from itemsCrafted starts at 0.
         const itemId = process.effect.itemId;
         const priorCrafted = lifetimeStats.itemsCrafted[itemId] ?? new Decimal(0);
+        const crafted = { ...lifetimeStats.itemsCrafted, [itemId]: priorCrafted.plus(outputAmount) };
         lifetimeStats = {
           ...lifetimeStats,
-          itemsCrafted: {
-            ...lifetimeStats.itemsCrafted,
-            [itemId]: priorCrafted.plus(outputAmount),
-          },
+          // Ordering determinism (canonicalOrder.ts): a new key lands in canonical key order.
+          itemsCrafted: lifetimeStats.itemsCrafted[itemId] === undefined ? inCanonicalKeyOrder(crafted) : crafted,
         };
       }
     } else if (process.effect.type === "unlockBlueprint") {
@@ -13233,7 +13236,8 @@ export function resolveProcesses(
         // set). Covers the loot roll (a material salvage) and, harmlessly, the already-discovered
         // materials an equipment recycle refunds.
         for (const [itemId, qty] of Object.entries(resolved.recovered)) {
-          if (qty > 0 && !discovered.includes(itemId)) discovered = [...discovered, itemId];
+          // Ordering determinism (canonicalOrder.ts): a revealed item lands in canonical order.
+          if (qty > 0) discovered = withDiscovered(discovered, itemId);
         }
       }
       // resolved === null: a STALE or refused target (already salvaged, since installed,

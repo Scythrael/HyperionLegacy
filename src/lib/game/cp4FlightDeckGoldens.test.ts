@@ -15,6 +15,11 @@
 // The engine commit re-pins ONLY what the facet moves (GOLDEN), with its reason beside it, and proves the move with the
 // facet switched off (cp4FlightDeckSwitch.fixture.ts): every fixture then reproduces its capture (BEFORE).
 
+// The ordering determinism slice (canonicalOrder.ts: `discovered` and the lifetime tally maps kept in canonical order)
+// came after every pin here: the file runs with it off (orderingSwitch.fixture.ts), so its pins keep proving their own
+// slice (orderingGoldens.test.ts pins the order move and proves it moved order only).
+import { canonicalOrderOffForThisFile } from "./orderingSwitch.fixture";
+canonicalOrderOffForThisFile();
 import { describe, expect, it } from "vitest";
 import type { PatrolMissionState } from "./model";
 import { economyTick } from "./tick";

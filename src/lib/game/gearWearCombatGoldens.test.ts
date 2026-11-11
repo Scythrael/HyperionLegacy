@@ -24,6 +24,11 @@
 //
 // The parity checks (not hashes): every cycle's display replay reaches the outcome the live loop reached.
 
+// The ordering determinism slice (canonicalOrder.ts: `discovered` and the lifetime tally maps kept in canonical order)
+// came after every pin here: the file runs with it off (orderingSwitch.fixture.ts), so its pins keep proving their own
+// slice (orderingGoldens.test.ts pins the order move and proves it moved order only).
+import { canonicalOrderOffForThisFile } from "./orderingSwitch.fixture";
+canonicalOrderOffForThisFile();
 import { describe, expect, it } from "vitest";
 // WR-8b (enemy torpedoes) came after every pin here: the file runs with it off (enemyTorpedoSwitch.fixture.ts), so its
 // pins keep proving their own slice (enemyTorpedoGoldens.test.ts pins what WR-8b moved, enemyTorpedoes.test.ts proves it).

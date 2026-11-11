@@ -15,6 +15,11 @@
 //                 Cloaked Vessel with the sensor check passed and failed, two bodies x eight steps).
 //   5. shipEvent: whole Ground Operations runs (three explorers x two seeds, Tier I veteran, D18 crew) to SWEEP_END.
 
+// The ordering determinism slice (canonicalOrder.ts: `discovered` and the lifetime tally maps kept in canonical order)
+// came after every pin here: the file runs with it off (orderingSwitch.fixture.ts), so its pins keep proving their own
+// slice (orderingGoldens.test.ts pins the order move and proves it moved order only).
+import { canonicalOrderOffForThisFile } from "./orderingSwitch.fixture";
+canonicalOrderOffForThisFile();
 import { describe, expect, it } from "vitest";
 import Decimal from "break_infinity.js";
 import { PATROLS, SHIP_TYPES, type Expedition, type GameState, type PatrolKey, type PatrolMissionState, type RegionTier, type ShipTypeKey } from "./model";

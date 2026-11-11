@@ -19,6 +19,11 @@
 // read fusion / none / met on every ship), and every earlier mission flown from dispatch (in-flight byte-identical).
 // Test-only.
 
+// The ordering determinism slice (canonicalOrder.ts: `discovered` and the lifetime tally maps kept in canonical order)
+// came after every pin here: the file runs with it off (orderingSwitch.fixture.ts), so its pins keep proving their own
+// slice (orderingGoldens.test.ts pins the order move and proves it moved order only).
+import { canonicalOrderOffForThisFile } from "./orderingSwitch.fixture";
+canonicalOrderOffForThisFile();
 import { describe, expect, it } from "vitest";
 import { cp16OffForThisFile } from "./cp16Switch.fixture";
 // Complement CP-16 (the Hall of Command) came after every pin here: the file runs with the slice off, so its pins

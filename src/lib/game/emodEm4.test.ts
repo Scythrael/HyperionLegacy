@@ -264,7 +264,9 @@ function canonical(v: unknown): unknown {
   if (v !== null && typeof v === "object") return Object.fromEntries(Object.keys(v).sort().map((k) => [k, canonical((v as Record<string, unknown>)[k])]));
   return v;
 }
-const json = (s: GameState) => JSON.stringify(canonical(JSON.parse(JSON.stringify({ ...s, discovered: [...s.discovered].sort() }))));
+// Object keys sorted (the inventory key order wrinkle, its own follow-up); `discovered` compared as it stands (the
+// ordering determinism slice, canonicalOrder.ts, keeps it in one order however the time is cut).
+const json = (s: GameState) => JSON.stringify(canonical(JSON.parse(JSON.stringify(s))));
 function stepped(s: GameState, n: number): GameState {
   let out = s;
   for (let i = 0; i < n; i++) out = economyTick(out, 1, RNG);
