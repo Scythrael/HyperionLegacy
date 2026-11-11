@@ -342,8 +342,9 @@ higher" (text, no mockup).
 > commit) pins a Refinery-Feed Rig ship under an Assayer captain on the Local Asteroid run and on Salvage Wreckage
 > (plus the ML-4 craft captures). Built in `materialQuality.ts`: `materialQualityClimbChance(points)` =
 > `diminishing(points x 0.01, 0.25)` (D23, the shared unbounded curve rather than an asymptotic PERCENT_STAT_CURVES
-> entry; a probability, so 1 at most), **`MATERIAL_QUALITY_CURVE` [PROVISIONAL]** (no answer names the numbers: 10
-> points about 8.5%, 20 about 15%, 30 about 21%); `equipmentStatMods` sums the line into
+> entry; a probability, so 1 at most), **`MATERIAL_QUALITY_CURVE`** (approved by the user 2026-10-21,
+> `2026-10-19-merge-batch-answers.md` "ML-3 climb curve: Approve (Recommended)": 10 points about 8.5%, 20 about 15%,
+> 30 about 21%); `equipmentStatMods` sums the line into
 > `percentPlus.materialQualityChance` (written only when a piece carries it) and `shipDerivedStats` writes the optional
 > `ShipDerivedStats.materialQuality` only when above 0. economyTick's per-captain merge climbs `floor(amount x p)`
 > units per delivered item plus one rounding draw each (sorted item order) on
@@ -439,6 +440,21 @@ again as an ordinary Tier I mining run, no fuel role, Repeat-friendly so it neve
 Deuterium Canister (GG-1's item and refine) as an input to Class III+ FTL drive blueprints (authored by G2-4) and the
 High-Output Core. Depends on GG-1 and G2-4. Tests: drive blueprints refuse without canisters; the no-wall rule still
 holds for Class I and II; the skim run delivers on Repeat. UI: the Deuterium Ice hint and the mission card text.
+
+> **Carry note (ML-6, recorded at the ML close-out 2026-11-11; no separate ML-6 slice was built).** The early source
+> changed: the Local Deuterium Skim (`localFuelRun`) stays retired and hidden. The user's 2026-10-21 answer
+> (`2026-10-21-reactor-fuel-and-recipe-realism-capture.md` section 2, "A NEW Tier I mission (not the retired Local
+> Deuterium Skim)"; `2026-10-21-recipe-realism-audit.md` notes L8 superseded) replaced it with the **Cometary Ice
+> Harvest** (`cometIceHarvest`, Tier I, flies from a fresh save on the starting freighter, Deuterium Ice among its
+> common drops, Titanium Ore and Iridium Ore on its uncommon and rare rolls). The rest of ML-6 landed in its owners:
+> **GG-1** owns the Deuterium Canister and its refine (`refineDeuteriumCanister`, Deuterium Ice 10:1), and the reactor
+> fuel slice made every Reactor Core recipe carry its canisters (Balanced 1, Efficient 1, High-Output 2);
+> **G2-4** authored the classed drive blueprints, Class III to VII taking Deuterium Canisters (VI and VII also
+> Antimatter Cells), Class I and II none, so the no-wall rule holds below Class III. Tests: `reactorTech.test.ts`
+> (the fuel ladder, "the Deuterium chain has a live source", the Cometary Ice Harvest block) and `propulsion.test.ts`
+> (~91, "III+ take Deuterium, VI and VII Antimatter"). The Deuterium Ice hint and the Fuel Help topic name both uses
+> since the close-out. The comet run's numbers, the classed drives' fuel amounts and the reactor fuel tiers stay
+> provisional (open calls in the close-out note below).
 
 **ML-7 Legibility UI (mockup first, new sign-off).** Refinery grouped by line (2 recipes become 12), a per-quality
 readout in Materials (hover or expand), the "Use best materials" toggle on a craft order, Help topic "Material lines and
@@ -1087,3 +1103,40 @@ OPEN CALL (EM-4 review, 2026-10-23): should a WORN reactor shrink the surplus sp
 - Installs until EM-10: "Armory loadouts only (Recommended)" (Install on... refuses ships for module pieces: "install modules through an Armory loadout for now").
 - Freighter module slots: "Yes, 1 slot".
 - Top-tier recipe: "Add Iridium Catalyst (Recommended)" (tier 4 Shield Surge recipe includes Iridium Catalyst, per M7).
+
+## ML close-out (2026-11-11)
+
+A read-only close-out review of ML-0 to ML-7 and the recipe realism audit found no engine defect, so this pass changed
+no gameplay number or rule (no golden moved, no save step). Built:
+
+- **QA:** one combined desktop (1280 px) + mobile (375 px), light + dark sheet, `docs/qa/2026-11-11-material-lines-qa.html`:
+  ML-2 with recipe realism (Biofiber, Resin Distillate, the changed recipes, salvage refunds), ML-3 and ML-4 (the
+  rig tooltip, Use best materials), ML-7 (the grouped Refinery, chips, Help), the Cometary Ice Harvest and the fuel
+  chain. ML-5 keeps its own sheet (`2026-11-10-ml5-quality-blanks-qa.html`).
+- **Docs:** the ML-6 carry note above (the Local Deuterium Skim stays retired; the Cometary Ice Harvest replaced it);
+  the climb curve's stale [PROVISIONAL] tag removed here (ML-3 carry note) and in `materialQuality.ts`, citing the
+  user's 2026-10-21 approval in `2026-10-19-merge-batch-answers.md`.
+- **Help made truthful (from the code):** the Deuterium Ice hint, the Fuel topic and the Gas Storage Canisters
+  paragraph now say Deuterium Canisters also go into FTL Drive blueprints from Class III up (the class read from
+  `DRIVE_CLASS_BLUEPRINTS`, `helpTopics.ts` `DEUTERIUM_DRIVE_MIN_CLASS`); the Quartermaster topic lists everything
+  the Sell tab buys, read from `ITEMS` `sellValue` (`SELL_COUNTER_TEXT`: Deuterium Ice, Salvaged Circuitry, Precursor
+  Circuit and the gas canisters). Pinned in helpTopics.test.ts (the "ML close-out" block).
+- **Refinery line sources derived:** `REFINERY_LINES` no longer hand-keeps its missions (it had missed the Cometary
+  Ice Harvest under Structural and Survey Stellar Phenomena under Heavy metals and Organic). `lineSourceMissions`
+  (`ui/materialLinesDisplay.ts`) reads every flyable mission's loot table through the new `missionDeliverableItems`
+  (model.ts: the common floor, plus uncommon and rare when their chance is above 0; transport runs deliver nothing),
+  skipping `RETIRED_MISSION_KEYS` (model.ts, now also the one list App.svelte's mission filters read). Test:
+  materialLinesDisplay.test.ts "names every flyable mission that can deliver a line's material, and only those"; the
+  Heavy metals sources pin moved (Survey Stellar Phenomena added), traced in the test.
+
+**OPEN (the user's calls; not built here, every number below stays provisional):**
+
+1. **Audit call 14, the sensors leg:** Hydrogen and Methane in a Lab tier 3+ Sensors blueprint (placement (a) was
+   approved, but no such blueprint exists to take them). Needs the user's answer on which blueprint, then a new
+   blueprint. The Quarters leg (Ammonia and Hydrogen in the Elite Quarters) is built.
+2. **The Cometary Ice Harvest's numbers** (`COMETARY_ICE_HARVEST_NUMBERS` [PROVISIONAL]: 40-tick legs, 25% Titanium
+   Ore, 1% Iridium Ore, 40 credits a cycle).
+3. **The classed drives' fuel amounts** (Class III 1, IV 2, V to VII 3 Deuterium Canisters; VI 1 and VII 2
+   Antimatter Cells; [PROPOSAL], the balancing patch owns them).
+4. **The reactor fuel tiers** (`REACTOR_FUEL_LADDER` (reactorTech.ts) rows above Lab tier 2 and the
+   Deuterium-Helium-3 and antimatter-catalyzed rungs: [PROPOSAL] amounts, the balancing patch).

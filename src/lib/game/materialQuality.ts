@@ -22,7 +22,8 @@ import { QUALITY_TIERS } from "./inventory";
 // The highest quality a unit can hold (Q5).
 export const MAX_MATERIAL_QUALITY = QUALITY_TIERS - 1;
 
-// [PROVISIONAL] (no answer names the numbers; the plan asks only for a concave curve with no cap, D23): a ship's
+// Approved by the user 2026-10-21 (docs/plans/2026-10-19-merge-batch-answers.md, "ML-3 climb curve: Approve
+// (Recommended)"; a concave curve with no cap, D23): a ship's
 // summed materialQualityChance points become a per-unit climb chance through the shared D23 curve,
 // diminishing(points x perPoint, knee). About 1% a point at first: 10 points about 8.5%, 20 points about 15%, 30
 // points about 21%, and still rising. The chance is a probability per unit, so it reads as 1 at most (every unit
