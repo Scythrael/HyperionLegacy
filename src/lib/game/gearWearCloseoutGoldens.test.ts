@@ -158,6 +158,21 @@ const PRE: Record<string, string[]> = {
   bayOt3: ["hullTicks:330", "hull:189:cargoBay:252@189,ftlDrive:252@189,reactorCore:252@189,specUtility:252@189,weapon:252@189,weapon:252@189,weapon:252@189,weapon:252@189,shieldEmitters:252@189,hullPlating:252@189#bac82b1f", "full:1311:cargoBay:1000@-,ftlDrive:1000@-,reactorCore:1000@-,specUtility:1000@-,weapon:1000@-,weapon:1000@-,weapon:1000@-,weapon:1000@-,shieldEmitters:1000@-,hullPlating:1000@-#fbacc285"],
 };
 
+// LIVE (the close-out on): only the rows it moved, each traced by the switch-off test above (its PRE pin holds off).
+//   missionEnd, shortRangeEnd ("Make it exact"): the run's leftover underway seconds were credited at the home rate
+//     (the drive back to full at the run's end, 1000, where the exact credit leaves it at 993; the short-range reactor
+//     984 where it read 1000), so the docked marks trail by up to about 2%, then catch up.
+//   bay, bayOt3 ("Keep the bay rate"): the gear's full second, 1,170 s and 1,311 s (hull Overtime made it LATER) to
+//     750 s in both (1000 per-mille at the bay's 80 a minute); the hull's own end and its pieces then are unchanged.
+//   pauseFirst, pauseRepeat: unmoved (a pause repairs its combat pieces to full, so the credited leftover never shows
+//     after it closes; a patrol records no use wear).
+const LIVE: Partial<Record<string, string[]>> = {
+  missionEnd: ["end:cargoBay:968@1532.8,ftlDrive:993@1532.4,reactorCore:979@1532.8,specUtility:968@1532.8,weapon:1000@-,weapon:1000@-,shieldEmitters:1000@-,hullPlating:1000@-#ad7931a1", "+7:cargoBay:972@1538.8,ftlDrive:998@1539.9,reactorCore:983@1538.8,specUtility:972@1538.8,weapon:1000@-,weapon:1000@-,shieldEmitters:1000@-,hullPlating:1000@-#2e9e5219", "+45:cargoBay:998@1577.8,ftlDrive:1000@-,reactorCore:1000@-,specUtility:998@1577.8,weapon:1000@-,weapon:1000@-,shieldEmitters:1000@-,hullPlating:1000@-#27644661", "+300:cargoBay:1000@-,ftlDrive:1000@-,reactorCore:1000@-,specUtility:1000@-,weapon:1000@-,weapon:1000@-,shieldEmitters:1000@-,hullPlating:1000@-#1acb1083"],
+  shortRangeEnd: ["end:cargoBay:1000@-,ftlDrive:934@3091,reactorCore:984@3090.75,specUtility:1000@-,weapon:1000@-,weapon:1000@-,shieldEmitters:1000@-,hullPlating:1000@-#96de3151", "+7:cargoBay:1000@-,ftlDrive:939@3098.5,reactorCore:989@3098.25,specUtility:1000@-,weapon:1000@-,weapon:1000@-,shieldEmitters:1000@-,hullPlating:1000@-#bf45de06", "+45:cargoBay:1000@-,ftlDrive:964@3136,reactorCore:1000@-,specUtility:1000@-,weapon:1000@-,weapon:1000@-,shieldEmitters:1000@-,hullPlating:1000@-#5afead20", "+300:cargoBay:1000@-,ftlDrive:1000@-,reactorCore:1000@-,specUtility:1000@-,weapon:1000@-,weapon:1000@-,shieldEmitters:1000@-,hullPlating:1000@-#1acb1083"],
+  bay: ["hullTicks:330", "hull:330:cargoBay:440@330,ftlDrive:440@330,reactorCore:440@330,specUtility:440@330,weapon:440@330,weapon:440@330,weapon:440@330,weapon:440@330,shieldEmitters:440@330,hullPlating:440@330#168732bb", "full:750:cargoBay:1000@-,ftlDrive:1000@-,reactorCore:1000@-,specUtility:1000@-,weapon:1000@-,weapon:1000@-,weapon:1000@-,weapon:1000@-,shieldEmitters:1000@-,hullPlating:1000@-#fbacc285"],
+  bayOt3: ["hullTicks:330", "hull:189:cargoBay:252@189,ftlDrive:252@189,reactorCore:252@189,specUtility:252@189,weapon:252@189,weapon:252@189,weapon:252@189,weapon:252@189,shieldEmitters:252@189,hullPlating:252@189#bac82b1f", "full:750:cargoBay:1000@-,ftlDrive:1000@-,reactorCore:1000@-,specUtility:1000@-,weapon:1000@-,weapon:1000@-,weapon:1000@-,weapon:1000@-,shieldEmitters:1000@-,hullPlating:1000@-#fbacc285"],
+};
+
 describe("gear wear close-out goldens", () => {
   if (CAPTURE) {
     it("capture", () => {
@@ -170,6 +185,9 @@ describe("gear wear close-out goldens", () => {
   for (const [k, f] of Object.entries(ROWS)) {
     it(`${k}: the PRE pin holds with the close-out switches off`, () => {
       expect(withCloseoutOff(f)).toEqual(PRE[k]);
+    }, 600_000);
+    it(`${k}: LIVE ${LIVE[k] ? "moves as traced" : "unmoved"}`, () => {
+      expect(f()).toEqual(LIVE[k] ?? PRE[k]);
     }, 600_000);
   }
 });

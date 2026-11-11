@@ -7489,7 +7489,9 @@ function wearEntries(): WiringEntry[] {
         id: `wear:WEAR_SOURCES:${w.id}`,
         system: "wear",
         source: { catalog: "WEAR_SOURCES", key: w.id },
-        claim: `${w.slot} wears by ${w.by}, ${w.event}${use ? " (use stops at the use floor)" : " (battle can go below the floor, never breaks)"}`,
+        // GEAR WEAR close-out (user 2026-11-11 "Yes, it's combat wear (Recommended)"): a Damage Control Suite's fire on a
+        // patrol wave it patches stays as built and counts as combat wear (a patrol wears its gear only in battle).
+        claim: `${w.slot} wears by ${w.by}, ${w.event}${use ? " (use stops at the use floor)" : " (battle can go below the floor, never breaks)"}${w.id === "specUtility:effectFires" ? "; a Damage Control Suite's fire on a patrol wave it patches counts as combat wear" : ""}`,
         direction: "down",
         magnitude: (c) => -(c.WEAR_SOURCES.find((x) => x.id === w.id)?.raw ?? 0),
         ...(use

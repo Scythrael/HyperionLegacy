@@ -23,6 +23,12 @@
 // so the field swap itself is invisible here and only a real behavior change can move a pin.
 
 import { describe, expect, it } from "vitest";
+// Gear wear close-out (2026-11-11: "Make it exact", "Keep the bay rate") came after every pin here: the file runs with it
+// off (gearWearCloseoutSwitch.fixture.ts), so its pins keep proving their own slice (gearWearCloseoutGoldens.test.ts and
+// gearWearCloseout.test.ts pin and prove what the close-out moved: leftover underway seconds at a run's end, a repair
+// pause's or a field repair leg's edges credited at the rate that applied; gear keeping the bay rate until full).
+import { gearWearCloseoutOffForThisFile } from "./gearWearCloseoutSwitch.fixture";
+gearWearCloseoutOffForThisFile();
 // Wiring WR-10 (the away rules stamped at dispatch, a hire's account program) came after every pin here: the whole file
 // runs with WR-10 off (wr10Switch.fixture.ts), so its pins keep proving their own slice (wr10Goldens.test.ts pins WR-10's).
 import { wr10OffForThisFile } from "./wr10Switch.fixture";

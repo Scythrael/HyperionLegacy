@@ -706,3 +706,39 @@ items in the step 5 QA sheet; crew training logged in SUGGESTIONS.md.
 - Damage Control Suite wear when its effect fires in a patrol battle: "Yes, it's combat wear (Recommended)": stays.
 - Leftover underway seconds credited at the home rate at context changes (up to about 2%): "Make it exact
   (Recommended)": credit them at the rate that actually applied.
+
+**Carry note, close-out fix pass (2026-11-11, the answers above).** Goldens first (`gearWearCloseoutGoldens.test.ts`,
+PRE pins captured on 523faa86 before any edit; the switch `gearWearCloseoutSwitch.fixture.ts` reproduces every PRE pin;
+LIVE pins only on the rows it moved, each traced).
+- **Pause screens.** A Repeat patrol paused to repair reads as home and repairing: `gearWearEngine.ts settlePieceNow`
+  (behind `livePieceCondition`, `gearRepairOutlook`) walks the pause's window from `repairPause.from` at the home rate, so
+  the bar is live and closes on the stored value (no jump). The card ("Repairing at home while its patrol pauses: back
+  to full in N min"), the Overtime strip (live, not "Docked only"), the chip ("Repairing at home, full in N min") and
+  Fleet care (a recovering row, never "out on patrol") all say so. A recall during a pause settles the pieces through
+  the pause to that instant (`settleRecalledPause`), so the bar never jumps there either.
+- **"Allow Overtime in pauses".** The gear card's one-tap button works in a pause, priced by the same rule (the job's
+  FULL length at the normal rate: the pause's whole length, `processSpeed.ts gearRepairJobMinutes`, frozen at step 1).
+  Each step is stamped on the pause (`repairPause.overtime`, its instant and steps; `ShipInstance.gearRepairSpeed` as
+  for docked) and the countdown is rescaled to the ticks the combat pieces need at the new rate, counted in the settle's
+  own integers (`pauseResumeTicks`, `gearWear.ts secondsToFull`): the patrol heads out on the tick its gear is full.
+  Nothing is settled at the purchase; the pause's window is split at each step (`pauseRepairWindows`) and settles as it
+  closes, so one call, 997 s chunks and 1 s steps write the same bytes. The purchase log shows both times ("heads back
+  out in X instead of Y"). A docked ship's Overtime carries into a "Repair first, then go" pause (it never left home).
+- **"Keep the bay rate".** A ship whose hull repair ends in a bay with its gear worn is marked
+  (`ShipInstance.gearBayRate`) and its gear keeps the bay rate until full (cleared once full or when it leaves);
+  `gearRepairOutlook` no longer splits bay and home. Re-measured (620-tick hull repair, gear at 0): 14.7 min, and 19.1
+  min with 3 hull Overtime steps, before; 12.5 min in both now. Moved: the bay rows (1,170 s and 1,311 s to 750 s).
+- **"Make it exact".** On a run that carries a gear wear stamp, the walk through a window (a pause, a field repair leg)
+  re-expresses the banked fraction at each edge, and every stamped run's end carries it into the docked rate (before,
+  only a step 4 stamped run did). Runs with no stamp (every run in a 0.13.x save) settle as before. Moved: a mission's
+  and a short-range run's end (the drive 1000 to 993, the reactor 1000 to 984 at the end; docked marks trail by up to
+  about 2%, then catch up), and the step 4 golden `patrol:modules:battleship:crimsonReaverWarband:repeat` (its worn
+  modules entered a pause 22 s after their anchor: 735 to 722; that file and `gearWearGoldens.test.ts` now run with the
+  close-out off, their pins unchanged).
+- **"Yes, it's combat wear".** The Damage Control Suite's patrol fires stay; the registry claim
+  (`wear:WEAR_SOURCES:specUtility:effectFires`) and Help say it counts as combat wear.
+- **Text.** Help: "Repair itself is always free" (Overtime is paid), universal modules by time underway (true:
+  `gearWearEngine.ts shipPieceUseRaw`, `module:minutesUnderway` on missions, short-range runs and expeditions), Fleet
+  care's patrol and waiting-hull rows, Overtime in a pause, the kept bay rate. The `reactorCore:powerOutput` catalog row
+  now reads that its power output stays full. QA: section 7 of `docs/qa/2026-11-09-gear-wear-step5-qa.html`.
+- Save: two optional fields (`gearBayRate`, `repairPause.overtime`), no SAVE_VERSION step.

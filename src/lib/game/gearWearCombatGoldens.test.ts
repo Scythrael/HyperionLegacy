@@ -25,6 +25,12 @@
 // The parity checks (not hashes): every cycle's display replay reaches the outcome the live loop reached.
 
 import { describe, expect, it } from "vitest";
+// Gear wear close-out (2026-11-11: "Make it exact", "Keep the bay rate") came after every pin here: the file runs with it
+// off (gearWearCloseoutSwitch.fixture.ts), so its pins keep proving their own slice (gearWearCloseoutGoldens.test.ts and
+// gearWearCloseout.test.ts pin and prove what the close-out moved: leftover underway seconds at a run's end, a repair
+// pause's or a field repair leg's edges credited at the rate that applied; gear keeping the bay rate until full).
+import { gearWearCloseoutOffForThisFile } from "./gearWearCloseoutSwitch.fixture";
+gearWearCloseoutOffForThisFile();
 // WR-8b (enemy torpedoes) came after every pin here: the file runs with it off (enemyTorpedoSwitch.fixture.ts), so its
 // pins keep proving their own slice (enemyTorpedoGoldens.test.ts pins what WR-8b moved, enemyTorpedoes.test.ts proves it).
 import { enemyTorpedoesOffForThisFile } from "./enemyTorpedoSwitch.fixture";

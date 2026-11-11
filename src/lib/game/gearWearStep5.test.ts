@@ -199,7 +199,7 @@ describe("gear wear step 5: the wear UI's view models read the engine", () => {
   it("the Help topic reads the engine: bands, the use floor, the curve, the free rates, Overtime; no paid or instant repair", () => {
     const topic = HELP_TOPICS.find((t) => t.id === "gearWear")!;
     expect(topic.title).toBe("Gear wear");
-    for (const s of ["Pristine (95% and up)", "Sound (80% to 94%)", "Worn (60% to 79%)", "Battered (below 60%)", "Ordinary use stops at 60%", "96% at 60%", "never below 75%", "4% a minute at home", "8% a minute while its hull is in a Shipyard repair bay", "0.2% a minute out on a run", "never needs you and never costs anything", "pay for Overtime from a piece's gear card", "which stays free"]) {
+    for (const s of ["Pristine (95% and up)", "Sound (80% to 94%)", "Worn (60% to 79%)", "Battered (below 60%)", "Ordinary use stops at 60%", "96% at 60%", "never below 75%", "4% a minute at home", "8% a minute while its hull is in a Shipyard repair bay", "0.2% a minute out on a run", "never needs you. Repair itself is always free", "pay for Overtime from a piece's gear card", "which stays free"]) {
       expect(topic.body, s).toContain(s);
     }
     expect(topic.body).toContain(TRAINING_WEAR_SENTENCE);
