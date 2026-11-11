@@ -55,6 +55,7 @@ import { wr13ReadBack } from "./wr13Registry.fixture";
 import { wr8bReadBack } from "./wr8bRegistry.fixture";
 // Wiring OC-G1 (the legacy expedition path deleted) came after these pins: its registry read-back applies innermost.
 import { ocg1ReadBack } from "./ocg1Registry.fixture";
+import { g29ReadBack } from "./g29Registry.fixture";
 import { writeFileSync } from "node:fs";
 import Decimal from "break_infinity.js";
 import { BLUEPRINTS, EQUIPMENT_SLOTS, blueprintResearchable, freshState, type GameState, type ShipTypeKey } from "./model";
@@ -78,7 +79,7 @@ const CAPTURE = Boolean(import.meta.env.CP11_CAPTURE);
 const SHIP = "ship-1";
 const HULLS: readonly ShipTypeKey[] = ["aurora", "eir", "generalFreighter"];
 const shipOf = (s: GameState) => s.ships.find((x) => x.id === SHIP)!;
-const REGISTRY = cp12ReadBack(cp13ReadBack(cp14ReadBack(cp16ReadBack(cp18ReadBack(cp19ReadBack(gw5ReadBack(ml5ReadBack(otUiReadBack(wr10ReadBack(wr13ReadBack(wr8bReadBack(ocg1ReadBack(WIRING_REGISTRY)))))))))))));
+const REGISTRY = cp12ReadBack(cp13ReadBack(cp14ReadBack(cp16ReadBack(cp18ReadBack(cp19ReadBack(gw5ReadBack(ml5ReadBack(otUiReadBack(wr10ReadBack(wr13ReadBack(wr8bReadBack(ocg1ReadBack(g29ReadBack(WIRING_REGISTRY))))))))))))));
 
 function registryRows(): string[] {
   return cp11ReadBack(REGISTRY).map((e) => `${e.id}|${JSON.stringify(e.status)}|${e.probe ?? ""}|${e.contexts.join(",")}|${e.claim}`);

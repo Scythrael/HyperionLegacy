@@ -130,7 +130,7 @@ import { installFromShipSystemTile } from "../shipSystemTiles";
 import { constitutionRamp } from "../constitutionRamp";
 import { DRIVE_CLASS_REACH_MULT, FRONTIER_SENSORS } from "../propulsion";
 import { TIER_TRANSIT_HOURS, VOYAGE_BAND_SCALE_PERMILLE, voyageClassSteps } from "../voyage";
-import { TIER_HAUL_MULT } from "../riskFactors";
+import { ENEMY_TERRITORY_COMBAT_STEP, TIER_HAUL_MULT } from "../riskFactors";
 import { recallExpedition } from "../expedition";
 import { AWAY_TRAITS, type AwayTraitDef } from "../awayTraits";
 import { FIRST_AID_TRAINED_EFFECTIVENESS, FIRST_AID_UNTRAINED_EFFECTIVENESS, GAMBIT_PRESETS, GAMBIT_STATUSES, STONESKIN_BATTLE_RESIST, squadDebuffResistShare } from "../gambit";
@@ -272,6 +272,7 @@ import {
   PILOT_PROBE_CYCLES,
   wr9TopRankCount,
   launchedAndAt,
+  withEnemySectorPick,
   type ContextId,
   type ProbeId,
   type Transform,
@@ -4727,7 +4728,9 @@ const AUDIT_ROWS: readonly { id: string; system: WiringSystem; claim: string; st
   // Expedition Tiers G2-6: the region picker offers every tier, so the tier rows read on a player's launch (the run's
   // risk profile at the picked tier). The tier haul and the tier body counts have their own rows (the G2-2 review
   // note); the future difficulty tiers keep theirs (nothing designed yet).
-  { id: "away:audit:tierDormant", system: "away", claim: "The tier rows a deeper launch reads: RISK_TIER_ODDS II to VII, enemy territory (the homeworld's fixed sectors), hostile sites, SCIENCE_HEAVY, affix rows above Tier I, the deeper famous systems", status: LIVE },
+  { id: "away:audit:tierDormant", system: "away", claim: "The tier rows a deeper launch reads: RISK_TIER_ODDS II to VII, hostile sites, SCIENCE_HEAVY, affix rows above Tier I, the deeper famous systems", status: LIVE },
+  // G2-9 close-out: enemy territory gets its own row and probe (the tier row's probe reads only the tier).
+  { id: "expedition:audit:enemyTerritory", system: "expedition", claim: "Enemy territory (user G8, the homeworld's fixed sectors): a system whose bearing lies in its tier's sector launches ENEMY_TERRITORY_COMBAT_STEP Combat grade higher", status: LIVE },
   { id: "away:audit:tierHaulMult", system: "away", claim: "The tier haul TIER_HAUL_MULT II to VII: every objective's haul of a deeper run, x1.25 to x3.3 (user G16)", status: LIVE },
   { id: "expedition:audit:tierBodyCount", system: "expedition", claim: "TIER_BODY_COUNT II to VII: deeper systems hold more bodies, up to 3 to 5 at Tiers VI and VII (user G17)", status: LIVE },
   // Safe first runs SF-7 close-out: deferred on the user's own words. The hook (the affix pool's difficulty-tier input,
@@ -5594,6 +5597,16 @@ function auditRowWiring(): Readonly<Record<string, Partial<EntryInput>>> {
       base: () => consoleOrion(G2_6_SENSORS),
       on: classedDrive("classIIDriveBp"),
       off: classedDrive("balancedDriveBp"),
+    },
+    // G2-9 close-out: the same candidate launched from a homeworld whose Tier II sector holds its bearing, against one
+    // whose sector does not, rolls its system Combat grade one step higher (withEnemySectorPick).
+    "expedition:audit:enemyTerritory": {
+      probe: "consoleCombatGrade",
+      contexts: ["expedition:groundOps"],
+      magnitude: () => ENEMY_TERRITORY_COMBAT_STEP,
+      base: () => classedDrive("classIIDriveBp")(consoleOrion(G2_6_SENSORS)),
+      on: (s) => withEnemySectorPick(s, true),
+      off: (s) => withEnemySectorPick(s, false),
     },
     // ...and pays Tier II's haul on every objective.
     "away:audit:tierHaulMult": {

@@ -15,7 +15,8 @@
 //   across a wedge of bearings whose width is the tier's share of a full turn (ENEMY_SECTOR_WIDTH_PERMILLE, the open
 //   call 8 percentages), so a system at a uniform bearing is in enemy territory at that rate; Tier I has none.
 //   G2-2 HOOK: a candidate gets a bearing (its own salt) and reads inEnemySector; the telescope map shades the sectors
-//   (G2-7). Nothing reads the sectors yet.
+//   (G2-7). Nothing reads the sectors yet. G2-9 close-out (user 2026-11-11, "Label + point inward"): the Tier VI and VII
+//   sectors are aimed at the Galactic Core (CORE_AIMED_SECTOR_TIERS).
 //
 // DISPLAY ONLY at G2-1: the placement moves the light-years the telescope and the candidates show; no run reads it.
 // Determinism: integer draws only (makeRng, nextInt); the placement is lattice points (no trigonometry in a draw).
@@ -39,9 +40,28 @@ export const REGION_TIER_NAMES: Readonly<Record<RegionTier, string>> = {
   6: "Galactic Bulge",
   7: "Galactic Core",
 };
-const NUMERALS = ["I", "II", "III", "IV", "V", "VI", "VII"];
+// THE shared tier formatter (user 2026-10-12: "let's make sure the game displays roman numerals"; G2-9 close-out, user
+// 2026-11-11 "Everything (Recommended)": every tier shown anywhere, research, gear, blueprints, missions, storage and
+// expeditions alike). Display only: identifiers and saved data keep their numbers. A whole number 1 to 3,999 reads as
+// a Roman numeral ("IV"); anything else reads as written. Pure.
+const ROMAN_STEPS: readonly (readonly [number, string])[] = [
+  [1000, "M"], [900, "CM"], [500, "D"], [400, "CD"], [100, "C"], [90, "XC"],
+  [50, "L"], [40, "XL"], [10, "X"], [9, "IX"], [5, "V"], [4, "IV"], [1, "I"],
+];
+export function tierNumeral(n: number): string {
+  if (!Number.isInteger(n) || n < 1 || n > 3_999) return String(n);
+  let left = n;
+  let out = "";
+  for (const [value, glyph] of ROMAN_STEPS) {
+    while (left >= value) {
+      out += glyph;
+      left -= value;
+    }
+  }
+  return out;
+}
 export function regionTierNumeral(tier: RegionTier): string {
-  return NUMERALS[tier - 1] ?? String(tier);
+  return tierNumeral(tier);
 }
 
 // ===== The stylized galaxy =====
@@ -153,15 +173,38 @@ function offsetFromSol(seed: number): GalacticPoint {
   return { x: 0, y: HOMEWORLD_MIN_FROM_SOL_LY };
 }
 
+// G2-9 close-out (user 2026-11-11, "Label + point inward (Recommended)"): the inner regions' sectors point toward the
+// Galactic Core. Tier VI (the Bulge) and Tier VII (the Core) lie toward the core from every homeworld, so their slices
+// are aimed at it: the core's direction sits in the middle half of the slice (never closer than a quarter of the
+// slice's width to an edge), and the draw still varies the slice from save to save within that.
+export const CORE_AIMED_SECTOR_TIERS: readonly RegionTier[] = [6, 7];
+
+// The bearing from `from` toward the Galactic Core (the origin), whole tenths of a degree in [0, 3,600): the direction
+// the telescope map draws the core in (0 when the point sits on the Sol-core line). Pure.
+export function coreBearingFrom(from: GalacticPoint): number {
+  if (Math.hypot(from.x, from.y) < 1) return 0;
+  return normBearing(Math.round((Math.atan2(-from.x, from.y) * BEARING_TURN) / (2 * Math.PI)));
+}
+
 // The fixed enemy territory sectors of a seed (user G8): one draw per tier I to VII in order (Tier I's draw is kept
-// with its value unused, so retuning Tier I never moves another tier's sector). Pure.
-function enemySectorsOf(seed: number): EnemySector[] {
+// with its value unused, so retuning Tier I never moves another tier's sector). A core-aimed tier (CORE_AIMED_SECTOR_TIERS)
+// uses its draw to place the slice so the core's bearing from `galactic` lies in its middle half. Pure.
+function enemySectorsOf(seed: number, galactic: GalacticPoint): EnemySector[] {
   const rng = makeRng((seed ^ ENEMY_SECTOR_SALT) >>> 0);
   const out: EnemySector[] = [];
+  const core = coreBearingFrom(galactic);
   for (const tier of REGION_TIERS) {
-    const startBearing = rng.nextInt(BEARING_TURN);
+    const drawn = rng.nextInt(BEARING_TURN);
     const widthBearing = (ENEMY_SECTOR_WIDTH_PERMILLE[tier] * BEARING_TURN) / 1000;
-    if (widthBearing > 0) out.push({ tier, startBearing, widthBearing });
+    if (widthBearing <= 0) continue;
+    let startBearing = drawn;
+    if (CORE_AIMED_SECTOR_TIERS.includes(tier)) {
+      // The core sits `offset` past the slice's start, offset in [width / 4, 3 * width / 4].
+      const quarter = Math.floor(widthBearing / 4);
+      const offset = quarter + (drawn % (Math.floor(widthBearing / 2) + 1));
+      startBearing = normBearing(core - offset);
+    }
+    out.push({ tier, startBearing, widthBearing });
   }
   return out;
 }
@@ -177,7 +220,7 @@ export function homeworldPlacement(seed: number): HomeworldPlacement {
     distanceFromSolLy: Math.hypot(off.x, off.y),
     distanceFromCoreLy: Math.round(Math.hypot(galactic.x, galactic.y)),
     regionBandsLy: regionBandsFrom(galactic),
-    enemySectors: enemySectorsOf(s),
+    enemySectors: enemySectorsOf(s, galactic),
   };
 }
 

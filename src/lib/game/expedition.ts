@@ -425,7 +425,8 @@ export const CANDIDATE_STRIDE = 16;
 // [PROPOSAL] a candidate slot is a FAMOUS system (starCatalog.ts, its tier's list) one time in this many.
 export const FAMOUS_SYSTEM_ONE_IN = 12;
 // User G10 (2026-10-16, "Guaranteed early"): Wolf 359 is guaranteed in the first Tier I list after the first run,
-// i.e. the list a save holds after this many dispatches (nextExpeditionId - 1); it takes Tier I slot 0. A VETERAN
+// i.e. the list a save holds after this many dispatches from the list (listDraws: a launch to a held system draws no
+// list and is not counted, G2-9 close-out); it takes Tier I slot 0. A VETERAN
 // save (user 2026-10-19, "Next list for veterans") already past that list gets it in its NEXT Tier I list, once
 // (GameState.wolf359List, written by startExpedition: wolf359ListAfterDispatch).
 export const WOLF_359_LIST_AFTER_DISPATCHES = 1;
@@ -659,16 +660,26 @@ function rolledFamousSystem(seed: number, tier: RegionTier): FamousSystem | null
   return hit ? list[pick] ?? null : null;
 }
 
-// How many expeditions the save has dispatched (the Wolf 359 guarantee's clock). Pure.
-function dispatchedExpeditions(state: Pick<GameState, "nextExpeditionId">): number {
+// How many HELD systems the save has launched to (GameState.heldLaunches; absent reads 0). Pure.
+function heldLaunchCount(state: Pick<GameState, "heldLaunches">): number {
+  const n = state.heldLaunches;
+  return typeof n === "number" && Number.isFinite(n) ? Math.max(0, Math.floor(n)) : 0;
+}
+
+// How many candidate LISTS the save has drawn past (the Wolf 359 guarantee's clock). Every dispatch from the list
+// advances expeditionSeed and so draws a fresh list; a launch to a held system (G2-5) is not from the list and draws
+// none (G2-9 close-out: counting it as a dispatch rerolled slot 0 of the list on screen). So: the dispatches less the
+// held launches. Pure.
+function listDraws(state: Pick<GameState, "nextExpeditionId" | "heldLaunches">): number {
   const n = state.nextExpeditionId;
-  return typeof n === "number" && Number.isFinite(n) ? Math.max(0, Math.floor(n) - 1) : 0;
+  const dispatched = typeof n === "number" && Number.isFinite(n) ? Math.max(0, Math.floor(n) - 1) : 0;
+  return Math.max(0, dispatched - heldLaunchCount(state));
 }
 
 // Does the save's current Tier I list carry Wolf 359 on slot 0 by guarantee: the list after the first run (every
 // save), or a veteran's scheduled list (GameState.wolf359List). Pure.
-function wolf359Guaranteed(state: Pick<GameState, "nextExpeditionId" | "wolf359List">): boolean {
-  const n = dispatchedExpeditions(state);
+function wolf359Guaranteed(state: Pick<GameState, "nextExpeditionId" | "heldLaunches" | "wolf359List">): boolean {
+  const n = listDraws(state);
   return n === WOLF_359_LIST_AFTER_DISPATCHES || (typeof state.wolf359List === "number" && state.wolf359List === n);
 }
 
@@ -679,7 +690,7 @@ function wolf359Guaranteed(state: Pick<GameState, "nextExpeditionId" | "wolf359L
 export function wolf359ListAfterDispatch(state: GameState): number | undefined {
   if (typeof state.wolf359List === "number") return undefined;
   if (!runCountsOf(state).expedition.veteran) return undefined;
-  const n = dispatchedExpeditions(state);
+  const n = listDraws(state);
   const seen = tierCandidateSystems(state, 1).some((c) => c.famousId === WOLF_359_ID);
   return seen ? n : n + 1;
 }
@@ -710,7 +721,7 @@ export function wolf359DerelictEntry(
 // (telescope.ts systemDistanceLy) and drawn bearing. Enemy territory: its bearing inside the tier's fixed sector
 // (galaxy.ts inEnemySector; Tier I has none). Stable until a dispatch advances expeditionSeed. Pure.
 export function tierCandidateSystems(
-  state: Pick<GameState, "expeditionSeed" | "nextExpeditionId" | "homeworld" | "wolf359List">,
+  state: Pick<GameState, "expeditionSeed" | "nextExpeditionId" | "heldLaunches" | "homeworld" | "wolf359List">,
   tier: RegionTier,
   homeworld: HomeworldPlacement = stateHomeworld(state),
 ): CandidateSystem[] {
@@ -755,7 +766,7 @@ export function tierCandidateSystems(
 
 // The candidate system `candidateId` names on the current console (any tier; a pre-G2 `cand-<slot>` id names the
 // Tier I slot), or null. Pure.
-export function candidateSystemById(state: Pick<GameState, "expeditionSeed" | "nextExpeditionId" | "homeworld" | "wolf359List">, candidateId: string): CandidateSystem | null {
+export function candidateSystemById(state: Pick<GameState, "expeditionSeed" | "nextExpeditionId" | "heldLaunches" | "homeworld" | "wolf359List">, candidateId: string): CandidateSystem | null {
   const m = /^cand-(?:([1-7])-)?(0|[1-9]\d*)$/.exec(candidateId);
   if (!m) return null;
   const tier = (m[1] === undefined ? 1 : Number(m[1])) as RegionTier;
@@ -1569,7 +1580,15 @@ export function startExpedition(
   // User 2026-10-19: a veteran's Wolf 359 list (no key on any other save). G2-5: a held system is not from the list.
   const wolf359List = held ? undefined : wolf359ListAfterDispatch(state);
   // G2-5: the held system leaves the console (an ordinary candidate launched, or a resumed system flown again).
-  const heldLeft = held ? (state.heldSystems ?? []).filter((h) => h.id !== held.id) : undefined;
+  // G2-9 close-out (user 2026-10-19, "No limit, refresh normally (Recommended)": an ordinary candidate again): a
+  // dispatch FROM THE LIST draws a fresh list, and every system a recall returned to the candidates rolls off with it,
+  // like the list's own three. Resumable systems stay (they are kept until finished or abandoned).
+  const heldNow = heldSystems(state);
+  const heldLeft = held
+    ? heldNow.filter((h) => h.id !== held.id)
+    : heldNow.some((h) => h.kind === "candidate")
+      ? heldNow.filter((h) => h.kind !== "candidate")
+      : undefined;
 
   // Complement CP-16: the dispatch is the captain's first expedition, and (Tier II or deeper) their first Tier II+ run,
   // when their command has none yet (recorded at this instant; the run carries its captain, Expedition.captainId).
@@ -1590,6 +1609,8 @@ export function startExpedition(
       // Advance the preview seed ONLY here (a commit), so previews stay stable until a dispatch happens. G2-5: a held
       // system was not on the list, so the list on screen stays.
       expeditionSeed: held ? state.expeditionSeed : advanceExpeditionSeed(state.expeditionSeed),
+      // G2-9 close-out: a held launch draws no list, so the Wolf 359 clock (listDraws) must not count it.
+      ...(held ? { heldLaunches: heldLaunchCount(state) + 1 } : {}),
       ...(blind ? { blindLaunches: blindLaunchCount(state) + 1 } : {}),
       ...(wolf359List !== undefined ? { wolf359List } : {}),
       ...(heldLeft !== undefined ? { heldSystems: heldLeft } : {}),

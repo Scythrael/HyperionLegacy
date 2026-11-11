@@ -178,7 +178,7 @@ import { driveClassReachMult, expeditionTierGates, shipDriveClass } from "../pro
 import { LY_PER_TICK } from "../fuel";
 import { tripReachRamp } from "../tick";
 import { REGION_TIERS } from "../galaxy";
-import { tierHaulMult } from "../riskFactors";
+import { ENEMY_TERRITORY_COMBAT_STEP, systemRiskGrades, tierHaulMult } from "../riskFactors";
 import { relicBlankStamp, relicBlankTable } from "../relicBlanks";
 import {
   GAMBIT_STATUSES,
@@ -1755,6 +1755,38 @@ const consoleRun = (s: GameState): Expedition | null => {
   const r = consoleLaunch(s);
   return r && r.success && r.expedition ? r.expedition : null;
 };
+// Expedition Tiers G2-9 close-out (the enemy territory probe): `s` with a stored homeworld under which the console's
+// pick at its deepest ready tier lies INSIDE (or OUTSIDE) that tier's fixed enemy sector (galaxy.ts inEnemySector). The
+// candidate's seed and bearing do not depend on the homeworld (its distance and the sectors do), so both sides search
+// for the SAME pick: inside, the first seed from 1 whose pick is enemy territory and whose drawn Combat grade has room
+// for the step; outside, the first seed whose pick is that candidate outside the sector. Deterministic; throws when the
+// search finds none (a fixture that cannot show the rule is a bug).
+const SECTOR_SEARCH_SEEDS = 4_000;
+function sectorHomeworldPick(s: GameState, seed: number): { s: GameState; pick: CandidateSystem } | null {
+  const at: GameState = { ...s, homeworld: { version: 1, seed } };
+  const tier = deepestReadyTier(at);
+  if (tier === 0 || tier < 2) return null;
+  return { s: at, pick: consolePick(readyForRun(at), tier) };
+}
+export function withEnemySectorPick(s: GameState, inside: boolean): GameState {
+  let target: CandidateSystem | null = null;
+  let insideState: GameState | null = null;
+  for (let seed = 1; seed <= SECTOR_SEARCH_SEEDS && target === null; seed++) {
+    const r = sectorHomeworldPick(s, seed);
+    if (!r || !r.pick.region.enemyTerritory) continue;
+    const open = systemRiskGrades(r.pick.seed, { tier: r.pick.tier, enemyTerritory: false }).combat;
+    if (systemRiskGrades(r.pick.seed, r.pick.region).combat !== open + ENEMY_TERRITORY_COMBAT_STEP) continue;
+    target = r.pick;
+    insideState = r.s;
+  }
+  if (target === null || insideState === null) throw new Error("withEnemySectorPick: no homeworld puts the console pick in enemy territory");
+  if (inside) return insideState;
+  for (let seed = 1; seed <= SECTOR_SEARCH_SEEDS; seed++) {
+    const r = sectorHomeworldPick(s, seed);
+    if (r && r.pick.id === target.id && r.pick.seed === target.seed && !r.pick.region.enemyTerritory) return r.s;
+  }
+  throw new Error("withEnemySectorPick: no homeworld puts the same pick outside enemy territory");
+}
 // The recall probe's moment: a quarter of the outbound leg flown (before the anomaly check at the midpoint), so the
 // recalled run flies home in a quarter of its return leg (1:1, user #7).
 export const RECALL_PROBE_SHARE = 0.25;
@@ -1854,6 +1886,10 @@ export const PROBES = {
   consoleRiskTier: {
     label: "the region tier of the risk profile a console launch to the deepest tier ship-1 can attempt freezes (RISK_TIER_ODDS, hostile sites, SCIENCE_HEAVY, the affix rows read it); 0 when refused",
     read: (s) => consoleRun(s)?.risk?.tier ?? 0,
+  },
+  consoleCombatGrade: {
+    label: "the system Combat grade of the risk profile a console launch to the deepest tier ship-1 can attempt freezes (enemy territory adds ENEMY_TERRITORY_COMBAT_STEP); -1 when refused",
+    read: (s) => consoleRun(s)?.risk?.system?.combat ?? -1,
   },
   consoleOutbound: {
     label: "the outbound leg (seconds) of the voyage a console launch to the deepest tier ship-1 can attempt freezes; 0 when refused",

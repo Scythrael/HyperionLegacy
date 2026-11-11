@@ -20,7 +20,10 @@ import {
   resumableSystems,
   returnDurationSeconds,
   startExpedition,
+  tierCandidateSystems,
 } from "./expedition";
+import { REGION_TIERS } from "./galaxy";
+import { WOLF_359_ID } from "./starCatalog";
 import { IN_SYSTEM_LEG_SECONDS } from "./groundOps";
 import { installMissingCombatBaselines } from "./tick";
 import { asExpeditionVeteran, plainAwayMember } from "./awayTeamTestFixtures";
@@ -146,6 +149,60 @@ describe("G2-5 recall in transit: home in the time flown (user #7), the system a
     expect(again.expedition!.bodies.map((b) => b.scanned)).toEqual(exp.bodies.map(() => false));
     expect(again.next.heldSystems).toEqual([]);
     expect(again.next.expeditionSeed).toBe(s2.expeditionSeed);
+  });
+
+  // G2-9 close-out (user 2026-10-19, "No limit, refresh normally (Recommended)": an ordinary candidate again): the
+  // returned candidate rolls off with the next list draw, like the list's own three. A resumable system stays.
+  it("a returned candidate rolls off with the next dispatch from the list; a resumable system stays", () => {
+    const { state, exp } = launched();
+    const s1 = recallExpedition(at(state, T0 + 600), exp.id);
+    const home = advanceExpedition(only(s1), FINAL);
+    const s2 = claimExpedition({ ...s1, gameTimeSeconds: home.phaseAnchorSeconds, expeditions: [home] }, exp.id).next;
+    const resume = { ...heldSystems(s2)[0], id: "held-expedition-99", fromExpeditionId: "expedition-99", kind: "resume" as const, bodies: home.bodies, risk: home.risk };
+    const s3 = { ...s2, heldSystems: [...heldSystems(s2), resume] };
+    expect(expeditionCandidates(s3, "ship-1", 1).map((c) => c.id)).toContain(`held-${exp.id}`);
+    const fromList = startExpedition(s3, "ship-1", 1, "cand-1-1");
+    expect(fromList.success, fromList.reason).toBe(true);
+    expect(fromList.next.heldSystems).toEqual([resume]);
+    expect(fromList.next.expeditionSeed).not.toBe(s3.expeditionSeed);
+    expect("heldLaunches" in fromList.next).toBe(false);
+    const freed = { ...fromList.next, expeditions: [] };
+    expect(expeditionCandidates(freed, "ship-1", 1).map((c) => c.id)).toEqual(["cand-1-0", "cand-1-1", "cand-1-2"]);
+    // No held candidate: the dispatch leaves the held list as it was (the same reference, or no key at all).
+    const plain = startExpedition(crewed(), "ship-1", 1, "cand-1-0");
+    expect("heldSystems" in plain.next).toBe(false);
+  });
+
+  // G2-9 close-out (bug-check 2026-11-11): a launch to a held system is not from the list, so it must not reroll it.
+  // Before the fix the Wolf 359 clock counted every dispatch, so a held launch after the first run moved slot 0 off
+  // Wolf 359 (freshState(12345): Wolf 359, LB-6795, LB-0733 became LB-6210, LB-6795, LB-0733, expeditionSeed unchanged).
+  it("a held launch leaves every tier's list deep-equal and a veteran's Wolf 359 stamp matched", () => {
+    for (const veteran of [false, true]) {
+      const base = { ...crewed(), nextExpeditionId: 1 };
+      const s0 = veteran ? base : { ...base, runCounts: { ...base.runCounts!, expedition: { ...base.runCounts!.expedition, veteran: false } } };
+      const first = startExpedition(s0, "ship-1", 1, "cand-1-0");
+      expect(first.success, first.reason).toBe(true);
+      const exp = first.expedition!;
+      const listAfterFirst = tierCandidateSystems(first.next, 1);
+      if (!veteran) expect(listAfterFirst[0].famousId).toBe(WOLF_359_ID);
+      const s1 = recallExpedition(at(first.next, T0 + 600), exp.id);
+      const home = advanceExpedition(only(s1), FINAL);
+      const s2 = claimExpedition({ ...s1, gameTimeSeconds: home.phaseAnchorSeconds, expeditions: [home] }, exp.id).next;
+      const before = REGION_TIERS.map((t) => tierCandidateSystems(s2, t));
+      const again = startExpedition(s2, "ship-1", 1, `held-${exp.id}`);
+      expect(again.success, again.reason).toBe(true);
+      expect(again.next.expeditionSeed).toBe(s2.expeditionSeed);
+      expect(again.next.heldLaunches).toBe(1);
+      expect(REGION_TIERS.map((t) => tierCandidateSystems(again.next, t))).toEqual(before);
+      expect(tierCandidateSystems(again.next, 1)).toEqual(listAfterFirst);
+      expect(again.next.wolf359List).toBe(s2.wolf359List);
+      if (veteran) {
+        // The stamp names the list on screen or the next one: still the same list after the held launch.
+        expect(typeof s2.wolf359List).toBe("number");
+        const hasWolf = (st: GameState): boolean => tierCandidateSystems(st, 1)[0].famousId === WOLF_359_ID;
+        expect(hasWolf(again.next)).toBe(hasWolf(s2));
+      }
+    }
   });
 });
 

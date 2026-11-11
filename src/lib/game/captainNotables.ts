@@ -28,6 +28,7 @@
 // holds under: tick.ts's CLOSED-FORM PARITY TRAP).
 
 import type { CaptainNotable, CaptainNotableKind, CaptainState, GameState, HallOfCommandEntry, RegionTier } from "./model";
+import { tierNumeral } from "./galaxy";
 
 // TEST-ONLY switch (the HULL_SENSORS_SWITCH precedent): off, nothing CP-16 records is written (no missionsFlown, no
 // notables, no Hall entry), so a golden computed inside it is the pre-CP-16 game exactly (cp16Switch.fixture.ts).
@@ -37,7 +38,7 @@ export const HALL_OF_COMMAND_SWITCH = { live: true };
 // climbs.
 export const LEVEL_MILESTONE_EVERY = 10;
 
-const ROMAN: Readonly<Record<RegionTier, string>> = { 1: "I", 2: "II", 3: "III", 4: "IV", 5: "V", 6: "VI", 7: "VII" };
+// Tiers read as Roman numerals through the one shared formatter (galaxy.ts tierNumeral).
 
 // The player line of a notable (US English).
 export function levelMilestoneLabel(level: number): string {
@@ -50,7 +51,7 @@ export function firstNotableLabel(kind: Exclude<CaptainNotableKind, "levelMilest
     case "firstRelic":
       return "First relic found";
     case "firstTierTwoRun":
-      return `First Tier ${ROMAN[tier ?? 2]} run`;
+      return `First Tier ${tierNumeral(tier ?? 2)} run`;
     case "firstRefugeeRescued":
       return "First refugee rescued";
   }
