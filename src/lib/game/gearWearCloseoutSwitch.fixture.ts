@@ -26,9 +26,25 @@ export function withCloseoutOff<T>(f: () => T): T {
   }
 }
 
+// Run `f` with both answers ON (a file switched off as a whole pins the close-out's moves of its own rows with this).
+export function withCloseoutOn<T>(f: () => T): T {
+  const exact = REPAIR_EXACT_EDGES_SWITCH.live;
+  const bay = GEAR_BAY_RATE_KEPT_SWITCH.live;
+  REPAIR_EXACT_EDGES_SWITCH.live = true;
+  GEAR_BAY_RATE_KEPT_SWITCH.live = true;
+  try {
+    return f();
+  } finally {
+    REPAIR_EXACT_EDGES_SWITCH.live = exact;
+    GEAR_BAY_RATE_KEPT_SWITCH.live = bay;
+  }
+}
+
 // For a golden FILE captured before the close-out whose pins are about another slice: off AT ONCE (so describe-time
 // computations see it too), restored after its last test.
+// GWCLOSE_FILES_ON (any value): leave the close-out on, to list which of a file's pins it moves.
 export function gearWearCloseoutOffForThisFile(): void {
+  if (import.meta.env.GWCLOSE_FILES_ON) return;
   const exact = REPAIR_EXACT_EDGES_SWITCH.live;
   const bay = GEAR_BAY_RATE_KEPT_SWITCH.live;
   REPAIR_EXACT_EDGES_SWITCH.live = false;

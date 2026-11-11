@@ -8,7 +8,7 @@ import { describe, expect, it } from "vitest";
 // off (gearWearCloseoutSwitch.fixture.ts), so its pins keep proving their own slice (gearWearCloseoutGoldens.test.ts and
 // gearWearCloseout.test.ts pin and prove what the close-out moved: leftover underway seconds at a run's end, a repair
 // pause's or a field repair leg's edges credited at the rate that applied; gear keeping the bay rate until full).
-import { gearWearCloseoutOffForThisFile } from "./gearWearCloseoutSwitch.fixture";
+import { gearWearCloseoutOffForThisFile, withCloseoutOn } from "./gearWearCloseoutSwitch.fixture";
 gearWearCloseoutOffForThisFile();
 // WR-8b (enemy torpedoes) came after every pin here: the file runs with it off (enemyTorpedoSwitch.fixture.ts), so its
 // pins keep proving their own slice (enemyTorpedoGoldens.test.ts pins what WR-8b moved, enemyTorpedoes.test.ts proves it).
@@ -41,7 +41,37 @@ const keyedHash = (s: GameState): string => {
   return hash(Object.fromEntries(Object.keys(r).sort().map((k) => [k, hash(r[k])])));
 };
 
+// Gear wear close-out (2026-11-11): this file runs with the close-out off (its pins above are the switch-off
+// reproduction). With it ON, only the rows named here move, each pinned (and the same with the legs off, the trace).
+// Cause, "Keep the bay rate" alone (with only "Make it exact" on, nothing here moves): these Warband Repeat runs are
+// lost, limp home and go into a Shipyard bay; their hull repair ends before their worn gear is full, and the gear now
+// keeps the bay rate (ShipInstance.gearBayRate) instead of dropping to the home rate, which moves the state hash.
+// GWCLOSE_ON_CAPTURE = an output path: write the moved rows there instead of asserting.
+const CLOSEOUT_ON_LEGS: Record<string, unknown> = {
+  "repeat:prospectorRunner:crimsonReaverWarband:bare": "dc3bbbdf",
+  "repeat:aurora:crimsonReaverWarband:bare": "c450b1ea",
+  "repeat:aurora:crimsonReaverWarband:fast": "699445e",
+};
+const CLOSEOUT_ON_LEGS_OFF: Record<string, unknown> = {
+  "repeat:prospectorRunner:crimsonReaverWarband:bare": "130c4cd8",
+  "repeat:aurora:crimsonReaverWarband:bare": "126b5094",
+  "repeat:aurora:crimsonReaverWarband:fast": "e0d96a08",
+};
+const movedFrom = (now: Record<string, unknown>, pins: Record<string, unknown>): Record<string, unknown> =>
+  Object.fromEntries(Object.entries(now).filter(([k, v]) => JSON.stringify(v) !== JSON.stringify(pins[k])));
+
 describe("OC-D8 patrol legs goldens", () => {
+  it("close-out ON: every reading is its pin but the close-out's named moves (legs on, and the legs-off trace)", () => {
+    const on = withCloseoutOn(legsRows);
+    const off = withCloseoutOn(() => withPatrolLegsOff(legsRows));
+    if (import.meta.env.GWCLOSE_ON_CAPTURE) {
+      writeFileSync(String(import.meta.env.GWCLOSE_ON_CAPTURE), JSON.stringify({ on: movedFrom(on, { ...LEGS_PINS_PRE, ...LEGS_PINS_MOVED }), off: movedFrom(off, LEGS_PINS_PRE) }, null, 1));
+      return;
+    }
+    expect(on).toEqual({ ...LEGS_PINS_PRE, ...LEGS_PINS_MOVED, ...CLOSEOUT_ON_LEGS });
+    expect(off).toEqual({ ...LEGS_PINS_PRE, ...CLOSEOUT_ON_LEGS_OFF });
+  }, 600_000);
+
   it("every reading matches its pin (the pre-change pins, with the legs' moves re-pinned)", () => {
     const now = legsRows();
     if (CAPTURE) {

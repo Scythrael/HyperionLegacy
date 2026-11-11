@@ -27,7 +27,7 @@ import { describe, expect, it } from "vitest";
 // off (gearWearCloseoutSwitch.fixture.ts), so its pins keep proving their own slice (gearWearCloseoutGoldens.test.ts and
 // gearWearCloseout.test.ts pin and prove what the close-out moved: leftover underway seconds at a run's end, a repair
 // pause's or a field repair leg's edges credited at the rate that applied; gear keeping the bay rate until full).
-import { gearWearCloseoutOffForThisFile } from "./gearWearCloseoutSwitch.fixture";
+import { gearWearCloseoutOffForThisFile, withCloseoutOn } from "./gearWearCloseoutSwitch.fixture";
 gearWearCloseoutOffForThisFile();
 // Wiring WR-10 (the away rules stamped at dispatch, a hire's account program) came after every pin here: the whole file
 // runs with WR-10 off (wr10Switch.fixture.ts), so its pins keep proving their own slice (wr10Goldens.test.ts pins WR-10's).
@@ -476,6 +476,35 @@ describe("gear wear step 3 goldens (the use wear engine on)", () => {
     ));
 
   it("wear:recovery and wear:redispatch: the worn freighter recalled and home, then dispatched again while still worn", () => {
+    const rows = recoveryRows();
+    pin3("wear:redispatch", rows["wear:redispatch"]);
+    pin3("wear:recovery", rows["wear:recovery"]);
+  });
+
+  // Gear wear close-out (2026-11-11), the same run with the close-out ON (this file runs with it off: the test above is
+  // the switch-off reproduction). Both rows move, by "Make it exact": the recalled run's end credits its leftover
+  // underway seconds at the underway rate (the old pass credited up to 30 of them at the home rate), so the landed hold
+  // and reactor read lower (994 and 988, were 1000), the redispatched run freezes it lower, and the six docked seconds start from there.
+  // GWCLOSE_ON_CAPTURE = an output path: write the rows there instead of asserting.
+  it("close-out ON: wear:recovery and wear:redispatch move as named", () => {
+    const rows = withCloseoutOn(recoveryRows);
+    if (import.meta.env.GWCLOSE_ON_CAPTURE) {
+      writeFileSync(String(import.meta.env.GWCLOSE_ON_CAPTURE), JSON.stringify(rows, null, 1));
+      return;
+    }
+    expect(rows).toEqual(CLOSEOUT_ON_RECOVERY);
+  });
+});
+
+const CLOSEOUT_ON_RECOVERY: Record<string, string[]> = {
+  "wear:redispatch": ["b8bfa2b9", "6a37a27b", "cargoBay=995 ftlDrive=997 reactorCore=992 specUtility=995 weapon=1000 weapon=1000 shieldEmitters=1000 hullPlating=1000"],
+  "wear:recovery": ["cargoBay=994 ftlDrive=997 reactorCore=988 specUtility=994 weapon=1000 weapon=1000 shieldEmitters=1000 hullPlating=1000", "cargoBay=998 ftlDrive=1000 reactorCore=992 specUtility=998 weapon=1000 weapon=1000 shieldEmitters=1000 hullPlating=1000", "a3490fab"],
+};
+
+// The worn freighter recalled and home, then dispatched again while still worn (wear:redispatch), and left at home
+// instead (wear:recovery).
+function recoveryRows(): Record<string, string[]> {
+  {
     let s = missionRun("shortOreRun").s;
     s = recallCaptain(s, 1).next;
     const rng = lcg(0x7ec0);
@@ -490,15 +519,15 @@ describe("gear wear step 3 goldens (the use wear engine on)", () => {
     expect(m !== null && m.kind === "extraction" && Object.keys(m.gearWear?.frozen ?? {}).length > 0).toBe(true);
     const record = hash(m);
     r = runTicks(r, 1200, rng);
-    pin3("wear:redispatch", [record, stateHash(r), conditions(r)]);
+    const redispatchRow = [record, stateHash(r), conditions(r)];
     // Left at home instead: a few seconds recover part of it, a minute all of it (40 per-mille a minute, free).
     s = runTicks(s, 6, rng);
     const afterSixSeconds = conditions(s);
     s = runTicks(s, 54, rng);
     expect(s.equipment.filter((e) => e.fittedToShipId === "ship-1").every((e) => e.condition === undefined)).toBe(true);
-    pin3("wear:recovery", [landed, afterSixSeconds, stateHash(s)]);
-  });
-});
+    return { "wear:redispatch": redispatchRow, "wear:recovery": [landed, afterSixSeconds, stateHash(s)] };
+  }
+}
 
 // ===== step 4: the battle sources ON (captured 2026-10-27 on the step 4 engine; each pin names the pieces' conditions) =====
 //

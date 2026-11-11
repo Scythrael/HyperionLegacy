@@ -741,8 +741,20 @@ LIVE pins only on the rows it moved, each traced).
   and a short-range run's end (the drive 1000 to 993, the reactor 1000 to 984 at the end; docked marks trail by up to
   about 2%, then catch up), and the step 4 golden `patrol:modules:battleship:crimsonReaverWarband:repeat` (its worn
   modules entered a pause 22 s after their anchor: 735 to 722). That file, `gearWearGoldens.test.ts`,
-  `patrolLegsGoldens.test.ts` and `patrolLegLiftsGoldens.test.ts` now run with the close-out off, their pins unchanged;
-  the cp11 and cp12 goldens read the restated registry claim back (`gwCloseRegistry.fixture.ts`).
+  `patrolLegsGoldens.test.ts` and `patrolLegLiftsGoldens.test.ts` now run with the close-out off, their pins unchanged
+  (the switch-off reproduction); each pins its close-out-ON moves in a "close-out ON" test (every other row checked
+  unchanged with it on). The cp11 and cp12 goldens read the restated registry claim back (`gwCloseRegistry.fixture.ts`).
+  **Every moved row, with its cause:**
+  - `gearWearCloseoutGoldens`: `missionEnd`, `shortRangeEnd` (exact: run end); `bay`, `bayOt3` (bay rate).
+  - `gearWearCombatGoldens`: `patrol:modules:battleship:crimsonReaverWarband:repeat` (exact: pause entry, 735 to 722).
+  - `gearWearGoldens`: `wear:recovery` and `wear:redispatch` (exact: the recalled run's end; landed hold and reactor 994
+    and 988, were 1000; the redispatched run freezes that).
+  - `patrolLegsGoldens`: `repeat:prospectorRunner:crimsonReaverWarband:bare`, `repeat:aurora:crimsonReaverWarband:bare`
+    and `:fast`, both with the legs on and in the legs-off trace (bay rate alone: lost Warband runs limp home into a
+    bay, the hull finishes before the gear, the gear keeps the bay rate; with only "Make it exact" on nothing moves).
+  - `patrolLegLiftsGoldens`: `repeat:prospectorRunner:crimsonReaverWarband:out`, `:back`, `:both` and
+    `repeat:aurora:crimsonReaverWarband:out`, `:back`, `:both`, lifts on and in the lifts-off trace (bay rate alone, as
+    above).
 - **"Yes, it's combat wear".** The Damage Control Suite's patrol fires stay; the registry claim
   (`wear:WEAR_SOURCES:specUtility:effectFires`) and Help say it counts as combat wear.
 - **Text.** Help: "Repair itself is always free" (Overtime is paid), universal modules by time underway (true:
