@@ -9,7 +9,7 @@
 // NEVER regenerate these from a later build. A slice that moves one names it and the reason in its commit.
 
 // Ordering determinism part 2 (canonicalOrder.ts: inventory keys and a call's completion log in one order) came after every pin here, traced order-only: the file runs with it off (ordering2Switch.fixture.ts).
-import { ordering2OffForThisFile } from "./ordering2Switch.fixture";
+import { asOrdering2Normalized, ordering2OffForThisFile, withOrdering2On } from "./ordering2Switch.fixture";
 ordering2OffForThisFile();
 import { describe, it, expect } from "vitest";
 import { freshState, type EquipmentRarity, type GameState, type RelicSetId, type RelicVaultToken, type TimedProcess } from "./model";
@@ -90,6 +90,29 @@ describe("R2-3 golden 3: a relic study, a Lab upgrade and another upgrade comple
     ]);
     expect(log(live)).toEqual(log(offline));
     expect(stateHash(offline)).toBe("2ff5c2d3");
+    expect(stateHash(live)).toBe(stateHash(offline));
+  });
+
+  // MOVED by ordering determinism part 2 (canonicalOrder.ts), pinned with it ON: same-tick completions are logged by
+  // process id, not array position, so the study (proc-1) comes before proc-900 and proc-901. The three entries are the
+  // same, only their order and `done-N` numbering moved; one call and 1 s steps still agree.
+  it("part 2 on: the log in process id order, the whole state, one call and 1 s steps", () => {
+    const [offline, live] = withOrdering2On(() => {
+      const once = tick(8, seed(), () => 0);
+      let stepped = seed();
+      for (let i = 0; i < 8; i++) stepped = economyTick(stepped, 1, () => 0);
+      return [once, stepped];
+    });
+    const log = (st: GameState) => st.completionLog.map((e) => [e.id, e.kind, e.reward, e.subjectKey]);
+    expect(log(offline)).toEqual([
+      ["done-1", "relicStudy", "relic", "glyphTablet"],
+      ["done-2", "facilityUpgrade", "level", "salvageBay"],
+      ["done-3", "facilityUpgrade", "level", "research"],
+    ]);
+    expect(log(live)).toEqual(log(offline));
+    expect(stateHash(offline)).toBe("6fdb179f");
+    // Order is all it moved: with both orders normalized it is the part 2 off state (pinned 2ff5c2d3 above).
+    expect(stateHash(asOrdering2Normalized(offline))).toBe(stateHash(asOrdering2Normalized(tick(8, seed(), () => 0))));
     expect(stateHash(live)).toBe(stateHash(offline));
   });
 });

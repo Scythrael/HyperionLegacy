@@ -131,14 +131,17 @@ process id ("proc-9" before "proc-10"), so one call logs and numbers them as 1 s
 unchanged; only the order and the `done-N` numbering of entries completing in one call can differ from before (within
 one 1 s step, same-tick completions now go by process id, not array position: relicsV2IdentifyGoldens golden 3).
 Goldens first: `ordering2Goldens.*` (pins captured on 29993f09), switch `ordering2Switch.fixture.ts`, parity
-`ordering2Parity.test.ts` (one call == 997 s chunks == 1 s steps, byte for byte, each case failing with the switch
-off; an old save in first-seen order included). The shortRangeCycle, refugeeGoldens and emodEm4 parity checks and the
+`ordering2Parity.test.ts` (one call == 997 s chunks == 1 s steps, byte for byte, its inventory and log cases failing with the switch
+off; an old save in first-seen order and a same-tick tie in non-id array order included; compareProcessIds unit tested; relicsV2IdentifyGoldens golden 3 also pins its new order with part 2 on). The shortRangeCycle, refugeeGoldens and emodEm4 parity checks and the
 orderingParity salvage and relic cases are now strict JSON compares (shortRangeCycle and orderingParity fail with part 2
 off; refugeeGoldens and emodEm4 already agreed once part 1 held). 55 older golden files moved; each runs with part 2 off
 (`ordering2OffForThisFile`), and a trace run (every JSON.stringify with the inventory keys and the log normalized, part 2
 on against off) matched hash for hash in all 55 except save stamps that also differ between two runs with it on.
 Perf: addToInventory on a held key (55 keys) about 820 ns before, 780 ns after (noise); a 4 hour catch-up in 1 s steps
 about 775 to 835 ms before, 645 to 665 ms after (noise, no regression). Still open (found reading the code, not
-fixed): economyTick appends the patrol and short-range lines AFTER resolveProcesses' records, so a call in which a
-patrol ends BEFORE a process completes logs the process first while 1 s steps log the patrol first (ordering across
-passes would need every pass's completion tick). No parity run meets it; production and the catch-up step 1 s.
+fixed): economyTick appends the patrol endings and appendShortRangeLog's three line types (short-range relic finds,
+run ends and refugee arrival lines) AFTER resolveProcesses' records, and the patrol endings always before every
+short-range or refugee line whatever their tick. So a call in which a patrol ends, or a short-range or refugee line
+lands, BEFORE a process completes logs the process first while 1 s steps log them in time order; and a call in which a
+short-range or refugee line lands before a patrol ends logs the patrol first (ordering across passes would need every
+pass's completion tick). No parity run meets it; production and the catch-up step 1 s.

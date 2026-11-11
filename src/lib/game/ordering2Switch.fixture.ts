@@ -21,6 +21,17 @@ export function withOrdering2Off<T>(run: () => T): T {
   }
 }
 
+// Part 2 ON for one computation (restored after), to pin its move inside a file that runs with it off.
+export function withOrdering2On<T>(run: () => T): T {
+  const was = ORDERING2_SWITCH.live;
+  ORDERING2_SWITCH.live = true;
+  try {
+    return run();
+  } finally {
+    ORDERING2_SWITCH.live = was;
+  }
+}
+
 // For a golden FILE captured before part 2 whose pins hash a state with an inventory key added out of canonical order,
 // or a call that completed processes out of array order (every pin in it proves an earlier slice's move and nothing
 // else): the whole file runs with part 2 off, so its pins keep proving their own slice. ordering2Goldens.test.ts pins

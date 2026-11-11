@@ -5,7 +5,8 @@
 
 import { describe, expect, it } from "vitest";
 import Decimal from "break_infinity.js";
-import type { GameState } from "./model";
+import { freshState, type GameState, type TimedProcess } from "./model";
+import { compareProcessIds } from "./canonicalOrder";
 import { steppedBy } from "./cp16Goldens.fixture";
 import { deserialize, migrate, serialize } from "./save";
 import { addItemQuality, removeItemLowestFirst, setItemBuckets } from "./inventory";
@@ -69,6 +70,27 @@ describe("ordering determinism part 2: one call == 997 s chunks == 1 s steps, in
     expectDiffersWhenOff(s0, n);
   });
 
+  it("the completion log: two completions on ONE tick in non-id array order go by process id in every chunking", () => {
+    // Array order proc-903 (5 ticks), proc-901 (5 ticks), proc-902 (2 ticks): 903 and 901 tie on tick 5 with the higher
+    // id first in the array, and 902 completes earlier but sits last. Part 2 logs 902, then the tie by id: 901, 903.
+    const upgrade = (id: string, facility: string, remainingTicks: number): TimedProcess => ({
+      id,
+      kind: "facilityUpgrade",
+      remainingTicks,
+      durationTicks: remainingTicks,
+      effect: { type: "facilityLevelUp", facility },
+    });
+    const s0: GameState = {
+      ...freshState(1),
+      activeProcesses: [upgrade("proc-903", "salvageBay", 5), upgrade("proc-901", "research", 5), upgrade("proc-902", "refinery", 2)],
+    };
+    const steps = expectChunkingParity(s0, 8, 3);
+    expect(logOf(steps)).toEqual(["done-1:facilityUpgrade:refinery", "done-2:facilityUpgrade:research", "done-3:facilityUpgrade:salvageBay"]);
+    expectDiffersWhenOff(s0, 8);
+    // With part 2 off the steps keep the tie in array order (salvageBay before research).
+    expect(withOrdering2Off(() => logOf(steppedBy(s0, 8, 1)))).toEqual(["done-1:facilityUpgrade:refinery", "done-2:facilityUpgrade:salvageBay", "done-3:facilityUpgrade:research"]);
+  });
+
   it("two captains for 1000 s: the whole state, strict", () => {
     const steps = expectChunkingParity(twoCaptainsStart(), 1000, 7);
     expect(Object.keys(steps.inventory)).toEqual(sorted(Object.keys(steps.inventory)));
@@ -90,6 +112,23 @@ describe("ordering determinism part 2: one call == 997 s chunks == 1 s steps, in
     const loaded = migrate(file!);
     expect(Object.keys(loaded.inventory)).toEqual(Object.keys(old.inventory));
     expect(Number(loaded.inventory.titaniumIngot[0])).toBe(4);
+  });
+});
+
+describe("compareProcessIds (canonicalOrder.ts): the completion log's tie-break", () => {
+  it('"proc-9" comes before "proc-10" (creation order, not code unit order)', () => {
+    expect(compareProcessIds("proc-9", "proc-10")).toBeLessThan(0);
+    expect(compareProcessIds("proc-10", "proc-9")).toBeGreaterThan(0);
+    expect(compareProcessIds("proc-10", "proc-10")).toBe(0);
+    expect(["proc-100", "proc-9", "proc-10", "proc-1"].sort(compareProcessIds)).toEqual(["proc-1", "proc-9", "proc-10", "proc-100"]);
+  });
+
+  it("an id that is not proc-N still sorts one way whatever order it arrives in (a total order)", () => {
+    const ids = ["proc-salvage", "proc-9", "proc-relic-a", "proc-10", "x"];
+    const expected = ["x", "proc-9", "proc-10", "proc-relic-a", "proc-salvage"]; // shorter first, then code unit order
+    expect([...ids].sort(compareProcessIds)).toEqual(expected);
+    expect([...ids].reverse().sort(compareProcessIds)).toEqual(expected);
+    for (const a of ids) for (const b of ids) expect(Math.sign(compareProcessIds(a, b)) + Math.sign(compareProcessIds(b, a))).toBe(0);
   });
 });
 
