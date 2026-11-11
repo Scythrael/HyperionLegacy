@@ -24,7 +24,9 @@ const STEP_2_STATUS: ReadonlyMap<string, WiringStatus> = new Map<string, WiringS
   ...WEAR_SOURCES.map((w) => [`wear:WEAR_SOURCES:${w.id}`, { kind: "pending", owner: w.mode === "use" ? STEP_3_OWNER : STEP_4_OWNER }] as [string, WiringStatus]),
   ...(["home", "shipyardBay", "fieldRepair", "underway"] as const).map((c) => [`wear:REPAIR_RATES:${c}`, { kind: "pending", owner: STEP_3_OWNER }] as [string, WiringStatus]),
   ...(["officerRepairSpeed", "damageControlRepairTime"] as const).map((b) => [`wear:REPAIR_RATE_BONUSES:${b}`, { kind: "pending", owner: STEP_3_OWNER }] as [string, WiringStatus]),
-  ...WEAR_EFFICIENCY.map((c) => [`wear:WEAR_EFFICIENCY:${c.id}`, { kind: "pending", owner: c.combat ? STEP_4_OWNER : STEP_3_OWNER }] as [string, WiringStatus]),
+  // WR-13 removed the drive's engine efficiency consumer ("Drop that line"); wr13ReadBack puts its row back for the
+  // older pins, so it is read back here with the rest.
+  ...[...WEAR_EFFICIENCY, { id: "ftlDrive:engineEfficiency", combat: false }].map((c) => [`wear:WEAR_EFFICIENCY:${c.id}`, { kind: "pending", owner: c.combat ? STEP_4_OWNER : STEP_3_OWNER }] as [string, WiringStatus]),
   ["ship:audit:slotDurability", { kind: "pending", owner: STEP_3_OWNER }],
   ["away:audit:memberSlotPhysicals", { kind: "pending", owner: `WR-8, OC-D14 (durability: ${STEP_3_OWNER})` }],
 ]);

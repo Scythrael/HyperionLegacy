@@ -28,7 +28,6 @@ import {
   freeSetView,
   CONTACT_FUSE_TEXT,
   TIMED_FUSE_TEXT,
-  fuseLogLine,
   grenadeFuseText,
   grenadeProgramNote,
   kitCountText,
@@ -465,38 +464,11 @@ describe("Logistics stock and Quartermaster sales (FKR-10)", () => {
   });
 });
 
-describe("timed grenades: the fuse words and the battle log lines (user 2026-10-21)", () => {
+describe("timed grenades: the fuse words (user 2026-10-21)", () => {
   it("a grenade reads timed only with a fuse on a run that reads fuses", () => {
     expect(grenadeFuseText({ fuse: { movedClearChance: 0.2 } }, true)).toBe(TIMED_FUSE_TEXT);
     expect(grenadeFuseText({ fuse: { movedClearChance: 0.2 } }, false)).toBe(CONTACT_FUSE_TEXT);
     expect(grenadeFuseText({}, true)).toBe(CONTACT_FUSE_TEXT);
-  });
-
-  it("the primed throw and the detonation get their own lines; every other event gets none", () => {
-    expect(fuseLogLine({ round: 1, side: "team", role: "security", action: "throwGrenade", primed: true }, "Security", "enemy Bruiser", "Vale")).toBe(
-      "Security primes a grenade at enemy Bruiser: it detonates at the start of Vale's next turn",
-    );
-    // Without the thrower's name the role stands in.
-    expect(fuseLogLine({ round: 1, side: "team", role: "security", action: "throwGrenade", primed: true }, "Security", "enemy Bruiser")).toBe(
-      "Security primes a grenade at enemy Bruiser: it detonates at the start of Security's next turn",
-    );
-    // A grenade the fight ended before (user 2026-10-21 "Refund it").
-    expect(fuseLogLine({ round: 1, side: "team", role: "security", action: "grenadeRefunded" }, "Security", "enemy Bruiser", "Vale")).toBe(
-      "Vale's grenade never went off: the fight ended first, so its charge comes back",
-    );
-    expect(fuseLogLine({ round: 2, side: "team", role: "security", action: "grenadeDetonates", blast: { hit: 1, movedClear: 0, missed: 0, downed: 0, afflicted: 0 } }, "Security", "", "Vale")).toBe(
-      "Vale's grenade detonates: 1 hit",
-    );
-    expect(fuseLogLine({ round: 1, side: "team", role: "security", action: "throwGrenade", hpDelta: -20 }, "Security", "enemy Bruiser")).toBeNull();
-    expect(fuseLogLine({ round: 1, side: "team", role: "security", action: "attack" }, "Security", "enemy Bruiser")).toBeNull();
-    const det = { round: 2, side: "team" as const, role: "security" as const, action: "grenadeDetonates" as const };
-    expect(fuseLogLine({ ...det, hpDelta: -34, blast: { hit: 2, movedClear: 1, missed: 0, downed: 1, afflicted: 1 } }, "Security", "enemy Bruiser")).toBe(
-      "Security's grenade detonates on the enemy Bruiser group: 2 hit, 1 moved clear: -34 HP, affliction applied, 1 DOWNED",
-    );
-    expect(fuseLogLine({ ...det, blast: { hit: 0, movedClear: 2, missed: 0, downed: 0, afflicted: 0 } }, "Security", "enemy Bruiser")).toBe(
-      "Security's grenade detonates on the enemy Bruiser group: 2 moved clear",
-    );
-    expect(fuseLogLine({ ...det, blast: { hit: 0, movedClear: 0, missed: 0, downed: 0, afflicted: 0 } }, "Security", "")).toBe("Security's grenade detonates: nobody left in reach");
   });
 
   it("text rules: no em dash, no double hyphen, no 'task' in the fuse words", () => {

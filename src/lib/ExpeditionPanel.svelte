@@ -26,18 +26,16 @@
   // SCOPE (E2c): the dispatch console (ship picker, sensor-gated candidate targets, the
   // installed scanning-array readout, a DISPLAY-ONLY Science + Security ground-team strip,
   // the anomaly-chart opt-in, Launch) + the in-progress view (phase stepper, transit bar
-  // with the charted-anomaly marker, per-body scan cards, the activity list, a findings
-  // tally, Claim). The away-team GAMBIT combat that resolves activities is E3 (this panel
-  // only shows the activities the placeholder resolver completes); relics are E4.
+  // with the charted-anomaly marker, per-body scan cards, the Ground Ops queues, timelines and
+  // cards, a findings tally, Claim). (Wiring OC-G1 deleted the legacy run's activity readout and
+  // battle logs with the legacy path.)
   // ============================================================================
 
-  import type { GameState, Expedition, ExpeditionBody, ExpeditionActivity, ExpeditionFinding, CaptainState, GroundTeamKind } from "./game/model";
-  import { SHIP_TYPES, ITEMS } from "./game/model";
+  import type { GameState, Expedition, CaptainState, GroundTeamKind } from "./game/model";
+  import { SHIP_TYPES } from "./game/model";
   import {
     expeditionCandidates,
     expeditionScanFraction,
-    expeditionActivitiesDone,
-    expeditionActivitiesTotal,
     expeditionPhaseFraction,
     expeditionAnomalyMarkerFraction,
     expeditionAwayTeamCheck,
@@ -48,7 +46,7 @@
     orphanExpeditions,
     type ExpeditionCandidate,
   } from "./game/expedition";
-  import { activityFindingId, deriveAwayTeam, deriveExpeditionActivityLog, deriveScanEncounterLog, type GambitLogEvent } from "./game/gambit";
+  import { deriveAwayTeam } from "./game/gambit";
   import type { GroundOpsEdit } from "./game/groundOps";
   // GO-13 + Squads SQ-7 section 7.3: the per-planet task queue screen (queues, per-team odds, task cards, the stuck
   // flag and its Skip). Its display decisions are in groundTaskQueueDisplay.ts (tested).
@@ -60,7 +58,7 @@
   import GroundTaskCard from "./GroundTaskCard.svelte";
   import GroundBayCard from "./GroundBayCard.svelte";
   import { activitiesPhaseLabel, bayCardsView, taskCardsView } from "./groundOpsTimelineDisplay";
-  // GO-15: each body's scan track (ship-event pips with outcome and pause, supply caches, a legacy run's ground battles)
+  // GO-15: each body's scan track (ship-event pips with outcome and pause, supply caches)
   // and its log lines. Display decisions in scanTrackDisplay.ts (tested).
   import ScanTrack from "./ScanTrack.svelte";
   import { scanTrackKey, scanTrackView } from "./scanTrackDisplay";
@@ -101,7 +99,7 @@
   // Field Kits FKR-9 (the signed-off packing mockup, USER ANSWERS 2026-10-20): per-member packing at dispatch with the
   // per-team Quartermaster top-up, the in-run supplies readout (card line + detail table) and the claim's kit line.
   // Every display decision is in fieldKitsDisplay.ts (tested); the pack and the toggle route to the host's do* handlers.
-  import { claimKitsView, dispatchPackView, fuseLogLine, runCardLine, runSuppliesView, steppedPack, type PackSourceView } from "./fieldKitsDisplay";
+  import { claimKitsView, dispatchPackView, runCardLine, runSuppliesView, steppedPack, type PackSourceView } from "./fieldKitsDisplay";
   import type { FieldKitId } from "./game/fieldKits";
   // Expedition Tiers G2-6 (the signed-off dispatch console mockup, user 2026-10-21 "approve as is"): the region picker
   // (Tier I to VII tabs, the small map as the alternative), the candidate and resume cards, the launch bar and the
@@ -334,8 +332,6 @@
 
   // IN-PROGRESS-view derives.
   $: scanPct = chosenExpedition ? Math.round(expeditionScanFraction(chosenExpedition) * 100) : 0;
-  $: activitiesDone = chosenExpedition ? expeditionActivitiesDone(chosenExpedition) : 0;
-  $: activitiesTotal = chosenExpedition ? expeditionActivitiesTotal(chosenExpedition) : 0;
   $: legFraction = chosenExpedition ? expeditionPhaseFraction(chosenExpedition, now) : 0;
   $: anomalyMarker = chosenExpedition ? expeditionAnomalyMarkerFraction(chosenExpedition) : null;
   // GO-14 (a flagged run): the task progress cards and the medical bay cards, recomputed per tick (time left).
@@ -416,128 +412,6 @@
     if (v < 40) return "Strong";
     return "Elite";
   }
-  function itemLabel(id: string): string {
-    return ITEMS[id]?.label ?? id;
-  }
-  function rarityLabel(tier: string): string {
-    return tier.charAt(0).toUpperCase() + tier.slice(1);
-  }
-
-  // --- Battle readout (E3b) ---------------------------------------------------
-  // The activity's stored finding (materials/credits/relic/evacuated), matched by the resolver's stable
-  // finding id. Present exactly when the activity is done (the resolver flips done + appends the finding
-  // together), so `done` <=> a finding exists.
-  // A legacy run only: a Ground Ops run's task cards sum their offloaded batches (groundOpsTimelineDisplay.ts).
-  function findingFor(exp: Expedition, activity: ExpeditionActivity): ExpeditionFinding | null {
-    const id = activityFindingId(exp, activity.id);
-    return exp.findings.find((f) => f.id === id) ?? null;
-  }
-  // The activity's stable FLAT index across bodies (== the resolver's globalIndex), needed to re-derive its
-  // deterministic battle log.
-  function activityGlobalIndex(exp: Expedition, activityId: string): number {
-    let seen = 0;
-    for (const body of exp.bodies) {
-      for (const act of body.activities) {
-        if (act.id === activityId) return seen;
-        seen++;
-      }
-    }
-    return -1;
-  }
-
-  // Expanded battle logs: activity id -> its re-derived (TRANSIENT, never persisted) round-event list. The
-  // log is a PURE deterministic re-derivation from the stored expedition seed (deriveExpeditionActivityLog),
-  // computed LAZILY on expand and cached here; it lives entirely in local UI state and is never written to
-  // the save, so it stays out of the parity deep-equal by construction.
-  let expandedLogs: Record<string, GambitLogEvent[]> = {};
-  // Activities whose re-derived outcome disagrees with the STORED finding (a battle fought by an earlier
-  // version of the engine, e.g. the pre-D18 stand-in team): their log would tell the wrong story, so the
-  // readout shows a neutral line instead.
-  let staleLogs: Record<string, boolean> = {};
-  function toggleLog(exp: Expedition, body: ExpeditionBody, activity: ExpeditionActivity): void {
-    if (expandedLogs[activity.id]) {
-      const next = { ...expandedLogs };
-      delete next[activity.id];
-      expandedLogs = next;
-      return;
-    }
-    const gi = activityGlobalIndex(exp, activity.id);
-    const derived = gi >= 0 ? deriveExpeditionActivityLog(exp, body, activity, gi) : null;
-    const stored = findingFor(exp, activity);
-    const stale = derived !== null && stored !== null && (derived.outcome === "evacuated") !== (stored.evacuated === true);
-    staleLogs = { ...staleLogs, [activity.id]: stale };
-    expandedLogs = { ...expandedLogs, [activity.id]: derived?.events ?? [] };
-  }
-
-  // --- Battle-log line formatting (display-only) ------------------------------
-  const ROLE_NAME: Record<string, string> = {
-    security: "Security",
-    science: "Science",
-    bruiser: "Bruiser",
-    striker: "Striker",
-    healer: "Healer",
-    caster: "Caster",
-    swarm: "Swarm",
-  };
-  const EVENT_VERB: Record<string, string> = {
-    attack: "attacks",
-    suppress: "suppresses",
-    taunt: "taunts",
-    execute: "executes",
-    brace: "braces",
-    cure: "cures",
-    aidHeal: "heals",
-    shieldAlly: "shields",
-    analyze: "analyzes",
-    secureObjective: "secures the objective",
-    takeCover: "takes cover",
-    useItem: "uses a kit on",
-    fallBack: "falls back",
-    hold: "holds",
-    flashGrenade: "throws a flash grenade at",
-    throwGrenade: "throws a grenade at",
-  };
-  function roleName(role: string): string {
-    return ROLE_NAME[role] ?? role;
-  }
-  function eventLine(ev: GambitLogEvent): string {
-    const who = `${ev.side === "enemy" ? "Enemy " : ""}${roleName(ev.role)}`;
-    if (ev.action === "hold") return `${who} holds`;
-    // E-CREW Task 16: the Neural Backup roll on the first ally downed (hpDelta = the HP they came back with).
-    if (ev.action === "neuralBackup") {
-      const ally = roleName(ev.targetRole ?? "security");
-      return ev.missed ? `Neural Backup fails to revive ${ally}` : `Neural Backup revives ${ally}: +${ev.hpDelta ?? 0} HP`;
-    }
-    // Timed grenades (user 2026-10-21): a primed throw and its detonation read as their own lines (fieldKitsDisplay.ts).
-    const thrower = ev.memberId ? state.awayMembers.find((m) => m.id === ev.memberId)?.name : undefined;
-    const fuse = fuseLogLine(ev, who, ev.targetRole ? `${ev.targetSide === "enemy" ? "enemy " : ""}${roleName(ev.targetRole)}` : "", thrower);
-    if (fuse) return fuse;
-    const verb = EVENT_VERB[ev.action] ?? ev.action;
-    let line = `${who} ${verb}`;
-    if (ev.targetRole) line += ` ${ev.targetSide === "enemy" ? "enemy " : ""}${roleName(ev.targetRole)}`;
-    const tail: string[] = [];
-    if (ev.missed) tail.push("miss");
-    else if (ev.hpDelta && ev.hpDelta < 0) tail.push(`${ev.hpDelta} HP`);
-    else if (ev.hpDelta && ev.hpDelta > 0) tail.push(`+${ev.hpDelta} HP`);
-    // Wiring WR-10 (OC-F6): Brace and Fall Back put Shielded on the member (a buff, never an affliction).
-    if (ev.statusApplied) tail.push(ev.action === "brace" || ev.action === "fallBack" ? "Shielded" : "affliction applied");
-    if (ev.statusCleared) tail.push("cleansed");
-    if (ev.downed) tail.push("DOWNED");
-    return tail.length ? `${line}: ${tail.join(", ")}` : line;
-  }
-
-  // GO-15: a legacy run's ground battle at a scan step, as round log lines (re-derived on demand, never stored).
-  function scanBattleLines(exp: Expedition, bodyIndex: number, step: number): { key: string; text: string; round: boolean; enemy: boolean; down: boolean }[] {
-    const log = deriveScanEncounterLog(exp, bodyIndex, step);
-    if (!log) return [];
-    const lines: { key: string; text: string; round: boolean; enemy: boolean; down: boolean }[] = [];
-    log.events.forEach((ev, i) => {
-      if (i === 0 || log.events[i - 1].round !== ev.round) lines.push({ key: `r${i}`, text: `Round ${ev.round}`, round: true, enemy: false, down: false });
-      lines.push({ key: `e${i}`, text: eventLine(ev), round: false, enemy: ev.side === "enemy", down: ev.downed === true });
-    });
-    return lines;
-  }
-
   // --- Actions (all route to the host) ----------------------------------------
   // Field Kits FKR-9: one stepper press on a member's pack, and the source chip's Reset.
   function stepPack(teamIndex: number, memberId: string, pack: Partial<Record<FieldKitId, number>>, kit: FieldKitId, delta: number): void {
@@ -799,7 +673,7 @@
               </div>
               {#if study}<StudyChips chips={study.chips} label="{study.name} study" />{/if}
               {#if track}
-                <ScanTrack {track} idBase="scan-{exp.id}-{bi}" battleLines={(step) => scanBattleLines(exp, bi, step)} />
+                <ScanTrack {track} idBase="scan-{exp.id}-{bi}" />
               {:else}
                 <div class="exp-bar slim">
                   <div class="exp-bar-fill" style="width: {pct(frac)}%; background: {scanColor(frac)};"></div>
@@ -903,74 +777,6 @@
             {/if}
             <div class="exp-note">Battles auto-resolve: each Security member runs their own tactical protocols, or the built-in default. After every objective the team returns to the ship to offload, recover in the medical bay and reload; a lost objective keeps its progress and is retried after the bay.</div>
           {/if}
-        {:else if activitiesTotal > 0}
-          <!-- ACTIVITY BATTLE READOUT (a legacy run): each resolved away-team task shows its OUTCOME (secured vs
-               evacuated) + the finding it yielded (materials / credits / an unidentified relic), with an
-               expandable, re-derived round log so the player can see their gambits at work and tune them. -->
-          <div class="exp-section-tag">Away-team activities · {activitiesDone}/{activitiesTotal}</div>
-          <div class="exp-acts">
-            {#each exp.bodies as body (body.id)}
-              {#each body.activities as act (act.id)}
-                {@const finding = findingFor(exp, act)}
-                <div class="exp-act-card" class:done={act.done}>
-                  <div class="exp-act-head">
-                    <span class="exp-act-check" aria-hidden="true">{act.done ? "✓" : "○"}</span>
-                    <span class="exp-act-label">{poiLabel(act.poiId)}</span>
-                    <span class="exp-act-body">{planetLabel(body.planetType)}{#if isOrbital(body.planetType)} · satellite{/if}</span>
-                    {#if act.done && finding}
-                      {#if finding.evacuated}
-                        <span class="exp-chip evac">Evacuated</span>
-                      {:else}
-                        <span class="exp-chip secured">Secured</span>
-                      {/if}
-                    {:else}
-                      <span class="exp-chip range">Pending</span>
-                    {/if}
-                  </div>
-                  {#if act.done && finding}
-                    <div class="exp-act-finds">
-                      {#each Object.entries(finding.materials ?? {}) as [itemId, qty]}
-                        <span class="exp-find-chip">{itemLabel(itemId)} ×{qty}</span>
-                      {/each}
-                      {#if (finding.credits ?? 0) > 0}
-                        <span class="exp-find-chip credits">{finding.credits} credits</span>
-                      {/if}
-                      {#if finding.relic}
-                        <!-- E4c: the unidentified-relic glyph (SVG, ui/relicIcons.ts vocabulary), never an emoji. -->
-                        <span class="exp-find-chip relic"><Icon name="relic" size={11} /> Unidentified relic · {rarityLabel(finding.relic.tier)}</span>
-                      {/if}
-                    </div>
-                    <button type="button" class="exp-log-toggle" on:click={() => toggleLog(exp, body, act)}>
-                      {expandedLogs[act.id] ? "Hide battle log" : "View battle log"}
-                    </button>
-                    {#if expandedLogs[act.id]}
-                      <div class="exp-log">
-                        {#if staleLogs[act.id]}
-                          <div class="exp-log-line dim">Battle record from an earlier version.</div>
-                        {:else if expandedLogs[act.id].length === 0 && finding.evacuated}
-                          <!-- D18: an expedition launched before the minimum-team rule, with no Security member,
-                               fields no team, so its tasks evacuate without a fight. -->
-                          <div class="exp-log-line dim">No combat: no Security member was deployed, so the team withdrew with a partial haul.</div>
-                        {:else if expandedLogs[act.id].length === 0}
-                          <div class="exp-log-line dim">No combat: the team secured the site unopposed.</div>
-                        {:else}
-                          {#each expandedLogs[act.id] as ev, li (li)}
-                            {#if li === 0 || expandedLogs[act.id][li - 1].round !== ev.round}
-                              <div class="exp-log-round">Round {ev.round}</div>
-                            {/if}
-                            <div class="exp-log-line" class:enemy={ev.side === "enemy"} class:down={ev.downed}>
-                              {eventLine(ev)}
-                            </div>
-                          {/each}
-                        {/if}
-                      </div>
-                    {/if}
-                  {/if}
-                </div>
-              {/each}
-            {/each}
-          </div>
-          <div class="exp-note">Battles auto-resolve: each Security member runs their own tactical protocols, or the built-in default. Lost objectives evacuate with a reduced haul.</div>
         {/if}
 
         <!-- FINDINGS TALLY -->
@@ -2037,27 +1843,6 @@
     grid-template-columns: repeat(auto-fill, minmax(min(100%, 300px), 1fr));
     gap: 10px;
   }
-  .exp-acts {
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
-  }
-  .exp-act-check {
-    color: var(--color-text-dim);
-    flex: 0 0 auto;
-  }
-  .exp-act-card.done .exp-act-check {
-    color: var(--color-success);
-  }
-  .exp-act-label {
-    flex: 1 1 auto;
-    min-width: 0;
-  }
-  .exp-act-body {
-    font-size: var(--text-2xs);
-    color: var(--color-text-dim);
-    white-space: nowrap;
-  }
   .exp-note {
     font-size: var(--text-2xs);
     color: var(--color-text-dim);
@@ -2087,108 +1872,6 @@
     border-radius: 999px;
     background: rgba(var(--color-accent-rgb), 0.16);
     color: var(--color-accent-bright);
-  }
-
-  /* ACTIVITY BATTLE READOUT cards (in-progress) */
-  .exp-act-card {
-    display: flex;
-    flex-direction: column;
-    gap: 6px;
-    padding: 8px 10px;
-    border-radius: var(--corner);
-    background: rgba(var(--color-accent-rgb), 0.04);
-    border: 1px solid rgba(var(--color-accent-rgb), 0.12);
-  }
-  .exp-act-head {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: 8px;
-    font-size: var(--text-xs);
-    color: var(--color-text-secondary);
-  }
-  .exp-act-card.done .exp-act-head {
-    color: var(--color-text-primary);
-  }
-  .exp-act-finds {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 4px;
-  }
-  .exp-find-chip {
-    font-size: var(--text-2xs);
-    padding: 1px 8px;
-    border-radius: 999px;
-    background: rgba(var(--color-accent-rgb), 0.1);
-    color: var(--color-text-secondary);
-  }
-  .exp-find-chip.credits {
-    color: var(--color-accent-bright);
-  }
-  .exp-find-chip.relic {
-    background: var(--color-accent);
-    color: var(--color-bg-deep);
-  }
-  .exp-chip.secured {
-    background: rgba(var(--color-success-rgb, 90, 190, 120), 0.18);
-    color: var(--color-success);
-    margin-left: auto;
-  }
-  .exp-chip.evac {
-    background: rgba(var(--color-warning-rgb, 200, 150, 60), 0.18);
-    color: var(--color-warning);
-    margin-left: auto;
-  }
-  .exp-log-toggle {
-    align-self: flex-start;
-    padding: 3px 10px;
-    font-size: var(--text-2xs);
-    color: var(--color-accent-bright);
-    background: rgba(var(--color-accent-rgb), 0.08);
-    border: 1px solid rgba(var(--color-accent-rgb), 0.2);
-    border-radius: 999px;
-    cursor: pointer;
-    -webkit-tap-highlight-color: transparent;
-  }
-  .exp-log-toggle:hover {
-    border-color: rgba(var(--color-accent-rgb), 0.45);
-  }
-  .exp-log {
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
-    max-height: 240px;
-    overflow-y: auto;
-    padding: 8px;
-    border-radius: var(--corner);
-    background: rgba(0, 0, 0, 0.18);
-    border: 1px solid rgba(var(--color-accent-rgb), 0.12);
-  }
-  .exp-log-round {
-    font-family: var(--font-mono);
-    font-size: calc(9px * var(--ui-scale));
-    letter-spacing: 0.1em;
-    text-transform: uppercase;
-    color: var(--color-accent-bright);
-    margin-top: 4px;
-  }
-  .exp-log-round:first-child {
-    margin-top: 0;
-  }
-  .exp-log-line {
-    font-size: var(--text-2xs);
-    color: var(--color-text-secondary);
-    line-height: 1.4;
-  }
-  .exp-log-line.enemy {
-    color: var(--color-text-dim);
-  }
-  .exp-log-line.down {
-    color: var(--color-warning);
-  }
-  .exp-log-line.dim {
-    color: var(--color-text-dim);
-    font-style: italic;
   }
 
   /* FINDINGS TALLY */

@@ -30,15 +30,10 @@
 //   3. ADDITIVE-NEUTRAL: with NO active expedition, resolveExpeditions returns the SAME
 //      state reference, so the tick path is byte-identical to before this phase.
 //
-// ⚠️ E2a SCOPE (do NOT over-build): the ENGINE + a GENERIC body model ONLY.
-//   - PLANET TYPES + a named LANDMARK/PoI catalog = E2b. Bodies here are generic (a scan
-//     size, a hazard scalar, generic discovery tokens).
-//   - The real away-team GAMBIT activity resolver = E3. E2a resolves activities through a
-//     deterministic PLACEHOLDER resolver (resolveActivitiesPhase below): it flips `done` +
-//     grants one placeholder finding per task. E3 swaps in real gambit combat WITHOUT
-//     reshaping ExpeditionActivity (it keeps `done` as the completion flag).
-//   - Relics/research/museum = E4. Findings here are generic placeholder tokens (a count +
-//     a provenance tag), NOT the relic system.
+// HISTORY: E2a built this engine with a placeholder activities resolver; E3 swapped in gambit combat; Ground
+// Operations (GO-7b) moved the scanning and activities phases onto one operations window (groundOps.ts). Wiring
+// OC-G1 (user 2026-10-16 "Delete it") removed the pre-GO-7b ("legacy") resolution: a run without its Ground Ops
+// record is finished at load (save.ts finishLegacyExpeditionsOnLoad) and by the engine's guard (advanceExpedition).
 //
 // ⚠️ ALL NUMERIC CONSTANTS BELOW ARE FIRST-PASS TUNABLE launch placeholders (transit
 // lengths, scan rates, anomaly odds, discovery counts), the same posture as SHIP_TYPES /
@@ -55,6 +50,7 @@ import type {
   ExpeditionFinding,
   ExpeditionScanParams,
   ExpeditionScanEvent,
+  GroundOpsState,
   SnapshotMember,
 } from "./model";
 import { SHIP_TYPES, WR10_SWITCH, WR11_SWITCH, WR9_SWITCH, commandingCaptain, moduleEffectScale, shipGearSetBonusLines, withFavoredLines } from "./model";
@@ -69,7 +65,7 @@ import { battleWearLive, viewPieceEfficiency, wornGearView } from "./gearWear";
 import { gearWearLive } from "./gearWearEngine";
 import { effectiveShipStats, foldOfficerPromotionCounters, officerBonusTotal, officerMissionOutputBonus, type PromotionIncrements, shipAwayTeamProtection, shipCounterInfiltration, shipCrewContribution, shipCrewTriage, shipSurveyAptitude } from "./crewOverlay";
 import { CREW_STAT_KEYS } from "./crewBuffs";
-import { fieldworkHazardResist, fieldworkSpeedMult } from "./fieldwork";
+import { fieldworkHazardResist } from "./fieldwork";
 import { ACTIVITY_SECONDS } from "./groundTasks";
 // E-CREW 0.14.0 (Task 21): the officer stat facets that reach a run (frozen at dispatch).
 import { CUNNING_AMBUSH_SOFTEN, CUNNING_QUICK_RECOVERY, constitutionRamp, cunningProc, departmentFacet } from "./officerStats";
@@ -81,16 +77,12 @@ import {
 } from "./expeditionContent";
 import type { ExpeditionPlanetType } from "./model";
 // E3a: the away-team GAMBIT engine. deriveAwayTeam snapshots the ship's crew-derived team strength at
-// dispatch; resolveExpeditionActivity is the real gambit-combat swap-in for the placeholder activity
-// resolver below. The gambit catalogs are static data touched ONLY on the activities path, so importing
-// them here keeps the no-expedition tick byte-identical (additive-neutral).
+// dispatch; the haul and supply-cache rolls are its reward machinery. (OC-G1 deleted the legacy activity and scan
+// battle resolvers: every run resolves on the Ground Ops timeline.)
 import {
   deriveAwayTeam,
-  resolveExpeditionActivity,
-  resolveScanEncounter,
   rollHaul,
   rollSupplyCache,
-  scanDownedBefore,
   scanStepKey,
 } from "./gambit";
 // Ground Ops (GO-2): the D18 minimums live in groundTeams.ts (its deployable reader applies them across the
@@ -112,6 +104,7 @@ import {
   groundCrewClearOdds,
   groundCrewThreat,
   groundOpsBodyScanned,
+  bodyTaskFor,
   initGroundTasks,
   fieldRepairBlock,
   maybeAutoFieldRepair,
@@ -136,10 +129,9 @@ import { recordCommandFirst } from "./captainNotables";
 // Field Kits FKR-7: the runs switch, the flag, and the dispatch / claim plumbing (fieldKitsRun.ts never imports this).
 import { FIELD_KITS_RUNS_LIVE, fieldDeviceDial, fieldDevicesLive, fieldDevicesStamp, fieldKitsLive } from "./fieldKits";
 import { fieldKitsStamp, planDispatchPacks, returnCarriedExtras, settleDispatchPacks, withDispatchPacks } from "./fieldKitsRun";
-// E-CREW (Task 16): the claim turns the run's downed members into injuries (pure; imports model types,
-// crewOverlay and crewBuffs only, never this module, so no cycle). GO-7b: a Ground Ops run brings home the
-// members still in the medical bay instead (applyGroundOpsInjuries).
-import { applyExpeditionInjuries, applyGroundOpsInjuries, type MemberInjury } from "./injuries";
+// Ground Ops (GO-7b): the claim brings home the members still in the medical bay (applyGroundOpsInjuries; pure,
+// never imports this module, so no cycle). OC-G1 deleted the legacy claim's flat injury.
+import { applyGroundOpsInjuries, type MemberInjury } from "./injuries";
 // Ground Ops GO-8 (user 9b.6): the ship-side scan events of a flagged run (shipScanEvents.ts never imports this
 // module), their bonus-discovery stream, and the light hull damage brought home at claim (user Q12).
 import { applyShipEventDamage, ghostFindSeed, resolveShipScanEvent, shipEventsLive, takeBoardingLoss } from "./shipScanEvents";
@@ -297,44 +289,28 @@ export function bodyDiscoveryAttempts(exp: Pick<Expedition, "seed" | "arraySplit
   return drawDiscoveryAttempts(exp, discoveryRng(exp, bodyIndex));
 }
 
-// ACTIVITIES: the placeholder resolver completes one task every ACTIVITY_SECONDS, granting one
-// placeholder finding each. (E3's real gambit combat replaces the resolver, not this cadence.)
-// E-CREW Task 15: ACTIVITY_SECONDS is a BARE party's pace; the Science party's fieldwork speed divides it
-// per body (activityDurationSeconds). Without a Science member every task still takes exactly this.
-// Ground Operations (GO-4): the constant now LIVES in groundTasks.ts (the task model; it must not import this
-// module) and is re-exported here unchanged, so every existing importer keeps working.
+// ACTIVITIES: ACTIVITY_SECONDS is a BARE party's pace on one ground task; the Science party's fieldwork speed divides
+// it (groundTasks.ts taskWorkSeconds). Ground Operations (GO-4): the constant LIVES in groundTasks.ts (the task model;
+// it must not import this module) and is re-exported here unchanged, so every existing importer keeps working.
 export { ACTIVITY_SECONDS };
 
 // ============================================================================
-// E-CREW 0.14.0 (Task 14): RANDOM ENCOUNTERS during scan progress (design D10, FIRST-PASS TUNABLE)
+// E-CREW 0.14.0 (Task 14): the SCAN STEP BOUNDARIES (design D10, FIRST-PASS TUNABLE)
 // ============================================================================
 //
 // STEP MATH. Each body's scan divides into ENCOUNTER_STEPS equal steps of scan WORK (so equal time: a body
 // scans at one constant rate). The rolls fire at the INTERIOR step boundaries, boundary N (1..STEPS-1) at
-// N / STEPS of the body's scan (10%, 20%, ... 90% at 10 steps): never at 0% (the team has not landed) or
-// 100% (the body is done and its discoveries take over). Each boundary rolls exactly ONCE, latched by the
-// expedition's scanStepCursor, from its own keyed stream makeRng(seed ^ ENCOUNTER_SALT ^ (bodyIndex * 100 +
-// N)), so the outcome never depends on how the elapsed span was chunked.
-//   draw 1: an ENCOUNTER, at scanEncounterChance (below). It runs one Security battle (gambit.ts
-//           resolveScanEncounter). WIN: the enemy drops become a finding and the scan continues. LOSS: the
-//           team withdraws to orbit (findings so far stay) and THIS body's scan PAUSES until the next
-//           activity window. Win or lose, the battle's downed members are recorded on the scan event, and
-//           (Task 16) they sit out every later battle of the run and come home injured at claim. A
-//           boundary whose squad is entirely out rolls a 0 encounter chance (draw 1 is still taken).
+// N / STEPS of the body's scan (10%, 20%, ... 90% at 10 steps): never at 0% or 100% (the body is done and its
+// discoveries take over). Each boundary rolls exactly ONCE, latched by the expedition's scanStepCursor, from its
+// own keyed stream makeRng(seed ^ ENCOUNTER_SALT ^ (bodyIndex * 100 + N)), so the outcome never depends on how the
+// elapsed span was chunked.
+//   draw 1: a SHIP EVENT (Ground Ops GO-8, shipScanEvents.ts) at shipScanEventChance, on a run with ship events;
+//           chance 0 on a Ground Ops run dispatched before GO-8 (the draw is still taken).
 //   draw 2: the supply-cache EVENT, at SUPPLY_CACHE_CHANCE. Always drawn (a fixed draw count per stream),
-//           but it only counts when draw 1 fired no encounter: one thing per boundary.
-//
-// ACTIVITY WINDOW. The away team's ground operations run on the ACTIVITY_SECONDS cadence (the same 10-minute
-// slot the activities phase gives each task). During scanning that cadence is a grid of windows every
-// ACTIVITY_SECONDS of elapsed-in-scanning time, counted from the scanning phase's anchor. A team that
-// withdraws at time t redeploys at the next window strictly after t (nextActivityWindow), so a loss pauses
-// the scan for (0, ACTIVITY_SECONDS] seconds. The pause is recorded on the scan event (pauseSeconds) and
-// the scanning phase lasts the bodies' scan time PLUS every recorded pause.
-//
-// ACTIVITIES ARE UNCHANGED. Encounters happen only in the SCANNING phase, on a body that has no
-// discoveries yet; the PoI ground tasks (and their guardian battles, resolveActivitiesPhase) run in the
-// ACTIVITIES phase afterwards, with their own keyed streams. The two never share a moment or a stream, so
-// nothing double-battles: a body's roaming encounters and its PoI guardian fights are separate events.
+//           but it only counts when draw 1 fired nothing: one thing per boundary.
+// A ship event's recorded pause (pauseSeconds) lengthens the scan on its clock (groundOps.ts).
+// (OC-G1 deleted the legacy run's scan-time ground battles, their loss pauses and its activities phase: every run
+// resolves on the Ground Ops timeline, and a legacy run still in a save is finished at load, save.ts.)
 // ENCOUNTER_STEPS must stay below 100: a boundary's stream key is gambit.ts scanStepKey (bodyIndex * 100 +
 // step), so 100 or more steps would collide one body's boundaries with the next body's (a test asserts it).
 export const ENCOUNTER_STEPS = 10;
@@ -348,8 +324,7 @@ export const SUPPLY_CACHE_CHANCE = 0.05; // the per-boundary supply-cache event 
 // fieldDevices), and they work on the GROUND (OC-F1: groundOps.ts ambush and reinforcement chances, the Lure's salvage
 // scale in shipScanEvents.ts), on a run carrying the field devices stamp (fieldKits.ts fieldDevicesLive). It
 // retired the old knob (an untrained and a trained effectiveness, both 1, and a specialist check that was always
-// false). A run dispatched before it reads its devices as it always did: the scan encounter chance (a legacy run) or
-// the ship-event chance (a Ground Ops run), at full strength.
+// false). A run dispatched before it reads its devices as it always did: the ship-event chance, at full strength.
 export const PRE_FKR8_DEVICE_EFFECTIVENESS = 1;
 
 // ============================================================================
@@ -1702,9 +1677,7 @@ function buildExpedition(
   // factors (GO-7a), and the named ROSTER = those teams' union snapshot (converted gear, traits, implants,
   // programs), at the same dispatch instant. D18: the gate above guarantees deploying teams that hold a
   // Security AND a Science member between them (Squads SQ-2), so every expedition launched from here on
-  // carries a roster. (An OLD in-flight expedition may still
-  // lack one; the legacy battle resolver handles that safely, see gambit.ts resolveExpeditionActivity.) One
-  // team slotted in hire order snapshots exactly what the pre-GO-7b snapshotAwayRoster did.
+  // carries a roster. One team slotted in hire order snapshots exactly what the pre-GO-7b snapshotAwayRoster did.
   const groundSnapshot = snapshotGroundOps(state, ship, { recoveryTurnaround, quickRecovery, injurySteady });
   const roster = snapshotAwayRosterForTeams(gearView, ship, groundSnapshot.teams);
   // Field Kits FKR-7 (behind fieldKits.ts FIELD_KITS_RUNS_LIVE): each deploying Security member's pack, from stock and a
@@ -1798,9 +1771,8 @@ function buildExpedition(
     ...(rampReturn > 0 ? { rampReturn } : {}),
     ...(hazardSteady > 0 ? { hazardSteady } : {}),
     ...(injurySteady > 0 ? { injurySteady } : {}),
-    // Complement CP-13 fix round: the Tactician quarters perk for the legacy claim's care, only when non-zero (the Ground
-    // Ops bay froze its own copy above, GroundOpsFactors.hullInjuryShare, at the same instant).
-    ...(groundSnapshot.factors.hullInjuryShare !== undefined ? { hullInjuryShare: groundSnapshot.factors.hullInjuryShare } : {}),
+    // (OC-G1 dropped the run-level hullInjuryShare copy the legacy claim read: the Ground Ops bay reads its own frozen
+    // copy, GroundOpsFactors.hullInjuryShare.)
     // Ground Operations (GO-7b): the flag. This run resolves on the Ground Ops timeline (groundOps.ts).
     groundOps: newGroundOpsState(groundSnapshot),
     // Squads SQ-4: the risk-aware flag (see above).
@@ -1900,15 +1872,6 @@ export function scanRatePerSecond(exp: Expedition, body: ExpeditionBody): number
   return cartographer !== undefined && cartographer > 0 && Number.isFinite(cartographer) ? rate * cartographer : rate;
 }
 
-// Total time to scan the WHOLE system (all bodies, sequentially). The SCANNING phase's duration. E-CREW
-// Task 14: an encounter-enabled run adds every recorded loss pause (encounterScanDurationSeconds).
-function scanningDurationSeconds(exp: Expedition): number {
-  if (hasScanEncounters(exp)) return encounterScanDurationSeconds(exp);
-  let total = 0;
-  for (const body of exp.bodies) total += body.scanTotal / scanRatePerSecond(exp, body);
-  return total;
-}
-
 // The total number of ground-team activities across all bodies (generated at each body's 100% scan).
 function totalActivities(exp: Expedition): number {
   let n = 0;
@@ -1916,25 +1879,8 @@ function totalActivities(exp: Expedition): number {
   return n;
 }
 
-// E-CREW Task 15: how long ONE ground task on `body` takes: ACTIVITY_SECONDS divided by the Science party's
-// fieldwork speed on that body (fieldwork.ts fieldworkSpeedMult; the PoI does not change the pace),
-// rounded to whole seconds. Exactly ACTIVITY_SECONDS without a Science member. Pure (reads the stored run).
-export function activityDurationSeconds(exp: Expedition, body: ExpeditionBody): number {
-  const speed = fieldworkSpeedMult(exp, body.planetType);
-  // D23: the pace has no cap, so floor a task at 1 second (never a zero-length task).
-  return speed === 1 ? ACTIVITY_SECONDS : Math.max(1, Math.round(ACTIVITY_SECONDS / speed));
-}
-
-// The ACTIVITIES phase duration: every task's duration, in flat body/activity order (one task per
-// ACTIVITY_SECONDS for a run without a Science party).
-function activitiesDurationSeconds(exp: Expedition): number {
-  let total = 0;
-  for (const body of exp.bodies) total += body.activities.length * activityDurationSeconds(exp, body);
-  return total;
-}
-
 // E-CREW (Task 21 review calls, Flight Deck CONSTITUTION): the RETURN leg, divided by (1 + the ramp on the
-// hours since dispatch when it starts: the transit, the scan and the tasks, all fixed by then). Exactly the base
+// hours since dispatch when it starts: the transit and the operations window, all fixed by then). Exactly the base
 // transit without exp.rampReturn. Pure. Expedition Tiers G2-3: a voyage run's base is its own return leg.
 export function returnDurationSeconds(exp: Expedition): number {
   // G2-5: a recalled run flies the way home frozen at its recall (the pickup and the leg, ramp included).
@@ -1942,9 +1888,8 @@ export function returnDurationSeconds(exp: Expedition): number {
   if (recall) return recall.returnSeconds;
   const base = baseReturnSeconds(exp);
   if (!exp.rampReturn) return base;
-  // Ground Ops (GO-7b): a flagged run's scan and tasks share one window (flaggedWindowSeconds).
-  const outbound = exp.groundOps ? flaggedWindowSeconds(exp) : scanningDurationSeconds(exp) + activitiesDurationSeconds(exp);
-  const hours = (transitDurationSeconds(exp) + outbound) / 3600;
+  // Ground Ops (GO-7b): the scan and the tasks share one window (flaggedWindowSeconds).
+  const hours = (transitDurationSeconds(exp) + flaggedWindowSeconds(exp)) / 3600;
   const ramp = constitutionRamp(exp.rampReturn, hours);
   return ramp === 0 ? base : base / (1 + ramp);
 }
@@ -1955,12 +1900,13 @@ function phaseDurationSeconds(exp: Expedition): number {
     case "transit":
       return transitDurationSeconds(exp);
     case "scanning":
-      // Ground Ops (GO-7b): a flagged run's scan ends at its clock's end mapped through the recovery legs.
-      return exp.groundOps ? flaggedScanEndAt(exp) - exp.phaseAnchorSeconds : scanningDurationSeconds(exp);
-    case "activities":
+      // Ground Ops (GO-7b): the scan ends at its clock's end mapped through the recovery legs.
+      return flaggedScanEndAt(exp) - exp.phaseAnchorSeconds;
+    case "activities": {
       // Ground Ops (GO-7b): unknown until the window closes (the phase does not end before endedAt).
-      if (exp.groundOps) return exp.groundOps.endedAt === undefined ? Infinity : Math.max(0, exp.groundOps.endedAt - exp.phaseAnchorSeconds);
-      return activitiesDurationSeconds(exp);
+      const endedAt = exp.groundOps?.endedAt;
+      return endedAt === undefined ? Infinity : Math.max(0, endedAt - exp.phaseAnchorSeconds);
+    }
     case "return":
       return returnDurationSeconds(exp);
     case "complete":
@@ -2078,12 +2024,7 @@ function assignDiscoveriesAndActivities(
     discoveries.push({ id: `${exp.id}-${body.id}-disc-${discoveries.length}`, kind: extra.surface ? "landmark" : "underground", poiId: extra.poiId });
   }
   body.discoveries = discoveries;
-  body.activities = discoveries.map((d, k) => ({
-    id: `${exp.id}-${body.id}-act-${k}`,
-    bodyId: body.id,
-    poiId: d.poiId,
-    done: false,
-  }));
+  body.activities = discoveries.map((d, k) => bodyTaskFor(exp, body, d, k));
 }
 
 // E-MOD EM-6 / EM-8: the extra discoveries the frozen body-scan procs give one body, in order (each { surface, poiId }).
@@ -2146,42 +2087,9 @@ function floraWeightedPools(
   return { surface: lift(pools.surface), underground: lift(pools.underground) };
 }
 
-// Resolve SCANNING up to `consumed` seconds into the phase. Sequential, per-body: allocate the elapsed
-// time body by body. A body that fully scans gets its discoveries + activities assigned exactly once
-// (the `scanned` latch). Idempotent: scanProgress is SET from elapsed (never incremented), so re-running
-// with the same or larger `consumed` is correct + never double-assigns.
-function resolveScanningPhase(exp: Expedition, consumed: number): void {
-  let remaining = consumed;
-  for (let i = 0; i < exp.bodies.length; i++) {
-    const body = exp.bodies[i];
-    const rate = scanRatePerSecond(exp, body);
-    const bodyTime = body.scanTotal / rate;
-    // Same form as the phase-end check (x + PHASE_EPS vs the duration), so a rounding sliver at the end of
-    // the phase still completes the body.
-    if (remaining + PHASE_EPS >= bodyTime) {
-      body.scanProgress = body.scanTotal;
-      remaining -= bodyTime;
-      if (!body.scanned) {
-        body.scanned = true;
-        assignDiscoveriesAndActivities(exp, body, i);
-      }
-    } else {
-      body.scanProgress = Math.min(body.scanTotal, Math.max(0, remaining) * rate);
-      remaining = 0;
-      break; // later bodies are not started yet (they stay at scanProgress 0)
-    }
-  }
-}
-
 // ============================================================================
-// E-CREW 0.14.0 (Task 14): scan-step encounters (see the constants block at the top for the rules)
+// E-CREW 0.14.0 (Task 14): the scan step boundaries (see the constants block at the top for the rules)
 // ============================================================================
-
-// Does this run roll random encounters while scanning? Only one dispatched since Task 14 (it froze
-// encounterSteps); an older run scans exactly as before. Pure.
-function hasScanEncounters(exp: Expedition): boolean {
-  return (exp.encounterSteps ?? 0) >= 1;
-}
 
 // The Security squad's summed encounter dial: every worn piece's variety encounterBias (Shroud Emitter
 // -0.4, Lure Beacon +0.4; every other piece 0, fieldKits.ts fieldDeviceDial), times the field-device effectiveness.
@@ -2199,26 +2107,6 @@ export function encounterChance(hazard: number, deviceBias: number, evasion: num
   return Math.max(0, Math.min(ENCOUNTER_CHANCE_MAX, chance));
 }
 
-// The per-boundary encounter chance on `body` for this run: the body's hazard as the run presents it
-// (museum hazardResist applied, as for its battles), the snapshotted Security squad's device dial, and the
-// snapshotted Evasive Command. 0 with no Security member (no team, no fight: only a pre-D18 run). Pure.
-// E-CREW (Task 16): `sittingOut` (gambit.ts scanDownedBefore, the members downed at earlier boundaries)
-// leaves those members out of the squad: their worn devices stop counting, and with the whole squad out
-// the chance is 0 (nobody is on the ground to be found). scanStepRoll passes it; absent = the full squad.
-// E-CREW (Task 21): `hoursOut` (the boundary's hours since dispatch) drives the Flight Deck's Constitution
-// ramp on Evasive Command (exp.rampFlightDeck): the frozen evasion grows by constitutionRamp(ramp, hours).
-// Absent / 0 = the frozen evasion as is.
-export function scanEncounterChance(exp: Expedition, body: ExpeditionBody, sittingOut?: ReadonlySet<string>, hoursOut: number = 0): number {
-  const deployed = exp.roster?.security ?? [];
-  const security = sittingOut && sittingOut.size > 0 ? deployed.filter((m) => !sittingOut.has(m.memberId)) : deployed;
-  if (security.length === 0) return 0;
-  return encounterChance(
-    resistedHazard(body.hazard, exp.hazardResist ?? 0),
-    squadEncounterBias(security, PRE_FKR8_DEVICE_EFFECTIVENESS),
-    rampedEncounterEvasion(exp, hoursOut),
-  );
-}
-
 // The run's Evasive Command at `hoursOut` hours since dispatch: the frozen encounterEvasion, grown by the
 // Flight Deck's Constitution ramp (E-CREW Task 21). Exactly the frozen value without a ramp. Pure.
 export function rampedEncounterEvasion(exp: Expedition, hoursOut: number): number {
@@ -2227,34 +2115,18 @@ export function rampedEncounterEvasion(exp: Expedition, hoursOut: number): numbe
   return ramp === 0 ? evasion : evasion * (1 + ramp);
 }
 
-// E-CREW (Task 21): hours since dispatch at `secondsIntoScan` seconds into the scanning phase (the transit,
-// detour included, is fully flown by then). Pure.
-export function expeditionHoursAtScan(exp: Expedition, secondsIntoScan: number): number {
-  return (transitDurationSeconds(exp) + secondsIntoScan) / 3600;
-}
-
-// The step roll at `body` boundary `step`: draw 1 decides an encounter, draw 2 a supply cache (counted
-// only when no encounter fired). Its own keyed stream per boundary. Pure.
+// The step roll at `body` boundary `step`: draw 1 decides a ship event, draw 2 a supply cache (counted
+// only when draw 1 fired nothing). Its own keyed stream per boundary. Pure.
 // E-CREW (Task 21): `hoursOut` is the boundary's hours since dispatch (the Constitution ramp's clock), passed
 // by the scan walk from the boundary's stored time. Default 0 = no ramp.
 export function scanStepRoll(exp: Expedition, bodyIndex: number, step: number, hoursOut: number = 0): { encounter: boolean; supplyCache: boolean } {
   const rng = makeRng((exp.seed ^ ENCOUNTER_SALT ^ scanStepKey(bodyIndex, step)) >>> 0);
   const body = exp.bodies[bodyIndex];
   // Draw 1 is ALWAYS taken (chance 0 for a missing body), so draw 2 sits at the same stream position.
-  // E-CREW (Task 16): members downed at an earlier boundary are out of the squad (scanDownedBefore reads
-  // only the boundaries before this one, so the roll is the same whenever it is evaluated).
-  // Ground Ops (GO-7b, user 9b.6): a FLAGGED run rolls no scan-time ground battle (nobody is on the ground
-  // while the ship scans; GO-8's ship-side events take this draw). The draw is still taken at chance 0, so the
-  // supply cache (draw 2) reads the same stream position as on a legacy run.
-  // GO-8: a flagged run WITH ship events (shipScanEvents.ts shipEventsLive) rolls draw 1 at the ship-event chance
-  // (shipScanEventChance, the same formula); one dispatched before GO-8 keeps chance 0 (its exact shape).
-  const chance = !body
-    ? 0
-    : !exp.groundOps
-      ? clampPermille(scanEncounterChance(exp, body, scanDownedBefore(exp, bodyIndex, step), hoursOut))
-      : shipEventsLive(exp)
-        ? clampPermille(shipScanEventChance(exp, body, hoursOut))
-        : 0;
+  // Ground Ops (GO-7b, user 9b.6): nobody is on the ground while the ship scans, so no scan-time ground battle;
+  // GO-8: a run WITH ship events (shipScanEvents.ts shipEventsLive) rolls draw 1 at the ship-event chance
+  // (shipScanEventChance); one dispatched before GO-8 keeps chance 0 (its exact shape), the draw still taken.
+  const chance = body !== undefined && shipEventsLive(exp) ? clampPermille(shipScanEventChance(exp, body, hoursOut)) : 0;
   const encounter = rng.chance(chance, 1000);
   const cache = rng.chance(clampPermille(SUPPLY_CACHE_CHANCE), 1000);
   // Gas Giant Study GG-2 (user call 4, 2026-10-19: "Stop on gas giants"): no supply cache at an orbital body of a
@@ -2278,13 +2150,7 @@ export function shipScanEventChance(exp: Expedition, body: ExpeditionBody, hours
   );
 }
 
-// The next activity window strictly after `elapsedInScan` seconds into the scanning phase (see the
-// constants block). Pure.
-export function nextActivityWindow(elapsedInScan: number): number {
-  return (Math.floor(elapsedInScan / ACTIVITY_SECONDS) + 1) * ACTIVITY_SECONDS;
-}
-
-// The recorded loss pause at `body` boundary `step`, 0 when none. Pure.
+// The recorded pause at `body` boundary `step` (a ship event's delay), 0 when none. Pure.
 function pauseAt(events: readonly ExpeditionScanEvent[], bodyIndex: number, step: number): number {
   for (const ev of events) {
     if (ev.bodyIndex === bodyIndex && ev.step === step) return ev.pauseSeconds ?? 0;
@@ -2292,11 +2158,10 @@ function pauseAt(events: readonly ExpeditionScanEvent[], bodyIndex: number, step
   return 0;
 }
 
-// The scanning phase's length for an encounter-enabled run: every body's scan time plus its recorded
-// pauses, summed in EXACTLY the order resolveEncounterScanningPhase walks them (so the phase-end check and
-// the last body's completion agree to the bit). Only RESOLVED boundaries can carry a pause, and every
-// unresolved boundary lies later than any elapsed value the phase has reached, so this is exact wherever it
-// is read. Pure.
+// The scan's length on the scan clock: every body's scan time plus its recorded pauses, summed in EXACTLY the
+// order the scan walk (flaggedScanNext) takes them, so the scan's end and the last body's completion agree to the
+// bit. Only RESOLVED boundaries can carry a pause, and every unresolved boundary lies later than any clock value
+// the scan has reached, so this is exact wherever it is read. Pure.
 function encounterScanDurationSeconds(exp: Expedition): number {
   return scanClockThroughBodies(exp, exp.bodies.length);
 }
@@ -2317,45 +2182,26 @@ function scanClockThroughBodies(exp: Expedition, n: number): number {
   return bodyStart;
 }
 
-// Roll ONE step boundary (the caller latches it via the cursor) and record what happened. `at` is the
-// boundary's elapsed-in-scanning time (for the loss pause). Mutates the working clone only.
-// Ground Ops (GO-7b): on a flagged run `at` is the boundary's SCAN-CLOCK time; GO-8 reads the ramps at its WALL
-// time (flaggedHoursAt(scanClockToTime(at)), the GO-7b carry note), and a fired draw 1 is a SHIP EVENT
+// Roll ONE step boundary (the caller latches it via the cursor) and record what happened. Mutates the working clone
+// only. Ground Ops (GO-7b): `at` is the boundary's SCAN-CLOCK time; GO-8 reads the ramps at its WALL time
+// (flaggedHoursAt(scanClockToTime(at)), the GO-7b carry note), and a fired draw 1 is a SHIP EVENT
 // (shipScanEvents.ts): its finding is appended, its light hull damage added to the run (GroundOpsState.hullDamage).
-function rollStepBoundary(exp: Expedition, events: ExpeditionScanEvent[], body: ExpeditionBody, bodyIndex: number, step: number, at: number): void {
-  const ops = exp.groundOps;
-  if (ops && shipEventsLive(exp)) {
-    const hoursOut = flaggedHoursAt(exp, scanClockToTime(ops, at));
-    const roll = scanStepRoll(exp, bodyIndex, step, hoursOut);
-    if (roll.encounter) {
-      const res = resolveShipScanEvent(exp, body, bodyIndex, step, hoursOut);
-      if (res.finding) exp.findings.push(res.finding);
-      // GO-9: boarders who were not repelled take a small share of the run's credits (never the player's bank).
-      if (res.event.boarding?.creditsLost) takeBoardingLoss(exp.findings, res.event.boarding.creditsLost);
-      events.push(res.event);
-      if (res.event.hullWear) {
-        ops.hullDamage = (ops.hullDamage ?? 0) + res.event.hullWear;
-        // GO-8b (user WWVD): past the damage threshold the ship sets down for a field repair, starting now.
-        maybeAutoFieldRepair(exp, scanClockToTime(ops, at));
-      }
-    } else if (roll.supplyCache) {
-      const finding = rollSupplyCache(exp, body, bodyIndex, step);
-      exp.findings.push(finding);
-      events.push({ bodyIndex, step, kind: "supplyCache", findingId: finding.id });
-    }
-    return;
-  }
-  // E-CREW (Task 21): the boundary's hours since dispatch, from its stored time (only a ramped run reads it).
-  const roll = scanStepRoll(exp, bodyIndex, step, exp.rampFlightDeck ? expeditionHoursAtScan(exp, at) : 0);
+// A run dispatched before GO-8 (no ship events) rolls draw 1 at chance 0, so only its supply caches land.
+function rollStepBoundary(exp: Expedition, ops: GroundOpsState, events: ExpeditionScanEvent[], body: ExpeditionBody, bodyIndex: number, step: number, at: number): void {
+  const live = shipEventsLive(exp);
+  const hoursOut = live ? flaggedHoursAt(exp, scanClockToTime(ops, at)) : 0;
+  const roll = scanStepRoll(exp, bodyIndex, step, hoursOut);
   if (roll.encounter) {
-    const res = resolveScanEncounter(exp, body, bodyIndex, step);
-    const ev: ExpeditionScanEvent = { bodyIndex, step, kind: "encounter", outcome: res.outcome, downedMemberIds: res.downedMemberIds };
-    if (res.finding) {
-      exp.findings.push(res.finding);
-      ev.findingId = res.finding.id;
+    const res = resolveShipScanEvent(exp, body, bodyIndex, step, hoursOut);
+    if (res.finding) exp.findings.push(res.finding);
+    // GO-9: boarders who were not repelled take a small share of the run's credits (never the player's bank).
+    if (res.event.boarding?.creditsLost) takeBoardingLoss(exp.findings, res.event.boarding.creditsLost);
+    events.push(res.event);
+    if (res.event.hullWear) {
+      ops.hullDamage = (ops.hullDamage ?? 0) + res.event.hullWear;
+      // GO-8b (user WWVD): past the damage threshold the ship sets down for a field repair, starting now.
+      maybeAutoFieldRepair(exp, scanClockToTime(ops, at));
     }
-    if (res.outcome === "loss") ev.pauseSeconds = nextActivityWindow(at) - at;
-    events.push(ev);
   } else if (roll.supplyCache) {
     const finding = rollSupplyCache(exp, body, bodyIndex, step);
     exp.findings.push(finding);
@@ -2363,84 +2209,13 @@ function rollStepBoundary(exp: Expedition, events: ExpeditionScanEvent[], body: 
   }
 }
 
-// Resolve SCANNING for an encounter-enabled run up to `elapsed` seconds into the phase. The timeline is a
-// walk over the stored run: body by body, boundary by boundary, each boundary's time = the body's start +
-// N step times + the pauses already recorded on earlier boundaries of this body. A boundary not yet rolled
-// (at or past the cursor) rolls the moment elapsed reaches it, in scan order; a recorded loss pause holds
-// the body's progress at that boundary until the pause ends. Every time is computed from stored values only
-// (never from `elapsed`), so one big advance and many small ones roll the same boundaries at the same
-// times with the same results (offline == live). Idempotent: rolled boundaries never roll again, and the
-// `scanned` latch assigns a body's discoveries once.
-function resolveEncounterScanningPhase(exp: Expedition, elapsed: number): void {
-  const steps = exp.encounterSteps ?? 1;
-  const perBody = Math.max(0, steps - 1);
-  const events = exp.scanEvents ?? [];
-  // E-CREW (Task 16): the step roll and the encounter read who is already out from exp.scanEvents, so the
-  // working list must BE that array while boundaries roll (commit below re-stores it either way).
-  exp.scanEvents = events;
-  let cursor = exp.scanStepCursor ?? 0;
-  const commit = (): void => {
-    exp.scanStepCursor = cursor;
-    exp.scanEvents = events;
-  };
-  let bodyStart = 0;
-  for (let i = 0; i < exp.bodies.length; i++) {
-    const body = exp.bodies[i];
-    const rate = scanRatePerSecond(exp, body);
-    const bodyTime = body.scanTotal / rate;
-    const stepTime = bodyTime / steps;
-    let paused = 0;
-    for (let k = 1; k <= perBody; k++) {
-      const at = bodyStart + k * stepTime + paused;
-      const flat = i * perBody + (k - 1);
-      if (flat >= cursor) {
-        if (elapsed + PHASE_EPS < at) {
-          body.scanProgress = Math.min(body.scanTotal, Math.max(0, elapsed - bodyStart - paused) * rate);
-          commit();
-          return;
-        }
-        rollStepBoundary(exp, events, body, i, k, at);
-        cursor = flat + 1;
-      }
-      const pause = pauseAt(events, i, k);
-      if (pause > 0) {
-        if (elapsed + PHASE_EPS < at + pause) {
-          // The team is back in orbit: the scan holds at this boundary until the next activity window.
-          body.scanProgress = Math.min(body.scanTotal, k * stepTime * rate);
-          commit();
-          return;
-        }
-        paused += pause;
-      }
-    }
-    const bodyEnd = bodyStart + bodyTime + paused;
-    // The EXACT negation of advanceExpedition's phase-end check (elapsed + PHASE_EPS < dur), and the last
-    // bodyEnd equals encounterScanDurationSeconds bit for bit, so the phase can never end with its last body
-    // unscanned in a rounding sliver.
-    if (elapsed + PHASE_EPS >= bodyEnd) {
-      body.scanProgress = body.scanTotal;
-      if (!body.scanned) {
-        body.scanned = true;
-        assignDiscoveriesAndActivities(exp, body, i);
-      }
-      bodyStart = bodyEnd;
-    } else {
-      body.scanProgress = Math.min(body.scanTotal, Math.max(0, elapsed - bodyStart - paused) * rate);
-      commit();
-      return; // later bodies are not started yet (they stay at scanProgress 0)
-    }
-  }
-  commit();
-}
-
 // ============================================================================
 // Ground Operations (GO-7b): the SCAN side of a flagged run's combined operations window
 // ============================================================================
 //
-// A flagged run (Expedition.groundOps) scans on the SAME boundary walk as an encounter-enabled legacy run
-// (resolveEncounterScanningPhase: body by body, boundary by boundary, recorded pauses on the clock), but the
-// walk runs on the SCAN CLOCK (groundOps.ts scanClockToTime / scanClockAt: seconds since the window opened
-// minus every recovery leg), and it is advanced ONE EVENT AT A TIME by groundOps.ts advanceGroundOpsWindow,
+// A flagged run (Expedition.groundOps) scans on a boundary walk (body by body, boundary by boundary, recorded pauses
+// on the clock) that runs on the SCAN CLOCK (groundOps.ts scanClockToTime / scanClockAt: seconds since the window
+// opened minus every recovery leg), and it is advanced ONE EVENT AT A TIME by groundOps.ts advanceGroundOpsWindow,
 // interleaved in time order with the ground teams' step ends. So a team's wipe that sends the ship on a
 // recovery leg shifts every LATER scan event, and nothing earlier. A completed body hands its new tasks to the
 // teams (groundOps.ts groundOpsBodyScanned) at that body's completion time.
@@ -2451,7 +2226,7 @@ type FlaggedScanEvent =
 
 // The next scan event of a flagged run on the scan clock: the first boundary not yet rolled (at or past the
 // cursor), or the completion of the first body not yet scanned, whichever the walk reaches first. Every time
-// is computed from stored values exactly as resolveEncounterScanningPhase computes it. Pure.
+// is computed from stored values only. Pure.
 function flaggedScanNext(exp: Expedition): FlaggedScanEvent | null {
   const steps = exp.encounterSteps ?? 1;
   const perBody = Math.max(0, steps - 1);
@@ -2550,7 +2325,7 @@ const GROUND_OPS_SCAN_DRIVER: GroundOpsScanDriver = {
     if (ev.kind === "boundary") {
       const events = exp.scanEvents ?? [];
       exp.scanEvents = events; // the step roll reads exp.scanEvents (Task 16), so the working list must BE it
-      rollStepBoundary(exp, events, body, ev.bodyIndex, ev.step, ev.clock);
+      rollStepBoundary(exp, ops, events, body, ev.bodyIndex, ev.step, ev.clock);
       exp.scanStepCursor = ev.flat + 1;
       return;
     }
@@ -2563,7 +2338,7 @@ const GROUND_OPS_SCAN_DRIVER: GroundOpsScanDriver = {
 };
 
 // The scan's display progress at `now` on a flagged run: the body being scanned shows the scan clock's
-// progress, held at a boundary through a recorded pause (the resolveEncounterScanningPhase rule); scanned
+// progress, held at a boundary through a recorded pause; scanned
 // bodies are full and later bodies untouched (0). Display only: the window owns every latch. Mutates the clone.
 function setFlaggedScanProgress(exp: Expedition, now: number): void {
   const ops = exp.groundOps;
@@ -2613,48 +2388,6 @@ function flaggedWindowSeconds(exp: Expedition): number {
   const ops = exp.groundOps;
   if (ops && ops.startedAt !== undefined && ops.endedAt !== undefined) return ops.endedAt - ops.startedAt;
   return encounterScanDurationSeconds(exp);
-}
-
-// Resolve ACTIVITIES up to `consumed` seconds into the phase: the E3 GAMBIT resolver (swapped in for the
-// E2a placeholder). It completes tasks in flat body/activity order, each taking its body's
-// activityDurationSeconds (ACTIVITY_SECONDS without a Science party; see below), flipping `done`
-// and appending the task's REAL finding (materials + credits + a relic chance) from the away-team gambit
-// battle (gambit.ts resolveExpeditionActivity). The ExpeditionActivity record is UNCHANGED (still just
-// id/bodyId/poiId/done): `done` stays the completion flag and findings are still appended to exp.findings,
-// exactly the E2a contract. Idempotent (only touches !done activities); deterministic (each battle is keyed
-// off exp.seed + a fixed salt + the activity's flat index, never a live stream position), so re-running at a
-// larger `consumed` yields the identical findings and the done-latch prevents any double-award. `seen` is
-// the activity's stable FLAT index across bodies, which is exactly the globalIndex the resolver seeds off.
-//
-// E-CREW Task 15: tasks run back to back, each taking its body's activityDurationSeconds, so a task is
-// complete once `consumed` reaches the running sum of the durations up to and including it. The sums are
-// whole seconds, so without a Science party (every task ACTIVITY_SECONDS) this is exactly the old
-// floor(consumed / ACTIVITY_SECONDS) count.
-function resolveActivitiesPhase(exp: Expedition, consumed: number): void {
-  const total = totalActivities(exp);
-  if (total === 0) return;
-  let seen = 0;
-  let endsAt = 0;
-  for (const body of exp.bodies) {
-    const duration = activityDurationSeconds(exp, body);
-    for (const act of body.activities) {
-      endsAt += duration;
-      if (endsAt <= consumed + PHASE_EPS && !act.done) {
-        act.done = true;
-        // E-CREW (Task 21): a Science-ramped run reads the task's start in hours since dispatch (transit +
-        // the finished scan + the tasks before it, all stored), the clock of its relic roll's ramp.
-        const hoursOut = exp.rampScience
-          ? (transitDurationSeconds(exp) + scanningDurationSeconds(exp) + endsAt - duration) / 3600
-          : 0;
-        const res = resolveExpeditionActivity(exp, body, act, seen, undefined, hoursOut);
-        exp.findings.push(res.finding);
-        // E-CREW (Task 16): record who went down, so they sit out every later task and come home injured.
-        // Tasks complete in flat order, so every lower index is already recorded when this one resolves.
-        if (res.downedMemberIds.length > 0) act.downedMemberIds = res.downedMemberIds;
-      }
-      seen++;
-    }
-  }
 }
 
 // Resolve the mid-transit anomaly, ONCE, when elapsed reaches the midpoint. Seeded (expedition seed +
@@ -2752,24 +2485,34 @@ function cloneActivity(a: ExpeditionActivity): ExpeditionActivity {
   return c;
 }
 
+// Wiring OC-G1 (user 2026-10-16 "Delete it"): a run WITHOUT its Ground Ops record (dispatched before GO-7b, only in a
+// dev save) has no resolver any more: it is FINISHED, i.e. set "complete" with the findings it already holds, so the
+// player claims it (the claim brings its whole team home, nobody injured). save.ts finishLegacyExpeditionsOnLoad does
+// this at load (the user's rule); this is the engine's own guard, the same rule, so no reader ever walks a legacy run.
+// Pure: a fresh record (the input is never touched).
+export function finishLegacyExpedition(exp: Expedition): Expedition {
+  return { ...cloneExpedition(exp), phase: "complete" };
+}
+
 // Advance ONE expedition to the given game time. Pure: returns the SAME reference when nothing changes
 // (already complete), else a fresh advanced expedition. Loops across phase boundaries so a big offline
 // span can clear transit -> scanning -> activities -> return -> complete in one call. Each boundary
 // advances phaseAnchorSeconds by the EXACT phase duration (overflow carries), the closed-form invariant.
 export function advanceExpedition(exp: Expedition, nowSeconds: number): Expedition {
   if (exp.phase === "complete") return exp;
+  if (!exp.groundOps) return finishLegacyExpedition(exp);
   const e = cloneExpedition(exp);
   let guard = 0;
   while (e.phase !== "complete" && guard++ < PHASE_ADVANCE_GUARD) {
     const elapsed = Math.max(0, nowSeconds - e.phaseAnchorSeconds);
     if (e.phase === "transit") maybeResolveAnomaly(e, elapsed);
-    // Ground Operations (GO-7b): a flagged run's scanning and activities phases are ONE operations window
+    // Ground Operations (GO-7b): the scanning and activities phases are ONE operations window
     // (groundOps.ts advanceGroundOpsWindow, see the scan-side block above). The window opens at the scanning
     // anchor; the scanning phase ends once every body is scanned (its exact end time, recovery legs included),
     // the activities phase once the window has closed (endedAt). Both ends are latches the window sets, so the
     // phase math never disagrees with the event schedule.
-    if (e.groundOps && (e.phase === "scanning" || e.phase === "activities")) {
-      const ops = e.groundOps;
+    if (e.phase === "scanning" || e.phase === "activities") {
+      const ops = e.groundOps as GroundOpsState;
       if (e.phase === "scanning" && ops.startedAt === undefined) {
         ops.startedAt = e.phaseAnchorSeconds;
         // G2-5: a RESUMED run opens past the bodies charted before (openResumedWindow).
@@ -2787,18 +2530,8 @@ export function advanceExpedition(exp: Expedition, nowSeconds: number): Expediti
       e.phase = PHASE_NEXT[e.phase];
       continue;
     }
-    // E-CREW (Task 14): an encounter-enabled scan resolves BEFORE its duration is read, because a loss
-    // pause rolled on the way lengthens the phase (see encounterScanDurationSeconds for why this is exact).
-    const encounterScan = e.phase === "scanning" && hasScanEncounters(e);
-    if (encounterScan) resolveEncounterScanningPhase(e, elapsed);
+    // Transit and return have no intra-phase state beyond the anomaly (handled above).
     const dur = phaseDurationSeconds(e);
-    const consumed = Math.min(elapsed, dur);
-    if (e.phase === "scanning") {
-      if (!encounterScan) resolveScanningPhase(e, consumed);
-    } else if (e.phase === "activities") {
-      resolveActivitiesPhase(e, consumed);
-    }
-    // transit + return have no intra-phase state beyond the anomaly (handled above).
     if (elapsed + PHASE_EPS < dur) break; // still inside this phase
     e.phaseAnchorSeconds += dur; // exact-duration advance so overflow carries to the next phase
     e.phase = PHASE_NEXT[e.phase];
@@ -2974,9 +2707,8 @@ export function summarizeExpeditionFindings(findings: readonly ExpeditionFinding
 // for the caller's log. Pure: { next, success, reason?, findings? }. A CLAIM step (rather than
 // auto-deposit on completion) is deliberate: a claim keeps the completed expedition visible until the
 // player collects it. Fails (same-ref state) if not found or not complete.
-// E-CREW (Task 16): the claim also brings the away team home. Every member downed during the run comes
-// home INJURED (injuries.ts applyExpeditionInjuries: recovery timed by the ship's Medical share and Rapid
-// Recovery at this moment), so they miss the next dispatch until they recover.
+// The claim also brings the away team home: a member still in the medical bay comes home INJURED with the bay time
+// left (injuries.ts applyGroundOpsInjuries), so they miss the next dispatch until they recover.
 export function claimExpedition(state: GameState, expeditionId: string): ExpeditionClaimResult {
   const exp = state.expeditions.find((e) => e.id === expeditionId);
   if (!exp) return { next: state, success: false, reason: "notFound" };
@@ -2985,9 +2717,9 @@ export function claimExpedition(state: GameState, expeditionId: string): Expedit
   // Field Kits FKR-7: the extras the run still carries come home, even over the warehouse cap (call 17); the SAME state
   // for a run that carries none (every run without flag 2).
   const deposited = depositExpeditionFindings(returnCarriedExtras(removed, exp), exp.findings, exp);
-  // Ground Ops (GO-7b): a flagged run brings home the members still in the medical bay with the time they have
-  // left (never the flat 2h); a legacy run keeps Task 16's injuries.
-  const { next: home, injuries } = exp.groundOps ? applyGroundOpsInjuries(deposited, exp) : applyExpeditionInjuries(deposited, exp);
+  // Ground Ops (GO-7b): the run brings home the members still in the medical bay with the time they have left. A
+  // legacy run finished at load (OC-G1) has no bay, so its whole team comes home ready.
+  const { next: home, injuries } = applyGroundOpsInjuries(deposited, exp);
   // Ground Ops GO-8 (user Q12): the light hull damage the ship's scan events left comes home with it (the Shipyard
   // repairs it); none on a run without ship events (the SAME state).
   const repaired = applyShipEventDamage(home, exp);
@@ -3087,7 +2819,7 @@ function transitEndedAt(exp: Expedition): number {
   if (exp.phase === "scanning") return exp.phaseAnchorSeconds;
   const ops = exp.groundOps;
   if (ops && ops.startedAt !== undefined) return ops.startedAt + (ops.scanClockSkip ?? 0);
-  return exp.phaseAnchorSeconds - scanningDurationSeconds(exp);
+  return exp.phaseAnchorSeconds - encounterScanDurationSeconds(exp);
 }
 
 // The outbound time flown toward the system `elapsed` seconds into the transit: the detour, inserted at the anomaly

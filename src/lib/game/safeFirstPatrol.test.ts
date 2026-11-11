@@ -5,6 +5,10 @@
 // proof (safeFirstPatrol.sweep.test.ts, `npm run test:sweep:patrol`).
 
 import { describe, expect, it } from "vitest";
+// WR-8b (enemy torpedoes) came after every pin here: the file runs with it off (enemyTorpedoSwitch.fixture.ts), so its
+// pins keep proving their own slice (enemyTorpedoGoldens.test.ts pins what WR-8b moved, enemyTorpedoes.test.ts proves it).
+import { enemyTorpedoesOffForThisFile } from "./enemyTorpedoSwitch.fixture";
+enemyTorpedoesOffForThisFile();
 import { PATROLS, type GameState, type PatrolMissionState } from "./model";
 import { dispatchCaptainOnPatrol, economyTick, tickCaptainPatrol } from "./tick";
 import { replayPatrol } from "./combat/patrolReplay";
@@ -233,7 +237,7 @@ describe("SF-4 offline == live", () => {
     const { difficulty: _drop, ...legacy } = patrolOf(r.next)! as PatrolMissionState;
     const captain = { ...r.next.captains[0], mission: { ...legacy, waveTicks: planWaveSchedule(legacy.masterSeed, patrolWaveParams(PATROLS.crimsonReaverSweep)) } };
     const ship = r.next.ships[0];
-    const res = tickCaptainPatrol(routeTicks("crimsonReaverSweep"), captain, ship, 1000, 0, 1000);
+    const res = tickCaptainPatrol(routeTicks("crimsonReaverSweep"), captain, ship);
     const next = res.captain.mission as PatrolMissionState;
     expect(next.phase).toBe("transitOut");
     expect("difficulty" in next).toBe(false);

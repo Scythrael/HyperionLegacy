@@ -425,9 +425,8 @@ export function hullSpecOf(ship: ShipInstance): ShipSpec {
 //   the weapon line        frozen per patrol cycle (PatrolMissionState.hullWeapon) and per expedition ship battle
 //                          (ShipEventBattle.hullWeapon), applied by combat/bridge.ts shipToCombatant.
 //   rare finds             tick.ts economyTick's mission arm (stamped runs) and missionDropChances.
-//   injury and bay perks   frozen at Ground Operations dispatch (GroundOpsFactors.hullInjuryShare / hullBayShare); the
-//                          Tactician's injury share also at every expedition dispatch for the legacy (non-Ground-Ops)
-//                          claim (Expedition.hullInjuryShare, injuries.ts applyExpeditionInjuries). Each is a care share
+//   injury and bay perks   frozen at Ground Operations dispatch (GroundOpsFactors.hullInjuryShare / hullBayShare; OC-G1
+//                          deleted the legacy claim's run-level copy with the legacy path). Each is a care share
 //                          that ADDS to the bay's other care, so with more care aboard it saves a little less time (the
 //                          tile shows the ship's own number: groundOps.ts shipBayCareNow).
 // [PROVISIONAL] every size (the SMS-1 first pass the user approved; the 0.16.0 balance pass owns the numbers).

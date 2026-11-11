@@ -70,6 +70,8 @@ function formatEvent(
 			return `${actor}'s ${family} fire hits ${target}'s ${where} for ${ev.damage ?? 0}.${suffix}`;
 		}
 		case "evade":
+			// WR-8b: a missile the target's point defense shot down.
+			if (ev.intercepted !== undefined && ev.intercepted > 0) return `${target}'s point defense shoots down ${actor}'s torpedo.`;
 			return `${target} evades ${actor}'s ${family} fire.`;
 		case "effectApplied": {
 			// A disruption/DoT landed. Include the rank (>1) so escalation reads.

@@ -1169,6 +1169,13 @@
         return "captain specialization does not match";
       case "captainSpecParked":
         return "assign a matching captain first (hull is parked)";
+      // WR-13 (OC-C4 seam): the captain level / talent and research install gates.
+      case "captainLevel":
+        return "captain level is too low for this system";
+      case "captainTalent":
+        return "captain lacks the talent this system needs";
+      case "researchLocked":
+        return "research this system's blueprint first";
       case "slotNotInstallable":
         return "this system cannot be installed";
       // Crafting 0.13.3 (Unit 2.1): the system is reserved by a queued salvage order.

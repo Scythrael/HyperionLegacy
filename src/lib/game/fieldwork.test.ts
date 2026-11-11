@@ -10,8 +10,15 @@
 //   - trait poiYield effects apply at their PoIs only;
 //   - the crew rare find (Discovery Instinct + the Science division) is frozen at dispatch and read by the
 //     relic roll;
-//   - neutrality: a rosterless (pre-D18) in-flight expedition resolves exactly as before;
-//   - determinism + offline == live with a real Science roster.
+//   - neutrality: a rosterless (pre-D18) expedition reads the neutral effect.
+//
+// Wiring OC-G1 (user 2026-10-16 "Delete it"): the legacy activity resolver and the legacy activities phase are deleted.
+// The effects here are LIVE, so their consumer checks are RE-POINTED to the Ground Ops consumers (one team holding the
+// whole roster): the haul (groundTasks.ts taskFullHaul), the task time (taskWorkSeconds, on a calm body), the relic roll
+// (rollRelicToken on the task's relic stream with activityRelicFindBonus, as groundOps.ts rolls it), and the scan rate
+// (expedition.ts scanRatePerSecond). RETIRED with the legacy path, each having proved only it: the rosterless legacy
+// run's one-task-per-ACTIVITY_SECONDS completion and the two legacy-run determinism / offline == live tests (Ground Ops
+// determinism: groundOpsParity.test.ts).
 
 import { describe, it, expect } from "vitest";
 import {
@@ -22,19 +29,14 @@ import {
   type AwayTraitId,
   type EquipmentInstance,
   type Expedition,
-  type ExpeditionActivity,
   type ExpeditionBody,
   type ExpeditionPlanetType,
   type GameState,
   type MemberSlotType,
   type SeniorStaffOfficer,
 } from "./model";
-import {
-  ACTIVITY_SECONDS,
-  activityDurationSeconds,
-  advanceExpedition,
-  expeditionCandidates,
-  } from "./expedition";
+import { ACTIVITY_SECONDS, expeditionCandidates, scanRatePerSecond } from "./expedition";
+import { taskFullHaul, taskWorkSeconds, type GroundTaskTeam } from "./groundTasks";
 import { snapshotAwayRoster, FIELDWORK_YIELD_PER_POINT, GEAR_POINT_BUMP } from "./awayTeam";
 import {
   CREW_FIELDWORK_KNEE,
@@ -56,12 +58,12 @@ import {
 import { diminishing } from "./diminishing";
 import { generateEquipment } from "./itemgen";
 import { makeRng } from "./combat/rng";
-import { resolveExpeditionActivity } from "./gambit";
+import { activityRelicFindBonus, rollRelicToken, taskRelicSeed } from "./gambit";
 import { effectiveHazardResist } from "./relics";
 import { POI_CATALOG, PLANET_TYPES } from "./expeditionContent";
 import { shipCrewContribution } from "./crewOverlay";
 import { CREW_STAT_KEYS } from "./crewBuffs";
-import { asLegacyDispatch, withSlottedAwayTeams, dispatchPastPropulsion } from "./awayTeamTestFixtures";
+import { withSlottedAwayTeams, dispatchPastPropulsion } from "./awayTeamTestFixtures";
 
 // ===== fixtures =====
 
@@ -171,6 +173,16 @@ function effectFor(sci: AwayMember[], gear: EquipmentInstance[], planetType: Exp
 
 const SCI = (over: Partial<AwayMember> = {}): AwayMember => member("member-2", "science", over);
 
+// Wiring OC-G1: the live (Ground Ops) consumers of the fieldwork effect, with ONE team holding the whole roster (the
+// team set a lone ground team works a task with).
+function wholeTeam(e: Expedition): GroundTaskTeam {
+  return { securityIds: (e.roster?.security ?? []).map((m) => m.memberId), scienceIds: (e.roster?.science ?? []).map((m) => m.memberId), scienceShare: 1 };
+}
+// The objective's full haul (taskFullHaul) at flat index 0.
+const haulOf = (e: Expedition, b: ExpeditionBody, poiId: string) => taskFullHaul(e, [wholeTeam(e)], b, poiId, 0);
+// One task's work seconds on a CALM copy of the body (taskWorkSeconds; no hazard slowdown, so the pace alone shows).
+const taskSecondsOf = (e: Expedition, b: ExpeditionBody) => taskWorkSeconds(e, [wholeTeam(e)], { ...b, hazard: 0 });
+
 // D23 (Task 15a): the yield multiplier a raw summed yield BONUS becomes (the total passes the diminishing
 // curve). A small bonus keeps nearly all its value, so most expectations below differ from 1 + bonus by
 // well under a percent; they are written through this so each test still pins its exact model.
@@ -227,13 +239,12 @@ describe("spec match raises the matching PoI's yield and no other's", () => {
     expect(eff.yieldMult).toBeCloseTo(yieldOf(2 * SPEC_POI_YIELD), 12);
   });
 
-  it("the resolved activity hauls more credits at the favored PoI", () => {
+  it("the objective's haul has more credits at the favored PoI", () => {
     const bare = withRoster([SEC(), SCI({ spec: "cryptography" })]);
     const geo = withRoster([SEC(), SCI({ spec: "geology" })]);
     const b = body("volcanic", ["mineralOutcrop"]);
-    const act = b.activities[0];
-    const a = resolveExpeditionActivity(exp(bare, [b]), b, act, 0).finding;
-    const g = resolveExpeditionActivity(exp(geo, [b]), b, act, 0).finding;
+    const a = haulOf(exp(bare, [b]), b, "mineralOutcrop");
+    const g = haulOf(exp(geo, [b]), b, "mineralOutcrop");
     expect(g.credits ?? 0).toBeGreaterThan(a.credits ?? 0);
     // Same material item (the draw order is untouched), at least as many units.
     const am = a.materials ?? {};
@@ -272,16 +283,11 @@ describe("planet-tuned tools help only on their planet types", () => {
     expect(withTool.yieldMult).toBeCloseTo(yieldOf(FIELDWORK_YIELD_PER_BUMP * 6 * GEAR_POINT_BUMP.fieldwork), 12);
   });
 
-  it("a Flora Scanner raises the resolved haul on an ocean world, not on an arid one", () => {
+  it("a Flora Scanner raises the objective's haul on an ocean world, not on an arid one", () => {
     for (const [pt, raises] of [["ocean", true], ["arid", false]] as const) {
       const b = body(pt, ["xenoFloraBloom"]);
-      const bare = resolveExpeditionActivity(exp(withRoster([SEC(), SCI()]), [b]), b, b.activities[0], 0).finding;
-      const tooled = resolveExpeditionActivity(
-        exp(withRoster([SEC(), SCI()], [scanner()]), [b]),
-        b,
-        b.activities[0],
-        0
-      ).finding;
+      const bare = haulOf(exp(withRoster([SEC(), SCI()]), [b]), b, "xenoFloraBloom");
+      const tooled = haulOf(exp(withRoster([SEC(), SCI()], [scanner()]), [b]), b, "xenoFloraBloom");
       if (raises) expect(tooled.credits ?? 0).toBeGreaterThan(bare.credits ?? 0);
       else expect(tooled).toEqual(bare);
     }
@@ -301,10 +307,9 @@ describe("planet-tuned tools help only on their planet types", () => {
     const gg = effectFor([SCI()], [probe], "gasGiant", "caveNetwork");
     expect(gg.speedMult).toBeGreaterThan(1);
     expect(effectFor([SCI()], [probe], "barren", "caveNetwork")).toEqual(effectFor([SCI()], [], "barren", "caveNetwork"));
-    // No probe: a gas giant's activity still resolves (a finding with a haul), exactly as today.
+    // No probe: a gas giant's objective still hauls (credits), exactly as today.
     const b = body("gasGiant", ["caveNetwork"]);
-    const f = resolveExpeditionActivity(exp(withRoster([SEC(), SCI()]), [b]), b, b.activities[0], 0).finding;
-    expect(f.credits).toBeGreaterThan(0);
+    expect(haulOf(exp(withRoster([SEC(), SCI()]), [b]), b, "caveNetwork").credits).toBeGreaterThan(0);
   });
 
   it("a Decryptor's vault line counts on ANY body, at the vault and the civilization only", () => {
@@ -320,15 +325,17 @@ describe("planet-tuned tools help only on their planet types", () => {
 
 // ============================================================================
 describe("hazard: the Hazard Suit and groundHazardResist cut the scan hazard slowdown", () => {
-  // A scanning-phase single-body run with no encounter steps (the plain scan path), body hazard 1.
+  // A single-body run, body hazard 1. OC-G1: the scan progress made in 600 s is read off the scan rate the Ground Ops
+  // scan walk reads (scanRatePerSecond), the legacy scan phase having gone with the legacy path.
   function scanning(state: GameState, planetType: ExpeditionPlanetType): Expedition {
     return exp(state, [body(planetType, [], { scanProgress: 0, scanned: false, hazard: 1 })], { phase: "scanning" });
   }
+  const progressIn600 = (e: Expedition) => ({ bodies: [{ scanProgress: 600 * scanRatePerSecond(e, e.bodies[0]) }] });
 
   it("a Hazard Suit raises the scan progress made in the same time on a hazardous body", () => {
     const suit = piece("equip-905", "memberArmor", "hazardSuit", "member-2", { groundHazardResist: 30 });
-    const bare = advanceExpedition(scanning(withRoster([SEC(), SCI()]), "toxic"), 600);
-    const suited = advanceExpedition(scanning(withRoster([SEC(), SCI()], [suit]), "toxic"), 600);
+    const bare = progressIn600(scanning(withRoster([SEC(), SCI()]), "toxic"));
+    const suited = progressIn600(scanning(withRoster([SEC(), SCI()], [suit]), "toxic"));
     expect(suited.bodies[0].scanProgress).toBeGreaterThan(bare.bodies[0].scanProgress);
     // The rate: hazard 1 * (1 - eff(0.3)) -> slow 1 + (1 - eff) * 0.5 instead of 1.5. GO-5 hazard curve: a 0.3
     // resist cuts effectiveHazardResist(0.3) = 0.2850 (the old clamp cut exactly 0.3).
@@ -338,10 +345,7 @@ describe("hazard: the Hazard Suit and groundHazardResist cut the scan hazard slo
   it("the Steady trait's hazardResist cuts it too, and adds to the museum's resist", () => {
     const steady = withRoster([SEC(), SCI({ traits: ["steady" as AwayTraitId] })]);
     expect(fieldworkHazardResist(exp(steady, []), "toxic")).toBeCloseTo(0.1, 12);
-    const run = advanceExpedition(
-      { ...scanning(steady, "toxic"), hazardResist: 0.2 },
-      600
-    );
+    const run = progressIn600({ ...scanning(steady, "toxic"), hazardResist: 0.2 });
     // GO-5 hazard curve: the summed 0.1 + 0.2 resist passes the curve like any other (0.2850, was 0.3).
     expect(run.bodies[0].scanProgress).toBeCloseTo((600 * 0.05) / (1 + (1 - effectiveHazardResist(0.3)) * 0.5), 9);
   });
@@ -349,13 +353,15 @@ describe("hazard: the Hazard Suit and groundHazardResist cut the scan hazard slo
 
 // ============================================================================
 describe("relic odds: groundRelicFind and the crew rare find", () => {
+  // OC-G1: the objective's relic roll as groundOps.ts rolls it at completion (the task's relic stream, the find bonus
+  // from the working team's fieldwork and the crew rare find), the legacy win-gated roll having gone with the legacy path.
   function relicCount(e: Expedition, poiId: string): number {
     let n = 0;
     for (let i = 0; i < 400; i++) {
       const b = body("arid", [poiId], { hazard: 0 });
-      // A strong crew layer so the Security squad wins most fights (a relic needs a win).
-      const ex = { ...e, seed: (0x9e37 + i * 7919) >>> 0, bodies: [b], securityStrength: 60 };
-      if (resolveExpeditionActivity(ex, b, b.activities[0], 0).finding.relic) n++;
+      const ex = { ...e, seed: (0x9e37 + i * 7919) >>> 0, bodies: [b] };
+      const fw = fieldworkEffect(ex, "arid", poiId);
+      if (rollRelicToken(taskRelicSeed(ex, 0), b.hazard, poiId, `relic-${i}`, activityRelicFindBonus(ex, fw, 0))) n++;
     }
     return n;
   }
@@ -419,8 +425,8 @@ describe("Science implants each do their documented thing", () => {
     const e = exp(s, [body("arid", ["ancientRuins"])]);
     const eff = fieldworkEffect(e, "arid", "ancientRuins");
     expect(eff.speedMult).toBeCloseTo(paceOf(FIELDWORK_SPEED_PER_BUMP * 40 * GEAR_POINT_BUMP.fieldwork), 12);
-    expect(activityDurationSeconds(e, e.bodies[0])).toBe(Math.round(ACTIVITY_SECONDS / eff.speedMult));
-    expect(activityDurationSeconds(e, e.bodies[0])).toBeLessThan(ACTIVITY_SECONDS);
+    expect(taskSecondsOf(e, e.bodies[0])).toBe(Math.round(ACTIVITY_SECONDS / eff.speedMult));
+    expect(taskSecondsOf(e, e.bodies[0])).toBeLessThan(ACTIVITY_SECONDS);
   });
 
   it("Archaeo-Scanner: relic odds", () => {
@@ -480,7 +486,7 @@ describe("traits and the crew strength layer", () => {
     expect(speed).toBeCloseTo(paceOf(raw), 12);
     expect(speed).toBeGreaterThan(3); // past the old cap
     expect(speed).toBeLessThan(1 + raw); // but diminished
-    expect(activityDurationSeconds(e, e.bodies[0])).toBe(Math.round(ACTIVITY_SECONDS / speed));
+    expect(taskSecondsOf(e, e.bodies[0])).toBe(Math.round(ACTIVITY_SECONDS / speed));
     // More always helps, a little less each time.
     const s1 = fieldworkEffect(at(1000), "arid", "ancientRuins").speedMult;
     const s2 = fieldworkEffect(at(2000), "arid", "ancientRuins").speedMult;
@@ -488,7 +494,7 @@ describe("traits and the crew strength layer", () => {
     expect(s2).toBeGreaterThan(s1);
     expect(s3 - s2).toBeLessThan(s2 - s1);
     // An absurd pace still leaves a 1 second task.
-    expect(activityDurationSeconds(at(1e12), at(1e12).bodies[0])).toBe(1);
+    expect(taskSecondsOf(at(1e12), at(1e12).bodies[0])).toBe(1);
   });
 });
 
@@ -635,18 +641,18 @@ describe("D23 diminishing returns: the crew layer and the total yield bonus (Tas
     expect(eff.speedMult).toBeLessThan(1 + FIELDWORK_SPEED_PER_BUMP * 2.25);
   });
 
-  it("is pure math: the same stored run gives the same effect and the same resolved finding", () => {
+  it("is pure math: the same stored run gives the same effect and the same objective haul", () => {
     const s = gearedParty();
     const b = body("arid", ["mineralOutcrop"]);
     const e = exp(s, [b], { scienceStrength: 225 });
     expect(fieldworkEffect(e, "arid", "mineralOutcrop")).toEqual(fieldworkEffect(e, "arid", "mineralOutcrop"));
-    expect(resolveExpeditionActivity(e, b, b.activities[0], 0)).toEqual(resolveExpeditionActivity(e, b, b.activities[0], 0));
+    expect(haulOf(e, b, "mineralOutcrop")).toEqual(haulOf(e, b, "mineralOutcrop"));
   });
 });
 
 // ============================================================================
 describe("fieldworkSpeedMult: the one speed reader", () => {
-  it("equals fieldworkEffect's speedMult at every PoI, and drives activityDurationSeconds", () => {
+  it("equals fieldworkEffect's speedMult at every PoI, and drives the task time", () => {
     const s = withRoster(
       [SEC(), SCI({ spec: "geology" })],
       [piece("equip-945", "memberTool", "coreDrill", "member-2", { groundFieldwork: 30 })]
@@ -655,7 +661,7 @@ describe("fieldworkSpeedMult: the one speed reader", () => {
       const e = exp(s, [body(pt, ["mineralOutcrop"])], { scienceStrength: 80 });
       const speed = fieldworkSpeedMult(e, pt);
       for (const poi of POI_CATALOG) expect(fieldworkEffect(e, pt, poi.id).speedMult).toBe(speed);
-      expect(activityDurationSeconds(e, e.bodies[0])).toBe(Math.round(ACTIVITY_SECONDS / speed));
+      expect(taskSecondsOf(e, e.bodies[0])).toBe(Math.round(ACTIVITY_SECONDS / speed));
     }
     // The tuned Core Drill counts on arid only.
     expect(fieldworkSpeedMult(exp(s, [], { scienceStrength: 80 }), "arid")).toBeGreaterThan(
@@ -677,7 +683,7 @@ describe("NEUTRALITY", () => {
     const e = exp(s, [body("volcanic", ["mineralOutcrop", "caveNetwork"])], { roster: undefined, scienceStrength: 25 });
     expect(fieldworkEffect(e, "volcanic", "mineralOutcrop")).toEqual(NEUTRAL_FIELDWORK);
     expect(fieldworkHazardResist(e, "volcanic")).toBe(0);
-    expect(activityDurationSeconds(e, e.bodies[0])).toBe(ACTIVITY_SECONDS);
+    expect(taskSecondsOf(e, e.bodies[0])).toBe(ACTIVITY_SECONDS);
   });
 
   it("an empty Science squad is neutral too", () => {
@@ -687,65 +693,4 @@ describe("NEUTRALITY", () => {
     expect(fieldworkEffect(e, "volcanic", "mineralOutcrop")).toEqual(NEUTRAL_FIELDWORK);
   });
 
-  it("a rosterless run's activities complete one per ACTIVITY_SECONDS, exactly as before", () => {
-    const s = withRoster([SEC(), SCI()]);
-    const e = exp(s, [body("arid", ["ancientRuins", "caveNetwork", "buriedVault"])], { roster: undefined });
-    const at = (t: number) => advanceExpedition(e, t).bodies[0].activities.filter((a: ExpeditionActivity) => a.done).length;
-    expect(at(ACTIVITY_SECONDS - 1)).toBe(0);
-    expect(at(ACTIVITY_SECONDS)).toBe(1);
-    expect(at(2 * ACTIVITY_SECONDS)).toBe(2);
-  });
-});
-
-// ============================================================================
-describe("DETERMINISM + offline == live with a real Science roster", () => {
-  function kitted(): GameState {
-    return withRoster(
-      [SEC(), SCI({ spec: "archaeology", traits: ["keenEye" as AwayTraitId] }), member("member-3", "science", { spec: "geology" })],
-      [
-        piece("equip-930", "implant", "synapticAccelerator", "member-2", { groundFieldwork: 30 }),
-        piece("equip-931", "memberTool", "coreDrill", "member-3", { groundFieldwork: 12, groundRelicFind: 8 }),
-        piece("equip-932", "memberArmor", "hazardSuit", "member-3", { groundHazardResist: 18 }),
-      ]
-    );
-  }
-
-  it("activities: a faster party completes more in the same time, and one big advance == many small", () => {
-    const s = kitted();
-    const start = exp(s, [
-      body("arid", ["ancientRuins", "caveNetwork", "buriedVault"]),
-      { ...body("toxic", ["xenoFloraBloom", "mineralOutcrop"]), id: "body-2" },
-    ]);
-    const durA = activityDurationSeconds(start, start.bodies[0]);
-    expect(durA).toBeLessThan(ACTIVITY_SECONDS);
-    // After 3 arid durations all three arid tasks are done (the bare run would have done 2 by then at most).
-    const t = 3 * durA;
-    const mid = advanceExpedition(start, t);
-    expect(mid.bodies[0].activities.every((a) => a.done)).toBe(true);
-
-    const END = 3 * durA + 2 * activityDurationSeconds(start, start.bodies[1]) + 5000;
-    const big = advanceExpedition(start, END);
-    let small = start;
-    for (let x = 0; x <= END; x += 37) small = advanceExpedition(small, x);
-    small = advanceExpedition(small, END);
-    expect(small).toEqual(big);
-    // Same inputs, same output (no shared stream).
-    expect(advanceExpedition(start, END)).toEqual(big);
-  });
-
-  it("a full dispatched run with a kitted Science party completes identically offline and live", () => {
-    const base = kitted();
-    const s = { ...base, expeditionSeed: 0x51ed270b };
-    // A legacy run (asLegacyDispatch): this pins the Task 15 activities-phase pace; the Ground Ops timeline has
-    // its own parity suite (groundOpsParity.test.ts).
-    const res = asLegacyDispatch(dispatchPastPropulsion(s, "ship-1", 1, expeditionCandidates(s, "ship-1")[0].id));
-    expect(res.success).toBe(true);
-    const BIG = 1_000_000;
-    const big = advanceExpedition(res.expedition!, BIG);
-    let small = res.expedition!;
-    for (let x = 0; x <= BIG; x += 211) small = advanceExpedition(small, x);
-    small = advanceExpedition(small, BIG);
-    expect(big.phase).toBe("complete");
-    expect(small).toEqual(big);
-  });
 });

@@ -619,13 +619,10 @@ export const MISSIONS: Record<
     primaryMaterial: "commonOre", // == lootTable.common (§3.4 auto-stop)
     tier: "I",
     fleetAdminXpPerTick: 1,
-    // FUEL v2 (F3) friendlier bump 10 -> 30, KEPT through the 2026-07-15 FUEL_PER_TICK
-    // 0.1 -> 1 retune. NOTE: at FUEL_PER_TICK 1 this reward NO LONGER exceeds the worst-case
-    // auto-buy cost (Freighter need 50 * FUEL_CREDITS_PER_UNIT 5 = 250cr for an empty tank) --
-    // and it does not NEED to: the non-bricking guarantee is now the Fuel Depot's refining
-    // outpacing consumption from a full starting tank, not credit-funded auto-buy (see the
-    // reframed sustainability test in fuel-consumption-v2.test.ts). This is just a generous
-    // reward. FIRST-PASS TUNABLE, same spirit as this file's other placeholders.
+    // FUEL v2 (F3) friendlier bump 10 -> 30, KEPT through the 2026-07-15 FUEL_PER_TICK 0.1 -> 1
+    // retune. The fuel cost it was once sized against is gone (fuel is a reach stat since 0.13.6, and
+    // WR-13 removed the credit auto-buy), so this is just a generous reward. FIRST-PASS TUNABLE, same
+    // spirit as this file's other placeholders.
     creditsPerCycle: 30,
     unlockLevel: 1, // available from a fresh save (missionControl seeds at level 1)
   },
@@ -649,9 +646,7 @@ export const MISSIONS: Record<
     tier: "I",
     fleetAdminXpPerTick: 1,
     // FUEL v2 (F3) friendlier bump 20 -> 75, KEPT through the 2026-07-15 FUEL_PER_TICK retune.
-    // At FUEL_PER_TICK 1 this no longer exceeds the worst-case auto-buy cost (Freighter
-    // need 140 * 5 = 700cr), and need not, for the same reason as shortOreRun (refining, not
-    // credit auto-buy, is the non-bricking mechanism). A generous reward; FIRST-PASS TUNABLE.
+    // No fuel cost remains to size it against (see shortOreRun). A generous reward; FIRST-PASS TUNABLE.
     creditsPerCycle: 75,
     unlockLevel: 1, // available from a fresh save (missionControl seeds at level 1)
   },
@@ -669,7 +664,7 @@ export const MISSIONS: Record<
     primaryMaterial: "scrapAlloy", // == lootTable.common (§3.4 auto-stop)
     tier: "I",
     fleetAdminXpPerTick: 1, // INTEGER, see MissionDef's closed-form parity trap; Task 2 owns XP retune
-    creditsPerCycle: 50, // FUEL v2 (F3) bump 30 -> 50, KEPT through the 2026-07-15 retune (at FUEL_PER_TICK 1 the worst-case auto-buy is now need 90 * 5 = 450cr; refining, not this reward, is the non-bricking mechanism); tunable
+    creditsPerCycle: 50, // FUEL v2 (F3) bump 30 -> 50, KEPT through the 2026-07-15 retune (no fuel cost remains to size it against, see shortOreRun); tunable
     unlockLevel: 1, // USER REVISION 2026-07-14: default-available (all 4 missions unlock at the
     // level-1 seed). Was 2 (behind the deferred mission-control unlock upgrade). See the
     // MissionDef.unlockLevel comment + FACILITIES.missionControl for why that rung is deferred.
@@ -692,7 +687,7 @@ export const MISSIONS: Record<
     primaryMaterial: "fibrousBiomass", // == lootTable.common (§3.4 auto-stop)
     tier: "I",
     fleetAdminXpPerTick: 1, // INTEGER, see MissionDef's closed-form parity trap; Task 2 owns XP retune
-    creditsPerCycle: 60, // FUEL v2 (F3) bump 35 -> 60, KEPT through the 2026-07-15 retune (at FUEL_PER_TICK 1 the worst-case auto-buy is now need 110 * 5 = 550cr; refining, not this reward, is the non-bricking mechanism); tunable
+    creditsPerCycle: 60, // FUEL v2 (F3) bump 35 -> 60, KEPT through the 2026-07-15 retune (no fuel cost remains to size it against, see shortOreRun); tunable
     unlockLevel: 1, // USER REVISION 2026-07-14: default-available (see salvageWreckage's note +
     // the MissionDef.unlockLevel comment). Was 2 (behind the now-deferred unlock upgrade).
     requiresCaptainLevel: 3, // slightly above Salvage's 2, CAPABILITY gate, KEPT (see salvageWreckage)
@@ -1692,48 +1687,15 @@ export function shipDisplayLabels(ships: readonly ShipInstance[]): Map<string, s
   return out;
 }
 
-// --- Fuel economy constants (Mission Rework Task 3, design §3) -------------------
-// Both FIRST-PASS TUNABLE, same launch-placeholder spirit as MISSIONS'/SHIP_TYPES'
-// numbers, real balancing at the device-check stage.
-//   FUEL_PER_TICK        , fuel burned per round-trip transit tick.
-//                            the numerator scale in fuel.ts's fuelNeeded.
-//   FUEL_CREDITS_PER_UNIT, the price the F3 auto-buy-shortfall path charges per fuel unit. (WR-4: Buy Fuel,
-//                            the other spender, is retired, user 2026-10-16 credit sinks pass; the mission
-//                            auto-buy plumbing itself is unreachable since 0.13.6, its fuel budget is
-//                            infinite, and its removal waits on the fuel-economy cleanup call, S4-A02.)
-// Kept as plain numbers (not Decimal): fuel amounts are small, non-idle-scale values.
-//
-// ⚠️ FUEL ECONOMY v2 RETUNE (device feedback 2026-07-15) ⚠️ FUEL_PER_TICK was REVERTED
-// 0.1 -> 1 (back to the original v1 value). HISTORY: F3 first DROPPED it 1 -> 0.1 fearing a
-// dry-tank bankruptcy, but on-device play showed 0.1 was TOO GENEROUS, the Fuel Depot's
-// refining trivially dwarfed the tiny 0.1 consumption (three captains ran ~+1.19k fuel/min
-// net-positive with NO upgrades), so fuel was a non-factor, not a managed resource. At 1 a
-// round trip costs 1 fuel per transit tick (the meaningful value): Freighter
-// (engineEfficiency 0) shortOreRun = 50 transit ticks * 1 = 50 fuel/cycle. This stays
-// SUSTAINABLE, NOT bankrupting: a fresh full 500 tank plus the F2 Fuel Depot's refining
-// (100 fuel / 10-tick batch = 10 fuel/tick) still FAR outpaces a mission's consumption
-// (50 fuel / 149-tick cycle ~= 0.34 fuel/tick), refining alone keeps a fresh game afloat
-// with no credit spend. It just makes fuel a real resource again, so credit auto-buy (F3)
-// is a genuine short-tank backstop rather than a never-triggered branch. FIRST-PASS TUNABLE.
-// The Freighter's integer needs (short 50 / long 140 / salvage 90 / forage 110) keep the
-// Decimal fuel-tank deductions EXACT, load-bearing for the F3 offline==live parity proof.
+// --- Fuel constant (Mission Rework Task 3, design §3) ------------------------------
+//   FUEL_PER_TICK, fuel burned per round-trip transit tick: the numerator scale in fuel.ts's fuelNeeded, which
+//   since 0.13.6 (fuel-to-reach) prices only REACH (a hull reaches a trip when its fuel capacity covers the need).
+// Kept as a plain number (not Decimal): fuel amounts are small, non-idle-scale values. At 1 a Freighter
+// (engineEfficiency 0) shortOreRun needs 50 transit ticks * 1 = 50; the integer needs (short 50 / long 140 /
+// salvage 90 / forage 110) keep the reach gate exact. History: reverted 0.1 -> 1 in the 2026-07-15 device retune.
+// WR-13 (S4-A02, user 2026-11-10 "Remove it"): the old fuel economy's FUEL_CREDITS_PER_UNIT (the credit auto-buy
+// price) and REFUEL_PENALTY_TICKS (its +2-tick refuel delay) are gone with the auto-buy, unreachable since 0.13.6.
 export const FUEL_PER_TICK = 1;
-// Fuel-sourcing RESTRUCTURE (2026-07-15): 5 -> 20. Credit auto-buy is now an EXPENSIVE
-// convenience / soft-lock escape hatch, NOT a cheap crutch: the intended fuel path is
-// refining Deuterium Ice (mined free on localFuelRun) at the Fuel Depot. At 20cr/unit a
-// Freighter shortOreRun empty-tank top-up costs 50*20 = 1000cr (vs its 30cr reward), so
-// leaning on auto-buy bleeds credits fast, deliberately steering the player to refine.
-// FIRST-PASS TUNABLE, same launch-placeholder spirit as the constants above.
-export const FUEL_CREDITS_PER_UNIT = 20;
-
-// ⚠️ FUEL ECONOMY v2 (F3, design §3): the "+2 ticks" refuel-at-a-non-allied-station delay
-// added to a mission cycle whenever that cycle had to AUTO-BUY its fuel shortfall from
-// credits (tank was short at the cycle boundary but the shortfall was affordable). Modelled
-// CLOSED-FORM as a per-cycle addition to the ordersReceived phase's required ticks (stored
-// on CaptainMissionState.refuelDelayTicks, set when the auto-buy fires) so it advances
-// identically whether the span is one big tick() call or many stepped economyTick(_,1)
-// calls, the offline==live parity guarantee. FIRST-PASS TUNABLE (device-retuned).
-export const REFUEL_PENALTY_TICKS = 2;
 
 // WR-4 (OC-C1, user 2026-10-16 "Turn into range": the Fuel Depot's storage levels become a fleet reach bonus).
 // The share of every ship's reach one built Fuel Depot rung adds; tick.ts fleetReachBonus sums it over the reached
@@ -3990,14 +3952,11 @@ export interface CaptainMissionState {
   cargo: Record<LootMaterialKey, Decimal>;
   recalled: boolean; // if true, ends the loop (mission -> null) after THIS cycle's unloading completes,
   // instead of auto-restarting at ordersReceived. Does not interrupt the current cycle mid-flight.
-  // FUEL ECONOMY v2 (F3, design §3): the "+2 ticks" refuel-at-a-non-allied-station delay for
-  // THIS cycle, REFUEL_PENALTY_TICKS when this cycle had to auto-buy its fuel shortfall from
-  // credits (tank short but affordable at the cycle boundary), otherwise 0. Added to the
-  // ordersReceived phase's required ticks in tickCaptainMission, so a penalized cycle runs 2
-  // ticks longer. CLOSED-FORM: it is a per-cycle constant stamped at the cycle boundary, so it
-  // advances identically one-big-call vs many-stepped-calls (the offline==live parity proof).
-  // OPTIONAL so pre-F3 saves (whose in-flight missions predate the field) rehydrate as absent
-  // and are read as 0 (`?? 0`), no migration needed; a fresh cycle always sets it explicitly.
+  // LEGACY, READ-ONLY (WR-13, S4-A02 "Remove it"): the old fuel economy's +2-tick refuel delay, stamped by the credit
+  // fuel auto-buy (gone; unreachable since 0.13.6). Nothing writes a non-zero value any more: a fresh cycle still
+  // stamps a constant 0 (dropping the key is a shape-only move of the state goldens, held for a hub call; WR-13 carry
+  // note). tickCaptainMission still adds it to the ordersReceived phase so a cycle in flight from a pre-0.13.6 save
+  // plays out exactly as saved. Absent reads 0.
   refuelDelayTicks?: number;
   // E-CREW 0.14.0 (Task 20 review): how many cycles of THIS run delivered under Command Presence. It keys
   // the PRIVATE rounding stream that keeps a whole delivery whole (tick.ts tickCaptainMission), so no two
@@ -4487,10 +4446,11 @@ export function missionCycleTiming(missionDef: RunMissionDef): MissionCycleTimin
 //   cargoCapacity / transitSpeedMult / extractionYieldMult , the original three,
 //       consumed by effectiveMissionDef (cargo + transit) and the extraction-yield
 //       seam in tick.ts. BINDING.
-//   engineEfficiency / fuelCapacity , lifted from the hull's fuel stats so the fuel
-//       math can read the EQUIPMENT-FOLDED value from one place. engineEfficiency
-//       BINDS (economyTick prices fuelPerCycle from it, canDispatch prices `need`
-//       from it); fuelCapacity BINDS the canDispatch RANGE gate.
+//   engineEfficiency / fuelCapacity , lifted from the hull's fuel stats so the reach
+//       math can read the EQUIPMENT-FOLDED value from one place. Both BIND the REACH
+//       (fuel.ts: fuelCapacity x (1 + engineEfficiency)), which every dispatch gate reads
+//       (tick.ts shipReachesRoundTrip). Nothing prices a per-cycle fuel cost any more
+//       (WR-13 removed the old fuel economy).
 //   powerOutput / powerDraw / mass , the POWER BUDGET (E-MOD EM-1) and the mass the fold's
 //       Mass penalty consumes INTERNALLY (surfaced too, for display). powerOutput = the hull's
 //       basePowerOutput + every installed powerOutput line (the reactor implicit); powerDraw =
@@ -5171,7 +5131,7 @@ function museumExtractionSpeedFold(
 }
 
 // Combat 0.13.0 (offline recap "why did it stop early"): a TRANSIENT display hint recording
-// the reason a captain's mission ended at a genuine wall-stop during catch-up. "fuel" = ran
+// the reason a captain's mission ended at a genuine wall-stop during catch-up. "fuel" = (LEGACY, WR-13: no longer set since the old fuel economy went) ran
 // dry and could not relaunch; "cargo" = a warehouse/material cap idled an extraction run;
 // "defeat" = a patrol was beaten and limped home damaged. Set by the mission-resolution
 // functions in tick.ts at the SAME deterministic stop condition live and offline (so offline
@@ -5195,8 +5155,9 @@ export type PatrolEndReason =
   // The limp-home countdown reached 0. The hull arrives damaged and this is the one ending
   // that flags the ship. (tickCaptainPatrol, the limpingHome branch.)
   | "defeat"
-  // A repeat-dispatch relaunch was unaffordable even after the credits auto-buy: the
-  // anti-infinite-fuel floor. (tickCaptainPatrol, the canRelaunch false branch.)
+  // LEGACY (WR-13, S4-A02): a repeat-dispatch relaunch was unaffordable even after the credits
+  // auto-buy. The engine no longer produces it (the old fuel economy is gone, unreachable since
+  // 0.13.6); kept so an ending already in a saved log still reads.
   | "outOfFuel"
   // Dispatch Once finished its route cleanly. NOT a wall-stop.
   | "ordersComplete"
@@ -8191,11 +8152,9 @@ export interface ExpeditionActivity {
   bodyId: string;
   poiId: string; // the PoI this task came from (expeditionContent.ts POI_CATALOG id)
   done: boolean; // set by the resolver when the task completes
-  // E-CREW 0.14.0 (Task 16): the Security members DOWN at the end of this task's battles (every attempt,
-  // in order of first going down), written when the task resolves and only when someone went down. With
-  // ExpeditionScanEvent.downedMemberIds it is the run's record of who SITS OUT the rest of the run (user
-  // rule, 2026-10-07) and who comes home injured at claim (injuries.ts). OPTIONAL and absent-safe (absent =
-  // nobody went down), so no SAVE_VERSION bump: a task resolved before Task 16 simply records no one.
+  // E-CREW 0.14.0 (Task 16): the Security members DOWN at the end of a LEGACY (pre-Ground-Ops) task's battles.
+  // Wiring OC-G1 deleted the legacy resolver: nothing writes or reads it any more; only an old save's finished legacy
+  // run may still carry it (kept in the type so that record stays well formed). OPTIONAL.
   downedMemberIds?: string[];
   // Ground Operations 0.14.0 (GO-4, D25): the TASK fields of a Ground Ops run (groundTasks.ts reads them;
   // GO-7b stamps them when a body's scan completes). ALL OPTIONAL and absent on a legacy run's activities, so
@@ -8446,8 +8405,8 @@ export interface DataStudyHeldEntry {
 // records where the finding came from so E4 can route each provenance differently.
 //
 // E-CREW 0.14.0 (Task 14): two scan-phase sources join. "encounter" is the enemy drops of a WON random
-// encounter during scanning (materials + credits, never a relic); "supplyCache" is the scan-step random
-// EVENT (a small material + credit find). Both deposit exactly like an activity finding (no relic).
+// encounter during a LEGACY run's scan (OC-G1: only on an old save's finished legacy run); "supplyCache" is the
+// scan-step random EVENT (a small material + credit find). Both deposit exactly like an activity finding (no relic).
 export interface ExpeditionFinding {
   id: string; // stable, "<expeditionId>-find-<n>"
   // Gas Giant Study GG-3: "study" is a ship study of an orbital body (gasGiantStudy.ts rollStudyReward): canisters
@@ -8458,7 +8417,7 @@ export interface ExpeditionFinding {
   materials?: Record<string, number>; // itemId -> quantity gathered (E4 deposits these)
   credits?: number; // credits recovered
   relic?: ExpeditionRelicToken | null; // an UNIDENTIFIED relic token when the roll hit (E4 identifies it), else null/unset
-  evacuated?: boolean; // true when the task was LOST after every attempt (evacuated: a reduced "always win something" payload)
+  evacuated?: boolean; // a legacy (pre-Ground-Ops) run's LOST task (a reduced payload); OC-G1: only in an old save's record
   // Gas Giant Study GG-3: a study's Survey Log readout (the claim appends it to GameState.surveyLog). Absent otherwise.
   survey?: SurveyLogEntry;
 }
@@ -8865,7 +8824,7 @@ export interface Expedition {
   // --- E3a away-team SNAPSHOT (captured at dispatch, exactly like the sensor snapshot above) ------------
   // The away team's derived combat strength + team kit, snapshotted at dispatch (startExpedition, from the
   // ship's crew via deriveAwayTeam; D19: the program pair below is no longer snapshotted). Resolution
-  // (the E3 gambit ground battles in resolveActivitiesPhase) reads ONLY these stored fields, so it is a
+  // (the Ground Ops objective fights, groundFight.ts) reads ONLY these stored fields, so it is a
   // pure function of the stored expedition -- the tick chain (advanceExpedition) needs no GameState, and
   // one-big == many-small parity holds by construction (the snapshot is a fixed input, not a live read).
   // Nothing the player changes mid-flight alters an in-flight run, matching the sensor snapshot's "the
@@ -8893,9 +8852,8 @@ export interface Expedition {
   // resolution stays a pure function of the stored expedition (offline == live by construction). D18
   // (user, 2026-10-06): startExpedition refuses a ship without at least 1 ready Security AND 1 ready Science
   // member, so every NEW expedition carries a roster. The field stays OPTIONAL for expeditions launched
-  // before D18: readers treat absent as two empty squads, and with no Security member a ground task fields
-  // NO team (there is no anonymous stand-in any more) and evacuates without a battle (gambit.ts
-  // resolveExpeditionActivity). The strengths above stay the squad-wide crew layer on top of the members.
+  // before D18: readers treat absent as two empty squads (a ground task fields NO team: there is no anonymous
+  // stand-in any more). The strengths above stay the squad-wide crew layer on top of the members.
   roster?: AwayRosterSnapshot;
   // E-CREW 0.14.0 (Task 14): RANDOM ENCOUNTERS during scan progress (design D10).
   // All OPTIONAL and additive (no SAVE_VERSION bump). `encounterSteps` is the number of equal steps each
@@ -8945,10 +8903,10 @@ export interface Expedition {
   // E-CREW 0.14.0 (Task 21): the OFFICER STAT FACETS that reach this run, frozen at dispatch like the fields
   // above (officerStats.ts; small named fields for the Ground Operations redesign, D25, to carry forward).
   // OPTIONAL, written only when non-zero (absent = no effect, no SAVE_VERSION bump).
-  //   ambushSoften        : Security's CUNNING over-delivery (rolled at dispatch): the run's random scan
-  //                         encounters field enemies at (1 - this) health and power (gambit.ts).
-  //   quickRecovery       : Medical's CUNNING over-delivery (rolled at dispatch): added to the care divisor
-  //                         of every injury this run brings home (injuries.ts).
+  //   ambushSoften        : Security's CUNNING over-delivery (rolled at dispatch): the run's ship events are
+  //                         softened by (1 - this) (shipScanEvents.ts).
+  //   quickRecovery       : Medical's CUNNING over-delivery (rolled at dispatch): added to the medical bay's
+  //                         care divisor (medicalBay.ts bayCareFrom).
   //   recoveryTurnaround  : Medical's CONSTITUTION facet (shorter post-mission turnaround): also added to
   //                         that care divisor.
   //   rampScience         : Science's CONSTITUTION facet: the run's crew rare find (the relic roll) grows by
@@ -8965,17 +8923,13 @@ export interface Expedition {
   //                  hours since dispatch when it starts).
   //   hazardSteady : the Science department's INTEGRITY facet: added to the run's hazard resist while
   //                  SCANNING (a hazardous world slows the scan less; resistedHazard bounds the sum).
-  //   injurySteady : the Medical department's INTEGRITY facet: added to the care divisor of every member who
-  //                  comes home INJURED (injuries.ts).
+  //   injurySteady : the Medical department's INTEGRITY facet: added to the medical bay's care divisor for
+  //                  INJURY-class conditions (medicalBay.ts).
   rampReturn?: number;
   hazardSteady?: number;
   injurySteady?: number;
-  // Complement CP-13 fix round (user 2026-11-04 "Yes, both paths, new runs only (Recommended)"): the Tactician quarters
-  // module's hull-family perk, "injured crew recover 15% faster" (crewModules.ts hullFamilyQuartersPerk "injuryRecovery"),
-  // frozen at dispatch for the legacy (non-Ground-Ops) claim's care divisor (injuries.ts applyExpeditionInjuries); the
-  // Ground Ops bay reads its own frozen copy (GroundOpsFactors.hullInjuryShare). Written only when non-zero: absent on
-  // every run dispatched before it, which recovers exactly as before. No SAVE bump.
-  hullInjuryShare?: number;
+  // (Wiring OC-G1 deleted the run-level `hullInjuryShare` the legacy claim read; the Ground Ops bay reads its own frozen
+  // copy, GroundOpsFactors.hullInjuryShare. A save that stored it keeps an unread key.)
   // How many step boundaries (flat across bodies, in scan order) have been rolled. The once-only latch
   // that keeps a boundary from rolling twice however the advance is chunked. Absent = 0.
   scanStepCursor?: number;
@@ -9202,11 +9156,9 @@ export type EnemyRank = "weak" | "normal" | "strong" | "elite" | "boss";
 
 // E-CREW 0.14.0 (Task 14): one thing that happened at a scan step boundary. `step` is the boundary
 // number (1..encounterSteps - 1: boundary N sits at N / encounterSteps of the body's scan).
-//   encounter   : a Security battle. `outcome` win adds the enemy drops (`findingId`); loss withdraws the
-//                 team to orbit and pauses this body's scan for `pauseSeconds` (until the next activity
-//                 window). `downedMemberIds` lists the Security members down at the battle's end, win or
-//                 lose (Task 16: they sit out every later battle of the run, gambit.ts scanDownedBefore,
-//                 and come home injured at claim, injuries.ts).
+//   encounter   : a LEGACY (pre-Ground-Ops) run's scan-time Security battle (win adds the enemy drops, loss paused
+//                 the scan; `downedMemberIds` lists who went down). Wiring OC-G1 deleted the legacy resolver: no
+//                 run rolls one any more; only an old save's finished legacy run may still carry one.
 //   supplyCache : the step roll's random EVENT, a small find (`findingId`).
 //   shipEvent   : Ground Operations GO-8 (user 9b.6): a SHIP-SIDE event on a flagged run with ship events
 //                 (shipScanEvents.ts): `event` names it, `outcome` is pass / fail (a check) or win / loss (a
@@ -10501,9 +10453,6 @@ export interface ItemDef {
   reserved?: string;
   // Gas Giant Study GG-1: the quality band of a gas canister (ItemBand); absent on every other item.
   band?: ItemBand;
-  // FORWARD (not populated this pass): only shipModule/shipSystem items ever
-  // carry equip stats; every Phase 1 seed leaves this undefined.
-  equipStats?: Record<string, number>;
   // SELLABLE (0.13.6): credits per unit at the Quartermaster's Sell counter. An item is
   // sellable IFF this is defined; canSell rejects everything else, so a locked / non-sellable
   // good can never be sold even as the catalogue grows. Only DEPRECATED stock carries it for now

@@ -29,6 +29,9 @@
 // draws (they are deterministic expansions of the picked hull's fixed lists). So
 // the draw count is fully determined by (seed, params), which lets a later
 // consumer that shares this stream predict the draw count and stay parity-safe.
+// WR-8b (enemy torpedoes): a Marauder's torpedo roll draws from its OWN private stream
+// (params.torpedoes, waveSeed.ts WAVE_TORPEDO_SEED_SALT), never this one, so the count
+// above holds on every wave.
 // ============================================================================
 
 import { makeRng } from "./rng";
@@ -36,7 +39,8 @@ import { shipToCombatant, type CombatShipStats } from "./bridge";
 import { makeWeaponInstance } from "./weapons";
 import { makeSquadron } from "./drones";
 import { PIRATE_HULLS, type PirateHullId } from "./enemyHulls";
-import { ENCOUNTER_OPEN_DISTANCE, RULES_COMBAT_SPEED } from "./combatRules";
+import { ENCOUNTER_OPEN_DISTANCE, ENEMY_TORPEDO, RULES_COMBAT_SPEED, TORPEDO_ROLL_UNITS } from "./combatRules";
+import { deriveWaveSeed, WAVE_TORPEDO_SEED_SALT } from "./waveSeed";
 import type { Combatant, CombatTeam } from "./types";
 
 // The full result of building a wave: the enemy Combatant[] AND the per-enemy picked
@@ -83,6 +87,14 @@ export interface EnemyWaveParams {
 	// CombatRulesStamp). Then every enemy opens at ENCOUNTER_OPEN_DISTANCE, carries its hull's armor and
 	// evasion (PIRATE_HULLS) and its weapons' rule traits. No draw is added. Absent or false: the pre-WR-8 wave exactly.
 	combatRules?: boolean;
+
+	// WR-8b (0.14.0, enemy torpedoes; user 2026-11-10 "Simple now"): the wave's torpedoes (its cycle's stamp carries
+	// enemyTorpedoes; patrolProfile.ts patrolWaveEnemyParams). Every Corsair Carrier installs the Concussion Torpedo
+	// beside its plasma (no draw); every Marauder carries one at `marauderPermille` (whole permille), rolled per spawn
+	// on the wave's PRIVATE torpedo stream (waveSeed.ts WAVE_TORPEDO_SEED_SALT, one draw per Marauder in spawn order,
+	// none at 0), so the enemy stream above never moves. The torpedo is the last weapon in the list. Absent: no
+	// enemy carries one (the pre-WR-8b wave exactly).
+	torpedoes?: { marauderPermille: number };
 
 	// ⚠️ FORWARD SEAM (TI-TX difficulty, design note): a future difficulty tier
 	// will scale enemy strength / count / hazards. This params object is the SINGLE
@@ -190,6 +202,9 @@ export function generateEnemyWaveDetailed(
 	// Build the team. For each enemy: DRAW one hull index, look up the template,
 	// then EXPAND (no draws) its guns + squadrons into fresh instances.
 	const enemies: Combatant[] = [];
+	// WR-8b: the private torpedo stream (built only when a Marauder can roll; see params.torpedoes).
+	const marauderPermille = Math.max(0, Math.floor(params.torpedoes?.marauderPermille ?? 0));
+	const torpedoRng = marauderPermille > 0 ? makeRng(deriveWaveSeed(seed, 0, WAVE_TORPEDO_SEED_SALT)) : null;
 	// The picked hull id per enemy, aligned by index to `enemies` (the display replay's
 	// composition labels). Filled in lockstep with the loop below, so it never desyncs.
 	const hullIds: PirateHullId[] = [];
@@ -217,6 +232,10 @@ export function generateEnemyWaveDetailed(
 		const weaponLoadout = hull.weapons.map((weaponId, w) =>
 			makeWeaponInstance(weaponId, `${idPrefix}-e${i}-w${w}-${weaponId}`),
 		);
+		// WR-8b: the enemy's torpedo, appended after its own guns (decided here, at the spawn).
+		if (params.torpedoes !== undefined && enemyCarriesTorpedo(hullId, marauderPermille, torpedoRng)) {
+			weaponLoadout.push(makeWeaponInstance(ENEMY_TORPEDO, `${idPrefix}-e${i}-w${hull.weapons.length}-${ENEMY_TORPEDO}`));
+		}
 
 		// FRESH squadrons (no draws): one per drone role the hull fields (empty for
 		// non-carriers). Tier 0 (base) + role-default size, matching how the bridge
@@ -247,4 +266,13 @@ export function generateEnemyWaveDetailed(
 	}
 
 	return { enemies, hullIds };
+}
+
+// WR-8b: whether one spawned enemy of `hullId` carries a torpedo on a cycle with enemy torpedoes: every Corsair Carrier
+// (no draw), a Marauder when its one draw on the private stream falls below `marauderPermille` (no draw at 0), any
+// other hull never. Draws only on the Marauder path.
+function enemyCarriesTorpedo(hullId: PirateHullId, marauderPermille: number, rng: ReturnType<typeof makeRng> | null): boolean {
+	if (hullId === "corsairCarrier") return true;
+	if (hullId !== "marauder" || rng === null) return false;
+	return rng.nextInt(TORPEDO_ROLL_UNITS) < marauderPermille;
 }

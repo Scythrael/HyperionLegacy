@@ -735,6 +735,8 @@
   // for a patrol's hostile-pool summary; CombatStance types the player's per-patrol
   // stance choice fed to dispatchCaptainOnPatrol.
   import { PIRATE_HULLS } from "./lib/game/combat/enemyHulls";
+  // WR-8b: the patrol card's torpedo line (who carries torpedoes on a patrol sent now).
+  import { patrolTorpedoLine } from "./lib/enemyTorpedoDisplay";
   import type { CombatStance } from "./lib/game/combat/positioning";
   // Combat 1.0 (Unit 2.4): the two ADVISORY dispatch-card readouts. battleRating is the
   // "how geared am I" scalar; threatAssessment maps a seeded FULL-PATROL win/loss tally
@@ -5156,8 +5158,6 @@
           ? "Out of reach for this ship"
           : outOfReachText((def.transitOutTicks + def.transitBackTicks) * LY_PER_TICK, captainId);
       }
-      case "fuelEmpty":
-        return "Not enough fuel or credits to refuel";
     }
     // Compile-time exhaustiveness guard (same discipline as PATROL_PHASE_LABEL and the
     // rest of this epic): every case above returns, so `reason` narrows to `never` here.
@@ -5681,6 +5681,13 @@
         return "captain spec does not match this piece";
       case "captainSpecParked":
         return "assign a matching captain first (hull is parked)";
+      // WR-13 (OC-C4 seam): the captain level / talent and research install gates.
+      case "captainLevel":
+        return "captain level is too low for this piece";
+      case "captainTalent":
+        return "captain lacks the talent this piece needs";
+      case "researchLocked":
+        return "research this piece's blueprint first";
       case "slotNotInstallable":
         return "this slot is not installable";
       // Crafting 0.13.3 (Unit 2.1): the piece is reserved by a queued salvage order.
@@ -9989,10 +9996,6 @@
       case "fuelCapacity":
         // 0.13.9: reach wording (fuel is reach since 0.13.6), with the real numbers when known.
         return outOfReachText(distanceLightYears(mission), captainId);
-      case "fuelEmpty":
-        // Fuel Economy v2 (F3): a short tank now auto-buys the shortfall from credits; this
-        // reason fires only when the shortfall is ALSO unaffordable (truly broke).
-        return "Not enough fuel or credits to refuel";
       case "busy":
         return "Captain is already on a mission";
       case "noShip":
@@ -18941,6 +18944,8 @@
                     </div>
                   </div>
                   {#if expanded}
+                    <!-- WR-8b: who carries torpedoes on a patrol sent now (enemyTorpedoDisplay.ts, engine numbers), read once. -->
+                    {@const torpedoLine = patrolTorpedoLine(state, def)}
                     <!-- MORE INFO reveal: the detail that used to clutter the card — faction flavor,
                          hostile hull names, the route breakdown, the Battle Rating scalar, and the
                          player ship's folded hull/shield/hardpoints (foldedPlayerDefense). -->
@@ -18951,6 +18956,7 @@
                           <div class="mission-card-col">
                             <div class="mission-col-label">Encounter</div>
                             <div class="mission-req-line">Hostiles: {hostiles}</div>
+                            {#if torpedoLine !== null}<div class="mission-req-line">Torpedoes: {torpedoLine}</div>{/if}
                             <div class="mission-req-line">Waves: {wavesLabel}</div>
                             <div class="mission-req-line">Route: out {shipRoute.transitOutTicks}t &middot; window {shipRoute.rollWindowTicks}t &middot; back {shipRoute.transitBackTicks}t</div>
                             {#if forecast !== null}<div class="mission-req-line">Battle Rating: {formatNumber(forecast.rating)}</div>{/if}

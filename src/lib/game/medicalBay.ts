@@ -27,9 +27,6 @@
 //                        conditions only (Task 21 review: it steadies members who come home injured).
 //   preventLossShare   = the complement's Prevent a Crew Loss (crew.preventCrewLoss; complement plan CP-3, OC-E2
 //                        "Shorter bay time"), frozen on GroundOpsFactors.preventLossShare. INJURY-class only.
-// On a legacy run every condition is an injury, so this is the same care divisor injuries.ts
-// injuryRecoverySeconds uses (there the three facets fold into one officerFacetShare); only the base time and
-// the floor differ (2h base and a 15 minute floor there; per-condition times and BAY_MIN_SECONDS here).
 //   hullInjuryShare    = CP-13, the Tactician quarters perk (injured crew recover 15% faster): INJURY-class only.
 //   hullBayShare       = CP-13, the Explorer quarters perk (bay time 10% shorter): every condition class. Both frozen on
 //                        GroundOpsFactors at dispatch (crewModules.ts hullFamilyQuartersPerk).

@@ -123,10 +123,8 @@ describe("salt registry (GO-4)", () => {
       "expedition.ts CANDIDATE_BEARING_SALT",
       "expedition.ts FAMOUS_SYSTEM_SALT",
       "expedition.ts BODY_COUNT_SALT",
-      "gambit.ts COMBAT_SALT",
+      // (Wiring OC-G1 retired gambit.ts COMBAT_SALT, SCAN_BATTLE_SALT and SCAN_DROP_SALT with the legacy path.)
       "gambit.ts REWARD_SALT",
-      "gambit.ts SCAN_BATTLE_SALT",
-      "gambit.ts SCAN_DROP_SALT",
       "gambit.ts SUPPLY_CACHE_SALT",
       "gambit.ts NEURAL_BACKUP_SALT",
       "gambit.ts GRENADE_FUSE_SALT",
@@ -144,6 +142,7 @@ describe("salt registry (GO-4)", () => {
       "shipScanEvents.ts PROBE_BATTLE_SALT",
       "shipScanEvents.ts PROBE_SALVAGE_SALT",
       "shipScanEvents.ts GHOST_FIND_SALT",
+      "shipScanEvents.ts SHIP_TORPEDO_SALT", // WR-8b: a ship event vessel's torpedo roll
       "fieldKits.ts FIELD_DEVICE_SALT",
       "relics.ts RELIC_STUDY_SALT",
       "rarityProfiles.ts RARITY_EXTRAS_SALT",
@@ -155,6 +154,7 @@ describe("salt registry (GO-4)", () => {
       "combat/waveSeed.ts RELAUNCH_SEED_SALT",
       "combat/waveSeed.ts WAVE_LOOT_SEED_SALT",
       "combat/waveSeed.ts WAVE_OUTPUT_ROUNDING_SEED_SALT",
+      "combat/waveSeed.ts WAVE_TORPEDO_SEED_SALT", // WR-8b: a Marauder's torpedo roll
       "crewGraduation.ts NOTABLE_NAME_SALT",
       "crewGraduation.ts MANIFEST_NAME_SALT",
       "shortRange.ts SHORT_RANGE_BOARD_SALT",

@@ -18,6 +18,10 @@
 // WR7_CAPTURE = an output path: record every pin instead of asserting.
 
 import { describe, expect, it } from "vitest";
+// WR-8b (enemy torpedoes) came after every pin here: the file runs with it off (enemyTorpedoSwitch.fixture.ts), so its
+// pins keep proving their own slice (enemyTorpedoGoldens.test.ts pins what WR-8b moved, enemyTorpedoes.test.ts proves it).
+import { enemyTorpedoesOffForThisFile } from "./enemyTorpedoSwitch.fixture";
+enemyTorpedoesOffForThisFile();
 import { cp14OffForThisFile } from "./cp14Switch.fixture";
 // Complement CP-14 (hull base sensors and Science amplification) came after every pin here: the file runs with the
 // slice off, so its pins keep proving their own slice (cp14Goldens.test.ts pins what CP-14 moved).

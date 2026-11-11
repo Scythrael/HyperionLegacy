@@ -1,27 +1,24 @@
 // ============================================================================
 // gambit.ts -- Exploration 0.14.0 (Phase E3a): the AWAY-TEAM GAMBIT COMBAT ENGINE.
 //
-// A full FFXII-grade, DETERMINISTIC, OFFLINE-SAFE gambit interpreter + ground-combat resolver. It swaps
-// into the expedition ACTIVITY seam (expedition.ts resolveActivitiesPhase): when a ground-team task
-// resolves, the away team's gambit programs drive a headless battle whose outcome becomes a REAL finding
-// (materials + credits + a chance at an unidentified relic). ENGINE + PURE FUNCTIONS ONLY, no UI (E3b
-// builds the editor). The persisted rule shapes live in model.ts; this file owns the behavior.
+// A full FFXII-grade, DETERMINISTIC, OFFLINE-SAFE gambit interpreter + ground-combat resolver. Ground Operations
+// (groundOps.ts, groundFight.ts) runs every objective fight through it: the away team's gambit programs drive a
+// headless battle, and this file also owns the reward machinery (rollHaul, rollRelicToken). ENGINE + PURE FUNCTIONS
+// ONLY, no UI. The persisted rule shapes live in model.ts; this file owns the behavior. (Wiring OC-G1 deleted the
+// pre-Ground-Ops activity resolver, its retries and evacuation haul, and the legacy scan battles.)
 //
 // ⚠️ THE CROWN-JEWEL INVARIANT (offline == live parity), preserved BY CONSTRUCTION:
 //   1. Every random draw comes from makeRng (combat/rng.ts, mulberry32), seeded from a fixed key
-//      (expedition seed ^ a fixed salt ^ the activity's flat index ^ the attempt index). NEVER
-//      Date.now() / Math.random(), NEVER a live PRNG stream position. So a battle's outcome depends only
-//      on those fixed inputs, not on HOW the elapsed span was chunked into ticks. This is the SAME keyed
-//      device the rest of the expedition engine uses (expedition.ts): re-resolving an activity at a later
-//      `consumed` value yields the identical battle, and the done-latch stops any re-award.
+//      (expedition seed ^ a fixed salt ^ the fight's keys). NEVER Date.now() / Math.random(), NEVER a live
+//      PRNG stream position. So a battle's outcome depends only on those fixed inputs, not on HOW the
+//      elapsed span was chunked into ticks. This is the SAME keyed device the rest of the expedition engine
+//      uses (expedition.ts, groundOps.ts).
 //   2. The away-team strength + team kit are SNAPSHOTTED onto the Expedition at dispatch
 //      (Expedition.securityStrength / scienceStrength / teamKit), and since E-CREW Task 12 so is the named
 //      roster (Expedition.roster: each member's converted stats, effects and OWN program, which since D19
 //      is DEFAULT_MEMBER_GAMBIT when the member has none). No battle reads the account program pair.
 //      Resolution reads ONLY the stored expedition, so advanceExpedition needs no GameState and one-big ==
-//      many-small holds. E-CREW Task 16: who SITS OUT a battle (downed earlier in the run) is read off the
-//      stored run too (scanDownedBefore / activityDownedBefore), and Neural Backup rolls on its own keyed
-//      stream, never the battle's.
+//      many-small holds. Neural Backup rolls on its own keyed stream, never the battle's.
 //
 // E-CREW 0.14.0 (Task 13), THE SQUAD SPLIT (design D2 / D16 / section 10): SECURITY FIGHTS, SCIENCE NEVER
 // ENTERS A BATTLE. Each Security member runs its OWN program; curing (cure / aidHeal) comes from a member
@@ -29,11 +26,9 @@
 // heal); a battle ends ONLY when the enemies are cleared or the team falls (the old "secure the objective"
 // mid-fight win is gone).
 // D18 (user, 2026-10-06): there is NO anonymous stand-in team any more. startExpedition refuses a ship
-// without 1 Security + 1 Science member, so only the named roster fights. An expedition launched before D18
-// with no Security member fields no team: its ground tasks evacuate WITHOUT a battle (see
-// resolveExpeditionActivity), deterministically and with no draw.
+// without 1 Security + 1 Science member, so only the named roster fights.
 //   3. ADDITIVE-NEUTRAL: nothing here runs on a no-expedition tick. The catalogs are static data touched
-//      only inside the activities path, so a save with no expedition is byte-identical to before.
+//      only inside the expedition paths, so a save with no expedition is byte-identical to before.
 //
 // ⚠️ GENERALIZABLE ON PURPOSE (SUGGESTIONS: gambits-everywhere). The INTERPRETER core
 // (evaluateProgram + applyAction over a generic GroundCombatant[] + an injected Rng) is NOT hard-wired
@@ -150,7 +145,6 @@ const OFFICER_STRENGTH = 3; // a relevant assigned officer adds this much streng
 
 // --- Battle loop ---
 export const MAX_ROUNDS = 40; // hard bound so a stalemate can never loop forever (a timeout counts as a loss)
-export const MAX_BATTLE_ATTEMPTS = 3; // deterministic retries before an activity EVACUATES (see resolveExpeditionActivity)
 
 // --- Damage / action tuning ---
 const DAMAGE_VARIANCE_MIN_PERMILLE = 850; // damage roll in [0.85, 1.15]x
@@ -261,12 +255,11 @@ export function isPhysicalStatus(id: GambitStatusId): boolean {
 
 // --- Decorrelation salts (distinct from expedition.ts's salts; do NOT reuse across purposes) ---
 // Exported (GO-4) so salts.test.ts can assert every engine salt is odd and distinct; read-only constants.
-export const COMBAT_SALT = 0x5a3c9d17; // the per-battle stream (encounter generation + the fight)
 export const REWARD_SALT = 0x3f27b1e5; // the per-activity reward roll (materials + relic), independent of attempts
-// E-CREW (Task 14): the scan-step random ENCOUNTER battle (enemy generation + the fight) and its drops,
-// and the scan-step supply-cache haul. Distinct from every salt above (never reuse a salt across purposes).
-export const SCAN_BATTLE_SALT = 0x6b43a9b5;
-export const SCAN_DROP_SALT = 0x1d8e4b2f;
+// E-CREW (Task 14): the scan-step supply-cache haul. Distinct from every salt above (never reuse a salt across
+// purposes). Wiring OC-G1 retired the three legacy battle salts with the legacy path (COMBAT_SALT 0x5a3c9d17, the
+// activity battle; SCAN_BATTLE_SALT 0x6b43a9b5 and SCAN_DROP_SALT 0x1d8e4b2f, the scan battle and its drops): no
+// stream reads them, and a new salt should not reuse those values (an old save's records were rolled on them).
 export const SUPPLY_CACHE_SALT = 0x4cf5ad43;
 // E-CREW (Task 16): Neural Backup's revive roll. Its OWN stream (the battle's seed ^ this salt), never a
 // draw on the battle's shared stream, so adding the implant shifts no other roll in any battle.
@@ -1423,9 +1416,11 @@ function applyAction(
 // A single round-event the E3b battle readout renders. This is a PURE OBSERVATION of what the interpreter
 // did in a round: it is populated ONLY when a caller attaches a log sink to the BattleState / resolver, and
 // recording only READS combatant state around applyAction (it never draws rng and never mutates combat
-// state), so a battle with logging on is byte-identical to one with it off. The UI RE-DERIVES this
-// on demand from the stored expedition seed (deriveExpeditionActivityLog); it is NEVER written to the save,
-// so it stays out of the crown-jewel parity deep-equal by construction.
+// state), so a battle with logging on is byte-identical to one with it off. No screen reads it today: its
+// only reader, the legacy battle readout, went with the legacy expedition path (Wiring OC-G1), and the live
+// Ground Ops fight passes no sink (groundOps.ts); tests and the wiring probes attach one (groundFight.ts
+// resolveTaskFight's logSink). It is NEVER written to the save, so it stays out of the crown-jewel parity
+// deep-equal by construction.
 export interface GambitLogEvent {
   round: number; // 1-based round number
   side: "team" | "enemy";
@@ -2125,8 +2120,7 @@ export function memberStatusChance(m: Pick<SnapshotMember, "spec" | "groundStats
 // heal tool (Med Kit) adds to a TRAINED member's heal only, doing nothing for anyone else; heal, inflict
 // and group-hit strength come from the pieces' own stat lines (GEAR EFFECTS SCALE WITH STAT LINES;
 // weaponRange is positioning only and changes no number here). Each member carries its OWN program.
-// PURE: mints fresh combatants from plain snapshot data. An empty list yields [] (no team: see
-// resolveExpeditionActivity).
+// PURE: mints fresh combatants from plain snapshot data. An empty list yields [] (no team).
 // E-CREW (Task 16): `sittingOut` names the members DOWNED in an earlier battle of the run (user rule,
 // 2026-10-07: they sit out the rest of the run). They are left out of the team, but the crew layer share
 // and every combatant id stay as at dispatch (the share is split over the whole deployed squad, the id is
@@ -2260,80 +2254,6 @@ export function buildRosterCombatants(
   return sittingOut && sittingOut.size > 0 ? team.filter((c) => !sittingOut.has(c.memberId as string)) : team;
 }
 
-// The team an expedition activity fields: the named Security roster. Science NEVER fights. D18: there is
-// no anonymous stand-in, so an expedition with no Security member in its roster (only possible for one
-// launched before D18) fields an EMPTY team, and the caller resolves the task without a battle. E-CREW
-// Task 16: members in `sittingOut` (downed earlier in the run) stay out; an all-out squad is an empty team
-// too. PURE.
-// E-CREW Task 20: the run's frozen officer care (Fleet Triage, Morale Anchor) rides along.
-export function expeditionTeamCombatants(exp: Expedition, idPrefix: string, sittingOut?: ReadonlySet<string>): GroundCombatant[] {
-  return buildRosterCombatants(exp.roster?.security ?? [], exp.securityStrength, idPrefix, sittingOut, {
-    triage: exp.squadTriage,
-    fearResist: exp.squadFearResist,
-    // CP-3: the complement's Away-Team Protection and Counter-Infiltration (a Ground Ops run's scan encounters; a run
-    // dispatched before CP-3 carries neither).
-    hpBonus: exp.squadHpBonus,
-    debuffResist: exp.squadDebuffResist,
-  });
-}
-
-// ============================================================================
-// E-CREW (Task 16): who SITS OUT (user rule, 2026-10-07, "Sits out the rest" chosen 2026-10-09)
-// ============================================================================
-//
-// A member DOWNED at the end of any battle of a run (a scan encounter, an activity battle, or an earlier
-// attempt of the same task) takes no part in any later battle of that run, and comes home injured. The
-// record is the run itself: ExpeditionScanEvent.downedMemberIds (in scan order) and
-// ExpeditionActivity.downedMemberIds (in flat task order). The run resolves in ONE fixed order however the
-// time is chunked: every scan boundary (body by body, step by step) before any task, then the tasks in flat
-// order. So "everyone downed before this battle" is a pure function of the stored run, keyed by the
-// battle's place in that order, and reads the same live, offline, and in a later display re-derivation
-// (offline == live by construction).
-//
-// FIELDWORK is untouched on purpose: only Security fights, so only Security goes down, and a Security
-// member does no fieldwork (fieldwork.ts reads roster.science only). If a later mechanic could down a
-// Science member, note that fieldwork pace sets the activities phase length: a mid-phase change there would
-// need the phase math reworked first.
-
-// Everyone downed at a scan boundary STRICTLY BEFORE `body` boundary `step` (scan order). Pure.
-export function scanDownedBefore(exp: Pick<Expedition, "scanEvents">, bodyIndex: number, step: number): Set<string> {
-  const out = new Set<string>();
-  const key = scanStepKey(bodyIndex, step);
-  for (const ev of exp.scanEvents ?? []) {
-    if (scanStepKey(ev.bodyIndex, ev.step) >= key) continue;
-    for (const id of ev.downedMemberIds ?? []) out.add(id);
-  }
-  return out;
-}
-
-// Everyone downed before the task at flat index `globalIndex`: every scan boundary (all of scanning
-// precedes the tasks) plus every task with a lower flat index. Pure.
-export function activityDownedBefore(exp: Pick<Expedition, "scanEvents" | "bodies">, globalIndex: number): Set<string> {
-  const out = new Set<string>();
-  for (const ev of exp.scanEvents ?? []) for (const id of ev.downedMemberIds ?? []) out.add(id);
-  let i = 0;
-  for (const body of exp.bodies) {
-    for (const act of body.activities) {
-      if (i >= globalIndex) return out;
-      for (const id of act.downedMemberIds ?? []) out.add(id);
-      i++;
-    }
-  }
-  return out;
-}
-
-// Everyone downed anywhere in the run so far, in order of first going down (scan boundaries, then tasks).
-// At claim this is the list of members who come home injured. Pure.
-export function expeditionDownedMemberIds(exp: Pick<Expedition, "scanEvents" | "bodies">): string[] {
-  const out: string[] = [];
-  const add = (ids: readonly string[] | undefined): void => {
-    for (const id of ids ?? []) if (!out.includes(id)) out.push(id);
-  };
-  for (const ev of exp.scanEvents ?? []) add(ev.downedMemberIds);
-  for (const body of exp.bodies) for (const act of body.activities) add(act.downedMemberIds);
-  return out;
-}
-
 // ============================================================================
 // Encounter generation (seeded; scaled by planet HAZARD + the PoI)
 // ============================================================================
@@ -2457,7 +2377,6 @@ const MATERIAL_QTY_MIN = 2;
 const MATERIAL_QTY_MAX = 6;
 const CREDITS_BASE = 40; // base credit reward for a task
 const CREDITS_HAZARD_COEFF = 120; // + this * hazard (harder finds pay more)
-const EVAC_REWARD_FRACTION = 0.4; // an EVACUATED (lost) task keeps this fraction of the material/credit haul, no relic
 
 // The PoIs whose findings can carry a RELIC lead. E4a: no longer a hand-kept list here. It is DERIVED
 // from relics.ts RELIC_SET_BY_POI (each relic set's own `sources`), the ONE source of truth that the E2c
@@ -2555,7 +2474,7 @@ export function relicTierCeiling(hazard: number, tierLift?: number): number {
 }
 
 // Roll the full material + credit haul for a task, seeded. Materials are planet-type flavored; credits
-// scale with hazard. `scale` reduces the haul on an evacuation (keep-what-you-gathered). PURE. Draw order:
+// scale with hazard. `scale` scales the whole haul (a supply cache, a partial batch). PURE. Draw order:
 // material item, then material quantity (fixed). Exported (GO-4): Ground Ops rolls a task's full haul with it
 // (groundTasks.ts taskFullHaul) on the same taskRewardSeed.
 // Wiring WR-11 (OC-G4): `materialMult` (a site that names more materials, expeditionContent.ts poiMaterialMult) scales the
@@ -2576,10 +2495,9 @@ export function rollHaul(
   return { materials: { [item.itemId]: qty }, credits };
 }
 
-// Ground Operations (GO-4): THE task reward seed, one definition shared by the legacy resolver (a win's haul
-// and relic roll, an evacuation's haul) and Ground Ops (groundTasks.ts taskFullHaul, GO-7b's relic at 100%).
-// Keyed by the task's FLAT index across bodies and independent of attempts, so one task keeps one reward roll
-// whichever engine resolves it. The extraction is byte-identical (groundTasks.test.ts pins legacy outputs).
+// Ground Operations (GO-4): THE task reward seed, read by Ground Ops (groundTasks.ts taskFullHaul, GO-7b's relic at
+// 100%; the pre-Ground-Ops resolver OC-G1 deleted read it too). Keyed by the task's FLAT index across bodies, so one
+// task keeps one reward roll (groundTasks.test.ts pins its outputs).
 // The flat-index MULTIPLIER 0x27d4eb2f is the same constant as combat/waveSeed.ts RELAUNCH_SEED_SALT, in a
 // different role (here it spreads the index inside the key; there it is a top-level salt on the wave seed).
 // Harmless: REWARD_SALT and the base seed differ, so the streams never meet. Never change it (every task
@@ -2599,135 +2517,8 @@ export function taskRelicSeed(exp: Pick<Expedition, "seed">, flatIndex: number):
 }
 
 // ============================================================================
-// The activity resolver (the E3 swap-in for resolveActivitiesPhase)
+// The relic roll's find bonus (Ground Ops objectives read it, groundOps.ts)
 // ============================================================================
-
-// Resolve ONE ground-team activity into a REAL finding: run up to MAX_BATTLE_ATTEMPTS deterministic
-// gambit battles; the FIRST win yields the full haul (materials + credits + a relic chance). If EVERY
-// attempt loses, the task EVACUATES but still completes with a reduced "always win something" haul (no
-// relic). Deterministic: every draw is keyed off (exp.seed, a fixed salt, the activity's flat index, the
-// attempt index); see the module header. Returns { finding, outcome, attempts } so the tick appends the
-// finding + tests can assert the outcome.
-//
-// ⚠️ WHY BOUNDED IN-RESOLUTION RETRIES (a documented judgment call): the design says a lost task
-// "evacuates + retries next pass", but the ExpeditionActivity record must NOT gain fields (its shape is
-// frozen: id/bodyId/poiId/done), and the activities phase gives each activity exactly ONE time slot (the
-// phase duration is the sum of every task's activityDurationSeconds: ACTIVITY_SECONDS each without a
-// Science party, shorter with one, E-CREW Task 15). A cross-pass retry with the SAME keyed seed would
-// reproduce the SAME loss forever (an infinite stall). So the retry is realized DETERMINISTICALLY as
-// bounded attempts WITHIN the one resolution, each reseeded by the attempt index; after the cap the task
-// evacuates with a partial haul. This keeps the frozen record, the phase-duration/parity model, "always
-// win something", and offline==live parity all intact.
-//
-// E-CREW (Task 16): members downed EARLIER in the run sit this task out (activityDownedBefore), and a member
-// downed in one attempt sits out the task's later attempts too ("any battle", user rule). An attempt with
-// nobody left to field does not happen: the task evacuates after the attempts already fought (0 when the
-// whole squad was out before the task began, with no battle, like the D18 no-team path). Each attempt's
-// battle passes its own seed as Neural Backup's reviveSeed.
-export interface ActivityResolution {
-  finding: ExpeditionFinding;
-  outcome: "win" | "evacuated";
-  attempts: number;
-  // E-CREW (Task 16): the members down at the end of this task's battles, every attempt, in order of first
-  // going down (resolveActivitiesPhase stores it on the activity when non-empty).
-  downedMemberIds: string[];
-}
-
-export function resolveExpeditionActivity(
-  exp: Expedition,
-  body: ExpeditionBody,
-  activity: ExpeditionActivity,
-  globalIndex: number,
-  logSink?: GambitLogEvent[], // OPTIONAL (E3b): when passed, filled with the DECIDING battle's transient log
-  // E-CREW (Task 21): the task's hours since dispatch (the Science Constitution ramp's clock on the relic
-  // roll, expedition.ts resolveActivitiesPhase). Default 0 = no ramp; the battle never reads it.
-  hoursOut: number = 0,
-): ActivityResolution {
-  const findingId = activityFindingId(exp, activity.id);
-  const relicId = `${exp.id}-relic-${activity.id}`;
-  // Copy an attempt's transient events into the caller's sink (last write wins == the deciding battle).
-  const commitLog = (attemptLog: GambitLogEvent[] | undefined): void => {
-    if (!logSink || !attemptLog) return;
-    logSink.length = 0;
-    for (const e of attemptLog) logSink.push(e);
-  };
-
-  // D18: no Security member deployed (an expedition launched before D18 with no roster, or a Science-only
-  // one) means NO team: there is no anonymous stand-in any more. The task resolves at once WITHOUT a battle
-  // as an evacuation (0 attempts, an empty log), keeping the reduced "always win something" haul from the
-  // same keyed reward roll as any evacuation. Deterministic, draws nothing from a battle stream, and safe
-  // for an old in-flight save (it can never crash on an empty team or stall the activities phase).
-  if ((exp.roster?.security ?? []).length === 0) {
-    commitLog([]);
-    return evacuatedResolution(exp, body, activity, globalIndex, 0, findingId, []);
-  }
-
-  // E-CREW (Task 16): who is already out before this task, and who goes down during it.
-  const out = activityDownedBefore(exp, globalIndex);
-  const downed: string[] = [];
-  let attempts = 0;
-  let lastAttemptLog: GambitLogEvent[] | undefined;
-  for (let attempt = 0; attempt < MAX_BATTLE_ATTEMPTS; attempt++) {
-    // E-CREW (Task 13): the named Security roster. Never Science. Task 16: minus everyone out.
-    const team = expeditionTeamCombatants(exp, `${exp.id}-${activity.id}-a${attempt}`, out);
-    if (team.length === 0) break; // nobody left to field: no battle, the task evacuates
-    attempts = attempt + 1;
-    const battleSeed =
-      (exp.seed ^
-        COMBAT_SALT ^
-        Math.imul(globalIndex + 1, 0x9e3779b9) ^
-        Math.imul(attempt + 1, 0x85ebca6b)) >>>
-      0;
-    const rng = makeRng(battleSeed);
-    // E4b: the guard is scaled by the hazard the body PRESENTS to this run (the snapshotted museum
-    // hazardResist shrinks it, bounded + never negative; 0 -> the raw hazard, bit-identical). The REWARD
-    // rolls below keep the body's RAW hazard on purpose: resisting a world's danger makes the fight
-    // easier, it does not make the find poorer.
-    const enemies = generateEncounter(battleSeed, resistedHazard(body.hazard, exp.hazardResist ?? 0), activity.poiId);
-    const attemptLog = logSink ? [] : undefined;
-    const result = resolveGroundBattle(team, enemies, exp.teamKit, rng, attemptLog, battleSeed);
-    if (attemptLog) lastAttemptLog = attemptLog;
-    for (const id of result.downedMemberIds) {
-      out.add(id);
-      if (!downed.includes(id)) downed.push(id);
-    }
-    if (result.result === "win") {
-      commitLog(attemptLog);
-      const rewardSeed = taskRewardSeed(exp, globalIndex);
-      // E-CREW Task 15: the Science party scales the haul (yieldMult; exactly 1 without a party) and lifts
-      // the relic chance. Both only reshape the SAME keyed draws, so the draw order is unchanged.
-      const fw = fieldworkEffect(exp, body.planetType, activity.poiId);
-      const haul = rollHaul(rewardSeed, body.planetType, body.hazard, fw.yieldMult);
-      const relic = rollRelicToken(
-        taskRelicSeed(exp, globalIndex),
-        body.hazard,
-        activity.poiId,
-        relicId,
-        activityRelicFindBonus(exp, fw, hoursOut),
-        undefined,
-        // Relics v2 R2-2: the blank stamp (only a run with the R2-2 flag; a legacy run never has one).
-        relicBlankStamp(exp, exp.bodies.findIndex((b) => b.id === body.id)),
-      );
-      return {
-        finding: {
-          id: findingId,
-          source: "activity",
-          poiId: activity.poiId,
-          materials: haul.materials,
-          credits: haul.credits,
-          relic,
-        },
-        outcome: "win",
-        attempts,
-        downedMemberIds: downed,
-      };
-    }
-  }
-  // Every attempt lost (or nobody was left to field): EVACUATE with a reduced haul (always win something),
-  // no relic.
-  commitLog(lastAttemptLog ?? []);
-  return evacuatedResolution(exp, body, activity, globalIndex, attempts, findingId, downed);
-}
 
 // E-CREW Task 15: the relic roll's find bonus for one won task, the SUM of every frozen lift (each a
 // fraction; rollRelicToken multiplies the chance by 1 + this, capped at certain):
@@ -2746,167 +2537,25 @@ export function activityRelicFindBonus(exp: Expedition, fw: Pick<FieldworkEffect
   return extra > 0 ? base + extra : base;
 }
 
-// The stable id of the finding an activity resolves into: ONE template shared by the resolver and the UI
-// (ExpeditionPanel matches an activity to its finding by it). Pure.
-export function activityFindingId(exp: Pick<Expedition, "id">, activityId: string): string {
-  return `${exp.id}-find-act-${activityId}`;
-}
-
-// An EVACUATED task's resolution: the reduced haul from the activity's keyed reward roll (the same seed a
-// win uses, scaled by EVAC_REWARD_FRACTION), no relic. Shared by the all-attempts-lost path and the D18
-// no-team path. PURE.
-function evacuatedResolution(
-  exp: Expedition,
-  body: ExpeditionBody,
-  activity: ExpeditionActivity,
-  globalIndex: number,
-  attempts: number,
-  findingId: string,
-  downedMemberIds: string[],
-): ActivityResolution {
-  const rewardSeed = taskRewardSeed(exp, globalIndex);
-  // E-CREW Task 15: what the Science party gathered before the pull-back is richer too (yieldMult is
-  // exactly 1 without a party, so EVAC_REWARD_FRACTION * 1 keeps an old run's haul bit-for-bit).
-  const yieldMult = fieldworkEffect(exp, body.planetType, activity.poiId).yieldMult;
-  const haul = rollHaul(rewardSeed, body.planetType, body.hazard, EVAC_REWARD_FRACTION * yieldMult);
-  return {
-    finding: {
-      id: findingId,
-      source: "activity",
-      poiId: activity.poiId,
-      materials: haul.materials,
-      credits: haul.credits,
-      relic: null,
-      evacuated: true,
-    },
-    outcome: "evacuated",
-    attempts,
-    downedMemberIds,
-  };
-}
-
 // ============================================================================
-// E3b: on-demand transient battle-log derivation (DISPLAY-ONLY, parity-safe)
-// ============================================================================
-
-// The transient readout the E3b battle log renders for ONE resolved activity: its outcome + attempt count +
-// the deciding battle's round-by-round events. PURE + deterministic: it RE-RUNS resolveExpeditionActivity
-// from the stored expedition seed (the exact inputs the tick used), so it reproduces the identical battle
-// WITHOUT persisting anything. The engine tick never calls this, so it lives entirely outside the save /
-// parity deep-equal. The UI calls it lazily (only when a player expands an activity's log), passing the
-// activity's stable FLAT index across bodies (== the resolver's globalIndex).
-export interface ActivityBattleLog {
-  outcome: "win" | "evacuated";
-  attempts: number;
-  events: GambitLogEvent[];
-}
-
-export function deriveExpeditionActivityLog(
-  exp: Expedition,
-  body: ExpeditionBody,
-  activity: ExpeditionActivity,
-  globalIndex: number,
-): ActivityBattleLog {
-  const events: GambitLogEvent[] = [];
-  const res = resolveExpeditionActivity(exp, body, activity, globalIndex, events);
-  return { outcome: res.outcome, attempts: res.attempts, events };
-}
-
-// ============================================================================
-// E-CREW (Task 14): RANDOM ENCOUNTERS during scan progress (design D10)
+// E-CREW (Task 14): the scan-step SUPPLY CACHE (design D10)
 // ============================================================================
 //
-// While a body scans, each step boundary may fire an encounter (expedition.ts owns the step roll + the
-// timeline). The encounter is ONE Security battle through the same Task 13 path as an activity
-// (expeditionTeamCombatants + generateEncounter + resolveGroundBattle), keyed off (exp.seed, its own salt,
-// the boundary key), never a live stream. It is not a PoI guardian fight: the body has no discoveries yet
-// while it scans, so the enemy set is the default roaming guard (generateEncounter's fallback roles for an
-// unknown PoI, striker + bruiser), scaled by the hazard the body presents (museum hazardResist applied, as
-// for an activity). ONE attempt only: a loss is a withdrawal (expedition.ts pauses the scan), never a retry.
-//
-// FIRST-PASS TUNABLE: a won encounter's drops REUSE the activity reward machinery (rollHaul: the planet-
-// flavored material table + hazard-scaled credits) at ENCOUNTER_DROP_SCALE, never a relic; a supply cache
-// is the same haul at SUPPLY_CACHE_SCALE.
-export const ENCOUNTER_DROP_SCALE = 0.5;
+// While a body scans, each step boundary may land a supply cache (expedition.ts owns the step roll + the
+// timeline): a small haul from the activity reward machinery (rollHaul: the planet-flavored material table +
+// hazard-scaled credits) at SUPPLY_CACHE_SCALE, never a relic, keyed off (exp.seed, its own salt, the boundary
+// key), never a live stream. (OC-G1 deleted the legacy run's scan-time ground battles: a Ground Ops run's draw 1 is
+// a ship event, shipScanEvents.ts.) FIRST-PASS TUNABLE.
 export const SUPPLY_CACHE_SCALE = 0.3;
-
-// The PoI id a scan encounter passes to generateEncounter: none (the default roaming guard).
-const SCAN_ENCOUNTER_POI = "";
 
 // The stable integer key of one step boundary (the plan's bodyIndex * 100 + step). Pure.
 export function scanStepKey(bodyIndex: number, step: number): number {
   return bodyIndex * 100 + step;
 }
 
-// The finding ids a scan event adds: one template shared by the resolver and the UI. Pure.
-export function scanEncounterFindingId(exp: Pick<Expedition, "id">, bodyIndex: number, step: number): string {
-  return `${exp.id}-find-enc-b${bodyIndex}-s${step}`;
-}
+// The finding id a supply cache adds. Pure.
 export function supplyCacheFindingId(exp: Pick<Expedition, "id">, bodyIndex: number, step: number): string {
   return `${exp.id}-find-cache-b${bodyIndex}-s${step}`;
-}
-
-export interface ScanEncounterResolution {
-  outcome: "win" | "loss";
-  rounds: number;
-  downedMemberIds: string[]; // Security members down at the battle's end (Task 16 injuries)
-  finding: ExpeditionFinding | null; // the enemy drops on a win, else null
-}
-
-// Resolve the random encounter at `body`'s step boundary `step`. PURE + deterministic (keyed seed; mints
-// fresh combatants). With no Security member in the roster (only an expedition launched before D18), or
-// with every Security member already downed earlier in the run (Task 16), there is no team: the encounter
-// is a loss with no battle (0 rounds), the same "no team, no fight" rule as an activity. expedition.ts never
-// rolls an encounter for such a run or boundary (its chance is 0), so this is defensive.
-export function resolveScanEncounter(
-  exp: Expedition,
-  body: ExpeditionBody,
-  bodyIndex: number,
-  step: number,
-  logSink?: GambitLogEvent[], // OPTIONAL: filled with the battle's transient log (display only)
-): ScanEncounterResolution {
-  const key = scanStepKey(bodyIndex, step);
-  // E-CREW (Task 16): members downed at an earlier boundary sit this one out.
-  const team = expeditionTeamCombatants(exp, `${exp.id}-scan-b${bodyIndex}-s${step}`, scanDownedBefore(exp, bodyIndex, step));
-  if (team.length === 0) return { outcome: "loss", rounds: 0, downedMemberIds: [], finding: null };
-  const battleSeed = (exp.seed ^ SCAN_BATTLE_SALT ^ Math.imul(key + 1, 0x9e3779b9)) >>> 0;
-  const enemies = softenAmbush(
-    generateEncounter(battleSeed, resistedHazard(body.hazard, exp.hazardResist ?? 0), SCAN_ENCOUNTER_POI),
-    exp.ambushSoften ?? 0,
-  );
-  const result = resolveGroundBattle(team, enemies, exp.teamKit, makeRng(battleSeed), logSink, battleSeed);
-  if (result.result !== "win") {
-    return { outcome: "loss", rounds: result.rounds, downedMemberIds: result.downedMemberIds, finding: null };
-  }
-  // The drops keep the body's RAW hazard (resisting a world's danger does not make the find poorer).
-  const dropSeed = (exp.seed ^ SCAN_DROP_SALT ^ Math.imul(key + 1, 0x27d4eb2f)) >>> 0;
-  const haul = rollHaul(dropSeed, body.planetType, body.hazard, ENCOUNTER_DROP_SCALE);
-  return {
-    outcome: "win",
-    rounds: result.rounds,
-    downedMemberIds: result.downedMemberIds,
-    finding: {
-      id: scanEncounterFindingId(exp, bodyIndex, step),
-      source: "encounter",
-      materials: haul.materials,
-      credits: haul.credits,
-      relic: null,
-    },
-  };
-}
-
-// E-CREW 0.14.0 (Task 21): the Security department's CUNNING over-delivery ("softens an enemy ambush"):
-// a run whose dispatch roll succeeded (exp.ambushSoften) meets its random scan encounters with every enemy
-// at (1 - soften) of its health, power and healing (health stays a whole number, at least 1). A post-
-// generation scale, so generateEncounter's draws are untouched; 0 returns the SAME array. Pure.
-export function softenAmbush(enemies: GroundCombatant[], soften: number): GroundCombatant[] {
-  if (!(soften > 0)) return enemies;
-  const k = Math.max(0, 1 - soften);
-  return enemies.map((e) => {
-    const hp = Math.max(1, Math.round(e.hp * k));
-    const power = e.power * k;
-    return { ...e, hp, hpMax: hp, power, heal: e.heal * k, threat: power };
-  });
 }
 
 // The supply-cache EVENT's finding at `body`'s step boundary `step`: a small keyed material + credit haul.
@@ -2921,22 +2570,4 @@ export function rollSupplyCache(exp: Expedition, body: ExpeditionBody, bodyIndex
     credits: haul.credits,
     relic: null,
   };
-}
-
-// The transient battle log of one scan encounter, for the UI (Task 17). DISPLAY ONLY: re-runs the keyed
-// battle from the stored expedition, persists nothing, and the tick never calls it. Null unless the run's
-// scanEvents record an encounter at that boundary (so the UI can never show a battle that did not happen).
-// Pure.
-export function deriveScanEncounterLog(
-  exp: Expedition,
-  bodyIndex: number,
-  step: number,
-): { outcome: "win" | "loss"; events: GambitLogEvent[] } | null {
-  const body = exp.bodies[bodyIndex];
-  if (!body) return null;
-  const recorded = (exp.scanEvents ?? []).some((ev) => ev.kind === "encounter" && ev.bodyIndex === bodyIndex && ev.step === step);
-  if (!recorded) return null;
-  const events: GambitLogEvent[] = [];
-  const res = resolveScanEncounter(exp, body, bodyIndex, step, events);
-  return { outcome: res.outcome, events };
 }

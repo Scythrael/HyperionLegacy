@@ -165,7 +165,6 @@ import {
   returnDurationSeconds,
   bodyDiscoveryAttempts,
   rollBodyDiscoveries,
-  scanEncounterChance,
   scanRatePerSecond,
   startExpedition,
   tierCandidateSystems,
@@ -191,7 +190,6 @@ import {
   buildRosterCombatants,
   deriveAwayTeam,
   evaluateAndAct,
-  expeditionTeamCombatants,
   firstAidEffectiveness,
   gambitPresetPrograms,
   generateEncounter,
@@ -219,7 +217,6 @@ import { getCrewBuffById } from "../crewBuffs";
 import { missionCycleTiming } from "../model";
 import { awayRecruitCandidates, hireAwayMember, snapshotMembers } from "../awayTeam";
 import { officerPromotionCounter, seniorStaffCandidates } from "../seniorStaff";
-import { applyExpeditionInjuries, injuryRecoverySeconds, shipInjuryFactors } from "../injuries";
 import { boardingRepelChance, buildShipCombatant, shipSalvageScale, snapshotShipEventProfile } from "../shipScanEvents";
 import { shipsWithMemberAutoSlotted } from "../groundTeamSlots";
 import { canFitEquipment, equippedFor, fitEquipment } from "../equipment";
@@ -263,7 +260,8 @@ import {
   poisForPlanetType,
 } from "../expeditionContent";
 import { memberFieldworkTotal } from "../fieldwork";
-import { taskWorkSeconds } from "../groundTasks";
+import { FIGHT_POINTS_DEFAULT, FIGHT_POINTS_MIN, fightPointCount, riskFightPointCount, taskWorkSeconds } from "../groundTasks";
+import { SURVEY_AMBUSH_CHANCE, groundTaskAmbushChance } from "../groundOps";
 import { buildHomeDashboard } from "../homeDashboard";
 import { rarityProfile } from "../rarityProfiles";
 
@@ -329,8 +327,7 @@ export const CONTEXT_IDS = [
   "mission:shortRange", // G1: a short-range mission cycle (the G1-4 cycle engine, shortRangeCycle.ts)
   "patrol", // ship battles (patrols and the Ground Ops ship events build the same combatant)
   "shipyard", // Shipyard repair, builds, bays
-  "expedition:groundOps", // a run dispatched since GO-7b (every new run)
-  "expedition:legacy", // a run dispatched before GO-7b (only old in-flight saves)
+  "expedition:groundOps", // a run dispatched since GO-7b (every new run; OC-G1 deleted the legacy context with the legacy path)
   "shipEvent", // the Ground Ops ship-side scan events
   "ground", // ground battles (the Security squad)
   "ground:noInflict", // a Security member wearing no inflict piece
@@ -1277,11 +1274,6 @@ function moduleScanDiscoveries(s: GameState): number {
   return n / MODULE_SCAN_BODIES;
 }
 
-// The Security squad as a dispatched run fields it (the run's frozen officer care rides along).
-function runMember(s: GameState, memberId: string): GroundCombatant | undefined {
-  return expeditionTeamCombatants(dispatchRun(readyForRun(s)), "wiring").find((c) => c.memberId === memberId);
-}
-
 // The member's combatant with every inflict-capable piece taken off (the "no inflict piece" context).
 const INFLICT_VARIETIES = new Set(
   MEMBER_SLOT_TYPES.flatMap((slot) => EQUIPMENT_SLOTS[slot].varieties.filter((v) => v.member?.groundEffect?.kind === "inflict").map((v) => v.key)),
@@ -1520,19 +1512,6 @@ function cycleOreQuality(s: GameState): number {
 function researchableCount(s: GameState): number {
   const ready = withFacilityLevel(s, "research", 9);
   return Object.keys(BLUEPRINTS).filter((k) => blueprintResearchable(ready, k)).length;
-}
-
-// The legacy (pre-Ground Ops) injury path: a run whose Security member went down, brought home. Its recovery time.
-function legacyInjurySeconds(s: GameState): number {
-  const ready = readyForRun(s);
-  const run = dispatchRun(ready);
-  const legacy: Expedition = {
-    ...run,
-    groundOps: undefined,
-    risk: undefined,
-    scanEvents: [{ bodyIndex: 0, step: 1, kind: "encounter", outcome: "loss", downedMemberIds: [WIRING_SECURITY_ID] }],
-  };
-  return applyExpeditionInjuries(ready, legacy).injuries.find((i) => i.memberId === WIRING_SECURITY_ID)?.recoverySeconds ?? 0;
 }
 
 // == WR-5c: the explorer secondary nodes' consumers ==
@@ -2061,8 +2040,8 @@ export const PROBES = {
     read: (s, ctx) => (ctx === "mission:survey" ? shipCrewContribution(s, shipOf(s))[CREW_STAT_KEYS.rareFindChance] ?? 0 : dispatchRun(s).crewRareFind ?? 0),
   },
   injuryCare: {
-    label: "injury care: groundOps.factors.medicalShare (medical bay) / injuryRecoverySeconds (legacy claim)",
-    read: (s, ctx) => (ctx === "expedition:legacy" ? injuryRecoverySeconds(shipInjuryFactors(s, shipOf(s))) : dispatchRun(s).groundOps?.factors.medicalShare ?? 0),
+    label: "injury care: groundOps.factors.medicalShare (the medical bay's frozen care)",
+    read: (s) => dispatchRun(s).groundOps?.factors.medicalShare ?? 0,
   },
   // == captain progression ==
   captainXpPerTick: { label: "xpPerTick(shortOreRun) x retirementExpMultiplier", read: (s) => xpPerTick("shortOreRun", captainOf(s), s) * retirementExpMultiplier(s) },
@@ -2337,7 +2316,6 @@ export const PROBES = {
   },
   captainCount: { label: "captains (count)", read: (s) => s.captains.length },
   researchableBlueprints: { label: "blueprints a top-level Research Lab can start (blueprintResearchable)", read: (s) => researchableCount(s) },
-  legacyInjurySeconds: { label: "applyExpeditionInjuries on a legacy run: the downed Security member's recovery", read: (s) => legacyInjurySeconds(s) },
   groundOpsRun: { label: "the Ground Ops run digest (candidates, the dispatch record, the run played out)", read: (s) => groundOpsRunDigest(s) },
   patrolRun: { label: "the patrol cycle digest (dispatch, one cycle through economyTick)", read: (s) => patrolDigest(s) },
   // == crew modules ==
@@ -2390,10 +2368,6 @@ export const PROBES = {
   expSquadTriage: { label: "dispatch: Expedition.squadTriage", read: (s) => dispatchRun(s).squadTriage ?? 0 },
   // CP-3: Away-Team Protection as frozen on the dispatched run (the share every Security member's max HP grows by).
   expSquadHpBonus: { label: "dispatch: Expedition.squadHpBonus (Away-Team Protection)", read: (s) => dispatchRun(s).squadHpBonus ?? 0 },
-  expEncounterChance: {
-    label: "scanEncounterChance on a hazard-0.4 world",
-    read: (s) => scanEncounterChance(dispatchRun(s), syntheticBody("terrestrial", 0.4)),
-  },
   expReloadMult: { label: "dispatch: groundOps.factors.reloadMult", read: (s) => dispatchRun(s).groundOps?.factors.reloadMult ?? 1 },
   expOffloadMult: { label: "dispatch: groundOps.factors.offloadMult", read: (s) => dispatchRun(s).groundOps?.factors.offloadMult ?? 1 },
   expBoardingRepel: {
@@ -2521,8 +2495,9 @@ export const PROBES = {
     label: "Security combatant status resists (permille, summed)",
     read: (s) => Object.values(memberCombatant(s, sec())?.resists ?? {}).reduce((a: number, x) => a + (x ?? 0), 0),
   },
-  runSecHp: { label: "the dispatched run's Security combatant hp (expeditionTeamCombatants)", read: (s) => runMember(s, sec())?.hp ?? 0 },
-  runSecHeal: { label: "the dispatched run's Security combatant heal (expeditionTeamCombatants)", read: (s) => runMember(s, sec())?.heal ?? 0 },
+  // OC-G1: read on the Ground Ops objective fight's squad (taskFightTeam; the legacy builder went with the legacy path).
+  runSecHp: { label: "the dispatched run's Security member in an objective fight: hp (taskFightTeam)", read: (s) => runTaskMember(s, sec())?.hp ?? 0 },
+  runSecHeal: { label: "the dispatched run's Security member in an objective fight: heal (taskFightTeam)", read: (s) => runTaskMember(s, sec())?.heal ?? 0 },
   // Complement plan CP-3: the Ground Ops consumers, read on the dispatched run's objective fight (groundFight.ts
   // taskFightTeam, the squad every Ground Ops task fields) and its medical bay.
   runTaskSecHp: { label: "the dispatched run's Security member in an objective fight: max HP (Away-Team Protection)", read: (s) => runFieldKitsTaskMember(s, sec())?.hpMax ?? 0 },
@@ -2535,10 +2510,8 @@ export const PROBES = {
     },
   },
   runBayFractureSeconds: {
-    label: "the dispatched run's medical bay: a Fracture's cure seconds on its frozen care (groundOpsBayCare; injuries only); expedition:legacy, the legacy claim's injury recovery",
-    read: (s, ctx) => {
-      // CP-13 fix round: the legacy (non-Ground-Ops) claim of the same dispatched run, on its frozen care.
-      if (ctx === "expedition:legacy") return legacyInjurySeconds(s);
+    label: "the dispatched run's medical bay: a Fracture's cure seconds on its frozen care (groundOpsBayCare; injuries only)",
+    read: (s) => {
       const ops = dispatchRun(readyForRun(s)).groundOps;
       return ops ? memberBaySeconds(["fracture"], [], groundOpsBayCare(ops.factors)) : 0;
     },
@@ -3861,8 +3834,34 @@ function readContent(id: string, s: GameState): number {
       return wr9AuditValue(a);
     case "wr10":
       return wr10AuditValue(s, a, on);
+    case "ocg1":
+      return ocg1AuditValue(s, a);
     default:
       throw new Error(`unknown content probe ${id}`);
+  }
+}
+
+// Wiring OC-G1's audit rows (user 2026-10-16 "Delete it"), each read through the code that makes it true. Pure.
+function ocg1AuditValue(s: GameState, key: string): number {
+  switch (key) {
+    case "legacyFinished": {
+      // A legacy run (the dispatched run without its Ground Ops record, mid-scan, holding a finding): the engine finishes
+      // it (complete, its findings as they were) instead of walking a deleted resolver (1 = finished).
+      const run = dispatchRun(s);
+      const legacy = { ...run, groundOps: undefined, phase: "scanning" as const, findings: [{ id: "f", source: "supplyCache" as const, credits: 1 }] };
+      const done = advanceExpedition(legacy, run.phaseAnchorSeconds + 10);
+      return done.phase === "complete" && JSON.stringify(done.findings) === JSON.stringify(legacy.findings) ? 1 : 0;
+    }
+    case "riskFreeFallbacks":
+      // The kept fallbacks of a Ground Ops run without risk grades (pre-SQ-4), and the live default for an unrated site
+      // (1 = each reads as the claim says).
+      return groundTaskAmbushChance({ fightPoints: [0.5] }, {}) === SURVEY_AMBUSH_CHANCE &&
+        fightPointCount("caveNetwork", 0) >= FIGHT_POINTS_MIN &&
+        riskFightPointCount("an-unrated-site", 0, { combat: 2, fauna: 0 }) === FIGHT_POINTS_DEFAULT
+        ? 1
+        : 0;
+    default:
+      throw new Error(`unknown OC-G1 audit probe ${key}`);
   }
 }
 

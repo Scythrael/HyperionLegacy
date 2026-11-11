@@ -1297,3 +1297,10 @@ display: A a line per panel and a lock on each sub-tab; (9) benched list home: A
 - Global toggle: "Follow the toggle (Recommended)". When the global "Color-blind palette" setting is on, the graph's
   Default switches to the color-blind safe colors automatically. Picking Monochrome still overrides it.
 - Naming: "Keep both names (Recommended)".
+
+## USER ANSWER (2026-11-11): CP-4 Flight Deck Integrity scope
+
+Review found the built facet multiplies the WHOLE `crew.droneHandling` pool (Belter racials from officers in other
+seats, Belter crew in other departments, a Belter captain), while every other Integrity row boosts only that
+department's own bonuses. User: "Flight Deck's own only (Recommended)": match the other Integrity bonuses; the facet
+boosts only the Flight Deck's own drone handling.

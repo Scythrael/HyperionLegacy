@@ -4,6 +4,10 @@
 // value; this file pins the rules' mechanics, the stamping, offline == live and the replay parity under them.
 
 import { describe, expect, it } from "vitest";
+// WR-8b (enemy torpedoes) came after every pin here: the file runs with it off (enemyTorpedoSwitch.fixture.ts), so its
+// pins keep proving their own slice (enemyTorpedoGoldens.test.ts pins what WR-8b moved, enemyTorpedoes.test.ts proves it).
+import { enemyTorpedoesOffForThisFile } from "./enemyTorpedoSwitch.fixture";
+enemyTorpedoesOffForThisFile();
 import Decimal from "break_infinity.js";
 import { PATROLS, SHIP_TYPES, freshState, type GameState, type PatrolMissionState, type ShipTypeKey } from "./model";
 import { dispatchCaptainOnPatrol, economyTick, installMissingCombatBaselines } from "./tick";

@@ -86,6 +86,25 @@ describe("B1: a rung's requiresResearch gate checks the researched blueprint", (
   });
 });
 
+// ===== OC-C4 "Keep tested hooks": the requiresFacilityLevels rung gate (registry seam) =====
+
+describe("OC-C4 seam: a rung's requiresFacilityLevels gate checks the other facility's level", () => {
+  const KEY = "wr13FacilityLevelGated";
+  it("refuses below the level, naming the facility and level, then allows at it", () => {
+    (FACILITIES as Record<string, unknown>)[KEY] = {
+      label: "Gated",
+      upgrades: [{ materials: {}, durationTicks: 1, effect: { addRefineSlots: 1 }, requiresFacilityLevels: { refinery: 2 } }],
+    };
+    try {
+      const s = withFacilityLevel(freshState(), "refinery", 1);
+      expect(canBuildFacilityUpgrade(s, KEY)).toEqual({ ok: false, reason: `Requires ${FACILITIES.refinery.label} level 2` });
+      expect(canBuildFacilityUpgrade(withFacilityLevel(s, "refinery", 2), KEY)).toEqual({ ok: true });
+    } finally {
+      delete (FACILITIES as Record<string, unknown>)[KEY];
+    }
+  });
+});
+
 // ===== B2 / OC-I3: transports launch at the ore cap =====
 
 describe("B2: a full Titanium Ore warehouse never blocks a supply run", () => {

@@ -135,16 +135,14 @@ describe("GO-8 the gate: who rolls ship events", () => {
     expect(shipEventsLive(withoutGroundOps(exp))).toBe(false);
   });
 
-  it("a pre-GO-8 flagged run rolls nothing at draw 1 (only supply caches); a legacy run still fights its ground encounters", () => {
-    let legacyBattles = 0;
+  // Wiring OC-G1: the legacy half ("a legacy run still fights its ground encounters") is RETIRED with the legacy scan
+  // battles; a run without its Ground Ops record is finished by the engine, never walked.
+  it("a pre-GO-8 flagged run rolls nothing at draw 1 (only supply caches)", () => {
     for (const seed of PINNED) {
       const { exp } = dispatch(seed);
       const old = advanceExpedition(withoutShipEvents(exp), FAR);
       expect((old.scanEvents ?? []).every((ev) => ev.kind === "supplyCache")).toBe(true);
       expect(old.groundOps!.hullDamage).toBeUndefined();
-      const legacy = advanceExpedition(withoutGroundOps(exp), FAR);
-      legacyBattles += (legacy.scanEvents ?? []).filter((ev) => ev.kind === "encounter").length;
-      expect(shipEvents(legacy)).toEqual([]);
       // The supply cache keeps its draw: a pre-GO-8 cache boundary holds the same cache or a ship event now.
       const now = advanceExpedition(exp, FAR);
       for (const ev of old.scanEvents ?? []) {
@@ -152,7 +150,6 @@ describe("GO-8 the gate: who rolls ship events", () => {
         expect(here?.kind === "supplyCache" || here?.kind === "shipEvent").toBe(true);
       }
     }
-    expect(legacyBattles).toBeGreaterThan(0);
   });
 });
 

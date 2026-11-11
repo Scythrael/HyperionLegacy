@@ -475,6 +475,8 @@ export function simplifiedLogTokens(
       return [{ text: `${attacker}'s ${mod} arcs into ${target}`, kind: "text" }, ...damageClauseTokens(shield, hull)];
     }
     case "evade":
+      // WR-8b: a missile the target's point defense shot down.
+      if (event.intercepted) return [{ text: `${target}'s point defense shoots down ${attacker}'s torpedo.`, kind: "text" }];
       return [{ text: `${target} evades ${attacker}'s fire.`, kind: "text" }];
     case "dot": {
       // A DoT tick has no acting shooter (the burn outlives the shot); only the
@@ -575,6 +577,8 @@ export interface VisualBeat {
   // event (a state change with no actor): the DOM layer draws a tracer ONLY when fromId is
   // present, so those two kinds correctly pop with no tracer.
   fromId?: string;
+  // WR-8b: an evade beat whose missile the target's point defense shot down (the pop reads "shot down"). Absent otherwise.
+  intercepted?: true;
   // The firing weapon family, for the tracer tint (hit beats carry it; drones/dot/etc leave
   // it undefined and the render layer picks its default tint). Optional because non-weapon
   // beats have no family.
@@ -660,7 +664,7 @@ export function visualBeatsForRound(events: CombatEvent[], round: number): Visua
       }
       case "evade": {
         if (event.targetId === undefined) break;
-        beats.push({ kind: "evade", fromId: event.actorId, toId: event.targetId });
+        beats.push({ kind: "evade", fromId: event.actorId, toId: event.targetId, ...(event.intercepted ? { intercepted: true as const } : {}) });
         break;
       }
       default:

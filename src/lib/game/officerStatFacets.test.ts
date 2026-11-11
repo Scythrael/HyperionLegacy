@@ -108,8 +108,9 @@ import { withPatrolLegsOff } from "./patrolLegsSwitch.fixture";
 // they also run with the float crewHours counter (crewHoursSwitch.fixture.ts; crewHoursMs.test.ts traces the move).
 const withCombatRulesAndLegsOff = <T>(run: () => T): T => withCombatRulesOff(() => withPatrolLegsOff(() => withCrewHoursFloat(run)));
 import { withCrewHoursFloat } from "./crewHoursSwitch.fixture";
-import { activityRelicFindBonus, generateEncounter, softenAmbush } from "./gambit";
-import { applyExpeditionInjuries, injuryRecoverySeconds } from "./injuries";
+import { activityRelicFindBonus } from "./gambit";
+// Wiring OC-G1: the Medical facets are read on the medical bay (the legacy claim's flat injury went with the legacy path).
+import { GROUND_CONDITIONS, bayCareFrom, conditionCureSeconds } from "./medicalBay";
 import {
   CONSTITUTION_RAMP_KNEE_HOURS,
   CUNNING_AMBUSH_SOFTEN,
@@ -134,10 +135,12 @@ import { wr11OffForThisFile } from "./wr11Switch.fixture";
 // proving their own slice moved nothing else (WR-11's own moves are pinned in wr11Goldens.test.ts).
 wr11OffForThisFile();
 
-// Ground Ops (GO-7b): this file pins LEGACY expedition runs (goldens captured before Ground Ops): every dispatch
-// slots the members in hire order (dispatch reads the slotted ground teams) and resolves without the groundOps
-// flag (asLegacyDispatch), exactly the record the pre-switch dispatch produced.
+// Wiring OC-G1 (user 2026-10-16 "Delete it"): `legacyStart` gives the DISPATCH RECORD as the pre-GO-7b dispatch wrote it
+// (asLegacyDispatch strips the later flags; it is read and hashed, never resolved: the legacy resolver is gone).
+// Every dispatch slots the members in hire order (dispatch reads the slotted ground teams). A test that ADVANCES a run
+// uses `groundOpsStart` (the live Ground Ops run).
 const legacyStart: typeof dispatchPastPropulsion = (state, ...rest) => asPreG2NamesDispatch(asLegacyDispatch(dispatchPastPropulsion(withSlottedAwayTeams(state), ...rest)));
+const groundOpsStart: typeof dispatchPastPropulsion = (state, ...rest) => asPreG2NamesDispatch(dispatchPastPropulsion(withSlottedAwayTeams(state), ...rest));
 
 // ===== fixtures =====
 
@@ -320,9 +323,9 @@ function scenarioHashes(statsFor: (seat: SeniorStaffSeat) => OfficerStats | unde
     const s = { ...s0, expeditionSeed: (0x2468ace + i * 7919) >>> 0 };
     const res = legacyStart(s, "ship-1", 1, expeditionCandidates(s, "ship-1")[0].id);
     expect(res.success).toBe(true);
-    const done = advanceExpedition(res.expedition!, 1_000_000);
-    const claimed = claimExpedition({ ...res.next, expeditions: [done] }, done.id);
-    runs.push(fnv(goldenJson(res.expedition)) + "/" + fnv(goldenJson(done)) + "/" + fnv(goldenJson(claimed.next.awayMembers)));
+    // Wiring OC-G1: the dispatch record only. Each pin was "record / legacy resolution / legacy claim injuries"; the
+    // last two proved only the deleted legacy path and are RETIRED, the record hash (the first) is held unchanged.
+    runs.push(fnv(goldenJson(res.expedition)));
   }
   out.expedition = runs;
   return out;
@@ -383,14 +386,14 @@ const GOLDEN_NEUTRAL: Record<string, string | string[]> = {
   ],
   repair: "f6dcd689",
   expedition: [
-    "24e73ea5/594cf5ec/a1bc9cbc",
-    "ee5575ac/eba8573c/6ac12a6e",
-    "8caf5b41/a222f16b/a1bc9cbc",
-    "3bed8ba/add2a542/a1bc9cbc",
-    "74848a53/8f4394b1/e8b897b6",
-    "5a872333/b83b8f99/a1bc9cbc",
-    "5aab8638/84916e0b/a1bc9cbc",
-    "7e02d44/e184f206/a1bc9cbc",
+    "24e73ea5",
+    "ee5575ac",
+    "8caf5b41",
+    "3bed8ba",
+    "74848a53",
+    "5a872333",
+    "5aab8638",
+    "7e02d44",
   ],
 };
 
@@ -442,14 +445,14 @@ const GOLDEN_STATLESS: Record<string, string | string[]> = {
   ],
   repair: "f6dcd689",
   expedition: [
-    "24e73ea5/594cf5ec/a1bc9cbc",
-    "ee5575ac/eba8573c/6ac12a6e",
-    "8caf5b41/a222f16b/a1bc9cbc",
-    "3bed8ba/add2a542/a1bc9cbc",
-    "74848a53/8f4394b1/e8b897b6",
-    "5a872333/b83b8f99/a1bc9cbc",
-    "5aab8638/84916e0b/a1bc9cbc",
-    "7e02d44/e184f206/a1bc9cbc",
+    "24e73ea5",
+    "ee5575ac",
+    "8caf5b41",
+    "3bed8ba",
+    "74848a53",
+    "5a872333",
+    "5aab8638",
+    "7e02d44",
   ],
 };
 
@@ -459,14 +462,14 @@ const GOLDEN_STATLESS: Record<string, string | string[]> = {
 // The pre-CP-2 values of the scenarios CP-2 moved (the CP2_OFF records spread the re-pinned goldens).
 const PRE_CP2_REPAIR = "9e0af219";
 const PRE_CP2_EXPEDITIONS = [
-  "2aeb94e9/4d9b3ae6/a1bc9cbc",
-  "9799f10e/78bb63b2/60286a58",
-  "6b11a5/738c263f/a1bc9cbc",
-  "e62a1e30/6cbae86a/a1bc9cbc",
-  "e7b4bd1b/a328ddc5/99a22880",
-  "eff9b67b/e95b09e7/a1bc9cbc",
-  "69eeabea/e28a5013/a1bc9cbc",
-  "35a87b36/f3fb14ee/a1bc9cbc",
+  "2aeb94e9",
+  "9799f10e",
+  "6b11a5",
+  "e62a1e30",
+  "e7b4bd1b",
+  "eff9b67b",
+  "69eeabea",
+  "35a87b36",
 ];
 // The sheet with the switch off: the pre-CP-2 capture was 3a556fef; the one difference left is a NAME, the Pilot's
 // sweeping transit cut now rides its own crew-map key (officer.transitTimeCut, OC-E5) instead of crew.transitOutSpeed,
@@ -512,14 +515,14 @@ const RACIALS_NEUTRAL: Record<string, string | string[]> = {
   "patrol:carrier:state": "96d9813e",
   "patrol:carrier:replays": RACIALS_CARRIER_REPLAYS,
   expedition: [
-    "bb004bc4/25b5beb7/a1bc9cbc",
-    "e0b9853b/4b4a7548/6ac12a6e",
-    "2e8d0a00/1e1ee02f/a1bc9cbc",
-    "62678269/f19fb769/a1bc9cbc",
-    "20ea9c6a/d0d45313/e8b897b6",
-    "2f269cca/ae64fe1/a1bc9cbc",
-    "70cab237/ad8c595b/a1bc9cbc",
-    "8d3abfb3/d9a668d0/a1bc9cbc",
+    "bb004bc4",
+    "e0b9853b",
+    "2e8d0a00",
+    "62678269",
+    "20ea9c6a",
+    "2f269cca",
+    "70cab237",
+    "8d3abfb3",
   ],
 };
 const RACIALS_STATLESS: Record<string, string | string[]> = {
@@ -531,14 +534,14 @@ const RACIALS_STATLESS: Record<string, string | string[]> = {
   "patrol:carrier:state": "dfe9e30",
   "patrol:carrier:replays": RACIALS_CARRIER_REPLAYS,
   expedition: [
-    "bb004bc4/25b5beb7/a1bc9cbc",
-    "e0b9853b/4b4a7548/6ac12a6e",
-    "2e8d0a00/1e1ee02f/a1bc9cbc",
-    "62678269/f19fb769/a1bc9cbc",
-    "20ea9c6a/d0d45313/e8b897b6",
-    "2f269cca/ae64fe1/a1bc9cbc",
-    "70cab237/ad8c595b/a1bc9cbc",
-    "8d3abfb3/d9a668d0/a1bc9cbc",
+    "bb004bc4",
+    "e0b9853b",
+    "2e8d0a00",
+    "62678269",
+    "20ea9c6a",
+    "2f269cca",
+    "70cab237",
+    "8d3abfb3",
   ],
 };
 
@@ -548,14 +551,14 @@ const RACIALS_STATLESS: Record<string, string | string[]> = {
 // CP-3 (the switch zeroes catalog magnitudes, which the sheet's crew map would show, so only the runs read it).
 // The neutral and stat-less bridges run the same expeditions (no facet reaches these runs), so one list serves both.
 const CP3_EXPEDITIONS = [
-    "b6bfbec2/da2b1303/a1bc9cbc",
-    "cc4992cf/1a82cae9/a1bc9cbc",
-    "435d1566/ad5eaeeb/a1bc9cbc",
-    "ed1bf185/f771f885/a1bc9cbc",
-    "703b81a8/c34c10d3/6ac12a6e",
-    "9bb28188/8f9c918d/a1bc9cbc",
-    "523e2983/7c9bc56f/a1bc9cbc",
-    "9e8fd557/6c592176/a1bc9cbc",
+    "b6bfbec2",
+    "cc4992cf",
+    "435d1566",
+    "ed1bf185",
+    "703b81a8",
+    "9bb28188",
+    "523e2983",
+    "9e8fd557",
   ];
 const CP3_NEUTRAL: Record<string, string | string[]> = { ...RACIALS_NEUTRAL, expedition: CP3_EXPEDITIONS };
 const CP3_STATLESS: Record<string, string | string[]> = { ...RACIALS_STATLESS, expedition: CP3_EXPEDITIONS };
@@ -563,7 +566,35 @@ function cp3OffExpeditions(run: () => Record<string, string | string[]>): Record
   return { ...run(), expedition: withCp3Off(run).expedition };
 }
 
+// Wiring OC-G1 fix round: one Ground Ops run resolved and claimed, "dispatch record / resolved run / claimed state
+// without the officers", captured on the engine of the OC-G1 fix round (the end-to-end half the retired legacy pins
+// carried). The real assertion is the equality: the all-10 bridge and the stat-less bridge resolve it identically.
+const GROUND_OPS_NEUTRAL_RUN = "d72d5d34/b244cf0d/336c02f9";
+
+// A Ground Ops run (live dispatch) for one bridge stat assignment, resolved to the end and claimed. The officers are
+// stripped from the claimed state (their stat lines differ by construction).
+function groundOpsRunHash(statsFor: (seat: SeniorStaffSeat) => OfficerStats | undefined): string {
+  const s: GameState = { ...withCrew(freshState(), bridge(statsFor)), awayMembers: ROSTER, nextAwayMemberId: 100, expeditionSeed: 0x2468ace };
+  const res = groundOpsStart(s, "ship-1", 1, expeditionCandidates(s, "ship-1")[0].id);
+  expect(res.success).toBe(true);
+  expect(res.expedition!.groundOps).toBeDefined();
+  const done = advanceExpedition(res.expedition!, 1_000_000);
+  expect(done.phase).toBe("complete");
+  // The fixture really fights (the run's battles are what the facets could reach).
+  expect(done.groundOps!.history.some((r) => r.step === "fight")).toBe(true);
+  const claimed = claimExpedition({ ...res.next, expeditions: [done] }, done.id);
+  expect(claimed.success).toBe(true);
+  return [res.expedition, done, { ...claimed.next, officers: [] }].map((x) => fnv(goldenJson(x))).join("/");
+}
+
 describe("neutrality: an all-10 bridge = byte-identical to before Task 21 (golden)", () => {
+  // Wiring OC-G1 fix round: the expedition pins hash only the dispatch record now, so this restores a resolved run.
+  it("a Ground Ops run through claim: the all-10 bridge = the stat-less bridge", () => {
+    const neutral = groundOpsRunHash(() => NEUTRAL);
+    expect(groundOpsRunHash(() => undefined)).toBe(neutral);
+    expect(neutral).toBe(GROUND_OPS_NEUTRAL_RUN);
+  });
+
   // WR-8 (0.14.0): captured before the combat rules, so these fly with them switched off (combatRulesSwitch.fixture.ts;
   // combatDescriptorGoldens.test.ts pins the rules).
   it("a full bridge at 10/10/10/10 (sheet, missions, patrols + replays, repair, expeditions)", { timeout: 120_000 }, () => withCombatRulesAndLegsOff(() => {
@@ -679,8 +710,9 @@ describe("facet value and departments", () => {
     expect(outcomeJson(a)).toBe(outcomeJson(b));
     const ea = { ...withCrew(freshState(), low), awayMembers: ROSTER };
     const eb = { ...withCrew(freshState(), neutral), awayMembers: ROSTER };
-    const ra = legacyStart(ea, "ship-1", 1, expeditionCandidates(ea, "ship-1")[0].id);
-    const rb = legacyStart(eb, "ship-1", 1, expeditionCandidates(eb, "ship-1")[0].id);
+    // OC-G1: the Ground Ops run (the legacy run this compared went with the legacy path).
+    const ra = groundOpsStart(ea, "ship-1", 1, expeditionCandidates(ea, "ship-1")[0].id);
+    const rb = groundOpsStart(eb, "ship-1", 1, expeditionCandidates(eb, "ship-1")[0].id);
     expect(JSON.stringify(advanceExpedition(ra.expedition!, 1_000_000))).toBe(JSON.stringify(advanceExpedition(rb.expedition!, 1_000_000)));
   });
 });
@@ -1030,7 +1062,7 @@ describe("Cunning: per-mission over-delivery", () => {
     const firstSeed = (c.mission as PatrolMissionState).masterSeed;
     const gear = equippedFor(rr, "ship-1");
     for (let i = 0; i < 400 && (c.mission as PatrolMissionState).masterSeed === firstSeed; i++) {
-      c = tickCaptainPatrol(1, c, rr.ships[0], 1e9, 0, 1e9, 1, gear, 1, { freeRepairChance: 1 }).captain;
+      c = tickCaptainPatrol(1, c, rr.ships[0], gear, 1, { freeRepairChance: 1 }).captain;
     }
     expect((c.mission as PatrolMissionState).masterSeed).not.toBe(firstSeed);
     expect((c.mission as PatrolMissionState).freeRepairTicks).toBe(CUNNING_FREE_REPAIR_TICKS);
@@ -1049,16 +1081,12 @@ describe("Cunning: per-mission over-delivery", () => {
       seen = { soft: seen.soft || soft, notSoft: seen.notSoft || !soft, quick: seen.quick || quick };
     }
     expect(seen).toEqual({ soft: true, notSoft: true, quick: true });
-    const enemies = generateEncounter(77, 0.5, "crashedShip");
-    expect(softenAmbush(enemies, 0)).toBe(enemies);
-    const softened = softenAmbush(enemies, CUNNING_AMBUSH_SOFTEN);
-    softened.forEach((e, i) => {
-      expect(e.hp).toBe(Math.max(1, Math.round(enemies[i].hp * 0.75)));
-      expect(e.hpMax).toBe(e.hp);
-      expect(e.power).toBeCloseTo(enemies[i].power * 0.75, 12);
-    });
-    const base = { medicalShare: 0.1, rapidRecoveryShare: 0 };
-    expect(injuryRecoverySeconds({ ...base, officerFacetShare: CUNNING_QUICK_RECOVERY })).toBeLessThan(injuryRecoverySeconds(base));
+    // Wiring OC-G1: the legacy scan battles' softenAmbush is RETIRED with them (a run's ambushSoften softens its ship
+    // events, shipScanEvents.test.ts); Medical's quicker recovery is read on the medical bay's care.
+    const ship = { medicalShare: 0.1, rapidRecoveryShare: 0 };
+    expect(conditionCureSeconds(GROUND_CONDITIONS.fracture, [], bayCareFrom(ship, { quickRecovery: CUNNING_QUICK_RECOVERY }))).toBeLessThan(
+      conditionCureSeconds(GROUND_CONDITIONS.fracture, [], bayCareFrom(ship, {})),
+    );
   });
 
   // WR-9 (OC-E4, user 2026-10-15 "Quicker trips home"): the Pilot's Cunning acts on a run STAMPED at dispatch
@@ -1111,7 +1139,7 @@ describe("Constitution: long-haul ramp and shorter turnaround", () => {
     const seen: number[] = [];
     for (let i = 0; i < 400 && seen.length < 3; i++) {
       const before = (c.mission as PatrolMissionState).masterSeed;
-      c = tickCaptainPatrol(1, c, ship, 1e9, 0, 1e9, 1, gear, 1, effects).captain;
+      c = tickCaptainPatrol(1, c, ship, gear, 1, effects).captain;
       const m = c.mission as PatrolMissionState | null;
       if (!m) break;
       if (m.masterSeed !== before) seen.push(m.officerCombat!.weaponDamage);
@@ -1132,9 +1160,9 @@ describe("Constitution: long-haul ramp and shorter turnaround", () => {
     const gear = equippedFor(r.next, "ship-1");
     const effects = { relaunchCombatProfile: officerCombatProfile(r.next, ship), secondsPerTick: 60, freeRepairChance: 0.5 };
     const captain = r.next.captains[0];
-    const big = tickCaptainPatrol(900, captain, ship, 1e9, 0, 1e9, 1, gear, 1, effects);
+    const big = tickCaptainPatrol(900, captain, ship, gear, 1, effects);
     let c = captain;
-    for (let i = 0; i < 900; i++) c = tickCaptainPatrol(1, c, ship, 1e9, 0, 1e9, 1, gear, 1, effects).captain;
+    for (let i = 0; i < 900; i++) c = tickCaptainPatrol(1, c, ship, gear, 1, effects).captain;
     expect(JSON.stringify(c.mission)).toBe(JSON.stringify(big.captain.mission));
   });
 
@@ -1167,8 +1195,10 @@ describe("Constitution: long-haul ramp and shorter turnaround", () => {
     const bs = { ...b, awayMembers: ROSTER };
     const e = legacyStart(bs, "ship-1", 1, expeditionCandidates(bs, "ship-1")[0].id).expedition!;
     expect(e.recoveryTurnaround).toBeCloseTo(0.1, 12);
-    expect(injuryRecoverySeconds({ medicalShare: 0, rapidRecoveryShare: 0, officerFacetShare: 0.1 })).toBeLessThan(
-      injuryRecoverySeconds({ medicalShare: 0, rapidRecoveryShare: 0 }),
+    // OC-G1: read on the medical bay's care (the legacy claim's flat injury went with the legacy path).
+    const noCare = { medicalShare: 0, rapidRecoveryShare: 0 };
+    expect(conditionCureSeconds(GROUND_CONDITIONS.fracture, [], bayCareFrom(noCare, { recoveryTurnaround: 0.1 }))).toBeLessThan(
+      conditionCureSeconds(GROUND_CONDITIONS.fracture, [], bayCareFrom(noCare, {})),
     );
   });
 });
@@ -1184,7 +1214,8 @@ describe("parity: every facet live, one big advance == many small advances", () 
     let ramped = 0;
     for (let i = 0; i < 6; i++) {
       const s = { ...s0, expeditionSeed: (0x2468ace + i * 7919) >>> 0 };
-      const start = legacyStart(s, "ship-1", 1, expeditionCandidates(s, "ship-1")[0].id).expedition!;
+      // OC-G1: the Ground Ops run (the legacy run this chunked went with the legacy path).
+      const start = groundOpsStart(s, "ship-1", 1, expeditionCandidates(s, "ship-1")[0].id).expedition!;
       if (start.rampFlightDeck && start.rampScience) ramped++;
       const big = advanceExpedition(start, 1_000_000);
       let small = start;
@@ -1276,7 +1307,7 @@ describe("per-seat Integrity and Constitution rows", () => {
     let c = r.next.captains[0];
     let cut = 0;
     for (let i = 0; i < 400 && cut === 0; i++) {
-      c = tickCaptainPatrol(1, c, r.next.ships[0], 1e9, 0, 1e9, 1, gear, 1, effects).captain;
+      c = tickCaptainPatrol(1, c, r.next.ships[0], gear, 1, effects).captain;
       cut = (c.mission as PatrolMissionState | null)?.returnCutTicks ?? 0;
     }
     expect(cut).toBeGreaterThan(0);
@@ -1284,7 +1315,7 @@ describe("per-seat Integrity and Constitution rows", () => {
     const startSeed = (c.mission as PatrolMissionState).masterSeed;
     let ticks = 0;
     while ((c.mission as PatrolMissionState).masterSeed === startSeed && ticks < 400) {
-      c = tickCaptainPatrol(1, c, r.next.ships[0], 1e9, 0, 1e9, 1, gear, 1, effects).captain;
+      c = tickCaptainPatrol(1, c, r.next.ships[0], gear, 1, effects).captain;
       ticks++;
     }
     expect(ticks).toBe(def.transitOutTicks + def.rollWindowTicks + def.transitBackTicks - cut);
@@ -1359,10 +1390,11 @@ describe("per-seat Integrity and Constitution rows", () => {
     const s = { ...withCrew(freshState(), bridgeWith({ medical: { integrity: 28 } })), awayMembers: ROSTER };
     const exp = legacyStart(s, "ship-1", 1, expeditionCandidates(s, "ship-1")[0].id).expedition!;
     expect(exp.injurySteady).toBeCloseTo(0.18, 12);
-    const downed: Expedition = { ...exp, phase: "complete", scanEvents: [{ bodyIndex: 0, step: 1, kind: "encounter", outcome: "loss", downedMemberIds: ["member-1"] }] };
-    const { injurySteady: _i, ...plainExp } = downed;
-    const with_ = applyExpeditionInjuries(s, downed).injuries[0].recoverySeconds;
-    const without = applyExpeditionInjuries(s, plainExp as Expedition).injuries[0].recoverySeconds;
+    // OC-G1: read on the medical bay's care for an injury-class condition (the legacy claim went with the legacy path).
+    const { injurySteady: _i, ...plainExp } = exp;
+    const ship = { medicalShare: 0, rapidRecoveryShare: 0 };
+    const with_ = conditionCureSeconds(GROUND_CONDITIONS.fracture, [], bayCareFrom(ship, exp));
+    const without = conditionCureSeconds(GROUND_CONDITIONS.fracture, [], bayCareFrom(ship, plainExp));
     expect(with_).toBeLessThan(without);
   });
 
@@ -1408,16 +1440,10 @@ describe("per-seat Integrity and Constitution rows", () => {
       secondsPerTick: 600,
       returnConstitution: 0.15,
     };
-    const pBig = tickCaptainPatrol(900, r.next.captains[0], ship, 1e9, 10, 1e9, 1, gear, 1, effects);
+    const pBig = tickCaptainPatrol(900, r.next.captains[0], ship, gear, 1, effects);
     let pc = r.next.captains[0];
-    let fuel = 0;
-    for (let i = 0; i < 900; i++) {
-      const step = tickCaptainPatrol(1, pc, ship, 1e9, 10, 1e9, 1, gear, 1, effects);
-      pc = step.captain;
-      fuel += step.fuelSpent;
-    }
+    for (let i = 0; i < 900; i++) pc = tickCaptainPatrol(1, pc, ship, gear, 1, effects).captain;
     expect(JSON.stringify(pc.mission)).toBe(JSON.stringify(pBig.captain.mission));
-    expect(fuel).toBeCloseTo(pBig.fuelSpent, 9);
   });
 
   it("every seat's Integrity and Constitution tooltip names its real effect", () => {

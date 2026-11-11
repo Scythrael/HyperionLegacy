@@ -102,9 +102,9 @@ describe("R2-0 golden 2: rollRelicToken", () => {
         .findings.filter((f) => f.relic)
         .map((f) => ({ poiId: f.poiId, relic: f.relic }));
     const flagged = relicFindings(PRE_G2_STORED_RUNS.flagged as Expedition);
-    const legacy = relicFindings(PRE_G2_STORED_RUNS.legacy as Expedition);
+    // (Wiring OC-G1 RETIRED the legacy fixture run's half: the legacy resolution is deleted; it found no relic.)
     const tok = (id: string, tier: EquipmentRarity, quality: number) => ({ id: `expedition-2-relic-expedition-2-body-1-act-${id}`, tier, quality, unidentified: true });
-    expect({ flagged, legacy }).toEqual({
+    expect({ flagged }).toEqual({
       flagged: [
         { poiId: "mineralOutcrop", relic: tok("4", "augmented", 1) },
         { poiId: "geothermalChamber", relic: tok("1", "standard", 0) },
@@ -113,7 +113,6 @@ describe("R2-0 golden 2: rollRelicToken", () => {
         { poiId: "derelictOutpost", relic: tok("0", "standard", 0) },
         { poiId: "subterraneanCivilization", relic: tok("5", "standard", 0) },
       ],
-      legacy: [],
     });
   });
 });

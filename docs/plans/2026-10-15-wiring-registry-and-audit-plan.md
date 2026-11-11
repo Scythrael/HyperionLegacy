@@ -2249,3 +2249,190 @@ stalls run 2 on 5 of 200 (2.5%, under the 5% bar: a margin of 5 runs); rank1si a
   "Torpedoes on fitting enemies": give the Concussion Torpedo (missile trait) to enemy ship types where it makes sense;
   the hub proposes WHICH enemies for the user's OK before building.
 - CP-4 rest, the Flight Deck Integrity facet on drone replenishment below half hull (was [PROPOSAL]): "Build it".
+- Enemy torpedoes (2026-11-10, after the research proposal): Corsair Carrier "Add to its plasma (Recommended)". Marauder
+  (verbatim): "Perhaps give them a chance to have them. Spice up earlier tiers. Later tiers will likely have them on all
+  ships, or something equivalent." Ship events (verbatim): "Similar to the last question. Starting off a bit more
+  generous, but as you go up in tier, or perhaps through a safety interlock, enemies become far more dangerous. Or
+  both." Scope: "Simple now, rest logged (Recommended)": 0.14.0 builds the carrier's torpedo, a Marauder torpedo CHANCE
+  that grows along the patrol ramp, and a ship-event torpedo chance that grows with expedition tier (gentle at Tier I).
+  LOGGED for later: torpedoes (or an equivalent) on all ships at high tiers, and Safety Interlocks (SUGGESTIONS.md
+  "SAFETY INTERLOCKS", the opt-in risk toggles; user: "Check documentation for the definition") raising enemy danger.
+- **USER ANSWERS (2026-11-10), WR-8b balance after the build** (veteran, Standard Issue, 200 seeds; Warband Balanced
+  wins Destroyer 15% to 8%, Battleship 88% to 72%, Carrier 38% to 20%; Defensive now the better pick for every hull):
+  - Warband difficulty: "Keep, tune in 0.16.0 (Recommended)". The measured numbers stand, all torpedo chances stay
+    [PROVISIONAL] for the 0.16.0 balancing patch. patrol-balance.test.ts must measure the live path honestly.
+  - Marauder 31.6% to 40% jump at 10 patrols: "Smooth it out (Recommended)": the 9th and 10th patrols step up like the
+    rest, ending at the same 40%.
+
+## WR-13 BUILT (2026-11-10): the audit leftovers cleanup (S4-A02, the drive wear line, OC-C4)
+
+**S4-A02 "Remove it":** the old fuel economy is gone. Unreachability proof: economyTick is the only production caller
+of `tickCaptainMission` and `tickCaptainPatrol`; it seeded the shared fuel budget at `+Infinity` and only ever
+subtracted finite need (fuelNeeded / fuelForRoundTrip with the clamped efficiency), so `fuelRemaining >= need` always
+held: the credit auto-buy, the "truly broke" stop (stop reason `fuel`, patrol ending `outOfFuel`) and the +2 refuel
+penalty never ran, and `totalCreditsSpentOnFuel` was always 0. Removed: `FUEL_CREDITS_PER_UNIT`,
+`REFUEL_PENALTY_TICKS`, the fuel budget / per-cycle / credit-price params of both tick helpers, their `fuelSpent` /
+`creditsSpentOnFuel` results, `relaunchFuelPaid`, economyTick's fuel budget, fuel sums and the per-cycle fuel prices.
+`creditsBudget` stays on `tickCaptainMission` (a transport's working capital reads it). Kept for old saves: the
+`fuel` stop reason and `outOfFuel` ending (types and their recap / log labels, marked legacy), and a tolerant read of
+`refuelDelayTicks` so a cycle in flight from a pre-0.13.6 save plays out exactly as saved (fuel.test.ts pins it).
+**Held for a hub call:** a fresh cycle still stamps the constant `refuelDelayTicks: 0`. Dropping that key moves the
+state-hash goldens (shortRange `fleet`, EM-0 `mission:shortOreRun` / `mission:surveyMineralAnomaly`, cp19 rows) and
+nothing else: the switch (key re-inserted) reproduces every pin, so it is shape-only. Re-pin, or keep the stamp.
+
+**The drive's `engineEfficiency` wear line, "Drop that line":** removed from `WEAR_EFFICIENCY` (and its probe and
+registry row); `engineEfficiency` joins `WEAR_EXEMPT_LINES`, so no worn piece scales it (a cargo hold can roll it too)
+and the gear card's worn lines no longer list it. A worn drive keeps its transit-speed wear and true-condition fights.
+Help's Gear wear topic now names transit speed only. No golden moved (its only run-time reader was the fuel price).
+
+**OC-C4 "Keep tested hooks":** six rows are `seam` (userRef `OC_C4_HOOKS`): `captain:audit:gearGates` (new test:
+equipment.test.ts "OC-C4 seam", a lent captainSpec requirement refuses parked / no spec / wrong spec, allows the
+right one; minCaptainLevel / requiresTalent are declared fields with no gate logic, named in the claim),
+`facility:audit:requiresResearch` (wiringBugs B1), `facility:audit:requiresFacilityLevels` (new test in
+wiringBugs.test.ts), `away:audit:objectiveHooks` (riskFactors / affixes / outcroppings tests),
+`salvage:audit:achievementBoost` (itemgen computeItemLevel tests), `salvage:audit:ascension` (ascension.test.ts; RR-4
+gave it a planned use after OC-C4). `facility:audit:itemEquipStats` was NOT seamed: the OC-C4 proposal the user took
+deletes `ItemDef.equipStats` (no planned use, the equipmentSlots precedent), so the field and its row are deleted.
+
+**Registry:** `wr13Registry.fixture.ts` `wr13ReadBack` (innermost in every registry chain) puts the three removed rows
+back in place and the six flips back to pending; gearWearRegistry.fixture.ts reads the removed wear row back too.
+Release gate pending: 19 -> 10.
+
+**WR-13 fix round (review findings, 2026-11-10):**
+- **Gear gates, all four tested.** `canFitEquipment` (equipment.ts) now gates `minCaptainLevel` (the captain's level),
+  `requiresTalent` (the captain owns it, primary or secondary tree) and `requiresResearch` (the same
+  `blueprintUnlocked` read as the B1 rung gate), after the captainSpec block. A parked hull refuses the captain gates
+  with `captainSpecParked`; the research gate is account-wide, so a parked hull with the blueprint researched installs.
+  New refusal reasons `captainLevel` / `captainTalent` / `researchLocked` with their install wording in both reason
+  switches (App.svelte, ShipSystemsPanel.svelte). equipment.test.ts lends each requirement to the Spec Utility slot
+  (parked, below, at; restored in `finally`). No slot sets one, so no golden moved. The row's claim names all four.
+- **Task chains wired (user #14).** `taskChainFollowUp` reads `TASK_CHAIN_FOLLOW_UPS` (riskFactors.ts, an empty map:
+  no chain is authored, that is content). groundOps.ts `finishWork` calls `revealFollowUpTask` where a task reaches
+  100%: a named follow-up site joins the same body as one more discovery and task through the scan's own builder
+  (`bodyTaskFor`, now shared with expedition.ts `assignDiscoveriesAndActivities`), stamped by `initGroundTasks` and
+  planned by `planNewTasks`. Known effect for the content pass: the new task takes the next flat index after its body,
+  so the seed key of every task on a later body moves up by one from that instant (deterministic either way).
+  groundOpsTaskChain.test.ts lends a Crashed Ship to Derelict Outpost chain on the GO-7b parity run: revealed once,
+  planned, the run identical to the unlent one up to the completion, and big == 997 s chunks == 1 s steps. No golden
+  moved. The objective hooks row's claim is rewritten (calmObjective has a caller: affixes.ts rollObjectiveAffixes).
+- **Fuel leftovers.** Stale comments made truthful (model.ts mission rewards and ShipDerivedStats, crewOverlay.ts,
+  tick.ts dispatch gates); the never-returned `fuelEmpty` dispatch reason is removed from both dispatch unions with its
+  "Not enough fuel or credits to refuel" text (no player text promises an auto-buy now). fuel.test.ts adds a parity
+  case over the legacy in-flight cycle (1-tick steps == one economyTick call).
+- **`refuelDelayTicks: 0` stays on purpose.** The constant stamp on a fresh cycle is kept so the state-hash goldens do
+  not move (the "held for a hub call" above is settled this way unless the hub says re-pin).
+- **Why `salvage:audit:ascension` stays a seam** although the OC-C4 proposal listed it for deletion: the later user
+  answer "Plumbing only (Recommended)" (docs/plans/2026-10-22-rarity-quality-readiness-capture.md line 61) gave
+  ascension a planned use, and RR-4 built tested plumbing for it (ascension.test.ts).
+- **USER ANSWERS (2026-11-11), OC-G1 open calls after the build** (production and staging never had expeditions; the
+  pre-SQ-4 Ground Ops runs exist only in local dev saves):
+  - `FIGHT_POINTS_MIN` / `SURVEY_AMBUSH_CHANCE` pre-SQ-4 fallbacks: "Keep, sweep later (Recommended)". Keep them;
+    LOGGED: one later cleanup pass for all the "dispatched before X" leftovers together (pre-SQ-4 fallbacks, pre-GO-8
+    draw 1 at chance 0, `PRE_FKR8_DEVICE_EFFECTIVENESS`, ...).
+  - `fuseLogLine` (fieldKitsDisplay.ts) and `rankedEnemyName` (enemyRanks.ts), both without a caller: "Delete the helpers
+    (Recommended)". The animated ground fight replay after 0.14.0 stays logged as planned (SUGGESTIONS.md).
+#### WR-8b carry note (enemy torpedoes, built 2026-11-10 on f8d3623; two commits: goldens, then the wiring; no SAVE bump)
+
+**Built:** every new combat rules stamp carries `enemyTorpedoes: 1` (combat/combatRules.ts; test switch
+`ENEMY_TORPEDO_SWITCH`, enemyTorpedoSwitch.fixture.ts). Under it: every Corsair Carrier installs the Concussion Torpedo
+after its plasma (enemyWave.ts `params.torpedoes`); a Marauder carries one at `MARAUDER_TORPEDO_PERMILLE` on the patrol
+ramp (patrolProfile.ts `patrolMarauderTorpedoPermille`: `rampedChance` at `rampOddsFraction(completed)`, the WR-10
+Corroded mechanism; full on an unstamped veteran cycle; never on the training cycle), rolled per spawn on a private
+stream (waveSeed.ts `WAVE_TORPEDO_SEED_SALT` off the wave's enemy seed: the enemy stream never moves); a ship event's
+vessel carries one at `SHIP_EVENT_TORPEDO_PERMILLE_BY_TIER[tier]` x the run's odds ramp (shipScanEvents.ts
+`shipEventTorpedoPermille`, its own `SHIP_TORPEDO_SALT` keyed by the boundary; never on the training run). Every input is
+frozen at dispatch, so in-flight runs replay byte-identically. Truthfulness: the battle log, the simplified log and the
+arena name a torpedo the point defense shot down (`CombatEvent.intercepted`, flavor `missileIntercept`, "shot down");
+the patrol card's More info has a Torpedoes line (enemyTorpedoDisplay.ts `patrolTorpedoLine`); Help, Combat Patrols and
+Scan Events, have a TORPEDOES paragraph. Registry: `ship:wr8:defensiveMissileIntercept` LIVE (a measured probe: a
+Defensive Carrier's torpedo damage from a torpedo-armed Corsair Carrier), new LIVE rows `ship:wr8b:waveTorpedoes`,
+`ship:wr8b:marauderTorpedoRamp`, `ship:wr8b:shipEventTorpedoes`.
+
+**[PROVISIONAL]:** `MARAUDER_TORPEDO_PERMILLE` 400 (by completed patrols: 0, 0, 15, 42, 77, 119, 166, 218, 274, 316,
+then 400 from 10; smoothed in the fix round below), `SHIP_EVENT_TORPEDO_PERMILLE_BY_TIER` 50 / 150 / 250 / 350 / 450 / 550 / 650 (Tier I x the odds ramp).
+
+**Measured (live loop, veteran, Standard Issue, Dispatch Once, 200 seeds, wins before and after):** Warband Balanced:
+Destroyer 30 to 16, Battleship 176 to 143, Carrier 76 to 39; Defensive: 30 to 26, 143 to 173, 85 to 65. Sweep: Destroyer
+200 to 197 (Balanced), 199 (Defensive); Battleship and Carrier 200. patrol-balance.test.ts is unchanged (fixed in the fix round below) (its Warband
+bands run the forecast path without a stamp; its live Sweep floor holds at 98.5%). The ramp sweep is unchanged (D18 run 2
+stalls 5 of 200; rank1si completes 192 of 200 at full strength).
+
+OPEN CALL: ship-event torpedoes cannot be intercepted, because ship events have no stance; needs the user's OK.
+
+**Fix round (2026-11-10, after the review and the two answers above):**
+- Marauder top step smoothed (user "Smooth it out (Recommended)"): runDifficulty.ts `patrolDifficultyAt` keeps writing
+  the patrol stamp one patrol past the enemy curve's top (a non-veteran at 10 completed: ramp 1, completed 10) while the
+  odds ramp `rampOddsFraction` is below 1, only while new runs carry enemy torpedoes (combatRules.ts
+  `newRunsCarryEnemyTorpedoes`). The chance by completed patrols is now 0, 0, 15, 42, 77, 119, 166, 218, 274, 316, 358,
+  then 400 from 11 [PROVISIONAL]. The early curve is untouched (the first two patrols after training read 0). Nothing
+  else reads that stamp differently: its ramp 1 is full enemy strength (patrolEnemyScale 1, the same waves and
+  enemies), it is not the training cycle, a Repeat run hands it on unchanged; Corroded (WR-10) reads the expedition
+  stamp, not the patrol one. Veterans stay unstamped. Moved pins: enemyTorpedoGoldens.test.ts gains c10 and c11 Sweep
+  rows (c10 live: the dispatch record carries the stamp, 2a6af07e; replay, outcome, ship and state are the veteran's;
+  c11 is the veteran's record, 9b0b14e); every switched-off file is unchanged. Registry claim, Help (35.8% after 10, 40%
+  from 11) and the QA sheet updated.
+- patrol-balance.test.ts measures the live forecast path (App.svelte patrolForecastFor mirrored: patrolDifficultyAt,
+  shipCombatRulesStamp, the route, the folded start pools). It had run with no stamp (the pre-WR-8 fight). Measured
+  (N=64): Warband carrier 15.6% (Extreme; was ~75% on the old path), crafted carrier 98.4%, bays empty 6.3%, destroyer
+  6.3%, battleship 71.9%; economy hulls 0% on the Warband. The carrier's floor moved 0.40 to 0.10 per the answer above
+  [PROVISIONAL]; every other invariant holds as written.
+- Torpedoes-on variants: gearWearCombat.test.ts (a destroyer's Repeat Sweep: 94 cycles checked before a lost fight, 12
+  needed pauses, 18 torpedo cycles) and racialsWired.test.ts (the Belter bank on master seed 3, a run that survives:
+  244 torpedo cycles, the bank pays, the control pays nothing).
+- Text: the card line names the Defensive stance and a working Point-Defense Array or EMP Cannon; Help uses the display
+  name "Point-Defense Array"; combatRules.ts no longer claims a user answer on the ship-event intercept.
+
+## OC-G1 BUILT (2026-11-10): the legacy expedition path deleted
+
+User answer (2026-10-16): "Delete it (Recommended)": remove the pre-Ground-Ops path and its legacy-only effects; a dev
+save with an old in-flight run gets that run finished at load. Production and staging (0.13.11.3) never had expeditions.
+
+- What "legacy" was: a run WITHOUT its `groundOps` record (dispatched before GO-7b, 2026-10-12), resolved by the E2a/E3
+  machine: the scan-time ground battles (resolveScanEncounter, softenAmbush, their loss pauses on the ACTIVITY_SECONDS
+  window grid), the activities phase (resolveExpeditionActivity: MAX_BATTLE_ATTEMPTS retries, the EVAC_REWARD_FRACTION
+  evacuation haul, the D18 no-team evacuation), the run-wide sit-out (scanDownedBefore / activityDownedBefore), and the
+  claim's FLAT 2 h injury (applyExpeditionInjuries / injuryRecoverySeconds). All deleted, with their re-derived battle
+  logs in the console (the legacy activity readout, the scan track's "View battle log"), the run-level
+  `Expedition.hullInjuryShare` stamp (only the legacy claim read it; the bay reads GroundOpsFactors.hullInjuryShare),
+  the three legacy salts (COMBAT_SALT, SCAN_BATTLE_SALT, SCAN_DROP_SALT; values recorded in gambit.ts, never reuse them)
+  and the probes / contexts (`expedition:legacy`, legacyInjurySeconds, expEncounterChance; runSecHp / runSecHeal now read
+  the Ground Ops squad, taskFightTeam).
+- Save safety, no SAVE_VERSION bump: save.ts finishLegacyExpeditionsOnLoad runs on EVERY load (identity once none is
+  left): a legacy run not yet complete becomes "complete" with the findings it holds (nothing more rolled); the claim
+  deposits them and brings the whole team home ready (no bay, so no injury). A legacy run already complete is
+  untouched. advanceExpedition applies the same rule (finishLegacyExpedition) as the engine's guard. Old records keep
+  their shapes (ExpeditionScanEvent "encounter", downedMemberIds, ExpeditionFinding.evacuated stay in the type; the scan
+  track still words a stored battle). Tested in legacyExpeditionFinish.test.ts.
+- Determinism: every Ground Ops run resolves exactly as before (the shared scan walk, the step roll's two draws and the
+  supply caches are untouched; a pre-GO-8 run still rolls draw 1 at chance 0).
+- Registry: away:MEMBER_PERKS:stoneskin LIVE (medbay; its legacy context went with the legacy claim; the perk itself is
+  unchanged, its battle half stays live); away:audit:legacyOnly LIVE (content:ocg1:legacyFinished);
+  expedition:audit:legacyFallbacks LIVE (content:ocg1:riskFreeFallbacks): FIGHT_POINTS_DEFAULT is also the live default
+  for an unrated site, and FIGHT_POINTS_MIN / SURVEY_AMBUSH_CHANCE serve a Ground Ops run without risk grades (pre-SQ-4),
+  which is NOT the pre-Ground-Ops path the answer named. OPEN CALL for the user: finish pre-SQ-4 Ground Ops runs at load
+  too and delete those two fallbacks (many risk-free Ground Ops goldens would be retired with them)?
+- Goldens retired (each proved only the legacy path): groundOpsLegacy.test.ts (the GO-7b legacy hashes), fieldKitsGoldens
+  `legacy` / `legacyDevices`, the legacy resolution and claim halves of officerBonuses `expedition`, officerStatFacets
+  `expedition` (every table) and complementGoldens `legacyA` / `legacyB` (their dispatch-record hashes are HELD
+  unchanged), the legacy pins in groundTasks / gambit / injuries / scanEncounters / awayRoster / fieldwork / medicalBay /
+  cp13HullFamily / processSpeed / shipScanEvents / expedition tests, the G2-0 `stored:legacy` golden and parity
+  (expeditionTiersGoldens; its stored v69 record now proves the load step finishes it and claims) and the legacy half
+  of relicsV2Goldens golden 2. Every registry snapshot golden holds through ocg1Registry.fixture.ts (ocg1ReadBack puts
+  the four changed rows back; applied innermost, the wr10ReadBack precedent). Live checks that ran through the legacy engine were
+  re-pointed to the Ground Ops consumers (taskFullHaul, taskWorkSeconds, the bay's conditionCureSeconds, scanRatePerSecond,
+  rollBodyDiscoveries, taskFightTeam). The sensitivity vacuity floor dropped 1 -> 0 (Stoneskin's legacy context).
+- Liveness: the battle probe now reads the Ground Ops objective fights and squad (an overgrown body so Poison resists
+  read), and the ship-event probe the softened hostile probe / cloaked vessel (Security Cunning's ambushSoften).
+- Noticed, not changed: fieldKitsDisplay.ts fuseLogLine had its only UI caller in the deleted legacy battle log (a Ground
+  Ops fight's round log has no screen yet); kept for that screen.
+
+#### OC-G1 fix round (71ce5b8b, merged 2026-11-11)
+
+- User 2026-11-11 kept the pre-SQ-4 fallbacks ("Keep, sweep later"); the `expedition:audit:legacyFallbacks` claim says
+  what each still serves (`FIGHT_POINTS_DEFAULT` the live unrated-site default; `FIGHT_POINTS_MIN` and
+  `SURVEY_AMBUSH_CHANCE` only runs dispatched before SQ-4).
+- `fuseLogLine` and `rankedEnemyName` deleted with their tests (user "Delete the helpers").
+- Resolved-run neutrality restored: one Ground Ops run through claim in officerBonuses, officerStatFacets and
+  complementGoldens; neutral officers equal no officers.
+- The sensitivity vacuity guard is pinned exactly at 1 and named (`ship:gearLine:sensors @ patrol`, CP-15); a new
+  partial context must be named there.

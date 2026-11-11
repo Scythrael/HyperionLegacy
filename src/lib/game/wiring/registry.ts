@@ -105,6 +105,7 @@ import type { CaptainPrimaryMultKind } from "../captainPrimaryEffects";
 import { BASE_FTL_DURABILITY, BASE_REACTOR_DURABILITY, COMBAT_DEFAULT_LOADOUT, combatHullTypeOf, hullDefenseComposition } from "../combat/bridge";
 // WR-8 (0.14.0): the combat descriptors (combatRules.ts), their probes' on / off mark, and the readers they name.
 import { DEFENSIVE_STANCE, ENCOUNTER_OPEN_DISTANCE, WEAPON_RULE_TRAITS, familyResistPercent, podLineShare } from "../combat/combatRules";
+import { runCountsOf } from "../runDifficulty";
 // E-MOD EM-3: the combat over-budget penalty's floor (its registry row's magnitude).
 import { POWER_SUPPLY_FLOOR_PERCENT } from "../combat/power";
 import { reactorSurplusSpeedLift } from "../reactorSurplus";
@@ -2920,8 +2921,8 @@ function moduleEntries(): WiringEntry[] {
 //   division lifts      a Guest Wing (no crew boost of its own, so the move is the lift alone) on a crew of one
 //                       signature division carrying a live sheet key: the bonus part above the hull grows by the lift.
 //   perks               the rare-roll threshold of a stamped run; the Ground Ops bay's frozen care (a Fracture for the
-//                       Tactician's injuries-only share, a Health cure for the Explorer's every-condition share; the
-//                       Tactician's share also on the legacy claim, expedition:legacy); the General guest quarters on
+//                       Tactician's injuries-only share, a Health cure for the Explorer's every-condition share); the
+//                       General guest quarters on
 //                       the sheet (G1-1's perk, scaled like the rest since the CP-13 fix round, rounded to whole berths).
 // A line added to the catalog without a seam here throws at build, so nothing in it can hide unmeasured.
 const HULL_FAMILY_HULL: Readonly<Record<ShipSpec, ShipTypeKey>> = { general: "generalFreighter", prospector: "prospectorMiner", tactician: "destroyer", explorer: "orion" };
@@ -3028,15 +3029,15 @@ function hullFamilyEntries(): WiringEntry[] {
             ...perkCommon,
             claim: `Crew Quarters on a ${label} hull: injured crew recover ${Math.round(fam.quarters.perkSize * 100)}% faster in the medical bay`,
             probe: "runBayFractureSeconds",
-            // CP-13 fix round (user 2026-11-04 "Yes, both paths, new runs only"): the legacy claim reads the share the run
-            // froze at dispatch (Expedition.hullInjuryShare, injuries.ts applyExpeditionInjuries).
-            contexts: ["medbay", "expedition:legacy"],
+            // CP-13 fix round (user 2026-11-04 "Yes, both paths, new runs only"); Wiring OC-G1 (user "Delete it") deleted
+            // the legacy claim, so the medical bay is the one path.
+            contexts: ["medbay"],
             direction: "down",
             curve: { kind: "divisor" },
             tolerance: 1,
             magnitude: (c) => c.HULL_FAMILY_MODULE_BONUS[spec].quarters.perkSize,
             base: () => withAwayTeam(bare(hull)),
-            note: "injury-class conditions only (a Fracture here; the legacy claim's 2 hour injury); its Health twin is ship:audit:hullFamilyInjuriesOnly",
+            note: "injury-class conditions only (a Fracture here); its Health twin is ship:audit:hullFamilyInjuriesOnly",
           }),
           entry({
             id: "ship:audit:hullFamilyInjuriesOnly",
@@ -4492,12 +4493,9 @@ function medicalEntries(): WiringEntry[] {
       magnitude: () => STONESKIN_INJURY_MULT - 1,
       tolerance: 1,
       on: sourceOn,
-      status: pending("OC-G1 (the legacy claim ignores perks, injuries.ts:93)", ["expedition:legacy"]),
-      // An Ossir Security member (the race carries the perk) vs an Earth-born one: the legacy injury path's recovery
-      // time. (The in-battle half is its own entry below, live since Field Kits FKR-4.)
-      flatChecks: {
-        "expedition:legacy": { probe: "legacyInjurySeconds", base: () => withAwayTeam(wiringBase()), on: ossir, off: identity },
-      },
+      // Wiring OC-G1 (user 2026-10-16 "Delete it"): the legacy claim that ignored perks is gone with the legacy path, so the
+      // bay (the claim's only path) is the whole claim. (The in-battle half is its own entry below, live since FKR-4.)
+      status: LIVE,
     }),
     // Field Kits FKR-4: Stoneskin's battle half (D24 "Chances of receiving physical ailments is reduced by 25%, but if
     // they do land, they last for 25% longer"): on a Field Kits run's fight an Ossir member's resist roll against a
@@ -4526,17 +4524,19 @@ function medicalEntries(): WiringEntry[] {
 // gate and the Debug panel see every not-live row; each names its owning slice.
 // ============================================================================
 
+// WR-13: the framework hooks the user kept on 2026-10-15 (plan OC-C4), each proven by its own test.
+const OC_C4_HOOKS = 'OC-C4 (user 2026-10-15): "Keep tested hooks (Recommended)"';
 const AUDIT_ROWS: readonly { id: string; system: WiringSystem; claim: string; status: WiringStatus }[] = [
   // A. Captain
-  { id: "captain:audit:gearGates", system: "captain", claim: "Gear gates minCaptainLevel / requiresTalent / captainSpec (no slot sets them)", status: pending("WR-4, OC-C4") },
+  // WR-13 (OC-C4 "Keep tested hooks"): all four EquipRequirement install gates in equipment.ts canFitEquipment, each
+  // proven by an "OC-C4 seam" test in equipment.test.ts that lends the requirement to a slot (no slot sets one today).
+  { id: "captain:audit:gearGates", system: "captain", claim: "The captainSpec, minCaptainLevel, requiresTalent and requiresResearch gear install gates (a parked hull refuses the captain gates; a wrong spec, a lower level, a missing talent or an unresearched blueprint refuses; no slot declares one today)", status: { kind: "seam", owner: "the first slot or variety that declares a captain requirement", userRef: OC_C4_HOOKS } },
   // C. Facilities, items, fuel
-  { id: "facility:audit:fuelAutoBuy", system: "facility", claim: "The mission fuel budget and credit auto-buy plumbing (FUEL_CREDITS_PER_UNIT, REFUEL_PENALTY_TICKS, refuelDelayTicks): unreachable since 0.13.6 (an infinite fuel budget). (B5's Buy Fuel, tank and refinery are gone, WR-4.)", status: pending("S4-A02 (the fuel-economy cleanup: remove or keep, a user call)") },
-  { id: "facility:audit:requiresResearch", system: "facility", claim: "The requiresResearch rung gate (B1 fixed in WR-4: it checks the researched blueprint; no rung lists one yet)", status: pending("OC-C4") },
-  { id: "facility:audit:requiresFacilityLevels", system: "facility", claim: "requiresFacilityLevels rung gate (correct, no rung uses it); its twin requiresMissionCompletions is live on the Short-Range board's level 2 rung (G1-6, facility:audit:missionControlUnlock)", status: pending("WR-4, OC-C4") },
+  { id: "facility:audit:requiresResearch", system: "facility", claim: "The requiresResearch rung gate (B1 fixed in WR-4: it checks the researched blueprint; no rung lists one yet)", status: { kind: "seam", owner: "the first facility rung that lists a research prerequisite", userRef: OC_C4_HOOKS } },
+  { id: "facility:audit:requiresFacilityLevels", system: "facility", claim: "requiresFacilityLevels rung gate (correct, no rung uses it); its twin requiresMissionCompletions is live on the Short-Range board's level 2 rung (G1-6, facility:audit:missionControlUnlock)", status: { kind: "seam", owner: "the first facility rung that depends on another facility's level", userRef: OC_C4_HOOKS } },
   // G1-6 flipped SHORT_RANGE_BOARD_LIVE: the board rungs are in FACILITIES (each enumerates as a facility rung entry on
   // the shortRangeSlots probe), and this row checks their 50-completion gate (auditRowWiring).
   { id: "facility:audit:missionControlUnlock", system: "facility", claim: "MISSION_CONTROL_UNLOCK_COMPLETIONS 50: the Mission Control board rung that opens the Tier II short-range slot (MISSION_CONTROL_BOARD_RUNGS[0], level 2) waits on 50 completions of each ore run", status: LIVE },
-  { id: "facility:audit:itemEquipStats", system: "facility", claim: "ItemDef.equipStats (no item fills it)", status: pending("WR-4, OC-C4") },
   // WR-11 (OC-J3 "Sell now, recipes later"): it sells at the Quartermaster. E-MOD EM-8 gave it its recipe (the Precursor
   // Lens module, precursorLensBp) and dropped its reserve; the craft is the blueprint's own row.
   { id: "facility:audit:precursorCircuit", system: "facility", claim: "Precursor Circuit: salvage drops it and the Quartermaster buys it (it also crafts the Precursor Lens module)", status: LIVE },
@@ -4592,12 +4592,12 @@ const AUDIT_ROWS: readonly { id: string; system: WiringSystem; claim: string; st
   { id: "ship:wr8:closingEvasive", system: "ship", claim: "Closing is evasive: a ship closing toward its stance range while none of its guns reaches a foe takes CLOSING_EVASION_PCT less from every hit (both sides)", status: LIVE },
   { id: "ship:wr8:defensiveGuardWeapons", system: "ship", claim: "A Defensive ship's Point Defense and EMP turn on the in-range foe fielding the most drones first", status: LIVE },
   { id: "ship:wr8:defensiveGuardDrones", system: "ship", claim: "A Defensive ship's drone squadrons hunt the in-range foe's drone screen first", status: LIVE },
-  {
-    id: "ship:wr8:defensiveMissileIntercept",
-    system: "ship",
-    claim: "A Defensive ship with working Point Defense or EMP shoots down DEFENSIVE_STANCE.missileInterceptPct of incoming missiles (the engine reads it; no enemy fires a missile in 0.14.0)",
-    status: pending("the first enemy loadout with a missile (WR-8 review: no pirate or ship event vessel installs a torpedo yet)"),
-  },
+  // WR-8b (user 2026-11-10, enemy torpedoes "Simple now"): the Corsair Carrier fires a torpedo on every patrol cycle
+  // stamped since WR-8b, so the intercept acts on a live fight.
+  { id: "ship:wr8:defensiveMissileIntercept", system: "ship", claim: "A Defensive ship with working Point Defense or EMP shoots down DEFENSIVE_STANCE.missileInterceptPct of incoming missiles (the enemy torpedoes of WR-8b); no other stance does, and a ship event has no stance", status: LIVE },
+  { id: "ship:wr8b:waveTorpedoes", system: "ship", claim: "Enemy torpedoes on patrols: every Corsair Carrier installs a Concussion Torpedo beside its plasma, and a Marauder carries one at MARAUDER_TORPEDO_PERMILLE on the patrol ramp (a cycle stamped since WR-8b; never the training patrol)", status: LIVE },
+  { id: "ship:wr8b:marauderTorpedoRamp", system: "ship", claim: "MARAUDER_TORPEDO_PERMILLE climbs the patrol ramp one run behind the enemy curve (the WR-10 Corroded mechanism): 0 on the first two ramped patrols, then a step every patrol (the stamp is kept one patrol past the enemy curve's top, so 31.6% after 9 completed patrols, 35.8% after 10), full from 11 completed patrols on", status: LIVE },
+  { id: "ship:wr8b:shipEventTorpedoes", system: "ship", claim: "A ship event's Hostile Probe or Cloaked Vessel carries a torpedo at its expedition tier's SHIP_EVENT_TORPEDO_PERMILLE_BY_TIER (x the Tier I odds ramp; never on the training run)", status: LIVE },
   { id: "ship:audit:ftlSpeedPenalty", system: "ship", claim: "FTL_SPEED_PENALTY: a Degraded or Offline drive slows the close", status: LIVE },
   { id: "ship:wr8:sensorDrainActs", system: "ship", claim: "Sensor Power Drain shrinks a ship's weapon reach in the fight", status: LIVE },
   { id: "ship:wr8:coolantLeakActs", system: "ship", claim: "Coolant Leak slows a ship in the fight", status: LIVE },
@@ -4723,7 +4723,9 @@ const AUDIT_ROWS: readonly { id: string; system: WiringSystem; claim: string; st
   // measured), but GO-16 hid the old editor, so no control sets or clears it: only a save that set it before GO-16 has a
   // changed pair. The control is a new screen element and needs the user's mockup.
   { id: "away:audit:accountDefaultControl", system: "away", claim: "A control to set or clear the account default program (no screen sets the account pair since GO-16)", status: pending("WR-10, OC-F12 mockup (a set / clear account default control in the Tactical Protocols editor)") },
-  { id: "away:audit:legacyOnly", system: "away", claim: "Legacy-only: MAX_BATTLE_ATTEMPTS, EVAC_REWARD_FRACTION, ENCOUNTER_DROP_SCALE, scan ground battles, softenAmbush, the flat 2 h injury", status: pending("OC-G1") },
+  // Wiring OC-G1 (user 2026-10-16 "Delete it (Recommended)"): the legacy path and its legacy-only effects are deleted; a
+  // legacy run still in a save is finished at load (save.ts finishLegacyExpeditionsOnLoad, tested in legacyExpeditionFinish.test.ts).
+  { id: "away:audit:legacyOnly", system: "away", claim: "Legacy-only: MAX_BATTLE_ATTEMPTS, EVAC_REWARD_FRACTION, ENCOUNTER_DROP_SCALE, scan ground battles, softenAmbush, the flat 2 h injury: deleted with the legacy path (OC-G1); a legacy run in a save is finished at load", status: LIVE },
   // Expedition Tiers G2-6: the region picker offers every tier, so the tier rows read on a player's launch (the run's
   // risk profile at the picked tier). The tier haul and the tier body counts have their own rows (the G2-2 review
   // note); the future difficulty tiers keep theirs (nothing designed yet).
@@ -4743,7 +4745,10 @@ const AUDIT_ROWS: readonly { id: string; system: WiringSystem; claim: string; st
         'objective affixes capture (user 2026-10-14): "build anything that might be needed in the future to implement a difficulty system for this, but we\'re not focusing on higher difficulty tiers over the actual unlockable tiers" (timing answer: the affix system plus hooks for future difficulty tiers in 0.14.0)',
     },
   },
-  { id: "away:audit:objectiveHooks", system: "away", claim: "taskChainFollowUp, calmObjective, affix weightFor (no caller)", status: pending("OC-C4") },
+  // WR-13 fix round: task chains are wired (groundOps.ts finishWork reveals a follow-up through revealFollowUpTask,
+  // groundOpsTaskChain.test.ts lends a chain); calmObjective is the calm pool target rollObjectiveAffixes rolls; an
+  // affix's weightFor is read by affixRollWeight (groundOpsOutcroppings.test.ts lends one).
+  { id: "away:audit:objectiveHooks", system: "away", claim: "Objective hooks: a completed task reveals its taskChainFollowUp site on its body (no chain authored); the calmObjective affix pool (a calm objective rolls from it; no affix targets it yet); an affix weightFor hook decides its roll weight (no affix sets one)", status: { kind: "seam", owner: "the ground-ops content pass (task chains, calm objectives, conditional affix weights)", userRef: OC_C4_HOOKS } },
   // G. Expedition content
   // WR-11: rendered on the objective card and the queue row (expeditionContent.ts groundSiteFlavor).
   { id: "expedition:audit:siteFlavor", system: "expedition", claim: "Hostile and clearing site flavor: shown on the objective card and the queue row", status: LIVE },
@@ -4777,7 +4782,13 @@ const AUDIT_ROWS: readonly { id: string; system: WiringSystem; claim: string; st
   // WR-11 (OC-G6 "Model Ocean only"): Ocean's slower surface work is modeled (PLANET_TYPES surfaceWorkMult); the Frozen and
   // Toxic comments are dropped.
   { id: "expedition:audit:planetComments", system: "expedition", claim: "Planet comments: Ocean's slower surface work is modeled; the Frozen and Toxic comments are dropped", status: LIVE },
-  { id: "expedition:audit:legacyFallbacks", system: "expedition", claim: "FIGHT_POINTS_DEFAULT / MIN, SURVEY_AMBUSH_CHANCE (old runs only)", status: pending("OC-G1") },
+  // Wiring OC-G1: these are NOT the pre-Ground-Ops path the user deleted, and they are kept (user 2026-11-11 "Keep, sweep
+  // later"). FIGHT_POINTS_DEFAULT is the live default for a site the fight-point table does not rate (groundTasks.ts
+  // riskFightPointCount, every risk-aware run) and the same default on a run without risk grades; FIGHT_POINTS_MIN and
+  // SURVEY_AMBUSH_CHANCE act ONLY on a Ground Ops run without risk grades (dispatched before SQ-4: groundTasks.ts
+  // fightPointCount, groundOps.ts groundTaskAmbushChance), like every other per-stamp fallback, each covered by its test
+  // (groundTasks.test.ts, groundOpsSquads.test.ts).
+  { id: "expedition:audit:legacyFallbacks", system: "expedition", claim: "Kept fallbacks, not the deleted pre-Ground-Ops path: FIGHT_POINTS_DEFAULT (the live default for a site the fight-point table does not rate); FIGHT_POINTS_MIN and SURVEY_AMBUSH_CHANCE (only a Ground Ops run dispatched before SQ-4, without risk grades)", status: LIVE },
   // H. Relics v2 R2-2 (relicBlanks.ts): live on every new run at Tier I; the rest waits for the slice that reaches it.
   { id: "relic:audit:blankTiers", system: "relic", claim: "Relic blanks above Tier I: RELIC_BLANK_WEIGHTS II to VII (a deeper find rolls rarer on the same chance, user call 13 \"Better rarity only\")", status: LIVE },
   { id: "relic:audit:blankCulture", system: "relic", claim: "A blank's culture (cultureForBody, stamped on every new run's relic): the culture study reads it", status: pending("Relics v2 R2-6 (cultures: study points and the name reveal)") },
@@ -4809,12 +4820,12 @@ const AUDIT_ROWS: readonly { id: string; system: WiringSystem; claim: string; st
   { id: "salvage:audit:lootTierNames", system: "salvage", claim: "Loot tier names: the Home board's salvage row names the drop's tier (\"Standard quality\")", status: LIVE },
   // WR-11 (OC-J3 "Sell now, recipes later"): both sell at the Quartermaster.
   { id: "salvage:audit:deadEndDrops", system: "salvage", claim: "Salvaged Circuitry, Precursor Circuit: both sell at the Quartermaster until the content pass gives them recipes (Scrap Alloy refines into Reclaimed Alloy since WR-4, OC-C3)", status: LIVE },
-  { id: "salvage:audit:achievementBoost", system: "salvage", claim: "achievementBoost (always 0)", status: pending("OC-C4") },
+  { id: "salvage:audit:achievementBoost", system: "salvage", claim: "achievementBoost (always 0)", status: { kind: "seam", owner: "the achievement system", userRef: OC_C4_HOOKS } },
   // WR-11 (OC-J4 "keep safeties"): kept as safety rows, each read by affixCount and covered by itemgen.test.ts.
   { id: "salvage:audit:affixCountBranches", system: "salvage", claim: "affixCount derelict / luminous / constellar: safety rows of RARITY_PROFILES, each a finite affix count", status: LIVE },
   // WR-11 (OC-H1 "Members too"): the Museum's Science team power also scales each named Science member's own fieldwork.
   { id: "relic:audit:scienceTeamPowerMembers", system: "relic", claim: "Museum Science team power scales each named Science member's own fieldwork (frozen at dispatch)", status: LIVE },
-  { id: "salvage:audit:ascension", system: "salvage", claim: "ascension (always none)", status: pending("OC-C4") },
+  { id: "salvage:audit:ascension", system: "salvage", claim: "ascension (always none)", status: { kind: "seam", owner: "the patch that mints ascended gear (RR-4 built the plumbing, user answer 3 \"Plumbing only\")", userRef: OC_C4_HOOKS } },
   // K. Gear wear (0.14.0): credit sinks Overtime on gear repair (gear wear step 5). The "Quick gear repair" row is gone:
   // the user dropped Quick Service (2026-11-09, "None, always automatic": no paid rush and no instant repair).
   { id: "wear:audit:gearRepairOvertime", system: "wear", claim: "Overtime on gear repair: pay credits to speed a docked ship's gear recovery by 25% of the normal rate a step (never doubling, never instant)", status: LIVE },
@@ -4850,6 +4861,8 @@ function wr8AuditWiring(): Readonly<Record<string, Partial<EntryInput>>> {
   const reactorAt = (quality: number): Transform => (s) => installPiece(s, { slotType: "reactorCore", quality });
   const ftlAt = (quality: number): Transform => (s) => installPiece(s, { slotType: "ftlDrive", quality });
   const transitDrive = (points: number): Transform => (s) => installPiece(s, { slotType: "ftlDrive", implicitStats: points > 0 ? { transitSpeedMult: points } : {} });
+  // WR-8b: the save with its safe patrol behind it and `completed` patrol runs on the curve (not a veteran).
+  const patrolCurveAt = (completed: number): Transform => (s) => ({ ...s, runCounts: { ...runCountsOf(s), patrol: { dispatched: 1, completed, veteran: false } } });
   // E-MOD EM-3: a Cargo Bay drawing num / den of the Destroyer's own output (combatBase's hull; its gear draws 0).
   const overBudget = (num: number, den: number): Transform => (s) => installPiece(s, { slotType: "cargoBay", powerDraw: Math.ceil((SHIP_TYPES.destroyer.basePowerOutput * num) / den) });
   return {
@@ -4869,6 +4882,20 @@ function wr8AuditWiring(): Readonly<Record<string, Partial<EntryInput>>> {
     "ship:wr8:closingEvasive": ev("combatEventClosingEvasive", "down", "the closing ship's damage taken"),
     "ship:wr8:defensiveGuardWeapons": ev("combatEventDefensiveGuardWeapons", "up", "the drone-fielding foe's drone hit points lost to Point Defense"),
     "ship:wr8:defensiveGuardDrones": ev("combatEventDefensiveGuardDrones", "up", "the drone-fielding foe's drone hit points lost to an Attack squadron"),
+    // WR-8b (enemy torpedoes): the intercept against a live torpedo, the torpedoes a wave installs, the Marauder's ramp
+    // (a dispatch at 9 completed patrols against one at 1, where the chance is 0) and the ship events' tier chance.
+    "ship:wr8:defensiveMissileIntercept": ev("combatEventMissileIntercept", "down", "a Defensive Carrier's torpedo damage taken from a torpedo-armed Corsair Carrier"),
+    "ship:wr8b:waveTorpedoes": ev("combatWaveTorpedoes", "up", "torpedoes installed on a Corsair Carrier wave and a Marauder wave"),
+    "ship:wr8b:marauderTorpedoRamp": {
+      probe: "combatEventMarauderTorpedoRamp",
+      contexts: ["patrol"],
+      direction: "up",
+      curve: { kind: "event", metric: "Marauders carrying a torpedo over 200 waves (9 completed patrols against 1)" },
+      magnitude: () => 1,
+      on: patrolCurveAt(9),
+      off: patrolCurveAt(1),
+    },
+    "ship:wr8b:shipEventTorpedoes": ev("combatEventShipEventTorpedoes", "up", "Hostile Probes carrying a torpedo over 100 boundaries of a Tier VII run", ["shipEvent"]),
     "ship:audit:ftlSpeedPenalty": ev("combatEventFtlSpeedPenalty", "up", "the first round within 100 (a Degraded drive vs nominal)"),
     "ship:wr8:sensorDrainActs": ev("combatEventSensorDrain", "up", "the first shot's tick (the drained reach opens once the drain lapses)"),
     "ship:wr8:coolantLeakActs": ev("combatEventCoolantLeak", "up", "the distance on round 3"),
@@ -5232,6 +5259,25 @@ function auditRowWiring(): Readonly<Record<string, Partial<EntryInput>>> {
     ...wr7AuditWiring(),
     ...wr11AuditWiring(),
     ...wr9AuditWiring(),
+    // Wiring OC-G1 (user 2026-10-16 "Delete it"): the legacy path is gone (a legacy run is finished, never walked; the
+    // load step is tested in legacyExpeditionFinish.test.ts), and the pre-SQ-4 fallbacks it did not cover read as claimed.
+    "away:audit:legacyOnly": {
+      probe: "content:ocg1:legacyFinished" as ProbeId,
+      contexts: ["expedition:groundOps"],
+      direction: "none",
+      curve: { kind: "equals" },
+      magnitude: () => 1,
+      base: () => withAwayTeam(wiringBase()),
+      note: "1 when the engine finishes a legacy run (complete, its findings unchanged) instead of resolving it",
+    },
+    "expedition:audit:legacyFallbacks": {
+      probe: "content:ocg1:riskFreeFallbacks" as ProbeId,
+      contexts: ["expedition:groundOps"],
+      direction: "none",
+      curve: { kind: "equals" },
+      magnitude: () => 1,
+      note: "1 when the risk-free ambush chance, the fight point floor and the unrated-site default read as claimed",
+    },
     // Complement plan CP-4's rest: a Pilot with Integrity 20 against one at 10, on a carrier with Deck Handling aboard
     // (the fixture Pilot is a Belter, whose racial is Deck Handling, and the ship's only source of it, so all of it is the
     // Flight Deck's own: user 2026-11-11 "Flight Deck's own only"): the extra the dispatched cycle's squadron banks below
@@ -6112,7 +6158,6 @@ export function flatControl(probe: ProbeId, ctx: ContextId): Transform | null {
     case "missionCycleOutput":
       return (s) => seatOfficer(s, "executive", ["xo.commandOutput"]);
     case "injuryCare":
-    case "legacyInjurySeconds":
       return (s) => withBuckets(s, [bucketOf("medical", "med.reducedLosses")]);
     case "sheetYield":
       return shipPiece("extractionYieldMult", LINE_POINTS);
@@ -7575,9 +7620,8 @@ function wearEntries(): WiringEntry[] {
       base: () => wearSlotFixture("ftlDrive", { transitSpeedMult: WEAR_LINE }),
       magnitude: () => (1 + transitPercent(WEAR_LINE * e())) / (1 + transitPercent(WEAR_LINE)) - 1,
     },
-    // Engine efficiency's only reader inside a run is a captain mission's fuel price per cycle, unreachable since
-    // 0.13.6 (an infinite fuel budget: facility:audit:fuelAutoBuy); reach reads the pristine drive (design 4.3).
-    "ftlDrive:engineEfficiency": pending("S4-A02 (the fuel-economy cleanup: a run's fuel price is engine efficiency's only run-time reader, unreachable since 0.13.6; reach reads the pristine drive, design 4.3)"),
+    // WR-13 (user 2026-11-10 "Drop that line"): the drive's engine efficiency is no longer a wear consumer (its only
+    // run-time reader was the old fuel price, removed with S4-A02); gearWear.ts WEAR_EXEMPT_LINES never scales it.
     // The reactor's power output is read by the install gate (pristine), the combat power budget, where combat's own
     // model is the authority (W3), and since E-MOD EM-4 the reactor surplus drive lift, which reads it pristine too.
     // The user closed the EM-4 open call on 2026-11-09 ("Stays full (Recommended)"): wear never cuts it. Live, not
