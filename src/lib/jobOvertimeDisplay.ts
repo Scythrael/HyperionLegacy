@@ -15,6 +15,7 @@
 import { BLUEPRINTS, FACILITIES, ITEMS, SHIP_TYPES, type GameState, type TimedProcess } from "./game/model";
 import { OVERTIME_MAX_STEPS, OVERTIME_PROCESS_KINDS, OVERTIME_STEP_RATE, buyOvertime, canBuyOvertime, overtimeTier } from "./game/processSpeed";
 import { overtimeRateText } from "./game/overtimeRate";
+import { tierNumeral } from "./game/galaxy";
 
 // buy: the button buys the next step. credits: short of the step's price (the exact price and what is missing).
 // paused: a data study while auto-study is off (the engine's "paused"). max: all steps bought ("At its fastest").
@@ -104,8 +105,8 @@ function pricing(state: GameState, p: TimedProcess, steps: number): { note: stri
   // run; the Docks, docking bays and Systems Bay have no level, so their tier is the expansion's number, said bare.
   const e = p.effect;
   const level =
-    e.type === "facilityLevelUp" ? (e.facility === "subspaceTelescope" ? " (the cycle being run)" : " (the level being built)") : "";
-  const head = `Priced on the whole ${length} ${jobNoun(p)} at Tier ${tier}${level}`;
+    e.type === "facilityLevelUp" ? (e.facility === "subspaceTelescope" ? " (the cycle being run)" : ` (level ${tier} being built)`) : "";
+  const head = `Priced on the whole ${length} ${jobNoun(p)} at Tier ${tierNumeral(tier)}${level}`;
   return steps === 0 ? { note: `Optional. ${head}`, noteTail: ", so a step costs the same whenever you buy it" } : { note: `${head}.`, noteTail: "" };
 }
 

@@ -19,6 +19,7 @@ import { driveClassPowerDraw, equipmentStatMods, ftlDriveClass, moduleEffectScal
 import type { OverBudgetNotice, ShipPowerBudget } from "../game/shipPower";
 import { modulePowerOutput, pieceModuleDef } from "../game/shipModules";
 import { GEAR_SETS, activeGearSetTiers } from "../game/gearSets";
+import { tierNumeral } from "../game/galaxy";
 import { CONDITION_FULL, pieceCondition } from "../game/gearWear";
 
 const moduleScaleOf = (p: EquipmentInstance): number => moduleEffectScale(p.rarity, p.quality, p.ascension);
@@ -134,9 +135,9 @@ export function piecePowerDraw(piece: Pick<EquipmentInstance, "slotType" | "powe
   return piece.slotType === "ftlDrive" ? driveClassPowerDraw(piece.powerDraw, ftlDriveClass(piece)) : piece.powerDraw;
 }
 
-const ROMAN = ["I", "II", "III", "IV", "V", "VI", "VII"];
+// Drive classes read as Roman numerals through the one shared formatter (galaxy.ts tierNumeral).
 export function driveClassNumeral(cls: number): string {
-  return ROMAN[cls - 1] ?? String(cls);
+  return tierNumeral(cls);
 }
 
 // The FTL Drive tile's draw line (EM-10 "drive class draw on the FTL tile"): "Class I drive · draw 4", and for a

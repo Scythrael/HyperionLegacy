@@ -9,8 +9,11 @@ import { startFacilityUpgrade } from "./game/tick";
 import { PROVISIONAL_HOMEWORLD, TELESCOPE_DEVELOPMENT_CYCLES, TELESCOPE_LORE, stateHomeworld, telescopeReadingAtLevel } from "./game/telescope";
 import {
   enemySectorInReach,
+  SECTOR_LABEL_BESIDE_PX,
+  SECTOR_LABEL_SIZE,
   telescopeCardView,
   telescopeMapBearingPoint,
+  telescopeMapLabelBox,
   telescopeMapEnemyView,
   telescopeMapRingRadius,
   telescopeMapSectorRadii,
@@ -489,6 +492,89 @@ describe("telescopeMapEnemyView: enemy territory on the map", () => {
         expect(v.legend !== null).toBe(v.sectors.length > 0);
         expect(v.ariaSentence !== "").toBe(v.sectors.length > 0);
         for (const t of [v.legend ?? "", v.ariaSentence]) expect(t).not.toMatch(NO_EM_DASH);
+      }
+    }
+  });
+
+  // G2-9 close-out (user 2026-11-11, "Label + point inward (Recommended)"): every hatched slice carries its tier's
+  // numeral inside it (Tiers III and IV share a ring), clear of everything else on the map; Tier VI and VII slices
+  // point at the drawn core.
+  // How far (px) a map point lies from a slice: 0 inside it, else the distance to its nearest edge.
+  const gapToSlice = (x: number, y: number, s: { startBearing: number; widthBearing: number; innerR: number; outerR: number }): number => {
+    const r = Math.hypot(x - 200, y - 200);
+    const b = screenBearing(x, y);
+    if (insideWedge(b, s.startBearing, s.widthBearing)) return Math.max(0, s.innerR - r, r - s.outerR);
+    const toSegment = (bearing: number): number => {
+      const a = telescopeMapBearingPoint(bearing, s.innerR);
+      const c = telescopeMapBearingPoint(bearing, s.outerR);
+      const dx = c.x - a.x;
+      const dy = c.y - a.y;
+      const t = Math.max(0, Math.min(1, ((x - a.x) * dx + (y - a.y) * dy) / Math.max(1e-9, dx * dx + dy * dy)));
+      return Math.hypot(x - (a.x + t * dx), y - (a.y + t * dy));
+    };
+    return Math.min(toSegment(s.startBearing), toSegment(s.startBearing + s.widthBearing));
+  };
+
+  it("each slice is labeled with its own numeral, inside its slice, clear of badges, dots, labels and the view box", { timeout: 60_000 }, () => {
+    const hitsCircle = (b: ReturnType<typeof telescopeMapLabelBox>, cx: number, cy: number, r: number) => {
+      const nx = Math.max(b.x0, Math.min(cx, b.x1));
+      const ny = Math.max(b.y0, Math.min(cy, b.y1));
+      return Math.hypot(nx - cx, ny - cy) < r;
+    };
+    const meet = (a: ReturnType<typeof telescopeMapLabelBox>, b: ReturnType<typeof telescopeMapLabelBox>) => a.x0 < b.x1 && b.x0 < a.x1 && a.y0 < b.y1 && b.y0 < a.y1;
+    let labeled = 0;
+    let beside = 0;
+    let apart = 0;
+    for (const home of SEEDED) {
+      for (let level = 1; level <= TOP; level++) {
+        const map = telescopeMapView(level, home);
+        const [vx, vy, vw, vh] = map.viewBox.split(" ").map(Number);
+        const view = telescopeMapEnemyView(level, home);
+        const boxes = view.sectors.map((s) => telescopeMapLabelBox(s.label));
+        view.sectors.forEach((s, i) => {
+          const tag = `${home.id} L${level} ${s.numeral}`;
+          expect(s.label.text, tag).toBe(s.numeral);
+          expect(s.label.size).toBe(SECTOR_LABEL_SIZE);
+          // The label's anchor point (its baseline lifted back by the centering offset) lies inside its own slice, or (a
+          // slice too small or crowded to hold it) just outside it.
+          const gap = gapToSlice(s.label.x, s.label.y - SECTOR_LABEL_SIZE * 0.3, s);
+          expect(gap, tag).toBeLessThanOrEqual(SECTOR_LABEL_BESIDE_PX + 0.3);
+          if (gap > 0.3) beside++;
+          const b = boxes[i];
+          expect(b.x0 >= vx && b.x1 <= vx + vw && b.y0 >= vy && b.y1 <= vy + vh, `${tag} in view`).toBe(true);
+          for (const badge of map.badges) expect(hitsCircle(b, badge.x, badge.y, map.badgeR), `${tag} / badge ${badge.numeral}`).toBe(false);
+          expect(hitsCircle(b, map.home.x, map.home.y, 4), `${tag} / home`).toBe(false);
+          expect(hitsCircle(b, map.core.x, map.core.y, 3.5), `${tag} / core`).toBe(false);
+          for (const l of [map.homeLabel, map.coreLabel]) expect(meet(b, telescopeMapLabelBox(l)), `${tag} / ${l.text}`).toBe(false);
+          boxes.forEach((o, j) => {
+            if (j !== i) expect(meet(b, o), `${tag} / ${view.sectors[j].numeral}`).toBe(false);
+          });
+          labeled++;
+        });
+        // III and IV share a ring: their two labels never sit on the same spot.
+        const three = view.sectors.find((s) => s.tier === 3);
+        const four = view.sectors.find((s) => s.tier === 4);
+        if (three && four) {
+          expect(Math.hypot(three.label.x - four.label.x, three.label.y - four.label.y)).toBeGreaterThan(SECTOR_LABEL_SIZE);
+          apart++;
+        }
+      }
+    }
+    expect(labeled).toBeGreaterThan(500);
+    // Most labels sit inside their slice.
+    expect(beside).toBeLessThan(labeled / 5);
+    expect(apart).toBeGreaterThan(50);
+  });
+
+  it("Tier VI and VII slices point toward the drawn Galactic Core, from every homeworld", { timeout: 60_000 }, () => {
+    for (const home of SEEDED) {
+      const map = telescopeMapView(TOP, home);
+      const coreBearing = Math.round(screenBearing(map.core.x, map.core.y)) % BEARING_TURN;
+      for (const s of telescopeMapEnemyView(TOP, home).sectors.filter((x) => x.tier >= 6)) {
+        // The drawn core lies in the middle half of the slice (a tenth of a degree of rounding allowed).
+        const into = (coreBearing - s.startBearing + BEARING_TURN) % BEARING_TURN;
+        expect(into, `${home.id} ${s.numeral}`).toBeGreaterThanOrEqual(s.widthBearing / 4 - 2);
+        expect(into, `${home.id} ${s.numeral}`).toBeLessThanOrEqual((3 * s.widthBearing) / 4 + 2);
       }
     }
   });

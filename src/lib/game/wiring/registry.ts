@@ -130,7 +130,7 @@ import { installFromShipSystemTile } from "../shipSystemTiles";
 import { constitutionRamp } from "../constitutionRamp";
 import { DRIVE_CLASS_REACH_MULT, FRONTIER_SENSORS } from "../propulsion";
 import { TIER_TRANSIT_HOURS, VOYAGE_BAND_SCALE_PERMILLE, voyageClassSteps } from "../voyage";
-import { TIER_HAUL_MULT } from "../riskFactors";
+import { ENEMY_TERRITORY_COMBAT_STEP, TIER_HAUL_MULT } from "../riskFactors";
 import { recallExpedition } from "../expedition";
 import { AWAY_TRAITS, type AwayTraitDef } from "../awayTraits";
 import { FIRST_AID_TRAINED_EFFECTIVENESS, FIRST_AID_UNTRAINED_EFFECTIVENESS, GAMBIT_PRESETS, GAMBIT_STATUSES, STONESKIN_BATTLE_RESIST, squadDebuffResistShare } from "../gambit";
@@ -272,6 +272,7 @@ import {
   PILOT_PROBE_CYCLES,
   wr9TopRankCount,
   launchedAndAt,
+  withEnemySectorPick,
   type ContextId,
   type ProbeId,
   type Transform,
@@ -4672,6 +4673,8 @@ const AUDIT_ROWS: readonly { id: string; system: WiringSystem; claim: string; st
   // WR-9 (OC-E4, user 2026-10-15 "Quicker trips home"): the Pilot's Cunning, measured on the mission engine.
   // WR-9 fix round (user 2026-10-31 "Missions, short-range, patrols"): every run with a trip home.
   { id: "crew:audit:pilotCunningReturn", system: "crew", claim: "The Pilot's Cunning: each cycle of a mission, short-range run or patrol, a chance the return leg is one tick shorter (stamped at dispatch)", status: LIVE },
+  // Complement plan CP-4's rest (user 2026-11-10 "Build it"): the Flight Deck's Integrity on Deck Handling's replenish.
+  { id: "crew:audit:flightDeckIntegrityReplenish", system: "crew", claim: "The Flight Deck's Integrity: below half hull, the Flight Deck's own Deck Handling (its crew and the Pilot) rebuilds lost drones x (1 + the facet) faster (frozen per patrol cycle)", status: LIVE },
   // F. Away team and ground
   { id: "away:audit:shroudLureGroundOps", system: "away", claim: "Shroud Emitter and Lure Beacon work on the ground (OC-F1): they scale a crew's ambush chance on a calm objective, rolled per use", status: LIVE },
   // Wiring WR-10 (OC-F2 "Revives the wearer", B13; OC-F3 "Fix the flavor"): checks in wr10AuditWiring below.
@@ -4727,7 +4730,9 @@ const AUDIT_ROWS: readonly { id: string; system: WiringSystem; claim: string; st
   // Expedition Tiers G2-6: the region picker offers every tier, so the tier rows read on a player's launch (the run's
   // risk profile at the picked tier). The tier haul and the tier body counts have their own rows (the G2-2 review
   // note); the future difficulty tiers keep theirs (nothing designed yet).
-  { id: "away:audit:tierDormant", system: "away", claim: "The tier rows a deeper launch reads: RISK_TIER_ODDS II to VII, enemy territory (the homeworld's fixed sectors), hostile sites, SCIENCE_HEAVY, affix rows above Tier I, the deeper famous systems", status: LIVE },
+  { id: "away:audit:tierDormant", system: "away", claim: "The tier rows a deeper launch reads: RISK_TIER_ODDS II to VII, hostile sites, SCIENCE_HEAVY, affix rows above Tier I, the deeper famous systems", status: LIVE },
+  // G2-9 close-out: enemy territory gets its own row and probe (the tier row's probe reads only the tier).
+  { id: "expedition:audit:enemyTerritory", system: "expedition", claim: "Enemy territory (user G8, the homeworld's fixed sectors): a system whose bearing lies in its tier's sector launches ENEMY_TERRITORY_COMBAT_STEP Combat grade higher", status: LIVE },
   { id: "away:audit:tierHaulMult", system: "away", claim: "The tier haul TIER_HAUL_MULT II to VII: every objective's haul of a deeper run, x1.25 to x3.3 (user G16)", status: LIVE },
   { id: "expedition:audit:tierBodyCount", system: "expedition", claim: "TIER_BODY_COUNT II to VII: deeper systems hold more bodies, up to 3 to 5 at Tiers VI and VII (user G17)", status: LIVE },
   // Safe first runs SF-7 close-out: deferred on the user's own words. The hook (the affix pool's difficulty-tier input,
@@ -5241,6 +5246,8 @@ function blankProbeStock(s: GameState, quality: number): GameState["inventory"] 
   return inventory;
 }
 
+const CP4_NEUTRAL_STATS: OfficerStats = { strength: OFFICER_STAT_NEUTRAL, integrity: OFFICER_STAT_NEUTRAL, cunning: OFFICER_STAT_NEUTRAL, constitution: OFFICER_STAT_NEUTRAL };
+
 function auditRowWiring(): Readonly<Record<string, Partial<EntryInput>>> {
   const emitter = (draw: number): Transform => (s) => installPiece(s, { slotType: "shieldEmitters", powerDraw: draw });
   const torpedo = (draw: number): Transform => (s) => installPiece(s, { slotType: "weapon", weaponType: "concussionTorpedo", powerDraw: draw });
@@ -5273,6 +5280,20 @@ function auditRowWiring(): Readonly<Record<string, Partial<EntryInput>>> {
       curve: { kind: "equals" },
       magnitude: () => 1,
       note: "1 when the risk-free ambush chance, the fight point floor and the unrated-site default read as claimed",
+    },
+    // Complement plan CP-4's rest: a Pilot with Integrity 20 against one at 10, on a carrier with Deck Handling aboard
+    // (the fixture Pilot is a Belter, whose racial is Deck Handling, and the ship's only source of it, so all of it is the
+    // Flight Deck's own: user 2026-11-11 "Flight Deck's own only"): the extra the dispatched cycle's squadron banks below
+    // half hull, over the extra above it, rises from 1 to 1 + the facet.
+    "crew:audit:flightDeckIntegrityReplenish": {
+      probe: "patrolReplenishSteadyLift",
+      contexts: ["patrol"],
+      curve: { kind: "linearRelative" },
+      tolerance: 1e-5,
+      magnitude: () => officerStatFacet(FACET_HIGH),
+      base: () => combatBase("carrier"),
+      on: (s) => seatOfficer(s, "pilot", [], { stats: { ...CP4_NEUTRAL_STATS, integrity: FACET_HIGH } }),
+      off: (s) => seatOfficer(s, "pilot", [], { stats: CP4_NEUTRAL_STATS }),
     },
     // Material Lines ML-5: one real Yield Rig job on Q2 stock against Q0 stock (its blank lands 2 buckets higher), and
     // one inspect with a Q2 and a Q0 blank held against the Q0 blank alone (the Q2 is taken first; the same seeded
@@ -5594,6 +5615,16 @@ function auditRowWiring(): Readonly<Record<string, Partial<EntryInput>>> {
       base: () => consoleOrion(G2_6_SENSORS),
       on: classedDrive("classIIDriveBp"),
       off: classedDrive("balancedDriveBp"),
+    },
+    // G2-9 close-out: the same candidate launched from a homeworld whose Tier II sector holds its bearing, against one
+    // whose sector does not, rolls its system Combat grade one step higher (withEnemySectorPick).
+    "expedition:audit:enemyTerritory": {
+      probe: "consoleCombatGrade",
+      contexts: ["expedition:groundOps"],
+      magnitude: () => ENEMY_TERRITORY_COMBAT_STEP,
+      base: () => classedDrive("classIIDriveBp")(consoleOrion(G2_6_SENSORS)),
+      on: (s) => withEnemySectorPick(s, true),
+      off: (s) => withEnemySectorPick(s, false),
     },
     // ...and pays Tier II's haul on every objective.
     "away:audit:tierHaulMult": {

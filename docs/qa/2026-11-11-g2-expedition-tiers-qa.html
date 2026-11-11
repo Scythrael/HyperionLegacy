@@ -1,0 +1,350 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>0.14.0 QA: Expedition Tiers, the full G2 sheet (G2-0 to G2-9)</title>
+<style>
+  :root {
+    --bg: #070b12;
+    --bg-2: #0d1420;
+    --panel: #111a29;
+    --panel-2: #0b1220;
+    --line: #1f2c40;
+    --line-2: #2a3a54;
+    --text: #dce6f3;
+    --dim: #8497af;
+    --faint: #5d6d86;
+    --accent: #38e0ff;
+    --accent-2: #7cf6c9;
+    --claude: #b98bff;
+    --desk: #38e0ff;
+    --mob: #ffcc66;
+    --warn: #ffcc66;
+    --save: #ff9a6b;
+    --device: #7fb2ff;
+    --good: #6ff2b0;
+    --danger: #ff7a7a;
+    --shadow: 0 0 0 1px var(--line), 0 18px 40px -24px #000;
+  }
+  * { box-sizing: border-box; }
+  html { color-scheme: dark; }
+  body {
+    margin: 0;
+    background:
+      radial-gradient(1200px 600px at 78% -10%, rgba(56,224,255,0.10), transparent 60%),
+      radial-gradient(900px 500px at 8% 8%, rgba(185,139,255,0.08), transparent 55%),
+      var(--bg);
+    color: var(--text);
+    font: 14px/1.55 ui-sans-serif, system-ui, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    padding: env(safe-area-inset-top, 0) 0 calc(env(safe-area-inset-bottom, 0) + 48px);
+  }
+  .wrap { max-width: 980px; margin: 0 auto; padding: 28px 18px 0; }
+  a { color: var(--accent); }
+
+  .eyebrow { font-size: 11px; letter-spacing: 3px; text-transform: uppercase; color: var(--accent); opacity: 0.85; margin: 0 0 6px; }
+  h1 { font-size: clamp(22px, 4.4vw, 34px); line-height: 1.1; margin: 0 0 4px; text-wrap: balance; font-weight: 750; letter-spacing: 0.3px; }
+  h1 .v { color: var(--accent); }
+  .sub { color: var(--dim); margin: 0 0 20px; font-size: 13px; }
+
+  .progress-card {
+    background: linear-gradient(180deg, var(--panel), var(--panel-2));
+    border: 1px solid var(--line-2); border-radius: 16px; padding: 20px 22px; box-shadow: var(--shadow); margin-bottom: 20px;
+  }
+  .progress-top { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+  .pct { font-size: clamp(30px, 8vw, 52px); font-weight: 800; line-height: 1; letter-spacing: -1px; color: var(--accent);
+    text-shadow: 0 0 24px rgba(56,224,255,0.45); font-variant-numeric: tabular-nums; }
+  .pct small { font-size: 15px; font-weight: 600; color: var(--dim); margin-left: 8px; letter-spacing: 0; }
+  .rowcount { color: var(--text); font-size: 15px; font-weight: 650; font-variant-numeric: tabular-nums; }
+  .rowcount b { color: var(--accent-2); }
+  .bar { margin-top: 16px; height: 16px; border-radius: 999px; background: #0a1220; border: 1px solid var(--line-2); overflow: hidden; }
+  .bar > i { display: block; height: 100%; width: 0%; background: linear-gradient(90deg, #2bd0ff, #7cf6c9);
+    box-shadow: 0 0 18px rgba(56,224,255,0.6); border-radius: 999px; transition: width .35s cubic-bezier(.2,.8,.2,1); }
+  .substats { display: flex; gap: 18px; flex-wrap: wrap; margin-top: 14px; font-size: 12.5px; color: var(--dim); }
+  .substats .dot { display: inline-block; width: 9px; height: 9px; border-radius: 3px; margin-right: 7px; vertical-align: middle; }
+  .substats b { color: var(--text); font-variant-numeric: tabular-nums; }
+  .d-claude { background: var(--claude); box-shadow: 0 0 10px var(--claude); }
+  .d-desk { background: var(--desk); box-shadow: 0 0 10px var(--desk); }
+  .d-mob { background: var(--mob); box-shadow: 0 0 10px var(--mob); }
+
+  .legend { background: var(--panel-2); border: 1px solid var(--line); border-radius: 12px; padding: 14px 16px; margin-bottom: 26px; font-size: 12.5px; color: var(--dim); }
+  .legend p { margin: 0 0 8px; }
+  .legend p:last-child { margin-bottom: 0; }
+  .legend b { color: var(--text); }
+  .chip { display: inline-block; padding: 1px 8px; border-radius: 999px; font-size: 11px; font-weight: 650; letter-spacing: 0.3px; vertical-align: middle; }
+  .chip.save { color: var(--save); background: rgba(255,154,107,0.12); border: 1px solid rgba(255,154,107,0.4); }
+  .chip.device { color: var(--device); background: rgba(127,178,255,0.12); border: 1px solid rgba(127,178,255,0.4); }
+  .chip.theme { color: var(--accent-2); background: rgba(124,246,201,0.10); border: 1px solid rgba(124,246,201,0.35); }
+  .chip.later { color: var(--danger); background: rgba(255,122,122,0.10); border: 1px solid rgba(255,122,122,0.4); }
+  .toolbar { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-bottom: 22px; }
+  .btn { background: var(--panel); color: var(--text); border: 1px solid var(--line-2); border-radius: 8px; padding: 7px 13px; font-size: 12.5px; cursor: pointer; font-weight: 600; }
+  .btn:hover { border-color: var(--accent); color: var(--accent); }
+  .toolbar .note { color: var(--faint); font-size: 12px; }
+
+  section { margin-bottom: 26px; }
+  .sec-head { display: flex; align-items: center; gap: 12px; margin: 0 0 6px; }
+  .sec-num { font-variant-numeric: tabular-nums; font-weight: 800; color: var(--accent); font-size: 13px; letter-spacing: 1px;
+    background: rgba(56,224,255,0.08); border: 1px solid rgba(56,224,255,0.3); border-radius: 7px; padding: 3px 9px; min-width: 34px; text-align: center; }
+  .sec-title { font-size: 16px; font-weight: 700; letter-spacing: 0.2px; }
+  .sec-line { flex: 1; height: 1px; background: linear-gradient(90deg, var(--line-2), transparent); }
+  .sec-done { font-size: 11.5px; color: var(--faint); font-variant-numeric: tabular-nums; }
+  .sec-note { color: var(--dim); font-size: 12.5px; font-style: italic; margin: 0 0 10px; border-left: 2px solid var(--line-2); padding: 2px 0 2px 12px; }
+
+  .items { display: flex; flex-direction: column; gap: 2px; }
+  .col-head, .item { display: grid; grid-template-columns: 52px 52px 52px 1fr; gap: 10px; }
+  .col-head { align-items: center; padding: 4px 12px; font-size: 10.5px; letter-spacing: 1px; text-transform: uppercase; color: var(--faint); }
+  .col-head .ch { text-align: center; }
+  .col-head .ch.claude { color: var(--claude); }
+  .col-head .ch.desk { color: var(--desk); }
+  .col-head .ch.mob { color: var(--mob); }
+  .item { align-items: start; padding: 10px 12px; border-radius: 10px; border: 1px solid transparent; }
+  .item:nth-child(odd) { background: rgba(255,255,255,0.014); }
+  .item.done { background: rgba(124,246,201,0.05); border-color: rgba(124,246,201,0.18); }
+  .cell { display: flex; justify-content: center; padding-top: 1px; }
+
+  .cb { position: relative; width: 22px; height: 22px; }
+  .cb input { position: absolute; inset: 0; opacity: 0; margin: 0; cursor: pointer; }
+  .cb .box { width: 22px; height: 22px; border-radius: 6px; border: 2px solid var(--line-2); display: grid; place-items: center; transition: .12s; background: #0a1220; }
+  .cb .box svg { width: 13px; height: 13px; opacity: 0; transform: scale(.5); transition: .12s; }
+  .cb input:checked + .box svg { opacity: 1; transform: scale(1); }
+  .cb input:focus-visible + .box { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .cb.claude input:checked + .box { background: rgba(185,139,255,0.18); border-color: var(--claude); }
+  .cb.claude .box svg { color: var(--claude); }
+  .cb.desk input:checked + .box { background: rgba(56,224,255,0.18); border-color: var(--desk); }
+  .cb.desk .box svg { color: var(--desk); }
+  .cb.mob input:checked + .box { background: rgba(255,204,102,0.18); border-color: var(--mob); }
+  .cb.mob .box svg { color: var(--mob); }
+  .cb.desk input:not(:disabled):hover + .box { border-color: var(--desk); }
+  .cb.mob input:not(:disabled):hover + .box { border-color: var(--mob); }
+  .cb input:disabled { cursor: default; }
+  .cb.claude.empty .box { border-style: dashed; opacity: 0.5; }
+
+  .body .t { color: var(--text); }
+  .body .t .k { color: var(--accent-2); font-weight: 600; }
+  .meta { margin-top: 5px; display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+  .how { color: var(--dim); font-size: 12px; font-style: italic; margin-top: 4px; }
+  .how::before { content: "how: "; font-style: normal; color: var(--claude); opacity: 0.85; font-weight: 650; }
+
+  .findings { background: linear-gradient(180deg, rgba(124,246,201,0.06), transparent); border: 1px solid rgba(124,246,201,0.25); border-radius: 14px; padding: 18px 20px; margin-top: 12px; }
+  .findings h2 { margin: 0 0 6px; font-size: 15px; color: var(--good); letter-spacing: 0.3px; }
+  .findings ol { margin: 8px 0 0; padding-left: 20px; }
+  .findings li { margin-bottom: 10px; color: var(--dim); }
+  .findings li b { color: var(--text); }
+  .foot { margin-top: 26px; color: var(--faint); font-size: 11.5px; text-align: center; }
+
+  @media (max-width: 520px) {
+    .col-head, .item { grid-template-columns: 34px 34px 34px 1fr; gap: 6px; }
+    .item { padding: 10px 8px; }
+    .col-head { padding: 4px 8px; font-size: 9.5px; letter-spacing: 0.5px; }
+    .wrap { padding-left: 14px; padding-right: 14px; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <p class="eyebrow">Hyperion Legacy QA, 0.14.0 feature pass</p>
+  <h1><span class="v">0.14.0</span> Expedition Tiers: the full G2 sheet (G2-9 close-out)</h1>
+  <p class="sub">The whole Expedition Tiers feature in one pass (plan docs/plans/2026-10-14-expedition-tiers-g2-plan.md, section 5 as refreshed at the G2-9 close-out, and your answers through 2026-11-11). It covers the region tabs and their gates, the candidate cards and the reach bar, drive classes, an old save's load, recall, resume, the systems a recall returns to the candidates, the telescope map's labeled enemy sectors, and Roman numerals for every tier in the game. <b>Run this on staging</b> (devpreview.crystalisoft.com, the staging branch) once 0.14.0 is deployed there (0.14.0 stays off staging until the wiring gate passes and you say go). Run each check at <b>1280 px</b> (desktop) and at <b>375 px</b> (mobile), once in a dark theme and once in the brightest theme (<b>White</b>; the game has dark themes only, so this stands in for light).</p>
+
+  <div class="progress-card">
+    <div class="progress-top">
+      <div class="pct" id="pct">0%<small id="pctlabel">ready</small></div>
+      <div class="rowcount"><b id="doneCount">0</b> / <span id="totalCount">0</span> checks complete</div>
+    </div>
+    <div class="bar"><i id="barFill"></i></div>
+    <div class="substats">
+      <span><span class="dot d-claude"></span>Claude (tests) <b id="claudeCount">0</b></span>
+      <span><span class="dot d-desk"></span>You at 1280 px <b id="deskCount">0</b></span>
+      <span><span class="dot d-mob"></span>You at 375 px <b id="mobCount">0</b></span>
+      <span style="color:var(--faint)">A row is complete when both of your columns are ticked.</span>
+    </div>
+  </div>
+
+  <div class="legend">
+    <p><b>Where.</b> Ops, Exploration, the <b>expedition card</b> (region tabs I to VII, candidate cards, the launch bar, Recall while a run is out); Facilities, <b>Subspace Telescope</b> (the galaxy map); Help, <b>Expedition Tiers</b>.</p>
+    <p><b>What you need.</b> Your own migrated save, a fresh save, and an <b>explorer</b> (a fresh save starts without one; build one first). For deeper tiers: a Class II or better FTL drive, enough range, and from Tier III frontier sensors (20, 30, 40, 55, 65; Tiers I and II ask for none).</p>
+    <p><b>The G2-9 fixes.</b> A launch to a held system no longer rerolls the Tier I list (Wolf 359 stays put). A system recalled before it arrived is an ordinary candidate again <b>until your next launch from the list</b> (your 2026-10-21 answer "No limit, refresh normally"). Recalling a resumed run before it arrives says its charted bodies stay as they were. The map labels each hatched slice with its tier and aims Tiers VI and VII at the core. Every tier reads in Roman numerals.</p>
+    <p><b>The three columns.</b> <b style="color:var(--claude)">Claude</b> is pre-filled and read-only: a tick means a test proves that rule (the "how" line names the file). <b style="color:var(--desk)">1280</b> and <b style="color:var(--mob)">375</b> are yours; your ticks are saved in this browser.</p>
+    <p>Tags: <span class="chip save">needs real save</span> needs your migrated save or a played save. <span class="chip device">needs device</span> touch, a real phone, or a visual call. <span class="chip theme">theme</span> look at it in both themes.</p>
+  </div>
+
+  <div class="toolbar">
+    <button class="btn" type="button" id="resetBtn">Reset my columns</button>
+    <span class="note">Claude's column is read-only (it records what the tests prove).</span>
+  </div>
+
+  <div id="sections"></div>
+
+  <div class="findings">
+    <h2>Builder notes (G2-9 close-out fix pass, 2026-11-11)</h2>
+    <ol>
+      <li><b>Held launches keep the list.</b> The Wolf 359 guarantee counted every dispatch, so a launch to a held system (which draws no new list) moved slot 0 off Wolf 359 while the list seed stayed. It now counts list draws: dispatches less held launches (a new optional save key, <b>heldLaunches</b>, written only by a held launch; no SAVE_VERSION bump, and a save without it reads exactly as before). A veteran's Wolf 359 stamp keeps matching.</li>
+      <li><b>Returned candidates refresh normally.</b> Your 2026-10-21 answer, "No limit, refresh normally": a system recalled before it arrived is an ordinary candidate again, so it rolls off with the next launch from the list, like the list's own three. The confirm now says so ("until you next launch to a system on the list"). Resumable systems are unchanged.</li>
+      <li><b>Recall confirm for a resumed run.</b> Recalled before it arrives, a resumed run still holds the bodies charted on an earlier trip: the confirm says "Nothing new is charted on this trip; the bodies charted before and the objectives' progress stay as they were." and that the system stays open.</li>
+      <li><b>Map labels and aim.</b> Your 2026-11-11 answer "Label + point inward": each hatched slice carries its Roman numeral, small, in the danger color with a dark halo, inside its slice (a slice too small or crowded, mostly Tier II beside the homeworld, gets it just outside its edge). Labels never cover a badge, a dot, the two map labels or each other (tested over 200 homeworlds at every level). The Tier VI and VII sectors are aimed at the drawn core: the core sits in the middle half of the slice, still varied per save. Old saves get the same rule on load (the sectors derive from the homeworld seed; nothing stored moved). A run already flying keeps its frozen enemy territory flag.</li>
+      <li><b>Roman numerals everywhere.</b> Your 2026-11-11 answer "Everything": one shared formatter (galaxy.ts tierNumeral) for research tier headers, crafted gear iLevel rows, blueprint tier pickers, Fabricator and Research Lab "unlocks Tier N blueprints", hull tooltips, warehouse tiers and their materials note, Overtime pricing, Short-Range, relics and expeditions. Facility <i>levels</i> stay numbers (they are levels, not tiers).</li>
+      <li><b>Wiring.</b> Enemy territory has its own row with its own probe (the same candidate inside vs outside its sector rolls one Combat grade higher); the tier row no longer claims it.</li>
+    </ol>
+  </div>
+
+  <p class="foot">0.14.0 Expedition Tiers full QA (G2-0 to G2-9), boxes persist in this browser only.</p>
+</div>
+
+<script>
+const TICK = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>';
+// c: a test proves it (how names the file). tag: "save" | "device" | "theme" | "later" | null.
+const SECTIONS = [
+  { n: "0", title: "Setup on staging", note: "Staging only: devpreview.crystalisoft.com on the 0.14.0 build.", items: [
+    { t: "Open staging and load your save: it loads clean. Start a second fresh save in another browser or profile.", tag: "save" },
+    { t: "No console errors opening the expedition card (every tab), the telescope card, the Research and Fabricator panels, the Warehouse and Help, Expedition Tiers.", tag: "theme" },
+  ]},
+  { n: "1", title: "Region tabs and their gates (QA items 1, 5, 6, 8)", items: [
+    { t: "The expedition card shows seven tabs, <b>Tier I</b> to <b>Tier VII</b>. With an explorer, Tier I reads <b>Ready</b>; II to VII each name the first gate the ship misses in plain words.", c: true, how: "expeditionConsoleDisplay.test.ts (the region tabs: Ready or the first unmet gate)." },
+    { t: "A ship that is not an explorer (a combat hull or the starting freighter): every tab reads the explorer gate, Tier I included, and Launch stays off.", c: true, how: "propulsion.test.ts and expeditionDispatchGate.test.ts (notExplorer before every other gate)." },
+    { t: "Install a <b>Class II</b> drive on an explorer: Tier II opens if its reach allows (Tiers I and II ask for no frontier sensors); a Class III drive opens Tier III when the sensors read 20 or more.", c: true, tag: "save", how: "propulsion.test.ts (drive class and frontier sensor gates both sides)." },
+    { t: "An explorer with a short range and a Class II drive, on a far Tier II system: <b>Beyond this ship's reach</b> with the round trip and the ship's reach in light-years.", c: true, tag: "save", how: "propulsion.test.ts (outOfReach with both numbers)." },
+    { t: "Below a tier's frontier sensors (Tier III and deeper): the tab and the card say the number needed and the number the ship reads; above it, allowed.", c: true, how: "propulsion.test.ts (frontierSensors)." },
+    { t: "Tabs work by keyboard (arrow keys, Home, End) and the picked tab is remembered on the next visit.", c: true, tag: "device", how: "expeditionConsoleDisplay.test.ts (nextTier, consoleDefaultTier)." },
+  ]},
+  { n: "2", title: "Candidate cards and the reach bar (QA items 2, 5, 7, 9)", items: [
+    { t: "Each tier offers three candidates, nearest first: region, distance from your homeworld, one-way transit at this ship's drive (about 2 h at Tier I by its band position), the reach bar, and the graded risk.", c: true, how: "expeditionConsoleDisplay.test.ts (candidate card) and expeditionTierCandidates.test.ts (three per tier, in the band)." },
+    { t: "A Class II drive reads about 4 h one way at Tier II; a Class III drive halves it.", c: true, tag: "save", how: "voyage.test.ts (the ladder and the class halving)." },
+    { t: "Seat an Engineering officer with Constitution: the reach bar grows on long voyages only.", c: true, tag: "save", how: "propulsion.test.ts (the Engineering ramp extends reach exactly as shipTripRangeLightYears)." },
+    { t: "A candidate in enemy territory says so; its Combat risk reads one step higher.", c: true, how: "expeditionTierCandidates.test.ts (enemy territory from the fixed sectors); wiring row expedition:audit:enemyTerritory." },
+    { t: "Launch to a tier beyond the telescope's range: the blind launch warning appears and the launch proceeds.", c: true, tag: "save", how: "expeditionConsoleDisplay.test.ts (launch bar) and the blind launch wiring row." },
+    { t: "At 375 px the tabs, the cards and the launch bar fit with no sideways scroll; the drive, reach, recall and resume glyphs read clearly.", tag: "device" },
+  ]},
+  { n: "3", title: "An old save loads (QA item 4)", items: [
+    { t: "Your existing save loads (v69 to v70): it gets its own homeworld, and an expedition already in flight finishes and claims exactly as before.", c: true, tag: "save", how: "homeworldMigration.test.ts and expeditionTiersGoldens.test.ts golden 1 (stored pre-G2 runs, byte-identical)." },
+    { t: "Two fresh saves show different homeworld positions and different candidate distances.", c: true, tag: "save", how: "galaxy.test.ts (placements) and telescopeCardDisplay.test.ts (two homeworlds, two centers)." },
+    { t: "Mission and patrol eligibility is unchanged for every ship, and the LY readouts are the same numbers as before (not rescaled, approved 2026-10-21).", c: true, how: "expeditionTiersGoldens.test.ts golden 4 (every hull, every mission and patrol)." },
+  ]},
+  { n: "4", title: "Recall (QA items 10, 11, 12)", items: [
+    { t: "Recall a run 40% of the way out: one confirm (Keep going has the focus) naming the time home; the return is 40% of the return leg, so Fast Return crew shorten it. The ship arrives home and the claim frees the captain.", c: true, tag: "save", how: "expeditionRecall.test.ts (1:1 in transit, claim) and expeditionConsoleDisplay.test.ts (the confirm)." },
+    { t: "Recall during ground work: teams come up on one pickup, then the full return leg; finished work is in the claim; an objective part done keeps its progress.", c: true, tag: "save", how: "expeditionRecall.test.ts (the window closes at the recall, pickup, progress kept)." },
+    { t: "A run already on its way home shows no Recall (refused while returning).", c: true, how: "expeditionRecall.test.ts (refusals)." },
+    { t: "After a recall the phase stepper shows the cut phases and <b>Recalled · home in X</b>; the claim card names what stayed.", c: true, how: "expeditionConsoleDisplay.test.ts (recalled stepper and claim)." },
+  ]},
+  { n: "5", title: "Resume", items: [
+    { t: "Recall a run after at least one body is charted: the confirm says the system stays open; it appears in its tier's <b>Resume</b> list with its progress.", c: true, tag: "save", how: "expeditionRecall.test.ts (resumable systems) and expeditionConsoleDisplay.test.ts (resume cards)." },
+    { t: "Resume it with any explorer: finished scans stay done, objectives keep their progress, the trip is flown again.", c: true, tag: "save", how: "expeditionRecall.test.ts and gasGiantStudyResume.test.ts (pick up where you left off)." },
+    { t: "Recall that resumed run <b>before it arrives</b>: the confirm reads <b>Nothing new is charted on this trip; the bodies charted before and the objectives' progress stay as they were.</b> and that the system stays open (never \"Nothing has been charted yet\").", c: true, tag: "save", how: "expeditionConsoleDisplay.test.ts (a resumed run recalled in transit)." },
+    { t: "Abandon a resumable system: one confirm, then it leaves the Resume list.", c: true, tag: "save", how: "expeditionRecall.test.ts (abandon)." },
+  ]},
+  { n: "6", title: "Held candidates and the list (G2-9 fixes)", items: [
+    { t: "Recall a run before it arrives: the confirm says the system <b>goes back to the Tier N candidates until you next launch to a system on the list</b>; once home it shows as a fourth candidate on its tier.", c: true, tag: "save", how: "expeditionRecall.test.ts and expeditionConsoleDisplay.test.ts (candidate again)." },
+    { t: "Launch from the list (any of the three): the returned candidate rolls off with the old list; a resumable system stays.", c: true, tag: "save", how: "expeditionRecall.test.ts (a returned candidate rolls off with the next dispatch from the list)." },
+    { t: "Launch to the returned candidate itself instead: every tier's list on screen stays exactly the same, Wolf 359 included.", c: true, tag: "save", how: "expeditionRecall.test.ts (a held launch leaves every tier's list deep-equal; a veteran's stamp stays matched)." },
+    { t: "Wolf 359 appears in the first Tier I list after the first run (nearest first, so not necessarily on top); claiming a run that reached it writes the derelict field entry once.", c: true, tag: "save", how: "expeditionTierCandidates.test.ts and wolf359Derelict.test.ts." },
+  ]},
+  { n: "7", title: "The telescope map: labeled enemy sectors (user 2026-11-11)", note: "A save at telescope Level 2 or higher; Level 8 shows every slice.", items: [
+    { t: "Each hatched slice carries its tier in small Roman numerals (<b>II</b>, <b>III</b>, ...), inside the slice where it fits (the small Tier II slice may carry it just outside its edge).", c: true, tag: "theme", how: "telescopeCardDisplay.test.ts (each slice labeled, inside or just outside it, over 200 homeworlds at every level)." },
+    { t: "Tiers III and IV share one ring: their two labels sit apart, so you can tell whose slice is whose.", c: true, how: "telescopeCardDisplay.test.ts (III and IV labels apart)." },
+    { t: "No label covers a badge, the homeworld or core dot, the Homeworld or Galactic Core label, or another label; nothing clips at the edges.", c: true, tag: "device", how: "telescopeCardDisplay.test.ts (clearance and view box)." },
+    { t: "The Tier VI and VII slices point toward the drawn Galactic Core (up on the map); a second save's slices sit differently but still face the core.", c: true, tag: "save", how: "galaxy.test.ts and telescopeCardDisplay.test.ts (the core in the slice's middle half)." },
+    { t: "Labels read clearly at 375 px and 1280 px in both themes, and the color-blind palette keeps them in its danger color.", tag: "device" },
+    { t: "Otherwise the map looks as approved (thin hatch, dashed edge, legend <b>Hatched: enemy territory</b>, <b>part enemy</b> on the key).", c: true, tag: "theme", how: "telescopeCardDisplay.test.ts (the 2026-11-09 shading tests unchanged)." },
+  ]},
+  { n: "8", title: "Roman numerals everywhere (user 2026-11-11)", items: [
+    { t: "Research: the tier headers read <b>Tier I</b>, <b>Tier II</b>, ...; the Research Lab upgrade says <b>unlocks Tier N blueprints</b> in numerals.", tag: "theme" },
+    { t: "Fabricator: the tier picker, the crafted gear rows (<b>Tier II gear: iLevel ...</b>), the blueprint's <b>(Tier N ceiling)</b> and the upgrade's <b>unlocks Tier N blueprints</b> all in numerals.", tag: "theme" },
+    { t: "Ship hull tooltips read <b>Tier III · ...</b>; mission panes keep their <b>Tier I</b> lines.", tag: "theme" },
+    { t: "Warehouse: the tier tabs read <b>Tier I</b> and <b>Tier II</b>, and the materials note and the unlock line say <b>Tier II</b>.", tag: "theme" },
+    { t: "Overtime on a running job: <b>Priced on the whole ... at Tier N</b> in numerals; Help, Overtime says the first expansion and a data study are <b>Tier I</b>.", c: true, how: "jobOvertimeDisplay.test.ts (the pricing line) and helpTopics.test.ts." },
+    { t: "Short-Range, relics, captain firsts and the expedition card already read in numerals and still do; nothing in game reads a tier as a plain number.", c: true, how: "galaxy.test.ts (tierNumeral, the one shared formatter) and the display tests." },
+  ]},
+  { n: "9", title: "Help (QA item 15)", items: [
+    { t: "Help, <b>Expedition Tiers</b>: regions, your homeworld, deeper tiers, enemy territory, the gates, reach, transit, recall (<b>the share of the trip it has flown</b>) and resume (a system recalled before anything was charted is a candidate again <b>until the next fresh list is drawn</b>); the list <b>stays the same until you launch to one of its systems</b>.", c: true, how: "helpTopics.test.ts (recall and resume lines)." },
+    { t: "The tier facts chip for Tier III or IV reads <b>(shared with Tier IV)</b> / <b>(shared with Tier III)</b>.", c: true, how: "expeditionConsoleDisplay.test.ts (tier facts)." },
+    { t: "No em dash, no \"fit\", no \"task\", no \"warp\", every tier and class in Roman numerals.", c: true, how: "helpTopics.test.ts (text rules)." },
+  ]},
+  { n: "10", title: "Regression (QA items 16, 17)", items: [
+    { t: "Ground Ops runs, affixes, field repair, the telescope card, the recommendation and the forecast at Tier I play as before.", c: true, tag: "save", how: "the full suite's goldens (no pin moved by the fix pass beyond the registry read-back, see the notes)." },
+    { t: "G2-8 (the antimatter burn and maintenance) moved to 0.14.x: no burn choice and no maintenance anywhere.", c: true, how: "the G2 plan, G2-8 section." },
+  ]},
+];
+
+const STORE = "hl-qa-0140-g2-expedition-tiers-full-v1";
+let userState = {};
+try { userState = JSON.parse(localStorage.getItem(STORE) || "{}"); } catch (e) { userState = {}; }
+function save() { try { localStorage.setItem(STORE, JSON.stringify(userState)); } catch (e) {} }
+
+const CHIP = {
+  save: '<span class="chip save">needs real save</span>',
+  device: '<span class="chip device">needs device</span>',
+  theme: '<span class="chip theme">theme</span>',
+  later: '<span class="chip later">not in this build</span>',
+};
+
+function cb(kind, id, checked, disabled, label) {
+  const empty = (kind === "claude" && !checked) ? " empty" : "";
+  return '<span class="cb ' + kind + empty + '"><input type="checkbox" id="' + id + '" ' + (checked ? "checked " : "") + (disabled ? "disabled " : "") +
+    'aria-label="' + label + '"><span class="box">' + TICK + "</span></span>";
+}
+
+const secWrap = document.getElementById("sections");
+SECTIONS.forEach((sec, si) => {
+  const el = document.createElement("section");
+  let html = '<div class="sec-head"><span class="sec-num">' + sec.n + '</span><span class="sec-title">' + sec.title +
+    '</span><span class="sec-line"></span><span class="sec-done" id="secdone-' + si + '"></span></div>';
+  if (sec.note) html += '<p class="sec-note">' + sec.note + "</p>";
+  html += '<div class="items"><div class="col-head"><span class="ch claude">Claude</span><span class="ch desk">1280</span><span class="ch mob">375</span><span></span></div>';
+  sec.items.forEach((it, ii) => {
+    const key = si + "-" + ii;
+    const meta = it.tag ? '<div class="meta">' + (CHIP[it.tag] || "") + "</div>" : "";
+    const how = it.how ? '<div class="how">' + it.how + "</div>" : "";
+    html += '<div class="item" data-key="' + key + '">' +
+      '<div class="cell">' + cb("claude", "c-" + key, !!it.c, true, "Claude: covered by tests") + "</div>" +
+      '<div class="cell">' + cb("desk", "d-" + key, !!userState["d-" + key], false, "Checked at 1280 px") + "</div>" +
+      '<div class="cell">' + cb("mob", "m-" + key, !!userState["m-" + key], false, "Checked at 375 px") + "</div>" +
+      '<div class="body"><span class="t">' + it.t + "</span>" + meta + how + "</div></div>";
+  });
+  html += "</div>";
+  el.innerHTML = html;
+  secWrap.appendChild(el);
+});
+
+function isDone(key) { return !!userState["d-" + key] && !!userState["m-" + key]; }
+function recompute() {
+  let total = 0, done = 0, claude = 0, desk = 0, mob = 0;
+  SECTIONS.forEach((sec, si) => {
+    let secTotal = 0, secDone = 0;
+    sec.items.forEach((it, ii) => {
+      const key = si + "-" + ii;
+      total++; secTotal++;
+      if (it.c) claude++;
+      if (userState["d-" + key]) desk++;
+      if (userState["m-" + key]) mob++;
+      if (isDone(key)) { done++; secDone++; }
+      const row = secWrap.querySelector('.item[data-key="' + key + '"]');
+      if (row) row.classList.toggle("done", isDone(key));
+    });
+    const sd = document.getElementById("secdone-" + si);
+    if (sd) sd.textContent = secDone + " / " + secTotal;
+  });
+  const pctVal = total ? Math.round((done / total) * 100) : 0;
+  document.getElementById("pct").firstChild.textContent = pctVal + "%";
+  document.getElementById("barFill").style.width = pctVal + "%";
+  document.getElementById("doneCount").textContent = done;
+  document.getElementById("totalCount").textContent = total;
+  document.getElementById("claudeCount").textContent = claude;
+  document.getElementById("deskCount").textContent = desk;
+  document.getElementById("mobCount").textContent = mob;
+  document.getElementById("pctlabel").textContent = pctVal >= 100 ? "launch-ready" : (pctVal >= 60 ? "closing in" : "in progress");
+}
+
+secWrap.addEventListener("change", (e) => {
+  const inp = e.target;
+  if (!inp.id || (inp.id[0] !== "d" && inp.id[0] !== "m")) return;
+  if (inp.checked) userState[inp.id] = true; else delete userState[inp.id];
+  save(); recompute();
+});
+document.getElementById("resetBtn").addEventListener("click", () => {
+  userState = {}; save();
+  secWrap.querySelectorAll('input[id^="d-"], input[id^="m-"]').forEach((i) => (i.checked = false));
+  recompute();
+});
+recompute();
+</script>
+</body>
+</html>

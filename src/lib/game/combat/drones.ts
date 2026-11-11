@@ -195,6 +195,13 @@ export interface DroneSquadron {
 	// then replenishes exactly as before.
 	deckHandlingPpm?: number;
 	replenishCarryPpm?: number;
+	// 0.14.0 (complement plan CP-4's rest, user 2026-11-10 "Build it"; [PROVISIONAL] magnitude, the first-pass facet):
+	// the Deck Handling rate this squadron replenishes at while its ship is BELOW HALF HULL, in the same parts per
+	// million: Deck Handling + the facet x the Flight Deck's OWN Deck Handling (bridge.ts applyDeckHandling; fix round,
+	// user 2026-11-11 "Flight Deck's own only"). It banks in the
+	// same replenishCarryPpm. OPTIONAL: absent without the facet (or without Deck Handling), and the squadron then
+	// replenishes at deckHandlingPpm above and below half hull alike.
+	deckHandlingSteadyPpm?: number;
 
 	// Time between volleys, in deci-seconds (integer fixed-point). Attack fires
 	// FAST (short cooldown), defense/support fire SLOW.
