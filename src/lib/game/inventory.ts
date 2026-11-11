@@ -35,6 +35,7 @@
 // ============================================================================
 
 import Decimal from "break_infinity.js";
+import { withInventoryKey } from "./canonicalOrder";
 
 // The number of quality tiers an item can occupy: tiers 0..5 inclusive, so a
 // full bucket array is length 6. A single source of truth for the valid quality
@@ -42,6 +43,15 @@ import Decimal from "break_infinity.js";
 // site. (Nothing writes a tier above 0 in this refactor; the constant documents
 // the ceiling the LATER quality-roll task will fill in.)
 export const QUALITY_TIERS = 6;
+
+// THE ONE INVENTORY WRITE SEAM (ordering determinism part 2, canonicalOrder.ts): `inv` with `item`'s bucket array set
+// to `buckets`. Every mutator below returns through it, and every engine writer goes through those mutators, so a
+// NEW item key puts the inventory in canonical key order the same way however the time is cut; a key already held
+// keeps its place (one spread, no sort). A caller that must SET an item's buckets outright (a probe, a grant) calls
+// this rather than spreading the map itself. PURE: never mutates its input.
+export function setItemBuckets(inv: Record<string, Decimal[]>, item: string, buckets: Decimal[]): Record<string, Decimal[]> {
+  return withInventoryKey(inv, item, buckets);
+}
 
 // Sum of `item`'s buckets = its total on-hand. Absent item (no key) or an empty
 // bucket array yields Decimal(0). PURE: reads only, allocates a running Decimal.
@@ -77,7 +87,7 @@ export function getBucket(inv: Record<string, Decimal[]>, item: string, quality:
 // absent as 0) rather than ensureItem. PURE (never mutates the input map).
 export function ensureItem(inv: Record<string, Decimal[]>, item: string): Record<string, Decimal[]> {
   if (inv[item]) return inv; // already present -> no change, no clone
-  return { ...inv, [item]: [new Decimal(0)] };
+  return setItemBuckets(inv, item, [new Decimal(0)]);
 }
 
 // Grows a COPY of `buckets` so index `quality` is addressable, zero-filling any
@@ -106,7 +116,7 @@ export function addItemQuality(
 ): Record<string, Decimal[]> {
   const nextBuckets = growBuckets(inv[item], quality);
   nextBuckets[quality] = nextBuckets[quality].plus(amount);
-  return { ...inv, [item]: nextBuckets };
+  return setItemBuckets(inv, item, nextBuckets);
 }
 
 // Subtracts `amount` from `item`'s `quality` bucket, returning a NEW inventory.
@@ -122,7 +132,7 @@ export function removeItemQuality(
 ): Record<string, Decimal[]> {
   const nextBuckets = growBuckets(inv[item], quality);
   nextBuckets[quality] = nextBuckets[quality].minus(amount);
-  return { ...inv, [item]: nextBuckets };
+  return setItemBuckets(inv, item, nextBuckets);
 }
 
 // Consumes `amount` of `item` from the LOWEST quality bucket first, spilling up
@@ -174,7 +184,7 @@ export function removeItemLowestFirst(
     nextBuckets[0] = nextBuckets[0].minus(remaining);
   }
 
-  return { ...inv, [item]: nextBuckets };
+  return setItemBuckets(inv, item, nextBuckets);
 }
 
 // Material Lines ML-4 (L5, the "Use best materials" toggle): the twin of removeItemLowestFirst that consumes the
@@ -204,7 +214,7 @@ export function removeItemHighestFirst(
   if (remaining.gt(0)) {
     nextBuckets[0] = nextBuckets[0].minus(remaining);
   }
-  return { ...inv, [item]: nextBuckets };
+  return setItemBuckets(inv, item, nextBuckets);
 }
 
 // Material Lines ML-4 (L6): what a draw of `amount` of `item` would consume, as units and quality-weighted units

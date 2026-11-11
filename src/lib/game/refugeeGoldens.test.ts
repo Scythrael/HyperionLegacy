@@ -62,7 +62,7 @@
 // The ordering determinism slice (canonicalOrder.ts: `discovered` and the lifetime tally maps kept in canonical order)
 // came after every pin here: the file runs with it off (orderingSwitch.fixture.ts), so its pins keep proving their own
 // slice (orderingGoldens.test.ts pins the order move and proves it moved order only).
-import { canonicalOrderOffForThisFile } from "./orderingSwitch.fixture";
+import { canonicalOrderOffForThisFile, withCanonicalOrderOn } from "./orderingSwitch.fixture";
 canonicalOrderOffForThisFile();
 import { describe, expect, it } from "vitest";
 // WR-8b (enemy torpedoes) came after every pin here: the file runs with it off (enemyTorpedoSwitch.fixture.ts), so its
@@ -476,19 +476,21 @@ describe("E5-0 golden 2: a short-range fleet on Repeat on every slot, six hours"
     pin("srfix:fleet", fixed.hours);
     pin("srfix:fleet:previews", fixed.previews);
     pin("srfix:fleet:board", fixed.board);
-    // ...and the new hour-1 state IS the live game's: 3600 one-second steps land on the same values. Compared with
-    // object keys sorted and `discovered` as a set: within one call an item's FIRST-SEEN key order follows the captain
-    // map (the per-call delivery fold), not time, for any multi-captain fleet; no reader depends on that order.
-    const canon = (g: GameState): string =>
-      JSON.stringify({ ...g, discovered: [...g.discovered].sort() }, (_k, v: unknown) =>
-        v !== null && typeof v === "object" && !Array.isArray(v) && Object.getPrototypeOf(v) === Object.prototype
-          ? Object.fromEntries(Object.keys(v as object).sort().map((k) => [k, (v as Record<string, unknown>)[k]]))
-          : v,
-      );
-    let live = shortRangeFleet();
-    for (let t = 0; t < HOUR; t++) live = economyTick(live, 1, RNG);
-    expect(canon(live)).toBe(canon(economyTick(shortRangeFleet(), HOUR, RNG)));
-    expect(canon(live)).not.toBe(canon(preFix(() => economyTick(shortRangeFleet(), HOUR, RNG))));
+    // ...and the new hour-1 state IS the live game's: 3600 one-second steps land on the same state, compared STRICT
+    // (the whole JSON, no key order or list normalized). This file runs with the ordering slice off for its pins, so
+    // the comparison runs with it on: canonicalOrder.ts keeps `discovered`, the tallies and the inventory's keys in one
+    // order however the hour is cut (with it off one call meets the captains' first finds in captain map order).
+    const [live, once, unfixed] = withCanonicalOrderOn(() => {
+      let stepped = shortRangeFleet();
+      for (let t = 0; t < HOUR; t++) stepped = economyTick(stepped, 1, RNG);
+      return [
+        JSON.stringify(stepped),
+        JSON.stringify(economyTick(shortRangeFleet(), HOUR, RNG)),
+        JSON.stringify(preFix(() => economyTick(shortRangeFleet(), HOUR, RNG))),
+      ];
+    });
+    expect(live).toBe(once);
+    expect(live).not.toBe(unfixed);
   });
 });
 

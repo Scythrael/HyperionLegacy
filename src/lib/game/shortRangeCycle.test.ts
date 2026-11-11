@@ -404,18 +404,14 @@ function parityFleet(): GameState {
   return patrol.next;
 }
 
-// Whole-state equality, field by field, through the save's JSON with object keys sorted and the `discovered` set sorted
-// (one call folds every delivery at its end in key order, so a mission's and a patrol's deliveries can first add an
-// inventory key, and reveal it, in either order when the span is cut differently; the values are equal).
-function canonical(v: unknown): unknown {
-  if (Array.isArray(v)) return v.map(canonical);
-  if (v !== null && typeof v === "object") return Object.fromEntries(Object.keys(v).sort().map((k) => [k, canonical((v as Record<string, unknown>)[k])]));
-  return v;
-}
+// Whole-state equality, field by field, through the save's JSON, STRICT: no key order and no list normalized (the
+// ordering determinism slices, canonicalOrder.ts, keep `discovered`, the inventory's keys and the completion log in one
+// order however the span is cut), then the whole JSON byte for byte.
 function same(a: GameState, b: GameState): void {
-  const ja = canonical(JSON.parse(JSON.stringify({ ...a, discovered: [...a.discovered].sort() }))) as Record<string, unknown>;
-  const jb = canonical(JSON.parse(JSON.stringify({ ...b, discovered: [...b.discovered].sort() }))) as Record<string, unknown>;
+  const ja = JSON.parse(JSON.stringify(a)) as Record<string, unknown>;
+  const jb = JSON.parse(JSON.stringify(b)) as Record<string, unknown>;
   for (const k of new Set([...Object.keys(ja), ...Object.keys(jb)])) expect(JSON.stringify(ja[k]), k).toBe(JSON.stringify(jb[k]));
+  expect(JSON.stringify(a)).toBe(JSON.stringify(b));
 }
 
 describe("G1-4 offline == live: one call == 997 s chunks == 1 s steps over 20 cycles beside a mission and a patrol", () => {

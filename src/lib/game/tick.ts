@@ -214,7 +214,7 @@ import {
 import { identifyRelic, relicStudySeed, relicStudyDurationTicks, museumBonuses, museumDepositGeneral } from "./relics";
 import { identifyGeneralRelic, vaultTokenCultureId, vaultTokenRegionTier } from "./relicBlanks";
 // Relics v2 R2-3: identification v2 (the keyed three-draw roll and its deposit) and the lanes by Lab level.
-import { inCanonicalKeyOrder, withDiscovered } from "./canonicalOrder";
+import { ORDERING2_SWITCH, compareProcessIds, inCanonicalKeyOrder, withDiscovered } from "./canonicalOrder";
 import { RELIC_STUDY_VERSION, applyRelicIdentification, identifyRelicV2, relicIdentificationId, relicStudyLanesAt } from "./relicIdentify";
 // Gas Giant Study GG-5: the Research Lab's data study lane (dataStudy.ts imports neither this file nor expedition.ts).
 import { ANCIENT_DATA_FRAGMENT_ID } from "./gasGiantContent";
@@ -1841,6 +1841,13 @@ function craftOrderFinished(state: GameState, lineId: string): boolean {
     (state.fabricateLines ?? []).find((l) => l.id === lineId);
   if (line === undefined) return true;
   return line.mode.kind === "batch" && line.remaining <= 0;
+}
+
+// Ordering determinism part 2 (canonicalOrder.ts): the whole tick of a resolve window a job
+// completes on (1 = the window's first), from its time left at the window's start: the first
+// whole tick at which that time reaches 0, resolveProcesses' own epsilon test. Pure.
+function completionTickIn(remainingTicks: number): number {
+  return Math.max(1, Math.ceil(remainingTicks - MISSION_TICK_EPSILON));
 }
 
 // The completed-log accumulators resolveProcesses threads, gathered into one shape so the
@@ -9360,12 +9367,12 @@ function depositRelicStudy(
 }
 
 // What resolveRelicStudies hands the resolver: the identified id of every relic study that was in flight and
-// completed this call (keyed by process id; the resolver records it at its array position, as before), the studies a
+// completed this call (keyed by process id; the resolver queues its log record with the rest, part 2 orders them), the studies a
 // queue START launched and completed inside this call (in completion order), the started studies still running at
 // the end (in start order), and the records they wrote.
 interface RelicStudyChain {
   completed: Map<string, string | null>;
-  chained: { process: TimedProcess; relicId: string | null }[];
+  chained: { process: TimedProcess; relicId: string | null; at: number }[]; // `at`: its completion instant in the window
   survivors: TimedProcess[];
   museum: MuseumV2;
   discovered: string[];
@@ -9415,7 +9422,7 @@ function resolveRelicStudies(state: GameState, ticksElapsed: number): RelicStudy
   let deposited = false;
   let queueTouched = false;
   const completed = new Map<string, string | null>();
-  const chained: { process: TimedProcess; relicId: string | null }[] = [];
+  const chained: { process: TimedProcess; relicId: string | null; at: number }[] = [];
 
   const pump = (at: number) => {
     while (queue.length > 0 && inFlight.length < relicStudyLanesAt(level)) {
@@ -9458,7 +9465,7 @@ function resolveRelicStudies(state: GameState, ticksElapsed: number): RelicStudy
       museum = landed.museum;
       discovered = landed.discovered;
       deposited = true;
-      if (f.chained) chained.push({ process: f.process, relicId: landed.relicId });
+      if (f.chained) chained.push({ process: f.process, relicId: landed.relicId, at: f.at });
       else completed.set(f.process.id, landed.relicId);
     }
     pump(t);
@@ -12767,8 +12774,8 @@ export function resolveProcesses(
   // Relics v2 R2-1: the v1 copies live in the Tier I general record (museumV2.general["1"]); a v1 study writes there.
   // Relics v2 R2-3: every study completing in this call, and every queued blank a freed lane starts, is resolved up
   // front by the time-ordered chain (resolveRelicStudies), because a v2 reveal reads the Museum at completion and a
-  // queue start lands at its completion tick. The loop below only RECORDS an in-flight study's completion at its array
-  // position (the log order is unchanged) and awards its XP; the chain's own completions and survivors are added after
+  // queue start lands at its completion tick. The loop below only QUEUES an in-flight study's log record (part 2 folds the
+  // records in completion order after the loop) and awards its XP; the chain's own completions and survivors are added after
   // the loop. null = no study completed and the queue started nothing: none of the relic fields are written back.
   const relicChain = resolveRelicStudies(state, ticksElapsed);
   // Exploration 0.14.0 (Phase E4b): the museum's craftingQuality fraction, read ONCE per resolve off the
@@ -12799,6 +12806,9 @@ export function resolveProcesses(
     nextId: state.nextCompletionLogId ?? 1,
     open: state.openJobBatches ?? [],
   };
+  // Ordering determinism part 2: each completion's log record, queued with the whole tick it
+  // completed on and folded into completionAcc after the loop (completion order, see there).
+  const toRecord: { tick: number; args: Omit<Parameters<typeof recordCompletion>[0], "acc"> }[] = [];
   // Survivors are rebuilt in original order, so activeProcesses ordering is stable
   // across both chunkings (the parity test compares the arrays deep-equal).
   const stillActive: TimedProcess[] = [];
@@ -13346,42 +13356,57 @@ export function resolveProcesses(
     // PARITY: this is observation only. It draws no rng, reads no ambient clock (nowMs is an
     // argument), applies no effect, and changes no completion order, so the rng stream
     // position and every existing deep-equal parity case are untouched. It runs in
-    // activeProcesses array order, the SAME order every completion above runs in, which is
-    // what makes one long offline resolve produce the identical log to many live steps.
-    completionAcc = recordCompletion({
-      process,
-      state,
-      nowMs,
-      levels: { facilities, equipmentStorageLevel, shipStorageCapacity, transitBerthLevel },
-      mintedPieces,
-      salvage: salvageOutcome,
-      relicId: relicRecordId,
-      dataLearned,
-      acc: completionAcc,
-    });
-  }
-
-  // Relics v2 R2-3: the studies a queue start launched AND finished inside this call (a long offline span), recorded
-  // and awarded in completion order after every in-flight completion (in 1 s live steps there are none: a started
-  // study takes at least a tick), and the started studies still running, appended after the survivors in start order
-  // (where a live step's start appends them).
-  if (relicChain !== null) {
-    for (const { process, relicId } of relicChain.chained) {
-      if (PROCESS_XP_AWARDS[process.kind].fleetAdmin) fleetAdminXpDelta += FLEET_ADMIN_XP_PER_DURATION_TICK * process.durationTicks;
-      if (PROCESS_XP_AWARDS[process.kind].crafting) craftingXpDelta += craftingXpAwardForProcess(process);
-      completionAcc = recordCompletion({
+    // activeProcesses array order, the SAME order every completion above runs in.
+    // Ordering determinism part 2 (canonicalOrder.ts): the record is QUEUED here, with the
+    // levels as they stand now, and folded after the loop in completion order (see below).
+    toRecord.push({
+      tick: completionTickIn(process.remainingTicks),
+      args: {
         process,
         state,
         nowMs,
         levels: { facilities, equipmentStorageLevel, shipStorageCapacity, transitBerthLevel },
-        mintedPieces: 0,
-        salvage: null,
-        relicId,
-        acc: completionAcc,
+        mintedPieces,
+        salvage: salvageOutcome,
+        relicId: relicRecordId,
+        dataLearned,
+      },
+    });
+  }
+
+  // Relics v2 R2-3: the studies a queue start launched AND finished inside this call (a long offline span), queued for
+  // the log (at the instant each completed) and awarded after every in-flight completion (in 1 s live steps there are none: a started
+  // study takes at least a tick), and the started studies still running, appended after the survivors in start order
+  // (where a live step's start appends them).
+  if (relicChain !== null) {
+    for (const { process, relicId, at } of relicChain.chained) {
+      if (PROCESS_XP_AWARDS[process.kind].fleetAdmin) fleetAdminXpDelta += FLEET_ADMIN_XP_PER_DURATION_TICK * process.durationTicks;
+      if (PROCESS_XP_AWARDS[process.kind].crafting) craftingXpDelta += craftingXpAwardForProcess(process);
+      toRecord.push({
+        tick: completionTickIn(at),
+        args: {
+          process,
+          state,
+          nowMs,
+          levels: { facilities, equipmentStorageLevel, shipStorageCapacity, transitBerthLevel },
+          mintedPieces: 0,
+          salvage: null,
+          relicId,
+        },
       });
     }
     stillActive.push(...relicChain.survivors);
   }
+
+  // Ordering determinism part 2 (canonicalOrder.ts): the completions this call recorded, folded
+  // into the log by the whole tick each completed on, then by process id. 1 s steps meet them in
+  // that order (each step holds one tick), so one call, 997 s chunks and 1 s steps log the same
+  // entries under the same `done-N` ids. With the switch off they fold as queued (array order,
+  // then the chain's own completions): the game before part 2. A stable sort.
+  if (ORDERING2_SWITCH.live && toRecord.length > 1) {
+    toRecord.sort((a, b) => a.tick - b.tick || compareProcessIds(a.args.process.id, b.args.process.id));
+  }
+  for (const { args } of toRecord) completionAcc = recordCompletion({ ...args, acc: completionAcc });
 
   return {
     next: {

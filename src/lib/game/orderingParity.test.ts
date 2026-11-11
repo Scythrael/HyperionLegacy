@@ -88,17 +88,14 @@ describe("ordering determinism: one call == 997 s chunks == 1 s steps, order inc
       inventory: { ...patrol.inventory, damagedWeaponSystem: [new Decimal(3)] },
       activeProcesses: [...patrol.activeProcesses, job],
     };
-    // Strict on `discovered` and the tally keys. The whole state is compared with ONE order normalized, the inventory's
-    // keys: the recovered item gains its inventory key after the patrol's loot in one call (the inventory key order
-    // wrinkle the carry note logs as its own follow-up). Every value and every other byte is compared as is.
-    const keyed = (s: GameState): string =>
-      json({ ...s, inventory: Object.fromEntries(Object.keys(s.inventory).sort().map((k) => [k, s.inventory[k]])) });
+    // Strict on `discovered`, the tally keys and the whole state (the recovered item's inventory key too: ordering
+    // determinism part 2 keeps the inventory's keys in canonical order, ordering2Parity.test.ts).
     const steps = steppedBy(s0, n, 1);
     for (const chunk of [n, 997, 7]) {
       const got = steppedBy(s0, n, chunk);
       expect(got.discovered, `discovered, ${chunk} s chunks`).toEqual(steps.discovered);
       expect(tallyKeys(got), `tally keys, ${chunk} s chunks`).toEqual(tallyKeys(steps));
-      expect(keyed(got), `whole state, ${chunk} s chunks`).toBe(keyed(steps));
+      expect(json(got), `whole state, ${chunk} s chunks`).toBe(json(steps));
     }
     expect(steps.discovered).toContain("polysilicateWafer");
     expect(steps.discovered).toContain("titaniumIngot");
@@ -108,7 +105,7 @@ describe("ordering determinism: one call == 997 s chunks == 1 s steps, order inc
     expect(oneCall).not.toEqual(stepped);
   });
 
-  it("relic studies (left out of the slice): the first-find registry already lands in one order however the time is cut", () => {
+  it("relic studies (left out of the slice): the first-find registry (and, with part 2, the log) lands in one order however the time is cut", () => {
     // Four studies at Lab VII started longest first, so the process array order is the reverse of completion order; the
     // study lanes deposit into the registry in completion order, so `relicDiscovered` needs no canonical order
     // (canonicalOrder.ts header).
@@ -123,12 +120,14 @@ describe("ordering determinism: one call == 997 s chunks == 1 s steps, order inc
     const n = Math.max(...s.activeProcesses.map((p) => p.remainingTicks)) + 5;
     const steps = steppedBy(s, n, 1);
     expect(steps.relicDiscovered).toHaveLength(4);
-    // The registry and the Museum, strict. (The completion log is NOT compared: one call logs these studies in process
-    // array order and 1 s steps in completion order, an order wrinkle of its own logged in the carry note.)
+    // The registry, the Museum, the completion log and the whole state, strict (ordering determinism part 2 logs a
+    // call's completions in completion order, ordering2Parity.test.ts).
     for (const chunk of [n, 997, 7]) {
       const got = steppedBy(s, n, chunk);
       expect(got.relicDiscovered, `${chunk} s chunks`).toEqual(steps.relicDiscovered);
       expect(json(got.museumV2), `${chunk} s chunks`).toBe(json(steps.museumV2));
+      expect(json(got.completionLog), `${chunk} s chunks`).toBe(json(steps.completionLog));
+      expect(json(got), `${chunk} s chunks`).toBe(json(steps));
     }
   });
 

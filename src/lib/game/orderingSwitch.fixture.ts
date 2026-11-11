@@ -21,6 +21,17 @@ export function withCanonicalOrderOff<T>(run: () => T): T {
   }
 }
 
+// The slice ON for one computation (restored after), for a strict parity check inside a file that runs with it off.
+export function withCanonicalOrderOn<T>(run: () => T): T {
+  const was = CANONICAL_ORDER_SWITCH.live;
+  CANONICAL_ORDER_SWITCH.live = true;
+  try {
+    return run();
+  } finally {
+    CANONICAL_ORDER_SWITCH.live = was;
+  }
+}
+
 // For a golden FILE captured before the slice whose pins hash a state with two or more finds or tally keys met out of
 // canonical order (every pin in it proves an earlier slice's move and nothing else): the whole file runs with the slice
 // off, so its pins keep proving their own slice. orderingGoldens.test.ts pins the slice itself. Called once at the
