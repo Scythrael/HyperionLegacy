@@ -15,6 +15,10 @@
 // (verified, not re-captured; the LIVE pins and the switch are gone). The training cycle still takes no wear (W9, SF-7).
 
 import { describe, expect, it } from "vitest";
+// WR-8b (enemy torpedoes) came after every pin here: the file runs with it off (enemyTorpedoSwitch.fixture.ts), so its
+// pins keep proving their own slice (enemyTorpedoGoldens.test.ts pins what WR-8b moved, enemyTorpedoes.test.ts proves it).
+import { enemyTorpedoesOffForThisFile } from "./enemyTorpedoSwitch.fixture";
+enemyTorpedoesOffForThisFile();
 import { cp16OffForThisFile } from "./cp16Switch.fixture";
 // Complement CP-16 is unrelated to these pins (it only adds the missions counter and notables): off, as every gear wear
 // golden file runs it.

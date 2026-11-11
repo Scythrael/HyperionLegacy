@@ -6,6 +6,10 @@
 // still wait for the study or the sweep (GG-3 studyPickupAt). These pins were captured on the build before the change.
 
 import { describe, expect, it } from "vitest";
+// WR-8b (enemy torpedoes) came after every pin here: the file runs with it off (enemyTorpedoSwitch.fixture.ts), so its
+// pins keep proving their own slice (enemyTorpedoGoldens.test.ts pins what WR-8b moved, enemyTorpedoes.test.ts proves it).
+import { enemyTorpedoesOffForThisFile } from "./enemyTorpedoSwitch.fixture";
+enemyTorpedoesOffForThisFile();
 // Wiring WR-10 (the away rules stamped at dispatch, a hire's account program) came after every pin here: the whole file
 // runs with WR-10 off (wr10Switch.fixture.ts), so its pins keep proving their own slice (wr10Goldens.test.ts pins WR-10's).
 import { wr10OffForThisFile } from "./wr10Switch.fixture";

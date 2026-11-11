@@ -8,6 +8,10 @@
 // WR-10 switched off (wr10Switch.fixture.ts withWr10Off): every fixture then reproduces its capture (BEFORE).
 
 import { describe, expect, it } from "vitest";
+// WR-8b (enemy torpedoes) came after every pin here: the file runs with it off (enemyTorpedoSwitch.fixture.ts), so its
+// pins keep proving their own slice (enemyTorpedoGoldens.test.ts pins what WR-8b moved, enemyTorpedoes.test.ts proves it).
+import { enemyTorpedoesOffForThisFile } from "./enemyTorpedoSwitch.fixture";
+enemyTorpedoesOffForThisFile();
 import { advanceExpedition } from "./expedition";
 import { WR10_FIGHT_POIS, WR10_SEEDS, wr10Dispatch, wr10FightHash, wr10Hash, wr10Hires, wr10Run } from "./wr10.fixture";
 import { withWr10Off } from "./wr10Switch.fixture";

@@ -26,6 +26,8 @@ import type { PirateHullId } from "../combat/enemyHulls";
 import { COMBAT_RULES_WR8, ENCOUNTER_OPEN_DISTANCE, RULES_COMBAT_SPEED, stampCombatArgs, withWeaponRuleTraits, type CombatRulesStamp } from "../combat/combatRules";
 import { buildShipCombatant, shipEventEnemy, snapshotShipEventProfile, HOSTILE_PROBE_HULL } from "../shipScanEvents";
 import type { Expedition, ExpeditionBody } from "../model";
+import { patrolMarauderTorpedoPermille } from "../combat/patrolProfile";
+import { patrolDifficultyAt } from "../runDifficulty";
 
 // The context ids these probes read (a subset of probes.ts CONTEXT_IDS, named here to keep the module a leaf).
 type Ctx = string;
@@ -110,9 +112,15 @@ function rulesCombatant(s: GameState): Combatant {
   });
 }
 // The minimal run whose ship events fight under the combat rules (the fields shipEventEnemy reads).
-function rulesRun(): { exp: Expedition; body: ExpeditionBody } {
-  const stamp: CombatRulesStamp = { rules: COMBAT_RULES_WR8, speed: RULES_COMBAT_SPEED };
-  const exp = { id: "wiring-run", seed: 1, groundOps: { shipEventProfile: { battle: { combatRules: stamp } } } } as unknown as Expedition;
+// WR-8b: `torpedoes` stamps enemy torpedoes on the run's rules, flown at `tier` at full strength (a curve stamp at ramp 1).
+function rulesRun(torpedoes = false, tier = 1): { exp: Expedition; body: ExpeditionBody } {
+  const stamp: CombatRulesStamp = { rules: COMBAT_RULES_WR8, speed: RULES_COMBAT_SPEED, ...(torpedoes ? { enemyTorpedoes: 1 as const } : {}) };
+  const exp = {
+    id: "wiring-run",
+    seed: 1,
+    groundOps: { shipEventProfile: { battle: { combatRules: stamp } } },
+    ...(torpedoes ? { difficulty: { version: 1, firstRun: false, ramp: 1, tier } } : {}),
+  } as unknown as Expedition;
   return { exp, body: { hazard: 0 } as ExpeditionBody };
 }
 
@@ -429,6 +437,58 @@ export const COMBAT_DESCRIPTOR_PROBES = {
     label: "a Defensive ship's Attack squadron hunts the drone-fielding foe's screen first (its drone hit points lost)",
     read: (s) => guardBattle([], ["attack"], isOn(s)),
   },
+  // WR-8b (enemy torpedoes): a Standard-Issue Carrier flying Defensive (its Point Defense working) against a Corsair
+  // Carrier wave with enemy torpedoes (the carrier's Concussion Torpedo beside its plasma, combat/enemyWave.ts). OFF
+  // takes the intercept out (the Defensive ship's missileInterceptPct at 0): its other Defensive rules stay in play.
+  combatEventMissileIntercept: {
+    label: "a Defensive Carrier's torpedo damage taken from a torpedo-armed Corsair Carrier (its Point Defense shoots some down)",
+    read: (s) =>
+      sumOver(battles(() => {
+        const p = patrolShip("carrier", "standoff");
+        if (!isOn(s) && p.defensive) p.defensive = { ...p.defensive, missileInterceptPct: 0 };
+        const e = torpedoPirates("corsairCarrier")[0];
+        // Long fights so every seed sees several torpedoes: both sides tough enough to outlast the run of shots.
+        p.hull = p.hullMax = 1_000_000;
+        e.hull = e.hullMax = 1_000_000;
+        return [p, e];
+      }, { ...RULES, precharge: true, generateLog: true }), (r) =>
+        sumOver(r.log.filter((ev) => ev.type === "hit" && ev.targetId === "p" && ev.weaponType === "concussionTorpedo"), (ev) => ev.damage ?? 0)),
+  },
+  // WR-8b: the Marauder's torpedo chance on the patrol ramp, read off the state (its patrol run counts: the curve a
+  // dispatch now flies) and rolled on 200 one-Marauder waves (seeds 1 to 200, the private torpedo stream).
+  combatEventMarauderTorpedoRamp: {
+    label: "Marauders carrying a torpedo over 200 one-Marauder waves at the patrol curve a dispatch now flies",
+    read: (s) => {
+      const permille = patrolMarauderTorpedoPermille({ difficulty: patrolDifficultyAt(s), combatRules: { rules: COMBAT_RULES_WR8, speed: RULES_COMBAT_SPEED, enemyTorpedoes: 1 } });
+      let n = 0;
+      for (let seed = 1; seed <= 200; seed++) {
+        const e = generateEnemyWave(seed, { hullPool: ["marauder"], enemyCountMin: 1, enemyCountMax: 1, idPrefix: "wiring", combatRules: true, torpedoes: { marauderPermille: permille } })[0];
+        n += e.weapons.filter((w) => w.weaponType === "concussionTorpedo").length;
+      }
+      return n;
+    },
+  },
+  // WR-8b: ship event vessels carrying a torpedo over 100 boundaries (two bodies x 50 steps) of a Tier VII run whose
+  // combat rules carry enemy torpedoes (ON) or not (OFF: a run stamped before WR-8b).
+  combatEventShipEventTorpedoes: {
+    label: "Hostile Probes carrying a torpedo over 100 ship event boundaries of a Tier VII run",
+    read: (s) => {
+      const { exp, body } = rulesRun(isOn(s), 7);
+      let n = 0;
+      for (let b = 0; b < 2; b++) {
+        for (let step = 0; step < 50; step++) n += shipEventEnemy(exp, body, b, step, HOSTILE_PROBE_HULL).weapons.filter((w) => w.weaponType === "concussionTorpedo").length;
+      }
+      return n;
+    },
+  },
+  // WR-8b: the torpedoes a patrol wave fields under the stamp: the Corsair Carrier's (always) and the Marauders' (at the
+  // chance on the cycle; a sure chance here). Counts the torpedoes installed on a one-hull wave of each.
+  combatWaveTorpedoes: {
+    label: "Concussion Torpedoes installed on a one-enemy wave of each torpedo hull (Corsair Carrier, Marauder at a sure chance)",
+    read: (s) =>
+      (isOn(s) ? [...torpedoPirates("corsairCarrier", 1000), ...torpedoPirates("marauder", 1000)] : [...pirates("corsairCarrier"), ...pirates("marauder")])
+        .reduce((n, c) => n + c.weapons.filter((w) => w.weaponType === "concussionTorpedo").length, 0),
+  },
   // ===== E-MOD EM-3: the combat over-budget penalty (the stamp's power supply, read off the state) =====
   // The supply percent a run starting now freezes (crewOverlay.ts shipCombatRulesStamp; absent = 100).
   combatPowerSupplyStamp: {
@@ -512,6 +572,10 @@ function guardBattle(weapons: WeaponId[], drones: DroneRole[], defensive: boolea
 // A pirate wave of one `hull`, under the rules (armor, evasion, range) unless `rules` is false.
 function pirates(hull: PirateHullId, rules = true): Combatant[] {
   return generateEnemyWave(1, { hullPool: [hull], enemyCountMin: 1, enemyCountMax: 1, idPrefix: "wiring", ...(rules ? { combatRules: true } : {}) });
+}
+// WR-8b: a pirate wave of one `hull` under the rules with enemy torpedoes (a Marauder at `marauderPermille`).
+function torpedoPirates(hull: PirateHullId, marauderPermille = 0): Combatant[] {
+  return generateEnemyWave(1, { hullPool: [hull], enemyCountMin: 1, enemyCountMax: 1, idPrefix: "wiring", combatRules: true, torpedoes: { marauderPermille } });
 }
 function stripShield(c: Combatant): Combatant {
   c.shield = 0;

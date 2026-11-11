@@ -537,6 +537,9 @@ export interface CombatEvent {
 	// of `damage`, beside shieldDamage / hullDamage) and the drones it destroyed. Absent on every other event.
 	screenDamage?: number;
 	dronesDestroyed?: number;
+	// WR-8b (enemy torpedoes): on an "evade" event, the missiles the target's point defense shot down (a Defensive ship
+	// with working Point Defense or EMP; the flavor layer narrates it as shot down, not dodged). Absent otherwise.
+	intercepted?: number;
 
 	// -- Phase 12 flavor fields (all optional; consumed by the layered cosmetic
 	// flavor pools in flavor.ts). None of these affect the outcome; they exist so

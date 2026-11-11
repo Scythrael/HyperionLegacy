@@ -1061,7 +1061,8 @@
       el.textContent = "destroyed";
     } else if (beat.kind === "evade") {
       el.classList.add("evade");
-      el.textContent = "evade";
+      // WR-8b: a torpedo the point defense shot down.
+      el.textContent = beat.intercepted ? "shot down" : "evade";
     } else {
       const amount = beat.amount ?? 0;
       if (beat.crit) {

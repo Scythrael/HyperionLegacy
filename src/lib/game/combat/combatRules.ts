@@ -54,12 +54,18 @@ export const COMBAT_RULES_WR8 = 1 as const;
 //                   weapon damage and shield recharge in whole percent. Written only when below 100, so a ship in budget
 //                   carries exactly the stamp it carried before EM-3, and a run stamped before EM-3 (no field) fights
 //                   at 100 until its next cycle: in-flight runs replay byte-identically.
+//   enemyTorpedoes: WR-8b (0.14.0, user 2026-11-10 "Simple now"): the run's enemies carry torpedoes (the Concussion
+//                   Torpedo, a missile): every Corsair Carrier, a Marauder at its ramped chance (combat/patrolProfile.ts
+//                   patrolMarauderTorpedoPermille), a ship event's vessel at its tier's chance (shipScanEvents.ts
+//                   shipEventTorpedoPermille). Written on every new stamp, so a run stamped before WR-8b (no field)
+//                   fights the loadouts it always did until its next cycle: in-flight runs replay byte-identically.
 export interface CombatRulesStamp {
   rules: typeof COMBAT_RULES_WR8;
   speed: number;
   reactorQuality?: number;
   ftlQuality?: number;
   powerSupplyPercent?: number;
+  enemyTorpedoes?: 1;
 }
 
 // TEST-ONLY off switch (combatRulesSwitch.fixture.ts withCombatRulesOff): while false, no new run is stamped and the
@@ -71,6 +77,17 @@ export const COMBAT_RULES_SWITCH: { stampNewRuns: boolean } = { stampNewRuns: tr
 // a power supply, so a run starting inside the switch is a run stamped before EM-3 exactly. Always true in the app.
 export const POWER_SUPPLY_SWITCH: { stampNewRuns: boolean } = { stampNewRuns: true };
 
+// TEST-ONLY off switch for WR-8b (enemyTorpedoSwitch.fixture.ts withEnemyTorpedoesOff): while false, no new stamp
+// carries enemyTorpedoes, so a run starting inside the switch is a run stamped before WR-8b exactly. Always true in the
+// app.
+export const ENEMY_TORPEDO_SWITCH: { stampNewRuns: boolean } = { stampNewRuns: true };
+
+// Whether a run starting now is stamped with enemy torpedoes (newCombatRulesStamp below writes enemyTorpedoes): both
+// test switches on, always true in the app. Read by runDifficulty.ts patrolDifficultyAt (the WR-8b fix round's top step).
+export function newRunsCarryEnemyTorpedoes(): boolean {
+  return COMBAT_RULES_SWITCH.stampNewRuns && ENEMY_TORPEDO_SWITCH.stampNewRuns;
+}
+
 // The stamp a run starting now carries for a ship of combat speed `speed`, the installed system qualities and the
 // power supply percent (undefined while the test switch is off).
 export function newCombatRulesStamp(speed: number, reactorQuality = 0, ftlQuality = 0, powerSupplyPercent = 100): CombatRulesStamp | undefined {
@@ -81,8 +98,36 @@ export function newCombatRulesStamp(speed: number, reactorQuality = 0, ftlQualit
     ...(reactorQuality > 0 ? { reactorQuality } : {}),
     ...(ftlQuality > 0 ? { ftlQuality } : {}),
     ...(POWER_SUPPLY_SWITCH.stampNewRuns && powerSupplyPercent < 100 ? { powerSupplyPercent } : {}),
+    ...(ENEMY_TORPEDO_SWITCH.stampNewRuns ? { enemyTorpedoes: 1 as const } : {}),
   };
 }
+
+// ===== WR-8b: enemy torpedoes (user 2026-11-10, "Simple now, rest logged (Recommended)") =====
+// The torpedo an enemy carries: the Concussion Torpedo (weapons.ts), a missile (WEAPON_RULE_TRAITS below), so a
+// Defensive ship's working Point Defense or EMP can shoot it down (DEFENSIVE_STANCE.missileInterceptPct).
+export const ENEMY_TORPEDO: WeaponId = "concussionTorpedo";
+// [PROVISIONAL] The Marauder's chance to carry a torpedo at the top of the patrol ramp (full strength: a veteran, the
+// curve at its top), in whole permille. User: "Perhaps give them a chance to have them. Spice up earlier tiers." The
+// chance climbs the patrol ramp the way the WR-10 casters' Corroded climbs the expedition odds ramp (one run behind
+// the enemy curve, runDifficulty.ts rampOddsFraction, rampedChance): 0 on the first two ramped patrols, never on the
+// training patrol.
+export const MARAUDER_TORPEDO_PERMILLE = 400;
+// [PROVISIONAL] A ship event vessel's (the Hostile Probe's, the Cloaked Vessel's) chance to carry a torpedo, by the
+// run's expedition tier, in whole permille. User: "Starting off a bit more generous, but as you go up in tier ...
+// enemies become far more dangerous." Gentle at Tier I (and on the Tier I ramp, x the run's odds ramp, so 0 on the
+// first ramped runs), rising each tier. Never on the training run (it fights no battle). A ship event has no stance, so
+// no point defense shoots these down (an OPEN CALL for the user, logged in the WR-8b carry note).
+export const SHIP_EVENT_TORPEDO_PERMILLE_BY_TIER: Readonly<Record<1 | 2 | 3 | 4 | 5 | 6 | 7, number>> = {
+  1: 50,
+  2: 150,
+  3: 250,
+  4: 350,
+  5: 450,
+  6: 550,
+  7: 650,
+};
+// The draw a torpedo chance in permille is rolled against (one nextInt draw, below the chance: carried).
+export const TORPEDO_ROLL_UNITS = 1000;
 
 // The shipToCombatant arguments a combatant built under `stamp` takes (its traits, speed, system pools and, when the
 // stamp carries one, its power supply). Pure.

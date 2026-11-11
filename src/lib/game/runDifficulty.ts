@@ -38,6 +38,7 @@ import {
   type RunDifficultyStamp,
   type ShipTypeKey,
 } from "./model";
+import { newRunsCarryEnemyTorpedoes } from "./combat/combatRules";
 
 export type RunType = "expedition" | "patrol" | "shortRange";
 
@@ -180,10 +181,24 @@ export const FIRST_PATROL_WAVES = 2;
 // The difficulty a patrol dispatched now flies: the save's one safe patrol (firstRun), else the curve at the patrol
 // runs counted so far, Tier I. ABSENT (undefined) at full strength (a veteran, or the curve at its top): the cycle is stored
 // and fought exactly as before SF-4. Pure.
+// WR-8b fix round (user 2026-11-10, the Marauder top step "Smooth it out (Recommended)"): the Marauder's torpedo chance
+// reads the odds ramp, one run behind the enemy curve (combat/patrolProfile.ts patrolMarauderTorpedoPermille), so a
+// non-veteran's stamp is still written at the enemy curve's top (ramp 1) while the odds ramp is below it (one more
+// patrol, RAMP_ODDS_LAG): that patrol's chance steps up like the rest instead of jumping to full. Only the torpedo chance
+// reads that extra stamp (its ramp 1 is full enemy strength, the same waves and enemies), and only while enemy
+// torpedoes are stamped (combat/combatRules.ts newRunsCarryEnemyTorpedoes, always true in the app), so a build with
+// WR-8b or the combat rules off stores what it did.
 export function patrolDifficultyAt(state: GameState): PatrolDifficultyStamp | undefined {
   const stamp = runDifficultyAt(state, "patrol", RAMP_MAX_TIER);
-  if (!stamp.firstRun && stamp.ramp >= 1) return undefined;
-  return { ...stamp, completed: stamp.firstRun ? 0 : completedRuns(state, "patrol") };
+  const completed = stamp.firstRun ? 0 : completedRuns(state, "patrol");
+  if (!stamp.firstRun && stamp.ramp >= 1 && !patrolOddsBelowTop(state, completed)) return undefined;
+  return { ...stamp, completed };
+}
+
+// WR-8b fix round: whether a non-veteran's patrol odds ramp (rampOddsFraction) is still below full, under the enemy
+// torpedo stamp. Pure (the switches are test-only constants, on in the app).
+function patrolOddsBelowTop(state: GameState, completed: number): boolean {
+  return newRunsCarryEnemyTorpedoes() && !runCountsOf(state).patrol.veteran && rampOddsFraction(completed) < 1;
 }
 
 // The next cycle's difficulty at a Dispatch Repeatedly relaunch, from THIS cycle's stamp alone (so a relaunch is a

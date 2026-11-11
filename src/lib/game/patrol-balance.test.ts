@@ -46,7 +46,7 @@ import {
   type CombatStandardIssueSpec,
   type EquipmentInstance,
 } from "./model";
-import { dispatchCaptainOnPatrol, economyTick, installMissingCombatBaselines } from "./tick";
+import { dispatchCaptainOnPatrol, economyTick, installMissingCombatBaselines, patrolDispatchCycle, patrolDispatchRoute } from "./tick";
 // Combat 1.0 Unit 2.5b (the SHOWCASE-PATROL block below only): the forecast path App.svelte's
 // dispatch card shows, so the block asserts the exact Threat Assessment band a player reads.
 import {
@@ -55,6 +55,7 @@ import {
   COMBAT_DEFAULT_LOADOUT,
   installedDronesForPatrol,
   defaultSystemDurabilityForHull,
+  foldedPlayerDefense,
   type CombatHullType,
 } from "./combat/bridge";
 import { resolvePatrolWaves } from "./combat/patrolReplay";
@@ -62,6 +63,10 @@ import { threatAssessment } from "./combat/threatAssessment";
 import { generateWeapon, generateEquipment, generateDronePod } from "./itemgen";
 import type { WeaponId } from "./combat/weapons";
 import { asPatrolVeteran } from "./awayTeamTestFixtures";
+// WR-8b fix round: the forecast blocks read the stamps a dispatch writes now, exactly as App.svelte patrolForecastFor.
+import { patrolDifficultyAt } from "./runDifficulty";
+import { shipCombatRulesStamp } from "./crewOverlay";
+import { hullFamilyWeaponLine } from "./crewModules";
 
 const PATROL_KEY = "crimsonReaverSweep";
 // WR-7 follow-up OC-D8: a cycle's route length is its own (patrolRouteOf: the legs it froze at the ship's transit
@@ -189,8 +194,18 @@ describe("STARTER PATROL BALANCE: winnable by all three tactician hulls", () => 
 // threatAssessment). That path is parity-proven to the live loop (patrolReplay.test.ts), and it
 // takes installedGear directly, so the crafted / drones comparisons need no live gear-install
 // plumbing. For the record, the live economyTick loop (the block above's method) measures this
-// same patrol's Standard-Issue win rates at destroyer ~22% / battleship ~52% / carrier ~76% over
-// 200 seeds, matching the forecast bands below (the two paths agree, as the parity proof requires).
+// same patrol's Standard-Issue win rates at destroyer 8% (16/200) / battleship 71.5% (143/200) /
+// carrier 19.5% (39/200), matching the forecast bands below (the two paths agree, as the parity
+// proof requires).
+//
+// WR-8b FIX ROUND (2026-11-10): until this round the forecast helpers ran resolvePatrolWaves with
+// no difficulty and no combat rules stamp, so they measured the pre-WR-8 fight (a Standard-Issue
+// carrier ~75%) while the player's card (App.svelte patrolForecastFor) reads the WR-8 rules and the
+// WR-8b enemy torpedoes. They now mirror the card (liveForecast below). The Warband is harder than
+// it was: the user answered (2026-11-10, "Keep, tune in 0.16.0 (Recommended)") that the measured
+// numbers stand, every torpedo chance [PROVISIONAL] for the 0.16.0 balancing patch. The bands below
+// are the truthfully measured ones (N=64): carrier 15.6% (Extreme), crafted carrier 98.4%, bays
+// empty 6.3%, destroyer 6.3%, battleship 71.9% (Worthy). [PROVISIONAL]: re-measure at 0.16.0.
 // ============================================================================
 
 // The exact fixed forecast seed + sample count App.svelte's patrolForecastFor uses (App.svelte
@@ -265,15 +280,39 @@ function craftedGear(hull: CombatHullType, shipId: string): EquipmentInstance[] 
 // rate + resolved Threat Assessment tier. A sample is a WIN iff the full patrol cycle was never
 // defeated (survived every scheduled wave), the same discriminator patrolForecastFor uses.
 function forecast(hull: CombatHullType, installedGear: EquipmentInstance[]): { rate: number; tier: string } {
+  return liveForecast(WARBAND_KEY, hull, installedGear, `forecast-${WARBAND_KEY}-p`);
+}
+
+// WR-8b fix round (2026-11-10): App.svelte patrolForecastFor mirrored for `installedGear` on a patrol veteran's
+// `hull` (patrolState), so every forecast block below measures what the player's dispatch card shows: the difficulty
+// and the combat rules stamp a dispatch writes now (runDifficulty.ts patrolDifficultyAt, crewOverlay.ts
+// shipCombatRulesStamp: the WR-8 rules and the WR-8b enemy torpedoes), the route at the ship's transit speed, the
+// cycle's frozen gear, the folded start pools, the durability seed with the stamp, the favored hull and the bridge's
+// weapon line. Before this round the blocks ran resolvePatrolWaves with neither stamp, the pre-WR-8 fight. The
+// stamp's speed and system pools are the state's own (its Standard-Issue reactor and drive; the crafted set below
+// replaces only weapons, shields, plating and pods).
+function liveForecast(patrolKey: string, hull: CombatHullType, installedGear: EquipmentInstance[], dronePrefix: string): { rate: number; tier: string } {
+  const state = patrolState(hull, 0);
+  const ship = state.ships.find((s) => s.id === "ship-1")!;
   const shipDef = SHIP_TYPES[hull];
-  const startDrones = installedDronesForPatrol(installedGear, `forecast-${WARBAND_KEY}-p`);
-  const startSystemDurability = defaultSystemDurabilityForHull(hull, shipDef);
+  const key = patrolKey as keyof typeof PATROLS;
+  const def = PATROLS[key];
+  const difficulty = patrolDifficultyAt(state);
+  const combatRules = shipCombatRulesStamp(state, ship);
+  const route = patrolDispatchRoute(state, ship, key).route;
+  const hullWeapon = hullFamilyWeaponLine(state, ship);
+  const cycleGear = patrolDispatchCycle(state, installedGear, difficulty).gear;
+  const startDrones = installedDronesForPatrol(cycleGear, dronePrefix);
+  const startSystemDurability = defaultSystemDurabilityForHull(hull, shipDef, cycleGear, combatRules);
+  const startDefense = foldedPlayerDefense(shipDef, cycleGear);
   let wins = 0;
   for (let i = 0; i < FORECAST_SAMPLES; i++) {
     const result = resolvePatrolWaves({
-      playerId: "ship-1", stats: shipDef, hullType: hull, stance: "balanced", installedGear,
-      masterSeed: FORECAST_SEED + i, factionId: WARBAND_DEF.factionId, def: WARBAND_DEF,
-      startHull: shipDef.hullIntegrity, startShield: shipDef.shieldCapacity, startDrones, startSystemDurability,
+      playerId: "ship-1", stats: shipDef, hullType: hull, stance: "balanced", installedGear: cycleGear,
+      masterSeed: FORECAST_SEED + i, factionId: def.factionId, def: route,
+      startHull: startDefense.hullMax, startShield: startDefense.shieldMax, startDrones, startSystemDurability,
+      difficulty, combatRules, favoredHull: ship.typeKey,
+      ...(hullWeapon > 0 ? { hullWeapon } : {}),
     });
     if (!result.defeated) wins += 1;
   }
@@ -281,16 +320,19 @@ function forecast(hull: CombatHullType, installedGear: EquipmentInstance[]): { r
 }
 
 describe("SHOWCASE PATROL BALANCE: the Crimson-Reaver Warband makes the mechanics matter", () => {
-  it("a Standard-Issue carrier lands in a MID threat band (a real fight, not Guaranteed)", () => {
+  it("a Standard-Issue carrier reads a real fight with a real chance (not Guaranteed)", () => {
     const si = forecast("carrier", standardIssueGear("carrier", "ship-1"));
     // eslint-disable-next-line no-console
     console.log(`[showcase-patrol] carrier Standard-Issue = ${(si.rate * 100).toFixed(1)}% (${si.tier})`);
     // RANGE assertion (not a brittle point value): the free-gear carrier must be a REAL FIGHT.
-    // Measured ~0.75 (worthy). The band (0.40, 0.85) keeps it strictly out of both the "Not
-    // Advised" floor below 0.40 (unwinnable-feeling) and the >= 0.80... note the ceiling is 0.85 so
-    // it also stays clear of a near-certain win; a Standard-Issue carrier reading "Guaranteed" here
-    // would mean the patrol failed its purpose (mechanics never forced), the exact wall this guards.
-    expect(si.rate, `SI carrier win rate ${(si.rate * 100).toFixed(1)}% must sit in the mid band`).toBeGreaterThan(0.40);
+    // Measured 0.156 (Extreme, 10 of 64) on the live path since WR-8b (the Corsair Carriers'
+    // torpedoes; it was ~0.75 Worthy on the pre-WR-8 path this block used to run). The user kept
+    // that difficulty (2026-11-10, "Keep, tune in 0.16.0 (Recommended)"), so the floor is the
+    // measured band's: above 0.10 (a real chance, never a hopeless wall) [PROVISIONAL] for 0.16.0.
+    // The ceiling 0.85 stays clear of a near-certain win; a Standard-Issue carrier reading
+    // "Guaranteed" here would mean the patrol failed its purpose (mechanics never forced), the exact
+    // wall this guards.
+    expect(si.rate, `SI carrier win rate ${(si.rate * 100).toFixed(1)}% must keep a real chance`).toBeGreaterThan(0.10);
     expect(si.rate, `SI carrier win rate ${(si.rate * 100).toFixed(1)}% must not be a near-certain win`).toBeLessThan(0.85);
     // And it must never be the crown "Guaranteed" tier on free gear (the categorical form of the same promise).
     expect(si.tier).not.toBe("guaranteed");
@@ -301,7 +343,8 @@ describe("SHOWCASE PATROL BALANCE: the Crimson-Reaver Warband makes the mechanic
     const crafted = forecast("carrier", craftedGear("carrier", "ship-1"));
     // eslint-disable-next-line no-console
     console.log(`[showcase-patrol] carrier crafted = ${(crafted.rate * 100).toFixed(1)}% (${crafted.tier}) vs SI ${(si.rate * 100).toFixed(1)}%`);
-    // THE PAYOFF: better gear -> strictly more wins on the SAME patrol. Measured SI ~0.75 -> crafted 1.0.
+    // THE PAYOFF: better gear -> strictly more wins on the SAME patrol. Measured SI 0.156 -> crafted 0.984
+    // (the live path since the WR-8b fix round; was ~0.75 -> 1.0 on the pre-WR-8 path).
     expect(crafted.rate, "crafted carrier must win the warband strictly more often than Standard-Issue").toBeGreaterThan(si.rate);
     // And crafted must reach the top of the ladder (toward / at Guaranteed): a strong signal, not a nudge.
     expect(crafted.rate, "good crafted gear must lift the carrier to a near-certain win").toBeGreaterThanOrEqual(0.90);
@@ -316,7 +359,8 @@ describe("SHOWCASE PATROL BALANCE: the Crimson-Reaver Warband makes the mechanic
     // eslint-disable-next-line no-console
     console.log(`[showcase-patrol] carrier drones ON = ${(withDrones.rate * 100).toFixed(1)}% vs bays EMPTY = ${(noDrones.rate * 100).toFixed(1)}%`);
     // Drones must SWING the fight against the corsair-heavy pool: a clear, non-noise lift (measured
-    // ~0.75 vs ~0.56, a ~19pt gap). Assert a margin, not just strictly-greater, so the invariant is
+    // 0.156 vs 0.063, a ~9pt gap, on the live path since the WR-8b fix round; ~0.75 vs ~0.56 on the
+    // pre-WR-8 path). Assert a margin, not just strictly-greater, so the invariant is
     // "drones meaningfully help" rather than "drones help by a single unlucky seed".
     expect(withDrones.rate - noDrones.rate, "a carrier's drone screen must clearly improve its odds vs the corsair pool").toBeGreaterThan(0.08);
   });
@@ -325,7 +369,8 @@ describe("SHOWCASE PATROL BALANCE: the Crimson-Reaver Warband makes the mechanic
     // The point of the Warband is that WHICH hull you send now matters. The destroyer is a striker
     // (thin hull, big guns), not an anti-swarm platform, so on this corsair-heavy pool it must read
     // the HARDEST band of the combat hulls, while the battleship sits in a mid "real fight" band.
-    // These lock the documented spread (measured destroyer ~16% / battleship ~55% / carrier ~75%) so
+    // These lock the documented spread (measured on the live path since the WR-8b fix round: destroyer
+    // 6.3% / battleship 71.9% / carrier 15.6%; ~16% / ~55% / ~75% on the pre-WR-8 path) so
     // a future gear or rating change cannot silently collapse it (e.g. flatten every hull to the
     // same band, or push the destroyer to a literal 0-win "Impossible" wall that reads as broken).
     const destroyer = forecast("destroyer", standardIssueGear("destroyer", "ship-1"));
@@ -358,11 +403,14 @@ describe("SHOWCASE PATROL BALANCE: the Crimson-Reaver Warband makes the mechanic
 // HOW IT MEASURES: the SAME REAL forecast sim (resolvePatrolWaves) the SHOWCASE block uses,
 // swept over the same FORECAST_SEED + i for N=FORECAST_SAMPLES, on BOTH the entry Sweep and
 // the tougher Warband. Measured spread (N=64), documented so a maintainer sees the headroom
-// (WR-4, B14: re-measured with the player side acting first):
-//   Sweep   : destroyer 100% | freighter ~98% hauler 100% runner ~58% miner ~58%
-//   Warband : destroyer ~17% | freighter ~3%  hauler ~3%  runner 0%  miner 0%
-// The Warband gap (~14pt on the tankiest economy hull) is wide, so its strict "< destroyer" inequality
-// is robust to sampling noise at this N; the saturated Sweep is checked as "never above the destroyer".
+// (the WR-8b fix round, 2026-11-10: the live path, liveForecast; the user kept the difficulty,
+// "Keep, tune in 0.16.0 (Recommended)", [PROVISIONAL] for 0.16.0):
+//   Sweep   : destroyer 100%  | freighter ~78% hauler ~86% runner ~58% miner ~58%
+//   Warband : destroyer ~6.3% | freighter 0%   hauler 0%   runner 0%   miner 0%
+// (WR-4, B14, on the pre-WR-8 path: Sweep destroyer 100% | freighter ~98% hauler 100% runner ~58% miner
+// ~58%; Warband destroyer ~17% | freighter ~3% hauler ~3% runner 0% miner 0%.) Every economy hull wins
+// no Warband sample while the destroyer wins 4 of 64, so its strict "< destroyer" inequality holds; the
+// saturated Sweep is checked as "never above the destroyer".
 // ============================================================================
 
 // The two patrols the inferiority contract spans, each measured through the real forecast sim.
@@ -382,20 +430,9 @@ function forecastOnPatrol(
   patrolKey: string,
   hull: CombatHullType,
 ): { rate: number; tier: string } {
-  const shipDef = SHIP_TYPES[hull];
-  const gear = standardIssueGear(hull, "ship-1");
-  const startDrones = installedDronesForPatrol(gear, `inferiority-${patrolKey}-p`);
-  const startSystemDurability = defaultSystemDurabilityForHull(hull, shipDef);
-  let wins = 0;
-  for (let i = 0; i < FORECAST_SAMPLES; i++) {
-    const result = resolvePatrolWaves({
-      playerId: "ship-1", stats: shipDef, hullType: hull, stance: "balanced", installedGear: gear,
-      masterSeed: FORECAST_SEED + i, factionId: patrolDef.factionId, def: patrolDef,
-      startHull: shipDef.hullIntegrity, startShield: shipDef.shieldCapacity, startDrones, startSystemDurability,
-    });
-    if (!result.defeated) wins += 1;
-  }
-  return { rate: wins / FORECAST_SAMPLES, tier: threatAssessment(wins, FORECAST_SAMPLES).tier };
+  // WR-8b fix round: the live forecast path (liveForecast above); patrolDef is PATROLS[patrolKey].
+  expect(patrolDef).toBe(PATROLS[patrolKey as keyof typeof PATROLS]);
+  return liveForecast(patrolKey, hull, standardIssueGear(hull, "ship-1"), `inferiority-${patrolKey}-p`);
 }
 
 describe("ECONOMY HULLS ARE STRICTLY INFERIOR: Standard-Issue win rate below the destroyer's on both patrols", () => {

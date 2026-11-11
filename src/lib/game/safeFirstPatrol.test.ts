@@ -5,6 +5,10 @@
 // proof (safeFirstPatrol.sweep.test.ts, `npm run test:sweep:patrol`).
 
 import { describe, expect, it } from "vitest";
+// WR-8b (enemy torpedoes) came after every pin here: the file runs with it off (enemyTorpedoSwitch.fixture.ts), so its
+// pins keep proving their own slice (enemyTorpedoGoldens.test.ts pins what WR-8b moved, enemyTorpedoes.test.ts proves it).
+import { enemyTorpedoesOffForThisFile } from "./enemyTorpedoSwitch.fixture";
+enemyTorpedoesOffForThisFile();
 import { PATROLS, type GameState, type PatrolMissionState } from "./model";
 import { dispatchCaptainOnPatrol, economyTick, tickCaptainPatrol } from "./tick";
 import { replayPatrol } from "./combat/patrolReplay";

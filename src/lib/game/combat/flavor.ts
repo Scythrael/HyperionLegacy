@@ -65,6 +65,7 @@ export type FlavorCategory =
 	| "crit"
 	| "attenuation"
 	| "evade"
+	| "missileIntercept"
 	| "effectApplied"
 	| "dot"
 	| "jam"
@@ -240,6 +241,16 @@ const POOLS: Record<FlavorCategory, FlavorPool> = {
 			"{target} evades, {actor}'s fire streaks past.",
 			"{actor} tracks late, {target} dances out of the line.",
 			"Nothing but void, {target} was already gone when {actor} fired.",
+		],
+	},
+
+	// WR-8b: a missile the target's point defense shot down (a Defensive ship with working Point Defense or EMP).
+	missileIntercept: {
+		generic: [
+			"{target}'s point defense shoots down {actor}'s torpedo.",
+			"{actor} launches a torpedo; {target}'s point defense swats it out of the sky.",
+			"{target}'s point defense catches {actor}'s torpedo short of the hull.",
+			"{actor}'s torpedo bursts harmlessly under {target}'s point defense fire.",
 		],
 	},
 
@@ -445,7 +456,8 @@ export function flavorCategory(event: CombatEvent): FlavorCategory {
 		case "ambush":
 			return "ambush";
 		case "evade":
-			return "evade";
+			// WR-8b: a missile the point defense shot down reads as shot down, not dodged.
+			return event.intercepted !== undefined && event.intercepted > 0 ? "missileIntercept" : "evade";
 		case "effectApplied":
 			return "effectApplied";
 		case "dot":

@@ -105,6 +105,7 @@ import type { CaptainPrimaryMultKind } from "../captainPrimaryEffects";
 import { BASE_FTL_DURABILITY, BASE_REACTOR_DURABILITY, COMBAT_DEFAULT_LOADOUT, combatHullTypeOf, hullDefenseComposition } from "../combat/bridge";
 // WR-8 (0.14.0): the combat descriptors (combatRules.ts), their probes' on / off mark, and the readers they name.
 import { DEFENSIVE_STANCE, ENCOUNTER_OPEN_DISTANCE, WEAPON_RULE_TRAITS, familyResistPercent, podLineShare } from "../combat/combatRules";
+import { runCountsOf } from "../runDifficulty";
 // E-MOD EM-3: the combat over-budget penalty's floor (its registry row's magnitude).
 import { POWER_SUPPLY_FLOOR_PERCENT } from "../combat/power";
 import { reactorSurplusSpeedLift } from "../reactorSurplus";
@@ -4594,12 +4595,12 @@ const AUDIT_ROWS: readonly { id: string; system: WiringSystem; claim: string; st
   { id: "ship:wr8:closingEvasive", system: "ship", claim: "Closing is evasive: a ship closing toward its stance range while none of its guns reaches a foe takes CLOSING_EVASION_PCT less from every hit (both sides)", status: LIVE },
   { id: "ship:wr8:defensiveGuardWeapons", system: "ship", claim: "A Defensive ship's Point Defense and EMP turn on the in-range foe fielding the most drones first", status: LIVE },
   { id: "ship:wr8:defensiveGuardDrones", system: "ship", claim: "A Defensive ship's drone squadrons hunt the in-range foe's drone screen first", status: LIVE },
-  {
-    id: "ship:wr8:defensiveMissileIntercept",
-    system: "ship",
-    claim: "A Defensive ship with working Point Defense or EMP shoots down DEFENSIVE_STANCE.missileInterceptPct of incoming missiles (the engine reads it; no enemy fires a missile in 0.14.0)",
-    status: pending("the first enemy loadout with a missile (WR-8 review: no pirate or ship event vessel installs a torpedo yet)"),
-  },
+  // WR-8b (user 2026-11-10, enemy torpedoes "Simple now"): the Corsair Carrier fires a torpedo on every patrol cycle
+  // stamped since WR-8b, so the intercept acts on a live fight.
+  { id: "ship:wr8:defensiveMissileIntercept", system: "ship", claim: "A Defensive ship with working Point Defense or EMP shoots down DEFENSIVE_STANCE.missileInterceptPct of incoming missiles (the enemy torpedoes of WR-8b); no other stance does, and a ship event has no stance", status: LIVE },
+  { id: "ship:wr8b:waveTorpedoes", system: "ship", claim: "Enemy torpedoes on patrols: every Corsair Carrier installs a Concussion Torpedo beside its plasma, and a Marauder carries one at MARAUDER_TORPEDO_PERMILLE on the patrol ramp (a cycle stamped since WR-8b; never the training patrol)", status: LIVE },
+  { id: "ship:wr8b:marauderTorpedoRamp", system: "ship", claim: "MARAUDER_TORPEDO_PERMILLE climbs the patrol ramp one run behind the enemy curve (the WR-10 Corroded mechanism): 0 on the first two ramped patrols, then a step every patrol (the stamp is kept one patrol past the enemy curve's top, so 31.6% after 9 completed patrols, 35.8% after 10), full from 11 completed patrols on", status: LIVE },
+  { id: "ship:wr8b:shipEventTorpedoes", system: "ship", claim: "A ship event's Hostile Probe or Cloaked Vessel carries a torpedo at its expedition tier's SHIP_EVENT_TORPEDO_PERMILLE_BY_TIER (x the Tier I odds ramp; never on the training run)", status: LIVE },
   { id: "ship:audit:ftlSpeedPenalty", system: "ship", claim: "FTL_SPEED_PENALTY: a Degraded or Offline drive slows the close", status: LIVE },
   { id: "ship:wr8:sensorDrainActs", system: "ship", claim: "Sensor Power Drain shrinks a ship's weapon reach in the fight", status: LIVE },
   { id: "ship:wr8:coolantLeakActs", system: "ship", claim: "Coolant Leak slows a ship in the fight", status: LIVE },
@@ -4853,6 +4854,8 @@ function wr8AuditWiring(): Readonly<Record<string, Partial<EntryInput>>> {
   const reactorAt = (quality: number): Transform => (s) => installPiece(s, { slotType: "reactorCore", quality });
   const ftlAt = (quality: number): Transform => (s) => installPiece(s, { slotType: "ftlDrive", quality });
   const transitDrive = (points: number): Transform => (s) => installPiece(s, { slotType: "ftlDrive", implicitStats: points > 0 ? { transitSpeedMult: points } : {} });
+  // WR-8b: the save with its safe patrol behind it and `completed` patrol runs on the curve (not a veteran).
+  const patrolCurveAt = (completed: number): Transform => (s) => ({ ...s, runCounts: { ...runCountsOf(s), patrol: { dispatched: 1, completed, veteran: false } } });
   // E-MOD EM-3: a Cargo Bay drawing num / den of the Destroyer's own output (combatBase's hull; its gear draws 0).
   const overBudget = (num: number, den: number): Transform => (s) => installPiece(s, { slotType: "cargoBay", powerDraw: Math.ceil((SHIP_TYPES.destroyer.basePowerOutput * num) / den) });
   return {
@@ -4872,6 +4875,20 @@ function wr8AuditWiring(): Readonly<Record<string, Partial<EntryInput>>> {
     "ship:wr8:closingEvasive": ev("combatEventClosingEvasive", "down", "the closing ship's damage taken"),
     "ship:wr8:defensiveGuardWeapons": ev("combatEventDefensiveGuardWeapons", "up", "the drone-fielding foe's drone hit points lost to Point Defense"),
     "ship:wr8:defensiveGuardDrones": ev("combatEventDefensiveGuardDrones", "up", "the drone-fielding foe's drone hit points lost to an Attack squadron"),
+    // WR-8b (enemy torpedoes): the intercept against a live torpedo, the torpedoes a wave installs, the Marauder's ramp
+    // (a dispatch at 9 completed patrols against one at 1, where the chance is 0) and the ship events' tier chance.
+    "ship:wr8:defensiveMissileIntercept": ev("combatEventMissileIntercept", "down", "a Defensive Carrier's torpedo damage taken from a torpedo-armed Corsair Carrier"),
+    "ship:wr8b:waveTorpedoes": ev("combatWaveTorpedoes", "up", "torpedoes installed on a Corsair Carrier wave and a Marauder wave"),
+    "ship:wr8b:marauderTorpedoRamp": {
+      probe: "combatEventMarauderTorpedoRamp",
+      contexts: ["patrol"],
+      direction: "up",
+      curve: { kind: "event", metric: "Marauders carrying a torpedo over 200 waves (9 completed patrols against 1)" },
+      magnitude: () => 1,
+      on: patrolCurveAt(9),
+      off: patrolCurveAt(1),
+    },
+    "ship:wr8b:shipEventTorpedoes": ev("combatEventShipEventTorpedoes", "up", "Hostile Probes carrying a torpedo over 100 boundaries of a Tier VII run", ["shipEvent"]),
     "ship:audit:ftlSpeedPenalty": ev("combatEventFtlSpeedPenalty", "up", "the first round within 100 (a Degraded drive vs nominal)"),
     "ship:wr8:sensorDrainActs": ev("combatEventSensorDrain", "up", "the first shot's tick (the drained reach opens once the drain lapses)"),
     "ship:wr8:coolantLeakActs": ev("combatEventCoolantLeak", "up", "the distance on round 3"),
