@@ -743,3 +743,16 @@ ships or people. Triggers once.
   docs/mockups/2026-11-09-telescope-enemy-shading-mockup.html "Approve both (Recommended)" with: style "Hatch + dashed
   edge (Recommended)"; legend "Once a sector is in range (Recommended)"; label and range "\"Enemy territory\", hide
   out-of-range (Recommended)". Built as a small G2-7 follow-up.
+
+## G2-9 close-out review (2026-11-11) and USER ANSWERS
+
+Bug-check found (fix pass follows): a held dispatch rerolls the Tier I list (Wolf 359 list keyed on dispatch count; fix:
+count list draws, held dispatches excluded); the recall confirm is false for a resumed run recalled in transit; no full G2
+QA sheet and plan section 5 is stale; Help, registry and doc text fixes. A recalled-before-arrival candidate is kept until
+launched, against the 2026-10-19 answer "No limit, refresh normally (Recommended)": an ordinary candidate again, so it
+rolls off with the next list draw (fix, no new call).
+- Telescope map shading (Tiers III and IV share one ring, hatched slices unlabeled; Tier VI and VII slices can point away
+  from the drawn core): "Label + point inward (Recommended)": a small Roman numeral tier label on each hatched slice, and
+  Tier VI and VII slices aimed toward the drawn core.
+- Roman numeral scope: "Everything (Recommended)": every tier anywhere in the game shows as Roman numerals (research,
+  gear, blueprints, expeditions).

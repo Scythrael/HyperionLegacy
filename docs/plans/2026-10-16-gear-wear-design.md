@@ -691,3 +691,18 @@ the `patrol` context (step 4's rows again); the step 5 read-back fixture keeps o
 UI: the care footer on a patrolling ship reads "which battle damage can outpace", Fleet care reads "On patrol, gear
 wears only in battle and recovers fully once home", and Help says a patrol wears its gear only through battle damage.
 A dev save that carries a stale `useWear` stamp or `useWearCarry` is harmless (both are ignored). No SAVE_VERSION step.
+
+## Close-out review (2026-11-11) and USER ANSWERS
+
+Review: all answers built; patrol use wear fully gone; the exact integer bank is sound. Fix pass follows for: the gear
+screens during a patrol's "Pause to repair" (bar, card, Overtime strip, chip and Fleet care say "out on a run" while the
+ship repairs at home); Help lines 904/907/908; the `reactorCore:powerOutput` catalog text vs "Stays full"; repair-pause
+items in the step 5 QA sheet; crew training logged in SUGGESTIONS.md.
+- Hull Overtime made gear repair slower (gear full 14.7 min, 19.1 min with 3 hull Overtime steps, because the bay's
+  doubled gear rate ends when the hull leaves): "Keep the bay rate (Recommended)": gear keeps the bay rate until it is
+  full, even after the hull finishes; Overtime never makes anything slower.
+- Overtime during a patrol's repair pause: "Allow Overtime in pauses (Recommended)": one tap speeds the pause like any
+  docked repair, and the patrol resumes sooner.
+- Damage Control Suite wear when its effect fires in a patrol battle: "Yes, it's combat wear (Recommended)": stays.
+- Leftover underway seconds credited at the home rate at context changes (up to about 2%): "Make it exact
+  (Recommended)": credit them at the rate that actually applied.
