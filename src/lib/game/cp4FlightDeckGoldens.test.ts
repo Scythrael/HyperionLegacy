@@ -22,6 +22,14 @@ import { replayPatrol } from "./combat/patrolReplay";
 import { hash as goldenHash, withoutRunCounts } from "./firstRunsGoldens.fixture";
 import { withCp4FlightDeckOff } from "./cp4FlightDeckSwitch.fixture";
 import { CP4_FIXTURES, cp4Dispatched, steadyTick, type Cp4Fixture } from "./cp4FlightDeck.fixture";
+// WR-8b (enemy torpedoes) came after these tests were written (CP-4 was built on 717bba3; WR-8b merged in becc53ea):
+// the file runs with it off (enemyTorpedoSwitch.fixture.ts), so its pins and fixtures keep proving the Flight Deck's
+// Integrity facet alone. With WR-8b live the Warband's Corsair Carrier torpedoes sink the held ramp 0.2 fixture in its
+// first relaunched cycle, before its hull stands below half with a drone recovering. Traced 2026-11-11: on feat
+// 2c66d749 and on this merge, with WR-8b switched off every fixture reproduces its capture hash for hash; WR-13 and
+// OC-G1 move none of them. The torpedoes-on case is proven in cp4FlightDeck.test.ts ("with enemy torpedoes live").
+import { enemyTorpedoesOffForThisFile } from "./enemyTorpedoSwitch.fixture";
+enemyTorpedoesOffForThisFile();
 
 const hash = (v: unknown): string => goldenHash(withoutRunCounts(v));
 

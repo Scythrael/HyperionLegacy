@@ -8,6 +8,7 @@ import { dispatchCaptainOnPatrol, installMissingCombatBaselines } from "./tick";
 import { foldedPlayerDefense } from "./combat/bridge";
 import { equippedFor } from "./equipmentQueries";
 import { seatOfficer } from "./wiring/probes";
+import type { CombatStance } from "./combat/positioning";
 
 export const STAT_10: OfficerStats = { strength: 10, integrity: 10, cunning: 10, constitution: 10 };
 export const STAT_20: OfficerStats = { ...STAT_10, integrity: 20 };
@@ -52,11 +53,12 @@ export function cp4Crewed(f: Cp4Fixture): GameState {
 // The crewed save, dispatched on a Repeat Warband patrol held at ramp 0.2 of the patrol curve (a real fight the ship wins
 // while its hull falls below half; a relaunch keeps a ramped cycle's stamp, so every cycle of the run flies there). The
 // dispatched cycle keeps the wave plan its dispatch made (the training waves); every relaunch plans its own at ramp 0.2.
-export function cp4Dispatched(f: Cp4Fixture, s0: GameState = cp4Crewed(f)): GameState {
-  const r = dispatchCaptainOnPatrol(s0, 1, "crimsonReaverWarband", "balanced", true);
+// The stance and the held ramp default to the goldens' (Balanced, 0.2); the torpedoes-on test flies another pair.
+export function cp4Dispatched(f: Cp4Fixture, s0: GameState = cp4Crewed(f), stance: CombatStance = "balanced", ramp = 0.2): GameState {
+  const r = dispatchCaptainOnPatrol(s0, 1, "crimsonReaverWarband", stance, true);
   if (!r.success) throw new Error(`patrol refused: ${r.reason}`);
   const m = r.next.captains[0].mission as PatrolMissionState;
-  const held: PatrolMissionState = { ...m, difficulty: { version: 1, firstRun: false, ramp: 0.2, tier: 1, completed: 2 } };
+  const held: PatrolMissionState = { ...m, difficulty: { version: 1, firstRun: false, ramp, tier: 1, completed: 2 } };
   return { ...r.next, captains: r.next.captains.map((c, i) => (i === 0 ? { ...c, mission: held } : c)) };
 }
 

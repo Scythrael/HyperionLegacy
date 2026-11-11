@@ -14,6 +14,14 @@ import { departmentFacet, officerStatFacet, officerStatTooltip, XO_DEPARTMENT_SH
 import { combatBase, seatOfficer } from "./wiring/probes";
 import { CP4_FIXTURES, STAT_10, STAT_20, cp4Crewed, cp4Dispatched, flightBucket, steadyTick } from "./cp4FlightDeck.fixture";
 import { withCp4FlightDeckOff } from "./cp4FlightDeckSwitch.fixture";
+// WR-8b (enemy torpedoes) came after these tests were written (CP-4 was built on 717bba3; WR-8b merged in becc53ea):
+// the file runs with it off (enemyTorpedoSwitch.fixture.ts), so its pins and fixtures keep proving the Flight Deck's
+// Integrity facet alone. With WR-8b live the Warband's Corsair Carrier torpedoes sink the held ramp 0.2 fixture in its
+// first relaunched cycle, before its hull stands below half with a drone recovering. Traced 2026-11-11: on feat
+// 2c66d749 and on this merge, with WR-8b switched off every fixture reproduces its capture hash for hash; WR-13 and
+// OC-G1 move none of them. The torpedoes-on case is proven in cp4FlightDeck.test.ts ("with enemy torpedoes live").
+import { enemyTorpedoesOffForThisFile, withEnemyTorpedoesOn } from "./enemyTorpedoSwitch.fixture";
+enemyTorpedoesOffForThisFile();
 
 const patrolOf = (s: GameState): PatrolMissionState => s.captains[0].mission as PatrolMissionState;
 const rng = () => 0.5;
@@ -104,6 +112,70 @@ describe("CP-4's rest: the Flight Deck's Integrity on Deck Handling, below half 
     const off = withCp4FlightDeckOff(run);
     expect(on.steady).toBeGreaterThan(0);
     expect(on.progress).toBeGreaterThan(off.progress);
+  });
+
+  // WR-8b (enemy torpedoes) is live in the game: the file runs with it off so its pins prove the facet alone, and this
+  // one test turns it ON. The Warband's Corsair Carriers carry the torpedo, which sinks the Balanced ramp 0.2 fixture in
+  // its first relaunch (the measured Carrier Warband drop the user kept, 2026-11-10), so this run flies Defensive (its
+  // point defense shoots some torpedoes down) held at ramp 0.1: a fight the carrier still wins while its hull falls below
+  // half with a drone recovering.
+  it("with enemy torpedoes live, the facet still lifts the Flight Deck's own Deck Handling below half hull", () => {
+    withEnemyTorpedoesOn(() => {
+      const s0 = cp4Crewed(CP4_FIXTURES.steady);
+      const ship = s0.ships[0];
+      const dh = shipDeckHandling(s0, ship);
+      const facet = departmentFacet(s0, ship, "flightDeck", "integrity");
+      const lift = shipFlightDeckIntegrityDeckHandling(s0, ship);
+      expect(lift).toBe(facet * shipFlightDeckDeckHandling(s0, ship));
+      expect(lift).toBeGreaterThan(0);
+      const run = () => {
+        let s = cp4Dispatched(CP4_FIXTURES.steady, s0, "standoff", 0.1);
+        let seed = -1;
+        let torpedoWaves: boolean[] = [];
+        const r = { cycles: 0, stamped: 0, steady: 0, steadyAfterTorpedoes: 0, progress: 0, records: [] as PatrolMissionState[] };
+        for (let i = 0; i < 3000; i++) {
+          const m = s.captains[0].mission as PatrolMissionState | null;
+          if (!m) break;
+          if (m.masterSeed !== seed) {
+            seed = m.masterSeed;
+            r.cycles += 1;
+            if (m.combatRules?.enemyTorpedoes === 1) r.stamped += 1;
+            r.records.push(m);
+            torpedoWaves = replayPatrol(s, s.captains[0]).waves.map((w) => w.enemyStart.some((e) => e.weapons.some((x) => x.weaponType === "concussionTorpedo")));
+          }
+          const hit = steadyTick(s);
+          r.steady += hit;
+          // The trigger reached after this cycle already fought a torpedo carrier.
+          if (hit && torpedoWaves.slice(0, m.wavesWon + m.wavesLost).some(Boolean)) r.steadyAfterTorpedoes += 1;
+          const before = hit ? m.playerDrones.flatMap((sq) => sq.drones.map((d) => d.refabProgress + d.repairProgress)) : [];
+          s = economyTick(s, 1, rng);
+          if (hit && s.captains[0].mission) {
+            const after = patrolOf(s).playerDrones.flatMap((sq) => sq.drones.map((d) => d.refabProgress + d.repairProgress));
+            r.progress += after.reduce((a, b, j) => a + Math.max(0, b - (before[j] ?? 0)), 0);
+          }
+        }
+        return r;
+      };
+      const on = run();
+      const off = withCp4FlightDeckOff(run);
+      // Torpedoes really fly: every cycle is stamped with them, and the trigger is reached after a torpedo carrier fought.
+      expect(on.cycles).toBeGreaterThan(1);
+      expect(on.stamped).toBe(on.cycles);
+      expect(on.steadyAfterTorpedoes).toBeGreaterThan(0);
+      // Every cycle freezes the Flight Deck's own lift (not the pool x (1 + facet)), and the switched-off run freezes none.
+      for (const m of on.records) {
+        expect(m.deckHandling).toBe(dh);
+        expect(m.deckHandlingSteady).toBe(lift);
+        for (const sq of m.playerDrones) {
+          expect(sq.deckHandlingSteadyPpm).toBe(Math.round((dh + lift) * REPLENISH_PPM));
+          expect(sq.deckHandlingSteadyPpm!).toBeLessThan(Math.round(dh * (1 + facet) * REPLENISH_PPM));
+        }
+      }
+      expect(off.records.every((m) => !("deckHandlingSteady" in m))).toBe(true);
+      // Below half hull its drones recover more than the switched-off run's.
+      expect(on.steady).toBeGreaterThan(0);
+      expect(on.progress).toBeGreaterThan(off.progress);
+    });
   });
 
   it("replay == live with the facet: every won wave's hull, shield and drone screen agree", () => {
