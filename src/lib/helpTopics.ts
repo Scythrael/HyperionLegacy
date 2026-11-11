@@ -240,7 +240,7 @@ import {
 import { DATA_STUDY_LANES, DATA_STUDY_RECIPE_PERMILLE, DATA_STUDY_TICKS, researchBoostSpeed } from "./game/dataStudy";
 import { GG7_NUMBERS, SPECIAL_BLUEPRINT_KEYS, SPECIAL_BLUEPRINT_TIER, type SpecialBlueprintKey } from "./game/specialBlueprints";
 import { TIER_HAUL_MULT } from "./game/riskFactors";
-import { ITEMS, REFINE_RECIPES } from "./game/model";
+import { DRIVE_CLASS_BLUEPRINTS, ITEMS, REFINE_RECIPES } from "./game/model";
 import { FAMOUS_SYSTEMS } from "./game/starCatalog";
 import { NEBULA_STAGES, SURVEY_LOG_HELP, archiveSubTabs, bandName, permilleText } from "./gasGiantStudyDisplay";
 import { decodeLockText } from "./dataStudyDisplay";
@@ -534,6 +534,20 @@ export const CANISTER_LINES = GAS_CANISTER_IDS.map((id) => {
 }).join("\n");
 const DEUTERIUM_REFINE = REFINE_RECIPES.refineDeuteriumCanister;
 const DEUTERIUM_ICE_PER_CANISTER = DEUTERIUM_REFINE ? Number(DEUTERIUM_REFINE.input.deuteriumIce?.toString() ?? 0) : 0;
+// ML close-out (2026-11-11): the lowest FTL Drive class whose blueprint takes a Deuterium Canister (Class III today,
+// G2-4's classed drives), read from the catalog, and the canister's two crafting uses as the manual words them.
+export const DEUTERIUM_DRIVE_MIN_CLASS = Math.min(
+  ...DRIVE_CLASS_BLUEPRINTS.filter((bp) => (bp.recipe.inputs.deuteriumCanister ?? 0) > 0).map((bp) => bp.driveClass ?? 1),
+);
+export const DEUTERIUM_CANISTER_USES = `Reactor Core blueprints and FTL Drive blueprints from Class ${numeral(DEUTERIUM_DRIVE_MIN_CLASS)} up`;
+// ML close-out (2026-11-11): everything the Quartermaster's Sell tab buys (an item is sellable iff it carries a
+// sellValue, quartermaster.ts canSell), the gas canisters named once as a group. Read from ITEMS, so it cannot drift.
+export const SELL_COUNTER_TEXT = andList([
+  ...Object.keys(ITEMS)
+    .filter((id) => ITEMS[id].sellValue !== undefined && ITEMS[id].category !== "gasCanister")
+    .map(itemName),
+  "the gas canisters you hold",
+]);
 // The three special blueprints, each with its entry, its Lab tier and what it does (GG7_NUMBERS, the first-pass values).
 const RAMSCOOP_BOOST = GG7_NUMBERS.ramscoopCollector.nebulaSweep;
 const RESONANCE_LIFT = GG7_NUMBERS.resonanceSensorArray.canisterBandLift;
@@ -570,7 +584,7 @@ export const GALILEO_PARAGRAPHS: readonly string[] = [
 
 export const GAS_CANISTER_PARAGRAPHS: readonly string[] = [
   `Gas Storage Canisters are the gases, and one antimatter cell, that your ships bring home from gas giant studies and nebula sweeps. They have their own section in Logistics, under Materials (Gas Storage Canisters), and the Warehouse cap applies to them like any material. Each canister belongs to a band, from Standard up to Radiant, and a study rolls the band of every canister it fills (see the Gas Giants and Nebulae topic):\n${CANISTER_LINES}`,
-  `The ${itemName("deuteriumCanister")} can also be refined at the Refinery, from ${DEUTERIUM_ICE_PER_CANISTER} ${itemName("deuteriumIce")} each. Every canister sells at the Quartermaster's Sell tab.`,
+  `The ${itemName("deuteriumCanister")} goes into ${DEUTERIUM_CANISTER_USES}, and it can also be refined at the Refinery, from ${DEUTERIUM_ICE_PER_CANISTER} ${itemName("deuteriumIce")} each. Every canister sells at the Quartermaster's Sell tab.`,
 ];
 
 export const DATA_STUDY_PARAGRAPHS: readonly string[] = [
@@ -1239,7 +1253,7 @@ Fabricated equipment keeps its quality too. A crafted blank holds the quality it
   {
     id: "quartermaster",
     title: "Quartermaster",
-    body: "The Quartermaster, in Facilities, is the fleet's supply counter. Its Requisition tab issues Standard-Issue patterns free, one row per slot that has a baseline: the four economy slots (Cargo Bay, FTL Drive, Reactor Core, Prospecting Rig) and the combat slots (a weapon, a shield emitter, hull plating, and a drone pod). Take one and it lands in your spare systems, ready to install from a ship's Ship Systems board. It costs nothing and takes no time, because the point of the counter is that an empty slot can always be filled: a ship missing a weapon, a shield emitter, or hull plating cannot launch a patrol, so a free replacement turns that from a dead end into an errand. What you get is the FLOOR and never more. An economy baseline is stat-neutral (a ship carrying one performs exactly as a bare hull does), and a combat baseline restores the hull's own starting numbers rather than adding to them, so nobody gains power by visiting: you only get back to where a new ship starts. The weapon issued here is the same workhorse gun every hull is built with, not a pick from the weapon roster. Real gains come from researching and crafting your own systems. The counter issues one spare of each pattern at a time; install it and it will issue another, and a spare already queued for salvage, or sitting in an Armory loadout, does not count against you. The Quartermaster has no level and nothing to upgrade, so there is nothing to found. Its Sell tab buys stock back for credits (today Deuterium Ice and the gas canisters you hold), and its Purchase tab sells field kits for credits (see the Field Kits topic). A purchase never goes over the Warehouse cap.",
+    body: `The Quartermaster, in Facilities, is the fleet's supply counter. Its Requisition tab issues Standard-Issue patterns free, one row per slot that has a baseline: the four economy slots (Cargo Bay, FTL Drive, Reactor Core, Prospecting Rig) and the combat slots (a weapon, a shield emitter, hull plating, and a drone pod). Take one and it lands in your spare systems, ready to install from a ship's Ship Systems board. It costs nothing and takes no time, because the point of the counter is that an empty slot can always be filled: a ship missing a weapon, a shield emitter, or hull plating cannot launch a patrol, so a free replacement turns that from a dead end into an errand. What you get is the FLOOR and never more. An economy baseline is stat-neutral (a ship carrying one performs exactly as a bare hull does), and a combat baseline restores the hull's own starting numbers rather than adding to them, so nobody gains power by visiting: you only get back to where a new ship starts. The weapon issued here is the same workhorse gun every hull is built with, not a pick from the weapon roster. Real gains come from researching and crafting your own systems. The counter issues one spare of each pattern at a time; install it and it will issue another, and a spare already queued for salvage, or sitting in an Armory loadout, does not count against you. The Quartermaster has no level and nothing to upgrade, so there is nothing to found. Its Sell tab buys stock back for credits (today ${SELL_COUNTER_TEXT}), and its Purchase tab sells field kits for credits (see the Field Kits topic). A purchase never goes over the Warehouse cap.`,
   },
   {
     id: "storage",
@@ -1259,7 +1273,7 @@ Fabricated equipment keeps its quality too. A crafted blank holds the quality it
   {
     id: "fuel",
     title: "Fuel",
-    body: `Fuel is no longer something you mine, refine, or buy. Refueling is instant and free, so the only thing fuel decides is REACH: how far a ship can fly on one round trip, measured in lightyears (LY). Each hull has its own reach, set by its fuel capacity and engine efficiency, and an installed FTL Drive with Fuel Capacity or Fuel Efficiency stats extends it. Every mission and patrol has a round-trip distance in LY, and a ship can only be dispatched on a trip its reach covers. Mission and patrol cards show the trip distance, the dispatch windows show it next to the ship's range (installed gear included), and a trip beyond a ship's reach is flagged before you send it, with the reason. The old fuel tank, Buy Fuel and the Local Deuterium Skim run are retired, and Deuterium Ice is no longer FTL fuel: the Cometary Ice Harvest brings it in, the Refinery presses it into Deuterium Canisters for Reactor Core blueprints, and it still sells at the Quartermaster's Sell counter. The Fuel Depot, in Facilities, now extends REACH instead: every level it is upgraded adds ${Math.round(FUEL_DEPOT_REACH_PER_RUNG * 100)}% to the reach of every ship in the fleet, missions, patrols and expeditions alike.\n\nDEEP-SPACE REACH: an expedition measures reach the same way, then multiplies it by the ship's drive class (${mult(DRIVE_CLASS_REACH_MULT[1])} at Class I up to ${mult(DRIVE_CLASS_REACH_MULT[DRIVE_CLASS_MAX])} at Class ${numeral(DRIVE_CLASS_MAX)}), so an explorer reaches far past its mission range. Each system's round trip (twice its distance from your homeworld) must be within it; Engineering's Constitution stretches it on long voyages. See the Expedition Tiers topic.`,
+    body: `Fuel is no longer something you mine, refine, or buy. Refueling is instant and free, so the only thing fuel decides is REACH: how far a ship can fly on one round trip, measured in lightyears (LY). Each hull has its own reach, set by its fuel capacity and engine efficiency, and an installed FTL Drive with Fuel Capacity or Fuel Efficiency stats extends it. Every mission and patrol has a round-trip distance in LY, and a ship can only be dispatched on a trip its reach covers. Mission and patrol cards show the trip distance, the dispatch windows show it next to the ship's range (installed gear included), and a trip beyond a ship's reach is flagged before you send it, with the reason. The old fuel tank, Buy Fuel and the Local Deuterium Skim run are retired, and Deuterium Ice is no longer FTL fuel: the Cometary Ice Harvest brings it in, the Refinery presses it into Deuterium Canisters for ${DEUTERIUM_CANISTER_USES}, and it still sells at the Quartermaster's Sell counter. The Fuel Depot, in Facilities, now extends REACH instead: every level it is upgraded adds ${Math.round(FUEL_DEPOT_REACH_PER_RUNG * 100)}% to the reach of every ship in the fleet, missions, patrols and expeditions alike.\n\nDEEP-SPACE REACH: an expedition measures reach the same way, then multiplies it by the ship's drive class (${mult(DRIVE_CLASS_REACH_MULT[1])} at Class I up to ${mult(DRIVE_CLASS_REACH_MULT[DRIVE_CLASS_MAX])} at Class ${numeral(DRIVE_CLASS_MAX)}), so an explorer reaches far past its mission range. Each system's round trip (twice its distance from your homeworld) must be within it; Engineering's Constitution stretches it on long voyages. See the Expedition Tiers topic.`,
   },
   {
     id: "offline",

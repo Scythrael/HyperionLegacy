@@ -139,6 +139,7 @@
     // navigation into that category's web (see selectedCategory/viewCategory).
     categoryCards,
     MISSIONS,
+    RETIRED_MISSION_KEYS,
     // Combat 0.13.0 (Phase 9b.5d): the static Combat Patrol content the new
     // Operations > Combat Patrols surface enumerates. PATROLS is the patrol roster
     // (label / wave band / transit legs / hull pool), FACTIONS supplies the fought
@@ -10764,8 +10765,8 @@
   // 0.13.6 fuel-to-reach: the "localFuelRun" (Local Deuterium Skim) bootstrap mission is HIDDEN
   // everywhere in the UI (fuel is no longer mined; shortOreRun is the level-1 starter). It stays in
   // MISSIONS as a vestigial entry for the content-patch cleanup, but is filtered out of every list.
-  $: unlockedMissionKeys = (Object.keys(MISSIONS) as MissionKey[]).filter((k) => k !== "localFuelRun" && missionUnlocked(state, k));
-  $: lockedMissionKeys = (Object.keys(MISSIONS) as MissionKey[]).filter((k) => k !== "localFuelRun" && !missionUnlocked(state, k));
+  $: unlockedMissionKeys = (Object.keys(MISSIONS) as MissionKey[]).filter((k) => !RETIRED_MISSION_KEYS.includes(k) && missionUnlocked(state, k));
+  $: lockedMissionKeys = (Object.keys(MISSIONS) as MissionKey[]).filter((k) => !RETIRED_MISSION_KEYS.includes(k) && !missionUnlocked(state, k));
 
   // --- Fuel Depot (WR-4, OC-C1: the FLEET REACH track) ---
   // Its level, the next rung, the shared Build gate, the in-flight upgrade, and the fleet reach bonus the built
@@ -18701,7 +18702,7 @@
               <!-- Mining missions ONLY: exclude the free bootstrap (localFuelRun) AND every
                    exploration missionType (survey | transport), which live on the Exploration tab
                    now. All mining is Tier I, so the tier filter + the missionType exclusion agree. -->
-              {@const miningMissions = (Object.entries(MISSIONS) as [MissionKey, typeof MISSIONS[MissionKey]][]).filter(([key, def]) => key !== "localFuelRun" && def.tier === "I" && def.missionType !== "survey" && def.missionType !== "transport")}
+              {@const miningMissions = (Object.entries(MISSIONS) as [MissionKey, typeof MISSIONS[MissionKey]][]).filter(([key, def]) => !RETIRED_MISSION_KEYS.includes(key) && def.tier === "I" && def.missionType !== "survey" && def.missionType !== "transport")}
 
               <div class="home-sec-hd">
                 <span class="home-sec-h">Available Missions</span>

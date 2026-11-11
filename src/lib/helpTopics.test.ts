@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { FIELD_DEVICES_PARAGRAPH, HELP_TOPICS, TRAINING_RUNS_PARAGRAPH, TRAINING_WEAR_SENTENCE } from "./helpTopics";
+import { DEUTERIUM_CANISTER_USES, DEUTERIUM_DRIVE_MIN_CLASS, FIELD_DEVICES_PARAGRAPH, GAS_CANISTER_PARAGRAPHS, HELP_TOPICS, SELL_COUNTER_TEXT, TRAINING_RUNS_PARAGRAPH, TRAINING_WEAR_SENTENCE } from "./helpTopics";
 import { gatheringTrainingStamp } from "./game/gearWearEngine";
 import { OVERTIME_CREDITS_PER_MINUTE, OVERTIME_MAX_STEPS as OT_MAX, OVERTIME_STEP_RATE as OT_STEP } from "./game/processSpeed";
 
@@ -86,7 +86,7 @@ import {
 import { DATA_STUDY_LANES, DATA_STUDY_RECIPE_PERMILLE, DATA_STUDY_TICKS, RESEARCH_BOOST_PER, RESEARCH_FAMILY_BY_SLOT, RESEARCH_FAMILY_OVERRIDE, researchBoostSpeed } from "./game/dataStudy";
 import { GG7_NUMBERS, SPECIAL_BLUEPRINT_KEYS, SPECIAL_BLUEPRINT_TIER } from "./game/specialBlueprints";
 import { TIER_HAUL_MULT } from "./game/riskFactors";
-import { BLUEPRINTS, ITEMS, REFINE_RECIPES } from "./game/model";
+import { BLUEPRINTS, DRIVE_CLASS_BLUEPRINTS, ITEMS, REFINE_RECIPES } from "./game/model";
 import { NEBULA_STAGES, SURVEY_LOG_HELP, archiveSubTabs } from "./gasGiantStudyDisplay";
 import { decodeLockText } from "./dataStudyDisplay";
 // Short-Range Missions G1-7.
@@ -1050,5 +1050,38 @@ describe("HELP_TOPICS: retirement and the Hall of Command (CP-16)", () => {
     expect(b).toContain(`adds ${Math.round(RETIREMENT_EXP_PER * 100)}% to the captain XP`);
     expect(b).toContain(`keeps giving +${lockedInRetirementXpPercent()}%`);
     expect(b).not.toMatch(/\u2014|-{2}|\bfit/);
+  });
+});
+
+// Material Lines close-out (2026-11-11, fix ledger item 3): the Deuterium chain and the Sell counter, told truthfully.
+// Every claim is read back from the catalog that enforces it (DRIVE_CLASS_BLUEPRINTS' recipes, ITEMS' sellValue and
+// quartermaster.ts canSell), so a recipe or price change that makes the text wrong fails here.
+describe("ML close-out: the Deuterium Canister's drive use and everything the Sell tab buys", () => {
+  const body = (id: string) => HELP_TOPICS.find((t) => t.id === id)!.body;
+
+  it("the canister's lowest drive class is read from the drive recipes: Class III today, none below it", () => {
+    const takers = DRIVE_CLASS_BLUEPRINTS.filter((bp) => (bp.recipe.inputs.deuteriumCanister ?? 0) > 0);
+    expect(takers.length).toBeGreaterThan(0);
+    expect(DEUTERIUM_DRIVE_MIN_CLASS).toBe(3);
+    for (const bp of DRIVE_CLASS_BLUEPRINTS) expect((bp.recipe.inputs.deuteriumCanister ?? 0) > 0, bp.key).toBe((bp.driveClass ?? 1) >= DEUTERIUM_DRIVE_MIN_CLASS);
+    expect(DEUTERIUM_CANISTER_USES).toBe("Reactor Core blueprints and FTL Drive blueprints from Class III up");
+  });
+
+  it("the Deuterium Ice hint, the Fuel topic and the canister paragraph all name the Class III and higher drives", () => {
+    expect(ITEMS.deuteriumIce.unlockHint).toContain("Reactor Core blueprints and Class III and higher FTL Drive blueprints");
+    expect(body("fuel")).toContain(`presses it into Deuterium Canisters for ${DEUTERIUM_CANISTER_USES}`);
+    expect(GAS_CANISTER_PARAGRAPHS[1]).toContain(`${ITEMS.deuteriumCanister.label} goes into ${DEUTERIUM_CANISTER_USES}`);
+  });
+
+  it("the Quartermaster topic lists every item the Sell tab buys, and nothing else", () => {
+    const qm = body("quartermaster");
+    const sellable = Object.keys(ITEMS).filter((id) => ITEMS[id].sellValue !== undefined);
+    // Every canister is sellable, so the group name covers them all.
+    for (const id of GAS_CANISTER_IDS) expect(sellable, id).toContain(id);
+    const named = sellable.filter((id) => ITEMS[id].category !== "gasCanister");
+    expect(named).toEqual(["deuteriumIce", "salvagedCircuitry", "precursorCircuit"]);
+    expect(qm).toContain("Its Sell tab buys stock back for credits (today Deuterium Ice, Salvaged Circuitry, Precursor Circuit and the gas canisters you hold)");
+    for (const id of named) expect(SELL_COUNTER_TEXT, id).toContain(ITEMS[id].label);
+    expect(qm).not.toMatch(/\u2014|-{2}|\bfit/);
   });
 });

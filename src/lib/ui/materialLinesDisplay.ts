@@ -12,7 +12,7 @@
 // describes (materialLinesDisplay.test.ts starts the real job and compares its stamped inputQuality).
 
 import Decimal from "break_infinity.js";
-import { BLUEPRINTS, ITEMS, MISSIONS, REFINE_RECIPES, refineRecipeOffered } from "../game/model";
+import { BLUEPRINTS, ITEMS, MISSIONS, REFINE_RECIPES, RETIRED_MISSION_KEYS, missionDeliverableItems, refineRecipeOffered, type MissionKey } from "../game/model";
 import { QUALITY_TIERS, drawQualityTally, itemTotal, removeItemHighestFirst, removeItemLowestFirst } from "../game/inventory";
 import { CARRY_AVERAGE_EPSILON, MAX_MATERIAL_QUALITY, carriedQuality } from "../game/materialQuality";
 import type { IconName } from "./icons";
@@ -41,29 +41,39 @@ export function qualityChips(inv: Record<string, Decimal[]>, item: string): Qual
 // Refinery material lines
 // ---------------------------------------------------------------------------------------------------------------
 
-// One material line as the signed-off mockup draws it: a name, a glyph (existing icons.ts glyphs only), the missions
-// its raws come from (MISSIONS keys, so a renamed mission renames here), and the raws that belong to it. A recipe
-// joins the line of its MAIN raw (merge-batch pick: "compounds with their main raw's line"), so Cobalt Coil
-// (Cobalt Ore + Titanium Ingot) sits under Heavy metals and Photonic Gel (Wafer + Volatile Resin) under Organic.
+// One material line as the signed-off mockup draws it: a name, a glyph (existing icons.ts glyphs only), and the raws
+// that belong to it. A recipe joins the line of its MAIN raw (merge-batch pick: "compounds with their main raw's
+// line"), so Cobalt Coil (Cobalt Ore + Titanium Ingot) sits under Heavy metals and Photonic Gel (Wafer + Volatile
+// Resin) under Organic. The missions a line's raws come from are DERIVED from the missions' loot tables
+// (lineSourceMissions), never hand kept, so a new or changed run can never drift from the list (ML close-out
+// 2026-11-11: the hand-kept list had missed the Cometary Ice Harvest and Survey Stellar Phenomena).
 export interface RefineryLineDef {
   key: string;
   label: string;
   icon: IconName;
-  missions: readonly (keyof typeof MISSIONS)[];
   raws: readonly string[];
 }
 
 export const REFINERY_LINES: readonly RefineryLineDef[] = [
-  { key: "structural", label: "Structural", icon: "ingot", missions: ["shortOreRun"], raws: ["commonOre", "uncommonMaterial", "rareMaterial"] },
-  { key: "heavyMetals", label: "Heavy metals", icon: "ore", missions: ["longOreRun", "surveyMineralAnomaly"], raws: ["ferriteOre", "cobaltOre", "osmiumOre", "denseOre"] },
-  { key: "recoveredTech", label: "Recovered tech", icon: "salvage", missions: ["salvageWreckage"], raws: ["scrapAlloy", "salvagedCircuitry"] },
-  { key: "organic", label: "Organic", icon: "riskFlora", missions: ["forageFlora"], raws: ["fibrousBiomass", "volatileResin", "exoticSporeCluster"] },
-  { key: "volatiles", label: "Volatiles", icon: "gasCanister", missions: ["cometIceHarvest"], raws: ["deuteriumIce"] },
+  { key: "structural", label: "Structural", icon: "ingot", raws: ["commonOre", "uncommonMaterial", "rareMaterial"] },
+  { key: "heavyMetals", label: "Heavy metals", icon: "ore", raws: ["ferriteOre", "cobaltOre", "osmiumOre", "denseOre"] },
+  { key: "recoveredTech", label: "Recovered tech", icon: "salvage", raws: ["scrapAlloy", "salvagedCircuitry"] },
+  { key: "organic", label: "Organic", icon: "riskFlora", raws: ["fibrousBiomass", "volatileResin", "exoticSporeCluster"] },
+  { key: "volatiles", label: "Volatiles", icon: "gasCanister", raws: ["deuteriumIce"] },
 ];
 
 // The catch-all for a future recipe whose main raw no line names yet, so a new recipe is never hidden by the
 // grouping (materialLinesDisplay.test.ts holds every recipe offered today to a named line).
-export const OTHER_REFINERY_LINE: RefineryLineDef = { key: "other", label: "Other", icon: "refinery", missions: [], raws: [] };
+export const OTHER_REFINERY_LINE: RefineryLineDef = { key: "other", label: "Other", icon: "refinery", raws: [] };
+
+// The missions a line's raws come from: every mission the player can fly (retired runs left out) that can deposit
+// one of the line's raws (missionDeliverableItems: the common floor, plus uncommon and rare when their chance is
+// above 0), in MISSIONS order. Pure.
+export function lineSourceMissions(def: RefineryLineDef): MissionKey[] {
+  return (Object.keys(MISSIONS) as MissionKey[]).filter(
+    (k) => !RETIRED_MISSION_KEYS.includes(k) && missionDeliverableItems(k).some((item) => def.raws.includes(item)),
+  );
+}
 
 // An item some refine recipe produces (a refined good), as opposed to a raw.
 function isRefineOutput(itemId: string): boolean {
@@ -91,7 +101,8 @@ export function recipeLine(recipeKey: string): RefineryLineDef {
 
 export interface RefineryLineView {
   def: RefineryLineDef;
-  // The mission labels the line's raws come from ("Lunar Mine Contract, Survey Mineral Anomaly").
+  // The mission labels the line's raws come from ("Lunar Mine Contract, Survey Mineral Anomaly, Survey Stellar
+  // Phenomena"), derived by lineSourceMissions.
   sources: string;
   // The raws the line's recipes take, in recipe order, each once (refined inputs such as Titanium Ingot are listed
   // under their own recipe's line instead).
@@ -113,7 +124,7 @@ export function refineryLineViews(): RefineryLineView[] {
         if (!isRefineOutput(itemId) && !raws.includes(itemId)) raws.push(itemId);
       }
     }
-    const sources = def.missions.map((m) => MISSIONS[m]?.label).filter((l): l is string => typeof l === "string").join(", ");
+    const sources = lineSourceMissions(def).map((m) => MISSIONS[m].label).join(", ");
     views.push({ def, sources, raws, recipes });
   }
   return views;

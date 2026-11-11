@@ -837,6 +837,22 @@ export const MISSIONS: Record<
 
 export type MissionKey = keyof typeof MISSIONS;
 
+// Missions kept in MISSIONS for old saves but hidden from every list (0.13.6 fuel-to-reach retired the Local
+// Deuterium Skim; the Cometary Ice Harvest is the Tier I Deuterium Ice source now). The one list the UI reads.
+export const RETIRED_MISSION_KEYS: readonly MissionKey[] = ["localFuelRun"];
+
+// The items a mission can actually deposit: its common floor, plus its uncommon and rare items when those chances are
+// above 0. A transport run delivers no loot (the deposit is suppressed in tickCaptainMission), so it reads empty.
+// Pure; the Refinery's material line sources read it, so a new or changed loot table can never drift from them.
+export function missionDeliverableItems(key: MissionKey): string[] {
+  const def = MISSIONS[key];
+  if (!def || def.missionType === "transport") return [];
+  const items = [def.lootTable.common];
+  if (def.uncommonChance > 0) items.push(def.lootTable.uncommon);
+  if (def.rareChance > 0) items.push(def.lootTable.rare);
+  return items;
+}
+
 // Per-mission per-tick XP RATE (Progression Pacing Rework, Task 3 --
 // docs/plans/2026-07-11-progression-pacing-rework-*). The base amount of XP a
 // mission is worth per WHOLE extraction tick, BEFORE any future captain-talent
@@ -10439,9 +10455,10 @@ export interface ItemDef {
   band?: ItemBand;
   // SELLABLE (0.13.6): credits per unit at the Quartermaster's Sell counter. An item is
   // sellable IFF this is defined; canSell rejects everything else, so a locked / non-sellable
-  // good can never be sold even as the catalogue grows. Only DEPRECATED stock carries it for now
-  // (Deuterium Ice, orphaned by fuel-to-reach); widening it to live goods is a later, balance-
-  // gated decision. The value is DERIVED from the item's prior worth (see deuteriumIce).
+  // good can never be sold even as the catalogue grows. Today: Deuterium Ice (0.13.6), Salvaged Circuitry and the
+  // Precursor Circuit (SALVAGE_DROP_SELL_VALUE) and every Gas Storage Canister (GG-1); the Quartermaster Help topic
+  // reads this list (helpTopics.ts SELL_COUNTER_TEXT). Widening it to other live goods is a balance-gated decision.
+  // Deuterium Ice's value is DERIVED from the item's prior worth (see deuteriumIce).
   sellValue?: number;
   // RETIRED STOCK (0.14.0): set only on an item the game no longer uses for anything but the Sell counter. The Sell
   // shelf tags exactly these rows "Retired" (quartermaster.ts isRetiredStock). No item carries it today: Deuterium Ice
@@ -10548,8 +10565,9 @@ export const ITEMS: Record<string, ItemDef> = {
     rarity: "common",
     // The common floor of the Cometary Ice Harvest (reactor fuel ladder, 0.14.0; the retired localFuelRun was its old
     // source). Gas Giant Study GG-1: it refines into a Deuterium Canister (REFINE_RECIPES.refineDeuteriumCanister), the
-    // fuel every Reactor Core blueprint takes.
-    unlockHint: "Harvested from a passing comet on the Cometary Ice Harvest run. Refine it into Deuterium Canisters for Reactor Core blueprints; raw ice fetches only a few credits at the Quartermaster.",
+    // fuel every Reactor Core blueprint takes; G2-4's Class III and higher FTL Drive blueprints take it too (ML close-out
+    // 2026-11-11 named that use here; helpTopics.test.ts holds the class to DEUTERIUM_DRIVE_MIN_CLASS).
+    unlockHint: "Harvested from a passing comet on the Cometary Ice Harvest run. Refine it into Deuterium Canisters for Reactor Core blueprints and Class III and higher FTL Drive blueprints; raw ice fetches only a few credits at the Quartermaster.",
     // ML-1: the flavor no longer tells the player to cook it down at the Fuel Depot (that pipeline retired in 0.13.6).
     // Reactor fuel ladder (0.14.0): it comes off a comet now and ends up as reactor fuel, never FTL fuel.
     flavor: "Deuterium-laced water ice cut from a passing comet: common, bulky, and worth little until it is pressed into reactor fuel.",

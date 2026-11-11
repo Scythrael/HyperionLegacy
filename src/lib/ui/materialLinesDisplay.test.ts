@@ -29,6 +29,7 @@ import {
   averageText,
   carriedQualityText,
   laterRunsText,
+  lineSourceMissions,
   orderQualityPreview,
   qualityChips,
   recipeFormula,
@@ -77,11 +78,46 @@ describe("ML-7 the Refinery grouped by material line", () => {
     expect(recipeLine("refineDeuteriumCanister").key).toBe("volatiles");
   });
 
+  // MOVED PIN (ML close-out 2026-11-11, fix ledger item 4): the sources were a hand-kept list that missed Survey
+  // Stellar Phenomena (Ferrite Ore) here; they are now derived from the missions' loot tables (lineSourceMissions).
   it("lists a line's raws (not its refined inputs) and names real missions as sources", () => {
     const heavy = views.find((v) => v.def.key === "heavyMetals")!;
     expect(heavy.raws).toEqual(["ferriteOre", "cobaltOre", "osmiumOre"]);
-    expect(heavy.sources).toBe(`${MISSIONS.longOreRun.label}, ${MISSIONS.surveyMineralAnomaly.label}`);
-    for (const l of REFINERY_LINES) for (const m of l.missions) expect(MISSIONS[m], m).toBeDefined();
+    expect(heavy.sources).toBe(`${MISSIONS.longOreRun.label}, ${MISSIONS.surveyMineralAnomaly.label}, ${MISSIONS.surveyStellarPhenomena.label}`);
+    for (const l of REFINERY_LINES) for (const m of lineSourceMissions(l)) expect(MISSIONS[m], m).toBeDefined();
+  });
+
+  // ML close-out (2026-11-11, fix ledger item 4): every mission that can deliver one of a line's materials is listed
+  // as a source, and no other. Walked here from the raw MISSIONS rows (the common floor always; uncommon and rare
+  // only with a chance above 0; transport runs deliver no loot; retired runs are hidden), independent of the
+  // module's helper.
+  it("names every flyable mission that can deliver a line's material, and only those", () => {
+    const labels = (key: string) => (views.find((v) => v.def.key === key)?.sources ?? "").split(", ").filter((x) => x !== "");
+    for (const def of REFINERY_LINES) {
+      const expected: string[] = [];
+      for (const [k, m] of Object.entries(MISSIONS)) {
+        if (k === "localFuelRun" || m.missionType === "transport") continue;
+        const drops = [m.lootTable.common];
+        if (m.uncommonChance > 0) drops.push(m.lootTable.uncommon);
+        if (m.rareChance > 0) drops.push(m.lootTable.rare);
+        if (drops.some((d) => def.raws.includes(d))) expected.push(m.label);
+      }
+      expect(expected.length, def.key).toBeGreaterThan(0);
+      expect(lineSourceMissions(def).map((m) => MISSIONS[m].label), def.key).toEqual(expected);
+      if (views.some((v) => v.def.key === def.key)) expect(labels(def.key), def.key).toEqual(expected);
+    }
+    // The rows the hand-kept list had missed, by name.
+    expect(labels("structural")).toContain(MISSIONS.cometIceHarvest.label); // Titanium Ore (uncommon), Iridium Ore (rare)
+    expect(labels("heavyMetals")).toContain(MISSIONS.surveyStellarPhenomena.label); // Ferrite Ore
+    expect(labels("organic")).toContain(MISSIONS.surveyStellarPhenomena.label); // Volatile Resin, Exotic Spore Cluster
+    // The retired skim and the transport runs never show (they deliver no loot the player can fly for).
+    expect(labels("volatiles")).toEqual([MISSIONS.cometIceHarvest.label]);
+    for (const v of views) {
+      expect(v.sources).not.toContain(MISSIONS.localFuelRun.label);
+      expect(v.sources).not.toContain(MISSIONS.frontierSupplyRun.label);
+      expect(v.sources).not.toContain(MISSIONS.colonySupplyLift.label);
+    }
+    expect(lineSourceMissions(OTHER_REFINERY_LINE)).toEqual([]);
   });
 
   it("words a recipe row as the mockup does", () => {
