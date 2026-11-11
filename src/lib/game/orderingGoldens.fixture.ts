@@ -27,7 +27,10 @@ const RNG = (): number => 0.5;
 export const OFFLINE_SECONDS = 4 * 3600;
 
 const keysOf = (m: Record<string, unknown>): string => Object.keys(m).join(",");
-function row(s: GameState): string[] {
+// The view a row is read through (the identity, or orderingSwitch.fixture.ts asCanonicalOrder for the trace).
+let view: (s: GameState) => GameState = (s) => s;
+function row(raw: GameState): string[] {
+  const s = view(raw);
   const t = s.lifetimeStats;
   return [
     stateHash(s),
@@ -54,7 +57,8 @@ export function twoCaptainsStart(): GameState {
   return two.next;
 }
 
-export function orderingRows(): Record<string, unknown> {
+export function orderingRows(through: (s: GameState) => GameState = (s) => s): Record<string, unknown> {
+  view = through;
   const got: Record<string, unknown> = {};
   const three = (name: string, s0: GameState, n: number): void => {
     got[`${name}:steps`] = row(steppedBy(s0, n, 1));

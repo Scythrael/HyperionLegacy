@@ -62,24 +62,9 @@ const record = (s: GameState) => {
   return { missionsFlown: c.missionsFlown, notables: c.commandNotables };
 };
 const json = (v: unknown): string => JSON.stringify(v);
-// The WHOLE state, for the chunk parity checks. Two orders are normalized, both older than CP-16 and neither a record
-// this slice writes: `discovered` (the codex's first-seen item list) lists a call's new finds in the order that call meets
-// them, and a lifetime tally map (lifetimeStats.missionsCompleted and its siblings) gains its keys in the order a call
-// folds them, so a big call and 1 s steps can list the same items or keys in another order. Every value, and every
-// other byte (the captains and their CP-16 records included), is compared as is.
-const sortedKeys = <T,>(m: Record<string, T>): Record<string, T> => Object.fromEntries(Object.keys(m).sort().map((k) => [k, m[k]]));
-const whole = (s: GameState): string =>
-  json({
-    ...s,
-    discovered: [...s.discovered].sort(),
-    lifetimeStats: {
-      ...s.lifetimeStats,
-      itemsGathered: sortedKeys(s.lifetimeStats.itemsGathered),
-      itemsRefined: sortedKeys(s.lifetimeStats.itemsRefined),
-      itemsCrafted: sortedKeys(s.lifetimeStats.itemsCrafted),
-      missionsCompleted: sortedKeys(s.lifetimeStats.missionsCompleted),
-    },
-  });
+// The WHOLE state, for the chunk parity checks, byte for byte. The ordering determinism slice (canonicalOrder.ts) put
+// `discovered` and the lifetime tally maps in canonical order, so no order is normalized any more.
+const whole = (s: GameState): string => json(s);
 const recordOf = (s: GameState, captainId: number) => {
   const c = s.captains.find((x) => x.id === captainId)!;
   return { missionsFlown: c.missionsFlown, notables: c.commandNotables };

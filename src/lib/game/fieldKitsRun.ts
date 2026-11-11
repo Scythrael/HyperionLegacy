@@ -32,6 +32,7 @@ import { fightSuppliesAfter } from "./fieldKitsBattle";
 import { addItemQuality, itemTotal, removeItemLowestFirst } from "./inventory";
 import { shipGroundTeams } from "./groundTeamSlots";
 import { shipSupportHeads } from "./gambit";
+import { withDiscovered } from "./canonicalOrder";
 
 export type KitCounts = Partial<Record<FieldKitId, number>>;
 
@@ -283,7 +284,7 @@ export function returnCarriedExtras(state: GameState, exp: Pick<Expedition, "gro
   let discovered = state.discovered;
   for (const id of ids) {
     inventory = addItemQuality(inventory, id, new Decimal(back[id] ?? 0), 0);
-    if (!discovered.includes(id)) discovered = [...discovered, id];
+    discovered = withDiscovered(discovered, id); // canonical order (canonicalOrder.ts)
   }
   return { ...state, inventory, discovered };
 }
