@@ -34,12 +34,13 @@ import { powerSupplyPercent } from "./combat/power";
 import { equippedFor } from "./equipmentQueries";
 import { CREW_PROFESSION_BUFFS, CREW_STAT_KEYS, SECOND_LEVEL_EXCLUSIVE, TRANSIT_SPEED_KEY } from "./crewBuffs";
 import { CREW_RACES } from "./crewRaces";
-import { coalesceBuckets, contributionForSignature, notableSignature, removeFromBucketList, rollupBuckets, totalCrew } from "./crew";
+import { coalesceBuckets, contributionForSignature, notableSignature, removeFromBucketList, rollupBuckets, signatureKey, totalCrew } from "./crew";
 import { shipCrewLocked } from "./crewLock";
 import { captainRacialBonus, officerCrewHoursMs, officerRacialBonus, officerRankMagnitudeFactor } from "./seniorStaff";
 import { getSeniorStaffBonusById } from "./seniorStaffBonuses";
 import { crewTransportsDue, deliverDueTransports, transportBatchSize } from "./transports";
 import { autoCrewShip } from "./autoCrew";
+import { commandStructureWithBonus, complementTotalCap, hullLeanDivisions, type CommandStructure } from "./commandStructure";
 import {
   installedQuartersModule,
   installedBridgeModule,
@@ -1304,19 +1305,51 @@ export function foldOfficerPromotionCounters(
 // SAME-REFERENCE NO-OP FAST PATH: when no transport window is due AND the pool is empty (the universal
 // crew-free / early-game case), there is nothing to deliver or assign, so it returns `state` unchanged
 // and a save with no crew activity is byte-identical to before this phase.
+//
+// CP-21 PERF GUARD (close-out review 2026-11-11; a pure optimization, no outcome changes: crewPoolGuardGoldens.test.ts
+// pins whole states captured before it). Once every passive berth is full, each transport stays in the pool, so after a
+// long stretch the pool holds thousands of groups, and an offline catch-up runs one economyTick per second. Three skips,
+// each provably a no-op of the full fill below:
+//   1) no window due: the pool is used as it is (deliverDueTransports would only copy it), and when no ship took
+//      anyone the SAME state comes back, so the pool keeps its reference from tick to tick;
+//   2) berths full: a ship whose bulk plus assigned notables already reach its total berths (complementTotalCap with its
+//      quarters bonus) can take no one (remainingCapacityForSignature is never above the total's room), so it is
+//      skipped before the pool is copied;
+//   3) nothing changed since a fill that took no one: the filler is a pure function of (pool, hull, the complement with
+//      its notables, the quarters bonus, the cap template and lean order), and adding crew only lowers every cap's room,
+//      so once a ship took nobody from a pool it takes nobody from that same pool again. NO_FILL_MEMO remembers that
+//      per complement object (weakly, never saved: after a load the first tick fills in full and remembers again).
+//      A transport, a transfer, a salvage or any ship ahead of it taking crew makes a new pool; a send back, a quarters
+//      install, a mode switch or a cap switch changes the key; so the ship is filled in full again.
+type NoFillMemo = {
+  pool: CrewBucket[];
+  poolLength: number;
+  typeKey: ShipInstance["typeKey"];
+  bonus: number;
+  structure: CommandStructure;
+  lean: readonly CrewProfession[];
+  notables: string;
+  headcount: number;
+};
+const NO_FILL_MEMO = new WeakMap<NonNullable<ShipInstance["complement"]>, NoFillMemo>();
+
 export function resolveCrew(state: GameState): GameState {
   const due = crewTransportsDue(state.lastTransportWindow, state.gameTimeSeconds);
   if (due === 0 && state.crewPool.length === 0) return state;
 
-  // 1) Deliver the whole due backlog into the pool (advancing the window marker).
-  const delivered = deliverDueTransports(
-    transportSeedFor(state),
-    state.crewPool,
-    state.lastTransportWindow,
-    state.gameTimeSeconds,
-    // WR-6 (OC-B3): Civic Charter's extra crew per transport (exactly the base batch without it).
-    transportBatchSize(state),
-  );
+  // 1) Deliver the whole due backlog into the pool (advancing the window marker). CP-21: with none due, the pool and the
+  //    marker are exactly what deliverDueTransports would return (a copy of the same groups, the same marker).
+  const delivered =
+    due === 0
+      ? { pool: state.crewPool, lastWindow: state.lastTransportWindow }
+      : deliverDueTransports(
+          transportSeedFor(state),
+          state.crewPool,
+          state.lastTransportWindow,
+          state.gameTimeSeconds,
+          // WR-6 (OC-B3): Civic Charter's extra crew per transport (exactly the base batch without it).
+          transportBatchSize(state),
+        );
 
   // 2) Auto-crew every PASSIVE ship from the (post-delivery) pool, in state.ships order (monotonic,
   //    stable across save/load/offline). Each ship pulls min(available, remaining-cap) top-rank-down.
@@ -1329,6 +1362,8 @@ export function resolveCrew(state: GameState): GameState {
     // (crewLock.ts shipCrewLocked: out on a mission or patrol, or on an expedition until it is claimed) takes no
     // crew either; it fills from the pool on the first tick after it returns or its run is claimed.
     if (mode !== "passive" || shipCrewLocked(state, ship.id)) return ship;
+    // CP-21: an empty pool fills no one.
+    if (pool.length === 0) return ship;
     const bulk = ship.complement?.buckets ?? [];
     const before = totalCrew(bulk);
     // CP-8 (B23): every NOTABLE assigned to the ship holds one slot of its signature, so the filler's occupancy is
@@ -1336,16 +1371,36 @@ export function resolveCrew(state: GameState): GameState {
     // notable slots are stripped back out afterward: ship.complement keeps only the fungible bulk. With no notable
     // aboard the complement goes in unchanged (the pre-CP-8 fill, byte-identical).
     const notables = state.notableCrew.filter((n) => (n.assignedShipId ?? null) === ship.id);
-    const seeded =
-      notables.length === 0
-        ? ship.complement
-        : { buckets: coalesceBuckets([...bulk, ...notables.map((n) => ({ ...notableSignature(n), count: 1 }))]), mode };
     // Phase 1b: a quarters module raises the hull's LOCKED base cap by its capacity bonus (fixed for
     // every module except Efficient, which scales with rarity/quality). autoCrewShip already threads
     // bonusCapacity through complementTotalCap / remainingCapacityForSignature, so passing it here is
     // all the auto-crew filler needs to fill the extra berths. 0 with no module (byte-identical fill).
-    const staffed = autoCrewShip(pool, ship.typeKey, seeded, quartersCapacityBonus(state, ship));
-    pool = staffed.pool;
+    const bonus = quartersCapacityBonus(state, ship);
+    // CP-21 skip 2: every berth full (bulk plus notables at or over the total), so nobody can move in.
+    if (before + notables.length >= complementTotalCap(ship.typeKey, bonus)) return ship;
+    // CP-21 skip 3: the same inputs took nobody last time.
+    const notablesKey = notables.length === 0 ? "" : notables.map((n) => signatureKey(notableSignature(n))).join("|");
+    const structure = commandStructureWithBonus(ship.typeKey, bonus);
+    const lean = hullLeanDivisions(ship.typeKey);
+    const memo = ship.complement ? NO_FILL_MEMO.get(ship.complement) : undefined;
+    if (
+      memo !== undefined &&
+      memo.pool === pool &&
+      memo.poolLength === pool.length &&
+      memo.typeKey === ship.typeKey &&
+      memo.bonus === bonus &&
+      memo.structure === structure &&
+      memo.lean === lean &&
+      memo.notables === notablesKey &&
+      memo.headcount === before
+    ) {
+      return ship;
+    }
+    const seeded =
+      notables.length === 0
+        ? ship.complement
+        : { buckets: coalesceBuckets([...bulk, ...notables.map((n) => ({ ...notableSignature(n), count: 1 }))]), mode };
+    const staffed = autoCrewShip(pool, ship.typeKey, seeded, bonus);
     let filled = staffed.complement;
     if (notables.length > 0) {
       let buckets = filled.buckets;
@@ -1355,12 +1410,20 @@ export function resolveCrew(state: GameState): GameState {
     // autoCrewShip only ADDS crew, so a rise in headcount is the exact "crew moved in" signal. When
     // nothing moved, keep the original ship reference (avoids needless ref churn every tick).
     if (totalCrew(filled.buckets) > before) {
+      pool = staffed.pool;
       shipsChanged = true;
       return { ...ship, complement: filled };
+    }
+    // CP-21: nothing moved, so staffed.pool holds exactly the groups `pool` holds; keep `pool` (its reference is what the
+    // memo and the next ship compare) and remember that this ship took nobody from it.
+    if (ship.complement) {
+      NO_FILL_MEMO.set(ship.complement, { pool, poolLength: pool.length, typeKey: ship.typeKey, bonus, structure, lean, notables: notablesKey, headcount: before });
     }
     return ship;
   });
 
+  // CP-21 skip 1: nothing delivered and nobody moved, so the same state (the pool keeps its reference for the memo).
+  if (due === 0 && !shipsChanged) return state;
   return {
     ...state,
     crewPool: pool,
