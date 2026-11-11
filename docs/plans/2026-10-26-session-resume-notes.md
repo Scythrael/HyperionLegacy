@@ -283,3 +283,30 @@ Lessons this stretch (memory feedback_decisions_are_the_users): scope lists I wr
 test conditions with any measured number. Builder briefs now say: build only what traces to the user's answers.
 Process: parallel builders branch from different feat heads, so golden read-back chains conflict at merge; resolve by
 putting the newer slice's ReadBack innermost, then run every *Goldens file (cp18 needed a C1 trace after gear wear).
+
+## HUB HANDOFF (2026-11-11 evening) @ 7615d73f
+
+Burst day (user: burst until weekly 80%; weekly ~53% at handoff, reset Thu 2026-11-12 12:00 UTC). Merged today, each
+tagged `slice/<id>` and pushed to `backup`, Proton bundle refreshed after each: WR-13 (old fuel economy removed, OC-C4
+seams tested), WR-8b (enemy torpedoes, Marauder curve smoothed), OC-G1 (legacy expedition path deleted), patrol sweep
+re-pin, CP-4 rest (Flight Deck Integrity, Flight Deck's own share), G2-9 close-out, ML close-out, CP-21 close-out (crew
+pool perf guard), gear wear close-out, ordering determinism parts 1 and 2. All 91 stale worktree branches cleaned; the
+superseded favorsSpec attempt kept as tag `archive/favorsspec-superseded-0f13a3aa` (backup).
+Release gate: 6 pending rows (away:audit:fieldRepairOrder, away:audit:accountDefaultControl, four relic rows).
+
+Hang guards (user 2026-11-11): timeouts on every long command; Windows task "HL Dev Watchdog" (C:\Users\berga\.hl-watchdog);
+30-min check-in cron while work is out (deleted when idle; recreate when work starts).
+
+OPEN USER QUESTIONS (asked in chat as text while the user was away; re-present as pop-ups when back, most important first):
+1. Notable ticker: build the Personnel header ticker the user asked for (2026-10-16), or keep the per-ship strip.
+2. crewPool size: send surplus crew to homeworld staffing, or leave unbounded (speed fix already merged).
+3. Deck Handling in combat: keep it (and the Flight Deck lift) on the in-combat replenish pod, or limit to between waves.
+4. Assign-to-ship button for an unassigned notable: log or mock up.
+5. Audit call 14 sensors leg (Hydrogen/Methane): log for balancing or propose a sensor blueprint.
+6. Class VI/VII drive fuel: keep Deuterium alongside antimatter, or antimatter only.
+7. Comet run numbers and tier III+ reactor fuel: leave for 0.16.0 or review now.
+8. Docked Overtime carrying into a repair-first pause (`DOCKED_OVERTIME_CARRIES_INTO_FIRST_PAUSE`, built, marked OPEN CALL).
+Also open: OC-F14 field repair and OC-F12 new-hire default mockups (docs/mockups/2026-11-11-*.html, sent to the user);
+CP-11 recipe sign-off; relic and echo names; credit sink to replace Quick Service; completion tracking plan; WR-12.
+Status page: artifact tools were down this session; latest local version sent to the user as a file
+(scratchpad status/progress-0140-v16.html: 93% built, 65% to release). Republish to the existing link in a new session.
