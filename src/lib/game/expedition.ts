@@ -112,6 +112,7 @@ import {
   groundCrewClearOdds,
   groundCrewThreat,
   groundOpsBodyScanned,
+  bodyTaskFor,
   initGroundTasks,
   fieldRepairBlock,
   maybeAutoFieldRepair,
@@ -2078,12 +2079,7 @@ function assignDiscoveriesAndActivities(
     discoveries.push({ id: `${exp.id}-${body.id}-disc-${discoveries.length}`, kind: extra.surface ? "landmark" : "underground", poiId: extra.poiId });
   }
   body.discoveries = discoveries;
-  body.activities = discoveries.map((d, k) => ({
-    id: `${exp.id}-${body.id}-act-${k}`,
-    bodyId: body.id,
-    poiId: d.poiId,
-    done: false,
-  }));
+  body.activities = discoveries.map((d, k) => bodyTaskFor(exp, body, d, k));
 }
 
 // E-MOD EM-6 / EM-8: the extra discoveries the frozen body-scan procs give one body, in order (each { surface, poiId }).

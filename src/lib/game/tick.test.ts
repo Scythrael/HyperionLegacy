@@ -429,9 +429,8 @@ describe("tickCaptainMission, transport cost-in/reward-out (Exploration 0.14.0 E
   ) => {
     const cap = freshCaptains(1)[0];
     cap.mission = missionCaptain(missionKey);
-    // args: rng, bonuses, shipStats, fuelBudget, fuelPerCycle, creditsBudget. fuelPerCycle 0 (default)
-    // means the fuel auto-buy never fires, so creditsRemaining is touched ONLY by the transport logic.
-    const r = tickCaptainMission(ticks, cap, RARE_EVERY_TICK, {}, shipStats, Infinity, 0, creditsBudget);
+    // args: rng, bonuses, shipStats, creditsBudget: creditsRemaining is touched ONLY by the transport logic.
+    const r = tickCaptainMission(ticks, cap, RARE_EVERY_TICK, {}, shipStats, creditsBudget);
     const cycles = (r.lifetimeStatsDelta.missionsCompleted[missionKey] ?? new Decimal(0)).toNumber();
     return { r, cycles };
   };

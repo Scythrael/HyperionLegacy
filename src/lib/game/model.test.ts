@@ -33,7 +33,6 @@ import {
   COMETARY_ICE_HARVEST_NUMBERS,
   FACTIONS,
   PATROLS,
-  FUEL_CREDITS_PER_UNIT,
   rarityIndex,
   EQUIPMENT_SLOTS,
   BLUEPRINTS,
@@ -755,10 +754,6 @@ describe("Fuel-sourcing restructure, label reverts + dedicated Deuterium Ice ite
     expect(ice.rarity).toBe("common");
     expect(ice.unlockHint.length).toBeGreaterThan(0);
     expect(ice.flavor.length).toBeGreaterThan(0);
-  });
-
-  it("makes credit fuel auto-buy EXPENSIVE (FUEL_CREDITS_PER_UNIT 5 -> 20)", () => {
-    expect(FUEL_CREDITS_PER_UNIT).toBe(20);
   });
 });
 

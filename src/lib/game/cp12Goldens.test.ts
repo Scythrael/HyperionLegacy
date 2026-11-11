@@ -52,6 +52,7 @@ import { cp19ReadBack } from "./cp19Registry.fixture";
 import { ml5ReadBack } from "./ml5Registry.fixture";
 // Wiring WR-10 flipped twelve away rows after every pin here (wr10Registry.fixture.ts): read back innermost.
 import { wr10ReadBack } from "./wr10Registry.fixture";
+import { wr13ReadBack } from "./wr13Registry.fixture";
 import { writeFileSync } from "node:fs";
 import { BLUEPRINTS, EQUIPMENT_SLOTS, equipmentSlotGroupLabel, equipmentSlotLabel, type CrewBucket, type GameState, type ShipTypeKey } from "./model";
 import { effectiveShipStats } from "./crewOverlay";
@@ -241,11 +242,11 @@ const MOVED_AFTER: Record<string, string> = {
 describe("Complement CP-12 goldens (captured before the Bridge Module and Crew Quarters tiles)", () => {
   if (CAPTURE) {
     it("captures", () => {
-      writeFileSync(String(import.meta.env.CP12_CAPTURE), JSON.stringify(computePins(cp13ReadBack(cp14ReadBack(cp16ReadBack(cp18ReadBack(cp19ReadBack(gw5ReadBack(ml5ReadBack(otUiReadBack(wr10ReadBack(WIRING_REGISTRY)))))))))), null, 2));
+      writeFileSync(String(import.meta.env.CP12_CAPTURE), JSON.stringify(computePins(cp13ReadBack(cp14ReadBack(cp16ReadBack(cp18ReadBack(cp19ReadBack(gw5ReadBack(ml5ReadBack(otUiReadBack(wr10ReadBack(wr13ReadBack(WIRING_REGISTRY))))))))))), null, 2));
     });
     return;
   }
-  const pins = computePins(cp13ReadBack(cp14ReadBack(cp16ReadBack(cp18ReadBack(cp19ReadBack(gw5ReadBack(ml5ReadBack(otUiReadBack(wr10ReadBack(WIRING_REGISTRY))))))))));
+  const pins = computePins(cp13ReadBack(cp14ReadBack(cp16ReadBack(cp18ReadBack(cp19ReadBack(gw5ReadBack(ml5ReadBack(otUiReadBack(wr10ReadBack(wr13ReadBack(WIRING_REGISTRY)))))))))));
   it("every reading a player already owns holds (install and uninstall of each module, never evict, the save bytes, the registry)", () => {
     expect(Object.keys(HELD_CAPTURE).length).toBeGreaterThan(40);
     expect(Object.keys(pins.held).sort()).toEqual(Object.keys(HELD_CAPTURE).sort());
@@ -253,7 +254,7 @@ describe("Complement CP-12 goldens (captured before the Bridge Module and Crew Q
   });
   it("the by-design readings: with CP-12 held apart, every one is the pre-CP-12 capture", () => {
     expect(Object.keys(MOVED_BEFORE).length).toBeGreaterThan(5);
-    const pre = withoutCp12(() => computePins(cp12ReadBack(cp13ReadBack(cp14ReadBack(cp16ReadBack(cp18ReadBack(cp19ReadBack(gw5ReadBack(ml5ReadBack(otUiReadBack(wr10ReadBack(WIRING_REGISTRY))))))))))));
+    const pre = withoutCp12(() => computePins(cp12ReadBack(cp13ReadBack(cp14ReadBack(cp16ReadBack(cp18ReadBack(cp19ReadBack(gw5ReadBack(ml5ReadBack(otUiReadBack(wr10ReadBack(wr13ReadBack(WIRING_REGISTRY)))))))))))));
     expect(Object.keys(pre.moved).sort()).toEqual(Object.keys(MOVED_BEFORE).sort());
     for (const [k, v] of Object.entries(MOVED_BEFORE)) expect(pre.moved[k], k).toBe(v);
     // The held readings agree with the switch on as well (the switch touches only the moved readings).

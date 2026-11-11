@@ -4526,17 +4526,19 @@ function medicalEntries(): WiringEntry[] {
 // gate and the Debug panel see every not-live row; each names its owning slice.
 // ============================================================================
 
+// WR-13: the framework hooks the user kept on 2026-10-15 (plan OC-C4), each proven by its own test.
+const OC_C4_HOOKS = 'OC-C4 (user 2026-10-15): "Keep tested hooks (Recommended)"';
 const AUDIT_ROWS: readonly { id: string; system: WiringSystem; claim: string; status: WiringStatus }[] = [
   // A. Captain
-  { id: "captain:audit:gearGates", system: "captain", claim: "Gear gates minCaptainLevel / requiresTalent / captainSpec (no slot sets them)", status: pending("WR-4, OC-C4") },
+  // WR-13 (OC-C4 "Keep tested hooks"): all four EquipRequirement install gates in equipment.ts canFitEquipment, each
+  // proven by an "OC-C4 seam" test in equipment.test.ts that lends the requirement to a slot (no slot sets one today).
+  { id: "captain:audit:gearGates", system: "captain", claim: "The captainSpec, minCaptainLevel, requiresTalent and requiresResearch gear install gates (a parked hull refuses the captain gates; a wrong spec, a lower level, a missing talent or an unresearched blueprint refuses; no slot declares one today)", status: { kind: "seam", owner: "the first slot or variety that declares a captain requirement", userRef: OC_C4_HOOKS } },
   // C. Facilities, items, fuel
-  { id: "facility:audit:fuelAutoBuy", system: "facility", claim: "The mission fuel budget and credit auto-buy plumbing (FUEL_CREDITS_PER_UNIT, REFUEL_PENALTY_TICKS, refuelDelayTicks): unreachable since 0.13.6 (an infinite fuel budget). (B5's Buy Fuel, tank and refinery are gone, WR-4.)", status: pending("S4-A02 (the fuel-economy cleanup: remove or keep, a user call)") },
-  { id: "facility:audit:requiresResearch", system: "facility", claim: "The requiresResearch rung gate (B1 fixed in WR-4: it checks the researched blueprint; no rung lists one yet)", status: pending("OC-C4") },
-  { id: "facility:audit:requiresFacilityLevels", system: "facility", claim: "requiresFacilityLevels rung gate (correct, no rung uses it); its twin requiresMissionCompletions is live on the Short-Range board's level 2 rung (G1-6, facility:audit:missionControlUnlock)", status: pending("WR-4, OC-C4") },
+  { id: "facility:audit:requiresResearch", system: "facility", claim: "The requiresResearch rung gate (B1 fixed in WR-4: it checks the researched blueprint; no rung lists one yet)", status: { kind: "seam", owner: "the first facility rung that lists a research prerequisite", userRef: OC_C4_HOOKS } },
+  { id: "facility:audit:requiresFacilityLevels", system: "facility", claim: "requiresFacilityLevels rung gate (correct, no rung uses it); its twin requiresMissionCompletions is live on the Short-Range board's level 2 rung (G1-6, facility:audit:missionControlUnlock)", status: { kind: "seam", owner: "the first facility rung that depends on another facility's level", userRef: OC_C4_HOOKS } },
   // G1-6 flipped SHORT_RANGE_BOARD_LIVE: the board rungs are in FACILITIES (each enumerates as a facility rung entry on
   // the shortRangeSlots probe), and this row checks their 50-completion gate (auditRowWiring).
   { id: "facility:audit:missionControlUnlock", system: "facility", claim: "MISSION_CONTROL_UNLOCK_COMPLETIONS 50: the Mission Control board rung that opens the Tier II short-range slot (MISSION_CONTROL_BOARD_RUNGS[0], level 2) waits on 50 completions of each ore run", status: LIVE },
-  { id: "facility:audit:itemEquipStats", system: "facility", claim: "ItemDef.equipStats (no item fills it)", status: pending("WR-4, OC-C4") },
   // WR-11 (OC-J3 "Sell now, recipes later"): it sells at the Quartermaster. E-MOD EM-8 gave it its recipe (the Precursor
   // Lens module, precursorLensBp) and dropped its reserve; the craft is the blueprint's own row.
   { id: "facility:audit:precursorCircuit", system: "facility", claim: "Precursor Circuit: salvage drops it and the Quartermaster buys it (it also crafts the Precursor Lens module)", status: LIVE },
@@ -4741,7 +4743,10 @@ const AUDIT_ROWS: readonly { id: string; system: WiringSystem; claim: string; st
         'objective affixes capture (user 2026-10-14): "build anything that might be needed in the future to implement a difficulty system for this, but we\'re not focusing on higher difficulty tiers over the actual unlockable tiers" (timing answer: the affix system plus hooks for future difficulty tiers in 0.14.0)',
     },
   },
-  { id: "away:audit:objectiveHooks", system: "away", claim: "taskChainFollowUp, calmObjective, affix weightFor (no caller)", status: pending("OC-C4") },
+  // WR-13 fix round: task chains are wired (groundOps.ts finishWork reveals a follow-up through revealFollowUpTask,
+  // groundOpsTaskChain.test.ts lends a chain); calmObjective is the calm pool target rollObjectiveAffixes rolls; an
+  // affix's weightFor is read by affixRollWeight (groundOpsOutcroppings.test.ts lends one).
+  { id: "away:audit:objectiveHooks", system: "away", claim: "Objective hooks: a completed task reveals its taskChainFollowUp site on its body (no chain authored); the calmObjective affix pool (a calm objective rolls from it; no affix targets it yet); an affix weightFor hook decides its roll weight (no affix sets one)", status: { kind: "seam", owner: "the ground-ops content pass (task chains, calm objectives, conditional affix weights)", userRef: OC_C4_HOOKS } },
   // G. Expedition content
   // WR-11: rendered on the objective card and the queue row (expeditionContent.ts groundSiteFlavor).
   { id: "expedition:audit:siteFlavor", system: "expedition", claim: "Hostile and clearing site flavor: shown on the objective card and the queue row", status: LIVE },
@@ -4807,12 +4812,12 @@ const AUDIT_ROWS: readonly { id: string; system: WiringSystem; claim: string; st
   { id: "salvage:audit:lootTierNames", system: "salvage", claim: "Loot tier names: the Home board's salvage row names the drop's tier (\"Standard quality\")", status: LIVE },
   // WR-11 (OC-J3 "Sell now, recipes later"): both sell at the Quartermaster.
   { id: "salvage:audit:deadEndDrops", system: "salvage", claim: "Salvaged Circuitry, Precursor Circuit: both sell at the Quartermaster until the content pass gives them recipes (Scrap Alloy refines into Reclaimed Alloy since WR-4, OC-C3)", status: LIVE },
-  { id: "salvage:audit:achievementBoost", system: "salvage", claim: "achievementBoost (always 0)", status: pending("OC-C4") },
+  { id: "salvage:audit:achievementBoost", system: "salvage", claim: "achievementBoost (always 0)", status: { kind: "seam", owner: "the achievement system", userRef: OC_C4_HOOKS } },
   // WR-11 (OC-J4 "keep safeties"): kept as safety rows, each read by affixCount and covered by itemgen.test.ts.
   { id: "salvage:audit:affixCountBranches", system: "salvage", claim: "affixCount derelict / luminous / constellar: safety rows of RARITY_PROFILES, each a finite affix count", status: LIVE },
   // WR-11 (OC-H1 "Members too"): the Museum's Science team power also scales each named Science member's own fieldwork.
   { id: "relic:audit:scienceTeamPowerMembers", system: "relic", claim: "Museum Science team power scales each named Science member's own fieldwork (frozen at dispatch)", status: LIVE },
-  { id: "salvage:audit:ascension", system: "salvage", claim: "ascension (always none)", status: pending("OC-C4") },
+  { id: "salvage:audit:ascension", system: "salvage", claim: "ascension (always none)", status: { kind: "seam", owner: "the patch that mints ascended gear (RR-4 built the plumbing, user answer 3 \"Plumbing only\")", userRef: OC_C4_HOOKS } },
   // K. Gear wear (0.14.0): credit sinks Overtime on gear repair (gear wear step 5). The "Quick gear repair" row is gone:
   // the user dropped Quick Service (2026-11-09, "None, always automatic": no paid rush and no instant repair).
   { id: "wear:audit:gearRepairOvertime", system: "wear", claim: "Overtime on gear repair: pay credits to speed a docked ship's gear recovery by 25% of the normal rate a step (never doubling, never instant)", status: LIVE },
@@ -7557,9 +7562,8 @@ function wearEntries(): WiringEntry[] {
       base: () => wearSlotFixture("ftlDrive", { transitSpeedMult: WEAR_LINE }),
       magnitude: () => (1 + transitPercent(WEAR_LINE * e())) / (1 + transitPercent(WEAR_LINE)) - 1,
     },
-    // Engine efficiency's only reader inside a run is a captain mission's fuel price per cycle, unreachable since
-    // 0.13.6 (an infinite fuel budget: facility:audit:fuelAutoBuy); reach reads the pristine drive (design 4.3).
-    "ftlDrive:engineEfficiency": pending("S4-A02 (the fuel-economy cleanup: a run's fuel price is engine efficiency's only run-time reader, unreachable since 0.13.6; reach reads the pristine drive, design 4.3)"),
+    // WR-13 (user 2026-11-10 "Drop that line"): the drive's engine efficiency is no longer a wear consumer (its only
+    // run-time reader was the old fuel price, removed with S4-A02); gearWear.ts WEAR_EXEMPT_LINES never scales it.
     // The reactor's power output is read by the install gate (pristine), the combat power budget, where combat's own
     // model is the authority (W3), and since E-MOD EM-4 the reactor surplus drive lift, which reads it pristine too.
     // The user closed the EM-4 open call on 2026-11-09 ("Stays full (Recommended)"): wear never cuts it. Live, not

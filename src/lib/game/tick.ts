@@ -122,8 +122,6 @@ import {
   // imports the order types anymore.
   WAREHOUSE_T1_BASE_CAP,
   WAREHOUSE_T2_BASE_CAP,
-  FUEL_CREDITS_PER_UNIT,
-  REFUEL_PENALTY_TICKS,
   RESEARCH_FACILITY_KEY,
   FABRICATOR_FACILITY_KEY,
   SHIPYARD_FACILITY_KEY,
@@ -276,7 +274,7 @@ import {
   selectAutoSalvageTargets,
   type SalvageRejectReason,
 } from "./salvage";
-import { fuelNeeded, fuelForRoundTrip, rangeLightYears } from "./fuel";
+import { fuelForRoundTrip, rangeLightYears } from "./fuel";
 // Combat 0.13.0 (Phase 9b.5a): patrol dispatch helpers. combatHullTypeOf gates the
 // combat-hull requirement + resolves the CombatHullType for the drone default;
 // defaultDronesForHull seeds a carrier patrol's carry-state drones; planWaveSchedule
@@ -2254,26 +2252,11 @@ export function tickCaptainMission(
   // the assigned hull to these stats and passes them in (Task 7); this function
   // no longer reads captain.shipType at all (removed in Task 3).
   shipStats: ShipDerivedStats | null = null,
-  // Mission Rework (Task 5): the shared fuel tank's budget available to THIS call, and
-  // the fuel one round-trip cycle of this mission burns. Both plain numbers (fuel is
-  // small/human-scale, see fuel.ts). The DEFAULTS reproduce this function's pre-fuel
-  // behavior EXACTLY: fuelPerCycle 0 makes every auto-repeat affordable
-  // (fuelRemaining >= 0 is always true) and spends nothing, so every existing call
-  // site/test that omits these two args is byte-identical to before. economyTick (the
-  // only production caller) passes the real per-captain budget + per-cycle cost so the
-  // auto-repeat gate below can stop the run when the tank can't cover the next cycle.
-  fuelBudget: number = Infinity,
-  fuelPerCycle: number = 0,
-  // Fuel Economy v2 (F3): the credits available to THIS call for AUTO-BUYING a fuel shortfall
-  // at a cycle boundary, and the price per fuel unit. Threaded exactly like fuelBudget above
-  // (economyTick draws it down per captain so a shared credit pool can't double-spend). The
-  // DEFAULT Infinity reproduces the pre-F3 behavior for any call that omits it EXCEPT that a
-  // short tank now auto-buys instead of stopping, but with fuelPerCycle 0 (the default) the
-  // tank is never short, so a call omitting BOTH new fuel args is byte-identical to pre-F3.
-  // creditsPerUnit defaults to FUEL_CREDITS_PER_UNIT (the real price) so a caller passing only
-  // a finite creditsBudget still charges correctly.
+  // The credits available to THIS call (a transport's working capital draws on it at a cycle start; economyTick
+  // draws it down per captain so a shared credit pool can't double-spend). WR-13 (S4-A02, user 2026-11-10 "Remove
+  // it"): the mission fuel budget and the credit fuel auto-buy that used to sit beside it are gone (unreachable since
+  // 0.13.6: the budget was infinite, so a repeat never ran short).
   creditsBudget: number = Infinity,
-  creditsPerUnit: number = FUEL_CREDITS_PER_UNIT,
   // Infrastructure 0.13.4 (Phase 3 Unit 3.2, design section 5.2): how many TRANSIT BERTHS this
   // call may claim for this captain. The advance from `transitBack` into `unloading` is gated
   // on it: with none free, the phase HOLDS instead of advancing.
@@ -2322,19 +2305,9 @@ export function tickCaptainMission(
   // Task 6: lifetime-stat accrual for this call, folded into state.lifetimeStats
   // by tick(). Always present (zeroed on the early-outs), never undefined.
   lifetimeStatsDelta: MissionLifetimeStatsDelta;
-  // Mission Rework (Task 5): fuel actually spent on auto-repeats this call
-  // (fuelPerCycle x cycles that repeated). economyTick subtracts this from the shared
-  // Decimal tank. 0 on the early-outs and whenever fuelPerCycle is 0 (the default).
-  fuelSpent: number;
-  // Fuel Economy v2 (F3): credits actually spent AUTO-BUYING fuel shortfalls this call
-  // (sum of shortfall * creditsPerUnit across cycle boundaries that auto-bought). economyTick
-  // subtracts this from the shared Decimal credits balance, mirroring fuelSpent. 0 on the
-  // early-outs and whenever no auto-buy fired (the tank always covered the cycle).
-  creditsSpentOnFuel: number;
   // Infrastructure 0.13.4 (Phase 3 Unit 3.2): how many berths this call actually CLAIMED, so
-  // economyTick can draw its shared budget down before the next captain is processed. Mirrors
-  // fuelSpent's reporting posture exactly. Normally 0 or 1; a call long enough to complete a
-  // whole cycle and start another return leg can claim more than once.
+  // economyTick can draw its shared budget down before the next captain is processed. Normally 0 or 1; a call
+  // long enough to complete a whole cycle and start another return leg can claim more than once.
   berthsClaimed: number;
   // GEAR WEAR step 3: the instant (ticks into this call) each completed cycle delivered, in order. Absent on the
   // early-outs (nothing delivered).
@@ -2350,8 +2323,6 @@ export function tickCaptainMission(
       fleetAdminXpDelta: 0,
       creditsDelta: 0,
       lifetimeStatsDelta: emptyMissionLifetimeStatsDelta(),
-      fuelSpent: 0,
-      creditsSpentOnFuel: 0,
       // 0.13.4 Phase 3: an early-out advanced nothing, so it claimed no berth. Stated
       // explicitly at both early-outs rather than defaulted, because a phantom claim here would
       // silently shrink economyTick's shared budget and hold a DIFFERENT captain.
@@ -2379,8 +2350,6 @@ export function tickCaptainMission(
       fleetAdminXpDelta: 0,
       creditsDelta: 0,
       lifetimeStatsDelta: emptyMissionLifetimeStatsDelta(),
-      fuelSpent: 0,
-      creditsSpentOnFuel: 0,
       // 0.13.4 Phase 3: an early-out advanced nothing, so it claimed no berth. Stated
       // explicitly at both early-outs rather than defaulted, because a phantom claim here would
       // silently shrink economyTick's shared budget and hold a DIFFERENT captain.
@@ -2486,37 +2455,15 @@ export function tickCaptainMission(
   // GEAR WEAR step 3: the instant (ticks into this call) each completed cycle delivered, in order, so economyTick
   // applies each cycle's use wear at its own instant (gearWearEngine.ts), however the span is chunked.
   const cycleEndTicks: number[] = [];
-  // Mission Rework (Task 5): fuel accounting for the auto-repeat gate. fuelRemaining is
-  // the shared-tank budget this call may still draw on (seeded from fuelBudget, drawn
-  // down PER auto-repeat below); fuelSpent is the running total this call reports back
-  // to economyTick to subtract from the Decimal tank. Both stay 0 / untouched when
-  // fuelPerCycle is 0 (the default), so the pre-fuel closed-form behavior is preserved.
-  // These decrement ONLY at cycle boundaries (the auto-repeat branch), exactly like
-  // credits/cyclesCompleted, so fuel falls out of the per-tick stepping the SAME way
-  // loot/XP/credits do: one big ticksElapsed and many small ones summing to it draw the
-  // identical fuel at the identical cycle boundaries (closed-form / stepped-safe).
-  let fuelRemaining = fuelBudget;
-  let fuelSpent = 0;
-  // Fuel Economy v2 (F3): the credit budget this call may still draw on for AUTO-BUYING a fuel
-  // shortfall (seeded from creditsBudget, drawn down per auto-buy below), and the running total
-  // this call reports back to economyTick to subtract from the shared Decimal credits balance.
-  // Same cycle-boundary-only draw as fuelRemaining/fuelSpent, so credits fall out of the per-tick
-  // stepping identically (closed-form / stepped-safe). NOTE: creditsRemaining is NOT replenished
-  // by credits EARNED within this same call, a completed cycle's reward is banked by economyTick
-  // at the END of the call (available to the NEXT call's boundary), NOT mid-loop. This matches the
-  // stepped path exactly because economyTick always advances ONE tick per call in production (live
-  // + offline both step economyTick(_,1)), so at most one cycle boundary occurs per call and a
-  // reward is never needed to fund an auto-buy in the same call that earned it.
+  // The credit budget this call may still draw on (seeded from creditsBudget, drawn down by a transport's working
+  // capital at a cycle start), only at cycle boundaries, so credits fall out of the per-tick stepping identically
+  // (closed-form / stepped-safe). NOTE: creditsRemaining is NOT replenished by credits EARNED within this same call,
+  // a completed cycle's reward is banked by economyTick at the END of the call (available to the NEXT call's
+  // boundary), NOT mid-loop. This matches the stepped path exactly because economyTick always advances ONE tick per
+  // call in production (live + offline both step economyTick(_,1)), so at most one cycle boundary occurs per call.
+  // WR-13 (S4-A02): this function no longer sets a wall-stop reason (its only one was the retired fuel auto-buy's
+  // "truly broke" stop); the CARGO reason is stamped at its deterministic root, the materialAtCap seam in economyTick.
   let creditsRemaining = creditsBudget;
-  let creditsSpentOnFuel = 0;
-  // Combat 0.13.0 (offline recap "why did it stop early"): the wall-stop reason to stamp onto
-  // the RETURNED captain. Set ONLY at the truly-broke out-of-fuel hard-stop below (the
-  // anti-infinite-fuel floor), NOT on a clean dispatch-once completion and NOT on a recall
-  // (a user recall AND the cap-recall both exit via the shared `mission.recalled` branch, so
-  // this function cannot tell them apart; the CARGO reason is stamped at its deterministic
-  // root, the materialAtCap seam in economyTick, instead). Same deterministic branch live and
-  // offline, touches no RNG/outcome/ordering, so offline stays byte-identical to live.
-  let stopReason: CaptainStopReason | undefined;
 
   // The ship's extractionYieldMult is a MULTIPLIER (1.0 = no change, 1.35 =
   // +35%), but resolvedBonuses' tier yield mults are stored as ADDITIVE deltas
@@ -2668,15 +2615,10 @@ export function tickCaptainMission(
   // flag the condition and every step below are the original ones (byte-identical).
   while (mission !== null && (remaining > 0 || mission.speed?.instantComplete === true)) {
     const skipping = mission.speed?.instantComplete === true;
-    // Fuel Economy v2 (F3): the ordersReceived phase of a cycle that AUTO-BOUGHT its fuel
-    // shortfall runs REFUEL_PENALTY_TICKS longer ("refuel at a non-allied station"). The delay
-    // is a per-cycle constant stamped on mission.refuelDelayTicks at the cycle boundary (below)
-    // / at dispatch, added ONLY to the first phase, so a penalized cycle is exactly 2 ticks
-    // longer. CLOSED-FORM: requiredTicks is a pure function of (phase, missionDef, the cycle's
-    // own stamped delay), all constant across the whole cycle, so one big ticksElapsed and many
-    // small ones summing to it cross the phase boundary at the identical point, the same
-    // property every other requiredTicksForPhase read in this loop already relies on. Non-
-    // ordersReceived phases add 0. `?? 0` tolerates a pre-F3 in-flight mission (field absent).
+    // WR-13 (S4-A02, the old fuel economy removed): nothing stamps a non-zero refuel delay any more. The one
+    // tolerant read left is a LEGACY cycle in flight from a pre-0.13.6 save whose fuel was auto-bought (its
+    // ordersReceived ran 2 ticks longer); it plays out exactly as it was saved, and the next cycle stamps the
+    // constant 0 (kept so the state goldens hold). Absent reads 0.
     // E-CREW (Task 21): missionPhaseTicks = requiredTicksForPhase, except a packed hold's faster unload
     // (Operations Integrity); the cargo is fixed while unloading, so the length is constant in the phase.
     // WR-9 (OC-E4): on the return leg of a cycle whose Pilot roll lands, the leg runs a tick shorter (pilotCutReturnLeg),
@@ -2881,8 +2823,8 @@ export function tickCaptainMission(
         // this branch touches only the credit total now.
         //
         // Exploration 0.14.0 (Phase E1b): TRANSPORT cost-in / reward-out, resolved HERE at the
-        // delivered cycle, GATED on the running credit balance EXACTLY like the fuel auto-buy's
-        // creditsRemaining below (the running-credit accounting is already proven closed-form: at
+        // delivered cycle, GATED on the running credit balance (creditsRemaining,
+        // seeded from creditsBudget; the running-credit accounting is already proven closed-form: at
         // most one cycle boundary occurs per production call, and the closed-form parity test runs
         // with an unbounded budget so the gate never distorts the one-big == many-small equality --
         // see the transport parity test in tick.test.ts). WORKING-CAPITAL GATE: if the fleet can
@@ -2916,88 +2858,47 @@ export function tickCaptainMission(
           cycleEndTicks.push(ticksElapsed - remaining); // GEAR WEAR step 3: the delivery instant (ticks into the call)
           if (onCycleDelivered) nextGear = onCycleDelivered(ticksElapsed - remaining, cycleStats);
         }
-        // Fuel Economy v2 (F3): the AUTO-REPEAT fuel-spend rule (REPLACES Task-5's
-        // stop-on-empty). A finished cycle either ends (recall) or STARTS A FRESH CYCLE,
-        // which costs one round trip's fuel (need = fuelPerCycle). Outcomes, in priority
-        // order:
-        //   1. recalled -> end the mission (unchanged pre-fuel behavior).
-        //   2. TANK HAS ENOUGH (fuelRemaining >= need) -> spend it, NO penalty. With the
-        //      default fuelPerCycle 0 this is always true and spends nothing, so a call
-        //      omitting the fuel args is byte-identical to the pre-fuel engine.
-        //   3. TANK SHORT but the shortfall is AFFORDABLE in credits -> AUTO-BUY the
-        //      shortfall at creditsPerUnit AND stamp a +2-tick refuel penalty on the new
-        //      cycle (refuelDelayTicks). The tank had `fuelRemaining`; we buy exactly the
-        //      `shortfall` (NOT capped by fuelCap, just enough to fly) then spend `need`,
-        //      netting the tank to 0 (a reduction of `fuelRemaining`, reported as fuelSpent);
-        //      credits drop by the purchase cost (reported as creditsSpentOnFuel).
-        //   4. TRULY BROKE (short AND can't afford the shortfall) -> HARD-STOP (mission ->
-        //      null), the anti-infinite-fuel floor. Same terminal state as a completed
-        //      recall; the captain idles until refuelled/re-dispatched. Rare by design --
-        //      the refinery + friendly credits keep the player afloat.
-        // The reconstruction reuses `missionKey` (function-scope const == this mission's key;
-        // auto-repeat never changes it) so it stays valid even after the broke branch nulls
-        // `mission` (avoids a null-narrowing snag on `mission.missionKey`).
+        // A finished cycle either ends (recall) or STARTS A FRESH CYCLE. WR-13 (S4-A02): the fuel spend and the credit
+        // auto-buy that once sat between the two are gone (unreachable since 0.13.6: the budget was infinite). The
+        // reconstruction reuses `missionKey` (function-scope const == this mission's key; auto-repeat never changes it).
         if (mission.recalled) {
           mission = null;
         } else {
-          const need = fuelPerCycle;
-          let refuelDelayTicks = 0;
-          let startNextCycle = true;
-          if (fuelRemaining >= need) {
-            fuelRemaining -= need; // draw this cycle's fuel from the call budget
-            fuelSpent += need;     // report it back for the tank deduction
-          } else {
-            const shortfall = need - fuelRemaining;
-            const cost = shortfall * creditsPerUnit;
-            if (creditsRemaining >= cost) {
-              creditsRemaining -= cost;      // draw the auto-buy from the credit budget
-              creditsSpentOnFuel += cost;    // report it back for the credits deduction
-              fuelSpent += fuelRemaining;    // the tank drains from fuelRemaining down to 0
-              fuelRemaining = 0;
-              refuelDelayTicks = REFUEL_PENALTY_TICKS; // +2-tick refuel penalty on this cycle
-            } else {
-              startNextCycle = false;
-              stopReason = "fuel"; // wall-stop: could not afford the next cycle's fuel
-              mission = null; // truly broke: hard-stop (anti-infinite-fuel floor)
-            }
+          // E-CREW (Task 20): advance the run's output-rounding cursor (only while Command Presence is live).
+          const prevCursor: number | undefined = mission!.outputRoundCursor;
+          const outputRoundCursor: number | undefined = outputShare === 0 ? prevCursor : (prevCursor ?? 0) + 1;
+          // GEAR WEAR step 3: the run's wear flag rides every repeated cycle (absent on a run from before step 3),
+          // re-frozen at this cycle start when the cycle that just delivered re-read it (user "Re-read each cycle").
+          const reread: { stats: ShipDerivedStats; gearWear: RunWearStamp } | null = nextGear;
+          nextGear = null;
+          const gearWear: RunWearStamp | undefined = reread ? reread.gearWear : mission!.gearWear;
+          if (reread) {
+            cycleStats = reread.stats;
+            refold(reread.stats);
           }
-          if (startNextCycle) {
-            // E-CREW (Task 20): advance the run's output-rounding cursor (only while Command Presence is live).
-            const prevCursor: number | undefined = mission!.outputRoundCursor;
-            const outputRoundCursor: number | undefined = outputShare === 0 ? prevCursor : (prevCursor ?? 0) + 1;
-            // GEAR WEAR step 3: the run's wear flag rides every repeated cycle (absent on a run from before step 3),
-            // re-frozen at this cycle start when the cycle that just delivered re-read it (user "Re-read each cycle").
-            const reread: { stats: ShipDerivedStats; gearWear: RunWearStamp } | null = nextGear;
-            nextGear = null;
-            const gearWear: RunWearStamp | undefined = reread ? reread.gearWear : mission!.gearWear;
-            if (reread) {
-              cycleStats = reread.stats;
-              refold(reread.stats);
-            }
-            mission = {
-              kind: "extraction", // Combat 0.13.0 (9b.5a): tag the auto-repeated extraction cycle
-              missionKey,
-              phase: "ordersReceived",
-              phaseProgressTicks: 0,
-              cargo: emptyLootTotals(),
-              recalled: false,
-              refuelDelayTicks,
-              ...(outputRoundCursor !== undefined ? { outputRoundCursor } : {}),
-              ...(gearWear !== undefined ? { gearWear } : {}),
-              // E-MOD EM-4: the run's reactor lift flag rides every repeated cycle (absent on a run from before EM-4).
-              ...(mission!.reactorLift !== undefined ? { reactorLift: mission!.reactorLift } : {}),
-              // WR-7 (OC-D3): and the module lines stamp.
-              ...(mission!.moduleLines !== undefined ? { moduleLines: mission!.moduleLines } : {}),
-              // WR-7 follow-up (OC-D5): and the favored-spec stamp.
-              ...(mission!.favoredSpec !== undefined ? { favoredSpec: mission!.favoredSpec } : {}),
-              // Complement CP-13: and the hull-family stamp.
-              ...(mission!.hullBonus !== undefined ? { hullBonus: mission!.hullBonus } : {}),
-              // Complement CP-14: and the hull sensors stamp.
-              ...(mission!.hullSensors !== undefined ? { hullSensors: mission!.hullSensors } : {}),
-              // WR-9 (OC-E4): and the Pilot's Cunning stamp.
-              ...(mission!.pilotCunning !== undefined ? { pilotCunning: mission!.pilotCunning } : {}),
-            };
-          }
+          mission = {
+            kind: "extraction", // Combat 0.13.0 (9b.5a): tag the auto-repeated extraction cycle
+            missionKey,
+            phase: "ordersReceived",
+            phaseProgressTicks: 0,
+            cargo: emptyLootTotals(),
+            recalled: false,
+            refuelDelayTicks: 0,
+            ...(outputRoundCursor !== undefined ? { outputRoundCursor } : {}),
+            ...(gearWear !== undefined ? { gearWear } : {}),
+            // E-MOD EM-4: the run's reactor lift flag rides every repeated cycle (absent on a run from before EM-4).
+            ...(mission!.reactorLift !== undefined ? { reactorLift: mission!.reactorLift } : {}),
+            // WR-7 (OC-D3): and the module lines stamp.
+            ...(mission!.moduleLines !== undefined ? { moduleLines: mission!.moduleLines } : {}),
+            // WR-7 follow-up (OC-D5): and the favored-spec stamp.
+            ...(mission!.favoredSpec !== undefined ? { favoredSpec: mission!.favoredSpec } : {}),
+            // Complement CP-13: and the hull-family stamp.
+            ...(mission!.hullBonus !== undefined ? { hullBonus: mission!.hullBonus } : {}),
+            // Complement CP-14: and the hull sensors stamp.
+            ...(mission!.hullSensors !== undefined ? { hullSensors: mission!.hullSensors } : {}),
+            // WR-9 (OC-E4): and the Pilot's Cunning stamp.
+            ...(mission!.pilotCunning !== undefined ? { pilotCunning: mission!.pilotCunning } : {}),
+          };
         }
       } else {
         // ⚠️ 0.13.4 Phase 3 Unit 3.2: THE TRANSIT-BERTH HOLD, and the ONE gated phase advance in
@@ -3155,7 +3056,7 @@ export function tickCaptainMission(
       xp,
       level,
       statPoints,
-      lastStopReason: stopReason ?? captain.lastStopReason,
+      lastStopReason: captain.lastStopReason,
       // E-CREW (Task 21): the lifetime Cunning counter, written only once a cycle has rolled.
       ...(cunningCycles !== undefined ? { cunningCycles } : {}),
       // WR-5a: the lifetime Motherlode counter, written only once a cycle has rolled.
@@ -3167,8 +3068,6 @@ export function tickCaptainMission(
     fleetAdminXpDelta,
     creditsDelta,
     lifetimeStatsDelta,
-    fuelSpent,
-    creditsSpentOnFuel,
     // 0.13.4 Phase 3: berths this call claimed, for economyTick's shared budget.
     berthsClaimed,
     // GEAR WEAR step 3: each delivered cycle's instant, ticks into this call.
@@ -3382,12 +3281,6 @@ interface PatrolTickResult {
   // (PatrolMissionState.freeRepairTicks), reported with shipDamageTaken so economyTick stamps it onto the
   // ship. 0 unless shipDamaged is true this call AND that cycle's roll succeeded.
   shipFreeRepairTicks: number;
-  // Fuel drawn from the SHARED tank budget for RELAUNCH cycles this call (0 unless a
-  // repeat-dispatch patrol completed a route and relaunched). economyTick subtracts it
-  // from the Decimal tank exactly as it does tickCaptainMission's fuelSpent.
-  fuelSpent: number;
-  // Credits drawn AUTO-BUYING a relaunch fuel shortfall (mirrors extraction's F3 rule).
-  creditsSpentOnFuel: number;
   // Combat 0.13.0 (Phase 10, design S12): the REWARDS this call earned, folded by economyTick
   // through the SAME deltas the extraction arm uses (tickCaptainMission returns the identical
   // shapes). Each is the sum over the waves WON this call (a LOST wave / defeat earns nothing).
@@ -3466,16 +3359,8 @@ export function tickCaptainPatrol(
   // REQUIRES a combat hull (dispatch guaranteed it); undefined / non-combat is a
   // defensive no-op (cannot happen in normal play: assignShipToCaptain locks mid-mission).
   ship: ShipInstance | undefined,
-  // Shared-tank budget this call may draw for RELAUNCH cycles, and one round trip's fuel
-  // cost on this hull (economyTick prices it from the equipment-folded engineEfficiency,
-  // like the extraction path). Threaded exactly like tickCaptainMission's fuelBudget /
-  // fuelPerCycle so two captains in one call cannot double-spend the one tank.
-  fuelBudget: number,
-  fuelPerCycle: number,
-  // Shared credits budget for AUTO-BUYING a relaunch fuel shortfall, and the price per
-  // unit (mirrors tickCaptainMission's F3 auto-buy). Default price is the real one.
-  creditsBudget: number,
-  creditsPerUnit: number = FUEL_CREDITS_PER_UNIT,
+  // WR-13 (S4-A02, user 2026-11-10 "Remove it"): the relaunch fuel budget and its credit auto-buy (four params that
+  // sat here) are gone, unreachable since 0.13.6 (the budget was infinite, so a relaunch never ran short).
   // Combat 1.0 (Unit 1.4): the ship's INSTALLED combat gear (state.equipment fitted to this ship),
   // resolved by the caller via equippedFor so the player combatant reads real weapons + shield +
   // hull + defenses instead of the hull defaults. OPTIONAL: absent (the default) keeps the pre-1.4
@@ -3545,8 +3430,6 @@ export function tickCaptainPatrol(
     shipDamaged: false,
     shipDamageTaken: 0,
     shipFreeRepairTicks: 0,
-    fuelSpent: 0,
-    creditsSpentOnFuel: 0,
     // No wave fought => no reward (empty material delta, zero credits/FA XP, captain untouched).
     homePlanetDelta: {},
     creditsDelta: 0,
@@ -3632,8 +3515,9 @@ export function tickCaptainPatrol(
   let progress = mission.progressTicks;
   let shipDamaged = false;
   // Combat 0.13.0 (offline recap "why did it stop early"): the wall-stop reason to stamp onto
-  // the RETURNED captain, set ONLY at a genuine wall-stop below (limp-home defeat end, or a
-  // truly-broke relaunch), left undefined on a clean completion / recall. Set at the SAME
+  // the RETURNED captain, set ONLY at a genuine wall-stop below (the limp-home defeat end; the
+  // truly-broke relaunch went with the old fuel economy, WR-13), left undefined on a clean completion / recall.
+  // Set at the SAME
   // deterministic branch live and offline, and it touches no RNG draw / outcome / ordering, so
   // offline stays byte-identical to live. Folded into the return as `stopReason ??
   // captain.lastStopReason` so a call that does NOT wall-stop preserves whatever was there.
@@ -3644,12 +3528,6 @@ export function tickCaptainPatrol(
   let shipDamageTaken = 0;
   // E-CREW (Task 21): the defeated cycle's free repair ticks, reported with the damage (0 otherwise).
   let shipFreeRepairTicks = 0;
-  // Shared-budget locals, drawn down at relaunch cycle boundaries ONLY (like the
-  // extraction engine's fuel/credits), reported back as the *Spent totals.
-  let fuelRemaining = fuelBudget;
-  let fuelSpent = 0;
-  let creditsRemaining = creditsBudget;
-  let creditsSpentOnFuel = 0;
   // Combat 0.13.0 (Phase 10, design S12): REWARD accumulators, summed over every wave WON
   // this call ("accumulate locally, apply once", the same shape as tickCaptainMission's
   // homePlanetDelta / creditsDelta / fleetAdminXpDelta / captainXpAwardedThisCall). A LOST
@@ -3707,11 +3585,9 @@ export function tickCaptainPatrol(
   let cyclePools = patrolCyclePools(hullType, shipDef, cycleGear, captain.mission);
   let endedAtTicks: number | null = null;
   // GEAR WEAR step 4 (pause to repair): the home repair windows of the pauses that closed this call (absolute game
-  // seconds); the run's pauses so far (user "Count on the run": its one log entry says how many); whether the next
-  // relaunch's fuel was already paid (a pause set at dispatch resumes into the first cycle).
+  // seconds); the run's pauses so far (user "Count on the run": its one log entry says how many).
   const pauseWindows: RepairWindow[] = [];
   let pausesThisRun = captain.mission.repairPausesThisRun ?? 0;
-  let relaunchFuelPaid = false;
   const offsetNow = (): number => ticksElapsed - remaining;
   // 0.14.0 SPEED SEAM (processSpeed.ts applyTimeSkip, the tutorial time skip): while the CURRENT route carries
   // speed.instantComplete, every route tick is taken whole and the call's own ticks are not spent, so the route (and
@@ -3760,11 +3636,9 @@ export function tickCaptainPatrol(
         mission.repairPause = { ...pause, ticksRemaining: left };
         continue;
       }
-      // "Repair first, then go" (user 2026-10-27): a pause set at dispatch resumes into a fresh first cycle, its fuel
-      // already paid by the dispatch.
+      // "Repair first, then go" (user 2026-10-27): a pause set at dispatch resumes into a fresh first cycle.
       if (pause.first === true) {
         progress = routeLength - (mission.returnCutTicks ?? 0);
-        relaunchFuelPaid = true;
       }
       const clock = officerEffects.gearWear;
       if (clock) {
@@ -4167,63 +4041,34 @@ export function tickCaptainPatrol(
         continue;
       }
       if (mission.repeatDispatch && !mission.recalled) {
-        // RELAUNCH (Dispatch Repeatedly, not recalled). Spend one round trip's fuel from
-        // the shared budget mirroring extraction's auto-repeat rule: tank covers -> spend;
-        // short but affordable -> auto-buy the shortfall; truly broke -> do NOT relaunch
-        // (end + idle, the anti-infinite-fuel floor). Patrols have no refuel-penalty phase.
-        // Repair first, then go: the first cycle's fuel was the dispatch's (a pause set at dispatch pays nothing more).
-        const need = relaunchFuelPaid ? 0 : fuelPerCycle;
-        relaunchFuelPaid = false;
-        let canRelaunch = true;
-        if (fuelRemaining >= need) {
-          fuelRemaining -= need;
-          fuelSpent += need;
-        } else {
-          const shortfall = need - fuelRemaining;
-          const cost = shortfall * creditsPerUnit;
-          if (creditsRemaining >= cost) {
-            creditsRemaining -= cost;
-            creditsSpentOnFuel += cost;
-            fuelSpent += fuelRemaining; // tank drains to 0
-            fuelRemaining = 0;
-          } else {
-            canRelaunch = false;
-          }
-        }
-        if (canRelaunch) {
-          // The next cycle, minted above (nextCycle: its fresh seed, frozen bonuses and frozen gear).
-          mission = next!.mission;
-          const nextGear = next!.gear;
-          // The new cycle's frozen bonuses may differ from the old one's: re-fold the carry pools so the
-          // between-wave regen and the limp damage read the SAME fold as this cycle's wave combatants.
-          // GEAR WEAR step 4: and its frozen gear (the view, the suite's patch-up, the pools its wear is read against).
-          cycleGear = nextGear;
-          foldedDefense = foldedPlayerDefense(shipDef, cycleGear, mission.officerCombat, mission.captainCombat);
-          waveHullRegenFraction = damageControlEffect(suiteGear(cycleGear)).waveHullRegenFraction;
-          cyclePools = patrolCyclePools(hullType, shipDef, cycleGear, mission);
-          // WR-7 follow-up OC-D8: and the new cycle's route (its frozen legs), which its phases, end and limp read.
-          route = patrolRouteOf(mission);
-          routeLength = patrolRouteTicks(route);
-          limpHomeTicks = 2 * route.transitBackTicks;
-          // ⚠️ 0.13.4 Phase 2: CARRY THE PER-RUN COUNT ACROSS THE RELAUNCH. freshPatrolMission
-          // is the shared factory for a NEW patrol and seeds routesCompletedThisRun to 0, which
-          // is right for a dispatch and WRONG here: a relaunch is the middle of a run, not the
-          // start of one. Without this line a repeat-dispatch patrol would report 1 route at its
-          // ending no matter how many it actually flew, which is the exact failure the per-run
-          // counter exists to prevent. Phase 0's comment on the factory predicted this line.
-          mission.routesCompletedThisRun = routesThisRun;
-          // OC-D8 follow-up: carried the same way (the new cycle's route length set above).
-          persistRunRouteTicks(mission);
-          if (pausesThisRun > 0) mission.repairPausesThisRun = pausesThisRun;
-          progress = 0;
-          // Loop continues: any remaining ticks advance the FRESH patrol.
-        } else {
-          stopReason = "fuel"; // wall-stop: could not afford a relaunch (anti-infinite-fuel floor)
-          endReason = "outOfFuel"; // 0.13.4 Phase 2: ending #2 of 4
-          if (cyclePools !== null) endedAtTicks = offsetNow(); // GEAR WEAR step 4
-          mission = null; // truly broke: end (captain idles until refuelled/re-dispatched)
-          break;
-        }
+        // RELAUNCH (Dispatch Repeatedly, not recalled). WR-13 (S4-A02): the relaunch fuel spend, its credit
+        // auto-buy and the "truly broke" end (outOfFuel) are gone, unreachable since 0.13.6 (an infinite budget).
+        // The next cycle, minted above (nextCycle: its fresh seed, frozen bonuses and frozen gear).
+        mission = next!.mission;
+        const nextGear = next!.gear;
+        // The new cycle's frozen bonuses may differ from the old one's: re-fold the carry pools so the
+        // between-wave regen and the limp damage read the SAME fold as this cycle's wave combatants.
+        // GEAR WEAR step 4: and its frozen gear (the view, the suite's patch-up, the pools its wear is read against).
+        cycleGear = nextGear;
+        foldedDefense = foldedPlayerDefense(shipDef, cycleGear, mission.officerCombat, mission.captainCombat);
+        waveHullRegenFraction = damageControlEffect(suiteGear(cycleGear)).waveHullRegenFraction;
+        cyclePools = patrolCyclePools(hullType, shipDef, cycleGear, mission);
+        // WR-7 follow-up OC-D8: and the new cycle's route (its frozen legs), which its phases, end and limp read.
+        route = patrolRouteOf(mission);
+        routeLength = patrolRouteTicks(route);
+        limpHomeTicks = 2 * route.transitBackTicks;
+        // ⚠️ 0.13.4 Phase 2: CARRY THE PER-RUN COUNT ACROSS THE RELAUNCH. freshPatrolMission
+        // is the shared factory for a NEW patrol and seeds routesCompletedThisRun to 0, which
+        // is right for a dispatch and WRONG here: a relaunch is the middle of a run, not the
+        // start of one. Without this line a repeat-dispatch patrol would report 1 route at its
+        // ending no matter how many it actually flew, which is the exact failure the per-run
+        // counter exists to prevent. Phase 0's comment on the factory predicted this line.
+        mission.routesCompletedThisRun = routesThisRun;
+        // OC-D8 follow-up: carried the same way (the new cycle's route length set above).
+        persistRunRouteTicks(mission);
+        if (pausesThisRun > 0) mission.repairPausesThisRun = pausesThisRun;
+        progress = 0;
+        // Loop continues: any remaining ticks advance the FRESH patrol.
       } else {
         // Dispatch Once, OR a recalled patrol that finished its route: end (captain idles).
         // A recalled patrol does NOT relaunch (recall honored at cycle end, like extraction).
@@ -4338,8 +4183,6 @@ export function tickCaptainPatrol(
     shipDamaged,
     shipDamageTaken,
     shipFreeRepairTicks,
-    fuelSpent,
-    creditsSpentOnFuel,
     // The rewards economyTick folds through the SAME deltas as extraction (materials into home
     // inventory, credits into state.credits, FA XP through applyFleetAdminXp). Empty/0 on a
     // no-win call.
@@ -4803,30 +4646,12 @@ export function economyTick(
   // per captain inside the .map() below, Homeworld Talents are fleet-wide,
   // not per-captain.
   const fleetRareYield = fleetRareYieldMult(state);
-  // Mission Rework (Task 5): the SHARED fuel budget, threaded through the per-captain map
-  // below. fuelBudgetRemaining once started at the whole tank and was DRAWN DOWN as each captain's auto-repeats spend
-  // from it, so two captains completing a cycle in the SAME call cannot double-spend the
-  // one tank (map callbacks run sequentially, so the decrement is visible to the next
-  // captain). totalFuelSpent is the sum subtracted from the Decimal tank once, below.
-  // With no mission captains (or a fuel-rich tank) both stay at their seed / 0, so a
-  // call lands byte-identical to before this task.
-  // 0.13.6 fuel-to-reach: fuel is no longer a depleting resource. Seeding the shared budget to
-  // INFINITY makes every per-cycle "spend from the tank" branch always succeed, so no captain ever
-  // auto-buys, hits the "truly broke" fuel-stop, or takes a refuel penalty; and the tank deduction
-  // below is dropped. The reach gate (canDispatch) is the only fuel constraint now. (WR-4 removed the fuel stockpile
-  // itself, save v70; this unreachable budget plumbing waits on the fuel-economy cleanup call, S4-A02.)
-  let fuelBudgetRemaining = Number.POSITIVE_INFINITY;
-  let totalFuelSpent = 0;
-  // Fuel Economy v2 (F3): the SHARED credit balance available for AUTO-BUYING fuel shortfalls,
-  // threaded through the per-captain map exactly like fuelBudgetRemaining above so two captains
-  // auto-buying in the SAME call can't double-spend the one balance (map callbacks run
-  // sequentially, so each draw is visible to the next captain). totalCreditsSpentOnFuel is the
-  // sum subtracted from the Decimal credits balance once, below. state.credits.toNumber() loses
-  // precision only for astronomically large balances, where "can I afford a few units of fuel"
-  // is trivially yes, so the affordability DECISION is unaffected; the exact credit FIELD stays
-  // Decimal-exact because totalCreditsSpentOnFuel is the true sum of (small) purchase costs.
+  // The SHARED credit balance this call (a transport's working capital draws on it), threaded through the per-captain
+  // map so two captains in the SAME call can't double-spend the one balance (map callbacks run sequentially, so each
+  // draw is visible to the next captain). WR-13 (S4-A02, user 2026-11-10 "Remove it"): the shared fuel budget and the
+  // credit fuel auto-buy that drew on this balance are gone; since 0.13.6 the budget was infinite, so neither ever
+  // fired. Fuel is a reach stat, gated at dispatch (canDispatch).
   let creditsBudgetRemaining = state.credits.toNumber();
-  let totalCreditsSpentOnFuel = 0;
   // Combat 0.13.0 (Phase 9b.5c / Phase 11): patrol wiring. damagedShips maps the id of each
   // ship whose defeated patrol finished LIMPING HOME this call -> the hull points it must
   // repair (repairDamage), folded into state.ships once, below (Phase 11 carries the damage
@@ -4889,7 +4714,7 @@ export function economyTick(
   // accrue the identical total.
   let patrolCurveRuns = 0;
   // 0.13.4 Phase 3 Unit 3.2: the shared TRANSIT-BERTH budget for this whole call, threaded
-  // exactly like fuelBudgetRemaining / creditsBudgetRemaining above it: computed ONCE from the
+  // exactly like creditsBudgetRemaining above it: computed ONCE from the
   // incoming state, then drawn down as each captain claims, so a later captain in this same map
   // sees the reduced value and two ships cannot claim one berth.
   //
@@ -4991,42 +4816,26 @@ export function economyTick(
         // tickCaptainPatrol (batch-invariant), so no seed counter is threaded here. NO
         // rewards/XP here (Phase 10).
         const patrolShip = state.ships.find((s) => s.assignedCaptainId === captain.id);
-        // Price one round trip's fuel from the SAME equipment-folded engineEfficiency the
-        // dispatch gate + the extraction path use, so a RELAUNCH burns the dispatch estimate
-        // (a no-gear fold is an identity). Only relaunches spend; the first cycle was pre-paid
-        // at dispatch, exactly like extraction's first cycle.
-        const patrolDef = PATROLS[captain.mission.patrolKey];
         // Combat 1.0 (Unit 1.4): the ship's INSTALLED combat gear, resolved ONCE off the SAME
         // equippedFor source the derived-stats fold uses, then handed to tickCaptainPatrol so the
         // player combatant reads real weapons + shield + hull + defenses. undefined when there is no
         // ship (defensive; a patrol always has one), which tickCaptainPatrol treats as the absent path.
         const patrolGear = patrolShip ? equippedFor(state, patrolShip.id) : undefined;
-        // Crew 0.14.0 ("CREW GOES LIVE"): the patrol's fuel/range prices from the SAME crew-boosted
+        // Crew 0.14.0 ("CREW GOES LIVE"): the patrol's stats read the SAME crew-boosted
         // derived stats economyTick's extraction arm uses (effectiveShipStats: hull + equipment fold
         // with the ship's crew contribution overlaid). patrolGear is still resolved above for the
         // COMBAT path (tickCaptainPatrol reads the installed weapons/shield); this only swaps the
         // stat SOURCE. With no crew it equals the pure equipment fold (byte-identical).
-        // WR-7 follow-up (OC-D5): a patrol stamped with the favored spec reads its favored pieces' bonus (the relaunch's
-        // fuel here, its combat speed below); a patrol in flight from before reads them as stored.
+        // WR-7 follow-up (OC-D5): a patrol stamped with the favored spec reads its favored pieces' bonus (its combat
+        // speed below); a patrol in flight from before reads them as stored.
         const patrolFavored = captain.mission.favoredSpec === 1;
         // Complement CP-13 (OC-13): likewise a patrol stamped with the hull-family stamp reads its crew modules' hull bonus.
         const patrolHullBonus = captain.mission.hullBonus === 1;
         const patrolStats = patrolShip && patrolGear ? effectiveShipStats(state, patrolShip, { favored: patrolFavored, hullBonus: patrolHullBonus }) : null;
-        const patrolFuelPerCycle =
-          patrolShip && patrolStats
-            ? fuelForRoundTrip(patrolDef.transitOutTicks, patrolDef.transitBackTicks, {
-                ...SHIP_TYPES[patrolShip.typeKey],
-                engineEfficiency: patrolStats.engineEfficiency,
-              })
-            : 0;
         const patrolResult = tickCaptainPatrol(
           ticksElapsed,
           captain,
           patrolShip,
-          fuelBudgetRemaining,
-          patrolFuelPerCycle,
-          creditsBudgetRemaining,
-          FUEL_CREDITS_PER_UNIT, // explicit so the installedGear arg below lands in the right slot
           patrolGear,
           // Crew 0.14.0 (Phase C-3b): same fleet-wide retirement captain-XP multiplier as extraction
           // (x1 until a captain retires, so byte-identical for every existing save).
@@ -5081,12 +4890,6 @@ export function economyTick(
             wearEvents.rateCarry.add(patrolShip.id);
           }
         }
-        // Draw down the shared budgets so a later captain sees the reduced values (no
-        // double-spend), and sum for the single Decimal tank/credits deductions below.
-        fuelBudgetRemaining -= patrolResult.fuelSpent;
-        totalFuelSpent += patrolResult.fuelSpent;
-        creditsBudgetRemaining -= patrolResult.creditsSpentOnFuel;
-        totalCreditsSpentOnFuel += patrolResult.creditsSpentOnFuel;
         // Flag the ship when its defeated patrol finished limping home this call (folded into
         // state.ships once, below), recording the hull damage so the repair scales with it.
         if (patrolResult.shipDamaged && patrolShip) {
@@ -5094,7 +4897,7 @@ export function economyTick(
           // E-CREW (Task 21): Engineering's Cunning free repair ticks ride with the damage (only when won).
           if (patrolResult.shipFreeRepairTicks > 0) freeRepairShips.set(patrolShip.id, patrolResult.shipFreeRepairTicks);
         }
-        // 0.13.4 Phase 2: endings #1 to #3 (defeat / outOfFuel / ordersComplete-or-recalled).
+        // 0.13.4 Phase 2: endings (defeat / ordersComplete-or-recalled; outOfFuel is legacy, WR-13).
         // Reading `endReason !== null` is the whole gate: the invariant on the field is that it
         // is non-null exactly when the patrol ended, so this records every ending the tick helper
         // produces and nothing else. A patrol that merely advanced pushes nothing.
@@ -5116,7 +4919,7 @@ export function economyTick(
         // mirroring how the extraction arm receives a captain with XP pre-folded), so it needs
         // no delta here. NOTE (mirrors extraction): a patrol's bounty goes to creditsDelta
         // ONLY, NOT back into creditsBudgetRemaining, so this call's earnings are not available
-        // to a LATER captain's fuel auto-buy this same call, exactly like extraction earnings.
+        // to a LATER captain this same call, exactly like extraction earnings.
         for (const key of Object.keys(patrolResult.homePlanetDelta)) {
           homePlanetDelta[key] = (homePlanetDelta[key] ?? new Decimal(0)).plus(patrolResult.homePlanetDelta[key]);
         }
@@ -5397,21 +5200,6 @@ export function economyTick(
             return { gearWear, stats: runShipStats(state, ship, gearWear, reactorLift, moduleLines, favored, hullBonus, hullSensors) };
           }
         : undefined;
-    // Mission Rework (Task 5): the fuel one round-trip cycle of THIS mission costs on
-    // THIS hull. fuelNeeded reads the BASE mission's transit legs (see fuel.ts) and the
-    // hull's engineEfficiency. Task 14: price it from the EQUIPMENT-FOLDED
-    // engineEfficiency (shipStats.engineEfficiency), so fitting an efficiency drive
-    // actually lowers per-cycle burn, consumed identically in both paths (this seam).
-    // fuelNeeded only reads engineEfficiency off its ship arg, so we overlay the folded
-    // value onto the static ShipTypeDef rather than widening fuelNeeded's contract. A
-    // ship-less captain costs 0 -> never fuel-gated, matching the "no modifier" path.
-    const fuelPerCycle =
-      ship && shipStats
-        ? fuelNeeded(MISSIONS[missionKey], {
-            ...SHIP_TYPES[ship.typeKey],
-            engineEfficiency: shipStats.engineEfficiency,
-          })
-        : 0;
     // E-CREW 0.14.0 (Task 20): Discovery Instinct's "rare drops on surveys". A SURVEY mission's rare-tier
     // odds grow by the ship's crew rare find (crew.rareFindChance: the Science officer's Discovery Instinct
     // plus the Science division's Keen Analysis, the SAME one read the expedition relic roll freezes at
@@ -5459,8 +5247,6 @@ export function economyTick(
       fleetAdminXpDelta: captainFleetAdminXpDelta,
       creditsDelta: captainCreditsDelta,
       lifetimeStatsDelta: captainLifetimeStatsDelta,
-      fuelSpent: captainFuelSpent,
-      creditsSpentOnFuel: captainCreditsSpentOnFuel,
       berthsClaimed: captainBerthsClaimed,
       cycleEndTicks,
       levelMilestones: missionLevelMilestones,
@@ -5470,10 +5256,7 @@ export function economyTick(
       rng,
       bonuses,
       shipStats,
-      fuelBudgetRemaining,
-      fuelPerCycle,
       creditsBudgetRemaining,
-      FUEL_CREDITS_PER_UNIT, // explicit so berthBudgetRemaining lands in the right slot
       berthBudgetRemaining,
       // Crew 0.14.0 (Phase C-3b): the fleet-wide retirement captain-XP multiplier (x1 until a captain
       // retires, so byte-identical for every existing save).
@@ -5482,18 +5265,7 @@ export function economyTick(
       onCycleDelivered,
     );
     // 0.13.4 Phase 3: draw the shared berth budget down so the next captain in this map sees it.
-    // Same posture as the fuel and credit draw-downs directly below.
     berthBudgetRemaining -= captainBerthsClaimed;
-    // Mission Rework (Task 5): draw this captain's auto-repeat fuel from the shared tank
-    // budget so a later captain in this SAME map sees the reduced budget (no
-    // double-spend), and sum it for the single Decimal tank deduction below.
-    fuelBudgetRemaining -= captainFuelSpent;
-    totalFuelSpent += captainFuelSpent;
-    // Fuel Economy v2 (F3): same draw-down for the shared credit balance used to auto-buy fuel
-    // shortfalls, so a later captain sees the reduced balance; summed for the single Decimal
-    // credits deduction below.
-    creditsBudgetRemaining -= captainCreditsSpentOnFuel;
-    totalCreditsSpentOnFuel += captainCreditsSpentOnFuel;
     // Mission Rework (Task 1): the captain's delta is now keyed by its mission's own
     // item keys, so fold over the ACTUAL keys present and grow-on-demand (`?? 0`)
     // rather than assuming the fixed 3 ore tiers. For an ore-only fleet the keys are
@@ -5762,13 +5534,9 @@ export function economyTick(
     // Flat .plus(), unlike fleetAdminXpDelta (which resolves through
     // applyFleetAdminXp's level-up loop below), credits has no leveling
     // curve to resolve, so the accumulated creditsDelta is applied directly
-    // here rather than passed through a second wrapping function.
-    // Fuel Economy v2 (F3): earnings (creditsDelta) are ADDED and auto-buy fuel spend
-    // (totalCreditsSpentOnFuel) is SUBTRACTED, both exact Decimal ops. Order is irrelevant
-    // (addition then subtraction of exact operands); a call with no auto-buy subtracts 0.
-    // 0.13.6 fuel-to-reach: totalCreditsSpentOnFuel is now always 0 (auto-buy is gone; the
-    // Infinity fuel budget above means no captain ever auto-buys), so this is credits + earnings.
-    credits: state.credits.plus(creditsDelta).minus(totalCreditsSpentOnFuel),
+    // here rather than passed through a second wrapping function. (WR-13, S4-A02: the old fuel
+    // auto-buy's subtraction, always 0 since 0.13.6, is gone.)
+    credits: state.credits.plus(creditsDelta),
     // 0.13.6 fuel-to-reach: the shared fuel tank is NO LONGER drained (refuel is instant + free); WR-4
     // removed the stockpile field itself (save v70).
     // Loot now lands in the keyed `inventory` (+ its `discovered` reveal set).
@@ -6133,7 +5901,8 @@ export function tick(
 //                  run's haul would land over a full warehouse and the auto-stop would idle
 //                  the captain on the very next tick after burning a round trip's fuel
 //   fuelCapacity, the hull's tank is physically too small for the round trip (RANGE)
-//   fuelEmpty   , the shared fuel tank can't cover the round trip's cost (RESOURCE)
+// WR-13 (S4-A02 "Remove it"): the old fuelEmpty RESOURCE reason is gone with the fuel economy (nothing returned it
+// since 0.13.6: fuel is a reach stat and refuel is instant and free).
 // NOTE: there is deliberately NO `credits` reason: dispatch spends nothing (fuel is a reach stat since 0.13.6;
 // WR-4 retired Buy Fuel). Adding a credit gate here would be a ghost gate that never fires.
 export type DispatchBlockReason =
@@ -6145,8 +5914,7 @@ export type DispatchBlockReason =
   | "noShip"
   | "needsRepair"
   | "materialAtCap"
-  | "fuelCapacity"
-  | "fuelEmpty";
+  | "fuelCapacity";
 
 // ============================================================================
 // REACH FOR A REAL SHIP (0.13.9 hotfix): the ONE reading both dispatch gates AND every range
@@ -6229,7 +5997,7 @@ export function shipRangeLightYears(state: GameState, ship: ShipInstance): numbe
 // reason surfaces when several fail at once (ok itself is order-independent, all must
 // pass): identity (noCaptain) -> status (busy) -> unlock (locked) -> captain capability
 // (captainLevel) -> hull existence (noShip) -> repair state (needsRepair) -> hull capability
-// (cargo) -> warehouse (materialAtCap) -> fuel RANGE (fuelCapacity) -> fuel RESOURCE (fuelEmpty).
+// (cargo) -> warehouse (materialAtCap) -> fuel RANGE (fuelCapacity).
 // captainLevel is checked BEFORE noShip on purpose: it's a property of the CAPTAIN alone,
 // needs no hull, and is the more useful thing to tell the player first. materialAtCap sits
 // just before the fuel gates: it's a transient logistics condition (the destination
@@ -6314,10 +6082,9 @@ export function canDispatch(
     return { ok: false, reason: "materialAtCap" };
   }
 
-  // --- Fuel gates (Task 5, folded in here). fuelNeeded reads the BASE mission's transit
-  // legs scaled by engineEfficiency (see fuel.ts). Task 14: price it from the FOLDED
-  // engineEfficiency (overlaid on the static ShipTypeDef, as economyTick does) so the
-  // dispatch estimate matches the loop's per-cycle burn exactly.
+  // --- Fuel gates (Task 5, folded in here). The reach reads the BASE mission's transit legs
+  // against the FOLDED fuelCapacity and engineEfficiency (see fuel.ts). WR-13: no per-cycle fuel
+  // cost is priced any more (the old fuel economy is gone).
   // REACH (0.13.6 fuel-to-reach): fuel is a RANGE stat, not a depleting resource. The ONLY fuel
   // gate is whether the hull's fuel capacity covers the round trip (its reach). This is the exact
   // pre-0.13.6 `fuelCapacity < need` capacity check (need = fuelNeeded with the folded efficiency),
@@ -6358,7 +6125,7 @@ export function dispatchCaptainOnMission(
   const idx = state.captains.findIndex((c) => c.id === captainId);
   // 0.13.6 fuel-to-reach: no first-cycle fuel spend and no auto-buy. Fuel is a range stat gated at
   // dispatch (canDispatch's reach check); refuel is instant and free, so the tank is never drained
-  // and refuelDelayTicks is always 0.
+  // (WR-13: the refuel delay below is a constant 0, kept so the state goldens hold).
   const captains = [...state.captains];
   const wearShip = state.ships.find((s) => s.assignedCaptainId === captainId);
   // Safe first runs SF-7: marked `training` when this is the save's first gathering run (its first delivery wears nothing).
@@ -6834,8 +6601,9 @@ export type PatrolDispatchBlockReason =
   // with no emitter simply flies with 0 shields (emitters ARE the shield source), both silent player
   // choices. So the old noWeapon / noShieldEmitter / noHullPlating block reasons are DELETED here.
   | "noReactor"        // the ship's reactorCore slot is EMPTY (no power = cannot dispatch; physically impossible)
-  | "fuelCapacity"     // the hull's tank is physically too small for the round trip (RANGE)
-  | "fuelEmpty";       // the shared fuel tank can't cover the round trip's cost AND the shortfall is unaffordable (RESOURCE)
+  | "fuelCapacity";    // the hull's tank is physically too small for the round trip (RANGE)
+// WR-13 (S4-A02 "Remove it"): the old fuelEmpty RESOURCE reason is gone with the fuel economy (never returned since
+// 0.13.6).
 
 // canDispatchPatrol: THE single consolidated patrol-dispatch gate. Pure predicate, reads
 // state + the static PATROLS/SHIP_TYPES tables, mutates + spends nothing. The ONE source
@@ -6845,10 +6613,10 @@ export type PatrolDispatchBlockReason =
 // GATE ORDER (cheapest/most-fundamental first, determines WHICH reason surfaces when
 // several fail): identity (noCaptain) -> status (busy) -> hull existence (noShip) -> hull
 // CAPABILITY (notCombatHull) -> repair state (needsRepair) -> POWER (noReactor) -> fuel
-// RANGE (fuelCapacity) -> fuel RESOURCE (fuelEmpty). notCombatHull is checked right after
+// RANGE (fuelCapacity). notCombatHull is checked right after
 // the hull is resolved (it is a property of the hull, cheaper + more useful to report than
-// any fuel arithmetic). Fuel is priced from the SAME equipment-folded engineEfficiency the
-// extraction gate uses, so a patrol's dispatch estimate matches what 9b.5b will burn.
+// any fuel arithmetic). The reach reads the SAME equipment-folded engineEfficiency the
+// extraction gate uses.
 //
 // Combat-defense rework (Unit 3): the reactor is the ONLY hard combat-gear block (no power =
 // physically cannot fly). A missing weapon is not a block, it is surfaced as a NON-blocking
@@ -6913,10 +6681,9 @@ export function canDispatchPatrol(
   // choices (no block, no advisory): a bare hull keeps its innateHullArmor, and no emitter = 0 shields.
   const noWeaponAdvisory = !fittedGear.some((e) => e.slotType === "weapon");
 
-  // --- Fuel gates: price the round trip from the patrol's transit legs (fuelForRoundTrip),
-  // using the EQUIPMENT-FOLDED engineEfficiency (overlaid on the static ShipTypeDef, as
-  // canDispatch does), so the dispatch estimate matches the loop's per-cycle burn. With no
-  // gear fitted the fold is an identity. The folded fuelCapacity gates RANGE.
+  // --- Fuel gates: the patrol's transit legs against the EQUIPMENT-FOLDED fuelCapacity and
+  // engineEfficiency (overlaid on the static ShipTypeDef, as canDispatch does). With no gear
+  // installed the fold is an identity. No per-cycle fuel cost is priced (WR-13).
   // Crew 0.14.0 ("CREW GOES LIVE"): shipReachDef reads effectiveShipStats, which folds crew on
   // top (same as canDispatch + the patrol arm in economyTick), so the range gate reads the
   // crew-boosted numbers the patrol loop actually burns against. With no crew it equals the pure
@@ -6949,7 +6716,7 @@ export function patrolDispatchRoute(state: GameState, ship: ShipInstance, patrol
 // canDispatchPatrol (the single source of truth for every gate), mirroring
 // dispatchCaptainOnMission exactly: (a) consult the gate, (b) on failure return the SAME
 // state ref + success:false + the reason (same-ref no-op convention), (c) on success
-// consume the first leg's fuel (auto-buying any affordable shortfall, like extraction),
+// (no fuel is spent: reach is gated, 0.13.6),
 // draw the master seed, resolve the wave schedule NOW, seed a fresh PatrolMissionState,
 // and increment nextPatrolSeed.
 export function dispatchCaptainOnPatrol(

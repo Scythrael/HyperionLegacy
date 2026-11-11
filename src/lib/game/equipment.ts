@@ -96,6 +96,7 @@ import {
   pieceVarietyDef,
   isStandardIssueBaseline,
   startAutoSalvageGrace,
+  blueprintUnlocked,
 } from "./model";
 // Crafting 0.13.3 (Phase 2 Unit 2.1): the DERIVED set of equipment instances a queued
 // (later: in-flight) salvage owns. Imported from reservation.ts and NOT from salvage.ts
@@ -225,8 +226,10 @@ export function captainBranchToShipSpec(branch: CaptainTalentBranch): ShipSpec {
 //   hullSpec           , the slot's equipRequirement.hullSpec does not match the hull
 //   captainSpec        , the slot's equipRequirement.captainSpec does not match the
 //                        assigned captain's spec (includes "captain has chosen no spec")
-//   captainSpecParked  , the slot requires a captainSpec but the ship is parked (no
-//                        captain to satisfy it), a distinct, clearer reason than captainSpec
+//   captainSpecParked  , the slot requires a captainSpec (or, WR-13, a captain level or
+//                        talent) but the ship is parked (no captain to satisfy it), a
+//                        distinct, clearer reason than captainSpec
+//   captainLevel / captainTalent / researchLocked , the other requirement gates (WR-13)
 export type EquipFitBlockReason =
   | "noInstance"
   // A still-reserved/unknown slot (thrusters/propellantTanks, none generated yet) has no install
@@ -258,6 +261,14 @@ export type EquipFitBlockReason =
   | "hullSpec"
   | "captainSpec"
   | "captainSpecParked"
+  // WR-13 (OC-C4 "Keep tested hooks", registry seam captain:audit:gearGates): the other three captain-side
+  // requirement gates. captainLevel: the captain's level is below the requirement's minCaptainLevel.
+  // captainTalent: the captain does not own the requirement's requiresTalent (a primary or secondary tree
+  // talent). researchLocked: the requirement's requiresResearch blueprint is not researched yet. No slot or
+  // variety sets these today; a parked hull refuses all three with captainSpecParked, like captainSpec.
+  | "captainLevel"
+  | "captainTalent"
+  | "researchLocked"
   // Combat 1.0 (Unit 1.8a): a WEAPON cannot be installed because the hull's weapon hardpoints
   // (SHIP_TYPES[hull].weaponHardpoints) are already full. Weapon is the one MULTI slot, so unlike a
   // singleton (which just swaps) an over-cap install has nowhere to go; the player must uninstall a
@@ -353,7 +364,7 @@ export function pieceEquipRequirement(instance: EquipmentInstance): EquipRequire
 // (slotNotInstallable) -> the piece is not reserved by a queued salvage (queuedForSalvage,
 // 0.13.3 Unit 2.1) -> ship exists + on-mission lock (noShip / onMission) -> the
 // slot's equipRequirement, hull first then captain (hullSpec / captainSpec /
-// captainSpecParked) -> the piece being moved out is not held by a checked-out loadout
+// captainSpecParked / captainLevel / captainTalent) then research (researchLocked) -> the piece being moved out is not held by a checked-out loadout
 // (replaceTargetInvalid / occupantInLoadout, 0.13.9) -> weapon hardpoint capacity (hardpointsFull,
 // weapon only) -> drone bay capacity (baysFull) -> one module of a kind (duplicateModule, E-MOD EM-5) -> the shared
 // module slots (moduleSlotsFull, a module or a specUtility into an empty slot) -> the power budget (overPower,
@@ -468,10 +479,32 @@ export function canFitEquipment(
       }
     }
 
-    // NOTE (scope): equipRequirement also DEFINES minCaptainLevel / requiresResearch
-    // / requiresTalent, but this patch's ONLY gated slot (specUtility) uses just
-    // captainSpec + hullSpec, so only those two are checked here (matches the task).
-    // The others layer on when a slot that uses them ships.
+    // CAPTAIN LEVEL / TALENT gates (WR-13, OC-C4 seam): the assigned captain's level must
+    // reach minCaptainLevel, and the captain must own requiresTalent (a primary Captain
+    // Talent or a secondary tree talent). OPTIONAL, absent fields skip their checks. A
+    // parked hull has no captain, so it refuses with the same parked reason as captainSpec.
+    if (req.minCaptainLevel !== undefined || req.requiresTalent !== undefined) {
+      if (ship.assignedCaptainId === null) return { ok: false, reason: "captainSpecParked" };
+      const captain = state.captains.find((c) => c.id === ship.assignedCaptainId);
+      if (req.minCaptainLevel !== undefined && (!captain || captain.level < req.minCaptainLevel)) {
+        return { ok: false, reason: "captainLevel" };
+      }
+      if (req.requiresTalent !== undefined) {
+        const talent = req.requiresTalent;
+        const owns =
+          captain !== undefined &&
+          ((captain.unlockedCaptainTalents as readonly string[]).includes(talent) ||
+            (captain.unlockedSecondaryTalents as readonly string[]).includes(talent));
+        if (!owns) return { ok: false, reason: "captainTalent" };
+      }
+    }
+
+    // RESEARCH gate (WR-13, OC-C4 seam): the requiresResearch blueprint must be researched,
+    // the same blueprintUnlocked read the facility rung gate (tick.ts) and the Shipyard's
+    // hull gate use. Account-wide, so it needs no captain. OPTIONAL, absent skips it.
+    if (req.requiresResearch !== undefined && !blueprintUnlocked(state, req.requiresResearch)) {
+      return { ok: false, reason: "researchLocked" };
+    }
   }
 
   // TARGETED SWAP TARGET (0.13.9): validated after every incoming-piece gate, right before the

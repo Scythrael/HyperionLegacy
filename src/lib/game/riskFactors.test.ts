@@ -270,7 +270,8 @@ describe("SQ-4 the ambush chance and flora", () => {
     expect(floraWorkMult({ risk: { flora: 4 } })).toBeCloseTo(1 + 4 * FLORA_WORK_SLOW_PER_GRADE, 12);
   });
 
-  it("TASK CHAINS (user #14) is a hook only: no follow-up yet", () => {
+  it("TASK CHAINS (user #14): no chain is authored, so no site reveals a follow-up (groundOpsTaskChain.test.ts lends one)", () => {
     expect(taskChainFollowUp("enemyFortification")).toBeNull();
+    expect(taskChainFollowUp("constructor")).toBeNull();
   });
 });

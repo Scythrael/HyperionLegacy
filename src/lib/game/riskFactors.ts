@@ -440,12 +440,18 @@ export function floraWorkMult(body: { risk?: Pick<BodyRiskGrades, "flora"> }): n
   return g > 0 ? 1 + FLORA_WORK_SLOW_PER_GRADE * g : 1;
 }
 
-// ===== TASK CHAINS (user #14): HOOK ONLY, not built =====
+// ===== TASK CHAINS (user #14): the mechanism is wired, no chain is authored =====
 // "That task could lead to a new task that could need a science team to explore a cache of rare relics stored by
 // the enemies you just took out ... clearing out some fortifications and then unlocking new things that are
-// hidden behind that." Completing a task may REVEAL a follow-up task. Not specified for SQ-4: this hook returns
-// no follow-up today and nothing calls it. Its call site is groundOps.ts finishWork, where a task reaches 100%
-// (marked there): the content pass adds the revealed task to the same body and plans it.
-export function taskChainFollowUp(_completedPoiId: string): string | null {
-  return null;
+// hidden behind that." Completing a task may REVEAL a follow-up task. WR-13 (OC-C4 "Keep tested hooks", registry
+// seam away:audit:objectiveHooks): groundOps.ts finishWork calls this hook where a task reaches 100% and, when it
+// names a follow-up site, adds that site to the same body as one more discovery and task and plans it
+// (groundOps.ts revealFollowUpTask). The chains themselves are content: TASK_CHAIN_FOLLOW_UPS maps a completed
+// task's site id to the site it reveals, and the content pass fills it. It holds no chain today, so no task reveals
+// anything (groundOpsTaskChain.test.ts lends one to prove the mechanism).
+export const TASK_CHAIN_FOLLOW_UPS: Map<string, string> = new Map();
+
+// The site a completed task on site `completedPoiId` reveals, or null (every site today). Pure.
+export function taskChainFollowUp(completedPoiId: string): string | null {
+  return TASK_CHAIN_FOLLOW_UPS.get(completedPoiId) ?? null;
 }

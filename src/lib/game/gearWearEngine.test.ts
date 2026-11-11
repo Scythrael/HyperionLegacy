@@ -235,8 +235,8 @@ describe("gear wear step 3: a Repeat run re-reads its gear at each cycle start (
       const s = { ...onMission(lined(), key, "ordersReceived"), credits: new Decimal(1e9) };
       const captain = s.captains[0];
       const stats = runShipStats(s, shipOf(s), undefined, true);
-      const plain = tickCaptainMission(5000, captain, RNG, {}, stats, Infinity, 0, 1e9, undefined, Infinity, 1);
-      const reread = tickCaptainMission(5000, captain, RNG, {}, stats, Infinity, 0, 1e9, undefined, Infinity, 1, () => ({ stats, gearWear: { version: 1 } }));
+      const plain = tickCaptainMission(5000, captain, RNG, {}, stats, 1e9, Infinity, 1);
+      const reread = tickCaptainMission(5000, captain, RNG, {}, stats, 1e9, Infinity, 1, () => ({ stats, gearWear: { version: 1 } }));
       const strip = (r: typeof plain) => ({ ...r, captain: { ...r.captain, mission: r.captain.mission && { ...r.captain.mission, gearWear: undefined } } });
       expect(Number(plain.lifetimeStatsDelta.missionsCompleted[key] ?? 0), key).toBeGreaterThan(1);
       expect(JSON.stringify(strip(reread)), key).toBe(JSON.stringify(strip(plain)));

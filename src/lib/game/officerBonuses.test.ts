@@ -411,12 +411,12 @@ describe("ship-battle bonuses (Weapons, Shield, Evasive Command; Inspiring Leade
     const ship = r.next.ships[0];
     const gear = equippedFor(r.next, "ship-1");
     const effects = { outputShare: 0.06, relaunchCombat: officerCombatMods(r.next, ship) };
-    const big = tickCaptainPatrol(600, captain, ship, 1e9, 0, 1e9, 1, gear, 1, effects);
+    const big = tickCaptainPatrol(600, captain, ship, gear, 1, effects);
     let c = captain;
     let credits = 0;
     const loot: Record<string, Decimal> = {};
     for (let i = 0; i < 600; i++) {
-      const step = tickCaptainPatrol(1, c, ship, 1e9, 0, 1e9, 1, gear, 1, effects);
+      const step = tickCaptainPatrol(1, c, ship, gear, 1, effects);
       c = step.captain;
       credits += step.creditsDelta;
       for (const [k, v] of Object.entries(step.homePlanetDelta)) loot[k] = (loot[k] ?? new Decimal(0)).plus(v);

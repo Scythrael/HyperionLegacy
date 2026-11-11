@@ -228,7 +228,7 @@ const STATE_OUTCOME_KEYS: readonly (keyof GameState)[] = [
   "crewPool",
 ];
 const CAPTAIN_OUTCOME_KEYS: readonly (keyof CaptainState)[] = ["id", "xp", "level", "lastStopReason"];
-const MISSION_OUTCOME_KEYS: readonly (keyof CaptainMissionState)[] = ["missionKey", "phase", "phaseProgressTicks", "cargo", "recalled", "refuelDelayTicks"];
+const MISSION_OUTCOME_KEYS: readonly (keyof CaptainMissionState)[] = ["missionKey", "phase", "phaseProgressTicks", "cargo", "recalled"];
 const PATROL_OUTCOME_KEYS: readonly (keyof PatrolMissionState)[] = [
   "patrolKey",
   "masterSeed",
