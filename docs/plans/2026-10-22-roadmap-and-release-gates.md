@@ -84,3 +84,28 @@ Related: survey parity at 997 s chunks differs because an extraction's berth bud
 per crew transport window, and `crewPool` has no size bound (a test save that skipped 1,666 windows built a 172 KB pool
 and slowed later ticks to 1.4 to 2 ms on both old and new code). Real saves keep `lastTransportWindow` current, so play
 is unaffected today; look at it with the chunked offline catch-up item in SUGGESTIONS.md (long absences on phones).
+
+## Ordering determinism slice BUILT (2026-11-11)
+
+Both wrinkles above are fixed at the source (`src/lib/game/canonicalOrder.ts`). Root cause: economyTick runs each
+captain over the whole call before the next, then processes and the other passes, so a big call meets captain 1's later
+find (or first completion) before captain 2's earlier one; 1 s steps meet them in time order. Fix: `discovered` and the
+four lifetime tally maps (itemsGathered, itemsRefined, itemsCrafted, missionsCompleted) are re-sorted into canonical
+(code unit) order whenever an entry is ADDED (addToInventory, the carried field kits' return, the lifetime fold, the
+refine and fabricate tallies). Sorting at insert rather than first-seen time order: time order would need the exact game
+second of every grant from every pass, and two events inside one live step would still tie; nothing reads either list's
+order (the UI reads `discovered` as a set, the tallies by key or as a sum). Values unchanged; old saves load as they are
+(no reorder on load, no SAVE_VERSION bump), and their first new entry sorts the whole list the same way in every
+chunking. The first-find relic registry (`relicDiscovered`) is not touched. Goldens first: `orderingGoldens.*` (pins
+captured on 2c66d749), switch `orderingSwitch.fixture.ts`, parity `orderingParity.test.ts` (one call == 997 s chunks ==
+1 s steps, byte for byte); `cp16HallOfCommand` and `cp14HullSensors` no longer normalize order. 48 older golden files
+moved; each now runs with the slice off (`canonicalOrderOffForThisFile`), and a trace run (every JSON.stringify seen
+with these lists in canonical order, slice on against off) matched hash for hash in all of them except save stamps that
+also differ between two runs with the slice on.
+Still open, same family: the key ORDER of `inventory` differs between chunkings when one call meets two new items in
+another order (shortRangeCycle, refugeeGoldens and emodEm4 parity tests sort object keys for it); a fix would put
+inventory keys in canonical order and move most whole-state goldens, so it needs its own call. NOT fixed, different
+family: one economyTick call spends one transit berth budget (the EM-4 precedent), so a call spanning more homecomings
+than the free berths differs in VALUES (a 4 hour one-call run of two captains lands 10 long-run cycles instead of 60);
+making it chunk-independent needs a time-ordered berth scheduler across captains. Production and the offline catch-up
+step 1 s, so players are unaffected.
