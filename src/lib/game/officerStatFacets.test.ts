@@ -70,6 +70,7 @@ import { makeRng } from "./combat/rng";
 import {
   SHAKEDOWN_TRANSIT_SECONDS,
   advanceExpedition,
+  claimExpedition,
   expeditionCandidates,
   rampedEncounterEvasion,
   returnDurationSeconds,
@@ -565,7 +566,35 @@ function cp3OffExpeditions(run: () => Record<string, string | string[]>): Record
   return { ...run(), expedition: withCp3Off(run).expedition };
 }
 
+// Wiring OC-G1 fix round: one Ground Ops run resolved and claimed, "dispatch record / resolved run / claimed state
+// without the officers", captured on the engine of the OC-G1 fix round (the end-to-end half the retired legacy pins
+// carried). The real assertion is the equality: the all-10 bridge and the stat-less bridge resolve it identically.
+const GROUND_OPS_NEUTRAL_RUN = "d72d5d34/b244cf0d/336c02f9";
+
+// A Ground Ops run (live dispatch) for one bridge stat assignment, resolved to the end and claimed. The officers are
+// stripped from the claimed state (their stat lines differ by construction).
+function groundOpsRunHash(statsFor: (seat: SeniorStaffSeat) => OfficerStats | undefined): string {
+  const s: GameState = { ...withCrew(freshState(), bridge(statsFor)), awayMembers: ROSTER, nextAwayMemberId: 100, expeditionSeed: 0x2468ace };
+  const res = groundOpsStart(s, "ship-1", 1, expeditionCandidates(s, "ship-1")[0].id);
+  expect(res.success).toBe(true);
+  expect(res.expedition!.groundOps).toBeDefined();
+  const done = advanceExpedition(res.expedition!, 1_000_000);
+  expect(done.phase).toBe("complete");
+  // The fixture really fights (the run's battles are what the facets could reach).
+  expect(done.groundOps!.history.some((r) => r.step === "fight")).toBe(true);
+  const claimed = claimExpedition({ ...res.next, expeditions: [done] }, done.id);
+  expect(claimed.success).toBe(true);
+  return [res.expedition, done, { ...claimed.next, officers: [] }].map((x) => fnv(goldenJson(x))).join("/");
+}
+
 describe("neutrality: an all-10 bridge = byte-identical to before Task 21 (golden)", () => {
+  // Wiring OC-G1 fix round: the expedition pins hash only the dispatch record now, so this restores a resolved run.
+  it("a Ground Ops run through claim: the all-10 bridge = the stat-less bridge", () => {
+    const neutral = groundOpsRunHash(() => NEUTRAL);
+    expect(groundOpsRunHash(() => undefined)).toBe(neutral);
+    expect(neutral).toBe(GROUND_OPS_NEUTRAL_RUN);
+  });
+
   // WR-8 (0.14.0): captured before the combat rules, so these fly with them switched off (combatRulesSwitch.fixture.ts;
   // combatDescriptorGoldens.test.ts pins the rules).
   it("a full bridge at 10/10/10/10 (sheet, missions, patrols + replays, repair, expeditions)", { timeout: 120_000 }, () => withCombatRulesAndLegsOff(() => {

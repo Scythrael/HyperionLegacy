@@ -1416,9 +1416,11 @@ function applyAction(
 // A single round-event the E3b battle readout renders. This is a PURE OBSERVATION of what the interpreter
 // did in a round: it is populated ONLY when a caller attaches a log sink to the BattleState / resolver, and
 // recording only READS combatant state around applyAction (it never draws rng and never mutates combat
-// state), so a battle with logging on is byte-identical to one with it off. The UI RE-DERIVES this
-// on demand from the stored expedition seed (deriveExpeditionActivityLog); it is NEVER written to the save,
-// so it stays out of the crown-jewel parity deep-equal by construction.
+// state), so a battle with logging on is byte-identical to one with it off. No screen reads it today: its
+// only reader, the legacy battle readout, went with the legacy expedition path (Wiring OC-G1), and the live
+// Ground Ops fight passes no sink (groundOps.ts); tests and the wiring probes attach one (groundFight.ts
+// resolveTaskFight's logSink). It is NEVER written to the save, so it stays out of the crown-jewel parity
+// deep-equal by construction.
 export interface GambitLogEvent {
   round: number; // 1-based round number
   side: "team" | "enemy";

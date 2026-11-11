@@ -230,7 +230,9 @@ function shipEventWords(run: ScanTrackRun, event: ExpeditionScanEvent, kind: Shi
 function battleWords(run: ScanTrackRun, event: ExpeditionScanEvent): PipWords {
   const won = event.outcome === "win";
   const downed = event.downedMemberIds?.length ?? 0;
-  const downText = downed > 0 ? ` ${plural(downed, "member", "members")} downed (they come home injured, never lost).` : "";
+  // Wiring OC-G1: no "come home injured" clause. A legacy run is finished as it stood (no injury is stamped), so only
+  // "never lost" holds.
+  const downText = downed > 0 ? ` ${plural(downed, "member", "members")} downed (never lost).` : "";
   let line: string;
   if (won) {
     const drops = findingContentsText(findingOf(run, event));

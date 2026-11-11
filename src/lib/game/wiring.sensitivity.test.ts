@@ -82,8 +82,12 @@ describe("wiring sensitivity: every claimed context that does not move yet stays
     // relic:em8:precursorLensFirstFind), leaving 3. Lowered from 2 at WR-10: Saboteur's ground:noInflict context went
     // live (OC-F4, measured by away:audit:saboteurLinger), leaving 2 (the CP-15 patrol sensors and OC-G1 stoneskin).
     // Lowered from 1 at Wiring OC-G1: Stoneskin's legacy-claim context went with the deleted legacy path (the bay is the
-    // claim's one path, live), leaving 1 (the CP-15 patrol sensors).
-    expect(flatChecks.filter(({ e }) => e.contexts.length > 0).length).toBeGreaterThan(0);
+    // claim's one path, live), leaving 1 (the CP-15 patrol sensors). Pinned EXACTLY at 1 (OC-G1 fix round) so a new
+    // partial context must be named here: the one left is the CP-15 patrol sensors (the deferred patrol context of the
+    // sensors line, ship:gearLine:sensors @ patrol, whose flat check runs below).
+    const partial = flatChecks.filter(({ e }) => e.contexts.length > 0);
+    expect(partial.map(({ e, ctx }) => `${e.id} @ ${ctx}`)).toEqual(["ship:gearLine:sensors @ patrol"]);
+    expect(partial.length).toBe(1);
     // Lowered from 30 at the CP-2 + WR-5a integration (0.14.0): both slices moved inert sources live, leaving 28;
     // WR-5b's Tactician tree left 24, WR-5c's Explorer tree 20 (no pending secondary captain entry is left). The
     // guard only asserts the sweep is not vacuous; lower it again as more sources go live. Lowered from 15 when the

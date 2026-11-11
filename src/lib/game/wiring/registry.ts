@@ -4774,11 +4774,13 @@ const AUDIT_ROWS: readonly { id: string; system: WiringSystem; claim: string; st
   // WR-11 (OC-G6 "Model Ocean only"): Ocean's slower surface work is modeled (PLANET_TYPES surfaceWorkMult); the Frozen and
   // Toxic comments are dropped.
   { id: "expedition:audit:planetComments", system: "expedition", claim: "Planet comments: Ocean's slower surface work is modeled; the Frozen and Toxic comments are dropped", status: LIVE },
-  // Wiring OC-G1: these are NOT the pre-Ground-Ops path the user deleted. FIGHT_POINTS_DEFAULT is also the live default for
-  // a site the fight-point table does not rate (groundTasks.ts riskFightPointCount); FIGHT_POINTS_MIN and
-  // SURVEY_AMBUSH_CHANCE act on a Ground Ops run without risk grades (dispatched before SQ-4), like every other
-  // per-stamp fallback, each covered by its test (groundTasks.test.ts, groundOpsSquads.test.ts).
-  { id: "expedition:audit:legacyFallbacks", system: "expedition", claim: "FIGHT_POINTS_DEFAULT (also the live default for an unrated site) / FIGHT_POINTS_MIN, SURVEY_AMBUSH_CHANCE (a Ground Ops run dispatched before SQ-4, kept: not the pre-Ground-Ops path OC-G1 deleted)", status: LIVE },
+  // Wiring OC-G1: these are NOT the pre-Ground-Ops path the user deleted, and they are kept (user 2026-11-11 "Keep, sweep
+  // later"). FIGHT_POINTS_DEFAULT is the live default for a site the fight-point table does not rate (groundTasks.ts
+  // riskFightPointCount, every risk-aware run) and the same default on a run without risk grades; FIGHT_POINTS_MIN and
+  // SURVEY_AMBUSH_CHANCE act ONLY on a Ground Ops run without risk grades (dispatched before SQ-4: groundTasks.ts
+  // fightPointCount, groundOps.ts groundTaskAmbushChance), like every other per-stamp fallback, each covered by its test
+  // (groundTasks.test.ts, groundOpsSquads.test.ts).
+  { id: "expedition:audit:legacyFallbacks", system: "expedition", claim: "Kept fallbacks, not the deleted pre-Ground-Ops path: FIGHT_POINTS_DEFAULT (the live default for a site the fight-point table does not rate); FIGHT_POINTS_MIN and SURVEY_AMBUSH_CHANCE (only a Ground Ops run dispatched before SQ-4, without risk grades)", status: LIVE },
   // H. Relics v2 R2-2 (relicBlanks.ts): live on every new run at Tier I; the rest waits for the slice that reaches it.
   { id: "relic:audit:blankTiers", system: "relic", claim: "Relic blanks above Tier I: RELIC_BLANK_WEIGHTS II to VII (a deeper find rolls rarer on the same chance, user call 13 \"Better rarity only\")", status: LIVE },
   { id: "relic:audit:blankCulture", system: "relic", claim: "A blank's culture (cultureForBody, stamped on every new run's relic): the culture study reads it", status: pending("Relics v2 R2-6 (cultures: study points and the name reveal)") },

@@ -206,7 +206,27 @@ const GOLDEN: Record<string, string | string[]> = {
   // Wiring OC-G1: each pin was "dispatch record / legacy resolution / legacy claim injuries"; the last two proved only
   // the deleted legacy path and are RETIRED, the dispatch record hash (first of the three) is held unchanged.
   expedition: ["29c9f4b8", "79cb18b", "3c126cd4", "6634649d", "7fdee9a2", "e57f36c2", "9f72ec67", "fa4bcf63"],
+  // Wiring OC-G1 fix round: one Ground Ops run resolved and claimed, "dispatch record / resolved run / claimed state
+  // without the officers", captured on the engine of the OC-G1 fix round (the end-to-end half the retired legacy pins
+  // carried). The real assertion is the equality below: a seated officer carrying no live bonus changes nothing.
+  groundOps: "a725ca70/355c21b5/9d3f2838",
 };
+
+// A Ground Ops run (live dispatch) resolved to the end and claimed: its three hashes. The officers are stripped from the
+// claimed state (their own records differ by construction: one fixture seats one, the other none).
+function groundOpsRunHash(officers: SeniorStaffOfficer[]): string {
+  const s: GameState = { ...freshState(), awayMembers: GOLDEN_ROSTER, nextAwayMemberId: 100, expeditionSeed: 0x2468ace, officers };
+  const res = start(s, "ship-1", 1, expeditionCandidates(s, "ship-1")[0].id);
+  expect(res.success).toBe(true);
+  expect(res.expedition!.groundOps).toBeDefined();
+  const done = advanceExpedition(res.expedition!, 1_000_000);
+  expect(done.phase).toBe("complete");
+  // The fixture really fights (the run's battles are what the officers could reach).
+  expect(done.groundOps!.history.some((r) => r.step === "fight")).toBe(true);
+  const claimed = claimExpedition({ ...res.next, expeditions: [done] }, done.id);
+  expect(claimed.success).toBe(true);
+  return [res.expedition, done, { ...claimed.next, officers: [] }].map((x) => fnv(goldenJson(x))).join("/");
+}
 
 describe("neutrality: no officer = byte-identical to before Task 20 (golden)", () => {
   it("extraction, survey and transport runs through economyTick", () => {
@@ -253,6 +273,16 @@ describe("neutrality: no officer = byte-identical to before Task 20 (golden)", (
       runs.push(fnv(goldenJson(res.expedition)));
     }
     expect(runs).toEqual(GOLDEN.expedition);
+  });
+
+  // Wiring OC-G1 fix round: the expedition pins above hash only the dispatch record now, so this restores a resolved
+  // run: the same Ground Ops run with no officer and with a seated officer whose only bonus is an unknown id (nothing
+  // live) is byte-identical through the claim.
+  it("expeditions: a Ground Ops run through claim, no officer = a seated officer with no live bonus", () => {
+    const neutral: SeniorStaffOfficer = { ...officerWith("ops.cargoExpand"), bonuses: [{ id: "test.none", magnitude: 0 }, { id: "test.none", magnitude: 0 }] };
+    const plain = groundOpsRunHash([]);
+    expect(groundOpsRunHash([neutral])).toBe(plain);
+    expect(plain).toBe(GOLDEN.groundOps);
   });
 
   it("a ship whose officers carry only non-combat bonuses freezes NO combat record", () => {

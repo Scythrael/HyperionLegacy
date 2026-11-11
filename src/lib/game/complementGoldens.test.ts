@@ -15,7 +15,8 @@
 //   legacy     : two pre-Ground Ops expedition DISPATCH RECORDS (Wiring OC-G1 retired the legacy run at 2,000,000 s and
 //                its claimed state with the legacy path; the record hash is held).
 //   groundOps  : two Ground Ops runs through claim: one with a field repair leg and med bay stays, one with med bay stays
-//                and the hull damage carried home.
+//                and the hull damage carried home. Wiring OC-G1 fix round: plus the legacy roster's run as a Ground Ops
+//                run through claim (groundOpsLegacyRoster), byte-identical with a neutral officer seated and without.
 //   transport  : the transport generator's next 20 deliveries (windows 1 to 20) for a fixed seed, one hash per window.
 //   structure  : commandStructureForHull for every hull.
 // Each fixture also checks that it really holds what it is pinned for (the keys, the transport, the relaunch, ...).
@@ -77,6 +78,7 @@ import {
   type GameState,
   type MissionKey,
   type PatrolMissionState,
+  type SeniorStaffOfficer,
   type ShipTypeKey,
 } from "./model";
 import { dispatchCaptainOnMission, dispatchCaptainOnPatrol, economyTick, installMissingCombatBaselines, processShipRepairs, shipRepairDurationTicks, tick } from "./tick";
@@ -221,6 +223,40 @@ function legacyRecord(roster: AwayMember[], seed: number): Expedition {
   return res.expedition;
 }
 
+// Wiring OC-G1 fix round: the legacy roster's run as a LIVE Ground Ops run (the current dispatch, no switch), resolved and
+// claimed: "dispatch record / resolved run / claimed state without the officers". The officers are stripped from the
+// claimed state (one fixture seats one, the other none).
+function groundOpsLiveRun(seed: number, officers: SeniorStaffOfficer[]): string {
+  const s = withSlottedAwayTeams({ ...freshState(), awayMembers: LEGACY_ROSTER.map((m) => ({ ...m })), nextAwayMemberId: 100, expeditionSeed: seed, officers });
+  const res = asPreG2NamesDispatch(dispatchPastPropulsion(s, "ship-1", 1, expeditionCandidates(s, "ship-1")[0].id));
+  if (!res.success || !res.expedition) throw new Error(`dispatch refused: ${res.reason}`);
+  expect(res.expedition.groundOps).toBeDefined();
+  const done = advanceExpedition(res.expedition, FINAL);
+  expect(done.phase).toBe("complete");
+  // The fixture really fights (the run's battles are what an officer could reach).
+  expect(done.groundOps!.history.some((r) => r.step === "fight")).toBe(true);
+  const claim = claimExpedition({ ...res.next, expeditions: [done] }, done.id);
+  expect(claim.success).toBe(true);
+  return [hash(res.expedition), hash(done), hash({ ...claim.next, officers: [] })].join("/");
+}
+
+// A seated officer at the neutral stat line (all 10) carrying no live bonus (an unknown id contributes nothing).
+const NEUTRAL_OFFICER: SeniorStaffOfficer = {
+  id: "officer-1",
+  seat: "executive",
+  name: "Officer neutral",
+  race: "earthBorn",
+  gender: "nonbinary",
+  rank: "ensign",
+  bonuses: [
+    { id: "test.none", magnitude: 0 },
+    { id: "test.none", magnitude: 0 },
+  ],
+  missionsCompleted: 0,
+  assignedShipId: "ship-1",
+  stats: { strength: 10, integrity: 10, cunning: 10, constitution: 10 },
+};
+
 function expeditionRun(roster: AwayMember[], seed: number, preDamage: boolean): { exp: Expedition; done: Expedition; claimed: GameState } {
   const s = withSlottedAwayTeams({ ...freshState(), awayMembers: roster.map((m) => ({ ...m })), nextAwayMemberId: 100, expeditionSeed: seed });
   const started = asPreG2NamesDispatch(dispatchPastPropulsion(s, "ship-1", 1, expeditionCandidates(s, "ship-1")[0].id));
@@ -316,6 +352,9 @@ const GOLDEN: Record<string, string | string[]> = {
   legacyB: ["e3b4593f"],
   groundOpsRepair: ["6138c3bd", "d8d37478", "69943b5"],
   groundOpsBay: ["527c9b42", "35454953", "2ac60b53"],
+  // Wiring OC-G1 fix round: captured on the engine of the OC-G1 fix round (the end-to-end half the retired legacy pins
+  // carried). The real assertion is its test's equality: a neutral officer seated changes nothing.
+  groundOpsLegacyRoster: "bbb0526d/b462be98/7c2fb144",
   transport: [
     "a6c5a724", "8c62d32c", "18b4e861", "f2a93087", "438ceec5", "74c0cbc3", "c527137b", "16e1a68f", "2caf4feb", "b0eeec3",
     "9ec2a1c8", "d9f4bf44", "e54d2eae", "9dc57f26", "907b3f30", "270d1a6c", "459e9eff", "6afc6903", "7389e97c", "c6d1c90c",
@@ -444,6 +483,12 @@ describe("CP-0 pre-complement goldens", () => {
       expect([hash(exp)]).toEqual(GOLDEN[name]);
     });
   }
+
+  it("groundOpsLegacyRoster: the legacy roster's live Ground Ops run through claim, a neutral officer seated = none", () => {
+    const plain = groundOpsLiveRun(0x2468ace, []);
+    expect(groundOpsLiveRun(0x2468ace, [NEUTRAL_OFFICER])).toBe(plain);
+    expect(plain).toBe(GOLDEN.groundOpsLegacyRoster);
+  });
 
   it("groundOpsRepair: a Ground Ops run with a field repair leg and med bay stays, through claim", () => {
     const { exp, done, claimed } = expeditionRun(MEDIC_SQUAD, 0x1244, true);

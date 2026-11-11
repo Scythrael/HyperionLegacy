@@ -2500,8 +2500,8 @@ const MIGRATIONS: Record<number, Migration> = {
   // copy a later retune of the default could no longer reach. The account pair (state.gambitPrograms)
   // stays stored untouched; no battle reads it. Expedition.roster is optional too:
   // D18 removed the anonymous Security detail, so an in-flight expedition without a Security member fields
-  // no team and each of its ground tasks evacuates without a battle (gambit.ts resolveExpeditionActivity);
-  // nothing to backfill. An old save's Science program stays stored as-is (GambitPrograms keeps its
+  // no team and each of its ground tasks evacuated without a battle (the legacy activity resolver, since
+  // deleted in Wiring OC-G1: a legacy run now finishes with its findings as they were); nothing to backfill. An old save's Science program stays stored as-is (GambitPrograms keeps its
   // shape); nothing executes it.
   // E-CREW Task 16 adds NOTHING here either: ExpeditionActivity.downedMemberIds and
   // AwayMember.injuredAtSeconds are optional and ABSENT MEANS the neutral value (nobody went down in that
