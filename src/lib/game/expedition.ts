@@ -3166,7 +3166,7 @@ export function orderFieldRepair(state: GameState, expeditionId: string): GameSt
 // kept, the flight back from a world still applies), then settle at now. Pure: a refusal returns the SAME state.
 export type FieldRepairCancelOrderBlockReason = "noExpedition" | "notGroundOps" | FieldRepairCancelBlockReason;
 
-// Can the ordered field repair of expedition `expeditionId` be cancelled now? (Advances a copy.) Pure.
+// Can the ordered field repair of expedition `expeditionId` be canceled now? (Advances a copy.) Pure.
 export function canCancelFieldRepair(state: GameState, expeditionId: string): { ok: true } | { ok: false; reason: FieldRepairCancelOrderBlockReason } {
   const target = groundOpsEditTarget(state, expeditionId);
   if (!target.ok) return { ok: false, reason: target.reason };

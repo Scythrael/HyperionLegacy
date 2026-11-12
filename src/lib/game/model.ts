@@ -9523,10 +9523,10 @@ export interface GroundRepairLeg {
   endsAt: number;
   hullRepaired: number;
   done?: true;
-  // OC-F14 (user 2026-11-12 "Add a cancel (Recommended)"): the player cancelled this ordered repair at `repairedAt`
+  // OC-F14 (user 2026-11-12 "Add a cancel (Recommended)"): the player canceled this ordered repair at `repairedAt`
   // (groundOps.ts cancelFieldRepairLeg). The leg was cut there: `hullRepaired` holds the share of the damage the repair
-  // had finished, and the ship flies back from where it was. Absent on every leg nobody cancelled.
-  cancelled?: true;
+  // had finished, and the ship flies back from where it was. Absent on every leg nobody canceled.
+  canceled?: true;
 }
 
 // Gas Giant Study GG-3 (user call 3 "The ship, always"; plan section 3.2): a SHIP STUDY of orbital body `bodyIndex`. It

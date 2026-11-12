@@ -492,8 +492,8 @@ function pausedStudyWord(exp: Pick<Expedition, "groundOps">, leg: Pick<GroundShi
   return study?.nebula === 1 ? "sweep" : "study";
 }
 
-// OC-F14: a cancelled order reads "(ordered, then cancelled)"; one turned back before it set down repaired nothing, so
-// it lists no repairing span. Exported for the field repair strip's Done line (fieldRepairStripDisplay.ts). Pure.
+// OC-F14: a canceled order reads "(ordered, then canceled)"; one turned back before it set down repaired nothing, so
+// it lists no repairing span. Pure.
 export function repairLegWords(exp: Expedition, leg: GroundRepairLeg): StepWords {
   const site = leg.siteBodyIndex !== null ? exp.bodies[leg.siteBodyIndex] : null;
   const where = site && leg.siteBodyIndex !== null ? `at ${bodyTitle(exp, site, leg.siteBodyIndex)}` : "in orbit";
@@ -501,10 +501,10 @@ export function repairLegWords(exp: Expedition, leg: GroundRepairLeg): StepWords
   const repairing = leg.repairedAt - leg.arrivesAt;
   const parts = [
     ...(flying > 0 ? [`flying ${spanText(flying)}`] : []),
-    ...(repairing > 0 || leg.cancelled !== true ? [`repairing ${spanText(repairing)}`] : []),
+    ...(repairing > 0 || leg.canceled !== true ? [`repairing ${spanText(repairing)}`] : []),
     ...(leg.endsAt > leg.repairedAt ? [`flying back ${spanText(leg.endsAt - leg.repairedAt)}`] : []),
   ];
-  const why = leg.ordered ? (leg.cancelled ? "ordered, then cancelled" : "ordered") : "after heavy damage";
+  const why = leg.ordered ? (leg.canceled ? "ordered, then canceled" : "ordered") : "after heavy damage";
   return {
     category: "repair",
     label: "field repair",
@@ -718,8 +718,8 @@ export function shipNowText(exp: Expedition, ship: ShipInstance | null | undefin
         const where = site && leg.siteBodyIndex !== null ? `Setting down for repairs at ${bodyTitle(exp, site, leg.siteBodyIndex)}` : "Repairing in orbit";
         return `${where} · ${leftText(leg.repairedAt, now)}`;
       }
-      // OC-F14: a cancelled order flies back with the share it repaired.
-      if (leg.cancelled) return `Repair cancelled, flying back · ${leftText(leg.endsAt, now)}`;
+      // OC-F14: a canceled order flies back with the share it repaired.
+      if (leg.canceled) return `Repair canceled, flying back · ${leftText(leg.endsAt, now)}`;
       return `Repaired, flying back · ${leftText(leg.endsAt, now)}`;
     }
     case "study": {

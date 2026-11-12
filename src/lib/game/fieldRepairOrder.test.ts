@@ -5,7 +5,7 @@
 // cancel, one call == 997 s chunks == 1 s steps, and one economyTick == 997-tick chunks == 1-tick steps.
 
 import { describe, expect, it } from "vitest";
-import { advanceExpedition, canCancelFieldRepair, canOrderFieldRepair, cancelFieldRepair, mixesRepairWorlds, orderFieldRepair } from "./expedition";
+import { advanceExpedition, canCancelFieldRepair, canOrderFieldRepair, cancelFieldRepair, mixesRepairWorlds, orderFieldRepair, recallExpedition } from "./expedition";
 import {
   FIELD_REPAIR_PLANET_TYPES,
   IN_SYSTEM_LEG_SECONDS,
@@ -116,7 +116,7 @@ describe("OC-F14 the cancel", () => {
     const mid = advanceExpedition(ocf14Damaged(exp, ocf14Threshold(exp) - 1), autoLeg.startsAt + 10);
     const s = { ...state, gameTimeSeconds: autoLeg.startsAt + 10, expeditions: [mid] };
     expect(canCancelFieldRepair(s, id)).toEqual({ ok: false, reason: "noOrder" });
-    // A world repair already repaired (flying back) cannot be cancelled.
+    // A world repair already repaired (flying back) cannot be canceled.
     const big = orderFieldRepair(at(TOXIC_FROZEN, 200, 1162).state, id);
     const leg = legOf(big);
     expect(canCancelFieldRepair(later(big, leg.repairedAt + 5), id)).toEqual({ ok: false, reason: "repaired" });
@@ -130,7 +130,7 @@ describe("OC-F14 the cancel", () => {
     expect(legOf(ordered)).toMatchObject({ siteBodyIndex: null, startsAt: t, repairedAt: t + 132 });
     const cut = cancelFieldRepair(later(ordered, t + 50), id);
     const leg = legOf(cut);
-    expect(leg).toMatchObject({ cancelled: true, ordered: true, siteBodyIndex: null, startsAt: t, arrivesAt: t, repairedAt: t + 50, endsAt: t + 50, hullRepaired: 18, done: true });
+    expect(leg).toMatchObject({ canceled: true, ordered: true, siteBodyIndex: null, startsAt: t, arrivesAt: t, repairedAt: t + 50, endsAt: t + 50, hullRepaired: 18, done: true });
     expect(cut.expeditions[0].groundOps!.hullDamage).toBe(30);
     // The order can be given again for the rest.
     expect(canOrderFieldRepair(cut, id)).toEqual({ ok: true });
@@ -144,7 +144,7 @@ describe("OC-F14 the cancel", () => {
     const c = t + 300 + 400;
     const cut = cancelFieldRepair(later(ordered, c), id);
     const leg = legOf(cut);
-    expect(leg).toMatchObject({ cancelled: true, siteBodyIndex: 1, arrivesAt: t + 300, repairedAt: c, endsAt: c + IN_SYSTEM_LEG_SECONDS, hullRepaired: 386 }); // 464800 / 1202 = 386.7
+    expect(leg).toMatchObject({ canceled: true, siteBodyIndex: 1, arrivesAt: t + 300, repairedAt: c, endsAt: c + IN_SYSTEM_LEG_SECONDS, hullRepaired: 386 }); // 464800 / 1202 = 386.7
     expect(leg.done).toBeUndefined();
     expect(cut.expeditions[0].groundOps!.hullDamage).toBe(1162);
     // The share lands when the ship is back (the leg's end), like any repair.
@@ -157,7 +157,7 @@ describe("OC-F14 the cancel", () => {
     const { state, t, id } = at(TOXIC_FROZEN, 200, 1162);
     const ordered = orderFieldRepair(state, id);
     const cut = cancelFieldRepair(later(ordered, t + 120), id);
-    expect(legOf(cut)).toMatchObject({ cancelled: true, startsAt: t, arrivesAt: t + 120, repairedAt: t + 120, endsAt: t + 240, hullRepaired: 0 });
+    expect(legOf(cut)).toMatchObject({ canceled: true, startsAt: t, arrivesAt: t + 120, repairedAt: t + 120, endsAt: t + 240, hullRepaired: 0 });
     const back = advanceExpedition(cut.expeditions[0], t + 240);
     expect(back.groundOps!.hullDamage).toBe(1162);
   });
@@ -224,5 +224,118 @@ describe("OC-F14 determinism after a cancel", () => {
     expect(chunked.expeditions).toEqual(one.expeditions);
     expect(steps.expeditions).toEqual(one.expeditions);
     expect(one.expeditions[0].groundOps!.hullDamage).toBe(1162 - 386);
+  });
+});
+
+describe("OC-F14 review: the cancel pulls queued legs earlier, a new order after a cancel, recall, a large game time", () => {
+  const medicSquad = (): AwayMember[] => {
+    const m = (mid: string, teamType: AwayMember["teamType"], over: Partial<AwayMember> = {}): AwayMember => ({ ...plainAwayMember(mid, teamType, "ship-1"), ...over });
+    return [m("member-1", "security", { rank: 3 }), m("member-2", "security", { rank: 2, traits: ["fieldMedic"] }), m("member-11", "science")];
+  };
+
+  it("a wiped team's pickup queued behind the order starts when the cut leg ends (no idle gap); one call == 997 s == 1 s", { timeout: 300_000 }, () => {
+    let checked = 0;
+    for (const seed of [0xa13bd4, 0xa1d67f, 0xa2145d, 0xa2523b]) {
+      const s0 = withSlottedAwayTeams({ ...freshState(), awayMembers: medicSquad(), nextAwayMemberId: 100, expeditionSeed: seed });
+      const res = asPreCurveDispatch(dispatchPastPropulsion(s0, "ship-1", 1, expeditionCandidates(s0, "ship-1")[0].id));
+      const exp = res.expedition!;
+      const wipe = advanceExpedition(exp, OCF14_FAR).groundOps!.shipLegs[0].startsAt;
+      // A long repair ordered just before the wipe, so the pickup is asked for while the ship repairs.
+      const before = ocf14Damaged(advanceExpedition(exp, wipe - 60), 1162);
+      const ordered = orderFieldRepair({ ...res.next, gameTimeSeconds: wipe - 60, expeditions: [before] }, exp.id);
+      const repair = legOf(ordered);
+      const c = wipe + 120;
+      if (!(c < repair.repairedAt)) continue;
+      const live = advanceExpedition(ordered.expeditions[0], c);
+      const queued = live.groundOps!.shipLegs.find((l) => l.startsAt >= repair.endsAt);
+      if (!queued) continue;
+      expect(queued.startsAt).toBe(repair.endsAt);
+      const cut = cancelFieldRepair({ ...ordered, gameTimeSeconds: c }, exp.id).expeditions[0];
+      const cutLeg = cut.groundOps!.repairLegs![0];
+      const pickup = cut.groundOps!.shipLegs.find((l) => l.teamIndex === queued.teamIndex && l.bodyIndex === queued.bodyIndex && l.startsAt >= cutLeg.startsAt)!;
+      expect(cutLeg.canceled).toBe(true);
+      expect(pickup.startsAt).toBe(cutLeg.endsAt); // no idle gap where the order used to be
+      expect(pickup.endsAt - pickup.startsAt).toBe(2 * IN_SYSTEM_LEG_SECONDS);
+      for (const team of cut.groundOps!.teams) if (team.step === "return" && pickup.teamIndex === team.index) expect(team.stepEndsAt).toBe(pickup.arrivesAt);
+      const END = c + 6000;
+      const big = advanceExpedition(cut, END);
+      let chunked = cut;
+      for (let x = c + 997; x < END; x += 997) chunked = advanceExpedition(chunked, x);
+      expect(advanceExpedition(chunked, END)).toEqual(big);
+      let steps = cut;
+      for (let x = c + 1; x <= END; x += 1) steps = advanceExpedition(steps, x);
+      expect(steps).toEqual(big);
+      checked += 1;
+    }
+    expect(checked).toBeGreaterThan(0);
+  });
+
+  it("a new order during a canceled leg's flight back is accepted: it waits for the ship and fixes what is left", () => {
+    const { state, t, id } = at(TOXIC_FROZEN, 200, 1162);
+    const c = t + 300 + 400;
+    const cut = cancelFieldRepair(later(orderFieldRepair(state, id), c), id);
+    const back = legOf(cut);
+    expect(canOrderFieldRepair(later(cut, c + 10), id)).toEqual({ ok: true });
+    const again = orderFieldRepair(later(cut, c + 10), id);
+    const second = again.expeditions[0].groundOps!.repairLegs![1];
+    expect(second).toMatchObject({ ordered: true, startsAt: back.endsAt, hullRepaired: 1162 - 386 });
+    expect(second.canceled).toBeUndefined();
+    // The new order is the one Cancel now reaches; the first stays canceled.
+    expect(canCancelFieldRepair(later(again, c + 20), id)).toEqual({ ok: true });
+    const done = advanceExpedition(again.expeditions[0], second.endsAt);
+    expect(done.groundOps!.hullDamage).toBeUndefined();
+  });
+
+  it("recall with the rule on: during an orbit repair the hull comes home with its damage; during a canceled leg's flight back it keeps the share", () => {
+    const orbit = at(TOXIC_FROZEN, 200, 48);
+    const ordered = orderFieldRepair(orbit.state, orbit.id);
+    expect(ordered.expeditions[0].repairRules).toBe(1);
+    expect(legOf(ordered).siteBodyIndex).toBeNull();
+    const recalled = recallExpedition(later(ordered, orbit.t + 50), orbit.id);
+    const ops = recalled.expeditions[0].groundOps!;
+    expect(ops.recalledAt).toBe(orbit.t + 50);
+    expect(ops.hullDamage).toBe(48);
+    expect(ops.repairLegs![0].done).toBeUndefined();
+    const world = at(TOXIC_FROZEN, 200, 1162);
+    const c = world.t + 300 + 400;
+    const cut = cancelFieldRepair(later(orderFieldRepair(world.state, world.id), c), world.id);
+    const home = recallExpedition(later(cut, c + 10), world.id).expeditions[0].groundOps!;
+    expect(home.recalledAt).toBe(c + 10);
+    expect(home.hullDamage).toBe(1162 - 386);
+    expect(home.repairLegs![0]).toMatchObject({ canceled: true, done: true });
+  });
+
+  it("at a large game time (3e6 s): order, cancel mid-repair, then one call == 997 s == 1 s", { timeout: 300_000 }, () => {
+    const T0 = 3_000_000;
+    const squad = [plainAwayMember("member-1", "security", "ship-1"), plainAwayMember("member-2", "security", "ship-1"), plainAwayMember("member-11", "science", "ship-1")];
+    const s0 = withSlottedAwayTeams({ ...freshState(), gameTimeSeconds: T0, awayMembers: squad, nextAwayMemberId: 100, expeditionSeed: TOXIC_FROZEN });
+    const res = asPreCurveDispatch(dispatchPastPropulsion(s0, "ship-1", 1, expeditionCandidates(s0, "ship-1")[0].id));
+    const exp = res.expedition!;
+    let open = exp;
+    for (let x = T0; open.groundOps!.startedAt === undefined; ) {
+      x += 600;
+      open = advanceExpedition(exp, x);
+    }
+    const t = open.groundOps!.startedAt! + 200;
+    expect(t).toBeGreaterThan(T0);
+    const run = ocf14Damaged(advanceExpedition(exp, t), 1162);
+    const ordered = orderFieldRepair({ ...res.next, gameTimeSeconds: t, expeditions: [run] }, exp.id);
+    const leg = legOf(ordered);
+    expect(leg.startsAt).toBe(t);
+    const c = leg.arrivesAt + 400;
+    expect(c).toBeLessThan(leg.repairedAt);
+    const cut = cancelFieldRepair(later(ordered, c), exp.id).expeditions[0];
+    const cutLeg = cut.groundOps!.repairLegs![0];
+    expect(cutLeg.hullRepaired).toBe(partialFieldRepair(1162, 400, leg.repairedAt - leg.arrivesAt));
+    expect(cutLeg.endsAt).toBe(c + (leg.endsAt - leg.repairedAt));
+    const END = c + 6000;
+    const big = advanceExpedition(cut, END);
+    let chunked = cut;
+    for (let x = c + 997; x < END; x += 997) chunked = advanceExpedition(chunked, x);
+    expect(advanceExpedition(chunked, END)).toEqual(big);
+    let steps = cut;
+    for (let x = c + 1; x <= END; x += 1) steps = advanceExpedition(steps, x);
+    expect(steps).toEqual(big);
+    expect(big.groundOps!.repairLegs![0].done).toBe(true);
   });
 });

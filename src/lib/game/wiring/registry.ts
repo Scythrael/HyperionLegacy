@@ -4722,7 +4722,7 @@ const AUDIT_ROWS: readonly { id: string; system: WiringSystem; claim: string; st
   { id: "away:audit:statusPicker", system: "away", claim: "Every status the picker offers can land in a fight (Corroded from the casters' hits since WR-10, OC-F9)", status: LIVE },
   // OC-F14 (user 2026-11-12: "Keep, Option A", "Pick the faster", "Add a cancel"): the one-tap strip on the expedition's
   // Ship lane (FieldRepairStrip.svelte) gives the order; every field repair on a stamped run takes the faster site.
-  { id: "away:audit:fieldRepairOrder", system: "away", claim: "Player-ordered field repair: a one-tap order on the expedition's Ship lane, repaired at the faster of the nearest repair world and orbit, with a one-tap cancel that keeps the repair finished", status: LIVE },
+  { id: "away:audit:fieldRepairOrder", system: "away", claim: "Player-ordered field repair: a one-tap order on the expedition's Ship lane repairs the hull at the faster of the nearest repair world and orbit (the cancel is tested in fieldRepairOrder.test.ts)", status: LIVE },
   // Wiring WR-10 fix round (OC-F12): the account pair is read at every hire (away:GAMBIT_PROGRAMS:account, live and
   // measured), but GO-16 hid the old editor, so no control sets or clears it: only a save that set it before GO-16 has a
   // changed pair. The control is a new screen element and needs the user's mockup.

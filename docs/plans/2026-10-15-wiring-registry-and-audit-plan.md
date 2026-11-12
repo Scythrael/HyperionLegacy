@@ -2460,19 +2460,19 @@ docs/mockups/2026-11-11-field-repair-order-mockup.html (Option A, as drawn). QA:
   where the choice can differ: worlds only, the ship is on one and the ground is quicker; none, always orbit), so every
   other record is byte-identical. Test switch: model.ts FIELD_REPAIR_RULES_SWITCH (fieldRepairRulesSwitch.fixture.ts).
 - Cancel (expedition.ts cancelFieldRepair / canCancelFieldRepair, groundOps.ts cancelFieldRepairLeg): the player's own
-  order only, until its repair is done. Not started yet (waiting for a pickup, or ordered this very second): withdrawn.
-  Flying out: the ship turns back at once and flies back as far as it flew, nothing repaired [PROVISIONAL, not in the
-  answer]. Repairing: cut now, keeping `partialFieldRepair` = floor(damage x whole seconds repaired / repair seconds) in
+  order only (user 2026-11-12 "Ordered only"), until its repair is done. Not started yet (waiting for a pickup, or ordered this very second): withdrawn.
+  Flying out (user 2026-11-12 "Turn back at once"): the ship turns back at once and flies back as far as it flew,
+  nothing repaired. Repairing: cut now, keeping `partialFieldRepair` = floor(damage x whole seconds repaired / repair seconds) in
   exact integer arithmetic; the flight back from a world still applies; the share lands at the leg's new end like any
-  repair. The cut leg carries `cancelled: true`. Offline == live: one call == 997 s chunks == 1 s steps after a cancel,
+  repair. The cut leg carries `canceled: true`. Offline == live: one call == 997 s chunks == 1 s steps after a cancel,
   one economyTick == 997-tick chunks == 1-tick steps, a cancel on a live-stepped run == one on a run advanced in one call
   (fieldRepairOrder.test.ts). No SAVE_VERSION bump.
 - UI: FieldRepairStrip.svelte under the Ship lane's track (GroundTeamTimeline.svelte), words in
   fieldRepairStripDisplay.ts (tested): available (the engine's plan, wide and narrow words), ordered (waiting), repairing
-  (with Cancel), repaired, cancelled, done (the Ship's step words and how long ago), and disabled with its reason (the
+  (with Cancel), repaired, canceled, done (the Ship's step words and how long ago), and disabled with its reason (the
   automatic repair, operations over, an older run). Existing glyphs only (hullRepair, shipyard, clock, check, info,
   close). App.svelte doOrderFieldRepair / doCancelFieldRepair log each action. The Ship's step words and now-line name
-  a cancelled order.
+  a canceled order.
 - Registry: away:audit:fieldRepairOrder LIVE, probe content:ocf14:fieldRepairOrder (the real order on a Barren then
   Frozen system, OCF14_PROBE_SEED): the hull the run's repairs fixed by the faster option's time, 48 with the order, 0
   without; with the switch off the order reads 0 too (the old rule is still flying at 132 s). ocf14Registry.fixture.ts
@@ -2482,5 +2482,21 @@ docs/mockups/2026-11-11-field-repair-order-mockup.html (Option A, as drawn). QA:
   each). Moved: the three mixed systems (the stamp on every reading; a6fe4's threshold repair orbit 336 s against the
   frozen world's 824 s; each order orbit 132 s against 688 s). Unmoved: worlds-only and no-world. Switch off reproduces
   every capture; a stamped dispatch with the stamp taken off replays the capture. Older golden files traced and run with the switch off (repairRulesOffForThisFile): complementGoldens, expeditionTiersGoldens, propulsionRecallGoldens, voyageGoldens, combatDescriptorGoldens, emodEm6Goldens, enemyTorpedoGoldens, fieldKitsGoldens, fieldKitsRunGoldens, firstRunsGoldens (and its sweep), gasGiantNebulaLabGoldens, gasGiantSpecialsGoldens, gasGiantStudyGoldens, gearWearCombatGoldens, groundOpsOutcroppings, officerBonuses, officerStatFacets, rampGoldens, relicStaggerGoldens, relicsV2BlanksGoldens, siMemberGearGoldens, wr9Goldens, wr10Goldens, wr11Goldens (every one moved only by the stamp and the faster site; switch off reproduces each pin). Registry chains read the row back (ocf14ReadBack): cp11, cp12, emod, refugee and shortRange goldens. fieldRepair.test.ts: the threshold test now asserts the faster site (orbit) and a sibling keeps the old nearest-world assertion under the switch off. Release gate pending: 6 -> 5.
-- Open for the user (flagged, not decided): a Cancel for the automatic repair (built: the order only); the flying-out
-  cancel rule above.
+- Both builder calls answered by the user (2026-11-12): the cancel is "Ordered only" (the automatic repair has no
+  cancel) and a cancel while flying out is "Turn back at once", both as built.
+
+#### OC-F14 review fix round (2026-11-12)
+
+- A cancel (cut or withdraw) pulls every leg queued behind the order (a wiped team's pickup, a study) earlier by the
+  seconds saved, with the teams waiting on them (groundOps.ts pullShipTimeEarlier, the pickup pause shift run the other
+  way): the ship no longer idles where the order used to be (test: a pickup queued during a repair, then a cancel, no
+  gap, one call == 997 s == 1 s).
+- The strip hides at a whole hull with no repair under way (user "shown when the hull is damaged"); the done state is
+  gone (the repair stays in the Ship's steps).
+- A new order during a canceled order's flight back is ACCEPTED: it waits for the ship and fixes what is left
+  (groundOps.ts outstandingHullDamage leaves out the canceled leg's pending share; fieldRepairBlock no longer counts a
+  canceled leg as a repair under way; Cancel reaches the new order). Recall settles a canceled leg's share (the ship
+  keeps the repair it finished); any other repair under way still stops with its damage, as before.
+- US spelling: `canceled` (the leg field) and "Canceled" in every new player text. The waiting state drops "Cancel
+  keeps the repair finished so far". The registry claim is narrowed to what the probe measures (the cancel is tested in
+  fieldRepairOrder.test.ts). A determinism pin at game time 3e6 s (order, cancel mid-repair, parity).

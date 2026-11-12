@@ -3,7 +3,7 @@
   // docs/mockups/2026-11-11-field-repair-order-mockup.html Option A), under the Ship lane's track in
   // GroundTeamTimeline.svelte, in the approved Overtime strip's shape. The hull readout (shown whenever the hull is below
   // full), the one-tap "Order field repair" with its preview (where the ship will repair and how long, the faster of the
-  // nearest repair world and orbit), the order's progress with a one-tap Cancel, the done line, and each refusal.
+  // nearest repair world and orbit), the order's progress with a one-tap Cancel, and each refusal.
   //
   // POSTURE: pure presentation over fieldRepairStripDisplay.ts (tested). The order and the cancel go to the host
   // (App.svelte doOrderFieldRepair / doCancelFieldRepair: the pure engine, then save and log).

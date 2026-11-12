@@ -6523,7 +6523,7 @@
     }
     state = next;
     const after = state.expeditions.find((e) => e.id === expeditionId);
-    pushLog(`${label} ${after ? fieldRepairLogText(after, "cancel") : "Field repair cancelled."}`);
+    pushLog(`${label} ${after ? fieldRepairLogText(after, "cancel") : "Field repair canceled."}`);
     doSave();
   }
 

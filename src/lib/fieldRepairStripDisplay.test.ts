@@ -74,7 +74,7 @@ describe("OC-F14 strip: available (the preview is the engine's plan)", () => {
   });
 });
 
-describe("OC-F14 strip: in progress, cancelled, done", () => {
+describe("OC-F14 strip: in progress, canceled, then hidden", () => {
   it("repairing in orbit: the chip, the progress, the time left, and Cancel", () => {
     const { state, t, id } = at(TOXIC_FROZEN, 200, 48);
     const ordered = runOf(orderFieldRepair(state, id));
@@ -100,33 +100,32 @@ describe("OC-F14 strip: in progress, cancelled, done", () => {
     expect(back.cancel).toBe(false);
     expect(words(back.numbersWide)).toBe("0 of 500");
   });
-  it("cancelled: the hull it kept, and back on the scan", () => {
+  it("canceled: the hull it kept, and back on the scan", () => {
     const { state, t, id } = at(TOXIC_FROZEN, 200, 1162);
     const ordered = orderFieldRepair(state, id);
     const c = t + 300 + 400;
     const cut = runOf(cancelFieldRepair({ ...ordered, gameTimeSeconds: c }, id));
     const v = fieldRepairStripView(cut, c + 10)!;
-    expect(v.state).toBe("cancelled");
-    expect(v.chip).toEqual({ tone: "off", glyph: null, text: "Cancelled" });
-    expect(words(v.whenWide)).toBe("Cancelled: 386 hull repaired. Back on the scan in 4m 50s.");
-    expect(words(v.numbersWide)).toBe("776 of 500");
-    expect(fieldRepairLogText(cut, "cancel")).toBe("Field repair cancelled: 386 hull repaired.");
+    // The rest can be ordered again at once: it waits for the ship, after the canceled line.
+    expect(v.state).toBe("available");
+    expect(v.order).toEqual({ enabled: true, text: "Order field repair", glyph: "shipyard" });
+    expect(v.cancel).toBe(false);
+    expect(words(v.whenWide)).toMatch(/^Canceled: 386 hull repaired, back on the scan in 4m 50s\. Repairs in orbit, .+ Starts when the ship is free, in 4m 50s\.$/);
+    expect(words(v.numbersWide)).toBe("776 damage of 500 · auto at 125");
+    expect(v.dim).toBe("Free. Fixes all 776 damage. Without it the ship repairs on its own after its next hit, or in the Shipyard at home.");
+    expect(fieldRepairLogText(cut, "cancel")).toBe("Field repair canceled: 386 hull repaired.");
   });
-  it("done: the Ship's own step words for the last repair, and how long ago", () => {
-    const { state, t, id } = at(ARID_ONLY, 200, 48);
+  it("hidden once the repair is done and the hull is whole (no lingering strip)", () => {
+    const { state, id } = at(ARID_ONLY, 200, 48);
     const ordered = runOf(orderFieldRepair(state, id));
     const end = ordered.groundOps!.repairLegs![0].endsAt;
     const after = advanceExpedition(ordered, end + 240);
     expect(after.groundOps!.hullDamage ?? 0).toBe(0);
-    const v = fieldRepairStripView(after, end + 240)!;
-    expect(v.state).toBe("done");
-    expect(v.tagOff).toBe(true);
-    expect(v.chip).toEqual({ tone: "off", glyph: null, text: "No damage" });
-    expect(v.why?.glyph).toBe("check");
-    expect(v.why?.text).toMatch(/^Field repair at .+ · Arid \(ordered\): repairing 1m 28s; fixes 48 hull\. 4m ago\.$/);
+    expect(fieldRepairStripView(after, end)).toBeNull();
+    expect(fieldRepairStripView(after, end + 240)).toBeNull();
     expect(fieldRepairLogText(ordered, "order")).toMatch(/^Field repair ordered at .+ · Arid: 1m 28s\.$/);
   });
-  it("ordered while the ship flies a pickup: it starts when the ship is back, and can be cancelled", { timeout: 120_000 }, () => {
+  it("ordered while the ship flies a pickup: it starts when the ship is back, and can be canceled", { timeout: 120_000 }, () => {
     const member = (mid: string, teamType: AwayMember["teamType"], over: Partial<AwayMember> = {}): AwayMember => ({ ...plainAwayMember(mid, teamType, "ship-1"), ...over });
     const squad = [member("member-1", "security", { rank: 3 }), member("member-2", "security", { rank: 2, traits: ["fieldMedic"] }), member("member-11", "science")];
     const s0 = withSlottedAwayTeams({ ...freshState(), awayMembers: squad, nextAwayMemberId: 100, expeditionSeed: 0xa13bd4 });
@@ -137,6 +136,7 @@ describe("OC-F14 strip: in progress, cancelled, done", () => {
     const ordered = runOf(orderFieldRepair({ ...res.next, gameTimeSeconds: t, expeditions: [ocf14Damaged(advanceExpedition(exp, t), 48)] }, exp.id));
     const v = fieldRepairStripView(ordered, t)!;
     expect(v.state).toBe("ordered");
+    expect(v.dim).toBeNull(); // a cancel here only withdraws the order
     expect(v.chip).toEqual({ tone: "going", glyph: "clock", text: "Ordered" });
     expect(v.cancel).toBe(true);
     expect(words(v.whenWide)).toMatch(/^Starts when the ship is back from the pickup, in .+\.$/);
