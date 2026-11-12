@@ -10068,6 +10068,11 @@ export interface GameState {
   officers: SeniorStaffOfficer[]; // named bridge officers, keyed to a ship by assignedShipId + seat
   nextOfficerId: number; // monotonic id source for a new officer id; never reused, mirrors nextShipId
   crewPool: CrewBucket[]; // the UNASSIGNED complement (the transport influx target)
+  // Homeworld reserve (user 2026-11-12, "Homeworld reserve (Recommended)"; homeworldReserve.ts): the SURPLUS crew no
+  // berth in the fleet can take, moved out of the pool after each tick's crew fill, the same crew groups with their ranks
+  // and racials. Passive ships refill from the pool first and then from here. Absent = empty (never written empty), so a
+  // save that never had a surplus is byte-identical to before the reserve. Ready for homeworld staffing (not designed).
+  homeworldReserve?: CrewBucket[];
   notableCrew: NotableCrewMember[]; // the bounded roster of graduated standouts
   nextNotableId: number; // monotonic id source for a new NotableCrewMember id; never reused
   lastTransportWindow: number; // gameTimeSeconds transport-window accumulator (offline catch-up delivers the backlog)
@@ -11589,8 +11594,9 @@ export const FIELD_KITS_HIDDEN_BLUEPRINTS: Readonly<Record<string, BlueprintDef>
 // never baked into powerDraw here. [PROPOSAL recipes and costs] after the recipe realism audit section 4.2: a base of
 // Coupling 3 + Wafer 3 + Titanium Ingot 2 (the audit's field coils, Cobalt Coil 2, wait for ML-2, which lifts the Cobalt
 // Coil's reserve with the FTL recipe rework); Class III to V add 1 / 2 / 3 Deuterium Canisters (ML L9 / GG call 7
-// "Drives + Lab blueprints"); Class VI and VII add 1 / 2 Antimatter Containment Cells. The balancing patch owns the
-// amounts.
+// "Drives + Lab blueprints"); Class VI and VII keep the 3 Deuterium Canisters and add 1 / 2 Antimatter Containment
+// Cells. Those Class VI and VII fuel amounts are DECIDED, not [PROPOSAL] (user 2026-11-12, "Deuterium + antimatter
+// (Recommended)"). The balancing patch owns the other amounts.
 // A row joins BLUEPRINTS only once BOTH the Research Lab and the Fabricator tracks reach its tier
 // (drivesWithinFacilityReach). Since complement OC-15 ("Add tiers 3-7 now") both tracks reach tier VII, so Class II to
 // VII are all served (before it only Class II was, and the dispatch said "None can be built yet" for Tiers III to VII:

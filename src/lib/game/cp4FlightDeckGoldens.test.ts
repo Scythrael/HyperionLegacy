@@ -37,6 +37,11 @@ import { CP4_FIXTURES, cp4Dispatched, steadyTick, type Cp4Fixture } from "./cp4F
 // 2c66d749 and on this merge, with WR-8b switched off every fixture reproduces its capture hash for hash; WR-13 and
 // OC-G1 move none of them. The torpedoes-on case is proven in cp4FlightDeck.test.ts ("with enemy torpedoes live").
 import { enemyTorpedoesOffForThisFile } from "./enemyTorpedoSwitch.fixture";
+// Homeworld reserve (user 2026-11-12; homeworldReserve.ts): this file's pins were captured before the reserve and hash a
+// fleet whose surplus crew the reserve now moves out of the pool, so the whole file runs with it off and its pins keep
+// proving their own slice (switch-off reproduction: every pin holds with it off). homeworldReserveGoldens pins the reserve.
+import { homeworldReserveOffForThisFile } from "./homeworldReserveSwitch.fixture";
+homeworldReserveOffForThisFile();
 enemyTorpedoesOffForThisFile();
 
 const hash = (v: unknown): string => goldenHash(withoutRunCounts(v));

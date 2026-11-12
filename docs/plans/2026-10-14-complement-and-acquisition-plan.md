@@ -1380,3 +1380,48 @@ the Spacer long-haul ramp are 0.14.x (T3).
 - Deck Handling in combat: "Keep both (Recommended)": Deck Handling and the Flight Deck lift act both between waves and
   on the in-combat replenish pod; Help gets a clause.
 - Assign-to-ship button for an unassigned notable: "Log it for later (Recommended)" (SUGGESTIONS.md).
+
+## Homeworld reserve BUILT (2026-11-12, carry note)
+
+Built from the 2026-11-12 answer "Homeworld reserve (Recommended)" (homeworld staffing itself is NOT built:
+SUGGESTIONS.md "CRAFT-DUPLICATE CREW BUFF" stays the future design).
+
+- **Surplus rule (no new constant)**: AFTER the normal fill of every tick (`crewOverlay.ts resolveCrew`; memoized per
+  pool list, so an idle pool is never re-scanned), each pool group keeps as many crew as the fleet's berths could still
+  seat of its division and rank (the SUM of every ship's own room: passive, passive crew-locked while out, and manual
+  ships, whose open berths the player fills by hand), and the rest moves to `homeworldReserve` (`homeworldReserve.ts
+  sweepSurplusToReserve`). Every seating the pool allowed is still possible after the sweep; with every berth full the
+  whole leftover moves. Two departures from the brief, both deliberate: (1) manual ships count (the brief said "passive
+  berth"): sweeping crew a manual ship could take would take them out of the player's hands; (2) the sweep follows
+  every fill, not only a transport's: a big economyTick call that crosses a window and a ship's return swept at a
+  different moment than 1 s steps (cp16HallOfCommand.test.ts's short-range relic run broke one call == 997 s chunks ==
+  1 s steps), so crew landing in the pool any other way (salvage, send back) with no berth also move at the next tick.
+- **Refill**: a passive ship fills from the pool first, then from the reserve with the same filler (`autoCrewShip`:
+  lean divisions first, top rank down, the reserve's group order); a Personnel roster's bulk fill draws the same way.
+  The reserve never flows back into the pool.
+- **Save**: `homeworldReserve?: CrewBucket[]`, optional and never written empty (no SAVE_VERSION bump; a save that never
+  had a surplus is byte-identical). An old save's pool is NOT moved at load: the engine moves its surplus at the first
+  tick after, by the same rule, so a crewmember any berth could take never moves.
+  `withHomeworldReserveOnLoad` (every load) drops only an empty or malformed field.
+- **Perf guard**: the fast path needs the reserve empty, an empty pool skips a ship only with an empty reserve, and the
+  memo key holds the reserve's reference and length (`NO_RESERVE` is one shared frozen list, so an absent reserve never
+  misses the memo).
+- **Order**: canonical (signature key order) whenever the sweep adds, the canonicalOrder.ts rule, since a big call sweeps
+  a day's pool at once while 1 s steps sweep window by window.
+- **Moved pins**: 136 pins in 23 golden files moved (whole-state hashes and pool hashes of fleets whose surplus the
+  reserve now moves). Each file runs with `homeworldReserveOffForThisFile()` (`homeworldReserveSwitch.fixture.ts`, the
+  orderingSwitch precedent) and every one of its pins reproduces with the switch off; no pin or tolerance was edited.
+  Files: captainExplorer, complement, cp13, cp14, cp16, cp18, cp4FlightDeck, cp5, crewPoolGuard, emodEm4, favorsSpec,
+  firstRuns, gasGiantNebulaLab, gatheringTrainingWear, gearWear, ordering2, ordering, patrolLegLifts, placeholderTalent,
+  refugee, shortRange, shortRangeRelics and wiring Goldens. The perf file keeps its CP-21 case with the reserve off and
+  adds a reserve-on case under the same 0.25 ms budget.
+- **UI / Help**: the Crew Pool tab shows "Homeworld reserve: N" (a count only); the complement Help topic's Crew Pool
+  paragraph has one sentence (pinned in `helpTopicsCrew.test.ts`).
+- **Goldens**: `homeworldReserveGoldens.test.ts`, six scenarios (a deep pool across a window, a two-day catch-up, an
+  emptied freighter, a quarters install, an open manual ship, a transfer back), each one call == 997 s chunks == 1 s
+  steps, pinned with the switch OFF (the pre-reserve hashes captured on 08f2cac8, all reproduced) and ON.
+  `homeworldReserve.test.ts`: the rule, the draw, the guard with a reserve, the roster draw, saves.
+- Also answered 2026-11-12 and done in the same pass: the Combat Patrols Help says Deck Handling and the Flight Deck
+  lift also speed a drone pod's In-Combat Replenish during a wave ("Keep both"); `DOCKED_OVERTIME_CARRIES_INTO_FIRST_PAUSE`
+  is no longer an open call ("Yes, keep it"); the Class VI and VII drive fuel amounts are no longer [PROPOSAL]
+  ("Deuterium + antimatter"). Open call 1 above (bounding `crewPool`) is closed by this note.

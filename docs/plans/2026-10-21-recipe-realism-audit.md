@@ -115,7 +115,7 @@ Containment Cell are harvested only (gas giant study). No recipe makes them. Cor
 | Balanced Drive (anchor) | Coupling 2 + Wafer 2 + Ti Ingot 1 | Field generator: power, control electronics, housing | OK | None | Unchanged |
 | Sprint Drive | Coupling 2 + Wafer 3 | A high-output field generator | OK. ML-2 plan (Coupling 2 + Cobalt Coil 2) OK and better: field coils | ML-2 as approved | Future crafts only (ML-2) |
 | Economy Drive | Coupling 2 + Ti Ingot 3 | A thrifty drive; thrift comes from control, not metal | Odd | ML-2 plan (Coupling 2 + Reclaimed Circuit 3) fixes it: efficiency from control circuitry | Future crafts only (ML-2) |
-| *Planned (G2-4):* Class II to VII drives | none yet | Ever stronger field generators; Class III+ burn real fuel | n/a | [PROPOSAL] Class II: Coupling 3 + Cobalt Coil 2 + Wafer 2. Class III to V: the same plus Deuterium Canister 1 / 2 / 3. Class VI and VII: plus Antimatter Containment Cell 1 / 2 (GG call 7 (user)). Amounts are the balancing patch's | None (new rows) |
+| *Planned (G2-4):* Class II to VII drives | none yet | Ever stronger field generators; Class III+ burn real fuel | n/a | [PROPOSAL] Class II: Coupling 3 + Cobalt Coil 2 + Wafer 2. Class III to V: the same plus Deuterium Canister 1 / 2 / 3. Class VI and VII: plus Antimatter Containment Cell 1 / 2 (GG call 7 (user); ANSWERED user 2026-11-12 "Deuterium + antimatter (Recommended)": the Class VI and VII fuel amounts are decided, no longer [PROPOSAL]). The other amounts are the balancing patch's | None (new rows) |
 
 ### 4.3 Reactor Core (3 built), with the fuel ladder
 

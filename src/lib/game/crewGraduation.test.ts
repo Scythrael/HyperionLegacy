@@ -30,6 +30,7 @@ import { CREW_PROFESSIONS, complementTotalCap, countAtRankOrHigher, countInDivis
 import { CREW_RANK_ORDER } from "./crewRank";
 import { resolveCrew, shipCrewContribution } from "./crewOverlay";
 import { TRANSPORT_WINDOW_SECONDS } from "./transports";
+import { homeworldReserveCount } from "./homeworldReserve";
 
 const HULL = "generalFreighter" as const;
 
@@ -358,7 +359,8 @@ describe("CP-8 / OC-11 auto-crew", () => {
     let s: GameState = { ...withComplement([ops], "passive", [bucket("operations", 100)]), notableCrew: [notable("notable-1", ops, "ship-1")] };
     s = resolveCrew(s);
     capsHold(s);
-    const conserved = totalCrew(bulk(s)) + totalCrew(s.crewPool);
+    // Homeworld reserve (user 2026-11-12): the pool's surplus no berth can take now moves on to the reserve; nobody is lost.
+    const conserved = totalCrew(bulk(s)) + totalCrew(s.crewPool) + homeworldReserveCount(s);
     expect(conserved).toBe(103);
     expect(totalCrew(bulk(s)) + 1).toBe(Math.min(divisionCap(HULL, "operations"), inclusiveRankCap(HULL, "operations", 1), complementTotalCap(HULL)));
   });

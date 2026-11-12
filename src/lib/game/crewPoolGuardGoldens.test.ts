@@ -26,6 +26,11 @@ import { stateHash } from "./firstRunsGoldens.fixture";
 // The ordering determinism slice (b5a6da25) merged on feat while this file was built on 8bf79c6b: its canonical order
 // moves whole-state hashes (order only, never values), so these pins run with it off, the part-1 precedent.
 import { canonicalOrderOffForThisFile } from "./orderingSwitch.fixture";
+// Homeworld reserve (user 2026-11-12; homeworldReserve.ts): this file's pins were captured before the reserve and hash a
+// fleet whose surplus crew the reserve now moves out of the pool, so the whole file runs with it off and its pins keep
+// proving their own slice (switch-off reproduction: every pin holds with it off). homeworldReserveGoldens pins the reserve.
+import { homeworldReserveOffForThisFile } from "./homeworldReserveSwitch.fixture";
+homeworldReserveOffForThisFile();
 canonicalOrderOffForThisFile();
 
 const CAPTURE = Boolean(import.meta.env.CP21_CAPTURE);

@@ -56,6 +56,11 @@ import { asPreRelicBlanksDispatch, dispatchPastPropulsion, plainAwayMember, with
 import { goldenJson } from "./firstRunsGoldens.fixture";
 import { heldDataQueue, setDataStudyPaused } from "./dataStudy";
 import { wr11OffForThisFile } from "./wr11Switch.fixture";
+// Homeworld reserve (user 2026-11-12; homeworldReserve.ts): this file's pins were captured before the reserve and hash a
+// fleet whose surplus crew the reserve now moves out of the pool, so the whole file runs with it off and its pins keep
+// proving their own slice (switch-off reproduction: every pin holds with it off). homeworldReserveGoldens pins the reserve.
+import { homeworldReserveOffForThisFile } from "./homeworldReserveSwitch.fixture";
+homeworldReserveOffForThisFile();
 
 function fnv(s: string): string {
   let h = 0x811c9dc5;

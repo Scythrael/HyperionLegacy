@@ -6,7 +6,8 @@
   // tab beside Rosters, (7) crew are taken from the pool only here, with "Send N to a ship...").
   // The pool was invisible before CP-10 (OC-10 "In Personnel Rosters"). It shows how many crew wait, the headcount per
   // division, the same Crew Groups table as a ship (minus Graduate, which happens aboard a ship), a Manifest, and the
-  // transfer picker from the pool to a manual ship (OC-7). The pool has no cap.
+  // transfer picker from the pool to a manual ship (OC-7). The pool has no cap of its own, but crew no berth in the fleet
+  // can take move on to the Homeworld reserve (user 2026-11-12; homeworldReserve.ts), shown here as a count with one line.
   // PURE PRESENTATION: the numbers are crewTransferDisplay.ts / complementTableDisplay.ts (tested); the move is the
   // host's onTransfer (App.svelte doTransferCrew). ONE DOM: container queries switch the phone layout.
   // ============================================================================
@@ -21,6 +22,7 @@
   import CrewTransferModal from "./CrewTransferModal.svelte";
   import { crewGroupRows } from "./complementTableDisplay";
   import { fmtCount, poolDivisionStats, poolHeadcount } from "./crewTransferDisplay";
+  import { homeworldReserveCount } from "./game/homeworldReserve";
 
   export let state: GameState;
   // Move crew from the pool to a ship (host: doTransferCrew).
@@ -31,6 +33,7 @@
   $: rows = crewGroupRows(state.crewPool);
   $: waiting = poolHeadcount(state);
   $: stats = poolDivisionStats(state, CREW_PROFESSIONS);
+  $: reserve = homeworldReserveCount(state);
 
   let selected = new Set<string>();
   let division: CrewProfession | null = null;
@@ -50,12 +53,18 @@
 <div class="pool">
   <div class="pool-cap">
     <div class="pool-caprow">
-      <span class="pool-bignum">{fmtCount(waiting)}<span class="pool-of"><span class="pool-wide">{` crew waiting · ${rows.length} ${rows.length === 1 ? "group" : "groups"} · no cap`}</span><span class="pool-narrow">{" waiting · no cap"}</span></span></span>
+      <span class="pool-bignum">{fmtCount(waiting)}<span class="pool-of"><span class="pool-wide">{` crew waiting · ${rows.length} ${rows.length === 1 ? "group" : "groups"}`}</span><span class="pool-narrow">{" waiting"}</span></span></span>
       <button type="button" class="cg-btn ghost sm" on:click={() => (manifestOpen = true)} disabled={waiting === 0}><Icon name="manifest" size={14} /> Manifest</button>
     </div>
     <div class="pool-note">
       <span class="pool-wide">Transports bring new crew here. Auto-crew ships fill from the pool: their specialty divisions first, then highest rank first, within their caps. Manual ships only take what you send them.</span>
       <span class="pool-narrow">Auto-crew ships fill from here. Manual ships take what you send.</span>
+    </div>
+    <!-- Homeworld reserve (user 2026-11-12): a count only (homeworldReserve.ts); the surplus no berth can take. -->
+    <div class="pool-reserve">
+      Homeworld reserve: <span class="pool-reserve-n">{fmtCount(reserve)}</span>
+      <span class="pool-wide">· Crew no berth in your fleet can take move on to the Homeworld reserve, keeping their ranks and racials. Auto-crew ships draw from it when the pool cannot fill a berth.</span>
+      <span class="pool-narrow">· Surplus crew no berth can take. Auto-crew ships draw from it when the pool runs short.</span>
     </div>
   </div>
 
@@ -156,6 +165,18 @@
     color: var(--color-text-dim);
     font-family: var(--font-mono);
     line-height: 1.5;
+  }
+  .pool-reserve {
+    margin-top: 6px;
+    font-size: var(--text-2xs);
+    color: var(--color-text-dim);
+    font-family: var(--font-mono);
+    letter-spacing: 0.04em;
+    line-height: 1.5;
+  }
+  .pool-reserve-n {
+    color: var(--color-text-primary);
+    font-variant-numeric: tabular-nums;
   }
   .pool-empty {
     font-size: var(--text-xs);

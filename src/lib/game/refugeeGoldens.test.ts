@@ -133,6 +133,11 @@ import { CP11_ADDED_ENTRY_IDS } from "./cp11Registry.fixture";
 import { cp12ReadBack } from "./cp12Registry.fixture";
 import { CP12_HELP_EDITS, cp12HelpReadBack } from "./cp12Switch.fixture";
 import { CP13_HELP_EDITS, cp13HelpReadBack } from "./cp13Switch.fixture";
+// Homeworld reserve (user 2026-11-12; homeworldReserve.ts): this file's pins were captured before the reserve and hash a
+// fleet whose surplus crew the reserve now moves out of the pool, so the whole file runs with it off and its pins keep
+// proving their own slice (switch-off reproduction: every pin holds with it off). homeworldReserveGoldens pins the reserve.
+import { homeworldReserveOffForThisFile } from "./homeworldReserveSwitch.fixture";
+homeworldReserveOffForThisFile();
 
 // The wiring registry entries E5 adds (E5-4 fills it). Held apart from golden 4, so that pin proves nothing else moved.
 // E5-2: the Evacuation template's three rows (the template catalog loop, registry.ts; refugeeRegistry.fixture.ts).
