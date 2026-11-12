@@ -2038,3 +2038,6 @@ should not roll on ship crew (no dead rolls).
   review measured a busy desktop save at 4.4 s for 4 days (3.2 s at 2 days); a weak phone may freeze 10 to 20 s after a
   long absence. Fix idea: run the catch-up in slices with a progress screen (the minigame's catch-up already slices),
   keeping offline == live and the one-deterministic-call invariant.
+
+- **ASSIGN-TO-SHIP FOR AN UNASSIGNED NOTABLE (logged 2026-11-12, user "Log it for later").** CP-21 review idea: a direct
+  "Assign to ship" button on an unassigned notable; today only a roster brings one back aboard.

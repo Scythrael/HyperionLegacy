@@ -762,3 +762,6 @@ LIVE pins only on the rows it moved, each traced).
   care's patrol and waiting-hull rows, Overtime in a pause, the kept bay rate. The `reactorCore:powerOutput` catalog row
   now reads that its power output stays full. QA: section 7 of `docs/qa/2026-11-09-gear-wear-step5-qa.html`.
 - Save: two optional fields (`gearBayRate`, `repairPause.overtime`), no SAVE_VERSION step.
+- (2026-11-12) Docked Overtime carrying into a repair-first pause (`DOCKED_OVERTIME_CARRIES_INTO_FIRST_PAUSE`, built as
+  the builder's own call and marked OPEN): "Yes, keep it (Recommended)": what the player paid for keeps working until
+  the patrol heads out. No longer an open call.

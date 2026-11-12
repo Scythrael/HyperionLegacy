@@ -1367,3 +1367,16 @@ the user and were NOT built (listed below).
 
 Closed since: CP-6 note 2 (hull swap while the ship is on an expedition) by S1 "Lock it" (0a077ca5, captainMoveLock); CP-15 and
 the Spacer long-haul ramp are 0.14.x (T3).
+
+## USER ANSWERS (2026-11-12) on the CP-21 close-out calls
+
+- Notable ticker: "Build the header ticker (Recommended)": build what the user asked for on 2026-10-16, one fleet-wide
+  ticker at the top of Personnel, unassigned notables included. MOCKUP FIRST for approval.
+- crewPool surplus: the hub first offered "Homeworld staffing"; the hub then corrected itself (homeworld staffing is the
+  user's FUTURE idea, SUGGESTIONS.md "CRAFT-DUPLICATE CREW BUFF": homeworld facility buffs, "defending against invasion";
+  not built). Re-asked: "Homeworld reserve (Recommended)": surplus crew move to a "Homeworld reserve" list, the same crew
+  groups, shown as a count in the Crew Pool tab, keeping ranks and racials, ready for homeworld staffing when it is
+  designed. Ships still refill from the pool first.
+- Deck Handling in combat: "Keep both (Recommended)": Deck Handling and the Flight Deck lift act both between waves and
+  on the in-combat replenish pod; Help gets a clause.
+- Assign-to-ship button for an unassigned notable: "Log it for later (Recommended)" (SUGGESTIONS.md).

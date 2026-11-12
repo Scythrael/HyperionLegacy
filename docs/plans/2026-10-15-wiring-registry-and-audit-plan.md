@@ -2436,3 +2436,11 @@ save with an old in-flight run gets that run finished at load. Production and st
   complementGoldens; neutral officers equal no officers.
 - The sensitivity vacuity guard is pinned exactly at 1 and named (`ship:gearLine:sensors @ patrol`, CP-15); a new
   partial context must be named there.
+- **USER ANSWERS (2026-11-12) on the OC-F14 and OC-F12 mockups** (docs/mockups/2026-11-11-field-repair-order-mockup.html,
+  docs/mockups/2026-11-11-account-default-control-mockup.html):
+  - OC-F14 field repair: "Keep, Option A (Recommended)": a one-tap "Field repair" strip on the Ship lane, shown when the
+    hull is damaged. Orbit vs world: "Pick the faster (Recommended)": repair wherever finishes sooner. Cancel: "Add a
+    cancel (Recommended)": one tap cancels; the ship returns to the scan with whatever repair it finished.
+  - OC-F12 new-hire default: "Option A (Recommended)": a "Set for new hires" row on a member's program plus a status line
+    with Clear. Balanced: "Treat as no default (Recommended)": choosing Balanced just clears the default. Clear: "Security
+    only (Recommended)": clears only the half being viewed.

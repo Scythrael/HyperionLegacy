@@ -1140,3 +1140,11 @@ no gameplay number or rule (no golden moved, no save step). Built:
    Antimatter Cells; [PROPOSAL], the balancing patch owns them).
 4. **The reactor fuel tiers** (`REACTOR_FUEL_LADDER` (reactorTech.ts) rows above Lab tier 2 and the
    Deuterium-Helium-3 and antimatter-catalyzed rungs: [PROPOSAL] amounts, the balancing patch).
+
+## USER ANSWERS (2026-11-12) on the ML close-out OPEN calls
+
+- Audit call 14 sensors leg (Hydrogen and Methane): "Log for balancing (Recommended)": no sensor change in 0.14.0;
+  revisit in the 0.16.0 balancing patch.
+- Class VI and VII drive fuel: "Deuterium + antimatter (Recommended)": 3 Deuterium Canisters plus 1 or 2 Antimatter
+  Cells, as proposed (no longer [PROPOSAL]).
+- Comet run numbers and tier III+ reactor fuel: "Leave for 0.16.0 (Recommended)": stay [PROVISIONAL].
