@@ -145,3 +145,18 @@ short-range or refugee line whatever their tick. So a call in which a patrol end
 lands, BEFORE a process completes logs the process first while 1 s steps log them in time order; and a call in which a
 short-range or refugee line lands before a patrol ends logs the patrol first (ordering across passes would need every
 pass's completion tick). No parity run meets it; production and the catch-up step 1 s.
+
+## QA PROCESS ADDITION (user, 2026-11-12): a Fable QA and bug-check run
+
+User, verbatim: "once we get to the point where we're ready for QA, I decided to throw in a small wrench into the gears
+as our normal process from now on. At least, tentatively. It'll be fun!" and "A full QA and bug check run using Fable
+5.2 since the token use has improved dramatically. So more planning, and potentially checking for things we should add
+to the QA list, and so forth would be quite fantastic, I think. But I know we're not quite there yet. We'll have to build
+every system first."
+
+How it slots in (proposal, the user decides the details when QA starts):
+- WHEN: after every 0.14.0 system is built and closed out (the wiring gate passes), before the QA rounds on the road map.
+- WHAT: Fable runs (subagent model "fable") for (1) QA planning: read every system's plan, answers and QA sheet and list
+  what the QA list is missing; (2) a full bug check across systems, read-only, with concrete failure scenarios; (3) its
+  findings feed the existing loop (fix, verify, next round) next to the planned human and AI testers.
+- Tentative: the user said "at least, tentatively"; confirm the scope and cost estimate with the user before launching.
