@@ -1300,6 +1300,9 @@ export function closeGroundOps(exp: Expedition, t: number, driver: GroundOpsScan
     delete team.reinforcementsAt;
     delete team.reinforcing;
   }
+  // OC-F14 (user 2026-11-12 "Add a cancel": the ship keeps whatever repair it finished): a canceled order flying back
+  // settles its share now. Any other repair under way still stops with its damage (absent on every run without a cancel).
+  for (const leg of ops.repairLegs ?? []) if (!leg.done && leg.canceled === true) finishFieldRepair(ops, leg);
   ops.endedAt = t;
   ops.recalledAt = t;
   return pickup;
@@ -2667,6 +2670,8 @@ function autoAssignTasks(exp: Expedition, ops: GroundOpsState, refs: readonly Gr
 // teams keep working meanwhile: the ship can still recover any of them, after the repair (Q1 rule).
 // [PROVISIONAL] the threshold, the planet list, "nearest" (the body index closest to the ship's position: the
 // body it scans, or the last body once the scan is done; ties to the lower index), the multipliers.
+// OC-F14 (user 2026-11-12): on a run stamped with the repair rules every field repair takes the faster of that world
+// and orbit (fieldRepairPlan), and the player can cancel an order (cancelFieldRepairLeg), keeping the repair finished.
 
 export const FIELD_REPAIR_DAMAGE_SHARE = 0.25; // of ShipEventBattle.hullMax [PROVISIONAL]
 export const FIELD_REPAIR_PLANET_TYPES: readonly ExpeditionPlanetType[] = ["terrestrial", "ocean", "arid", "frozen"]; // [PROVISIONAL]
@@ -2716,13 +2721,23 @@ export function fieldRepairSeconds(damage: number, repairSpeed: number, landed: 
 
 // Why a field repair cannot start now (null = it can). Pure.
 export type FieldRepairBlockReason = "noFieldRepair" | "noDamage" | "alreadyRepairing" | "runFinished";
+// OC-F14: a canceled order flying back does not block a new order (its repair is over; the new one waits for the ship),
+// and the damage a new repair fixes leaves out the share that canceled leg will settle when it is back. On every run
+// nobody canceled on, both readings are exactly the old ones.
 export function fieldRepairBlock(exp: Pick<Expedition, "groundOps">): FieldRepairBlockReason | null {
   const ops = exp.groundOps;
   if (!ops || ops.shipEventProfile?.battle?.repairSpeed === undefined) return "noFieldRepair";
   if (ops.endedAt !== undefined) return "runFinished";
-  if (nextRepairEnd(ops)) return "alreadyRepairing";
-  if (!((ops.hullDamage ?? 0) > 0)) return "noDamage";
+  if ((ops.repairLegs ?? []).some((leg) => !leg.done && leg.canceled !== true)) return "alreadyRepairing";
+  if (!(outstandingHullDamage(ops) > 0)) return "noDamage";
   return null;
+}
+
+// The run's hull damage less the shares canceled legs still flying back will settle at their ends (OC-F14). Pure.
+export function outstandingHullDamage(ops: Pick<GroundOpsState, "hullDamage" | "repairLegs">): number {
+  let damage = ops.hullDamage ?? 0;
+  for (const leg of ops.repairLegs ?? []) if (!leg.done && leg.canceled === true) damage -= leg.hullRepaired;
+  return Math.max(0, damage);
 }
 
 // The refusal in plain words. Exhaustive. Pure.
@@ -2739,34 +2754,171 @@ export function fieldRepairBlockText(reason: FieldRepairBlockReason): string {
   }
 }
 
+// OC-F14 (user 2026-11-12 "Pick the faster (Recommended)": repair wherever finishes sooner): the repair a field repair
+// would store at `t`, read by the order, the threshold and the strip's preview alike. The ship starts at `t`, or when it
+// is free of a leg under way. The world option sets down on the nearest repair world (fieldRepairSite; the flight there
+// and back, IN_SYSTEM_LEG_SECONDS each way, unless it is the body the ship is at) and repairs at the ground multiplier;
+// the orbit option repairs where the ship is at the orbit multiplier. A run stamped with the repair rules
+// (Expedition.repairRules) takes the one whose whole leg finishes sooner (a tie: orbit, no travel); a run without the
+// stamp keeps the old rule (the world whenever there is one). Null on a run without the field repair flag. Pure.
+export interface FieldRepairPlan {
+  siteBodyIndex: number | null; // null = in orbit
+  travelSeconds: number; // each way (0 in orbit or on the body the ship is at)
+  repairSeconds: number;
+  totalSeconds: number; // the whole leg: there, the repair, back
+  startsAt: number;
+  damage: number; // the hull damage it fixes (all the run carries now)
+  // The faster choice was orbit over this world (a stamped run only): the world and its whole leg, for the preview.
+  passedWorld?: { bodyIndex: number; totalSeconds: number };
+}
+export function fieldRepairPlan(exp: Pick<Expedition, "bodies" | "groundOps" | "repairRules">, t: number): FieldRepairPlan | null {
+  const ops = exp.groundOps;
+  const battle = ops?.shipEventProfile?.battle;
+  if (!ops || !battle || battle.repairSpeed === undefined) return null;
+  const from = repairPosition(exp);
+  const world = fieldRepairSite(exp, from);
+  const free = shipFreeAt(ops);
+  const startsAt = free !== null && free > t ? free : t;
+  const damage = outstandingHullDamage(ops);
+  const seconds = (landed: boolean): number => fieldRepairSeconds(damage, battle.repairSpeed ?? 0, landed, battle.dcRepairTimeReduction ?? 0);
+  const orbitSeconds = seconds(false);
+  if (world === null) return { siteBodyIndex: null, travelSeconds: 0, repairSeconds: orbitSeconds, totalSeconds: orbitSeconds, startsAt, damage };
+  const travel = world === from ? 0 : IN_SYSTEM_LEG_SECONDS;
+  const groundSeconds = seconds(true);
+  const worldTotal = travel + groundSeconds + travel;
+  if (exp.repairRules === 1 && orbitSeconds <= worldTotal) {
+    return { siteBodyIndex: null, travelSeconds: 0, repairSeconds: orbitSeconds, totalSeconds: orbitSeconds, startsAt, damage, passedWorld: { bodyIndex: world, totalSeconds: worldTotal } };
+  }
+  return { siteBodyIndex: world, travelSeconds: travel, repairSeconds: groundSeconds, totalSeconds: worldTotal, startsAt, damage };
+}
+
 // Start a field repair at `t` (validated by fieldRepairBlock): stored now, starting when the ship is free of its
-// legs. Returns the leg, or null when it cannot start. Mutates the working clone.
+// legs, where fieldRepairPlan says. Returns the leg, or null when it cannot start. Mutates the working clone.
 export function scheduleFieldRepair(exp: Expedition, t: number, ordered: boolean): GroundRepairLeg | null {
   const ops = exp.groundOps;
   if (!ops || fieldRepairBlock(exp) !== null) return null;
-  const battle = ops.shipEventProfile.battle!;
-  const from = repairPosition(exp);
-  const site = fieldRepairSite(exp, from);
-  const travel = site === null || site === from ? 0 : IN_SYSTEM_LEG_SECONDS;
-  const free = shipFreeAt(ops);
-  const startsAt = free !== null && free > t ? free : t;
-  const damage = ops.hullDamage ?? 0;
-  const arrivesAt = startsAt + travel;
-  const repairedAt = arrivesAt + fieldRepairSeconds(damage, battle.repairSpeed ?? 0, site !== null, battle.dcRepairTimeReduction ?? 0);
+  const plan = fieldRepairPlan(exp, t);
+  if (!plan) return null;
+  const arrivesAt = plan.startsAt + plan.travelSeconds;
+  const repairedAt = arrivesAt + plan.repairSeconds;
   const scanning = exp.bodies.findIndex((b) => !b.scanned);
   const leg: GroundRepairLeg = {
     kind: "repair",
-    siteBodyIndex: site,
+    siteBodyIndex: plan.siteBodyIndex,
     ...(ordered ? { ordered: true as const } : {}),
     scanBodyIndex: scanning >= 0 ? scanning : null,
-    startsAt,
+    startsAt: plan.startsAt,
     arrivesAt,
     repairedAt,
-    endsAt: repairedAt + travel,
-    hullRepaired: damage,
+    endsAt: repairedAt + plan.travelSeconds,
+    hullRepaired: plan.damage,
   };
   (ops.repairLegs ??= []).push(leg);
   return leg;
+}
+
+// OC-F14 (user 2026-11-12 "Add a cancel (Recommended)": one tap cancels; the ship returns to the scan with whatever
+// repair it finished). Only the player's own order can be canceled (the threshold repair is the ship's safety; the
+// answer named the order), and only until its repair is done (then it is already flying back). Pure.
+export type FieldRepairCancelBlockReason = "noOrder" | "repaired" | "runFinished";
+export function fieldRepairCancelBlock(exp: Pick<Expedition, "groundOps">, t: number): FieldRepairCancelBlockReason | null {
+  const ops = exp.groundOps;
+  if (!ops) return "noOrder";
+  if (ops.endedAt !== undefined) return "runFinished";
+  const leg = openOrder(ops);
+  if (!leg) return "noOrder";
+  if (t >= leg.repairedAt) return "repaired";
+  return null;
+}
+
+// The player's order not yet finished and not canceled (at most one: a new order waits behind any open repair), or
+// null. Pure.
+function openOrder(ops: Pick<GroundOpsState, "repairLegs">): GroundRepairLeg | null {
+  return (ops.repairLegs ?? []).find((leg) => !leg.done && leg.ordered === true && leg.canceled !== true) ?? null;
+}
+
+// The refusal in plain words. Exhaustive. Pure.
+export function fieldRepairCancelBlockText(reason: FieldRepairCancelBlockReason): string {
+  switch (reason) {
+    case "noOrder":
+      return "There is no ordered field repair to cancel";
+    case "repaired":
+      return "The repair is done: the ship is already flying back";
+    case "runFinished":
+      return "The ground operations are over";
+  }
+}
+
+// The hull points a repair of `damage` finished after `elapsed` of its `span` seconds: proportional to the whole
+// seconds repaired, rounded down, in exact integer arithmetic (damage and seconds are whole numbers). Pure.
+export function partialFieldRepair(damage: number, elapsed: number, span: number): number {
+  const whole = Math.max(0, Math.round(span));
+  if (whole === 0) return damage;
+  const e = Math.min(whole, Math.max(0, Math.floor(elapsed)));
+  const n = damage * e;
+  return (n - (n % whole)) / whole;
+}
+
+// Cancel the ordered repair at `t` (validated by fieldRepairCancelBlock). Only the order (user 2026-11-12 "Ordered
+// only": the automatic repair at the threshold has no cancel). Not started yet (the ship is still on a leg under way, or
+// the order is from this very instant): the order is withdrawn. Flying out (user 2026-11-12 "Turn back at once"): the
+// ship turns back at once and flies back as far as it has flown; nothing is repaired. Repairing: the repair stops now
+// and keeps its share of the damage (partialFieldRepair over the time it repaired); the flight back from a world still
+// applies. The cut leg is stored as it now stands, so every later time is a pure function of stored values, and the
+// share it repaired is fixed at its new end like any repair. Every leg queued behind the order (a wiped team's pickup,
+// a study) is pulled earlier by the seconds the cut saved (pullShipTimeEarlier), so the ship never idles where the
+// order used to be. Returns false when it cannot cancel. Mutates the working clone.
+export function cancelFieldRepairLeg(exp: Expedition, t: number): boolean {
+  const ops = exp.groundOps;
+  if (!ops || fieldRepairCancelBlock(exp, t) !== null) return false;
+  const leg = openOrder(ops)!;
+  const oldEnd = leg.endsAt;
+  if (t <= leg.startsAt) {
+    const rest = (ops.repairLegs ?? []).filter((l) => l !== leg);
+    if (rest.length > 0) ops.repairLegs = rest;
+    else delete ops.repairLegs;
+    pullShipTimeEarlier(ops, oldEnd, oldEnd - leg.startsAt);
+    return true;
+  }
+  const flyingOut = t < leg.arrivesAt;
+  const back = flyingOut ? t - leg.startsAt : leg.endsAt - leg.repairedAt;
+  leg.hullRepaired = flyingOut ? 0 : partialFieldRepair(leg.hullRepaired, t - leg.arrivesAt, leg.repairedAt - leg.arrivesAt);
+  if (flyingOut) leg.arrivesAt = t;
+  leg.repairedAt = t;
+  leg.endsAt = t + back;
+  leg.canceled = true;
+  pullShipTimeEarlier(ops, oldEnd, oldEnd - leg.endsAt);
+  return true;
+}
+
+// OC-F14: every leg that starts at or after `from` (it was queued behind the order) starts `d` seconds earlier, and the
+// teams waiting on one dock that much sooner: the pickup pause's shift (pauseStudyAt) run the other way. Every such leg
+// was asked for at or before the cancel, so none moves before its request. Mutates.
+function pullShipTimeEarlier(ops: GroundOpsState, from: number, d: number): void {
+  if (!(d > 0)) return;
+  for (const l of ops.shipLegs) {
+    if (l.startsAt < from) continue;
+    for (const team of ops.teams) {
+      if (team.step === "return" && team.stepEndsAt === l.arrivesAt && groundLegTeams(l).includes(team.index)) team.stepEndsAt -= d;
+    }
+    l.startsAt -= d;
+    l.arrivesAt -= d;
+    l.endsAt -= d;
+  }
+  for (const l of ops.repairLegs ?? []) {
+    if (l.startsAt < from) continue;
+    l.startsAt -= d;
+    l.arrivesAt -= d;
+    l.repairedAt -= d;
+    l.endsAt -= d;
+  }
+  for (const l of ops.studyLegs ?? []) {
+    if (l.startsAt < from) continue;
+    for (const team of ops.teams) if (team.step === "return" && team.stepEndsAt === l.endsAt) team.stepEndsAt -= d;
+    l.startsAt -= d;
+    l.endsAt -= d;
+    if (l.pauses) l.pauses = l.pauses.map((p) => ({ from: p.from - d, to: p.to - d }));
+  }
 }
 
 // The THRESHOLD trigger (expedition.ts calls it after a scan event added hull damage at `t`): past

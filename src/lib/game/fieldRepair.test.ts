@@ -29,6 +29,7 @@ import {
   shipLegsInOrder,
 } from "./groundOps";
 import { shipRepairDurationTicks } from "./tick";
+import { withRepairRulesOff } from "./fieldRepairRulesSwitch.fixture";
 import { asPreCurveDispatch, plainAwayMember, withoutGroundOps, withoutShipEvents, withSlottedAwayTeams, dispatchPastPropulsion } from "./awayTeamTestFixtures";
 
 const member = (id: string, teamType: AwayMember["teamType"], over: Partial<AwayMember> = {}): AwayMember => ({
@@ -127,17 +128,41 @@ describe("GO-8b the threshold repair on a real run", () => {
     expect(leg.ordered).toBeUndefined();
     expect(leg.hullRepaired).toBe(threshold(dispatched) - 1 + wear.hullWear!);
     expect(leg.scanBodyIndex).toBe(wear.bodyIndex);
-    // The repair site and its legs.
-    const site = fieldRepairSite(done, wear.bodyIndex);
-    expect(leg.siteBodyIndex).toBe(site);
-    const travel = site === null || site === wear.bodyIndex ? 0 : IN_SYSTEM_LEG_SECONDS;
-    expect(leg.arrivesAt - leg.startsAt).toBe(travel);
-    expect(leg.repairedAt - leg.arrivesAt).toBe(fieldRepairSeconds(leg.hullRepaired, 0, site !== null));
-    expect(leg.endsAt - leg.repairedAt).toBe(travel);
+    // The repair site and its legs. OC-F14: this system mixes a repair world (the frozen body 1) with the toxic body the
+    // ship scans, so the run carries the repair rules and the leg takes the faster of that world and orbit: orbit here.
+    const world = fieldRepairSite(done, wear.bodyIndex);
+    expect(dispatched.repairRules).toBe(1);
+    expect(world).toBe(1);
+    expect(wear.bodyIndex).toBe(0);
+    const worldTotal = 2 * IN_SYSTEM_LEG_SECONDS + fieldRepairSeconds(leg.hullRepaired, 0, true);
+    const orbitTotal = fieldRepairSeconds(leg.hullRepaired, 0, false);
+    expect(orbitTotal).toBeLessThan(worldTotal);
+    expect(leg.siteBodyIndex).toBeNull();
+    expect(leg.arrivesAt - leg.startsAt).toBe(0);
+    expect(leg.repairedAt - leg.arrivesAt).toBe(orbitTotal);
+    expect(leg.endsAt - leg.repairedAt).toBe(0);
     expect(leg.done).toBe(true);
     // The ship is on the leg, the scan clock stops for the whole of it.
     expect(groundShipPosition(done, leg.startsAt + 1)).toEqual({ kind: "repair", leg });
     expect(scanClockAt(ops, leg.endsAt) - scanClockAt(ops, leg.startsAt)).toBe(0);
+  });
+
+  it("a run without the repair rules (dispatched before OC-F14) still sets down on the nearest repair world", () => {
+    const old = withRepairRulesOff(() => {
+      const d = dispatch().exp;
+      return advanceExpedition(damaged(d, threshold(d) - 1), FAR);
+    });
+    expect(old.repairRules).toBeUndefined();
+    const wear = (old.scanEvents ?? []).find((ev) => ev.kind === "shipEvent" && (ev.hullWear ?? 0) > 0)!;
+    const oldLeg = old.groundOps!.repairLegs![0];
+    const site = fieldRepairSite(old, wear.bodyIndex);
+    expect(oldLeg.siteBodyIndex).toBe(site);
+    const travel = site === null || site === wear.bodyIndex ? 0 : IN_SYSTEM_LEG_SECONDS;
+    expect(travel).toBe(IN_SYSTEM_LEG_SECONDS);
+    expect(oldLeg.arrivesAt - oldLeg.startsAt).toBe(travel);
+    expect(oldLeg.repairedAt - oldLeg.arrivesAt).toBe(fieldRepairSeconds(oldLeg.hullRepaired, 0, site !== null));
+    expect(oldLeg.endsAt - oldLeg.repairedAt).toBe(travel);
+    expect(oldLeg.done).toBe(true);
   });
 
   it("the damage is fixed at the leg's end; only later light damage comes home", () => {

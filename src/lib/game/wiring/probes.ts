@@ -167,6 +167,7 @@ import {
   rollBodyDiscoveries,
   scanRatePerSecond,
   startExpedition,
+  orderFieldRepair,
   tierCandidateSystems,
   anomalyChartPermille,
   chartedAnomalyFinding,
@@ -262,6 +263,8 @@ import {
 import { memberFieldworkTotal } from "../fieldwork";
 import { FIGHT_POINTS_DEFAULT, FIGHT_POINTS_MIN, fightPointCount, riskFightPointCount, taskWorkSeconds } from "../groundTasks";
 import { SURVEY_AMBUSH_CHANCE, groundTaskAmbushChance } from "../groundOps";
+// OC-F14: the field repair order probe reads the repair time formula and the in-system leg.
+import { IN_SYSTEM_LEG_SECONDS, fieldRepairSeconds } from "../groundOps";
 import { buildHomeDashboard } from "../homeDashboard";
 import { rarityProfile } from "../rarityProfiles";
 
@@ -3872,8 +3875,48 @@ function readContent(id: string, s: GameState): number {
       return wr10AuditValue(s, a, on);
     case "ocg1":
       return ocg1AuditValue(s, a);
+    case "ocf14":
+      return ocf14AuditValue(s, a, on);
     default:
       throw new Error(`unknown content probe ${id}`);
+  }
+}
+
+// OC-F14's probe system: the fixture dispatch on a save whose expedition seed draws a Barren body then a Frozen one (a
+// repair world one in-system leg past a body that is not one), so the faster of world and orbit is a live choice there.
+export const OCF14_PROBE_SEED = 625341589;
+// The hull damage the probe's ship carries when the order is given (the mockup's example).
+export const OCF14_PROBE_DAMAGE = 48;
+
+// OC-F14's audit row (user 2026-11-12, Option A with "Pick the faster"), read through the real order. On: the player
+// orders a field repair 10 s into the window with OCF14_PROBE_DAMAGE hull damage; off: no order. The reading is the hull
+// the run's field repairs have fixed by the time the FASTER of the two options would be done, computed here from the
+// repair time formula, never from the engine's plan (orbit at the orbit multiplier, or the world one in-system leg
+// away and back at the ground multiplier). The order reads the whole damage only when it repaired at all AND chose the
+// faster site: the old nearest-world rule (688 s here) would still be flying at the orbit option's 132 s. Pure.
+function ocf14AuditValue(s: GameState, key: string, on: boolean): number {
+  switch (key) {
+    case "fieldRepairOrder": {
+      const run = dispatchRun({ ...s, expeditionSeed: OCF14_PROBE_SEED });
+      let open = run;
+      for (let t = run.phaseAnchorSeconds; open.groundOps?.startedAt === undefined; ) {
+        t += 600;
+        if (t > run.phaseAnchorSeconds + 1e7) throw new Error("OC-F14 probe: the window never opened");
+        open = advanceExpedition(run, t);
+      }
+      const orderAt = open.groundOps!.startedAt! + 10;
+      const before = advanceExpedition(run, orderAt);
+      const damaged = { ...before, groundOps: { ...before.groundOps!, hullDamage: OCF14_PROBE_DAMAGE } };
+      const battle = damaged.groundOps.shipEventProfile.battle!;
+      const secs = (landed: boolean) => fieldRepairSeconds(OCF14_PROBE_DAMAGE, battle.repairSpeed ?? 0, landed, battle.dcRepairTimeReduction ?? 0);
+      const fastest = Math.min(secs(false), 2 * IN_SYSTEM_LEG_SECONDS + secs(true));
+      const state = { ...s, gameTimeSeconds: orderAt, expeditions: [damaged] };
+      const after = on ? orderFieldRepair(state, run.id) : state;
+      const done = advanceExpedition(after.expeditions[0], orderAt + fastest);
+      return (done.groundOps?.repairLegs ?? []).filter((l) => l.done === true).reduce((sum, l) => sum + l.hullRepaired, 0);
+    }
+    default:
+      throw new Error(`unknown OC-F14 audit probe ${key}`);
   }
 }
 

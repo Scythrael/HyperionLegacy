@@ -263,6 +263,7 @@ import {
   GAMBIT_ACTIONS,
   GAMBIT_SELECTORS,
   sourceOn,
+  OCF14_PROBE_DAMAGE,
   FIELD_KITS_SWITCH_PROBE_STOCK,
   FIELD_DEVICE_PROBE_BOUNDARIES,
   FIELD_DEVICE_PROBE_USES,
@@ -4719,7 +4720,9 @@ const AUDIT_ROWS: readonly { id: string; system: WiringSystem; claim: string; st
   { id: "away:audit:fieldKitsRunsSwitch", system: "away", claim: "Field Kits in runs (fieldKits.ts FIELD_KITS_RUNS_LIVE): a new dispatch stamps flag 2, packs each member from stock, buys a top-up team's shortfall, and the unused extras come home at claim", status: LIVE },
   // Wiring WR-10 (OC-F9): the last never-matching picker entry, Corroded, now lands from the casters' hits.
   { id: "away:audit:statusPicker", system: "away", claim: "Every status the picker offers can land in a fight (Corroded from the casters' hits since WR-10, OC-F9)", status: LIVE },
-  { id: "away:audit:fieldRepairOrder", system: "away", claim: "Player-ordered field repair (engine only, no UI)", status: pending("WR-10, OC-F14") },
+  // OC-F14 (user 2026-11-12: "Keep, Option A", "Pick the faster", "Add a cancel"): the one-tap strip on the expedition's
+  // Ship lane (FieldRepairStrip.svelte) gives the order; every field repair on a stamped run takes the faster site.
+  { id: "away:audit:fieldRepairOrder", system: "away", claim: "Player-ordered field repair: a one-tap order on the expedition's Ship lane repairs the hull at the faster of the nearest repair world and orbit (the cancel is tested in fieldRepairOrder.test.ts)", status: LIVE },
   // Wiring WR-10 fix round (OC-F12): the account pair is read at every hire (away:GAMBIT_PROGRAMS:account, live and
   // measured), but GO-16 hid the old editor, so no control sets or clears it: only a save that set it before GO-16 has a
   // changed pair. The control is a new screen element and needs the user's mockup.
@@ -5262,6 +5265,18 @@ function auditRowWiring(): Readonly<Record<string, Partial<EntryInput>>> {
     ...wr7AuditWiring(),
     ...wr11AuditWiring(),
     ...wr9AuditWiring(),
+    // OC-F14 (user 2026-11-12): the real order on a system where a repair world lies one leg past the scanned body. The
+    // hull the run's field repairs have fixed by the time the faster option is done: the whole damage with the order
+    // (it repaired, and at the faster site: the old rule would still be flying), nothing without it.
+    "away:audit:fieldRepairOrder": {
+      probe: "content:ocf14:fieldRepairOrder" as ProbeId,
+      contexts: ["expedition:groundOps"],
+      direction: "up",
+      curve: { kind: "linearAbsolute" },
+      magnitude: () => OCF14_PROBE_DAMAGE,
+      on: sourceOn,
+      note: "hull fixed by the faster option's time: the order repairs all 48 in orbit (132 s) where the old nearest-world rule took 688 s",
+    },
     // Wiring OC-G1 (user 2026-10-16 "Delete it"): the legacy path is gone (a legacy run is finished, never walked; the
     // load step is tested in legacyExpeditionFinish.test.ts), and the pre-SQ-4 fallbacks it did not cover read as claimed.
     "away:audit:legacyOnly": {

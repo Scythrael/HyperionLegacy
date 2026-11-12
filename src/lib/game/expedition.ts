@@ -53,7 +53,7 @@ import type {
   GroundOpsState,
   SnapshotMember,
 } from "./model";
-import { SHIP_TYPES, WR10_SWITCH, WR11_SWITCH, WR9_SWITCH, commandingCaptain, moduleEffectScale, shipGearSetBonusLines, withFavoredLines } from "./model";
+import { FIELD_REPAIR_RULES_SWITCH, SHIP_TYPES, WR10_SWITCH, WR11_SWITCH, WR9_SWITCH, commandingCaptain, moduleEffectScale, shipGearSetBonusLines, withFavoredLines } from "./model";
 // E-MOD EM-6: the body-scanned module trigger (its frozen procs and private stream).
 import { moduleNebulaSweep, moduleScanProcs, moduleScanSeed, rollModuleChance } from "./shipModules";
 import { makeRng, type Rng } from "./combat/rng";
@@ -107,6 +107,10 @@ import {
   bodyTaskFor,
   initGroundTasks,
   fieldRepairBlock,
+  fieldRepairCancelBlock,
+  cancelFieldRepairLeg,
+  FIELD_REPAIR_PLANET_TYPES,
+  type FieldRepairCancelBlockReason,
   maybeAutoFieldRepair,
   scheduleFieldRepair,
   taskNeedsOf,
@@ -1826,6 +1830,9 @@ function buildExpedition(
     ...(WR11_SWITCH.live && museum.scienceTeamPower > 0 ? { museumSciencePower: museum.scienceTeamPower } : {}),
     // Wiring WR-10: the away rules (OC-F2, OC-F6, OC-F7, OC-F9) on every new run, not under the test switch.
     ...(WR10_SWITCH.live ? { awayRules: 1 as const } : {}),
+    // OC-F14 (user 2026-11-12 "Pick the faster"): the field repair rules, written last and only on a system that mixes
+    // repair worlds with other bodies (the only systems where the faster choice can differ), not under the test switch.
+    ...(FIELD_REPAIR_RULES_SWITCH.live && mixesRepairWorlds(bodies) ? { repairRules: 1 as const } : {}),
   };
   return expedition;
 }
@@ -3152,6 +3159,35 @@ export function orderFieldRepair(state: GameState, expeditionId: string): GameSt
   if (!scheduleFieldRepair(target.exp, state.gameTimeSeconds, true)) return state;
   const settled = advanceExpedition(target.exp, state.gameTimeSeconds);
   return { ...state, expeditions: state.expeditions.map((e, i) => (i === target.index ? settled : e)) };
+}
+
+// OC-F14 (user 2026-11-12 "Add a cancel (Recommended)"): cancel the ordered field repair now. Advance the run to now,
+// validate (groundOps.ts fieldRepairCancelBlock), cut or withdraw the leg (cancelFieldRepairLeg: the share repaired is
+// kept, the flight back from a world still applies), then settle at now. Pure: a refusal returns the SAME state.
+export type FieldRepairCancelOrderBlockReason = "noExpedition" | "notGroundOps" | FieldRepairCancelBlockReason;
+
+// Can the ordered field repair of expedition `expeditionId` be canceled now? (Advances a copy.) Pure.
+export function canCancelFieldRepair(state: GameState, expeditionId: string): { ok: true } | { ok: false; reason: FieldRepairCancelOrderBlockReason } {
+  const target = groundOpsEditTarget(state, expeditionId);
+  if (!target.ok) return { ok: false, reason: target.reason };
+  const blocked = fieldRepairCancelBlock(target.exp, state.gameTimeSeconds);
+  return blocked ? { ok: false, reason: blocked } : { ok: true };
+}
+
+// Cancel the ordered field repair now (see above). Pure: the SAME state on a refusal.
+export function cancelFieldRepair(state: GameState, expeditionId: string): GameState {
+  const target = groundOpsEditTarget(state, expeditionId);
+  if (!target.ok || !cancelFieldRepairLeg(target.exp, state.gameTimeSeconds)) return state;
+  const settled = advanceExpedition(target.exp, state.gameTimeSeconds);
+  return { ...state, expeditions: state.expeditions.map((e, i) => (i === target.index ? settled : e)) };
+}
+
+// OC-F14: does this system mix repair worlds (groundOps.ts FIELD_REPAIR_PLANET_TYPES) with other bodies? Only there can
+// the faster of world and orbit differ from the old nearest-world rule (worlds only: the ship is always on one, where
+// the ground is quicker; none: always orbit). Pure.
+export function mixesRepairWorlds(bodies: readonly Pick<ExpeditionBody, "planetType">[]): boolean {
+  const worlds = bodies.filter((b) => FIELD_REPAIR_PLANET_TYPES.includes(b.planetType)).length;
+  return worlds > 0 && worlds < bodies.length;
 }
 
 // ============================================================================

@@ -1186,6 +1186,11 @@ export const WR11_SWITCH = { live: true };
 // reads the account pair, so a golden can show that the pins WR-10 moved return. Always live in the game.
 export const WR10_SWITCH = { live: true };
 
+// Test switch only (the same pattern, OC-F14): off, a dispatch stamps no repair rules (Expedition.repairRules), so its
+// field repairs keep the old site rule (always the nearest repair world, else orbit), and a golden can show that the pins
+// OC-F14 moved return. Always live in the game.
+export const FIELD_REPAIR_RULES_SWITCH = { live: true };
+
 // Test switch only (the same pattern, Wiring WR-9): off, a captain mission is dispatched without the Pilot's Cunning
 // stamp (CaptainMissionState.pilotCunning), an expedition without Command Presence on its objective hauls
 // (Expedition.groundOutputShare) or Operations Integrity on its offload (GroundOpsFactors.offloadSteady), and a
@@ -9081,6 +9086,14 @@ export interface Expedition {
   // the member's first turn after the enemies act (OC-F5). Absent on every run dispatched before WR-10, which resolves
   // exactly as stamped. Optional, no SAVE bump.
   awayRules?: 1;
+  // OC-F14 (user 2026-11-12 "Pick the faster (Recommended)": repair wherever finishes sooner): the field repair rules.
+  // On a stamped run every field repair, ordered or automatic, compares setting down on the nearest repair world (the
+  // flight there and back plus the ground time) with repairing in orbit where the ship is, and takes the one that
+  // finishes sooner (a tie: orbit, no travel); groundOps.ts fieldRepairPlan. Written last, only on a system that mixes
+  // repair worlds with other bodies (the only systems where the choice can differ from the old nearest-world rule), so
+  // every other record is byte-identical. Absent on every run dispatched before OC-F14, which keeps the old rule.
+  // Optional, no SAVE bump.
+  repairRules?: 1;
 }
 
 // Expedition Tiers G2-5 (user #7 "Based on distance traveled 1:1"; G13 one confirm with the return time; G14 detour
@@ -9510,6 +9523,10 @@ export interface GroundRepairLeg {
   endsAt: number;
   hullRepaired: number;
   done?: true;
+  // OC-F14 (user 2026-11-12 "Add a cancel (Recommended)"): the player canceled this ordered repair at `repairedAt`
+  // (groundOps.ts cancelFieldRepairLeg). The leg was cut there: `hullRepaired` holds the share of the damage the repair
+  // had finished, and the ship flies back from where it was. Absent on every leg nobody canceled.
+  canceled?: true;
 }
 
 // Gas Giant Study GG-3 (user call 3 "The ship, always"; plan section 3.2): a SHIP STUDY of orbital body `bodyIndex`. It

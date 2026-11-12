@@ -61,7 +61,7 @@
   import RelicStudyPanel from "./lib/RelicStudyPanel.svelte";
   import MuseumPanel from "./lib/MuseumPanel.svelte";
   // The pure dispatch + claim engine fns the Expedition Console's do* handlers call (expedition.ts).
-  import { startExpedition, claimExpedition, summarizeExpeditionFindings, expeditionDispatchBlockText, canEditGroundOps, editGroundOps, recallExpedition, recallPreview, recallBlockText, abandonHeldSystem, canAbandonHeldSystem, heldSystems } from "./lib/game/expedition";
+  import { startExpedition, claimExpedition, summarizeExpeditionFindings, expeditionDispatchBlockText, canEditGroundOps, editGroundOps, recallExpedition, recallPreview, recallBlockText, orderFieldRepair, canOrderFieldRepair, cancelFieldRepair, canCancelFieldRepair, abandonHeldSystem, canAbandonHeldSystem, heldSystems } from "./lib/game/expedition";
   // Ground Operations GO-13: the queue screen's live edits (assign, reorder, skip, re-queue, Default plan,
   // Auto-assign), their refusal words and log lines.
   import { groundOpsEditBlockText, type GroundOpsEdit } from "./lib/game/groundOps";
@@ -655,6 +655,7 @@
   import { claimKitsView, fieldKitShopRows, fieldKitStockRows, kitCountText, kitListText, shopQtyMax } from "./lib/fieldKitsDisplay";
   // Expedition Tiers G2-6: the console's voyage span ("1h 52m", "3d") for the recall log line.
   import { voyageSpanText } from "./lib/expeditionConsoleDisplay";
+  import { fieldRepairLogText, fieldRepairRefusalText } from "./lib/fieldRepairStripDisplay";
   import { FIELD_KITS_RUNS_LIVE, FIELD_KITS, type FieldKitId } from "./lib/game/fieldKits";
   import { carriedExtras } from "./lib/game/fieldKitsRun";
   // 0.13.4 Phase 4: the transit-berth read model. The console reads the SAME module the engine
@@ -6492,6 +6493,38 @@
     }
     doSave();
     return true;
+  }
+
+  // OC-F14 (user 2026-11-12, Option A): the field repair strip's one-tap ORDER and CANCEL on the expedition's Ship lane.
+  // The pure engine fns (orderFieldRepair / cancelFieldRepair advance the run to now, validate, apply and settle; a
+  // refusal is the SAME state, its reason read only then), then pushLog + doSave.
+  function doOrderFieldRepair(expeditionId: string) {
+    const exp = state.expeditions.find((e) => e.id === expeditionId) ?? null;
+    const label = `[${exp ? devShipLabel(exp.shipId) : "Expedition"}]`;
+    const next = orderFieldRepair(state, expeditionId);
+    if (next === state) {
+      const gate = canOrderFieldRepair(state, expeditionId);
+      if (!gate.ok) pushLog(`${label} Cannot order a field repair: ${fieldRepairRefusalText(gate.reason)}.`);
+      return;
+    }
+    state = next;
+    const after = state.expeditions.find((e) => e.id === expeditionId);
+    pushLog(`${label} ${after ? fieldRepairLogText(after, "order") : "Field repair ordered."}`);
+    doSave();
+  }
+  function doCancelFieldRepair(expeditionId: string) {
+    const exp = state.expeditions.find((e) => e.id === expeditionId) ?? null;
+    const label = `[${exp ? devShipLabel(exp.shipId) : "Expedition"}]`;
+    const next = cancelFieldRepair(state, expeditionId);
+    if (next === state) {
+      const gate = canCancelFieldRepair(state, expeditionId);
+      if (!gate.ok) pushLog(`${label} Cannot cancel the field repair: ${fieldRepairRefusalText(gate.reason)}.`);
+      return;
+    }
+    state = next;
+    const after = state.expeditions.find((e) => e.id === expeditionId);
+    pushLog(`${label} ${after ? fieldRepairLogText(after, "cancel") : "Field repair canceled."}`);
+    doSave();
   }
 
   // Expedition Tiers G2-6 (user #7 "1:1", G13 one confirm): RECALL a run home after the console's one confirm. The pure
@@ -18754,6 +18787,8 @@
           onSetMemberPack={doSetMemberPack}
           onSetTeamTopUp={doSetTeamTopUp}
           onRecall={doRecallExpedition}
+          onOrderRepair={doOrderFieldRepair}
+          onCancelRepair={doCancelFieldRepair}
           onAbandonHeld={doAbandonHeldSystem}
         />
         <!-- Exploration 0.14.0 (E3b): the AWAY-TEAM GAMBITS editor, right under the console so it is

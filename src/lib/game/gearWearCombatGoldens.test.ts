@@ -32,6 +32,11 @@ canonicalOrderOffForThisFile();
 // Ordering determinism part 2 (canonicalOrder.ts: inventory keys and a call's completion log in one order) came after every pin here, traced order-only: the file runs with it off (ordering2Switch.fixture.ts).
 import { ordering2OffForThisFile } from "./ordering2Switch.fixture";
 ordering2OffForThisFile();
+// OC-F14 (the field repair rules stamped at dispatch on a system mixing repair worlds with other bodies) came after every pin
+// here, traced: the file runs with it off (fieldRepairRulesSwitch.fixture.ts), so its pins keep proving their own slice
+// (fieldRepairOrderGoldens.test.ts pins OC-F14's moves and proves them with the switch off).
+import { repairRulesOffForThisFile } from "./fieldRepairRulesSwitch.fixture";
+repairRulesOffForThisFile();
 import { describe, expect, it } from "vitest";
 // Gear wear close-out (2026-11-11: "Make it exact", "Keep the bay rate") came after every pin here: the file runs with it
 // off (gearWearCloseoutSwitch.fixture.ts), so its pins keep proving their own slice (gearWearCloseoutGoldens.test.ts and

@@ -64,7 +64,8 @@ import { ocg1ReadBack } from "./ocg1Registry.fixture";
 // Complement CP-4's rest (the Flight Deck's Integrity on replenish) added one audit row after every pin here: read back innermost.
 import { cp4FdReadBack } from "./cp4FlightDeckRegistry.fixture";
 import { g29ReadBack } from "./g29Registry.fixture";
-import { gwCloseReadBack } from "./gwCloseRegistry.fixture"; // Gear wear close-out: its restated DC Suite claim read back, innermost
+import { gwCloseReadBack } from "./gwCloseRegistry.fixture"; // Gear wear close-out: its restated DC Suite claim read back
+import { ocf14ReadBack } from "./ocf14Registry.fixture"; // OC-F14: the field repair order row read back to pending, innermost
 import { writeFileSync } from "node:fs";
 import { BLUEPRINTS, EQUIPMENT_SLOTS, equipmentSlotGroupLabel, equipmentSlotLabel, type CrewBucket, type GameState, type ShipTypeKey } from "./model";
 import { effectiveShipStats } from "./crewOverlay";
@@ -254,11 +255,11 @@ const MOVED_AFTER: Record<string, string> = {
 describe("Complement CP-12 goldens (captured before the Bridge Module and Crew Quarters tiles)", () => {
   if (CAPTURE) {
     it("captures", () => {
-      writeFileSync(String(import.meta.env.CP12_CAPTURE), JSON.stringify(computePins(cp13ReadBack(cp14ReadBack(cp16ReadBack(cp18ReadBack(cp19ReadBack(gw5ReadBack(ml5ReadBack(otUiReadBack(wr10ReadBack(wr13ReadBack(wr8bReadBack(ocg1ReadBack(cp4FdReadBack(g29ReadBack(gwCloseReadBack(WIRING_REGISTRY)))))))))))))))), null, 2));
+      writeFileSync(String(import.meta.env.CP12_CAPTURE), JSON.stringify(computePins(cp13ReadBack(cp14ReadBack(cp16ReadBack(cp18ReadBack(cp19ReadBack(gw5ReadBack(ml5ReadBack(otUiReadBack(wr10ReadBack(wr13ReadBack(wr8bReadBack(ocg1ReadBack(cp4FdReadBack(g29ReadBack(gwCloseReadBack(ocf14ReadBack(WIRING_REGISTRY))))))))))))))))), null, 2));
     });
     return;
   }
-  const pins = computePins(cp13ReadBack(cp14ReadBack(cp16ReadBack(cp18ReadBack(cp19ReadBack(gw5ReadBack(ml5ReadBack(otUiReadBack(wr10ReadBack(wr13ReadBack(wr8bReadBack(ocg1ReadBack(cp4FdReadBack(g29ReadBack(gwCloseReadBack(WIRING_REGISTRY))))))))))))))));
+  const pins = computePins(cp13ReadBack(cp14ReadBack(cp16ReadBack(cp18ReadBack(cp19ReadBack(gw5ReadBack(ml5ReadBack(otUiReadBack(wr10ReadBack(wr13ReadBack(wr8bReadBack(ocg1ReadBack(cp4FdReadBack(g29ReadBack(gwCloseReadBack(ocf14ReadBack(WIRING_REGISTRY)))))))))))))))));
   it("every reading a player already owns holds (install and uninstall of each module, never evict, the save bytes, the registry)", () => {
     expect(Object.keys(HELD_CAPTURE).length).toBeGreaterThan(40);
     expect(Object.keys(pins.held).sort()).toEqual(Object.keys(HELD_CAPTURE).sort());
@@ -266,7 +267,7 @@ describe("Complement CP-12 goldens (captured before the Bridge Module and Crew Q
   });
   it("the by-design readings: with CP-12 held apart, every one is the pre-CP-12 capture", () => {
     expect(Object.keys(MOVED_BEFORE).length).toBeGreaterThan(5);
-    const pre = withoutCp12(() => computePins(cp12ReadBack(cp13ReadBack(cp14ReadBack(cp16ReadBack(cp18ReadBack(cp19ReadBack(gw5ReadBack(ml5ReadBack(otUiReadBack(wr10ReadBack(wr13ReadBack(wr8bReadBack(ocg1ReadBack(cp4FdReadBack(g29ReadBack(gwCloseReadBack(WIRING_REGISTRY))))))))))))))))));
+    const pre = withoutCp12(() => computePins(cp12ReadBack(cp13ReadBack(cp14ReadBack(cp16ReadBack(cp18ReadBack(cp19ReadBack(gw5ReadBack(ml5ReadBack(otUiReadBack(wr10ReadBack(wr13ReadBack(wr8bReadBack(ocg1ReadBack(cp4FdReadBack(g29ReadBack(gwCloseReadBack(ocf14ReadBack(WIRING_REGISTRY)))))))))))))))))));
     expect(Object.keys(pre.moved).sort()).toEqual(Object.keys(MOVED_BEFORE).sort());
     for (const [k, v] of Object.entries(MOVED_BEFORE)) expect(pre.moved[k], k).toBe(v);
     // The held readings agree with the switch on as well (the switch touches only the moved readings).
