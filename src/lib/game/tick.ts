@@ -6876,7 +6876,7 @@ export function dispatchCaptainOnPatrol(
   // (User 2026-10-28: only when the first cycle's projection breaks a worn system.)
   // GEAR WEAR close-out ("Allow Overtime in pauses"): a docked ship's gear repair Overtime carries into its first pause
   // (it never left home): the pause repairs at the bought rate and is that much shorter.
-  // [OPEN CALL, user to decide]: gearWearEngine.ts DOCKED_OVERTIME_CARRIES_INTO_FIRST_PAUSE (false = clears at dispatch).
+  // User 2026-11-12 "Yes, keep it (Recommended)": gearWearEngine.ts DOCKED_OVERTIME_CARRIES_INTO_FIRST_PAUSE stays true.
   const dockedSteps = DOCKED_OVERTIME_CARRIES_INTO_FIRST_PAUSE ? ship.gearRepairSpeed?.overtimeSteps ?? 0 : 0;
   const firstPause = repeatDispatch && cycle.cycleStartCondition
     ? cycleRepairPause(mission, ship.id, hullType, installedGear, {

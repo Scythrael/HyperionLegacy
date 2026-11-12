@@ -64,6 +64,11 @@ import { withPatrolLegLiftsOff, withPatrolRunClockOff } from "./patrolLegLiftsSw
 // read with the float crewHours counter (crewHoursMs.test.ts traces that move). The offline == live check runs live.
 import { withCrewHoursFloat } from "./crewHoursSwitch.fixture";
 import { wr9OffForThisFile } from "./wr9Switch.fixture";
+// Homeworld reserve (user 2026-11-12; homeworldReserve.ts): this file's pins were captured before the reserve and hash a
+// fleet whose surplus crew the reserve now moves out of the pool, so the whole file runs with it off and its pins keep
+// proving their own slice (switch-off reproduction: every pin holds with it off). homeworldReserveGoldens pins the reserve.
+import { homeworldReserveOffForThisFile } from "./homeworldReserveSwitch.fixture";
+homeworldReserveOffForThisFile();
 
 // Wiring WR-9: this file's pins are about other slices and were captured before WR-9; it runs with WR-9 off (the
 // WR-9 moves are pinned and proven in wr9Goldens.test.ts), so every pin here keeps proving its own slice exactly.

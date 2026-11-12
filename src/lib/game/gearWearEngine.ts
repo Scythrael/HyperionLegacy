@@ -444,7 +444,7 @@ export function pauseRepairWindows(pause: { from: number; overtime?: readonly { 
   return out;
 }
 
-// [OPEN CALL, user to decide] (GEAR WEAR close-out, a builder's rule the user has NOT decided): a docked ship's gear
+// User 2026-11-12, "Yes, keep it (Recommended)" (GEAR WEAR close-out; no longer an open call): a docked ship's gear
 // repair Overtime carries into a "Repair first, then go" pause at dispatch (the ship never left home), so that pause
 // repairs at the bought rate and is shorter (tick.ts dispatchCaptainOnPatrol). false = it clears at dispatch, as when
 // any ship leaves (the record then clears at the next tick: trackGearRepairJobs keeps it only on a pause that carries

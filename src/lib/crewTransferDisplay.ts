@@ -134,8 +134,9 @@ export function transferDestinations(state: GameState, from: CrewTransferEndpoin
       mode: null,
       status: "ok",
       pickable: true,
-      line: `no cap · ${waiting} waiting`,
-      shortLine: `no cap · ${waiting} waiting`,
+      // Homeworld reserve (user 2026-11-12): the pool is no longer "no cap" (surplus no berth can take moves on).
+      line: `${waiting} waiting`,
+      shortLine: `${waiting} waiting`,
       warn: null,
       shortWarn: null,
       canSwitchToManual: false,

@@ -31,7 +31,8 @@ import { assignOfficerToShip, unassignOfficer, SENIOR_STAFF_SEATS } from "./seni
 import { autoCrewShip } from "./autoCrew";
 import { quartersCapacityBonus } from "./crewModules";
 import { remainingCapacityForSignature } from "./commandStructure";
-import { addToBucketList, removeFromBucketList, coalesceBuckets } from "./crew";
+import { addToBucketList, removeFromBucketList, coalesceBuckets, totalCrew } from "./crew";
+import { HOMEWORLD_RESERVE_SWITCH, homeworldReserveOf, withHomeworldReserve } from "./homeworldReserve";
 // S4-CP39 (Ground Ops GO-17): applyRoster brings its linked Armory ship loadout. armory.ts never imports this
 // module, so no cycle.
 import {
@@ -510,16 +511,22 @@ function applyRosterSteps(state: GameState, rosterId: string, shipId: string, wi
     ...shipNotables.map((n) => ({ ...notableSignature(n), count: 1 })),
   ]);
   const filled = autoCrewShip(next.crewPool, hullType, { buckets: seededBuckets, mode }, bonusCapacity);
-  let bulkBuckets = filled.complement.buckets;
+  // Homeworld reserve (user 2026-11-12): the berths the pool could not fill draw from the reserve, the resolveCrew rule
+  // (the same filler and caps). With the reserve empty this is the fill it always was.
+  const reserve = HOMEWORLD_RESERVE_SWITCH.live ? homeworldReserveOf(next) : [];
+  const drawn = reserve.length > 0 ? autoCrewShip(reserve, hullType, filled.complement, bonusCapacity) : null;
+  const tookReserve = drawn !== null && totalCrew(drawn.complement.buckets) > totalCrew(filled.complement.buckets);
+  let bulkBuckets = tookReserve ? drawn.complement.buckets : filled.complement.buckets;
   for (const n of shipNotables) {
     bulkBuckets = removeFromBucketList(bulkBuckets, notableSignature(n), 1);
   }
 
-  return {
+  const applied: GameState = {
     ...next,
     crewPool: filled.pool,
     ships: next.ships.map((s) => (s.id === shipId ? { ...s, complement: { buckets: bulkBuckets, mode } } : s)),
   };
+  return tookReserve ? withHomeworldReserve(applied, drawn.pool) : applied;
 }
 
 // S4-CP39: check the roster's linked Armory SHIP loadout out to the ship, swapping out a DIFFERENT loadout

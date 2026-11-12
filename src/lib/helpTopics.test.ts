@@ -1095,6 +1095,12 @@ describe("Combat Patrols: the drone rebuild between waves", () => {
     expect(b).toContain("makes the Flight Deck's own Deck Handling stronger");
     expect(b).not.toMatch(/\u2014|-{2}|\bfit/);
   });
+
+  // User 2026-11-12 "Keep both (Recommended)": Deck Handling and the Flight Deck lift also act on the in-combat pod.
+  it("says both also speed a drone pod's In-Combat Replenish during a wave", () => {
+    const b = HELP_TOPICS.find((t) => t.id === "patrols")!.body;
+    expect(b).toContain("Deck Handling, and the Flight Deck lift below half hull, also speed a drone pod's In-Combat Replenish during a wave.");
+  });
 });
 // G2-9 close-out (user 2026-11-11 "Everything"): every tier the player reads is a Roman numeral, so no Help text may
 // write a tier as an Arabic number ("tier 1", "tier-1", "Tier 3").

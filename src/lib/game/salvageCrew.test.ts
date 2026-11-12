@@ -270,15 +270,17 @@ describe("salvageShipPeople + salvageShipPeopleText: what the confirm dialog say
 
   it("words it with plurals and US English, no dashes", () => {
     expect(salvageShipPeopleText({ crew: 12, awayMembers: 3, officers: 1, notables: 0 })).toBe(
-      "12 crew return to the pool; 3 away members and 1 officer become unassigned."
+      "12 crew return to the pool, or the Homeworld reserve where no berth can take them; 3 away members and 1 officer become unassigned."
     );
-    expect(salvageShipPeopleText({ crew: 1, awayMembers: 0, officers: 0, notables: 0 })).toBe("1 crew member returns to the pool.");
+    expect(salvageShipPeopleText({ crew: 1, awayMembers: 0, officers: 0, notables: 0 })).toBe(
+      "1 crew member returns to the pool, or the Homeworld reserve if no berth can take them.",
+    );
     expect(salvageShipPeopleText({ crew: 0, awayMembers: 1, officers: 0, notables: 0 })).toBe("1 away member becomes unassigned.");
     expect(salvageShipPeopleText({ crew: 0, awayMembers: 2, officers: 2, notables: 1 })).toBe(
       "2 away members, 2 officers and 1 notable crew member become unassigned."
     );
     expect(salvageShipPeopleText({ crew: 1500, awayMembers: 0, officers: 0, notables: 2 })).toBe(
-      "1,500 crew return to the pool; 2 notable crew members become unassigned."
+      "1,500 crew return to the pool, or the Homeworld reserve where no berth can take them; 2 notable crew members become unassigned."
     );
     expect(salvageShipPeopleText({ crew: 0, awayMembers: 0, officers: 0, notables: 0 })).toBeNull();
   });

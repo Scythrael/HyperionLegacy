@@ -226,6 +226,7 @@ const STATE_OUTCOME_KEYS: readonly (keyof GameState)[] = [
   "museumV2",
   "relicDiscovered",
   "crewPool",
+  "homeworldReserve",
 ];
 const CAPTAIN_OUTCOME_KEYS: readonly (keyof CaptainState)[] = ["id", "xp", "level", "lastStopReason"];
 const MISSION_OUTCOME_KEYS: readonly (keyof CaptainMissionState)[] = ["missionKey", "phase", "phaseProgressTicks", "cargo", "recalled"];
