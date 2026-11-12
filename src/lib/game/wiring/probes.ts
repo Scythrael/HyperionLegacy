@@ -52,6 +52,7 @@ import {
   type ExpeditionBody,
   type ExpeditionPlanetType,
   type GambitActionId,
+  type GambitProgram,
   type GambitRule,
   type GambitStatusId,
   type GambitTargetSelector,
@@ -286,7 +287,7 @@ import { addItemQuality, itemTotal, setItemBuckets } from "../inventory";
 import { blankTotal, highestBlankQuality } from "../qualityBlanks";
 import { GROUND_CONDITIONS, conditionCureSeconds, memberBaySeconds } from "../medicalBay";
 import { loadoutSlotDefsForShipType } from "../armory";
-import { gambitProgramEquals } from "../memberGambits";
+import { accountHireDefaultSet, applyMemberGambitPreset, clearAccountHireDefault, gambitProgramEquals, mergeWithBuiltInDefault, setAccountHireDefaultFromMember } from "../memberGambits";
 // Gas Giant Study GG-2 / GG-3: the study engine and its content.
 import {
   GALILEO_VARIETY,
@@ -3877,8 +3878,44 @@ function readContent(id: string, s: GameState): number {
       return ocg1AuditValue(s, a);
     case "ocf14":
       return ocf14AuditValue(s, a, on);
+    case "ocf12":
+      return ocf12AuditValue(s, a);
     default:
       throw new Error(`unknown content probe ${id}`);
+  }
+}
+
+// OC-F12's control row (user answers 2026-11-12: Option A, Balanced "Treat as no default", Clear "Security only"), read
+// through the real actions and a real hire (awayTeam.ts hireAwayMember, which reads the pair through accountProgramForHire).
+// 1 when all hold: a Security hire after Set starts with the merged copy of the member's Decapitate program; a hire after
+// Clear starts on the built-in default (no program of its own) and the Science half is kept; setting a Balanced program
+// clears the default (the next hire again on the built-in default). 0 otherwise. Pure.
+function ocf12AuditValue(s: GameState, key: string): number {
+  switch (key) {
+    case "accountDefaultControl": {
+      // The program the next Security hire starts with of its own (undefined = the built-in default), "refused" when no
+      // hire happens (so a refused hire never reads as the built-in default).
+      const hireProgram = (st: GameState): GambitProgram | undefined | "refused" => {
+        const candidate = awayRecruitCandidates(st).find((c) => c.teamType === "security");
+        if (!candidate) return "refused";
+        const hired = hireAwayMember(st, candidate.id, WIRING_SHIP_ID).awayMembers.find((m) => m.hiredFrom === candidate.id);
+        return hired ? hired.gambit : "refused";
+      };
+      const science: GambitProgram = [{ target: "self", action: "hold" }];
+      const crew = applyMemberGambitPreset(withAwayTeam(s), WIRING_SECURITY_ID, "decapitate");
+      const base = { ...crew, gambitPrograms: { ...crew.gambitPrograms, science } };
+      const decapitate = gambitPresetPrograms("decapitate")!.security;
+      const set = setAccountHireDefaultFromMember(base, WIRING_SECURITY_ID);
+      const afterSet = hireProgram(set);
+      const gotIt = Array.isArray(afterSet) && gambitProgramEquals(afterSet, mergeWithBuiltInDefault(decapitate));
+      const cleared = clearAccountHireDefault(set);
+      const clearOk = hireProgram(cleared) === undefined && cleared.gambitPrograms.science === science;
+      const balanced = setAccountHireDefaultFromMember(applyMemberGambitPreset(set, WIRING_SECURITY_ID, "balanced"), WIRING_SECURITY_ID);
+      const balancedOk = hireProgram(balanced) === undefined && !accountHireDefaultSet(balanced);
+      return gotIt && clearOk && balancedOk ? 1 : 0;
+    }
+    default:
+      throw new Error(`unknown OC-F12 audit probe ${key}`);
   }
 }
 

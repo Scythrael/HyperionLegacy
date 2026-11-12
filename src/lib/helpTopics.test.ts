@@ -3,6 +3,19 @@ import { DEUTERIUM_CANISTER_USES, DEUTERIUM_DRIVE_MIN_CLASS, FIELD_DEVICES_PARAG
 import { gatheringTrainingStamp } from "./game/gearWearEngine";
 import { OVERTIME_CREDITS_PER_MINUTE, OVERTIME_MAX_STEPS as OT_MAX, OVERTIME_STEP_RATE as OT_STEP } from "./game/processSpeed";
 
+// OC-F12 control (user answers 2026-11-12): the Away-Team Members topic states Set for new hires and Clear as built.
+describe("the new-hire default in the Away-Team Members topic (OC-F12)", () => {
+  it("states Set for new hires, the merge, Clear and Balanced, and that nobody already hired changes", () => {
+    const b = HELP_TOPICS.find((x) => x.id === "awayMembers")!.body;
+    expect(b).toContain("NEW HIRES: a Security member you hire starts on the built-in default tactical protocols.");
+    expect(b).toContain("press Set for new hires");
+    expect(b).toContain("with the built-in cure, heal, brace and grenade rules they lack placed first");
+    expect(b).toContain("Clear, or Set for new hires on a member running the Balanced preset, puts new hires back on the built-in default.");
+    expect(b).toContain("Members already hired never change.");
+    expect(b.includes(String.fromCharCode(0x2014)) || b.includes("-".repeat(2))).toBe(false);
+  });
+});
+
 // OT-UI (0.14.0, the 2026-11-10 Overtime buttons mockup): the Overtime topic is truthful for every job kind, its numbers
 // read from the engine (processSpeed.ts).
 describe("the field repair order in the Scan Events topic (OC-F14)", () => {

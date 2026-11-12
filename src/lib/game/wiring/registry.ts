@@ -3824,8 +3824,8 @@ function contentEntries(): WiringEntry[] {
       ...base("away", "GAMBIT_PROGRAMS", "account", "The account gambit pair (DEFAULT_GAMBIT_PROGRAMS, state.gambitPrograms): a pair the player changed is given to each newly hired Security member, merged with the built-in default's support rules (OC-F12)"),
       // Wiring WR-10 (OC-F12 "Account-wide defaults"): a hire with the changed pair (Decapitate) vs the fresh pair. The fix
       // round (user 2026-11-10 "Merge with built-in"): the hire's copy carries the built-in cure, heal, brace and grenade
-      // rules it lacks. Live: every hire reads the stored pair. No screen sets the pair since GO-16 (Q21), so a pair is
-      // changed only on a save that set it before; the missing control is its own row, away:audit:accountDefaultControl.
+      // rules it lacks. Live: every hire reads the stored pair. The control that sets and clears it (OC-F12, user
+      // 2026-11-12 Option A) is its own row, away:audit:accountDefaultControl.
       probe: "content:wr10:accountHire",
       contexts: ["ground"],
       direction: "up",
@@ -3833,7 +3833,7 @@ function contentEntries(): WiringEntry[] {
       magnitude: () => 1,
       on: sourceOn,
       status: LIVE,
-      note: "read at every hire; no control sets the pair since GO-16 (the control: away:audit:accountDefaultControl, OC-F12 mockup)",
+      note: "read at every hire; set and cleared in the Tactical Protocols editor (the control: away:audit:accountDefaultControl, OC-F12)",
     }),
   );
   // Field Kits FKR-6 (group 7 "Rank rules + reserve"; N15): the rank conditions ("target is Elite or stronger",
@@ -4724,9 +4724,10 @@ const AUDIT_ROWS: readonly { id: string; system: WiringSystem; claim: string; st
   // Ship lane (FieldRepairStrip.svelte) gives the order; every field repair on a stamped run takes the faster site.
   { id: "away:audit:fieldRepairOrder", system: "away", claim: "Player-ordered field repair: a one-tap order on the expedition's Ship lane repairs the hull at the faster of the nearest repair world and orbit (the cancel is tested in fieldRepairOrder.test.ts)", status: LIVE },
   // Wiring WR-10 fix round (OC-F12): the account pair is read at every hire (away:GAMBIT_PROGRAMS:account, live and
-  // measured), but GO-16 hid the old editor, so no control sets or clears it: only a save that set it before GO-16 has a
-  // changed pair. The control is a new screen element and needs the user's mockup.
-  { id: "away:audit:accountDefaultControl", system: "away", claim: "A control to set or clear the account default program (no screen sets the account pair since GO-16)", status: pending("WR-10, OC-F12 mockup (a set / clear account default control in the Tactical Protocols editor)") },
+  // measured). The control (user answers 2026-11-12, Option A): "Set for new hires" on a member's program and a "New hires"
+  // status line with Clear in the Tactical Protocols editor (memberGambits.ts setAccountHireDefaultFromMember /
+  // clearAccountHireDefault); a Balanced program clears the default, and Clear clears the Security half only.
+  { id: "away:audit:accountDefaultControl", system: "away", claim: "A control to set or clear the account default program: Set for new hires copies a member's program into the account pair's Security half (a Balanced program clears it), Clear puts that half back; only later hires read it", status: LIVE },
   // Wiring OC-G1 (user 2026-10-16 "Delete it (Recommended)"): the legacy path and its legacy-only effects are deleted; a
   // legacy run still in a save is finished at load (save.ts finishLegacyExpeditionsOnLoad, tested in legacyExpeditionFinish.test.ts).
   { id: "away:audit:legacyOnly", system: "away", claim: "Legacy-only: MAX_BATTLE_ATTEMPTS, EVAC_REWARD_FRACTION, ENCOUNTER_DROP_SCALE, scan ground battles, softenAmbush, the flat 2 h injury: deleted with the legacy path (OC-G1); a legacy run in a save is finished at load", status: LIVE },
@@ -5276,6 +5277,16 @@ function auditRowWiring(): Readonly<Record<string, Partial<EntryInput>>> {
       magnitude: () => OCF14_PROBE_DAMAGE,
       on: sourceOn,
       note: "hull fixed by the faster option's time: the order repairs all 48 in orbit (132 s) where the old nearest-world rule took 688 s",
+    },
+    // OC-F12's control (user 2026-11-12, Option A): the real Set and Clear and a real hire after each (probes.ts
+    // ocf12AuditValue).
+    "away:audit:accountDefaultControl": {
+      probe: "content:ocf12:accountDefaultControl" as ProbeId,
+      contexts: ["ground"],
+      direction: "none",
+      curve: { kind: "equals" },
+      magnitude: () => 1,
+      note: "1 when a hire after Set starts with the merged copy, a hire after Clear or after setting Balanced starts on the built-in default, and Clear keeps the Science half",
     },
     // Wiring OC-G1 (user 2026-10-16 "Delete it"): the legacy path is gone (a legacy run is finished, never walked; the
     // load step is tested in legacyExpeditionFinish.test.ts), and the pre-SQ-4 fallbacks it did not cover read as claimed.

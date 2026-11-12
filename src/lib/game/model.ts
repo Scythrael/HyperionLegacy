@@ -10188,6 +10188,11 @@ export interface GameState {
   // default. Plain nested arrays/objects (no Decimals), so hydrateDecimals is unchanged, and NOTHING on the
   // tick path reads this field except a dispatch, so a save with no expedition stays additive-neutral.
   gambitPrograms: GambitPrograms;
+  // OC-F12 control (user 2026-11-12, Option A): the Security member whose program "Set for new hires" last copied into
+  // gambitPrograms.security, for the editor's status line ("from Okafor"). OPTIONAL and display only: absent on a fresh
+  // save, on a save that set the pair before the control, and after Clear; an id that no longer names a member reads as
+  // unknown. Nothing on the tick or in a hire reads it.
+  gambitDefaultFrom?: string;
   // --- Exploration 0.14.0 (Phase E4a): the RELIC STORE ---------------------------------------------
   // See the RELICS block above RelicVaultToken. All plain values (no Decimals), so hydrateDecimals is
   // unchanged; freshState seeds the empty store and the v62->v63 migration backfills the IDENTICAL shape.

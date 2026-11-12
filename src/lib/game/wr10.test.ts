@@ -21,7 +21,7 @@ import { STUDY_BASE_SECONDS, STUDY_MIN_SECONDS, studySeconds } from "./gasGiantS
 import { awayTraitEffectText } from "./awayTraits";
 import { mergeWithBuiltInDefault } from "./memberGambits";
 import { CORRODE_RAMP_TEXT, FIELD_KITS_PARAGRAPHS, GAS_GIANT_PARAGRAPHS, SECURITY_IN_A_FIGHT_PARAGRAPH } from "../helpTopics";
-import { ACCOUNT_PAIR_NOTICE, FALL_BACK_HINT, SUPPRESS_HINT, ruleHints } from "../gambitEditorDisplay";
+import { FALL_BACK_HINT, SUPPRESS_HINT, hireSetRow, ruleHints } from "../gambitEditorDisplay";
 import { fieldworkEffect, fieldworkSpeedMult, memberFieldworkFactor, memberFieldworkTotal } from "./fieldwork";
 import { advanceExpedition } from "./expedition";
 import { makeRng } from "./combat/rng";
@@ -313,7 +313,8 @@ describe("OC-F12 account-wide defaults for new hires", () => {
     expect(own).toHaveLength(2);
     // Before kits are live in runs the built-in default is D19's, with no grenade rules.
     expect(mergeWithBuiltInDefault(own, false).map((r) => r.action)).toEqual(["cure", "aidHeal", "brace", "attack"]);
-    expect(ACCOUNT_PAIR_NOTICE).toContain("placed ahead of your rules");
+    // The OC-F12 control's Set row states the order (it replaced the account-pair notice, user 2026-11-12 Option A).
+    expect(hireSetRow(freshState(), { name: "Okafor", hasOwn: true, program: own }).note).toContain("the built-in cure, heal and grenade rules it lacks, placed first");
   });
 });
 

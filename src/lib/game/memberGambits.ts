@@ -15,7 +15,7 @@
 // Imports model.ts, gambit.ts, groundTeamSlots.ts and (FKR-10, the runs switch) fieldKits.ts only.
 
 import type { AwayMember, GambitProgram, GambitRule, GameState } from "./model";
-import { DEFAULT_MEMBER_GAMBIT, FIELD_KITS_DEFAULT_MEMBER_GAMBIT, groundSquadSize } from "./model";
+import { DEFAULT_GAMBIT_PROGRAMS, DEFAULT_MEMBER_GAMBIT, FIELD_KITS_DEFAULT_MEMBER_GAMBIT, groundSquadSize } from "./model";
 import { FIELD_KITS_RUNS_LIVE } from "./fieldKits";
 import { GAMBIT_PRESETS, GAMBIT_PRESET_EARLIER_PROGRAMS, gambitPresetPrograms, type GambitPreset } from "./gambit";
 import { cleanShipGroundTeams, findGroundSlot } from "./groundTeamSlots";
@@ -85,7 +85,8 @@ export function fieldKitsFightProgram(program: readonly GambitRule[]): GambitPro
 // an afflicted or hurt ally, the member badly hurt, a grenade installed with a charge left).
 export const ACCOUNT_MERGE_ACTIONS: readonly GambitRule["action"][] = ["cure", "aidHeal", "brace", "throwGrenade"];
 
-// THE MERGE ORDER (documented in the editor's notice, gambitEditorDisplay.ts ACCOUNT_PAIR_NOTICE): the built-in default's
+// THE MERGE ORDER (stated by the editor's "Set for new hires" row and status line, gambitEditorDisplay.ts hireSetRow /
+// hireDefaultStatus, OC-F12 control; before it the retired account-pair notice said so): the built-in default's
 // rules of each ACCOUNT_MERGE_ACTIONS kind the player's program has NO rule of, in the built-in default's own order (the
 // Field Kits default once kits are live in runs, so its two grenade rules come along; D19's default otherwise), placed
 // AHEAD of the player's rules, which follow in their own order, every one kept. A kind the player's program already has
@@ -98,6 +99,46 @@ export function mergeWithBuiltInDefault(program: readonly GambitRule[], kitsLive
   const has = new Set(program.map((r) => r.action));
   const added = builtIn.filter((r) => ACCOUNT_MERGE_ACTIONS.includes(r.action) && !has.has(r.action));
   return cloneProgram([...added, ...program]);
+}
+
+// ============================================================================
+// OC-F12 control (user answers 2026-11-12 on docs/mockups/2026-11-11-account-default-control-mockup.html): "Option A
+// (Recommended)", a "Set for new hires" row on a member's program plus a status line with Clear. The two actions write
+// the account pair's SECURITY half only (state.gambitPrograms.security, the half awayTeam.ts accountProgramForHire reads
+// at each Security hire). Neither touches any member already hired, any ship or any run: the default reaches only the
+// members hired after it. No SAVE_VERSION change: the pair already exists; `gambitDefaultFrom` is optional.
+// ============================================================================
+
+// Whether a hire default is set: the stored Security program differs from the fresh one (DEFAULT_GAMBIT_PROGRAMS, the
+// Balanced preset), the exact rule accountProgramForHire reads. Pure.
+export function accountHireDefaultSet(state: Pick<GameState, "gambitPrograms">): boolean {
+  const program = state.gambitPrograms?.security;
+  return !!program && !gambitProgramEquals(program, DEFAULT_GAMBIT_PROGRAMS.security);
+}
+
+// CLEAR (user 2026-11-12 "Security only (Recommended)": clears only the half being viewed): the Security half goes back to
+// the fresh program, so new Security hires start on the built-in default again; the Science half stays exactly as stored.
+// Refuses (same state) when nothing is set. Pure.
+export function clearAccountHireDefault(state: GameState): GameState {
+  if (!accountHireDefaultSet(state) && state.gambitDefaultFrom === undefined) return state;
+  const { gambitDefaultFrom: _from, ...rest } = state;
+  const science = state.gambitPrograms?.science ?? cloneProgram(DEFAULT_GAMBIT_PROGRAMS.science);
+  return { ...rest, gambitPrograms: { ...state.gambitPrograms, security: cloneProgram(DEFAULT_GAMBIT_PROGRAMS.security), science } };
+}
+
+// SET FOR NEW HIRES: the account Security program becomes a copy of the program Security member `memberId` runs (what
+// the editor shows, memberEditableProgram), and `gambitDefaultFrom` names them. Their program equal to the fresh one
+// (Balanced; user 2026-11-12 "Treat as no default (Recommended)": choosing Balanced just clears the default) clears it
+// instead. Refuses (same state) for an unknown or non-Security member, a member with no program of their own (the
+// built-in default: Clear gives hires that), or a program already the stored one. Pure.
+export function setAccountHireDefaultFromMember(state: GameState, memberId: string): GameState {
+  const m = securityMember(state, memberId);
+  if (!m || !memberHasOwnGambit(m)) return state;
+  const program = memberEditableProgram(m);
+  if (gambitProgramEquals(program, DEFAULT_GAMBIT_PROGRAMS.security)) return clearAccountHireDefault(state);
+  const pair = state.gambitPrograms ?? { security: [], science: cloneProgram(DEFAULT_GAMBIT_PROGRAMS.science) };
+  if (accountHireDefaultSet(state) && gambitProgramEquals(pair.security, program)) return state;
+  return { ...state, gambitPrograms: { ...pair, security: program }, gambitDefaultFrom: m.id };
 }
 
 // The preset whose Security program the member's OWN program matches, else null (the default is not a preset,

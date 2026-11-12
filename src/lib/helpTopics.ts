@@ -205,7 +205,7 @@ import { CASTER_CORRODE_PERMILLE, casterCorrodePermille } from "./game/groundFig
 // WR-8b: the enemy torpedoes (every number from the engine).
 import { PATROL_TORPEDO_HELP, SHIP_EVENT_TORPEDO_HELP } from "./enemyTorpedoDisplay";
 import { EQUIPMENT_SLOTS, GRENADE_CARRY_PER_LINE, GRENADE_FUSE_MOVED_CLEAR_CHANCE, GRENADE_THROWS_PER_BATTLE } from "./game/model";
-import { ACTION_LABEL, FALL_BACK_HINT, RANK_OPTIONS, SELECTOR_LABEL, SUPPRESS_HINT } from "./gambitEditorDisplay";
+import { ACTION_LABEL, FALL_BACK_HINT, RANK_OPTIONS, SELECTOR_LABEL, SUPPRESS_HINT, mergeAddedKindsText } from "./gambitEditorDisplay";
 import { kitEffectText } from "./fieldKitsDisplay";
 // Gas Giant Study GG-8: the study, probe, canister, data study, ancient data and Survey Log topics read every number,
 // name and list from the engine tables and the screens' display modules.
@@ -1045,6 +1045,9 @@ export const AWAY_MEMBERS_PARAGRAPHS: readonly string[] = [
   "INJURIES: a member still in the medical bay when the expedition is claimed comes home Injured for the bay time left. They cannot deploy until they recover, and their card shows the time left. Their gear stays on them.",
   `UNASSIGNED: members with no ship, for example after their hull was salvaged, are listed on every ship's Away Team tab. ${UNASSIGNED_INTRO}`,
   "WHILE THE SHIP IS OUT: on a mission, patrol or short-range run, or until its expedition is claimed, its members cannot be hired, fired or moved, and their gear and implants cannot change.",
+  // OC-F12 control (user answers 2026-11-12, Option A; Balanced "Treat as no default"; Clear "Security only"): the editor's
+  // Set for new hires and Clear (memberGambits.ts), the merge's kinds read from the engine (mergeWithBuiltInDefault).
+  `NEW HIRES: a Security member you hire starts on the built-in default tactical protocols. To change that, pick a Security member in Away-Team Tactical Protocols (the Ops tab, under Exploration) and press Set for new hires: each Security member hired after that starts with a copy of their protocols, with the built-in ${mergeAddedKindsText([])} rules they lack placed first. Clear, or Set for new hires on a member running the Balanced preset, puts new hires back on the built-in default. Members already hired never change.`,
   "The Team Types and Squads topic covers squads, the reserve and deploying; the Recruiting topic covers the board.",
 ];
 
