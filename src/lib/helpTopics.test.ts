@@ -5,6 +5,23 @@ import { OVERTIME_CREDITS_PER_MINUTE, OVERTIME_MAX_STEPS as OT_MAX, OVERTIME_STE
 
 // OT-UI (0.14.0, the 2026-11-10 Overtime buttons mockup): the Overtime topic is truthful for every job kind, its numbers
 // read from the engine (processSpeed.ts).
+describe("the field repair order in the Scan Events topic (OC-F14)", () => {
+  it("states the faster rule and the one-tap order and Cancel as built", () => {
+    const b = HELP_TOPICS.find((x) => x.id === "scanEvents")!.body;
+    expect(b).toContain("wherever finishes sooner");
+    expect(b).toContain("a tie goes to orbit");
+    expect(b).toContain("ORDERING A FIELD REPAIR");
+    expect(b).toContain("Order field repair");
+    expect(b).toContain("Cancel stops it with one tap");
+    expect(b).toContain("keeping the share it already repaired");
+    expect(b).toContain("it still flies back from a world it set down on");
+    expect(b).toContain("it starts when the ship is back");
+    expect(b).not.toContain("sets down on the nearest");
+    expect(b.includes(String.fromCharCode(0x2014))).toBe(false);
+    expect(b).not.toMatch(/-{2}|\bfit/);
+  });
+});
+
 describe("the Overtime topic (OT-UI)", () => {
   it("names every job kind it is offered on, the engine's price rule and its refusals", () => {
     const t = HELP_TOPICS.find((x) => x.id === "overtime");

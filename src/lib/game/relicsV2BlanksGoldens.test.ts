@@ -8,6 +8,11 @@
 // rarity only"), and the rarity at Tier I. A later pin names its move and the reason.
 // NEVER regenerate these from a later build.
 
+// OC-F14 (the field repair rules stamped at dispatch on a system mixing repair worlds with other bodies) came after every pin
+// here, traced: the file runs with it off (fieldRepairRulesSwitch.fixture.ts), so its pins keep proving their own slice
+// (fieldRepairOrderGoldens.test.ts pins OC-F14's moves and proves them with the switch off).
+import { repairRulesOffForThisFile } from "./fieldRepairRulesSwitch.fixture";
+repairRulesOffForThisFile();
 import { describe, it, expect } from "vitest";
 // Wiring WR-10 (the away rules stamped at dispatch, a hire's account program) came after every pin here: the whole file
 // runs with WR-10 off (wr10Switch.fixture.ts), so its pins keep proving their own slice (wr10Goldens.test.ts pins WR-10's).
