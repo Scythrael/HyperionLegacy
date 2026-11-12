@@ -14,6 +14,8 @@ import { resolveCrew } from "./crewOverlay";
 import { totalCrew } from "./crew";
 import { tick } from "./tick";
 import { TRANSPORT_WINDOW_SECONDS } from "./transports";
+import { homeworldReserveCount } from "./homeworldReserve";
+import { withHomeworldReserveOff } from "./homeworldReserveSwitch.fixture";
 
 const DAY = 86400;
 // The fleet below seats 2,920 crew, about 5 days of transports; 35 more days leave about 20,000 in the pool.
@@ -50,24 +52,52 @@ export function fullFleetWithDeepPool(): GameState {
 }
 
 describe("crew pool stays cheap once every berth is full", () => {
-  it(`a 35-day pool (about 20,000 crew) through a ${SPAN_SECONDS / 3600}-hour catch-up`, () => {
-    const s = fullFleetWithDeepPool();
-    const pooled = totalCrew(s.crewPool);
-    expect(pooled).toBeGreaterThan(19500);
-    expect(s.lastTransportWindow).toBe(Math.floor((POOL_DAYS * DAY + 7) / TRANSPORT_WINDOW_SECONDS));
+  // The CP-21 case as it was measured: the homeworld reserve OFF, so the surplus stays in the pool (the guard's own path).
+  it(`a 35-day pool (about 20,000 crew) through a ${SPAN_SECONDS / 3600}-hour catch-up (reserve off)`, () => {
+    withHomeworldReserveOff(() => deepPoolCatchUp());
+  }, 600000);
 
-    // Warm up (JIT, caches) on a short span, then time the catch-up.
+  // Homeworld reserve (user 2026-11-12): the same fleet with the reserve live. The first call moves the 35 days of surplus
+  // to the reserve, every later window moves its own transport, and the pool stays empty; the reserve must cost no more
+  // than the pool did (the guard's memo holds the reserve's reference, so an idle reserve is never re-scanned).
+  it(`a 35-day homeworld reserve (about 20,000 crew) through a ${SPAN_SECONDS / 3600}-hour catch-up`, () => {
+    const s = fullFleetWithDeepPool();
+    const reserved = homeworldReserveCount(s);
+    expect(reserved).toBeGreaterThan(19500);
+    expect(s.crewPool).toEqual([]);
     tick(60, s, lcg(0x21));
     const t0 = performance.now();
     const out = tick(SPAN_SECONDS, s, lcg(0x21));
     const ms = performance.now() - t0;
     const perStep = ms / SPAN_SECONDS;
     report(
-      `[perf] crew pool ${pooled} crew, ${s.ships.length} ships, ${SPAN_SECONDS} steps: ${ms.toFixed(0)} ms, ${(perStep * 1000).toFixed(1)} us per step`,
+      `[perf] homeworld reserve ${reserved} crew, ${s.ships.length} ships, ${SPAN_SECONDS} steps: ${ms.toFixed(0)} ms, ${(perStep * 1000).toFixed(1)} us per step`,
     );
-    // Every transport stayed in the pool (the fleet was full), and the span ran.
     expect(out.gameTimeSeconds).toBe(s.gameTimeSeconds + SPAN_SECONDS);
-    expect(totalCrew(out.crewPool)).toBeGreaterThanOrEqual(pooled);
+    // Every transport went on to the reserve (the fleet was full) and the pool stayed empty.
+    expect(homeworldReserveCount(out)).toBe(reserved + 12 * (SPAN_SECONDS / TRANSPORT_WINDOW_SECONDS));
+    expect(out.crewPool).toEqual([]);
     expect(perStep).toBeLessThan(PER_STEP_BUDGET_MS);
   }, 600000);
 });
+
+function deepPoolCatchUp(): void {
+  const s = fullFleetWithDeepPool();
+  const pooled = totalCrew(s.crewPool);
+  expect(pooled).toBeGreaterThan(19500);
+  expect(s.lastTransportWindow).toBe(Math.floor((POOL_DAYS * DAY + 7) / TRANSPORT_WINDOW_SECONDS));
+
+  // Warm up (JIT, caches) on a short span, then time the catch-up.
+  tick(60, s, lcg(0x21));
+  const t0 = performance.now();
+  const out = tick(SPAN_SECONDS, s, lcg(0x21));
+  const ms = performance.now() - t0;
+  const perStep = ms / SPAN_SECONDS;
+  report(
+    `[perf] crew pool ${pooled} crew, ${s.ships.length} ships, ${SPAN_SECONDS} steps: ${ms.toFixed(0)} ms, ${(perStep * 1000).toFixed(1)} us per step`,
+  );
+  // Every transport stayed in the pool (the fleet was full), and the span ran.
+  expect(out.gameTimeSeconds).toBe(s.gameTimeSeconds + SPAN_SECONDS);
+  expect(totalCrew(out.crewPool)).toBeGreaterThanOrEqual(pooled);
+  expect(perStep).toBeLessThan(PER_STEP_BUDGET_MS);
+}

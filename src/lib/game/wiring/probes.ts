@@ -1472,10 +1472,11 @@ function autoCrewLeanDivisionSeats(s: GameState): number {
   return autoCrewFill(s).reduce((a, b) => a + (lean.includes(b.profession) ? b.count : 0), 0);
 }
 
-// WR-6: the crew one transport window delivers into the fleet (the pool and every complement it auto-fills).
+// WR-6: the crew one transport window delivers into the fleet (the pool, every complement it auto-fills, and the
+// homeworld reserve its surplus moves to, user 2026-11-12).
 function crewHeads(s: GameState): number {
   const count = (buckets: readonly { count: number }[]) => buckets.reduce((a, b) => a + b.count, 0);
-  return count(s.crewPool) + s.ships.reduce((a, sh) => a + count(sh.complement?.buckets ?? []), 0);
+  return count(s.crewPool) + count(s.homeworldReserve ?? []) + s.ships.reduce((a, sh) => a + count(sh.complement?.buckets ?? []), 0);
 }
 function transportCrewDelivered(s: GameState): number {
   const due: GameState = { ...s, lastTransportWindow: 0, gameTimeSeconds: TRANSPORT_WINDOW_SECONDS };

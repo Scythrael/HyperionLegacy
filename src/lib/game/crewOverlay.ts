@@ -40,6 +40,9 @@ import { captainRacialBonus, officerCrewHoursMs, officerRacialBonus, officerRank
 import { getSeniorStaffBonusById } from "./seniorStaffBonuses";
 import { crewTransportsDue, deliverDueTransports, transportBatchSize } from "./transports";
 import { autoCrewShip } from "./autoCrew";
+// Homeworld reserve (user 2026-11-12): the surplus sweep and the reserve list (imports crew, commandStructure and
+// crewModules only, so no cycle).
+import { HOMEWORLD_RESERVE_SWITCH, NO_RESERVE, homeworldReserveOf, sweepSurplusToReserve, withHomeworldReserve } from "./homeworldReserve";
 import { commandStructureWithBonus, complementTotalCap, hullLeanDivisions, type CommandStructure } from "./commandStructure";
 import {
   installedQuartersModule,
@@ -1321,9 +1324,17 @@ export function foldOfficerPromotionCounters(
 //      per complement object (weakly, never saved: after a load the first tick fills in full and remembers again).
 //      A transport, a transfer, a salvage or any ship ahead of it taking crew makes a new pool; a send back, a quarters
 //      install, a mode switch or a cap switch changes the key; so the ship is filled in full again.
+//
+// HOMEWORLD RESERVE (user 2026-11-12; homeworldReserve.ts): a passive ship fills from the pool first, then from the
+// reserve with the same filler, and after the fill of every tick the surplus no berth in the fleet can take moves from
+// the pool to the reserve (the sweep memoizes per pool list, so an idle pool is not re-scanned). The guard covers the reserve too: the fast path needs it empty,
+// an empty pool skips a ship only with an empty reserve, and the memo key holds the reserve's reference and length (a
+// draw, a sweep or a roster draw makes a new list). With the reserve empty everything is the fill it always was.
 type NoFillMemo = {
   pool: CrewBucket[];
   poolLength: number;
+  reserve: CrewBucket[];
+  reserveLength: number;
   typeKey: ShipInstance["typeKey"];
   bonus: number;
   structure: CommandStructure;
@@ -1335,7 +1346,10 @@ const NO_FILL_MEMO = new WeakMap<NonNullable<ShipInstance["complement"]>, NoFill
 
 export function resolveCrew(state: GameState): GameState {
   const due = crewTransportsDue(state.lastTransportWindow, state.gameTimeSeconds);
-  if (due === 0 && state.crewPool.length === 0) return state;
+  // Homeworld reserve: with the switch off (test only) the reserve is neither drawn nor written.
+  const reserveLive = HOMEWORLD_RESERVE_SWITCH.live;
+  const reserveIn = reserveLive ? homeworldReserveOf(state) : NO_RESERVE;
+  if (due === 0 && state.crewPool.length === 0 && reserveIn.length === 0) return state;
 
   // 1) Deliver the whole due backlog into the pool (advancing the window marker). CP-21: with none due, the pool and the
   //    marker are exactly what deliverDueTransports would return (a copy of the same groups, the same marker).
@@ -1354,6 +1368,7 @@ export function resolveCrew(state: GameState): GameState {
   // 2) Auto-crew every PASSIVE ship from the (post-delivery) pool, in state.ships order (monotonic,
   //    stable across save/load/offline). Each ship pulls min(available, remaining-cap) top-rank-down.
   let pool = delivered.pool;
+  let reserve = reserveIn;
   let shipsChanged = false;
   const ships = state.ships.map((ship) => {
     const mode = ship.complement?.mode ?? "passive";
@@ -1362,8 +1377,8 @@ export function resolveCrew(state: GameState): GameState {
     // (crewLock.ts shipCrewLocked: out on a mission or patrol, or on an expedition until it is claimed) takes no
     // crew either; it fills from the pool on the first tick after it returns or its run is claimed.
     if (mode !== "passive" || shipCrewLocked(state, ship.id)) return ship;
-    // CP-21: an empty pool fills no one.
-    if (pool.length === 0) return ship;
+    // CP-21: an empty pool (and an empty reserve) fills no one.
+    if (pool.length === 0 && reserve.length === 0) return ship;
     const bulk = ship.complement?.buckets ?? [];
     const before = totalCrew(bulk);
     // CP-8 (B23): every NOTABLE assigned to the ship holds one slot of its signature, so the filler's occupancy is
@@ -1387,6 +1402,8 @@ export function resolveCrew(state: GameState): GameState {
       memo !== undefined &&
       memo.pool === pool &&
       memo.poolLength === pool.length &&
+      memo.reserve === reserve &&
+      memo.reserveLength === reserve.length &&
       memo.typeKey === ship.typeKey &&
       memo.bonus === bonus &&
       memo.structure === structure &&
@@ -1402,6 +1419,15 @@ export function resolveCrew(state: GameState): GameState {
         : { buckets: coalesceBuckets([...bulk, ...notables.map((n) => ({ ...notableSignature(n), count: 1 }))]), mode };
     const staffed = autoCrewShip(pool, ship.typeKey, seeded, bonus);
     let filled = staffed.complement;
+    // Homeworld reserve: the berths the pool could not fill draw from the reserve (the same filler and caps).
+    let reserveAfter = reserve;
+    if (reserve.length > 0 && totalCrew(filled.buckets) < complementTotalCap(ship.typeKey, bonus)) {
+      const drawn = autoCrewShip(reserve, ship.typeKey, filled, bonus);
+      if (totalCrew(drawn.complement.buckets) > totalCrew(filled.buckets)) {
+        filled = drawn.complement;
+        reserveAfter = drawn.pool;
+      }
+    }
     if (notables.length > 0) {
       let buckets = filled.buckets;
       for (const n of notables) buckets = removeFromBucketList(buckets, notableSignature(n), 1);
@@ -1411,23 +1437,32 @@ export function resolveCrew(state: GameState): GameState {
     // nothing moved, keep the original ship reference (avoids needless ref churn every tick).
     if (totalCrew(filled.buckets) > before) {
       pool = staffed.pool;
+      reserve = reserveAfter;
       shipsChanged = true;
       return { ...ship, complement: filled };
     }
     // CP-21: nothing moved, so staffed.pool holds exactly the groups `pool` holds; keep `pool` (its reference is what the
     // memo and the next ship compare) and remember that this ship took nobody from it.
     if (ship.complement) {
-      NO_FILL_MEMO.set(ship.complement, { pool, poolLength: pool.length, typeKey: ship.typeKey, bonus, structure, lean, notables: notablesKey, headcount: before });
+      NO_FILL_MEMO.set(ship.complement, { pool, poolLength: pool.length, reserve, reserveLength: reserve.length, typeKey: ship.typeKey, bonus, structure, lean, notables: notablesKey, headcount: before });
     }
     return ship;
   });
 
   // CP-21 skip 1: nothing delivered and nobody moved, so the same state (the pool keeps its reference for the memo).
-  if (due === 0 && !shipsChanged) return state;
-  return {
-    ...state,
-    crewPool: pool,
-    lastTransportWindow: delivered.lastWindow,
-    ships: shipsChanged ? ships : state.ships,
-  };
+  //   Homeworld reserve: with no draw (none without a moved ship) the reserve is as it came in.
+  const filledState: GameState =
+    due === 0 && !shipsChanged
+      ? state
+      : { ...state, crewPool: pool, lastTransportWindow: delivered.lastWindow, ships: shipsChanged ? ships : state.ships };
+  if (!reserveLive) return filledState;
+  // Homeworld reserve: after the fill, the surplus no berth in the fleet can take moves to the reserve, against the ships
+  // as they now stand (memoized per pool list, so an idle pool is not re-scanned). Swept after EVERY fill, not only at a
+  // transport, so one call, 997 s chunks and 1 s steps leave the same pool and reserve (a call that crosses a window
+  // and a ship's return would otherwise sweep at a different moment than the steps do).
+  const swept = sweepSurplusToReserve(filledState, pool, reserve);
+  let out = filledState;
+  if (swept.pool !== pool) out = { ...out, crewPool: swept.pool };
+  if (swept.reserve !== reserveIn) out = withHomeworldReserve(out === state ? { ...state } : out, swept.reserve);
+  return out;
 }

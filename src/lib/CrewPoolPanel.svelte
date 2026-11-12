@@ -21,6 +21,7 @@
   import CrewTransferModal from "./CrewTransferModal.svelte";
   import { crewGroupRows } from "./complementTableDisplay";
   import { fmtCount, poolDivisionStats, poolHeadcount } from "./crewTransferDisplay";
+  import { homeworldReserveCount } from "./game/homeworldReserve";
 
   export let state: GameState;
   // Move crew from the pool to a ship (host: doTransferCrew).
@@ -31,6 +32,7 @@
   $: rows = crewGroupRows(state.crewPool);
   $: waiting = poolHeadcount(state);
   $: stats = poolDivisionStats(state, CREW_PROFESSIONS);
+  $: reserve = homeworldReserveCount(state);
 
   let selected = new Set<string>();
   let division: CrewProfession | null = null;
@@ -56,6 +58,10 @@
     <div class="pool-note">
       <span class="pool-wide">Transports bring new crew here. Auto-crew ships fill from the pool: their specialty divisions first, then highest rank first, within their caps. Manual ships only take what you send them.</span>
       <span class="pool-narrow">Auto-crew ships fill from here. Manual ships take what you send.</span>
+    </div>
+    <!-- Homeworld reserve (user 2026-11-12): a count only (homeworldReserve.ts); the surplus no berth can take. -->
+    <div class="pool-reserve" title="Crew no berth in your fleet can take move on to the homeworld reserve, keeping their ranks and racials. Auto-crew ships draw from it when the pool cannot fill a berth.">
+      Homeworld reserve: <span class="pool-reserve-n">{fmtCount(reserve)}</span>
     </div>
   </div>
 
@@ -156,6 +162,17 @@
     color: var(--color-text-dim);
     font-family: var(--font-mono);
     line-height: 1.5;
+  }
+  .pool-reserve {
+    margin-top: 6px;
+    font-size: var(--text-2xs);
+    color: var(--color-text-dim);
+    font-family: var(--font-mono);
+    letter-spacing: 0.04em;
+  }
+  .pool-reserve-n {
+    color: var(--color-text-primary);
+    font-variant-numeric: tabular-nums;
   }
   .pool-empty {
     font-size: var(--text-xs);

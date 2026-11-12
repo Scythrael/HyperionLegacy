@@ -120,6 +120,11 @@ gatheringTrainingOffForThisFile();
 // Evacuation overlay. The file draws the seven-template board (evacuationDrawSwitch.fixture.ts), so its pins keep proving
 // their own slice (E5-2's moves: refugeeGoldens.test.ts and refugeeArrival.test.ts).
 import { evacuationDrawOffForThisFile } from "./evacuationDrawSwitch.fixture";
+// Homeworld reserve (user 2026-11-12; homeworldReserve.ts): this file's pins were captured before the reserve and hash a
+// fleet whose surplus crew the reserve now moves out of the pool, so the whole file runs with it off and its pins keep
+// proving their own slice (switch-off reproduction: every pin holds with it off). homeworldReserveGoldens pins the reserve.
+import { homeworldReserveOffForThisFile } from "./homeworldReserveSwitch.fixture";
+homeworldReserveOffForThisFile();
 evacuationDrawOffForThisFile();
 
 // ===== shared helpers =====

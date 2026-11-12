@@ -10,6 +10,11 @@ import { describe, expect, it } from "vitest";
 import { writeFileSync } from "node:fs";
 import { ORDERING_PINS_PRE, orderingRows } from "./orderingGoldens.fixture";
 import { asCanonicalOrder, withCanonicalOrderOff } from "./orderingSwitch.fixture";
+// Homeworld reserve (user 2026-11-12; homeworldReserve.ts): this file's pins were captured before the reserve and hash a
+// fleet whose surplus crew the reserve now moves out of the pool, so the whole file runs with it off and its pins keep
+// proving their own slice (switch-off reproduction: every pin holds with it off). homeworldReserveGoldens pins the reserve.
+import { homeworldReserveOffForThisFile } from "./homeworldReserveSwitch.fixture";
+homeworldReserveOffForThisFile();
 
 const CAPTURE = import.meta.env.ORDERING_CAPTURE as string | undefined;
 
