@@ -46,3 +46,49 @@ controls all of your characters against groups of enemies and so forth."
 1. Minigame inside Hyperion Legacy, or a separate full game?
 2. Sci-fi or fantasy (or a sci-fi skin of the fantasy gear ladder inside HL)?
 3. Art: SVG first (parts-based characters whose gear swaps change shapes and colors), sprites later?
+
+## Monetization stance (user, 2026-11-12, verbatim)
+
+"But if I did go this route, I think I'd probably have to think about actual monetization for in-game capabilities.
+
+The problem is that games like these are hard to monetize without starting to delve into questionable practices.
+Building in problems to sell solutions like "buy this pack and you mine 20% faster" and other such things. Which I'm fine
+with. Gacha and other things like that are a never for me. It's grotesque. Time wasters versus gambling. Anyway, the
+message I sent to the channel. So I might want to consider how I want to approach that other game. Not starting yet."
+
+Locked from that: NO gacha, loot boxes or any gambling mechanic, ever. Convenience and speed purchases are acceptable to
+the user. "Not starting yet."
+
+## The user's channel post (2026-11-12, verbatim)
+
+"A different style of game. A character at the top of the screen running to the right. Stopping at a point as an enemy
+appears, and they do battle. You start off with junk gear of course. Pot lid for a shield, wooden stick for a sword.
+Leather tunic. Maybe copper bracers, etc. Full equipment set. Attack speeds start at about 1 hit per 5 seconds. Growing
+enemy count per stage. So perhaps 10 waves for stage 1, growing by 1 until you hit stage 10, then by 2 until 20. Then by
+3 until 30, etc. At the final stage of that 10, you face a boss to ensure that you're ready for the next stages. Every
+100 floors, you hit a powerful boss that will wall you for sure and there will be a significant hike in difficulty.
+
+Fully idle. No research. No ship and crew adjustment.
+
+On one tab, you have equipment upgrades. Enemies drop items and gold. Weapons will upgrade in power every level. Every X
+levels (likely 10 or 25. Something nice and round like that) results in the weapon upgrading. A wooden stick becomes an
+iron sword. A pot lid becomes a hardened hide buckler, etc. Beating bosses and "super bosses" give you points you can use
+on a skill tree. The further you progress, the more each boss and super boss give.
+
+Or, I might change it up slightly. I might turn it into something similar to Idleon. Where you can move around a map and
+perform certain tasks. Run around and kill monsters. Or have that character mining a specific type of ore. Or something
+to that end. You set up a character to do something and swap characters. That character is in the background doing what
+you set them to do (gathering copper ore, fighting wolves on a specific map for certain drops), etc. Lots of crafting to
+improve your gear. Lots of little bonuses to make tiny numbers big. Fully idle, with a single active character that would
+have bonuses with specific activities that benefit if you've got them "active" on your screen. Meaning that they're just
+the ones displayed, but are still idle. So you'd see them running around, slashing things with their sword, or hacking
+away at a tree. Or mining ore. Etc."
+
+## Two shapes on the table (from the post; undecided)
+
+- A, the stage climber: one character runs right, stops, fights; waves per stage 10, +1 per stage to stage 10, then +2
+  per stage to 20, +3 per stage to 30, and so on; a boss at each tenth stage; a much harder boss every 100 floors; gear
+  levels every level and visibly upgrades every 10 or 25 levels; boss and super boss points feed a skill tree.
+- B, the multi-character map: several characters each set to a task (fight wolves on a map, mine copper ore, chop
+  trees) and left idle; one "active" on screen gets activity bonuses while still idle; lots of crafting and small
+  stacking bonuses.
