@@ -310,3 +310,24 @@ Also open: OC-F14 field repair and OC-F12 new-hire default mockups (docs/mockups
 CP-11 recipe sign-off; relic and echo names; credit sink to replace Quick Service; completion tracking plan; WR-12.
 Status page: artifact tools were down this session; latest local version sent to the user as a file
 (scratchpad status/progress-0140-v16.html: 93% built, 65% to release). Republish to the existing link in a new session.
+
+## HUB HANDOFF (2026-11-12 midday) @ 5a651873
+
+Normal pacing (weekly reset 2026-11-12; user: "Back to normal mode until I state otherwise"). Merged today, each tagged and
+backed up: OC-F14 field repair (`slice/oc-f14`), Homeworld reserve (`slice/homeworld-reserve`), OC-F12 new-hire default
+(`slice/oc-f12`). Release gate: 4 pending rows, all relic rows (blocked on relic names). Status page v16 published.
+Ideas captured: docs/ideas/2026-11-12-side-view-battle-idler.md (separate future game). QA addition: a Fable QA and
+bug-check run after every system is built (roadmap doc "QA PROCESS ADDITION").
+
+OPEN USER QUESTIONS (asked as text; re-ask as pop-ups when the user is back):
+1. Homeworld reserve: add "Send to a ship" / "Recall to pool" controls (recommended, mockup first) or auto-fill only.
+2. Reserve sweep every tick (built, recommended) or at transports only.
+3. Manual ships count as berths (built, recommended) or passive only.
+4. Recall during a finished field repair's flight back: keep the repair like a cancel does (recommended) or leave as is.
+5. OC-F12 empty program as a default: allowed with a warning (built, recommended) or blocked.
+6 to 12. Notable ticker mockup (docs/mockups/2026-11-12-personnel-notable-ticker-mockup.html): A drift (rec.) or B one at
+a time; under the tab row (rec.); keep the per-ship Complement strip (rec.); tap opens the record card (rec.); empty state
+hint (rec.); entry = name, rank, division, ship or Unassigned, favorites first (rec.); record card offers Send back and
+Retire (rec.).
+Still open from before: CP-11 recipe sign-off; relic and echo names; credit sink to replace Quick Service; completion
+tracking plan; WR-12 close-out.
