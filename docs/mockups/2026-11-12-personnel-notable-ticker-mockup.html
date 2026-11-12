@@ -1,0 +1,529 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Notable crew ticker in the Personnel header</title>
+<style>
+  /* Tokens copied from src/app.css (default cyan theme), the same set as the approved 2026-11-09 and 2026-11-10
+     mockups. Self-contained: no web fonts are loaded, so the font stacks fall back to system faces. */
+  :root {
+    color-scheme: dark;
+    --corner: 2px;
+    --color-bg-deep: #060a12; --color-bg-mid: #0a1120; --color-bg-raised: #0c1626;
+    --color-panel-bg: rgba(20, 40, 60, 0.32); --color-panel-bg-strong: rgba(103, 232, 249, 0.06);
+    --color-border: rgba(103, 232, 249, 0.18); --color-border-strong: rgba(103, 232, 249, 0.4);
+    --color-accent: #67e8f9; --color-accent-bright: #8ff0e0; --color-accent-rgb: 103, 232, 249;
+    --color-text-primary: #e6f4f8; --color-text-secondary: #8fa3ad; --color-text-dim: #628591;
+    --color-warning: #fbbf24; --color-warning-rgb: 251, 191, 36; --color-danger: #f87171; --color-success: #34d399;
+    --font-display: "Orbitron", "Segoe UI", sans-serif; --font-body: "Space Grotesk", "Inter", "Segoe UI", sans-serif; --font-mono: "JetBrains Mono", Consolas, monospace;
+    --text-3xs: 9px; --text-2xs: 10px; --text-xs: 11px; --text-sm: 12px; --text-md: 13px; --text-lg: 15px;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; }
+  body { background: var(--color-bg-deep); color: var(--color-text-primary); font-family: var(--font-body); font-size: 13px; line-height: 1.45; padding: 24px 16px 60px; overflow-x: hidden; }
+  .wrap { max-width: 1440px; margin: 0 auto; display: grid; grid-template-columns: minmax(0, 1fr); gap: 30px; min-width: 0; }
+  .wrap > * { min-width: 0; }
+  h1 { font-family: var(--font-display); font-size: 20px; letter-spacing: .08em; margin: 0 0 6px; }
+  .intro { margin: 0 0 6px; color: var(--color-text-secondary); max-width: 112ch; }
+  .intro b, .note b { color: var(--color-text-primary); }
+  .label { font-family: var(--font-display); font-size: 12px; letter-spacing: .18em; color: var(--color-accent); text-transform: uppercase; margin: 0 0 8px; }
+  .note { color: var(--color-text-secondary); font-size: 12px; margin: 8px 0 0; max-width: 112ch; }
+  .stage { border: 1px solid var(--color-border); border-radius: var(--corner); background: radial-gradient(900px 400px at 70% -10%, rgba(103,232,249,.07), transparent 60%), var(--color-bg-mid); padding: 18px 12px; overflow-x: auto; min-width: 0; }
+  .pair { display: flex; gap: 18px; flex-wrap: wrap; align-items: flex-start; }
+  .frame-cap { font-family: var(--font-mono); font-size: 11px; color: var(--color-text-dim); margin: 0 0 6px; }
+  svg.g { width: 14px; height: 14px; flex: 0 0 auto; vertical-align: -2px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+  svg.g.fill { fill: currentColor; }
+  code { font-family: var(--font-mono); font-size: 11px; color: var(--color-accent-bright); }
+  .ctl { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin: 0 0 14px; font-size: 12px; color: var(--color-text-secondary); }
+  .ctl label { display: inline-flex; gap: 6px; align-items: center; border: 1px solid var(--color-border-strong); padding: 4px 10px; border-radius: var(--corner); cursor: pointer; }
+
+  /* Truth table */
+  table.t { border-collapse: collapse; font-size: 12px; width: 100%; max-width: 1200px; }
+  table.t th, table.t td { text-align: left; padding: 5px 10px 5px 0; border-bottom: 1px solid var(--color-border); vertical-align: top; }
+  table.t th { font-family: var(--font-mono); font-size: 10px; letter-spacing: .1em; text-transform: uppercase; color: var(--color-text-dim); font-weight: 400; }
+  table.t td { color: var(--color-text-secondary); }
+  table.t td b { color: var(--color-text-primary); font-weight: 500; }
+
+  /* App shell, measured on the dev build: top-bar 145 px (141 on phone), main.tab-body with the ConsoleTabs row at
+     8 px from its top (43 px tall incl. its 6 + 2 px gap), .tab-scroll-area below, bottom nav 50 px. */
+  .shell { background: var(--color-bg-deep); border: 1px solid var(--color-border-strong); border-radius: var(--corner); box-shadow: 0 20px 60px rgba(0,0,0,.5); overflow: hidden; display: flex; flex-direction: column; }
+  .shell.desk { width: 1280px; }
+  .shell.phone { width: 375px; max-width: 100%; }
+  .topbar { display: grid; grid-template-columns: 44px minmax(0, 1fr) auto; gap: 10px; align-items: center; padding: 10px 12px; border-bottom: 1px solid var(--color-border); }
+  .tb-port { width: 44px; height: 44px; border: 1px solid var(--color-border-strong); background: rgba(var(--color-accent-rgb), .06); }
+  .tb-bars { display: grid; gap: 4px; min-width: 0; }
+  .tb-bar { display: grid; grid-template-columns: 54px minmax(0, 1fr) 64px; gap: 8px; align-items: center; font-family: var(--font-mono); font-size: 9.5px; color: var(--color-text-dim); letter-spacing: .08em; }
+  .tb-bar i { display: block; height: 5px; background: rgba(var(--color-accent-rgb), .12); }
+  .tb-bar i > b { display: block; height: 100%; width: 35%; background: var(--color-accent); }
+  .tb-set { font-family: var(--font-mono); font-size: 9.5px; letter-spacing: .1em; color: var(--color-accent); border: 1px solid var(--color-border-strong); padding: 10px 8px; }
+  .tb-res { grid-column: 1 / -1; display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  .tb-res span { border: 1px solid var(--color-border); padding: 5px 10px; font-family: var(--font-mono); font-size: 10px; color: var(--color-text-secondary); display: flex; justify-content: space-between; }
+  .tab-body { padding: 8px 11px 0; display: flex; flex-direction: column; min-height: 0; }
+  .ctabs { display: flex; gap: 6px; padding-bottom: 6px; margin-bottom: 2px; overflow: hidden; }
+  .ctab { flex: 0 0 auto; background: rgba(var(--color-accent-rgb), 0.06); border: 1px solid rgba(var(--color-accent-rgb), 0.2); border-radius: var(--corner); padding: 9px 16px; color: var(--color-text-secondary); font-size: var(--text-md); letter-spacing: .04em; white-space: nowrap; }
+  .ctab.active { color: var(--color-accent-bright); border-color: var(--color-accent); background: rgba(var(--color-accent-rgb), 0.15); box-shadow: 0 0 10px rgba(var(--color-accent-rgb), .45), inset 0 0 7px rgba(var(--color-accent-rgb), .12); }
+  .ctab-count { display: inline-block; margin-left: 7px; padding: 0 6px; border-radius: 999px; font-family: var(--font-mono); font-size: var(--text-2xs); line-height: 1.6; color: var(--color-text-primary); background: rgba(var(--color-accent-rgb), .22); border: 1px solid rgba(var(--color-accent-rgb), .4); }
+  .tsa { padding: 2px 0 12px; display: grid; gap: 6px; }
+  .ghost-row { border: 1px solid var(--color-border); background: rgba(var(--color-accent-rgb), .03); padding: 10px 12px; display: grid; grid-template-columns: 34px minmax(0, 1fr) 70px; gap: 12px; align-items: center; }
+  .ghost-row .pt { width: 34px; height: 34px; border: 1px solid var(--color-border); }
+  .ph-line { height: 7px; border-radius: 2px; background: rgba(var(--color-accent-rgb), .08); margin: 4px 0; }
+  .ph-cap { font-family: var(--font-mono); font-size: 9.5px; color: var(--color-text-dim); }
+  .navb { display: grid; grid-template-columns: repeat(6, 1fr); border-top: 1px solid var(--color-border); height: 50px; }
+  .navb span { display: grid; place-items: center; font-family: var(--font-mono); font-size: 9px; letter-spacing: .08em; color: var(--color-text-dim); }
+  .navb span.on { color: var(--color-accent-bright); background: rgba(var(--color-accent-rgb), .08); box-shadow: inset 0 2px 0 var(--color-accent); }
+
+  /* NEW: the ticker band (both options share the shell; a sibling of ConsoleTabs, flex-shrink 0, so it never scrolls) */
+  .nt { position: relative; display: flex; align-items: center; gap: 8px; min-height: 38px; margin: 0 0 8px; padding: 3px 4px 3px 9px; border: 1px solid rgba(var(--color-accent-rgb), .16); background: rgba(var(--color-accent-rgb), .035); border-radius: var(--corner); min-width: 0; }
+  .nt-lbl { flex: none; display: inline-flex; align-items: center; gap: 6px; font-family: var(--font-mono); font-size: 10px; letter-spacing: .12em; text-transform: uppercase; color: var(--color-text-dim); white-space: nowrap; }
+  .nt-lbl svg.g { color: var(--color-accent); width: 15px; height: 15px; }
+  .nt-lbl b { color: var(--color-text-secondary); font-weight: 400; letter-spacing: 0; }
+  .nt-track { flex: 1; min-width: 0; display: flex; gap: 6px; overflow-x: auto; scrollbar-width: none; -webkit-mask-image: linear-gradient(90deg, transparent, #000 14px, #000 calc(100% - 14px), transparent); mask-image: linear-gradient(90deg, transparent, #000 14px, #000 calc(100% - 14px), transparent); padding: 0 10px; }
+  .nt-track::-webkit-scrollbar { display: none; }
+  .ne { flex: 0 0 auto; display: inline-flex; align-items: center; gap: 7px; min-height: 30px; padding: 2px 9px 2px 8px; font: inherit; font-size: var(--text-sm); color: var(--color-text-primary); background: rgba(var(--color-accent-rgb), .05); border: 1px solid rgba(var(--color-accent-rgb), .16); border-left: 2px solid var(--color-accent); border-radius: var(--corner); white-space: nowrap; cursor: pointer; text-align: left; }
+  .ne:hover, .ne:focus-visible { border-color: var(--color-accent); background: rgba(var(--color-accent-rgb), .12); outline: none; }
+  .ne .fav { color: var(--color-warning); width: 12px; height: 12px; }
+  .ne .nm { font-weight: 600; }
+  .ne .meta { color: var(--color-text-secondary); font-size: var(--text-xs); }
+  .sp { display: inline-flex; align-items: center; gap: 4px; font-family: var(--font-mono); font-size: 10px; color: var(--color-accent-bright); border: 1px solid rgba(var(--color-accent-rgb), .3); padding: 0 5px; line-height: 17px; border-radius: var(--corner); white-space: nowrap; }
+  .sp svg.g { width: 10px; height: 10px; }
+  .sp.un { color: var(--color-text-dim); border-style: dashed; border-color: rgba(98,133,145,.6); }
+  .nt-btn { flex: none; font: inherit; font-family: var(--font-mono); font-size: 10.5px; color: var(--color-accent); background: rgba(var(--color-accent-rgb), .06); border: 1px solid var(--color-border-strong); border-radius: var(--corner); min-height: 30px; padding: 0 9px; display: inline-flex; align-items: center; gap: 4px; cursor: pointer; white-space: nowrap; }
+  .nt-btn.sq { width: 30px; padding: 0; justify-content: center; }
+  .nt-btn:disabled { opacity: .4; cursor: default; }
+  .nt-paused { position: absolute; right: 6px; top: -9px; font-family: var(--font-mono); font-size: 9px; color: var(--color-text-dim); background: var(--color-bg-mid); border: 1px solid var(--color-border); padding: 0 5px; display: none; align-items: center; gap: 3px; }
+  .nt-paused svg.g { width: 9px; height: 9px; }
+  .nt.is-paused .nt-paused { display: inline-flex; }
+  .nt-empty { flex: 1; min-width: 0; font-size: var(--text-xs); color: var(--color-text-secondary); padding: 0 6px; }
+  .nt-empty b { color: var(--color-text-primary); font-weight: 500; }
+  /* Option B: one at a time */
+  .nt-one { flex: 1; min-width: 0; display: flex; padding: 0 4px; }
+  .nt-one .ne { transition: opacity .28s ease; max-width: 100%; overflow: hidden; }
+  .nt-one .ne.fading { opacity: 0; }
+  .nt-pos { flex: none; font-family: var(--font-mono); font-size: 10px; color: var(--color-text-dim); min-width: 46px; text-align: center; }
+  /* Phone sizes: 32 px tap height on entries and buttons */
+  .phone .nt { min-height: 42px; padding-left: 7px; gap: 6px; }
+  .phone .ne, .phone .nt-btn { min-height: 34px; }
+  .phone .nt-btn.sq { width: 32px; }
+  .phone .nt-lbl .w, .phone .all-btn .w, .phone .nt-pos { display: none; }
+  .phone .all-btn { width: 32px; padding: 0; justify-content: center; }
+  .phone .nt-one .ne { flex-direction: column; align-items: flex-start; gap: 0; padding: 3px 9px; white-space: normal; }
+  .phone .nt-one .ne .l1 { display: flex; gap: 6px; align-items: center; max-width: 100%; }
+  .phone .nt-one .ne .l1 .nm { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .ne .l1 { display: inline-flex; gap: 6px; align-items: center; }
+  .phone .nt-one .ne { width: 100%; }
+  .phone .nt-one .ne .l2 { display: flex; gap: 6px; max-width: 100%; min-width: 0; }
+  .phone .nt-one .ne .l2 .meta { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .phone .nt-one .ne .sp { flex: none; }
+  .phone .nt-prev { display: none; }
+  .ne .l2 { display: inline-flex; gap: 6px; align-items: center; }
+
+  /* The record card (the tap target) and the All list */
+  .rec { border: 1px solid var(--color-border-strong); background: var(--color-bg-raised); border-radius: var(--corner); width: 340px; max-width: 100%; box-shadow: 0 18px 50px rgba(0,0,0,.55); }
+  .rec-hd { display: flex; align-items: center; justify-content: space-between; padding: 9px 12px; border-bottom: 1px solid var(--color-border); font-family: var(--font-display); font-size: 12px; letter-spacing: .1em; }
+  .rec-hd button { background: none; border: 0; color: var(--color-text-dim); cursor: pointer; padding: 2px; }
+  .rec-bd { padding: 12px; display: grid; gap: 9px; }
+  .rec-nm { display: flex; justify-content: space-between; align-items: center; font-size: 15px; font-weight: 600; }
+  .rec-nm svg.g { color: var(--color-warning); width: 15px; height: 15px; }
+  .rec-sub { font-size: var(--text-xs); color: var(--color-text-secondary); }
+  .chips { display: flex; flex-wrap: wrap; gap: 4px; }
+  .chip { font-size: var(--text-2xs); border: 1px solid rgba(var(--color-accent-rgb), .3); color: var(--color-text-primary); padding: 1px 6px; border-radius: var(--corner); background: rgba(var(--color-accent-rgb), .06); }
+  .rec-where { display: flex; gap: 8px; align-items: center; font-size: var(--text-sm); color: var(--color-text-secondary); }
+  .rec-note { font-size: var(--text-xs); color: var(--color-text-dim); display: flex; gap: 6px; }
+  .rec-note svg.g { width: 12px; height: 12px; margin-top: 2px; }
+  .rec-act { display: flex; gap: 8px; justify-content: flex-end; }
+  .btn { font: inherit; font-family: var(--font-mono); font-size: 11px; color: var(--color-accent-bright); background: rgba(var(--color-accent-rgb), .15); border: 1px solid var(--color-border-strong); border-radius: var(--corner); padding: 6px 10px; min-height: 32px; display: inline-flex; gap: 5px; align-items: center; cursor: pointer; }
+  .btn.ghost { background: transparent; color: var(--color-accent); }
+  .overlay { position: fixed; inset: 0; background: rgba(2,5,10,.66); display: none; place-items: center; z-index: 10; padding: 16px; }
+  .overlay.on { display: grid; }
+  .all { width: 520px; max-width: 100%; }
+  .all .rec-bd { max-height: 360px; overflow-y: auto; }
+  .all-grp { font-family: var(--font-mono); font-size: 10px; letter-spacing: .1em; text-transform: uppercase; color: var(--color-text-dim); display: flex; justify-content: space-between; border-bottom: 1px solid var(--color-border); padding: 4px 0 3px; margin-top: 4px; }
+  .all-row { display: grid; grid-template-columns: 14px minmax(0, 1fr) auto; gap: 8px; align-items: center; font-size: var(--text-sm); padding: 5px 0; border-bottom: 1px dashed rgba(var(--color-accent-rgb), .1); }
+  .all-row .meta { color: var(--color-text-secondary); font-size: var(--text-xs); }
+  .all-row svg.g { width: 12px; height: 12px; color: var(--color-warning); }
+
+  /* Callouts and open calls (from the gear repair mockup) */
+  .callout { font-family: var(--font-mono); font-size: 10px; color: var(--color-warning); display: flex; gap: 6px; align-items: center; margin: 2px 0 6px; }
+  .callout::before { content: ""; width: 14px; height: 1px; background: var(--color-warning); }
+  .oc { border: 1px dashed rgba(var(--color-warning-rgb), .65); background: rgba(var(--color-warning-rgb), .06); border-radius: var(--corner); padding: 8px 10px; font-size: 12px; color: var(--color-text-secondary); max-width: 560px; }
+  .oc .t { font-family: var(--font-mono); font-size: 10.5px; letter-spacing: .1em; color: var(--color-warning); text-transform: uppercase; margin-bottom: 4px; }
+  .oc .ab { display: grid; grid-template-columns: 18px 1fr; gap: 2px 6px; }
+  .oc .ab b { font-family: var(--font-mono); color: var(--color-warning); }
+  .oc .drawn { font-family: var(--font-mono); font-size: 10px; color: var(--color-text-dim); margin-top: 4px; }
+  .ocgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 420px), 1fr)); gap: 12px; }
+  .oc { max-width: none; }
+  .band-demo { display: grid; grid-template-columns: minmax(0, 1fr); gap: 6px; max-width: 1258px; min-width: 0; }
+  .band-demo.ph { width: 353px; max-width: 100%; }
+  .band-demo > .phone { min-width: 0; }
+  .states { display: grid; gap: 18px; }
+</style>
+</head>
+<body>
+<!-- Glyph path data copied from src/lib/ui/icons.ts (no new glyph). -->
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <defs>
+    <symbol id="i-graduate" viewBox="0 0 24 24"><path d="M2.5 9.5L12 5l9.5 4.5L12 14z"/><path d="M6.5 11.5v4.5c3 2.4 8 2.4 11 0v-4.5"/><path d="M21.5 9.5v5.5"/></symbol>
+    <symbol id="i-star" viewBox="0 0 24 24"><path d="M12 3.5l2.6 5.3 5.9.9-4.3 4.1 1 5.8-5.2-2.7-5.2 2.7 1-5.8-4.3-4.1 5.9-.9z"/></symbol>
+    <symbol id="i-ship" viewBox="0 0 24 24"><path d="M12 3l8 17-8-4-8 4z"/></symbol>
+    <symbol id="i-chevronLeft" viewBox="0 0 24 24"><path d="M15 6l-6 6 6 6"/></symbol>
+    <symbol id="i-chevronRight" viewBox="0 0 24 24"><path d="M9 6l6 6-6 6"/></symbol>
+    <symbol id="i-pause" viewBox="0 0 24 24"><path d="M8.5 5v14"/><path d="M15.5 5v14"/></symbol>
+    <symbol id="i-close" viewBox="0 0 24 24"><path d="M6 6l12 12"/><path d="M18 6L6 18"/></symbol>
+    <symbol id="i-info" viewBox="0 0 24 24"><path d="M12 3a9 9 0 1 1 0 18 9 9 0 0 1 0-18z"/><path d="M12 11v6"/><path d="M12 7.5v.5"/></symbol>
+    <symbol id="i-manifest" viewBox="0 0 24 24"><path d="M6 4.5h12V21H6z"/><path d="M9.5 4.5V3h5v1.5"/><path d="M9 9.5h6M9 13h6M9 16.5h3.5"/></symbol>
+  </defs>
+</svg>
+
+<div class="wrap">
+  <div>
+    <h1>Notable crew ticker in the Personnel header</h1>
+    <p class="intro">Hyperion Legacy 0.14.0, for sign-off before the build. The user's calls: 2026-10-16 "Personnel bucket header (Recommended)", <b>a slow, quiet ticker at the top of Personnel</b>; 2026-11-02 "Add a slow auto-scroll", <b>drifts gently, pauses on hover or touch, stays still with Reduce motion on</b>; 2026-11-12 "Build the header ticker (Recommended)", <b>one fleet-wide ticker at the top of Personnel, unassigned notables included</b>, mockup first.</p>
+    <p class="intro">What was built instead so far: the per-ship <b>Notable Crew</b> strip on Ships, a ship, Complement (<code>ComplementPanel.svelte .comp-nstrip</code>), drifting by <code>ui/marquee.ts</code>. This mockup reuses that strip's content and its motion. The bottom nav calls this bucket <b>Crew</b>; its tabs are Admiral, Captain Roster and Refugees.</p>
+    <p class="note">Everything below moves live. Hover an entry to pause; tap or click one to open its record. The switch previews the game's <b>Reduce motion</b> setting (Settings; it starts out matching the device's own reduced-motion setting, so it starts on here if your device asks for less motion).</p>
+  </div>
+
+  <section>
+    <p class="label">0. What an entry shows (from the engine, nothing new)</p>
+    <div class="stage">
+      <table class="t">
+        <thead><tr><th>Shown</th><th>Source (NotableCrewMember, model.ts)</th><th>Where</th></tr></thead>
+        <tbody>
+          <tr><td><b>Name</b></td><td><code>name</code> (generated at Graduate from the crew member's origin name pool; kept on Send back)</td><td>entry and record</td></tr>
+          <tr><td><b>Rank</b>, <b>division</b></td><td><code>rank</code> via <code>crewRankLabel</code>; <code>profession</code> via <code>DIVISION_LABEL</code></td><td>entry and record</td></tr>
+          <tr><td><b>Ship</b> or <b>Unassigned</b></td><td><code>assignedShipId</code> via <code>shipDisplayLabel</code>; null reads "Unassigned" (Send back leaves it null)</td><td>entry and record</td></tr>
+          <tr><td><b>Favorite star</b></td><td><code>favorite</code> (the same star the Complement card and Personnel Rosters toggle)</td><td>entry (filled star only when favorited) and record (toggle)</td></tr>
+          <tr><td>Origin, buffs</td><td><code>race</code> via <code>raceLabel</code>; <code>buff1Id</code> to <code>buff3Id</code> via <code>buffChips</code> (1 buff at Crewman and Petty Officer, 2 at Chief to Ensign, 3 at Lieutenant and up)</td><td>record only (see open call 6)</td></tr>
+          <tr><td>The count</td><td><code>state.notableCrew.length</code> against <code>NOTABLE_CREW_CAP</code> (50 fleet-wide, assigned or not)</td><td>band label</td></tr>
+        </tbody>
+      </table>
+      <p class="note">Notable crew have <b>no titles or milestones</b> in the engine (identity only, user 2026-10-16). Titles and milestones belong to captains (Hall of Command, CP-16), so the ticker does not show any. Notables give no stat edge, so the ticker shows no numbers beyond the count.</p>
+    </div>
+  </section>
+
+  <section>
+    <p class="label">1. Where it sits: Crew, Captain Roster, desktop 1280 and phone 375 (option A drawn)</p>
+    <div class="stage">
+      <div class="ctl"><label><input type="checkbox" class="rm-toggle"> Preview with Reduce motion on</label><span>Sample fleet: 12 notables, 2 of them unassigned, 2 favorited.</span></div>
+      <div class="pair">
+        <div>
+          <p class="frame-cap">Desktop 1280 px · Crew / Captain Roster</p>
+          <div class="shell desk">
+            <div class="topbar">
+              <div class="tb-port"></div>
+              <div class="tb-bars"><div class="tb-bar"><span>FA EXP</span><i><b></b></i><span>Lv 14 · 35%</span></div><div class="tb-bar"><span>CRAFT</span><i><b style="width:60%"></b></i><span>Lv 9 · 60%</span></div><div class="tb-bar"><span>TICK</span><i><b style="width:80%"></b></i><span>1.0s</span></div></div>
+              <div class="tb-set">SETTINGS</div>
+              <div class="tb-res"><span><span>48,210</span><span>CREDITS</span></span><span><span>312</span><span>ADMIN POINTS</span></span></div>
+            </div>
+            <div class="tab-body">
+              <div class="ctabs"><span class="ctab">Admiral</span><span class="ctab active">Captain Roster</span><span class="ctab">Refugees<span class="ctab-count">2</span></span></div>
+              <p class="callout">new: the ticker, under the tab row, on every Crew tab; it does not scroll with the page</p>
+              <div class="nt" data-ticker="A" data-set="main"></div>
+              <div class="tsa">
+                <div class="ph-cap">Captain Roster below: unchanged, and scrolls under nothing (the band and the tabs sit outside .tab-scroll-area)</div>
+                <div class="ghost-row"><span class="pt"></span><span><span class="ph-line" style="width:30%"></span><span class="ph-line" style="width:55%"></span></span><span class="ph-line"></span></div>
+                <div class="ghost-row"><span class="pt"></span><span><span class="ph-line" style="width:26%"></span><span class="ph-line" style="width:48%"></span></span><span class="ph-line"></span></div>
+                <div class="ghost-row"><span class="pt"></span><span><span class="ph-line" style="width:34%"></span><span class="ph-line" style="width:51%"></span></span><span class="ph-line"></span></div>
+              </div>
+            </div>
+            <div class="navb"><span>HOME</span><span class="on">CREW</span><span>SHIPS</span><span>FACILITIES</span><span>LOGISTICS</span><span>OPS</span></div>
+          </div>
+        </div>
+        <div>
+          <p class="frame-cap">Phone 375 px · same screen</p>
+          <div class="shell phone">
+            <div class="topbar">
+              <div class="tb-port"></div>
+              <div class="tb-bars"><div class="tb-bar"><span>FA EXP</span><i><b></b></i><span>Lv 14</span></div><div class="tb-bar"><span>CRAFT</span><i><b style="width:60%"></b></i><span>Lv 9</span></div><div class="tb-bar"><span>TICK</span><i><b style="width:80%"></b></i><span>1.0s</span></div></div>
+              <div class="tb-set">SET</div>
+              <div class="tb-res"><span><span>48,210</span><span>CR</span></span><span><span>312</span><span>AP</span></span></div>
+            </div>
+            <div class="tab-body">
+              <div class="ctabs"><span class="ctab">Admiral</span><span class="ctab active">Captain Roster</span><span class="ctab">Refugees<span class="ctab-count">2</span></span></div>
+              <div class="nt" data-ticker="A" data-set="main"></div>
+              <div class="tsa">
+                <div class="ghost-row"><span class="pt"></span><span><span class="ph-line" style="width:50%"></span><span class="ph-line" style="width:80%"></span></span><span class="ph-line"></span></div>
+                <div class="ghost-row"><span class="pt"></span><span><span class="ph-line" style="width:44%"></span><span class="ph-line" style="width:70%"></span></span><span class="ph-line"></span></div>
+              </div>
+            </div>
+            <div class="navb"><span>HOME</span><span class="on">CREW</span><span>SHIPS</span><span>FAC</span><span>LOG</span><span>OPS</span></div>
+          </div>
+          <p class="note" style="max-width:375px">On phone the label shrinks to the glyph and the count; entries and buttons keep a 34 px tap height. The band costs 50 px of height under the tabs.</p>
+        </div>
+      </div>
+      <div class="ocgrid" style="margin-top:12px">
+        <div class="oc"><div class="t">Open call 2 · placement</div><div class="ab"><b>A</b><span>Under the tab row, on every Crew tab (Admiral, Captain Roster, Refugees). Reads as the bucket's header, the tabs stay where they are today.</span><b>B</b><span>Above the tab row. The very top of Crew, but it pushes the tab row down 46 px (50 on phone) on every visit.</span></div><div class="drawn">Drawn: A</div></div>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <p class="label">2. The motion: option A (the strip drifts) and option B (one at a time)</p>
+    <div class="stage">
+      <div class="ctl"><label><input type="checkbox" class="rm-toggle"> Preview with Reduce motion on</label></div>
+      <div class="states">
+        <div class="band-demo">
+          <p class="frame-cap">A · Drift (desktop band). The Complement strip's own motion, <code>ui/marquee.ts</code> as built</p>
+          <div class="nt" data-ticker="A" data-set="main"></div>
+          <p class="note">Drifts to the end at <b>14 px a second</b>, rests <b>1.8 s</b>, drifts back, rests, and so on (it moves the strip's own scroll, nothing is cloned, so there is no wraparound seam). <b>Pauses</b> on hover, on keyboard focus inside it, and on touch (resumes 1.5 s after the finger lifts), so a tap never lands on a moving target. Swipe or wheel to scroll by hand; the drift carries on from there. Does not run while the tab is hidden, while the band is offscreen, or when everything fits. <b>Reduce motion on:</b> never moves; it is a plain row you scroll by hand, with the <b>All</b> list for the rest.</p>
+        </div>
+        <div class="band-demo">
+          <p class="frame-cap">B · One at a time (desktop band). The Home board's "Needs your orders" cadence: a new entry every 3.2 s, fading</p>
+          <div class="nt" data-ticker="B" data-set="main"></div>
+          <p class="note">Shows <b>one entry</b>, fades to the next every <b>3.2 s</b> (<code>NEEDS_TICKER_INTERVAL_MS</code>, the Home board's ticker), wraps around. The arrows step by hand at any time. <b>Pauses</b> on hover, focus or touch (a small "paused" tag shows). <b>Reduce motion on:</b> no fade and no auto-advance; it holds on one entry and the arrows step. With 12 notables a full cycle takes 38 s; with 50, 2 min 40 s.</p>
+        </div>
+        <div class="pair">
+          <div class="band-demo ph">
+            <p class="frame-cap">A · phone 353 px band</p>
+            <div class="phone"><div class="nt" data-ticker="A" data-set="main"></div></div>
+          </div>
+          <div class="band-demo ph">
+            <p class="frame-cap">B · phone 353 px band: two-line entry, the next arrow only (it wraps around), no position counter, All as an icon; the band is 52 px tall. A long rank and division ends in an ellipsis (the record shows it in full)</p>
+            <div class="phone"><div class="nt" data-ticker="B" data-set="main"></div></div>
+          </div>
+        </div>
+      </div>
+      <div class="ocgrid" style="margin-top:12px">
+        <div class="oc"><div class="t">Open call 1 · the motion</div><div class="ab"><b>A</b><span>Drift: many names visible at once, the same motion the Complement strip already has (one shared action, no new timing). Slow at scale: with 50 notables one pass end to end takes about 16 minutes on desktop (13,300 px of strip at 14 px a second); the All list covers that.</span><b>B</b><span>One at a time: calmest and narrowest, each name gets its moment, phone-friendly. Shows one name at a time; the All list shows everyone.</span></div><div class="drawn">Drawn: both, A in section 1</div></div>
+        <div class="oc"><div class="t">Open call 7 · order</div><div class="ab"><b>A</b><span>Favorites first, then the order they graduated (oldest first). Unassigned sit in place among them.</span><b>B</b><span>Graduation order only (<code>state.notableCrew</code> as stored).</span><b>C</b><span>Grouped by ship, Unassigned last (the All list's order).</span></div><div class="drawn">Drawn: A</div></div>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <p class="label">3. Tap or click an entry: the notable's record, and the All list</p>
+    <div class="stage">
+      <div class="pair">
+        <div>
+          <p class="frame-cap">Record, assigned (tap "Sennei Threnaal")</p>
+          <div class="rec" id="rec-static-a"></div>
+        </div>
+        <div>
+          <p class="frame-cap">Record, unassigned (tap "Kirra Nirriss")</p>
+          <div class="rec" id="rec-static-u"></div>
+        </div>
+        <div>
+          <p class="frame-cap">All (the band's All button): everyone, stationary</p>
+          <div class="rec all" id="all-static"></div>
+        </div>
+      </div>
+      <p class="note">The record is a small read-only card in the game's ActionModal (Escape closes, focus returns to the band). Its star is the existing favorite toggle. <b>Open Complement</b> goes to Ships, that ship, the Complement tab, where its card already offers Send back and Retire. An unassigned notable has no ship to open; today a Personnel roster that pins it is the only way to seat it (an "assign to ship" button was logged for later on 2026-11-12), so the card says so. The All list is the same idiom as the Home board's "Show all": no motion at all, grouped by ship, Unassigned last; each row opens the record.</p>
+      <div class="ocgrid" style="margin-top:12px">
+        <div class="oc"><div class="t">Open call 4 · what a tap does</div><div class="ab"><b>A</b><span>Opens the record card (drawn here); from there, Open Complement.</span><b>B</b><span>Jumps straight to the ship's Complement tab and flashes the card. An unassigned notable then has nowhere to jump, so its entry would open Facilities, Personnel Rosters (only once that facility is built).</span></div><div class="drawn">Drawn: A</div></div>
+        <div class="oc"><div class="t">Open call 6 · how much an entry shows</div><div class="ab"><b>A</b><span>Name, rank, division, ship (or Unassigned), favorite star. Origin and buffs in the record only. Quiet and short.</span><b>B</b><span>Also the origin on the entry ("Chief · Medical · Earth-born").</span><b>C</b><span>Also the buff chips, as on the Complement card (longest; on phone an entry would no longer fit one line).</span></div><div class="drawn">Drawn: A</div></div>
+        <div class="oc"><div class="t">Open call 8 · Send back and Retire in the record</div><div class="ab"><b>A</b><span>Not in the record: those stay on the ship's Complement card, one tap away through Open Complement. The ticker stays a view.</span><b>B</b><span>Also in the record (Retire for an unassigned notable would then exist somewhere without a roster).</span></div><div class="drawn">Drawn: A</div></div>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <p class="label">4. Empty and crowded</p>
+    <div class="stage">
+      <div class="ctl"><label><input type="checkbox" class="rm-toggle"> Preview with Reduce motion on</label></div>
+      <div class="states">
+        <div class="band-demo">
+          <p class="frame-cap">Empty (no notable yet), desktop</p>
+          <div class="nt" data-ticker="E" data-set="none"></div>
+        </div>
+        <div class="band-demo ph">
+          <p class="frame-cap">Empty, phone</p>
+          <div class="phone"><div class="nt" data-ticker="E" data-set="none"></div></div>
+        </div>
+        <div class="band-demo">
+          <p class="frame-cap">Crowded: 50 / 50 (the cap), option A, desktop</p>
+          <div class="nt" data-ticker="A" data-set="full"></div>
+        </div>
+        <div class="band-demo">
+          <p class="frame-cap">Crowded: 50 / 50, option B, desktop</p>
+          <div class="nt" data-ticker="B" data-set="full"></div>
+        </div>
+        <div class="pair">
+          <div class="band-demo ph"><p class="frame-cap">Crowded A, phone</p><div class="phone"><div class="nt" data-ticker="A" data-set="full"></div></div></div>
+          <div class="band-demo ph"><p class="frame-cap">Crowded B, phone</p><div class="phone"><div class="nt" data-ticker="B" data-set="full"></div></div></div>
+        </div>
+      </div>
+      <p class="note">At the cap the count reads <b>50 / 50</b> in the warning color, the same fact the Graduate button already refuses on. Nothing else changes: the band never grows taller, whatever the count; the All list scrolls inside its card.</p>
+      <div class="ocgrid" style="margin-top:12px">
+        <div class="oc"><div class="t">Open call 5 · the empty band</div><div class="ab"><b>A</b><span>Show it with the one-line hint (drawn), so a new player learns where notables come from.</span><b>B</b><span>Hide the band until the first notable graduates; Crew looks exactly as it does today until then.</span></div><div class="drawn">Drawn: A</div></div>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <p class="label">5. Open calls, most important first</p>
+    <div class="stage">
+      <div class="ocgrid">
+        <div class="oc"><div class="t">Open call 1 · the motion</div><div class="ab"><b>A</b><span>Drift (the Complement strip's motion).</span><b>B</b><span>One at a time, fading every 3.2 s, with arrows.</span></div></div>
+        <div class="oc"><div class="t">Open call 3 · the per-ship Complement strip</div><div class="ab"><b>A</b><span>Keep it as built. It is where Send back, Retire and "just graduated" live; the header ticker is the fleet-wide view. Both drift the same way.</span><b>B</b><span>Keep the cards but stop the strip's drift (a still row), so only the header moves.</span><b>C</b><span>Remove it; Send back and Retire move into the record card (open call 8 B).</span></div><div class="drawn">Your 2026-11-12 answer said build the header ticker; it did not say to remove the strip. Nothing changes there unless you pick B or C.</div></div>
+        <div class="oc"><div class="t">Open call 2 · placement</div><div class="ab"><b>A</b><span>Under the tab row, every Crew tab.</span><b>B</b><span>Above the tab row.</span></div></div>
+        <div class="oc"><div class="t">Open call 4 · tap</div><div class="ab"><b>A</b><span>Record card, then Open Complement.</span><b>B</b><span>Straight to the ship's Complement.</span></div></div>
+        <div class="oc"><div class="t">Open call 5 · empty</div><div class="ab"><b>A</b><span>Show the hint.</span><b>B</b><span>Hide until the first notable.</span></div></div>
+        <div class="oc"><div class="t">Open call 6 · entry content</div><div class="ab"><b>A</b><span>Name, rank, division, ship, star.</span><b>B</b><span>Plus origin.</span><b>C</b><span>Plus buffs.</span></div></div>
+        <div class="oc"><div class="t">Open call 7 · order</div><div class="ab"><b>A</b><span>Favorites first, then graduation order.</span><b>B</b><span>Graduation order only.</span><b>C</b><span>By ship, Unassigned last.</span></div></div>
+        <div class="oc"><div class="t">Open call 8 · actions in the record</div><div class="ab"><b>A</b><span>Read-only plus the favorite star.</span><b>B</b><span>Add Send back and Retire.</span></div></div>
+      </div>
+    </div>
+  </section>
+</div>
+
+<div class="overlay" id="ov"><div id="ov-body"></div></div>
+
+<script>
+(() => {
+  // Sample notables. Names come from the engine's own pools (crewRaces.ts), labels from DIVISION_LABEL, crewRankLabel,
+  // raceLabel and crewBuffs.ts, buff counts from crewRank.ts BUFF_COUNT_BY_RANK. Ships: hull labels and one named ship.
+  const MAIN = [
+    { nm: "Amara Okafor", rank: "Chief", div: "Medical", org: "Earth-born", ship: "Eir", fav: true, buffs: ["Crew Effectiveness", "Triage"] },
+    { nm: "Sennei Threnaal", rank: "Lieutenant", div: "Science", org: "Vael", ship: "Aurora", fav: true, buffs: ["Survey Aptitude", "Keen Analysis", "Extraction Yield"] },
+    { nm: "Grokk Dragga", rank: "Petty Officer", div: "Security", org: "Ossir", ship: "Kestrel", buffs: ["Boarding Defense"] },
+    { nm: "Kirra Nirriss", rank: "Ensign", div: "Flight Deck", org: "Stheni", ship: null, buffs: ["Deck Handling", "Fast Return"] },
+    { nm: "Rafael Petrov", rank: "Master Chief", div: "Engineering", org: "Belter", ship: "Hauler", buffs: ["Damage Control", "Engine Tuning"] },
+    { nm: "Aeri Skyloen", rank: "Crewman", div: "Operations", org: "Draell", ship: null, buffs: ["Rapid Loadout"] },
+    { nm: "Yuki Mwangi", rank: "Cadet", div: "Science", org: "Station-born", ship: "Aurora", buffs: ["Extraction Yield", "Survey Aptitude"] },
+    { nm: "Ossae Suvei", rank: "Lieutenant Commander", div: "Medical", org: "Vael", ship: "Eir", buffs: ["Reduced Crew Losses", "Triage", "Crew Effectiveness"] },
+    { nm: "Diego Haidari", rank: "Chief", div: "Operations", org: "Martian", ship: "General Freighter", buffs: ["Stowage Discipline", "Efficient Unloading"] },
+    { nm: "Thessa Ossheen", rank: "Petty Officer", div: "Flight Deck", org: "Stheni", ship: "Kestrel", buffs: ["Fast Departure"] },
+    { nm: "Dromm Kholmm", rank: "Crewman", div: "Security", org: "Ossir", ship: "Kestrel", buffs: ["Counter-Infiltration"] },
+    { nm: "Priya Costa", rank: "Ensign", div: "Engineering", org: "Outer-Colony", ship: "Orion", buffs: ["Power Discipline", "Engine Tuning"] },
+  ];
+  const GIVEN = ["Chen", "Nadia", "Kofi", "Ingrid", "Hassan", "Lena", "Jun", "Fatima", "Oscar", "Anaya", "Bjorn", "Rosa", "Omar", "Keiko", "Marcus", "Layla", "Sanjay", "Zara", "Ravi", "Sofia", "Kwame", "Mei", "Tomas", "Aisha", "Lars", "Ysseth", "Virel", "Hurrn", "Faelo", "Iliru", "Tessk", "Mowa", "Naeth", "Vryn", "Ruum", "Zephi", "Ophi", "Kavel"];
+  const FAMILY = ["Nakamura", "Silva", "Andersson", "Reyes", "Cohen", "Rossi", "Kim", "Dubois", "Novak", "Ivanova", "Adeyemi", "Larsen", "Vasquez", "Oyelaran", "Fischer", "Nwosu", "Tanaka", "Moreno", "Ssovann", "Oorlan", "Vennuk", "Vaardu", "Aethis", "Torrhak", "Ellith", "Nuvaan", "Threxa", "Osskarr", "Naevann", "Vraals", "Oorae", "Suvei", "Kholmm", "Dragga", "Skyloen", "Nirriss", "Threnaal", "Petrov"];
+  const RANKS = ["Crewman", "Petty Officer", "Chief", "Master Chief", "Cadet", "Ensign", "Lieutenant", "Lieutenant Commander"];
+  const DIVS = ["Security", "Engineering", "Science", "Medical", "Operations", "Flight Deck"];
+  const SHIPS = ["Eir", "Aurora", "Kestrel", "Hauler", "Orion", "General Freighter", null];
+  const FULL = MAIN.slice();
+  for (let i = 0; FULL.length < 50; i++) {
+    FULL.push({ nm: GIVEN[i % GIVEN.length] + " " + FAMILY[(i * 7 + 3) % FAMILY.length], rank: RANKS[(i * 3) % 8], div: DIVS[(i * 5) % 6], org: "", ship: SHIPS[(i * 4 + 1) % 7], fav: i % 11 === 4, buffs: [] });
+  }
+  const SETS = { main: MAIN, full: FULL, none: [] };
+  const CAP = 50;
+  // Open call 7 A: favorites first, then graduation order.
+  const ordered = (list) => [...list.filter((n) => n.fav), ...list.filter((n) => !n.fav)];
+
+  const use = (id, cls = "g") => `<svg class="${cls}" aria-hidden="true"><use href="#i-${id}"/></svg>`;
+  const shipPill = (n) => n.ship ? `<span class="sp">${use("ship")}${n.ship}</span>` : `<span class="sp un">Unassigned</span>`;
+  const entry = (n, idx) =>
+    `<button type="button" class="ne" data-idx="${idx}" title="Open ${n.nm}'s record"><span class="l1">${n.fav ? use("star", "g fill fav") : ""}<span class="nm">${n.nm}</span></span><span class="l2"><span class="meta">${n.rank} · ${n.div}</span>${shipPill(n)}</span></button>`;
+  const label = (count) =>
+    `<span class="nt-lbl" title="Notable crew in the fleet, assigned or not, against the cap of ${CAP}">${use("graduate")}<span class="w">Notable crew</span><b style="${count >= CAP ? "color:var(--color-warning)" : ""}">${count} / ${CAP}</b></span>`;
+
+  let reduced = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  document.querySelectorAll(".rm-toggle").forEach((c) => (c.checked = reduced));
+  const listeners = [];
+  document.addEventListener("change", (e) => {
+    if (!e.target.classList || !e.target.classList.contains("rm-toggle")) return;
+    reduced = e.target.checked;
+    document.querySelectorAll(".rm-toggle").forEach((c) => (c.checked = reduced));
+    listeners.forEach((f) => f());
+  });
+
+  // Option A: the marqueeStep rule from ui/marquee.ts, copied (14 px/s, 1.8 s end rest, 1.5 s touch resume).
+  function mountA(el, list) {
+    const items = ordered(list);
+    el.innerHTML = label(list.length) + `<div class="nt-track">${items.map(entry).join("")}</div><button type="button" class="nt-btn all-btn" aria-label="All notable crew">${use("manifest")}<span class="w">All</span></button>`;
+    wire(el, items);
+    const tr = el.querySelector(".nt-track");
+    let s = { pos: 0, dir: 1, rest: 1800 }, last = 0, hov = false, foc = false, touchUntil = 0, lastSet = 0;
+    tr.addEventListener("mouseenter", () => (hov = true));
+    tr.addEventListener("mouseleave", () => (hov = false));
+    tr.addEventListener("focusin", () => (foc = true));
+    tr.addEventListener("focusout", (e) => { if (!(e.relatedTarget && tr.contains(e.relatedTarget))) foc = false; });
+    const touch = () => (touchUntil = performance.now() + 1500);
+    tr.addEventListener("touchstart", touch, { passive: true });
+    tr.addEventListener("touchend", touch, { passive: true });
+    function frame(now) {
+      const max = tr.scrollWidth - tr.clientWidth;
+      const run = !reduced && !hov && !foc && now >= touchUntil && max > 1;
+      el.classList.toggle("is-paused", !reduced && max > 1 && (hov || foc || now < touchUntil));
+      if (run) {
+        if (Math.abs(tr.scrollLeft - lastSet) > 1) s.pos = tr.scrollLeft;
+        const dt = last ? Math.min(100, now - last) : 0;
+        if (s.rest > 0) s.rest = Math.max(0, s.rest - dt);
+        else {
+          const np = s.pos + (s.dir * 14 * dt) / 1000;
+          if (np >= max) s = { pos: max, dir: -1, rest: 1800 };
+          else if (np <= 0) s = { pos: 0, dir: 1, rest: 1800 };
+          else s.pos = np;
+        }
+        tr.scrollLeft = s.pos;
+        lastSet = tr.scrollLeft;
+      }
+      last = now;
+      requestAnimationFrame(frame);
+    }
+    requestAnimationFrame(frame);
+    el.insertAdjacentHTML("beforeend", `<span class="nt-paused">${use("pause")}paused</span>`);
+  }
+
+  // Option B: one entry, fade to the next every 3.2 s; arrows step by hand.
+  function mountB(el, list) {
+    const items = ordered(list);
+    let i = 0, hov = false, touchUntil = 0;
+    el.innerHTML = label(list.length) + `<button type="button" class="nt-btn sq nt-prev" aria-label="Previous notable">${use("chevronLeft")}</button><div class="nt-one"></div><span class="nt-pos"></span><button type="button" class="nt-btn sq" aria-label="Next notable">${use("chevronRight")}</button><button type="button" class="nt-btn all-btn" aria-label="All notable crew">${use("manifest")}<span class="w">All</span></button><span class="nt-paused">${use("pause")}paused</span>`;
+    const one = el.querySelector(".nt-one"), pos = el.querySelector(".nt-pos");
+    const [prev, next] = el.querySelectorAll(".nt-btn.sq");
+    const show = (fade) => {
+      const put = () => { one.innerHTML = entry(items[i], i); pos.textContent = `${i + 1} of ${items.length}`; };
+      const cur = one.querySelector(".ne");
+      if (fade && cur && !reduced) { cur.classList.add("fading"); setTimeout(() => { put(); const n = one.querySelector(".ne"); n.classList.add("fading"); requestAnimationFrame(() => requestAnimationFrame(() => n.classList.remove("fading"))); }, 280); }
+      else put();
+    };
+    const step = (d, fade) => { i = (i + d + items.length) % items.length; show(fade); };
+    prev.addEventListener("click", () => step(-1, false));
+    next.addEventListener("click", () => step(1, false));
+    el.addEventListener("mouseenter", () => (hov = true));
+    el.addEventListener("mouseleave", () => (hov = false));
+    const touch = () => (touchUntil = performance.now() + 1500);
+    el.addEventListener("touchstart", touch, { passive: true });
+    show(false);
+    wire(el, items);
+    const paused = () => hov || el.contains(document.activeElement) || performance.now() < touchUntil;
+    setInterval(() => { if (!reduced && !paused() && items.length > 1) step(1, true); }, 3200);
+    setInterval(() => el.classList.toggle("is-paused", !reduced && paused()), 200);
+  }
+
+  function mountEmpty(el) {
+    el.innerHTML = label(0) + `<span class="nt-empty">No notable crew yet. On a ship's <b>Complement</b> tab, use <b>Graduate one</b> on a crew group to name a standout.</span>`;
+  }
+
+  // Tap: the record card, and the All list.
+  const ov = document.getElementById("ov"), ovBody = document.getElementById("ov-body");
+  const close = () => ov.classList.remove("on");
+  ov.addEventListener("click", (e) => { if (e.target === ov || e.target.closest("[data-close]")) close(); });
+  document.addEventListener("keydown", (e) => { if (e.key === "Escape") close(); });
+  function recHTML(n) {
+    const buffs = n.buffs.length ? `<div class="chips">${n.buffs.map((b) => `<span class="chip">${b}</span>`).join("")}</div>` : "";
+    const where = n.ship
+      ? `<div class="rec-where">${use("ship")}Aboard <b style="color:var(--color-text-primary)">${n.ship}</b></div><div class="rec-act"><button type="button" class="btn">Open Complement</button></div>`
+      : `<div class="rec-where"><span class="sp un">Unassigned</span>Not aboard a ship</div><div class="rec-note">${use("info")}<span>A Personnel roster that pins this crew member seats them when it is applied (Facilities, Personnel Rosters).</span></div>`;
+    return `<div class="rec-hd"><span>NOTABLE CREW</span><button type="button" data-close aria-label="Close">${use("close")}</button></div><div class="rec-bd"><div class="rec-nm"><span>${n.nm}</span><span title="${n.fav ? "Favorited" : "Favorite this crew member"}">${use("star", n.fav ? "g fill" : "g")}</span></div><div class="rec-sub">${n.rank} · ${n.div}${n.org ? " · " + n.org : ""}</div>${buffs}${where}</div>`;
+  }
+  function allHTML(items) {
+    const groups = new Map();
+    items.forEach((n) => { const k = n.ship || ""; if (!groups.has(k)) groups.set(k, []); groups.get(k).push(n); });
+    const keys = [...groups.keys()].filter((k) => k).sort().concat(groups.has("") ? [""] : []);
+    const body = keys.map((k) => `<div class="all-grp"><span>${k || "Unassigned"}</span><span>${groups.get(k).length}</span></div>` + groups.get(k).map((n) => `<div class="all-row"><span>${n.fav ? use("star", "g fill") : ""}</span><span><b style="font-weight:600">${n.nm}</b> <span class="meta">${n.rank} · ${n.div}</span></span><span class="meta">${n.org}</span></div>`).join("")).join("");
+    return `<div class="rec-hd"><span>NOTABLE CREW · ${items.length} / ${CAP}</span><button type="button" data-close aria-label="Close">${use("close")}</button></div><div class="rec-bd">${body}</div>`;
+  }
+  function wire(el, items) {
+    el.addEventListener("click", (e) => {
+      const ne = e.target.closest(".ne");
+      if (ne) { ovBody.className = "rec"; ovBody.innerHTML = recHTML(items[+ne.dataset.idx]); ov.classList.add("on"); return; }
+      const b = e.target.closest(".nt-btn:not(.sq)");
+      if (b) { ovBody.className = "rec all"; ovBody.innerHTML = allHTML(items); ov.classList.add("on"); }
+    });
+  }
+
+  document.querySelectorAll(".nt[data-ticker]").forEach((el) => {
+    const list = SETS[el.dataset.set];
+    if (el.dataset.ticker === "E") mountEmpty(el);
+    else if (el.dataset.ticker === "A") mountA(el, list);
+    else mountB(el, list);
+  });
+  document.getElementById("rec-static-a").innerHTML = recHTML(MAIN[1]);
+  document.getElementById("rec-static-u").innerHTML = recHTML(MAIN[3]);
+  document.getElementById("all-static").innerHTML = allHTML(ordered(MAIN));
+})();
+</script>
+</body>
+</html>
