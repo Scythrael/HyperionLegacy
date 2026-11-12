@@ -9,13 +9,19 @@
 //   quarters    : a Utilitarian Crew Quarters installed on the full freighter between windows: the new berths fill.
 //   activeOpen  : an empty manual Aurora (open berths a player fills by hand) across a window, then switched to passive.
 //   transfer    : the Eir switched to manual, crew transferred to the pool, switched back: it refills from the pool.
+//   lock        : (reserve ON only) the emptied freighter out on a mission through a window, recalled, refilled.
+//   sendBack    : (reserve ON only) a notable sent back off the Eir; the freed berth refills from the reserve.
 import { describe, expect, it } from "vitest";
 import { freshState, type GameState, type ShipInstance, type ShipTypeKey } from "./model";
 import { resolveCrew } from "./crewOverlay";
 import { signatureKey } from "./crew";
 import { setComplementMode } from "./crewLock";
 import { CREW_POOL, transferCrew } from "./crewTransfer";
-import { tick } from "./tick";
+import { dispatchCaptainOnMission, recallCaptain, tick } from "./tick";
+import { graduateStandout, sendBackNotable } from "./crewGraduation";
+import { shipCrewLocked } from "./crewLock";
+import { homeworldReserveCount } from "./homeworldReserve";
+import { totalCrew } from "./crew";
 import { installPiece } from "./wiring/probes";
 import { stateHash } from "./firstRunsGoldens.fixture";
 import { withHomeworldReserveOff } from "./homeworldReserveSwitch.fixture";
@@ -91,6 +97,21 @@ export const SCENARIOS: Record<string, Scenario> = {
     phases: [{ run: 1900, then: (s) => setComplementMode(s, AURORA, "passive") }, { run: 300 }],
   },
   transfer: { start: () => fleet(8), phases: [{ run: 1900, then: freeOnEir }, { run: 300 }] },
+  // Reserve ON only (hub review 2026-11-12): the freighter emptied and out on a mission (crew-locked) through a transport
+  // window, then recalled: it refills from the pool (the window's crew the sweep kept for its berths) and then the reserve.
+  lock: {
+    start: () => dispatchCaptainOnMission(emptyFreighter(fleet(8)), 1, "shortOreRun").next,
+    phases: [{ run: 1900, then: (s) => recallCaptain(s, 1).next }, { run: 600 }],
+  },
+  // Reserve ON only: a notable graduated on the Eir and sent back (unassigned) frees a berth with the pool empty; it
+  // refills from the reserve, then a transport window passes.
+  sendBack: {
+    start: () => {
+      const s = fleet(8);
+      return graduateStandout(s, EIR, signatureKey(s.ships.find((sh) => sh.id === EIR)!.complement!.buckets[0])).next;
+    },
+    phases: [{ run: 300, then: (s) => sendBackNotable(s, s.notableCrew[s.notableCrew.length - 1].id) }, { run: 1900 }],
+  },
 };
 
 export function runScenario(sc: Scenario, path: Path): GameState {
@@ -122,6 +143,8 @@ const ON_PINS: Record<string, string> = {
   quarters: "30ebbe53",
   activeOpen: "68f8ba66",
   transfer: "f2009cea",
+  lock: "9686c0c1",
+  sendBack: "8008ed53",
 };
 
 function pinned(name: string, sc: Scenario, pins: Record<string, string>, tag: string): void {
@@ -135,11 +158,36 @@ function pinned(name: string, sc: Scenario, pins: Record<string, string>, tag: s
 
 describe("homeworld reserve goldens", () => {
   for (const [name, sc] of Object.entries(SCENARIOS)) {
-    it(`${name} (reserve off): the pre-reserve pin, one call == 997 s chunks == 1 s steps`, () => {
-      withHomeworldReserveOff(() => pinned(name, sc, OFF_PINS, "off"));
-    }, 900000);
+    if (name in OFF_PINS) {
+      it(`${name} (reserve off): the pre-reserve pin, one call == 997 s chunks == 1 s steps`, () => {
+        withHomeworldReserveOff(() => pinned(name, sc, OFF_PINS, "off"));
+      }, 900000);
+    }
     it(`${name} (reserve on): one call == 997 s chunks == 1 s steps, pinned`, () => {
       pinned(name, sc, ON_PINS, "on");
     }, 900000);
   }
+
+  it("lock and sendBack really exercise what they are pinned for", () => {
+    const crewOn = (s: GameState, id: string): number => totalCrew(s.ships.find((sh) => sh.id === id)!.complement?.buckets ?? []);
+    const rng = lcg(0x4e5);
+    // lock: out, crew-locked and empty through the window (the window delivered), then home it refills from both lists.
+    const lockStart = SCENARIOS.lock.start();
+    expect(shipCrewLocked(lockStart, "ship-1")).toBe(true);
+    const out = tick(1900, lockStart, rng);
+    expect(out.lastTransportWindow).toBeGreaterThan(lockStart.lastTransportWindow);
+    expect(shipCrewLocked(out, "ship-1")).toBe(true);
+    expect(crewOn(out, "ship-1")).toBe(0);
+    expect(totalCrew(out.crewPool)).toBeGreaterThan(0);
+    const home = runScenario(SCENARIOS.lock, PATHS.one);
+    expect(crewOn(home, "ship-1")).toBeGreaterThan(totalCrew(out.crewPool));
+    expect(homeworldReserveCount(home)).toBeLessThan(homeworldReserveCount(out));
+    // sendBack: the Eir's freed berth refills from the reserve (the pool is empty).
+    const graduated = SCENARIOS.sendBack.start();
+    expect(graduated.crewPool).toEqual([]);
+    const sent = runScenario({ start: SCENARIOS.sendBack.start, phases: [SCENARIOS.sendBack.phases[0], { run: 5 }] }, PATHS.one);
+    expect(sent.notableCrew.some((n) => n.assignedShipId === EIR)).toBe(false);
+    expect(crewOn(sent, EIR)).toBe(crewOn(graduated, EIR) + 1);
+    expect(homeworldReserveCount(sent)).toBe(homeworldReserveCount(graduated) - 1);
+  }, 900000);
 });

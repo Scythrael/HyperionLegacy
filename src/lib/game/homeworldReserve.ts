@@ -156,14 +156,17 @@ function sweepUncached(
 }
 
 // Every-load normalizer (save.ts migrate; the withHomeworldV70 every-load posture): a well-formed reserve is kept (the
-// SAME state); an empty, malformed or non-list field is dropped, and a group with no positive whole count is left out.
+// SAME state); an empty, malformed or non-list field is dropped, a group with no positive whole count is left out, and
+// two groups of one signature (a hand-edited save) are merged into one (coalesceBuckets, first-seen order): the filler
+// counts a signature across every group but takes from the first, so duplicates could otherwise mint crew.
 // No SAVE_VERSION bump: a save without the field is untouched.
 export function withHomeworldReserveOnLoad(state: any): any {
   if (!state || typeof state !== "object" || !("homeworldReserve" in state)) return state;
   const raw = state.homeworldReserve;
   const valid = (b: any): boolean => !!b && typeof b === "object" && typeof b.profession === "string" && Number.isInteger(b.count) && b.count > 0;
-  if (Array.isArray(raw) && raw.length > 0 && raw.every(valid)) return state;
-  const kept = Array.isArray(raw) ? raw.filter(valid) : [];
+  const kept: CrewBucket[] = Array.isArray(raw) ? raw.filter(valid) : [];
+  const merged = coalesceBuckets(kept);
+  if (Array.isArray(raw) && raw.length > 0 && kept.length === raw.length && merged.length === kept.length) return state;
   const { homeworldReserve: _gone, ...rest } = state;
-  return kept.length > 0 ? { ...rest, homeworldReserve: kept } : rest;
+  return merged.length > 0 ? { ...rest, homeworldReserve: merged } : rest;
 }

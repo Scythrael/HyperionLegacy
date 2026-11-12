@@ -212,6 +212,26 @@ describe("homeworld reserve: saves", () => {
     expect(withHomeworldReserveOnLoad(null)).toBeNull();
   });
 
+  it("duplicate groups of one signature (a hand-edited save) are merged at load, so a draw can never mint crew", () => {
+    const full = fullFreighter();
+    const sig = ship1(full).complement!.buckets[0];
+    const buckets = ship1(full).complement!.buckets.map((b, i) => (i === 0 ? { ...b, count: b.count - 5 } : b));
+    const holed: GameState = { ...full, crewPool: [], ships: full.ships.map((sh) => (sh.id === "ship-1" ? { ...sh, complement: { buckets, mode: "passive" as const } } : sh)) };
+    const edited = { ...holed, homeworldReserve: [{ ...sig, count: 2 }, group("medical", 1, 2), { ...sig, count: 2 }] };
+    const loaded = withHomeworldReserveOnLoad(edited);
+    expect(countOf(homeworldReserveOf(loaded), sig)).toBe(4);
+    expect(homeworldReserveOf(loaded).filter((b) => signatureKey(b) === signatureKey(sig))).toHaveLength(1);
+    expect(homeworldReserveCount(loaded)).toBe(5);
+    // The freed berths take the four of the signature, and nobody appears from nowhere.
+    const out = resolveCrew(loaded);
+    expect(countOf(homeworldReserveOf(out), sig)).toBe(0);
+    expect(crewOnShip1(out) - crewOnShip1(holed)).toBe(homeworldReserveCount(loaded) - homeworldReserveCount(out));
+    expect(crewOnShip1(out) - crewOnShip1(holed)).toBeGreaterThanOrEqual(4);
+    expect(everyone(out)).toBe(everyone(loaded));
+    // A well-formed reserve (no duplicates) is kept as it is.
+    expect(withHomeworldReserveOnLoad(loaded)).toBe(loaded);
+  });
+
   it("an old save's pool is not moved at load: the engine moves its surplus at the first tick after", () => {
     const full = withHomeworldReserveOff(() => fullFreighter());
     const loaded = migrate(deserialize(serialize(full, 0, 0))!, 1);

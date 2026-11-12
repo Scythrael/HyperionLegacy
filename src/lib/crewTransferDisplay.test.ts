@@ -105,7 +105,8 @@ describe("transferDestinations", () => {
     const s = fleet([bucket("science", 1284)]);
     const cards = transferDestinations(s, "ship-1");
     expect(cards.map((c) => c.id)).toEqual([CREW_POOL, "ship-2", "ship-3"]);
-    expect(cards[0].line).toBe("no cap · 1,284 waiting");
+    expect(cards[0].line).toBe("1,284 waiting");
+    expect(cards[0].shortLine).toBe("1,284 waiting");
     // From the pool, the pool is not a destination.
     expect(transferDestinations(s, CREW_POOL).map((c) => c.id)).toEqual(["ship-1", "ship-2", "ship-3"]);
   });

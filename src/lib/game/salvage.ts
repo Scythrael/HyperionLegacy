@@ -731,12 +731,20 @@ export function salvageShipPeople(state: GameState, shipId: string): SalvageShip
   };
 }
 
-// The confirm dialog's sentence for salvageShipPeople, e.g. "12 crew return to the pool; 3 away members and
-// 1 officer become unassigned." null when nobody is aboard. US English, en-US digit grouping. Pure.
+// The confirm dialog's sentence for salvageShipPeople, e.g. "12 crew return to the pool, or the Homeworld reserve
+// where no berth can take them; 3 away members and 1 officer become unassigned." null when nobody is aboard. US English,
+// en-US digit grouping. Pure. Homeworld reserve (user 2026-11-12): crew no berth in the fleet can take move on from the
+// pool to the reserve within one tick (homeworldReserve.ts), so the sentence names both.
 export function salvageShipPeopleText(p: SalvageShipPeople): string | null {
   const num = (n: number) => n.toLocaleString("en-US");
   const parts: string[] = [];
-  if (p.crew > 0) parts.push(p.crew === 1 ? "1 crew member returns to the pool" : `${num(p.crew)} crew return to the pool`);
+  if (p.crew > 0) {
+    parts.push(
+      p.crew === 1
+        ? "1 crew member returns to the pool, or the Homeworld reserve if no berth can take them"
+        : `${num(p.crew)} crew return to the pool, or the Homeworld reserve where no berth can take them`,
+    );
+  }
   const named: string[] = [];
   if (p.awayMembers > 0) named.push(`${num(p.awayMembers)} away member${p.awayMembers === 1 ? "" : "s"}`);
   if (p.officers > 0) named.push(`${num(p.officers)} officer${p.officers === 1 ? "" : "s"}`);
