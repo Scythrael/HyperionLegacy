@@ -92,3 +92,11 @@ away at a tree. Or mining ore. Etc."
 - B, the multi-character map: several characters each set to a task (fight wolves on a map, mine copper ore, chop
   trees) and left idle; one "active" on screen gets activity bonuses while still idle; lots of crafting and small
   stacking bonuses.
+
+## Project shape (user, 2026-11-12)
+
+- A whole new project, likely on its own Claude account (a second Max plan) since this account already hits its limits.
+- A different architecture: potentially an actual app for the App Stores.
+- The monetization stance above applies ONLY to this new game. User: "HL won't be monetized in that way. At least, I'm not
+  yet really considering it. Because I want to be able to keep developing games, and eventually, it gets to be too
+  expensive if I'm not making the cost of the game back."
