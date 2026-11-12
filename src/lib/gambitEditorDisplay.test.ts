@@ -3,9 +3,18 @@
 import { describe, expect, it } from "vitest";
 import { DEFAULT_GAMBIT_PROGRAMS, FIELD_KITS_DEFAULT_MEMBER_GAMBIT, freshState } from "./game/model";
 import type { AwayMember, Expedition, GameState, ShipGroundTeam } from "./game/model";
-import { applyMemberGambitPreset, addMemberGambitRule } from "./game/memberGambits";
+import { applyMemberGambitPreset, addMemberGambitRule, setAccountHireDefaultFromMember } from "./game/memberGambits";
 import { renameGroundTeam } from "./game/groundTeams";
-import { ACCOUNT_PAIR_NOTICE, accountPairNoticeShown, gambitEditorView } from "./gambitEditorDisplay";
+import {
+  HIRE_CLEARED,
+  HIRE_NO_PICK,
+  HIRE_SET_ALREADY,
+  HIRE_SET_SAVED,
+  gambitEditorView,
+  hireDefaultStatus,
+  hireSetRow,
+  mergeAddedKindsText,
+} from "./gambitEditorDisplay";
 
 function member(id: string, teamType: AwayMember["teamType"], shipId: string | null, name: string): AwayMember {
   return {
@@ -190,17 +199,106 @@ describe("gambitEditorView", () => {
 
   it("player-facing text has no em dashes or double hyphens", () => {
     const v = gambitEditorView(crew(), { shipId: "ship-2", teamIndex: 0 });
-    for (const t of [v.emptyText ?? "", ACCOUNT_PAIR_NOTICE]) expect(NO_DASHES(t)).toBe(true);
+    for (const t of [v.emptyText ?? "", HIRE_SET_ALREADY, HIRE_SET_SAVED, HIRE_CLEARED, HIRE_NO_PICK]) expect(NO_DASHES(t)).toBe(true);
   });
 });
 
-describe("the inert account pair (Q21: kept stored, hidden)", () => {
-  it("the notice shows only when the stored pair differs from the fresh default", () => {
+// OC-F12 control (user answers 2026-11-12, Option A): the "Set for new hires" row and the "New hires" status line.
+describe("OC-F12 new-hire default: the status line and the Set row", () => {
+  const statusText = (s: Parameters<typeof hireDefaultStatus>[0]) => {
+    const st = hireDefaultStatus(s);
+    return `${st.before}${st.bold}${st.after}`;
+  };
+  const viewOf = (s: GameState, memberId: string) => gambitEditorView(s, { shipId: "ship-1", teamIndex: 0, memberId }).member!;
+
+  it("nothing set: hires start on the built-in default, and a member's program can be set", () => {
+    const s = applyMemberGambitPreset(crew(), "member-1", "decapitate");
+    expect(hireDefaultStatus(s).set).toBe(false);
+    expect(statusText(s)).toBe("New Security hires start on the built-in default.");
+    const row = hireSetRow(s, viewOf(s, "member-1"));
+    expect(row).toEqual({
+      enabled: true,
+      warn: false,
+      note: "Every Security member you hire from now on starts with a copy of Grokk's program, plus the built-in cure, heal, brace and grenade rules it lacks, placed first. Nobody already hired changes.",
+    });
+  });
+
+  it("set: the line names the program and the member it came from; the same program reads as already set", () => {
+    const s = setAccountHireDefaultFromMember(applyMemberGambitPreset(crew(), "member-1", "decapitate"), "member-1");
+    expect(hireDefaultStatus(s).set).toBe(true);
+    expect(statusText(s)).toBe("New Security hires start with Decapitate (from Grokk), the built-in support rules first.");
+    expect(hireSetRow(s, viewOf(s, "member-1"))).toEqual({ enabled: false, warn: false, note: HIRE_SET_ALREADY });
+    // The member gone from the roster: the line drops "from" (it never names a stranger).
+    const gone = { ...s, awayMembers: s.awayMembers.filter((m) => m.id !== "member-1") };
+    expect(statusText(gone)).toBe("New Security hires start with Decapitate, the built-in support rules first.");
+    // A program that is no preset reads as a custom program; one with every support kind adds none, so no "first" clause.
+    const own = [
+      { target: "allyHasStatus" as const, action: "cure" as const },
+      { target: "allyHpBelow" as const, params: { hpThreshold: 0.5 }, action: "aidHeal" as const },
+      { target: "selfHpBelow" as const, params: { hpThreshold: 0.25 }, action: "brace" as const },
+      { target: "foeLargestGroup" as const, action: "throwGrenade" as const },
+      { target: "foeNearest" as const, action: "attack" as const },
+    ];
+    const full = { ...s, gambitPrograms: { ...s.gambitPrograms, security: own }, gambitDefaultFrom: undefined };
+    expect(statusText(full)).toBe("New Security hires start with a custom program.");
+    expect(mergeAddedKindsText(own)).toBe("");
+  });
+
+  it("a member on the built-in default cannot be set; the note points at Clear once a default is set", () => {
     const s = crew();
-    expect(accountPairNoticeShown(s)).toBe(false);
-    const custom = { ...s, gambitPrograms: { security: [{ target: "self" as const, action: "hold" as const }], science: [] } };
-    expect(accountPairNoticeShown(custom)).toBe(true);
+    expect(hireSetRow(s, viewOf(s, "member-2"))).toEqual({ enabled: false, warn: false, note: "Ossra runs the built-in default, which new Security hires already start on." });
+    const set = setAccountHireDefaultFromMember(applyMemberGambitPreset(s, "member-1", "decapitate"), "member-1");
+    expect(hireSetRow(set, viewOf(set, "member-2"))).toEqual({ enabled: false, warn: false, note: "Ossra runs the built-in default. To give new hires the built-in default, use Clear." });
+  });
+
+  it("Balanced (user 2026-11-12 \"Treat as no default\"): off with nothing set, a Clear when a default is set", () => {
+    const s = applyMemberGambitPreset(crew(), "member-2", "balanced");
+    expect(hireSetRow(s, viewOf(s, "member-2")).enabled).toBe(false);
+    expect(hireSetRow(s, viewOf(s, "member-2")).note).toBe("Balanced means no default, and none is set: new Security hires start on the built-in default.");
+    const set = setAccountHireDefaultFromMember(applyMemberGambitPreset(s, "member-1", "decapitate"), "member-1");
+    const row = hireSetRow(set, viewOf(set, "member-2"));
+    expect(row).toEqual({ enabled: true, warn: false, note: "Balanced means no default: this clears it, and new Security hires start on the built-in default." });
+    const after = setAccountHireDefaultFromMember(set, "member-2");
+    expect(statusText(after)).toBe("New Security hires start on the built-in default.");
+  });
+
+  it("a program of their own equal to the built-in default reads as the built-in default, never a custom program", () => {
+    const withOwnDefault = (s: GameState) => ({
+      ...s,
+      awayMembers: s.awayMembers.map((m) => (m.id === "member-2" ? { ...m, gambit: FIELD_KITS_DEFAULT_MEMBER_GAMBIT.map((r) => (r.params ? { ...r, params: { ...r.params } } : { ...r })) } : m)),
+    });
+    const s = withOwnDefault(crew());
+    expect(viewOf(s, "member-2").hasOwn).toBe(true);
+    expect(hireSetRow(s, viewOf(s, "member-2"))).toEqual({ enabled: false, warn: false, note: "Ossra's program is the built-in default, which new Security hires already start on." });
+    const set = setAccountHireDefaultFromMember(applyMemberGambitPreset(s, "member-1", "decapitate"), "member-1");
+    expect(hireSetRow(set, viewOf(set, "member-2"))).toEqual({
+      enabled: true,
+      warn: false,
+      note: "Ossra's program is the built-in default: this clears the default, and new Security hires start on the built-in default.",
+    });
+    expect(statusText(setAccountHireDefaultFromMember(set, "member-2"))).toBe("New Security hires start on the built-in default.");
+    // A stored pair equal to the built-in default (an older save) is named so.
+    const old = { ...s, gambitPrograms: { ...s.gambitPrograms, security: FIELD_KITS_DEFAULT_MEMBER_GAMBIT } };
+    expect(statusText(old)).toBe("New Security hires start with the built-in default.");
+  });
+
+  it("an empty program warns that hires get only the built-in support rules", () => {
+    const s = applyMemberGambitPreset(crew(), "member-1", "custom");
+    expect(viewOf(s, "member-1").program).toEqual([]);
+    expect(hireSetRow(s, viewOf(s, "member-1"))).toEqual({ enabled: true, warn: true, note: "Hires would get only the built-in cure, heal, brace and grenade rules, and no attack rule." });
+    // Before kits are live in runs the built-in default has no grenade rules.
+    expect(hireSetRow(s, viewOf(s, "member-1"), false).note).toBe("Hires would get only the built-in cure, heal and brace rules, and no attack rule.");
+  });
+
+  it("the Science half is never read: a changed Science program alone sets nothing", () => {
+    const s = crew();
     const oldScience = { ...s, gambitPrograms: { security: DEFAULT_GAMBIT_PROGRAMS.security, science: [{ target: "self" as const, action: "hold" as const }] } };
-    expect(accountPairNoticeShown(oldScience)).toBe(true);
+    expect(hireDefaultStatus(oldScience).set).toBe(false);
+  });
+
+  it("every line has no em dashes or double hyphens", () => {
+    const s = setAccountHireDefaultFromMember(applyMemberGambitPreset(crew(), "member-1", "decapitate"), "member-1");
+    for (const id of ["member-1", "member-2"]) expect(NO_DASHES(hireSetRow(s, viewOf(s, id)).note)).toBe(true);
+    expect(NO_DASHES(statusText(s))).toBe(true);
   });
 });

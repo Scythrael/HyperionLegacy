@@ -15,14 +15,18 @@ import { hasMedicalTraining } from "./game/awayTraits";
 import { squadsOfType, teamKindName } from "./game/groundComposition";
 import { cleanShipGroundTeams, groundTeamName } from "./game/groundTeams";
 import {
+  accountHireDefaultSet,
   gambitProgramEquals,
+  isBuiltInDefaultProgram,
   matchedMemberPreset,
   memberEditableProgram,
   memberHasOwnGambit,
   memberSecuritySquadmates,
+  mergeWithBuiltInDefault,
   squadmatesCopyWouldChange,
 } from "./game/memberGambits";
 import { awayShipName } from "./awayTeamDisplay";
+import { nameList } from "./groundTeamDisplay";
 
 export interface GambitShipOption {
   id: string;
@@ -82,23 +86,105 @@ export interface GambitEditorPick {
   memberId?: string | null;
 }
 
-// The line under the editor about the old account-wide pair (Q21: kept stored and hidden; Wiring WR-10, OC-F12 "Account-wide
-// defaults": a changed pair's Security program is given to each newly hired Security member, awayTeam.ts accountProgramForHire).
-// The fix round (user 2026-11-10 "Merge with built-in"): the copy is merged with the built-in default; the notice states the
-// merge order (memberGambits.ts mergeWithBuiltInDefault).
-export const ACCOUNT_PAIR_NOTICE =
-  "Your older account-wide tactical protocols are still saved: each Security member you hire starts with a copy, which you can change like any member's own. The copy also gets the built-in default's cure, heal, brace and grenade rules it lacks, placed ahead of your rules (each acts only when it applies: a medic with an afflicted or hurt ally, the member badly hurt, a grenade ready); your rules follow in your order.";
+// ============================================================================
+// OC-F12 control (user answers 2026-11-12, docs/mockups/2026-11-11-account-default-control-mockup.html Option A): the
+// "Set for new hires" row on a member's program and the "New hires" status line with Clear, which replace the old dashed
+// notice about the account pair (Q21, WR-10). The engine is memberGambits.ts setAccountHireDefaultFromMember /
+// clearAccountHireDefault; a hire reads the pair through awayTeam.ts accountProgramForHire, merged (mergeWithBuiltInDefault:
+// the built-in support rules the program lacks, placed first, user 2026-11-10 "Built-in first").
+// ============================================================================
 
-// Whether the account-pair notice shows: only when the stored pair differs from the fresh default (the player
-// set it up in the old editor), so a player who never touched it is not told about a page they never saw.
-// Pure.
-export function accountPairNoticeShown(state: Pick<GameState, "gambitPrograms">): boolean {
-  const pair = state.gambitPrograms;
-  if (!pair) return false;
-  return (
-    !gambitProgramEquals(pair.security ?? [], DEFAULT_GAMBIT_PROGRAMS.security) ||
-    !gambitProgramEquals(pair.science ?? [], DEFAULT_GAMBIT_PROGRAMS.science)
-  );
+// The short word for each support rule kind the merge brings in.
+const MERGE_KIND_WORD: Readonly<Partial<Record<GambitActionId, string>>> = { cure: "cure", aidHeal: "heal", brace: "brace", throwGrenade: "grenade" };
+
+// The support rule kinds the merge would add to `program` ("cure, heal, brace and grenade"), in the built-in order, or
+// "" when it adds none. Pure.
+export function mergeAddedKindsText(program: readonly GambitRule[], kitsLive: boolean = FIELD_KITS_RUNS_LIVE): string {
+  const merged = mergeWithBuiltInDefault(program, kitsLive);
+  const added = merged.slice(0, merged.length - program.length).map((r) => MERGE_KIND_WORD[r.action] ?? r.action);
+  return nameList([...new Set(added)]);
+}
+
+// The status line: what a new Security hire starts with, as words around one bold part.
+export interface HireDefaultStatus {
+  set: boolean; // a default is set (the stored Security program is not the fresh one)
+  before: string;
+  bold: string;
+  after: string;
+}
+
+// The status line for the stored pair. Set: the program's preset title (or "a custom program"), where it was set from
+// when that member is still on the roster, and "the built-in support rules first" when the merge adds any. Pure.
+export function hireDefaultStatus(state: Pick<GameState, "gambitPrograms" | "gambitDefaultFrom" | "awayMembers">, kitsLive: boolean = FIELD_KITS_RUNS_LIVE): HireDefaultStatus {
+  if (!accountHireDefaultSet(state)) {
+    return { set: false, before: "New Security hires start on the ", bold: "built-in default", after: "." };
+  }
+  const program = state.gambitPrograms.security;
+  const preset = matchedMemberPreset({ gambit: program });
+  // A stored program equal to the built-in default (an older save could hold one) is named so, never "a custom program".
+  const name = isBuiltInDefaultProgram(program, kitsLive) ? "the built-in default" : preset && preset.id !== "custom" ? preset.title : "a custom program";
+  const from = state.gambitDefaultFrom ? state.awayMembers.find((m) => m.id === state.gambitDefaultFrom)?.name : undefined;
+  const support = mergeAddedKindsText(program, kitsLive) !== "";
+  return {
+    set: true,
+    before: "New Security hires start with ",
+    bold: name,
+    after: `${from ? ` (from ${from})` : ""}${support ? ", the built-in support rules first" : ""}.`,
+  };
+}
+
+// The "Set for new hires" row for the picked member: whether the button acts, and the note beside it.
+export interface HireSetRow {
+  enabled: boolean;
+  note: string;
+  warn: boolean; // the note is a warning (an empty program)
+}
+
+export const HIRE_SET_ALREADY = "This is already the program new Security hires start with.";
+export const HIRE_SET_SAVED = "Saved. Your next Security hire starts with this program.";
+export const HIRE_CLEARED = "Cleared. New hires start on the built-in default again.";
+export const HIRE_NO_PICK = "Pick a Security member above to set their program for new hires.";
+
+// The row for `member` (from gambitEditorView). Mirrors setAccountHireDefaultFromMember's refusals: a member on the built-in
+// default, the stored program already, and Balanced with nothing set are off; Balanced with a default set clears it (user
+// 2026-11-12 "Treat as no default"). Pure.
+export function hireSetRow(
+  state: Pick<GameState, "gambitPrograms">,
+  member: Pick<GambitMemberEditView, "name" | "hasOwn" | "program">,
+  kitsLive: boolean = FIELD_KITS_RUNS_LIVE,
+): HireSetRow {
+  const set = accountHireDefaultSet(state);
+  if (!member.hasOwn) {
+    return {
+      enabled: false,
+      warn: false,
+      note: set
+        ? `${member.name} runs the built-in default. To give new hires the built-in default, use Clear.`
+        : `${member.name} runs the built-in default, which new Security hires already start on.`,
+    };
+  }
+  // A program of their own that equals the built-in default reads as the built-in default (review 2026-11-12): like
+  // Balanced, Set clears the default when one is set, and is off when none is.
+  if (isBuiltInDefaultProgram(member.program, kitsLive)) {
+    return set
+      ? { enabled: true, warn: false, note: `${member.name}'s program is the built-in default: this clears the default, and new Security hires start on the built-in default.` }
+      : { enabled: false, warn: false, note: `${member.name}'s program is the built-in default, which new Security hires already start on.` };
+  }
+  if (gambitProgramEquals(member.program, DEFAULT_GAMBIT_PROGRAMS.security)) {
+    return set
+      ? { enabled: true, warn: false, note: "Balanced means no default: this clears it, and new Security hires start on the built-in default." }
+      : { enabled: false, warn: false, note: "Balanced means no default, and none is set: new Security hires start on the built-in default." };
+  }
+  if (set && gambitProgramEquals(member.program, state.gambitPrograms.security)) return { enabled: false, warn: false, note: HIRE_SET_ALREADY };
+  const kinds = mergeAddedKindsText(member.program, kitsLive);
+  if (member.program.length === 0) {
+    return { enabled: true, warn: true, note: `Hires would get only the built-in ${kinds} rules, and no attack rule.` };
+  }
+  return {
+    enabled: true,
+    warn: false,
+    note: `Every Security member you hire from now on starts with a copy of ${member.name}'s program${kinds ? `, plus the built-in ${kinds} rules it lacks, placed first` : ""}. Nobody already hired changes.`,
+  };
 }
 
 export const LAUNCHED_TEXT =

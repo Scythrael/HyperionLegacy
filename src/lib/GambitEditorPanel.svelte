@@ -12,8 +12,11 @@
   // preset" (the six locked titles), "Use default" (D19: back to the built-in program) and "Copy to squad"
   // (the member's own Security squad). The Science tab is gone: Science never fights (design D2).
   //
-  // The old ACCOUNT-LEVEL pair (state.gambitPrograms) stays stored but hidden (plan Q21): no battle reads it
-  // (D19). A one-line notice says so, only when the player had set it up (gambitEditorDisplay.ts).
+  // The ACCOUNT-LEVEL pair (state.gambitPrograms): its Security half is the program each new Security hire starts with
+  // (WR-10, OC-F12). OC-F12 control (user 2026-11-12, Option A): a "Set for new hires" row with the preset actions copies
+  // the picked member's program into it, and a "New hires" status line at the foot (always shown) says what a hire gets,
+  // with Clear (the Security half only). Neither changes anyone already hired (gambitEditorDisplay.ts hireSetRow /
+  // hireDefaultStatus).
   //
   // POSTURE (mirrors ExpeditionPanel / AwayTeamPanel):
   //   - PURE PRESENTATION + INTERACTION. It READS live state through gambitEditorDisplay.ts (tested) + the
@@ -37,19 +40,22 @@
   import type { FieldKitId } from "./game/fieldKits";
   import { GAMBIT_PRESETS, validateGambitProgram } from "./game/gambit";
   import {
-    ACCOUNT_PAIR_NOTICE,
     ACTION_LABEL,
     DEFAULT_RULE_KIT,
     KIT_OPTIONS,
     RANK_OPTIONS,
+    HIRE_CLEARED,
+    HIRE_NO_PICK,
+    HIRE_SET_SAVED,
     RESERVE_MAX,
     SELECTOR_LABEL,
-    accountPairNoticeShown,
     defaultProgramText,
     editorActions,
     editorSelectorGroups,
     editorStatuses,
     gambitEditorView,
+    hireDefaultStatus,
+    hireSetRow,
     normalizeEditorRule,
     ruleHints,
     ruleNeedsKit,
@@ -61,6 +67,7 @@
     statusOptionLabel,
   } from "./gambitEditorDisplay";
   import { nameList } from "./groundTeamDisplay";
+  import { onDestroy } from "svelte";
   import Icon from "./ui/Icon.svelte";
   import TeamBadge from "./ui/TeamBadge.svelte";
 
@@ -80,6 +87,11 @@
   export let onReset: (memberId: string) => void;
   // Copy the member's program to the rest of their Security squad. Host: copyMemberGambitToSquad -> doSave.
   export let onCopyToSquad: (shipId: string, memberId: string) => void;
+  // OC-F12: new Security hires start with a copy of this member's program. Host: setAccountHireDefaultFromMember -> doSave.
+  // Returns whether the stored default changed, and whether one is set after it (a Balanced program clears it).
+  export let onSetHireDefault: (memberId: string) => { changed: boolean; set: boolean };
+  // OC-F12: clear the Security half of the account pair. Host: clearAccountHireDefault -> doSave. Returns whether it changed.
+  export let onClearHireDefault: () => boolean;
 
   // Local UI state (the pick)
   let pickShipId: string | null = null;
@@ -97,7 +109,26 @@
   }
   $: syncPickToView(view.shipId);
   $: member = view.member;
-  $: showAccountNotice = accountPairNoticeShown(state);
+  $: hireStatus = hireDefaultStatus(state);
+  $: hireRow = member ? hireSetRow(state, member) : null;
+
+  // The one-time "Saved." / "Cleared." line under the status line: it fades out on its own (the mockup's confirmation).
+  let hireNote: string | null = null;
+  let hireNoteTimer: ReturnType<typeof setTimeout> | undefined;
+  function flashHireNote(text: string): void {
+    hireNote = text;
+    clearTimeout(hireNoteTimer);
+    hireNoteTimer = setTimeout(() => (hireNote = null), 4000);
+  }
+  onDestroy(() => clearTimeout(hireNoteTimer));
+  function setHireDefault(): void {
+    if (!member) return;
+    const r = onSetHireDefault(member.id);
+    if (r.changed) flashHireNote(r.set ? HIRE_SET_SAVED : HIRE_CLEARED);
+  }
+  function clearHireDefault(): void {
+    if (onClearHireDefault()) flashHireNote(HIRE_CLEARED);
+  }
 
   function pickShip(id: string): void {
     pickShipId = id;
@@ -429,25 +460,46 @@
           type="button"
           class="ge-action-btn"
           disabled={member.copyBlockedText !== null}
+          aria-describedby="ge-copy-note"
           on:click={() => member && view.shipId && onCopyToSquad(view.shipId, member.id)}
         >{member.copyLabel}</button>
-        <span class="ge-note">
+        <span class="ge-note" id="ge-copy-note">
           {#if member.copyBlockedText}{member.copyBlockedText}{:else}Gives {nameList(member.copyTargets)} a copy of this program.{/if}
         </span>
       </div>
       <div class="ge-squad-row">
-        <button type="button" class="ge-action-btn" disabled={!member.hasOwn} on:click={() => member && onReset(member.id)}>Use default</button>
-        <span class="ge-note">
+        <button type="button" class="ge-action-btn" disabled={!member.hasOwn} aria-describedby="ge-reset-note" on:click={() => member && onReset(member.id)}>Use default</button>
+        <span class="ge-note" id="ge-reset-note">
           {member.hasOwn
             ? `Back to the built-in default: ${defaultProgramText()}.`
             : `${member.name} runs the built-in default: ${defaultProgramText()}.`}
         </span>
       </div>
+      {#if hireRow}
+        <!-- OC-F12 (user 2026-11-12, Option A): the third row, with the other "spread this program" actions. -->
+        <div class="ge-squad-row">
+          <button type="button" class="ge-action-btn ge-hire-btn" disabled={!hireRow.enabled} aria-describedby="ge-hire-note" on:click={setHireDefault}
+            ><Icon name="recruit" size={14} />Set for new hires</button
+          >
+          <span class="ge-note" id="ge-hire-note" class:ge-warn={hireRow.warn}>
+            {#if hireRow.warn}<Icon name="warning" size={12} />{" "}{/if}{hireRow.note}
+          </span>
+        </div>
+      {/if}
     </div>
   {/if}
 
-  {#if showAccountNotice}
-    <p class="ge-notice" role="note">{ACCOUNT_PAIR_NOTICE}</p>
+  <!-- OC-F12: the "New hires" status line (always shown, so the player can see what a hire gets), with Clear. -->
+  <div class="ge-hire-line">
+    <span class="ge-hire-tag" class:off={!hireStatus.set}><Icon name="recruit" size={14} />New hires</span>
+    <span class="ge-hire-words">{hireStatus.before}<b>{hireStatus.bold}</b>{hireStatus.after}</span>
+    <button type="button" class="ge-mini-btn" aria-label="Clear the new-hire default" disabled={!hireStatus.set} on:click={clearHireDefault}>Clear</button>
+  </div>
+  {#if member === null}
+    <p class="ge-why"><Icon name="info" size={12} /><span>{HIRE_NO_PICK}</span></p>
+  {/if}
+  {#if hireNote}
+    <p class="ge-ok-line" role="status"><Icon name="check" size={14} /><span>{hireNote}</span></p>
   {/if}
 </div>
 
@@ -569,15 +621,115 @@
     color: var(--color-text-secondary);
     line-height: 1.5;
   }
-  /* Q21: the old account-level pair is stored but never read; one plain line says so. */
-  .ge-notice {
-    margin: 0;
+  /* OC-F12 (Option A): the "New hires" status line at the foot of the editor, with Clear. */
+  .ge-hire-line {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px 10px;
     padding: 8px 10px;
-    border-radius: 6px;
+    border: 1px solid rgba(var(--color-accent-rgb), 0.22);
+    border-top: 1px dashed rgba(var(--color-accent-rgb), 0.28);
+    background: rgba(var(--color-accent-rgb), 0.03);
     font-size: var(--text-xs);
-    line-height: 1.5;
     color: var(--color-text-secondary);
-    border: 1px dashed rgba(var(--color-accent-rgb), 0.3);
+    line-height: 1.5;
+  }
+  .ge-hire-line b {
+    color: var(--color-text-primary);
+    font-weight: 500;
+  }
+  .ge-hire-tag {
+    font-family: var(--font-mono);
+    font-size: var(--text-2xs);
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--color-accent-bright);
+    display: inline-flex;
+    gap: 5px;
+    align-items: center;
+    white-space: nowrap;
+  }
+  .ge-hire-tag.off {
+    color: var(--color-text-dim);
+  }
+  .ge-hire-words {
+    flex: 1 1 220px;
+    min-width: 0;
+  }
+  .ge-mini-btn {
+    font: inherit;
+    font-family: var(--font-mono);
+    font-size: var(--text-2xs);
+    color: var(--color-accent);
+    background: rgba(var(--color-accent-rgb), 0.06);
+    border: 1px solid var(--color-border-strong);
+    border-radius: var(--corner);
+    padding: 3px 8px;
+    min-height: 32px;
+    display: inline-flex;
+    gap: 5px;
+    align-items: center;
+    white-space: nowrap;
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+  }
+  .ge-mini-btn:disabled {
+    color: var(--color-text-dim);
+    border-color: rgba(98, 133, 145, 0.45);
+    border-style: dashed;
+    background: transparent;
+    cursor: default;
+  }
+  .ge-hire-btn {
+    display: inline-flex;
+    gap: 6px;
+    align-items: center;
+    min-height: 36px;
+  }
+  .ge-note.ge-warn :global(svg) {
+    color: var(--color-warning);
+    vertical-align: -2px;
+  }
+  .ge-why,
+  .ge-ok-line {
+    margin: 0;
+    display: flex;
+    gap: 6px;
+    align-items: flex-start;
+    line-height: 1.5;
+  }
+  .ge-why {
+    font-size: var(--text-2xs);
+    color: var(--color-text-secondary);
+  }
+  .ge-why :global(svg) {
+    color: var(--color-text-dim);
+    margin-top: 2px;
+    flex: 0 0 auto;
+  }
+  .ge-ok-line {
+    font-size: var(--text-xs);
+    color: var(--color-success);
+    animation: ge-ok-fade 4s ease-in forwards;
+  }
+  .ge-ok-line :global(svg) {
+    flex: 0 0 auto;
+    margin-top: 2px;
+  }
+  @keyframes ge-ok-fade {
+    0%,
+    70% {
+      opacity: 1;
+    }
+    100% {
+      opacity: 0;
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .ge-ok-line {
+      animation: none;
+    }
   }
 
   .ge-empty {

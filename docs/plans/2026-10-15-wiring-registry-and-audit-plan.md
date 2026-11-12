@@ -2503,3 +2503,43 @@ docs/mockups/2026-11-11-field-repair-order-mockup.html (Option A, as drawn). QA:
 - US spelling: `canceled` (the leg field) and "Canceled" in every new player text. The waiting state drops "Cancel
   keeps the repair finished so far". The registry claim is narrowed to what the probe measures (the cancel is tested in
   fieldRepairOrder.test.ts). A determinism pin at game time 3e6 s (order, cancel mid-repair, parity).
+
+## OC-F12 CONTROL BUILT (2026-11-12): Set for new hires and Clear
+
+User answers 2026-11-12 (above): "Option A (Recommended)", Balanced "Treat as no default (Recommended)", Clear "Security
+only (Recommended)". Mockup: docs/mockups/2026-11-11-account-default-control-mockup.html (Option A, as drawn). QA:
+docs/qa/2026-11-12-new-hire-default-qa.html.
+
+- Engine (memberGambits.ts, pure, each refuses with the same state): `setAccountHireDefaultFromMember` copies the
+  Security member's program (memberEditableProgram, what the editor shows) into `state.gambitPrograms.security` and
+  names them in the new OPTIONAL `GameState.gambitDefaultFrom` (display only, for "(from Okafor)"). A program equal to
+  the fresh one (Balanced) clears the default instead ("Treat as no default": no engine change to store Balanced).
+  Refuses for an unknown or Science member, a member on the built-in default, and the stored program again.
+  `clearAccountHireDefault` puts the Security half back to the fresh program and drops gambitDefaultFrom; the Science
+  half stays ("Security only"). `accountHireDefaultSet` is the same rule accountProgramForHire reads. The hire path is
+  unchanged (no golden moved, none captured: no engine path changed). No SAVE_VERSION bump.
+- UI (GambitEditorPanel.svelte; words in gambitEditorDisplay.ts hireSetRow / hireDefaultStatus, tested): the third row
+  "Set for new hires" under Copy to squad and Use default, with each drawn state (available, already the hire default,
+  a member on the built-in default, Balanced, an empty program with the warning), and the "New hires" status line with
+  Clear at the foot (always shown; the "no member picked" line under it). It replaces the retired ACCOUNT_PAIR_NOTICE.
+  A one-time "Saved." / "Cleared." line fades after 4 s. App.svelte doSetHireDefault / doClearHireDefault log and save.
+  Existing glyphs only (recruit, warning, info, check). Checked live at 1280 and 375 px (no sideways scroll; 36 px and
+  32 px tap heights) and across a reload.
+- Registry: away:audit:accountDefaultControl LIVE, probe content:ocf12:accountDefaultControl (equals 1: a real hire after
+  Set starts with the merged Decapitate copy, a hire after Clear and after setting Balanced starts on the built-in
+  default, Clear keeps the Science half; reads 0 with WR-10 off). The row is in WR10_FIX_ADDED_IDS, so the registry
+  golden chains already drop it (no read-back needed). away:GAMBIT_PROGRAMS:account's note no longer says no control
+  sets the pair. Release gate pending: 5 -> 4 (the four relic rows).
+- Help (Away-Team Members): a NEW HIRES paragraph (the merge kinds read from the engine).
+- Builder calls (flagged): (1) the mockup's question 4 (an empty program: allow with a warning, or block) has no recorded
+  answer; built as drawn (allowed, with the warning). **AWAITING THE USER'S ANSWER** (allow with the warning, or
+  block). (2) "(from NAME)" needs the member, so the optional
+  gambitDefaultFrom field was added; it drops out when that member leaves the roster. (3) The "no member picked" state
+  still shows "(from NAME)" when it is known (the mockup's card drew it without).
+- Review round (2026-11-12): a Security member whose own program EQUALS the built-in default (edited and edited back)
+  now reads as the built-in default (memberGambits.ts isBuiltInDefaultProgram): Set is off with nothing set and clears
+  the default when one is set (as Balanced does), and a stored pair equal to it is named "the built-in default", never
+  "a custom program". Stale comments on the pair reworded (model.ts GambitPrograms, memberGambits.ts header). Help
+  says "a Security member with protocols of their own" (the Help topics never say "program"). The log lines say
+  "built-in default". Clear has aria-label "Clear the new-hire default"; Copy to squad, Use default and Set for new
+  hires point at their notes with aria-describedby.

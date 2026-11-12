@@ -69,20 +69,24 @@
   // Exploration 0.14.0 (phase E3b), reworked by Ground Operations GO-16: the Away-Team Gambits editor, the
   // "Away-Team Gambits" section of the Exploration Ops tab (under the Expedition Console). It edits ONE
   // Security member's own program (picked by ship, ground team, member) and routes every edit to the do*
-  // handlers below, which call the pure memberGambits.ts actions + doSave. The old account-level pair
-  // (state.gambitPrograms) is kept stored but no longer edited (plan Q21).
+  // handlers below, which call the pure memberGambits.ts actions + doSave. The account-level pair's Security half
+  // (state.gambitPrograms.security) is what a new Security hire starts with: OC-F12's "Set for new hires" and Clear
+  // (user 2026-11-12, Option A) write it through doSetHireDefault / doClearHireDefault.
   import GambitEditorPanel from "./lib/GambitEditorPanel.svelte";
   import { GAMBIT_PRESETS } from "./lib/game/gambit";
   import type { GambitRule } from "./lib/game/model";
   // WR-9 fix round: the in-flight phase length the engine flies (a landed Pilot Cunning cut included).
   import { captainMissionPhaseTicks } from "./lib/game/officerStats";
   import {
+    accountHireDefaultSet,
     addMemberGambitRule,
     applyMemberGambitPreset,
+    clearAccountHireDefault,
     copyMemberGambitToSquad,
     moveMemberGambitRule,
     removeMemberGambitRule,
     resetMemberGambit,
+    setAccountHireDefaultFromMember,
     setMemberGambitRule,
     squadmatesCopyWouldChange,
   } from "./lib/game/memberGambits";
@@ -6752,6 +6756,32 @@
     state = next;
     pushLog(`Copied ${groundMemberName(memberId)}'s tactical protocols to ${nameList(mates.map(groundMemberName))}.`);
     doSave();
+  }
+  // OC-F12 (user 2026-11-12, Option A): SET FOR NEW HIRES copies the member's program into the account pair's Security
+  // half, so each Security member hired from now on starts with it (merged with the built-in support rules); a Balanced
+  // program clears the default instead ("Treat as no default"). Nobody already hired changes. Returns what happened, for
+  // the editor's one-time confirmation.
+  function doSetHireDefault(memberId: string): { changed: boolean; set: boolean } {
+    const next = setAccountHireDefaultFromMember(state, memberId);
+    if (next === state) return { changed: false, set: accountHireDefaultSet(state) };
+    state = next;
+    const set = accountHireDefaultSet(next);
+    pushLog(
+      set
+        ? `New Security hires will start with ${groundMemberName(memberId)}'s tactical protocols.`
+        : "New Security hires will start on the built-in default tactical protocols.",
+    );
+    doSave();
+    return { changed: true, set };
+  }
+  // CLEAR: the Security half only (user 2026-11-12 "Security only"); the Science half stays.
+  function doClearHireDefault(): boolean {
+    const next = clearAccountHireDefault(state);
+    if (next === state) return false;
+    state = next;
+    pushLog("New Security hires will start on the built-in default tactical protocols.");
+    doSave();
+    return true;
   }
 
   // ── Personnel Rosters (Crew 0.14.0 phase 4d) ───────────────────────────────
@@ -18808,6 +18838,8 @@
           onApplyPreset={doApplyMemberGambitPreset}
           onReset={doResetMemberGambit}
           onCopyToSquad={doCopyMemberGambitToSquad}
+          onSetHireDefault={doSetHireDefault}
+          onClearHireDefault={doClearHireDefault}
         />
         {#if surveyMissions.length > 0}
           <div class="home-sec-hd">

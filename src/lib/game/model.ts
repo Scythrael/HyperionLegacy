@@ -8710,13 +8710,14 @@ export type GambitProgram = GambitRule[];
 // its two-key shape, so an old save carrying a Science program loads unchanged; nothing executes it.
 export type GambitRole = "security" | "science";
 
-// The player's ACCOUNT-LEVEL program pair (one per role), stored on GameState. D19 (user, 2026-10-06): NO
-// battle reads it any more. Each Security member runs its own program, else DEFAULT_MEMBER_GAMBIT (below),
-// never this pair. Ground Operations GO-16 (plan Q21, flagged to the user): KEPT STORED, HIDDEN. The
-// per-member editor no longer edits it; it only shows a one-line notice when the stored pair differs from
-// DEFAULT_GAMBIT_PROGRAMS (gambitEditorDisplay.ts accountPairNoticeShown). The shape stays so every save
-// loads and keeps what the player stored; the other readers are freshState + the v61 -> v62 migration
-// (which seed it) and Expedition.gambitPrograms (an inert field kept for save shape).
+// The player's ACCOUNT-LEVEL program pair (one per role), stored on GameState. D19 (user, 2026-10-06): no
+// battle reads it directly; each Security member runs its own program, else DEFAULT_MEMBER_GAMBIT (below).
+// A HIRE reads it (Wiring WR-10, OC-F12 "Account-wide defaults"): a Security hire starts with a merged copy of
+// the Security half when it differs from DEFAULT_GAMBIT_PROGRAMS (awayTeam.ts accountProgramForHire). The
+// OC-F12 control (user 2026-11-12, Option A) sets and clears that half from the Tactical Protocols editor
+// (memberGambits.ts setAccountHireDefaultFromMember / clearAccountHireDefault). The Science half is stored
+// and never read. freshState + the v61 -> v62 migration seed it; Expedition.gambitPrograms is an inert field
+// kept for save shape.
 export interface GambitPrograms {
   security: GambitProgram;
   science: GambitProgram;
@@ -10193,6 +10194,11 @@ export interface GameState {
   // default. Plain nested arrays/objects (no Decimals), so hydrateDecimals is unchanged, and NOTHING on the
   // tick path reads this field except a dispatch, so a save with no expedition stays additive-neutral.
   gambitPrograms: GambitPrograms;
+  // OC-F12 control (user 2026-11-12, Option A): the Security member whose program "Set for new hires" last copied into
+  // gambitPrograms.security, for the editor's status line ("from Okafor"). OPTIONAL and display only: absent on a fresh
+  // save, on a save that set the pair before the control, and after Clear; an id that no longer names a member reads as
+  // unknown. Nothing on the tick or in a hire reads it.
+  gambitDefaultFrom?: string;
   // --- Exploration 0.14.0 (Phase E4a): the RELIC STORE ---------------------------------------------
   // See the RELICS block above RelicVaultToken. All plain values (no Decimals), so hydrateDecimals is
   // unchanged; freshState seeds the empty store and the v62->v63 migration backfills the IDENTICAL shape.
