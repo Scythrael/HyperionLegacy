@@ -2444,3 +2444,6 @@ save with an old in-flight run gets that run finished at load. Production and st
   - OC-F12 new-hire default: "Option A (Recommended)": a "Set for new hires" row on a member's program plus a status line
     with Clear. Balanced: "Treat as no default (Recommended)": choosing Balanced just clears the default. Clear: "Security
     only (Recommended)": clears only the half being viewed.
+  - (2026-11-12, after the build) Cancel scope: "Ordered only (Recommended)": cancel works on repairs the player ordered;
+    the automatic safety repair at 25% always runs to the end. Cancel during the outbound flight: "Turn back at once
+    (Recommended)": it heads straight back to the scan and repairs nothing (no longer PROVISIONAL).
