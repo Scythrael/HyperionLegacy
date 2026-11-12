@@ -164,6 +164,10 @@
   // Expedition Tiers G2-6: recall a run home (after its one confirm) and let a resumable system go (after its one
   // confirm). Host: recallExpedition / abandonHeldSystem -> doSave -> pushLog (doRecallExpedition, doAbandonHeldSystem).
   export let onRecall: (expeditionId: string) => void = () => {};
+  // OC-F14 (user 2026-11-12, Option A): the field repair strip's one-tap order and cancel on the Ship lane. Host:
+  // orderFieldRepair / cancelFieldRepair -> doSave -> pushLog (doOrderFieldRepair, doCancelFieldRepair).
+  export let onOrderRepair: (expeditionId: string) => void = () => {};
+  export let onCancelRepair: (expeditionId: string) => void = () => {};
   export let onAbandonHeld: (heldId: string) => void = () => {};
 
   // --- Local UI state ---------------------------------------------------------
@@ -710,7 +714,7 @@
           <GroundTaskQueue {exp} ship={chosenShip} {now} onEdit={(edit) => onEditGroundOps(exp.id, edit)} />
 
           <!-- GO-14: each team's timeline and the ship's lane, the medical bay cards, the task progress cards. -->
-          <GroundTeamTimeline {exp} ship={chosenShip} {now} />
+          <GroundTeamTimeline {exp} ship={chosenShip} {now} onOrderRepair={() => onOrderRepair(exp.id)} onCancelRepair={() => onCancelRepair(exp.id)} />
           <!-- GG-6: the ship holding orbit, the ship legs and forecast, the gas giant body card, the study results. -->
           <StudyRunPanel {exp} ship={chosenShip} {now} {state} />
           {#each supplies as sv (sv.index)}

@@ -17,6 +17,7 @@
   import { LANE_KEY, SHIP_KEY, STOPPED_KEY_TEXT, STUDY_LANE_KEY, STUDY_SHIP_KEY, timelineView, type TimelineMode } from "./groundOpsTimelineDisplay";
   import Icon from "./ui/Icon.svelte";
   import TeamBadge from "./ui/TeamBadge.svelte";
+  import FieldRepairStrip from "./FieldRepairStrip.svelte";
 
   /** The run (the stored record; the tick keeps it current). */
   export let exp: Expedition;
@@ -24,6 +25,9 @@
   export let ship: ShipInstance | null = null;
   /** Game time now. */
   export let now: number;
+  /** OC-F14: the player's field repair order and its cancel (the strip under the Ship lane). Host: App.svelte. */
+  export let onOrderRepair: () => void = () => {};
+  export let onCancelRepair: () => void = () => {};
 
   let mode: TimelineMode = "recent";
   $: view = timelineView(exp, ship, now, mode, flaggedScanTimeline);
@@ -105,6 +109,8 @@
             </span>
           {/each}
         </div>
+        <!-- OC-F14 (Option A): the hull readout and the field repair order, under the Ship lane's track. -->
+        <FieldRepairStrip {exp} {now} onOrder={onOrderRepair} onCancel={onCancelRepair} />
         <details class="gt-steps">
           <summary>Ship's steps ({view.ship.steps.length})</summary>
           <ol>
