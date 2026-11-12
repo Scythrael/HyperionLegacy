@@ -1047,7 +1047,7 @@ export const AWAY_MEMBERS_PARAGRAPHS: readonly string[] = [
   "WHILE THE SHIP IS OUT: on a mission, patrol or short-range run, or until its expedition is claimed, its members cannot be hired, fired or moved, and their gear and implants cannot change.",
   // OC-F12 control (user answers 2026-11-12, Option A; Balanced "Treat as no default"; Clear "Security only"): the editor's
   // Set for new hires and Clear (memberGambits.ts), the merge's kinds read from the engine (mergeWithBuiltInDefault).
-  `NEW HIRES: a Security member you hire starts on the built-in default tactical protocols. To change that, pick a Security member in Away-Team Tactical Protocols (the Ops tab, under Exploration) and press Set for new hires: each Security member hired after that starts with a copy of their protocols, with the built-in ${mergeAddedKindsText([])} rules they lack placed first. Clear, or Set for new hires on a member running the Balanced preset, puts new hires back on the built-in default. Members already hired never change.`,
+  `NEW HIRES: a Security member you hire starts on the built-in default tactical protocols. To change that, pick a Security member with protocols of their own in Away-Team Tactical Protocols (the Ops tab, under Exploration) and press Set for new hires: each Security member hired after that starts with a copy of their protocols, with the built-in ${mergeAddedKindsText([])} rules they lack placed first. Clear, or Set for new hires on a member running the Balanced preset, puts new hires back on the built-in default. Members already hired never change.`,
   "The Team Types and Squads topic covers squads, the reserve and deploying; the Recruiting topic covers the board.",
 ];
 

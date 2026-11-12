@@ -17,6 +17,7 @@ import { cleanShipGroundTeams, groundTeamName } from "./game/groundTeams";
 import {
   accountHireDefaultSet,
   gambitProgramEquals,
+  isBuiltInDefaultProgram,
   matchedMemberPreset,
   memberEditableProgram,
   memberHasOwnGambit,
@@ -120,7 +121,8 @@ export function hireDefaultStatus(state: Pick<GameState, "gambitPrograms" | "gam
   }
   const program = state.gambitPrograms.security;
   const preset = matchedMemberPreset({ gambit: program });
-  const name = preset && preset.id !== "custom" ? preset.title : "a custom program";
+  // A stored program equal to the built-in default (an older save could hold one) is named so, never "a custom program".
+  const name = isBuiltInDefaultProgram(program, kitsLive) ? "the built-in default" : preset && preset.id !== "custom" ? preset.title : "a custom program";
   const from = state.gambitDefaultFrom ? state.awayMembers.find((m) => m.id === state.gambitDefaultFrom)?.name : undefined;
   const support = mergeAddedKindsText(program, kitsLive) !== "";
   return {
@@ -160,6 +162,13 @@ export function hireSetRow(
         ? `${member.name} runs the built-in default. To give new hires the built-in default, use Clear.`
         : `${member.name} runs the built-in default, which new Security hires already start on.`,
     };
+  }
+  // A program of their own that equals the built-in default reads as the built-in default (review 2026-11-12): like
+  // Balanced, Set clears the default when one is set, and is off when none is.
+  if (isBuiltInDefaultProgram(member.program, kitsLive)) {
+    return set
+      ? { enabled: true, warn: false, note: `${member.name}'s program is the built-in default: this clears the default, and new Security hires start on the built-in default.` }
+      : { enabled: false, warn: false, note: `${member.name}'s program is the built-in default, which new Security hires already start on.` };
   }
   if (gambitProgramEquals(member.program, DEFAULT_GAMBIT_PROGRAMS.security)) {
     return set

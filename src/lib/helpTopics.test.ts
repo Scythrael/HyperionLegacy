@@ -8,7 +8,7 @@ describe("the new-hire default in the Away-Team Members topic (OC-F12)", () => {
   it("states Set for new hires, the merge, Clear and Balanced, and that nobody already hired changes", () => {
     const b = HELP_TOPICS.find((x) => x.id === "awayMembers")!.body;
     expect(b).toContain("NEW HIRES: a Security member you hire starts on the built-in default tactical protocols.");
-    expect(b).toContain("press Set for new hires");
+    expect(b).toContain("pick a Security member with protocols of their own in Away-Team Tactical Protocols (the Ops tab, under Exploration) and press Set for new hires");
     expect(b).toContain("with the built-in cure, heal, brace and grenade rules they lack placed first");
     expect(b).toContain("Clear, or Set for new hires on a member running the Balanced preset, puts new hires back on the built-in default.");
     expect(b).toContain("Members already hired never change.");

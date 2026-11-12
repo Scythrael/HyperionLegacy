@@ -2532,6 +2532,14 @@ docs/qa/2026-11-12-new-hire-default-qa.html.
   sets the pair. Release gate pending: 5 -> 4 (the four relic rows).
 - Help (Away-Team Members): a NEW HIRES paragraph (the merge kinds read from the engine).
 - Builder calls (flagged): (1) the mockup's question 4 (an empty program: allow with a warning, or block) has no recorded
-  answer; built as drawn (allowed, with the warning). (2) "(from NAME)" needs the member, so the optional
+  answer; built as drawn (allowed, with the warning). **AWAITING THE USER'S ANSWER** (allow with the warning, or
+  block). (2) "(from NAME)" needs the member, so the optional
   gambitDefaultFrom field was added; it drops out when that member leaves the roster. (3) The "no member picked" state
   still shows "(from NAME)" when it is known (the mockup's card drew it without).
+- Review round (2026-11-12): a Security member whose own program EQUALS the built-in default (edited and edited back)
+  now reads as the built-in default (memberGambits.ts isBuiltInDefaultProgram): Set is off with nothing set and clears
+  the default when one is set (as Balanced does), and a stored pair equal to it is named "the built-in default", never
+  "a custom program". Stale comments on the pair reworded (model.ts GambitPrograms, memberGambits.ts header). Help
+  says "a Security member with protocols of their own" (the Help topics never say "program"). The log lines say
+  "built-in default". Clear has aria-label "Clear the new-hire default"; Copy to squad, Use default and Set for new
+  hires point at their notes with aria-describedby.

@@ -460,15 +460,16 @@
           type="button"
           class="ge-action-btn"
           disabled={member.copyBlockedText !== null}
+          aria-describedby="ge-copy-note"
           on:click={() => member && view.shipId && onCopyToSquad(view.shipId, member.id)}
         >{member.copyLabel}</button>
-        <span class="ge-note">
+        <span class="ge-note" id="ge-copy-note">
           {#if member.copyBlockedText}{member.copyBlockedText}{:else}Gives {nameList(member.copyTargets)} a copy of this program.{/if}
         </span>
       </div>
       <div class="ge-squad-row">
-        <button type="button" class="ge-action-btn" disabled={!member.hasOwn} on:click={() => member && onReset(member.id)}>Use default</button>
-        <span class="ge-note">
+        <button type="button" class="ge-action-btn" disabled={!member.hasOwn} aria-describedby="ge-reset-note" on:click={() => member && onReset(member.id)}>Use default</button>
+        <span class="ge-note" id="ge-reset-note">
           {member.hasOwn
             ? `Back to the built-in default: ${defaultProgramText()}.`
             : `${member.name} runs the built-in default: ${defaultProgramText()}.`}
@@ -477,10 +478,10 @@
       {#if hireRow}
         <!-- OC-F12 (user 2026-11-12, Option A): the third row, with the other "spread this program" actions. -->
         <div class="ge-squad-row">
-          <button type="button" class="ge-action-btn ge-hire-btn" disabled={!hireRow.enabled} on:click={setHireDefault}
+          <button type="button" class="ge-action-btn ge-hire-btn" disabled={!hireRow.enabled} aria-describedby="ge-hire-note" on:click={setHireDefault}
             ><Icon name="recruit" size={14} />Set for new hires</button
           >
-          <span class="ge-note" class:ge-warn={hireRow.warn}>
+          <span class="ge-note" id="ge-hire-note" class:ge-warn={hireRow.warn}>
             {#if hireRow.warn}<Icon name="warning" size={12} />{" "}{/if}{hireRow.note}
           </span>
         </div>
@@ -492,7 +493,7 @@
   <div class="ge-hire-line">
     <span class="ge-hire-tag" class:off={!hireStatus.set}><Icon name="recruit" size={14} />New hires</span>
     <span class="ge-hire-words">{hireStatus.before}<b>{hireStatus.bold}</b>{hireStatus.after}</span>
-    <button type="button" class="ge-mini-btn" disabled={!hireStatus.set} on:click={clearHireDefault}>Clear</button>
+    <button type="button" class="ge-mini-btn" aria-label="Clear the new-hire default" disabled={!hireStatus.set} on:click={clearHireDefault}>Clear</button>
   </div>
   {#if member === null}
     <p class="ge-why"><Icon name="info" size={12} /><span>{HIRE_NO_PICK}</span></p>

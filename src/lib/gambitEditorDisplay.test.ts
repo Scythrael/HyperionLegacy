@@ -262,6 +262,26 @@ describe("OC-F12 new-hire default: the status line and the Set row", () => {
     expect(statusText(after)).toBe("New Security hires start on the built-in default.");
   });
 
+  it("a program of their own equal to the built-in default reads as the built-in default, never a custom program", () => {
+    const withOwnDefault = (s: GameState) => ({
+      ...s,
+      awayMembers: s.awayMembers.map((m) => (m.id === "member-2" ? { ...m, gambit: FIELD_KITS_DEFAULT_MEMBER_GAMBIT.map((r) => (r.params ? { ...r, params: { ...r.params } } : { ...r })) } : m)),
+    });
+    const s = withOwnDefault(crew());
+    expect(viewOf(s, "member-2").hasOwn).toBe(true);
+    expect(hireSetRow(s, viewOf(s, "member-2"))).toEqual({ enabled: false, warn: false, note: "Ossra's program is the built-in default, which new Security hires already start on." });
+    const set = setAccountHireDefaultFromMember(applyMemberGambitPreset(s, "member-1", "decapitate"), "member-1");
+    expect(hireSetRow(set, viewOf(set, "member-2"))).toEqual({
+      enabled: true,
+      warn: false,
+      note: "Ossra's program is the built-in default: this clears the default, and new Security hires start on the built-in default.",
+    });
+    expect(statusText(setAccountHireDefaultFromMember(set, "member-2"))).toBe("New Security hires start on the built-in default.");
+    // A stored pair equal to the built-in default (an older save) is named so.
+    const old = { ...s, gambitPrograms: { ...s.gambitPrograms, security: FIELD_KITS_DEFAULT_MEMBER_GAMBIT } };
+    expect(statusText(old)).toBe("New Security hires start with the built-in default.");
+  });
+
   it("an empty program warns that hires get only the built-in support rules", () => {
     const s = applyMemberGambitPreset(crew(), "member-1", "custom");
     expect(viewOf(s, "member-1").program).toEqual([]);

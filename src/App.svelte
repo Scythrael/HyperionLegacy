@@ -6769,7 +6769,7 @@
     pushLog(
       set
         ? `New Security hires will start with ${groundMemberName(memberId)}'s tactical protocols.`
-        : "New Security hires will start on the default tactical protocols.",
+        : "New Security hires will start on the built-in default tactical protocols.",
     );
     doSave();
     return { changed: true, set };
@@ -6779,7 +6779,7 @@
     const next = clearAccountHireDefault(state);
     if (next === state) return false;
     state = next;
-    pushLog("New Security hires will start on the default tactical protocols.");
+    pushLog("New Security hires will start on the built-in default tactical protocols.");
     doSave();
     return true;
   }

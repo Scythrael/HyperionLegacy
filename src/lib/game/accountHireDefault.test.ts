@@ -4,7 +4,7 @@
 // the SAME state, write only the account pair's Security half (and the optional gambitDefaultFrom), and reach only members
 // hired after them (awayTeam.ts accountProgramForHire, merged with the built-in support rules).
 import { describe, expect, it } from "vitest";
-import { DEFAULT_GAMBIT_PROGRAMS, freshState, type GambitProgram, type GameState } from "./model";
+import { DEFAULT_GAMBIT_PROGRAMS, DEFAULT_MEMBER_GAMBIT, FIELD_KITS_DEFAULT_MEMBER_GAMBIT, freshState, type GambitProgram, type GameState } from "./model";
 import { gambitPresetPrograms } from "./gambit";
 import { awayRecruitCandidates, hireAwayMember } from "./awayTeam";
 import {
@@ -15,7 +15,7 @@ import {
   setAccountHireDefaultFromMember,
 } from "./memberGambits";
 import { deserialize, migrate, serialize } from "./save";
-import { WIRING_SCIENCE_ID, WIRING_SECURITY_ID, WIRING_SHIP_ID, readProbe, withAwayTeam, wiringBase } from "./wiring/probes";
+import { WIRING_SCIENCE_ID, WIRING_SECURITY_ID, WIRING_SHIP_ID, editMember, readProbe, withAwayTeam, wiringBase } from "./wiring/probes";
 import { WIRING_REGISTRY } from "./wiring/registry";
 import { withWr10Off } from "./wr10Switch.fixture";
 
@@ -75,6 +75,19 @@ describe("OC-F12 Set for new hires", () => {
     expect(after.gambitPrograms.security).toEqual(DEFAULT_GAMBIT_PROGRAMS.security);
     expect("gambitDefaultFrom" in after).toBe(false);
     expect(nextHireProgram(after)).toBeUndefined();
+  });
+
+  it("a program of their own equal to the built-in default reads as the built-in default: Set clears, or changes nothing", () => {
+    for (const builtIn of [FIELD_KITS_DEFAULT_MEMBER_GAMBIT, DEFAULT_MEMBER_GAMBIT]) {
+      const own = (s: GameState) => editMember(s, WIRING_SECURITY_ID, { gambit: builtIn.map((r) => (r.params ? { ...r, params: { ...r.params } } : { ...r })) });
+      const plain = own(crew());
+      expect(setAccountHireDefaultFromMember(plain, WIRING_SECURITY_ID)).toBe(plain);
+      const set = setAccountHireDefaultFromMember(applyMemberGambitPreset(crew(), WIRING_SECURITY_ID, "decapitate"), WIRING_SECURITY_ID);
+      const after = setAccountHireDefaultFromMember(own(set), WIRING_SECURITY_ID);
+      expect(accountHireDefaultSet(after)).toBe(false);
+      expect("gambitDefaultFrom" in after).toBe(false);
+      expect(nextHireProgram(after)).toBeUndefined();
+    }
   });
 
   it("an empty program can be set: hires get only the built-in support rules", () => {

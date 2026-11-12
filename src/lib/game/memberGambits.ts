@@ -9,8 +9,8 @@
 // Every action is pure and refuses by returning the SAME state (the App.svelte do* same-ref guard): an unknown
 // member, a member who is not Security (Science never fights, design D2), an index out of range, or an edit
 // that would leave the stored program exactly as it is. A successful edit replaces only that member's object;
-// every other member, the ships and the account-level pair (state.gambitPrograms, inert since D19) keep their
-// references.
+// every other member, the ships and the account-level pair (state.gambitPrograms: a hire reads it, and the
+// OC-F12 control below sets and clears it) keep their references.
 //
 // Imports model.ts, gambit.ts, groundTeamSlots.ts and (FKR-10, the runs switch) fieldKits.ts only.
 
@@ -109,6 +109,12 @@ export function mergeWithBuiltInDefault(program: readonly GambitRule[], kitsLive
 // members hired after it. No SAVE_VERSION change: the pair already exists; `gambitDefaultFrom` is optional.
 // ============================================================================
 
+// Whether `program` is the built-in default a member with no program of their own runs: D19's DEFAULT_MEMBER_GAMBIT, or,
+// once kits are live in runs, the Field Kits default they fight with (fieldKitsFightProgram). Pure.
+export function isBuiltInDefaultProgram(program: readonly GambitRule[], kitsLive: boolean = FIELD_KITS_RUNS_LIVE): boolean {
+  return gambitProgramEquals(program, DEFAULT_MEMBER_GAMBIT) || (kitsLive && gambitProgramEquals(program, FIELD_KITS_DEFAULT_MEMBER_GAMBIT));
+}
+
 // Whether a hire default is set: the stored Security program differs from the fresh one (DEFAULT_GAMBIT_PROGRAMS, the
 // Balanced preset), the exact rule accountProgramForHire reads. Pure.
 export function accountHireDefaultSet(state: Pick<GameState, "gambitPrograms">): boolean {
@@ -130,12 +136,14 @@ export function clearAccountHireDefault(state: GameState): GameState {
 // the editor shows, memberEditableProgram), and `gambitDefaultFrom` names them. Their program equal to the fresh one
 // (Balanced; user 2026-11-12 "Treat as no default (Recommended)": choosing Balanced just clears the default) clears it
 // instead. Refuses (same state) for an unknown or non-Security member, a member with no program of their own (the
-// built-in default: Clear gives hires that), or a program already the stored one. Pure.
+// built-in default: Clear gives hires that), or a program already the stored one. A program of their own that EQUALS
+// the built-in default (edited and edited back, isBuiltInDefaultProgram) is the built-in default: like Balanced, it
+// clears the default (a hire with no default starts on exactly that program). Pure.
 export function setAccountHireDefaultFromMember(state: GameState, memberId: string): GameState {
   const m = securityMember(state, memberId);
   if (!m || !memberHasOwnGambit(m)) return state;
   const program = memberEditableProgram(m);
-  if (gambitProgramEquals(program, DEFAULT_GAMBIT_PROGRAMS.security)) return clearAccountHireDefault(state);
+  if (gambitProgramEquals(program, DEFAULT_GAMBIT_PROGRAMS.security) || isBuiltInDefaultProgram(program)) return clearAccountHireDefault(state);
   const pair = state.gambitPrograms ?? { security: [], science: cloneProgram(DEFAULT_GAMBIT_PROGRAMS.science) };
   if (accountHireDefaultSet(state) && gambitProgramEquals(pair.security, program)) return state;
   return { ...state, gambitPrograms: { ...pair, security: program }, gambitDefaultFrom: m.id };
