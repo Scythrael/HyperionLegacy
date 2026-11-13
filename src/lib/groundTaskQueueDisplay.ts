@@ -208,8 +208,8 @@ export interface DifficultyView {
   grade: number; // 1..5
   name: string; // "Challenging"
   pips: boolean[]; // five, lit up to the grade
-  weightText: string; // "counts x3 toward completion"
-  ariaLabel: string; // "Difficulty 3 of 5, Challenging, counts x3 toward completion"
+  weightText: string; // "counts x3 toward objective progress"
+  ariaLabel: string; // "Difficulty 3 of 5, Challenging, counts x3 toward objective progress"
 }
 
 // The task's stored grade as pips + name + completion weight, or null for an unrated task (a run before SQ-4). Pure.
@@ -217,7 +217,7 @@ export function difficultyView(task: Pick<ExpeditionActivity, "difficulty">): Di
   const grade = storedDifficulty(task.difficulty);
   const name = difficultyName(task.difficulty);
   if (grade === null || name === null) return null;
-  const weightText = `counts x${difficultyWeight(task.difficulty)} toward completion`;
+  const weightText = `counts x${difficultyWeight(task.difficulty)} toward objective progress`;
   return {
     grade,
     name,

@@ -3,7 +3,7 @@
   // the task cards of the Squads design section 7.3 (mockup section 4), inside the expedition's in-progress view.
   //
   // One block per scanned body: its title and task count, "Default plan" and "Auto-assign randomly" (the user's
-  // words), then a table: Task (the task card: name, difficulty pips + grade + "counts xN toward completion", the
+  // words), then a table: Task (the task card: name, difficulty pips + grade + "counts xN toward objective progress", the
   // squad requirement chips marked met / unmet, who covers it, the fight-point bar, the status), Fights, one odds
   // column per deployed team, Assigned (a crew select + Apply, Skip; a skipped task re-queues), Queue (its place in
   // the team's queue, up / down). The run-level stuck flag sits on top with its escape hatch: Skip, right there.

@@ -178,13 +178,13 @@ describe("GO-13 small words", () => {
     expect(needsPhrase({ security: 3, science: 2 })).toBe("3 Security squads + 2 Science squads");
   });
 
-  it("difficulty: pips + grade + 'counts xN toward completion'; an unrated task shows none", () => {
+  it("difficulty: pips + grade + 'counts xN toward objective progress'; an unrated task shows none", () => {
     const v = difficultyView({ difficulty: 3 });
     expect(v).not.toBeNull();
     expect(v!.name).toBe("Challenging");
     expect(v!.pips).toEqual([true, true, true, false, false]);
-    expect(v!.weightText).toBe("counts x3 toward completion");
-    expect(difficultyView({ difficulty: 5 })!.weightText).toBe("counts x8 toward completion");
+    expect(v!.weightText).toBe("counts x3 toward objective progress");
+    expect(difficultyView({ difficulty: 5 })!.weightText).toBe("counts x8 toward objective progress");
     expect(difficultyView({})).toBeNull();
     expect(difficultyView({ difficulty: 9 })).toBeNull();
   });
