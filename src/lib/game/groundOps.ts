@@ -69,6 +69,7 @@ import {
   type ShipInstance,
   type ExpeditionPlanetType,
   FULL_HOLD_FRACTION,
+  RECALL_KEEPS_REPAIR_SWITCH,
   WR9_SWITCH,
   repairTicksForDamage,
 } from "./model";
@@ -1241,8 +1242,9 @@ const SURFACE_STEPS: ReadonlySet<GroundStepKind> = new Set<GroundStepKind>(["dep
 // Objectives in progress go back to queued with their progress kept; a team staging for a partner is released. The
 // medical bay works on the way home: each member's bay time for the conditions gathered on this trip starts once
 // aboard (a team already in the bay keeps its own clock); claimExpedition brings home whoever is still in it. A
-// field repair under way stops (the hull comes home with its damage). Returns the pickup seconds. Mutates the working
-// clone (expedition.ts recallExpedition's).
+// field repair under way stops (the hull comes home with its damage); one finished and flying back keeps its repair on a
+// run stamped with the repair rules (OC-F14), as a canceled order's share does. Returns the pickup seconds. Mutates the
+// working clone (expedition.ts recallExpedition's).
 export function closeGroundOps(exp: Expedition, t: number, driver: GroundOpsScanDriver): number {
   const ops = exp.groundOps;
   if (!ops || ops.endedAt !== undefined) return 0;
@@ -1301,11 +1303,21 @@ export function closeGroundOps(exp: Expedition, t: number, driver: GroundOpsScan
     delete team.reinforcing;
   }
   // OC-F14 (user 2026-11-12 "Add a cancel": the ship keeps whatever repair it finished): a canceled order flying back
-  // settles its share now. Any other repair under way still stops with its damage (absent on every run without a cancel).
-  for (const leg of ops.repairLegs ?? []) if (!leg.done && leg.canceled === true) finishFieldRepair(ops, leg);
+  // settles its share now. The follow-up (user 2026-11-12 afternoon "Keep the repair (Recommended)"): on a run stamped
+  // with the repair rules (Expedition.repairRules), a repair whose repairing is done (`t` at or past its repairedAt: the
+  // ship is flying back from the world) settles its whole repair now too, the automatic repair's and the order's alike.
+  // A repair still under way stops with its damage, and so does a finished one on a run without the stamp (the old rule,
+  // so a run dispatched before OC-F14 recalls exactly as it always did). Absent on every run without a repair leg.
+  for (const leg of ops.repairLegs ?? []) if (!leg.done && (leg.canceled === true || recallKeepsRepair(exp, leg, t))) finishFieldRepair(ops, leg);
   ops.endedAt = t;
   ops.recalledAt = t;
   return pickup;
+}
+
+// Does a recall at `t` keep this unsettled repair leg's repair (the follow-up above; a canceled leg is settled anyway)?
+// Only on a stamped run, once its repairing is done. Pure.
+export function recallKeepsRepair(exp: Pick<Expedition, "repairRules">, leg: Pick<GroundRepairLeg, "repairedAt">, t: number): boolean {
+  return RECALL_KEEPS_REPAIR_SWITCH.live && exp.repairRules === 1 && t >= leg.repairedAt;
 }
 
 // A RESUMED run's window opens at `t` on its first `charted` bodies already scanned (expedition.ts opens the scan

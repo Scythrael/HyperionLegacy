@@ -2546,3 +2546,39 @@ docs/qa/2026-11-12-new-hire-default-qa.html.
 - (2026-11-12 afternoon) Recall during a FINISHED field repair's flight back (the old rule throws the repair away; a
   canceled repair keeps its share): "Keep the repair (Recommended)": both keep it; moved replay pins are traced.
 - (2026-11-12 afternoon) OC-F12 empty program as a default: "Allow with a warning (Recommended)" (as built).
+
+## OC-F14 follow-up BUILT (2026-11-12): a recall keeps a finished repair
+
+User answer 2026-11-12 afternoon (above): "Keep the repair (Recommended)": a recall while the ship flies back from a
+FINISHED field repair keeps it, as a canceled repair's flight back already did; moved replay pins are traced.
+
+- Engine (groundOps.ts closeGroundOps, new pure `recallKeepsRepair`): on a run stamped `Expedition.repairRules`, a recall
+  at or past a repair leg's `repairedAt` (the repair finished, the ship flying back from a world) settles the whole
+  repair now (finishFieldRepair: the leg is done, its damage is gone), the automatic 25% repair and the order alike. A
+  canceled order's share is settled as before. A repair still under way (before `repairedAt`) still stops with its
+  damage (the user's answer named the finished repair; a partial share on a plain recall would be a new rule, not
+  asked). An orbit repair has no flight back (repairedAt == endsAt), so the run has already settled it at that instant.
+  Exact and deterministic: the settle is one subtraction of the stored integer `hullRepaired` at the recall's instant;
+  after a recall one call == 997 s chunks == 1 s steps, one economyTick == 997-tick chunks == 1-tick steps, and a recall
+  on a run stepped live 1 s at a time == one on a run advanced in one call (recallKeepsRepairGoldens.test.ts).
+- Stamp choice: the rule RIDES the existing OC-F14 stamp (`repairRules: 1`), no new value, following the WR-10
+  `awayRules` precedent ("adds to the same stamp, nothing with it has shipped"): OC-F14 has never left the feature
+  branch (0.14.0 is not on staging), and a flight back exists only on a stamped system (worlds only: the ship repairs on
+  the world it is at; none: orbit), so the stamp covers every case the rule can touch. A run without the stamp (every run
+  dispatched before OC-F14) recalls by the old rule exactly. A `repairRules: 2` would have moved every stamped dispatch
+  hash for no player. No SAVE_VERSION bump. Test switch: model.ts RECALL_KEEPS_REPAIR_SWITCH
+  (recallKeepsRepairSwitch.fixture.ts withRecallKeepsRepairOff).
+- Display (fieldRepairStripDisplay.ts): once the operations are over, the strip's hull readout no longer subtracts an
+  unsettled leg (the recall settled every repair it keeps), so it reads the hull the ship carries home; before, an
+  unstamped run recalled during the flight back read 0 and hid the strip while the engine carried the damage home.
+- Goldens (recallKeepsRepairGoldens.test.ts, captured before the engine edit on 02cf05d5, commit 9ab01a7f): seven
+  recalls, each read as the recalled record and that record advanced home. Moved: worldFlightBack (the order's 1162
+  damage repaired on the frozen world, recalled 10 s into the 300 s flight back: comes home repaired, was 1162) and
+  autoFlightBack (the automatic repair of 1200 plus the first hit, same flight back: comes home repaired). Unmoved:
+  worldMidRepair, orbitLastSecond (mid-repair), orbitAtEnd (no flight back), canceledFlightBack (already kept),
+  unstampedFlightBack (no stamp, old rule). The rule off reproduces every capture; the moved fixtures' stored records
+  with the stamp taken off recall exactly as the rule-off fixture. No other golden or test moved.
+- Help: no paragraph describes a recall during a repair (RECALL, HULL DAMAGE AND FIELD REPAIR and ORDERING A FIELD
+  REPAIR do not), so none changed. QA: one row in docs/qa/2026-11-12-field-repair-qa.html (section 4).
+- Open (not built, flagged): a plain recall MID-repair (not canceled) still loses the repair under way, where a Cancel
+  at the same instant keeps its share. Whether a recall mid-repair should keep the share too is the user's call.
