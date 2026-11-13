@@ -1468,3 +1468,5 @@ Built from the answers above and the signed mockup (option A). UI only: no engin
   places ask the same question. A crew-locked ship's reason shows in words on the card.
 - **All** list and the **empty hint** as drawn; Help: one sentence in the Complement topic's Notable Crew paragraph.
 - QA: `docs/qa/2026-11-12-notable-ticker-qa.html`.
+- (2026-11-12 night) Warning on the older "Send from the pool" picker (it can push pool crew to the reserve too): "Yes,
+  same warning (Recommended)": both pickers say how many pool crew move to the reserve next tick.
