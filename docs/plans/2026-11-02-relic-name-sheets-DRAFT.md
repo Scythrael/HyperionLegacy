@@ -366,3 +366,112 @@ Ember Court (theme becomes: a court famous for the grand weekly gatherings its h
 - FINAL Ember Court: exc-t5-b-p1 is now **Ember Court Teapot** (stat crewBonuses, same id): "Well loved, chipped at the
   spout, and never once empty. The court's tea was always brewed after sundown, and served before sunrise." The set,
   Crucible, Coronet and Bellows lines ship as drafted above (the Banner line is dropped).
+
+## PROPOSAL (2026-11-13): theme-matched piece stats, for the user's sign-off
+
+The user's 2026-11-02 structure answer "Match stats to themes (Recommended)" asked to reassign each exceptional
+piece's stat to fit its name, still covering all 14 Museum stats evenly, values unchanged. No table was drawn at the time,
+so the build kept the stat column above (the names had been chosen to fit it). This is that table. Doc only: nothing
+in the game changes until the user signs it off. Rules kept: only the existing 14 Museum stats (no new stat); values
+unchanged (Tier I +3% to Tier VII +15%, full set 5x one piece); a full set keeps landing on its first piece's stat (so
+the Lightkeeper and Deepcut full sets follow their first pieces); Keelsong and Ember Court keep every stat (the Teapot
+reads as crewBonuses). Because the names were written to fit the old stats, most pieces already match: **4 of 54
+pieces change** (and 2 full sets with them), marked **CHANGE**.
+
+| id | name | current stat | proposed stat | why |
+|:-|:-|:-|:-|:-|
+| exc-t1-a | Waystation Set | researchSpeed | researchSpeed | full set: follows its first piece |
+| exc-t1-a-p1 | Waystation Lantern | researchSpeed | researchSpeed | kept: a guiding light for travelers (what the road taught them) |
+| exc-t1-a-p2 | Waystation Guestbook | craftingQuality | **crewBonuses** | **CHANGE**: thanks from the travelers it sheltered: a people piece, not a workshop one |
+| exc-t2-a | Hearthward Set | relicFindChance | relicFindChance | full set: follows its first piece |
+| exc-t2-a-p1 | Hearthward Doorstone | relicFindChance | relicFindChance | kept: a lucky touch on the way out: luck at finding things |
+| exc-t2-a-p2 | Hearthward Kettle | cargoCapacity | cargoCapacity | kept: always held enough for one more: room |
+| exc-t2-a-p3 | Hearthward Weathervane | transitSpeed | transitSpeed | kept: it points home: the way back |
+| exc-t3-a | Lightkeeper Set | salvageYield | **hazardResist** | full set: follows its first piece (CHANGE) |
+| exc-t3-a-p1 | Lightkeeper's Wick | salvageYield | **hazardResist** | **CHANGE**: the light that kept a dangerous lane free of wrecks: safety, not salvage |
+| exc-t3-a-p2 | Lightkeeper's Beacon Glass | sensors | sensors | kept: shows ships that are not there: seeing |
+| exc-t3-a-p3 | Lightkeeper's Watch Log | scanSpeed | scanSpeed | kept: logs every passing ship: watching the sky |
+| exc-t3-b | Deepcut Set | scienceTeamPower | **extractionSpeed** | full set: follows its first piece (CHANGE) |
+| exc-t3-b-p1 | Deepcut Plumb Line | scienceTeamPower | **extractionSpeed** | **CHANGE**: a digging guide that keeps the cut true, so the dig goes faster |
+| exc-t3-b-p2 | Deepcut Shift Bell | crewBonuses | crewBonuses | kept: the whole crew came up together |
+| exc-t3-b-p3 | Deepcut Drill Crown | miningYield | miningYield | kept: a drill crown: digging |
+| exc-t4-a | Stormglass Set | rareMaterialChance | rareMaterialChance | full set: follows its first piece |
+| exc-t4-a-p1 | Stormglass Vial | rareMaterialChance | rareMaterialChance | kept: blooms before anything rare surfaces |
+| exc-t4-a-p2 | Stormglass Siphon | extractionSpeed | extractionSpeed | kept: drinks lightning and pours it out: drawing off |
+| exc-t4-a-p3 | Stormglass Mantle | hazardResist | hazardResist | kept: everything runs off it: protection |
+| exc-t4-a-p4 | Stormglass Almanac | researchSpeed | researchSpeed | kept: three thousand years of forecasts: knowledge |
+| exc-t4-b | Keelsong Set | craftingQuality | craftingQuality | full set: follows its first piece |
+| exc-t4-b-p1 | Keelsong Tuning Fork | craftingQuality | craftingQuality | kept: Keelsong kept: finds the weak point in a hull (craft) |
+| exc-t4-b-p2 | Keelsong Hymnal | relicFindChance | relicFindChance | kept: Keelsong kept: names ships and where they were last seen (finding) |
+| exc-t4-b-p3 | Keelsong Hold Drum | cargoCapacity | cargoCapacity | kept: Keelsong kept: the crowded hold feels roomy (cargo) |
+| exc-t4-b-p4 | Keelsong Launch Horn | transitSpeed | transitSpeed | kept: Keelsong kept: ships came home sooner (travel) |
+| exc-t5-a | Tidewright Set | salvageYield | salvageYield | full set: follows its first piece |
+| exc-t5-a-p1 | Tidewright Net Float | salvageYield | salvageYield | kept: always came back with something: salvage |
+| exc-t5-a-p2 | Tidewright Sounding Shell | sensors | sensors | kept: hears the depth below: sensing |
+| exc-t5-a-p3 | Tidewright Spyglass | scanSpeed | scanSpeed | kept: shows the horizon a few hours ahead: scanning |
+| exc-t5-a-p4 | Tidewright Star Table | scienceTeamPower | scienceTeamPower | kept: stars and tides on one slab: navigation science |
+| exc-t5-b | Ember Court Set | crewBonuses | crewBonuses | full set: follows its first piece |
+| exc-t5-b-p1 | Ember Court Teapot | crewBonuses | crewBonuses | kept: Ember Court kept: the Teapot serves the guests (crew) |
+| exc-t5-b-p2 | Ember Court Crucible | miningYield | miningYield | kept: Ember Court kept: ore comes out richer (mining) |
+| exc-t5-b-p3 | Ember Court Coronet | rareMaterialChance | rareMaterialChance | kept: Ember Court kept: every gem found by its wearer (rare finds) |
+| exc-t5-b-p4 | Ember Court Bellows | extractionSpeed | extractionSpeed | kept: Ember Court kept: keeps the hearth roaring (working speed) |
+| exc-t6-a | Veilward Set | hazardResist | hazardResist | full set: follows its first piece |
+| exc-t6-a-p1 | Veilward Shroud | hazardResist | hazardResist | kept: starlight forgets to pass through: protection |
+| exc-t6-a-p2 | Veilward Codex | researchSpeed | researchSpeed | kept: written knowledge, read in bright light |
+| exc-t6-a-p3 | Veilward Gauntlet | craftingQuality | craftingQuality | kept: a careful hand on glowing metal: craft |
+| exc-t6-a-p4 | Veilward Divining Rod | relicFindChance | relicFindChance | kept: dips toward anything old: relic finding |
+| exc-t6-b | Starwake Set | cargoCapacity | cargoCapacity | full set: follows its first piece |
+| exc-t6-b-p1 | Starwake Strongbox | cargoCapacity | cargoCapacity | kept: larger inside than out: room |
+| exc-t6-b-p2 | Starwake Sail Spar | transitSpeed | transitSpeed | kept: catches the wind between stars: travel |
+| exc-t6-b-p3 | Starwake Salvage Hook | salvageYield | salvageYield | kept: the caravan wasted nothing: salvage |
+| exc-t6-b-p4 | Starwake Lookout Glass | sensors | sensors | kept: the lookout's glass: seeing |
+| exc-t6-c | Grand Orrery Set | scanSpeed | scanSpeed | full set: follows its first piece |
+| exc-t6-c-p1 | Orrery Sun-Gear | scanSpeed | scanSpeed | kept: a tooth for every star: tracking the sky |
+| exc-t6-c-p2 | Orrery Measuring Arm | scienceTeamPower | scienceTeamPower | kept: accurate to a hair across a light-year: science |
+| exc-t6-c-p3 | Orrery Keeper's Chair | crewBonuses | **craftingQuality** | **CHANGE**: generations of careful hands keeping a fine mechanism wound: craft |
+| exc-t6-c-p4 | Orrery Counterweight | miningYield | miningYield | kept: cast from an ore no survey has found since: mining |
+| exc-t7-a | Dawnmaker Set | rareMaterialChance | rareMaterialChance | full set: follows its first piece |
+| exc-t7-a-p1 | Dawnmaker Seedstone | rareMaterialChance | rareMaterialChance | kept: warm, waiting to begin: something rare inside |
+| exc-t7-a-p2 | Dawnmaker Ladle | extractionSpeed | extractionSpeed | kept: pours something hotter than metal: drawing off |
+| exc-t7-a-p3 | Dawnmaker Heat Veil | hazardResist | hazardResist | kept: never singed beside a newborn star: protection |
+| exc-t7-a-p4 | Dawnmaker Pattern Scroll | researchSpeed | researchSpeed | kept: a diagram drawn before the sun was lit: knowledge |
+| exc-t7-a-p5 | Dawnmaker Hammer | craftingQuality | craftingQuality | kept: every blow lands where it should: craft |
+| exc-t7-b | Kinring Set | relicFindChance | relicFindChance | full set: follows its first piece |
+| exc-t7-b-p1 | Kinring Wayfinder | relicFindChance | relicFindChance | kept: points toward the nearest friend: finding |
+| exc-t7-b-p2 | Kinring Gift Chest | cargoCapacity | cargoCapacity | kept: each world added one thing: a full chest |
+| exc-t7-b-p3 | Kinring Gate Key | transitSpeed | transitSpeed | kept: the route is still shorter for it: travel |
+| exc-t7-b-p4 | Kinring Mending Thread | salvageYield | salvageYield | kept: mends anything drawn through: salvage |
+| exc-t7-b-p5 | Kinring Listening Horn | sensors | sensors | kept: hears a call from the far side: listening |
+| exc-t7-c | Long Vigil Set | scanSpeed | scanSpeed | full set: follows its first piece |
+| exc-t7-c-p1 | Vigil Eye | scanSpeed | scanSpeed | kept: it has not blinked in an age: watching |
+| exc-t7-c-p2 | Vigil Star Atlas | scienceTeamPower | scienceTeamPower | kept: a careful note on every star: science |
+| exc-t7-c-p3 | Vigil Roll of Names | crewBonuses | crewBonuses | kept: every watcher, in order: the crew |
+| exc-t7-c-p4 | Vigil Core Auger | miningYield | miningYield | kept: bored straight down through a world: digging |
+| exc-t7-c-p5 | Vigil Coreglass | rareMaterialChance | rareMaterialChance | kept: formed under a pressure found in one place: rare |
+
+Coverage, pieces per stat (54 pieces; full sets not counted):
+
+| stat | before | after |
+|:-|:-|:-|
+| researchSpeed | 4 | 4 |
+| craftingQuality | 4 | 4 |
+| relicFindChance | 4 | 4 |
+| cargoCapacity | 4 | 4 |
+| transitSpeed | 4 | 4 |
+| salvageYield | 4 | 3 |
+| sensors | 4 | 4 |
+| scanSpeed | 4 | 4 |
+| scienceTeamPower | 4 | 3 |
+| crewBonuses | 4 | 4 |
+| miningYield | 4 | 4 |
+| rareMaterialChance | 4 | 4 |
+| extractionSpeed | 3 | 4 |
+| hazardResist | 3 | 4 |
+
+Before: twelve stats on 4 pieces and two on 3 (extractionSpeed, hazardResist). After: the same evenness, twelve on 4 and two on 3
+(salvageYield, scienceTeamPower): the Keeper's Chair moving to craftingQuality keeps craftingQuality at 4 after the Guestbook leaves it,
+and crewBonuses stays at 4. Full-set stats move for Lightkeeper (salvageYield to hazardResist) and Deepcut
+(scienceTeamPower to extractionSpeed).
+
+Applying it (after sign-off): one table of per-piece stats in relics.ts in place of the cycle, the sheet test reading
+this table, and the moved museum pins traced (the four pieces' and two full sets' wiring rows, any golden holding them).
