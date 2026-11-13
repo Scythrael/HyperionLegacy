@@ -53,6 +53,8 @@
   import ShortRangePanel from "./lib/ShortRangePanel.svelte";
   // Squads SQ-7.4: the Subspace Telescope Facilities card (its words and galaxy map are telescopeCardDisplay.ts).
   import TelescopeMap from "./lib/TelescopeMap.svelte";
+  import { planetRollsPaid, systemRows } from "./lib/game/completion";
+  import { mapCompletionView, planetRollLine } from "./lib/completionDisplay";
   import { telescopeCardView, telescopeMapEnemyView, telescopeMapView } from "./lib/telescopeCardDisplay";
   // Complement CP-19: the Personnel Rosters upgrade track card (its words are personnelRostersTrackDisplay.ts).
   import { rostersTrackView } from "./lib/personnelRostersTrackDisplay";
@@ -6594,8 +6596,12 @@
   function doAbandonHeldSystem(heldId: string) {
     if (!canAbandonHeldSystem(state, heldId)) return;
     const name = heldSystems(state).find((h) => h.id === heldId)?.systemName ?? "the system";
-    state = abandonHeldSystem(state, heldId);
+    const next = abandonHeldSystem(state, heldId);
+    // Completion tracking (user 2026-11-13): a planet the visit brought to 100% pays its bonus relic roll here.
+    const rollLine = planetRollLine(planetRollsPaid(state, next));
+    state = next;
     pushLog(`Abandoned ${name}: its saved progress is let go.`);
+    if (rollLine) pushLog(rollLine);
     doSave();
   }
 
@@ -6604,7 +6610,7 @@
     const exp = state.expeditions.find((e) => e.id === expeditionId) ?? null;
     // Field Kits FKR-9: the claim's kit line (read before the claim removes the run).
     const kits = exp ? claimKitsView(exp) : null;
-    const { next, success, findings, injuries } = claimExpedition(state, expeditionId);
+    const { next, success, findings, injuries, planetRolls } = claimExpedition(state, expeditionId);
     if (!success || next === state) return;
     // Expedition Tiers G2-7: the Wolf 359 derelict field's one-time line (read before `state` moves on).
     const derelictLine = derelictClaimLine(state.surveyLog, next.surveyLog);
@@ -6623,6 +6629,10 @@
     const byTier = claimedBlanksByTierText(findings ?? [], (poi) => relicSetForPoi(poi) !== null);
     if (sum.relics > 0) landed.push(`${sum.relics} unidentified relic${sum.relics === 1 ? "" : "s"} to the vault${byTier ? ` (${byTier})` : ""}`);
     pushLog(`[${exp ? devShipLabel(exp.shipId) : "Expedition"}] Findings claimed from ${exp?.systemName ?? "the expedition"}: ${landed.length > 0 ? landed.join(", ") : "nothing to deposit"}.`);
+    // Completion tracking (user 2026-11-13 "Planet roll + system badge"): each planet the run brought to 100% (once per
+    // planet, ever) and the bonus blank its roll put in the vault, by tier and rarity.
+    const rollLine = planetRollLine(planetRolls ?? []);
+    if (rollLine) pushLog(`[${exp ? devShipLabel(exp.shipId) : "Expedition"}] ${rollLine}`);
     if (injuredText.length > 0) {
       pushLog(`[${exp ? devShipLabel(exp.shipId) : "Expedition"}] Came home injured: ${injuredText.join(", ")}.`);
     }
@@ -11064,7 +11074,12 @@
   $: telescopeView = telescopeCardView(state, { duration: (t) => durationReadout(t, showTickCounts, state.tickDurationSeconds), homeworld: telescopeHome });
   $: telescopeLevelNow = telescopeView.level;
   $: telescopeMap = telescopeMapView(telescopeLevelNow, telescopeHome);
-  $: telescopeEnemy = telescopeMapEnemyView(telescopeLevelNow, telescopeHome);
+  // Completion tracking (0.14.0): every visited system at its best completion (game/completion.ts systemRows), read by the
+  // Survey Log's Systems section and the telescope map's region arcs. The arcs ride the region badges, so the slice
+  // labels treat each badge with an arc as one obstacle with it.
+  $: visitedSystems = systemRows(state);
+  $: telescopeCompletion = mapCompletionView(telescopeMap.badges, visitedSystems);
+  $: telescopeEnemy = telescopeMapEnemyView(telescopeLevelNow, telescopeHome, telescopeCompletion.arcs.map((a) => a.tier));
   $: telescopeUpgradeCheck = canBuildFacilityUpgrade(state, SUBSPACE_TELESCOPE_FACILITY_KEY);
   $: telescopeUpgradeInFlight = state.activeProcesses.find(
     (p) =>
@@ -15884,7 +15899,7 @@
               <Panel>
                 <div class="panel-title">RANGE OVER THE GALAXY</div>
                 <div class="telescope-sub">Centered on your homeworld, on a square-root distance scale so the near rings stay readable. Badges I to VII are the regions.</div>
-                <TelescopeMap map={telescopeMap} enemy={telescopeEnemy} />
+                <TelescopeMap map={telescopeMap} enemy={telescopeEnemy} completion={telescopeCompletion} />
               </Panel>
             </div>
           {:else if activeFoundryFacility === "docks"}
@@ -16519,7 +16534,7 @@
                   text={SURVEY_LOG_HELP}
                 />
               </div>
-              <SurveyLogPanel entries={state.surveyLog ?? []} />
+              <SurveyLogPanel entries={state.surveyLog ?? []} systems={visitedSystems} />
             </Panel>
           {:else if activeFoundryFacility === "archive" && activeArchiveSubTab === "museum"}
             <!-- THE MUSEUM (Exploration 0.14.0, E4c): the Archive's relic collection. Every identified relic

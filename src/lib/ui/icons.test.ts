@@ -95,6 +95,14 @@ describe("Ground Operations glyphs (0.14.0 GO-10)", () => {
     for (const name of required) expect(ICON_NAMES, `missing icon: ${name}`).toContain(name);
   });
 
+  // Completion tracking (0.14.0): the completed badge the approved 2026-11-13 mockup added, its own paths (no other glyph
+  // draws the same), classified with the success marks.
+  it("covers the completed badge", () => {
+    expect(ICON_NAMES).toContain("systemComplete");
+    const mine = ICON_PATHS.systemComplete.join("|");
+    for (const name of ICON_NAMES) if (name !== "systemComplete") expect(ICON_PATHS[name].join("|"), name).not.toBe(mine);
+  });
+
   // Gas Giant Study GG-6: the six glyphs the signed-off v3 study mockup added.
   it("covers the gas giant study screens' new glyphs", () => {
     const required: IconName[] = ["researchData", "ancientFragment", "galileoProbe", "giant", "nebula", "pause"];

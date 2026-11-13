@@ -1593,7 +1593,14 @@ export const RELIC_QUEUE_PROBE_BLANKS = 6;
 //   queue               the blanks identified in one long resolve after RELIC_QUEUE_PROBE_BLANKS are queued at once on a
 //                       Lab I (one lane): on = queued (each next blank starts the moment the lane frees, inside the
 //                       resolve, as while away); off = only the first started by hand, the rest left in the vault.
+//   completionRoll      the planet 100% bonus relic roll (completion tracking, user 2026-11-13 "Planet roll + system
+//                       badge"): the completion blanks a real dispatched run's CLAIM puts in the vault (claimExpedition,
+//                       completion.ts withClaimRecord, relicBlanks.ts planetCompletionRelicBlank) when its first body is
+//                       brought home scanned with its one objective done (and its study, on a study giant), every other
+//                       body unscanned; off = the same run with that one objective NOT done (the body one objective short
+//                       of 100%), so nothing pays. One body at 100% pays exactly one blank.
 function relicContentProbe(kind: string, on: boolean, s: GameState): number {
+  if (kind === "completionRoll") return completionRollProbe(on, s);
   if (kind === "lanes") return relicStudySlotCount(withFacilityLevel(s, "research", on ? 7 : 1));
   if (kind === "cultureReveal") {
     let cur: GameState = { ...withFacilityLevel(s, "research", 1), relicSeed: RELIC_DEFAULT_SEED, nextRelicStudyIndex: 1, museumV2: emptyMuseumV2(), relicVault: [], relicQueue: [] };
@@ -1715,6 +1722,27 @@ function missionCrewHours(s: GameState, ctx?: ContextId): number {
   for (let t = 0; t < 600; t++) after = economyTick(after, 1, () => 0.5);
   const o = after.officers.find((x) => x.assignedShipId === WIRING_SHIP_ID);
   return o ? officerPromotionCounter(o, "crewHours") : -1;
+}
+
+// The planet roll probe (relicContentProbe "completionRoll"): the completion blanks the claim of a dispatched run pays,
+// its first body brought home scanned with one objective (done when `on`) and every other body unscanned. -1 when the
+// run cannot dispatch.
+function completionRollProbe(on: boolean, s: GameState): number {
+  const ready = readyForRun(s);
+  const cand = expeditionCandidates(ready, WIRING_SHIP_ID)[0];
+  const res = startExpedition(ready, WIRING_SHIP_ID, WIRING_CAPTAIN_ID, cand.id, true, FIELD_KITS_RUNS_LIVE, false); // G2-4: see dispatchRun
+  if (!res.success || !res.expedition) return -1;
+  const exp = res.expedition;
+  const done: Expedition = {
+    ...exp,
+    phase: "complete",
+    groundOps: undefined,
+    bodies: exp.bodies.map((b, i) =>
+      i === 0 ? { ...b, scanned: true, studied: true, activities: [{ id: "wiring-roll-act", bodyId: b.id, poiId: "buriedVault", done: on }] } : { ...b, scanned: false, activities: [] },
+    ),
+  };
+  const claim = claimExpedition({ ...res.next, expeditions: [done] }, exp.id);
+  return claim.success ? (claim.planetRolls ?? []).length : -1;
 }
 
 // A dispatched run brought home with one objective done, then claimed: the first officer aboard's

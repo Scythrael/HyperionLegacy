@@ -132,6 +132,11 @@
   import TrainingRunChip from "./TrainingRunChip.svelte";
   import { isTrainingRun } from "./game/enemyRanks";
   import { recallBlockText, recallPreview } from "./game/expedition";
+  // Completion tracking (0.14.0, the approved 2026-11-13 mockup): the compact system line with its ring (Q7 A), each
+  // body's line, the badge at 100%, the claim card's line (Q10 B) and a candidate's "Visited" mark (Q2 B). Every number
+  // from the engine's one completion function (game/completion.ts); the words in completionDisplay.ts (tested).
+  import { runCompletion, systemRows } from "./game/completion";
+  import { bodyCompletionText, claimCompletionText, completionLineView, visitedChip } from "./completionDisplay";
   // Gas Giant Study GG-6 (the signed-off v3 mockup, user 2026-10-21 "approve as is"): each orbital body's study row, the
   // system's nebula row, the study summary chips, and under the timelines the ship holding orbit, the ship legs with the
   // return forecast, the gas giant body card and the study results. Display decisions in gasGiantStudyDisplay.ts
@@ -358,6 +363,13 @@
   $: recallRefusal = confirmRecall && chosenExpedition && recallView === null ? (() => { const r = recallPreview(state, chosenExpedition!.id); return r.ok ? null : recallBlockText(r.reason); })() : null;
   $: recalledSteps = chosenExpedition ? recalledStepperView(chosenExpedition, now) : null;
   $: recallClaim = chosenExpedition ? recallClaimView(state, chosenExpedition) : null;
+  // Completion tracking: the run's completion (it moves only when a scan ends or an objective finishes).
+  $: runDone = chosenExpedition ? runCompletion(chosenExpedition) : null;
+  $: runLine = runDone ? completionLineView(runDone) : null;
+  // Completion tracking (Q2 B): every visited system's best completion, built ONCE per state (systemRows), so each
+  // candidate card's "Visited" chip is a lookup (completion.ts visitedCompletion reads the same rows).
+  $: visitedById = new Map(systemRows(state).map((r) => [r.systemId, r.completion]));
+  $: claimLine = chosenExpedition && chosenExpedition.phase === "complete" && runDone ? claimCompletionText(chosenExpedition.systemName, runDone) : null;
   // The resume card the abandon confirm names.
   // The card it names went away (abandoned, launched, another region): the confirm closes for good.
   function dropStaleAbandon(list: readonly { id: string }[]): void {
@@ -574,11 +586,18 @@
       <div class="exp-body">
         <div class="exp-hdr">
           <div class="exp-hdr-main">
-            <span class="exp-hdr-system">{exp.systemName}</span>
+            <span class="exp-hdr-system">{exp.systemName}{#if runLine?.complete}{" "}<span class="cmp-done-chip"><Icon name="systemComplete" size={13} /> Completed</span>{/if}</span>
             <span class="exp-hdr-sub">
               {shipName(exp.shipId)}{#if chosenCaptain} · {chosenCaptain.label}{/if}{#if exp.shakedown} · shakedown run{/if}
             </span>
             {#if runRegionText(exp)}<span class="exp-hdr-sub">{runRegionText(exp)}</span>{/if}
+            {#if runLine}
+              <!-- Completion tracking (Q7 A): the compact system line with its small ring. -->
+              <span class="cmp-line" class:done={runLine.complete} role="img" aria-label={runLine.ariaLabel}>
+                <svg class="cmp-ring" viewBox="0 0 16 16" aria-hidden="true"><circle class="tr" cx="8" cy="8" r="6" /><circle class="ar" cx="8" cy="8" r="6" stroke-dasharray={runLine.ringDash} /></svg>
+                <span aria-hidden="true">Bodies <b>{runLine.bodiesText}</b> · Objectives <b>{runLine.objectivesText}</b> · <span class="cmp-pc">{runLine.percentText}</span></span>
+              </span>
+            {/if}
             <!-- Safe first runs SF-6: the run view carries the training run's chip and line (its stamp). -->
             {#if isTrainingRun(exp)}<TrainingRunChip line={TRAINING_EXPEDITION_LINE} />{/if}
           </div>
@@ -695,6 +714,12 @@
               {:else}
                 <div class="exp-body-pois dim">{frac >= 0.999 ? "No discoveries" : "Awaiting scan"}</div>
               {/if}
+              {#if runDone && runDone.bodyLines[bi]}
+                <!-- Completion tracking: the body's own line (the same rule on one body). -->
+                <div class="exp-body-comp" class:done={runDone.bodyLines[bi].complete}>
+                  {bodyCompletionText(runDone.bodyLines[bi])}{#if runDone.bodyLines[bi].complete}{" "}<span class="cmp-done-chip"><Icon name="systemComplete" size={12} /> Completed</span>{/if}
+                </div>
+              {/if}
             </div>
           {/each}
           {#if nebRow}
@@ -789,6 +814,10 @@
           <span class="exp-findings-label">findings gathered</span>
           {#if exp.anomalyCharted}<span class="exp-chip anomaly">+ charted anomaly</span>{/if}
         </div>
+        {#if claimLine}
+          <!-- Completion tracking (Q10 B): the claim card's line at 100%. -->
+          <div class="cmp-claim"><Icon name="systemComplete" size={16} /> <span>{claimLine}</span></div>
+        {/if}
         {#if recallClaim}
           <!-- G2-6: a recalled run home claims like any other; the card says what the recall left (Resume, or a candidate). -->
           <div class="exp-recall-claim">
@@ -913,10 +942,10 @@
                       </span>
                       <span class="exp-target-region">{r.whereText}</span>
                       <span class="exp-rows">
-                        <span class="exp-row-k">Charted</span>
+                        <span class="exp-row-k">Completion</span>
                         <span class="exp-row-v">
                           <span class="exp-reach" aria-hidden="true"><i style="width: {r.percent}%;"></i></span>
-                          <span class="exp-row-small">{r.chartedText}</span>
+                          <span class="exp-row-small">{r.completionText}</span>
                         </span>
                         <span class="exp-row-k">Objectives</span>
                         <span class="exp-row-v">{r.objectivesText}</span>
@@ -980,10 +1009,10 @@
                       </span>
                       <span class="exp-target-region">{r.whereText}</span>
                       <span class="exp-rows">
-                        <span class="exp-row-k">Charted</span>
+                        <span class="exp-row-k">Completion</span>
                         <span class="exp-row-v">
                           <span class="exp-reach" aria-hidden="true"><i style="width: {r.percent}%;"></i></span>
-                          <span class="exp-row-small">{r.chartedText}</span>
+                          <span class="exp-row-small">{r.completionText}</span>
                         </span>
                         <span class="exp-row-k">Objectives</span>
                         <span class="exp-row-v">{r.objectivesText}</span>
@@ -1007,6 +1036,7 @@
                 {@const fk = cand.foreknowledge}
                 {@const tel = cand.telescope}
                 {@const card = cardOf.get(cand.id)}
+                {@const seen = visitedChip(visitedById.get(cand.systemId) ?? null)}
                 <button
                   type="button"
                   class="exp-target"
@@ -1017,6 +1047,10 @@
                   <span class="exp-target-top">
                     <span class="exp-target-name">{cand.systemName}</span>
                     {#if card?.realStar}<span class="exp-chip star">Real star</span>{/if}
+                    {#if seen}
+                      <!-- Completion tracking (Q2 B): a system visited before shows its best completion, or the badge. -->
+                      {#if seen.complete}<span class="cmp-done-chip"><Icon name="systemComplete" size={12} /> {seen.text}</span>{:else}<span class="exp-chip visited">{seen.text}</span>{/if}
+                    {/if}
                     {#if card?.enemyTerritory}<span class="exp-chip enemy" title="Known enemy territory: combat risk one step higher"><Icon name="riskCombat" size={11} /> Enemy territory</span>{/if}
                     {#if card?.trainingRun}<TrainingRunChip title={TRAINING_EXPEDITION_LINE} />{/if}
                     {#if card && !card.reach.met}<span class="exp-chip warn"><Icon name="reach" size={11} /> Out of reach</span>{/if}
@@ -3314,6 +3348,87 @@
   .exp-resume-foot {
     font-size: var(--text-2xs);
     color: var(--color-text-dim);
+  }
+  /* Completion tracking (the approved 2026-11-13 mockup): the compact line, its ring, the badge chip, the body line and
+     the claim card's line. Green is the success hue; the word "Completed" always rides with the glyph. */
+  .cmp-line {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    margin-top: 5px;
+    font-size: var(--text-xs);
+    color: var(--color-text-secondary);
+    flex-wrap: wrap;
+  }
+  .cmp-line b {
+    color: var(--color-text-primary);
+    font-family: var(--font-mono);
+    font-weight: 600;
+  }
+  .cmp-pc {
+    font-family: var(--font-mono);
+    color: var(--color-accent-bright);
+  }
+  .cmp-line.done .cmp-pc {
+    color: var(--color-success);
+  }
+  .cmp-ring {
+    width: 16px;
+    height: 16px;
+    flex: 0 0 16px;
+    transform: rotate(-90deg);
+  }
+  .cmp-ring circle {
+    fill: none;
+    stroke-width: 2.2;
+  }
+  .cmp-ring .tr {
+    stroke: rgba(var(--color-accent-rgb), 0.22);
+  }
+  .cmp-ring .ar {
+    stroke: var(--color-accent-bright);
+    stroke-linecap: round;
+  }
+  .cmp-line.done .cmp-ring .ar {
+    stroke: var(--color-success);
+  }
+  .cmp-done-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    font-family: var(--font-body, inherit);
+    font-size: var(--text-2xs);
+    padding: 1px 7px;
+    border-radius: 999px;
+    border: 1px solid var(--color-success);
+    color: var(--color-success);
+    white-space: nowrap;
+    vertical-align: middle;
+  }
+  .exp-body-comp {
+    font-size: var(--text-2xs);
+    color: var(--color-text-secondary);
+    border-top: 1px dashed var(--color-border);
+    padding-top: 4px;
+    overflow-wrap: anywhere;
+  }
+  .exp-body-comp.done {
+    color: var(--color-success);
+  }
+  .cmp-claim {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 10px;
+    border: 1px solid var(--color-success);
+    border-radius: var(--corner);
+    color: var(--color-success);
+    font-size: var(--text-xs);
+  }
+  .exp-chip.visited {
+    background: none;
+    border: 1px dashed var(--color-accent);
+    color: var(--color-text-secondary);
   }
   .exp-chip.star,
   .exp-chip.resume {

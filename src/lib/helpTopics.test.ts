@@ -1156,3 +1156,50 @@ describe("ML close-out: the Deuterium Canister's drive use and everything the Se
     expect(qm).not.toMatch(/\u2014|-{2}|\bfit/);
   });
 });
+
+// Completion tracking (0.14.0, the approved 2026-11-13 mockup): the System Completion topic says the answered rule, where
+// the % shows and its rewards (user 2026-11-13 "Planet roll + system badge": the planet roll, once per planet, and the
+// system badge; nothing else); the Resume, telescope and Survey Log topics point to it.
+describe("System Completion (0.14.0 completion tracking)", () => {
+  const topic = (id: string) => HELP_TOPICS.find((x) => x.id === id)!;
+  it("has the topic once, with the rule, the surfaces and the planet roll", () => {
+    expect(HELP_TOPICS.filter((t) => t.id === "systemCompletion")).toHaveLength(1);
+    const b = topic("systemCompletion").body;
+    expect(topic("systemCompletion").title).toBe("System Completion");
+    for (const line of [
+      "100% means every body scanned and every objective done",
+      "each body is an equal share of its system",
+      "earns half its share, and its objectives split the other half",
+      "a body with no objectives is whole once scanned",
+      "An objective you skip counts as done",
+      "A gas giant's ship study is that body's objective",
+      "nebula sweep counts as one more equal share of the system",
+      "the number never goes down on its own",
+      "a recall keeps your skips counted",
+      "Only requeuing a skipped objective yourself can lower it",
+      "Resume card's Completion row",
+      "\"Visited\" with its best %",
+      "top of the Archive's Survey Log tab",
+      "marked Abandoned",
+      "Systems claimed before this update left no record",
+      "a green arc around each region's badge",
+      "each planet that reaches 100% earns one bonus relic roll",
+      "one rarity step above what that planet's own finds roll, at its region's tier",
+      "It pays once per planet, ever",
+      "when you abandon its Resume system",
+      "A recalled run's claim pays nothing yet",
+      "A planet that already paid on an earlier visit does not pay again",
+      "Finishing the whole system earns the Completed badge",
+      "Completion changes nothing else in play",
+    ])
+      expect(b, line).toContain(line);
+    expect(b).not.toMatch(/\u2014|-{2}|\btasks?\b/i);
+    expect(b).not.toContain("no reward");
+    // The review's Important 2: the difficulty weight is objective progress, not completion.
+    expect(topic("objectiveDifficulty").body).not.toContain("toward completion");
+    expect(topic("objectiveDifficulty").body).toContain("toward objective progress");
+  });
+  it("the Expedition Tiers, Subspace Telescope and Survey Log topics point to it", () => {
+    for (const id of ["expeditionTiers", "subspaceTelescope", "surveyLog"]) expect(topic(id).body, id).toContain("System Completion topic");
+  });
+});

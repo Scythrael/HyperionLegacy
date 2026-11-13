@@ -74,7 +74,7 @@ import { makeWeaponInstance } from "./combat/weapons";
 import { CLOAKED_VESSEL_HULL, buildShipCombatant, snapshotShipEventProfile } from "./shipScanEvents";
 import { TRANSPORT_WINDOW_SECONDS } from "./transports";
 import { FIXTURE_RACE, WIRING_BUCKET_COUNT, bucketOf, editCaptain, installPiece, seatOfficer, withAwayTeam, withBuckets, withFacilityLevel, withHomeworld, wiringBase } from "./wiring/probes";
-import { goldenJson, withV1Museum, withoutGuests } from "./firstRunsGoldens.fixture"; // gear wear: goldenJson puts the retired durability back
+import { goldenJson, withV1Museum, withoutGuests, withoutCompletionTracking } from "./firstRunsGoldens.fixture"; // gear wear: goldenJson puts the retired durability back
 import { asPreCurveDispatch, asPreG2NamesDispatch, dispatchPastPropulsion, asPrePatrolCurveDispatch } from "./awayTeamTestFixtures";
 // WR-8 (0.14.0): every pin in this file was taken before the combat rules (combatRulesSwitch.fixture.ts), so the file
 // runs with them switched off and its pins keep proving WR-8 moved nothing else here (the rules stamp new patrol
@@ -114,7 +114,7 @@ const AT_CAPTURE_RACE = "spacer";
 const asCaptured = <T extends { race: string }>(x: T): T => (x.race === FIXTURE_RACE ? { ...x, race: AT_CAPTURE_RACE } : x);
 const hashState = (s: GameState): string =>
   hash({
-    ...withV1Museum(s),
+    ...withV1Museum(withoutCompletionTracking(s)),
     unlockedHomeworldTalents: [],
     captains: s.captains.map((c) => ({ ...c, unlockedCaptainTalents: [], spec: null, race: undefined })),
     officers: s.officers.map(asCaptured),

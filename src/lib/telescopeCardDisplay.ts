@@ -25,6 +25,8 @@
 // DISPLAY ONLY. Nothing here changes a rule.
 
 import { FACILITIES, SUBSPACE_TELESCOPE_FACILITY_KEY, type GameState, type RegionTier } from "./game/model";
+// Completion tracking (0.14.0): the radius a region badge's completion arc reaches (the slice labels keep clear of it).
+import { arcObstacleRadius } from "./completionDisplay";
 import {
   PROVISIONAL_HOMEWORLD,
   REGION_TIER_NAMES,
@@ -523,11 +525,13 @@ const inWedge = (b: number, start: number, width: number): boolean => (b - start
 function placeSectorLabels(
   slices: readonly Omit<TelescopeMapEnemySector, "label">[],
   map: TelescopeMapView,
+  arcTiers: readonly RegionTier[],
 ): TelescopeMapLabel[] {
   const [vx, vy, vw, vh] = map.viewBox.split(" ").map(Number);
   const fixed = [telescopeMapLabelBox(map.homeLabel), telescopeMapLabelBox(map.coreLabel)];
   const circles = [
-    ...map.badges.map((b) => ({ x: b.x, y: b.y, r: map.badgeR })),
+    // Completion tracking: a badge wearing its completion arc is one obstacle with it (the arc's outer edge).
+    ...map.badges.map((b) => ({ x: b.x, y: b.y, r: arcTiers.includes(b.tier) ? Math.max(map.badgeR, arcObstacleRadius()) : map.badgeR })),
     { x: map.home.x, y: map.home.y, r: 4 },
     { x: map.core.x, y: map.core.y, r: 3.5 },
   ];
@@ -596,8 +600,10 @@ function tierListText(tiers: readonly RegionTier[]): string {
   return `Tiers ${nums.slice(0, -1).join(", ")} and ${nums[nums.length - 1]}`;
 }
 
-// The enemy territory slices the map draws at this telescope level, and the words that go with them. Pure.
-export function telescopeMapEnemyView(level: number, homeworld: HomeworldPlacement = PROVISIONAL_HOMEWORLD): TelescopeMapEnemyView {
+// The enemy territory slices the map draws at this telescope level, and the words that go with them. `arcTiers`: the
+// region badges that wear a completion arc (completionDisplay.ts mapCompletionView), which the slice labels keep clear of
+// with the badge. Pure.
+export function telescopeMapEnemyView(level: number, homeworld: HomeworldPlacement = PROVISIONAL_HOMEWORLD, arcTiers: readonly RegionTier[] = []): TelescopeMapEnemyView {
   const { reachTier } = telescopeReadingAtLevel(level, homeworld);
   const slices: Omit<TelescopeMapEnemySector, "label">[] = homeworld.enemySectors
     .filter((s) => enemySectorInReach(s, reachTier))
@@ -615,7 +621,7 @@ export function telescopeMapEnemyView(level: number, homeworld: HomeworldPlaceme
         path: sectorPath(s.startBearing, s.widthBearing, innerR, outerR),
       };
     });
-  const labels = slices.length > 0 ? placeSectorLabels(slices, telescopeMapView(level, homeworld)) : [];
+  const labels = slices.length > 0 ? placeSectorLabels(slices, telescopeMapView(level, homeworld), arcTiers) : [];
   const sectors: TelescopeMapEnemySector[] = slices.map((s, i) => ({ ...s, label: labels[i] }));
   const tiers = [...new Set(sectors.map((s) => s.tier))];
   const steps = ENEMY_TERRITORY_COMBAT_STEP === 1 ? "one step" : `${ENEMY_TERRITORY_COMBAT_STEP} steps`;

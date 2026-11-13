@@ -78,6 +78,8 @@ import { POI_CATALOG } from "./expeditionContent";
 import { itemTotal } from "./inventory";
 import { migrate, type SaveFile } from "./save";
 import { startV1RelicStudy } from "./relicStudyV1.fixture";
+import { withoutCompletionTracking } from "./firstRunsGoldens.fixture";
+import { runCompletion, runSystemRecord } from "./completion";
 
 // --- fixtures ----------------------------------------------------------------
 
@@ -310,11 +312,15 @@ describe("CLAIM DEPOSIT: findings land in inventory / credits / the relic vault"
   it("an anomaly-only (payload-free) finding list is a same-reference no-op deposit", () => {
     const s = freshState();
     expect(depositExpeditionFindings(s, [{ id: "a", source: "anomaly" }])).toBe(s);
-    // A claim of an anomaly-only run changes ONLY the expedition list (and, SF-1, counts the completed run).
+    // A claim of an anomaly-only run changes ONLY the expedition list (and, SF-1, counts the completed run; completion
+    // tracking, writes the system's record, plus the ledger's event when the run reached 100%).
     const base = { ...s, expeditions: [completeExpedition([{ id: "a", source: "anomaly" }])] };
     const res = claimExpedition(base, "expedition-1");
     const runCounts = { ...base.runCounts!, expedition: { ...base.runCounts!.expedition, completed: 1 } };
-    expect(res.next).toEqual({ ...base, expeditions: [], runCounts });
+    expect(withoutCompletionTracking(res.next)).toEqual({ ...base, expeditions: [], runCounts });
+    const run = base.expeditions[0];
+    expect(res.next.systemRecords).toEqual({ [run.targetSystemId]: runSystemRecord(run, base.gameTimeSeconds) });
+    expect(res.next.notableEvents ?? []).toHaveLength(runCompletion(run).complete ? 1 : 0);
   });
 
   it("a real expedition run end-to-end: claimed credits + vault tokens match its findings", () => {
@@ -332,8 +338,13 @@ describe("CLAIM DEPOSIT: findings land in inventory / credits / the relic vault"
     const res = claimExpedition(s, exp.id);
     const sum = summarizeExpeditionFindings(exp.findings);
     expect(res.next.credits.minus(s.credits).toNumber()).toBe(sum.credits);
-    expect(res.next.relicVault).toHaveLength(exp.findings.filter((f) => f.relic).length);
-    for (const t of res.next.relicVault) expect(t.setId).toBe(relicSetForPoi(t.poiId));
+    // The finds' tokens, then (completion tracking, user 2026-11-13) one planet roll blank per body the run brought to
+    // 100% (each once, ever: this save never paid one).
+    const finds = res.next.relicVault.filter((t) => t.source !== "completion");
+    expect(finds).toHaveLength(exp.findings.filter((f) => f.relic).length);
+    for (const t of finds) expect(t.setId).toBe(relicSetForPoi(t.poiId));
+    expect(res.next.relicVault.slice(finds.length)).toEqual(res.planetRolls);
+    expect(res.planetRolls).toHaveLength(runCompletion(exp).bodyLines.filter((b) => b.complete).length);
   });
 });
 

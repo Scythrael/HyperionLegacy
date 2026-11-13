@@ -49,6 +49,7 @@ describe("R2-5: a set completion writes one ledger event at its game second", ()
     expect(one.notableEvents?.length).toBe(1);
     const ev = one.notableEvents![0];
     expect(ev.kind).toBe("relicSetCompleted");
+    if (ev.kind !== "relicSetCompleted") throw new Error("not a set completion"); // narrows the union (the ledger merge)
     expect(one.museumV2.setsCompleted).toEqual([ev.setId]);
     expect(ev.tier).toBe(7);
     // The stamp is a game second inside the window, after the start.
@@ -280,13 +281,17 @@ describe('a culture\'s source planets (user 2026-11-13 "First + count")', () => 
 });
 
 describe("the ledger keeps every known kind on load (NOTABLE_EVENT_KINDS)", () => {
-  it("a kind added to the list survives a load; a kind not in it is dropped", () => {
+  it("both kinds survive a load; a kind added to the list survives; a kind not in it is dropped", () => {
     const set: NotableEvent = { key: "relicSetCompleted:exc-t1-a", kind: "relicSetCompleted", atGameSeconds: 3, setId: "exc-t1-a", tier: 1 };
-    const other = { key: "systemCompleted:sys-1", kind: "systemCompleted", atGameSeconds: 9 };
-    const s = { ...freshState(), notableEvents: [set, other] };
-    expect(withNotableEventsOnLoad(s).notableEvents).toEqual([set]);
+    const sys: NotableEvent = { key: "systemCompleted:sys-1", kind: "systemCompleted", atGameSeconds: 5, systemId: "sys-1", systemName: "Sys 1", tier: 2 };
+    expect([...NOTABLE_EVENT_KINDS]).toEqual(["relicSetCompleted", "systemCompleted"]);
+    const both = { ...freshState(), notableEvents: [set, sys] };
+    expect(withNotableEventsOnLoad(both)).toBe(both);
+    const other = { key: "captainMilestone:c-1", kind: "captainMilestone", atGameSeconds: 9 };
+    const s = { ...freshState(), notableEvents: [set, sys, other] };
+    expect(withNotableEventsOnLoad(s).notableEvents).toEqual([set, sys]);
     const kinds = NOTABLE_EVENT_KINDS as unknown as string[];
-    kinds.push("systemCompleted");
+    kinds.push("captainMilestone");
     try {
       expect(withNotableEventsOnLoad(s)).toBe(s);
     } finally {
@@ -294,5 +299,9 @@ describe("the ledger keeps every known kind on load (NOTABLE_EVENT_KINDS)", () =
     }
     // A relicSetCompleted event still needs its set id and tier.
     expect(withNotableEventsOnLoad({ ...freshState(), notableEvents: [{ ...set, tier: undefined }] }).notableEvents).toEqual([]);
+    // A systemCompleted event needs its system id, name and tier.
+    for (const bad of [{ ...sys, systemId: undefined }, { ...sys, systemName: 7 }, { ...sys, tier: 0 }]) {
+      expect(withNotableEventsOnLoad({ ...freshState(), notableEvents: [set, bad] }).notableEvents).toEqual([set]);
+    }
   });
 });

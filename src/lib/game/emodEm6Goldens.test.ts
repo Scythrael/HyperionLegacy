@@ -77,7 +77,7 @@ import { advanceExpedition, claimExpedition, expeditionCandidates } from "./expe
 import { shipEventsLive } from "./shipScanEvents";
 import { deserialize, migrate, serialize } from "./save";
 import { asPreNebulaDispatch, asPreStaggerDispatch, plainAwayMember, withSlottedAwayTeams, dispatchPastPropulsion } from "./awayTeamTestFixtures";
-import { goldenJson, withV1Museum } from "./firstRunsGoldens.fixture";
+import { goldenJson, withV1Museum, withoutCompletionTracking } from "./firstRunsGoldens.fixture";
 import { wr11OffForThisFile } from "./wr11Switch.fixture";
 
 function fnv(s: string): string {
@@ -183,7 +183,7 @@ function groundOpsRun(seed: number): { pins: string[]; events: string } {
   const claim = claimExpedition({ ...res.next, expeditions: [done] }, done.id);
   expect(claim.success).toBe(true);
   const events = (done.scanEvents ?? []).map((e) => (e.kind === "shipEvent" ? `${e.event}:${e.outcome ?? ""}` : e.kind)).join(",");
-  return { pins: [hash(exp), hash(done), hash(claim.next)], events };
+  return { pins: [hash(exp), hash(done), hash(withoutCompletionTracking(claim.next))], events };
 }
 
 // ===== missions =====

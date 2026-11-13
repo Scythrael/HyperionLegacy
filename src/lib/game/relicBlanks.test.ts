@@ -385,7 +385,7 @@ describe("R2-2: the wiring registry additions (every registry pin holds them apa
       "relic:audit:blankTiers|live|",
       "relic:audit:blankCulture|live|", // R2-6: live (probe content:relic:cultureReveal)
       "relic:audit:shortRangeBlanks|live|",
-      "relic:audit:completionBlank|pending|G7 (calls the hook when a planet is fully completed)",
+      "relic:audit:completionBlank|live|", // completion tracking: live (probe content:relic:completionRoll)
     ]);
     expect(WIRING_REGISTRY.some((e) => e.id === GENERAL_PICK_ROW_ID)).toBe(false);
     // The read-back restores it exactly once, right after relic:audit:identifyQueue, as it stood (pending).

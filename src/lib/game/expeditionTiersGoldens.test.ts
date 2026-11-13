@@ -59,7 +59,7 @@ cp14OffForThisFile();
 // (gearWearSwitch.fixture.ts), so they keep proving nothing else moved. gearWearGoldens.test.ts pins the wear.
 import { gearWearOffInThisFile } from "./gearWearSwitch.fixture";
 gearWearOffInThisFile();
-import { goldenJson } from "./firstRunsGoldens.fixture"; // gear wear: hashes with the retired durability put back
+import { goldenJson, withoutCompletionTracking } from "./firstRunsGoldens.fixture"; // gear wear: hashes with the retired durability put back
 import Decimal from "break_infinity.js";
 import {
   freshState,
@@ -334,7 +334,7 @@ describe("G2-0 golden 1: in-flight runs restored from their stored records", () 
       f.check(exp, done);
       const claim = claimExpedition({ ...state, expeditions: [done] }, done.id);
       expect(claim.success).toBe(true);
-      const out = [hash(tl), ...points.map((t) => hash(advanceExpedition(exp, t))), hash(withoutG2State(claim.next))];
+      const out = [hash(tl), ...points.map((t) => hash(advanceExpedition(exp, t))), hash(withoutG2State(withoutCompletionTracking(claim.next)))];
       expect(out).toEqual(GOLDEN[`stored:${name}`]);
     });
 
@@ -379,7 +379,7 @@ function freshRun(nextExpeditionId: number, candidateId: string): { exp: Expedit
   const done = advanceExpedition(exp, FINAL);
   const claim = claimExpedition({ ...res.next, expeditions: [done] }, done.id);
   expect(claim.success).toBe(true);
-  return { exp, done, tl, claimed: claim.next };
+  return { exp, done, tl, claimed: withoutCompletionTracking(claim.next) };
 }
 
 describe("G2-0 golden 2: fresh dispatches of candidates 0, 1 and 2, full timelines through claim", () => {

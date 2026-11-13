@@ -15,8 +15,12 @@
   import { NEBULA_STAGES, SURVEY_LOG_EMPTY, surveyEntryView, surveyLogGroups } from "./gasGiantStudyDisplay";
   import GiantArt from "./GiantArt.svelte";
   import StarBar from "./StarBar.svelte";
+  // Completion tracking (0.14.0, user Q8 "A: top of the Survey Log"): the Systems section above the readouts.
+  import SystemsSection from "./SystemsSection.svelte";
+  import type { SystemRow } from "./game/completion";
 
   export let entries: readonly SurveyLogEntry[];
+  export let systems: readonly SystemRow[] = [];
 
   $: groups = surveyLogGroups(entries);
   let selectedId: string | null = null;
@@ -41,6 +45,7 @@
   }
 </script>
 
+<SystemsSection rows={systems} />
 <div class="sl-wrap" bind:this={wrap}>
   {#if entries.length === 0}
     <p class="sl-empty">{SURVEY_LOG_EMPTY}</p>

@@ -53,7 +53,7 @@ import type {
   GroundOpsState,
   SnapshotMember,
 } from "./model";
-import { FIELD_REPAIR_RULES_SWITCH, SHIP_TYPES, WR10_SWITCH, WR11_SWITCH, WR9_SWITCH, commandingCaptain, moduleEffectScale, shipGearSetBonusLines, withFavoredLines } from "./model";
+import { COMPLETION_HELD_SKIPS_SWITCH, FIELD_REPAIR_RULES_SWITCH, SHIP_TYPES, WR10_SWITCH, WR11_SWITCH, WR9_SWITCH, commandingCaptain, moduleEffectScale, shipGearSetBonusLines, withFavoredLines } from "./model";
 // E-MOD EM-6: the body-scanned module trigger (its frozen procs and private stream).
 import { moduleNebulaSweep, moduleScanProcs, moduleScanSeed, rollModuleChance } from "./shipModules";
 import { makeRng, type Rng } from "./combat/rng";
@@ -201,6 +201,7 @@ import { countClaimedExpedition, runCountsOf, runDifficultyAt } from "./runDiffi
 // Gas Giant Study GG-2: the study stamp, the orbital bodies and their giant profiles (gasGiantStudy.ts never imports
 // this module).
 import { gearPermilleStamp, isStudyBody, nebulaStampFor, studyStampFor, sweepsNebula, withGiantProfiles } from "./gasGiantStudy";
+import { planetRollsPaid, withAbandonRecord, withClaimRecord } from "./completion";
 // Gas Giant Study GG-5: the Research Lab's held data queue (dataStudy.ts imports neither this file nor tick.ts).
 import { dataArrivals } from "./dataStudy";
 // E5-4 (the Stargazer): the Subspace Telescope's refugee buff (refugeeBuffs.ts imports neither this file nor tick.ts).
@@ -1570,7 +1571,13 @@ export function startExpedition(
         ...launched,
         ...(resumed.nebulaSwept && launched.nebula ? { nebula: { ...launched.nebula, swept: 1 as const } } : {}),
         anomalyResolved: true,
-        resume: { version: 1, heldId: resumed.id, scannedBodies: chartedPrefix(resumed.bodies!) },
+        resume: {
+          version: 1,
+          heldId: resumed.id,
+          scannedBodies: chartedPrefix(resumed.bodies!),
+          // Completion tracking (review fix): the held skips stay counted on the resumed run until it finishes them.
+          ...(COMPLETION_HELD_SKIPS_SWITCH.live && (resumed.skipped ?? []).length > 0 ? { skipped: [...resumed.skipped!] } : {}),
+        },
       }
     : launched;
   // Field Kits FKR-7: the packs leave stock (lowest quality first) and a top-up's credits are spent: the SAME plan
@@ -2604,6 +2611,9 @@ export interface ExpeditionClaimResult {
   // E-CREW (Task 16): the members who came home injured (every member downed during the run who is still
   // on the roster), with their recovery. Set only on success; [] when nobody went down.
   injuries?: MemberInjury[];
+  // Completion tracking, the planet roll (user 2026-11-13): the bonus blanks the claim put in the vault, one per body
+  // newly at 100% (completion.ts withClaimRecord). Set only on success; [] when none paid.
+  planetRolls?: RelicVaultToken[];
 }
 
 // DEPOSIT a list of expedition findings into the state (E4a, the claim-deposit foundation). Pure: returns
@@ -2766,18 +2776,23 @@ export function claimExpedition(state: GameState, expeditionId: string): Expedit
   // Expedition Tiers G2-7 (user 2026-11-02): the first run home from Wolf 359 writes the derelict field's one-time
   // Survey Log entry, after the run's own readouts; every other claim leaves the key exactly as it was.
   const derelict = wolf359DerelictEntry(noted, exp, state.gameTimeSeconds);
-  const next = {
+  const claimed = {
     ...noted,
     // WR-5c: x the run's frozen Drillmaster (Expedition.explorerCaptain), exactly 1 without it.
     officers: foldOfficerPromotionCounters(repaired.officers, expeditionPromotionIncrements(exp), () => exp.explorerCaptain?.promotionMult ?? 1),
     runCounts: countClaimedExpedition(runCountsOf(state), exp),
     ...(derelict ? { surveyLog: [...(noted.surveyLog ?? []), derelict] } : {}),
   };
+  // Completion tracking (0.14.0, user 2026-11-13): the system's record (its best completion kept), the planet roll of
+  // every body newly at 100% (one bonus blank each, to the vault, once per body ever) and, at 100%, the hidden ledger's
+  // "system completed" event (completion.ts withClaimRecord). A recalled run whose system is held writes nothing here.
+  const next = withClaimRecord(claimed, exp, state.gameTimeSeconds);
   return {
     next,
     success: true,
     findings: exp.findings,
     injuries,
+    planetRolls: planetRollsPaid(claimed, next),
   };
 }
 
@@ -2905,7 +2920,23 @@ function heldFromRecall(exp: Expedition, t: number): HeldSystem | null {
   const swept = exp.nebula !== undefined && (exp.nebula.swept === 1 || (exp.groundOps.studyLegs ?? []).some((l) => l.nebula === 1 && l.done === true));
   const sweepLeft = sweepsNebula(exp) && !swept;
   if (!systemUnfinished(exp, bodies) && !sweepLeft) return null;
-  return { ...base, kind: "resume", risk: { ...exp.risk }, bodies, ...(swept ? { nebulaSwept: true as const } : {}) };
+  // Completion tracking (review fix, user Q3 "count as done", "never dips"): the objectives counted as skipped stay
+  // counted while they wait in the queue (heldSkippedIds).
+  const skipped = heldSkippedIds(exp);
+  return { ...base, kind: "resume", risk: { ...exp.risk }, bodies, ...(swept ? { nebulaSwept: true as const } : {}), ...(skipped.length > 0 ? { skipped } : {}) };
+}
+
+// The objective ids a hold of `exp` keeps counted as skipped (HeldSystem.skipped): every charted body's objective not
+// done that was skipped on this trip, or that an earlier hold carried (Expedition.resume.skipped). Pure.
+function heldSkippedIds(exp: Pick<Expedition, "bodies" | "resume">): string[] {
+  if (!COMPLETION_HELD_SKIPS_SWITCH.live) return [];
+  const carried = new Set(exp.resume?.skipped ?? []);
+  const out: string[] = [];
+  for (const b of exp.bodies) {
+    if (!b.scanned) continue;
+    for (const a of b.activities) if (!a.done && (a.status === "skipped" || carried.has(a.id))) out.push(a.id);
+  }
+  return out;
 }
 
 // The bodies a resume record keeps (user G12 "Pick up where you left off"): charted bodies whole, with their
@@ -3021,9 +3052,13 @@ export function resumableSystems(state: Pick<GameState, "heldSystems">, tier?: R
 export function canAbandonHeldSystem(state: Pick<GameState, "heldSystems">, id: string): boolean {
   return heldSystemById(state, id)?.kind === "resume";
 }
+// Completion tracking (user Q11 "keep its row, marked"): the abandoned system keeps its record at the % it reached,
+// marked abandoned, and each body it brought to 100% that has not paid gets its planet roll, one bonus blank to the vault
+// (completion.ts withAbandonRecord, user 2026-11-13 "Planet roll + system badge"; completion.ts planetRollsPaid reads them).
 export function abandonHeldSystem(state: GameState, id: string): GameState {
   if (!canAbandonHeldSystem(state, id)) return state;
-  return { ...state, heldSystems: heldSystems(state).filter((h) => h.id !== id) };
+  const held = heldSystemById(state, id)!;
+  return withAbandonRecord({ ...state, heldSystems: heldSystems(state).filter((h) => h.id !== id) }, held, state.gameTimeSeconds);
 }
 
 // The recall of `exp` at `t` (the run advanced to `t` first): the recalled run and what it leaves behind, or the

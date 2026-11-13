@@ -49,7 +49,7 @@ import { wr9OffForThisFile } from "./wr9Switch.fixture";
 // WR-9 moves are pinned and proven in wr9Goldens.test.ts), so every pin here keeps proving its own slice exactly.
 wr9OffForThisFile();
 gearWearOffInThisFile();
-import { goldenJson, withV1Museum } from "./firstRunsGoldens.fixture"; // gear wear: goldenJson puts the retired durability back
+import { goldenJson, withV1Museum, withoutCompletionTracking } from "./firstRunsGoldens.fixture"; // gear wear: goldenJson puts the retired durability back
 import Decimal from "break_infinity.js";
 // OC-11 (CP-8): the switch that proves the auto-crew pause is the only thing it moved here (see the lunarMine pin).
 vi.mock("./crewLock", async (io) => (await import("./complementOc11Switch.fixture")).oc11CrewLockMock(io));
@@ -126,7 +126,7 @@ const hash = (v: unknown): string => fnv(goldenJson(v));
 // A whole state, without the retired fuel stockpile (see the header).
 // SF-1: nor the run counters (`runCounts`, seeded by freshState, written by a claim and a patrol), absent before SF-1.
 // Relics v2 R2-1: the Museum v2 record in its v1 form (withV1Museum), as these were captured.
-const hashState = (s: GameState): string => hash({ ...withV1Museum(s), fuel: undefined, runCounts: undefined });
+const hashState = (s: GameState): string => hash({ ...withV1Museum(withoutCompletionTracking(s)), fuel: undefined, runCounts: undefined });
 
 function lcg(seed: number): () => number {
   let s = seed >>> 0;

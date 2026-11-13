@@ -13,14 +13,22 @@
   // a thin hatch with a dashed edge under the rings and badges (telescopeMapEnemyView, tested), a legend line, "part
   // enemy" on the key's rows and one sentence in the accessible name. Quiet on purpose: no red fill, no pulse.
 
+  // Completion tracking (0.14.0, the approved 2026-11-13 mockup, user Q6 "B: arcs on region badges"): a green arc
+  // outside each region badge for the share of that region's charted systems completed, one legend line, a
+  // "N charted · M completed" line on the region's key row and one sentence in the accessible name (completionDisplay.ts
+  // mapCompletionView, tested). No per-system mark on the map.
   import type { TelescopeMapEnemyView, TelescopeMapView } from "./telescopeCardDisplay";
+  import type { MapCompletionView } from "./completionDisplay";
+  import Icon from "./ui/Icon.svelte";
 
   export let map: TelescopeMapView;
   export let enemy: TelescopeMapEnemyView | null = null;
+  export let completion: MapCompletionView | null = null;
 
   const hatchId = `tm-hatch-${nextMapId++}`;
   $: sectors = enemy?.sectors ?? [];
-  $: ariaLabel = enemy?.ariaSentence ? `${map.ariaLabel} ${enemy.ariaSentence}` : map.ariaLabel;
+  $: ariaLabel = [map.ariaLabel, enemy?.ariaSentence ?? "", completion?.ariaSentence ?? ""].filter((x) => x !== "").join(" ");
+  $: arcs = completion?.arcs ?? [];
 </script>
 
 <div class="tm">
@@ -54,6 +62,10 @@
         <text x={b.x} y={b.y + 3} text-anchor="middle">{b.numeral}</text>
       </g>
     {/each}
+    {#each arcs as a (a.tier)}
+      <circle class="tm-reg-track" cx={a.x} cy={a.y} r={a.r} />
+      {#if a.dash !== null}<circle class="tm-reg-arc" cx={a.x} cy={a.y} r={a.r} stroke-dasharray={a.dash} transform="rotate(-90 {a.x} {a.y})" />{/if}
+    {/each}
     <!-- G2-9 (user 2026-11-11 "Label + point inward"): each hatched slice names its tier (III and IV share a ring). -->
     {#each sectors as s (s.tier)}
       <text class="tm-enemy-label" x={s.label.x} y={s.label.y} text-anchor={s.label.anchor} font-size={s.label.size}>{s.label.text}</text>
@@ -68,13 +80,16 @@
     {#if enemy?.legend}
       <li><span class="tm-key hatch" aria-hidden="true"></span>{enemy.legend}</li>
     {/if}
+    {#if completion?.legend}
+      <li><svg class="tm-key arc" viewBox="0 0 12 12" aria-hidden="true"><circle cx="6" cy="6" r="4.6" stroke-dasharray="17 29" transform="rotate(-90 6 6)" /></svg>{completion.legend}</li>
+    {/if}
   </ul>
   <ul class="tm-regions" aria-label="Regions">
     {#each map.badges as b (b.tier)}
       <li class:in={b.reached}>
         <span class="tm-num" aria-hidden="true">{b.numeral}</span>
         <span class="tm-name"
-          >{b.name}{#if enemy?.tiers.includes(b.tier)}{" "}<span class="tm-part"><span class="tm-key hatch sm" aria-hidden="true"></span>part enemy</span>{/if}</span
+          >{b.name}{#if enemy?.tiers.includes(b.tier)}{" "}<span class="tm-part"><span class="tm-key hatch sm" aria-hidden="true"></span>part enemy</span>{/if}{#if completion?.keyText.get(b.tier)}<span class="tm-cmp"><Icon name="systemComplete" size={11} /> {completion.keyText.get(b.tier)}</span>{/if}</span
         >
         <span class="tm-state">{b.reached ? "In range" : "Beyond range"}</span>
       </li>
@@ -120,5 +135,11 @@
   .tm-num { display: inline-grid; place-items: center; min-width: 30px; height: 18px; padding: 0 4px; box-sizing: border-box; border-radius: 9px; border: 1px dashed var(--color-text-dim); font: 700 10px var(--font-mono, monospace); }
   .tm-regions li.in .tm-num { border: 1px solid var(--color-accent); color: var(--color-accent); }
   .tm-name { overflow-wrap: anywhere; }
+  /* Completion tracking: the region arcs in the success hue (not the cyan range ring), outside each badge with a gap. */
+  .tm-reg-track { fill: none; stroke: rgba(52, 211, 153, 0.18); stroke-width: 2; }
+  .tm-reg-arc { fill: none; stroke: var(--color-success); stroke-width: 2; stroke-linecap: round; }
+  .tm-key.arc { flex: 0 0 22px; width: 22px; height: 12px; border: none; }
+  .tm-key.arc circle { fill: none; stroke: var(--color-success); stroke-width: 2; }
+  .tm-cmp { display: flex; align-items: center; gap: 4px; font-size: var(--text-2xs, 11px); color: var(--color-success); }
   .tm-state { font-size: var(--text-2xs, 11px); }
 </style>

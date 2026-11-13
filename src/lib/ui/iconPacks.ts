@@ -80,6 +80,9 @@ export const ICON_SEMANTICS: Record<IconName, IconSemantic> = {
   // Squad Loadouts (0.14.0 GO-17 UI): a piece skipped by an install is an attention mark (its reason sits beside
   // it), the counterpart to `check` for what went on.
   skipped: "alert",
+  // Completion tracking (0.14.0): a system with every body scanned and every objective done. A success mark, like
+  // `check`: a pack must keep it reading as completed.
+  systemComplete: "alert",
   // Field Kits (0.14.0 FKR-3). The bone line marks a member's condition and how bad it is (an injury, like
   // `injury`); the rank chips are the one read of how strong an enemy is, a scale from Weak to Boss. A pack must keep
   // each readable as what it is and keep the ranks reading in order.

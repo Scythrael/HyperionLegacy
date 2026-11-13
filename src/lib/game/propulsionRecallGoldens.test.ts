@@ -58,7 +58,7 @@ import { installMissingCombatBaselines } from "./tick";
 import { asExpeditionVeteran, dispatchPastPropulsion, plainAwayMember, withoutRelicBlanks, withoutStudy, G2_7_DERELICT_PINS, hasWolf359Derelict, withoutWolf359Derelict } from "./awayTeamTestFixtures";
 import { FIELD_KITS_CATALOG_VERSION } from "./fieldKits";
 import { HELD_DRIVE_KEYS, PRE_G2_4_STORED_RUNS, withoutHeldDrives } from "./propulsionRecallGoldens.fixture";
-import { goldenJson } from "./firstRunsGoldens.fixture";
+import { goldenJson, withoutCompletionTracking } from "./firstRunsGoldens.fixture";
 // WR-8 (0.14.0): every pin in this file was taken before the combat rules (combatRulesSwitch.fixture.ts), so the file
 // runs with them switched off and its pins keep proving WR-8 moved nothing else here (the rules stamp new patrol
 // cycles and runs; combatDescriptorGoldens.test.ts pins the combat rules themselves).
@@ -207,7 +207,7 @@ export function storedRunHashes(name: Name): string[] {
   expect(claim.success).toBe(true);
   // G2-7 switch: a Wolf 359 claim's derelict entry comes off (G2_7_DERELICT_PINS traces which cases carry it).
   expect(hasWolf359Derelict(claim.next), name).toBe(G2_7_DERELICT_PINS.includes(`propulsionRecallGoldens:${name}`));
-  claim.next = withoutWolf359Derelict(claim.next, state);
+  claim.next = withoutCompletionTracking(withoutWolf359Derelict(claim.next, state));
   const skip = applyTimeSkip({ ...state, gameTimeSeconds: T0 + 1_000 }, { kind: "expedition", id: exp.id });
   expect(skip.applied).toBe(true);
   return [hash(tl), ...points.map((t) => hash(advanceExpedition(exp, t))), hash(done), hash(claim.next), hash(skip.next.expeditions)];

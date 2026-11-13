@@ -72,8 +72,9 @@ export const hash = (v: unknown): string => fnv(goldenJson(v));
 // whole-state golden byte-identical across those additions, so only a real behavior change moves one. Pure.
 // E5-1: and without the board's evacuation stamp the v70 -> v71 step writes on an old save.
 // Complement CP-19: and without the Personnel Rosters track at its pre-granted Level 1 (withoutPreGrantedRostersTrack).
+// Completion tracking (0.14.0): and without the system records and the hidden ledger (withoutCompletionTracking).
 export function stateHash(state: GameState): string {
-  const rest = { ...withoutPreGrantedRostersTrack(withoutEvacuationStamp(withV1Museum(state))) } as Record<string, unknown>;
+  const rest = { ...withoutCompletionTracking(withoutPreGrantedRostersTrack(withoutEvacuationStamp(withV1Museum(state)))) } as Record<string, unknown>;
   delete rest.runCounts;
   delete rest.homeworld;
   return hash(rest);
@@ -135,6 +136,26 @@ export function withV1Museum<T>(value: T): T {
   return out as T;
 }
 
+// Completion tracking (0.14.0, docs/plans/2026-11-13-completion-tracking-design.md): a value WITHOUT the two keys the
+// slice adds on purpose, the system records (`systemRecords`, written at every claim of a run that charted something and
+// at an abandon) and the hidden chat-event ledger (`notableEvents`, a system completed at its claim, a relic set
+// completed at its study). Both are optional and absent before their first write, so dropping them gives back the
+// state the same call made before the slice (the runCounts precedent below). completionTrackingGoldens.test.ts pins both
+// keys themselves and shows, with COMPLETION_TRACKING_SWITCH off, that every capture returns; any other key is left as it
+// is, so a real behavior change still moves a golden. Pure: a shallow copy.
+// The planet roll (user 2026-11-13 "Planet roll + system badge", written with the record): the completion blanks it put
+// in the vault (source "completion", which nothing else ever writes) come off too, so the vault reads as before the
+// roll; completionRollGoldens.test.ts pins them (and shows, with COMPLETION_ROLL_SWITCH off, that every capture returns).
+export function withoutCompletionTracking<T>(value: T): T {
+  if (!value || typeof value !== "object" || !("systemRecords" in value || "notableEvents" in value)) return value;
+  const rest = { ...value } as Record<string, unknown>;
+  delete rest.systemRecords;
+  delete rest.notableEvents;
+  const vault = rest.relicVault;
+  if (Array.isArray(vault) && vault.some((t) => t && t.source === "completion")) rest.relicVault = vault.filter((t) => !(t && t.source === "completion"));
+  return rest as T;
+}
+
 // SF-1: a value WITHOUT the run counters (`runCounts`, runDifficulty.ts): freshState seeds them, a claim and a patrol
 // dispatch or won route write them. Every whole-state golden captured before SF-1 hashes through this, so it keeps
 // proving that nothing else moved (the stateHash precedent above). Any other value is returned as it is. Pure: a
@@ -142,7 +163,14 @@ export function withV1Museum<T>(value: T): T {
 // Relics v2 R2-1: it also shows the Museum v2 record in its v1 form (withV1Museum above), for the same reason: every
 // whole-state golden that hashes through it was captured with the v1 `relicMuseum`.
 // Complement CP-19: and without the Personnel Rosters track at its pre-granted Level 1 (withoutPreGrantedRostersTrack).
+// Completion tracking: and without the system records and the hidden ledger (withoutCompletionTracking).
 export function withoutRunCounts<T>(input: T): T {
+  return withoutCompletionTracking(withoutRunCountsKeepingCompletion(input));
+}
+
+// withoutRunCounts with the completion tracking keys KEPT: what completionTrackingGoldens.test.ts hashes, since those
+// two keys are exactly what its pins prove moved (and returned with the slice switched off). Pure: a shallow copy.
+export function withoutRunCountsKeepingCompletion<T>(input: T): T {
   const value = withoutPreGrantedRostersTrack(withV1Museum(input));
   if (!value || typeof value !== "object" || !("runCounts" in value)) return value;
   const rest = { ...value } as Record<string, unknown>;

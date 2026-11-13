@@ -1197,6 +1197,21 @@ export const FIELD_REPAIR_RULES_SWITCH = { live: true };
 // pins this rule moved return. Always live in the game.
 export const RECALL_KEEPS_REPAIR_SWITCH = { live: true };
 
+// Test switch only (the same pattern, completion tracking 0.14.0): off, a claim and an abandon write no system record
+// (GameState.systemRecords) and nothing is appended to the hidden chat-event ledger (GameState.notableEvents), so a golden
+// can show that the pins this slice moved return. Always live in the game.
+export const COMPLETION_TRACKING_SWITCH = { live: true };
+
+// Test switch only (the same pattern, the planet 100% bonus relic roll, user 2026-11-13): off, a claim and an abandon pay
+// no planet roll (no completion blank to the vault, no SystemRecord.bodiesRolled), so a golden can show that the pins
+// the roll moved return to the completion tracking slice's. Always live in the game.
+export const COMPLETION_ROLL_SWITCH = { live: true };
+
+// Test switch only (the same pattern, the review's held-skips fix): off, a recall holds no skipped objective ids
+// (HeldSystem.skipped) and a resumed run carries none (Expedition.resume.skipped), so a golden can show that the pins
+// the fix moved return. Always live in the game.
+export const COMPLETION_HELD_SKIPS_SWITCH = { live: true };
+
 // Test switch only (the same pattern, Wiring WR-9): off, a captain mission is dispatched without the Pilot's Cunning
 // stamp (CaptainMissionState.pilotCunning), an expedition without Command Presence on its objective hauls
 // (Expedition.groundOutputShare) or Operations Integrity on its offload (GroundOpsFactors.offloadSteady), and a
@@ -8567,21 +8582,19 @@ export interface MuseumV2 {
   setsCompleted: string[];
 }
 
-// Relics v2 R2-5: one notable event (GameState.notableEvents). `key` is unique in the ledger (an event is appended
-// once, so replaying a save never duplicates it); `atGameSeconds` is the game second it happened at. The one kind so far
-// is the exceptional set completion (relics v2 call 16 "Every set"), with its set id and region tier.
-// Every kind the ledger knows (the load filter keeps exactly these; a slice adding a kind adds it HERE, so its entries
-// survive a load). One list, the type is read from it.
-export const NOTABLE_EVENT_KINDS = ["relicSetCompleted"] as const;
+// Relics v2 R2-5 + completion tracking: one notable event (GameState.notableEvents). `key` is unique in the ledger (an
+// event is appended once, so replaying a save never duplicates it); `atGameSeconds` is the game second it happened at.
+// A discriminated union by kind:
+//   - "relicSetCompleted": an exceptional set completed (relics v2 call 16 "Every set"), with its set id and region tier.
+//   - "systemCompleted": a system with every body scanned and every objective done (completion tracking, written at its
+//     claim, completion.ts), with its system id, name and region tier.
+// Every kind the ledger knows (the load filter keeps exactly these; a slice adding a kind adds it HERE and to the union,
+// so its entries survive a load). One list, the kind type is read from it.
+export const NOTABLE_EVENT_KINDS = ["relicSetCompleted", "systemCompleted"] as const;
 export type NotableEventKind = (typeof NOTABLE_EVENT_KINDS)[number];
-export interface NotableEvent {
-  key: string;
-  kind: NotableEventKind;
-  atGameSeconds: number;
-  // Kind-specific fields: a relicSetCompleted event carries its set id and region tier (both always written for it).
-  setId?: string;
-  tier?: RegionTier;
-}
+export type NotableEvent =
+  | { key: string; kind: "relicSetCompleted"; atGameSeconds: number; setId: string; tier: RegionTier }
+  | { key: string; kind: "systemCompleted"; atGameSeconds: number; systemId: string; systemName: string; tier: RegionTier };
 
 // The empty Museum v2 record freshState seeds. Pure: a new object every call.
 export function emptyMuseumV2(): MuseumV2 {
@@ -9059,7 +9072,9 @@ export interface Expedition {
   // Expedition Tiers G2-5: a RESUMED system (user G12 "Resumable"): the run was dispatched to a held system
   // (GameState.heldSystems) and its first `scannedBodies` bodies were charted before (their scans stay done, their
   // objectives keep their progress). Absent on every other run. Optional, no SAVE bump.
-  resume?: { version: 1; heldId: string; scannedBodies: number };
+  // Completion tracking (review fix): `skipped`, the held system's skipped objective ids (HeldSystem.skipped), counted as
+  // skipped by the completion tally until the resumed run finishes them. Absent when none.
+  resume?: { version: 1; heldId: string; scannedBodies: number; skipped?: string[] };
   // Gas Giant Study GG-2 (D22, OC-G2 "Ship-only study"): the STUDY flag, frozen at dispatch on a run whose system holds
   // an orbital-only body (gasGiantStudy.ts studyStampFor). Present: an orbital body gets no ground objectives (no PoI,
   // no hostile site, no clearing, no supply cache) and ONE ship study instead (GroundOpsState.studyLegs, GG-3). Absent
@@ -9169,6 +9184,45 @@ export interface HeldSystem {
   // Gas Giant Study GG-4: the system's nebula was swept on the trip the recall cut short (the resumed run does not
   // sweep it again). Absent otherwise.
   nebulaSwept?: true;
+  // Completion tracking (review fix, 2026-11-13; user Q3 "B: count as done" and "never dips"): the objectives counted as
+  // SKIPPED, by id: every objective skipped on the trip the recall cut short, plus any an earlier hold carried and the
+  // resumed run did not finish. The objectives themselves go back in the queue for Resume (heldBodies, unchanged); only
+  // the completion tally (completion.ts heldCompletionTally) and the record and planet roll at an abandon read this, and
+  // a resumed run carries it (Expedition.resume.skipped). Absent when none. Appended last; no SAVE bump.
+  skipped?: string[];
+}
+
+// Completion tracking (0.14.0, user answers 2026-11-13): one body of a SYSTEM RECORD (and of every completion tally,
+// completion.ts): whether its scan finished, and its objectives found, done and skipped (a gas giant's ship study is its
+// body's objective, user Q4). Counts only: the % is derived (completion.ts systemCompletion). Plain data.
+export interface CompletionBodyTally {
+  scanned: boolean;
+  objectives: number;
+  done: number; // done objectives, skipped ones not included
+  skipped: number;
+}
+
+// Completion tracking: a visited system's record (GameState.systemRecords), written at the claim of the run that went
+// there (and at the abandon of its Resume system, marked `abandoned`; user Q11 "keep its row, marked"). The fields the
+// approved mockup's build notes list: the system's id and name, tier, bearing and distance (the run's region stamp,
+// absent on a run from before G2-2), its bodies with their counts, the nebula sweep (one objective of the system, user
+// Q4) and when. Plain data.
+export interface SystemRecord {
+  version: 1;
+  systemId: string;
+  systemName: string;
+  tier: RegionTier;
+  region?: ExpeditionRegionStamp;
+  at: number; // gameTimeSeconds of the claim or the abandon
+  fromExpeditionId: string;
+  bodies: CompletionBodyTally[];
+  nebula?: { done: boolean }; // absent when the system has none
+  abandoned?: true;
+  // The planet roll (user 2026-11-13 "Planet roll + system badge (Recommended)"): the bodies, by index in the system,
+  // whose 100% bonus relic roll has paid (completion.ts withClaimRecord / withAbandonRecord), ascending. Kept through
+  // every later write of the system's record (whichever visit's counts are kept), so a body pays once per system, ever.
+  // Absent until the first roll. Appended last; plain data, no SAVE bump.
+  bodiesRolled?: number[];
 }
 
 // Expedition Tiers G2-3 (user G5 + G21, 2026-10-16): a run's voyage. `tier` sets the nominal hours (tiers are
@@ -10168,6 +10222,12 @@ export interface GameState {
   // oldest first. OPTIONAL: absent until the first recall that leaves one, so every save keeps its exact shape. Plain
   // data: no SAVE bump, hydrateDecimals carries it through its `...state` spread.
   heldSystems?: HeldSystem[];
+  // Completion tracking (0.14.0, docs/plans/2026-11-13-completion-tracking-design.md): ONE record per visited system,
+  // keyed by its system id in canonical key order (canonicalOrder.ts), written at a claim and at an abandon
+  // (completion.ts withSystemRecord: the best completion is kept, user "one row, best % kept"). The % is always derived
+  // from the record's counts (completion.ts systemCompletion), never stored. OPTIONAL: absent until the first claim
+  // after the update (user "start at the update": systems claimed before it left no record). Plain data, no SAVE bump.
+  systemRecords?: Record<string, SystemRecord>;
   // Expedition Tiers G2-9 close-out: how many launches went to a HELD system (startExpedition, "held-<id>"). Such a
   // launch is not from the candidate list and draws no new list, so the Wolf 359 clock (expedition.ts listDraws: the
   // dispatches less these) does not count it. OPTIONAL: absent reads 0 and is written only by a held launch, so a save
@@ -10258,7 +10318,9 @@ export interface GameState {
   relicQueue?: string[];
   // Relics v2 R2-5 (plan OC-16; the 2026-10-16 decision "The event ledger now (Recommended)": one notable-event ledger
   // the future achievements, the Hall of Command and chat read): the minimal ledger, append-only, one entry per key
-  // (notableEvents.ts). OPTIONAL: absent = no event yet, no SAVE_VERSION bump; nothing is shown from it in 0.14.0.
+  // (notableEvents.ts). Two kinds: a relic set completed (written by the relic study that completed it, tick.ts) and a
+  // system completed (completion tracking, written at its claim, completion.ts). OPTIONAL: absent = no event yet, no
+  // SAVE_VERSION bump; nothing is shown from it in 0.14.0 (user "Hidden until chat (Recommended)").
   notableEvents?: NotableEvent[];
   // ===== E-CREW "Crew Made Real" (Task 2, DORMANT) =====
   // The away-team roster and the Armory squad loadouts (see the AwayMember / GroundTeamLoadout block above).

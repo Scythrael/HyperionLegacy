@@ -89,7 +89,7 @@ import { startResearch } from "./tick";
 import { gasStudyItemIds } from "./gasGiantContent";
 import { GG1_RECIPE } from "./gasStudyGoldens.fixture";
 import { asPreG2Candidate, asPreG2NamesDispatch, asPreRanksDispatch, plainAwayMember, withoutG2NamesState, dispatchPastPropulsion, withoutStudy, asPreRelicBlanksDispatch, asPreNebulaDispatch, G2_7_DERELICT_PINS, hasWolf359Derelict, withoutWolf359Derelict } from "./awayTeamTestFixtures";
-import { goldenJson, withV1Museum } from "./firstRunsGoldens.fixture";
+import { goldenJson, withV1Museum, withoutCompletionTracking } from "./firstRunsGoldens.fixture";
 // WR-8 (0.14.0): every pin in this file was taken before the combat rules (combatRulesSwitch.fixture.ts), so the file
 // runs with them switched off and its pins keep proving WR-8 moved nothing else here (the rules stamp new patrol
 // cycles and runs; combatDescriptorGoldens.test.ts pins the combat rules themselves).
@@ -100,6 +100,11 @@ combatRulesOffForThisFile();
 // Wiring WR-11 came after every pin here: the whole file runs with WR-11 off (wr11Switch.fixture.ts), so its pins keep
 // proving their own slice moved nothing else (WR-11's own moves are pinned in wr11Goldens.test.ts).
 wr11OffForThisFile();
+// Completion tracking, the planet roll (user 2026-11-13, after these pins): a claim pays a completion blank per body at
+// 100%, which these vault and claim pins (about their own slice) were captured without. The roll is off for this file;
+// its moves are pinned and proven in completionRollGoldens.test.ts.
+import { completionRollOffForThisFile } from "./completionTrackingSwitch.fixture";
+completionRollOffForThisFile();
 
 // ===== shared helpers =====
 
@@ -193,7 +198,7 @@ function captureRun(candidateId: string): { out: string[]; exp: Expedition; plan
     hash(done),
     hash(done.scanEvents ?? null),
     hash(done.findings),
-    hash(withV1Museum(withoutG2NamesState(claim.next))),
+    hash(withV1Museum(withoutG2NamesState(withoutCompletionTracking(claim.next)))),
     hash(deposits),
   ];
   return { out, exp, planetTypes: exp.bodies.map((b) => b.planetType) };

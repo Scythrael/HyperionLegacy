@@ -37,7 +37,7 @@ describe("R2-5 / R2-6 content golden 1: a 160-blank identification chain", () =>
     // MOVED by R2-5 (the ledger, plan OC-16): the two completed sets now also write their ledger events, so the whole
     // state gains `notableEvents` (pre-R2-5: no such key, stateHash 7d57df2f). Without it and the R2-6 named list,
     // nothing else moved.
-    expect(done.notableEvents?.map((e) => [e.key, e.kind, e.setId, e.tier])).toEqual([
+    expect(done.notableEvents?.map((e) => [e.key, e.kind, e.kind === "relicSetCompleted" ? e.setId : null, e.tier])).toEqual([
       ["relicSetCompleted:exc-t6-b", "relicSetCompleted", "exc-t6-b", 6],
       ["relicSetCompleted:exc-t3-b", "relicSetCompleted", "exc-t3-b", 3],
     ]);

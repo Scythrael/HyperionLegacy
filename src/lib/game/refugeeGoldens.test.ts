@@ -100,6 +100,7 @@ import { g29ReadBack } from "./g29Registry.fixture";
 import { ocf14ReadBack } from "./ocf14Registry.fixture"; // OC-F14: the field repair order row read back to pending, innermost
 import { relicContentReadBack } from "./relicContentRegistry.fixture"; // Relics v2 R2-6 / R2-7: three rows read back, innermost
 import { generalPickReadBack } from "./relicGeneralPickRegistry.fixture"; // Relics v2 R2-3 follow-up: the retired generalPick row read back, innermost
+import { completionRollReadBack } from "./completionRollRegistry.fixture"; // completion tracking: the planet roll row read back, innermost of all
 import { writeFileSync } from "node:fs";
 import Decimal from "break_infinity.js";
 import { BLUEPRINTS, FACILITIES, REFINE_RECIPES, SHIP_TYPES, freshState, type EquipmentRarity, type GameState, type ShipTypeKey, type ShortRangeMissionState } from "./model";
@@ -604,7 +605,7 @@ describe("E5-0 golden 4: the wiring registry's ids and statuses", () => {
     // Complement CP-11's rows (cp11Registry.fixture.ts) came after and are held apart the same way.
     const added = new Set([...E5_ADDED_ENTRY_IDS, ...CP11_ADDED_ENTRY_IDS]);
     // Complement CP-12's flip of the obtainable row came after too (cp12ReadBack puts it back).
-    const lines = cp12ReadBack(cp13ReadBack(cp14ReadBack(cp16ReadBack(cp18ReadBack(cp19ReadBack(gw5ReadBack(ml5ReadBack(otUiReadBack(wr10ReadBack(wr13ReadBack(wr8bReadBack(ocg1ReadBack(cp4FdReadBack(g29ReadBack(ocf14ReadBack(relicContentReadBack(generalPickReadBack(WIRING_REGISTRY)))))))))))))))))).filter((e) => !added.has(e.id)).map((e) => `${e.id}|${e.status.kind}`);
+    const lines = cp12ReadBack(cp13ReadBack(cp14ReadBack(cp16ReadBack(cp18ReadBack(cp19ReadBack(gw5ReadBack(ml5ReadBack(otUiReadBack(wr10ReadBack(wr13ReadBack(wr8bReadBack(ocg1ReadBack(cp4FdReadBack(g29ReadBack(ocf14ReadBack(relicContentReadBack(generalPickReadBack(completionRollReadBack(WIRING_REGISTRY))))))))))))))))))).filter((e) => !added.has(e.id)).map((e) => `${e.id}|${e.status.kind}`);
     pin("registry", [lines.length, hash(lines)]);
   });
 });

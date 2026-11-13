@@ -11,6 +11,7 @@ import {
   candidateVoyage,
   expeditionCandidates,
   expeditionSystemGate,
+  heldSystems,
   recallExpedition,
   recallPreview,
   resumableSystems,
@@ -20,6 +21,7 @@ import {
 import { expeditionGateText, expeditionTierGates } from "./game/propulsion";
 import { REGION_TIERS, stateHomeworld } from "./game/galaxy";
 import { installMissingCombatBaselines } from "./game/tick";
+import { heldCompletion } from "./game/completion";
 import { asExpeditionVeteran, plainAwayMember } from "./game/awayTeamTestFixtures";
 import { installPiece } from "./game/wiring/probes";
 import { withoutCp14 } from "./game/cp14Switch.fixture";
@@ -444,14 +446,20 @@ describe("G2-6 recall: the one confirm, the recalled stepper and the claim (user
     expect(cards).toHaveLength(1);
     const r = resumableSystems(home, 1)[0];
     expect(cards[0].id).toBe(r.id);
-    expect(cards[0].percent).toBe(Math.round(r.progress * 100));
-    expect(cards[0].chartedText).toMatch(new RegExp(`^${cards[0].percent}% · ${r.bodiesScanned} of ${r.bodies} bod`));
+    // Completion tracking (user Q9 "A: one number everywhere"): the row is the system's completion, the same number
+    // the console and the Survey Log read (completion.ts heldCompletion).
+    const held = heldCompletion(heldSystems(home).find((h) => h.id === r.id)!);
+    expect(cards[0].percent).toBe(held.percent);
+    expect(held.percent).toBeGreaterThan(0);
+    expect(cards[0].completionText).toMatch(
+      new RegExp(`^${held.percent}% · Bodies ${held.bodiesScanned}/${held.bodies} · Objectives ${held.objectivesDone}/${held.objectives}( · \\d+ skipped)?\\. (The next scan picks up at body [a-z]\\.|Every body is scanned\\.)$`),
+    );
     expect(cards[0].abandonConfirm).toBe(`Abandon ${r.systemName}? Its saved progress is let go; findings you claimed stay yours.`);
     expect(cards[0].launchable).toBe(true);
     expect(startExpedition(home, "ship-1", 1, r.id).success).toBe(true);
     const claim = recallClaimView(state, { ...run, phase: "complete" })!;
     expect(claim.resumeChip).toBe("In Resume: Tier I");
-    expect(claim.text).toMatch(new RegExp(` ${r.systemName} saved to Resume at ${Math.round(r.progress * 100)}%\\.$`));
+    expect(claim.text).toMatch(new RegExp(` ${r.systemName} saved to Resume at ${held.percent}%\\.$`));
     // A ship that cannot attempt the region (here a non-explorer: Tier I locked) still lists the card, with its gate
     // line, so the tab's resume count always has its card and Abandon (review fix).
     const locked = { ...home, ships: home.ships.map((sh) => (sh.id === "ship-1" ? { ...sh, typeKey: "generalFreighter" as const } : sh)) };
