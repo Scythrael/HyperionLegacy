@@ -1,0 +1,702 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Homeworld reserve controls</title>
+<style>
+  /* Tokens copied from src/app.css (default cyan theme), the same set as the 2026-11-10 and 2026-11-12 mockups.
+     Self-contained: no web fonts are loaded, so the font stacks fall back to system faces. */
+  :root {
+    color-scheme: dark;
+    --corner: 2px;
+    --color-bg-deep: #060a12; --color-bg-mid: #0a1120; --color-bg-raised: #0c1626;
+    --color-panel-bg: rgba(20, 40, 60, 0.32);
+    --color-border: rgba(103, 232, 249, 0.18); --color-border-strong: rgba(103, 232, 249, 0.4);
+    --color-accent: #67e8f9; --color-accent-bright: #8ff0e0; --color-accent-rgb: 103, 232, 249;
+    --color-text-primary: #e6f4f8; --color-text-secondary: #8fa3ad; --color-text-dim: #628591;
+    --color-warning: #fbbf24; --color-warning-rgb: 251, 191, 36; --color-danger: #f87171; --color-success: #34d399;
+    --rarity-derelict: #6b7280; --rarity-standard: #a9b7c8; --rarity-augmented: #34d399; --rarity-stellar: #4fa3f2;
+    --font-display: "Orbitron", "Segoe UI", sans-serif; --font-body: "Space Grotesk", "Inter", "Segoe UI", sans-serif; --font-mono: "JetBrains Mono", Consolas, monospace;
+    --text-2xs: 10px; --text-xs: 11px; --text-sm: 12px; --text-md: 13px; --text-lg: 15px; --text-xl: 20px;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; }
+  body { background: var(--color-bg-deep); color: var(--color-text-primary); font-family: var(--font-body); font-size: 13px; line-height: 1.45; padding: 24px 16px 60px; overflow-x: hidden; }
+  .wrap { max-width: 1440px; margin: 0 auto; display: grid; grid-template-columns: minmax(0, 1fr); gap: 30px; min-width: 0; }
+  .wrap > * { min-width: 0; }
+  h1 { font-family: var(--font-display); font-size: 20px; letter-spacing: .08em; margin: 0 0 6px; }
+  .intro { margin: 0 0 6px; color: var(--color-text-secondary); max-width: 112ch; }
+  .intro b, .note b { color: var(--color-text-primary); }
+  .label { font-family: var(--font-display); font-size: 12px; letter-spacing: .18em; color: var(--color-accent); text-transform: uppercase; margin: 0 0 8px; }
+  .note { color: var(--color-text-secondary); font-size: 12px; margin: 8px 0 0; max-width: 112ch; }
+  .stage { border: 1px solid var(--color-border); border-radius: var(--corner); background: radial-gradient(900px 400px at 70% -10%, rgba(103,232,249,.07), transparent 60%), var(--color-bg-mid); padding: 18px 12px; overflow-x: auto; min-width: 0; }
+  .pair { display: flex; gap: 18px; flex-wrap: wrap; align-items: flex-start; }
+  .pair > div { min-width: 0; max-width: 100%; }
+  .frame-cap { font-family: var(--font-mono); font-size: 11px; color: var(--color-text-dim); margin: 0 0 6px; max-width: 100%; }
+  svg.g { width: 14px; height: 14px; flex: 0 0 auto; vertical-align: -2px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+  code { font-family: var(--font-mono); font-size: 11px; color: var(--color-accent-bright); }
+
+  /* Truth table */
+  table.t { border-collapse: collapse; font-size: 12px; width: 100%; max-width: 1200px; }
+  table.t th, table.t td { text-align: left; padding: 6px 10px 6px 0; border-bottom: 1px solid var(--color-border); vertical-align: top; }
+  table.t th { font-family: var(--font-mono); font-size: 10px; letter-spacing: .1em; text-transform: uppercase; color: var(--color-text-dim); font-weight: 400; }
+  table.t td { color: var(--color-text-secondary); }
+  table.t td b { color: var(--color-text-primary); font-weight: 500; }
+
+  /* App shell (the 2026-11-12 ticker mockup's measured shell) */
+  .shell { background: var(--color-bg-deep); border: 1px solid var(--color-border-strong); border-radius: var(--corner); box-shadow: 0 20px 60px rgba(0,0,0,.5); overflow: hidden; display: flex; flex-direction: column; }
+  .shell.desk { width: 1280px; }
+  .shell.phone { width: 375px; max-width: 100%; }
+  .topbar { display: grid; grid-template-columns: 44px minmax(0, 1fr) auto; gap: 10px; align-items: center; padding: 10px 12px; border-bottom: 1px solid var(--color-border); }
+  .tb-port { width: 44px; height: 44px; border: 1px solid var(--color-border-strong); background: rgba(var(--color-accent-rgb), .06); }
+  .tb-bars { display: grid; gap: 4px; min-width: 0; }
+  .tb-bar { display: grid; grid-template-columns: 54px minmax(0, 1fr) 64px; gap: 8px; align-items: center; font-family: var(--font-mono); font-size: 9.5px; color: var(--color-text-dim); letter-spacing: .08em; }
+  .tb-bar i { display: block; height: 5px; background: rgba(var(--color-accent-rgb), .12); }
+  .tb-bar i > b { display: block; height: 100%; width: 35%; background: var(--color-accent); }
+  .tb-set { font-family: var(--font-mono); font-size: 9.5px; letter-spacing: .1em; color: var(--color-accent); border: 1px solid var(--color-border-strong); padding: 10px 8px; }
+  .tab-body { padding: 8px 11px 0; display: flex; flex-direction: column; min-height: 0; }
+  .crumb { font-family: var(--font-mono); font-size: 10.5px; letter-spacing: .12em; color: var(--color-text-dim); text-transform: uppercase; margin: 0 0 8px; }
+  .crumb b { color: var(--color-accent-bright); font-weight: 600; }
+  .ctabs { display: flex; gap: 6px; padding-bottom: 6px; margin-bottom: 2px; overflow: hidden; }
+  .ctab { flex: 0 0 auto; background: rgba(var(--color-accent-rgb), 0.06); border: 1px solid rgba(var(--color-accent-rgb), 0.2); border-radius: var(--corner); padding: 9px 16px; color: var(--color-text-secondary); font-size: var(--text-md); letter-spacing: .04em; white-space: nowrap; }
+  .ctab.active { color: var(--color-accent-bright); border-color: var(--color-accent); background: rgba(var(--color-accent-rgb), 0.15); box-shadow: 0 0 10px rgba(var(--color-accent-rgb), .45), inset 0 0 7px rgba(var(--color-accent-rgb), .12); }
+  .tsa { padding: 4px 0 14px; display: flex; flex-direction: column; gap: 12px; }
+  .navb { display: grid; grid-template-columns: repeat(6, 1fr); border-top: 1px solid var(--color-border); height: 50px; }
+  .navb span { display: grid; place-items: center; font-family: var(--font-mono); font-size: 9px; letter-spacing: .08em; color: var(--color-text-dim); }
+  .navb span.on { color: var(--color-accent-bright); background: rgba(var(--color-accent-rgb), .08); box-shadow: inset 0 2px 0 var(--color-accent); }
+
+  /* CrewPoolPanel.svelte, trimmed (real class names) */
+  .pool-cap { padding: 11px 12px; background: rgba(var(--color-accent-rgb), 0.05); border: 1px solid rgba(var(--color-accent-rgb), 0.16); border-radius: var(--corner); }
+  .pool-caprow { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 4px; }
+  .pool-bignum { font-family: var(--font-mono); font-size: var(--text-xl); font-variant-numeric: tabular-nums; }
+  .phone .pool-bignum { font-size: var(--text-lg); }
+  .pool-of { color: var(--color-text-dim); font-size: var(--text-sm); }
+  .pool-note, .pool-reserve { font-size: var(--text-2xs); color: var(--color-text-dim); font-family: var(--font-mono); line-height: 1.5; }
+  .pool-reserve { margin-top: 6px; letter-spacing: .04em; }
+  .pool-reserve-n { color: var(--color-text-primary); }
+  .pool-reserve a { color: var(--color-accent); text-decoration: underline dotted; cursor: pointer; }
+  .stats6 { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 8px; }
+  .st { padding: 8px 10px; border: 1px solid rgba(var(--color-accent-rgb), .14); border-radius: var(--corner); background: rgba(var(--color-accent-rgb), .04); min-width: 0; }
+  .st .k { font-family: var(--font-mono); font-size: 10px; letter-spacing: .1em; text-transform: uppercase; color: var(--color-accent); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .st .v { font-family: var(--font-mono); font-size: var(--text-lg); }
+  .st .bar { height: 4px; background: rgba(255,255,255,.06); margin-top: 5px; }
+  .st .bar span { display: block; height: 100%; background: linear-gradient(90deg, var(--color-accent), var(--color-accent-bright)); }
+
+  /* Crew groups table (crewGroups.css look) */
+  .tools { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+  .tools .lbl { font-family: var(--font-mono); font-size: 10px; letter-spacing: .1em; text-transform: uppercase; color: var(--color-text-dim); display: inline-flex; gap: 4px; align-items: center; }
+  .chip { font-family: var(--font-mono); font-size: 11px; padding: 5px 9px; border: 1px solid var(--color-border); border-radius: var(--corner); color: var(--color-text-secondary); white-space: nowrap; display: inline-flex; gap: 4px; align-items: center; }
+  .chip.on { color: var(--color-text-primary); border-color: var(--color-accent-bright); background: rgba(var(--color-accent-rgb), .14); }
+  .chip .n { color: var(--color-text-dim); }
+  .hscroll { display: flex; gap: 4px; overflow-x: auto; padding-bottom: 2px; scrollbar-width: none; }
+  button { font: inherit; font-size: 12px; color: var(--color-accent); background: rgba(var(--color-accent-rgb), .06); border: 1px solid var(--color-border-strong); border-radius: var(--corner); padding: 5px 11px; cursor: pointer; min-height: 32px; display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
+  button.pri { background: rgba(var(--color-accent-rgb), .18); color: var(--color-text-primary); }
+  button.ghost { background: transparent; border-color: var(--color-border); color: var(--color-text-secondary); }
+  button.sm { min-height: 28px; padding: 3px 9px; font-size: 11.5px; }
+  button[disabled] { opacity: .45; cursor: default; }
+  .spacer { flex: 1; }
+  .gtw { border: 1px solid rgba(var(--color-accent-rgb), .16); border-radius: var(--corner); background: rgba(var(--color-accent-rgb), .03); }
+  table.gt { width: 100%; border-collapse: collapse; }
+  .gt th { text-align: left; font-family: var(--font-mono); font-weight: 400; font-size: 10px; letter-spacing: .1em; text-transform: uppercase; color: var(--color-accent-bright); padding: 8px 10px; border-bottom: 1px solid var(--color-border); white-space: nowrap; }
+  .gt th.sorted::after { content: " \25BE"; color: var(--color-accent); }
+  .gt td { padding: 8px 10px; border-bottom: 1px solid rgba(var(--color-accent-rgb), .08); vertical-align: middle; font-size: 12.5px; }
+  .gt tr.sel td { background: rgba(var(--color-accent-rgb), .06); }
+  .gt td.num, .gt th.num { text-align: right; font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+  .cb { width: 16px; height: 16px; border-radius: var(--corner); border: 1px solid var(--color-border-strong); display: inline-grid; place-items: center; vertical-align: -3px; flex: none; }
+  .cb.on { background: var(--color-accent); border-color: var(--color-accent); color: var(--color-bg-deep); }
+  .cb.mixed { background: rgba(var(--color-accent-rgb), .35); }
+  .cb svg { width: 11px; height: 11px; stroke-width: 3; }
+  .rar { font-family: var(--font-mono); font-size: 11.5px; display: inline-flex; align-items: center; gap: 5px; }
+  .rar i { width: 7px; height: 7px; border-radius: 50%; display: inline-block; background: currentColor; }
+  .buffs { display: flex; flex-wrap: wrap; gap: 4px; }
+  .bf { font-family: var(--font-mono); font-size: 10.5px; color: var(--color-success); border: 1px solid rgba(52,211,153,.32); border-radius: var(--corner); padding: 1px 6px; white-space: nowrap; display: inline-flex; gap: 4px; align-items: center; }
+  .bf.ex { color: var(--color-accent-bright); border-color: rgba(var(--color-accent-rgb), .4); }
+  .bf svg.g { width: 10px; height: 10px; }
+  .foot { display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap; padding: 8px 10px; font-family: var(--font-mono); font-size: 10.5px; color: var(--color-text-dim); }
+  .selbar { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; padding: 8px 10px; border-bottom: 1px solid var(--color-border); background: rgba(var(--color-accent-rgb), .07); font-size: 12px; }
+  .selbar b { font-family: var(--font-mono); }
+  .pcard { border: 1px solid rgba(var(--color-accent-rgb), .16); border-radius: var(--corner); background: rgba(var(--color-accent-rgb), .04); padding: 9px 10px; display: grid; grid-template-columns: 22px minmax(0,1fr) auto; gap: 4px 8px; align-items: start; }
+  .pcard.sel { background: rgba(var(--color-accent-rgb), .09); border-color: rgba(var(--color-accent-rgb), .4); }
+  .pcard .nm { font-weight: 600; font-size: 13px; }
+  .pcard .meta { font-size: 11px; color: var(--color-text-secondary); display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+  .pcard .cnt { font-family: var(--font-mono); font-size: 16px; text-align: right; }
+  .pcard .cnt span { display: block; font-size: 9px; color: var(--color-text-dim); letter-spacing: .1em; }
+  .pcard .buffs { grid-column: 2 / 4; }
+  .cards { display: grid; gap: 6px; }
+  .stickybar { position: sticky; bottom: 0; display: flex; gap: 6px; align-items: center; flex-wrap: wrap; padding: 9px 10px; border-top: 1px solid var(--color-border-strong); background: var(--color-bg-raised); font-size: 12px; }
+  .stickybar b { font-family: var(--font-mono); }
+
+  /* NEW: the reserve section (option A) and the list switch (option B) */
+  .rsv { border: 1px solid rgba(var(--color-accent-rgb), .22); border-radius: var(--corner); background: rgba(var(--color-accent-rgb), .025); }
+  .rsv-hd { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 10px 12px; }
+  .rsv-t { font-family: var(--font-mono); font-size: 10.5px; letter-spacing: .14em; text-transform: uppercase; color: var(--color-accent-bright); display: inline-flex; gap: 6px; align-items: center; }
+  .rsv-t svg.g { color: var(--color-accent); width: 15px; height: 15px; }
+  .rsv-n { font-family: var(--font-mono); font-size: var(--text-lg); font-variant-numeric: tabular-nums; }
+  .rsv-n span { font-size: 11px; color: var(--color-text-dim); }
+  .rsv-note { padding: 0 12px 10px; font-family: var(--font-mono); font-size: var(--text-2xs); color: var(--color-text-dim); line-height: 1.5; }
+  .rsv-bd { padding: 0 12px 12px; display: grid; gap: 8px; }
+  .seg { display: inline-flex; border: 1px solid var(--color-border-strong); border-radius: var(--corner); overflow: hidden; }
+  .seg span { display: inline-flex; gap: 6px; align-items: center; padding: 7px 12px; font-size: 12.5px; color: var(--color-text-secondary); border-right: 1px solid var(--color-border); white-space: nowrap; }
+  .seg span:last-child { border-right: 0; }
+  .seg span.on { color: var(--color-text-primary); background: rgba(var(--color-accent-rgb), .16); }
+  .seg span b { font-family: var(--font-mono); font-weight: 400; font-size: 11px; color: var(--color-text-dim); }
+  .seg span.on b { color: var(--color-accent-bright); }
+  .phone .seg { display: flex; }
+  .phone .seg span { flex: 1; justify-content: center; padding: 8px 6px; font-size: 12px; }
+  .empty { font-size: var(--text-xs); color: var(--color-text-dim); font-style: italic; line-height: 1.5; padding: 10px 12px; background: rgba(var(--color-accent-rgb), .04); border: 1px dashed rgba(var(--color-accent-rgb), .2); border-radius: var(--corner); }
+
+  /* Picker (CrewTransferModal look) */
+  .dim { background: rgba(2,5,10,.7); padding: 26px 30px 30px; display: flex; justify-content: center; align-items: flex-start; }
+  .modal { width: 480px; max-width: 100%; border: 1px solid var(--color-border-strong); border-radius: var(--corner); background: var(--color-bg-raised); box-shadow: 0 20px 60px rgba(0,0,0,.6); }
+  .modal.wide { width: 940px; }
+  .mh { display: flex; align-items: center; gap: 8px; padding: 12px 14px; border-bottom: 1px solid var(--color-border); font-family: var(--font-display); font-size: 12px; letter-spacing: .12em; text-transform: uppercase; flex-wrap: wrap; }
+  .mh .sub { font-family: var(--font-mono); font-size: 11px; letter-spacing: 0; color: var(--color-text-dim); text-transform: none; }
+  .mh .x { margin-left: auto; color: var(--color-text-dim); }
+  .mb { padding: 12px 14px; display: grid; gap: 10px; font-size: 12.5px; color: var(--color-text-secondary); }
+  .mb b { color: var(--color-text-primary); font-weight: 600; }
+  .mf { display: flex; gap: 8px; justify-content: flex-end; padding: 10px 14px; border-top: 1px solid var(--color-border); flex-wrap: wrap; }
+  .split { display: grid; grid-template-columns: 330px minmax(0, 1fr); gap: 14px; align-items: start; }
+  .colh { font-family: var(--font-mono); font-size: 10px; letter-spacing: .12em; text-transform: uppercase; color: var(--color-accent-bright); margin-bottom: 6px; }
+  .dest { display: grid; grid-template-columns: 18px minmax(0,1fr); gap: 2px 8px; padding: 8px 10px; border: 1px solid var(--color-border); border-radius: var(--corner); background: rgba(var(--color-accent-rgb), .03); }
+  .dest + .dest { margin-top: 6px; }
+  .dest.on { border-color: var(--color-accent-bright); background: rgba(var(--color-accent-rgb), .1); }
+  .dest.off { opacity: .6; border-style: dashed; }
+  .radio { width: 14px; height: 14px; border-radius: 50%; border: 1px solid var(--color-border-strong); margin-top: 2px; display: inline-block; }
+  .dest.on .radio { border-color: var(--color-accent-bright); box-shadow: inset 0 0 0 3px var(--color-bg-raised); background: var(--color-accent-bright); }
+  .dest .dn { font-weight: 600; font-size: 12.5px; color: var(--color-text-primary); display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+  .dest .ds { grid-column: 2; font-family: var(--font-mono); font-size: 10.5px; color: var(--color-text-dim); }
+  .dest .dw { grid-column: 2; font-size: 11px; color: var(--color-warning); display: flex; gap: 5px; align-items: flex-start; }
+  .dest .di { grid-column: 2; font-size: 11px; color: var(--color-text-secondary); display: flex; gap: 5px; align-items: flex-start; }
+  .dest .dw svg.g, .dest .di svg.g { width: 12px; height: 12px; margin-top: 2px; }
+  .badge { font-family: var(--font-mono); font-size: 9.5px; letter-spacing: .08em; padding: 1px 5px; border-radius: var(--corner); border: 1px solid var(--color-border); color: var(--color-text-secondary); text-transform: uppercase; font-weight: 400; display: inline-flex; gap: 3px; align-items: center; }
+  .badge.lock { color: var(--color-warning); border-color: rgba(var(--color-warning-rgb), .5); }
+  .badge.lock svg.g { width: 10px; height: 10px; }
+  .badge.ok { color: var(--color-success); border-color: rgba(52,211,153,.45); }
+  .pick { display: grid; grid-template-columns: minmax(0,1fr) auto; gap: 4px 10px; padding: 8px 10px; border-bottom: 1px solid rgba(var(--color-accent-rgb), .08); align-items: center; }
+  .pick:last-child { border-bottom: 0; }
+  .pick .pn { font-weight: 600; font-size: 12.5px; color: var(--color-text-primary); }
+  .pick .ps { font-size: 11px; color: var(--color-text-secondary); display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+  .pick .pw { grid-column: 1 / 3; font-size: 11px; color: var(--color-warning); display: flex; gap: 5px; }
+  .pick .pf { grid-column: 1 / 3; font-size: 11px; color: var(--color-success); display: flex; gap: 5px; }
+  .pick .pw svg.g, .pick .pf svg.g { width: 12px; height: 12px; margin-top: 2px; }
+  .step { display: inline-flex; align-items: center; border: 1px solid var(--color-border-strong); border-radius: var(--corner); overflow: hidden; }
+  .step span { min-width: 30px; height: 30px; display: inline-grid; place-items: center; font-family: var(--font-mono); font-size: 12px; color: var(--color-accent); }
+  .step span.v { min-width: 44px; color: var(--color-text-primary); border-left: 1px solid var(--color-border); border-right: 1px solid var(--color-border); background: rgba(0,0,0,.25); }
+  .step span.mx { font-size: 10px; letter-spacing: .06em; padding: 0 8px; border-left: 1px solid var(--color-border); }
+  .of { font-family: var(--font-mono); font-size: 10.5px; color: var(--color-text-dim); }
+  .sum { font-size: 12px; color: var(--color-text-secondary); padding: 8px 10px; border: 1px solid var(--color-border); border-radius: var(--corner); background: rgba(0,0,0,.2); }
+  .sum b { color: var(--color-text-primary); font-family: var(--font-mono); }
+  .heads { font-size: 11.5px; color: var(--color-warning); display: flex; gap: 6px; padding: 8px 10px; border: 1px dashed rgba(var(--color-warning-rgb), .5); border-radius: var(--corner); background: rgba(var(--color-warning-rgb), .05); }
+  .heads svg.g { margin-top: 1px; }
+  .result { border: 1px solid rgba(52,211,153,.5); background: rgba(52,211,153,.06); border-radius: var(--corner); padding: 10px 12px; display: grid; gap: 6px; font-size: 12px; color: var(--color-text-secondary); }
+  .result .rh { color: var(--color-success); font-weight: 600; display: flex; gap: 6px; align-items: center; }
+  .result .rl { display: grid; grid-template-columns: minmax(0,1fr) auto; gap: 8px; font-family: var(--font-mono); font-size: 11px; }
+  .result .rl b { color: var(--color-text-primary); }
+  .result .rl.short b { color: var(--color-warning); }
+  .sheet { border-top: 1px solid var(--color-border-strong); background: var(--color-bg-raised); border-radius: 6px 6px 0 0; box-shadow: 0 -12px 40px rgba(0,0,0,.6); }
+  .sheet .grab { width: 40px; height: 4px; border-radius: 2px; background: var(--color-border-strong); margin: 8px auto 0; }
+  .phonedim { background: rgba(2,5,10,.72); display: flex; flex-direction: column; justify-content: flex-end; min-height: 600px; }
+  .phone .mf { display: grid; grid-template-columns: 1fr 1fr; }
+  .phone .mf button { justify-content: center; }
+
+  /* Callouts and open calls */
+  .callout { font-family: var(--font-mono); font-size: 10px; color: var(--color-warning); display: flex; gap: 6px; align-items: center; margin: 0; }
+  .callout::before { content: ""; width: 14px; height: 1px; background: var(--color-warning); flex: none; }
+  .oc { border: 1px dashed rgba(var(--color-warning-rgb), .65); background: rgba(var(--color-warning-rgb), .06); border-radius: var(--corner); padding: 8px 10px; font-size: 12px; color: var(--color-text-secondary); }
+  .oc .t { font-family: var(--font-mono); font-size: 10.5px; letter-spacing: .1em; color: var(--color-warning); text-transform: uppercase; margin-bottom: 4px; }
+  .oc .ab { display: grid; grid-template-columns: 18px 1fr; gap: 3px 6px; }
+  .oc .ab b { font-family: var(--font-mono); color: var(--color-warning); }
+  .oc .drawn { font-family: var(--font-mono); font-size: 10px; color: var(--color-text-dim); margin-top: 5px; }
+  .ocgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 420px), 1fr)); gap: 12px; }
+  .states { display: grid; gap: 18px; }
+  .cardgal { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 330px), 1fr)); gap: 12px; }
+</style>
+</head>
+<body>
+<!-- Glyph path data copied from src/lib/ui/icons.ts (no new glyph). -->
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <defs>
+    <symbol id="i-home" viewBox="0 0 24 24"><path d="M4 11l8-7 8 7"/><path d="M6 9.5V20h12V9.5"/><path d="M10 20v-5h4v5"/></symbol>
+    <symbol id="i-crewPool" viewBox="0 0 24 24"><path d="M12 4.5a2.5 2.5 0 1 1 0 5 2.5 2.5 0 0 1 0-5z"/><path d="M6 7.5a2.2 2.2 0 1 1 0 4.4 2.2 2.2 0 0 1 0-4.4z"/><path d="M18 7.5a2.2 2.2 0 1 1 0 4.4 2.2 2.2 0 0 1 0-4.4z"/><path d="M7 19.5c0-3.2 2.2-5.5 5-5.5s5 2.3 5 5.5"/><path d="M2.5 18.5c0-2.6 1.5-4.4 3.5-4.6"/><path d="M21.5 18.5c0-2.6-1.5-4.4-3.5-4.6"/></symbol>
+    <symbol id="i-transfer" viewBox="0 0 24 24"><path d="M4 8.5h14l-3.5-3.5"/><path d="M20 15.5H6l3.5 3.5"/></symbol>
+    <symbol id="i-ship" viewBox="0 0 24 24"><path d="M12 3l8 17-8-4-8 4z"/></symbol>
+    <symbol id="i-lock" viewBox="0 0 24 24"><path d="M6 11h12a1 1 0 0 1 1 1v8a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1v-8a1 1 0 0 1 1-1z"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></symbol>
+    <symbol id="i-warning" viewBox="0 0 24 24"><path d="M12 4L2.5 20h19z"/><path d="M12 10v4"/><path d="M12 16.9v.2"/></symbol>
+    <symbol id="i-check" viewBox="0 0 24 24"><path d="M4 12.5l5 5L20 6.5"/></symbol>
+    <symbol id="i-close" viewBox="0 0 24 24"><path d="M6 6l12 12"/><path d="M18 6L6 18"/></symbol>
+    <symbol id="i-info" viewBox="0 0 24 24"><path d="M12 3a9 9 0 1 1 0 18 9 9 0 0 1 0-18z"/><path d="M12 11v6"/><path d="M12 7.5v.5"/></symbol>
+    <symbol id="i-manifest" viewBox="0 0 24 24"><path d="M6 4.5h12V21H6z"/><path d="M9.5 4.5V3h5v1.5"/><path d="M9 9.5h6M9 13h6M9 16.5h3.5"/></symbol>
+    <symbol id="i-sort" viewBox="0 0 24 24"><path d="M7.5 19V5"/><path d="M4 8.5l3.5-3.5L11 8.5"/><path d="M16.5 5v14"/><path d="M13 15.5l3.5 3.5 3.5-3.5"/></symbol>
+    <symbol id="i-diamond" viewBox="0 0 24 24"><path d="M12 3.5l7.5 8.5-7.5 8.5-7.5-8.5z"/></symbol>
+    <symbol id="i-minus" viewBox="0 0 24 24"><path d="M5.5 12h13"/></symbol>
+    <symbol id="i-plus" viewBox="0 0 24 24"><path d="M5.5 12h13"/><path d="M12 5.5v13"/></symbol>
+    <symbol id="i-chevronLeft" viewBox="0 0 24 24"><path d="M15 6l-6 6 6 6"/></symbol>
+    <symbol id="i-chevronDown" viewBox="0 0 24 24"><path d="M6 9l6 6 6-6"/></symbol>
+    <symbol id="i-chevronUp" viewBox="0 0 24 24"><path d="M6 15l6-6 6 6"/></symbol>
+  </defs>
+</svg>
+
+<div class="wrap">
+  <div>
+    <h1>Homeworld reserve: Send to a ship, Recall to pool</h1>
+    <p class="intro">Hyperion Legacy 0.14.0, for sign-off before the build. Your 2026-11-12 afternoon pick: <b>"Add controls (Recommended)": "Send to a ship" and "Recall to pool" on the reserve so the player can hand-pick again.</b> Mockup first. Also decided that afternoon and drawn as decided: the sweep runs <b>every tick</b>, and <b>manual ships count as berths</b>.</p>
+    <p class="intro">The reserve as built (<code>homeworldReserve.ts</code>): after every tick's fill, each crew group in the pool keeps as many crew as the fleet's open berths could still seat of its division and rank; the rest moves to the reserve. Auto-crew ships fill from the pool first, then the reserve. Nothing moves crew out of the reserve by hand today, and the Crew Pool tab shows only "Homeworld reserve: N".</p>
+    <p class="intro">Sample fleet (the CP-10 mockup's ships): <b>Kestrel Line</b> (Orion, manual, 702 / 750, room for 48), <b>Halden's Promise</b> (Eir, auto-crew, full), <b>Lumen Drift</b> (Aurora, auto-crew, on an expedition, 29 berths open), <b>Vesper Reach</b> (Aurora, manual, out on a patrol), <b>Ironsong</b> (Battleship, manual, full). Pool 46 waiting, reserve 3,412. Amber dashed boxes are questions for you; the drawn option is marked.</p>
+  </div>
+
+  <section>
+    <p class="label">0. How each control behaves (the engine as built, nothing new)</p>
+    <div class="stage">
+      <table class="t">
+        <thead><tr><th>Control</th><th>What happens</th><th>Why (engine)</th></tr></thead>
+        <tbody>
+          <tr><td><b>Send to a ship</b></td><td>Moves the picked groups from the reserve straight into a <b>manual</b> ship's open berths, cap-aware per group. What has no room stays in the reserve. Nobody is lost.</td><td>The same move as the pool's "Send N to a ship..." (<code>crewTransfer.ts transferCrew</code>: per-group room from <code>remainingCapacityForSignature</code>, the ship's notables and quarters bonus counted), with the reserve as the source. A ship's berths, once filled, are never swept, so these crew stay put.</td></tr>
+          <tr><td><b>Auto-crew ships</b></td><td>Not a destination. They already fill from the pool, then the reserve, every tick.</td><td><code>crewOverlay.ts resolveCrew</code>: an auto-crew ship that is home and has room for a reserve group takes it on the next tick, so by the time you look, it has no room for anything left in the reserve.</td></tr>
+          <tr><td><b>Crew-locked ships</b></td><td>Not a destination while out (mission, patrol, short-range run, or an expedition until claimed).</td><td>Every crew change is locked while out (<code>crewLock.ts</code>), the same refusal the pool's picker shows.</td></tr>
+          <tr><td><b>Recall to pool</b></td><td>The catch. The sweep runs every tick, so a recalled crewmember <b>no berth can seat goes straight back</b> to the reserve on the next tick. Only crew a berth could seat stay in the pool.</td><td><code>sweepSurplusToReserve</code>: each pool group keeps min(its count, the fleet's open berths for its division and rank). After the fill, those open berths are on <b>manual ships</b> and on <b>auto-crew ships that are out</b> (they fill when home, from the pool first).</td></tr>
+          <tr><td><b>What Recall is good for</b></td><td>Choosing <b>which</b> groups an auto-crew ship that is out takes when it comes home: it takes from the pool before the reserve. (For a manual ship, Send to a ship does the same job in one step.)</td><td><code>resolveCrew</code> step 2: <code>autoCrewShip(pool)</code> first, then <code>autoCrewShip(reserve)</code> for the berths left.</td></tr>
+          <tr><td><b>Side effect of Send</b></td><td>Filling a manual ship's berths from the reserve uses room the sweep was holding pool crew for. Pool crew of that division and rank beyond the room left move to the reserve at the next tick (a swap, nobody lost).</td><td>The kept count is read from the berths after this tick's fill; fewer open berths means a smaller kept count.</td></tr>
+        </tbody>
+      </table>
+      <div class="ocgrid" style="margin-top:12px">
+        <div class="oc"><div class="t">Question 1 · what "Recall to pool" does (most important)</div><div class="ab"><b>A</b><span><b>Recall only what a berth can seat.</b> The crew pool is a destination in the same picker; each group's room is the fleet's open berths for its division and rank, less what of that group already waits in the pool. The button says how many will move ("Recall 31"); the rest stay in the reserve. Nothing bounces. Drawn in section 4.</span><b>B</b><span><b>No Recall.</b> Only "Send to a ship". Simplest; you lose the "pick what an out-of-port auto-crew ship takes when it returns" use.</span><b>C</b><span><b>Recall anything.</b> Everything picked moves to the pool; the picker warns that crew no berth can seat return to the reserve at the next tick. Truthful, but the pool would visibly empty itself again a second later.</span></div><div class="drawn">Drawn: A</div></div>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <p class="label">1. Option A: a Homeworld reserve section under the pool, desktop 1280 and phone 375</p>
+    <div class="stage">
+      <div class="pair">
+        <div>
+          <p class="frame-cap">Desktop 1280 px · Facilities / Personnel Rosters / Crew Pool · reserve section opened, 3 groups ticked</p>
+          <div class="shell desk">
+            <div class="topbar">
+              <div class="tb-port"></div>
+              <div class="tb-bars"><div class="tb-bar"><span>FA EXP</span><i><b></b></i><span>Lv 31 · 35%</span></div><div class="tb-bar"><span>CRAFT</span><i><b style="width:60%"></b></i><span>Lv 22 · 60%</span></div><div class="tb-bar"><span>TICK</span><i><b style="width:80%"></b></i><span>1.0s</span></div></div>
+              <div class="tb-set">SETTINGS</div>
+            </div>
+            <div class="tab-body">
+              <div class="crumb">Facilities / <b>Personnel Rosters</b></div>
+              <div class="ctabs"><span class="ctab">Rosters</span><span class="ctab active">Crew Pool</span><span class="ctab">Upgrades</span></div>
+              <div class="tsa">
+                <div class="pool-cap">
+                  <div class="pool-caprow"><span class="pool-bignum">46<span class="pool-of"> crew waiting · 4 groups</span></span><button class="ghost sm"><svg class="g"><use href="#i-manifest"/></svg>Manifest</button></div>
+                  <div class="pool-note">Transports bring new crew here. Auto-crew ships fill from the pool: their specialty divisions first, then highest rank first, within their caps. Manual ships only take what you send them.</div>
+                  <div class="pool-reserve">Homeworld reserve: <span class="pool-reserve-n">3,412</span> · Crew no berth in your fleet can take move on to the Homeworld reserve, keeping their ranks and racials. Auto-crew ships draw from it when the pool cannot fill a berth. <a>Listed below.</a></div>
+                </div>
+                <div class="stats6" id="pool-stats"></div>
+                <div class="gtw"><table class="gt"><thead><tr><th style="width:34px"><span class="cb"></span></th><th>Group</th><th>Division</th><th class="sorted">Rank</th><th>Rarity</th><th>Buffs</th><th class="num">Count</th></tr></thead><tbody id="pool-rows"></tbody></table><div class="foot"><span>Showing 4 of 4 groups · 46 crew</span></div></div>
+
+                <p class="callout">new: the reserve's own section, under the pool's table; starts closed, remembers open or closed</p>
+                <div class="rsv">
+                  <div class="rsv-hd">
+                    <span class="rsv-t"><svg class="g"><use href="#i-home"/></svg>Homeworld reserve</span>
+                    <span class="rsv-n">3,412 <span>crew · 7 groups</span></span>
+                    <span class="spacer"></span>
+                    <button class="ghost sm"><svg class="g"><use href="#i-chevronUp"/></svg>Hide groups</button>
+                  </div>
+                  <div class="rsv-note">Crew no berth in your fleet can take, with their ranks and racials. Auto-crew ships draw from here on their own. Send groups to a manual ship, or recall them to the pool for a ship that can seat them.</div>
+                  <div class="rsv-bd">
+                    <div class="tools"><span class="lbl"><svg class="g"><use href="#i-sort"/></svg>Sort</span><span class="chip">Division</span><span class="chip on">Rank</span><span class="chip">Rarity</span><span class="chip">Count</span><span style="width:12px"></span><span class="lbl">Division</span><span id="rsv-divchips" style="display:contents"></span></div>
+                    <div class="gtw">
+                      <div class="selbar"><span class="cb on"><svg class="g"><use href="#i-check"/></svg></span><span><b>3</b> groups selected · <b>121</b> crew</span>
+                        <button class="pri sm"><svg class="g"><use href="#i-transfer"/></svg>Send 121 to a ship...</button>
+                        <button class="sm"><svg class="g"><use href="#i-crewPool"/></svg>Recall 121 to the pool...</button>
+                        <span class="spacer"></span><button class="ghost sm">Clear</button></div>
+                      <table class="gt"><thead><tr><th style="width:34px"><span class="cb mixed"></span></th><th>Group</th><th>Division</th><th class="sorted">Rank</th><th>Rarity</th><th>Buffs</th><th class="num">Count</th></tr></thead><tbody id="rsv-rows"></tbody></table>
+                      <div class="foot"><span>Showing 7 of 7 groups · 3,412 crew</span></div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div class="navb"><span>HOME</span><span>CREW</span><span>SHIPS</span><span class="on">FACILITIES</span><span>LOGISTICS</span><span>OPS</span></div>
+          </div>
+        </div>
+
+        <div>
+          <p class="frame-cap">Phone 375 px · same tab, reserve closed</p>
+          <div class="shell phone">
+            <div class="topbar">
+              <div class="tb-port"></div>
+              <div class="tb-bars"><div class="tb-bar"><span>FA EXP</span><i><b></b></i><span>Lv 31</span></div><div class="tb-bar"><span>CRAFT</span><i><b style="width:60%"></b></i><span>Lv 22</span></div><div class="tb-bar"><span>TICK</span><i><b style="width:80%"></b></i><span>1.0s</span></div></div>
+              <div class="tb-set">SET</div>
+            </div>
+            <div class="tab-body">
+              <div class="ctabs"><span class="ctab">Rosters</span><span class="ctab active">Crew Pool</span><span class="ctab">Upgrades</span></div>
+              <div class="tsa">
+                <div class="pool-cap">
+                  <div class="pool-caprow"><span class="pool-bignum">46<span class="pool-of"> waiting</span></span><button class="ghost sm"><svg class="g"><use href="#i-manifest"/></svg>Manifest</button></div>
+                  <div class="pool-note">Auto-crew ships fill from here. Manual ships take what you send.</div>
+                  <div class="pool-reserve">Homeworld reserve: <span class="pool-reserve-n">3,412</span> · <a>below</a></div>
+                </div>
+                <div class="hscroll" id="pool-chips-ph"></div>
+                <div class="cards" id="pool-cards-ph"></div>
+                <div class="rsv">
+                  <div class="rsv-hd">
+                    <span class="rsv-t"><svg class="g"><use href="#i-home"/></svg>Reserve</span>
+                    <span class="rsv-n">3,412 <span>crew</span></span>
+                    <span class="spacer"></span>
+                    <button class="ghost sm"><svg class="g"><use href="#i-chevronDown"/></svg>Show</button>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div class="navb"><span>HOME</span><span>CREW</span><span>SHIPS</span><span class="on">FAC</span><span>LOG</span><span>OPS</span></div>
+          </div>
+        </div>
+
+        <div>
+          <p class="frame-cap">Phone 375 px · reserve opened, scrolled to it, 3 groups ticked</p>
+          <div class="shell phone">
+            <div class="tab-body" style="padding-top:10px">
+              <div class="tsa" style="padding-bottom:0">
+                <div class="rsv">
+                  <div class="rsv-hd">
+                    <span class="rsv-t"><svg class="g"><use href="#i-home"/></svg>Reserve</span>
+                    <span class="rsv-n">3,412 <span>crew</span></span>
+                    <span class="spacer"></span>
+                    <button class="ghost sm"><svg class="g"><use href="#i-chevronUp"/></svg>Hide</button>
+                  </div>
+                  <div class="rsv-note">No berth in your fleet can take these. Auto-crew ships draw from here on their own.</div>
+                  <div class="rsv-bd">
+                    <div class="hscroll" id="rsv-chips-ph"></div>
+                    <div class="cards" id="rsv-cards-ph"></div>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div class="stickybar"><span><b>3</b> groups · <b>121</b></span><span class="spacer"></span><button class="pri sm"><svg class="g"><use href="#i-transfer"/></svg>Send...</button><button class="sm"><svg class="g"><use href="#i-crewPool"/></svg>Recall...</button><button class="ghost sm" aria-label="Clear"><svg class="g"><use href="#i-close"/></svg></button></div>
+            <div class="navb"><span>HOME</span><span>CREW</span><span>SHIPS</span><span class="on">FAC</span><span>LOG</span><span>OPS</span></div>
+          </div>
+          <p class="note" style="max-width:375px">On a phone the selection bar sticks to the bottom (the pool's own pattern). Both buttons open the same picker: Send starts on the first ship with room, Recall starts on the crew pool.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <p class="label">2. Option B: one Crew Pool tab, a switch between the pool and the reserve</p>
+    <div class="stage">
+      <div class="pair">
+        <div>
+          <p class="frame-cap">Desktop 1280 px · the switch on "Homeworld reserve" (the pool's stat tiles, table and buttons now read the reserve)</p>
+          <div class="shell desk">
+            <div class="tab-body" style="padding-top:10px">
+              <div class="crumb">Facilities / <b>Personnel Rosters</b></div>
+              <div class="ctabs"><span class="ctab">Rosters</span><span class="ctab active">Crew Pool</span><span class="ctab">Upgrades</span></div>
+              <div class="tsa">
+                <p class="callout">new: the list switch, the first thing in the tab</p>
+                <div><span class="seg"><span><svg class="g"><use href="#i-crewPool"/></svg>Crew pool <b>46</b></span><span class="on"><svg class="g"><use href="#i-home"/></svg>Homeworld reserve <b>3,412</b></span></span></div>
+                <div class="pool-cap">
+                  <div class="pool-caprow"><span class="pool-bignum">3,412<span class="pool-of"> crew in the reserve · 7 groups</span></span></div>
+                  <div class="pool-note">Crew no berth in your fleet can take move here from the pool, keeping their ranks and racials. Auto-crew ships draw from here when the pool cannot fill a berth. Send groups to a manual ship, or recall them to the pool for a ship that can seat them.</div>
+                </div>
+                <div class="stats6" id="rsv-stats"></div>
+                <div class="gtw">
+                  <div class="selbar"><span class="cb on"><svg class="g"><use href="#i-check"/></svg></span><span><b>3</b> groups selected · <b>121</b> crew</span>
+                    <button class="pri sm"><svg class="g"><use href="#i-transfer"/></svg>Send 121 to a ship...</button>
+                    <button class="sm"><svg class="g"><use href="#i-crewPool"/></svg>Recall 121 to the pool...</button>
+                    <span class="spacer"></span><button class="ghost sm">Clear</button></div>
+                  <table class="gt"><thead><tr><th style="width:34px"><span class="cb mixed"></span></th><th>Group</th><th>Division</th><th class="sorted">Rank</th><th>Rarity</th><th>Buffs</th><th class="num">Count</th></tr></thead><tbody id="rsv-rows-b"></tbody></table>
+                  <div class="foot"><span>Showing 7 of 7 groups · 3,412 crew</span></div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div>
+          <p class="frame-cap">Phone 375 px · switch on "Reserve"</p>
+          <div class="shell phone">
+            <div class="tab-body" style="padding-top:10px">
+              <div class="ctabs"><span class="ctab">Rosters</span><span class="ctab active">Crew Pool</span><span class="ctab">Upgrades</span></div>
+              <div class="tsa" style="padding-bottom:0">
+                <div class="seg"><span><svg class="g"><use href="#i-crewPool"/></svg>Pool <b>46</b></span><span class="on"><svg class="g"><use href="#i-home"/></svg>Reserve <b>3,412</b></span></div>
+                <div class="pool-cap">
+                  <div class="pool-caprow"><span class="pool-bignum">3,412<span class="pool-of"> in reserve</span></span></div>
+                  <div class="pool-note">No berth in your fleet can take these. Auto-crew ships draw from here on their own.</div>
+                </div>
+                <div class="hscroll" id="rsv-chips-ph-b"></div>
+                <div class="cards" id="rsv-cards-ph-b"></div>
+              </div>
+            </div>
+            <div class="stickybar"><span><b>3</b> groups · <b>121</b></span><span class="spacer"></span><button class="pri sm"><svg class="g"><use href="#i-transfer"/></svg>Send...</button><button class="sm"><svg class="g"><use href="#i-crewPool"/></svg>Recall...</button><button class="ghost sm" aria-label="Clear"><svg class="g"><use href="#i-close"/></svg></button></div>
+            <div class="navb"><span>HOME</span><span>CREW</span><span>SHIPS</span><span class="on">FAC</span><span>LOG</span><span>OPS</span></div>
+          </div>
+        </div>
+      </div>
+      <div class="ocgrid" style="margin-top:12px">
+        <div class="oc"><div class="t">Question 2 · where the reserve's controls live</div><div class="ab"><b>A</b><span><b>Its own section under the pool's table</b> (section 1). Both lists on one scroll; the reserve starts closed so the pool reads as it does today. Its count line in the pool's box points down to it.</span><b>B</b><span><b>A switch at the top of the Crew Pool tab</b> (this section). One table at a time; the pool's stat tiles, chips and buttons simply read the reserve. Shorter page, one extra tap to see the reserve.</span><b>C</b><span>A fourth Personnel Rosters tab, "Homeworld Reserve", beside Crew Pool (not drawn: it is option B's view on its own tab).</span></div><div class="drawn">Drawn: A in section 1, B here</div></div>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <p class="label">3. Send to a ship: pick groups and counts, pick a ship, confirm</p>
+    <div class="stage">
+      <p class="frame-cap">Desktop picker (CrewTransferModal as built, with the reserve as the source). Vael and Ossir whole, Martian lowered to 10 with the stepper.</p>
+      <div class="dim">
+        <div class="modal wide">
+          <div class="mh"><svg class="g" style="color:var(--color-accent)"><use href="#i-transfer"/></svg>Transfer crew from the Homeworld reserve<span class="sub">3 groups · 43 crew picked</span><span class="x"><svg class="g"><use href="#i-close"/></svg></span></div>
+          <div class="mb">
+            <div class="split">
+              <div>
+                <div class="colh">Send to</div>
+                <div class="dest"><span class="radio"></span><span class="dn"><svg class="g"><use href="#i-crewPool"/></svg>Crew pool</span><span class="ds">46 waiting · recall what a berth can seat</span></div>
+                <div class="dest on"><span class="radio"></span><span class="dn"><svg class="g"><use href="#i-ship"/></svg>Kestrel Line <span class="badge">Orion</span><span class="badge ok">manual</span></span><span class="ds">702 / 750 berths · room for 48</span></div>
+                <div class="dest off"><span class="radio"></span><span class="dn"><svg class="g"><use href="#i-ship"/></svg>Halden's Promise <span class="badge">Eir</span><span class="badge">auto-crew</span></span><span class="ds">900 / 900 berths</span><span class="di"><svg class="g"><use href="#i-info"/></svg>Auto-crew: fills from the pool, then this reserve, on its own every tick.</span></div>
+                <div class="dest off"><span class="radio"></span><span class="dn"><svg class="g"><use href="#i-ship"/></svg>Lumen Drift <span class="badge">Aurora</span><span class="badge lock"><svg class="g"><use href="#i-lock"/></svg>crew locked</span></span><span class="dw"><svg class="g"><use href="#i-lock"/></svg>Ship is on an expedition: crew locked until its expedition is claimed.</span></div>
+                <div class="dest off"><span class="radio"></span><span class="dn"><svg class="g"><use href="#i-ship"/></svg>Vesper Reach <span class="badge">Aurora</span><span class="badge lock"><svg class="g"><use href="#i-lock"/></svg>crew locked</span></span><span class="dw"><svg class="g"><use href="#i-lock"/></svg>Ship is out on a patrol: crew locked until it returns.</span></div>
+                <div class="dest off"><span class="radio"></span><span class="dn"><svg class="g"><use href="#i-ship"/></svg>Ironsong <span class="badge">Battleship</span><span class="badge ok">manual</span></span><span class="ds">160 / 160 berths · full, takes no more crew</span></div>
+              </div>
+              <div>
+                <div class="colh">Crew to move · room aboard Kestrel Line</div>
+                <div class="gtw">
+                  <div class="pick"><div><div class="pn">Vael science group</div><div class="ps">Ensign · <span class="rar" style="color:var(--rarity-augmented)"><i></i>Augmented</span> · <span class="of">31 in reserve</span></div></div><span class="step"><span><svg class="g"><use href="#i-minus"/></svg></span><span class="v">31</span><span><svg class="g"><use href="#i-plus"/></svg></span><span class="mx">ALL</span></span><div class="pw"><svg class="g"><use href="#i-warning"/></svg>Room for 20: Kestrel Line has no more Science berths at Ensign or above. The other 11 stay in the reserve.</div></div>
+                  <div class="pick"><div><div class="pn">Ossir security group</div><div class="ps">Lieutenant · <span class="rar" style="color:var(--rarity-stellar)"><i></i>Stellar</span> · <span class="of">2 in reserve</span></div></div><span class="step"><span><svg class="g"><use href="#i-minus"/></svg></span><span class="v">2</span><span><svg class="g"><use href="#i-plus"/></svg></span><span class="mx">ALL</span></span><div class="pf"><svg class="g"><use href="#i-check"/></svg>Room for all 2.</div></div>
+                  <div class="pick"><div><div class="pn">Martian engineering group</div><div class="ps">Chief · <span class="rar" style="color:var(--rarity-augmented)"><i></i>Augmented</span> · <span class="of">88 in reserve</span></div></div><span class="step"><span><svg class="g"><use href="#i-minus"/></svg></span><span class="v">10</span><span><svg class="g"><use href="#i-plus"/></svg></span><span class="mx">ALL</span></span><div class="pf"><svg class="g"><use href="#i-check"/></svg>Room for all 10 (up to 26).</div></div>
+                </div>
+                <div class="sum" style="margin-top:10px">Moving <b>43</b> to Kestrel Line: room for <b>32</b>, <b>11</b> stay in the reserve. Kestrel Line goes from <b>702</b> to <b>734</b> / 750.</div>
+                <div class="heads" style="margin-top:8px"><svg class="g"><use href="#i-warning"/></svg><span>12 Vael science group Ensigns wait in the crew pool for these Science berths. After this, the fleet has 8 such berths left (Lumen Drift, when its expedition is claimed), so 4 of them move to the reserve at the next tick. Nobody is lost.</span></div>
+              </div>
+            </div>
+          </div>
+          <div class="mf"><button class="ghost">Cancel</button><button class="pri"><svg class="g"><use href="#i-transfer"/></svg>Transfer 32</button></div>
+        </div>
+      </div>
+
+      <div class="pair" style="margin-top:18px">
+        <div>
+          <p class="frame-cap">Desktop result (the modal stays open, as built)</p>
+          <div class="modal" style="width:460px">
+            <div class="mh"><svg class="g" style="color:var(--color-accent)"><use href="#i-transfer"/></svg>Transfer done<span class="x"><svg class="g"><use href="#i-close"/></svg></span></div>
+            <div class="mb">
+              <div class="result">
+                <div class="rh"><svg class="g"><use href="#i-check"/></svg>Moved 32 of 43 to Kestrel Line</div>
+                <div class="rl short"><span>Vael science group, Ensign</span><b>20 of 31</b></div>
+                <div style="font-size:11px;color:var(--color-warning)">The destination has no more room for that crew.</div>
+                <div class="rl"><span>Ossir security group, Lieutenant</span><b>2 of 2</b></div>
+                <div class="rl"><span>Martian engineering group, Chief</span><b>10 of 10</b></div>
+              </div>
+              <div style="font-size:11.5px">Logged to the fleet log. Nobody was lost: the 11 without room are still in the Homeworld reserve.</div>
+            </div>
+            <div class="mf"><button class="ghost">Transfer more</button><button class="pri">Done</button></div>
+          </div>
+          <p class="note" style="max-width:460px">Fleet log line: "Transferred 32 crew from the Homeworld reserve to Kestrel Line (11 stayed: no room)." Same wording as the pool's transfers.</p>
+        </div>
+
+        <div>
+          <p class="frame-cap">Phone step 1: where to</p>
+          <div class="shell phone">
+            <div class="phonedim">
+              <div class="sheet">
+                <div class="grab"></div>
+                <div class="mh" style="border:0;padding-bottom:2px"><svg class="g" style="color:var(--color-accent)"><use href="#i-transfer"/></svg>Transfer 43 crew<span class="sub" style="margin-left:auto">1 of 2</span></div>
+                <div class="mb" style="gap:0">
+                  <div class="colh">Send to</div>
+                  <div class="dest"><span class="radio"></span><span class="dn">Crew pool</span><span class="ds">46 waiting</span></div>
+                  <div class="dest on"><span class="radio"></span><span class="dn">Kestrel Line <span class="badge ok">manual</span></span><span class="ds">702 / 750 · room for 48</span></div>
+                  <div class="dest off"><span class="radio"></span><span class="dn">Halden's Promise <span class="badge">auto</span></span><span class="di"><svg class="g"><use href="#i-info"/></svg>Draws from the reserve on its own.</span></div>
+                  <div class="dest off"><span class="radio"></span><span class="dn">Lumen Drift <span class="badge lock"><svg class="g"><use href="#i-lock"/></svg>locked</span></span><span class="dw">On an expedition until claimed.</span></div>
+                  <div class="dest off"><span class="radio"></span><span class="dn">Vesper Reach <span class="badge lock"><svg class="g"><use href="#i-lock"/></svg>locked</span></span><span class="dw">Out until it returns.</span></div>
+                  <div class="dest off"><span class="radio"></span><span class="dn">Ironsong <span class="badge ok">manual</span></span><span class="ds">160 / 160 · full</span></div>
+                </div>
+                <div class="mf"><button class="ghost">Cancel</button><button class="pri">Next</button></div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div>
+          <p class="frame-cap">Phone step 2: how many</p>
+          <div class="shell phone">
+            <div class="phonedim">
+              <div class="sheet">
+                <div class="grab"></div>
+                <div class="mh" style="border:0;padding-bottom:2px"><svg class="g" style="color:var(--color-accent)"><use href="#i-chevronLeft"/></svg>To Kestrel Line<span class="sub" style="margin-left:auto">2 of 2</span></div>
+                <div class="mb" style="padding:0 0 4px;gap:0">
+                  <div class="pick"><div><div class="pn">Vael science</div><div class="ps">Ensign · 31 in reserve</div></div><span class="step"><span><svg class="g"><use href="#i-minus"/></svg></span><span class="v">31</span><span><svg class="g"><use href="#i-plus"/></svg></span></span><div class="pw"><svg class="g"><use href="#i-warning"/></svg>Room for 20. The other 11 stay.</div></div>
+                  <div class="pick"><div><div class="pn">Ossir security</div><div class="ps">Lieutenant · 2 in reserve</div></div><span class="step"><span><svg class="g"><use href="#i-minus"/></svg></span><span class="v">2</span><span><svg class="g"><use href="#i-plus"/></svg></span></span></div>
+                  <div class="pick"><div><div class="pn">Martian engineering</div><div class="ps">Chief · 88 in reserve</div></div><span class="step"><span><svg class="g"><use href="#i-minus"/></svg></span><span class="v">10</span><span><svg class="g"><use href="#i-plus"/></svg></span></span></div>
+                  <div class="sum" style="margin:8px 12px 0">Room for 32 of 43. Kestrel Line: 734 / 750.</div>
+                  <div class="heads" style="margin:6px 12px 0"><svg class="g"><use href="#i-warning"/></svg><span>4 Vael science Ensigns in the pool move to the reserve at the next tick.</span></div>
+                </div>
+                <div class="mf"><button class="ghost">Back</button><button class="pri">Transfer 32</button></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="ocgrid" style="margin-top:12px">
+        <div class="oc"><div class="t">Question 3 · auto-crew ships in the reserve's picker</div><div class="ab"><b>A</b><span>Listed, not pickable, saying they draw from the reserve on their own (drawn). No "Switch to manual" offer here: switching does not open any berth, and a home auto-crew ship never has room for what is left in the reserve.</span><b>B</b><span>Listed with the pool picker's "Switch to manual" button, the same as there (it would only help once you also send crew off that ship).</span><b>C</b><span>Left out of this picker; only manual ships and locked ships show.</span></div><div class="drawn">Drawn: A</div></div>
+        <div class="oc"><div class="t">Question 4 · the swap note (side effect of Send)</div><div class="ab"><b>A</b><span>Warn before Transfer when filling berths the pool's crew were held for will move them to the reserve at the next tick (the amber line, drawn). Nobody is lost either way.</span><b>B</b><span>No warning; the result and the pool's count tell the story afterward.</span></div><div class="drawn">Drawn: A</div></div>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <p class="label">4. Recall to pool (question 1, option A drawn): only what a berth can seat</p>
+    <div class="stage">
+      <p class="frame-cap">Desktop picker on the crew pool. Recall opens here; each row's room = the fleet's open berths for that division and rank, less what of that group already waits in the pool.</p>
+      <div class="dim">
+        <div class="modal wide">
+          <div class="mh"><svg class="g" style="color:var(--color-accent)"><use href="#i-crewPool"/></svg>Transfer crew from the Homeworld reserve<span class="sub">3 groups · 121 crew picked</span><span class="x"><svg class="g"><use href="#i-close"/></svg></span></div>
+          <div class="mb">
+            <div class="split">
+              <div>
+                <div class="colh">Send to</div>
+                <div class="dest on"><span class="radio"></span><span class="dn"><svg class="g"><use href="#i-crewPool"/></svg>Crew pool</span><span class="ds">46 waiting · recall what a berth can seat</span></div>
+                <div class="dest"><span class="radio"></span><span class="dn"><svg class="g"><use href="#i-ship"/></svg>Kestrel Line <span class="badge">Orion</span><span class="badge ok">manual</span></span><span class="ds">702 / 750 berths · room for 48</span></div>
+                <div class="dest off"><span class="radio"></span><span class="dn"><svg class="g"><use href="#i-ship"/></svg>Halden's Promise <span class="badge">Eir</span><span class="badge">auto-crew</span></span><span class="ds">900 / 900 berths</span><span class="di"><svg class="g"><use href="#i-info"/></svg>Auto-crew: fills from the pool, then this reserve, on its own every tick.</span></div>
+                <div class="dest off"><span class="radio"></span><span class="dn"><svg class="g"><use href="#i-ship"/></svg>Lumen Drift <span class="badge">Aurora</span><span class="badge lock"><svg class="g"><use href="#i-lock"/></svg>crew locked</span></span><span class="dw"><svg class="g"><use href="#i-lock"/></svg>Ship is on an expedition: crew locked until its expedition is claimed.</span></div>
+              </div>
+              <div>
+                <div class="colh">Crew to move · room in the pool</div>
+                <div class="gtw">
+                  <div class="pick"><div><div class="pn">Vael science group</div><div class="ps">Ensign · <span class="rar" style="color:var(--rarity-augmented)"><i></i>Augmented</span> · <span class="of">31 in reserve</span></div></div><span class="step"><span><svg class="g"><use href="#i-minus"/></svg></span><span class="v">31</span><span><svg class="g"><use href="#i-plus"/></svg></span><span class="mx">ALL</span></span><div class="pw"><svg class="g"><use href="#i-warning"/></svg>Room for 16: the fleet has 28 open Science berths at Ensign or above (Kestrel Line 20, Lumen Drift 8) and 12 of this group already wait in the pool. The other 15 stay in the reserve.</div></div>
+                  <div class="pick"><div><div class="pn">Ossir security group</div><div class="ps">Lieutenant · <span class="rar" style="color:var(--rarity-stellar)"><i></i>Stellar</span> · <span class="of">2 in reserve</span></div></div><span class="step"><span><svg class="g"><use href="#i-minus"/></svg></span><span class="v">2</span><span><svg class="g"><use href="#i-plus"/></svg></span><span class="mx">ALL</span></span><div class="pf"><svg class="g"><use href="#i-check"/></svg>Room for all 2.</div></div>
+                  <div class="pick"><div><div class="pn">Martian engineering group</div><div class="ps">Chief · <span class="rar" style="color:var(--rarity-augmented)"><i></i>Augmented</span> · <span class="of">88 in reserve</span></div></div><span class="step"><span><svg class="g"><use href="#i-minus"/></svg></span><span class="v">88</span><span><svg class="g"><use href="#i-plus"/></svg></span><span class="mx">ALL</span></span><div class="pw"><svg class="g"><use href="#i-warning"/></svg>Room for 13: the fleet has 31 open Engineering berths at Chief or above (Kestrel Line 26, Lumen Drift 5) and 18 of this group already wait in the pool. The other 75 stay in the reserve.</div></div>
+                </div>
+                <div class="sum" style="margin-top:10px">Recalling <b>31</b> of <b>121</b> to the crew pool; <b>90</b> stay in the reserve. In the pool they wait for Kestrel Line (manual: send them on from the pool) and Lumen Drift (auto-crew: takes from the pool before the reserve when its expedition is claimed).</div>
+              </div>
+            </div>
+          </div>
+          <div class="mf"><button class="ghost">Cancel</button><button class="pri"><svg class="g"><use href="#i-crewPool"/></svg>Recall 31</button></div>
+        </div>
+      </div>
+      <p class="note">Why the room is per group: the sweep compares each pool group (one racial, one rarity, one set of buffs) with the fleet's open berths for its division and rank on its own. Recall moves only what that rule keeps, so nothing returns to the reserve at the next tick. Under option C the picker would instead accept all 121 and say "90 of them return to the reserve at the next tick: no berth in the fleet can seat them."</p>
+    </div>
+  </section>
+
+  <section>
+    <p class="label">5. States</p>
+    <div class="stage">
+      <div class="states">
+        <div class="pair">
+          <div style="width:620px;max-width:100%">
+            <p class="frame-cap">Empty reserve, option A (desktop): the section is one line, no table, no buttons</p>
+            <div class="rsv">
+              <div class="rsv-hd"><span class="rsv-t"><svg class="g"><use href="#i-home"/></svg>Homeworld reserve</span><span class="rsv-n">0 <span>crew</span></span></div>
+              <div class="rsv-note">Empty. Crew no berth in your fleet can take move here from the pool, keeping their ranks and racials.</div>
+            </div>
+          </div>
+          <div style="width:353px;max-width:100%">
+            <p class="frame-cap">Empty reserve, option B (phone): switch on "Reserve"</p>
+            <div style="display:grid;gap:8px">
+              <div class="seg" style="display:flex"><span style="flex:1;justify-content:center"><svg class="g"><use href="#i-crewPool"/></svg>Pool <b>46</b></span><span class="on" style="flex:1;justify-content:center"><svg class="g"><use href="#i-home"/></svg>Reserve <b>0</b></span></div>
+              <div class="empty">No crew in the Homeworld reserve. Crew no berth in your fleet can take move here from the pool, keeping their ranks and racials.</div>
+            </div>
+          </div>
+        </div>
+
+        <div>
+          <p class="frame-cap">No ship with room: Kestrel Line filled up, every other ship is full, auto-crew or out. Picked: Belter operations group, 1,847.</p>
+          <div class="modal wide" style="max-width:100%">
+            <div class="mh"><svg class="g" style="color:var(--color-accent)"><use href="#i-transfer"/></svg>Transfer crew from the Homeworld reserve<span class="sub">1 group · 1,847 crew picked</span><span class="x"><svg class="g"><use href="#i-close"/></svg></span></div>
+            <div class="mb">
+              <div class="split">
+                <div>
+                  <div class="colh">Send to</div>
+                  <div class="dest"><span class="radio"></span><span class="dn"><svg class="g"><use href="#i-crewPool"/></svg>Crew pool</span><span class="ds">46 waiting · recall what a berth can seat</span></div>
+                  <div class="dest off"><span class="radio"></span><span class="dn"><svg class="g"><use href="#i-ship"/></svg>Kestrel Line <span class="badge">Orion</span><span class="badge ok">manual</span></span><span class="ds">750 / 750 berths · full, takes no more crew</span></div>
+                  <div class="dest off"><span class="radio"></span><span class="dn"><svg class="g"><use href="#i-ship"/></svg>Ironsong <span class="badge">Battleship</span><span class="badge ok">manual</span></span><span class="ds">160 / 160 berths · full, takes no more crew</span></div>
+                  <div class="dest off"><span class="radio"></span><span class="dn"><svg class="g"><use href="#i-ship"/></svg>Halden's Promise <span class="badge">Eir</span><span class="badge">auto-crew</span></span><span class="di"><svg class="g"><use href="#i-info"/></svg>Auto-crew: fills from the pool, then this reserve, on its own every tick.</span></div>
+                  <div class="dest off"><span class="radio"></span><span class="dn"><svg class="g"><use href="#i-ship"/></svg>Lumen Drift <span class="badge">Aurora</span><span class="badge lock"><svg class="g"><use href="#i-lock"/></svg>crew locked</span></span><span class="dw"><svg class="g"><use href="#i-lock"/></svg>Ship is on an expedition: crew locked until its expedition is claimed.</span></div>
+                </div>
+                <div>
+                  <div class="colh">Crew to move · room in the pool</div>
+                  <div class="gtw">
+                    <div class="pick"><div><div class="pn">Belter operations group</div><div class="ps">Crewman · <span class="rar" style="color:var(--rarity-derelict)"><i></i>Derelict</span> · <span class="of">1,847 in reserve</span></div></div><span class="step"><span><svg class="g"><use href="#i-minus"/></svg></span><span class="v">1,847</span><span><svg class="g"><use href="#i-plus"/></svg></span><span class="mx">ALL</span></span><div class="pw"><svg class="g"><use href="#i-warning"/></svg>No room: no berth in the fleet is open for Operations at Crewman. All 1,847 stay in the reserve.</div></div>
+                  </div>
+                  <div class="sum" style="margin-top:10px">No ship can take crew from the reserve right now: every manual ship is full, and the rest are on auto-crew or out. Room opens when a new ship joins, a quarters module goes in, or you send crew back from a manual ship.</div>
+                </div>
+              </div>
+            </div>
+            <div class="mf"><button class="ghost">Cancel</button><button class="pri" disabled><svg class="g"><use href="#i-crewPool"/></svg>Recall 0</button></div>
+          </div>
+          <p class="note">The picker opens on the first pickable card; with no ship pickable it opens on the crew pool, which shows the room (0 here). A ship with room but not for the picked division (Kestrel Line with Operations full) is pickable; its row then says "No room: Kestrel Line's Operations division is full. All 1,847 stay in the reserve.", the pool picker's wording.</p>
+        </div>
+
+        <div>
+          <p class="frame-cap">The destination cards, one per state (desktop words; phone uses the short line)</p>
+          <div class="cardgal">
+            <div><div class="dest on"><span class="radio"></span><span class="dn"><svg class="g"><use href="#i-ship"/></svg>Kestrel Line <span class="badge">Orion</span><span class="badge ok">manual</span></span><span class="ds">702 / 750 berths · room for 48</span></div><p class="note">A manual ship with room: pickable.</p></div>
+            <div><div class="dest off"><span class="radio"></span><span class="dn"><svg class="g"><use href="#i-ship"/></svg>Ironsong <span class="badge">Battleship</span><span class="badge ok">manual</span></span><span class="ds">160 / 160 berths · full, takes no more crew</span></div><p class="note">A manual ship, full: listed, not pickable.</p></div>
+            <div><div class="dest off"><span class="radio"></span><span class="dn"><svg class="g"><use href="#i-ship"/></svg>Vesper Reach <span class="badge">Aurora</span><span class="badge lock"><svg class="g"><use href="#i-lock"/></svg>crew locked</span></span><span class="dw"><svg class="g"><use href="#i-lock"/></svg>Ship is out on a patrol: crew locked until it returns.</span></div><p class="note">A manual ship out on a run: locked. Send to it when it is home.</p></div>
+            <div><div class="dest off"><span class="radio"></span><span class="dn"><svg class="g"><use href="#i-ship"/></svg>Lumen Drift <span class="badge">Aurora</span><span class="badge lock"><svg class="g"><use href="#i-lock"/></svg>crew locked</span></span><span class="dw"><svg class="g"><use href="#i-lock"/></svg>Ship is on an expedition: crew locked until its expedition is claimed.</span></div><p class="note">An auto-crew ship out on a run: locked here, but its open berths are what Recall can fill the pool for.</p></div>
+            <div><div class="dest off"><span class="radio"></span><span class="dn"><svg class="g"><use href="#i-ship"/></svg>Halden's Promise <span class="badge">Eir</span><span class="badge">auto-crew</span></span><span class="ds">900 / 900 berths</span><span class="di"><svg class="g"><use href="#i-info"/></svg>Auto-crew: fills from the pool, then this reserve, on its own every tick.</span></div><p class="note">An auto-crew ship at home (question 3).</p></div>
+            <div><div class="dest"><span class="radio"></span><span class="dn"><svg class="g"><use href="#i-crewPool"/></svg>Crew pool</span><span class="ds">46 waiting · recall what a berth can seat</span></div><p class="note">The crew pool (question 1 A; gone under B).</p></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <p class="label">6. Questions for you, most important first</p>
+    <div class="stage">
+      <div class="ocgrid">
+        <div class="oc"><div class="t">Question 1 · what "Recall to pool" does</div><div class="ab"><b>A</b><span>Recall only what a berth can seat; the rest stay in the reserve (nothing bounces).</span><b>B</b><span>No Recall: Send to a ship only.</span><b>C</b><span>Recall anything, with a warning that the extra return at the next tick.</span></div><div class="drawn">Drawn: A</div></div>
+        <div class="oc"><div class="t">Question 2 · where the controls live</div><div class="ab"><b>A</b><span>The reserve's own section under the pool's table, closed at first.</span><b>B</b><span>A Pool / Reserve switch at the top of the Crew Pool tab.</span><b>C</b><span>A fourth Personnel Rosters tab, "Homeworld Reserve".</span></div><div class="drawn">Drawn: A and B</div></div>
+        <div class="oc"><div class="t">Question 3 · auto-crew ships in this picker</div><div class="ab"><b>A</b><span>Listed, not pickable, "draws from the reserve on its own".</span><b>B</b><span>Listed with "Switch to manual", as in the pool's picker.</span><b>C</b><span>Left out.</span></div><div class="drawn">Drawn: A</div></div>
+        <div class="oc"><div class="t">Question 4 · the swap note</div><div class="ab"><b>A</b><span>Warn before Transfer when pool crew will move to the reserve because of it.</span><b>B</b><span>No warning.</span></div><div class="drawn">Drawn: A</div></div>
+      </div>
+      <p class="note">Not asked, drawn as the house pattern: the picker is the existing CrewTransferModal (cards, steppers with ALL, the result in the modal, two steps on a phone), the reserve's table is the pool's Crew Groups table (sort, division chips, tick boxes, "Show more"), and every transfer goes to the fleet log. The reserve gets no Manifest button (not asked; the pool keeps its own).</p>
+    </div>
+  </section>
+</div>
+
+<script>
+(() => {
+  // Sample groups. Names: crewGroupName (racial + division + "group"); labels from DIVISION_LABEL, crewRankLabel, the
+  // rarity names and the buff names already shown in the signed CP-10 mockup.
+  const RAR = { derelict: ["Derelict", "var(--rarity-derelict)"], standard: ["Standard", "var(--rarity-standard)"], augmented: ["Augmented", "var(--rarity-augmented)"], stellar: ["Stellar", "var(--rarity-stellar)"] };
+  const POOL = [
+    ["Vael", "Science", "Ensign", "augmented", ["Survey Aptitude", "Keen Analysis"], 12, false],
+    ["Earth-born", "Medical", "Master Chief", "standard", ["Crew Effectiveness", "Triage"], 6, false],
+    ["Martian", "Engineering", "Chief", "augmented", ["Engine Tuning", "Damage Control"], 18, false],
+    ["Station-born", "Flight Deck", "Crewman", "standard", ["Fast Return"], 10, false],
+  ];
+  const RESERVE = [
+    ["Ossir", "Security", "Lieutenant", "stellar", ["Boarding Defense", "x:Prevent a Crew Loss", "Counter-Infiltration"], 2, true],
+    ["Vael", "Science", "Ensign", "augmented", ["Survey Aptitude", "Keen Analysis"], 31, true],
+    ["Earth-born", "Medical", "Master Chief", "standard", ["Crew Effectiveness", "Triage"], 40, false],
+    ["Martian", "Engineering", "Chief", "augmented", ["Engine Tuning", "Damage Control"], 88, true],
+    ["Outer-Colony", "Operations", "Petty Officer", "standard", ["Stowage Discipline"], 264, false],
+    ["Station-born", "Flight Deck", "Crewman", "standard", ["Fast Return"], 1140, false],
+    ["Belter", "Operations", "Crewman", "derelict", ["Efficient Unloading"], 1847, false],
+  ];
+  const DIVS = ["Security", "Engineering", "Science", "Medical", "Operations", "Flight Deck"];
+  const fmt = (n) => n.toLocaleString("en-US");
+  const CHK = '<svg class="g"><use href="#i-check"/></svg>';
+  const chips = (b) => '<div class="buffs">' + b.map((x) => x.indexOf("x:") === 0 ? '<span class="bf ex"><svg class="g"><use href="#i-diamond"/></svg>' + x.slice(2) + '</span>' : '<span class="bf">' + x + '</span>').join("") + '</div>';
+  const rar = (k) => '<span class="rar" style="color:' + RAR[k][1] + '"><i></i>' + RAR[k][0] + '</span>';
+  const grp = (g) => g[0] + " " + g[1].toLowerCase() + " group";
+  const rows = (list) => list.map((g) => '<tr class="' + (g[6] ? "sel" : "") + '"><td><span class="cb' + (g[6] ? " on" : "") + '">' + (g[6] ? CHK : "") + '</span></td><td><b style="font-weight:600">' + grp(g) + '</b></td><td>' + g[1] + '</td><td>' + g[2] + '</td><td>' + rar(g[3]) + '</td><td>' + chips(g[4]) + '</td><td class="num">' + fmt(g[5]) + '</td></tr>').join("");
+  const cards = (list, n) => list.slice(0, n).map((g) => '<div class="pcard' + (g[6] ? " sel" : "") + '"><span class="cb' + (g[6] ? " on" : "") + '">' + (g[6] ? CHK : "") + '</span><div><div class="nm">' + grp(g) + '</div><div class="meta">' + g[2] + ' · ' + rar(g[3]) + '</div></div><div class="cnt">' + fmt(g[5]) + '<span>CREW</span></div>' + chips(g[4]) + '</div>').join("");
+  const byDiv = (list) => DIVS.map((d) => [d, list.filter((g) => g[1] === d).reduce((s, g) => s + g[5], 0)]);
+  const total = (list) => list.reduce((s, g) => s + g[5], 0);
+  const stats = (list) => { const dv = byDiv(list); const mx = Math.max(...dv.map((d) => d[1]), 1); return dv.map((d) => '<div class="st"><div class="k">' + d[0] + '</div><div class="v">' + fmt(d[1]) + '</div><div class="bar"><span style="width:' + Math.round(d[1] / mx * 100) + '%"></span></div></div>').join(""); };
+  const chipRow = (list) => '<span class="chip on">All ' + fmt(total(list)) + '</span>' + byDiv(list).map((d) => '<span class="chip">' + d[0] + ' <span class="n">' + fmt(d[1]) + '</span></span>').join("");
+  const groupChips = (list) => '<span class="chip on">All <span class="n">' + list.length + '</span></span>' + DIVS.map((d) => '<span class="chip">' + d + ' <span class="n">' + list.filter((g) => g[1] === d).length + '</span></span>').join("");
+  const set = (id, html) => { const el = document.getElementById(id); if (el) el.innerHTML = html; };
+
+  set("pool-stats", stats(POOL));
+  set("pool-rows", rows(POOL));
+  set("pool-chips-ph", chipRow(POOL));
+  set("pool-cards-ph", cards(POOL, 2));
+  set("rsv-divchips", groupChips(RESERVE));
+  set("rsv-rows", rows(RESERVE));
+  set("rsv-chips-ph", chipRow(RESERVE));
+  set("rsv-cards-ph", cards(RESERVE, 4));
+  set("rsv-stats", stats(RESERVE));
+  set("rsv-rows-b", rows(RESERVE));
+  set("rsv-chips-ph-b", chipRow(RESERVE));
+  set("rsv-cards-ph-b", cards(RESERVE, 4));
+})();
+</script>
+</body>
+</html>

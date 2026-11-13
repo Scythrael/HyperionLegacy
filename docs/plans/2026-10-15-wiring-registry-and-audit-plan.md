@@ -2546,6 +2546,8 @@ docs/qa/2026-11-12-new-hire-default-qa.html.
 - (2026-11-12 afternoon) Recall during a FINISHED field repair's flight back (the old rule throws the repair away; a
   canceled repair keeps its share): "Keep the repair (Recommended)": both keep it; moved replay pins are traced.
 - (2026-11-12 afternoon) OC-F12 empty program as a default: "Allow with a warning (Recommended)" (as built).
+- (2026-11-12 evening) A recall in the MIDDLE of a field repair: "Keep the share (Recommended)": it keeps whatever was
+  repaired so far, exactly like Cancel; nothing earned is thrown away.
 
 ## OC-F14 follow-up BUILT (2026-11-12): a recall keeps what the repair repaired
 
