@@ -74,7 +74,6 @@
   .chip { display: inline-block; padding: 1px 8px; border-radius: 999px; font-size: 11px; font-weight: 650; letter-spacing: 0.3px; vertical-align: middle; }
   .chip.save { color: var(--save); background: rgba(255,154,107,0.12); border: 1px solid rgba(255,154,107,0.4); }
   .chip.device { color: var(--device); background: rgba(127,178,255,0.12); border: 1px solid rgba(127,178,255,0.4); }
-  .chip.theme { color: var(--accent-2); background: rgba(124,246,201,0.10); border: 1px solid rgba(124,246,201,0.35); }
   .chip.later { color: var(--danger); background: rgba(255,122,122,0.10); border: 1px solid rgba(255,122,122,0.4); }
   .toolbar { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-bottom: 22px; }
   .btn { background: var(--panel); color: var(--text); border: 1px solid var(--line-2); border-radius: 8px; padding: 7px 13px; font-size: 12.5px; cursor: pointer; font-weight: 600; }
@@ -144,7 +143,7 @@
 <div class="wrap">
   <p class="eyebrow">Hyperion Legacy QA, 0.14.0 feature pass</p>
   <h1><span class="v">0.14.0</span> Relics v2 content: exceptional sets, cultures, Identification, the Museum</h1>
-  <p class="sub">Curated checklist for Relics v2 R2-5 to R2-9: your 2026-11-13 "Approve all" on the 110 names (docs/plans/2026-11-02-relic-name-sheets-DRAFT.md, with the Keelsong and Ember Court homage lines and the Ember Court Teapot), the signed-off Relics v2 mockup (2026-10-21, "as drawn"), and the relics v2 plan (docs/plans/2026-10-17-relics-v2-plan.md, R2-5 to R2-9 carry notes). <b>Run this on staging</b> (devpreview.crystalisoft.com, the staging branch) with your migrated save, once 0.14.0 is deployed there (0.14.0 stays off staging until the wiring gate passes and you say go). Run each check once at <b>1280 px</b> (desktop) and once at <b>375 px</b> (mobile), in both <b>light and dark</b> themes.</p>
+  <p class="sub">Curated checklist for Relics v2 R2-5 to R2-9: your 2026-11-13 "Approve all" on the 110 names (docs/plans/2026-11-02-relic-name-sheets-DRAFT.md, with the Keelsong and Ember Court homage lines and the Ember Court Teapot), the signed-off Relics v2 mockup (2026-10-21, "as drawn"), and the relics v2 plan (docs/plans/2026-10-17-relics-v2-plan.md, R2-5 to R2-9 carry notes). <b>Run this on staging</b> (devpreview.crystalisoft.com, the staging branch) with your migrated save, once 0.14.0 is deployed there (0.14.0 stays off staging until the wiring gate passes and you say go). Run each check once at <b>1280 px</b> (desktop) and once at <b>375 px</b> (mobile).</p>
 
   <div class="progress-card">
     <div class="progress-top">
@@ -164,7 +163,7 @@
     <p><b>What it does.</b> Blanks wait in the vault, counted by region tier and rarity on the <b>Unidentified Relics</b> row (Logistics, Materials, at the bottom). The Research Lab's <b>Identification</b> tab (it was Relics) queues them on lanes (Lab I 1, III 2, V 3, VII 4); the next queued blank starts the moment a lane frees, also while away. A reveal shows the type with its tier and culture, or an <b>exceptional relic</b> named on the spot. The new <b>Cultures</b> tab lists every culture met; at 10 study points a culture's name is revealed with its lore line, and every relic of theirs reads with the real name. The Archive's <b>Museum</b> is now one region tier at a time: the soft cap meter, the tier's bonuses, shelves by rarity, culture samples, and the tier's exceptional sets (Tier I keeps its set ladder underneath). Completing a set writes one notable-event ledger entry (no screen yet) and the log line.</p>
     <p><b>Where to test.</b> Staging, <b>devpreview.crystalisoft.com</b>, on the 0.14.0 build, with your own migrated save. You need some unidentified blanks (claim an expedition, or the Debug panel's Relic tokens), the Research Lab at level III or more for two lanes, and some identified relics in the Museum.</p>
     <p><b>The three columns.</b> <b style="color:var(--claude)">Claude</b> is pre-filled and read-only: a tick means a test proves that rule (the "how" line names the file). <b style="color:var(--desk)">1280</b> and <b style="color:var(--mob)">375</b> are yours; your ticks are saved in this browser.</p>
-    <p>Tags: <span class="chip save">needs real save</span> needs your migrated save. <span class="chip device">needs device</span> touch, a real phone, or a visual call. <span class="chip theme">light + dark</span> look at it in both themes. <span class="chip later">not in this build</span> not built here.</p>
+    <p>Tags: <span class="chip save">needs real save</span> needs your migrated save. <span class="chip device">needs device</span> touch, a real phone, or a visual call. <span class="chip later">not in this build</span> not built here.</p>
   </div>
 
   <div class="toolbar">
@@ -190,18 +189,18 @@
 
 <script>
 const TICK = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>';
-// c: a test proves it (how names the file). tag: "save" | "device" | "theme" | "later" | null.
+// c: a test proves it (how names the file). tag: "save" | "device" | "later" | null.
 const SECTIONS = [
   { n: "0", title: "Setup on staging", note: "Staging only: devpreview.crystalisoft.com on the 0.14.0 build, your migrated save.", items: [
     { t: "Open staging and load your save. It loads clean (no save version change). No console errors opening the Research Lab (Identification, Cultures), the Archive's Museum and Logistics, Materials.", tag: "save", c: true, how: "relicsV2Content.test.ts (the ledger and the culture names round-trip a save; load hygiene)." },
   ]},
   { n: "1", title: "Unidentified Relics row (Logistics, Materials)", items: [
-    { t: "At the bottom of Materials: <b>Unidentified Relics N</b> with an <b>Identify</b> button. Rows Standard, Augmented, Stellar, Radiant and Total; columns are the tiers that hold a blank, in Roman numerals and the tier colors, plus Total.", tag: "theme", c: true, how: "relicsV2Display.test.ts (vaultMatrix)." },
+    { t: "At the bottom of Materials: <b>Unidentified Relics N</b> with an <b>Identify</b> button. Rows Standard, Augmented, Stellar, Radiant and Total; columns are the tiers that hold a blank, in Roman numerals and the tier colors, plus Total.", c: true, how: "relicsV2Display.test.ts (vaultMatrix)." },
     { t: "With an empty vault: <b>No unidentified relics. Expeditions bring them home as blanks; identify them at the Research Lab.</b>" },
     { t: "<b>Identify</b> jumps to the Research Lab's Identification tab. At 375 px the table fits with no sideways page scroll.", tag: "device" },
   ]},
   { n: "2", title: "Identification tab (was Relics)", items: [
-    { t: "The tab reads <b>Identification</b>, beside a new <b>Cultures</b> tab. The card header shows <b>Research Lab III · B of 2 lanes</b> and the rule line (free, 10 minutes times the rarity, Lab I 1, III 2, V 3, VII 4).", tag: "theme" },
+    { t: "The tab reads <b>Identification</b>, beside a new <b>Cultures</b> tab. The card header shows <b>Research Lab III · B of 2 lanes</b> and the rule line (free, 10 minutes times the rarity, Lab I 1, III 2, V 3, VII 4)." },
     { t: "Lanes: a running lane shows <b>Tier II · stellar blank</b>, where it came from, a bar and the time left; a free lane reads <b>Free: the next queued blank starts here.</b>; a locked lane names the Lab tier that opens it (<b>Opens at Research Lab V</b>).", c: true, how: "relicsV2Display.test.ts (identificationLanes)." },
     { t: "<b>Queue all N</b> queues every waiting blank; with a lane free one starts at once. The queue lists them in order with move up, move down and remove; the header estimates how long the queue takes (<b>about ...</b>).", c: true, how: "relicsV2Display.test.ts (identificationQueue); relicIdentify.test.ts (the engine queue)." },
     { t: "Each waiting blank has its own <b>Queue</b>. Log: <b>Identification started</b> or <b>Queued for identification</b> with the blank.", tag: "save" },
@@ -210,7 +209,7 @@ const SECTIONS = [
   ]},
   { n: "3", title: "The reveal card (Just identified)", items: [
     { t: "A general relic: its glyph in the rarity color, its name, <b>Tier I · standard · reads as Relic Sample K17-42</b> (or the culture's name once revealed), its flavor, <b>Adds a Tier I copy: research speed.</b> and <b>Culture K-17 study 8 / 10.</b>", c: true, how: "relicsV2Display.test.ts (the reveal card, general)." },
-    { t: "The find that brings a culture to 10 adds a glowing box: <b>A culture is identified: the Corrimel. Every find of theirs now reads with its real name.</b> (no animation with reduced motion).", tag: "theme", c: true, how: "relicsV2Display.test.ts (cultureRevealed)." },
+    { t: "The find that brings a culture to 10 adds a glowing box: <b>A culture is identified: the Corrimel. Every find of theirs now reads with its real name.</b> (no animation with reduced motion).", c: true, how: "relicsV2Display.test.ts (cultureRevealed)." },
     { t: "An exceptional relic: its set's own glyph in the tier color, its approved name, <b>Exceptional find · Waystation Set · Tier I</b>, its flavor, <b>+3.0% research speed while held.</b> and the set's progress; a duplicate says it adds no bonus.", c: true, how: "relicsV2Display.test.ts (the reveal card, exceptional)." },
     { t: "First find banner as before, and <b>Recent identifications</b> lists the last six with their glyphs.", tag: "save" },
   ]},
@@ -221,25 +220,26 @@ const SECTIONS = [
     { t: "A ledger entry is written once per set (no screen in 0.14.0) and survives save and load.", c: true, how: "relicsV2Content.test.ts (the ledger: once per key, its game second the same for one call, chunks and 1 s steps, round trip)." },
   ]},
   { n: "5", title: "Cultures tab", items: [
-    { t: "The lead line, then every culture met: its bare name once revealed (<b>Halvessi</b>) or <b>Culture K-17</b>, its Roman numeral tier in the tier color, a bar and <b>7 / 10</b> or <b>identified</b>.", tag: "theme", c: true, how: "relicsV2Display.test.ts (cultureRows)." },
+    { t: "The lead line, then every culture met: its bare name once revealed (<b>Halvessi</b>) or <b>Culture K-17</b>, its Roman numeral tier in the tier color, a bar and <b>7 / 10</b> or <b>identified</b>.", c: true, how: "relicsV2Display.test.ts (cultureRows)." },
     { t: "The detail: the name and tier chip; <b>Not yet identified ...</b> or <b>Identified. Once known as Culture K-37.</b>; the lore line once identified; the study bar with <b>N from identified finds · M from ancient data · K more to reveal the name</b>; the finds as sample names; decoded ancient entries when there are any.", c: true, how: "relicsV2Display.test.ts (cultureDetail); relicsV2Content.test.ts (names and lore read from the sheet)." },
+    { t: "Where a culture's relics were found (your 2026-11-13 pick \"First + count\"): each row reads <b>Found on LB-0412 c and 2 more</b> (one planet: <b>Found on LB-0412 c</b>; none, for example only short-range finds: nothing), and the detail lists every source planet under <b>Found on</b>, the first found first.", tag: "save", c: true, how: "relicsV2Content.test.ts (source planets: order, once each, the row text, offline == live); relicsV2Display.test.ts." },
     { t: "With the tab open while a culture reaches 10: the reveal card glows once with the new name, and the list selects it.", tag: "device" },
     { t: "An Ancient Data Fragment study counts too: one that brings its culture to 10 names it.", c: true, how: "relicsV2Content.test.ts; the registry's content:dataStudy:cultureReveal probe." },
     { t: "No culture is named after the First Cause or anything like it, and no name repeats a relic, set or piece.", c: true, how: "relicsV2Content.test.ts (the guard test)." },
   ]},
   { n: "6", title: "The Museum (Archive)", items: [
-    { t: "The summary <b>General relics N · Exceptional pieces M of 54</b>, then the tier pills <b>Tier I</b> to <b>Tier VII</b> in the tier colors.", tag: "theme" },
-    { t: "The cap meter: <b>Tier II identified: N soft cap 1,000</b> with <b>N until the cap</b>; a tier past the cap shows the extra part hatched, the chip <b>Bonuses held at the cap snapshot</b> and <b>N more counted past the cap ...</b>.", tag: "theme", c: true, how: "relicsV2Display.test.ts (museumTierView, past the cap)." },
+    { t: "The summary <b>General relics N · Exceptional pieces M of 54</b>, then the tier pills <b>Tier I</b> to <b>Tier VII</b> in the tier colors." },
+    { t: "The cap meter: <b>Tier II identified: N soft cap 1,000</b> with <b>N until the cap</b>; a tier past the cap shows the extra part hatched, the chip <b>Bonuses held at the cap snapshot</b> and <b>N more counted past the cap ...</b>.", c: true, how: "relicsV2Display.test.ts (museumTierView, past the cap)." },
     { t: "<b>Tier N museum bonuses</b> chips match what the tier gives (Tier I: its copies and set ladder; Tier II up: the curve).", c: true, how: "relicsV2Display.test.ts (the bonuses read what the engine reads)." },
     { t: "Shelves Standard, Augmented, Stellar, Radiant with every type, its stat and count; <b>Culture samples (n)</b> opens the samples (<b>Relic Sample ...</b> or <b>Halvessi Glyph Tablet</b>); a type not open at the tier reads <b>Found in Tier IV+ regions</b>.", c: true, how: "relicsV2Display.test.ts (shelves and samples)." },
-    { t: "<b>Exceptional sets, Tier N</b>: each set card with its own glyph and its flavor, pieces named once held (<b>Not found yet</b> otherwise), the value, duplicates, and <b>Full set: ... (active)</b> with a <b>Complete</b> chip.", tag: "theme", c: true, how: "relicsV2Display.test.ts (exceptionalSetViews)." },
+    { t: "<b>Exceptional sets, Tier N</b>: each set card with its own glyph and its flavor, pieces named once held (<b>Not found yet</b> otherwise), the value, duplicates, and <b>Full set: ... (active)</b> with a <b>Complete</b> chip.", c: true, how: "relicsV2Display.test.ts (exceptionalSetViews)." },
     { t: "Tier I also shows <b>Tier I set bonuses</b>: the familiar set ladder, unchanged.", tag: "save" },
     { t: "At 375 px everything stacks in one column with no sideways page scroll.", tag: "device" },
   ]},
   { n: "7", title: "Help and text", items: [
-    { t: "Help, <b>Relics and the Museum</b>: finding relics, blanks, identification, exceptional relics, cultures, the Museum and the soft cap, all true to the game. The Ancient Data Fragment line says it gives its culture a study point.", tag: "theme" },
+    { t: "Help, <b>Relics and the Museum</b>: finding relics, blanks, identification, exceptional relics, cultures, the Museum and the soft cap, all true to the game. The Ancient Data Fragment line says it gives its culture a study point." },
     { t: "Claim log: <b>N unidentified relics to the vault (Tier I 2, Tier II 1)</b>.", tag: "save" },
-    { t: "No em dashes, US English, every tier in Roman numerals, every glyph SVG (the exceptional glyph is new; no emoji).", tag: "theme", c: true, how: "relicsV2Catalog.test.ts and relicsV2Content.test.ts (no em dash or double hyphen in names and lore); icon tests (ICON_SEMANTICS)." },
+    { t: "No em dashes, US English, every tier in Roman numerals, every glyph SVG (the exceptional glyph is new; no emoji).", c: true, how: "relicsV2Catalog.test.ts and relicsV2Content.test.ts (no em dash or double hyphen in names and lore); icon tests (ICON_SEMANTICS)." },
   ]},
 ];
 
@@ -251,7 +251,6 @@ function save() { try { localStorage.setItem(STORE, JSON.stringify(userState)); 
 const CHIP = {
   save: '<span class="chip save">needs real save</span>',
   device: '<span class="chip device">needs device</span>',
-  theme: '<span class="chip theme">light + dark</span>',
   later: '<span class="chip later">not in this build</span>',
 };
 

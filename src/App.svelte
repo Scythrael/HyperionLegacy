@@ -1107,7 +1107,7 @@
   import { pickRelicStudyRecord, unseenRelicStudyRecords } from "./lib/relicReveal";
   // Relics v2 R2-7 / R2-8: the Identification tab's reveal card, the Cultures tab, the Museum v2 page and the Warehouse's
   // Unidentified Relics row (pure view models over the engine readers).
-  import { blankTitle, buildRelicRevealV2, claimedBlanksByTierText, type RelicRevealV2 } from "./lib/relicsV2Display";
+  import { blankTitle, buildRelicRevealV2, claimedBlanksByTierText, laneStepsText, type RelicRevealV2 } from "./lib/relicsV2Display";
   import CulturesPanel from "./lib/CulturesPanel.svelte";
   import MuseumV2Panel from "./lib/MuseumV2Panel.svelte";
   import UnidentifiedRelicsPanel from "./lib/UnidentifiedRelicsPanel.svelte";
@@ -14120,7 +14120,7 @@
                   IDENTIFICATION
                   <HelpTip
                     label="How identification works"
-                    text="Away teams bring relics home as unidentified blanks, each with a region tier and a rarity. Queue them here: identification is free and runs on the Lab's own lanes (Lab I 1, III 2, V 3, VII 4), never blocking blueprint research, and the next queued blank starts the moment a lane frees, also while you are away. Identification reveals the relic's type; a rare few are exceptional relics, named on the spot. Every identified relic goes to the Museum in the Archive."
+                    text={`Away teams bring relics home as unidentified blanks, each with a region tier and a rarity. Queue them here: identification is free and runs on the Lab's own lanes (${laneStepsText()}), never blocking blueprint research, and the next queued blank starts the moment a lane frees, also while you are away. Identification reveals the relic's type; a rare few are exceptional relics, named on the spot. Every identified relic goes to the Museum in the Archive.`}
                   />
                 </div>
                 <RelicStudyPanel

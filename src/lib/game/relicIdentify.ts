@@ -54,6 +54,7 @@ import {
   relicStaggerBand,
   relicTypesInBand,
   relicTypesInBandAt,
+  withCulturePlanet,
   withCultureReveal,
   type RelicBand,
 } from "./relics";
@@ -204,7 +205,8 @@ export function applyRelicIdentification(
   museum: MuseumV2 | undefined,
   discovered: readonly string[],
   outcome: RelicIdentification,
-  cultureId: string | null
+  cultureId: string | null,
+  planet?: string
 ): { museum: MuseumV2; discovered: string[] } {
   const base = museum ?? emptyMuseumV2();
   const id = relicIdentificationId(outcome);
@@ -213,7 +215,9 @@ export function applyRelicIdentification(
     let next: MuseumV2 = museumDepositGeneral(base, outcome.tier, id, 1);
     if (cultureId !== null) {
       const c = base.cultures[cultureId] ?? { points: 0, finds: {} };
-      next = { ...next, cultures: { ...base.cultures, [cultureId]: { points: c.points + 1, finds: { ...c.finds, [id]: (c.finds[id] ?? 0) + 1 } } } };
+      const record = { ...c, points: c.points + 1, finds: { ...c.finds, [id]: (c.finds[id] ?? 0) + 1 } };
+      // User 2026-11-13 "First + count": the planet this find came from joins the culture's source planets once.
+      next = { ...next, cultures: { ...base.cultures, [cultureId]: planet !== undefined ? withCulturePlanet(record, planet) : record } };
       // R2-6: the point that reaches CULTURE_STUDY_POINTS reveals the culture's name (appended to culturesNamed once).
       next = withCultureReveal(next, cultureId);
     }

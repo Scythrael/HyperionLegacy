@@ -9,7 +9,7 @@
 // Pure: no draw, no clock. An event's time is the game second it happened at, handed in by the writer.
 // ============================================================================
 
-import type { GameState, NotableEvent } from "./model";
+import { NOTABLE_EVENT_KINDS, type GameState, type NotableEvent } from "./model";
 import { getExceptionalSetById } from "./relics";
 
 // The ledger key of a set completion (one per set, ever).
@@ -64,15 +64,16 @@ export function withNotableEventsOnLoad(state: any): any {
   const keys = new Set<string>();
   const kept: NotableEvent[] = [];
   for (const e of raw) {
+    // Any kind in NOTABLE_EVENT_KINDS is kept (a slice adding a kind adds it to that list); a relicSetCompleted event
+    // must also carry its set id and region tier.
+    const known = !!e && typeof e === "object" && (NOTABLE_EVENT_KINDS as readonly string[]).includes(e.kind);
+    const kindFields = !known || e.kind !== "relicSetCompleted" || (typeof e.setId === "string" && [1, 2, 3, 4, 5, 6, 7].includes(e.tier));
     const ok =
-      !!e &&
-      typeof e === "object" &&
+      known &&
+      kindFields &&
       typeof e.key === "string" &&
-      e.kind === "relicSetCompleted" &&
       typeof e.atGameSeconds === "number" &&
       Number.isFinite(e.atGameSeconds) &&
-      typeof e.setId === "string" &&
-      [1, 2, 3, 4, 5, 6, 7].includes(e.tier) &&
       !keys.has(e.key);
     if (!ok) continue;
     keys.add(e.key);

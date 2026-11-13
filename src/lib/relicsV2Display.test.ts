@@ -139,4 +139,22 @@ describe("the Museum v2 page and the Cultures tab", () => {
     expect([named.title, named.lore]).toEqual(["Garrowin", "Builders of small, sturdy ships. Some of their hulls are still airtight."]);
     expect(named.finds[0].name).toBe("Garrowin Flight Recorder");
   });
+
+  it("source planets (user 2026-11-13 \"First + count\"): the row's line and the detail's full list", () => {
+    const s0 = freshState();
+    const s: GameState = {
+      ...s0,
+      museumV2: {
+        ...s0.museumV2,
+        cultures: {
+          "culture-t2-3": { points: 3, finds: { flightRecorder: 3 }, planets: ["OA-0201 d", "OA-0099 c", "OA-0150 b"] },
+          "culture-t2-4": { points: 1, finds: { flightRecorder: 1 }, planets: ["OA-0300 b"] },
+          "culture-t2-5": { points: 1, finds: {} },
+        },
+      },
+    };
+    expect(cultureRows(s).map((r) => r.foundOn)).toEqual(["Found on OA-0201 d and 2 more", "Found on OA-0300 b", ""]);
+    expect(cultureDetail(s, "culture-t2-3").planets).toEqual(["OA-0201 d", "OA-0099 c", "OA-0150 b"]);
+    expect(cultureDetail(s, "culture-t2-5").planets).toEqual([]);
+  });
 });

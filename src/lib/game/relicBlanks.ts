@@ -21,6 +21,7 @@
 import { RELIC_DEFAULT_SEED, type EquipmentRarity, type Expedition, type GameState, type RegionTier, type RelicSetId, type RelicVaultToken } from "./model";
 import { CULTURE_ROSTER, RELIC_BAND_ODDS, RELIC_BANDS, RELIC_SITE_BIAS_MULT, relicBandOf, relicSetForPoi, relicTypesInBand, type RelicBand } from "./relics";
 import { makeRng, type Rng } from "./combat/rng";
+import { bodyLetter } from "./starCatalog";
 
 // The flag a new run carries (Expedition.relicBlanks.version).
 export const RELIC_BLANKS_VERSION = 1;
@@ -133,6 +134,20 @@ export interface RelicBlankStamp {
   tier: RegionTier;
   cultureId: string;
   stagger?: 1; // the tier stagger stamp, on a run whose flag carries it (absent before the stagger)
+  planet?: string; // the source planet's name ("LB-0412 c"), display only (relicPlanetName), appended last
+}
+
+// Relics v2 (user 2026-11-13 "First + count"): the source planet a blank came from, so a culture can say where its relics
+// were found ("Found on LB-0412 c and 2 more"). DISPLAY ONLY: no roll, no draw and no stat reads it. Stamped on every
+// blank a run with the blanks flag rolls (an in-flight run's later finds too: it changes nothing but this name). The
+// switch is TEST-ONLY (relicPlanet.fixture.ts withoutPlanetStamp reproduces every pin captured before it).
+export const RELIC_PLANET_STAMP_SWITCH: { on: boolean } = { on: true };
+
+// A body's name as the game shows it: the run's system and the body's letter (b, c, d: starCatalog.ts bodyLetter), or
+// its position on a run from before named regions. Pure.
+export function relicPlanetName(exp: Pick<Expedition, "systemName" | "region">, bodyIndex: number): string {
+  const i = Math.max(0, bodyIndex);
+  return `${exp.systemName} ${exp.region ? bodyLetter(i) : String(i + 1)}`;
 }
 
 // A run's region tier: its G2-2 region stamp, else its risk profile's tier, else Tier I. Pure.
@@ -151,11 +166,14 @@ export function cultureForBody(expSeed: number, bodyIndex: number, tier: RegionT
 
 // The blank stamp a run writes on a relic from body `bodyIndex`, or undefined for a run without the R2-2 flag (it keeps
 // rolling and storing its tokens exactly as before). Pure.
-export function relicBlankStamp(exp: Pick<Expedition, "seed" | "region" | "risk" | "relicBlanks">, bodyIndex: number): RelicBlankStamp | undefined {
+export function relicBlankStamp(exp: Pick<Expedition, "seed" | "region" | "risk" | "relicBlanks"> & Partial<Pick<Expedition, "systemName">>, bodyIndex: number): RelicBlankStamp | undefined {
   if (!exp.relicBlanks) return undefined;
   const tier = expeditionRegionTier(exp);
   const cultureId = cultureForBody(exp.seed, Math.max(0, bodyIndex), tier);
-  return relicBlanksStaggered(exp.relicBlanks) ? { tier, cultureId, stagger: RELIC_STAGGER_VERSION } : { tier, cultureId };
+  const base: RelicBlankStamp = relicBlanksStaggered(exp.relicBlanks) ? { tier, cultureId, stagger: RELIC_STAGGER_VERSION } : { tier, cultureId };
+  return RELIC_PLANET_STAMP_SWITCH.on && typeof exp.systemName === "string" && exp.systemName !== ""
+    ? { ...base, planet: relicPlanetName({ systemName: exp.systemName, region: exp.region }, bodyIndex) }
+    : base;
 }
 
 // The culture of a token minted before R2-2 (no stamp), derived from its id (plan 3.4: a pure hash with

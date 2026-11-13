@@ -14,6 +14,7 @@ import {
   CULTURE_ROSTER,
   CULTURE_CONTENT,
   CULTURE_STUDY_POINTS,
+  EXCEPTIONAL_SETS,
   RELIC_BANDS,
   RELIC_SOFT_CAP,
   REGION_TIER_LIST,
@@ -22,6 +23,7 @@ import {
   cultureIsNamed,
   cultureListName,
   cultureTier,
+  culturePlanetsText,
   exceptionalSetsOfTier,
   generalRelicSampleName,
   getExceptionalPieceById,
@@ -146,6 +148,14 @@ export function claimedBlanksByTierText(findings: readonly { relic?: { regionTie
 }
 
 // ===== The Identification tab: lanes, queue, unqueued blanks =====
+
+// The lane steps as players read them, built from the engine's table ("Lab I 1, III 2, V 3, VII 4"). Pure.
+export function laneStepsText(): string {
+  return RELIC_STUDY_LANES_BY_LAB.map((r, i) => `${i === 0 ? "Lab " : ""}${tierNumeral(r.level)} ${r.lanes}`).join(", ");
+}
+
+// The exceptional pieces in the whole catalog (54). Pure.
+export const EXCEPTIONAL_PIECE_TOTAL = EXCEPTIONAL_SETS.reduce((n, s) => n + s.pieces.length, 0);
 
 export interface LaneView {
   index: number; // 1-based
@@ -487,6 +497,7 @@ export interface CultureRowView {
   name: string; // the bare name once revealed, else "Culture K-17"
   named: boolean;
   points: number;
+  foundOn: string; // "Found on LB-0412 c and 2 more", "Found on LB-0412 c", or "" (user 2026-11-13 "First + count")
 }
 
 // Every culture the fleet has met (a study point or a find), Tier I first, in roster order. Pure.
@@ -497,7 +508,7 @@ export function cultureRows(state: GameState): CultureRowView[] {
     for (const id of CULTURE_ROSTER[tier]) {
       const rec = museum.cultures[id];
       if (!rec && !cultureIsNamed(museum, id)) continue;
-      out.push({ id, tier, name: cultureListName(museum, id), named: cultureIsNamed(museum, id), points: rec?.points ?? 0 });
+      out.push({ id, tier, name: cultureListName(museum, id), named: cultureIsNamed(museum, id), points: rec?.points ?? 0, foundOn: culturePlanetsText(rec?.planets) });
     }
   }
   return out;
@@ -516,6 +527,7 @@ export interface CultureDetailView {
   toGo: number;
   finds: { typeId: string; glyph: IconName; name: string; typeLabel: string; count: number }[];
   decoded: number;
+  planets: string[]; // every source planet (user 2026-11-13 "First + count"): the first found first, then canonical
 }
 
 // One culture's detail. Pure.
@@ -539,5 +551,6 @@ export function cultureDetail(state: GameState, cultureId: string): CultureDetai
       .filter(([, n]) => n > 0)
       .map(([typeId, count]) => ({ typeId, glyph: relicIcon(typeId), name: generalRelicSampleName(museum, cultureId, typeId), typeLabel: getRelicTypeById(typeId)?.label ?? typeId, count })),
     decoded: ancientEntriesDecoded(state, cultureId),
+    planets: [...(rec.planets ?? [])],
   };
 }

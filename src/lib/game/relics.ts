@@ -1388,6 +1388,24 @@ export function generalRelicSampleName(museum: Pick<MuseumV2, "culturesNamed"> |
   return `Relic Sample ${relicSampleCode(cultureId, typeId)}`;
 }
 
+// User 2026-11-13 "First + count": a culture record with `planet` among its source planets, each planet once, in a
+// deterministic order: the first planet a find came from stays first, the rest in canonical (code point) order, so the
+// list does not depend on how finds after the first were batched. The SAME reference when the planet is listed. Pure.
+export function withCulturePlanet<R extends { planets?: string[] }>(record: R, planet: string): R {
+  const planets = record.planets ?? [];
+  if (planets.includes(planet)) return record;
+  if (planets.length === 0) return { ...record, planets: [planet] };
+  const rest = [...planets.slice(1), planet].sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
+  return { ...record, planets: [planets[0], ...rest] };
+}
+
+// "Found on LB-0412 c and 2 more" (one planet: "Found on LB-0412 c"; none: ""). Pure.
+export function culturePlanetsText(planets: readonly string[] | undefined): string {
+  const list = planets ?? [];
+  if (list.length === 0) return "";
+  return list.length === 1 ? `Found on ${list[0]}` : `Found on ${list[0]} and ${list.length - 1} more`;
+}
+
 // THE CANONICAL ORDER of the named-culture list: roster order (Tier I first, then each tier's roster index), an id
 // outside the roster after them by its id. The list is a SET kept in this order, never in reveal order: a resolve applies
 // the ancient data feed after the relic chain, so two cultures named in one offline window would otherwise be listed in a
@@ -1413,10 +1431,20 @@ export function withCultureReveal(museum: MuseumV2, cultureId: string): MuseumV2
 // Every-load (no SAVE_VERSION bump): a dev save whose cultures crossed the threshold before R2-6 (points were counted
 // since R2-3) gains their reveal, and a list in reveal order (a build before the canonical order) is put in the canonical
 // order. Identity on every save with nothing to reveal or reorder. Pure.
+type MuseumCultureRecordLike = { points: number; finds: Record<string, number>; planets?: string[] };
 export function withCultureRevealsOnLoad(state: any): any {
   const museum = state?.museumV2;
   if (!museum || typeof museum !== "object" || !museum.cultures || !Array.isArray(museum.culturesNamed)) return state;
   let next = museum as MuseumV2;
+  // A culture's source planets: keep only names (strings), each once; a list that is not an array is dropped.
+  for (const [id, c] of Object.entries(next.cultures)) {
+    if (!c || typeof c !== "object" || !("planets" in c)) continue;
+    const raw = (c as { planets?: unknown }).planets;
+    const clean = Array.isArray(raw) ? raw.filter((p, i) => typeof p === "string" && raw.indexOf(p) === i) : null;
+    if (clean !== null && clean.length === (raw as unknown[]).length) continue;
+    const { planets: _drop, ...rest } = c as MuseumCultureRecordLike;
+    next = { ...next, cultures: { ...next.cultures, [id]: clean !== null && clean.length > 0 ? { ...rest, planets: clean as string[] } : rest } };
+  }
   for (const tier of REGION_TIER_LIST) for (const id of CULTURE_ROSTER[tier]) next = withCultureReveal(next, id);
   for (const id of Object.keys(museum.cultures).sort()) next = withCultureReveal(next, id);
   const sorted = [...next.culturesNamed].sort(compareCultureIds);

@@ -20,12 +20,16 @@ import {
   generalRelicSampleName,
   relicSampleCode,
   withCultureRevealsOnLoad,
+  withCulturePlanet,
+  culturePlanetsText,
 } from "./relics";
 import { feedCultureData } from "./dataStudy";
 import { applyRelicIdentification, withSetCompletion } from "./relicIdentify";
 import { economyTick, queueAllRelicStudies } from "./tick";
 import { contentGoldenStart } from "./relicsV2Content.fixture";
 import { relicSetCompletedEvents, withNotableEvents, withNotableEventsOnLoad } from "./notableEvents";
+import { NOTABLE_EVENT_KINDS } from "./model";
+import { relicBlankStamp, relicPlanetName } from "./relicBlanks";
 import { deserialize, migrate, serialize, type SaveFile } from "./save";
 
 // Twelve radiant Tier VII blanks on relic seed 2 (Lab VII, every set held but its last piece): one exceptional reveal,
@@ -226,5 +230,69 @@ describe("R2-6: cultures", () => {
     expect(withCultureRevealsOnLoad(base)).toBe(base);
     const loaded = migrate(deserialize(serialize(s as GameState, 0)) as SaveFile, 1);
     expect(loaded.museumV2.culturesNamed).toEqual(["culture-t1-4", "culture-t2-1"]);
+  });
+});
+
+describe('a culture\'s source planets (user 2026-11-13 "First + count")', () => {
+  it("each planet once: the first found first, the rest in canonical order; the row text", () => {
+    let r: { points: number; finds: Record<string, number>; planets?: string[] } = { points: 0, finds: {} };
+    expect(culturePlanetsText(r.planets)).toBe("");
+    for (const p of ["OA-0201 d", "OA-0201 b", "OA-0099 c", "OA-0201 b", "OA-0150 b"]) r = withCulturePlanet(r, p);
+    expect(r.planets).toEqual(["OA-0201 d", "OA-0099 c", "OA-0150 b", "OA-0201 b"]);
+    expect(withCulturePlanet(r, "OA-0099 c")).toBe(r);
+    expect(culturePlanetsText(["LB-0412 c"])).toBe("Found on LB-0412 c");
+    expect(culturePlanetsText(r.planets)).toBe("Found on OA-0201 d and 3 more");
+  });
+
+  it("a run with the blanks flag stamps its body's name on every blank (display only)", () => {
+    const run = { seed: 7, region: { tier: 2 }, risk: undefined, relicBlanks: { version: 1, stagger: 1 }, systemName: "OA-0201" } as unknown as Parameters<typeof relicBlankStamp>[0];
+    expect(relicBlankStamp(run, 2)?.planet).toBe("OA-0201 d");
+    expect(relicPlanetName({ systemName: "Wolf 359", region: undefined } as never, 0)).toBe("Wolf 359 1");
+    expect(relicBlankStamp({ ...run, relicBlanks: undefined } as never, 2)).toBeUndefined();
+  });
+
+  it("identification records the planets, the same for one call, 997 s chunks and 1 s steps", () => {
+    const planets = ["OA-0201 d", "OA-0099 c", "OA-0201 d", "OA-0150 b"];
+    const vault: RelicVaultToken[] = planets.map((p, n) => ({ id: `pl-${n}`, tier: "standard", quality: 0, regionTier: 2, cultureId: "culture-t2-5", source: "expedition", planet: p }));
+    const start = queueAllRelicStudies({ ...contentGoldenStart(0), relicVault: vault }).next;
+    const T = 1500;
+    const one = economyTick(start, T, () => 0);
+    let chunks = start;
+    for (let left = T; left > 0; left -= 997) chunks = economyTick(chunks, Math.min(997, left), () => 0);
+    let steps = start;
+    for (let i = 0; i < T; i++) steps = economyTick(steps, 1, () => 0);
+    const rec = one.museumV2.cultures["culture-t2-5"];
+    expect(rec.points).toBe(4);
+    expect(rec.planets?.[0]).toBe("OA-0201 d");
+    expect([...(rec.planets ?? [])].sort()).toEqual(["OA-0099 c", "OA-0150 b", "OA-0201 d"]);
+    for (const other of [chunks, steps]) expect(JSON.stringify(other.museumV2)).toBe(JSON.stringify(one.museumV2));
+  });
+
+  it("load keeps planet names only, each once; a clean record is the same reference", () => {
+    const base = freshState();
+    const clean = { ...base, museumV2: { ...base.museumV2, cultures: { "culture-t1-1": { points: 2, finds: {}, planets: ["LB-0001 b"] } } } };
+    expect(withCultureRevealsOnLoad(clean)).toBe(clean);
+    const dirty = { ...base, museumV2: { ...base.museumV2, cultures: { "culture-t1-1": { points: 2, finds: {}, planets: ["LB-0001 b", 7, "LB-0001 b"] } } } };
+    expect(withCultureRevealsOnLoad(dirty).museumV2.cultures["culture-t1-1"].planets).toEqual(["LB-0001 b"]);
+    const notList = { ...base, museumV2: { ...base.museumV2, cultures: { "culture-t1-1": { points: 2, finds: {}, planets: "x" } } } };
+    expect("planets" in withCultureRevealsOnLoad(notList).museumV2.cultures["culture-t1-1"]).toBe(false);
+  });
+});
+
+describe("the ledger keeps every known kind on load (NOTABLE_EVENT_KINDS)", () => {
+  it("a kind added to the list survives a load; a kind not in it is dropped", () => {
+    const set: NotableEvent = { key: "relicSetCompleted:exc-t1-a", kind: "relicSetCompleted", atGameSeconds: 3, setId: "exc-t1-a", tier: 1 };
+    const other = { key: "systemCompleted:sys-1", kind: "systemCompleted", atGameSeconds: 9 };
+    const s = { ...freshState(), notableEvents: [set, other] };
+    expect(withNotableEventsOnLoad(s).notableEvents).toEqual([set]);
+    const kinds = NOTABLE_EVENT_KINDS as unknown as string[];
+    kinds.push("systemCompleted");
+    try {
+      expect(withNotableEventsOnLoad(s)).toBe(s);
+    } finally {
+      kinds.pop();
+    }
+    // A relicSetCompleted event still needs its set id and tier.
+    expect(withNotableEventsOnLoad({ ...freshState(), notableEvents: [{ ...set, tier: undefined }] }).notableEvents).toEqual([]);
   });
 });

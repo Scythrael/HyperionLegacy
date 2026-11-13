@@ -9382,7 +9382,8 @@ function depositRelicStudy(
   if (effect.v === RELIC_STUDY_VERSION) {
     const outcome = identifyRelicV2(state.relicSeed, museum, effect.token, effect.studyIndex);
     const cultureId = outcome.kind === "general" ? vaultTokenCultureId(state, effect.token) : null;
-    const landed = applyRelicIdentification(museum, discovered, outcome, cultureId);
+    // User 2026-11-13 "First + count": the blank's source planet (display only) joins its culture's planets.
+    const landed = applyRelicIdentification(museum, discovered, outcome, cultureId, effect.token.planet);
     return { relicId: relicIdentificationId(outcome), museum: landed.museum, discovered: landed.discovered };
   }
   const relicId = identifyStudiedRelic(state, effect.token, effect.studyIndex);
@@ -9456,8 +9457,12 @@ function resolveRelicStudies(state: GameState, ticksElapsed: number): RelicStudy
   let queueTouched = false;
   const completed = new Map<string, string | null>();
   const chained: { process: TimedProcess; relicId: string | null; at: number }[] = [];
-  // R2-5: the set completion ledger events, stamped at the window's start (the resolver runs on the state economyTick
-  // already advanced by the window) plus the completing study's instant.
+  // R2-5: the set completion ledger events, stamped at the window's start plus the completing study's instant.
+  // CONTRACT: resolveProcesses is handed the state AFTER economyTick advanced gameTimeSeconds by the whole window
+  // (economyTick builds postMissionState with gameTimeSeconds + deltaSeconds, then resolves), so the window began at
+  // gameTimeSeconds - ticksElapsed * tickDurationSeconds. That is what makes one call, 997 s chunks and 1 s steps stamp
+  // the same second. A direct caller that has not advanced the clock (a unit test resolving on its own) gets stamps one
+  // window early; nothing but the ledger's game second reads this.
   const events: NotableEvent[] = [];
   const windowStartSeconds = state.gameTimeSeconds - ticksElapsed * state.tickDurationSeconds;
 

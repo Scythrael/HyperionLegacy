@@ -5,9 +5,12 @@
   //
   // A list of every culture the fleet has met (its Roman numeral tier, the bare name once revealed or its "Culture K-17"
   // code, its study toward the name) beside the selected culture's detail: its study bar (points from identified finds
-  // and from ancient data), its finds as their sample names, its decoded ancient entries, and its lore line once
-  // identified. When a culture's name is revealed while the tab is open (or since it was last opened this session), the
-  // inline reveal card glows once (reduced motion: no animation). Pure display; no actions.
+  // and from ancient data), its finds as their sample names, its source planets, its decoded ancient entries, and its lore
+  // line once identified. Each row says where the culture's relics were found ("Found on LB-0412 c and 2 more", user
+  // 2026-11-13 "First + count"); the detail lists every source planet. The panel is created each time the tab opens, so
+  // the inline reveal card glows once only for a name revealed WHILE the tab stays open (a name revealed while it was
+  // closed shows as already identified; the Identification tab's reveal card announced it). Reduced motion: no
+  // animation. Pure display; no actions.
   // ============================================================================
 
   import type { GameState } from "./game/model";
@@ -46,7 +49,7 @@
 
 <div class="cu-wrap">
   <p class="cu-lead">
-    Each culture belongs to the planet its relics came from. +1 study point per identified find, plus ancient data from the gas giant study. The name appears at {CULTURE_STUDY_POINTS}.
+    A relic's culture is set by the planet it was found on; several planets can share one culture. +1 study point per identified find, plus ancient data from the gas giant study. The name appears at {CULTURE_STUDY_POINTS}.
   </p>
   {#if rows.length === 0}
     <p class="cu-empty">No cultures met yet. Identify a relic and the culture that made it appears here.</p>
@@ -59,6 +62,7 @@
             <span class="cu-row-t" style="color: {regionTierColor(r.tier)};">{regionTierNumeral(r.tier)}</span>
             <span class="cu-bar"><span class="cu-bar-fill" style="width: {Math.min(100, (r.points / CULTURE_STUDY_POINTS) * 100)}%;"></span></span>
             <span class="cu-row-p">{r.named ? "identified" : `${Math.min(r.points, CULTURE_STUDY_POINTS)} / ${CULTURE_STUDY_POINTS}`}</span>
+            {#if r.foundOn}<span class="cu-row-f">{r.foundOn}</span>{/if}
           </button>
         {/each}
       </div>
@@ -103,6 +107,15 @@
               {/each}
             {/if}
           </div>
+
+          {#if detail.planets.length > 0}
+            <div class="cu-sec">
+              <div class="cu-sec-h"><span>Found on</span><span class="cu-mono">{detail.planets.length} {detail.planets.length === 1 ? "planet" : "planets"}</span></div>
+              <ul class="cu-planets">
+                {#each detail.planets as p (p)}<li>{p}</li>{/each}
+              </ul>
+            </div>
+          {/if}
 
           {#if detail.decoded > 0}
             <div class="cu-sec">
@@ -170,6 +183,20 @@
   }
   .cu-row-t {
     font-family: var(--font-mono);
+  }
+  .cu-row-f {
+    grid-column: 1 / -1;
+    font-size: var(--text-2xs);
+    color: var(--color-text-dim);
+  }
+  .cu-planets {
+    margin: 0;
+    padding-left: 18px;
+    display: grid;
+    gap: 2px;
+    font-family: var(--font-mono);
+    font-size: var(--text-2xs);
+    color: var(--color-text-primary);
   }
   .cu-row-p {
     font-family: var(--font-mono);

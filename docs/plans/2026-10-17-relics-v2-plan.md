@@ -508,8 +508,22 @@ shelves by rarity band per tier; hatched past-cap bar; culture samples under eac
   contact sheet at 16, 28 and 56 px beside home, star, ship, research and museum: Long Vigil's first draft (an eye on a
   pillar) read like the Orrery (an orbit on a stand) at 16 px, so it became an hourglass. relicIcons.test.ts: one glyph
   per set, 14 distinct, path data unlike any other registered glyph.
-- The culture detail does not name a "source planet" (the mockup's sample line): many planets share a culture (six per
-  tier), so the page says the culture is set by the planet a relic came from, without naming one.
+- Source planets (user 2026-11-13 "First + count (Recommended)"): every blank a run with the blanks flag rolls carries its
+  body's name (`planet`, "OA-0201 d": the system and the body letter, `relicBlanks.ts relicPlanetName`), display only, on
+  the roll's stamp and through the deposit, appended last. Identification adds it to the culture's `planets` once
+  (`relics.ts withCulturePlanet`: the first planet found stays first, the rest in canonical order, so any batching gives
+  the same list; tested one call == 997 s chunks == 1 s steps). The Cultures row reads "Found on OA-0201 d and 2 more"
+  ("Found on OA-0201 d" with one, nothing with none: a short-range, completion or grant blank has no planet), and the
+  detail lists every planet. Load keeps only names, each once. Moved pins, traced: the files captured before it
+  (relicsV2BlanksGoldens, relicStaggerGoldens, gasGiantSpecialsGoldens, gasGiantPickupPause) run with the stamp off
+  (`relicPlanet.fixture.ts planetStampOffForThisFile`) and reproduce every pin as captured.
+- Review polish (2026-11-13): the Cultures lead line says a culture is set by the planet a relic was found on and that
+  several planets can share one; the reveal comment says the panel remounts on each opening; the lane steps (the tab
+  and its Help tip) are built from `RELIC_STUDY_LANES_BY_LAB` and the Museum's "of 54" from `EXCEPTIONAL_SETS`; the
+  Identification tab has one heading; the color-blind palette remaps the seven region tiers off its state colors;
+  the Unidentified Relics headers read "Tier II" to screen readers; the ledger keeps every kind in `NOTABLE_EVENT_KINDS`
+  on load (`setId` / `tier` are relicSetCompleted's own fields); `resolveProcesses`' window-start contract is documented
+  at the stamp; Help says "no hard cap"; the QA sheet drops the light theme; the stat label reads "science team power".
 
 ### R2-9: Help, text, QA, close-out
 Help pages for relics, identification, cultures, the Museum curve and the soft cap; claim log lines for blanks by

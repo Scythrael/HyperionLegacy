@@ -16,7 +16,7 @@
   import { regionTierNumeral } from "./game/galaxy";
   import Icon from "./ui/Icon.svelte";
   import MuseumPanel from "./MuseumPanel.svelte";
-  import { bandColor, exceptionalPiecesHeld, generalCopiesTotal, museumTierView, regionTierColor, tierLabel } from "./relicsV2Display";
+  import { EXCEPTIONAL_PIECE_TOTAL, bandColor, exceptionalPiecesHeld, generalCopiesTotal, museumTierView, regionTierColor, tierLabel } from "./relicsV2Display";
   import { exceptionalSetIcon } from "./ui/relicIcons";
 
   export let state: GameState;
@@ -31,7 +31,7 @@
 <div class="mv">
   <div class="mv-sum">
     <span>General relics <b>{fmt(general)}</b></span>
-    <span>Exceptional pieces <b>{pieces}</b> of 54</span>
+    <span>Exceptional pieces <b>{pieces}</b> of {EXCEPTIONAL_PIECE_TOTAL}</span>
   </div>
   <div class="mv-pills" role="group" aria-label="Region tier">
     {#each REGION_TIER_LIST as t (t)}

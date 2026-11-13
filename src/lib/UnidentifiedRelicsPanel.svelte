@@ -35,7 +35,7 @@
         <thead>
           <tr>
             <th scope="col">Rarity</th>
-            {#each m.rows as r (r.tier)}<th scope="col" style="color: {regionTierColor(r.tier)};" title="Tier {regionTierNumeral(r.tier)}">{regionTierNumeral(r.tier)}</th>{/each}
+            {#each m.rows as r (r.tier)}<th scope="col" style="color: {regionTierColor(r.tier)};" title="Tier {regionTierNumeral(r.tier)}"><span class="ur-sr">Tier </span>{regionTierNumeral(r.tier)}</th>{/each}
             <th scope="col">Total</th>
           </tr>
         </thead>
@@ -127,6 +127,18 @@
   }
   .ur-table td.zero {
     color: var(--color-text-dim);
+  }
+  /* Read by screen readers only: a bare numeral header says "Tier II". */
+  .ur-sr {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+    border: 0;
   }
   .ur-tot {
     font-weight: 600;

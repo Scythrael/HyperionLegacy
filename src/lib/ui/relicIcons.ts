@@ -143,7 +143,7 @@ export const MUSEUM_STAT_LABEL: Readonly<Record<MuseumStat, string>> = {
   salvageYield: "salvage yield (recycling and hull teardown)",
   sensors: "sensors",
   scanSpeed: "scan speed",
-  scienceTeamPower: "Science team power",
+  scienceTeamPower: "science team power",
   crewBonuses: "crew bonuses",
   miningYield: "mining yield",
   rareMaterialChance: "rare material chance",

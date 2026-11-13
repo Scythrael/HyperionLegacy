@@ -26,6 +26,7 @@
     identificationLanes,
     identificationQueue,
     labLabel,
+    laneStepsText,
     minutesText,
     queueClearTicks,
     recentIdentifications,
@@ -58,13 +59,12 @@
 <div class="id-wrap">
   <div class="id" class:has-reveal={reveal !== null}>
     <section class="id-card id-main">
+      <!-- One heading (the panel's IDENTIFICATION title, as the mockup): the card opens on the Lab and lane chip. -->
       <div class="id-h">
-        <span class="id-glyph"><Icon name="study" size={16} /></span>
-        <span class="id-title">Identification</span>
         <span class="id-chip">{lab ?? "No Research Lab"} · {busy} of {openLanes} {openLanes === 1 ? "lane" : "lanes"}</span>
       </div>
       <p class="id-rule">
-        Free. Each blank takes 10 minutes times its rarity (standard 10 min, augmented 15, stellar 20, radiant 30), shortened by research speed. Any Lab level identifies any tier. Lanes: Lab I 1, III 2, V 3, VII 4.
+        Free. Each blank takes 10 minutes times its rarity (standard 10 min, augmented 15, stellar 20, radiant 30), shortened by research speed. Any Lab level identifies any tier. Lanes: {laneStepsText()}.
       </p>
       {#if openLanes === 0}
         <p class="id-gate"><Icon name="warning" size={13} /> Identification needs the Research Lab. Build it to start identifying relics.</p>

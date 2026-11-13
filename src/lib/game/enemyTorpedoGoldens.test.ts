@@ -29,6 +29,10 @@ ordering2OffForThisFile();
 import { repairRulesOffForThisFile } from "./fieldRepairRulesSwitch.fixture";
 repairRulesOffForThisFile();
 import { describe, expect, it } from "vitest";
+// Relics v2 source planets (user 2026-11-13 "First + count") came after these pins: each blank now also carries its
+// planet's name (display only). The file runs with the stamp off, so every pin reproduces as captured (relicPlanet.fixture.ts).
+import { planetStampOffForThisFile } from "./relicPlanet.fixture";
+planetStampOffForThisFile();
 import Decimal from "break_infinity.js";
 import { PATROLS, SHIP_TYPES, type Expedition, type GameState, type PatrolKey, type PatrolMissionState, type RegionTier, type ShipTypeKey } from "./model";
 import { dispatchCaptainOnPatrol, economyTick } from "./tick";
