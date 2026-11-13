@@ -178,7 +178,8 @@
     <h2>Builder notes (completion tracking, 2026-11-13)</h2>
     <ol>
       <li><b>One save change, optional.</b> <code>systemRecords</code> (one record per system: its id and name, tier, region stamp with bearing and distance, each body's scan and objective counts, the nebula sweep, when, and "abandoned") is written at a claim and at an abandon. Because your rule weighs each body equally, the record keeps the counts <b>per body</b> (the mockup's notes listed totals, written before that answer). The % is always derived, never stored. No save version change.</li>
-      <li><b>The nebula sweep</b> belongs to no body, so it is weighed as one more equal share of the system (whole once swept). Your answer counted it as "one objective of the system" without saying its weight: flagged as an open question.</li>
+      <li><b>The nebula sweep</b> belongs to no body, so it is weighed as one more equal share of the system (whole once swept). Your answer: "One body's share".</li>
+      <li><b>The planet roll</b> (your answer: "Planet roll + system badge"): each planet that reaches 100% pays one bonus relic blank (one rarity step up, its region's tier) once, ever. It pays at the claim of the run that finished it, or at the abandon of its Resume system; a recalled run's claim pays nothing yet. A planet that already paid on an earlier visit never pays again (the record keeps which planets paid).</li>
       <li><b>A recalled run</b> whose system goes to Resume writes no record at its claim: the system is listed live (In Resume) until it is finished or abandoned. A run recalled before anything was charted is a candidate again, not listed.</li>
       <li><b>The hidden ledger</b> (<code>notableEvents</code>) records "system completed" at the claim of a 100% run and "relic set completed" when a study completes an exceptional set. No screen.</li>
       <li><b>One new glyph</b>, <code>systemComplete</code> (an orbit with a planet riding it and a check inside), always beside the word Completed except on the map, where the legend names the arc.</li>
@@ -216,6 +217,8 @@ const SECTIONS = [
   { n: "4", title: "The claim card (your pick: a line at 100%)", items: [
     { t: "A run home at 100%: the claim card reads <b>SYSTEM completed: every body scanned, every objective done.</b> with the glyph. Under 100% there is no such line.", c: true, tag: "theme", how: "completionDisplay.test.ts (claimCompletionText)." },
     { t: "After the claim the system's row in the Survey Log shows the badge and Completed instead of a number.", c: true, tag: "save", how: "completionTracking.test.ts (a run under way, then its claim)." },
+    { t: "Planet roll: claim a run that brought planets to 100%. After the findings line, the log reads <b>Planets completed: NAME b and NAME c. Bonus relic rolls: 2 unidentified relics to the vault (Tier I · augmented blank, ...)</b>, and the Unidentified Relics list shows those blanks from <b>a fully surveyed planet</b>.", c: true, tag: "save", how: "completionRollGoldens.test.ts (claims); completionDisplay.test.ts (planetRollLine)." },
+    { t: "Planet roll, once: recall a run after one planet reached 100%; its claim pays nothing. Resume and finish it: the claim pays every planet now at 100%. Or abandon it: the finished planet pays then. Revisiting a system never pays a planet twice.", c: true, tag: "save", how: "completionRollGoldens.test.ts (late recall, resumed claims, never twice); completionTracking.test.ts (the planet roll)." },
   ]},
   { n: "5", title: "Survey Log: the Systems section (your pick: top of the tab)", items: [
     { t: "Facilities, Archive, Survey Log: the <b>Systems</b> section sits above the readouts, open, with <b>N visited · M completed</b> and a Hide button (it remembers Hide).", tag: "device" },
@@ -236,7 +239,7 @@ const SECTIONS = [
     { t: "No ledger screen anywhere (your pick: hidden until chat).", c: true, how: "completionTrackingGoldens.test.ts (the ledger is written); completionTracking.test.ts (only its writers name it)." },
   ]},
   { n: "8", title: "Help, glyph and text", items: [
-    { t: "Help: a new <b>System Completion</b> topic (the rule, where the % shows, no reward); <b>Expedition Tiers</b> (Resume), <b>Subspace Telescope</b> (the arcs) and <b>Survey Log</b> (a SYSTEMS paragraph) point to it. US English, no em dashes, \"objective\" never \"task\".", c: true, how: "helpTopics.test.ts (System Completion)." },
+    { t: "Help: a new <b>System Completion</b> topic (the rule, where the % shows, the PLANET BONUS roll and the badge); <b>Expedition Tiers</b> (Resume), <b>Subspace Telescope</b> (the arcs) and <b>Survey Log</b> (a SYSTEMS paragraph) point to it. US English, no em dashes, \"objective\" never \"task\".", c: true, how: "helpTopics.test.ts (System Completion)." },
     { t: "The new badge glyph reads at 16, 28 and 56 px, distinct from check, circle, skipped and giant; it is SVG in the theme color.", c: true, tag: "theme", how: "icons.test.ts (covers the completed badge)." },
   ]},
 ];

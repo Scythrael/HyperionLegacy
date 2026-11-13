@@ -1202,6 +1202,11 @@ export const RECALL_KEEPS_REPAIR_SWITCH = { live: true };
 // can show that the pins this slice moved return. Always live in the game.
 export const COMPLETION_TRACKING_SWITCH = { live: true };
 
+// Test switch only (the same pattern, the planet 100% bonus relic roll, user 2026-11-13): off, a claim and an abandon pay
+// no planet roll (no completion blank to the vault, no SystemRecord.bodiesRolled), so a golden can show that the pins
+// the roll moved return to the completion tracking slice's. Always live in the game.
+export const COMPLETION_ROLL_SWITCH = { live: true };
+
 // Test switch only (the same pattern, Wiring WR-9): off, a captain mission is dispatched without the Pilot's Cunning
 // stamp (CaptainMissionState.pilotCunning), an expedition without Command Presence on its objective hauls
 // (Expedition.groundOutputShare) or Operations Integrity on its offload (GroundOpsFactors.offloadSteady), and a
@@ -9200,6 +9205,11 @@ export interface SystemRecord {
   bodies: CompletionBodyTally[];
   nebula?: { done: boolean }; // absent when the system has none
   abandoned?: true;
+  // The planet roll (user 2026-11-13 "Planet roll + system badge (Recommended)"): the bodies, by index in the system,
+  // whose 100% bonus relic roll has paid (completion.ts withClaimRecord / withAbandonRecord), ascending. Kept through
+  // every later write of the system's record (whichever visit's counts are kept), so a body pays once per system, ever.
+  // Absent until the first roll. Appended last; plain data, no SAVE bump.
+  bodiesRolled?: number[];
 }
 
 // Expedition Tiers G2-3 (user G5 + G21, 2026-10-16): a run's voyage. `tier` sets the nominal hours (tiers are

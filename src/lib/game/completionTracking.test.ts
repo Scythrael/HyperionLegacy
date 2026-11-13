@@ -5,7 +5,10 @@ import { describe, expect, it } from "vitest";
 import { readFileSync, readdirSync, statSync } from "node:fs";
 import type { CompletionBodyTally, Expedition, GameState, SystemRecord } from "./model";
 import {
+  bodiesToRoll,
   heldCompletionTally,
+  planetRollTokens,
+  withAbandonRecord,
   recordCompletion,
   regionCompletionTally,
   runCompletion,
@@ -146,6 +149,57 @@ describe("records: one row per system, best % kept (user Q2 B)", () => {
     let m = withSystemRecord(undefined, { ...rec("full"), systemId: "SA-0002" });
     m = withSystemRecord(m, { ...rec("full"), systemId: "LB-0001" });
     expect(Object.keys(m)).toEqual(["LB-0001", "SA-0002"]);
+  });
+});
+
+describe("the planet roll (user 2026-11-13 \"Planet roll + system badge\"): once per body, ever", () => {
+  const rec = (bodies: CompletionBodyTally[], at: number, bodiesRolled?: number[], abandoned = false): SystemRecord => ({
+    version: 1,
+    systemId: "LB-0042",
+    systemName: "LB-0042",
+    tier: 1,
+    at,
+    fromExpeditionId: `expedition-${at}`,
+    bodies,
+    ...(abandoned ? { abandoned: true as const } : {}),
+    ...(bodiesRolled ? { bodiesRolled } : {}),
+  });
+  it("bodiesToRoll: the bodies at 100% the record has not paid", () => {
+    const t = { bodies: [body(true, 1, 1), body(true, 2, 1), body(true, 0), body(false)], nebula: { done: false } };
+    expect(bodiesToRoll(t, undefined)).toEqual([0, 2]);
+    expect(bodiesToRoll(t, { bodiesRolled: [0] })).toEqual([2]);
+    expect(bodiesToRoll(t, { bodiesRolled: [0, 2] })).toEqual([]);
+    // A skipped objective counts as done (Q3 B), so its body pays too.
+    expect(bodiesToRoll({ bodies: [body(true, 2, 1, 1)], nebula: null }, undefined)).toEqual([0]);
+  });
+  it("the paid bodies survive a better visit replacing the record AND a worse visit that is dropped", () => {
+    const a = withSystemRecord(undefined, rec([body(true, 1, 1), body(false)], 1, undefined, true), [0]);
+    expect(a["LB-0042"].bodiesRolled).toEqual([0]);
+    // A better visit replaces the counts and keeps body 0 paid, adding body 1.
+    const b = withSystemRecord(a, rec([body(true, 1, 0), body(true, 1, 1)], 2), [1]);
+    expect(b["LB-0042"].at).toBe(2);
+    expect(b["LB-0042"].bodiesRolled).toEqual([0, 1]);
+    // A worse visit whose counts are dropped still records a roll it paid (kept record, at unchanged).
+    const c = withSystemRecord(undefined, rec([body(true, 1, 1), body(true, 1, 1), body(false)], 1, [0, 1]));
+    const d = withSystemRecord(c, rec([body(false), body(false), body(true, 0)], 2), [2]);
+    expect(d["LB-0042"].at).toBe(1);
+    expect(d["LB-0042"].bodiesRolled).toEqual([0, 1, 2]);
+    // Nothing new: the SAME object.
+    expect(withSystemRecord(d, rec([body(false), body(false), body(false)], 3))).toBe(d);
+  });
+  it("a claim pays a body once, an abandon of the same system later pays only what is new", { timeout: 120_000 }, () => {
+    const r = ctRecalled(0x1001, "bodyDone");
+    const held = heldSystems(r.claimed).find((h) => h.kind === "resume")!;
+    // The abandon paid body 0; abandoning a second Resume copy of that system pays nothing more.
+    const again = withAbandonRecord(r.abandoned, held, r.abandoned.gameTimeSeconds + 5);
+    expect(again.relicVault).toEqual(r.abandoned.relicVault);
+    expect(Object.values(again.systemRecords!)[0].bodiesRolled).toEqual([0]);
+  });
+  it("planetRollTokens is the relics engine's hook (one blank per body), with the planet's name", () => {
+    const { exp } = ctDispatch(0x3003);
+    const t = planetRollTokens(exp, [1]);
+    expect(t).toHaveLength(1);
+    expect(t[0]).toMatchObject({ id: `${exp.id}-relic-complete-${exp.bodies[1].id}`, source: "completion", regionTier: 1, planet: `${exp.systemName} c` });
   });
 });
 

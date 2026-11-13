@@ -10,16 +10,30 @@
 // body's scan, and a body's share never shrinks when they appear, so the % never dips.
 //   - A SKIPPED objective counts as done (user Q3 "B").
 //   - A gas giant's ship STUDY is its body's objective; the system's NEBULA SWEEP is one objective of the system (user Q4
-//     "A"). [BUILDER CALL, flagged in the design doc's carry note] Under equal body shares the sweep is weighed as one
-//     more equal share of the system (whole when swept), since it belongs to no body; it is known at dispatch, so the %
-//     still never dips.
+//     "A"). Under equal body shares the sweep is weighed as one more equal share of the system (whole when swept), since
+//     it belongs to no body (user 2026-11-13, after the build: "One body's share (Recommended)"); it is known at
+//     dispatch, so the % still never dips.
 //   - 100% means every body scanned and every objective done (or skipped): only then `complete`. A system short of it
 //     never rounds up to 100 (99 at most).
+//
+// THE REWARDS (user 2026-11-13 "Planet roll + system badge (Recommended)", correcting the first build's "no reward"):
+//   - THE PLANET ROLL: each body that reaches 100% pays the 2026-10-09 bonus relic roll ONCE (Relics v2 G2 call 11, the
+//     relics engine's hook relicBlanks.ts planetCompletionRelicBlank: one extra blank, one rarity step above the body's
+//     own roll, at the run's region tier, with the body's culture). WHERE IT FIRES: at the record's write, the CLAIM of the
+//     run that finished the body (or the ABANDON of its Resume system), because the engine resolves a visit's rewards at
+//     its claim (every relic find reaches the vault there, expedition.ts depositExpeditionFindings) and a claim is one
+//     player action at one instant, so the roll never depends on how time was chunked (one economyTick == 997 s chunks
+//     == 1 s steps). A recalled run whose system is held to Resume pays nothing at its claim (it writes no record): its
+//     finished bodies wait in the held record and pay at the resumed run's claim, or at the abandon (a body that reached
+//     100% is never lost). ONCE PER BODY, EVER: the record keeps the bodies that paid (SystemRecord.bodiesRolled, by
+//     index) through every later write, whichever visit's counts are kept (best % kept), so a revisit never pays twice.
+//   - THE SYSTEM BADGE: the whole system at 100% wears the Completed badge, gets the claim card's line and the ledger's
+//     "system completed" event (no relic: the rolls are per planet).
 //
 // ONE pure function (systemCompletion) computes the % from a tally of counts, and a live run, a held Resume system and a
 // stored record each give their tally (runCompletionTally, heldCompletionTally, recordTally), so the console, the
 // telescope map and the Survey Log can never disagree. The % is never stored. Nothing reads it for an effect (user: "no
-// stat reward, no grind pressure"): only the displays and the ledger.
+// stat reward, no grind pressure"): only the displays, the ledger and the planet roll above.
 //
 // The save change is GameState.systemRecords (one record per system, written at a claim and at an abandon) and
 // GameState.notableEvents (the hidden ledger, notableEvents.ts: this slice's "system completed" kind beside the Relics v2
@@ -28,18 +42,21 @@
 // ============================================================================
 
 import {
+  COMPLETION_ROLL_SWITCH,
   COMPLETION_TRACKING_SWITCH,
   type CompletionBodyTally,
   type Expedition,
   type GameState,
   type HeldSystem,
   type RegionTier,
+  type RelicVaultToken,
   type SystemRecord,
 } from "./model";
 import { isStudyBody, nebulaStampFor, studyStampFor } from "./gasGiantStudy";
 import { inCanonicalKeyOrder } from "./canonicalOrder";
 import { famousSystem } from "./starCatalog";
 import { systemCompletedEvent, withNotableEvents } from "./notableEvents";
+import { RELIC_PLANET_STAMP_SWITCH, newRunRelicBlanksFlag, planetCompletionRelicBlank, relicPlanetName } from "./relicBlanks";
 
 export type { CompletionBodyTally };
 
@@ -200,35 +217,87 @@ function replaces(next: SystemRecord, kept: SystemRecord | undefined): boolean {
   return a > b || (a === b && next.abandoned !== true);
 }
 
-// The records with `rec` kept (or not: the best % stays), in canonical key order. The SAME object when it is not kept.
-// Pure.
-export function withSystemRecord(records: Readonly<Record<string, SystemRecord>> | undefined, rec: SystemRecord): Record<string, SystemRecord> {
+// The records with `rec` kept (or not: the best % stays), in canonical key order, and the bodies of `rolled` added to
+// the system's paid bodies (SystemRecord.bodiesRolled) on whichever record is kept: a planet roll is remembered even
+// when the visit that paid it does not keep the best %. The SAME object when nothing changes. Pure.
+export function withSystemRecord(records: Readonly<Record<string, SystemRecord>> | undefined, rec: SystemRecord, rolled: readonly number[] = []): Record<string, SystemRecord> {
   const base = records ?? {};
-  if (!replaces(rec, base[rec.systemId])) return base as Record<string, SystemRecord>;
-  return inCanonicalKeyOrder({ ...base, [rec.systemId]: rec });
+  const kept = base[rec.systemId];
+  const paid = [...new Set([...(kept?.bodiesRolled ?? []), ...(rec.bodiesRolled ?? []), ...rolled])].sort((a, b) => a - b);
+  const stamp = (r: SystemRecord): SystemRecord => (paid.length > 0 ? { ...r, bodiesRolled: paid } : r);
+  if (replaces(rec, kept)) return inCanonicalKeyOrder({ ...base, [rec.systemId]: stamp(rec) });
+  if (kept && paid.length > (kept.bodiesRolled ?? []).length) return inCanonicalKeyOrder({ ...base, [rec.systemId]: stamp(kept) });
+  return base as Record<string, SystemRecord>;
 }
 
-// A CLAIM's writes (expedition.ts claimExpedition): the system's record and, at 100%, the ledger's "system completed"
-// event. A recalled run whose system is held (Resume: it is listed live from the held record and recorded when it is
-// finished or abandoned; a candidate again: nothing was charted) writes nothing, nor does a recalled run that charted
-// nothing. The SAME state when nothing is written (and always with the switch off). Pure.
+// ===== The planet roll (user 2026-11-13 "Planet roll + system badge") =====
+
+// The bodies (by index) of `tally` at 100% whose roll has not paid for the system yet (`kept`'s bodiesRolled). Pure.
+export function bodiesToRoll(tally: CompletionTally, kept: Pick<SystemRecord, "bodiesRolled"> | undefined): number[] {
+  const paid = new Set(kept?.bodiesRolled ?? []);
+  const out: number[] = [];
+  systemCompletion(tally).bodyLines.forEach((b, i) => {
+    if (b.complete && !paid.has(i)) out.push(i);
+  });
+  return out;
+}
+
+// The run a planet roll reads: the claimed run, or (an abandon) the Resume system as its resumed run would fly it (the
+// held seed, region, risk and bodies; a resumed dispatch stamps today's relic blanks flag, expedition.ts startExpedition),
+// with the run id the held record names.
+export type PlanetRollRun = Pick<Expedition, "id" | "seed" | "region" | "risk" | "bodies" | "relicBlanks" | "systemName">;
+
+// The completion blanks of `indices` (one per body, relicBlanks.ts planetCompletionRelicBlank), each stamped with its
+// source planet's name (display only, the relic slice's RELIC_PLANET_STAMP_SWITCH rule), in body order. Pure.
+export function planetRollTokens(run: PlanetRollRun, indices: readonly number[]): RelicVaultToken[] {
+  const out: RelicVaultToken[] = [];
+  for (const i of indices) {
+    const t = planetCompletionRelicBlank(run, i);
+    if (!t) continue;
+    out.push(RELIC_PLANET_STAMP_SWITCH.on && run.systemName !== "" ? { ...t, planet: relicPlanetName(run, i) } : t);
+  }
+  return out;
+}
+
+// A record's write with its planet rolls: the record kept (best %), the newly 100% bodies paid into the vault (appended
+// after everything else there) and remembered on the record. Pure.
+function writeRecord(state: GameState, rec: SystemRecord, tally: CompletionTally, run: PlanetRollRun): GameState {
+  const roll = COMPLETION_ROLL_SWITCH.live ? bodiesToRoll(tally, state.systemRecords?.[rec.systemId]) : [];
+  const tokens = planetRollTokens(run, roll);
+  const records = withSystemRecord(state.systemRecords, rec, tokens.length > 0 ? roll : []);
+  if (records === state.systemRecords && tokens.length === 0) return state;
+  return { ...state, systemRecords: records, ...(tokens.length > 0 ? { relicVault: [...state.relicVault, ...tokens] } : {}) };
+}
+
+// A CLAIM's writes (expedition.ts claimExpedition): the system's record, the planet roll of every body newly at 100%
+// and, at 100%, the ledger's "system completed" event. A recalled run whose system is held (Resume: it is listed live
+// from the held record and recorded, and its bodies rolled, when it is finished or abandoned; a candidate again: nothing
+// was charted) writes nothing, nor does a recalled run that charted nothing. The SAME state when nothing is written (and
+// always with the switch off). Pure.
 export function withClaimRecord(state: GameState, exp: Expedition, at: number): GameState {
   if (!COMPLETION_TRACKING_SWITCH.live) return state;
   if (exp.recall && (exp.recall.held !== undefined || !exp.bodies.some((b) => b.scanned))) return state;
   const rec = runSystemRecord(exp, at);
-  const records = withSystemRecord(state.systemRecords, rec);
+  const written = writeRecord(state, rec, runCompletionTally(exp), exp);
   const complete = recordCompletion(rec).complete;
   const events = complete ? withNotableEvents(state.notableEvents, [systemCompletedEvent(rec, at)]) : state.notableEvents;
-  if (records === state.systemRecords && events === state.notableEvents) return state;
-  return { ...state, systemRecords: records, ...(events !== undefined ? { notableEvents: events } : {}) };
+  if (written === state && events === state.notableEvents) return state;
+  return { ...written, ...(events !== undefined ? { notableEvents: events } : {}) };
 }
 
-// An ABANDON's write (expedition.ts abandonHeldSystem): the Resume system's record at the % it reached, marked
-// abandoned (user Q11 "keep its row, marked"). Pure.
+// An ABANDON's writes (expedition.ts abandonHeldSystem): the Resume system's record at the % it reached, marked
+// abandoned (user Q11 "keep its row, marked"), and the planet roll of every body it brought to 100% that has not paid.
+// Pure.
 export function withAbandonRecord(state: GameState, h: HeldSystem, at: number): GameState {
   if (!COMPLETION_TRACKING_SWITCH.live) return state;
-  const records = withSystemRecord(state.systemRecords, abandonedSystemRecord(h, at));
-  return records === state.systemRecords ? state : { ...state, systemRecords: records };
+  const run: PlanetRollRun = { id: h.fromExpeditionId, seed: h.seed, region: h.region, risk: h.risk, bodies: h.bodies ?? [], relicBlanks: newRunRelicBlanksFlag(), systemName: h.systemName };
+  return writeRecord(state, abandonedSystemRecord(h, at), heldCompletionTally(h), run);
+}
+
+// The planet roll's blanks a claim or an abandon put in the vault (the tokens `after` holds past `before`'s vault, each
+// of source "completion"), for the log. Pure.
+export function planetRollsPaid(before: Pick<GameState, "relicVault">, after: Pick<GameState, "relicVault">): RelicVaultToken[] {
+  return after.relicVault.slice(before.relicVault.length).filter((t) => t.source === "completion");
 }
 
 // ===== The Systems list (the Survey Log's section, the map's arcs, a candidate's "Visited") =====

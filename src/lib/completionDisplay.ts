@@ -12,7 +12,8 @@
 //     an abandoned system marked (Q11 A).
 // Player text says "objective", Roman numerals for tiers, US English. No game rule lives here.
 
-import type { RegionTier } from "./game/model";
+import type { RegionTier, RelicVaultToken } from "./game/model";
+import { blankTitle } from "./relicsV2Display";
 import type { BodyCompletion, SystemCompletion, SystemRow } from "./game/completion";
 import { regionCompletionTally } from "./game/completion";
 import { REGION_TIER_NAMES, regionTierNumeral } from "./game/galaxy";
@@ -64,6 +65,18 @@ export function bodyCompletionText(b: BodyCompletion): string {
 // The claim card's line at 100% (Q10 B, verbatim), else null. Pure.
 export function claimCompletionText(systemName: string, c: SystemCompletion): string | null {
   return c.complete ? `${systemName} completed: every body scanned, every objective done.` : null;
+}
+
+// The planet roll's log line (user 2026-11-13 "Planet roll + system badge"), shown with a claim's (or an abandon's) other
+// relic finds: the planets that reached 100% and the bonus blanks they paid, each by its region tier and rarity (the
+// claim log's blank wording). Null when none paid. Pure.
+export function planetRollLine(tokens: readonly Pick<RelicVaultToken, "tier" | "regionTier" | "planet">[]): string | null {
+  if (tokens.length === 0) return null;
+  const planets = tokens.map((t) => t.planet).filter((p): p is string => p !== undefined);
+  const names = planets.length <= 1 ? (planets[0] ?? "") : `${planets.slice(0, -1).join(", ")} and ${planets[planets.length - 1]}`;
+  const one = tokens.length === 1;
+  const head = names !== "" ? `${one ? "Planet" : "Planets"} completed: ${names}. ` : "";
+  return `${head}Bonus relic ${one ? "roll" : "rolls"}: ${tokens.length} unidentified relic${one ? "" : "s"} to the vault (${tokens.map((t) => blankTitle(t)).join(", ")}).`;
 }
 
 // The Resume card's one number (Q9 A): "40% · Bodies 1/3 · Objectives 1/2". Pure.

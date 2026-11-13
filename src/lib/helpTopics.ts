@@ -382,7 +382,8 @@ export const SYSTEM_COMPLETION_PARAGRAPHS: readonly string[] = [
   "WHERE IT SHOWS: the expedition's console shows the system's line (bodies scanned, objectives done and the %, with a small ring) and each body's own line. A Resume card's Completion row shows the same number. When you claim a run that reached 100%, its claim card says so, and the system wears the Completed badge. A candidate you visited before shows \"Visited\" with its best %, or the badge.",
   "THE SYSTEMS LIST: the top of the Archive's Survey Log tab lists every system visited since this update, one row each at its best %, grouped by tier (or sorted by completion or newest first). A run out to a system marks its row Under way, a Resume system In Resume, and an abandoned Resume system keeps its row at the % it reached, marked Abandoned. Systems claimed before this update left no record and are not listed.",
   "THE GALAXY MAP: on the Subspace Telescope's map, a green arc around each region's badge shows the share of that region's charted systems you have completed, and the region's row in the key counts them.",
-  "Completion is a record: it changes nothing in play, with no reward and no bonus.",
+  "PLANET BONUS: each planet that reaches 100% earns one bonus relic roll: an extra unidentified relic for the vault, rolled one rarity step above what that planet's own finds roll, at its region's tier. It pays once per planet, ever: when you claim the run that finished it, or when you abandon its Resume system. A recalled run's claim pays nothing yet; its finished planets pay when the system is finished or abandoned. A planet that already paid on an earlier visit does not pay again. The log names each planet and its blank.",
+  "Finishing the whole system earns the Completed badge and the claim card's line. Completion changes nothing else in play.",
 ];
 
 // The seven threat tiers, read from threatAssessment (the one table that owns their names and phrases).

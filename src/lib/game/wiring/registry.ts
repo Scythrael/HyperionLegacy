@@ -4803,7 +4803,10 @@ const AUDIT_ROWS: readonly { id: string; system: WiringSystem; claim: string; st
   // G1-5 wired the hook into every delivered cycle of a run dispatched from G1-5 on (shortRangeCycle.ts
   // shortRangeCycleRelics): live in place, its check in auditRowWiring below.
   { id: "relic:audit:shortRangeBlanks", system: "relic", claim: "Short-range relic drops (rollShortRangeRelicBlanks: per hour, Tier I 0.08x and Tier II 0.15x of the expedition rate)", status: LIVE },
-  { id: "relic:audit:completionBlank", system: "relic", claim: "The planet 100% bonus roll (planetCompletionRelicBlank: one extra blank, one rarity step up)", status: pending("G7 (calls the hook when a planet is fully completed)") },
+  // Completion tracking (user 2026-11-13 "Planet roll + system badge"): a body's 100% pays the hook at the claim (or the
+  // abandon) that records it, once per body ever (completion.ts withClaimRecord): live in place, its check in
+  // auditRowWiring below.
+  { id: "relic:audit:completionBlank", system: "relic", claim: "The planet 100% bonus roll (planetCompletionRelicBlank: one extra blank, one rarity step up)", status: LIVE },
   // Relics v2 R2-3 (relicIdentify.ts; the queue in tick.ts): every new study identifies through identification v2.
   { id: "relic:audit:identifyV2", system: "relic", claim: "Identification v2: a new study reveals an exceptional piece at EXCEPTIONAL_PER_100K (user call 6), preferring the pieces the Museum lacks (call 7); else a general type on the blank's own rarity band odds (\"Only one boost\") with the site bias", status: LIVE },
   { id: "relic:audit:identifyLanes", system: "relic", claim: "Relic-study lanes by Research Lab tier (RELIC_STUDY_LANES_BY_LAB: Lab I 1, III 2, V 3, VII 4; user call 12)", status: LIVE },
@@ -5532,6 +5535,15 @@ function auditRowWiring(): Readonly<Record<string, Partial<EntryInput>>> {
     },
     // Relics v2 R2-6: twelve Tier I blanks stamped with one culture, studied through the real start and resolver, name
     // that culture; the same blanks without the stamp (the legacy hash culture, spread over six) name none.
+    // Completion tracking (user 2026-11-13): a real run's claim with its first body at 100% pays one completion blank;
+    // the same claim with that body one objective short pays none.
+    "relic:audit:completionBlank": {
+      probe: "content:relic:completionRoll",
+      contexts: ["expedition:groundOps"],
+      curve: { kind: "gate" },
+      magnitude: () => 1,
+      on: sourceOn,
+    },
     "relic:audit:blankCulture": {
       probe: "content:relic:cultureReveal",
       contexts: ["research"],

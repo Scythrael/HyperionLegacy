@@ -397,7 +397,7 @@ describe("R2-2: the wiring registry additions (every registry pin holds them apa
       "relic:audit:blankTiers|live|",
       "relic:audit:blankCulture|live|", // R2-6: live (probe content:relic:cultureReveal)
       "relic:audit:shortRangeBlanks|live|",
-      "relic:audit:completionBlank|pending|G7 (calls the hook when a planet is fully completed)",
+      "relic:audit:completionBlank|live|", // completion tracking: live (probe content:relic:completionRoll)
       "relic:audit:generalPick|pending|Relics v2 R2-3 follow-up (retire the v1 setless branch of identifyStudiedRelic: identification v2, relic:audit:identifyV2, studies every new blank, G1-5's short-range blanks included, so no study reaches this pick)",
     ]);
   });

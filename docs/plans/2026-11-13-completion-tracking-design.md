@@ -80,7 +80,7 @@ Systems section `src/lib/SystemsSection.svelte`, the console in `ExpeditionPanel
   COMPLETION_TRACKING_SWITCH (completionTrackingSwitch.fixture.ts).
 - QA sheet: docs/qa/2026-11-13-completion-tracking-qa.html.
 
-OPEN QUESTIONS (not built, awaiting the user):
+OPEN QUESTIONS (ANSWERED 2026-11-13, see the two sections below: 1 "One body's share", 2 "Planet roll + system badge"):
 1. The nebula sweep's WEIGHT under equal body shares: built as one more equal share of the system (whole once swept),
    since it belongs to no body. Alternatives: fold it into every body's objective half, or count it in the numbers only.
 2. Relics v2 call 15 ("Relics owns the roll: one extra blank, one rarity step up", G7 calls it) against this design's
@@ -98,3 +98,46 @@ Re-asked; answers:
 - 100% rewards: "Planet roll + system badge (Recommended)": each planet (body) that reaches 100% gets the 2026-10-09 bonus
   relic roll; finishing the whole system adds the badge and the claim-card line (and the hidden ledger event).
 - Nebula sweep weight: "One body's share (Recommended)" (as built).
+
+## Planet roll and the ledger merge BUILT (2026-11-13): carry note
+
+- MERGE of feat/crew-0.14.0 (424f5089, Relics v2 content R2-5..R2-9), ONE ledger: model.ts `NotableEvent` is the union by
+  kind (`relicSetCompleted` with setId + tier; `systemCompleted` with systemId, systemName, tier), `NOTABLE_EVENT_KINDS`
+  lists both, both kinds use the relic slice's key format (`relicSetCompleted:<setId>`, `systemCompleted:<systemId>`;
+  this slice's dashed keys are gone), `withNotableEventsOnLoad` checks each kind's own fields (tests for both kinds and a
+  later kind). The relic set event has ONE writer, the relic slice's (tick.ts, always on; processSpeed.ts for a grant):
+  this slice's duplicate writer and its switch gate were dropped. The "only its writers" test lists completion.ts,
+  model.ts, notableEvents.ts, processSpeed.ts, save.ts (the load cleanup) and tick.ts. The merge moved the completion
+  goldens by two shapes only (the source planet name on vault tokens, the key format): undoing them returns every
+  0157ceb3 capture (completionTrackingGoldens.test.ts "the merge").
+- PLANET ROLL (user "Planet roll + system badge"): each body that reaches 100% pays the relics engine's hook
+  (relicBlanks.ts `planetCompletionRelicBlank`: one extra blank, one rarity step up, the run's region tier, the body's
+  culture), stamped with its planet's name, appended to the vault. WHERE: at the record's write, the CLAIM of the run
+  that finished the body (or the ABANDON of its Resume system), because the engine resolves a visit's rewards at its claim
+  (every relic find reaches the vault in depositExpeditionFindings) and a claim is one player action at one instant, so
+  chunking can never change it (tested: one step and 997 s chunks pay the same blanks). A recalled run's claim with its
+  system held pays nothing (it writes no record); its finished bodies pay at the resumed run's claim or at the abandon,
+  so a finished planet is never lost. ONCE PER BODY, EVER: `SystemRecord.bodiesRolled` (body indices, ascending) is kept
+  through every later write of the record, whichever visit's counts win (best % kept), so a revisit never pays twice.
+  Bodies are matched by index in the system (the record keeps per-body counts by index).
+- Abandon roll: the held system read as its resumed run would fly it (held seed, region, risk, bodies; today's relic
+  blanks flag), token id `<fromExpeditionId>-relic-complete-<bodyId>`.
+- Log: the claim log line after the findings line, "Planet(s) completed: <names>. Bonus relic roll(s): N unidentified
+  relic(s) to the vault (Tier I · augmented blank, ...)" (completionDisplay.ts planetRollLine); the abandon log the same.
+  `ExpeditionClaimResult.planetRolls` carries the blanks; completion.ts `planetRollsPaid` reads an abandon's.
+- Help: the System Completion topic's "no reward" line is replaced by PLANET BONUS (the roll, once per planet, when it
+  pays) and the badge line.
+- Registry: `relic:audit:completionBlank` LIVE, probe `content:relic:completionRoll` (a real run's claim with its first
+  body at 100% pays one blank; the same body one objective short pays none). Registry pins read it back innermost
+  (completionRollRegistry.fixture.ts inside relicContentReadBack).
+- Goldens: completionRollGoldens.test.ts (captured before the edit, 4c84f1d0; switch model.ts COMPLETION_ROLL_SWITCH,
+  completionTrackingSwitch.fixture.ts withCompletionRollOff). Moved: every finished claim (two blanks, bodiesRolled
+  [0, 1]), the late-recall abandon (body 0), both resumed claims (two blanks); the recall and the held claim did not
+  move. completionTrackingGoldens.test.ts runs with the roll off (its pins are the records and the ledger alone).
+  completionTrackingGoldens and completionRollGoldens hash the FULL state, systemRecords and notableEvents included
+  (withoutRunCountsKeepingCompletion); the shared withoutRunCounts drops the two keys AND the completion blanks
+  (withoutCompletionTracking, the runCounts precedent: source "completion" is written by nothing else). Three golden
+  files that pin a claim's vault directly (gasGiantStudyGoldens, relicStaggerGoldens, relicsV2BlanksGoldens) run with
+  the roll off (completionRollOffForThisFile); relics.test.ts's end-to-end claim now checks the finds and the rolls apart.
+- Gates (2026-11-13): full suite 12232 passed, 311 skipped; check clean; test:perf 4 passed; RELEASE_GATE 1 pending
+  (relic:audit:generalPick).

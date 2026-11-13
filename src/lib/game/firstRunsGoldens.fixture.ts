@@ -143,11 +143,16 @@ export function withV1Museum<T>(value: T): T {
 // state the same call made before the slice (the runCounts precedent below). completionTrackingGoldens.test.ts pins both
 // keys themselves and shows, with COMPLETION_TRACKING_SWITCH off, that every capture returns; any other key is left as it
 // is, so a real behavior change still moves a golden. Pure: a shallow copy.
+// The planet roll (user 2026-11-13 "Planet roll + system badge", written with the record): the completion blanks it put
+// in the vault (source "completion", which nothing else ever writes) come off too, so the vault reads as before the
+// roll; completionRollGoldens.test.ts pins them (and shows, with COMPLETION_ROLL_SWITCH off, that every capture returns).
 export function withoutCompletionTracking<T>(value: T): T {
   if (!value || typeof value !== "object" || !("systemRecords" in value || "notableEvents" in value)) return value;
   const rest = { ...value } as Record<string, unknown>;
   delete rest.systemRecords;
   delete rest.notableEvents;
+  const vault = rest.relicVault;
+  if (Array.isArray(vault) && vault.some((t) => t && t.source === "completion")) rest.relicVault = vault.filter((t) => !(t && t.source === "completion"));
   return rest as T;
 }
 

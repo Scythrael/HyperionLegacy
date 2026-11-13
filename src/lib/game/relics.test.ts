@@ -338,8 +338,13 @@ describe("CLAIM DEPOSIT: findings land in inventory / credits / the relic vault"
     const res = claimExpedition(s, exp.id);
     const sum = summarizeExpeditionFindings(exp.findings);
     expect(res.next.credits.minus(s.credits).toNumber()).toBe(sum.credits);
-    expect(res.next.relicVault).toHaveLength(exp.findings.filter((f) => f.relic).length);
-    for (const t of res.next.relicVault) expect(t.setId).toBe(relicSetForPoi(t.poiId));
+    // The finds' tokens, then (completion tracking, user 2026-11-13) one planet roll blank per body the run brought to
+    // 100% (each once, ever: this save never paid one).
+    const finds = res.next.relicVault.filter((t) => t.source !== "completion");
+    expect(finds).toHaveLength(exp.findings.filter((f) => f.relic).length);
+    for (const t of finds) expect(t.setId).toBe(relicSetForPoi(t.poiId));
+    expect(res.next.relicVault.slice(finds.length)).toEqual(res.planetRolls);
+    expect(res.planetRolls).toHaveLength(runCompletion(exp).bodyLines.filter((b) => b.complete).length);
   });
 });
 

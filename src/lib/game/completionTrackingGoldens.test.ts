@@ -19,9 +19,14 @@
 import { describe, expect, it } from "vitest";
 import type { GameState } from "./model";
 import { CT_SEEDS, ctClaimed, ctHash, ctRecalled, ctSetCompleted, ctSetStudyIndex, ctSetStudyState } from "./completionTracking.fixture";
-import { withCompletionTrackingOff } from "./completionTrackingSwitch.fixture";
+import { completionRollOffForThisFile, withCompletionTrackingOff } from "./completionTrackingSwitch.fixture";
 import { recordCompletion } from "./completion";
 import { economyTick, tick } from "./tick";
+
+// The planet 100% bonus relic roll (user 2026-11-13, after these pins) adds a completion blank per body to a claim's
+// vault and the paid bodies to its record: this file pins the records and the ledger alone, with the roll off; the roll
+// has its own pins (completionRollGoldens.test.ts, which also shows these return with the roll off).
+completionRollOffForThisFile();
 
 // Captured on the code BEFORE the engine edit (0157ceb3).
 const BEFORE_CLAIMS: Record<string, string> = {

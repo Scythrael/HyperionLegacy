@@ -201,7 +201,7 @@ import { countClaimedExpedition, runCountsOf, runDifficultyAt } from "./runDiffi
 // Gas Giant Study GG-2: the study stamp, the orbital bodies and their giant profiles (gasGiantStudy.ts never imports
 // this module).
 import { gearPermilleStamp, isStudyBody, nebulaStampFor, studyStampFor, sweepsNebula, withGiantProfiles } from "./gasGiantStudy";
-import { withAbandonRecord, withClaimRecord } from "./completion";
+import { planetRollsPaid, withAbandonRecord, withClaimRecord } from "./completion";
 // Gas Giant Study GG-5: the Research Lab's held data queue (dataStudy.ts imports neither this file nor tick.ts).
 import { dataArrivals } from "./dataStudy";
 // E5-4 (the Stargazer): the Subspace Telescope's refugee buff (refugeeBuffs.ts imports neither this file nor tick.ts).
@@ -2605,6 +2605,9 @@ export interface ExpeditionClaimResult {
   // E-CREW (Task 16): the members who came home injured (every member downed during the run who is still
   // on the roster), with their recovery. Set only on success; [] when nobody went down.
   injuries?: MemberInjury[];
+  // Completion tracking, the planet roll (user 2026-11-13): the bonus blanks the claim put in the vault, one per body
+  // newly at 100% (completion.ts withClaimRecord). Set only on success; [] when none paid.
+  planetRolls?: RelicVaultToken[];
 }
 
 // DEPOSIT a list of expedition findings into the state (E4a, the claim-deposit foundation). Pure: returns
@@ -2774,15 +2777,16 @@ export function claimExpedition(state: GameState, expeditionId: string): Expedit
     runCounts: countClaimedExpedition(runCountsOf(state), exp),
     ...(derelict ? { surveyLog: [...(noted.surveyLog ?? []), derelict] } : {}),
   };
-  // Completion tracking (0.14.0, user 2026-11-13): the system's record (its best completion kept) and, at 100%, the
-  // hidden ledger's "system completed" event (completion.ts withClaimRecord). A recalled run whose system is held writes
-  // nothing here.
+  // Completion tracking (0.14.0, user 2026-11-13): the system's record (its best completion kept), the planet roll of
+  // every body newly at 100% (one bonus blank each, to the vault, once per body ever) and, at 100%, the hidden ledger's
+  // "system completed" event (completion.ts withClaimRecord). A recalled run whose system is held writes nothing here.
   const next = withClaimRecord(claimed, exp, state.gameTimeSeconds);
   return {
     next,
     success: true,
     findings: exp.findings,
     injuries,
+    planetRolls: planetRollsPaid(claimed, next),
   };
 }
 
@@ -3027,7 +3031,8 @@ export function canAbandonHeldSystem(state: Pick<GameState, "heldSystems">, id: 
   return heldSystemById(state, id)?.kind === "resume";
 }
 // Completion tracking (user Q11 "keep its row, marked"): the abandoned system keeps its record at the % it reached,
-// marked abandoned (completion.ts withAbandonRecord).
+// marked abandoned, and each body it brought to 100% that has not paid gets its planet roll, one bonus blank to the vault
+// (completion.ts withAbandonRecord, user 2026-11-13 "Planet roll + system badge"; completion.ts planetRollsPaid reads them).
 export function abandonHeldSystem(state: GameState, id: string): GameState {
   if (!canAbandonHeldSystem(state, id)) return state;
   const held = heldSystemById(state, id)!;

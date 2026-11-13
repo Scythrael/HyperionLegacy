@@ -53,8 +53,8 @@
   import ShortRangePanel from "./lib/ShortRangePanel.svelte";
   // Squads SQ-7.4: the Subspace Telescope Facilities card (its words and galaxy map are telescopeCardDisplay.ts).
   import TelescopeMap from "./lib/TelescopeMap.svelte";
-  import { systemRows } from "./lib/game/completion";
-  import { mapCompletionView } from "./lib/completionDisplay";
+  import { planetRollsPaid, systemRows } from "./lib/game/completion";
+  import { mapCompletionView, planetRollLine } from "./lib/completionDisplay";
   import { telescopeCardView, telescopeMapEnemyView, telescopeMapView } from "./lib/telescopeCardDisplay";
   // Complement CP-19: the Personnel Rosters upgrade track card (its words are personnelRostersTrackDisplay.ts).
   import { rostersTrackView } from "./lib/personnelRostersTrackDisplay";
@@ -6596,8 +6596,12 @@
   function doAbandonHeldSystem(heldId: string) {
     if (!canAbandonHeldSystem(state, heldId)) return;
     const name = heldSystems(state).find((h) => h.id === heldId)?.systemName ?? "the system";
-    state = abandonHeldSystem(state, heldId);
+    const next = abandonHeldSystem(state, heldId);
+    // Completion tracking (user 2026-11-13): a planet the visit brought to 100% pays its bonus relic roll here.
+    const rollLine = planetRollLine(planetRollsPaid(state, next));
+    state = next;
     pushLog(`Abandoned ${name}: its saved progress is let go.`);
+    if (rollLine) pushLog(rollLine);
     doSave();
   }
 
@@ -6606,7 +6610,7 @@
     const exp = state.expeditions.find((e) => e.id === expeditionId) ?? null;
     // Field Kits FKR-9: the claim's kit line (read before the claim removes the run).
     const kits = exp ? claimKitsView(exp) : null;
-    const { next, success, findings, injuries } = claimExpedition(state, expeditionId);
+    const { next, success, findings, injuries, planetRolls } = claimExpedition(state, expeditionId);
     if (!success || next === state) return;
     // Expedition Tiers G2-7: the Wolf 359 derelict field's one-time line (read before `state` moves on).
     const derelictLine = derelictClaimLine(state.surveyLog, next.surveyLog);
@@ -6625,6 +6629,10 @@
     const byTier = claimedBlanksByTierText(findings ?? [], (poi) => relicSetForPoi(poi) !== null);
     if (sum.relics > 0) landed.push(`${sum.relics} unidentified relic${sum.relics === 1 ? "" : "s"} to the vault${byTier ? ` (${byTier})` : ""}`);
     pushLog(`[${exp ? devShipLabel(exp.shipId) : "Expedition"}] Findings claimed from ${exp?.systemName ?? "the expedition"}: ${landed.length > 0 ? landed.join(", ") : "nothing to deposit"}.`);
+    // Completion tracking (user 2026-11-13 "Planet roll + system badge"): each planet the run brought to 100% (once per
+    // planet, ever) and the bonus blank its roll put in the vault, by tier and rarity.
+    const rollLine = planetRollLine(planetRolls ?? []);
+    if (rollLine) pushLog(`[${exp ? devShipLabel(exp.shipId) : "Expedition"}] ${rollLine}`);
     if (injuredText.length > 0) {
       pushLog(`[${exp ? devShipLabel(exp.shipId) : "Expedition"}] Came home injured: ${injuredText.join(", ")}.`);
     }

@@ -10,6 +10,7 @@ import {
   claimCompletionText,
   completionLineView,
   mapCompletionView,
+  planetRollLine,
   resumeCompletionText,
   ringDash,
   systemsSectionView,
@@ -55,6 +56,21 @@ describe("body lines, the claim line, the Resume number, the visited chip", () =
   it("the claim card's line only at 100% (Q10 B, verbatim)", () => {
     expect(claimCompletionText("Betelgeuse", systemCompletion({ bodies: [body(true, 1, 1)], nebula: null }))).toBe("Betelgeuse completed: every body scanned, every objective done.");
     expect(claimCompletionText("Betelgeuse", systemCompletion({ bodies: [body(true, 1)], nebula: null }))).toBeNull();
+  });
+  it("the planet roll's log line (user 2026-11-13): the planets and their bonus blanks, null when none paid", () => {
+    expect(planetRollLine([])).toBeNull();
+    expect(planetRollLine([{ tier: "augmented", regionTier: 1, planet: "LB-5416 b" }])).toBe(
+      "Planet completed: LB-5416 b. Bonus relic roll: 1 unidentified relic to the vault (Tier I · augmented blank).",
+    );
+    expect(
+      planetRollLine([
+        { tier: "augmented", regionTier: 1, planet: "LB-5416 b" },
+        { tier: "radiant", regionTier: 2, planet: "LB-5416 c" },
+        { tier: "standard", regionTier: 2, planet: "LB-5416 d" },
+      ]),
+    ).toBe("Planets completed: LB-5416 b, LB-5416 c and LB-5416 d. Bonus relic rolls: 3 unidentified relics to the vault (Tier I · augmented blank, Tier II · radiant blank, Tier II · standard blank).");
+    // A blank without a planet name (the relic slice's stamp switched off) still names its blank.
+    expect(planetRollLine([{ tier: "standard", regionTier: 1 }])).toBe("Bonus relic roll: 1 unidentified relic to the vault (Tier I · standard blank).");
   });
   it("the Resume card's one number (Q9 A)", () => {
     expect(resumeCompletionText(systemCompletion({ bodies: [body(true, 2, 1), body(false), body(false)], nebula: null }))).toBe("25% · Bodies 1/3 · Objectives 1/2");

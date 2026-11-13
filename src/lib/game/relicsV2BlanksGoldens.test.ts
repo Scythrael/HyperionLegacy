@@ -45,6 +45,11 @@ combatRulesOffForThisFile();
 // Wiring WR-11 came after every pin here: the whole file runs with WR-11 off (wr11Switch.fixture.ts), so its pins keep
 // proving their own slice moved nothing else (WR-11's own moves are pinned in wr11Goldens.test.ts).
 wr11OffForThisFile();
+// Completion tracking, the planet roll (user 2026-11-13, after these pins): a claim pays a completion blank per body at
+// 100%, which these vault and claim pins (about their own slice) were captured without. The roll is off for this file;
+// its moves are pinned and proven in completionRollGoldens.test.ts.
+import { completionRollOffForThisFile } from "./completionTrackingSwitch.fixture";
+completionRollOffForThisFile();
 
 const SEEDS = [11, 23, 37] as const;
 const TIERS: readonly RegionTier[] = [1, 4, 7];
