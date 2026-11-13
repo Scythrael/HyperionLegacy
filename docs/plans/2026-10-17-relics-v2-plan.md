@@ -335,6 +335,31 @@ resolves to its R2-0 golden; queue parity (1 call == 997 s chunks == 1 s steps) 
 - Goldens: `relicsV2IdentifyGoldens.test.ts` (goldens-first commit; `startV1RelicStudy` fixture). Moved, named: golden 2
   (v1 Tier II / VII blanks now land in "2" / "7") and golden 4 (lanes at Lab III to VII). Every R2-0 golden unchanged.
 
+**R2-3 follow-up carry note (2026-11-13, built on 424f5089): the v1 setless branch retired.**
+- Reachability proof. The branch ran only for a relic study WITHOUT the `v: 2` stamp whose token has no `setId`. Every
+  path that creates a study (`startRelicStudy`, and the queue chain inside `resolveRelicStudies`) stamps `v: 2` since
+  R2-3 (4df7ebe9, merged to feat as 67801e44). A setless token reaches the vault only through G1-5's short-range drops
+  (merged as f1452e50, AFTER 67801e44; the G1-5 branch took R2-3 in before it merged), G7's completion blank (not yet
+  called) and nothing else: grants go straight to the Museum, expedition deposits and the Debug grant always write
+  `setId`, and on the feat state just before R2-3 (45dde785) no app code called a setless-blank hook. Load converts
+  nothing (save.ts only backfills an empty vault). Relic studies never reached main or staging (neither has ever held
+  `relicVault`), so no player save can hold any relic study. So no save, old or new, holds a v1 study of a setless
+  blank: only a tampered save could.
+- Removed: `relicBlanks.ts identifyGeneralRelic` (no other caller) and its now unused imports; `identifyStudiedRelic`'s
+  setless v1 branch now returns null like an unknown set (a tampered save: the completion records "nothing", nothing
+  lands). No wrap-on-load conversion (nothing stored moves); no SAVE_VERSION bump.
+- Registry: `relic:audit:generalPick` REMOVED (the WR-13 `facility:audit:fuelAutoBuy` precedent). The pins taken before
+  it (cp11Goldens, cp12Goldens, refugeeGoldens) read it back innermost through `relicGeneralPickRegistry.fixture.ts
+  generalPickReadBack`; the pins that hold R2-2's rows apart (`R2_2_ADDED_ENTRY_IDS`) are unchanged.
+- Tests deleted (each covered only the retired pick): relicBlanks.test.ts "deterministic; the band follows
+  RELIC_BAND_ODDS; every type is in its band", the statistical half of "the site bias doubles the old set's types"
+  (the generalTypeWeight asserts stay; identification v2's site bias is pinned in relicIdentify.test.ts), and "a
+  setless blank's v1 study identifies through it" (replaced by a test that a setless v1 study lands nothing and the
+  real v2 study of the same blank identifies it, offline == live).
+- Golden MOVED, named: relicsV2IdentifyGoldens golden 2's Tier VII and Tier I rows were setless blanks (the retired
+  path); they are now sited blanks of the same tiers, captured on 424f5089 before the edit (hash b594007d -> 6ee455fc);
+  the golden still proves a v1 study lands in its token's region tier. No other engine pin moved.
+
 ### R2-4: Museum math v2 (engine)
 `museumBonusesFromRecord` becomes the per-tier curve: for each tier and stat, `diminishing(copies x PER_COPY[tier],
 KNEE)`, summed over tiers; exceptional pieces and full sets add flat values (they do not stack: OC-7). Soft cap: when

@@ -7,5 +7,5 @@ export const R2_2_ADDED_ENTRY_IDS: ReadonlySet<string> = new Set<string>([
   "relic:audit:blankCulture",
   "relic:audit:shortRangeBlanks",
   "relic:audit:completionBlank",
-  "relic:audit:generalPick",
+  "relic:audit:generalPick", // removed by the R2-3 follow-up (relicGeneralPickRegistry.fixture.ts reads it back)
 ]);

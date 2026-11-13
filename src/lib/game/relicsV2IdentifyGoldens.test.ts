@@ -55,15 +55,20 @@ describe("R2-3 golden 2: v1 studies of R2-2 blanks", () => {
   // MOVED by R2-3 (named in its commit; R2-2 carry note "R2-3 owns per-tier deposit"): a v1 study now deposits into its
   // token's region tier record, so the Tier II and Tier VII blanks land in "2" and "7". Same relics, same counts; the
   // Tier I blank and every pre-R2-2 token (no regionTier) still land in "1". Pre-R2-3: all three in "1", hash f713ac30.
-  it("a Tier II sited blank, a Tier VII setless blank and a Tier I setless blank land in their own tier's record", () => {
+  // MOVED by the R2-3 follow-up (2026-11-13, the generalPick retirement): the Tier VII and Tier I rows were SETLESS
+  // blanks, which only the retired v1 general pick identified (no build ever started a v1 study of a setless blank, so a
+  // save holding one is tampered and lands nothing). They are now sited blanks of the same tiers, so the golden keeps
+  // proving that a v1 study lands in its token's region tier; the new rows and hash were captured on 424f5089, before
+  // the retirement. The Tier II row is unchanged. Pre-follow-up: tectonicKeystone / starChartFragment, hash b594007d.
+  it("a Tier II, a Tier VII and a Tier I sited blank land in their own tier's record", () => {
     const tokens: RelicVaultToken[] = [
       sited("b-t2", "shipwright", "stellar", { regionTier: 2, cultureId: "culture-t2-3" }),
-      { id: "b-t7", tier: "radiant", quality: 0, regionTier: 7, cultureId: "culture-t7-1", source: "completion" },
-      { id: "b-t1", tier: "augmented", quality: 0, regionTier: 1, cultureId: "culture-t1-2", source: "shortRange" },
+      sited("b-t7", "deepEarth", "radiant", { regionTier: 7, cultureId: "culture-t7-1" }),
+      sited("b-t1", "precursor", "augmented", { regionTier: 1, cultureId: "culture-t1-2" }),
     ];
     const out = tokens.map((t) => studyV1({ ...freshState(), relicVault: [t] }).museumV2);
-    expect(out.map((m) => m.general)).toEqual([{ "2": { ancientDriveCoil: 1 } }, { "7": { tectonicKeystone: 1 } }, { "1": { starChartFragment: 1 } }]);
-    expect(hash(out)).toBe("b594007d");
+    expect(out.map((m) => m.general)).toEqual([{ "2": { ancientDriveCoil: 1 } }, { "7": { deepVeinCompass: 1 } }, { "1": { resonanceShard: 1 } }]);
+    expect(hash(out)).toBe("6ee455fc");
   });
 });
 
