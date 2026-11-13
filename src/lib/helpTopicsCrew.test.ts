@@ -64,7 +64,11 @@ describe("HELP_TOPICS: the crew topics (CP-21 close-out, Task 34)", () => {
     expect(b).toContain("Unassigned list on every ship's Away Team tab");
     expect(b).toContain("CREW EFFECTIVENESS: a Medical crew buff and the Earth-born racial.");
     expect(b).toContain("Graph colors changes the colors of the rank bars on this device: Default, Color-blind safe and Monochrome.");
-    // The notable ticker's placement waits for the user: the topic does not describe it.
+    // The notable band (user answers 2026-11-12: under the tab row, drift, favorites first, record with Send back and
+    // Retire): one sentence in the Notable Crew paragraph.
+    expect(b).toContain(
+      "A band under the Crew tab's tabs lists every notable in the fleet, aboard a ship or not, favorites first and then in the order they graduated. It drifts slowly and holds still while you point at it, focus it or touch it, and always with Reduce motion on. Tap a name to open their record, with the same Send back and Retire; All lists everyone by ship.",
+    );
     expect(b).not.toMatch(/ticker|marquee/i);
   });
 

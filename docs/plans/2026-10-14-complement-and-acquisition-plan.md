@@ -1451,3 +1451,20 @@ docs/mockups/2026-11-12-homeworld-reserve-controls-mockup.html:
   tab (starts closed); ticked rows show "Send N to a ship..." and "Recall N to the pool...".
 - Auto-crew ships in the Send picker: "Show, not pickable (Recommended)": listed with a note that they fill themselves.
 - Transfer warning: "Warn first (Recommended)": the confirm says how many pool crew will move to the reserve next tick.
+## Notable crew band BUILT (2026-11-12, carry note)
+
+Built from the answers above and the signed mockup (option A). UI only: no engine or save change.
+- **Where**: `NotableTicker.svelte`, under the Personnel (Crew) ConsoleTabs on every tab, outside `.tab-scroll-area`.
+  The per-ship Complement strip is unchanged ("Keep it").
+- **Entry and order** (`notableTickerDisplay.ts`, tested): name, rank, division, ship or "Unassigned", a star on
+  favorites. Favorites first, then the rest; inside each part the graduation order, oldest first, read from the number
+  in the notable id (`notable-<nextNotableId>`, never reused), so it never depends on the stored order. No titles or
+  milestones (notables have none).
+- **Motion**: the Complement strip's `ui/marquee.ts`; one optional `onPaused` callback added so the band shows the
+  mockup's "paused" tag. Static with Reduce motion.
+- **Record card** (ActionModal, Escape closes, focus returns to the entry): star, origin, buffs, the ship; Open
+  Complement (Ships, that ship, Complement tab), Send back (shown only for a notable aboard) and Retire, through the
+  same App handlers. The Retire confirm moved out of ComplementPanel into `NotableRetireModal.svelte` unchanged, so both
+  places ask the same question. A crew-locked ship's reason shows in words on the card.
+- **All** list and the **empty hint** as drawn; Help: one sentence in the Complement topic's Notable Crew paragraph.
+- QA: `docs/qa/2026-11-12-notable-ticker-qa.html`.
