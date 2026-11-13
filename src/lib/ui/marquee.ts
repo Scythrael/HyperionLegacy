@@ -36,10 +36,15 @@ export function marqueeStep(s: MarqueeState, max: number, dtMs: number, pxPerSec
 export interface MarqueeParams {
   still: boolean; // the game's Reduce motion setting
   key?: unknown; // anything whose change may change the strip's width (the card count)
+  // Told whenever the drift is held by the player (hover, focus or touch on a strip that would otherwise move), so a
+  // host can show a small "paused" tag (the Personnel notable band). Optional; the Complement strip passes none.
+  onPaused?: (paused: boolean) => void;
 }
 
 export function marquee(node: HTMLElement, params: MarqueeParams) {
   let still = params.still;
+  let onPaused = params.onPaused;
+  let wasPaused = false;
   let s: MarqueeState = { pos: node.scrollLeft, dir: 1, restMs: MARQUEE_END_REST_MS };
   let raf = 0;
   let last = 0;
@@ -66,6 +71,11 @@ export function marquee(node: HTMLElement, params: MarqueeParams) {
     raf = requestAnimationFrame(frame);
   }
   function sync(): void {
+    const paused = !still && (hovered || focused || performance.now() < touchedUntil) && range() > 1;
+    if (paused !== wasPaused) {
+      wasPaused = paused;
+      onPaused?.(paused);
+    }
     if (shouldRun()) {
       if (raf === 0) {
         last = 0;
@@ -127,6 +137,7 @@ export function marquee(node: HTMLElement, params: MarqueeParams) {
   return {
     update(next: MarqueeParams) {
       still = next.still;
+      onPaused = next.onPaused;
       sync();
     },
     destroy() {

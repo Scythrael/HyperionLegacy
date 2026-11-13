@@ -68,6 +68,8 @@
   import CrewGroupsTable from "./CrewGroupsTable.svelte";
   import CrewManifestModal from "./CrewManifestModal.svelte";
   import CrewTransferModal from "./CrewTransferModal.svelte";
+  import NotableRetireModal from "./NotableRetireModal.svelte";
+  import { NOTABLE_RETIRE_TITLE, NOTABLE_SEND_BACK_TITLE } from "./notableTickerDisplay";
   import type { CrewTransferEndpoint, CrewTransferPick, CrewTransferResult } from "./game/crewTransfer";
   import { transferSourceBlock } from "./crewTransferDisplay";
   import { effectiveGraphPaletteStore, graphPalette, graphUtilFill } from "./graphPalettePreference";
@@ -356,16 +358,14 @@
   }
 
   // --- CP-9: send back -------------------------------------------------------------
-  const SEND_BACK_TITLE = "Unassign from this ship. They keep their name, and a Personnel roster can assign them to a ship again.";
+  const SEND_BACK_TITLE = NOTABLE_SEND_BACK_TITLE;
   function sendBackTitle(id: string, s: GameState): string {
     return sendBackGateText(s, id, canSendBackNotable(s, id)) ?? SEND_BACK_TITLE;
   }
 
   // --- CP-9: retire (the confirm) ---------------------------------------------------
   let retireId: string | null = null;
-  $: retireTarget = retireId === null ? null : (state.notableCrew.find((n) => n.id === retireId) ?? null);
-  $: retireBlock = retireId === null ? undefined : retireGateText(state, retireId, canRetireNotable(state, retireId));
-  const RETIRE_TITLE = "Retire from the fleet with your thanks. No penalty, and it frees a notable slot.";
+  const RETIRE_TITLE = NOTABLE_RETIRE_TITLE;
   function retireTitle(id: string, s: GameState): string {
     return retireGateText(s, id, canRetireNotable(s, id)) ?? RETIRE_TITLE;
   }
@@ -642,23 +642,9 @@
   </ActionModal>
 {/if}
 
-{#if retireId !== null && retireTarget !== null}
-  <!-- CP-9 (user call 2026-11-02 "Allow Retire"): the Retire confirm. No penalty; it frees a notable slot. -->
-  <ActionModal title="Retire a notable" onClose={() => (retireId = null)}>
-    <div class="gm">
-      <p class="gm-lead">Retire <b>{retireTarget.name}</b>? They leave the fleet with your thanks.</p>
-      <div class="gm-delta">Notables in the fleet <s>{fleetNotables}</s> &rarr; <b>{fleetNotables - 1}</b> / {NOTABLE_CREW_CAP}</div>
-      {#if retireBlock !== undefined}
-        <p class="gm-warn"><Icon name="warning" size={14} /> <span>{retireBlock}.</span></p>
-      {:else}
-        <p class="gm-note">No penalty. {(retireTarget.assignedShipId ?? null) === null ? "They are not aboard a ship." : autoCrewOn ? "Their berth aboard opens, and auto-crew refills it from the pool." : "Their berth aboard opens."} This cannot be undone.</p>
-      {/if}
-    </div>
-    <svelte:fragment slot="footer">
-      <button type="button" class="cg-btn ghost gm-fbtn" on:click={() => (retireId = null)}>Cancel</button>
-      <button type="button" class="cg-btn pri gm-fbtn" disabled={retireBlock !== undefined} on:click={confirmRetire}>Retire</button>
-    </svelte:fragment>
-  </ActionModal>
+{#if retireId !== null}
+  <!-- CP-9 (user call 2026-11-02 "Allow Retire"): the Retire confirm, shared with the Personnel notable band. -->
+  <NotableRetireModal {state} notableId={retireId} onConfirm={confirmRetire} onClose={() => (retireId = null)} />
 {/if}
 
 {#if transferKeys !== null}
