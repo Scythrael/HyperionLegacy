@@ -33,7 +33,7 @@ const TIERS: Readonly<Record<string, 1 | 2 | 3>> = {
 };
 
 // The recipes: the audit's section 5 for the modules and section 4.8 for the arrays (approved 2026-11-03), save the
-// three [PROPOSAL] swaps that tell the shared quarters pairs apart (user 2026-11-03, "Tell them apart"; model.ts
+// three swaps (signed off 2026-11-13) that tell the shared quarters pairs apart (user 2026-11-03, "Tell them apart"; model.ts
 // CREW_MODULE_BLUEPRINTS lists old and new): Engineering, Science and the Guest Wing.
 const RECIPES: Readonly<Record<string, Record<string, number>>> = {
   balancedCommandBp: { frameSegment: 1, powerCoupling: 2, polysilicateWafer: 2 },
@@ -42,8 +42,8 @@ const RECIPES: Readonly<Record<string, Record<string, number>>> = {
   utilitarianQuartersBp: { frameSegment: 2, titaniumIngot: 2, powerCoupling: 1 },
   efficientQuartersBp: { frameSegment: 2, titaniumIngot: 1, powerCoupling: 2 },
   securityQuartersBp: { frameSegment: 2, titaniumIngot: 3 },
-  engineeringQuartersBp: { frameSegment: 2, powerCoupling: 2, polysilicateWafer: 1 }, // [PROPOSAL]
-  scienceQuartersBp: { frameSegment: 2, polysilicateWafer: 1, titaniumIngot: 1, powerCoupling: 1 }, // [PROPOSAL]
+  engineeringQuartersBp: { frameSegment: 2, powerCoupling: 2, polysilicateWafer: 1 }, // signed off 2026-11-13
+  scienceQuartersBp: { frameSegment: 2, polysilicateWafer: 1, titaniumIngot: 1, powerCoupling: 1 }, // signed off 2026-11-13
   medicalQuartersBp: { frameSegment: 2, polysilicateWafer: 1, titaniumIngot: 1, purifiedBiomass: 1 },
   operationsQuartersBp: { frameSegment: 2, polysilicateWafer: 2, powerCoupling: 1 },
   flightDeckQuartersBp: { frameSegment: 3, powerCoupling: 1 },
