@@ -329,3 +329,29 @@ for sign-off. NOTE for the general rule: the user decides when a franchise nod i
 "original".
 STILL OPEN from this exchange (unanswered, built behavior holds until answered): gear wear use floor (built 60% vs
 "no floor" said 2026-11-02) and Quick Service (Oct 16 "paid rush" vs "None, always automatic" said 2026-11-02).
+
+## HOMAGE DRAFT (2026-11-13) for the user's sign-off: Keelsong and Ember Court flavor lines
+
+User direction (verbatim in docs/plans/2026-10-17-relics-v2-plan.md, 2026-11-13): Ember Court honors the WoW Ember
+Court (the weekly Venthyr party: guests RSVP and bring gifts, entertainment, refreshments, security against party
+crashers, an atmosphere tuned to each guest); Keelsong honors the Ogier of The Wheel of Time (treesingers who sing wood
+into shape, the stedding, the Longing for home), "especially the one who is most Loial to our taveren heroes".
+Names and stats stay as approved; only the flavor lines change. Original wording; no franchise names in game text.
+
+Keelsong (theme unchanged: shipbuilders who sang each hull true):
+| id | name | new flavor |
+|:-|:-|:-|
+| exc-t4-b | Keelsong Set | They never cut a timber. They sang it into the shape it wanted, and it held for a thousand years. |
+| exc-t4-b-p1 | Keelsong Tuning Fork | Hum the right note and the grain of the hull turns to follow it. |
+| exc-t4-b-p2 | Keelsong Hymnal | Kept by a young scholar who left home far too early to follow three friends, and wrote down every word. |
+| exc-t4-b-p3 | Keelsong Hold Drum | Sized for hands twice as large as yours. Its beat still makes a crowded hold feel roomy. |
+| exc-t4-b-p4 | Keelsong Launch Horn | However far its ships sailed, they came home sooner than they meant to. The yard was always calling. |
+
+Ember Court (theme becomes: a court famous for the grand weekly gatherings its host threw in a hall of embers):
+| id | name | new flavor |
+|:-|:-|:-|
+| exc-t5-b | Ember Court Set | The invitations went out every week, and every guest who came was back for the next one. |
+| exc-t5-b-p1 | Ember Court Banner | Hung over the door on party nights. Nobody who walked beneath it went home unhappy. |
+| exc-t5-b-p2 | Ember Court Crucible | The court's punch was brewed in it once. Nobody speaks of that night, but the ore it melts comes out richer. |
+| exc-t5-b-p3 | Ember Court Coronet | The host wore it to greet each guest by name, and somehow every guest arrived bearing a gift. |
+| exc-t5-b-p4 | Ember Court Bellows | It kept the hearth roaring through the longest gala, and blew out a party crasher or two. |
