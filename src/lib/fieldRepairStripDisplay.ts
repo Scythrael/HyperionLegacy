@@ -75,9 +75,11 @@ export function fieldRepairStripView(exp: Expedition, now: number): FieldRepairS
   const autoAt = autoRepairAt(battle.hullMax);
   const leg = openLeg(exp);
   // The repair's share is gone once its repairing ends (the engine settles it at the leg's end, after the flight back;
-  // nothing can strike the ship on that flight, so the readout shows it repaired).
+  // nothing can strike the ship on that flight, so the readout shows it repaired). Once the operations are over (a
+  // recall) a leg left unsettled never settles: the recall settled every repair it keeps (groundOps.ts closeGroundOps),
+  // so the readout is the hull the ship carries home.
   let carried = ops.hullDamage ?? 0;
-  for (const l of ops.repairLegs ?? []) if (!l.done && now >= l.repairedAt) carried -= l.hullRepaired;
+  if (ops.endedAt === undefined) for (const l of ops.repairLegs ?? []) if (!l.done && now >= l.repairedAt) carried -= l.hullRepaired;
   const damage = Math.max(0, Math.round(carried));
   const scanning = exp.bodies.some((body) => !body.scanned);
   const hull = { fillPct: pct(damage / Math.max(1, battle.hullMax)), markPct: pct(FIELD_REPAIR_DAMAGE_SHARE), title: `${damage} of ${max} damage; the ship repairs on its own at ${autoAt}` };

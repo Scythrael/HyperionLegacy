@@ -1483,3 +1483,24 @@ Built from the 2026-11-12 evening answers above (mockup docs/mockups/2026-11-12-
   count equals the next tick's sweep, locked and auto-crew refusals, the CP-21 memo equals a fresh fill),
   `crewTransferReserveDisplay.test.ts` (the picker's words), `helpTopicsCrew.test.ts` (the Help line).
 - **Help**: the complement topic's Crew Pool paragraph. **QA**: docs/qa/2026-11-12-reserve-controls-qa.html.
+
+## Notable crew band BUILT (2026-11-12, carry note)
+
+Built from the answers above and the signed mockup (option A). UI only: no engine or save change.
+- **Where**: `NotableTicker.svelte`, under the Personnel (Crew) ConsoleTabs on every tab, outside `.tab-scroll-area`.
+  The per-ship Complement strip is unchanged ("Keep it").
+- **Entry and order** (`notableTickerDisplay.ts`, tested): name, rank, division, ship or "Unassigned", a star on
+  favorites. Favorites first, then the rest; inside each part the graduation order, oldest first, read from the number
+  in the notable id (`notable-<nextNotableId>`, never reused), so it never depends on the stored order. No titles or
+  milestones (notables have none).
+- **Motion**: the Complement strip's `ui/marquee.ts`; one optional `onPaused` callback added so the band shows the
+  mockup's "paused" tag. Static with Reduce motion.
+- **Record card** (ActionModal, Escape closes, focus returns to the entry): star, origin, buffs, the ship; Open
+  Complement (Ships, that ship, Complement tab), Send back (shown only for a notable aboard) and Retire, through the
+  same App handlers. The Retire confirm moved out of ComplementPanel into `NotableRetireModal.svelte` unchanged, so both
+  places ask the same question. A crew-locked ship's reason shows in words on the card.
+- **All** list and the **empty hint** as drawn; Help: one sentence in the Complement topic's Notable Crew paragraph.
+- QA: `docs/qa/2026-11-12-notable-ticker-qa.html`.
+- (2026-11-12 night) Warning on the older "Send from the pool" picker (it can push pool crew to the reserve too): "Yes,
+  same warning (Recommended)": both pickers say how many pool crew move to the reserve next tick. BUILT: see the
+  Homeworld reserve controls carry note above ("The pool's own Send").

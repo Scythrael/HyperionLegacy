@@ -25,6 +25,7 @@
   // reads live state, routes every side effect back to the do* handlers below.
   import SeniorStaffPanel from "./lib/SeniorStaffPanel.svelte";
   import ComplementPanel from "./lib/ComplementPanel.svelte";
+  import NotableTicker from "./lib/NotableTicker.svelte";
   // E-CREW "Crew Made Real" (Task 6): the ship-detail "Away Team" sub-tab (squads, member cards and
   // the Recruitment Board). Same posture: reads live state, routes Hire / Fire / Move to the do*
   // handlers below (pure awayTeam.ts engine + doSave + pushLog).
@@ -6448,6 +6449,17 @@
     state = next;
     doSave();
     if (before) pushLog(`[${devShipLabel(before.assignedShipId ?? "")}] ${before.name} was sent back and is no longer assigned to a ship.`);
+  }
+
+  // The Personnel notable band's "Open Complement" (user answer 2026-11-12): open that ship on the Ships tab at its
+  // Complement tab, where the notable's card is. Entered from Personnel, not a captain console, so no breadcrumb.
+  function openShipComplement(shipId: string) {
+    if (!state.ships.some((s) => s.id === shipId)) return;
+    shipsReturnTo = null;
+    selectedShipId = shipId;
+    shipsView = "ship";
+    activeShipDetailTab = "complement";
+    activeTab = "ships";
   }
 
   // CP-9 (user call 2026-11-02 "Allow Retire"): "Retire" on a notable card, after the panel's confirm. The notable
@@ -17596,6 +17608,17 @@
         ]}
         active={activePersonnelTab}
         onSelect={(key) => (activePersonnelTab = key as "admiral" | "roster" | "refugees")}
+      />
+      <!-- The fleet-wide notable crew band (0.14.0; signed mockup docs/mockups/2026-11-12-personnel-notable-ticker-mockup.html,
+           option A, user answers 2026-11-12): under the tab row on every Personnel tab, outside .tab-scroll-area so it
+           never scrolls. Its record card's star, Send back and Retire are the Complement strip's own handlers. -->
+      <NotableTicker
+        {state}
+        {reducedMotion}
+        onToggleFavorite={doToggleNotableFavorite}
+        onSendBack={doSendBackNotable}
+        onRetire={doRetireNotable}
+        onOpenComplement={openShipComplement}
       />
       <div class="tab-scroll-area">
 
