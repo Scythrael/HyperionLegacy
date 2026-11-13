@@ -17,6 +17,7 @@
   import Icon from "./ui/Icon.svelte";
   import MuseumPanel from "./MuseumPanel.svelte";
   import { bandColor, exceptionalPiecesHeld, generalCopiesTotal, museumTierView, regionTierColor, tierLabel } from "./relicsV2Display";
+  import { exceptionalSetIcon } from "./ui/relicIcons";
 
   export let state: GameState;
 
@@ -110,7 +111,7 @@
     {#each view.sets as s (s.id)}
       <div class="mv-set" title={s.flavor}>
         <div class="mv-set-h">
-          <b>{s.label}</b>
+          <b class="mv-set-n"><span class="mv-piece-g"><Icon name={exceptionalSetIcon(s.id)} size={18} /></span> {s.label}</b>
           {#if s.complete}
             <span class="mv-chip ok"><Icon name="check" size={12} /> Complete</span>
           {:else}
@@ -121,7 +122,7 @@
         <div class="mv-pieces">
           {#each s.pieces as p (p.id)}
             <div class="mv-piece" class:missing={p.copies === 0} title={p.flavor ?? ""}>
-              <span class="mv-piece-g"><Icon name="exceptional" size={20} /></span>
+              <span class="mv-piece-g"><Icon name={exceptionalSetIcon(s.id)} size={20} /></span>
               <span>{p.label ?? "Not found yet"}</span>
               <span class="mv-dim">{p.statText}</span>
               {#if p.copies > 1}<span class="mv-chip">x{p.copies} (duplicates count, add no stat)</span>{/if}
@@ -319,6 +320,11 @@
     border: 1px solid rgba(var(--color-accent-rgb), 0.16);
     border-left: 3px solid var(--tc);
     border-radius: var(--corner);
+  }
+  .mv-set-n {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
   }
   .mv-set-h {
     display: flex;

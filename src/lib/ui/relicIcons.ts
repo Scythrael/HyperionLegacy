@@ -62,6 +62,30 @@ export const RELIC_ICON: Readonly<Record<string, IconName>> = {
   tectonicKeystone: "relicTectonicKeystone",
 };
 
+// Relics v2 (user 2026-11-13 "One per set"): each exceptional set's own glyph, by set id; a piece wears its set's glyph.
+// Exhaustive over EXCEPTIONAL_SETS (relicIcons.test.ts asserts it).
+export const EXCEPTIONAL_SET_ICON: Readonly<Record<string, IconName>> = {
+  "exc-t1-a": "excWaystation",
+  "exc-t2-a": "excHearthward",
+  "exc-t3-a": "excLightkeeper",
+  "exc-t3-b": "excDeepcut",
+  "exc-t4-a": "excStormglass",
+  "exc-t4-b": "excKeelsong",
+  "exc-t5-a": "excTidewright",
+  "exc-t5-b": "excEmberCourt",
+  "exc-t6-a": "excVeilward",
+  "exc-t6-b": "excStarwake",
+  "exc-t6-c": "excGrandOrrery",
+  "exc-t7-a": "excDawnmaker",
+  "exc-t7-b": "excKinring",
+  "exc-t7-c": "excLongVigil",
+};
+
+// A set's glyph; the shared `exceptional` glyph only for an unknown set id. Pure.
+export function exceptionalSetIcon(setId: string): IconName {
+  return EXCEPTIONAL_SET_ICON[setId] ?? "exceptional";
+}
+
 // A relic's glyph; the generic unidentified-token glyph for an unknown id (a tampered save), never blank.
 export function relicIcon(relicId: string): IconName {
   return RELIC_ICON[relicId] ?? "relic";

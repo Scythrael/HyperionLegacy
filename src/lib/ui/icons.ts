@@ -120,6 +120,36 @@ export const ICON_PATHS = {
   // Exceptional relic (Relics v2 R2-7 / R2-8, verbatim from the signed-off Relics v2 mockup, 2026-10-21 "as drawn"): a
   // five-point star with a short upright stroke inside, tinted by its region tier. The stroke separates it from `star`.
   exceptional: ["M12 2.5l2.6 5.3 5.9.9-4.3 4.1 1 5.8L12 15.9l-5.2 2.7 1-5.8-4.3-4.1 5.9-.9z", "M12 9v3.5"],
+  // The fourteen EXCEPTIONAL SET glyphs (user 2026-11-13 "One per set (Recommended)"), one per set, themed to its name and
+  // tinted by its region tier where it is shown. `exceptional` above stays only where no set is known.
+  // Waystation (Tier I): a hanging lantern with its flame.
+  excWaystation: ["M10 3h4", "M12 3v3", "M8.5 6h7l-.7 12H9.2z", "M12 10.2c.9 1.1 1.4 2 1.4 2.7a1.4 1.4 0 0 1-2.8 0c0-.7.5-1.6 1.4-2.7z", "M7 20.5h10"],
+  // Hearthward (Tier II): a house with a hearth fire inside, not a door.
+  excHearthward: ["M4 11l8-7 8 7", "M6 9.8V20h12V9.8", "M12 18.2c-1.4 0-2.3-.9-2.3-2.1 0-1.4 1.3-2 1.3-3.6 1.3.8 3.3 1.9 3.3 3.6 0 1.2-.9 2.1-2.3 2.1z"],
+  // Lightkeeper (Tier III): a lighthouse throwing two beams.
+  excLightkeeper: ["M9.2 20.5L10.5 9h3l1.3 11.5", "M10 9V6h4v3", "M12 3.5V6", "M3.5 5l5 2M20.5 5l-5 2", "M6 20.5h12"],
+  // Deepcut (Tier III): a pick over a plumb bob.
+  excDeepcut: ["M3.5 8.5C7 4.6 12.8 3.6 18 5.5", "M10.6 5.6l8.4 14.9", "M6 11.5v5", "M4.5 16.5h3L6 20z"],
+  // Stormglass (Tier IV): a storm cloud with a bolt beneath.
+  excStormglass: ["M7 14.5a3.8 3.8 0 0 1 .4-7.6 5 5 0 0 1 9.6 1.4 3.1 3.1 0 0 1 .2 6.2z", "M12.5 12.5l-2.2 3.7h3l-2.1 4.3"],
+  // Keelsong (Tier IV): a hull under two beamed notes (a song sung into the keel).
+  excKeelsong: ["M3 14h18l-3.4 6H6.4z", "M10 11.5V5l6-1.5v6.5", "M10 11.5a1.5 1.5 0 1 1-3 0 1.5 1.5 0 0 1 3 0z", "M16 10a1.5 1.5 0 1 1-3 0 1.5 1.5 0 0 1 3 0z"],
+  // Tidewright (Tier V): a compass needle above two waves.
+  excTidewright: ["M12 2.5l1.6 4.5L12 11.5 10.4 7z", "M3 15c1.5-1.4 3-1.4 4.5 0s3 1.4 4.5 0 3-1.4 4.5 0 3 1.4 4.5 0", "M3 19.5c1.5-1.4 3-1.4 4.5 0s3 1.4 4.5 0 3-1.4 4.5 0 3 1.4 4.5 0"],
+  // Ember Court (Tier V): the well loved teapot, steam rising.
+  excEmberCourt: ["M5.5 12h11v2.5a5.5 5.5 0 0 1-11 0z", "M5.5 13L2.8 10.4", "M16.5 12.6a2.4 2.4 0 0 1 0 4.8", "M8.5 12v-1.6h5V12", "M11 10.4V9", "M9.5 6.5c0-1 1-1.4 1-2.5M12.5 6.5c0-1 1-1.4 1-2.5"],
+  // Veilward (Tier VI): a hooded veil with a small bright star held inside it.
+  excVeilward: ["M12 3c3.9 2 5.8 6 5.8 11v6.5H6.2V14C6.2 9 8.1 5 12 3z", "M12 10l.8 1.9 1.9.8-1.9.8-.8 1.9-.8-1.9-1.9-.8 1.9-.8z"],
+  // Starwake (Tier VI): a sailing ship under a star.
+  excStarwake: ["M12 4v13", "M12 5l6.5 10.5H12", "M4.5 18h15l-2.2 3H6.7z", "M6 4.5l.6 1.4 1.4.6-1.4.6L6 8.5l-.6-1.4L4 6.5l1.4-.6z"],
+  // Grand Orrery (Tier VI): a sun in a tilted orbit with one planet, on a stand.
+  excGrandOrrery: ["M12 8.5a2 2 0 1 0 0 4 2 2 0 0 0 0-4z", "M3 10.5a9 3.8 0 1 0 18 0 9 3.8 0 1 0-18 0z", "M20.8 10.4v.2", "M12 14.3v6M9 20.5h6"],
+  // Dawnmaker (Tier VII): a sun rising over the horizon, its rays.
+  excDawnmaker: ["M3 17h18", "M7 17a5 5 0 0 1 10 0", "M12 7.5v2.5M6.3 10.3l1.6 1.6M17.7 10.3l-1.6 1.6M3.8 14.5h1.8M18.4 14.5h1.8", "M8 20.5h8"],
+  // Kinring (Tier VII): a ring of worlds, four held on one circle.
+  excKinring: ["M12 5a7 7 0 1 0 0 14 7 7 0 0 0 0-14z", "M12 3.5a1.5 1.5 0 1 0 0 3 1.5 1.5 0 0 0 0-3z", "M12 17.5a1.5 1.5 0 1 0 0 3 1.5 1.5 0 0 0 0-3z", "M5 10.5a1.5 1.5 0 1 0 0 3 1.5 1.5 0 0 0 0-3z", "M19 10.5a1.5 1.5 0 1 0 0 3 1.5 1.5 0 0 0 0-3z"],
+  // Long Vigil (Tier VII): an hourglass, the watch kept longer than any record (an eye read too close to the Orrery).
+  excLongVigil: ["M6.5 3h11M6.5 21h11", "M8 3c0 4.5 3.2 6 4 9-.8 3-4 4.5-4 9", "M16 3c0 4.5-3.2 6-4 9 .8 3 4 4.5 4 9", "M10 18.6h4", "M11.2 8h1.6"],
   // Study: a magnifying glass, the "examine this unknown thing" verb.
   study: ["M10.5 4a6.5 6.5 0 1 0 0 13 6.5 6.5 0 0 0 0-13z", "M15.3 15.3L20 20"],
   // Discovery: a four-point sparkle with a small companion, the "first find" moment.

@@ -501,8 +501,13 @@ shelves by rarity band per tier; hatched past-cap bar; culture samples under eac
   and ancient data, finds as sample names, decoded ancient entries). The name reveal is the inline glowing card (once
   per reveal while the tab is open; none under reduced motion); per the mockup's question 4 "as drawn", no system chat
   line. The reveal card on the Identification tab also says it when a find names a culture.
-- OPEN (not decided, plan proposal never answered): "one SVG glyph per exceptional set with its tier color". The signed-off
-  mockup draws one shared exceptional glyph in the tier color, which is what shipped; 14 per-set glyphs wait on the user.
+- Set glyphs: user 2026-11-13 "One per set (Recommended)". 14 SVG glyphs in icons.ts (`excWaystation` ... `excLongVigil`,
+  ICON_SEMANTICS subject), mapped by `relicIcons.ts EXCEPTIONAL_SET_ICON` / `exceptionalSetIcon`, tinted by the set's
+  tier: the Museum set cards (header and pieces), the reveal card and recent identifications. The shared `exceptional`
+  glyph stays only on the "Exceptional sets, Tier N" heading (no one set) and as the unknown-id fallback. Checked on a
+  contact sheet at 16, 28 and 56 px beside home, star, ship, research and museum: Long Vigil's first draft (an eye on a
+  pillar) read like the Orrery (an orbit on a stand) at 16 px, so it became an hourglass. relicIcons.test.ts: one glyph
+  per set, 14 distinct, path data unlike any other registered glyph.
 - The culture detail does not name a "source planet" (the mockup's sample line): many planets share a culture (six per
   tier), so the page says the culture is set by the planet a relic came from, without naming one.
 

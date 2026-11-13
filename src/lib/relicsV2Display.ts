@@ -43,7 +43,7 @@ import { RELIC_STUDY_LANES_BY_LAB } from "./game/relicIdentify";
 import { regionTierNumeral, tierNumeral } from "./game/galaxy";
 import { groundSiteLabel } from "./game/expeditionContent";
 import { ancientEntriesDecoded } from "./game/dataStudy";
-import { MUSEUM_STAT_LABEL, formatMuseumStatBonus, relicIcon } from "./ui/relicIcons";
+import { MUSEUM_STAT_LABEL, exceptionalSetIcon, formatMuseumStatBonus, relicIcon } from "./ui/relicIcons";
 import { researchUnlockedByFind } from "./relicReveal";
 import type { IconName } from "./ui/icons";
 
@@ -272,7 +272,7 @@ export function buildRelicRevealV2(
       title: piece.label,
       flavor: piece.flavor,
       tier: set.tier,
-      glyph: "exceptional",
+      glyph: exceptionalSetIcon(set.id),
       color: regionTierColor(set.tier),
       subtitle: `Exceptional find · ${set.label} · ${tierLabel(set.tier)}`,
       effect:
@@ -335,7 +335,7 @@ export function recentIdentifications(state: GameState, n = 6): { id: string; re
     const piece = getExceptionalPieceById(e.subjectKey);
     const type = getRelicTypeById(e.subjectKey);
     if (!piece && !type) continue;
-    out.push({ id: e.subjectKey, recordId: e.id, label: piece ? piece.label : type!.label, glyph: piece ? "exceptional" : relicIcon(e.subjectKey), exceptional: !!piece });
+    out.push({ id: e.subjectKey, recordId: e.id, label: piece ? piece.label : type!.label, glyph: piece ? exceptionalSetIcon(piece.setId) : relicIcon(e.subjectKey), exceptional: !!piece });
   }
   return out;
 }

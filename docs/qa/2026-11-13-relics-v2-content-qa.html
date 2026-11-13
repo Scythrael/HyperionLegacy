@@ -180,7 +180,7 @@
       <li><b>No save version change.</b> New fields are optional: the ledger (<code>notableEvents</code>) and nothing else; a dev save whose cultures were already at 10 points is named on load.</li>
       <li><b>Names are checked against the sheet.</b> A test reads the approved name sheet and asserts every set, piece and culture name, flavor and lore line, so nothing on screen can drift from what you approved.</li>
       <li><b>Piece stats (your 2026-11-13 answer "Approve the 4 swaps").</b> Four pieces moved to a stat that fits their name (the Guestbook, the Wick, the Plumb Line, the Keeper's Chair; the Lightkeeper and Deepcut full sets follow). Coverage stays twelve stats on 4 pieces and two on 3.</li>
-      <li><b>Open for you: one glyph per set.</b> The plan proposed one SVG glyph per exceptional set; the signed-off mockup draws one shared exceptional glyph in the tier color, so that is what ships. At 16 px its inner stroke is faint; it is clear at 20 px and up.</li>
+      <li><b>One glyph per set (your 2026-11-13 answer "One per set").</b> Each of the 14 exceptional sets has its own SVG glyph, themed to its name (a lantern, a hearth, a lighthouse, a pick and plumb bob, a storm cloud, a hull with notes, a compass over waves, the teapot, a veil with a star, a sailing ship, an orrery, a sunrise, a ring of worlds, an hourglass), tinted by its tier; checked side by side at 16, 28 and 56 px. The shared star glyph stays only on the section heading, where no one set is meant.</li>
       <li><b>As drawn.</b> A culture's name reveal shows on the inline card only (no system chat line), per the mockup's open question 4 answered "as drawn".</li>
     </ol>
   </div>
@@ -211,7 +211,7 @@ const SECTIONS = [
   { n: "3", title: "The reveal card (Just identified)", items: [
     { t: "A general relic: its glyph in the rarity color, its name, <b>Tier I · standard · reads as Relic Sample K17-42</b> (or the culture's name once revealed), its flavor, <b>Adds a Tier I copy: research speed.</b> and <b>Culture K-17 study 8 / 10.</b>", c: true, how: "relicsV2Display.test.ts (the reveal card, general)." },
     { t: "The find that brings a culture to 10 adds a glowing box: <b>A culture is identified: the Corrimel. Every find of theirs now reads with its real name.</b> (no animation with reduced motion).", tag: "theme", c: true, how: "relicsV2Display.test.ts (cultureRevealed)." },
-    { t: "An exceptional relic: the exceptional glyph in the tier color, its approved name, <b>Exceptional find · Waystation Set · Tier I</b>, its flavor, <b>+3.0% research speed while held.</b> and the set's progress; a duplicate says it adds no bonus.", c: true, how: "relicsV2Display.test.ts (the reveal card, exceptional)." },
+    { t: "An exceptional relic: its set's own glyph in the tier color, its approved name, <b>Exceptional find · Waystation Set · Tier I</b>, its flavor, <b>+3.0% research speed while held.</b> and the set's progress; a duplicate says it adds no bonus.", c: true, how: "relicsV2Display.test.ts (the reveal card, exceptional)." },
     { t: "First find banner as before, and <b>Recent identifications</b> lists the last six with their glyphs.", tag: "save" },
   ]},
   { n: "4", title: "Exceptional sets and the ledger", items: [
@@ -232,7 +232,7 @@ const SECTIONS = [
     { t: "The cap meter: <b>Tier II identified: N soft cap 1,000</b> with <b>N until the cap</b>; a tier past the cap shows the extra part hatched, the chip <b>Bonuses held at the cap snapshot</b> and <b>N more counted past the cap ...</b>.", tag: "theme", c: true, how: "relicsV2Display.test.ts (museumTierView, past the cap)." },
     { t: "<b>Tier N museum bonuses</b> chips match what the tier gives (Tier I: its copies and set ladder; Tier II up: the curve).", c: true, how: "relicsV2Display.test.ts (the bonuses read what the engine reads)." },
     { t: "Shelves Standard, Augmented, Stellar, Radiant with every type, its stat and count; <b>Culture samples (n)</b> opens the samples (<b>Relic Sample ...</b> or <b>Halvessi Glyph Tablet</b>); a type not open at the tier reads <b>Found in Tier IV+ regions</b>.", c: true, how: "relicsV2Display.test.ts (shelves and samples)." },
-    { t: "<b>Exceptional sets, Tier N</b>: each set card with its flavor, pieces named once held (<b>Not found yet</b> otherwise), the value, duplicates, and <b>Full set: ... (active)</b> with a <b>Complete</b> chip.", tag: "theme", c: true, how: "relicsV2Display.test.ts (exceptionalSetViews)." },
+    { t: "<b>Exceptional sets, Tier N</b>: each set card with its own glyph and its flavor, pieces named once held (<b>Not found yet</b> otherwise), the value, duplicates, and <b>Full set: ... (active)</b> with a <b>Complete</b> chip.", tag: "theme", c: true, how: "relicsV2Display.test.ts (exceptionalSetViews)." },
     { t: "Tier I also shows <b>Tier I set bonuses</b>: the familiar set ladder, unchanged.", tag: "save" },
     { t: "At 375 px everything stacks in one column with no sideways page scroll.", tag: "device" },
   ]},
