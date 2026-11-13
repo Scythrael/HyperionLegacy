@@ -15281,9 +15281,9 @@ export const CAPTAIN_SPEC_BONUS: Partial<Record<CaptainTalentBranch, CaptainTale
 // LIVE (WR-5a, 2026-10-17): the whole PROSPECTOR tree (Extraction, Logistics, Trade). Its nodes act on
 // the ship the captain commands (OC-A2), each "+X%" as a relative multiplier on the named existing value
 // (OC-A1), read where that value is read (missions live, Ground Ops frozen at dispatch). logistics4 has
-// been live since D26 (Ground Ops reload). The TACTICIAN and EXPLORER trees are WR-5b / WR-5c: their
-// effects below are still catalog data no engine reads, and a captain owning only those nodes ticks
-// byte-identically to one owning none. The registry (wiring/registry.ts) lists every node's status.
+// been live since D26 (Ground Ops reload). The TACTICIAN and EXPLORER trees went live in WR-5b / WR-5c,
+// so every node of all three trees acts (wiring.completeness.test.ts pins "every captain secondary talent
+// node is live, none pending"). The registry (wiring/registry.ts) lists every node's status.
 //
 // Shape (mirrors CAPTAIN_TALENTS): 3 TREES x 3 BRANCHES x 5 RUNGS = 45 nodes. A fully-retired captain
 // has 5 secondary points and fills EXACTLY ONE branch (all 5 rungs) = one of 9 ultimate specs. Within
