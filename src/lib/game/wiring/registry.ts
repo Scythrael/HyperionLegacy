@@ -5535,15 +5535,6 @@ function auditRowWiring(): Readonly<Record<string, Partial<EntryInput>>> {
     },
     // Relics v2 R2-6: twelve Tier I blanks stamped with one culture, studied through the real start and resolver, name
     // that culture; the same blanks without the stamp (the legacy hash culture, spread over six) name none.
-    // Completion tracking (user 2026-11-13): a real run's claim with its first body at 100% pays one completion blank;
-    // the same claim with that body one objective short pays none.
-    "relic:audit:completionBlank": {
-      probe: "content:relic:completionRoll",
-      contexts: ["expedition:groundOps"],
-      curve: { kind: "gate" },
-      magnitude: () => 1,
-      on: sourceOn,
-    },
     "relic:audit:blankCulture": {
       probe: "content:relic:cultureReveal",
       contexts: ["research"],
@@ -5566,6 +5557,15 @@ function auditRowWiring(): Readonly<Record<string, Partial<EntryInput>>> {
       contexts: ["research"],
       curve: { kind: "gate" },
       magnitude: () => relicStudyLanesAt(7) - relicStudyLanesAt(1),
+      on: sourceOn,
+    },
+    // Completion tracking (user 2026-11-13): a real run's claim with its first body at 100% pays one completion blank;
+    // the same claim with that body one objective short pays none.
+    "relic:audit:completionBlank": {
+      probe: "content:relic:completionRoll",
+      contexts: ["expedition:groundOps"],
+      curve: { kind: "gate" },
+      magnitude: () => 1,
       on: sourceOn,
     },
     "away:audit:fieldKitsHiddenPieces": {

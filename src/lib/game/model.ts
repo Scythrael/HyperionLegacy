@@ -1207,6 +1207,11 @@ export const COMPLETION_TRACKING_SWITCH = { live: true };
 // the roll moved return to the completion tracking slice's. Always live in the game.
 export const COMPLETION_ROLL_SWITCH = { live: true };
 
+// Test switch only (the same pattern, the review's held-skips fix): off, a recall holds no skipped objective ids
+// (HeldSystem.skipped) and a resumed run carries none (Expedition.resume.skipped), so a golden can show that the pins
+// the fix moved return. Always live in the game.
+export const COMPLETION_HELD_SKIPS_SWITCH = { live: true };
+
 // Test switch only (the same pattern, Wiring WR-9): off, a captain mission is dispatched without the Pilot's Cunning
 // stamp (CaptainMissionState.pilotCunning), an expedition without Command Presence on its objective hauls
 // (Expedition.groundOutputShare) or Operations Integrity on its offload (GroundOpsFactors.offloadSteady), and a
@@ -9067,7 +9072,9 @@ export interface Expedition {
   // Expedition Tiers G2-5: a RESUMED system (user G12 "Resumable"): the run was dispatched to a held system
   // (GameState.heldSystems) and its first `scannedBodies` bodies were charted before (their scans stay done, their
   // objectives keep their progress). Absent on every other run. Optional, no SAVE bump.
-  resume?: { version: 1; heldId: string; scannedBodies: number };
+  // Completion tracking (review fix): `skipped`, the held system's skipped objective ids (HeldSystem.skipped), counted as
+  // skipped by the completion tally until the resumed run finishes them. Absent when none.
+  resume?: { version: 1; heldId: string; scannedBodies: number; skipped?: string[] };
   // Gas Giant Study GG-2 (D22, OC-G2 "Ship-only study"): the STUDY flag, frozen at dispatch on a run whose system holds
   // an orbital-only body (gasGiantStudy.ts studyStampFor). Present: an orbital body gets no ground objectives (no PoI,
   // no hostile site, no clearing, no supply cache) and ONE ship study instead (GroundOpsState.studyLegs, GG-3). Absent
@@ -9177,6 +9184,12 @@ export interface HeldSystem {
   // Gas Giant Study GG-4: the system's nebula was swept on the trip the recall cut short (the resumed run does not
   // sweep it again). Absent otherwise.
   nebulaSwept?: true;
+  // Completion tracking (review fix, 2026-11-13; user Q3 "B: count as done" and "never dips"): the objectives counted as
+  // SKIPPED, by id: every objective skipped on the trip the recall cut short, plus any an earlier hold carried and the
+  // resumed run did not finish. The objectives themselves go back in the queue for Resume (heldBodies, unchanged); only
+  // the completion tally (completion.ts heldCompletionTally) and the record and planet roll at an abandon read this, and
+  // a resumed run carries it (Expedition.resume.skipped). Absent when none. Appended last; no SAVE bump.
+  skipped?: string[];
 }
 
 // Completion tracking (0.14.0, user answers 2026-11-13): one body of a SYSTEM RECORD (and of every completion tally,

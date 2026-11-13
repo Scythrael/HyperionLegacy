@@ -162,7 +162,7 @@
 
   <div class="legend">
     <p><b>What it does.</b> Every system an expedition visits gets a completion percentage. The Expedition Console shows it under the system's name ("Bodies 2/3 · Objectives 3/5 · 50%" with a small ring) and on each body card; the Resume card shows the same number; a candidate visited before shows "Visited: N%" or the badge; at 100% the claim card says so. The Archive's Survey Log tab opens with a Systems section listing every system visited since the update; the Subspace Telescope's galaxy map puts a green arc around each region badge for the share of its systems completed. Nothing rewards it.</p>
-    <p><b>Where to test.</b> Staging, <b>devpreview.crystalisoft.com</b>, on the 0.14.0 build, with your own migrated save. Launch an expedition and watch it through; recall one after a body is charted for the Resume rows; abandon one for the Abandoned mark.</p>
+    <p><b>Where to test.</b> Staging, <b><a href="https://devpreview.crystalisoft.com" target="_blank" rel="noopener">devpreview.crystalisoft.com</a></b>, on the 0.14.0 build, with your own migrated save. Launch an expedition and watch it through; recall one after a body is charted for the Resume rows; abandon one for the Abandoned mark.</p>
     <p><b>The three columns.</b> <b style="color:var(--claude)">Claude</b> is pre-filled and read-only: a tick means a test proves that rule (the "how" line names the file). <b style="color:var(--desk)">1280</b> and <b style="color:var(--mob)">375</b> are yours: tick each once you have seen it at that width.</p>
     <p>Tags: <span class="chip save">needs real save</span> needs your migrated save. <span class="chip device">needs device</span> touch, a real phone, or a visual call. <span class="chip theme">light + dark</span> look at it in both themes.</p>
   </div>
@@ -193,7 +193,7 @@
 const TICK = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>';
 // c: a test proves it (how names the file). tag: "save" | "device" | "theme" | "later" | null.
 const SECTIONS = [
-  { n: "0", title: "Setup on staging", note: "Staging only: devpreview.crystalisoft.com on the 0.14.0 build, your migrated save.", items: [
+  { n: "0", title: "Setup on staging", note: "Staging only: <a href=\"https://devpreview.crystalisoft.com\" target=\"_blank\" rel=\"noopener\">devpreview.crystalisoft.com</a> on the 0.14.0 build, your migrated save.", items: [
     { t: "Open staging and load your save. It loads clean (no save version change). No console errors opening Operations, Exploration, an expedition, the Archive's Survey Log tab and the Subspace Telescope.", tag: "save" },
     { t: "Survey Log, Systems section: your runs in flight and your Resume systems are listed from the first look; nothing claimed before the update is (your answer: \"start at the update\"). The foot reads <b>Listed from this update on. Systems claimed before it left no record.</b>", c: true, tag: "save", how: "completionTracking.test.ts (rows); completionDisplay.test.ts (the foot)." },
   ]},
@@ -212,6 +212,7 @@ const SECTIONS = [
   { n: "3", title: "Resume card and candidates (your picks: one number, best % kept)", items: [
     { t: "A Resume card's first row is <b>Completion</b>: <b>40% · Bodies 1/3 · Objectives 1/2. The next scan picks up at body c.</b> with its bar (the old \"Charted\" objective % is gone).", c: true, how: "expeditionConsoleDisplay.test.ts (resume card)." },
     { t: "A recalled run's claim card says <b>... saved to Resume at N%</b> with the same completion number.", c: true, how: "expeditionConsoleDisplay.test.ts (recall claim)." },
+    { t: "Skip an objective, then recall the run: the Resume card and the Survey Log keep the same %, with the skip still counted (the objective itself waits in the queue for Resume). Abandon it: a planet finished by skips pays its bonus relic once.", c: true, tag: "save", how: "completionRollGoldens.test.ts (skips kept through a recall)." },
     { t: "A candidate system you visited before shows <b>Visited: N%</b>, or the <b>Completed</b> badge.", c: true, how: "completionDisplay.test.ts (visitedChip); completionTracking.test.ts (visitedCompletion)." },
   ]},
   { n: "4", title: "The claim card (your pick: a line at 100%)", items: [

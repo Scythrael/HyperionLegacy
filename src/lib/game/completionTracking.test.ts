@@ -20,7 +20,7 @@ import {
 } from "./completion";
 import { withNotableEvents, systemCompletedEvent, relicSetCompletedEvent, notableEventsOf } from "./notableEvents";
 import { advanceExpedition, claimExpedition, editGroundOps, heldSystems } from "./expedition";
-import { CT_FAR, ctClaimed, ctDispatch, ctRecalled } from "./completionTracking.fixture";
+import { CT_FAR, ctClaimed, ctDispatch, ctFinished, ctRecalled } from "./completionTracking.fixture";
 import { deserialize, migrate, serialize } from "./save";
 
 const body = (scanned: boolean, objectives = 0, done = 0, skipped = 0): CompletionBodyTally => ({ scanned, objectives, done, skipped });
@@ -232,6 +232,19 @@ describe("the Systems rows", () => {
     const r = ctRecalled(0x4004);
     expect(systemRows(r.recalled)).toHaveLength(1);
     expect(systemRows(r.recalled)[0].state).toBe("inResume");
+  });
+  it("a recalled run with nothing left to hold keeps its row (and its arc) under way until its claim", { timeout: 120_000 }, () => {
+    const { state, exp } = ctFinished(0x2002);
+    // Recalled once every body and objective was finished: no held system, the claim will write the record.
+    const flying: Expedition = { ...exp, phase: "return", recall: { version: 1, atSeconds: state.gameTimeSeconds, phaseAtRecall: "activities", pickupSeconds: 0, returnSeconds: 600 } };
+    const out: GameState = { ...state, expeditions: [flying] };
+    const rows = systemRows(out);
+    expect(rows.map((r) => [r.systemId, r.state, r.completion.percent])).toEqual([[exp.targetSystemId, "underWay", 100]]);
+    expect(regionCompletionTally(rows).get(1)).toEqual({ charted: 1, completed: 1 });
+    // One whose system went to Resume is listed by its held record instead (the test above), and one recalled before
+    // anything was charted is not listed.
+    const blank: Expedition = { ...flying, bodies: flying.bodies.map((b) => ({ ...b, scanned: false })) };
+    expect(systemRows({ ...state, expeditions: [blank] })).toEqual([]);
   });
 });
 

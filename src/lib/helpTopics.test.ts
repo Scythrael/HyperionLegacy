@@ -1174,7 +1174,9 @@ describe("System Completion (0.14.0 completion tracking)", () => {
       "An objective you skip counts as done",
       "A gas giant's ship study is that body's objective",
       "nebula sweep counts as one more equal share of the system",
-      "the number never goes down",
+      "the number never goes down on its own",
+      "a recall keeps your skips counted",
+      "Only requeuing a skipped objective yourself can lower it",
       "Resume card's Completion row",
       "\"Visited\" with its best %",
       "top of the Archive's Survey Log tab",
@@ -1193,6 +1195,9 @@ describe("System Completion (0.14.0 completion tracking)", () => {
       expect(b, line).toContain(line);
     expect(b).not.toMatch(/\u2014|-{2}|\btasks?\b/i);
     expect(b).not.toContain("no reward");
+    // The review's Important 2: the difficulty weight is objective progress, not completion.
+    expect(topic("objectiveDifficulty").body).not.toContain("toward completion");
+    expect(topic("objectiveDifficulty").body).toContain("toward objective progress");
   });
   it("the Expedition Tiers, Subspace Telescope and Survey Log topics point to it", () => {
     for (const id of ["expeditionTiers", "subspaceTelescope", "surveyLog"]) expect(topic(id).body, id).toContain("System Completion topic");

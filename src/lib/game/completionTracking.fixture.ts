@@ -100,8 +100,9 @@ export function ctResumed(seed: number, when: "charted" | "bodyDone" = "charted"
 // and none of them is done, every objective of that body is SKIPPED (the body reaches 100% by skips alone), then
 // the run is recalled 60 s later.
 // [the recall, the claim once home (its system held to Resume), the abandon of the held system, the resumed run's
-// claim (the held system dispatched again and finished), the held system as the claim left it].
-export function ctSkipRecalled(seed: number): { recalled: GameState; claimed: GameState; abandoned: GameState; resumed: GameState; held: HeldSystem } {
+// claim (the held system dispatched again and finished), the held system as the claim left it, the resumed run as
+// dispatched].
+export function ctSkipRecalled(seed: number): { recalled: GameState; claimed: GameState; abandoned: GameState; resumed: GameState; held: HeldSystem; resumedRun: Expedition } {
   const { next, exp } = ctDispatch(seed);
   let t = exp.phaseAnchorSeconds;
   let e = exp;
@@ -131,7 +132,7 @@ export function ctSkipRecalled(seed: number): { recalled: GameState; claimed: Ga
   if (done.phase !== "complete") throw new Error("the resumed run did not finish");
   const resumedClaim = claimExpedition({ ...res.next, gameTimeSeconds: done.phaseAnchorSeconds, expeditions: [done] }, done.id);
   if (!resumedClaim.success) throw new Error(`claim refused: ${resumedClaim.reason}`);
-  return { recalled, claimed: claim.next, abandoned, resumed: resumedClaim.next, held };
+  return { recalled, claimed: claim.next, abandoned, resumed: resumedClaim.next, held, resumedRun: res.expedition };
 }
 
 // ===== The relic set completed inside an economy tick =====

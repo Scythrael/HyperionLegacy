@@ -139,5 +139,15 @@ Re-asked; answers:
   (withoutCompletionTracking, the runCounts precedent: source "completion" is written by nothing else). Three golden
   files that pin a claim's vault directly (gasGiantStudyGoldens, relicStaggerGoldens, relicsV2BlanksGoldens) run with
   the roll off (completionRollOffForThisFile); relics.test.ts's end-to-end claim now checks the finds and the rolls apart.
-- Gates (2026-11-13): full suite 12232 passed, 311 skipped; check clean; test:perf 4 passed; RELEASE_GATE 1 pending
+- REVIEW FIXES (2026-11-13): (1) a recall re-queues skipped objectives for Resume (unchanged), and now the held system
+  keeps their ids (HeldSystem.skipped; a resumed run carries them as Expedition.resume.skipped), so the completion tally,
+  the abandon's record and its planet roll count them as skipped: a recall never lowers the %, and a body finished by
+  skips alone pays its roll once (at the abandon or the resumed claim). Goldens: completionRollGoldens "skips kept
+  through a recall" (captured first, 659654a2; switch COMPLETION_HELD_SKIPS_SWITCH). Help: "never goes down on its own;
+  only requeuing a skipped objective yourself can lower it". (2) Objective cards read "counts xN toward objective
+  progress" (the activities bar), and the Objective Difficulty Help says the completion counts every objective the
+  same. Minor: the registry row order, the economyTick determinism test, the Visited chips from one systemRows per
+  render, a recalled run with nothing left to hold keeps its row until its claim, the 375 px tier count never wraps
+  mid-phrase, the QA sheet links staging.
+- Gates (2026-11-13, before the review fixes): full suite 12232 passed, 311 skipped; check clean; test:perf 4 passed; RELEASE_GATE 1 pending
   (relic:audit:generalPick).

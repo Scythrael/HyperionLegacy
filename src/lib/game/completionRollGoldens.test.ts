@@ -15,8 +15,10 @@
 import { describe, expect, it } from "vitest";
 import type { GameState } from "./model";
 import { CT_FAR, CT_SEEDS, ctClaimed, ctDispatch, ctFinished, ctHash, ctRecalled, ctResumed, ctSkipRecalled } from "./completionTracking.fixture";
-import { withCompletionRollOff } from "./completionTrackingSwitch.fixture";
+import { withCompletionRollOff, withHeldSkipsOff } from "./completionTrackingSwitch.fixture";
+import { heldCompletion, runCompletion } from "./completion";
 import { advanceExpedition, claimExpedition } from "./expedition";
+import { economyTick } from "./tick";
 
 // Captured on the code BEFORE the engine edit (913ff6b1).
 const BEFORE_CLAIMS: Record<string, string> = {
@@ -52,6 +54,19 @@ const BEFORE_SKIP_RECALLS: Record<string, string[]> = {
   "3003": ["cbad5126", "30c0e7b", "4c376096", "24f4979b"],
   "4004": ["d60f5d0f", "936c62e2", "9ed63450", "428b48dd"],
   "5005": ["a94ab7fe", "8c0e45b8", "82731baf", "4bd8e5bc"],
+};
+// The pins after the fix (user Q3 "count as done", "never dips"). Moved, each returning to BEFORE with the fix off:
+// - the recall: the held system keeps its skipped objective ids (HeldSystem.skipped), the objectives re-queued as before;
+// - the claim once home: the same held system;
+// - the abandon: the record counts the skips (the body 100%, the system 50%) and the body's planet roll pays (one blank,
+//   bodiesRolled [0]); before the fix it kept 0 skipped and paid none.
+// The resumed run's claim does NOT move: the resumed run finishes every objective, so its claim paid both rolls already.
+const GOLDEN_SKIP_RECALLS: Record<string, string[]> = {
+  "1001": ["35cc2fd9", "3bbdccbc", "31d5064e", "b51f422c"],
+  "2002": ["a3b823e6", "cf043fa8", "9ccab2bf", "3796db2b"],
+  "3003": ["e9c50f52", "f1f16967", "c10e440a", "24f4979b"],
+  "4004": ["4ba669fb", "be283fc6", "24d06542", "428b48dd"],
+  "5005": ["2fb18b58", "74d5d1d6", "1bf9cf40", "4bd8e5bc"],
 };
 const skipRecalls = (seed: number): string[] => {
   const r = ctSkipRecalled(seed);
@@ -121,10 +136,32 @@ describe("the planet roll goldens", () => {
   }
 });
 
-describe("skips kept through a recall (captured before the fix)", () => {
+describe("skips kept through a recall (the review fix)", () => {
   for (const seed of CT_SEEDS) {
     const key = seed.toString(16);
-    it(`skip, recall, claim, abandon and resume ${key}`, { timeout: 240_000 }, () => expect(skipRecalls(seed)).toEqual(BEFORE_SKIP_RECALLS[key]));
+    it(`skip, recall, claim, abandon and resume ${key}`, { timeout: 240_000 }, () => expect(skipRecalls(seed)).toEqual(GOLDEN_SKIP_RECALLS[key]));
+    it(`with the fix off every capture returns ${key}`, { timeout: 240_000 }, () => expect(withHeldSkipsOff(() => skipRecalls(seed))).toEqual(BEFORE_SKIP_RECALLS[key]));
+    it(`${key}: the % never dips through the recall, and the skip-only 100% body pays its roll exactly once`, { timeout: 240_000 }, () => {
+      const r = ctSkipRecalled(seed);
+      const live = runCompletion(r.recalled.expeditions[0]);
+      const held = heldCompletion(r.held);
+      // The recall keeps the % and the skips (the objectives themselves wait in the queue for Resume, as before).
+      expect([held.percent, held.objectivesSkipped, held.objectivesDone]).toEqual([live.percent, live.objectivesSkipped, live.objectivesDone]);
+      expect(held.objectivesSkipped).toBeGreaterThan(0);
+      expect(held.bodyLines[0].complete).toBe(true);
+      expect(r.held.bodies![0].activities.every((a) => a.status === "queued")).toBe(true);
+      // The resumed run starts where the held system stood.
+      expect(runCompletion(r.resumedRun).percent).toBe(held.percent);
+      // Abandon: the record keeps the skips, the body pays once.
+      const ab = Object.values(r.abandoned.systemRecords!)[0];
+      expect(ab.bodies[0].skipped).toBe(held.objectivesSkipped);
+      expect(ab.bodiesRolled).toEqual([0]);
+      expect(r.abandoned.relicVault.filter((t) => t.source === "completion")).toHaveLength(1);
+      // Or resume and finish: both bodies pay once each, the skip-only body included.
+      const rs = Object.values(r.resumed.systemRecords!)[0];
+      expect(rs.bodiesRolled).toEqual([0, 1]);
+      expect(r.resumed.relicVault.filter((t) => t.source === "completion").map((t) => t.id)).toEqual([`${r.resumedRun.id}-relic-complete-${r.resumedRun.bodies[0].id}`, `${r.resumedRun.id}-relic-complete-${r.resumedRun.bodies[1].id}`]);
+    });
   }
 });
 
@@ -195,5 +232,23 @@ describe("the planet roll: the moves are the blanks and bodiesRolled, and nothin
     expect(a.planetRolls).toHaveLength(2);
     expect(b.planetRolls).toEqual(a.planetRolls);
     expect(b.next.systemRecords).toEqual(a.next.systemRecords);
+  });
+
+  it("deterministic through the economy: one economyTick == 997 s chunks == 1 s steps, then the claim pays the same", { timeout: 240_000 }, () => {
+    const { next, exp } = ctDispatch(0x2002);
+    const span = Math.ceil(advanceExpedition(exp, CT_FAR).phaseAnchorSeconds - next.gameTimeSeconds) + 5;
+    const one = economyTick(next, span, () => 0);
+    let chunks = next;
+    for (let left = span; left > 0; left -= 997) chunks = economyTick(chunks, Math.min(997, left), () => 0);
+    let steps = next;
+    for (let i = 0; i < span; i++) steps = economyTick(steps, 1, () => 0);
+    const claim = (s: GameState) => claimExpedition(s, exp.id);
+    const [a, b, c] = [claim(one), claim(chunks), claim(steps)];
+    expect(a.success && b.success && c.success).toBe(true);
+    expect(a.planetRolls).toHaveLength(2);
+    expect(b.planetRolls).toEqual(a.planetRolls);
+    expect(c.planetRolls).toEqual(a.planetRolls);
+    expect(ctHash(b.next)).toBe(ctHash(a.next));
+    expect(ctHash(c.next)).toBe(ctHash(a.next));
   });
 });

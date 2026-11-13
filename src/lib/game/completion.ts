@@ -133,8 +133,12 @@ export function systemCompletion(t: CompletionTally): SystemCompletion {
 
 // A live run's tally: every body as it stands (its scan latch, its objectives' done and skipped flags, its study on a
 // study run), and the nebula sweep when the run has one. Pure.
-export function runCompletionTally(exp: Pick<Expedition, "bodies" | "study" | "nebula" | "groundOps">): CompletionTally {
+// A not-done objective counts as SKIPPED when it is skipped, or when it was skipped before a recall and waits in the
+// queue again (a resumed run's `resume.skipped`, a held system's `skipped`: the review fix, user Q3 "count as done",
+// so a recall never lowers the %).
+export function runCompletionTally(exp: Pick<Expedition, "bodies" | "study" | "nebula" | "groundOps"> & { resume?: { skipped?: readonly string[] } }): CompletionTally {
   const legs = exp.groundOps?.studyLegs ?? [];
+  const carried = new Set(exp.resume?.skipped ?? []);
   const bodies = exp.bodies.map((b, i): CompletionBodyTally => {
     if (!b.scanned) return { scanned: false, objectives: 0, done: 0, skipped: 0 };
     let objectives = b.activities.length;
@@ -142,7 +146,7 @@ export function runCompletionTally(exp: Pick<Expedition, "bodies" | "study" | "n
     let skipped = 0;
     for (const a of b.activities) {
       if (a.done) done += 1;
-      else if (a.status === "skipped") skipped += 1;
+      else if (a.status === "skipped" || carried.has(a.id)) skipped += 1;
     }
     if (isStudyBody(exp, b)) {
       objectives += 1;
@@ -156,7 +160,7 @@ export function runCompletionTally(exp: Pick<Expedition, "bodies" | "study" | "n
 
 // A held Resume system's tally: its kept bodies, read exactly as the resumed run will read them (the study flag and the
 // nebula the resumed dispatch stamps from the held record, expedition.ts startExpedition). Pure.
-export function heldCompletionTally(h: Pick<HeldSystem, "bodies" | "seed" | "systemId" | "region" | "risk" | "nebulaSwept">): CompletionTally {
+export function heldCompletionTally(h: Pick<HeldSystem, "bodies" | "seed" | "systemId" | "region" | "risk" | "nebulaSwept" | "skipped">): CompletionTally {
   const bodies = h.bodies ?? [];
   const drawn = nebulaStampFor(h.seed, h.risk?.tier ?? h.region.tier, h.systemId);
   return runCompletionTally({
@@ -164,6 +168,7 @@ export function heldCompletionTally(h: Pick<HeldSystem, "bodies" | "seed" | "sys
     study: studyStampFor(bodies),
     nebula: drawn ? { ...drawn, ...(h.nebulaSwept === true ? { swept: 1 as const } : {}) } : undefined,
     groundOps: undefined,
+    resume: { skipped: h.skipped ?? [] },
   });
 }
 
@@ -172,7 +177,7 @@ export function recordTally(r: Pick<SystemRecord, "bodies" | "nebula">): Complet
   return { bodies: r.bodies, nebula: r.nebula ?? null };
 }
 
-export const runCompletion = (exp: Pick<Expedition, "bodies" | "study" | "nebula" | "groundOps">): SystemCompletion => systemCompletion(runCompletionTally(exp));
+export const runCompletion = (exp: Pick<Expedition, "bodies" | "study" | "nebula" | "groundOps"> & { resume?: { skipped?: readonly string[] } }): SystemCompletion => systemCompletion(runCompletionTally(exp));
 export const heldCompletion = (h: HeldSystem): SystemCompletion => systemCompletion(heldCompletionTally(h));
 export const recordCompletion = (r: SystemRecord): SystemCompletion => systemCompletion(recordTally(r));
 
@@ -350,8 +355,10 @@ export function systemRows(state: Pick<GameState, "systemRecords" | "heldSystems
     put({ systemId: h.systemId, systemName: h.systemName, tier: h.region.tier, realStar: h.famousId !== null, enemyTerritory: h.region.enemyTerritory, completion: heldCompletion(h), state: "inResume", at: h.heldAt }, true);
   }
   for (const exp of state.expeditions ?? []) {
-    // A recalled run flying home: its system is the held record's (or a candidate again), not a run out to it.
-    if (exp.recall) continue;
+    // A recalled run flying home whose system was held (Resume: the held record's row; a candidate again: nothing was
+    // charted) is not a run out to it. A recalled run with nothing left to hold (every body and objective finished) keeps
+    // its row, under way, until its claim writes the record (the same rule as withClaimRecord).
+    if (exp.recall && (exp.recall.held !== undefined || !exp.bodies.some((b) => b.scanned))) continue;
     put(
       {
         systemId: exp.targetSystemId,

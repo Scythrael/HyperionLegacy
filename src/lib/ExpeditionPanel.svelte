@@ -135,7 +135,7 @@
   // Completion tracking (0.14.0, the approved 2026-11-13 mockup): the compact system line with its ring (Q7 A), each
   // body's line, the badge at 100%, the claim card's line (Q10 B) and a candidate's "Visited" mark (Q2 B). Every number
   // from the engine's one completion function (game/completion.ts); the words in completionDisplay.ts (tested).
-  import { runCompletion, visitedCompletion } from "./game/completion";
+  import { runCompletion, systemRows } from "./game/completion";
   import { bodyCompletionText, claimCompletionText, completionLineView, visitedChip } from "./completionDisplay";
   // Gas Giant Study GG-6 (the signed-off v3 mockup, user 2026-10-21 "approve as is"): each orbital body's study row, the
   // system's nebula row, the study summary chips, and under the timelines the ship holding orbit, the ship legs with the
@@ -366,6 +366,9 @@
   // Completion tracking: the run's completion (it moves only when a scan ends or an objective finishes).
   $: runDone = chosenExpedition ? runCompletion(chosenExpedition) : null;
   $: runLine = runDone ? completionLineView(runDone) : null;
+  // Completion tracking (Q2 B): every visited system's best completion, built ONCE per state (systemRows), so each
+  // candidate card's "Visited" chip is a lookup (completion.ts visitedCompletion reads the same rows).
+  $: visitedById = new Map(systemRows(state).map((r) => [r.systemId, r.completion]));
   $: claimLine = chosenExpedition && chosenExpedition.phase === "complete" && runDone ? claimCompletionText(chosenExpedition.systemName, runDone) : null;
   // The resume card the abandon confirm names.
   // The card it names went away (abandoned, launched, another region): the confirm closes for good.
@@ -1033,6 +1036,7 @@
                 {@const fk = cand.foreknowledge}
                 {@const tel = cand.telescope}
                 {@const card = cardOf.get(cand.id)}
+                {@const seen = visitedChip(visitedById.get(cand.systemId) ?? null)}
                 <button
                   type="button"
                   class="exp-target"
@@ -1043,8 +1047,7 @@
                   <span class="exp-target-top">
                     <span class="exp-target-name">{cand.systemName}</span>
                     {#if card?.realStar}<span class="exp-chip star">Real star</span>{/if}
-                    {#if visitedChip(visitedCompletion(state, cand.systemId))}
-                      {@const seen = visitedChip(visitedCompletion(state, cand.systemId))!}
+                    {#if seen}
                       <!-- Completion tracking (Q2 B): a system visited before shows its best completion, or the badge. -->
                       {#if seen.complete}<span class="cmp-done-chip"><Icon name="systemComplete" size={12} /> {seen.text}</span>{:else}<span class="exp-chip visited">{seen.text}</span>{/if}
                     {/if}

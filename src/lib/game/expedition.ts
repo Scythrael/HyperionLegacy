@@ -53,7 +53,7 @@ import type {
   GroundOpsState,
   SnapshotMember,
 } from "./model";
-import { FIELD_REPAIR_RULES_SWITCH, SHIP_TYPES, WR10_SWITCH, WR11_SWITCH, WR9_SWITCH, commandingCaptain, moduleEffectScale, shipGearSetBonusLines, withFavoredLines } from "./model";
+import { COMPLETION_HELD_SKIPS_SWITCH, FIELD_REPAIR_RULES_SWITCH, SHIP_TYPES, WR10_SWITCH, WR11_SWITCH, WR9_SWITCH, commandingCaptain, moduleEffectScale, shipGearSetBonusLines, withFavoredLines } from "./model";
 // E-MOD EM-6: the body-scanned module trigger (its frozen procs and private stream).
 import { moduleNebulaSweep, moduleScanProcs, moduleScanSeed, rollModuleChance } from "./shipModules";
 import { makeRng, type Rng } from "./combat/rng";
@@ -1571,7 +1571,13 @@ export function startExpedition(
         ...launched,
         ...(resumed.nebulaSwept && launched.nebula ? { nebula: { ...launched.nebula, swept: 1 as const } } : {}),
         anomalyResolved: true,
-        resume: { version: 1, heldId: resumed.id, scannedBodies: chartedPrefix(resumed.bodies!) },
+        resume: {
+          version: 1,
+          heldId: resumed.id,
+          scannedBodies: chartedPrefix(resumed.bodies!),
+          // Completion tracking (review fix): the held skips stay counted on the resumed run until it finishes them.
+          ...(COMPLETION_HELD_SKIPS_SWITCH.live && (resumed.skipped ?? []).length > 0 ? { skipped: [...resumed.skipped!] } : {}),
+        },
       }
     : launched;
   // Field Kits FKR-7: the packs leave stock (lowest quality first) and a top-up's credits are spent: the SAME plan
@@ -2914,7 +2920,23 @@ function heldFromRecall(exp: Expedition, t: number): HeldSystem | null {
   const swept = exp.nebula !== undefined && (exp.nebula.swept === 1 || (exp.groundOps.studyLegs ?? []).some((l) => l.nebula === 1 && l.done === true));
   const sweepLeft = sweepsNebula(exp) && !swept;
   if (!systemUnfinished(exp, bodies) && !sweepLeft) return null;
-  return { ...base, kind: "resume", risk: { ...exp.risk }, bodies, ...(swept ? { nebulaSwept: true as const } : {}) };
+  // Completion tracking (review fix, user Q3 "count as done", "never dips"): the objectives counted as skipped stay
+  // counted while they wait in the queue (heldSkippedIds).
+  const skipped = heldSkippedIds(exp);
+  return { ...base, kind: "resume", risk: { ...exp.risk }, bodies, ...(swept ? { nebulaSwept: true as const } : {}), ...(skipped.length > 0 ? { skipped } : {}) };
+}
+
+// The objective ids a hold of `exp` keeps counted as skipped (HeldSystem.skipped): every charted body's objective not
+// done that was skipped on this trip, or that an earlier hold carried (Expedition.resume.skipped). Pure.
+function heldSkippedIds(exp: Pick<Expedition, "bodies" | "resume">): string[] {
+  if (!COMPLETION_HELD_SKIPS_SWITCH.live) return [];
+  const carried = new Set(exp.resume?.skipped ?? []);
+  const out: string[] = [];
+  for (const b of exp.bodies) {
+    if (!b.scanned) continue;
+    for (const a of b.activities) if (!a.done && (a.status === "skipped" || carried.has(a.id))) out.push(a.id);
+  }
+  return out;
 }
 
 // The bodies a resume record keeps (user G12 "Pick up where you left off"): charted bodies whole, with their

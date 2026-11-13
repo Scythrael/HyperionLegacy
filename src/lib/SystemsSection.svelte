@@ -217,6 +217,9 @@
     color: var(--color-text-dim);
     margin-left: 4px;
     font-weight: 400;
+    /* Review (375 px): the count wraps as one unit under the heading, never mid-phrase ("1 / completed"). */
+    display: inline-block;
+    white-space: nowrap;
   }
   .sy-rows {
     list-style: none;

@@ -9,7 +9,7 @@
 // leaves it.
 
 import { afterAll } from "vitest";
-import { COMPLETION_ROLL_SWITCH, COMPLETION_TRACKING_SWITCH } from "./model";
+import { COMPLETION_HELD_SKIPS_SWITCH, COMPLETION_ROLL_SWITCH, COMPLETION_TRACKING_SWITCH } from "./model";
 
 export function withCompletionTrackingOff<T>(run: () => T): T {
   const was = COMPLETION_TRACKING_SWITCH.live;
@@ -53,4 +53,17 @@ export function completionRollOffForThisFile(): void {
   afterAll(() => {
     COMPLETION_ROLL_SWITCH.live = was;
   });
+}
+
+// The review's held-skips fix (user Q3 "count as done", "never dips"): OFF (model.ts COMPLETION_HELD_SKIPS_SWITCH), a
+// recall holds no skipped objective ids and a resumed run carries none, so every state made inside it is the code
+// before the fix exactly.
+export function withHeldSkipsOff<T>(run: () => T): T {
+  const was = COMPLETION_HELD_SKIPS_SWITCH.live;
+  COMPLETION_HELD_SKIPS_SWITCH.live = false;
+  try {
+    return run();
+  } finally {
+    COMPLETION_HELD_SKIPS_SWITCH.live = was;
+  }
 }
