@@ -176,6 +176,36 @@ describe("reserve controls: Send to a ship", () => {
   });
 });
 
+describe("the pool's own Send: the same warning (user 2026-11-12 'Yes, same warning (Recommended)')", () => {
+  it("its count is exactly what the next tick's sweep moves out of the pool", () => {
+    const s = openFleet();
+    // Recall first so the pool holds crew for the Aurora's berths; then Send one pool group from the pool to the Aurora.
+    const recalled = transferCrew(s, HOMEWORLD_RESERVE, CREW_POOL, allOf(homeworldReserveOf(s))).next;
+    let checked = 0;
+    for (const g of recalled.crewPool) {
+      const picks = [{ signatureKey: signatureKey(g), count: g.count }];
+      const preview = transferPreview(recalled, CREW_POOL, AURORA, picks);
+      const sent = transferCrew(recalled, CREW_POOL, AURORA, picks);
+      if (sent.moved === 0) continue;
+      const surplus = poolSurplusNow(sent.next);
+      const warned = surplus.reduce((n, e) => n + e.count, 0);
+      expect(preview.swapCount).toBe(warned);
+      const after = tick(1, sent.next, lcg(13));
+      expect(totalCrew(sent.next.crewPool) - totalCrew(after.crewPool)).toBe(warned);
+      expect(homeworldReserveCount(after) - homeworldReserveCount(sent.next)).toBe(warned);
+      expect(everyone(after)).toBe(everyone(s));
+      if (warned > 0) {
+        expect(preview.swapWarning).toContain("move to the reserve at the next tick");
+        checked += 1;
+      } else {
+        expect(preview.swapWarning).toBeNull();
+      }
+      if (checked >= 3) break;
+    }
+    expect(checked).toBeGreaterThan(0);
+  });
+});
+
 describe("reserve controls: refusals", () => {
   it("a crew-locked ship is refused with the real reason (the SAME state)", () => {
     const s = onExpedition(openFleet(), AURORA);

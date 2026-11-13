@@ -1473,8 +1473,12 @@ Built from the 2026-11-12 evening answers above (mockup docs/mockups/2026-11-12-
   tick." and no switch ("Show, not pickable"). The amber warning line sits under the summary ("Warn first").
 - **One call made in the build**: the mockup drew the warning for one pool group; with two or more groups affected the
   warning gives the total and the number of groups in one sentence.
-- **Noted, not built**: a Send from the POOL to a manual ship can also leave other pool groups of that division and rank
-  without a berth (they then move to the reserve at the next tick); the pool's picker has no such warning (not asked).
+- **The pool's own Send** (USER ANSWER 2026-11-12, verbatim pick: "Yes, same warning (Recommended)"): a Send from the
+  pool to a manual ship gets the same warning, the same `poolSurplusNow` count (tested equal to what the next tick
+  moves). Review fix round: the several-group words read "After this, N crew in G groups waiting in the crew pool have
+  no berth left in the fleet, so they move to the reserve at the next tick." ("At the next tick, ..." when pool crew
+  were already over their berths before the Send), and the no-room Recall summary adds "a manual ship that is out comes
+  home" to when room opens (a manual ship out on a run is not pickable until home).
 - **Tests**: `homeworldReserveControls.test.ts` (conservation, ranks and racials, recall never bounces, the warning's
   count equals the next tick's sweep, locked and auto-crew refusals, the CP-21 memo equals a fresh fill),
   `crewTransferReserveDisplay.test.ts` (the picker's words), `helpTopicsCrew.test.ts` (the Help line).

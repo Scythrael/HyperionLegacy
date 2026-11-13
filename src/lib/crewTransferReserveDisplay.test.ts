@@ -62,6 +62,41 @@ describe("the reserve's picker: Send to a ship", () => {
   });
 });
 
+describe("the Send warning's words (one group, several groups, crew already over their berths)", () => {
+  it("several groups: the total and the number of groups in one sentence", () => {
+    const a = group("operations", ROOM, "belter");
+    const b = group("operations", ROOM, "martian");
+    const sent = group("operations", 4, "spacer");
+    const s = fleet([a, b], [sent]);
+    const p = transferPreview(s, HOMEWORLD_RESERVE, s.ships[0].id, [{ signatureKey: signatureKey(sent), count: 4 }]);
+    expect(p.swapCount).toBe(8);
+    expect(p.swapWarning).toBe("After this, 8 crew in 2 groups waiting in the crew pool have no berth left in the fleet, so they move to the reserve at the next tick. Nobody is lost.");
+    expect(p.shortSwapWarning).toBe("8 pool crew move to the reserve at the next tick.");
+  });
+
+  it("pool crew already over their berths before the Send: the words stay true ('At the next tick')", () => {
+    const a = group("operations", ROOM + 3, "belter");
+    const b = group("operations", ROOM, "martian");
+    const sent = group("operations", 4, "spacer");
+    const s = fleet([a, b], [sent]);
+    const p = transferPreview(s, HOMEWORLD_RESERVE, s.ships[0].id, [{ signatureKey: signatureKey(sent), count: 4 }]);
+    expect(p.swapCount).toBe(11);
+    expect(p.swapWarning).toBe("At the next tick, 11 crew in 2 groups waiting in the crew pool have no berth left in the fleet, so they move to the reserve. Nobody is lost.");
+  });
+
+  it("the pool's own Send gets the same warning (user 2026-11-12 'Yes, same warning')", () => {
+    const kept = group("operations", ROOM, "belter");
+    const sent = group("operations", 4, "martian");
+    const s = fleet([kept, sent], []);
+    const ship = s.ships[0];
+    const p = transferPreview(s, CREW_POOL, ship.id, [{ signatureKey: signatureKey(sent), count: 4 }]);
+    expect(p.swapCount).toBe(4);
+    expect(p.swapWarning).toBe(
+      `${fmt(ROOM)} of the Belter operations group at Crewman wait in the crew pool for open berths. After this, the fleet has ${fmt(ROOM - 4)} berths left that can seat them (${shipDisplayLabel(s, ship)}), so 4 of them move to the reserve at the next tick. Nobody is lost.`,
+    );
+  });
+});
+
 describe("the reserve's picker: Recall to the pool", () => {
   it("each row's room is the fleet's open berths less what of the group waits in the pool; the summary says what waits for whom", () => {
     const waiting = group("operations", 3);
@@ -94,7 +129,7 @@ describe("the reserve's picker: Recall to the pool", () => {
     expect(p.buttonLabel).toBe("Recall 0");
     expect(p.rows[0].noteText).toBe("No room: no berth in the fleet is open for Operations at Crewman. All 1,847 stay in the reserve.");
     expect(p.summary).toBe(
-      "No ship can take crew from the reserve right now: every manual ship is full, and the rest are on auto-crew or out. Room opens when a new ship joins, a quarters module goes in, or you send crew back from a manual ship.",
+      "No ship can take crew from the reserve right now: every manual ship is full, and the rest are on auto-crew or out. Room opens when a new ship joins, a quarters module goes in, a manual ship that is out comes home, or you send crew back from a manual ship.",
     );
   });
 

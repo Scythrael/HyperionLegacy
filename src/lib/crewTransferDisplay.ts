@@ -387,9 +387,11 @@ function joinAnd(items: readonly string[]): string {
   return `${items.slice(0, -1).join(", ")} and ${items[items.length - 1]}`;
 }
 
-// The Send warning ("Warn first"): what the next tick's sweep moves out of the pool once `next` (the state the Send
-// would leave) stands. The count is poolSurplusNow, the sweep's own rule, so it is exactly what the tick moves.
-function swapWarningOf(next: GameState): { count: number; text: string | null; short: string | null } {
+// The Send warning ("Warn first"; the pool's own Send too, user 2026-11-12 "Yes, same warning"): what the next tick's
+// sweep moves out of the pool once `next` (the state the Send would leave) stands. The count is poolSurplusNow, the
+// sweep's own rule, so it is exactly what the tick moves. When `before` already had pool crew over their berths (a
+// send back that landed this second, say), the several-group words say "At the next tick" instead of "After this".
+function swapWarningOf(before: GameState, next: GameState): { count: number; text: string | null; short: string | null } {
   const surplus = poolSurplusNow(next);
   const count = surplus.reduce((n, e) => n + e.count, 0);
   if (count <= 0) return { count: 0, text: null, short: null };
@@ -419,9 +421,13 @@ function swapWarningOf(next: GameState): { count: number; text: string | null; s
       short: `${fmtCount(e.count)} ${name.replace(/ group$/, "")} crew at ${crewRankLabel(b.rank)} in the pool move to the reserve at the next tick.`,
     };
   }
+  const already = poolSurplusNow(before).length > 0;
+  const crew = `${fmtCount(count)} ${count === 1 ? "crewmember" : "crew"} in ${groups.length} ${groups.length === 1 ? "group" : "groups"} waiting in the crew pool ${count === 1 ? "has" : "have"} no berth left in the fleet`;
   return {
     count,
-    text: `After this, the fleet has fewer open berths for ${fmtCount(count)} crew of ${groups.length} groups waiting in the crew pool, so they move to the reserve at the next tick. Nobody is lost.`,
+    text: already
+      ? `At the next tick, ${crew}, so ${count === 1 ? "it moves" : "they move"} to the reserve. Nobody is lost.`
+      : `After this, ${crew}, so ${count === 1 ? "it moves" : "they move"} to the reserve at the next tick. Nobody is lost.`,
     short: `${fmtCount(count)} pool crew move to the reserve at the next tick.`,
   };
 }
@@ -525,7 +531,11 @@ export function transferPreview(
   const stay = asked - willMove;
   const gateText = preview && !preview.gate.ok ? transferGateLine(state, preview) : null;
   // "Warn first": a Send from the reserve that would move pool crew out at the next tick says so before Transfer.
-  const swap = fromReserve && targetShip && preview && preview.gate.ok && preview.moved > 0 ? swapWarningOf(preview.next) : { count: 0, text: null, short: null };
+  // The pool's own Send gets the same warning (user 2026-11-12 "Yes, same warning (Recommended)").
+  const swap =
+    (fromReserve || from === CREW_POOL) && targetShip && preview && preview.gate.ok && preview.moved > 0
+      ? swapWarningOf(state, preview.next)
+      : { count: 0, text: null, short: null };
   const movedKeys = preview && preview.gate.ok ? preview.results.filter((r) => r.moved > 0).map((r) => r.signatureKey) : [];
   return {
     rows,
@@ -550,7 +560,7 @@ function recallSummaryLine(state: GameState, asked: number, willMove: number, mo
     const anyShip = transferDestinations(state, HOMEWORLD_RESERVE).some((c) => c.kind === "ship" && c.pickable);
     return anyShip
       ? `No berth in the fleet can seat more of these crew. All ${fmtCount(asked)} stay in the reserve.`
-      : "No ship can take crew from the reserve right now: every manual ship is full, and the rest are on auto-crew or out. Room opens when a new ship joins, a quarters module goes in, or you send crew back from a manual ship.";
+      : "No ship can take crew from the reserve right now: every manual ship is full, and the rest are on auto-crew or out. Room opens when a new ship joins, a quarters module goes in, a manual ship that is out comes home, or you send crew back from a manual ship.";
   }
   const head =
     willMove >= asked

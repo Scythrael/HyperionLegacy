@@ -12,7 +12,8 @@
   // If the SOURCE ship is on auto-crew the picker opens on the same "Switch to manual" line instead of the lists.
   // HOMEWORLD RESERVE (user 2026-11-12 evening, docs/mockups/2026-11-12-homeworld-reserve-controls-mockup.html): the same
   // picker with the reserve as the source. Send starts on the first ship with room, Recall on the crew pool (startOn);
-  // auto-crew ships are listed with a note, not pickable; a Send that moves pool crew out at the next tick warns first.
+  // auto-crew ships are listed with a note, not pickable; a Send (from the reserve or the pool) that moves pool crew out at
+  // the next tick warns first.
   // PURE PRESENTATION: every number is crewTransferDisplay.ts (an engine preview, tested); the move itself is the
   // host's onTransfer (App.svelte doTransferCrew: crewTransfer.ts transferCrew, state = next, log, save).
   // ============================================================================
