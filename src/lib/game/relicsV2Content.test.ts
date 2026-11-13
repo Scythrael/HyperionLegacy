@@ -181,6 +181,42 @@ describe("R2-6: cultures", () => {
     expect(chunks.museumV2).toEqual(one.museumV2);
   });
 
+  it("offline == live: an ancient data study and a relic find naming two cultures in one window list them the same (one call == 997 s chunks == 1 s steps)", () => {
+    // The fragment of culture-t1-4 completes first (60 s), the relic of culture-t1-1 later (600 s); a resolve applies the
+    // data feed after the relic chain, so reveal order would differ between one call and 1 s steps. The list is canonical
+    // (roster order), so every chunking lands the same bytes.
+    const base = contentGoldenStart(0);
+    const blank: RelicVaultToken = { id: "par-1", tier: "standard", quality: 0, regionTier: 1, cultureId: "culture-t1-1", source: "expedition" };
+    const start: GameState = queueAllRelicStudies({
+      ...base,
+      museumV2: { ...base.museumV2, cultures: { "culture-t1-1": { points: 9, finds: { glyphTablet: 9 } }, "culture-t1-4": { points: 9, finds: {} } } },
+      relicVault: [blank],
+      activeProcesses: [
+        ...base.activeProcesses,
+        { id: "proc-9000", kind: "dataStudy", remainingTicks: 60, durationTicks: 60, effect: { type: "studyData", itemId: "ancientDataFragment", studyIndex: 1, cultureId: "culture-t1-4" } },
+      ],
+    }).next;
+    const TICKS = 1200;
+    const one = economyTick(start, TICKS, () => 0);
+    let chunks = start;
+    for (let left = TICKS; left > 0; left -= 997) chunks = economyTick(chunks, Math.min(997, left), () => 0);
+    let steps = start;
+    for (let i = 0; i < TICKS; i++) steps = economyTick(steps, 1, () => 0);
+    expect(one.museumV2.culturesNamed).toEqual(["culture-t1-1", "culture-t1-4"]);
+    for (const other of [chunks, steps]) {
+      expect(JSON.stringify(other.museumV2)).toBe(JSON.stringify(one.museumV2));
+      expect(other.ancientDecoded).toEqual(one.ancientDecoded);
+    }
+  });
+
+  it("the named list is kept in roster order whatever order the reveals come in; load puts an old list in order", () => {
+    let m = freshState().museumV2;
+    for (const id of ["culture-t3-2", "culture-t1-5", "culture-t2-1"]) for (let i = 0; i < CULTURE_STUDY_POINTS; i++) m = feedCultureData(m, id, 1);
+    expect(m.culturesNamed).toEqual(["culture-t1-5", "culture-t2-1", "culture-t3-2"]);
+    const old = { ...freshState(), museumV2: { ...m, culturesNamed: ["culture-t3-2", "culture-t1-5", "culture-t2-1"] } };
+    expect(withCultureRevealsOnLoad(old).museumV2.culturesNamed).toEqual(["culture-t1-5", "culture-t2-1", "culture-t3-2"]);
+  });
+
   it("load: a culture already at the threshold is named (roster order); a clean save is the same reference", () => {
     const base = freshState();
     const s = { ...base, museumV2: { ...base.museumV2, cultures: { "culture-t2-1": { points: 11, finds: {} }, "culture-t1-4": { points: 10, finds: {} }, "culture-t1-1": { points: 3, finds: {} } } } };

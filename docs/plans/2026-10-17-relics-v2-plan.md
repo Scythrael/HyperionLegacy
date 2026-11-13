@@ -430,10 +430,12 @@ of stored state; threshold exact; renames apply to old finds; no culture name eq
   `CULTURE_STUDY_POINTS` (10). Both writers end there: identification (`applyRelicIdentification`, in the chain's time
   order) and the 15b feed (`dataStudy.ts feedCultureData`). Naming reads only `culturesNamed`, so it is a pure function of
   stored state and renames every old find at once. Load: `withCultureRevealsOnLoad` names a dev save's cultures already
-  at 10 (points have counted since R2-3), in roster order. Edge noted: when a 15b fragment study and relic finds both
-  carry DIFFERENT cultures past 10 inside one offline window, the named list's ORDER can differ from 1 s steps (the data
-  feed is applied after the relic chain in a resolve); membership and every point are identical. Nothing displays the
-  order.
+  at 10 (points have counted since R2-3), in roster order. FIXED (review 2026-11-13): when a 15b fragment study and
+  relic finds carried DIFFERENT cultures past 10 inside one offline window, the list's reveal ORDER differed from 1 s
+  steps (a resolve applies the data feed after the relic chain). The list is now a set kept in the canonical roster
+  order (`relics.ts compareCultureIds`, every insert and the load step), so one call, 997 s chunks and 1 s steps land the
+  same bytes (`relicsV2Content.test.ts` parity test with a fragment naming one culture before a relic names another).
+  Moved pin, named: content golden 1's named list (same 14 cultures, roster order instead of reveal order).
 - Guard test: no name contains "First Cause", "DBD" or "Precursor" (the umbrella word, call 11), none repeats a relic,
   set or piece name, all 42 unique.
 - Wiring: `relic:audit:blankCulture` LIVE (probe `content:relic:cultureReveal`: twelve stamped blanks through the real start

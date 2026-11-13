@@ -1378,23 +1378,39 @@ export function generalRelicSampleName(museum: Pick<MuseumV2, "culturesNamed"> |
   return `Relic Sample ${relicSampleCode(cultureId, typeId)}`;
 }
 
-// The Museum with `cultureId` appended to culturesNamed when its study points have reached CULTURE_STUDY_POINTS and it
-// is not listed yet (the reveal; each culture once, in reveal order). The SAME reference otherwise. Every writer of
-// culture points ends here (identification and the ancient data feed). Pure.
+// THE CANONICAL ORDER of the named-culture list: roster order (Tier I first, then each tier's roster index), an id
+// outside the roster after them by its id. The list is a SET kept in this order, never in reveal order: a resolve applies
+// the ancient data feed after the relic chain, so two cultures named in one offline window would otherwise be listed in a
+// different order than 1 s steps list them (the strict offline == live rule; review 2026-11-13). Pure.
+function cultureRank(id: string): number {
+  const tier = cultureTier(id);
+  return tier === null ? Number.MAX_SAFE_INTEGER : tier * 100 + CULTURE_ROSTER[tier].indexOf(id);
+}
+export function compareCultureIds(a: string, b: string): number {
+  const d = cultureRank(a) - cultureRank(b);
+  return d !== 0 ? d : a < b ? -1 : a > b ? 1 : 0;
+}
+
+// The Museum with `cultureId` added to culturesNamed when its study points have reached CULTURE_STUDY_POINTS and it is
+// not listed yet (the reveal; each culture once), the list kept in the canonical order (compareCultureIds). The SAME
+// reference otherwise. Every writer of culture points ends here (identification and the ancient data feed). Pure.
 export function withCultureReveal(museum: MuseumV2, cultureId: string): MuseumV2 {
   if (museum.culturesNamed.includes(cultureId)) return museum;
   if (!((museum.cultures[cultureId]?.points ?? 0) >= CULTURE_STUDY_POINTS)) return museum;
-  return { ...museum, culturesNamed: [...museum.culturesNamed, cultureId] };
+  return { ...museum, culturesNamed: [...museum.culturesNamed, cultureId].sort(compareCultureIds) };
 }
 
 // Every-load (no SAVE_VERSION bump): a dev save whose cultures crossed the threshold before R2-6 (points were counted
-// since R2-3) gains their reveal, in roster order. Identity on every save with nothing to reveal. Pure.
+// since R2-3) gains their reveal, and a list in reveal order (a build before the canonical order) is put in the canonical
+// order. Identity on every save with nothing to reveal or reorder. Pure.
 export function withCultureRevealsOnLoad(state: any): any {
   const museum = state?.museumV2;
   if (!museum || typeof museum !== "object" || !museum.cultures || !Array.isArray(museum.culturesNamed)) return state;
   let next = museum as MuseumV2;
   for (const tier of REGION_TIER_LIST) for (const id of CULTURE_ROSTER[tier]) next = withCultureReveal(next, id);
   for (const id of Object.keys(museum.cultures).sort()) next = withCultureReveal(next, id);
+  const sorted = [...next.culturesNamed].sort(compareCultureIds);
+  if (sorted.some((id, i) => id !== next.culturesNamed[i])) next = { ...next, culturesNamed: sorted };
   return next === museum ? state : { ...state, museumV2: next };
 }
 

@@ -24,11 +24,13 @@ describe("R2-5 / R2-6 content golden 1: a 160-blank identification chain", () =>
     const done = resolveChain(contentGoldenStart(), Infinity);
     expect(done.relicVault.length).toBe(0);
     expect(done.museumV2.setsCompleted).toEqual(["exc-t6-b", "exc-t3-b"]);
-    // MOVED by R2-6 (the culture reveal, call 9 "named at 10"): every culture whose study points reached ten is named,
-    // in the order its tenth point landed (pre-R2-6: [] with the same points).
+    // MOVED by R2-6 (the culture reveal, call 9 "named at 10"): every culture whose study points reached ten is named
+    // (pre-R2-6: [] with the same points). MOVED again by the canonical-order fix (review 2026-11-13): the list is kept in
+    // roster order, not reveal order (it was t1-1, t3-1, t4-2, t2-2, t5-1, t7-1, t1-2, t6-2, t4-1, t2-1, t5-2, t7-2,
+    // t3-2, t6-1: the same 14 cultures).
     expect(done.museumV2.culturesNamed).toEqual([
-      "culture-t1-1", "culture-t3-1", "culture-t4-2", "culture-t2-2", "culture-t5-1", "culture-t7-1", "culture-t1-2",
-      "culture-t6-2", "culture-t4-1", "culture-t2-1", "culture-t5-2", "culture-t7-2", "culture-t3-2", "culture-t6-1",
+      "culture-t1-1", "culture-t1-2", "culture-t2-1", "culture-t2-2", "culture-t3-1", "culture-t3-2", "culture-t4-1",
+      "culture-t4-2", "culture-t5-1", "culture-t5-2", "culture-t6-1", "culture-t6-2", "culture-t7-1", "culture-t7-2",
     ]);
     expect(hash(done.museumV2.cultures)).toBe("a29ddbfa");
     expect(hash(done.museumV2.exceptional)).toBe("98031451");
