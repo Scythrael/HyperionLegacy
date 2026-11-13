@@ -355,3 +355,14 @@ Ember Court (theme becomes: a court famous for the grand weekly gatherings its h
 | exc-t5-b-p2 | Ember Court Crucible | The court's punch was brewed in it once. Nobody speaks of that night, but the ore it melts comes out richer. |
 | exc-t5-b-p3 | Ember Court Coronet | The host wore it to greet each guest by name, and somehow every guest arrived bearing a gift. |
 | exc-t5-b-p4 | Ember Court Bellows | It kept the hearth roaring through the longest gala, and blew out a party crasher or two. |
+
+### USER ANSWERS (2026-11-13) on the homage drafts
+
+- Keelsong: all five lines "Approve".
+- Ember Court (user, verbatim): "Hmmm. Perhaps the crucible can be replaced by a well loved teapot. That is what I
+  remember most. The quests to brew tea and serve them to guests at the party, while trying not to die in the sunlight
+  haha. Yes. Or perhaps the banner instead of the crucible." Follow-up picks: "Replace the Banner (Recommended)" and the
+  Teapot line "Approve".
+- FINAL Ember Court: exc-t5-b-p1 is now **Ember Court Teapot** (stat crewBonuses, same id): "Well loved, chipped at the
+  spout, and never once empty. The court's tea was always brewed after sundown, and served before sunrise." The set,
+  Crucible, Coronet and Bellows lines ship as drafted above (the Banner line is dropped).
