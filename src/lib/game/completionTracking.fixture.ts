@@ -6,8 +6,8 @@
 // that Resume system ABANDONED. Plus one relic study whose identification completes an exceptional set inside an
 // economy tick (the ledger's first event).
 
-import { emptyMuseumV2, freshState, type Expedition, type GameState, type RelicVaultToken } from "./model";
-import { advanceExpedition, claimExpedition, abandonHeldSystem, recallExpedition, heldSystems, startExpedition } from "./expedition";
+import { emptyMuseumV2, freshState, type Expedition, type GameState, type HeldSystem, type RelicVaultToken } from "./model";
+import { advanceExpedition, claimExpedition, abandonHeldSystem, editGroundOps, recallExpedition, heldSystems, startExpedition } from "./expedition";
 import { exceptionalSetsOfTier } from "./relics";
 import { identifyRelicV2 } from "./relicIdentify";
 import { runCompletion } from "./completion";
@@ -94,6 +94,44 @@ export function ctResumed(seed: number, when: "charted" | "bodyDone" = "charted"
   const claim = claimExpedition({ ...res.next, gameTimeSeconds: done.phaseAnchorSeconds, expeditions: [done] }, done.id);
   if (!claim.success) throw new Error(`claim refused: ${claim.reason}`);
   return { claimed: claim.next, exp: done };
+}
+
+// SKIPPED, then RECALLED (the review's Important 1): at the first instant (300 s steps) a charted body has objectives
+// and none of them is done, every objective of that body is SKIPPED (the body reaches 100% by skips alone), then
+// the run is recalled 60 s later.
+// [the recall, the claim once home (its system held to Resume), the abandon of the held system, the resumed run's
+// claim (the held system dispatched again and finished), the held system as the claim left it].
+export function ctSkipRecalled(seed: number): { recalled: GameState; claimed: GameState; abandoned: GameState; resumed: GameState; held: HeldSystem } {
+  const { next, exp } = ctDispatch(seed);
+  let t = exp.phaseAnchorSeconds;
+  let e = exp;
+  const queuedBody = (x: Expedition): number => x.bodies.findIndex((b) => b.scanned && b.activities.length > 0 && b.activities.every((a) => !a.done && a.status !== "skipped"));
+  while (queuedBody(e) < 0) {
+    t += 300;
+    if (e.phase === "return" || e.phase === "complete") throw new Error("no body ever had its objectives all open");
+    e = advanceExpedition(exp, t);
+  }
+  const k = queuedBody(e);
+  let s: GameState = { ...next, gameTimeSeconds: t, expeditions: [e] };
+  for (const a of e.bodies[k].activities) s = editGroundOps(s, exp.id, { kind: "skip", taskId: a.id });
+  const skipped = s.expeditions[0];
+  if (!skipped.bodies[k].activities.every((a) => a.status === "skipped")) throw new Error("a skip was refused");
+  const at = t + 60;
+  const recalled = recallExpedition({ ...s, gameTimeSeconds: at, expeditions: [advanceExpedition(skipped, at)] }, exp.id);
+  const home = advanceExpedition(recalled.expeditions[0], CT_FAR);
+  if (home.phase !== "complete") throw new Error("the recalled run did not come home");
+  const claim = claimExpedition({ ...recalled, gameTimeSeconds: home.phaseAnchorSeconds, expeditions: [home] }, home.id);
+  if (!claim.success) throw new Error(`claim refused: ${claim.reason}`);
+  const held = heldSystems(claim.next).find((h) => h.kind === "resume");
+  if (!held) throw new Error("the recall held no Resume system");
+  const abandoned = abandonHeldSystem({ ...claim.next, gameTimeSeconds: claim.next.gameTimeSeconds + 100 }, held.id);
+  const res = startExpedition(claim.next, "ship-1", 1, held.id);
+  if (!res.success || !res.expedition) throw new Error(`resume refused: ${res.reason}`);
+  const done = advanceExpedition(res.expedition, CT_FAR);
+  if (done.phase !== "complete") throw new Error("the resumed run did not finish");
+  const resumedClaim = claimExpedition({ ...res.next, gameTimeSeconds: done.phaseAnchorSeconds, expeditions: [done] }, done.id);
+  if (!resumedClaim.success) throw new Error(`claim refused: ${resumedClaim.reason}`);
+  return { recalled, claimed: claim.next, abandoned, resumed: resumedClaim.next, held };
 }
 
 // ===== The relic set completed inside an economy tick =====

@@ -14,7 +14,7 @@
 
 import { describe, expect, it } from "vitest";
 import type { GameState } from "./model";
-import { CT_FAR, CT_SEEDS, ctClaimed, ctDispatch, ctFinished, ctHash, ctRecalled, ctResumed } from "./completionTracking.fixture";
+import { CT_FAR, CT_SEEDS, ctClaimed, ctDispatch, ctFinished, ctHash, ctRecalled, ctResumed, ctSkipRecalled } from "./completionTracking.fixture";
 import { withCompletionRollOff } from "./completionTrackingSwitch.fixture";
 import { advanceExpedition, claimExpedition } from "./expedition";
 
@@ -41,6 +41,21 @@ const BEFORE_RESUMED: Record<string, string[]> = {
   "3003": ["58c605ac", "23db6407"],
   "4004": ["9cd9eac8", "2dd1ab3b"],
   "5005": ["550fb4de", "337c28aa"],
+};
+
+// The review's Important 1 (2026-11-13), captured BEFORE its fix (on cb65cda3): a body's every objective SKIPPED, then
+// the run recalled (completionTracking.fixture.ts ctSkipRecalled): [the recall, the claim once home, the abandon, the
+// resumed run's claim]. On this code the recall re-queues the skips, so the held system counted them as not done.
+const BEFORE_SKIP_RECALLS: Record<string, string[]> = {
+  "1001": ["fc5a6aa7", "2cb09d46", "cb8a5ef4", "b51f422c"],
+  "2002": ["35a57f3c", "20d2be2a", "602b8f3f", "3796db2b"],
+  "3003": ["cbad5126", "30c0e7b", "4c376096", "24f4979b"],
+  "4004": ["d60f5d0f", "936c62e2", "9ed63450", "428b48dd"],
+  "5005": ["a94ab7fe", "8c0e45b8", "82731baf", "4bd8e5bc"],
+};
+const skipRecalls = (seed: number): string[] => {
+  const r = ctSkipRecalled(seed);
+  return [ctHash(r.recalled), ctHash(r.claimed), ctHash(r.abandoned), ctHash(r.resumed)];
 };
 
 // The pins today. Each move names its reason; every one returns to BEFORE with the roll off (the describe below).
@@ -103,6 +118,13 @@ describe("the planet roll goldens", () => {
     it(`claim ${key}`, { timeout: 120_000 }, () => expect(ctHash(ctClaimed(seed))).toBe(GOLDEN_CLAIMS[key]));
     it(`late recall, claim and abandon ${key}`, { timeout: 120_000 }, () => expect(lateRecalls(seed)).toEqual(GOLDEN_LATE_RECALLS[key]));
     it(`resumed claims ${key}`, { timeout: 240_000 }, () => expect(resumed(seed)).toEqual(GOLDEN_RESUMED[key]));
+  }
+});
+
+describe("skips kept through a recall (captured before the fix)", () => {
+  for (const seed of CT_SEEDS) {
+    const key = seed.toString(16);
+    it(`skip, recall, claim, abandon and resume ${key}`, { timeout: 240_000 }, () => expect(skipRecalls(seed)).toEqual(BEFORE_SKIP_RECALLS[key]));
   }
 });
 
