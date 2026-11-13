@@ -161,3 +161,4 @@ sheet for the user's sign-off BEFORE it ships (like the relic names). Build afte
 
 The echo roster (docs/plans/2026-11-03-refugee-echo-roster-DRAFT.md, 59 names, once per save, one mark): "Approve all".
 Unblocks E5-6b (echo refugees).
+- (2026-11-13, after the E5-6b build) Which echo a rare roll brings: "Uniform pick (Recommended)" (as built).
