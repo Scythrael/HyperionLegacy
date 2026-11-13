@@ -58,7 +58,7 @@ describe("E5-6b the approved roster", () => {
     ];
     for (const e of REFUGEE_ECHOES) {
       for (const text of [e.name, e.flavor]) {
-        expect(text).not.toMatch(/[–—]|--/);
+        expect(text).not.toMatch(/[\u2013\u2014]|--/);
         expect(text).not.toMatch(/\bfit(s|ted|ting)?\b/i);
         for (const b of banned) expect(text.toLowerCase(), `${e.key}: ${b}`).not.toContain(b);
       }

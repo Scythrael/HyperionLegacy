@@ -808,7 +808,7 @@ describe("HELP_TOPICS", () => {
       expect(para).toContain(`about 1 in ${Math.round(1 / REFUGEE_ECHO_CHANCE)} arrivals`);
       expect(para).toContain("at most once in a game");
       expect(para).toContain("They work like anyone else");
-      expect(para).not.toMatch(/[–—]|--|\bfit\b/);
+      expect(para).not.toMatch(/[\u2013\u2014]|--|\bfit\b/);
       for (const name of ["Star Wars", "Stargate", "Babylon", "Wheel of Time", "Final Fantasy", "Dragon Ball", "Hero Academia", "Firefly", "Farscape", "Hitchhiker", "Lord of the Rings", "franchise"]) {
         expect(b()).not.toContain(name);
       }
