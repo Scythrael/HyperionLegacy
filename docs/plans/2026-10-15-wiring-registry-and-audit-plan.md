@@ -2590,3 +2590,44 @@ seconds)).
 - Help: no paragraph describes a recall during a repair (RECALL, HULL DAMAGE AND FIELD REPAIR and ORDERING A FIELD
   REPAIR do not), so none changed. QA: docs/qa/2026-11-12-field-repair-qa.html section 4, the recall row reworded and one
   new row.
+
+## WR-12 close-out (2026-11-13)
+
+Built on 8e238040 (feat/crew-0.14.0). One commit of Help + QA (1cb91c46), this note in its own commit.
+
+- **Release gate:** `RELEASE_GATE=1 npx vitest run src/lib/game/no-dead-stats.test.ts src/lib/game/wiring.completeness.test.ts`:
+  2 files, 202 tests passed; the three gate tests ran and pass (no liveness entry pending, no registry entry pending
+  in either file). Registry: 1824 entries, 1736 live, 67 deferred, 20 seam, 1 held, 0 pending.
+- **Deferred entries, each with the user's words:** 56 Prospecting entries (gear lines, SI lines, traits, spec bases,
+  blueprints, uses, the team audit rows): safe-first-runs plan USER ANSWERS group 4 (2026-10-16), build Prospecting
+  fully but hidden (user: "we might as well build all 3"). 5 patrol cloak rows (`ship:gearLine:sensors`,
+  `particleTraceDetector`, `rapidChargeAfterAmbush`, `podRapidChargeLine`, `ambushInPatrols`): T3 "Move all five
+  (Recommended)". `crew:audit:spacerLongHaulRamp`: T3, the Spacer long-haul ramp. 3 crew rarity rows (Radiant,
+  Luminous, Constellar): rarity readiness answer 7 (2026-10-22) "Yes, same for both (Recommended)".
+  `away:audit:difficultyTiers`: objective affixes capture (user 2026-10-14). `mission:audit:unusedFactions`: OC-I2
+  "Routes when you name content (Recommended)". Held: Craft Duplicate, D14.
+- **SIM_FULL** (`SIM_FULL=1 npx vitest run --reporter=verbose src/lib/game/sim`, 1433 s): passes. Ablation, allAuto,
+  seed 0, 8 h: 519 runs, 194 moves, 253 seamOnly, 45 dead, 68 noChange, 7 skipped. The first-run batch: allAuto safe on
+  all six seeds, patrol won on all six; the newcomer refused (notExplorer) as pinned. Offline == live holds for both
+  policies. The 32 "dead live SURPRISE" rows all read the same seam value with and without the choice on the sim's
+  save (no officer bonus, drone, trade run, recruits board or telescope rung the 8 h allAuto play reaches), each green
+  in its sensitivity test: sim coverage, not a broken wire. Worth the holistic reviewer's eye: the telescope
+  `reachTier` rungs 3 and 5 (seam 2 to 2, 4 to 4) and the `detail` rungs that repeat the rung below (WR-2 note).
+- **Sweeps:** `test:sweep:ramp` 55 passed (378 s); `test:sweep:patrol` 65 passed (165 s).
+- **Help audit (Task 34 style):** gaps found and fixed, every number read from the engine constant and pinned in
+  `helpTopicsCrew.test.ts`: Crew and Captains had no word on talents (new TALENTS paragraph: the three specialization
+  bonuses and the Combat Readiness / Survey Doctrine hubs, WR-6); Homeworld named no hub effect (Home Guard, Civic
+  Charter, Works Directorate with sizes, and the Refinery level 3 and 4 gate); Complement's RACIALS line left out the
+  commanding captain's racial (OC-A43). A stale model.ts comment still called the Tactician and Explorer secondary
+  trees inert; corrected. The other WR slices had already landed their Help lines (stances, torpedoes, Field Kits, gear
+  wear, field repair, new hires, Return Trip, completion, telescope).
+- **QA sheet:** `docs/qa/2026-11-13-0140-release-qa.html`, desktop 1280 and mobile 375, 127 checks by player journey,
+  every 0.14.0 per-slice sheet linked once, every check on devpreview.crystalisoft.com; no horizontal scroll at 375.
+- **The T2 fix:** "T2" is the safe first runs ruling (capture section 1). It landed: SF-0 to SF-7 merged (SF-7 close-out
+  b8aef8bc), re-proven above by SIM_FULL's first-run batch and the two sweeps. With this gate passing, capture section
+  4's two conditions are met; staging still waits on the user's word.
+- **Gates:** full suite 474 files passed, 5 skipped; 12251 tests passed, 311 skipped (1872 s); `npm run check` 0
+  errors, the 2 known RadialWeb warnings; `npm run test:perf` 4 passed.
+- **Open for the user:** the 0.14.0 patch note is not written yet; per the WR-6 integration note it must tell current
+  owners of Works Directorate, Combat Readiness, Survey Doctrine, the tactical or science spec, Home Guard or Civic
+  Charter that those now have real effects. Holistic review is next (a separate reviewer).
