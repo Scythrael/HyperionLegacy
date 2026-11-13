@@ -812,6 +812,7 @@ import {
   type RefugeeBackground,
 } from "./game/refugees";
 import { REFUGEE_TAPER_K } from "./game/refugeeArrival";
+import { REFUGEE_ECHO_CHANCE } from "./game/refugeeEchoes";
 import { REFUGEE_FACILITY_LABELS } from "./refugeeDisplay";
 
 // What each background's buff does at its match, in the player's words (the consumer seams of refugeeBuffs.ts; the
@@ -843,6 +844,9 @@ const REFUGEE_BACKGROUND_LINES = REFUGEE_BACKGROUND_KEYS.map((bg) => {
 }).join("\n");
 const EVACUATION_LABEL = SHORT_RANGE_TEMPLATES.evacuation.label;
 const RELOCATION_LABEL = SHORT_RANGE_TEMPLATES.refugeeRelocation.label;
+// E5-6b: the echo refugees, true to refugeeArrival.ts rollRefugee and refugeeEchoes.ts (the chance read from
+// REFUGEE_ECHO_CHANCE, never typed). [PROPOSAL] wording.
+export const REFUGEE_ECHO_HELP = `SPECIAL ARRIVALS: now and then, about 1 in ${Math.round(1 / REFUGEE_ECHO_CHANCE)} arrivals, someone special comes home. They wear a small mark beside their name and carry a line of their own about who they are. They work like anyone else: their skill is rolled the same way and they give the same buffs. Each of them comes home at most once in a game, and a relocation can still take one along like anyone waiting.`;
 
 export const REFUGEES_HELP_PARAGRAPHS: readonly string[] = [
   `Refugees are named people your ${EVACUATION_LABEL} runs bring home. Each one has a name, a background and a skill, all fixed when they arrive (there is no leveling). Post them at a facility and they make it better. They never fly, fight or take a crew seat, they cost nothing to keep, and nobody is ever lost. You find them on the Crew tab under Refugees, which appears once the first person arrives.`,
@@ -850,6 +854,7 @@ export const REFUGEES_HELP_PARAGRAPHS: readonly string[] = [
   `ARRIVALS AND THE TAPER: while there are at least as many open posts as people waiting, an evacuation always brings someone home. Once more people wait than there are open posts, the chance falls smoothly: ${REFUGEE_TAPER_K} more people waiting than open posts halve it, ${3 * REFUGEE_TAPER_K} more quarter it, and it never reaches zero. Upgrading facilities opens posts and raises it again. An evacuation that brings nobody home is not a failure: everyone aboard reached the camps, and the log says so.`,
   `ARRIVING: a new arrival shows a card on the short-range board that offers a one-tap post at their best open post (Choose a post when every post is full), or leaves them on the waiting list; with several cards queued (after time away, for example), Leave all on the waiting list answers every card at once. On a phone, a short notice shows for a few seconds and then tucks into the Refugees tab's count, where the arrival waits for you. Offline time brings people home exactly as if you had been watching.`,
   `BACKGROUNDS AND MATCHES: each background matches one facility. Posted at their match, a refugee gives ${sharePct(REFUGEE_MATCH_SHARE_PER_SKILL)} per point of skill (skill ${REFUGEE_EXAMPLE_SKILL} gives +${sharePct(REFUGEE_EXAMPLE_SKILL * REFUGEE_MATCH_SHARE_PER_SKILL)}). Posted anywhere else, they give ${pct(REFUGEE_OFF_MATCH_RATIO)} of that to the facility they are at, so a match counts, but nobody is wasted.\n${REFUGEE_BACKGROUND_LINES}`,
+  REFUGEE_ECHO_HELP,
   `POSTS: a facility opens one post at Level ${REFUGEE_POST_LEVELS[0]} and one more every ${REFUGEE_POSTS_EVERY} levels after it (Levels ${andList(REFUGEE_POST_LEVELS.map(String))} open the first ${countWords(REFUGEE_POST_LEVELS.length)}). A facility that is not built yet has no posts. The Posts row under each facility on the Facilities tab shows who is posted there, each person's share and the facility's total; Mission Control's posts are on the Ops tab under Mission Control. Several people at one facility stack on a diminishing curve: each one adds a little less than the last, but there is never a cap.`,
   `MOVING IS FREE, ANY TIME: post, move or return anyone to the waiting list with no cost, no cooldown and no timer. Pick a filled post to move that person or send them back to waiting. The picker lists the people waiting, sorted by what they would add here, and the people posted elsewhere, with Move here. Posting at a full facility is a swap, and you pick who goes back to the waiting list. A buff that times a job is set when the job starts, so a move changes the next job, never one already running.`,
   `RELOCATION LEADERS: a ${RELOCATION_LABEL} job takes one person from the waiting list along to lead the new camp, the one who has waited longest, and the log says goodbye. With nobody waiting it runs exactly as before.`,

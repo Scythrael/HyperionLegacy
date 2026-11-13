@@ -286,6 +286,8 @@ export const ICON_SEMANTICS: Record<IconName, IconSemantic> = {
   refugeeArrival: "subject",
   refugeeFarewell: "subject",
   info: "alert",
+  // 0.14.0 E5-6b: the echo refugees' shared mark names a kind of person (an echo), a subject.
+  refugeeEcho: "subject",
   // 0.14.0 CP-11: the crew module and sensor array glyphs name things (the bridge, quarters and sensor slots' pieces).
   bridge: "subject",
   quarters: "subject",

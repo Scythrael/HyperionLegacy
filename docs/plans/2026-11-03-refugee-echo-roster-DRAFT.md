@@ -141,3 +141,8 @@ the roll can pick an echo uniformly, or pick within the arrival's already-rolled
   rolls become normal refugees.
 - Mark: "One shared mark (Recommended)": one subtle original glyph for all echoes, no franchise logos.
 - The rows themselves: AWAITING the user's read (keep, cut or rename any).
+
+## USER ANSWER (2026-11-13) and BUILT
+
+"Approve all" (all 59 rows as written). Built in slice E5-6b (src/lib/game/refugeeEchoes.ts, word for word; the
+"Echoes" column is not in the code). Carry note: docs/plans/2026-11-02-refugee-posts-e5-plan.md, "E5-6b carry note".

@@ -134,7 +134,8 @@ import { wiringEntry } from "./game/wiring/registry";
 import { REFUGEE_BACKGROUNDS, REFUGEE_BACKGROUND_KEYS, REFUGEE_MATCH_SHARE_PER_SKILL, REFUGEE_OFF_MATCH_RATIO, REFUGEE_POSTS_EVERY, REFUGEE_SKILL_SPANS, refugeePostsAt, refugeeShare } from "./game/refugees";
 import { REFUGEE_TAPER_K, refugeeArrivalChance } from "./game/refugeeArrival";
 import { REFUGEE_FACILITY_LABELS } from "./refugeeDisplay";
-import { REFUGEE_BUFF_HELP } from "./helpTopics";
+import { REFUGEE_BUFF_HELP, REFUGEE_ECHO_HELP } from "./helpTopics";
+import { REFUGEE_ECHO_CHANCE } from "./game/refugeeEchoes";
 // Expedition Tiers G2-7.
 import { ENEMY_SECTOR_WIDTH_PERMILLE, HOMEWORLD_MAX_FROM_SOL_LY, HOMEWORLD_MIN_FROM_SOL_LY, REGION_TIERS, REGION_TIER_NAMES } from "./game/galaxy";
 import { EXPEDITION_CANDIDATE_COUNT, FAMOUS_SYSTEM_ONE_IN, TIER_BODY_COUNT, recallBlockText } from "./game/expedition";
@@ -799,6 +800,18 @@ describe("HELP_TOPICS", () => {
       expect(topic("shortRange").body).toContain("see the Refugees topic");
       expect(topic("homeworld").body).toContain("see the Refugees topic");
       expect(topic("homeworld").body).toContain("each facility shows a Posts row");
+    });
+
+    it("E5-6b: special arrivals, the chance read from REFUGEE_ECHO_CHANCE, once per game, no franchise named", () => {
+      const para = lines().find((l) => l.startsWith("SPECIAL ARRIVALS: "));
+      expect(para).toBe(REFUGEE_ECHO_HELP);
+      expect(para).toContain(`about 1 in ${Math.round(1 / REFUGEE_ECHO_CHANCE)} arrivals`);
+      expect(para).toContain("at most once in a game");
+      expect(para).toContain("They work like anyone else");
+      expect(para).not.toMatch(/[\u2013\u2014]|--|\bfit\b/);
+      for (const name of ["Star Wars", "Stargate", "Babylon", "Wheel of Time", "Final Fantasy", "Dragon Ball", "Hero Academia", "Firefly", "Farscape", "Hitchhiker", "Lord of the Rings", "franchise"]) {
+        expect(b()).not.toContain(name);
+      }
     });
 
     it("the Short-Range topic lists eight jobs and says an evacuation can bring someone home", () => {
