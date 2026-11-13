@@ -418,6 +418,31 @@ from it reads with its real name; until then a general relic reads "Relic Sample
 of stored state; threshold exact; renames apply to old finds; no culture name equals a reserved antagonist label
 (a guard test over the roster).
 
+**R2-6 carry note (2026-11-13):**
+- Content: `relics.ts CULTURE_CONTENT` holds the 42 approved names and lore lines (sheet Part B, user 2026-11-13 "Approve
+  all"), keyed by the stable roster ids; a test reads the sheet and asserts all 42. Lore ships in 0.14.0 (structure answer
+  4), shown once a culture is identified, no gameplay effect.
+- Codes: `CULTURE_CODES` derives each culture's "Culture K-17" code from a hash of its id (letters without I and O,
+  unique over the roster, never stored); `relicSampleCode(cultureId, typeId)` gives "K17-42", so an unnamed general relic
+  reads "Relic Sample K17-42" (`generalRelicSampleName`). Named: "Halvessi Glyph Tablet"; lists and the ledger use the bare
+  name (`cultureListName`), prose "the Halvessi" (`cultureProseName`), structure answer 3.
+- Reveal: `withCultureReveal` appends a culture to `culturesNamed` once, the moment its points reach
+  `CULTURE_STUDY_POINTS` (10). Both writers end there: identification (`applyRelicIdentification`, in the chain's time
+  order) and the 15b feed (`dataStudy.ts feedCultureData`). Naming reads only `culturesNamed`, so it is a pure function of
+  stored state and renames every old find at once. Load: `withCultureRevealsOnLoad` names a dev save's cultures already
+  at 10 (points have counted since R2-3), in roster order. Edge noted: when a 15b fragment study and relic finds both
+  carry DIFFERENT cultures past 10 inside one offline window, the named list's ORDER can differ from 1 s steps (the data
+  feed is applied after the relic chain in a resolve); membership and every point are identical. Nothing displays the
+  order.
+- Guard test: no name contains "First Cause", "DBD" or "Precursor" (the umbrella word, call 11), none repeats a relic,
+  set or piece name, all 42 unique.
+- Wiring: `relic:audit:blankCulture` LIVE (probe `content:relic:cultureReveal`: twelve stamped blanks through the real start
+  and resolver name their culture; unstamped, none), `facility:DATA_STUDY_SEAM:cultureStudyPoint` seam to LIVE (probe
+  `content:dataStudy:cultureReveal`: one fragment study names its culture from nine points). `CULTURE_STUDY_POINTS` left
+  `UNREAD_CONSTANTS`.
+- Goldens moved, named: content golden 1 (14 cultures named, in the order their tenth point landed) and golden 3 (the feed
+  names at ten); `gasGiantCloseout.test.ts` (no gas giant seam left).
+
 ### R2-7: UI A, the parts the mockup covers (needs the mockup's calls answered, no new layout sign-off)
 Warehouse "Unidentified Relics" row with the tier x rarity matrix (mockup section 2); Research Lab Identification tab
 replacing the Relics sub-tab: feed, queue, lanes, the reveal card, recent identifications (section 3); the exceptional

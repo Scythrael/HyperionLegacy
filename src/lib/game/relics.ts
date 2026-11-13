@@ -1233,9 +1233,8 @@ export function exceptionalSetsOfTier(tier: RegionTier): ExceptionalSetDef[] {
 // total") at which that tier's counts freeze for the regular game (R2-4, museumTierTotal / withSoftCapSnapshot).
 export const RELIC_SOFT_CAP = 1000;
 
-// Call 10: six curated cultures per region tier (42). Their NAMES await the user's sign-off sheet, so the roster
-// holds stable placeholder ids only ("culture-t<tier>-<n>"); nothing here is a display name. No culture is ever the
-// First Cause antagonists (R2-6 guards the roster).
+// Call 10: six curated cultures per region tier (42), stable ids "culture-t<tier>-<n>" (saves store them). Their names
+// and lore lines are CULTURE_CONTENT below (R2-6). No culture is ever the First Cause antagonists (a guard test).
 export const CULTURES_PER_TIER = 6;
 export const CULTURE_ROSTER: Readonly<Record<RegionTier, readonly string[]>> = (() => {
   const out = {} as Record<RegionTier, string[]>;
@@ -1245,6 +1244,159 @@ export const CULTURE_ROSTER: Readonly<Record<RegionTier, readonly string[]>> = (
 
 // Call 9: a culture's name is revealed at this many study points (+1 per identified find, plus 15b ancient data; R2-6).
 export const CULTURE_STUDY_POINTS = 10;
+
+// ============================================================================
+// Relics v2 R2-6: CULTURES (plan section 4 R2-6; calls 8 to 11; the approved name sheet Part B)
+// ============================================================================
+// THE APPROVED NAMES AND LORE LINES (docs/plans/2026-11-02-relic-name-sheets-DRAFT.md Part B, user 2026-11-13 "Approve
+// all"; structure answers 2026-11-02: prose reads "the <Name>", lists and the ledger the bare name; the lore line ships
+// in 0.14.0, shown once the culture is identified, no gameplay effect). Each is a specific vanished race beneath the
+// umbrella word "Precursor" (call 11). Keyed by the stable roster id.
+export const CULTURE_CONTENT: Readonly<Record<string, { name: string; lore: string }>> = {
+  "culture-t1-1": { name: "Halvessi", lore: "Potters and storytellers. Half their shards carry a fingerprint pressed in on purpose." },
+  "culture-t1-2": { name: "Corrimel", lore: "Terrace farmers who left their hillsides better than they found them." },
+  "culture-t1-3": { name: "Teshvar", lore: "They counted in songs, and the songs still add up." },
+  "culture-t1-4": { name: "Ambrinth", lore: "Weavers whose patterns double as maps of their valleys." },
+  "culture-t1-5": { name: "Lowmarch", lore: "A border folk who kept the peace between two larger neighbors for a thousand years." },
+  "culture-t1-6": { name: "Quillane", lore: "Letter writers. They seem to have written to everyone, including the future." },
+  "culture-t2-1": { name: "Selvane", lore: "Mariners first, star sailors later, and they kept the same knots for both." },
+  "culture-t2-2": { name: "Ithrae", lore: "Colonists who carried a handful of home soil to every world they settled." },
+  "culture-t2-3": { name: "Garrowin", lore: "Builders of small, sturdy ships. Some of their hulls are still airtight." },
+  "culture-t2-4": { name: "Oruveth", lore: "Record keepers who copied everything twice and stored the copies a world apart." },
+  "culture-t2-5": { name: "Kestrani", lore: "Traders whose coins are found on worlds they never seem to have visited." },
+  "culture-t2-6": { name: "Mirrowen", lore: "Gardeners of other worlds. Some of their orchards still bear fruit." },
+  "culture-t3-1": { name: "Throndal", lore: "Delvers who carved whole cities into the walls of a single canyon." },
+  "culture-t3-2": { name: "Uskareth", lore: "Their fortresses were never taken. They were simply, one day, empty." },
+  "culture-t3-3": { name: "Vohrim", lore: "Smiths who signed every tool with a mark for the miner it was made for." },
+  "culture-t3-4": { name: "Calderin", lore: "They built their homes inside dormant volcanoes and kept them warm for ages." },
+  "culture-t3-5": { name: "Ennisk", lore: "Surveyors whose boundary stones still agree to the meter." },
+  "culture-t3-6": { name: "Brakkaval", lore: "Haulers and road builders. Their roads outlasted everything that used them." },
+  "culture-t4-1": { name: "Aurenni", lore: "Cartographers who mapped the nebulae by the color of their light." },
+  "culture-t4-2": { name: "Cirrhavel", lore: "Cloud dwellers who never set foot on the ground of their own world." },
+  "culture-t4-3": { name: "Nalumbra", lore: "They named every star they could see, and they could see a great many." },
+  "culture-t4-4": { name: "Orrisande", lore: "A choral people. Their buildings were tuned to a single chord." },
+  "culture-t4-5": { name: "Wennoch", lore: "Patient astronomers who left instructions for the next astronomers." },
+  "culture-t4-6": { name: "Zaelith", lore: "Glassmakers whose windows bend starlight into readable script." },
+  "culture-t5-1": { name: "Kaltheon", lore: "A concord of a hundred worlds that settled every dispute with a shared meal." },
+  "culture-t5-2": { name: "Merovant", lore: "Ruling houses whose family trees are carved down the sides of mountains." },
+  "culture-t5-3": { name: "Imbrasi", lore: "A league of free ports with one law: no ship turned away." },
+  "culture-t5-4": { name: "Sarrowmere", lore: "Old families who measured wealth in what they had given away." },
+  "culture-t5-5": { name: "Dhuvessa", lore: "Engineers of an empire so orderly that its ruins are still in neat rows." },
+  "culture-t5-6": { name: "Pellamyr", lore: "Lawgivers. Their courts handed down mercy more often than sentence." },
+  "culture-t6-1": { name: "Ouvrenne", lore: "Their writing reads in a spiral, and the end of each spiral is the beginning of the next." },
+  "culture-t6-2": { name: "Xantheru", lore: "They lived under a sky so full of stars it was never night." },
+  "culture-t6-3": { name: "Ilvaroth", lore: "Shapers of whole moons. Several still hold the shapes they were given." },
+  "culture-t6-4": { name: "Moirrin", lore: "Nobody knows what they looked like. They left only tools, and very fine ones." },
+  "culture-t6-5": { name: "Quorrish", lore: "Their every surviving artifact has a twin, made somewhere else." },
+  "culture-t6-6": { name: "Andevaal", lore: "Nomads of the Bulge whose camps are spread across a dozen star systems." },
+  "culture-t7-1": { name: "Aeluun", lore: "So old that their relics predate the stars around them." },
+  "culture-t7-2": { name: "Seyrith", lore: "They seem to have known the shape of the galaxy before it finished forming." },
+  "culture-t7-3": { name: "Ommerane", lore: "Their artifacts answer questions nobody has thought to ask yet." },
+  "culture-t7-4": { name: "Tirrhae", lore: "Makers of instruments for measuring something no living science can name." },
+  "culture-t7-5": { name: "Caeldrun", lore: "Builders near the Core whose halls are larger than some moons." },
+  "culture-t7-6": { name: "Yssembrel", lore: "The last name the oldest records agree on. After them, the records simply stop." },
+};
+
+// The region tier of a roster culture id, or null for an unknown id. Pure.
+export function cultureTier(cultureId: string): RegionTier | null {
+  for (const tier of REGION_TIER_LIST) if (CULTURE_ROSTER[tier].includes(cultureId)) return tier;
+  return null;
+}
+
+// FNV-1a over a string (uint32). The derived display codes read it; no stream, no state.
+function fnv1a(text: string): number {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < text.length; i++) h = Math.imul(h ^ text.charCodeAt(i), 0x01000193) >>> 0;
+  return h >>> 0;
+}
+
+// The letters a culture code uses (no I or O, which read as digits).
+const CULTURE_CODE_LETTERS = "ABCDEFGHJKLMNPQRSTUVWXYZ";
+
+// Each roster culture's DERIVED display code before its name is revealed (plan 3.1 "Codes are derived", the mockup's
+// "Culture K-17"): a letter and a two-digit number from a hash of the id, unique over the roster (a clash moves the
+// number up by one, in roster order). Never stored. Built once at load.
+export const CULTURE_CODES: Readonly<Record<string, string>> = (() => {
+  const out: Record<string, string> = {};
+  const taken = new Set<string>();
+  for (const tier of REGION_TIER_LIST) {
+    for (const id of CULTURE_ROSTER[tier]) {
+      const h = fnv1a(id);
+      const letter = CULTURE_CODE_LETTERS[h % CULTURE_CODE_LETTERS.length];
+      let num = 10 + (Math.floor(h / CULTURE_CODE_LETTERS.length) % 90);
+      while (taken.has(`${letter}-${num}`)) num = num === 99 ? 10 : num + 1;
+      taken.add(`${letter}-${num}`);
+      out[id] = `${letter}-${num}`;
+    }
+  }
+  for (const id of Object.keys(CULTURE_CONTENT)) if (!out[id]) throw new Error(`CULTURE_CONTENT names an id the roster does not have: ${id}`);
+  for (const id of Object.keys(out)) if (!CULTURE_CONTENT[id]) throw new Error(`Culture ${id} has no approved name`);
+  return out;
+})();
+
+// The code of a culture ("K-17"); an id outside the roster reads a code from its hash the same way (never a crash).
+// Pure.
+export function cultureCode(cultureId: string): string {
+  const known = CULTURE_CODES[cultureId];
+  if (known) return known;
+  const h = fnv1a(cultureId);
+  return `${CULTURE_CODE_LETTERS[h % CULTURE_CODE_LETTERS.length]}-${10 + (Math.floor(h / CULTURE_CODE_LETTERS.length) % 90)}`;
+}
+
+// The sample code of a general relic type from a culture not yet identified (plan R2-6: "Relic Sample" plus a code
+// derived from (cultureId, typeId), no storage): the culture's code without its dash, then two digits from a hash of the
+// pair, "K17-42". Pure.
+export function relicSampleCode(cultureId: string, typeId: string): string {
+  const n = 10 + (fnv1a(`${cultureId}:${typeId}`) % 90);
+  return `${cultureCode(cultureId).replace("-", "")}-${n}`;
+}
+
+// Whether a culture's name is revealed: it is in the Museum's culturesNamed list (appended once, when its study points
+// first reach CULTURE_STUDY_POINTS). A pure function of stored state.
+export function cultureIsNamed(museum: Pick<MuseumV2, "culturesNamed"> | undefined, cultureId: string): boolean {
+  return (museum?.culturesNamed ?? []).includes(cultureId);
+}
+
+// A culture as a list or the ledger shows it: its bare name once revealed ("Halvessi"), else "Culture K-17". Pure.
+export function cultureListName(museum: Pick<MuseumV2, "culturesNamed"> | undefined, cultureId: string): string {
+  const content = CULTURE_CONTENT[cultureId];
+  return content && cultureIsNamed(museum, cultureId) ? content.name : `Culture ${cultureCode(cultureId)}`;
+}
+
+// A culture in prose: "the Halvessi" once revealed, else "Culture K-17" (structure answer 2026-11-02). Pure.
+export function cultureProseName(museum: Pick<MuseumV2, "culturesNamed"> | undefined, cultureId: string): string {
+  const content = CULTURE_CONTENT[cultureId];
+  return content && cultureIsNamed(museum, cultureId) ? `the ${content.name}` : `Culture ${cultureCode(cultureId)}`;
+}
+
+// How a general relic of `typeId` from `cultureId` reads (call 8 "Type on identify, name via culture"): "<Name> <Type>"
+// once the culture is revealed ("Halvessi Glyph Tablet"), else "Relic Sample K17-42". Pure.
+export function generalRelicSampleName(museum: Pick<MuseumV2, "culturesNamed"> | undefined, cultureId: string, typeId: string): string {
+  const content = CULTURE_CONTENT[cultureId];
+  const type = RELIC_TYPE_BY_ID.get(typeId);
+  if (content && type && cultureIsNamed(museum, cultureId)) return `${content.name} ${type.label}`;
+  return `Relic Sample ${relicSampleCode(cultureId, typeId)}`;
+}
+
+// The Museum with `cultureId` appended to culturesNamed when its study points have reached CULTURE_STUDY_POINTS and it
+// is not listed yet (the reveal; each culture once, in reveal order). The SAME reference otherwise. Every writer of
+// culture points ends here (identification and the ancient data feed). Pure.
+export function withCultureReveal(museum: MuseumV2, cultureId: string): MuseumV2 {
+  if (museum.culturesNamed.includes(cultureId)) return museum;
+  if (!((museum.cultures[cultureId]?.points ?? 0) >= CULTURE_STUDY_POINTS)) return museum;
+  return { ...museum, culturesNamed: [...museum.culturesNamed, cultureId] };
+}
+
+// Every-load (no SAVE_VERSION bump): a dev save whose cultures crossed the threshold before R2-6 (points were counted
+// since R2-3) gains their reveal, in roster order. Identity on every save with nothing to reveal. Pure.
+export function withCultureRevealsOnLoad(state: any): any {
+  const museum = state?.museumV2;
+  if (!museum || typeof museum !== "object" || !museum.cultures || !Array.isArray(museum.culturesNamed)) return state;
+  let next = museum as MuseumV2;
+  for (const tier of REGION_TIER_LIST) for (const id of CULTURE_ROSTER[tier]) next = withCultureReveal(next, id);
+  for (const id of Object.keys(museum.cultures).sort()) next = withCultureReveal(next, id);
+  return next === museum ? state : { ...state, museumV2: next };
+}
 
 // ============================================================================
 // Relics v2 R2-4 (plan 2026-10-17 section 4 R2-4): MUSEUM MATH V2. LIVE.

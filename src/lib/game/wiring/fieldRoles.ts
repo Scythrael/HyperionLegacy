@@ -359,8 +359,8 @@ export const UNREAD_CONSTANTS: Readonly<Record<string, string>> = {
   PROSPECTING_BLUEPRINTS: "seam: the prospecting quests patch merges these hidden blueprints into BLUEPRINTS (read by the wiring registry; deferred)",
   // Relics v2 R2-1 (dormant catalog; plan 2026-10-17 section 4): each is read by the slice named, tested in relicsV2Catalog.test.ts.
   // (R2-2 reads RELIC_BAND_ODDS, RELIC_SITE_BIAS_MULT and CULTURE_ROSTER: relicBlanks.ts; R2-3 reads EXCEPTIONAL_PER_100K:
-  // relicIdentify.ts, the exceptional check; R2-4 reads RELIC_SOFT_CAP: relics.ts, the per-tier soft cap snapshot.)
-  CULTURE_STUDY_POINTS: "seam: Relics v2 R2-6 (a culture is named at this many study points, user call 9)",
+  // relicIdentify.ts, the exceptional check; R2-4 reads RELIC_SOFT_CAP: relics.ts, the per-tier soft cap snapshot; R2-6
+  // reads CULTURE_STUDY_POINTS: relics.ts withCultureReveal, the culture name reveal.)
   // WR-8 (0.14.0): the per-family resist line keys (the craft pools in model.ts spell them, since model.ts never imports
   // combat at runtime): read by the wiring registry's roll probe and the test switch.
   PLATING_RESIST_LINES: "bookkeeping: the Hull Plating resist line keys (WR-8), read by the wiring registry and the combat rules test switch",

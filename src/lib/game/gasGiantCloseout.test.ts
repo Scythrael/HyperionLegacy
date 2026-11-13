@@ -48,8 +48,9 @@ describe("Gas giant study close-out (GG-8): every gas giant row is live or a sea
       else if (!e.notApplicable && (e.contexts.length === 0 || !e.probe)) dead.push(`${e.id} (live with no probe or context)`);
     }
     expect(dead, "gas giant rows that are not live: wire them or get the user's words for a seam").toEqual([]);
-    // The one seam: the fragment's culture study point waits on culture naming (Relics v2 R2-6, relics v2 call 9).
-    expect(rows.filter((e) => e.status.kind === "seam").map((e) => e.id)).toEqual(["facility:DATA_STUDY_SEAM:cultureStudyPoint"]);
+    // MOVED by Relics v2 R2-6: the one seam (the fragment's culture study point) went live with culture naming (probe
+    // content:dataStudy:cultureReveal); no gas giant seam is left (was ["facility:DATA_STUDY_SEAM:cultureStudyPoint"]).
+    expect(rows.filter((e) => e.status.kind === "seam").map((e) => e.id)).toEqual([]);
   });
 
   it("releaseBlockers() holds NO gas giant entry (the release gate list)", () => {

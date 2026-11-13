@@ -4798,7 +4798,7 @@ const AUDIT_ROWS: readonly { id: string; system: WiringSystem; claim: string; st
   { id: "expedition:audit:legacyFallbacks", system: "expedition", claim: "Kept fallbacks, not the deleted pre-Ground-Ops path: FIGHT_POINTS_DEFAULT (the live default for a site the fight-point table does not rate); FIGHT_POINTS_MIN and SURVEY_AMBUSH_CHANCE (only a Ground Ops run dispatched before SQ-4, without risk grades)", status: LIVE },
   // H. Relics v2 R2-2 (relicBlanks.ts): live on every new run at Tier I; the rest waits for the slice that reaches it.
   { id: "relic:audit:blankTiers", system: "relic", claim: "Relic blanks above Tier I: RELIC_BLANK_WEIGHTS II to VII (a deeper find rolls rarer on the same chance, user call 13 \"Better rarity only\")", status: LIVE },
-  { id: "relic:audit:blankCulture", system: "relic", claim: "A blank's culture (cultureForBody, stamped on every new run's relic): the culture study reads it", status: pending("Relics v2 R2-6 (cultures: study points and the name reveal)") },
+  { id: "relic:audit:blankCulture", system: "relic", claim: "A blank's culture (cultureForBody, stamped on every new run's relic): its identification gives that culture a study point, and at CULTURE_STUDY_POINTS the culture's name is revealed (R2-6)", status: LIVE },
   // G1-5 wired the hook into every delivered cycle of a run dispatched from G1-5 on (shortRangeCycle.ts
   // shortRangeCycleRelics): live in place, its check in auditRowWiring below.
   { id: "relic:audit:shortRangeBlanks", system: "relic", claim: "Short-range relic drops (rollShortRangeRelicBlanks: per hour, Tier I 0.08x and Tier II 0.15x of the expedition rate)", status: LIVE },
@@ -5528,6 +5528,15 @@ function auditRowWiring(): Readonly<Record<string, Partial<EntryInput>>> {
         return { ...s, museumV2: m };
       },
       off: withTierCopies(V2_FIXTURE_TIER, { hullRivet: RELIC_SOFT_CAP + SOFT_CAP_PROBE_PAST }),
+    },
+    // Relics v2 R2-6: twelve Tier I blanks stamped with one culture, studied through the real start and resolver, name
+    // that culture; the same blanks without the stamp (the legacy hash culture, spread over six) name none.
+    "relic:audit:blankCulture": {
+      probe: "content:relic:cultureReveal",
+      contexts: ["research"],
+      curve: { kind: "gate" },
+      magnitude: () => 1,
+      on: sourceOn,
     },
     // Relics v2 R2-3: Lab VII runs three more relic studies at once than Lab I.
     "relic:audit:identifyLanes": {
@@ -7363,8 +7372,14 @@ function gasStudyEntries(): WiringEntry[] {
       system: "facility",
       source: { catalog: "DATA_STUDY_SEAM", key: "cultureStudyPoint" },
       claim: "An Ancient Data Fragment's study gives its culture one study point (the Museum v2 culture record)",
-      status: { kind: "seam", owner: "Relics v2 R2-6 (culture naming reads the study points)", userRef: "relics v2 call 9 (2026-10-19, \"Tied to source planet\"): +1 study point per identified find plus 15b ancient data; named at 10" },
-      note: "dataStudy.ts feedCultureData writes the point; nothing reads it until culture names are signed off (R2-8)",
+      // Relics v2 R2-6: LIVE. The culture reveal reads the points (relics.ts withCultureReveal): with every culture one
+      // point short, one fragment study names its culture (OFF: the lane paused, nothing named).
+      probe: "content:dataStudy:cultureReveal",
+      contexts: ["research"],
+      curve: { kind: "gate" },
+      magnitude: () => 1,
+      on: sourceOn,
+      note: "relics v2 call 9 (2026-10-19, \"Tied to source planet\"): +1 study point per identified find plus 15b ancient data; named at 10",
     }),
   );
   return out;

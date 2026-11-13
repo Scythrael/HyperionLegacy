@@ -52,6 +52,7 @@ import { ANCIENT_DATA_FRAGMENT_ID, RESEARCH_DATA_ITEM, RESEARCH_FAMILIES, type R
 import { itemTotal } from "./inventory";
 import { diminishing } from "./diminishing";
 import { cultureForBody, expeditionRegionTier, legacyTokenCultureId } from "./relicBlanks";
+import { withCultureReveal } from "./relics";
 import { makeRng } from "./combat/rng";
 
 // ============================================================================
@@ -309,12 +310,14 @@ export function rollDataStudyRecipe(
 }
 
 // The Relics v2 CULTURE SEAM (plan 2026-10-17 OC-9, "relic finds and 15b ancient data both add study points"): the
-// Museum v2 record with `points` more study points on `cultureId` (its finds and every other part kept). Pure.
+// Museum v2 record with `points` more study points on `cultureId` (its finds and every other part kept). R2-6: the point
+// that reaches CULTURE_STUDY_POINTS reveals the culture's name (relics.ts withCultureReveal, the rule identification
+// follows). Pure.
 export function feedCultureData(museum: MuseumV2 | undefined, cultureId: string, points: number): MuseumV2 {
   const base = museum ?? emptyMuseumV2();
   if (!(points > 0)) return base;
   const c = base.cultures[cultureId];
-  return { ...base, cultures: { ...base.cultures, [cultureId]: c ? { ...c, points: c.points + points } : { points, finds: {} } } };
+  return withCultureReveal({ ...base, cultures: { ...base.cultures, [cultureId]: c ? { ...c, points: c.points + points } : { points, finds: {} } } }, cultureId);
 }
 
 // The entries decoded on `cultureId` (0 with none). Pure.

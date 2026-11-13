@@ -54,6 +54,7 @@ import {
   relicStaggerBand,
   relicTypesInBand,
   relicTypesInBandAt,
+  withCultureReveal,
   type RelicBand,
 } from "./relics";
 import { generalTypeWeight, vaultTokenRegionTier } from "./relicBlanks";
@@ -213,6 +214,8 @@ export function applyRelicIdentification(
     if (cultureId !== null) {
       const c = base.cultures[cultureId] ?? { points: 0, finds: {} };
       next = { ...next, cultures: { ...base.cultures, [cultureId]: { points: c.points + 1, finds: { ...c.finds, [id]: (c.finds[id] ?? 0) + 1 } } } };
+      // R2-6: the point that reaches CULTURE_STUDY_POINTS reveals the culture's name (appended to culturesNamed once).
+      next = withCultureReveal(next, cultureId);
     }
     return { museum: next, discovered: nextDiscovered };
   }

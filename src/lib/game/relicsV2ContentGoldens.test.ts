@@ -24,17 +24,23 @@ describe("R2-5 / R2-6 content golden 1: a 160-blank identification chain", () =>
     const done = resolveChain(contentGoldenStart(), Infinity);
     expect(done.relicVault.length).toBe(0);
     expect(done.museumV2.setsCompleted).toEqual(["exc-t6-b", "exc-t3-b"]);
-    expect(done.museumV2.culturesNamed).toEqual([]);
+    // MOVED by R2-6 (the culture reveal, call 9 "named at 10"): every culture whose study points reached ten is named,
+    // in the order its tenth point landed (pre-R2-6: [] with the same points).
+    expect(done.museumV2.culturesNamed).toEqual([
+      "culture-t1-1", "culture-t3-1", "culture-t4-2", "culture-t2-2", "culture-t5-1", "culture-t7-1", "culture-t1-2",
+      "culture-t6-2", "culture-t4-1", "culture-t2-1", "culture-t5-2", "culture-t7-2", "culture-t3-2", "culture-t6-1",
+    ]);
     expect(hash(done.museumV2.cultures)).toBe("a29ddbfa");
     expect(hash(done.museumV2.exceptional)).toBe("98031451");
     // MOVED by R2-5 (the ledger, plan OC-16): the two completed sets now also write their ledger events, so the whole
-    // state gains `notableEvents` (pre-R2-5: no such key, stateHash 7d57df2f). Without it, nothing else moved.
+    // state gains `notableEvents` (pre-R2-5: no such key, stateHash 7d57df2f). Without it and the R2-6 named list,
+    // nothing else moved.
     expect(done.notableEvents?.map((e) => [e.key, e.kind, e.setId, e.tier])).toEqual([
       ["relicSetCompleted:exc-t6-b", "relicSetCompleted", "exc-t6-b", 6],
       ["relicSetCompleted:exc-t3-b", "relicSetCompleted", "exc-t3-b", 3],
     ]);
     const { notableEvents: _events, ...rest } = done;
-    expect(stateHash(rest as GameState)).toBe("7d57df2f");
+    expect(stateHash({ ...rest, museumV2: { ...done.museumV2, culturesNamed: [] } } as GameState)).toBe("7d57df2f");
   });
   it("997 tick chunks land the same whole state", () => {
     const one = resolveChain(contentGoldenStart(), Infinity);
@@ -70,11 +76,12 @@ describe("R2-5 content golden 2: the grant seam's first exceptional piece", () =
 });
 
 describe("R2-6 content golden 3: ancient data past ten study points", () => {
-  it("feedCultureData adds points and names nothing", () => {
+  // MOVED by R2-6: the tenth point names the culture (pre-R2-6 the feed only added points: culturesNamed []).
+  it("feedCultureData adds points and names the culture at ten", () => {
     let m = freshState().museumV2;
     for (let i = 0; i < 12; i++) m = feedCultureData(m, "culture-t2-4", 1);
     expect(m.cultures["culture-t2-4"]).toEqual({ points: 12, finds: {} });
-    expect(m.culturesNamed).toEqual([]);
+    expect(m.culturesNamed).toEqual(["culture-t2-4"]);
   });
 });
 

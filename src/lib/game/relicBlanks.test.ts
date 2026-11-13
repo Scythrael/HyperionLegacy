@@ -395,7 +395,7 @@ describe("R2-2: the wiring registry additions (every registry pin holds them apa
     ).toEqual([
       // Expedition Tiers G2-6 took it live (the console's region picker reaches every tier; registry auditRowWiring).
       "relic:audit:blankTiers|live|",
-      "relic:audit:blankCulture|pending|Relics v2 R2-6 (cultures: study points and the name reveal)",
+      "relic:audit:blankCulture|live|", // R2-6: live (probe content:relic:cultureReveal)
       "relic:audit:shortRangeBlanks|live|",
       "relic:audit:completionBlank|pending|G7 (calls the hook when a planet is fully completed)",
       "relic:audit:generalPick|pending|Relics v2 R2-3 follow-up (retire the v1 setless branch of identifyStudiedRelic: identification v2, relic:audit:identifyV2, studies every new blank, G1-5's short-range blanks included, so no study reaches this pick)",
