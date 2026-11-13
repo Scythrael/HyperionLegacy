@@ -104,6 +104,7 @@ import {
   dispatchCaptainOnMission,
   dispatchCaptainOnPatrol,
   startRelicStudy,
+  queueAllRelicStudies,
   canResearch,
   economyTick,
   fabricateSlotCount,
@@ -226,7 +227,7 @@ import { canFitEquipment, equippedFor, fitEquipment } from "../equipment";
 import { UNIVERSAL_MODULES } from "../shipModules";
 import { effectiveShipStats, hullSensorsStamp, officerCombatMods, officerRepairSpeedBonus, resolveCrew, shipCrewContribution, shipMissionOutputBonus, shipRepairSpeedBonus } from "../crewOverlay";
 import { departmentFacet, pilotCunningStamp, seatFacet } from "../officerStats";
-import { RELICS, museumBonuses, type MuseumStat } from "../relics";
+import { CULTURE_ROSTER, CULTURE_STUDY_POINTS, RELICS, museumBonuses, type MuseumStat } from "../relics";
 import { hullTeardownFraction, salvageSalvagedMaterial, salvageShip, salvageTalentBonus, salvageTierReach, salvageYieldMult } from "../salvage";
 import { alertResetSeconds, escalationAt, extraBattleChance, longRangeCover, maxExtraBattles } from "../affixes";
 import { ENEMY_RANK_IDS, ENEMY_RANKS_VERSION, type EnemyRank } from "../enemyRanks";
@@ -1572,14 +1573,45 @@ export function relicV2ProbeExpectedExceptional(): number {
   return Object.values(museum.exceptional).reduce((a, b) => a + b, 0);
 }
 
+// Relics v2 R2-6 / R2-7: the culture reveal probe's study count (two past CULTURE_STUDY_POINTS, so a rare exceptional
+// reveal, which adds no culture point, never keeps the name hidden) and the queue probe's blank count.
+export const RELIC_CULTURE_PROBE_STUDIES = 12;
+export const RELIC_QUEUE_PROBE_BLANKS = 6;
+
 // Relics v2 R2-3 content probes ("content:relic:<a>"):
 //   exceptionalReveals  the exceptional copies the Museum holds after the probe's studies, each STARTED by the player's
 //                       start (startRelicStudy, a Lab I) and RESOLVED by the real resolver (resolveProcesses). On = the
 //                       study as started (the v2 stamp); off = the same study with the stamp removed (the v1 roll,
 //                       which never reveals an exceptional piece).
 //   lanes               the relic studies a Research Lab runs at once (relicStudySlotCount): on = Lab VII, off = Lab I.
+//   cultureReveal       the cultures named after RELIC_CULTURE_PROBE_STUDIES Tier I standard blanks are studied one after
+//                       another (Lab I, the real start and resolver): on = every blank carries the R2-2 culture stamp of
+//                       one culture (the blank's planet), so its study points reach CULTURE_STUDY_POINTS and the name is
+//                       revealed (R2-6); off = the same blanks without the stamp (each falls back to the legacy hash
+//                       culture, spread over the tier's six, so none reaches the threshold).
+//   queue               the blanks identified in one long resolve after RELIC_QUEUE_PROBE_BLANKS are queued at once on a
+//                       Lab I (one lane): on = queued (each next blank starts the moment the lane frees, inside the
+//                       resolve, as while away); off = only the first started by hand, the rest left in the vault.
 function relicContentProbe(kind: string, on: boolean, s: GameState): number {
   if (kind === "lanes") return relicStudySlotCount(withFacilityLevel(s, "research", on ? 7 : 1));
+  if (kind === "cultureReveal") {
+    let cur: GameState = { ...withFacilityLevel(s, "research", 1), relicSeed: RELIC_DEFAULT_SEED, nextRelicStudyIndex: 1, museumV2: emptyMuseumV2(), relicVault: [], relicQueue: [] };
+    for (let n = 0; n < RELIC_CULTURE_PROBE_STUDIES; n++) {
+      const token: RelicVaultToken = { id: `wiring-relic-culture-${n}`, tier: "standard", quality: 0, regionTier: 1, source: "expedition", ...(on ? { cultureId: CULTURE_ROSTER[1][0] } : {}) };
+      const r = startRelicStudy({ ...cur, relicVault: [token] }, token.id);
+      if (!r.started) throw new Error(`relic culture probe: study refused (${r.reason})`);
+      const proc = r.next.activeProcesses.find((p) => p.kind === "relicStudy")!;
+      cur = resolveProcesses(r.next, proc.remainingTicks, () => 0).next;
+    }
+    return cur.museumV2.culturesNamed.length;
+  }
+  if (kind === "queue") {
+    const vault: RelicVaultToken[] = Array.from({ length: RELIC_QUEUE_PROBE_BLANKS }, (_, n) => ({ id: `wiring-relic-queue-${n}`, tier: "standard", quality: 0 }));
+    const ready: GameState = { ...withFacilityLevel(s, "research", 1), relicSeed: RELIC_DEFAULT_SEED, nextRelicStudyIndex: 1, museumV2: emptyMuseumV2(), relicVault: vault, relicQueue: [] };
+    const started = on ? queueAllRelicStudies(ready).next : startRelicStudy(ready, vault[0].id).next;
+    const done = resolveProcesses(started, RELIC_QUEUE_PROBE_BLANKS * 3600, () => 0).next;
+    return Object.values(done.museumV2.general["1"] ?? {}).reduce((a, b) => a + b, 0) + Object.values(done.museumV2.exceptional).reduce((a, b) => a + b, 0);
+  }
   if (kind !== "exceptionalReveals") throw new Error(`unknown relic content probe ${kind}`);
   let cur: GameState = { ...withFacilityLevel(s, "research", 1), relicSeed: RELIC_DEFAULT_SEED, nextRelicStudyIndex: 1, museumV2: emptyMuseumV2(), relicVault: [], relicQueue: [] };
   for (let n = 0; n < RELIC_V2_PROBE_STUDIES; n++) {
@@ -3105,6 +3137,15 @@ function dataStudyValue(s: GameState, a: string, b: string, on: boolean): number
     case "decode": {
       const { after } = dataStudyRun(s, ANCIENT_DATA_FRAGMENT_ID, on);
       return Object.values(after.ancientDecoded ?? {}).reduce((x, y) => x + y, 0);
+    }
+    // R2-6: the cultures named by one Ancient Data Fragment study when every roster culture sits one point short of the
+    // name (its study point is the one that reveals it). OFF: paused.
+    case "cultureReveal": {
+      const cultures: Record<string, { points: number; finds: Record<string, number> }> = {};
+      for (const ids of Object.values(CULTURE_ROSTER)) for (const id of ids) cultures[id] = { points: CULTURE_STUDY_POINTS - 1, finds: {} };
+      const primed: GameState = { ...s, museumV2: { ...(s.museumV2 ?? emptyMuseumV2()), cultures, culturesNamed: [] } };
+      const { after } = dataStudyRun(primed, ANCIENT_DATA_FRAGMENT_ID, on);
+      return after.museumV2.culturesNamed.length;
     }
     default:
       return 0;

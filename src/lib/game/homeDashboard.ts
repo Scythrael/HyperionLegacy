@@ -117,7 +117,8 @@ import {
 // equipment fold with the ship's crew overlaid), so the readout and the engine agree on phase lengths.
 import { missionRunSheet } from "./gearWearEngine";
 // Exploration 0.14.0 (E4a): relic + set names for the relic-study rows (pure catalog, no cycle).
-import { getRelicById, getRelicSetById } from "./relics";
+import { getExceptionalPieceById, getRelicById, relicBandOf } from "./relics";
+import { tierNumeral } from "./galaxy";
 import { dataStudyPaused } from "./dataStudy";
 import { overtimeRateText } from "./overtimeRate";
 import { processWorkFraction } from "./processSpeed";
@@ -591,13 +592,13 @@ function labelForProcess(
     }
 
     case "relicStudy": {
-      // Relics v2 R2-2: a blank with no set (no site) reads "General".
-      const setId = effect.type === "identifyRelic" ? effect.token.setId : undefined;
-      const setLabel = effect.type !== "identifyRelic" ? null : setId === undefined ? "General" : getRelicSetById(setId)?.label ?? setId;
+      // Relics v2 R2-7: the blank as the Identification tab names it ("Identifying, Tier II · stellar blank"): its region
+      // tier and rarity (identification reveals the type; the old set no longer decides it).
+      const token = effect.type === "identifyRelic" ? effect.token : null;
       return {
-        // E4c: the relic glyph (SVG, App's HOME_ICON_NAME) + the Relics sub-tab, where the study runs.
+        // E4c: the relic glyph (SVG, App's HOME_ICON_NAME) + the Identification sub-tab, where the study runs.
         icon: "relic",
-        primaryLabel: setLabel !== null ? `Studying, ${setLabel} relic` : "Studying a relic",
+        primaryLabel: token !== null ? `Identifying, Tier ${tierNumeral(token.regionTier ?? 1)} · ${relicBandOf(token.tier)} blank` : "Identifying a relic",
         jumpTarget: "relics",
       };
     }
@@ -1345,7 +1346,8 @@ function completionSubjectLabel(entry: CompletionLogEntry, state: GameState): st
     }
     case "relic":
       // Exploration 0.14.0 (E4a): the identified relic id, named through the relic catalog.
-      return getRelicById(key)?.label ?? key;
+      // Relics v2 R2-7: an exceptional piece reads its approved name (named on reveal), never its raw id.
+      return getRelicById(key)?.label ?? getExceptionalPieceById(key)?.label ?? key;
     case "materials":
     case "nothing": {
       // A refine / material-fabricate subject is an item id. A salvage subject is the

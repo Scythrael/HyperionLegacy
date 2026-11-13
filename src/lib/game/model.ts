@@ -8477,6 +8477,7 @@ export interface ExpeditionRelicToken {
   // flag carries `stagger` (relicBlanks.ts RELIC_STAGGER_VERSION), appended last. Absent = revealed with every type open
   // (relicIdentify.ts), so a token of a run in flight at the update reads exactly as it did.
   stagger?: 1;
+  planet?: string; // Relics v2 (user 2026-11-13): the source planet's name, display only, appended last (relicBlankStamp)
 }
 
 // ============================================================================
@@ -8522,6 +8523,10 @@ export interface RelicVaultToken {
   // stagger mints (expedition and short-range), carried by the deposit, appended last. Absent = every type open: every
   // blank held at the update, and every blank in a study in flight, reveals exactly as before.
   stagger?: 1;
+  // Relics v2 (user 2026-11-13 "First + count"): the source planet's name ("LB-0412 c"), display only, carried from the roll
+  // (relicBlanks.ts relicBlankStamp), appended last. Absent on a short-range, completion or grant blank and on every token
+  // rolled before it.
+  planet?: string;
 }
 
 // Relics v2 R2-1: where a vault blank came from (plan 2026-10-17 section 3.2; OC-14 short-range, OC-15 the planet 100%
@@ -8543,12 +8548,15 @@ export type RegionTierKey = "1" | "2" | "3" | "4" | "5" | "6" | "7";
 //                 pieces' copies in one map. The regular game reads it from then on; the live counts keep growing.
 //   cultures      per culture id: study points and finds per type (OC-9, R2-6).
 //   culturesNamed culture ids in reveal order, each appended once (R2-6).
-//   setsCompleted exceptional set ids in completion order, each appended once (the ledger hook reads it, R2-5).
+//   setsCompleted exceptional set ids in completion order, each appended once (R2-5: each append also writes a notable-event ledger entry, notableEvents.ts).
 // Every write goes through relics.ts museumDepositGeneral / museumDepositExceptional (R2-4), which take the soft cap
 // snapshot; museumBonuses reads the whole record (R2-4 museum math v2).
 export interface MuseumCultureRecord {
   points: number;
   finds: Record<string, number>;
+  // Relics v2 (user 2026-11-13 "First + count"): the planets this culture's identified relics came from, each once: the
+  // first planet a find came from first, then the rest in canonical order (relics.ts withCulturePlanet). Absent = none.
+  planets?: string[];
 }
 export interface MuseumV2 {
   general: Partial<Record<RegionTierKey, Record<string, number>>>;
@@ -8557,6 +8565,22 @@ export interface MuseumV2 {
   cultures: Record<string, MuseumCultureRecord>;
   culturesNamed: string[];
   setsCompleted: string[];
+}
+
+// Relics v2 R2-5: one notable event (GameState.notableEvents). `key` is unique in the ledger (an event is appended
+// once, so replaying a save never duplicates it); `atGameSeconds` is the game second it happened at. The one kind so far
+// is the exceptional set completion (relics v2 call 16 "Every set"), with its set id and region tier.
+// Every kind the ledger knows (the load filter keeps exactly these; a slice adding a kind adds it HERE, so its entries
+// survive a load). One list, the type is read from it.
+export const NOTABLE_EVENT_KINDS = ["relicSetCompleted"] as const;
+export type NotableEventKind = (typeof NOTABLE_EVENT_KINDS)[number];
+export interface NotableEvent {
+  key: string;
+  kind: NotableEventKind;
+  atGameSeconds: number;
+  // Kind-specific fields: a relicSetCompleted event carries its set id and region tier (both always written for it).
+  setId?: string;
+  tier?: RegionTier;
 }
 
 // The empty Museum v2 record freshState seeds. Pure: a new object every call.
@@ -10232,6 +10256,10 @@ export interface GameState {
   // Relics v2 R2-1 (DORMANT; plan 2026-10-17 section 3.2, OC-12 "Free, queued, lanes by Lab"): vault token ids queued
   // for identification, in order. Absent = an empty queue; nothing writes it until R2-3.
   relicQueue?: string[];
+  // Relics v2 R2-5 (plan OC-16; the 2026-10-16 decision "The event ledger now (Recommended)": one notable-event ledger
+  // the future achievements, the Hall of Command and chat read): the minimal ledger, append-only, one entry per key
+  // (notableEvents.ts). OPTIONAL: absent = no event yet, no SAVE_VERSION bump; nothing is shown from it in 0.14.0.
+  notableEvents?: NotableEvent[];
   // ===== E-CREW "Crew Made Real" (Task 2, DORMANT) =====
   // The away-team roster and the Armory squad loadouts (see the AwayMember / GroundTeamLoadout block above).
   // freshState seeds the clean-slate defaults; the v64->v65 migration (save.ts) backfills the IDENTICAL

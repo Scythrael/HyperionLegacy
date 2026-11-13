@@ -336,7 +336,7 @@ describe("R2-3 wiring registry additions", () => {
     ).toEqual([
       "relic:audit:identifyV2|live|",
       "relic:audit:identifyLanes|live|",
-      "relic:audit:identifyQueue|pending|Relics v2 R2-7 (the Identification tab: feed, queue, reorder; the engine queue is built and tested)",
+      "relic:audit:identifyQueue|live|", // R2-7: live with the Identification tab (probe content:relic:queue)
     ]);
   });
 

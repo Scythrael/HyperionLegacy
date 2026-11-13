@@ -14,6 +14,10 @@
 import { repairRulesOffForThisFile } from "./fieldRepairRulesSwitch.fixture";
 repairRulesOffForThisFile();
 import { describe, it, expect } from "vitest";
+// Relics v2 source planets (user 2026-11-13 "First + count") came after these pins: each blank now also carries its
+// planet's name (display only). The file runs with the stamp off, so every pin reproduces as captured (relicPlanet.fixture.ts).
+import { planetStampOffForThisFile } from "./relicPlanet.fixture";
+planetStampOffForThisFile();
 // Wiring WR-10 (the away rules stamped at dispatch, a hire's account program) came after every pin here: the whole file
 // runs with WR-10 off (wr10Switch.fixture.ts), so its pins keep proving their own slice (wr10Goldens.test.ts pins WR-10's).
 import { wr10OffForThisFile } from "./wr10Switch.fixture";

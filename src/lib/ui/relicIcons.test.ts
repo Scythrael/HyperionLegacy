@@ -1,7 +1,8 @@
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
-import { ICON_NAMES } from "./icons";
-import { RELICS, RELIC_SETS, MUSEUM_STATS, MUSEUM_PER_COPY_BONUS, getRelicById } from "../game/relics";
+import { ICON_NAMES, ICON_PATHS } from "./icons";
+import { ICON_SEMANTICS } from "./iconPacks";
+import { RELICS, RELIC_SETS, MUSEUM_STATS, MUSEUM_PER_COPY_BONUS, EXCEPTIONAL_SETS, getRelicById } from "../game/relics";
 import {
   RELIC_ICON,
   relicIcon,
@@ -15,6 +16,8 @@ import {
   museumPerCopyText,
   RELIC_SET_IDS,
   relicFirstTierLabel,
+  EXCEPTIONAL_SET_ICON,
+  exceptionalSetIcon,
 } from "./relicIcons";
 
 describe("the tier stagger's Museum label", () => {
@@ -133,5 +136,23 @@ describe("no emoji on the relic surfaces (user hard requirement: every graphic i
     expect(src.length, `${path} is empty`).toBeGreaterThan(100);
     const hits = [...src].filter((c) => EMOJI.test(c));
     expect(hits).toEqual([]);
+  });
+});
+
+describe('Relics v2: one glyph per exceptional set (user 2026-11-13 "One per set")', () => {
+  it("every set has its own registered glyph, all fourteen distinct, none the shared exceptional glyph", () => {
+    expect(Object.keys(EXCEPTIONAL_SET_ICON).sort()).toEqual(EXCEPTIONAL_SETS.map((s) => s.id).sort());
+    const names = EXCEPTIONAL_SETS.map((s) => exceptionalSetIcon(s.id));
+    expect(new Set(names).size).toBe(14);
+    for (const n of names) {
+      expect(n).not.toBe("exceptional");
+      expect(ICON_NAMES).toContain(n);
+      expect(ICON_SEMANTICS[n]).toBe("subject");
+    }
+    // Distinct drawings: no set glyph shares its path data with any other registered glyph.
+    const drawn = new Map<string, string>();
+    for (const [name, paths] of Object.entries(ICON_PATHS)) drawn.set(JSON.stringify(paths), name);
+    for (const n of names) expect(drawn.get(JSON.stringify(ICON_PATHS[n]))).toBe(n);
+    expect(exceptionalSetIcon("nope")).toBe("exceptional");
   });
 });

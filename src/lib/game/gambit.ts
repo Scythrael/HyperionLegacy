@@ -2453,6 +2453,8 @@ export function rollRelicToken(
     ...(blank ? { regionTier: blank.tier, cultureId: blank.cultureId } : {}),
     // Relics v2 tier stagger: the stamp a run dispatched from the stagger on appends last (absent on an older run).
     ...(blank?.stagger !== undefined ? { stagger: blank.stagger } : {}),
+    // Relics v2 (user 2026-11-13 "First + count"): the source planet's name, display only, appended last.
+    ...(blank?.planet !== undefined ? { planet: blank.planet } : {}),
   };
 }
 

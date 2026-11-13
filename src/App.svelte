@@ -60,7 +60,6 @@
   import { drawHomeworldSeed } from "./lib/homeworldEntropy";
   // Exploration 0.14.0 (E4c): the Research facility's Relics sub-tab + the Archive's Museum sub-tab.
   import RelicStudyPanel from "./lib/RelicStudyPanel.svelte";
-  import MuseumPanel from "./lib/MuseumPanel.svelte";
   // The pure dispatch + claim engine fns the Expedition Console's do* handlers call (expedition.ts).
   import { startExpedition, claimExpedition, summarizeExpeditionFindings, expeditionDispatchBlockText, canEditGroundOps, editGroundOps, recallExpedition, recallPreview, recallBlockText, orderFieldRepair, canOrderFieldRepair, cancelFieldRepair, canCancelFieldRepair, abandonHeldSystem, canAbandonHeldSystem, heldSystems } from "./lib/game/expedition";
   // Ground Operations GO-13: the queue screen's live edits (assign, reorder, skip, re-queue, Default plan,
@@ -1083,11 +1082,15 @@
     inspectBlank,
     // Crafted Blanks 0.13.7: the BULK inspect, rolls up to qty blanks bounded by free spare-bay space.
     inspectBlanks,
-    // Exploration 0.14.0 (E4c): the relic STUDY action + its readers. startRelicStudy is the Relics
-    // sub-tab's Study button (via doStartRelicStudy); relicStudiesInFlight + identifyStudiedRelic feed the
-    // identification-reveal OBSERVER; museumResearchDurationTicks is the museum research-speed seam the
-    // research catalog's duration label now reads, so the label shows the time a project really takes.
-    startRelicStudy,
+    // Exploration 0.14.0 (E4c): the relic study readers. Relics v2 R2-7: the Identification tab's queue actions
+    // (queueRelicStudy / queueAllRelicStudies / unqueueRelicStudy / moveRelicQueueEntry: a queued blank starts the moment
+    // a lane frees); relicStudiesInFlight + identifyStudiedRelic feed the identification-reveal OBSERVER;
+    // museumResearchDurationTicks is the museum research-speed seam the research catalog's duration label now reads, so
+    // the label shows the time a project really takes.
+    queueRelicStudy,
+    queueAllRelicStudies,
+    unqueueRelicStudy,
+    moveRelicQueueEntry,
     relicStudiesInFlight,
     identifyStudiedRelic,
     museumResearchDurationTicks,
@@ -1099,9 +1102,15 @@
     offlineCapSeconds,
   } from "./lib/game/tick";
   // Exploration 0.14.0 (E4c): the relic catalog + museum readers (pure) the Relics/Museum host code reads.
-  import { museumBonuses, getRelicById, getRelicSetById, RELIC_SETS, undiscoveredResearchMask, withSoftCapSnapshot } from "./lib/game/relics";
+  import { museumBonuses, RELIC_SETS, relicSetForPoi, undiscoveredResearchMask, withSoftCapSnapshot } from "./lib/game/relics";
   // Exploration 0.14.0 (E4c): the identification-reveal view model + the observer's record picker.
-  import { buildRelicReveal, pickRelicStudyRecord, unseenRelicStudyRecords, type RelicReveal } from "./lib/relicReveal";
+  import { pickRelicStudyRecord, unseenRelicStudyRecords } from "./lib/relicReveal";
+  // Relics v2 R2-7 / R2-8: the Identification tab's reveal card, the Cultures tab, the Museum v2 page and the Warehouse's
+  // Unidentified Relics row (pure view models over the engine readers).
+  import { blankTitle, buildRelicRevealV2, claimedBlanksByTierText, laneStepsText, type RelicRevealV2 } from "./lib/relicsV2Display";
+  import CulturesPanel from "./lib/CulturesPanel.svelte";
+  import MuseumV2Panel from "./lib/MuseumV2Panel.svelte";
+  import UnidentifiedRelicsPanel from "./lib/UnidentifiedRelicsPanel.svelte";
   // Exploration 0.14.0 (E4c): the crew + museum boosted ship stats, the SAME helper the engine dispatches
   // missions through. The two mission-timing popups now read it (they read the bare equipment fold before,
   // which omitted crew and the museum, so the shown times disagreed with the flown ones).
@@ -2699,7 +2708,8 @@
   // blueprint research, so it gets its own tab beside the catalog rather than a section inside it.
   // Gas Giant Study GG-6 (the signed-off v3 mockup, as drawn): a fifth tab, "dataStudy", the Lab's own DATA STUDY lane
   // (DataStudyPanel): held research data auto-studied into banked boosts, with a pause switch.
-  type ResearchSubTab = "overview" | "research" | "relics" | "dataStudy" | "upgrades";
+  // Relics v2 R2-7: "relics" reads "Identification" (the queue and lanes), and "cultures" is the Cultures tab (R2-8).
+  type ResearchSubTab = "overview" | "research" | "relics" | "cultures" | "dataStudy" | "upgrades";
   let activeResearchSubTab: ResearchSubTab = "overview";
 
   // Exploration 0.14.0 (E4c): the Archive's TWO-tab axis. "archive" is the existing enshrine record
@@ -6609,7 +6619,9 @@
     const sum = summarizeExpeditionFindings(findings ?? []);
     const landed: string[] = Object.entries(sum.materials).map(([id, q]) => `${formatNumber(q)} ${ITEMS[id]?.label ?? id}`);
     if (sum.credits > 0) landed.push(`${formatNumber(sum.credits)} credits`);
-    if (sum.relics > 0) landed.push(`${sum.relics} unidentified relic${sum.relics === 1 ? "" : "s"} to the vault`);
+    // Relics v2 R2-9: the blanks by region tier ("3 unidentified relics to the vault: Tier I 2, Tier II 1").
+    const byTier = claimedBlanksByTierText(findings ?? [], (poi) => relicSetForPoi(poi) !== null);
+    if (sum.relics > 0) landed.push(`${sum.relics} unidentified relic${sum.relics === 1 ? "" : "s"} to the vault${byTier ? ` (${byTier})` : ""}`);
     pushLog(`[${exp ? devShipLabel(exp.shipId) : "Expedition"}] Findings claimed from ${exp?.systemName ?? "the expedition"}: ${landed.length > 0 ? landed.join(", ") : "nothing to deposit"}.`);
     if (injuredText.length > 0) {
       pushLog(`[${exp ? devShipLabel(exp.shipId) : "Expedition"}] Came home injured: ${injuredText.join(", ")}.`);
@@ -6622,19 +6634,44 @@
     doSave();
   }
 
-  // ── Relics (Exploration 0.14.0 phase E4c) ───────────────────────────────────
-  // The Relics sub-tab's Study button routes here. The canonical do* flow: the PURE engine fn
-  // (startRelicStudy, which gates through canStartRelicStudy and refuses by returning the SAME state),
-  // reassign `state`, pushLog, doSave. A refusal (a race between render and click) is a silent no-op.
-  function doStartRelicStudy(tokenId: string) {
+  // ── Relics (Exploration 0.14.0 phase E4c; Relics v2 R2-7 the Identification tab) ──────────────────
+  // The Identification tab's queue actions route here. The canonical do* flow: the PURE engine fn (which returns the
+  // SAME state on a refusal), reassign `state`, pushLog, doSave. A queued blank starts at once when a lane is free
+  // (the engine pumps the queue), and the next one the moment a lane frees, also while away.
+  function doQueueRelicStudy(tokenId: string) {
     const token = (state.relicVault ?? []).find((t) => t.id === tokenId) ?? null;
-    const { next, started } = startRelicStudy(state, tokenId);
-    if (!started || next === state) return;
+    const { next, queued } = queueRelicStudy(state, tokenId);
+    if (!queued || next === state) return;
+    const started = relicStudiesInFlight(next).length > relicStudiesInFlight(state).length;
     state = next;
-    // Relics v2 R2-2: a blank with no set (no site) reads "General".
-    const setLabel = token ? (token.setId === undefined ? "General" : getRelicSetById(token.setId)?.label ?? token.setId) : "unknown set";
-    pushLog(`Relic study started → ${token ? token.tier.charAt(0).toUpperCase() + token.tier.slice(1) : ""} ${setLabel} relic.`);
+    if (token) pushLog(started ? `Identification started → ${blankTitle(token)}.` : `Queued for identification → ${blankTitle(token)}.`);
     doSave();
+  }
+  function doQueueAllRelicStudies() {
+    const { next, queued } = queueAllRelicStudies(state);
+    if (queued === 0 || next === state) return;
+    state = next;
+    pushLog(`Queued ${queued} relic blank${queued === 1 ? "" : "s"} for identification.`);
+    doSave();
+  }
+  function doUnqueueRelicStudy(tokenId: string) {
+    const next = unqueueRelicStudy(state, tokenId);
+    if (next === state) return;
+    state = next;
+    doSave();
+  }
+  function doMoveRelicQueueEntry(tokenId: string, direction: -1 | 1) {
+    const next = moveRelicQueueEntry(state, tokenId, direction);
+    if (next === state) return;
+    state = next;
+    doSave();
+  }
+  // The Warehouse's Unidentified Relics row: jump to the Research Lab's Identification tab.
+  function viewIdentification() {
+    activeTab = "facilities";
+    facilitiesView = "console";
+    activeFoundryFacility = "research";
+    activeResearchSubTab = "relics";
   }
 
   // Gas Giant Study GG-6: the Data study tab's auto-study switch. The canonical do* flow: the PURE engine fn
@@ -6680,13 +6717,20 @@
   // reveal card. The copy still lands, and the Home board's Recently Completed row still names it.
   //
   // IT MUST NOT WRITE TO `state`, or it would re-trigger itself.
-  let lastRelicReveal: RelicReveal | null = null;
+  // Relics v2 R2-7: the card is the v2 reveal (relicsV2Display.ts buildRelicRevealV2): a general type with its region tier
+  // and culture (its sample name, the culture's study, and the name reveal when this find's point named it), or an
+  // exceptional piece named on reveal with its set's progress. The expected id of a v2 study is derived against the
+  // Museum as it stood when the study was first watched (a v2 reveal prefers the pieces the Museum lacks at completion,
+  // call 7); when another exceptional landed in between and that hint misses, the oldest unseen record is taken.
+  let lastRelicReveal: RelicRevealV2 | null = null;
   type WatchedRelicStudy = {
     token: RelicVaultToken | null;
     studyIndex: number | null;
     v: number | undefined; // Relics v2 R2-3: the study's version stamp (2 = identification v2), for the hint below
     discoveredAtStart: Set<string>;
     seenRecordIds: Set<string>;
+    museumAtStart: GameState["museumV2"];
+    namedAtStart: Set<string>;
   };
   let watchedRelicStudies = new Map<string, WatchedRelicStudy>();
   function syncRelicStudyWatch() {
@@ -6702,6 +6746,8 @@
         v: p.effect.type === "identifyRelic" ? p.effect.v : undefined,
         discoveredAtStart: new Set(state.relicDiscovered ?? []),
         seenRecordIds: new Set(log.filter((e) => e.kind === "relicStudy").map((e) => e.id)),
+        museumAtStart: state.museumV2,
+        namedAtStart: new Set(state.museumV2?.culturesNamed ?? []),
       });
     }
     // LEAVING: the process is gone, so it resolved. Report it from the record, then forget it.
@@ -6711,17 +6757,21 @@
       watchedRelicStudies.delete(id);
       const unseen = unseenRelicStudyRecords(log, watched.seenRecordIds).filter((e) => !claimed.has(e.id));
       const expected =
-        watched.token !== null && watched.studyIndex !== null ? identifyStudiedRelic(state, watched.token, watched.studyIndex, watched.v) : null;
-      const record = pickRelicStudyRecord(unseen, expected);
+        watched.token !== null && watched.studyIndex !== null ? identifyStudiedRelic(state, watched.token, watched.studyIndex, watched.v, watched.museumAtStart) : null;
+      const record = pickRelicStudyRecord(unseen, expected) ?? (watched.v === 2 ? pickRelicStudyRecord(unseen, null) : null);
       if (record === null || record.subjectKey === null) continue;
       claimed.add(record.id);
       const firstFind = !watched.discoveredAtStart.has(record.subjectKey);
-      const reveal = buildRelicReveal(state, record, firstFind, watched.token?.tier ?? null);
+      const reveal = buildRelicRevealV2(state, record, firstFind, watched.token, watched.namedAtStart);
       if (reveal === null) continue;
       lastRelicReveal = reveal;
       pushLog(
-        `Relic identified → [${reveal.relicLabel}] (${reveal.setLabel}, relic ${reveal.index} of ${reveal.setSize}).${firstFind ? " First find!" : ""} Copy #${reveal.copyNumber} sent to the Museum.`,
+        reveal.kind === "exceptional"
+          ? `Exceptional relic identified → [${reveal.title}] (${reveal.subtitle.replace(/^Exceptional find · /, "")}).${firstFind ? " First find!" : ""}`
+          : `Relic identified → [${reveal.title}] (${reveal.subtitle}).${firstFind ? " First find!" : ""}`,
       );
+      // A culture's name reveal shows on the inline card only (the signed-off mockup's open question 4, answered "as
+      // drawn": the inline glow card, no system chat line).
     }
   }
   // The observer's trigger (referencing `state` makes it reactive; the initial run on a loaded save
@@ -6731,7 +6781,6 @@
   // The Relics sub-tab's time readouts, through the SAME formatters every console uses (with the
   // tick-count preference). Reactive so a preference flip re-renders the panel.
   $: relicRemainingFmt = (remaining: number, total: number) => remainingReadout(remaining, total, showTickCounts, state.tickDurationSeconds);
-  $: relicDurationFmt = (ticks: number) => durationReadout(ticks, showTickCounts, state.tickDurationSeconds);
 
   // E4c display honesty: the museum's research speed, read once per state for the research catalog's
   // duration labels (startResearch applies the same bonus through museumResearchDurationTicks).
@@ -11593,7 +11642,8 @@
         return { tabs: [
           { key: "overview", label: "Overview" },
           { key: "research", label: "Research" },
-          { key: "relics", label: "Relics" },
+          { key: "relics", label: "Identification" },
+          { key: "cultures", label: "Cultures" },
           { key: "dataStudy", label: "Data study" },
           { key: "upgrades", label: "Upgrades" },
         ], active: activeResearchSubTab, onSelect: (key) => (activeResearchSubTab = key as ResearchSubTab) };
@@ -14060,28 +14110,46 @@
             {/if}
 
             {#if activeResearchSubTab === "relics"}
-              <!-- RELICS (Exploration 0.14.0, E4c): the relic VAULT of unidentified tokens, the STUDY LANE
-                   (select -> Study, the in-flight study with its real museum-adjusted countdown, the facility
-                   and lane gates), and the IDENTIFICATION REVEAL for the most recently completed study (fed
-                   by the syncRelicStudyWatch observer, which reads the completed-events record). The panel
-                   only reads; Study routes to doStartRelicStudy, View in Museum to viewMuseum. -->
+              <!-- IDENTIFICATION (Relics v2 R2-7, the signed-off mockup's Identification and Just identified panels;
+                   replaces the E4c Relics sub-tab, same key): the lanes, the queue, the unqueued blanks and the inline
+                   reveal (fed by the syncRelicStudyWatch observer, which reads the completed-events record). The panel
+                   only reads; its actions route to the doQueue* / doUnqueue / doMove handlers, View in Museum to
+                   viewMuseum. -->
               <Panel>
                 <div class="panel-title">
-                  RELICS
+                  IDENTIFICATION
                   <HelpTip
-                    label="How relic study works"
-                    text="Away teams bring relics home unidentified. Study one here to reveal which relic of its set it is. A study runs on its own lane, so it never blocks blueprint research. The first time you identify a relic type is a discovery, and every identified copy goes to the Museum in the Archive."
+                    label="How identification works"
+                    text={`Away teams bring relics home as unidentified blanks, each with a region tier and a rarity. Queue them here: identification is free and runs on the Lab's own lanes (${laneStepsText()}), never blocking blueprint research, and the next queued blank starts the moment a lane frees, also while you are away. Identification reveals the relic's type; a rare few are exceptional relics, named on the spot. Every identified relic goes to the Museum in the Archive.`}
                   />
                 </div>
                 <RelicStudyPanel
                   {state}
                   reveal={lastRelicReveal}
-                  onStudy={doStartRelicStudy}
+                  onQueue={doQueueRelicStudy}
+                  onQueueAll={doQueueAllRelicStudies}
+                  onUnqueue={doUnqueueRelicStudy}
+                  onMove={doMoveRelicQueueEntry}
                   onViewMuseum={viewMuseum}
                   onDismissReveal={() => (lastRelicReveal = null)}
                   formatRemaining={relicRemainingFmt}
-                  formatDuration={relicDurationFmt}
                 />
+              </Panel>
+            {/if}
+
+            {#if activeResearchSubTab === "cultures"}
+              <!-- CULTURES (Relics v2 R2-7 lists, R2-8 the detail and the name reveal; the signed-off mockup's Cultures
+                   panels): every culture met, its study toward the name, its finds, and the inline reveal card the
+                   moment a name is revealed. Pure display. -->
+              <Panel>
+                <div class="panel-title">
+                  CULTURES
+                  <HelpTip
+                    label="How cultures work"
+                    text="Every relic comes from a long-dead culture, set by the planet it was found on. Each identified relic gives its culture one study point, and so does each Ancient Data Fragment the Lab studies. At 10 points the culture's name is revealed, and every relic of theirs reads with its real name, the ones you already hold included. Until then a relic reads as a Relic Sample with a code."
+                  />
+                </div>
+                <CulturesPanel {state} />
               </Panel>
             {/if}
 
@@ -16458,15 +16526,17 @@
                  copy lands here; the four sets' rosters (undiscovered relics masked), the per-copy passive,
                  and the leveling K-piece set tiers with their bottleneck call-outs. Pure display
                  (MuseumPanel reads the relics.ts museum readers); no actions. -->
+            <!-- Relics v2 R2-8: the Museum v2 page (MuseumV2Panel: shelves by rarity band per region tier, the soft cap
+                 meter, culture samples, the exceptional sets; Tier I keeps its set ladder, MuseumPanel inside it). -->
             <Panel>
               <div class="panel-title">
                 THE MUSEUM
                 <HelpTip
                   label="How the Museum works"
-                  text="Every relic your Research Lab identifies is displayed here. Each copy adds a small permanent bonus. Owning relics 1 through K of a set unlocks its K-piece bonus, which levels up as every one of those relics reaches the next copy threshold."
+                  text="Every relic your Research Lab identifies is displayed here, by region tier. Each copy adds a permanent bonus that grows a little less with every copy (Tier I keeps its set ladder: owning relics 1 through K of a set unlocks its K-piece bonus). At 1,000 identified relics a tier's bonuses are held at that point; the count keeps going. Exceptional pieces add a flat bonus once each, and a full set adds five times that."
                 />
               </div>
-              <MuseumPanel {state} />
+              <MuseumV2Panel {state} />
             </Panel>
           {:else if activeFoundryFacility === "archive"}
             <!-- Complement CP-16 (OC-22): THE HALL OF COMMAND, above the item record: one card per retired captain
@@ -17177,6 +17247,13 @@
                  entry in MATERIALS_SECTIONS (Field Kits follows it), so it renders above in the standard
                  fill-tile loop like every other material section (user 2026-07-21).
                  The salvage ACTION lives in the Foundry Salvage Bay facility. -->
+          </Panel>
+
+          <!-- Relics v2 R2-7: the Unidentified Relics row (every blank in the vault by region tier and rarity; Identify
+               jumps to the Research Lab's Identification tab). Blanks are not warehouse stock, so it sits below the
+               material tiers and reads the same at every tier selection. -->
+          <Panel>
+            <UnidentifiedRelicsPanel {state} onIdentify={viewIdentification} />
           </Panel>
         {/if}
       </div>

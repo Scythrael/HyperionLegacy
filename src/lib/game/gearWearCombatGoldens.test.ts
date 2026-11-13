@@ -38,6 +38,10 @@ ordering2OffForThisFile();
 import { repairRulesOffForThisFile } from "./fieldRepairRulesSwitch.fixture";
 repairRulesOffForThisFile();
 import { describe, expect, it } from "vitest";
+// Relics v2 source planets (user 2026-11-13 "First + count") came after these pins: each blank now also carries its
+// planet's name (display only). The file runs with the stamp off, so every pin reproduces as captured (relicPlanet.fixture.ts).
+import { planetStampOffForThisFile } from "./relicPlanet.fixture";
+planetStampOffForThisFile();
 // Gear wear close-out (2026-11-11: "Make it exact", "Keep the bay rate") came after every pin here: the file runs with it
 // off (gearWearCloseoutSwitch.fixture.ts), so its pins keep proving their own slice (gearWearCloseoutGoldens.test.ts and
 // gearWearCloseout.test.ts pin and prove what the close-out moved: leftover underway seconds at a run's end, a repair

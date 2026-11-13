@@ -358,18 +358,22 @@ describe("R2-2: the grant hook's relic kinds (unused until the tutorial patch)",
     const s = freshState();
     const r = grant(s, { relics: [{ kind: "general", typeId: "glyphTablet", tier: 1, count: 2 }, { kind: "general", typeId: "heartOfTheArchive", tier: 2, count: 1 }, { kind: "firstExceptional" }] }, "Tutorial complete");
     expect(r.granted).toBe(true);
-    expect(r.logLine).toBe("Tutorial complete. Received 2 Tier I Glyph Tablet relics, 1 Tier II Heart of the Archive relic and an exceptional relic.");
+    // MOVED by R2-5: the line names the piece (its approved name; it read "an exceptional relic" before the sign-off).
+    expect(r.logLine).toBe("Tutorial complete. Received 2 Tier I Glyph Tablet relics, 1 Tier II Heart of the Archive relic and the exceptional Waystation Lantern.");
     expect(r.next.museumV2.general).toEqual({ "1": { glyphTablet: 2 }, "2": { heartOfTheArchive: 1 } });
     expect(r.next.museumV2.exceptional).toEqual({ "exc-t1-a-p1": 1 });
     expect(r.next.relicDiscovered).toEqual(["glyphTablet", "heartOfTheArchive", "exc-t1-a-p1"]);
     // A second first-exceptional grant takes the next missing piece; once every Tier I piece is held it is refused.
     const r2 = grant(r.next, { relics: [{ kind: "firstExceptional" }] }, "Again");
     expect(r2.next.museumV2.exceptional).toEqual({ "exc-t1-a-p1": 1, "exc-t1-a-p2": 1 });
+    // R2-5: the second piece completes the Waystation Set: listed once, with its ledger event at the grant's game second.
+    expect(r2.next.museumV2.setsCompleted).toEqual(["exc-t1-a"]);
+    expect(r2.next.notableEvents).toEqual([{ key: "relicSetCompleted:exc-t1-a", kind: "relicSetCompleted", atGameSeconds: r.next.gameTimeSeconds, setId: "exc-t1-a", tier: 1 }]);
     expect(canGrant(r2.next, { relics: [{ kind: "firstExceptional" }] })).toEqual({ ok: false, reason: "relicHeld" });
     expect(canGrant(s, { relics: [{ kind: "firstExceptional" }, { kind: "firstExceptional" }, { kind: "firstExceptional" }] })).toEqual({ ok: false, reason: "relicHeld" });
     // Save round trip.
     const loaded = migrate(deserialize(serialize(r2.next, 0)) as SaveFile, 1);
-    expect({ m: loaded.museumV2, d: loaded.relicDiscovered }).toEqual({ m: r2.next.museumV2, d: r2.next.relicDiscovered });
+    expect({ m: loaded.museumV2, d: loaded.relicDiscovered, e: loaded.notableEvents }).toEqual({ m: r2.next.museumV2, d: r2.next.relicDiscovered, e: r2.next.notableEvents });
   });
 
   it("refuses an unknown type, a bad tier, a bad count; a relic-only bundle is not empty", () => {
@@ -391,7 +395,7 @@ describe("R2-2: the wiring registry additions (every registry pin holds them apa
     ).toEqual([
       // Expedition Tiers G2-6 took it live (the console's region picker reaches every tier; registry auditRowWiring).
       "relic:audit:blankTiers|live|",
-      "relic:audit:blankCulture|pending|Relics v2 R2-6 (cultures: study points and the name reveal)",
+      "relic:audit:blankCulture|live|", // R2-6: live (probe content:relic:cultureReveal)
       "relic:audit:shortRangeBlanks|live|",
       "relic:audit:completionBlank|pending|G7 (calls the hook when a planet is fully completed)",
       "relic:audit:generalPick|pending|Relics v2 R2-3 follow-up (retire the v1 setless branch of identifyStudiedRelic: identification v2, relic:audit:identifyV2, studies every new blank, G1-5's short-range blanks included, so no study reaches this pick)",

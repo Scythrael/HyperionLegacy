@@ -54,6 +54,8 @@ import {
   relicStaggerBand,
   relicTypesInBand,
   relicTypesInBandAt,
+  withCulturePlanet,
+  withCultureReveal,
   type RelicBand,
 } from "./relics";
 import { generalTypeWeight, vaultTokenRegionTier } from "./relicBlanks";
@@ -195,15 +197,16 @@ export function identifyRelicV2(
 
 // The Museum and first-find registry after one identification lands. A general relic: one copy at its region tier,
 // +1 study point and one find on `cultureId` (call 9), its first find. An exceptional piece: one copy (duplicates
-// counted, call 7), its first find, and its set appended to setsCompleted once every piece is held (the ledger event
-// is R2-5's). Key positions of existing records are kept (spreads over existing keys). R2-4: both go through the Museum
+// counted, call 7), its first find, and its set appended to setsCompleted once every piece is held (withSetCompletion;
+// the resolver writes the R2-5 ledger event). Key positions of existing records are kept (spreads over existing keys). R2-4: both go through the Museum
 // v2 deposits (relics.ts museumDepositGeneral / museumDepositExceptional), which snapshot a tier reaching the soft cap.
 // Pure.
 export function applyRelicIdentification(
   museum: MuseumV2 | undefined,
   discovered: readonly string[],
   outcome: RelicIdentification,
-  cultureId: string | null
+  cultureId: string | null,
+  planet?: string
 ): { museum: MuseumV2; discovered: string[] } {
   const base = museum ?? emptyMuseumV2();
   const id = relicIdentificationId(outcome);
@@ -212,15 +215,23 @@ export function applyRelicIdentification(
     let next: MuseumV2 = museumDepositGeneral(base, outcome.tier, id, 1);
     if (cultureId !== null) {
       const c = base.cultures[cultureId] ?? { points: 0, finds: {} };
-      next = { ...next, cultures: { ...base.cultures, [cultureId]: { points: c.points + 1, finds: { ...c.finds, [id]: (c.finds[id] ?? 0) + 1 } } } };
+      const record = { ...c, points: c.points + 1, finds: { ...c.finds, [id]: (c.finds[id] ?? 0) + 1 } };
+      // User 2026-11-13 "First + count": the planet this find came from joins the culture's source planets once.
+      next = { ...next, cultures: { ...base.cultures, [cultureId]: planet !== undefined ? withCulturePlanet(record, planet) : record } };
+      // R2-6: the point that reaches CULTURE_STUDY_POINTS reveals the culture's name (appended to culturesNamed once).
+      next = withCultureReveal(next, cultureId);
     }
     return { museum: next, discovered: nextDiscovered };
   }
-  let next: MuseumV2 = museumDepositExceptional(base, id);
-  const exceptional = next.exceptional;
-  const set = getExceptionalSetById(outcome.setId);
-  if (set && !base.setsCompleted.includes(set.id) && set.pieces.every((p) => (exceptional[p.id] ?? 0) > 0)) {
-    next = { ...next, setsCompleted: [...base.setsCompleted, set.id] };
-  }
-  return { museum: next, discovered: nextDiscovered };
+  return { museum: withSetCompletion(museumDepositExceptional(base, id), outcome.setId), discovered: nextDiscovered };
+}
+
+// R2-5: the museum with `setId` appended to setsCompleted when every piece of it is held and it is not listed yet (each
+// set appended once, in completion order; the ledger event is written by the caller, which knows the game second).
+// The SAME reference otherwise. Every exceptional deposit ends here (identification and the grant seam). Pure.
+export function withSetCompletion(museum: MuseumV2, setId: string): MuseumV2 {
+  const set = getExceptionalSetById(setId);
+  if (!set || museum.setsCompleted.includes(set.id)) return museum;
+  if (!set.pieces.every((p) => (museum.exceptional[p.id] ?? 0) > 0)) return museum;
+  return { ...museum, setsCompleted: [...museum.setsCompleted, set.id] };
 }
