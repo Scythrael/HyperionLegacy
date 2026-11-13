@@ -1442,3 +1442,12 @@ Notable ticker (docs/mockups/2026-11-12-personnel-notable-ticker-mockup.html):
 - Empty state: "Show a short hint (Recommended)".
 - Entry: "Name, rank, division, ship (Recommended)": ship or "Unassigned"; favorites first, then the rest.
 - Record card: "Offer Send back + Retire (Recommended)".
+
+## USER ANSWERS (2026-11-12 evening): Homeworld reserve controls mockup
+
+docs/mockups/2026-11-12-homeworld-reserve-controls-mockup.html:
+- Recall: "Only what a berth can seat (Recommended)": Recall moves only crew some berth can take, so nothing bounces back.
+- Layout: "A: section under the pool (Recommended)": its own collapsible section under the pool table on the Crew Pool
+  tab (starts closed); ticked rows show "Send N to a ship..." and "Recall N to the pool...".
+- Auto-crew ships in the Send picker: "Show, not pickable (Recommended)": listed with a note that they fill themselves.
+- Transfer warning: "Warn first (Recommended)": the confirm says how many pool crew will move to the reserve next tick.
