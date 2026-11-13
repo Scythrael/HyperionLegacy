@@ -364,3 +364,7 @@ or a mockup sign-off.
 "Measure first (Recommended)": re-run the economy sim with Overtime and endless telescope cycles in place, show the user
 the late-game balance curve, then decide whether a new sink is needed (candidates on the table: crew training S6,
 endowments to the Museum, Archive or Research Lab, homeworld investment). Keeps 0.14.0 from growing. QUEUED.
+- (2026-11-13, after the measurement, docs/plans/2026-11-13-credit-balance-measurement.md) Late sink: "Leave it for 0.16.0
+  (Recommended)": ship 0.14.0 as is; credits piling up 480+ hours in is harmless for now; tune in the balancing patch,
+  when planet aspects and the endless telescope cycles can land together. Overtime measured under 1% of spending (a
+  balancing input). The credit sinks pass is CLOSED for 0.14.0.
