@@ -18,6 +18,8 @@ import { shortRangeBoardSlots } from "./shortRangeBoard";
 import { applyRefugeeDeliveries, rollRefugee, type RefugeeDelivery } from "./refugeeArrival";
 import type { RefugeeState } from "./refugees";
 import { hash } from "./firstRunsGoldens.fixture";
+import { refugeeEchoOf } from "./refugeeEchoes";
+import { withEchoRefugeesOff } from "./refugeeEchoSwitch.fixture";
 
 const GOLDEN: Record<string, unknown> = {
   "rolls:slot0": "f7e5b5e1",
@@ -26,6 +28,14 @@ const GOLDEN: Record<string, unknown> = {
   "rolls:slot3": "3b05b6cc",
   "apply:open": "ed626816",
   "apply:taper": "f0a36ee3",
+  // E5-6b live (echoes on). Traced: with withEchoRefugeesOff the six pins above still read exactly, and the overlay
+  // tests below prove only the echoes' name, background and key moved.
+  "e5-6b:rolls:slot0": "d2f8b02b",
+  "e5-6b:rolls:slot1": "b805d649",
+  "e5-6b:rolls:slot2": "7bdd1f0f",
+  "e5-6b:rolls:slot3": "3750cef9",
+  "e5-6b:apply:open": "db4f1554",
+  "e5-6b:apply:taper": "1840b49a",
 };
 
 const CAPTURE = Boolean(import.meta.env.E5_6B_CAPTURE);
@@ -79,10 +89,52 @@ function applyPins(): Record<string, string> {
 
 describe("E5-6b goldens: who comes home, before echoes", () => {
   it("rollRefugee over 3,000 real rolls", () => {
-    for (const [k, v] of Object.entries(rollPins())) pin(k, v);
+    // The pins, traced: the game before E5-6b (echoes off) reads them exactly.
+    for (const [k, v] of Object.entries(withEchoRefugeesOff(rollPins))) pin(k, v);
+    // With echoes live: the new pins.
+    for (const [k, v] of Object.entries(rollPins())) pin(`e5-6b:${k}`, v);
   });
   it("applyRefugeeDeliveries over 600 Evacuations, open and tapered", () => {
-    for (const [k, v] of Object.entries(applyPins())) pin(k, v);
+    for (const [k, v] of Object.entries(withEchoRefugeesOff(applyPins))) pin(k, v);
+    for (const [k, v] of Object.entries(applyPins())) pin(`e5-6b:${k}`, v);
+  });
+});
+
+describe("E5-6b: the echo overlay moves only the echoes", () => {
+  it("every roll's record is unchanged except an echo's name, background and key", () => {
+    let echoes = 0;
+    rollsBySlot().forEach((rolls, slotId) => {
+      rolls.forEach((roll, i) => {
+        const id = slotId * 750 + i + 1;
+        const on = rollRefugee(roll, id, i * 10);
+        const off = withEchoRefugeesOff(() => rollRefugee(roll, id, i * 10));
+        if (on.echo === undefined) {
+          expect(on).toEqual(off);
+          return;
+        }
+        echoes += 1;
+        const echo = refugeeEchoOf(on.echo)!;
+        expect(on).toEqual({ ...off, name: echo.name, background: echo.background, echo: echo.key });
+      });
+    });
+    // About 1 in 50 of 3,000 (60 expected): the measured count sits within a wide binomial band.
+    expect(echoes).toBeGreaterThan(30);
+    expect(echoes).toBeLessThan(95);
+  });
+
+  it("applyRefugeeDeliveries: the same arrivals at the same ids; echoes once each", () => {
+    const call = { gameTimeSeconds: 1000, tickDurationSeconds: 1 };
+    for (const open of [1e9, 4]) {
+      const on = applyRefugeeDeliveries(EMPTY, open, deliveries(), call);
+      const off = withEchoRefugeesOff(() => applyRefugeeDeliveries(EMPTY, open, deliveries(), call));
+      expect(on.refugees.list.map((r) => r.id)).toEqual(off.refugees.list.map((r) => r.id));
+      expect(on.events.map((e) => [e.kind, e.atTick, e.slotId, e.refugeeId])).toEqual(off.events.map((e) => [e.kind, e.atTick, e.slotId, e.refugeeId]));
+      const keys = on.refugees.list.flatMap((r) => (r.echo === undefined ? [] : [r.echo]));
+      expect(new Set(keys).size).toBe(keys.length);
+      expect(on.refugees.echoes ?? []).toEqual(keys);
+      expect(off.refugees.echoes).toBeUndefined();
+      if (open === 1e9) expect(keys.length).toBeGreaterThan(0);
+    }
   });
 });
 

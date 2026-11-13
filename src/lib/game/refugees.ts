@@ -12,6 +12,7 @@
 
 import type { GameState } from "./model";
 import type { ShortRangeTier } from "./shortRange";
+import { isRefugeeEchoKey } from "./refugeeEchoes";
 
 // ===== the backgrounds =====
 
@@ -102,6 +103,9 @@ export interface RefugeeRecord {
   portrait: { hair: 0 | 1 | 2 | 3; palette: number /* 0..7 */ };
   arrivedAtSeconds: number;
   posting: RefugeeFacilityKey | null; // null = on the waiting list
+  // E5-6b: an echo refugee's roster key (refugeeEchoes.ts; their name, background and flavor line come from that row).
+  // Absent on every other refugee, so an old save's records are unchanged.
+  echo?: string;
 }
 
 // The whole refugee record (GameState.refugees). `list` holds everyone at home, in arrival order; among the people
@@ -119,6 +123,9 @@ export interface RefugeeState {
   // paid back by its next start (refugeeBuffs.ts carriedTicks). Each value in (0, 1); absent = 0 (and the whole field
   // absent until a buff first rounds), so a save with nobody posted never gains the key.
   carry?: { research?: number; relicStudy?: number; fabricator?: number };
+  // E5-6b: every echo who has ever arrived in this save (roster keys, in arrival order), so each arrives at most once
+  // (the user's "once per save"), even after a Refugee Relocation takes one along. Absent until the first echo.
+  echoes?: string[];
 }
 
 // A save without the field: nobody yet.
@@ -222,7 +229,8 @@ export function isWellFormedRefugeeRecord(v: unknown): v is RefugeeRecord {
     isWholeCount(portrait.hair) && portrait.hair < REFUGEE_PORTRAIT_HAIRS &&
     isWholeCount(portrait.palette) && portrait.palette < REFUGEE_PORTRAIT_PALETTES &&
     typeof r.arrivedAtSeconds === "number" && Number.isFinite(r.arrivedAtSeconds) && r.arrivedAtSeconds >= 0 &&
-    (r.posting === null || isRefugeeFacilityKey(r.posting))
+    (r.posting === null || isRefugeeFacilityKey(r.posting)) &&
+    (r.echo === undefined || isRefugeeEchoKey(r.echo))
   );
 }
 
@@ -235,6 +243,8 @@ export function isWellFormedRefugeeRecord(v: unknown): v is RefugeeRecord {
 //     repeated id is dropped; the rest keep their order;
 //   - `nextId` is raised past every id held, `arrivedTotal` to at least the people at home, `greet` keeps only ids
 //     still at home.
+//   - E5-6b: a record's echo key this build does not know is taken off (the person stays, as a normal refugee);
+//     `echoes` keeps only known keys, once each, and gains any echo a record holds, so nobody arrives twice.
 // A whole value that is not a version-1 object is dropped (it reads as the empty state). A state without the field,
 // or whose field needs nothing, is returned as is (the same reference), so a clean load adds no key and moves nothing.
 export function hydrateRefugees(state: GameState): GameState {
@@ -258,6 +268,11 @@ export function hydrateRefugees(state: GameState): GameState {
       const posting = (candidate as { posting?: unknown }).posting;
       if (posting !== null && !isRefugeeFacilityKey(posting)) {
         candidate = { ...(candidate as object), posting: null };
+        changed = true;
+      }
+      if ("echo" in (candidate as object) && !isRefugeeEchoKey((candidate as { echo?: unknown }).echo)) {
+        const { echo: _unknown, ...rest } = candidate as Record<string, unknown>;
+        candidate = rest;
         changed = true;
       }
     }
@@ -310,7 +325,17 @@ export function hydrateRefugees(state: GameState): GameState {
     if (Object.keys(kept).length > 0) carry = kept;
     else changed = true;
   }
-  const extraKeys = Object.keys(stored).some((k) => !["version", "list", "nextId", "arrivedTotal", "greet", "hintSeen", "carry"].includes(k));
+  // 5. E5-6b: the echoes who ever arrived: known keys, once each, plus any a record holds (in list order).
+  let echoes: string[] | undefined;
+  if (stored.echoes !== undefined || list.some((r) => r.echo !== undefined)) {
+    const inEchoes: unknown[] = Array.isArray(stored.echoes) ? stored.echoes : [];
+    const kept: string[] = [];
+    for (const k of inEchoes) if (isRefugeeEchoKey(k) && !kept.includes(k)) kept.push(k);
+    for (const r of list) if (r.echo !== undefined && !kept.includes(r.echo)) kept.push(r.echo);
+    if (!Array.isArray(stored.echoes) || kept.length !== inEchoes.length || kept.some((k, i) => k !== inEchoes[i])) changed = true;
+    if (kept.length > 0) echoes = kept;
+  }
+  const extraKeys = Object.keys(stored).some((k) => !["version", "list", "nextId", "arrivedTotal", "greet", "hintSeen", "carry", "echoes"].includes(k));
   if (extraKeys) changed = true;
   if (!changed) return state;
 
@@ -322,6 +347,7 @@ export function hydrateRefugees(state: GameState): GameState {
     greet,
     ...(stored.hintSeen === true ? { hintSeen: true as const } : {}),
     ...(carry !== undefined ? { carry } : {}),
+    ...(echoes !== undefined ? { echoes } : {}),
   };
   return { ...state, refugees };
 }

@@ -5391,6 +5391,23 @@
     pushLog(`[DEV] ${set.label} museum set to ${devMuseumMode} ${n} copies.`);
   }
 
+  // --- [DEV] Refugee grant (0.14.0 E5-6b) ---------------------------------------
+  // A raw test grant so the arrival card, the phone toast, Leave all and an echo refugee can be QA'd without flying
+  // fifty Evacuations. The person is minted by the real roll (refugeeDevGrant.ts); loaded by a dynamic import behind the
+  // compile-time DEV_MODE gate, so the production bundle never carries it.
+  async function devGrantRefugees(kind: "normal" | "echo", count: number): Promise<void> {
+    if (!DEV_MODE) return;
+    const { devGrantRefugee } = await import("./lib/game/refugeeDevGrant");
+    const names: string[] = [];
+    for (let i = 0; i < count; i++) {
+      const res = devGrantRefugee(state, kind);
+      if (res === null) break;
+      state = res.next;
+      names.push(res.record.name);
+    }
+    pushLog(names.length === 0 ? "[DEV] No echo refugee left to grant (every one has arrived)." : `[DEV] Refugees home: ${names.join(", ")}.`);
+  }
+
   // --- [DEV] Equipment 0.11.0 test controls (Equipment debug panel) ---------
   // A minimal, DEV_MODE-gated harness so the new ship-equipment system can be
   // exercised on a real device BEFORE the mockup-gated fitting UI is built. It
@@ -20736,6 +20753,13 @@
               <option value="partial">partial (last relic undiscovered)</option>
             </select>
             <button class="dev-btn" on:click={devGrantMuseumCopies}>Set museum</button>
+          </div>
+          <!-- [DEV] Refugee grant (0.14.0 E5-6b): people minted by the real roll, queued for their arrival cards. -->
+          <div class="dev-row">
+            <span class="dev-label">[DEV] Refugees</span>
+            <button class="dev-btn" on:click={() => devGrantRefugees("normal", 1)}>+1 refugee</button>
+            <button class="dev-btn" on:click={() => devGrantRefugees("normal", 3)}>+3 refugees</button>
+            <button class="dev-btn" on:click={() => devGrantRefugees("echo", 1)}>+1 echo refugee</button>
           </div>
           <!-- [DEV] Combat 0.13.0 test battle. Runs the REAL sim (bridge ->
                resolveBattle -> formatCombatLog) on the player's first ship vs a

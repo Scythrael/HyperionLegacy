@@ -652,3 +652,69 @@ for (const [fleetName, fleet] of Object.entries(FLEETS)) describe(`E5-3 determin
     expect(json(peopleLog(offline))).toBe(json(peopleLog(live)));
   });
 });
+
+// ===== E5-6b: echo refugees through the tick =====
+
+// Captain `captainId` on Repeat on `slotId`, starting at that slot's first Evacuation whose refugee is an echo (with
+// nobody arrived yet), at the start of its home turnaround (so two identical hulls deliver together).
+function onEchoEvacuation(s: GameState, captainId: number, slotId: number): GameState {
+  const slot = shortRangeBoardSlots(s)[slotId];
+  let idx = -1;
+  for (let i = 0; i < 20000 && idx < 0; i++) {
+    const roll = rollShortRangeJob(s, slot, i);
+    if (roll.template === "evacuation" && rollRefugee(roll, 1, 0).echo !== undefined) idx = i;
+  }
+  expect(idx).toBeGreaterThanOrEqual(0);
+  const board = { ...(s.shortRangeBoard ?? { version: 1 as const, nextCycle: {} }), nextCycle: { ...(s.shortRangeBoard?.nextCycle ?? {}), [slotId]: idx } };
+  const withBoard = { ...s, shortRangeBoard: board };
+  const ship = withBoard.ships.find((sh) => sh.assignedCaptainId === captainId)!;
+  const start = startShortRangeCycle(withBoard, ship, slot, idx, undefined, false);
+  expect(start.roll.template).toBe("evacuation");
+  const mission: ShortRangeMissionState = { kind: "shortRange", slotId, roll: start.roll, plan: start.plan, phase: "unloading", phaseProgressTicks: 0, recalled: false };
+  return { ...withBoard, captains: withBoard.captains.map((c) => (c.id === captainId ? { ...c, mission } : c)), runCounts: start.runCounts };
+}
+
+for (const [fleetName, fleet] of Object.entries(FLEETS)) describe(`E5-6b determinism: two echo Evacuations delivered on the same tick on slots 0 and 2 (a ${fleetName} fleet)`, () => {
+  function pair(): GameState {
+    let s = fleet(withSecondCaptain(qualified()));
+    s = onEchoEvacuation(s, 1, 0);
+    s = onEchoEvacuation(s, 2, 2);
+    const [a, b] = s.captains.map((c) => c.mission as ShortRangeMissionState);
+    expect(a.plan.unloadTicks).toBe(b.plan.unloadTicks);
+    return s;
+  }
+
+  it("both arrive as two different echoes, in slot order; one call == 997 s chunks == 1 s steps over 6 h", () => {
+    const s0 = pair();
+    const first = economyTick(s0, (s0.captains[0].mission as ShortRangeMissionState).plan.unloadTicks, RNG);
+    const r = refugeesOf(first);
+    expect(r.list).toHaveLength(2);
+    const [x, y] = r.list;
+    expect(x.echo).toBeDefined();
+    expect(y.echo).toBeDefined();
+    expect(x.echo).not.toBe(y.echo);
+    expect(r.echoes).toEqual([x.echo, y.echo]);
+    // The arrival lines name the echoes, slot 0 first.
+    expect(refugeeLog(first).map((e) => [e.subjectKey, e.refugee?.name])).toEqual([["slot-0", x.name], ["slot-2", y.name]]);
+    const N = 6 * 3600;
+    const once = economyTick(s0, N, RNG);
+    const chunks = chunked(s0, N);
+    const steps = stepped(s0, N);
+    const view = (g: GameState) => ({ refugees: g.refugees, log: refugeeLog(g), board: g.shortRangeBoard, counts: g.runCounts });
+    expect(json(view(chunks))).toBe(json(view(steps)));
+    expect(json(view(once))).toBe(json(view(steps)));
+    const keys = refugeesOf(steps).echoes ?? [];
+    expect(new Set(keys).size).toBe(keys.length);
+  });
+
+  it("offline == live: a 2 h offline replay through the save equals live 1 s steps, echoes included", () => {
+    const roundTrip = (g: GameState) => migrate(deserialize(serialize(g, 0, 1_790_000_000_000)) as SaveFile, 1);
+    const s0 = roundTrip(pair());
+    const N = 2 * 3600;
+    const live = stepped(s0, N);
+    const offline = tick(N, roundTrip(s0), RNG);
+    expect(refugeesOf(live).echoes?.length ?? 0).toBeGreaterThanOrEqual(2);
+    expect(json(offline.refugees)).toBe(json(live.refugees));
+    expect(json(refugeeLog(offline))).toBe(json(refugeeLog(live)));
+  });
+});

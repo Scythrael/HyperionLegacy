@@ -25,6 +25,7 @@ import {
   type RefugeeRecord,
 } from "./game/refugees";
 import { refugeeBonusIfPosted, refugeeFacilityBonus } from "./game/refugeeBuffs";
+import { refugeeEchoOf } from "./game/refugeeEchoes";
 import { shortRangeDestinationLabel } from "./game/shortRange";
 import { shortRangeTierNumeral } from "./shortRangeBoardDisplay";
 import type { IconName } from "./ui/icons";
@@ -117,10 +118,20 @@ export interface RefugeePersonView {
   originText: string; // "Body II, desert world · Tier I"
   portrait: { hair: number; palette: number };
   posting: RefugeeFacilityKey | null;
+  // E5-6b: an echo refugee (refugeeEchoes.ts) wears the one shared mark beside their name and carries their own flavor
+  // line (the roster's, word for word); null for everyone else.
+  echo: boolean;
+  flavor: string | null;
 }
 
+// The words a screen reader hears for the echo mark (the glyph itself is decorative). [PROPOSAL]
+export const REFUGEE_ECHO_MARK_LABEL = "a special arrival";
+
 export function refugeePersonView(r: RefugeeRecord): RefugeePersonView {
+  const echo = r.echo === undefined ? undefined : refugeeEchoOf(r.echo);
   return {
+    echo: echo !== undefined,
+    flavor: echo?.flavor ?? null,
     id: r.id,
     name: r.name,
     firstName: firstName(r.name),
