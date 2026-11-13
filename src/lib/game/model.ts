@@ -1191,10 +1191,10 @@ export const WR10_SWITCH = { live: true };
 // OC-F14 moved return. Always live in the game.
 export const FIELD_REPAIR_RULES_SWITCH = { live: true };
 
-// Test switch only (the same pattern, OC-F14 follow-up, user 2026-11-12 "Keep the repair (Recommended)"): off, a recall
-// on a run stamped with the repair rules settles only a canceled order's share, so a finished repair still flying back
-// stops with its damage (the old rule), and a golden can show that the pins this rule moved return. Always live in the
-// game.
+// Test switch only (the same pattern, OC-F14 follow-up, user 2026-11-12 "Keep the repair (Recommended)" and "Keep the
+// share (Recommended)"): off, a recall on a run stamped with the repair rules settles only a canceled order's share, so a
+// repair mid-way or finished and still flying back stops with its damage (the old rule), and a golden can show that the
+// pins this rule moved return. Always live in the game.
 export const RECALL_KEEPS_REPAIR_SWITCH = { live: true };
 
 // Test switch only (the same pattern, Wiring WR-9): off, a captain mission is dispatched without the Pilot's Cunning
@@ -9099,10 +9099,10 @@ export interface Expedition {
   // finishes sooner (a tie: orbit, no travel); groundOps.ts fieldRepairPlan. Written last, only on a system that mixes
   // repair worlds with other bodies (the only systems where the choice can differ from the old nearest-world rule), so
   // every other record is byte-identical. Absent on every run dispatched before OC-F14, which keeps the old rule.
-  // The follow-up (user 2026-11-12 afternoon "Keep the repair (Recommended)") adds to the same stamp (nothing with it
-  // has shipped): a recall while the ship flies back from a FINISHED repair keeps that repair (groundOps.ts
-  // closeGroundOps), as a canceled order's share already was. A flight back exists only on a stamped system (worlds
-  // only: the ship repairs on the world it is at; none: orbit). Optional, no SAVE bump.
+  // The follow-up (user 2026-11-12 "Keep the repair (Recommended)" and "Keep the share (Recommended)") adds to the same
+  // stamp (nothing with it has shipped): a recall keeps what a repair the ship has set down for has repaired, the whole
+  // repair once finished (flying back) and mid-repair the share a Cancel would keep (groundOps.ts closeGroundOps).
+  // Optional, no SAVE bump.
   repairRules?: 1;
 }
 
