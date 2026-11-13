@@ -78,6 +78,15 @@
   --rarity-radiant: #a020f0; /* violet (user-deepened 2026-09-13; was #a855f7, read pink on some screens) */
   --rarity-luminous: var(--color-warning);
   --rarity-constellar: #f472b6; /* rose: the parallel legendary flavor, distinct from luminous */
+  /* Relics v2 R2-7 / R2-8: the seven REGION TIER hues (the signed-off Relics v2 mockup, 2026-10-21 "as drawn"). Every
+     tier is also named in Roman numerals beside its color, so the color never carries the meaning alone. */
+  --region-tier-1: #a9b7c8;
+  --region-tier-2: #5eead4;
+  --region-tier-3: #4fa3f2;
+  --region-tier-4: #a78bfa;
+  --region-tier-5: #fbbf24;
+  --region-tier-6: #f472b6;
+  --region-tier-7: #fb7185;
   /* RR-7 (rarity readiness): the warehouse ITEM rarity tokens (App.svelte warehouseRarityColor), today's exact colors */
   --item-rarity-common: #8b9cb0;
   --item-rarity-uncommon: var(--color-success);

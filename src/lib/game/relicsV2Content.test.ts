@@ -5,7 +5,6 @@
 // culture name is a reserved antagonist label; the names are the approved sheet's).
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
-import { resolve as resolvePath } from "node:path";
 import { freshState, type GameState, type NotableEvent, type RelicVaultToken } from "./model";
 import {
   CULTURE_CODES,
@@ -117,7 +116,7 @@ describe("R2-5: a set completion writes one ledger event at its game second", ()
 
 describe("R2-6: cultures", () => {
   it("the 42 names and lore lines are the approved sheet's (Part B), one per roster id", () => {
-    const sheet = readFileSync(resolvePath(process.cwd(), "docs/plans/2026-11-02-relic-name-sheets-DRAFT.md"), "utf8").split("\r").join("");
+    const sheet = readFileSync("docs/plans/2026-11-02-relic-name-sheets-DRAFT.md", "utf8").split("\r").join("");
     const partB = sheet.slice(sheet.indexOf("## Part B"), sheet.indexOf("## USER ANSWERS (2026-11-02)"));
     const rows: Record<string, { name: string; lore: string }> = {};
     for (const m of partB.matchAll(/^\| (culture-t\d-\d) \| ([^|]+) \| (.+) \|$/gm)) rows[m[1]] = { name: m[2].trim(), lore: m[3].trim() };

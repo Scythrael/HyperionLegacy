@@ -117,6 +117,9 @@ export const ICON_PATHS = {
   relic: ["M12 3l7.8 4.5v9L12 21l-7.8-4.5v-9z", "M10 9.5a2 2 0 1 1 2.8 1.8c-.5.3-.8.7-.8 1.3v.9", "M12 15.9v.2"],
   // Museum: a classical front (pediment, entablature, four columns, stepped base).
   museum: ["M3 9l9-5 9 5z", "M4 11h16", "M6.5 11v6M10.5 11v6M13.5 11v6M17.5 11v6", "M4 17h16M3 20h18"],
+  // Exceptional relic (Relics v2 R2-7 / R2-8, verbatim from the signed-off Relics v2 mockup, 2026-10-21 "as drawn"): a
+  // five-point star with a short upright stroke inside, tinted by its region tier. The stroke separates it from `star`.
+  exceptional: ["M12 2.5l2.6 5.3 5.9.9-4.3 4.1 1 5.8L12 15.9l-5.2 2.7 1-5.8-4.3-4.1 5.9-.9z", "M12 9v3.5"],
   // Study: a magnifying glass, the "examine this unknown thing" verb.
   study: ["M10.5 4a6.5 6.5 0 1 0 0 13 6.5 6.5 0 0 0 0-13z", "M15.3 15.3L20 20"],
   // Discovery: a four-point sparkle with a small companion, the "first find" moment.

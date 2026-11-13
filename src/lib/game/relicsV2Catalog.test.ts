@@ -3,7 +3,6 @@
 
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
-import { resolve as resolvePath } from "node:path";
 import {
   emptyMuseumV2,
   freshState,
@@ -218,7 +217,7 @@ describe("R2-1 catalog: exceptional relics (user calls 5, 6, 7)", () => {
   // approved homage lines for the Keelsong and Ember Court sets, with the Ember Court Banner renamed the Teapot). Read
   // from the sheet itself, so the catalog cannot drift from what the user approved.
   it("every name, flavor line and stat is the approved sheet's (R2-5; no invented content)", () => {
-    const sheet = readFileSync(resolvePath(process.cwd(), "docs/plans/2026-11-02-relic-name-sheets-DRAFT.md"), "utf8").split("\r").join("");
+    const sheet = readFileSync("docs/plans/2026-11-02-relic-name-sheets-DRAFT.md", "utf8").split("\r").join("");
     const homageAt = sheet.indexOf("## HOMAGE DRAFT");
     const partA = sheet.slice(sheet.indexOf("## Part A"), sheet.indexOf("## Part B"));
     const rows = new Map<string, { name: string; stat: string; flavor: string }>();

@@ -111,6 +111,8 @@ export const ICON_SEMANTICS: Record<IconName, IconSemantic> = {
   relic: "subject",
   museum: "subject",
   discovery: "subject",
+  // Relics v2 R2-7: an exceptional relic piece (one glyph for every piece, tinted by its region tier).
+  exceptional: "subject",
   relicGlyphTablet: "subject",
   relicResonanceShard: "subject",
   relicStarChartFragment: "subject",

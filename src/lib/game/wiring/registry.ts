@@ -269,6 +269,7 @@ import {
   FIELD_DEVICE_PROBE_USES,
   SHORT_RANGE_RELIC_PROBE_HOURS,
   relicV2ProbeExpectedExceptional,
+  RELIC_QUEUE_PROBE_BLANKS,
   RECALL_PROBE_SHARE,
   PILOT_PROBE_CYCLES,
   wr9TopRankCount,
@@ -4806,7 +4807,7 @@ const AUDIT_ROWS: readonly { id: string; system: WiringSystem; claim: string; st
   // Relics v2 R2-3 (relicIdentify.ts; the queue in tick.ts): every new study identifies through identification v2.
   { id: "relic:audit:identifyV2", system: "relic", claim: "Identification v2: a new study reveals an exceptional piece at EXCEPTIONAL_PER_100K (user call 6), preferring the pieces the Museum lacks (call 7); else a general type on the blank's own rarity band odds (\"Only one boost\") with the site bias", status: LIVE },
   { id: "relic:audit:identifyLanes", system: "relic", claim: "Relic-study lanes by Research Lab tier (RELIC_STUDY_LANES_BY_LAB: Lab I 1, III 2, V 3, VII 4; user call 12)", status: LIVE },
-  { id: "relic:audit:identifyQueue", system: "relic", claim: "The identification queue: the next queued blank starts the moment a lane frees, also while away (tick.ts queueRelicStudy / resolveRelicStudies)", status: pending("Relics v2 R2-7 (the Identification tab: feed, queue, reorder; the engine queue is built and tested)") },
+  { id: "relic:audit:identifyQueue", system: "relic", claim: "The identification queue: the next queued blank starts the moment a lane frees, also while away (tick.ts queueRelicStudy / resolveRelicStudies)", status: LIVE },
   { id: "relic:audit:generalPick", system: "relic", claim: "A blank with no set identifies over the general pool by band, with the site bias (identifyGeneralRelic)", status: pending("Relics v2 R2-3 follow-up (retire the v1 setless branch of identifyStudiedRelic: identification v2, relic:audit:identifyV2, studies every new blank, G1-5's short-range blanks included, so no study reaches this pick)") },
   // Relics v2 R2-4 (relics.ts museum math v2): the per-tier soft cap snapshot (user calls 3 and 4).
   { id: "relic:audit:softCap", system: "relic", claim: "The soft cap: a tier's counts freeze for the regular game at RELIC_SOFT_CAP identified relics (1000 per tier, user call 3); counts keep growing and show (call 4)", status: LIVE },
@@ -5536,6 +5537,15 @@ function auditRowWiring(): Readonly<Record<string, Partial<EntryInput>>> {
       contexts: ["research"],
       curve: { kind: "gate" },
       magnitude: () => 1,
+      on: sourceOn,
+    },
+    // Relics v2 R2-7: the queue the Identification tab fills (Queue / Queue all): six blanks queued on a Lab I (one lane)
+    // all identify inside one long resolve, where only the one started by hand would without the queue.
+    "relic:audit:identifyQueue": {
+      probe: "content:relic:queue",
+      contexts: ["research"],
+      curve: { kind: "gate" },
+      magnitude: () => RELIC_QUEUE_PROBE_BLANKS - 1,
       on: sourceOn,
     },
     // Relics v2 R2-3: Lab VII runs three more relic studies at once than Lab I.

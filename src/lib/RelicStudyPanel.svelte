@@ -1,301 +1,230 @@
 <script lang="ts">
   // ============================================================================
-  // RelicStudyPanel.svelte
-  // Author: Claude (Opus 5.5) | Exploration 0.14.0 phase E4c (Relic + Museum UI)
+  // RelicStudyPanel.svelte: the Research Lab's IDENTIFICATION tab (Relics v2 R2-7; replaces the E4c Relics sub-tab).
   //
-  // The Research facility's RELICS sub-tab. It realizes the "Study the Relics" half of the approved
-  // "Relic Museum" mockup (2026-10-01) inside the facility console: the RELIC VAULT of unidentified
-  // tokens, the STUDY LANE (select a token -> Study, the in-flight study with its real countdown, the
-  // facility / lane gates with their reasons, the tier-skew hint), and the IDENTIFICATION REVEAL card
-  // for the most recently completed study (first-find banner, copy number, View in Museum).
+  // The signed-off Relics v2 mockup (2026-10-21, "as drawn"), its Identification and Just identified panels: the lanes
+  // (Lab I 1, III 2, V 3, VII 4; a locked lane names the Lab tier that opens it), the QUEUE in order with move up, move
+  // down and remove, "Queue all" for every blank still waiting in the vault, the unqueued blanks each with Queue, the
+  // inline REVEAL card for the latest identification, and the recent identifications.
   //
-  // POSTURE (mirrors ExpeditionPanel / GambitEditorPanel exactly):
-  //   - PURE PRESENTATION + INTERACTION. It READS live state through the already-tested engine readers
-  //     (tick.ts canStartRelicStudy / relicStudiesInFlight / relicStudySlotCount /
-  //     museumResearchDurationTicks, relics.ts relicStudyDurationTicks / museumBonuses) and NEVER mutates
-  //     state: Study bubbles UP to the host via onStudy (App.svelte runs startRelicStudy + pushLog +
-  //     doSave in one place). The reveal is computed by the host's OBSERVER (it reads the completed-events
-  //     record, never an inventory diff) and handed in as a prop.
-  //   - TIME READOUTS come from the host as formatter props (formatRemaining / formatDuration), so this
-  //     panel shows exactly the strings every other console shows, including the tick-count preference.
-  //   - RESPONSIVE the container-query way (ONE shared DOM, split by CSS only, NO isMobile JS): a narrow
-  //     container stacks the cards, a fresh reveal ABOVE the vault (the payoff first on a phone), the
-  //     empty "Identified" card below it; a wide one (>= 769px)
-  //     puts the vault + lane on the left and the reveal on the right, like the mockup. Works at 375px.
-  //   - EVERY GRAPHIC IS SVG via <Icon> (user hard requirement): glyphs come from ui/relicIcons.ts.
+  // POSTURE: pure presentation. Every number comes from relicsV2Display.ts (the engine's own readers); every action
+  // bubbles up to App.svelte (queueRelicStudy / queueAllRelicStudies / unqueueRelicStudy / moveRelicQueueEntry, then
+  // pushLog and doSave). A queued blank starts the moment a lane frees, also while away (the engine's queue chain), so
+  // Queue is the one verb: with a lane free it starts at once.
+  //
+  // RESPONSIVE by container query (one DOM, no isMobile JS): stacked on a phone (the reveal first when there is one),
+  // side by side from 769 px. Every graphic is SVG through <Icon>.
   // ============================================================================
 
-  import type { GameState, RelicVaultToken, EquipmentRarity, TimedProcess } from "./game/model";
-  import { rarityIndex } from "./game/model";
-  import {
-    canStartRelicStudy,
-    relicStudiesInFlight,
-    relicStudySlotCount,
-    museumResearchDurationTicks,
-    researchSpeedFor,
-    type RelicStudyBlockReason,
-  } from "./game/tick";
-  import { relicStudyDurationTicks, museumBonuses } from "./game/relics";
-  import { groundSiteLabel } from "./game/expeditionContent";
-  import { equipmentRarityColor } from "./EquipmentTooltip.svelte";
+  import type { GameState } from "./game/model";
+  import { relicStudySlotCount, relicStudiesInFlight } from "./game/tick";
   import Icon from "./ui/Icon.svelte";
-  import { relicIcon, relicSetShortLabel, relicRarityColor, RELIC_RARITY_LABEL, RELIC_SET_IDS } from "./ui/relicIcons";
-  import type { RelicReveal } from "./relicReveal";
+  import {
+    bandColor,
+    blankSourceText,
+    blankTitle,
+    identificationLanes,
+    identificationQueue,
+    labLabel,
+    minutesText,
+    queueClearTicks,
+    recentIdentifications,
+    unqueuedBlanks,
+    type RelicRevealV2,
+  } from "./relicsV2Display";
+  import { relicBandOf } from "./game/relics";
+  import { relicStudyDurationFor } from "./game/tick";
 
-  // --- Props ------------------------------------------------------------------
   export let state: GameState;
-  // The most recently completed study's reveal (the host's observer), or null when none this session.
-  export let reveal: RelicReveal | null = null;
-  // Study a vault token. Host: startRelicStudy -> pushLog -> doSave.
-  export let onStudy: (tokenId: string) => void;
-  // Jump to the Archive's Museum sub-tab.
+  export let reveal: RelicRevealV2 | null = null;
+  export let onQueue: (tokenId: string) => void;
+  export let onQueueAll: () => void;
+  export let onUnqueue: (tokenId: string) => void;
+  export let onMove: (tokenId: string, direction: -1 | 1) => void;
   export let onViewMuseum: () => void;
-  // Clear the reveal card.
   export let onDismissReveal: () => void;
-  // Live countdown text (the host's remainingReadout, with the tick-count preference applied).
   export let formatRemaining: (remainingTicks: number, totalTicks: number) => string;
-  // Static duration text (the host's durationReadout, with the tick-count preference applied).
-  export let formatDuration: (ticks: number) => string;
 
-  // --- Local UI state ---------------------------------------------------------
-  let selectedTokenId: string | null = null;
-
-  // --- Derived reads ----------------------------------------------------------
-  function setOrder(t: RelicVaultToken): number {
-    const i = t.setId === undefined ? -1 : RELIC_SET_IDS.indexOf(t.setId);
-    return i < 0 ? RELIC_SET_IDS.length : i;
-  }
-  // The vault, rarest tier first (the mockup's order), then by set, then by arrival (stable sort).
-  $: vault = [...(state.relicVault ?? [])].sort((a, b) => rarityIndex(b.tier) - rarityIndex(a.tier) || setOrder(a) - setOrder(b));
-  // Default / repair the selection: keep the pick while it is still in the vault, else the first token.
-  $: if (vault.length > 0 && (selectedTokenId === null || !vault.some((t) => t.id === selectedTokenId))) {
-    selectedTokenId = vault[0].id;
-  }
-  $: if (vault.length === 0 && selectedTokenId !== null) selectedTokenId = null;
-  $: selected = vault.find((t) => t.id === selectedTokenId) ?? null;
-
-  $: studies = relicStudiesInFlight(state);
-  $: lanes = relicStudySlotCount(state);
-  $: researchSpeed = researchSpeedFor(state, museumBonuses(state).researchSpeed); // E5-4: plus the Research Lab refugee buff
-  $: gate = selected ? canStartRelicStudy(state, selected.id) : null;
-
-  // The REAL study time a token would take if started now: the tier-scaled base, shortened by the
-  // museum's research speed, through the exact two functions startRelicStudy uses.
-  function studyTicks(tier: EquipmentRarity): number {
-    return museumResearchDurationTicks(relicStudyDurationTicks(tier), researchSpeed);
-  }
-
-  // --- Display helpers --------------------------------------------------------
-  function tierLabel(tier: EquipmentRarity): string {
-    return tier.charAt(0).toUpperCase() + tier.slice(1);
-  }
-  // Where a blank came from: its site, else (Relics v2 R2-2: a blank with no site) its source.
-  function sourceLabel(t: RelicVaultToken): string {
-    if (t.poiId !== undefined) return groundSiteLabel(t.poiId) ?? t.poiId;
-    switch (t.source) {
-      case "shortRange":
-        return "a short-range mission";
-      case "completion":
-        return "a fully surveyed planet";
-      case "grant":
-        return "a reward";
-      default:
-        return "an expedition";
-    }
-  }
-  function blockText(reason: RelicStudyBlockReason): string {
-    switch (reason) {
-      case "noFacility":
-        return "Build the Research Lab to study relics.";
-      case "noSlot":
-        return lanes === 1
-          ? "The study lane is busy. This relic can be studied when the current study finishes."
-          : `All ${lanes} study lanes are busy. This relic can be studied when one finishes.`;
-      case "notFound":
-        return "That relic is no longer in the vault.";
-    }
-  }
-  // The token a running study carries (the identifyRelic effect), or null for a malformed process.
-  function studyToken(p: TimedProcess): RelicVaultToken | null {
-    return p.effect.type === "identifyRelic" ? p.effect.token : null;
-  }
-  function progressPct(p: TimedProcess): number {
-    if (!(p.durationTicks > 0)) return 100;
-    return Math.max(0, Math.min(100, ((p.durationTicks - p.remainingTicks) / p.durationTicks) * 100));
-  }
+  $: lanes = identificationLanes(state);
+  $: openLanes = relicStudySlotCount(state);
+  $: busy = relicStudiesInFlight(state).length;
+  $: lab = labLabel(state);
+  $: queue = identificationQueue(state);
+  $: waiting = unqueuedBlanks(state);
+  $: clearTicks = queueClearTicks(queue, Math.max(1, openLanes), lanes.reduce((n, l) => n + (l.kind === "busy" ? l.remainingTicks ?? 0 : 0), 0));
+  $: recent = recentIdentifications(state, 6);
 </script>
 
-<div class="rs-wrap">
-  <div class="rs" class:has-reveal={reveal !== null}>
-    <!-- ============================ VAULT + STUDY LANE ============================ -->
-    <section class="rs-card rs-vault-card">
-      <div class="rs-card-h">
-        <span class="rs-card-glyph"><Icon name="relic" size={16} /></span>
-        <span class="rs-card-title">Relic Vault</span>
-        <span class="rs-card-tag">{vault.length} unidentified</span>
+<div class="id-wrap">
+  <div class="id" class:has-reveal={reveal !== null}>
+    <section class="id-card id-main">
+      <div class="id-h">
+        <span class="id-glyph"><Icon name="study" size={16} /></span>
+        <span class="id-title">Identification</span>
+        <span class="id-chip">{lab ?? "No Research Lab"} · {busy} of {openLanes} {openLanes === 1 ? "lane" : "lanes"}</span>
+      </div>
+      <p class="id-rule">
+        Free. Each blank takes 10 minutes times its rarity (standard 10 min, augmented 15, stellar 20, radiant 30), shortened by research speed. Any Lab level identifies any tier. Lanes: Lab I 1, III 2, V 3, VII 4.
+      </p>
+      {#if openLanes === 0}
+        <p class="id-gate"><Icon name="warning" size={13} /> Identification needs the Research Lab. Build it to start identifying relics.</p>
+      {/if}
+
+      <div class="id-lanes">
+        {#each lanes as l (l.index)}
+          {#if l.kind === "busy"}
+            <div class="id-lane">
+              <div class="id-lane-top"><span class="id-dim">Lane {l.index}</span><span style="color: {bandColor(l.band ?? 'standard')};"><Icon name="relic" size={18} /></span></div>
+              <b class="id-lane-t">{l.title}</b>
+              <span class="id-dim">from {l.source}</span>
+              <span class="id-bar" role="img" aria-label="{Math.round(l.pct ?? 0)}% done"><span class="id-bar-fill" style="width: {l.pct}%;"></span></span>
+              <span class="id-mono">{formatRemaining(l.remainingTicks ?? 0, l.durationTicks ?? 0)}</span>
+            </div>
+          {:else if l.kind === "free"}
+            <div class="id-lane free">
+              <div class="id-lane-top"><span class="id-dim">Lane {l.index}</span></div>
+              <span class="id-dim">Free: the next queued blank starts here.</span>
+            </div>
+          {:else}
+            <div class="id-lane locked">
+              <span><Icon name="lock" size={16} /></span>
+              <b class="id-lane-t">Lane {l.index}</b>
+              <span class="id-dim">Opens at {l.opensAt}</span>
+            </div>
+          {/if}
+        {/each}
       </div>
 
-      {#if lanes === 0}
-        <p class="rs-gate"><Icon name="warning" size={13} /> Relic study needs the Research Lab. Build it to start identifying relics.</p>
-      {/if}
-
-      {#if vault.length === 0 && studies.length === 0}
-        <p class="rs-empty">
-          No unidentified relics. Away teams recover them on expeditions; claim a finished expedition and its relics land here. Short-Range Missions find one now and then, too.
-        </p>
-      {:else}
-        <div class="rs-vault">
-          <!-- In-flight studies first, dashed (the token left the vault at start, so it is shown from the
-               study itself). Not selectable: it is already being studied. -->
-          {#each studies as p (p.id)}
-            {@const tok = studyToken(p)}
-            {#if tok}
-              <div class="rs-token studying" style="--tier: {equipmentRarityColor(tok.tier)};" title="Being studied">
-                <span class="rs-token-glyph"><Icon name="study" size={24} /></span>
-                <span class="rs-token-set">{relicSetShortLabel(tok.setId)}</span>
-                <span class="rs-token-tier">{tierLabel(tok.tier)}</span>
-              </div>
-            {/if}
+      <div class="id-sec">
+        <div class="id-sec-h">
+          <span class="id-sec-t">Queue ({queue.length}{#if queue.length > 0}, about {minutesText(clearTicks, state.tickDurationSeconds)}{/if})</span>
+          <button type="button" class="id-btn" disabled={waiting.length === 0} on:click={onQueueAll}><Icon name="queue" size={13} /> Queue all {waiting.length}</button>
+        </div>
+        {#if queue.length === 0}
+          <p class="id-empty">Nothing queued. Queue blanks and each starts the moment a lane frees, also while you are away.</p>
+        {:else}
+          {#each queue as q, i (q.token.id)}
+            <div class="id-row">
+              <span style="color: {bandColor(q.band)};"><Icon name="relic" size={18} /></span>
+              <span class="id-row-t">
+                <b>{q.title}</b>
+                <span class="id-dim">from {q.source} · {minutesText(q.durationTicks, state.tickDurationSeconds)} · free</span>
+              </span>
+              <span class="id-row-a">
+                <button type="button" class="id-btn sm" aria-label="Move up" disabled={i === 0} on:click={() => onMove(q.token.id, -1)}><Icon name="chevronUp" size={13} /></button>
+                <button type="button" class="id-btn sm" aria-label="Move down" disabled={i === queue.length - 1} on:click={() => onMove(q.token.id, 1)}><Icon name="chevronDown" size={13} /></button>
+                <button type="button" class="id-btn sm" aria-label="Remove from queue" on:click={() => onUnqueue(q.token.id)}><Icon name="close" size={13} /></button>
+              </span>
+            </div>
           {/each}
-          {#each vault as tok (tok.id)}
-            <button
-              type="button"
-              class="rs-token"
-              class:active={selectedTokenId === tok.id}
-              style="--tier: {equipmentRarityColor(tok.tier)};"
-              aria-pressed={selectedTokenId === tok.id}
-              title="{tierLabel(tok.tier)} {relicSetShortLabel(tok.setId)} relic"
-              on:click={() => (selectedTokenId = tok.id)}
-            >
-              <span class="rs-token-glyph"><Icon name="relic" size={24} /></span>
-              <span class="rs-token-set">{relicSetShortLabel(tok.setId)}</span>
-              <span class="rs-token-tier">{tierLabel(tok.tier)}</span>
-            </button>
-          {/each}
-        </div>
-      {/if}
-
-      <!-- IN-FLIGHT STUDY: set, tier, progress, the real remaining time. -->
-      {#each studies as p (p.id)}
-        {@const tok = studyToken(p)}
-        <div class="rs-study-row">
-          <span class="rs-study-label">
-            <Icon name="study" size={13} />
-            Studying a {#if tok}<b style="color: {equipmentRarityColor(tok.tier)};">{tierLabel(tok.tier)}</b> {relicSetShortLabel(tok.setId)}{/if} relic
-          </span>
-          <span class="rs-bar"><span class="rs-bar-fill" style="width: {progressPct(p)}%;"></span></span>
-          <span class="rs-eta">{formatRemaining(p.remainingTicks, p.durationTicks)}</span>
-        </div>
-      {/each}
-
-      <!-- STUDY ACTION for the selected token. -->
-      {#if selected}
-        <div class="rs-selected" style="--tier: {equipmentRarityColor(selected.tier)};">
-          <span class="rs-sel-glyph"><Icon name="relic" size={22} /></span>
-          <span class="rs-sel-text">
-            <span class="rs-sel-name">{tierLabel(selected.tier)} {relicSetShortLabel(selected.setId)} relic</span>
-            <span class="rs-sel-sub">From {sourceLabel(selected)} · study time {formatDuration(studyTicks(selected.tier))}</span>
-          </span>
-          <button
-            type="button"
-            class="rs-btn primary"
-            disabled={!gate || !gate.ok}
-            on:click={() => selected && onStudy(selected.id)}
-          ><Icon name="study" size={13} /> Study</button>
-        </div>
-        {#if gate && !gate.ok}
-          <p class="rs-note">{blockText(gate.reason)}</p>
         {/if}
-      {/if}
+        {#if queue.length > 0}<p class="id-foot">The next queued blank starts the moment a lane frees, also while you are away.</p>{/if}
+      </div>
 
-      <p class="rs-hint">
-        <b>Tier matters:</b> the away-team roll sets a relic's tier. A higher tier skews the reveal toward the rarer relics in its set, so a Radiant relic is your best shot at a capstone.
-      </p>
+      <div class="id-sec">
+        <div class="id-sec-h"><span class="id-sec-t">Unidentified blanks ({waiting.length})</span></div>
+        {#if waiting.length === 0}
+          <p class="id-empty">No blanks waiting. Away teams recover them on expeditions; Short-Range Missions find one now and then, too.</p>
+        {:else}
+          {#each waiting as t (t.id)}
+            <div class="id-row">
+              <span style="color: {bandColor(relicBandOf(t.tier))};"><Icon name="relic" size={18} /></span>
+              <span class="id-row-t">
+                <b>{blankTitle(t)}</b>
+                <span class="id-dim">from {blankSourceText(t)} · {minutesText(relicStudyDurationFor(state, state.museumV2, t), state.tickDurationSeconds)}</span>
+              </span>
+              <span class="id-row-a">
+                <button type="button" class="id-btn" disabled={openLanes === 0} on:click={() => onQueue(t.id)}><Icon name="queue" size={13} /> Queue</button>
+              </span>
+            </div>
+          {/each}
+        {/if}
+      </div>
     </section>
 
-    <!-- ============================ IDENTIFICATION REVEAL ============================ -->
-    <section class="rs-card rs-reveal-card" aria-live="polite">
-      <div class="rs-card-h">
-        <span class="rs-card-glyph"><Icon name="discovery" size={16} /></span>
-        <span class="rs-card-title">Identified</span>
+    <section class="id-card id-side" aria-live="polite">
+      <div class="id-h">
+        <span class="id-glyph"><Icon name="discovery" size={16} /></span>
+        <span class="id-title">Just identified</span>
         {#if reveal}
-          <span class="rs-card-tag">study complete</span>
-          <button type="button" class="rs-x" on:click={onDismissReveal}><Icon name="close" size={13} title="Dismiss" /></button>
+          <button type="button" class="id-x" on:click={onDismissReveal}><Icon name="close" size={13} title="Dismiss" /></button>
         {/if}
       </div>
       {#if reveal}
         {#key reveal.recordId}
-          <div class="rs-reveal">
-            <div class="rs-big" style="--ring: {relicRarityColor(reveal.rarity)};">
-              <Icon name={relicIcon(reveal.relicId)} size={40} />
+          <div class="id-reveal" class:exc={reveal.kind === "exceptional"} style="--rc: {reveal.color};">
+            <div class="id-reveal-head">
+              <span class="id-reveal-glyph"><Icon name={reveal.glyph} size={34} /></span>
+              <span class="id-reveal-names">
+                <b class="id-reveal-name">{reveal.title}</b>
+                <span class="id-dim">{reveal.subtitle}</span>
+              </span>
             </div>
-            <div class="rs-rn">{reveal.relicLabel}</div>
-            <div class="rs-rs">{reveal.setLabel} · relic {reveal.index} of {reveal.setSize} · <span style="color: {relicRarityColor(reveal.rarity)};">{RELIC_RARITY_LABEL[reveal.rarity]}</span></div>
-            <div class="rs-rf">{reveal.flavor}</div>
+            <p class="id-reveal-flavor">{reveal.flavor}</p>
+            <p class="id-reveal-line">{reveal.effect}</p>
+            {#if reveal.progress}<p class="id-reveal-line">{reveal.progress}</p>{/if}
+            {#if reveal.cultureRevealed}
+              <div class="id-culture-reveal">
+                <span class="id-glow"><Icon name="discovery" size={22} /></span>
+                <span>A culture is identified: <b>{reveal.cultureRevealed}</b>. Every find of theirs now reads with its real name.</span>
+              </div>
+            {/if}
             {#if reveal.firstFind}
-              <div class="rs-first">
-                <div class="rs-first-h"><Icon name="discovery" size={12} /> First find</div>
-                <div class="rs-first-t">Discovered: {reveal.relicLabel}</div>
-                <div class="rs-first-d">The first {reveal.relicLabel} your fleet has identified. It now has a place in the Museum.</div>
-                <!-- E4d: a first find that opens discovery-gated research names each project it unlocked
-                     (buildRelicReveal's researchUnlocked, empty for a relic that gates nothing). -->
-                {#each reveal.researchUnlocked ?? [] as project (project)}
-                  <div class="rs-first-r"><Icon name="research" size={12} /> Research unlocked: <b>{project}</b></div>
+              <div class="id-first">
+                <span class="id-first-h"><Icon name="discovery" size={12} /> First find</span>
+                <span>The first {reveal.title} your fleet has identified.</span>
+                {#each reveal.researchUnlocked as project (project)}
+                  <span class="id-first-r"><Icon name="research" size={12} /> Research unlocked: <b>{project}</b></span>
                 {/each}
               </div>
             {/if}
-            <div class="rs-copy">
-              Copy <b>#{reveal.copyNumber}</b> sent to the Museum · {reveal.setLabel} now has <b>{reveal.setCollected} of {reveal.setSize}</b> relics
-            </div>
-            <button type="button" class="rs-btn" on:click={onViewMuseum}><Icon name="museum" size={13} /> View in Museum</button>
+            <button type="button" class="id-btn" on:click={onViewMuseum}><Icon name="museum" size={13} /> View in Museum</button>
           </div>
         {/key}
       {:else}
-        <p class="rs-empty">
-          Nothing identified yet this session. Study a relic and its identity is revealed here the moment the study completes.
-        </p>
+        <p class="id-empty">Nothing identified yet this session. Queue a blank and its identity is revealed here the moment the study completes.</p>
+      {/if}
+
+      {#if recent.length > 0}
+        <div class="id-sec">
+          <div class="id-sec-h"><span class="id-sec-t">Recent identifications</span></div>
+          {#each recent as r (r.recordId)}
+            <div class="id-recent"><span class:id-exc={r.exceptional}><Icon name={r.glyph} size={14} /></span> {r.label}</div>
+          {/each}
+        </div>
       {/if}
     </section>
   </div>
 </div>
 
 <style>
-  /* CONTAINER-QUERY layout (mirrors ExpeditionPanel). The WRAP is the container (a container query
-     styles descendants, never the container itself); the inner grid swaps its AREA order by width. */
-  .rs-wrap {
+  .id-wrap {
     container-type: inline-size;
   }
-  .rs {
+  .id {
     display: grid;
     grid-template-columns: minmax(0, 1fr);
-    grid-template-areas:
-      "vault"
-      "reveal";
+    grid-template-areas: "main" "side";
     gap: 12px;
   }
-  /* Narrow + a fresh reveal: the payoff goes FIRST on a phone (it is what the player came back for). */
-  .rs.has-reveal {
-    grid-template-areas:
-      "reveal"
-      "vault";
+  .id.has-reveal {
+    grid-template-areas: "side" "main";
   }
-  .rs-vault-card {
-    grid-area: vault;
+  .id-main {
+    grid-area: main;
   }
-  .rs-reveal-card {
-    grid-area: reveal;
+  .id-side {
+    grid-area: side;
   }
   @container (min-width: 769px) {
-    .rs,
-    .rs.has-reveal {
-      grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr);
-      grid-template-areas: "vault reveal";
+    .id,
+    .id.has-reveal {
+      grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr);
+      grid-template-areas: "main side";
       align-items: start;
     }
   }
-
-  /* CARD */
-  .rs-card {
+  .id-card {
     display: flex;
     flex-direction: column;
     gap: 10px;
@@ -305,32 +234,33 @@
     border: 1px solid rgba(var(--color-accent-rgb), 0.14);
     border-radius: var(--corner);
   }
-  .rs-card-h {
+  .id-h {
     display: flex;
     align-items: center;
+    flex-wrap: wrap;
     gap: 8px;
     padding-bottom: 8px;
     border-bottom: 1px solid rgba(var(--color-accent-rgb), 0.12);
   }
-  .rs-card-glyph {
+  .id-glyph {
     color: var(--color-accent-bright);
     display: inline-flex;
   }
-  .rs-card-title {
+  .id-title {
     font-family: var(--font-display);
     font-size: var(--text-md);
     color: var(--color-text-primary);
-    letter-spacing: 0.02em;
   }
-  .rs-card-tag {
+  .id-chip {
     margin-left: auto;
-    font-family: var(--font-mono);
     font-size: var(--text-2xs);
-    letter-spacing: 0.1em;
-    text-transform: uppercase;
-    color: var(--color-text-dim);
+    color: var(--color-text-secondary);
+    border: 1px solid rgba(var(--color-accent-rgb), 0.2);
+    border-radius: var(--corner);
+    padding: 1px 6px;
   }
-  .rs-x {
+  .id-x {
+    margin-left: auto;
     display: inline-flex;
     padding: 3px;
     background: transparent;
@@ -338,281 +268,234 @@
     border-radius: var(--corner);
     color: var(--color-text-dim);
     cursor: pointer;
-    -webkit-tap-highlight-color: transparent;
   }
-  .rs-x:hover {
-    color: var(--color-text-primary);
-    border-color: rgba(var(--color-accent-rgb), 0.3);
-  }
-
-  .rs-empty,
-  .rs-hint,
-  .rs-note,
-  .rs-gate {
+  .id-rule,
+  .id-empty,
+  .id-foot,
+  .id-gate {
     margin: 0;
     font-size: var(--text-xs);
     line-height: 1.5;
-  }
-  .rs-empty {
     color: var(--color-text-dim);
+  }
+  .id-empty {
     padding: 10px;
     border: 1px dashed rgba(var(--color-accent-rgb), 0.24);
     border-radius: var(--corner);
   }
-  .rs-hint {
-    color: var(--color-text-dim);
-  }
-  .rs-hint b {
-    color: var(--color-text-secondary);
-    font-weight: 600;
-  }
-  .rs-note {
-    color: var(--color-text-secondary);
-  }
-  .rs-gate {
+  .id-gate {
     color: var(--color-warning);
-    padding: 8px 10px;
-    border: 1px solid rgba(var(--color-warning-rgb), 0.35);
-    background: rgba(var(--color-warning-rgb), 0.08);
-    border-radius: var(--corner);
   }
-
-  /* VAULT GRID: square tokens, tier-colored ring. */
-  .rs-vault {
+  .id-lanes {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(84px, 1fr));
     gap: 8px;
+    grid-template-columns: repeat(auto-fill, minmax(min(100%, 150px), 1fr));
   }
-  .rs-token {
-    position: relative;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    gap: 3px;
-    aspect-ratio: 1;
-    padding: 6px 4px;
-    background: var(--color-bg-mid);
-    border: 1px solid rgba(var(--color-accent-rgb), 0.12);
+  .id-lane {
+    display: grid;
+    gap: 4px;
+    padding: 8px;
+    border: 1px solid rgba(var(--color-accent-rgb), 0.18);
     border-radius: var(--corner);
-    box-shadow: inset 0 0 0 1px var(--tier);
-    color: var(--color-text-secondary);
-    cursor: pointer;
-    -webkit-tap-highlight-color: transparent;
+    font-size: var(--text-xs);
     min-width: 0;
   }
-  button.rs-token:hover {
-    border-color: rgba(var(--color-accent-rgb), 0.45);
+  .id-lane.free {
+    border-style: dashed;
   }
-  .rs-token.active {
-    border-color: var(--color-accent);
-    box-shadow: inset 0 0 0 2px var(--tier), 0 0 0 1px var(--color-accent);
+  .id-lane.locked {
+    border-style: dashed;
+    color: var(--color-text-dim);
   }
-  .rs-token.studying {
-    cursor: default;
-    outline: 2px dashed var(--color-accent);
-    outline-offset: 2px;
-  }
-  .rs-token-glyph {
-    color: var(--tier);
-    display: inline-flex;
-  }
-  .rs-token-set {
-    font-size: var(--text-2xs);
-    color: var(--color-text-primary);
-    max-width: 100%;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-  .rs-token-tier {
-    font-family: var(--font-mono);
-    font-size: var(--text-3xs);
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
-    color: var(--tier);
-  }
-
-  /* IN-FLIGHT STUDY ROW */
-  .rs-study-row {
+  .id-lane-top {
     display: flex;
-    flex-wrap: wrap;
+    justify-content: space-between;
     align-items: center;
-    gap: 6px 10px;
-    padding: 9px 11px;
-    border: 1px solid rgba(var(--color-accent-rgb), 0.35);
-    border-radius: var(--corner);
-    background: rgba(var(--color-accent-rgb), 0.07);
-    font-size: var(--text-xs);
+  }
+  .id-lane-t {
+    color: var(--color-text-primary);
+    font-weight: 600;
+  }
+  .id-dim {
+    color: var(--color-text-dim);
+    font-size: var(--text-2xs);
+  }
+  .id-mono {
+    font-family: var(--font-mono);
+    font-size: var(--text-2xs);
     color: var(--color-text-secondary);
   }
-  .rs-study-label {
-    display: inline-flex;
-    align-items: center;
-    gap: 5px;
-    flex-wrap: wrap;
-  }
-  .rs-bar {
-    flex: 1 1 80px;
-    min-width: 60px;
-    height: 7px;
-    border-radius: 4px;
+  .id-bar {
+    display: block;
+    height: 6px;
+    border-radius: 3px;
     background: rgba(var(--color-accent-rgb), 0.14);
     overflow: hidden;
   }
-  .rs-bar-fill {
+  .id-bar-fill {
     display: block;
     height: 100%;
     background: var(--color-accent);
   }
-  .rs-eta {
-    font-family: var(--font-mono);
-    font-size: var(--text-2xs);
-    color: var(--color-text-dim);
-    white-space: nowrap;
+  .id-sec {
+    display: grid;
+    gap: 4px;
   }
-
-  /* SELECTED TOKEN + Study */
-  .rs-selected {
+  .id-sec-h {
     display: flex;
     flex-wrap: wrap;
     align-items: center;
-    gap: 10px;
-    padding: 9px 11px;
-    border: 1px solid rgba(var(--color-accent-rgb), 0.16);
-    border-radius: var(--corner);
-    background: rgba(var(--color-accent-rgb), 0.05);
+    justify-content: space-between;
+    gap: 6px;
   }
-  .rs-sel-glyph {
-    color: var(--tier);
-    display: inline-flex;
-    flex: 0 0 auto;
+  .id-sec-t {
+    font-family: var(--font-mono);
+    font-size: var(--text-2xs);
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--color-text-secondary);
   }
-  .rs-sel-text {
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
+  .id-row {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    gap: 4px 10px;
+    align-items: center;
+    padding: 7px 0;
+    border-top: 1px solid rgba(var(--color-accent-rgb), 0.1);
+    font-size: var(--text-xs);
+  }
+  .id-row-t {
+    display: grid;
     min-width: 0;
-    flex: 1 1 auto;
-  }
-  .rs-sel-name {
-    font-size: var(--text-sm);
     color: var(--color-text-primary);
   }
-  .rs-sel-sub {
-    font-size: var(--text-2xs);
-    color: var(--color-text-dim);
+  .id-row-a {
+    display: flex;
+    gap: 3px;
   }
-
-  /* BUTTONS (the ExpeditionPanel .exp-btn idiom) */
-  .rs-btn {
+  .id-btn {
     display: inline-flex;
     align-items: center;
-    gap: 6px;
-    padding: 7px 14px;
+    gap: 5px;
+    padding: 5px 10px;
     border-radius: var(--corner);
     border: 1px solid rgba(var(--color-accent-rgb), 0.4);
     background: rgba(var(--color-accent-rgb), 0.1);
     color: var(--color-text-primary);
-    font-size: var(--text-sm);
+    font-size: var(--text-xs);
     cursor: pointer;
     white-space: nowrap;
-    flex: 0 0 auto;
-    -webkit-tap-highlight-color: transparent;
   }
-  .rs-btn.primary {
-    background: var(--color-accent);
-    border-color: var(--color-accent);
-    color: var(--color-bg-deep);
+  .id-btn.sm {
+    padding: 4px 6px;
   }
-  .rs-btn:disabled {
+  .id-btn:disabled {
     opacity: 0.5;
     cursor: not-allowed;
   }
-
-  /* REVEAL */
-  .rs-reveal {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    text-align: center;
-    gap: 4px;
-    padding: 8px 4px 2px;
-  }
-  .rs-big {
-    width: 76px;
-    height: 76px;
-    margin-bottom: 6px;
+  .id-reveal {
     display: grid;
-    place-items: center;
-    border-radius: 14px;
-    background: var(--color-bg-mid);
-    color: var(--ring);
-    box-shadow: inset 0 0 0 1px var(--ring), 0 0 28px -8px var(--ring);
+    gap: 6px;
+    padding: 10px;
+    border: 1px solid rgba(var(--color-accent-rgb), 0.2);
+    border-radius: var(--corner);
+    border-left: 3px solid var(--rc);
   }
-  .rs-rn {
+  .id-reveal-head {
+    display: flex;
+    gap: 10px;
+    align-items: center;
+  }
+  .id-reveal-glyph {
+    color: var(--rc);
+    display: inline-flex;
+  }
+  .id-reveal-names {
+    display: grid;
+    min-width: 0;
+  }
+  .id-reveal-name {
     font-family: var(--font-display);
-    font-size: var(--text-xl);
+    font-size: var(--text-lg);
     color: var(--color-text-primary);
   }
-  .rs-rs {
+  .id-reveal-flavor {
+    margin: 0;
     font-size: var(--text-xs);
-    color: var(--color-text-dim);
-  }
-  .rs-rf {
-    font-size: var(--text-xs);
-    color: var(--color-text-secondary);
     font-style: italic;
-    max-width: 44ch;
-    margin: 6px auto 0;
+    color: var(--color-text-secondary);
     line-height: 1.5;
   }
-  .rs-first {
-    align-self: stretch;
-    margin-top: 10px;
-    text-align: left;
-    padding: 10px 12px;
+  .id-reveal-line {
+    margin: 0;
+    font-size: var(--text-xs);
+    color: var(--color-text-primary);
+  }
+  .id-culture-reveal {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    padding: 8px 10px;
+    border: 1px solid rgba(var(--color-warning-rgb), 0.5);
+    background: rgba(var(--color-warning-rgb), 0.08);
+    border-radius: var(--corner);
+    font-size: var(--text-xs);
+    color: var(--color-text-primary);
+  }
+  .id-glow {
+    color: var(--color-warning);
+    display: inline-flex;
+    animation: id-glow 1400ms ease-out both;
+  }
+  @keyframes id-glow {
+    0% {
+      transform: scale(0.6);
+      opacity: 0;
+    }
+    60% {
+      transform: scale(1.15);
+      opacity: 1;
+    }
+    100% {
+      transform: scale(1);
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .id-glow {
+      animation: none;
+    }
+  }
+  .id-first {
+    display: grid;
+    gap: 3px;
+    padding: 8px 10px;
     border-radius: var(--corner);
     border: 1px solid rgba(var(--color-warning-rgb), 0.5);
     background: rgba(var(--color-warning-rgb), 0.08);
+    font-size: var(--text-xs);
+    color: var(--color-text-primary);
   }
-  .rs-first-h {
+  .id-first-h {
     display: inline-flex;
-    align-items: center;
     gap: 5px;
+    align-items: center;
     font-family: var(--font-mono);
     font-size: var(--text-2xs);
-    letter-spacing: 0.14em;
+    letter-spacing: 0.12em;
     text-transform: uppercase;
     color: var(--color-warning);
   }
-  .rs-first-t {
-    font-size: var(--text-md);
-    color: var(--color-text-primary);
-    margin-top: 3px;
+  .id-first-r b {
+    color: var(--color-success);
   }
-  .rs-first-d {
-    font-size: var(--text-xs);
-    color: var(--color-text-secondary);
-    margin-top: 2px;
-  }
-  .rs-first-r {
+  .id-recent {
     display: flex;
+    gap: 6px;
     align-items: center;
-    gap: 5px;
-    margin-top: 6px;
-    font-size: var(--text-xs);
-    color: var(--color-text-primary);
-  }
-  .rs-first-r b {
-    color: var(--color-success);
-  }
-  .rs-copy {
-    margin: 10px 0 8px;
     font-size: var(--text-xs);
     color: var(--color-text-secondary);
   }
-  .rs-copy b {
-    color: var(--color-success);
+  .id-exc {
+    color: var(--color-warning);
   }
 </style>

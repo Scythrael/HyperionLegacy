@@ -165,7 +165,8 @@ describe("RR-7: the set-complete shoutout", () => {
     const after = withSets(s, ["exc-t1-a"]);
     const lines = setCompletionShoutouts(before, after);
     expect(lines).toHaveLength(1);
-    expect(lines[0]).toContain("Tier I Exceptional Set A");
+    // MOVED by Relics v2 R2-5: the approved set name (was the placeholder "Tier I Exceptional Set A").
+    expect(lines[0]).toContain("Waystation Set");
     expect(lines[0]).not.toContain("[PROPOSAL]");
     expect(setCompletionShoutouts(after, after)).toEqual([]);
   });
