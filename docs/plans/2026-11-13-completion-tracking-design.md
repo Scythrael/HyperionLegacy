@@ -149,5 +149,7 @@ Re-asked; answers:
   same. Minor: the registry row order, the economyTick determinism test, the Visited chips from one systemRows per
   render, a recalled run with nothing left to hold keeps its row until its claim, the 375 px tier count never wraps
   mid-phrase, the QA sheet links staging.
+- Gates after the review fixes and the merge of the retired generalPick (b57a2327): full suite 12248 passed, 311
+  skipped; check clean; test:perf 4 passed; RELEASE_GATE 0 pending (wiring.completeness and no-dead-stats gates pass).
 - Gates (2026-11-13, before the review fixes): full suite 12232 passed, 311 skipped; check clean; test:perf 4 passed; RELEASE_GATE 1 pending
   (relic:audit:generalPick).
