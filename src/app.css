@@ -78,6 +78,15 @@
   --rarity-radiant: #a020f0; /* violet (user-deepened 2026-09-13; was #a855f7, read pink on some screens) */
   --rarity-luminous: var(--color-warning);
   --rarity-constellar: #f472b6; /* rose: the parallel legendary flavor, distinct from luminous */
+  /* Relics v2 R2-7 / R2-8: the seven REGION TIER hues (the signed-off Relics v2 mockup, 2026-10-21 "as drawn"). Every
+     tier is also named in Roman numerals beside its color, so the color never carries the meaning alone. */
+  --region-tier-1: #a9b7c8;
+  --region-tier-2: #5eead4;
+  --region-tier-3: #4fa3f2;
+  --region-tier-4: #a78bfa;
+  --region-tier-5: #fbbf24;
+  --region-tier-6: #f472b6;
+  --region-tier-7: #fb7185;
   /* RR-7 (rarity readiness): the warehouse ITEM rarity tokens (App.svelte warehouseRarityColor), today's exact colors */
   --item-rarity-common: #8b9cb0;
   --item-rarity-uncommon: var(--color-success);
@@ -369,6 +378,16 @@ button {
      same Okabe-Ito hues as stellar and radiant; common (slate) carries no state-vs-state meaning and stays. */
   --item-rarity-rare: #56b4e9;
   --item-rarity-epic: #cc79a7;
+  /* Relics v2: the seven region tiers, remapped so none matches a state color here (warning #e69f00, constellar
+     #f0e442, danger #d55e00, success #009e73); the default Tier V (#fbbf24) and VI (#f472b6) sat on the default warning
+     and constellar hues. Every tier is also named in Roman numerals, so the hue never carries the meaning alone. */
+  --region-tier-1: #a9b7c8;
+  --region-tier-2: #56b4e9;
+  --region-tier-3: #2f7fc1;
+  --region-tier-4: #cc79a7;
+  --region-tier-5: #f2f2f2;
+  --region-tier-6: #b39ddb;
+  --region-tier-7: #f4a582;
 }
 
 /* ============================================================================

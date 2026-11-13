@@ -2664,7 +2664,7 @@ export function depositExpeditionFindings(state: GameState, findings: readonly E
       if (setId !== null && f.poiId !== undefined) {
         // WR-5c: a Preservationist token keeps its study speed in the vault (absent otherwise, the pre-WR-5c token).
         // Relics v2 R2-2: a stamped blank keeps its region tier and culture (absent on a token from before R2-2).
-        const { studySpeed, regionTier, cultureId, stagger } = f.relic;
+        const { studySpeed, regionTier, cultureId, stagger, planet } = f.relic;
         vaultAdds.push({
           id: f.relic.id,
           tier: f.relic.tier,
@@ -2676,6 +2676,8 @@ export function depositExpeditionFindings(state: GameState, findings: readonly E
           ...(cultureId !== undefined ? { cultureId } : {}),
           // Relics v2 tier stagger: the blank keeps its stagger stamp (absent on a token of a run from before it).
           ...(stagger !== undefined ? { stagger } : {}),
+          // Relics v2 (user 2026-11-13 "First + count"): the source planet's name, display only, appended last.
+          ...(planet !== undefined ? { planet } : {}),
         });
         touched = true;
       }

@@ -185,12 +185,15 @@ describe("the hidden ledger (notableEvents)", () => {
   it("each event once by its key, in order", () => {
     const a = systemCompletedEvent({ systemId: "s1", systemName: "S 1", tier: 2 }, 10);
     const b = relicSetCompletedEvent("exc-t1-a", 1, 20);
-    const l = withNotableEvents(undefined, [a, b, a]);
-    expect(l.map((e) => e.key)).toEqual(["system-completed:s1", "relic-set-completed:exc-t1-a"]);
+    const l = withNotableEvents(undefined, [a, b, a])!;
+    expect(l.map((e) => e.key)).toEqual(["systemCompleted:s1", "relicSetCompleted:exc-t1-a"]);
     expect(withNotableEvents(l, [b])).toBe(l);
   });
   // User "Hidden until chat (Recommended)": the ledger is written, and nothing in play or on screen reads it. Every
-  // source file that names the field is one of its writers (or the type, or a test).
+  // source file that names the field is one of its writers (or the type, the load cleanup, or a test): completion.ts
+  // (a system completed, at its claim), tick.ts (a relic set completed, by the relic study that completed it),
+  // processSpeed.ts (a set an exceptional piece of a grant bundle completed), save.ts (withNotableEventsOnLoad, the
+  // every-load hygiene).
   it("nothing shows or reads it: only its writers name it", () => {
     const files: string[] = [];
     const walk = (dir: string): void => {
@@ -202,7 +205,14 @@ describe("the hidden ledger (notableEvents)", () => {
     };
     walk("src");
     const named = files.filter((f) => /notableEvents|NotableEvent/.test(readFileSync(f, "utf-8"))).sort();
-    expect(named).toEqual(["src/lib/game/completion.ts", "src/lib/game/model.ts", "src/lib/game/notableEvents.ts", "src/lib/game/tick.ts"]);
+    expect(named).toEqual([
+      "src/lib/game/completion.ts",
+      "src/lib/game/model.ts",
+      "src/lib/game/notableEvents.ts",
+      "src/lib/game/processSpeed.ts",
+      "src/lib/game/save.ts",
+      "src/lib/game/tick.ts",
+    ]);
   });
 });
 

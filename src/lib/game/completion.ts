@@ -22,9 +22,9 @@
 // stat reward, no grind pressure"): only the displays and the ledger.
 //
 // The save change is GameState.systemRecords (one record per system, written at a claim and at an abandon) and
-// GameState.notableEvents (the hidden ledger, notableEvents.ts). Both optional and appended, no SAVE_VERSION bump. Deterministic: a record
-// is written by a player action at an instant (never by chunked time), and the relic set event carries the instant its
-// study completed (tick.ts, THE STAMP RULE of captainNotables.ts), so one economyTick == 997 s chunks == 1 s steps.
+// GameState.notableEvents (the hidden ledger, notableEvents.ts: this slice's "system completed" kind beside the Relics v2
+// slice's "relic set completed"). Both optional and appended, no SAVE_VERSION bump. Deterministic: a record is written by
+// a player action at an instant (never by chunked time), so one economyTick == 997 s chunks == 1 s steps.
 // ============================================================================
 
 import {

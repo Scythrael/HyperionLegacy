@@ -86,3 +86,15 @@ OPEN QUESTIONS (not built, awaiting the user):
 2. Relics v2 call 15 ("Relics owns the roll: one extra blank, one rarity step up", G7 calls it) against this design's
    "no stat reward, no grind pressure": `planetCompletionRelicBlank` is NOT called; its registry row
    (relic:audit:completionBlank) stays pending. Should a body or system reaching 100% roll the bonus blank?
+
+## USER ANSWERS (2026-11-13, after the build) and a hub correction
+
+The hub missed an earlier answer when asking "What happens at 100%": on 2026-10-09 (Relics v2 capture, G2 call 11) the
+user said: "based on the tier you get a roll with certain benefits to it. Let's say you finish a T1 planet up, the bonus
+roll increases the chance of better relics or higher quality relics for completion. As well as the full planetary report
+that should 100% have a reward behind full completion." The Relics v2 engine already has the roll
+(`planetCompletionRelicBlank` / `rollCompletionRelicBlank`; registry row `relic:audit:completionBlank`, pending on G7).
+Re-asked; answers:
+- 100% rewards: "Planet roll + system badge (Recommended)": each planet (body) that reaches 100% gets the 2026-10-09 bonus
+  relic roll; finishing the whole system adds the badge and the claim-card line (and the hidden ledger event).
+- Nebula sweep weight: "One body's share (Recommended)" (as built).

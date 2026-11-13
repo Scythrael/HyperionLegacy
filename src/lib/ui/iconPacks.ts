@@ -114,6 +114,23 @@ export const ICON_SEMANTICS: Record<IconName, IconSemantic> = {
   relic: "subject",
   museum: "subject",
   discovery: "subject",
+  // Relics v2 R2-7: an exceptional relic piece (one glyph for every piece, tinted by its region tier).
+  exceptional: "subject",
+  // The fourteen exceptional set glyphs (user 2026-11-13 "One per set"): each names one set.
+  excWaystation: "subject",
+  excHearthward: "subject",
+  excLightkeeper: "subject",
+  excDeepcut: "subject",
+  excStormglass: "subject",
+  excKeelsong: "subject",
+  excTidewright: "subject",
+  excEmberCourt: "subject",
+  excVeilward: "subject",
+  excStarwake: "subject",
+  excGrandOrrery: "subject",
+  excDawnmaker: "subject",
+  excKinring: "subject",
+  excLongVigil: "subject",
   relicGlyphTablet: "subject",
   relicResonanceShard: "subject",
   relicStarChartFragment: "subject",
@@ -289,6 +306,8 @@ export const ICON_SEMANTICS: Record<IconName, IconSemantic> = {
   refugeeArrival: "subject",
   refugeeFarewell: "subject",
   info: "alert",
+  // 0.14.0 E5-6b: the echo refugees' shared mark names a kind of person (an echo), a subject.
+  refugeeEcho: "subject",
   // 0.14.0 CP-11: the crew module and sensor array glyphs name things (the bridge, quarters and sensor slots' pieces).
   bridge: "subject",
   quarters: "subject",

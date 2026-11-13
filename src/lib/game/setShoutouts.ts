@@ -17,7 +17,8 @@ import { SHIP_TYPES, type EquipmentInstance, type GameState } from "./model";
 import { EXCEPTIONAL_SETS } from "./relics";
 import { GEAR_SETS, activeGearSetTiers, pieceSetId, type GearSetScope } from "./gearSets";
 
-// A [PROPOSAL] catalog label shown without its tag (the names await the user's sign-off sheet).
+// A [PROPOSAL] gear set label shown without its tag (the gear set names await their sign-off; the exceptional relic set
+// names are the approved ones, R2-5, and read as they are).
 function plainLabel(label: string): string {
   return label.replace(/^\[PROPOSAL\]\s*/, "");
 }
@@ -79,7 +80,7 @@ export function setCompletionShoutouts(before: GameState, after: GameState): str
   for (const id of after.museumV2?.setsCompleted ?? []) {
     if (had.has(id)) continue;
     const set = EXCEPTIONAL_SETS.find((x) => x.id === id);
-    lines.push(`Set complete: ${set ? plainLabel(set.label) : id} is whole in the Museum.`);
+    lines.push(`Set complete: ${set ? set.label : id} is whole in the Museum.`);
   }
   // Gear sets: nothing to do when the install state did not change, or when no piece in `after` counts toward a set
   // (every save today).

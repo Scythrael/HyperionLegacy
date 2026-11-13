@@ -44,7 +44,6 @@ import type { EquipmentRarity, GameState, MuseumV2, RegionTier, RegionTierKey, R
 import type { ExpeditionPoiId } from "./expeditionContent";
 import { makeRng } from "./combat/rng";
 import { diminishing } from "./diminishing";
-import { tierNumeral } from "./galaxy";
 
 // ============================================================================
 // Stats (the closed union E4b wires into consumers)
@@ -995,15 +994,29 @@ export const EXCEPTIONAL_PIECE_VALUE: Readonly<Record<RegionTier, number>> = { 1
 // User 2026-10-20 ("Approve (Recommended)": "full set 5x one piece"): a completed set's bonus, in pieces.
 export const EXCEPTIONAL_FULL_SET_MULT = 5;
 
-// [PROVISIONAL] (no stat was proposed per piece; the R2-5 content sheet assigns them): pieces take the Museum stats in
-// this order, cycling across the whole catalog (54 pieces over 14 stats, so every stat is fed), and a set's full-set
-// bonus lands on its first piece's stat.
+// The stat each piece grants, in catalog order across all 54 pieces: the Museum stats in MUSEUM_STATS order, cycling (54
+// pieces over 14 stats, so every stat is fed), and a set's full-set bonus lands on its first piece's stat. This is the
+// stat column of the approved name sheet (docs/plans/2026-11-02-relic-name-sheets-DRAFT.md, "Approve all", user
+// 2026-11-13: the names were chosen to fit these stats; the Ember Court Teapot answer restates its stat, crewBonuses).
+// The theme-matched swaps below are laid on top of it.
 export const EXCEPTIONAL_PIECE_STAT_CYCLE: readonly MuseumStat[] = MUSEUM_STATS;
+
+// User 2026-11-13 "Approve the 4 swaps (Recommended)" (the 2026-11-02 answer "Match stats to themes"; the APPROVED table
+// at the end of docs/plans/2026-11-02-relic-name-sheets-DRAFT.md): four pieces take a stat that fits their name better.
+// A full set still lands on its first piece's stat, so the Lightkeeper and Deepcut full sets follow their first pieces.
+// Coverage stays twelve stats on 4 pieces and two on 3 (salvageYield and scienceTeamPower now). Values unchanged.
+export const EXCEPTIONAL_STAT_THEME_SWAPS: Readonly<Record<string, MuseumStat>> = {
+  "exc-t1-a-p2": "crewBonuses", // Waystation Guestbook (was craftingQuality)
+  "exc-t3-a-p1": "hazardResist", // Lightkeeper's Wick (was salvageYield)
+  "exc-t3-b-p1": "extractionSpeed", // Deepcut Plumb Line (was scienceTeamPower)
+  "exc-t6-c-p3": "craftingQuality", // Orrery Keeper's Chair (was crewBonuses)
+};
 
 export interface ExceptionalPieceDef {
   id: string; // stable: "<set id>-p<n>"
   setId: string;
-  label: string; // [PROPOSAL] until the user's sign-off sheet names it
+  label: string; // the approved name (relic name sheet, user 2026-11-13)
+  flavor: string; // the approved flavor line
   stat: MuseumStat;
   value: number; // flat fraction while held (duplicates add nothing, call 7)
 }
@@ -1011,7 +1024,8 @@ export interface ExceptionalPieceDef {
 export interface ExceptionalSetDef {
   id: string; // stable: "exc-t<tier>-<letter>"
   tier: RegionTier;
-  label: string; // [PROPOSAL] until the user's sign-off sheet names it
+  label: string; // the approved name (relic name sheet, user 2026-11-13)
+  flavor: string; // the approved flavor line
   pieces: readonly ExceptionalPieceDef[];
   fullSet: readonly { stat: MuseumStat; value: number }[]; // granted once every piece is held
 }
@@ -1025,35 +1039,175 @@ export function exceptionalSetLetter(index: number): string {
   return String.fromCharCode(97 + index);
 }
 
-// The 54 exceptional pieces in 14 sets, Tier I first. Ids are stable (a save stores them); labels are [PROPOSAL].
+// THE APPROVED CONTENT (Relics v2 R2-5; docs/plans/2026-11-02-relic-name-sheets-DRAFT.md Part A, user 2026-11-13
+// "Approve all"): every exceptional set and piece name with its flavor line, keyed by the stable set id. The Keelsong
+// lines are the approved homage lines, and the Ember Court lines are the approved homage lines with the set's first piece
+// the Ember Court Teapot (same id: the Banner renamed, user 2026-11-13). Labels and flavor only: ids never change (saves
+// store them); stats and values come from the tables above.
+type ExceptionalContent = { label: string; flavor: string; pieces: readonly (readonly [label: string, flavor: string])[] };
+export const EXCEPTIONAL_CONTENT: Readonly<Record<string, ExceptionalContent>> = {
+  "exc-t1-a": {
+    label: "Waystation Set",
+    flavor: "Someone kept these lights on for strangers, for centuries.",
+    pieces: [
+      ["Waystation Lantern", "Kept lit for travelers who never came back. It still lights when someone needs it."],
+      ["Waystation Guestbook", "Thousands of signatures in hundreds of hands, every one of them saying thank you."],
+    ],
+  },
+  "exc-t2-a": {
+    label: "Hearthward Set",
+    flavor: "Wherever they settled, these came out of the crate first.",
+    pieces: [
+      ["Hearthward Doorstone", "Worn smooth in one spot by countless hands touched to it on the way out."],
+      ["Hearthward Kettle", "Dented, mended, and somehow it always held enough for one more guest."],
+      ["Hearthward Weathervane", "It does not point with the wind. It points home."],
+    ],
+  },
+  "exc-t3-a": {
+    label: "Lightkeeper Set",
+    flavor: "No wrecks on their lane for four hundred years. Then the keepers left.",
+    pieces: [
+      ["Lightkeeper's Wick", "Trimmed every night by the same careful hand, down to the last thread."],
+      ["Lightkeeper's Beacon Glass", "Hold it to the sky and faint ships appear that are not there anymore."],
+      ["Lightkeeper's Watch Log", "Every passing ship, every night, in tidy columns. The last page is blank."],
+    ],
+  },
+  "exc-t3-b": {
+    label: "Deepcut Set",
+    flavor: "They dug for a thousand years and never once lost the vein.",
+    pieces: [
+      ["Deepcut Plumb Line", "Drop it anywhere and it hangs true, even where down is a matter of opinion."],
+      ["Deepcut Shift Bell", "Rung at the end of every shift so the whole crew came up together."],
+      ["Deepcut Drill Crown", "Its teeth are still sharp. The rock it was made for is long gone."],
+    ],
+  },
+  "exc-t4-a": {
+    label: "Stormglass Set",
+    flavor: "They did not fear the storms. They waited for them.",
+    pieces: [
+      ["Stormglass Vial", "Crystals bloom inside it a day before anything rare comes to the surface."],
+      ["Stormglass Siphon", "Built to drink lightning and pour it out slowly."],
+      ["Stormglass Mantle", "The rain runs off it, and so does almost everything else."],
+      ["Stormglass Almanac", "Three thousand years of forecasts. Most of them were right."],
+    ],
+  },
+  "exc-t4-b": {
+    label: "Keelsong Set",
+    flavor: "They never cut a timber. They sang it into the shape it wanted, and it held for a thousand years.",
+    pieces: [
+      ["Keelsong Tuning Fork", "Hum the right note and the grain of the hull turns to follow it."],
+      ["Keelsong Hymnal", "Kept by a young scholar who left home far too early to follow three friends, and wrote down every word."],
+      ["Keelsong Hold Drum", "Sized for hands twice as large as yours. Its beat still makes a crowded hold feel roomy."],
+      ["Keelsong Launch Horn", "However far its ships sailed, they came home sooner than they meant to. The yard was always calling."],
+    ],
+  },
+  "exc-t5-a": {
+    label: "Tidewright Set",
+    flavor: "They charted a sea with no shore and never once got lost.",
+    pieces: [
+      ["Tidewright Net Float", "Whatever it was tied to, it always came back with something."],
+      ["Tidewright Sounding Shell", "Put it to your ear and you hear the depth of whatever lies below you."],
+      ["Tidewright Spyglass", "It shows the horizon a few hours from now."],
+      ["Tidewright Star Table", "The stars and the tides on one carved slab, and they agree with each other."],
+    ],
+  },
+  "exc-t5-b": {
+    label: "Ember Court Set",
+    flavor: "The invitations went out every week, and every guest who came was back for the next one.",
+    pieces: [
+      ["Ember Court Teapot", "Well loved, chipped at the spout, and never once empty. The court's tea was always brewed after sundown, and served before sunrise."],
+      ["Ember Court Crucible", "The court's punch was brewed in it once. Nobody speaks of that night, but the ore it melts comes out richer."],
+      ["Ember Court Coronet", "The host wore it to greet each guest by name, and somehow every guest arrived bearing a gift."],
+      ["Ember Court Bellows", "It kept the hearth roaring through the longest gala, and blew out a party crasher or two."],
+    ],
+  },
+  "exc-t6-a": {
+    label: "Veilward Set",
+    flavor: "Where the sky was too bright to live under, they lived anyway.",
+    pieces: [
+      ["Veilward Shroud", "Woven so fine the starlight forgets to pass through."],
+      ["Veilward Codex", "Written in shadow-ink that only shows in the brightest light."],
+      ["Veilward Gauntlet", "It lets a careful hand work metal that is still glowing."],
+      ["Veilward Divining Rod", "It dips toward anything older than itself, and that is a short list."],
+    ],
+  },
+  "exc-t6-b": {
+    label: "Starwake Set",
+    flavor: "Their whole civilization fit in the holds, and there was room to spare.",
+    pieces: [
+      ["Starwake Strongbox", "Far larger inside than out. Nobody has found the bottom yet."],
+      ["Starwake Sail Spar", "It catches a wind that blows between the stars."],
+      ["Starwake Salvage Hook", "The caravan wasted nothing. This hook is why."],
+      ["Starwake Lookout Glass", 'The last lookout etched one word on the rim: "clear".'],
+    ],
+  },
+  "exc-t6-c": {
+    label: "Grand Orrery Set",
+    flavor: "Wind it, and it shows the Bulge as it was. Wind it further and it shows it as it will be.",
+    pieces: [
+      ["Orrery Sun-Gear", "A thousand teeth, each cut for one star."],
+      ["Orrery Measuring Arm", "Accurate to a hair across a light-year."],
+      ["Orrery Keeper's Chair", "Generations sat here winding it. The seat is worn into a gentle curve."],
+      ["Orrery Counterweight", "Cast from a single nugget of an ore no survey has found since."],
+    ],
+  },
+  "exc-t7-a": {
+    label: "Dawnmaker Set",
+    flavor: "Some of the stars you navigate by may have been planted.",
+    pieces: [
+      ["Dawnmaker Seedstone", "Heavy beyond its size, and warm, as if something inside is waiting to begin."],
+      ["Dawnmaker Ladle", "Built to pour something hotter than metal."],
+      ["Dawnmaker Heat Veil", "Worn close to a newborn star. It has never been singed."],
+      ["Dawnmaker Pattern Scroll", "A diagram of a sun, drawn before the sun was lit."],
+      ["Dawnmaker Hammer", "Light in the hand. Every blow lands exactly where it should."],
+    ],
+  },
+  "exc-t7-b": {
+    label: "Kinring Set",
+    flavor: "Not one world in the ring was ever left behind.",
+    pieces: [
+      ["Kinring Wayfinder", "It always points toward the nearest friend."],
+      ["Kinring Gift Chest", "Each world added one thing and passed it on. It is still full."],
+      ["Kinring Gate Key", "It opens a gate that no longer exists, and the route is still shorter for it."],
+      ["Kinring Mending Thread", "It mends anything it is drawn through, given time."],
+      ["Kinring Listening Horn", "Made to hear a call for help from the far side of the ring."],
+    ],
+  },
+  "exc-t7-c": {
+    label: "Long Vigil Set",
+    flavor: "They watched for a very long time. Their records do not say what for.",
+    pieces: [
+      ["Vigil Eye", "It has not blinked in an age, and it is not going to start now."],
+      ["Vigil Star Atlas", "Every star near the Core, and a careful note beside each one."],
+      ["Vigil Roll of Names", "Every watcher who stood the watch, in order. The list just stops."],
+      ["Vigil Core Auger", "It bored straight down through a world to reach something they needed."],
+      ["Vigil Coreglass", "Formed under a pressure that only exists in one place in the galaxy."],
+    ],
+  },
+};
+
+// The 54 exceptional pieces in 14 sets, Tier I first. Ids are stable (a save stores them); names and flavor lines come
+// from EXCEPTIONAL_CONTENT. Throws at load when the content and the size table disagree (a missing set or a wrong count).
 export const EXCEPTIONAL_SETS: readonly ExceptionalSetDef[] = (() => {
   const out: ExceptionalSetDef[] = [];
   let cursor = 0;
   for (const tier of REGION_TIER_LIST) {
     EXCEPTIONAL_SET_SIZES[tier].forEach((size, i) => {
-      const letter = exceptionalSetLetter(i);
-      const id = `exc-t${tier}-${letter}`;
+      const id = `exc-t${tier}-${exceptionalSetLetter(i)}`;
+      const content = EXCEPTIONAL_CONTENT[id];
+      if (!content || content.pieces.length !== size) throw new Error(`Exceptional content missing or mis-sized for ${id}`);
       const value = EXCEPTIONAL_PIECE_VALUE[tier];
       const pieces: ExceptionalPieceDef[] = [];
       for (let k = 1; k <= size; k++) {
-        pieces.push({
-          id: `${id}-p${k}`,
-          setId: id,
-          label: `[PROPOSAL] Tier ${tierNumeral(tier)} Set ${letter.toUpperCase()} piece ${k}`,
-          stat: EXCEPTIONAL_PIECE_STAT_CYCLE[cursor % EXCEPTIONAL_PIECE_STAT_CYCLE.length],
-          value,
-        });
+        const [label, flavor] = content.pieces[k - 1];
+        pieces.push({ id: `${id}-p${k}`, setId: id, label, flavor, stat: EXCEPTIONAL_STAT_THEME_SWAPS[`${id}-p${k}`] ?? EXCEPTIONAL_PIECE_STAT_CYCLE[cursor % EXCEPTIONAL_PIECE_STAT_CYCLE.length], value });
         cursor++;
       }
-      out.push({
-        id,
-        tier,
-        label: `[PROPOSAL] Tier ${tierNumeral(tier)} Exceptional Set ${letter.toUpperCase()}`,
-        pieces,
-        fullSet: [{ stat: pieces[0].stat, value: value * EXCEPTIONAL_FULL_SET_MULT }],
-      });
+      out.push({ id, tier, label: content.label, flavor: content.flavor, pieces, fullSet: [{ stat: pieces[0].stat, value: value * EXCEPTIONAL_FULL_SET_MULT }] });
     });
   }
+  if (out.length !== Object.keys(EXCEPTIONAL_CONTENT).length) throw new Error("EXCEPTIONAL_CONTENT names a set the size table does not have");
+  for (const id of Object.keys(EXCEPTIONAL_STAT_THEME_SWAPS)) if (!out.some((s) => s.pieces.some((p) => p.id === id))) throw new Error(`EXCEPTIONAL_STAT_THEME_SWAPS names an unknown piece: ${id}`);
   return out;
 })();
 
@@ -1089,9 +1243,8 @@ export function exceptionalSetsOfTier(tier: RegionTier): ExceptionalSetDef[] {
 // total") at which that tier's counts freeze for the regular game (R2-4, museumTierTotal / withSoftCapSnapshot).
 export const RELIC_SOFT_CAP = 1000;
 
-// Call 10: six curated cultures per region tier (42). Their NAMES await the user's sign-off sheet, so the roster
-// holds stable placeholder ids only ("culture-t<tier>-<n>"); nothing here is a display name. No culture is ever the
-// First Cause antagonists (R2-6 guards the roster).
+// Call 10: six curated cultures per region tier (42), stable ids "culture-t<tier>-<n>" (saves store them). Their names
+// and lore lines are CULTURE_CONTENT below (R2-6). No culture is ever the First Cause antagonists (a guard test).
 export const CULTURES_PER_TIER = 6;
 export const CULTURE_ROSTER: Readonly<Record<RegionTier, readonly string[]>> = (() => {
   const out = {} as Record<RegionTier, string[]>;
@@ -1101,6 +1254,203 @@ export const CULTURE_ROSTER: Readonly<Record<RegionTier, readonly string[]>> = (
 
 // Call 9: a culture's name is revealed at this many study points (+1 per identified find, plus 15b ancient data; R2-6).
 export const CULTURE_STUDY_POINTS = 10;
+
+// ============================================================================
+// Relics v2 R2-6: CULTURES (plan section 4 R2-6; calls 8 to 11; the approved name sheet Part B)
+// ============================================================================
+// THE APPROVED NAMES AND LORE LINES (docs/plans/2026-11-02-relic-name-sheets-DRAFT.md Part B, user 2026-11-13 "Approve
+// all"; structure answers 2026-11-02: prose reads "the <Name>", lists and the ledger the bare name; the lore line ships
+// in 0.14.0, shown once the culture is identified, no gameplay effect). Each is a specific vanished race beneath the
+// umbrella word "Precursor" (call 11). Keyed by the stable roster id.
+export const CULTURE_CONTENT: Readonly<Record<string, { name: string; lore: string }>> = {
+  "culture-t1-1": { name: "Halvessi", lore: "Potters and storytellers. Half their shards carry a fingerprint pressed in on purpose." },
+  "culture-t1-2": { name: "Corrimel", lore: "Terrace farmers who left their hillsides better than they found them." },
+  "culture-t1-3": { name: "Teshvar", lore: "They counted in songs, and the songs still add up." },
+  "culture-t1-4": { name: "Ambrinth", lore: "Weavers whose patterns double as maps of their valleys." },
+  "culture-t1-5": { name: "Lowmarch", lore: "A border folk who kept the peace between two larger neighbors for a thousand years." },
+  "culture-t1-6": { name: "Quillane", lore: "Letter writers. They seem to have written to everyone, including the future." },
+  "culture-t2-1": { name: "Selvane", lore: "Mariners first, star sailors later, and they kept the same knots for both." },
+  "culture-t2-2": { name: "Ithrae", lore: "Colonists who carried a handful of home soil to every world they settled." },
+  "culture-t2-3": { name: "Garrowin", lore: "Builders of small, sturdy ships. Some of their hulls are still airtight." },
+  "culture-t2-4": { name: "Oruveth", lore: "Record keepers who copied everything twice and stored the copies a world apart." },
+  "culture-t2-5": { name: "Kestrani", lore: "Traders whose coins are found on worlds they never seem to have visited." },
+  "culture-t2-6": { name: "Mirrowen", lore: "Gardeners of other worlds. Some of their orchards still bear fruit." },
+  "culture-t3-1": { name: "Throndal", lore: "Delvers who carved whole cities into the walls of a single canyon." },
+  "culture-t3-2": { name: "Uskareth", lore: "Their fortresses were never taken. They were simply, one day, empty." },
+  "culture-t3-3": { name: "Vohrim", lore: "Smiths who signed every tool with a mark for the miner it was made for." },
+  "culture-t3-4": { name: "Calderin", lore: "They built their homes inside dormant volcanoes and kept them warm for ages." },
+  "culture-t3-5": { name: "Ennisk", lore: "Surveyors whose boundary stones still agree to the meter." },
+  "culture-t3-6": { name: "Brakkaval", lore: "Haulers and road builders. Their roads outlasted everything that used them." },
+  "culture-t4-1": { name: "Aurenni", lore: "Cartographers who mapped the nebulae by the color of their light." },
+  "culture-t4-2": { name: "Cirrhavel", lore: "Cloud dwellers who never set foot on the ground of their own world." },
+  "culture-t4-3": { name: "Nalumbra", lore: "They named every star they could see, and they could see a great many." },
+  "culture-t4-4": { name: "Orrisande", lore: "A choral people. Their buildings were tuned to a single chord." },
+  "culture-t4-5": { name: "Wennoch", lore: "Patient astronomers who left instructions for the next astronomers." },
+  "culture-t4-6": { name: "Zaelith", lore: "Glassmakers whose windows bend starlight into readable script." },
+  "culture-t5-1": { name: "Kaltheon", lore: "A concord of a hundred worlds that settled every dispute with a shared meal." },
+  "culture-t5-2": { name: "Merovant", lore: "Ruling houses whose family trees are carved down the sides of mountains." },
+  "culture-t5-3": { name: "Imbrasi", lore: "A league of free ports with one law: no ship turned away." },
+  "culture-t5-4": { name: "Sarrowmere", lore: "Old families who measured wealth in what they had given away." },
+  "culture-t5-5": { name: "Dhuvessa", lore: "Engineers of an empire so orderly that its ruins are still in neat rows." },
+  "culture-t5-6": { name: "Pellamyr", lore: "Lawgivers. Their courts handed down mercy more often than sentence." },
+  "culture-t6-1": { name: "Ouvrenne", lore: "Their writing reads in a spiral, and the end of each spiral is the beginning of the next." },
+  "culture-t6-2": { name: "Xantheru", lore: "They lived under a sky so full of stars it was never night." },
+  "culture-t6-3": { name: "Ilvaroth", lore: "Shapers of whole moons. Several still hold the shapes they were given." },
+  "culture-t6-4": { name: "Moirrin", lore: "Nobody knows what they looked like. They left only tools, and very fine ones." },
+  "culture-t6-5": { name: "Quorrish", lore: "Their every surviving artifact has a twin, made somewhere else." },
+  "culture-t6-6": { name: "Andevaal", lore: "Nomads of the Bulge whose camps are spread across a dozen star systems." },
+  "culture-t7-1": { name: "Aeluun", lore: "So old that their relics predate the stars around them." },
+  "culture-t7-2": { name: "Seyrith", lore: "They seem to have known the shape of the galaxy before it finished forming." },
+  "culture-t7-3": { name: "Ommerane", lore: "Their artifacts answer questions nobody has thought to ask yet." },
+  "culture-t7-4": { name: "Tirrhae", lore: "Makers of instruments for measuring something no living science can name." },
+  "culture-t7-5": { name: "Caeldrun", lore: "Builders near the Core whose halls are larger than some moons." },
+  "culture-t7-6": { name: "Yssembrel", lore: "The last name the oldest records agree on. After them, the records simply stop." },
+};
+
+// The region tier of a roster culture id, or null for an unknown id. Pure.
+export function cultureTier(cultureId: string): RegionTier | null {
+  for (const tier of REGION_TIER_LIST) if (CULTURE_ROSTER[tier].includes(cultureId)) return tier;
+  return null;
+}
+
+// FNV-1a over a string (uint32). The derived display codes read it; no stream, no state.
+function fnv1a(text: string): number {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < text.length; i++) h = Math.imul(h ^ text.charCodeAt(i), 0x01000193) >>> 0;
+  return h >>> 0;
+}
+
+// The letters a culture code uses (no I or O, which read as digits).
+const CULTURE_CODE_LETTERS = "ABCDEFGHJKLMNPQRSTUVWXYZ";
+
+// Each roster culture's DERIVED display code before its name is revealed (plan 3.1 "Codes are derived", the mockup's
+// "Culture K-17"): a letter and a two-digit number from a hash of the id, unique over the roster (a clash moves the
+// number up by one, in roster order). Never stored. Built once at load.
+export const CULTURE_CODES: Readonly<Record<string, string>> = (() => {
+  const out: Record<string, string> = {};
+  const taken = new Set<string>();
+  for (const tier of REGION_TIER_LIST) {
+    for (const id of CULTURE_ROSTER[tier]) {
+      const h = fnv1a(id);
+      const letter = CULTURE_CODE_LETTERS[h % CULTURE_CODE_LETTERS.length];
+      let num = 10 + (Math.floor(h / CULTURE_CODE_LETTERS.length) % 90);
+      while (taken.has(`${letter}-${num}`)) num = num === 99 ? 10 : num + 1;
+      taken.add(`${letter}-${num}`);
+      out[id] = `${letter}-${num}`;
+    }
+  }
+  for (const id of Object.keys(CULTURE_CONTENT)) if (!out[id]) throw new Error(`CULTURE_CONTENT names an id the roster does not have: ${id}`);
+  for (const id of Object.keys(out)) if (!CULTURE_CONTENT[id]) throw new Error(`Culture ${id} has no approved name`);
+  return out;
+})();
+
+// The code of a culture ("K-17"); an id outside the roster reads a code from its hash the same way (never a crash).
+// Pure.
+export function cultureCode(cultureId: string): string {
+  const known = CULTURE_CODES[cultureId];
+  if (known) return known;
+  const h = fnv1a(cultureId);
+  return `${CULTURE_CODE_LETTERS[h % CULTURE_CODE_LETTERS.length]}-${10 + (Math.floor(h / CULTURE_CODE_LETTERS.length) % 90)}`;
+}
+
+// The sample code of a general relic type from a culture not yet identified (plan R2-6: "Relic Sample" plus a code
+// derived from (cultureId, typeId), no storage): the culture's code without its dash, then two digits from a hash of the
+// pair, "K17-42". Pure.
+export function relicSampleCode(cultureId: string, typeId: string): string {
+  const n = 10 + (fnv1a(`${cultureId}:${typeId}`) % 90);
+  return `${cultureCode(cultureId).replace("-", "")}-${n}`;
+}
+
+// Whether a culture's name is revealed: it is in the Museum's culturesNamed list (appended once, when its study points
+// first reach CULTURE_STUDY_POINTS). A pure function of stored state.
+export function cultureIsNamed(museum: Pick<MuseumV2, "culturesNamed"> | undefined, cultureId: string): boolean {
+  return (museum?.culturesNamed ?? []).includes(cultureId);
+}
+
+// A culture as a list or the ledger shows it: its bare name once revealed ("Halvessi"), else "Culture K-17". Pure.
+export function cultureListName(museum: Pick<MuseumV2, "culturesNamed"> | undefined, cultureId: string): string {
+  const content = CULTURE_CONTENT[cultureId];
+  return content && cultureIsNamed(museum, cultureId) ? content.name : `Culture ${cultureCode(cultureId)}`;
+}
+
+// A culture in prose: "the Halvessi" once revealed, else "Culture K-17" (structure answer 2026-11-02). Pure.
+export function cultureProseName(museum: Pick<MuseumV2, "culturesNamed"> | undefined, cultureId: string): string {
+  const content = CULTURE_CONTENT[cultureId];
+  return content && cultureIsNamed(museum, cultureId) ? `the ${content.name}` : `Culture ${cultureCode(cultureId)}`;
+}
+
+// How a general relic of `typeId` from `cultureId` reads (call 8 "Type on identify, name via culture"): "<Name> <Type>"
+// once the culture is revealed ("Halvessi Glyph Tablet"), else "Relic Sample K17-42". Pure.
+export function generalRelicSampleName(museum: Pick<MuseumV2, "culturesNamed"> | undefined, cultureId: string, typeId: string): string {
+  const content = CULTURE_CONTENT[cultureId];
+  const type = RELIC_TYPE_BY_ID.get(typeId);
+  if (content && type && cultureIsNamed(museum, cultureId)) return `${content.name} ${type.label}`;
+  return `Relic Sample ${relicSampleCode(cultureId, typeId)}`;
+}
+
+// User 2026-11-13 "First + count": a culture record with `planet` among its source planets, each planet once, in a
+// deterministic order: the first planet a find came from stays first, the rest in canonical (code point) order, so the
+// list does not depend on how finds after the first were batched. The SAME reference when the planet is listed. Pure.
+export function withCulturePlanet<R extends { planets?: string[] }>(record: R, planet: string): R {
+  const planets = record.planets ?? [];
+  if (planets.includes(planet)) return record;
+  if (planets.length === 0) return { ...record, planets: [planet] };
+  const rest = [...planets.slice(1), planet].sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
+  return { ...record, planets: [planets[0], ...rest] };
+}
+
+// "Found on LB-0412 c and 2 more" (one planet: "Found on LB-0412 c"; none: ""). Pure.
+export function culturePlanetsText(planets: readonly string[] | undefined): string {
+  const list = planets ?? [];
+  if (list.length === 0) return "";
+  return list.length === 1 ? `Found on ${list[0]}` : `Found on ${list[0]} and ${list.length - 1} more`;
+}
+
+// THE CANONICAL ORDER of the named-culture list: roster order (Tier I first, then each tier's roster index), an id
+// outside the roster after them by its id. The list is a SET kept in this order, never in reveal order: a resolve applies
+// the ancient data feed after the relic chain, so two cultures named in one offline window would otherwise be listed in a
+// different order than 1 s steps list them (the strict offline == live rule; review 2026-11-13). Pure.
+function cultureRank(id: string): number {
+  const tier = cultureTier(id);
+  return tier === null ? Number.MAX_SAFE_INTEGER : tier * 100 + CULTURE_ROSTER[tier].indexOf(id);
+}
+export function compareCultureIds(a: string, b: string): number {
+  const d = cultureRank(a) - cultureRank(b);
+  return d !== 0 ? d : a < b ? -1 : a > b ? 1 : 0;
+}
+
+// The Museum with `cultureId` added to culturesNamed when its study points have reached CULTURE_STUDY_POINTS and it is
+// not listed yet (the reveal; each culture once), the list kept in the canonical order (compareCultureIds). The SAME
+// reference otherwise. Every writer of culture points ends here (identification and the ancient data feed). Pure.
+export function withCultureReveal(museum: MuseumV2, cultureId: string): MuseumV2 {
+  if (museum.culturesNamed.includes(cultureId)) return museum;
+  if (!((museum.cultures[cultureId]?.points ?? 0) >= CULTURE_STUDY_POINTS)) return museum;
+  return { ...museum, culturesNamed: [...museum.culturesNamed, cultureId].sort(compareCultureIds) };
+}
+
+// Every-load (no SAVE_VERSION bump): a dev save whose cultures crossed the threshold before R2-6 (points were counted
+// since R2-3) gains their reveal, and a list in reveal order (a build before the canonical order) is put in the canonical
+// order. Identity on every save with nothing to reveal or reorder. Pure.
+type MuseumCultureRecordLike = { points: number; finds: Record<string, number>; planets?: string[] };
+export function withCultureRevealsOnLoad(state: any): any {
+  const museum = state?.museumV2;
+  if (!museum || typeof museum !== "object" || !museum.cultures || !Array.isArray(museum.culturesNamed)) return state;
+  let next = museum as MuseumV2;
+  // A culture's source planets: keep only names (strings), each once; a list that is not an array is dropped.
+  for (const [id, c] of Object.entries(next.cultures)) {
+    if (!c || typeof c !== "object" || !("planets" in c)) continue;
+    const raw = (c as { planets?: unknown }).planets;
+    const clean = Array.isArray(raw) ? raw.filter((p, i) => typeof p === "string" && raw.indexOf(p) === i) : null;
+    if (clean !== null && clean.length === (raw as unknown[]).length) continue;
+    const { planets: _drop, ...rest } = c as MuseumCultureRecordLike;
+    next = { ...next, cultures: { ...next.cultures, [id]: clean !== null && clean.length > 0 ? { ...rest, planets: clean as string[] } : rest } };
+  }
+  for (const tier of REGION_TIER_LIST) for (const id of CULTURE_ROSTER[tier]) next = withCultureReveal(next, id);
+  for (const id of Object.keys(museum.cultures).sort()) next = withCultureReveal(next, id);
+  const sorted = [...next.culturesNamed].sort(compareCultureIds);
+  if (sorted.some((id, i) => id !== next.culturesNamed[i])) next = { ...next, culturesNamed: sorted };
+  return next === museum ? state : { ...state, museumV2: next };
+}
 
 // ============================================================================
 // Relics v2 R2-4 (plan 2026-10-17 section 4 R2-4): MUSEUM MATH V2. LIVE.

@@ -390,6 +390,31 @@ in-game time; idempotent key) (OC-16). If the notable-event ledger is not in yet
 (append-only list on GameState, idempotent by key, no UI), per the 2026-10-16 decision. Tests: completion fires once
 per set; replaying a save does not duplicate; duplicates follow OC-7; ledger survives a save round trip.
 
+**R2-5 carry note (2026-11-13, built on 0b5892e7):**
+- Content: `relics.ts EXCEPTIONAL_CONTENT` holds the 14 set and 54 piece names with their flavor lines exactly as the
+  approved sheet has them (Part A, the approved Keelsong and Ember Court homage lines, exc-t5-b-p1 the Ember Court Teapot);
+  `ExceptionalSetDef` / `ExceptionalPieceDef` gained `flavor`. Ids unchanged. `relicsV2Catalog.test.ts` reads the sheet
+  itself and asserts every name, flavor line and stat (68 rows), so the catalog cannot drift from what the user approved.
+- Stats: the sheet's stat column IS today's cycle (the names were fitted to it; the Teapot answer restates crewBonuses), so
+  stats are unchanged. The 2026-11-02 answer "Match stats to themes (Recommended)" then got its table (end of the name
+  sheet), APPROVED 2026-11-13 "Approve the 4 swaps": `relics.ts EXCEPTIONAL_STAT_THEME_SWAPS` lays the four on the cycle
+  (Guestbook crewBonuses, Wick hazardResist, Plumb Line extractionSpeed, Keeper's Chair craftingQuality; the Lightkeeper
+  and Deepcut full sets follow their first pieces). The sheet test reads the APPROVED table. Moved pins traced with a
+  switch-off (`relicStatSwaps.fixture.ts withoutThemeSwaps` reproduces every pre-swap value): `relicsV2MuseumGoldens`
+  golden 3's two exceptional pins (old pin under the switch, new pin beside it); the registry chains read the six rows'
+  pre-swap stat and probe back (`relicContentReadBack`).
+- Ledger: `GameState.notableEvents?` (optional, no SAVE_VERSION bump) and `notableEvents.ts` (append-only, one entry per
+  key `relicSetCompleted:<set id>`, kind, set id, tier, game second). The relic chain stamps a completion at the window's
+  start plus the study's completion instant (`notableSecond`), so one call, 997 s chunks and 1 s steps write the same
+  second (tested through economyTick). The grant seam now runs the same completion rule (`relicIdentify.ts
+  withSetCompletion`): a granted piece that completes its set lists it and writes its event; its log line names the piece
+  ("the exceptional Waystation Lantern"). Load: `withNotableEventsOnLoad` drops a malformed ledger and bad or repeated
+  entries. No UI reads the ledger in 0.14.0 (the shoutout still reads `setsCompleted`).
+- Goldens: `relicsV2ContentGoldens.test.ts` (goldens-first commit 8351ca2b). Moved, named: golden 1 (the chain's state gains
+  `notableEvents`; without it unchanged), golden 2 (the grant completes the Waystation Set and names the piece), golden 4
+  (the shoutout names the Deepcut Set); `relicBlanks.test.ts` grant line; the catalog's "[PROPOSAL] labels" test became
+  the sheet test.
+
 ### R2-6: Cultures (engine + names sign-off)
 `CULTURE_ROSTER` per tier (OC-10); study points from identified finds and from 15b ancient data (a `feedCultureData`
 seam 15b calls, OC-9); at the threshold the culture's name is revealed, appended to `culturesNamed`, and every sample
@@ -398,11 +423,64 @@ from it reads with its real name; until then a general relic reads "Relic Sample
 of stored state; threshold exact; renames apply to old finds; no culture name equals a reserved antagonist label
 (a guard test over the roster).
 
+**R2-6 carry note (2026-11-13):**
+- Content: `relics.ts CULTURE_CONTENT` holds the 42 approved names and lore lines (sheet Part B, user 2026-11-13 "Approve
+  all"), keyed by the stable roster ids; a test reads the sheet and asserts all 42. Lore ships in 0.14.0 (structure answer
+  4), shown once a culture is identified, no gameplay effect.
+- Codes: `CULTURE_CODES` derives each culture's "Culture K-17" code from a hash of its id (letters without I and O,
+  unique over the roster, never stored); `relicSampleCode(cultureId, typeId)` gives "K17-42", so an unnamed general relic
+  reads "Relic Sample K17-42" (`generalRelicSampleName`). Named: "Halvessi Glyph Tablet"; lists and the ledger use the bare
+  name (`cultureListName`), prose "the Halvessi" (`cultureProseName`), structure answer 3.
+- Reveal: `withCultureReveal` appends a culture to `culturesNamed` once, the moment its points reach
+  `CULTURE_STUDY_POINTS` (10). Both writers end there: identification (`applyRelicIdentification`, in the chain's time
+  order) and the 15b feed (`dataStudy.ts feedCultureData`). Naming reads only `culturesNamed`, so it is a pure function of
+  stored state and renames every old find at once. Load: `withCultureRevealsOnLoad` names a dev save's cultures already
+  at 10 (points have counted since R2-3), in roster order. FIXED (review 2026-11-13): when a 15b fragment study and
+  relic finds carried DIFFERENT cultures past 10 inside one offline window, the list's reveal ORDER differed from 1 s
+  steps (a resolve applies the data feed after the relic chain). The list is now a set kept in the canonical roster
+  order (`relics.ts compareCultureIds`, every insert and the load step), so one call, 997 s chunks and 1 s steps land the
+  same bytes (`relicsV2Content.test.ts` parity test with a fragment naming one culture before a relic names another).
+  Moved pin, named: content golden 1's named list (same 14 cultures, roster order instead of reveal order).
+- Guard test: no name contains "First Cause", "DBD" or "Precursor" (the umbrella word, call 11), none repeats a relic,
+  set or piece name, all 42 unique.
+- Wiring: `relic:audit:blankCulture` LIVE (probe `content:relic:cultureReveal`: twelve stamped blanks through the real start
+  and resolver name their culture; unstamped, none), `facility:DATA_STUDY_SEAM:cultureStudyPoint` seam to LIVE (probe
+  `content:dataStudy:cultureReveal`: one fragment study names its culture from nine points). `CULTURE_STUDY_POINTS` left
+  `UNREAD_CONSTANTS`.
+- Goldens moved, named: content golden 1 (14 cultures named, in the order their tenth point landed) and golden 3 (the feed
+  names at ten); `gasGiantCloseout.test.ts` (no gas giant seam left).
+
 ### R2-7: UI A, the parts the mockup covers (needs the mockup's calls answered, no new layout sign-off)
 Warehouse "Unidentified Relics" row with the tier x rarity matrix (mockup section 2); Research Lab Identification tab
 replacing the Relics sub-tab: feed, queue, lanes, the reveal card, recent identifications (section 3); the exceptional
 set cards by tier with Roman numeral tabs (section 4). Seven tier colors, Roman numerals, SVG glyphs only. One DOM,
 CSS breakpoints, verified at 375 px.
+
+**R2-7 carry note (2026-11-13):**
+- Built on the signed-off Relics v2 mockup (2026-10-21 artifact 6Pat4nwfbWzsUsqKUdMpKo, "I approve all 4 mockups as is";
+  every open question resolves to the option drawn). The 2026-10-09 scratchpad mockup is gone; the 10-21 mockup draws
+  the Identification, reveal, Cultures and exceptional set panels, so R2-7 follows it. View models: `src/lib/relicsV2Display.ts`
+  (pure, tested in `relicsV2Display.test.ts`).
+- Warehouse: `UnidentifiedRelicsPanel.svelte` under Logistics, Materials (blanks are not warehouse stock, so below the
+  material tiers): rarity rows by the region tiers that hold a blank (transposed from "tier x rarity" so seven tiers fit
+  at 375 px), totals, Identify jumps to the Identification tab.
+- Identification tab: the Research Lab's "relics" sub-tab (key kept, label Identification) is `RelicStudyPanel.svelte`
+  rewritten: lanes (busy, free, locked with "Opens at Research Lab V"), the queue (move up, move down, remove, an "about"
+  clear estimate), Queue all, Queue per waiting blank (a free lane starts at once), the inline reveal card
+  (`buildRelicRevealV2`: a general type with its tier, sample or real name and culture study; an exceptional piece named
+  on reveal with its value and set progress; the culture name reveal box), recent identifications from the completed-events
+  record. App handlers `doQueueRelicStudy` / `doQueueAllRelicStudies` / `doUnqueueRelicStudy` / `doMoveRelicQueueEntry`
+  replace `doStartRelicStudy`. The observer derives a v2 study's expected id against the Museum as it stood when first
+  watched, and falls back to the oldest unseen record when another exceptional landed in between.
+- Home: the running row reads "Identifying, Tier I · standard blank"; Recently Completed names an exceptional piece (it
+  showed the raw id).
+- Exceptional set cards by tier with Roman numeral tabs live on the Museum page (R2-8), one component for both.
+- Glyph: `exceptional` (icons.ts, verbatim from the mockup, ICON_SEMANTICS subject), tinted by tier. Tier colors:
+  `--region-tier-1..7` in app.css (the mockup's dark values). Checked at 16 / 28 / 56 px: distinct from `star` at 28 and
+  56; at 16 px its inner stroke is faint (the pages draw it at 14 to 20 px).
+- Wiring: `relic:audit:identifyQueue` LIVE (probe `content:relic:queue`: six blanks queued on a Lab I all identify in one
+  long resolve, five more than without the queue). Registry pins read the three flips and R2-5's renamed claims back
+  (`relicContentRegistry.fixture.ts relicContentReadBack`, innermost in every chain).
 
 ### R2-8: UI B, needs a NEW mockup sign-off
 The Museum v2 page (per-tier general shelves, culture samples under each type, the cap meter and frozen state, the
@@ -410,10 +488,62 @@ exceptional sets), the Cultures tab detail and its name-reveal moment, and the g
 **[PROPOSAL]** one SVG glyph per set with its tier color, so the SVG work stays bounded (reviewed at 16 / 28 / 56 px).
 The mockup's soft-cap chart is explanation only; it is not an in-game screen.
 
+**R2-8 carry note (2026-11-13):** the new mockup sign-off is the 2026-10-21 one above (R2-8 / ML-7 / EM-10 "as drawn":
+shelves by rarity band per tier; hatched past-cap bar; culture samples under each type; inline reveal card).
+- Museum v2 page: `MuseumV2Panel.svelte` replaces the Archive's Museum mount: summary (general relics, exceptional pieces of
+  54), tier pills I to VII in the tier colors, the cap meter (fill to 1,000, the past-cap count hatched, the chip "Bonuses
+  held at the cap snapshot"), the tier's own bonus chips (what the engine reads: Tier I the v1 set math, Tiers II to VII
+  the curve, from `museumActiveRecord`), band shelves with every type (stat, live count, "Found in Tier IV+ regions" when
+  not open at the tier, "Culture samples (n)" from the tier's roster cultures' finds), the tier's exceptional set cards,
+  and for Tier I the old `MuseumPanel` (its set ladder) under "Tier I set bonuses".
+- Cultures tab: `CulturesPanel.svelte`, a new Research Lab sub-tab: the culture list (bare name or "Culture K-17", tier,
+  study bar) and the detail (identified or not, the lore line once identified, the study split between identified finds
+  and ancient data, finds as sample names, decoded ancient entries). The name reveal is the inline glowing card (once
+  per reveal while the tab is open; none under reduced motion); per the mockup's question 4 "as drawn", no system chat
+  line. The reveal card on the Identification tab also says it when a find names a culture.
+- Set glyphs: user 2026-11-13 "One per set (Recommended)". 14 SVG glyphs in icons.ts (`excWaystation` ... `excLongVigil`,
+  ICON_SEMANTICS subject), mapped by `relicIcons.ts EXCEPTIONAL_SET_ICON` / `exceptionalSetIcon`, tinted by the set's
+  tier: the Museum set cards (header and pieces), the reveal card and recent identifications. The shared `exceptional`
+  glyph stays only on the "Exceptional sets, Tier N" heading (no one set) and as the unknown-id fallback. Checked on a
+  contact sheet at 16, 28 and 56 px beside home, star, ship, research and museum: Long Vigil's first draft (an eye on a
+  pillar) read like the Orrery (an orbit on a stand) at 16 px, so it became an hourglass. relicIcons.test.ts: one glyph
+  per set, 14 distinct, path data unlike any other registered glyph.
+- Source planets (user 2026-11-13 "First + count (Recommended)"): every blank a run with the blanks flag rolls carries its
+  body's name (`planet`, "OA-0201 d": the system and the body letter, `relicBlanks.ts relicPlanetName`), display only, on
+  the roll's stamp and through the deposit, appended last. Identification adds it to the culture's `planets` once
+  (`relics.ts withCulturePlanet`: the first planet found stays first, the rest in canonical order, so any batching gives
+  the same list; tested one call == 997 s chunks == 1 s steps). The Cultures row reads "Found on OA-0201 d and 2 more"
+  ("Found on OA-0201 d" with one, nothing with none: a short-range, completion or grant blank has no planet), and the
+  detail lists every planet. Load keeps only names, each once. Moved pins, traced: the files captured before it
+  (relicsV2BlanksGoldens, relicStaggerGoldens, gasGiantSpecialsGoldens, gasGiantPickupPause) run with the stamp off
+  (`relicPlanet.fixture.ts planetStampOffForThisFile`) and reproduce every pin as captured.
+- Review polish (2026-11-13): the Cultures lead line says a culture is set by the planet a relic was found on and that
+  several planets can share one; the reveal comment says the panel remounts on each opening; the lane steps (the tab
+  and its Help tip) are built from `RELIC_STUDY_LANES_BY_LAB` and the Museum's "of 54" from `EXCEPTIONAL_SETS`; the
+  Identification tab has one heading; the color-blind palette remaps the seven region tiers off its state colors;
+  the Unidentified Relics headers read "Tier II" to screen readers; the ledger keeps every kind in `NOTABLE_EVENT_KINDS`
+  on load (`setId` / `tier` are relicSetCompleted's own fields); `resolveProcesses`' window-start contract is documented
+  at the stamp; Help says "no hard cap"; the QA sheet drops the light theme; the stat label reads "science team power".
+
 ### R2-9: Help, text, QA, close-out
 Help pages for relics, identification, cultures, the Museum curve and the soft cap; claim log lines for blanks by
 tier; patch-note draft (never the Intact Data Core line, never a DBD name); the curated desktop + mobile QA sheet;
 holistic review; staging only by the controller.
+
+**R2-9 carry note (2026-11-13):**
+- Help: the "Relics and the Museum" topic rewritten in seven parts (finding relics, blanks, identification with the lane
+  rungs read from `RELIC_STUDY_LANES_BY_LAB`, exceptional relics, cultures at `CULTURE_STUDY_POINTS`, the Museum with
+  Tier I's ladder kept and the curve above it, the soft cap at `RELIC_SOFT_CAP`); the Ancient Data Fragment topic's "The
+  cultures have no names yet" now says a fragment study gives its culture a study point.
+- Claim log: "N unidentified relics to the vault (Tier I 2, Tier II 1)" (`claimedBlanksByTierText`).
+- QA sheet: `docs/qa/2026-11-13-relics-v2-content-qa.html` (staging, devpreview.crystalisoft.com, 1280 and 375 px).
+- Patch-note lines [PROPOSAL, the wording is the user's]: "Relics are now found as blanks with a region tier and a
+  rarity. Queue them on the Research Lab's new Identification tab: lanes grow with the Lab, and the queue keeps going while
+  you are away. A rare few are exceptional relics, fourteen named sets from Tier I to Tier VII, each completed set a big
+  bonus. Every relic belongs to a long-dead culture: study enough of their finds and you learn their name. The Museum now
+  shows each region tier on its own shelf, with a soft cap at 1,000 relics per tier." (No Intact Data Core line, no
+  antagonist name, no franchise name.)
+- Holistic review and staging: the controller's.
 
 **Mockup coverage vs new sign-off**
 
@@ -682,3 +812,12 @@ user-named item (never a new entity the user did not name).
   make lots of sense. As for the Keelsong sets, please do some reasearch on the Ogier from Wheel of Time. Even all of
   our favorite well-known characters.  Especially the one who is most Loial to our taveren heroes. Muahaha."
   The hub drafts homage lines (original wording, no franchise names in game text) for the user's sign-off.
+- (2026-11-13, after the R2-5..R2-9 build) Set glyphs: "One per set (Recommended)": 14 distinct SVG glyphs, one per
+  exceptional set, each checked at 16, 28 and 56 px (the shared tinted glyph is replaced). Piece stats: the 2026-11-02
+  answer "Match stats to themes" was never applied; a theme-matched stat table is being drafted for the user's sign-off.
+- (2026-11-13) Theme-matched piece stats (table at the end of docs/plans/2026-11-02-relic-name-sheets-DRAFT.md):
+  "Approve the 4 swaps (Recommended)": Waystation Guestbook craftingQuality -> crewBonuses; Lightkeeper's Wick
+  salvageYield -> hazardResist (its full set follows); Deepcut Plumb Line scienceTeamPower -> extractionSpeed (its set
+  follows); Orrery Keeper's Chair crewBonuses -> craftingQuality. Keelsong and Ember Court unchanged.
+- (2026-11-13, after the R2-5..R2-9 review) Culture source planet (the signed-off mockup showed one; several planets can
+  share a culture): "First + count (Recommended)": "Found on HL-0412 c and 2 more", with the full list in the detail view.

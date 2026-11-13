@@ -7,6 +7,14 @@
 // The engine commit re-pins ONLY what the slice moves (GOLDEN), each with its reason, and proves the move with the slice
 // switched off (completionTrackingSwitch.fixture.ts withCompletionTrackingOff): every fixture then reproduces its capture
 // (BEFORE). A second proof: each moved state with the two new keys taken off hashes to its capture.
+//
+// THE MERGE OF feat/crew-0.14.0 (424f5089, the Relics v2 content slice) moved two things these pins read, both traced
+// (the describe "the merge" below undoes them and every 0157ceb3 capture returns):
+//   - every relic token a claim puts in the vault carries its source planet's name (`planet`, 71f814e2, user "First +
+//     count"), so every claim moved, with the slice on and off (BEFORE_CLAIMS_MERGED);
+//   - ONE ledger (the reconcile): the relic slice's key format (`relicSetCompleted:<setId>`, and so
+//     `systemCompleted:<systemId>`), and the relic slice writes the set event itself, always (tick.ts), so the switch no
+//     longer takes it off (the set pin with the switch off equals the pin with it on).
 
 import { describe, expect, it } from "vitest";
 import type { GameState } from "./model";
@@ -32,6 +40,16 @@ const BEFORE_RECALLS: Record<string, string[]> = {
 };
 const BEFORE_SET = "8f9ada4e";
 
+// The claims with the slice OFF after the merge: the 0157ceb3 captures moved only by the source planet name on each
+// relic token (the describe "the merge" below strips it and each capture returns). The recalls did not move.
+const BEFORE_CLAIMS_MERGED: Record<string, string> = {
+  "1001": "661089fb",
+  "2002": "e3b7459e",
+  "3003": "9d657bb9",
+  "4004": "eb36b4ec",
+  "5005": "e25ed0f2",
+};
+
 // The pins today. Each move names its reason; every one returns to BEFORE with the slice off (the describe below).
 // - Every claim: the training run finishes every objective, so the claim writes the system's record (100%) and the
 //   ledger's "system completed" event.
@@ -39,7 +57,17 @@ const BEFORE_SET = "8f9ada4e";
 //   its claim (it is listed live from the held record). The ABANDON moves: it writes the Resume system's record at the %
 //   it reached, marked abandoned.
 // - The relic set: the study that completes the set appends the ledger's "relic set completed" event.
+// - The merge moved every claim (the planet name and the system event's key) and the relic set (its key); the 0157ceb3
+//   slice pins were claims 94e204f8 7285e727 c924fe53 bc9ef223 60bb3fc3 and the set e279dcb4 (the describe "the merge"
+//   below returns each of them).
 const GOLDEN_CLAIMS: Record<string, string> = {
+  "1001": "1a80bb3a",
+  "2002": "e1467346",
+  "3003": "915ac616",
+  "4004": "8d806622",
+  "5005": "e7e0e676",
+};
+const GOLDEN_CLAIMS_0157: Record<string, string> = {
   "1001": "94e204f8",
   "2002": "7285e727",
   "3003": "c924fe53",
@@ -53,7 +81,8 @@ const GOLDEN_RECALLS: Record<string, string[]> = {
   "4004": ["1d1c0c3e", "b5fa908f", "554631a"],
   "5005": ["c7fe1009", "ef69e98a", "563f3bc3"],
 };
-const GOLDEN_SET = "e279dcb4";
+const GOLDEN_SET = "930bafa4";
+const GOLDEN_SET_0157 = "e279dcb4";
 
 const withoutSlice = (s: GameState): GameState => {
   const rest = { ...s };
@@ -61,6 +90,17 @@ const withoutSlice = (s: GameState): GameState => {
   delete rest.notableEvents;
   return rest;
 };
+// The two shapes the merge changed, undone: no source planet on a vault token, the ledger keys in the slice's old format.
+const premerge = (s: GameState): GameState => ({
+  ...s,
+  relicVault: (s.relicVault ?? []).map((t) => {
+    const { planet: _planet, ...rest } = t;
+    return rest;
+  }),
+  ...(s.notableEvents
+    ? { notableEvents: s.notableEvents.map((e) => ({ ...e, key: e.key.replace("systemCompleted:", "system-completed:").replace("relicSetCompleted:", "relic-set-completed:") })) }
+    : {}),
+});
 const recalls = (seed: number): string[] => {
   const r = ctRecalled(seed);
   return [ctHash(r.recalled), ctHash(r.claimed), ctHash(r.abandoned)];
@@ -82,10 +122,25 @@ describe("completion tracking goldens", () => {
 describe("completion tracking off reproduces every capture (BEFORE)", () => {
   for (const seed of CT_SEEDS) {
     const key = seed.toString(16);
-    it(`claim ${key}`, { timeout: 120_000 }, () => expect(withCompletionTrackingOff(() => ctHash(ctClaimed(seed)))).toBe(BEFORE_CLAIMS[key]));
+    it(`claim ${key}`, { timeout: 120_000 }, () => expect(withCompletionTrackingOff(() => ctHash(ctClaimed(seed)))).toBe(BEFORE_CLAIMS_MERGED[key]));
     it(`recall, claim and abandon ${key}`, { timeout: 120_000 }, () => expect(withCompletionTrackingOff(() => recalls(seed))).toEqual(BEFORE_RECALLS[key]));
   }
-  it("the relic set", () => expect(withCompletionTrackingOff(() => ctHash(ctSetCompleted(SET.index, SET.setId, SET.pieceId, 1805)))).toBe(BEFORE_SET));
+  // The relic slice writes the set event (tick.ts, always): the switch leaves it, so off equals on.
+  it("the relic set", () => expect(withCompletionTrackingOff(() => ctHash(ctSetCompleted(SET.index, SET.setId, SET.pieceId, 1805)))).toBe(GOLDEN_SET));
+});
+
+describe("the merge of feat/crew-0.14.0: its two shape changes undone, every 0157ceb3 capture returns", () => {
+  for (const seed of CT_SEEDS) {
+    const key = seed.toString(16);
+    it(`claim ${key}`, { timeout: 120_000 }, () => {
+      expect(ctHash(premerge(withCompletionTrackingOff(() => ctClaimed(seed))))).toBe(BEFORE_CLAIMS[key]);
+      expect(ctHash(premerge(ctClaimed(seed)))).toBe(GOLDEN_CLAIMS_0157[key]);
+    });
+  }
+  it("the relic set", () => {
+    const one = ctSetCompleted(SET.index, SET.setId, SET.pieceId, 1805);
+    expect(ctHash(premerge(one))).toBe(GOLDEN_SET_0157);
+  });
 });
 
 describe("completion tracking: the moves are the two new keys and nothing else", () => {
@@ -93,11 +148,11 @@ describe("completion tracking: the moves are the two new keys and nothing else",
     const key = seed.toString(16);
     it(`claim ${key}: a 100% record and one ledger event`, { timeout: 120_000 }, () => {
       const s = ctClaimed(seed);
-      expect(ctHash(withoutSlice(s))).toBe(BEFORE_CLAIMS[key]);
+      expect(ctHash(withoutSlice(s))).toBe(BEFORE_CLAIMS_MERGED[key]);
       const recs = Object.values(s.systemRecords ?? {});
       expect(recs).toHaveLength(1);
       expect(recordCompletion(recs[0])).toMatchObject({ percent: 100, complete: true });
-      expect(s.notableEvents).toEqual([expect.objectContaining({ kind: "systemCompleted", key: `system-completed:${recs[0].systemId}`, systemId: recs[0].systemId, tier: 1 })]);
+      expect(s.notableEvents).toEqual([expect.objectContaining({ kind: "systemCompleted", key: `systemCompleted:${recs[0].systemId}`, systemId: recs[0].systemId, tier: 1 })]);
     });
     it(`abandon ${key}: an abandoned record under 100%, no ledger event`, { timeout: 120_000 }, () => {
       const r = ctRecalled(seed);
@@ -114,7 +169,7 @@ describe("completion tracking: the moves are the two new keys and nothing else",
   it("the relic set: one ledger event, the same in one call, 997 s chunks and 1 s steps", () => {
     const one = ctSetCompleted(SET.index, SET.setId, SET.pieceId, 1805);
     expect(ctHash(withoutSlice(one))).toBe(BEFORE_SET);
-    expect(one.notableEvents).toEqual([{ key: "relic-set-completed:exc-t1-a", kind: "relicSetCompleted", atGameSeconds: 1800, setId: "exc-t1-a", tier: 1 }]);
+    expect(one.notableEvents).toEqual([{ key: "relicSetCompleted:exc-t1-a", kind: "relicSetCompleted", atGameSeconds: 1800, setId: "exc-t1-a", tier: 1 }]);
     const start = ctSetStudyState(SET.index, SET.setId, SET.pieceId);
     let stepped = start;
     for (let i = 0; i < 1805; i++) stepped = economyTick(stepped, 1, () => 0);

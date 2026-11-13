@@ -124,6 +124,16 @@ describe("Ground Operations glyphs (0.14.0 GO-10)", () => {
     for (const name of required) expect(ICON_NAMES, `missing icon: ${name}`).toContain(name);
   });
 
+  // Refugee Posts E5-6b: the echo refugees' one shared mark, drawn with paths no other glyph uses.
+  it("covers the echo refugee mark, its own paths", () => {
+    expect(ICON_NAMES).toContain("refugeeEcho");
+    for (const other of ICON_NAMES) {
+      if (other === "refugeeEcho") continue;
+      const theirs = new Set(ICON_PATHS[other] as readonly string[]);
+      for (const d of ICON_PATHS.refugeeEcho as readonly string[]) expect(theirs.has(d), `refugeeEcho shares the path "${d}" with ${other}`).toBe(false);
+    }
+  });
+
   // OT-UI review fix: the Overtime buttons' new glyphs share no path with any other glyph (the first hullRepair reused
   // the Shipwright's hammer head and handle almost verbatim and read the same at 16 px).
   it("draws the OT-UI glyphs with paths no other glyph uses", () => {

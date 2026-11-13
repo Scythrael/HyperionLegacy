@@ -22,10 +22,18 @@
 // `refugees` reference). The pick takes no draw, so no stream moves. It happens at DELIVERY, in the same (atTick, slotId)
 // order as the Evacuations, so a farewell and an arrival on one tick resolve in slot order however the span is cut.
 //
+// E5-6b (echo refugees, design "USER (2026-11-03, verbatim): rare franchise nods among refugees" and the 2026-11-13
+// roster sign-off): about 1 in 50 arrivals (REFUGEE_ECHO_CHANCE) is an echo from the approved roster
+// (refugeeEchoes.ts): their roster name, background and flavor line, the normal skill roll, the rolled portrait. Each
+// echo arrives at most once per save (RefugeeState.echoes); once all have arrived a rare roll brings a normal refugee.
+// The stream gains two draws AFTER the six (the echo check, then the pick), always taken, so the first six never move
+// and a normal arrival is exactly what it was before E5-6b.
+//
 // Every number here is a [PROPOSAL] or [PROVISIONAL] in one named constant.
 
 import { makeRng } from "./combat/rng";
 import { generateCrewIdentity } from "./crew";
+import { REFUGEE_ECHO_CHANCE, REFUGEE_ECHO_SWITCH, refugeeEchoPick } from "./refugeeEchoes";
 import {
   REFUGEE_BACKGROUND_KEYS,
   REFUGEE_PORTRAIT_HAIRS,
@@ -84,9 +92,11 @@ interface RefugeeDraws {
   skill: number;
   hair: 0 | 1 | 2 | 3;
   palette: number;
+  echo: number; // [0, 1), against REFUGEE_ECHO_CHANCE (E5-6b)
+  echoPick: number; // [0, 1), which echo (refugeeEchoPick)
 }
 
-// The six draws of a roll's refugee stream, in the fixed layout. Pure.
+// The draws of a roll's refugee stream, in the fixed layout: the six of E5-2, then E5-6b's two. Pure.
 function refugeeDraws(roll: Pick<ShortRangeRoll, "seed" | "tier">): RefugeeDraws {
   const rng = makeRng((roll.seed ^ REFUGEE_SALT) >>> 0);
   const arrival = rng.next();
@@ -96,13 +106,31 @@ function refugeeDraws(roll: Pick<ShortRangeRoll, "seed" | "tier">): RefugeeDraws
   rng.next(); // the name's draw: spent, the name comes from the crew name generator on its own stream
   const hair = rng.nextInt(REFUGEE_PORTRAIT_HAIRS) as 0 | 1 | 2 | 3;
   const palette = rng.nextInt(REFUGEE_PORTRAIT_PALETTES);
-  return { arrival, background, skill, hair, palette };
+  const echo = rng.next();
+  const echoPick = rng.next();
+  return { arrival, background, skill, hair, palette, echo, echoPick };
 }
 
-// The refugee a roll brings home as id `id`: a pure function of (roll.seed, roll.tier, id) and the arrival instant.
-// The origin is the roll's tier and destination. Pure.
-export function rollRefugee(roll: ShortRangeRoll, id: number, arrivedAtSeconds: number): RefugeeRecord {
+// The refugee a roll brings home as id `id`: a pure function of (roll.seed, roll.tier, id), the arrival instant and
+// the echoes already arrived in this save (`arrivedEchoes`, E5-6b). The origin is the roll's tier and destination. A
+// rare roll (REFUGEE_ECHO_CHANCE) with an echo still to come brings that echo: their roster name and background and
+// their key (`echo`); skill, portrait and origin are rolled as for anyone. Pure.
+export function rollRefugee(roll: ShortRangeRoll, id: number, arrivedAtSeconds: number, arrivedEchoes: readonly string[]): RefugeeRecord {
   const d = refugeeDraws(roll);
+  const echo = REFUGEE_ECHO_SWITCH.live && d.echo < REFUGEE_ECHO_CHANCE ? refugeeEchoPick(arrivedEchoes, d.echoPick) : null;
+  if (echo !== null) {
+    return {
+      id,
+      name: echo.name,
+      background: echo.background,
+      skill: d.skill,
+      origin: { tier: roll.tier, destinationIndex: roll.destinationIndex },
+      portrait: { hair: d.hair, palette: d.palette },
+      arrivedAtSeconds,
+      posting: null,
+      echo: echo.key,
+    };
+  }
   return {
     id,
     name: generateCrewIdentity(REFUGEE_NAME_POOL, (roll.seed ^ REFUGEE_SALT) >>> 0, id).name,
@@ -138,7 +166,8 @@ export function refugeeFarewellPick(refugees: RefugeeState): RefugeeRecord | nul
 // (sorted here, stable); each Evacuation reads the waiting list as the earlier ones left it, against `openPosts`: a
 // number (a constant of the call) or the open posts as of a delivery's own `atTick` (tick.ts: facility upgrades that
 // complete earlier in the call count from the next tick on, as 1 s steps see them). An arrival joins the waiting list (posting null) with the next id, counts
-// in `arrivedTotal` and is queued for its arrival card (`greet`). A miss mints no id. A Relocation (E5-3) takes the
+// in `arrivedTotal` and is queued for its arrival card (`greet`); an echo (E5-6b) also joins `echoes`, which every later
+// arrival reads in the same order. A miss mints no id. A Relocation (E5-3) takes the
 // farewell pick off the list (and off `greet`, so no card waits for someone who left); `arrivedTotal` never drops, and
 // nobody waiting means no event. No arrival and no farewell: the same `refugees` reference. Pure.
 export function applyRefugeeDeliveries(
@@ -168,8 +197,10 @@ export function applyRefugeeDeliveries(
       continue;
     }
     const id = out.nextId;
-    const record = rollRefugee(d.roll, id, call.gameTimeSeconds + d.atTick * call.tickDurationSeconds);
+    const record = rollRefugee(d.roll, id, call.gameTimeSeconds + d.atTick * call.tickDurationSeconds, out.echoes ?? []);
     out = { ...out, list: [...out.list, record], nextId: id + 1, arrivedTotal: out.arrivedTotal + 1, greet: [...out.greet, id] };
+    // E5-6b: an echo is marked arrived at once, so a later arrival in this call (or any later call) never repeats them.
+    if (record.echo !== undefined) out = { ...out, echoes: [...(out.echoes ?? []), record.echo] };
     waiting += 1;
     events.push({ kind: "arrival", ...base, refugeeId: id, name: record.name, background: record.background });
   }

@@ -95,7 +95,8 @@ import {
   SAFE_NEEDS_MAX_TIER,
   riskRewardBonus,
 } from "./game/riskFactors";
-import { MUSEUM_HAZARD_RESIST_MAX } from "./game/relics";
+import { CULTURE_STUDY_POINTS, MUSEUM_HAZARD_RESIST_MAX, RELIC_SOFT_CAP } from "./game/relics";
+import { RELIC_STUDY_LANES_BY_LAB } from "./game/relicIdentify";
 import { OVERTIME_CREDITS_PER_MINUTE, OVERTIME_MAX_STEPS, OVERTIME_STEP_RATE, overtimeRate } from "./game/processSpeed";
 
 // OT-UI (0.14.0, the 2026-11-10 Overtime buttons mockup): Overtime on every running job it is offered on, every number
@@ -249,7 +250,7 @@ import { decodeLockText } from "./dataStudyDisplay";
 // read every number from its owner: the regions and homeworld placement (galaxy.ts), the candidates and bodies
 // (expedition.ts), drive class, reach and frontier sensors (propulsion.ts), transit (voyage.ts), the haul and the enemy
 // territory step (riskFactors.ts), and the refusal texts from the console's own text function.
-import { ENEMY_SECTOR_WIDTH_PERMILLE, HOMEWORLD_MAX_FROM_SOL_LY, HOMEWORLD_MIN_FROM_SOL_LY, REGION_TIERS } from "./game/galaxy";
+import { ENEMY_SECTOR_WIDTH_PERMILLE, HOMEWORLD_MAX_FROM_SOL_LY, HOMEWORLD_MIN_FROM_SOL_LY, REGION_TIERS, tierNumeral } from "./game/galaxy";
 import { EXPEDITION_CANDIDATE_COUNT, FAMOUS_SYSTEM_ONE_IN, TIER_BODY_COUNT } from "./game/expedition";
 import { DRIVE_CLASS_MAX, DRIVE_CLASS_REACH_MULT, buildableDriveClassMax, expeditionGateText, frontierSensorsNeeded, hullBaseDriveClass } from "./game/propulsion";
 import { TIER_TRANSIT_HOURS, TUTORIAL_TRANSIT_SECONDS, VOYAGE_ANOMALY_DETOUR_PERMILLE, VOYAGE_BAND_SCALE_PERMILLE, VOYAGE_FLOOR_SECONDS, tierMinimumDriveClass, tierNominalSeconds } from "./game/voyage";
@@ -608,7 +609,7 @@ export const DATA_STUDY_PARAGRAPHS: readonly string[] = [
 ];
 
 export const ANCIENT_DATA_PARAGRAPHS: readonly string[] = [
-  `An Ancient Data Fragment is a record left by an ancient culture. Only a ship's study of a gas giant finds one, never a nebula sweep, and the odds rise with the region's tier and with a ${GALILEO}'s relic find line (see the ${GALILEO} topic). It is studied on the Research Lab's data study lane like research data. Each study decodes the next entry of the fragment's own culture, the culture of the world it came from. The Data study tab shows how many entries the furthest culture has decoded. The cultures have no names yet.`,
+  `An Ancient Data Fragment is a record left by an ancient culture. Only a ship's study of a gas giant finds one, never a nebula sweep, and the odds rise with the region's tier and with a ${GALILEO}'s relic find line (see the ${GALILEO} topic). It is studied on the Research Lab's data study lane like research data. Each study decodes the next entry of the fragment's own culture, the culture of the world it came from. The Data study tab shows how many entries the furthest culture has decoded. It also gives that culture one study point toward its name (see the Relics and the Museum topic).`,
   `SPECIAL BLUEPRINTS: three blueprints open only once one culture has decoded enough entries, and each also needs its Research Lab tier:\n${SPECIAL_BLUEPRINT_LINES}\nThe numbers are at Standard and quality 0; a better rarity and quality raise them, and wear lowers them.`,
   `The entries count for ONE culture: the blueprint marked entry N opens once a single culture has decoded N entries, and entries spread across several cultures do not add up. The Data study tab shows each special blueprint's card with the entry it waits on, and the Research list reads "${decodeLockText(2)}" (or the number it needs) until then.`,
   `The ${bpName("eliteQuartersBp")} blueprint (${labTier(BLUEPRINTS.eliteQuartersBp.tier)}) also takes canisters, but it needs no ancient entry.`,
@@ -823,6 +824,7 @@ import {
   type RefugeeBackground,
 } from "./game/refugees";
 import { REFUGEE_TAPER_K } from "./game/refugeeArrival";
+import { REFUGEE_ECHO_CHANCE } from "./game/refugeeEchoes";
 import { REFUGEE_FACILITY_LABELS } from "./refugeeDisplay";
 
 // What each background's buff does at its match, in the player's words (the consumer seams of refugeeBuffs.ts; the
@@ -854,6 +856,9 @@ const REFUGEE_BACKGROUND_LINES = REFUGEE_BACKGROUND_KEYS.map((bg) => {
 }).join("\n");
 const EVACUATION_LABEL = SHORT_RANGE_TEMPLATES.evacuation.label;
 const RELOCATION_LABEL = SHORT_RANGE_TEMPLATES.refugeeRelocation.label;
+// E5-6b: the echo refugees, true to refugeeArrival.ts rollRefugee and refugeeEchoes.ts (the chance read from
+// REFUGEE_ECHO_CHANCE, never typed). [PROPOSAL] wording.
+export const REFUGEE_ECHO_HELP = `SPECIAL ARRIVALS: now and then, about 1 in ${Math.round(1 / REFUGEE_ECHO_CHANCE)} arrivals, someone special comes home. They wear a small mark beside their name and carry a line of their own about who they are. They work like anyone else: their skill is rolled the same way and they give the same buffs. Each of them comes home at most once in a game, and a relocation can still take one along like anyone waiting.`;
 
 export const REFUGEES_HELP_PARAGRAPHS: readonly string[] = [
   `Refugees are named people your ${EVACUATION_LABEL} runs bring home. Each one has a name, a background and a skill, all fixed when they arrive (there is no leveling). Post them at a facility and they make it better. They never fly, fight or take a crew seat, they cost nothing to keep, and nobody is ever lost. You find them on the Crew tab under Refugees, which appears once the first person arrives.`,
@@ -861,6 +866,7 @@ export const REFUGEES_HELP_PARAGRAPHS: readonly string[] = [
   `ARRIVALS AND THE TAPER: while there are at least as many open posts as people waiting, an evacuation always brings someone home. Once more people wait than there are open posts, the chance falls smoothly: ${REFUGEE_TAPER_K} more people waiting than open posts halve it, ${3 * REFUGEE_TAPER_K} more quarter it, and it never reaches zero. Upgrading facilities opens posts and raises it again. An evacuation that brings nobody home is not a failure: everyone aboard reached the camps, and the log says so.`,
   `ARRIVING: a new arrival shows a card on the short-range board that offers a one-tap post at their best open post (Choose a post when every post is full), or leaves them on the waiting list; with several cards queued (after time away, for example), Leave all on the waiting list answers every card at once. On a phone, a short notice shows for a few seconds and then tucks into the Refugees tab's count, where the arrival waits for you. Offline time brings people home exactly as if you had been watching.`,
   `BACKGROUNDS AND MATCHES: each background matches one facility. Posted at their match, a refugee gives ${sharePct(REFUGEE_MATCH_SHARE_PER_SKILL)} per point of skill (skill ${REFUGEE_EXAMPLE_SKILL} gives +${sharePct(REFUGEE_EXAMPLE_SKILL * REFUGEE_MATCH_SHARE_PER_SKILL)}). Posted anywhere else, they give ${pct(REFUGEE_OFF_MATCH_RATIO)} of that to the facility they are at, so a match counts, but nobody is wasted.\n${REFUGEE_BACKGROUND_LINES}`,
+  REFUGEE_ECHO_HELP,
   `POSTS: a facility opens one post at Level ${REFUGEE_POST_LEVELS[0]} and one more every ${REFUGEE_POSTS_EVERY} levels after it (Levels ${andList(REFUGEE_POST_LEVELS.map(String))} open the first ${countWords(REFUGEE_POST_LEVELS.length)}). A facility that is not built yet has no posts. The Posts row under each facility on the Facilities tab shows who is posted there, each person's share and the facility's total; Mission Control's posts are on the Ops tab under Mission Control. Several people at one facility stack on a diminishing curve: each one adds a little less than the last, but there is never a cap.`,
   `MOVING IS FREE, ANY TIME: post, move or return anyone to the waiting list with no cost, no cooldown and no timer. Pick a filled post to move that person or send them back to waiting. The picker lists the people waiting, sorted by what they would add here, and the people posted elsewhere, with Move here. Posting at a full facility is a swap, and you pick who goes back to the waiting list. A buff that times a job is set when the job starts, so a move changes the next job, never one already running.`,
   `RELOCATION LEADERS: a ${RELOCATION_LABEL} job takes one person from the waiting list along to lead the new camp, the one who has waited longest, and the log says goodbye. With nobody waiting it runs exactly as before.`,
@@ -1190,9 +1196,19 @@ Fabricated equipment keeps its quality too. A crafted blank holds the quality it
   {
     // Exploration 0.14.0 (E4c). No ladder thresholds or bonus sizes in the prose (they are tunable
     // constants in relics.ts; the Museum tab prints the live numbers), per the rule at the top.
+    // Relics v2 R2-9: rewritten for blanks by tier, the identification queue, exceptional relics, cultures, the Museum
+    // curve and the soft cap. The cap, the culture threshold and the lane rungs read their constants.
     id: "relics",
     title: "Relics and the Museum",
-    body: "Relics are recovered by your away teams on expeditions. A team that wins an objective at a relic-bearing site may bring one home, and the Expedition Console names which relic sets a system's sites can yield once your sensors are strong enough. Short-Range Missions turn one up now and then too: a small chance for every hour a mission is underway, so they are rarer there than on expeditions. Relics arrive unidentified: claiming a finished expedition puts them in the Relic Vault on the Research Lab's Relics tab, and a short-range find goes there as its mission is delivered. Study a relic there to reveal which relic of its set it is. A study takes time and runs on its own lane, so it never blocks blueprint research. A relic's tier (from the away-team roll) matters: a higher tier makes the rarer relics of its set more likely. Some relic types only start turning up in higher-tier regions: they are found once your expeditions reach deeper tiers. The first time you identify a relic type is a first find, a new discovery for your collection. Every identified copy goes to the Museum, on the Archive's Museum tab, and grants a small permanent bonus of its set's per-copy stat. Each set is also a collection: owning relics 1 through K of a set unlocks its K-piece set bonus, and that bonus levels up as you collect more copies. A level needs every required relic at the next copy threshold, so a tier is only as strong as its least-collected relic, and the Museum highlights the bottleneck relic holding a tier back.",
+    body: [
+      "FINDING RELICS: your away teams recover relics on expeditions. A team that wins an objective at a relic-bearing site may bring one home, and the Expedition Console names which relic sites a system holds once your sensors are strong enough. Short-Range Missions turn one up now and then too: a small chance for every hour a mission is underway, so they are rarer there than on expeditions.",
+      "BLANKS: a relic arrives as an unidentified blank with a region tier (where it was found, Tier I to Tier VII) and a rarity (Standard, Augmented, Stellar or Radiant). A deeper tier rolls rarer blanks; it does not change how often a relic is found. Claimed blanks wait in your vault, counted by tier and rarity on the Unidentified Relics row under Logistics, Materials.",
+      `IDENTIFICATION: queue blanks on the Research Lab's Identification tab. It is free and runs on the Lab's own lanes (${RELIC_STUDY_LANES_BY_LAB.map((r) => `Lab ${tierNumeral(r.level)} ${r.lanes}`).join(", ")}), so it never blocks blueprint research. Each blank takes longer the rarer it is, shortened by research speed. The next queued blank starts the moment a lane frees, also while you are away; reorder or remove queued blanks any time. Identification reveals the relic's type, and the first of each type is a first find. Some types only start turning up in higher-tier regions. A rarer blank is likelier to reveal a rarer type.`,
+      "EXCEPTIONAL RELICS: now and then a blank reveals an exceptional relic instead, named on the spot. Each region tier has its own exceptional sets, and the chance grows with the blank's rarity and its tier. The reveal prefers a piece you do not have yet. A piece adds a flat bonus while you hold it, once (a duplicate counts toward the tier's total but adds no bonus), and a complete set adds a full-set bonus five times one piece. Completing a set is announced in the log.",
+      `CULTURES: every relic comes from a long-dead culture, set by the planet it was found on. Each identified relic gives its culture one study point, and so does each Ancient Data Fragment the Lab studies. At ${CULTURE_STUDY_POINTS} points the culture's name is revealed on the Research Lab's Cultures tab, with a line of what is known of them, and every relic of theirs reads with its real name, the ones you already hold included. Until then a relic reads as a Relic Sample with a code. Several planets can share a culture: the Cultures tab says where its identified relics were found, and lists every planet in the culture's detail.`,
+      "THE MUSEUM: every identified relic goes to the Museum on the Archive's Museum tab, shelved by region tier and rarity. Tier I keeps its set ladder: each copy adds a small bonus of its set's per-copy stat, and owning relics 1 through K of a set unlocks its K-piece set bonus, which levels up as every required relic reaches the next copy threshold (the Museum highlights the bottleneck relic). From Tier II up, each copy adds to its type's stat, worth more at a deeper tier, and each copy adds a little less than the one before, with no hard cap.",
+      `THE SOFT CAP: when a tier reaches ${RELIC_SOFT_CAP.toLocaleString("en-US")} identified relics (its general relics and its exceptional pieces), that tier's bonuses are held where they stand for the rest of the game. The count keeps going and the Museum shows it past the cap; exceptional pieces and complete sets keep their bonus.`,
+    ].join("\n\n"),
   },
   {
     // 0.14.0 Squads (SQ-7 section 7.5, "Team types and squads"). Every hull fields two teams of two squads today.

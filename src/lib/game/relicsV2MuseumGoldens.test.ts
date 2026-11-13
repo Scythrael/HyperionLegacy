@@ -17,6 +17,7 @@ import { EXCEPTIONAL_SETS, MUSEUM_STATS, RELICS, museumBonuses, museumBonusesFro
 import { deserialize, migrate, serialize, type SaveFile } from "./save";
 import { makeRng } from "./combat/rng";
 import { hash } from "./firstRunsGoldens.fixture";
+import { withoutThemeSwaps } from "./relicStatSwaps.fixture";
 
 const ZERO = Object.fromEntries(MUSEUM_STATS.map((k) => [k, 0])) as Record<MuseumStat, number>;
 
@@ -113,7 +114,9 @@ describe("R2-4 golden 3 (MOVED by R2-4): Tier II+ general copies and exceptional
 
   it("every exceptional piece held, every set complete (was: no stat)", () => {
     const sets = EXCEPTIONAL_SETS.map((s) => s.id);
-    expect(museumBonuses(withMuseumV2({ general: {}, exceptional: pieces, frozen: {}, cultures: {}, culturesNamed: [], setsCompleted: sets }))).toEqual({
+    // MOVED by the four theme-matched stat swaps (user 2026-11-13): this pin is the pre-swap capture, reproduced with the
+    // swaps switched off; the post-swap pin follows.
+    expect(withoutThemeSwaps(() => museumBonuses(withMuseumV2({ general: {}, exceptional: pieces, frozen: {}, cultures: {}, culturesNamed: [], setsCompleted: sets })))).toEqual({
       researchSpeed: 0.55,
       craftingQuality: 0.85,
       relicFindChance: 1.42,
@@ -129,13 +132,33 @@ describe("R2-4 golden 3 (MOVED by R2-4): Tier II+ general copies and exceptional
       extractionSpeed: 0.35,
       hazardResist: 1.02,
     });
+    // Post-swap: Guestbook craftingQuality to crewBonuses (+0.03), Keeper's Chair crewBonuses to craftingQuality (+0.13),
+    // Wick and the Lightkeeper full set salvageYield to hazardResist (+0.07 +0.35), Plumb Line and the Deepcut full set
+    // scienceTeamPower to extractionSpeed (+0.07 +0.35).
+    expect(museumBonuses(withMuseumV2({ general: {}, exceptional: pieces, frozen: {}, cultures: {}, culturesNamed: [], setsCompleted: sets }))).toEqual({
+      researchSpeed: 0.55,
+      craftingQuality: 0.95,
+      relicFindChance: 1.42,
+      cargoCapacity: 1.07,
+      transitSpeed: 0.42000000000000004,
+      salvageYield: 0.9400000000000001,
+      sensors: 0.45999999999999996,
+      scanSpeed: 1.8599999999999999,
+      scienceTeamPower: 0.39,
+      crewBonuses: 0.91,
+      miningYield: 0.45999999999999996,
+      rareMaterialChance: 1.6999999999999997,
+      extractionSpeed: 0.77,
+      hazardResist: 1.44,
+    });
   });
 
   it("a mixed museum (was: its Tier I record only)", () => {
     const tierOne = { glyphTablet: 12, hullRivet: 3 };
     const m: MuseumV2 = { general: { ...general(40), "1": tierOne }, exceptional: pieces, frozen: {}, cultures: {}, culturesNamed: [], setsCompleted: [] };
     expect(museumBonuses(withMuseumV2(m))).not.toEqual(museumBonusesFromRecord(tierOne));
-    expect(museumBonuses(withMuseumV2(m))).toEqual({
+    // MOVED by the four theme-matched stat swaps (user 2026-11-13): the pre-swap capture, swaps switched off; then the new pin.
+    expect(withoutThemeSwaps(() => museumBonuses(withMuseumV2(m)))).toEqual({
       researchSpeed: 1.2690388824061252,
       craftingQuality: 0.85,
       relicFindChance: 1.42,
@@ -150,6 +173,24 @@ describe("R2-4 golden 3 (MOVED by R2-4): Tier II+ general copies and exceptional
       rareMaterialChance: 1.6999999999999997,
       extractionSpeed: 0.35,
       hazardResist: 1.7270388824061251,
+    });
+    // Post-swap: the same moves as the golden above (craftingQuality +0.10, crewBonuses -0.10, salvageYield -0.42,
+    // hazardResist +0.42, scienceTeamPower -0.42, extractionSpeed +0.42); the curved tiers untouched.
+    expect(museumBonuses(withMuseumV2(m))).toEqual({
+      researchSpeed: 1.2690388824061252,
+      craftingQuality: 0.95,
+      relicFindChance: 1.42,
+      cargoCapacity: 1.7800388824061253,
+      transitSpeed: 0.42000000000000004,
+      salvageYield: 0.9400000000000001,
+      sensors: 0.45999999999999996,
+      scanSpeed: 1.8599999999999999,
+      scienceTeamPower: 0.39,
+      crewBonuses: 0.91,
+      miningYield: 0.45999999999999996,
+      rareMaterialChance: 1.6999999999999997,
+      extractionSpeed: 0.77,
+      hazardResist: 2.1470388824061253,
     });
   });
 });

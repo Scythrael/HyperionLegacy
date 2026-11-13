@@ -23,7 +23,7 @@
   import ActionModal from "./ActionModal.svelte";
   import Icon from "./ui/Icon.svelte";
   import RefugeePortrait from "./ui/RefugeePortrait.svelte";
-  import { REFUGEE_BACKGROUND_ICONS, personPostView, postPickerView } from "./refugeeDisplay";
+  import { REFUGEE_BACKGROUND_ICONS, REFUGEE_ECHO_MARK_LABEL, personPostView, postPickerView } from "./refugeeDisplay";
 
   export let state: GameState;
   export let mode: RefugeePickerMode;
@@ -73,7 +73,7 @@
             <div class="rpk-row" class:top={r.top}>
               <span class="rpk-pt"><RefugeePortrait hair={r.portrait.hair} palette={r.portrait.palette} /></span>
               <div class="rpk-who">
-                <div class="rpk-name">{r.name} <span class="rpk-match" class:ok={r.matched}>{r.matchText}</span></div>
+                <div class="rpk-name">{r.name}{#if r.echo}<span class="rpk-echo"><Icon name="refugeeEcho" size={13} title={REFUGEE_ECHO_MARK_LABEL} /></span>{/if} <span class="rpk-match" class:ok={r.matched}>{r.matchText}</span></div>
                 <div class="rpk-sub">
                   <span class="rpk-bg"><Icon name={REFUGEE_BACKGROUND_ICONS[r.background]} size={12} />{r.backgroundLabel}</span>
                   <span class="rpk-skill"><span>skill</span> {r.skill}</span>
@@ -97,7 +97,7 @@
               <div class="rpk-row">
                 <span class="rpk-pt"><RefugeePortrait hair={r.portrait.hair} palette={r.portrait.palette} /></span>
                 <div class="rpk-who">
-                  <div class="rpk-name">{r.name} <span class="rpk-match" class:ok={r.matched}>{r.matchText}</span></div>
+                  <div class="rpk-name">{r.name}{#if r.echo}<span class="rpk-echo"><Icon name="refugeeEcho" size={13} title={REFUGEE_ECHO_MARK_LABEL} /></span>{/if} <span class="rpk-match" class:ok={r.matched}>{r.matchText}</span></div>
                   <div class="rpk-sub">
                     <span class="rpk-bg"><Icon name={REFUGEE_BACKGROUND_ICONS[r.background]} size={12} />{r.backgroundLabel}</span>
                     <span class="rpk-skill rpk-long"><span>skill</span> {r.skill}</span>
@@ -124,11 +124,12 @@
       <div class="rpk-person">
         <RefugeePortrait hair={pview.person.portrait.hair} palette={pview.person.portrait.palette} />
         <div class="rpk-who">
-          <div class="rpk-name">{pview.person.name}</div>
+          <div class="rpk-name">{pview.person.name}{#if pview.person.echo}<span class="rpk-echo"><Icon name="refugeeEcho" size={13} title={REFUGEE_ECHO_MARK_LABEL} /></span>{/if}</div>
           <div class="rpk-sub">
             <span class="rpk-bg"><Icon name={REFUGEE_BACKGROUND_ICONS[pview.person.background]} size={12} />{pview.person.backgroundLabel}</span>
             <span class="rpk-skill"><span>skill</span> {pview.person.skill}</span>
           </div>
+          {#if pview.person.flavor}<div class="rpk-flavor">{pview.person.flavor}</div>{/if}
         </div>
       </div>
       <div class="rpk-sum">{pview.summary}</div>
@@ -195,6 +196,9 @@
   .rpk-row:last-child, .rpk-frow:last-child { border-bottom: 0; }
   .rpk-row.top, .rpk-frow.top { background: rgba(52, 211, 153, 0.05); }
   .rpk-who { min-width: 0; }
+  /* E5-6b: an echo's shared mark beside their name. */
+  .rpk-echo { display: inline-flex; color: var(--color-accent-bright); }
+  .rpk-flavor { margin-top: 2px; font-size: var(--text-xs); font-style: italic; color: var(--color-text-secondary); overflow-wrap: anywhere; }
   .rpk-name { font-weight: 600; font-size: var(--text-md); color: var(--color-text-primary); display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
   .rpk-sub { font-size: var(--text-xs); color: var(--color-text-secondary); display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
   .rpk-bg { display: inline-flex; gap: 4px; align-items: center; white-space: nowrap; }

@@ -205,21 +205,19 @@ import {
   RELIC_DEFAULT_SEED,
   // Relics v2 R2-3: the Museum v2 record a relic study deposits into (relicIdentify.ts applyRelicIdentification).
   type MuseumV2,
+  type NotableEvent,
   emptyMuseumV2,
   // OC-15: THE Research Lab tier reader (R2-3's lanes read it).
   labTier,
-  // Completion tracking: the hidden chat-event ledger (a relic set completed) and its test switch.
-  COMPLETION_TRACKING_SWITCH,
-  type NotableEvent,
 } from "./model";
-import { relicSetCompletedEvent, withNotableEvents } from "./notableEvents";
 // Exploration 0.14.0 (Phase E4a): the relic catalog's pure identification roll + study constants.
 // relics.ts imports only model/expeditionContent TYPES + the leaf PRNG, so this adds no import cycle.
-import { identifyRelic, relicStudySeed, relicStudyDurationTicks, museumBonuses, museumDepositGeneral, getExceptionalSetById } from "./relics";
+import { identifyRelic, relicStudySeed, relicStudyDurationTicks, museumBonuses, museumDepositGeneral } from "./relics";
 import { identifyGeneralRelic, vaultTokenCultureId, vaultTokenRegionTier } from "./relicBlanks";
 // Relics v2 R2-3: identification v2 (the keyed three-draw roll and its deposit) and the lanes by Lab level.
 import { ORDERING2_SWITCH, compareProcessIds, inCanonicalKeyOrder, withDiscovered } from "./canonicalOrder";
 import { RELIC_STUDY_VERSION, applyRelicIdentification, identifyRelicV2, relicIdentificationId, relicStudyLanesAt } from "./relicIdentify";
+import { relicSetCompletedEvents, withNotableEvents } from "./notableEvents";
 // Gas Giant Study GG-5: the Research Lab's data study lane (dataStudy.ts imports neither this file nor expedition.ts).
 import { ANCIENT_DATA_FRAGMENT_ID } from "./gasGiantContent";
 import {
@@ -9384,7 +9382,8 @@ function depositRelicStudy(
   if (effect.v === RELIC_STUDY_VERSION) {
     const outcome = identifyRelicV2(state.relicSeed, museum, effect.token, effect.studyIndex);
     const cultureId = outcome.kind === "general" ? vaultTokenCultureId(state, effect.token) : null;
-    const landed = applyRelicIdentification(museum, discovered, outcome, cultureId);
+    // User 2026-11-13 "First + count": the blank's source planet (display only) joins its culture's planets.
+    const landed = applyRelicIdentification(museum, discovered, outcome, cultureId, effect.token.planet);
     return { relicId: relicIdentificationId(outcome), museum: landed.museum, discovered: landed.discovered };
   }
   const relicId = identifyStudiedRelic(state, effect.token, effect.studyIndex);
@@ -9395,16 +9394,6 @@ function depositRelicStudy(
     museum: museumDepositGeneral(museum, vaultTokenRegionTier(effect.token), relicId, 1),
     discovered: discovered.includes(relicId) ? discovered : [...discovered, relicId],
   };
-}
-
-// Completion tracking: the hidden chat-event ledger with a "relic set completed" event per set the relic study chain
-// completed in this call (`state` is the resolver's: its clock already at the call's end). Pure.
-function relicSetLedger(state: GameState, ticksElapsed: number, sets: readonly { setId: string; at: number }[]): NotableEvent[] {
-  const start = state.gameTimeSeconds - ticksElapsed * state.tickDurationSeconds;
-  return withNotableEvents(
-    state.notableEvents,
-    sets.map(({ setId, at }) => relicSetCompletedEvent(setId, getExceptionalSetById(setId)?.tier ?? 1, notableSecond(start, at, state.tickDurationSeconds))),
-  );
 }
 
 // What resolveRelicStudies hands the resolver: the identified id of every relic study that was in flight and
@@ -9425,9 +9414,10 @@ interface RelicStudyChain {
   nextProcessId: number;
   // E5-4 fix round: the relic study carry after the chain's queue starts (threaded in their time order).
   relicCarry: number;
-  // Completion tracking (the hidden chat-event ledger's first event): each exceptional set a deposit completed, with the
-  // instant (ticks into the window) its study completed, in completion order.
-  setsCompleted: { setId: string; at: number }[];
+  // R2-5: the ledger events of the sets the chain completed, in completion order, each stamped with the game second of
+  // its completion (the window's start plus the study's completion instant, captainNotables.ts notableSecond), so one
+  // call, 997 s chunks and 1 s steps stamp the same second.
+  events: NotableEvent[];
 }
 
 // THE RELIC STUDY CHAIN over one resolve window of `ticksElapsed` (R2-3, plan "the queue starts the next queued token
@@ -9467,7 +9457,14 @@ function resolveRelicStudies(state: GameState, ticksElapsed: number): RelicStudy
   let queueTouched = false;
   const completed = new Map<string, string | null>();
   const chained: { process: TimedProcess; relicId: string | null; at: number }[] = [];
-  const setsCompleted: { setId: string; at: number }[] = [];
+  // R2-5: the set completion ledger events, stamped at the window's start plus the completing study's instant.
+  // CONTRACT: resolveProcesses is handed the state AFTER economyTick advanced gameTimeSeconds by the whole window
+  // (economyTick builds postMissionState with gameTimeSeconds + deltaSeconds, then resolves), so the window began at
+  // gameTimeSeconds - ticksElapsed * tickDurationSeconds. That is what makes one call, 997 s chunks and 1 s steps stamp
+  // the same second. A direct caller that has not advanced the clock (a unit test resolving on its own) gets stamps one
+  // window early; nothing but the ledger's game second reads this.
+  const events: NotableEvent[] = [];
+  const windowStartSeconds = state.gameTimeSeconds - ticksElapsed * state.tickDurationSeconds;
 
   const pump = (at: number) => {
     while (queue.length > 0 && inFlight.length < relicStudyLanesAt(level)) {
@@ -9507,7 +9504,9 @@ function resolveRelicStudies(state: GameState, ticksElapsed: number): RelicStudy
       inFlight.splice(inFlight.indexOf(f), 1);
       if (f.process.effect.type !== "identifyRelic") continue; // unreachable: only identifyRelic studies are walked
       const landed = depositRelicStudy(state, f.process.effect, museum, discovered);
-      for (const setId of landed.museum.setsCompleted.slice(museum.setsCompleted.length)) setsCompleted.push({ setId, at: f.at });
+      if (landed.museum.setsCompleted !== museum.setsCompleted) {
+        events.push(...relicSetCompletedEvents(museum.setsCompleted, landed.museum.setsCompleted, notableSecond(windowStartSeconds, f.at, state.tickDurationSeconds)));
+      }
       museum = landed.museum;
       discovered = landed.discovered;
       deposited = true;
@@ -9522,7 +9521,7 @@ function resolveRelicStudies(state: GameState, ticksElapsed: number): RelicStudy
     .filter((f) => f.chained)
     .sort((a, b) => a.order - b.order)
     .map((f) => ({ ...f.process, remainingTicks: f.at - ticksElapsed }));
-  return { completed, chained, survivors, museum, discovered, deposited, queueTouched, vault, queue, nextRelicStudyIndex, nextProcessId, relicCarry, setsCompleted };
+  return { completed, chained, survivors, museum, discovered, deposited, queueTouched, vault, queue, nextRelicStudyIndex, nextProcessId, relicCarry, events };
 }
 
 // ============================================================================
@@ -13510,12 +13509,8 @@ export function resolveProcesses(
       // general record (museumV2WithGeneral keeps every other part and the record's key position).
       // Relics v2 R2-3: written back by the chain (resolveRelicStudies); a v1 study lands in its token's region tier.
       ...(relicChain?.deposited ? { museumV2: relicChain.museum, relicDiscovered: relicChain.discovered } : {}),
-      // Completion tracking (user "Hidden until chat"): each exceptional set a study completed this call appends the
-      // hidden ledger's "relic set completed" event, at the instant its study completed (THE STAMP RULE, captainNotables.ts
-      // notableSecond, from this call's start), so one call == 997 s chunks == 1 s steps. Written only when one completed.
-      ...(relicChain !== null && relicChain.setsCompleted.length > 0 && COMPLETION_TRACKING_SWITCH.live
-        ? { notableEvents: relicSetLedger(state, ticksElapsed, relicChain.setsCompleted) }
-        : {}),
+      // R2-5: the ledger events of the sets the chain completed (written only when one completed: byte-identical else).
+      ...(relicChain !== null && relicChain.events.length > 0 ? { notableEvents: withNotableEvents(state.notableEvents, relicChain.events) } : {}),
       // R2-3: a queue start (or a stale queued id dropped) moves the vault, the queue and the two id counters.
       ...(relicChain?.queueTouched
         ? { relicVault: relicChain.vault, relicQueue: relicChain.queue, nextRelicStudyIndex: relicChain.nextRelicStudyIndex, nextProcessId: relicChain.nextProcessId }

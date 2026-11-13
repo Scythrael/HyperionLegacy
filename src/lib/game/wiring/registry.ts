@@ -269,6 +269,7 @@ import {
   FIELD_DEVICE_PROBE_USES,
   SHORT_RANGE_RELIC_PROBE_HOURS,
   relicV2ProbeExpectedExceptional,
+  RELIC_QUEUE_PROBE_BLANKS,
   RECALL_PROBE_SHARE,
   PILOT_PROBE_CYCLES,
   wr9TopRankCount,
@@ -3419,7 +3420,7 @@ function relicV2Entries(): WiringEntry[] {
           tolerance: 1e-12,
           on: withPieces([p.id]),
           off: withPieces([]),
-          note: "the piece held alone (no set completes); names and values await the R2-5 content sheet",
+          note: "the piece held alone (no set completes); names from the approved sheet (R2-5), values the approved 3% to 15%",
         }),
       );
     }
@@ -4798,7 +4799,7 @@ const AUDIT_ROWS: readonly { id: string; system: WiringSystem; claim: string; st
   { id: "expedition:audit:legacyFallbacks", system: "expedition", claim: "Kept fallbacks, not the deleted pre-Ground-Ops path: FIGHT_POINTS_DEFAULT (the live default for a site the fight-point table does not rate); FIGHT_POINTS_MIN and SURVEY_AMBUSH_CHANCE (only a Ground Ops run dispatched before SQ-4, without risk grades)", status: LIVE },
   // H. Relics v2 R2-2 (relicBlanks.ts): live on every new run at Tier I; the rest waits for the slice that reaches it.
   { id: "relic:audit:blankTiers", system: "relic", claim: "Relic blanks above Tier I: RELIC_BLANK_WEIGHTS II to VII (a deeper find rolls rarer on the same chance, user call 13 \"Better rarity only\")", status: LIVE },
-  { id: "relic:audit:blankCulture", system: "relic", claim: "A blank's culture (cultureForBody, stamped on every new run's relic): the culture study reads it", status: pending("Relics v2 R2-6 (cultures: study points and the name reveal)") },
+  { id: "relic:audit:blankCulture", system: "relic", claim: "A blank's culture (cultureForBody, stamped on every new run's relic): its identification gives that culture a study point, and at CULTURE_STUDY_POINTS the culture's name is revealed (R2-6)", status: LIVE },
   // G1-5 wired the hook into every delivered cycle of a run dispatched from G1-5 on (shortRangeCycle.ts
   // shortRangeCycleRelics): live in place, its check in auditRowWiring below.
   { id: "relic:audit:shortRangeBlanks", system: "relic", claim: "Short-range relic drops (rollShortRangeRelicBlanks: per hour, Tier I 0.08x and Tier II 0.15x of the expedition rate)", status: LIVE },
@@ -4806,7 +4807,7 @@ const AUDIT_ROWS: readonly { id: string; system: WiringSystem; claim: string; st
   // Relics v2 R2-3 (relicIdentify.ts; the queue in tick.ts): every new study identifies through identification v2.
   { id: "relic:audit:identifyV2", system: "relic", claim: "Identification v2: a new study reveals an exceptional piece at EXCEPTIONAL_PER_100K (user call 6), preferring the pieces the Museum lacks (call 7); else a general type on the blank's own rarity band odds (\"Only one boost\") with the site bias", status: LIVE },
   { id: "relic:audit:identifyLanes", system: "relic", claim: "Relic-study lanes by Research Lab tier (RELIC_STUDY_LANES_BY_LAB: Lab I 1, III 2, V 3, VII 4; user call 12)", status: LIVE },
-  { id: "relic:audit:identifyQueue", system: "relic", claim: "The identification queue: the next queued blank starts the moment a lane frees, also while away (tick.ts queueRelicStudy / resolveRelicStudies)", status: pending("Relics v2 R2-7 (the Identification tab: feed, queue, reorder; the engine queue is built and tested)") },
+  { id: "relic:audit:identifyQueue", system: "relic", claim: "The identification queue: the next queued blank starts the moment a lane frees, also while away (tick.ts queueRelicStudy / resolveRelicStudies)", status: LIVE },
   { id: "relic:audit:generalPick", system: "relic", claim: "A blank with no set identifies over the general pool by band, with the site bias (identifyGeneralRelic)", status: pending("Relics v2 R2-3 follow-up (retire the v1 setless branch of identifyStudiedRelic: identification v2, relic:audit:identifyV2, studies every new blank, G1-5's short-range blanks included, so no study reaches this pick)") },
   // Relics v2 R2-4 (relics.ts museum math v2): the per-tier soft cap snapshot (user calls 3 and 4).
   { id: "relic:audit:softCap", system: "relic", claim: "The soft cap: a tier's counts freeze for the regular game at RELIC_SOFT_CAP identified relics (1000 per tier, user call 3); counts keep growing and show (call 4)", status: LIVE },
@@ -5528,6 +5529,24 @@ function auditRowWiring(): Readonly<Record<string, Partial<EntryInput>>> {
         return { ...s, museumV2: m };
       },
       off: withTierCopies(V2_FIXTURE_TIER, { hullRivet: RELIC_SOFT_CAP + SOFT_CAP_PROBE_PAST }),
+    },
+    // Relics v2 R2-6: twelve Tier I blanks stamped with one culture, studied through the real start and resolver, name
+    // that culture; the same blanks without the stamp (the legacy hash culture, spread over six) name none.
+    "relic:audit:blankCulture": {
+      probe: "content:relic:cultureReveal",
+      contexts: ["research"],
+      curve: { kind: "gate" },
+      magnitude: () => 1,
+      on: sourceOn,
+    },
+    // Relics v2 R2-7: the queue the Identification tab fills (Queue / Queue all): six blanks queued on a Lab I (one lane)
+    // all identify inside one long resolve, where only the one started by hand would without the queue.
+    "relic:audit:identifyQueue": {
+      probe: "content:relic:queue",
+      contexts: ["research"],
+      curve: { kind: "gate" },
+      magnitude: () => RELIC_QUEUE_PROBE_BLANKS - 1,
+      on: sourceOn,
     },
     // Relics v2 R2-3: Lab VII runs three more relic studies at once than Lab I.
     "relic:audit:identifyLanes": {
@@ -7363,8 +7382,14 @@ function gasStudyEntries(): WiringEntry[] {
       system: "facility",
       source: { catalog: "DATA_STUDY_SEAM", key: "cultureStudyPoint" },
       claim: "An Ancient Data Fragment's study gives its culture one study point (the Museum v2 culture record)",
-      status: { kind: "seam", owner: "Relics v2 R2-6 (culture naming reads the study points)", userRef: "relics v2 call 9 (2026-10-19, \"Tied to source planet\"): +1 study point per identified find plus 15b ancient data; named at 10" },
-      note: "dataStudy.ts feedCultureData writes the point; nothing reads it until culture names are signed off (R2-8)",
+      // Relics v2 R2-6: LIVE. The culture reveal reads the points (relics.ts withCultureReveal): with every culture one
+      // point short, one fragment study names its culture (OFF: the lane paused, nothing named).
+      probe: "content:dataStudy:cultureReveal",
+      contexts: ["research"],
+      curve: { kind: "gate" },
+      magnitude: () => 1,
+      on: sourceOn,
+      note: "relics v2 call 9 (2026-10-19, \"Tied to source planet\"): +1 study point per identified find plus 15b ancient data; named at 10",
     }),
   );
   return out;

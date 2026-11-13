@@ -27,6 +27,10 @@ canonicalOrderOffForThisFile();
 import { ordering2OffForThisFile } from "./ordering2Switch.fixture";
 ordering2OffForThisFile();
 import { describe, expect, it } from "vitest";
+// Relics v2 source planets (user 2026-11-13 "First + count") came after these pins: each blank now also carries its
+// planet's name (display only). The file runs with the stamp off, so every pin reproduces as captured (relicPlanet.fixture.ts).
+import { planetStampOffForThisFile } from "./relicPlanet.fixture";
+planetStampOffForThisFile();
 // WR-8b (enemy torpedoes) came after every pin here: the file runs with it off (enemyTorpedoSwitch.fixture.ts), so its
 // pins keep proving their own slice (enemyTorpedoGoldens.test.ts pins what WR-8b moved, enemyTorpedoes.test.ts proves it).
 import { enemyTorpedoesOffForThisFile } from "./enemyTorpedoSwitch.fixture";

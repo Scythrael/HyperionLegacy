@@ -54,7 +54,9 @@ import { advanceExpedition } from "./expedition";
 import { expeditionHomeNow } from "./gearWearEngine";
 import { itemTotal } from "./inventory";
 import { depositBlanks } from "./qualityBlanks";
-import { exceptionalSetsOfTier, getRelicTypeById, museumDepositExceptional, museumDepositGeneral } from "./relics";
+import { exceptionalSetsOfTier, getExceptionalPieceById, getRelicTypeById, museumDepositExceptional, museumDepositGeneral } from "./relics";
+import { withSetCompletion } from "./relicIdentify";
+import { relicSetCompletedEvents, withNotableEvents } from "./notableEvents";
 import { regionTierNumeral } from "./galaxy";
 import { overtimeRate } from "./overtimeRate";
 import { gearRepairOutlook, pausedPatrolOf, pauseResumeTicks, shipWornPieces, settleShipForRateChange } from "./gearWearEngine";
@@ -492,10 +494,12 @@ export function grant(
   }
 
   // Relics v2 R2-2: identified relics land in the Museum v2 record (a general relic at its region tier, an exceptional
-  // piece as one copy) and append their first find. The exceptional piece's name awaits the user's sign-off sheet, so
-  // the line says "an exceptional relic".
+  // piece as one copy) and append their first find. R2-5: an exceptional piece that completes its set appends the set to
+  // setsCompleted and writes its ledger event at the grant's game second (the same rule identification follows), and the
+  // line names the piece (the approved name).
   const relics = bundle.relics ?? [];
   if (relics.length > 0) {
+    const setsBefore = (next.museumV2 ?? emptyMuseumV2()).setsCompleted;
     let museum = next.museumV2 ?? emptyMuseumV2();
     let relicDiscovered = next.relicDiscovered ?? [];
     const find = (id: string) => {
@@ -510,12 +514,14 @@ export function grant(
         parts.push(counted(r.count, `Tier ${regionTierNumeral(r.tier)} ${getRelicTypeById(r.typeId)!.label} relic`));
       } else {
         const piece = firstMissingExceptional({ museumV2: museum })!;
-        museum = museumDepositExceptional(museum, piece);
+        const def = getExceptionalPieceById(piece)!;
+        museum = withSetCompletion(museumDepositExceptional(museum, piece), def.setId);
         find(piece);
-        parts.push("an exceptional relic");
+        parts.push(`the exceptional ${def.label}`);
       }
     }
-    next = { ...next, museumV2: museum, relicDiscovered };
+    const events = relicSetCompletedEvents(setsBefore, museum.setsCompleted, next.gameTimeSeconds);
+    next = { ...next, museumV2: museum, relicDiscovered, ...(events.length > 0 ? { notableEvents: withNotableEvents(next.notableEvents, events) } : {}) };
   }
 
   const head = reason.trim().replace(/[.!?]+$/, "");

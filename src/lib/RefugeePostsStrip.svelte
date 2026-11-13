@@ -22,7 +22,7 @@
   import Icon from "./ui/Icon.svelte";
   import RefugeePortrait from "./ui/RefugeePortrait.svelte";
   import RefugeePostPicker, { type RefugeePickerMode } from "./RefugeePostPicker.svelte";
-  import { REFUGEE_BACKGROUND_ICONS, postsStripView } from "./refugeeDisplay";
+  import { REFUGEE_BACKGROUND_ICONS, REFUGEE_ECHO_MARK_LABEL, postsStripView } from "./refugeeDisplay";
 
   export let state: GameState;
   export let facility: RefugeeFacilityKey;
@@ -133,8 +133,10 @@
               <div class="rps-pop-hd">
                 <RefugeePortrait hair={s.portrait.hair} palette={s.portrait.palette} size={28} />
                 <b>{s.name}</b>
+                {#if s.echo}<span class="rps-echo"><Icon name="refugeeEcho" size={14} title={REFUGEE_ECHO_MARK_LABEL} /></span>{/if}
                 <span class="rps-match" class:ok={s.matched}>{s.matchText}</span>
               </div>
+              {#if s.flavor}<div class="rps-flavor">{s.flavor}</div>{/if}
               <div class="rps-kv">
                 <span>Background</span><span>{s.backgroundLabel}</span>
                 <span>Skill</span><span>{s.skill}</span>
@@ -265,6 +267,9 @@
   .rps-kv span:nth-child(even) { color: var(--color-text-primary); }
   .rps-kv span.rps-ok { color: var(--color-success); }
   .rps-acts { display: flex; gap: 6px; flex-wrap: wrap; }
+  /* E5-6b: an echo's shared mark and their own flavor line. */
+  .rps-echo { display: inline-flex; color: var(--color-accent-bright); }
+  .rps-flavor { font-size: var(--text-xs); font-style: italic; color: var(--color-text-secondary); overflow-wrap: anywhere; }
   .rps-free { font-size: var(--text-2xs); color: var(--color-text-dim); }
   .rps-btn { font: inherit; font-size: var(--text-xs); color: var(--color-accent); background: rgba(var(--color-accent-rgb), 0.06); border: 1px solid var(--color-border-strong); border-radius: var(--corner); padding: 3px 9px; min-height: 32px; cursor: pointer; display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
   .rps-btn.ghost { background: transparent; border-color: var(--color-border); color: var(--color-text-secondary); }
