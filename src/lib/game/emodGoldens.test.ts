@@ -121,7 +121,7 @@ import { wr8ReadBack } from "./combatDescriptorRegistry.fixture";
 import { siReadBack } from "./siMemberGearRegistry.fixture";
 import { getSeniorStaffBonusById } from "./seniorStaffBonuses";
 import { withEm1Off } from "./emodEm1Switch.fixture";
-import { goldenJson, withV1Museum } from "./firstRunsGoldens.fixture"; // gear wear: goldenJson puts the retired durability back
+import { goldenJson, withV1Museum, withoutCompletionTracking } from "./firstRunsGoldens.fixture"; // gear wear: goldenJson puts the retired durability back
 import { GG1_ADDED_ENTRY_IDS, GG_STUDY_ADDED_ENTRY_IDS, GG_STUDY_FLIPPED_BEFORE } from "./gasStudyGoldens.fixture";
 import { FUSE_ADDED_ENTRY_IDS } from "./fieldKitsFuse.fixture";
 import { RX_ADDED_ENTRY_IDS } from "./reactorFuelGoldens.fixture";
@@ -410,7 +410,7 @@ function groundOpsRun(seed: number): string[] {
   expect(done.phase).toBe("complete");
   const claim = claimExpedition({ ...res.next, expeditions: [done] }, done.id);
   expect(claim.success).toBe(true);
-  return [hash(exp), hash(done), hash(claim.next)];
+  return [hash(exp), hash(done), hash(withoutCompletionTracking(claim.next))];
 }
 
 function missionRun(key: MissionKey): string {

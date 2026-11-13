@@ -52,7 +52,7 @@ import { applyTimeSkip } from "./processSpeed";
 import { installMissingCombatBaselines } from "./tick";
 import { asPreFieldKitsDispatch, asExpeditionVeteran, plainAwayMember, withoutCurve, dispatchPastPropulsion } from "./awayTeamTestFixtures";
 import { PRE_G2_3_STORED_RUNS } from "./voyageGoldens.fixture";
-import { goldenJson, withV1Museum } from "./firstRunsGoldens.fixture"; // gear wear: goldenJson puts the retired durability back
+import { goldenJson, withV1Museum, withoutCompletionTracking } from "./firstRunsGoldens.fixture"; // gear wear: goldenJson puts the retired durability back
 // WR-8 (0.14.0): every pin in this file was taken before the combat rules (combatRulesSwitch.fixture.ts), so the file
 // runs with them switched off and its pins keep proving WR-8 moved nothing else here (the rules stamp new patrol
 // cycles and runs; combatDescriptorGoldens.test.ts pins the combat rules themselves).
@@ -186,7 +186,7 @@ describe("G2-3 goldens first: pre-voyage in-flight runs keep their timing", () =
       expect(claim.success).toBe(true);
       const skip = applyTimeSkip({ ...state, gameTimeSeconds: T0 + 1_000 }, { kind: "expedition", id: exp.id });
       expect(skip.applied).toBe(true);
-      const out = [hash(tl), ...points.map((t) => hash(advanceExpedition(exp, t))), hash(done), hash(withV1Museum(claim.next)), hash(skip.next.expeditions)]; // R2-1: the museum in its v1 form, as captured
+      const out = [hash(tl), ...points.map((t) => hash(advanceExpedition(exp, t))), hash(done), hash(withV1Museum(withoutCompletionTracking(claim.next))), hash(skip.next.expeditions)]; // R2-1: the museum in its v1 form, as captured
       expect(out).toEqual(GOLDEN[name]);
     });
 

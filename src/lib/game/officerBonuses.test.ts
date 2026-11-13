@@ -86,7 +86,7 @@ import { itemTotal } from "./inventory";
 // Ground Ops GO-1: whole-state goldens hash without the new, inert ground-team slots (captured before them).
 import { asLegacyDispatch, asPreG2NamesDispatch, withSlottedAwayTeams, withoutGroundSquadState, dispatchPastPropulsion, asPrePatrolCurveDispatch } from "./awayTeamTestFixtures";
 // SF-1: whole states hash without the run counters (seeded by freshState, written by a patrol), absent before SF-1.
-import { withoutRunCounts, goldenJson } from "./firstRunsGoldens.fixture";
+import { withoutRunCounts, goldenJson, withoutCompletionTracking } from "./firstRunsGoldens.fixture";
 import { withCombatRulesOff } from "./combatRulesSwitch.fixture";
 import { withPatrolLegsOff } from "./patrolLegsSwitch.fixture";
 import { wr11OffForThisFile } from "./wr11Switch.fixture";
@@ -242,7 +242,7 @@ function groundOpsRunHash(officers: SeniorStaffOfficer[]): string {
   expect(done.groundOps!.history.some((r) => r.step === "fight")).toBe(true);
   const claimed = claimExpedition({ ...res.next, expeditions: [done] }, done.id);
   expect(claimed.success).toBe(true);
-  return [res.expedition, done, { ...claimed.next, officers: [] }].map((x) => fnv(goldenJson(x))).join("/");
+  return [res.expedition, done, { ...withoutCompletionTracking(claimed.next), officers: [] }].map((x) => fnv(goldenJson(x))).join("/");
 }
 
 describe("neutrality: no officer = byte-identical to before Task 20 (golden)", () => {
