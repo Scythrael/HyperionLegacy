@@ -100,3 +100,19 @@ away at a tree. Or mining ore. Etc."
 - The monetization stance above applies ONLY to this new game. User: "HL won't be monetized in that way. At least, I'm not
   yet really considering it. Because I want to be able to keep developing games, and eventually, it gets to be too
   expensive if I'm not making the cost of the game back."
+
+## DECISION (user, 2026-11-13, verbatim)
+
+"The Idleon-esque game concept I mentioned. That's the standalone game we will start on someday. The one with the person
+running to the right and attacking an enemy with various upgrades to equipment and prestiges, and so forth? That'll 100%
+be a minigame in here for the next big patch."
+
+So:
+- Shape B (Idleon-like: several characters set to tasks on a map, gathering, crafting, many small bonuses) = the
+  STANDALONE game, someday, on its own account and architecture (see "Project shape" above).
+- Shape A (one character running right, fighting, equipment upgrades that visibly tier up, bosses every 10 stages and a
+  much harder boss every 100, and prestiges) = a MINIGAME inside Hyperion Legacy for the next big patch (0.15.0 per the
+  roadmap; the user earlier said "Probably one included with 0.15.0").
+- New element named today: prestiges.
+- Still open for the HL minigame: setting (sci-fi soldier behind cover, or the fantasy gear ladder of the channel post),
+  how it ties into HL (rewards, currency, unlocks), and its place next to the 0.15.0 story and quests.
