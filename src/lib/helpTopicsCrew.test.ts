@@ -1,9 +1,23 @@
 // CP-21 close-out (E-CREW Task 34): the Complement, Senior Staff, Recruiting, Away-Team Members and Implants Help
 // topics, each number read back from the engine. The whole-manual text rules (helpTopics.test.ts) cover them too.
 import { describe, expect, it } from "vitest";
-import { HELP_TOPICS } from "./helpTopics";
+import { CAPTAIN_TALENTS_PARAGRAPH, HELP_TOPICS, HOMEWORLD_HUBS_PARAGRAPH } from "./helpTopics";
 import { TRANSPORT_BATCH_SIZE, TRANSPORT_WINDOW_SECONDS } from "./game/transports";
-import { NOTABLE_CREW_CAP, SHIP_TYPES, type ShipTypeKey } from "./game/model";
+import {
+  CAPTAIN_RACIAL_SCALE,
+  CAPTAIN_SPEC_BONUS,
+  CAPTAIN_TALENTS,
+  CIVIC_CHARTER_TRANSPORT_CREW,
+  EXPLORER_HUB_SCAN_RATE,
+  HOME_GUARD_PATROL_SHIELD,
+  NOTABLE_CREW_CAP,
+  SCIENCE_SPEC_RELIC_FIND,
+  SHIP_TYPES,
+  TACTICAL_SPEC_WEAPON_DAMAGE,
+  TACTICIAN_HUB_WEAPON_DAMAGE,
+  WORKS_DIRECTORATE_BONUS_CHANCE,
+  type ShipTypeKey,
+} from "./game/model";
 import { commandStructureForHull } from "./game/commandStructure";
 import { CREW_RACES } from "./game/crewRaces";
 import {
@@ -115,5 +129,46 @@ describe("HELP_TOPICS: the crew topics (CP-21 close-out, Task 34)", () => {
     expect(i).toContain("Every member has 1 implant slot; Martian and Stheni members (augment affinity, shown on their card) have 2.");
     expect(i).toContain(`no resist goes past ${Math.round(STATUS_RESIST_CAP * 100)}%`);
     expect(i).toContain("Only one can be worn in the whole fleet");
+  });
+});
+
+// WR-12 (0.14.0 wiring close-out): the effects WR-6 made live, each named in Help with its size read back from the
+// constant the engine reads (the captain specializations and hubs, the captain's racial, the three Homeworld hubs).
+describe("HELP_TOPICS: the WR-6 effects named in Help (WR-12 close-out)", () => {
+  const rules = (text: string): void => {
+    expect(text.includes(String.fromCharCode(0x2014))).toBe(false);
+    expect(text).not.toMatch(/-{2}/);
+    expect(text).not.toMatch(/\b(fit|fits|fitting|fitted|fitment|refit|unfit)\b/i);
+    expect(text).not.toMatch(/\btasks?\b/i);
+  };
+
+  it("Crew and Captains: the specialization bonuses and the two captain hubs, from the engine", () => {
+    const b = body("crew");
+    rules(b);
+    expect(b).toContain(CAPTAIN_TALENTS_PARAGRAPH);
+    expect(CAPTAIN_SPEC_BONUS.resourcefulness).toEqual({ type: "bonusRollChance", chance: 0.01 });
+    expect(CAPTAIN_SPEC_BONUS.tactical).toEqual({ type: "weaponDamageMult", mult: TACTICAL_SPEC_WEAPON_DAMAGE });
+    expect(CAPTAIN_SPEC_BONUS.science).toEqual({ type: "relicFindMult", mult: SCIENCE_SPEC_RELIC_FIND });
+    expect(b).toContain("Prospector a +1% chance each tick of a bonus roll while extracting");
+    expect(b).toContain(`Tactician +${TACTICAL_SPEC_WEAPON_DAMAGE * 100}% damage from the ship's weapons (not its drones)`);
+    expect(b).toContain(`Explorer +${SCIENCE_SPEC_RELIC_FIND * 100}% relic find chance`);
+    expect(b).toContain(`${CAPTAIN_TALENTS.tacticianHub.label} +${TACTICIAN_HUB_WEAPON_DAMAGE * 100}% weapon damage`);
+    expect(b).toContain(`${CAPTAIN_TALENTS.explorerHub.label} +${EXPLORER_HUB_SCAN_RATE * 100}% expedition scan rate`);
+    expect(b).toContain("Every talent does what its text says, on the ship its captain commands.");
+  });
+
+  it("Complement: the commanding captain carries a racial too, at the officer size", () => {
+    expect(CAPTAIN_RACIAL_SCALE).toBe(1);
+    expect(body("complement")).toContain("and so does the captain in command of the ship (the same as an officer)");
+  });
+
+  it("Homeworld: Home Guard, Civic Charter and Works Directorate, each with its size", () => {
+    const b = body("homeworld");
+    rules(b);
+    expect(b).toContain(HOMEWORLD_HUBS_PARAGRAPH);
+    expect(b).toContain(`Home Guard gives +${HOME_GUARD_PATROL_SHIELD * 100}% shield capacity and recharge on patrols`);
+    expect(b).toContain(`Civic Charter adds ${CIVIC_CHARTER_TRANSPORT_CREW} crew to every crew transport`);
+    expect(b).toContain(`Works Directorate gives each Fabricator job a ${WORKS_DIRECTORATE_BONUS_CHANCE * 100}% chance to deliver one more of its output`);
+    expect(b).toContain("Works Directorate is also needed for the Refinery's upgrades to levels 3 and 4.");
   });
 });

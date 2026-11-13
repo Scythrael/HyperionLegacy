@@ -948,7 +948,7 @@ export const GEAR_WEAR_PARAGRAPHS: readonly string[] = [
 // crewOverlay.ts resolveCrew, salvage.ts, memberEquipment.ts).
 // ============================================================================
 import { TRANSPORT_BATCH_SIZE, TRANSPORT_WINDOW_SECONDS } from "./game/transports";
-import { CIVIC_CHARTER_TRANSPORT_CREW, HOMEWORLD_TALENTS, NOTABLE_CREW_CAP } from "./game/model";
+import { CAPTAIN_RACIAL_SCALE, CIVIC_CHARTER_TRANSPORT_CREW, HOMEWORLD_TALENTS, NOTABLE_CREW_CAP } from "./game/model";
 import { CREW_PROFESSIONS, commandStructureForHull } from "./game/commandStructure";
 import { CREW_RACES } from "./game/crewRaces";
 import { GRAPH_PALETTE_IDS, GRAPH_PALETTE_LABELS } from "./graphPalettePreference";
@@ -1011,7 +1011,7 @@ export const COMPLEMENT_PARAGRAPHS: readonly string[] = [
   "THE MANIFEST: lists every crew member aboard (or in the pool) by name, a page at a time. The names are made up when you open it and never saved; a crew member keeps the same name while they stay in their group.",
   `UNASSIGNED: salvaging a hull never loses anyone. Its crew go back to the pool, its officers wait under Available Officers, its notables are unassigned, and its away-team members appear in the Unassigned list on every ship's Away Team tab: ${UNASSIGNED_INTRO}`,
   "CREW EFFECTIVENESS: a Medical crew buff and the Earth-born racial. It makes every other crew buff on the ship stronger, each bit worth a little less than the last, with no cap. It never boosts itself, the officers' own bonuses, or the Science crew's and Science officer's sensor lifts.",
-  ["RACIALS: every crew member and officer carries a small bonus from their origin. Among them:", ...COMPLEMENT_RACIAL_LINES].join("\n"),
+  [`RACIALS: every crew member and officer carries a small bonus from their origin, and so does the captain in command of the ship (${CAPTAIN_RACIAL_SCALE === 1 ? "the same as an officer" : `${CAPTAIN_RACIAL_SCALE} times an officer's`}). Among them:`, ...COMPLEMENT_RACIAL_LINES].join("\n"),
   `GRAPH COLORS: Settings, UI, Accessibility, Graph colors changes the colors of the rank bars on this device: ${listAnd(GRAPH_PALETTE_IDS.map((id) => GRAPH_PALETTE_LABELS[id]))}. While the Color-blind palette setting is on, Default shows the color-blind safe colors; Monochrome still overrides it.`,
 ];
 
@@ -1074,11 +1074,40 @@ export const AWAY_MEMBERS_PARAGRAPHS: readonly string[] = [
   "The Team Types and Squads topic covers squads, the reserve and deploying; the Recruiting topic covers the board.",
 ];
 
+// ============================================================================
+// WR-12 (0.14.0 wiring close-out): the effects WR-6 made live that the manual did not yet name. The captain
+// specializations (CAPTAIN_SPEC_BONUS) and the two captain hubs, and the three Homeworld hubs (Home Guard, Civic
+// Charter, Works Directorate). Every size is read from the constant the engine reads; every label from its def.
+// ============================================================================
+import {
+  CAPTAIN_SPEC_BONUS,
+  CAPTAIN_TALENTS,
+  EXPLORER_HUB_SCAN_RATE,
+  HOME_GUARD_PATROL_SHIELD,
+  TACTICIAN_HUB_WEAPON_DAMAGE,
+  WORKS_DIRECTORATE_BONUS_CHANCE,
+  specCards,
+} from "./game/model";
+
+const hubPct = (v: number): string => `${Math.round(v * 1000) / 10}%`;
+const specTitle = (key: string): string => specCards.find((c) => c.key === key)?.title ?? key;
+const specSize = (key: keyof typeof CAPTAIN_SPEC_BONUS): number => {
+  const e = CAPTAIN_SPEC_BONUS[key];
+  if (e?.type === "bonusRollChance") return e.chance;
+  if (e?.type === "weaponDamageMult" || e?.type === "relicFindMult") return e.mult;
+  return 0;
+};
+const homeworldLabel = (type: string): string => Object.values(HOMEWORLD_TALENTS).find((t) => t.effect?.type === type)?.label ?? type;
+
+export const CAPTAIN_TALENTS_PARAGRAPH = `TALENTS: a captain earns one Stat Point per level and spends it in their Talents tree. Each specialization carries its own bonus on the ship that captain commands: ${specTitle("resourcefulness")} a +${hubPct(specSize("resourcefulness"))} chance each tick of a bonus roll while extracting, ${specTitle("tactical")} +${hubPct(specSize("tactical"))} damage from the ship's weapons (not its drones), and ${specTitle("science")} +${hubPct(specSize("science"))} relic find chance. Each tree's hub adds more: ${CAPTAIN_TALENTS.tacticianHub.label} +${hubPct(TACTICIAN_HUB_WEAPON_DAMAGE)} weapon damage and ${CAPTAIN_TALENTS.explorerHub.label} +${hubPct(EXPLORER_HUB_SCAN_RATE)} expedition scan rate. Every talent does what its text says, on the ship its captain commands. Retiring a captain earns prestige points for a second talent tree (see Retirement and the Hall of Command).`;
+
+export const HOMEWORLD_HUBS_PARAGRAPH = `Three hub talents act on their own: ${homeworldLabel("patrolShieldMult")} gives +${hubPct(HOME_GUARD_PATROL_SHIELD)} shield capacity and recharge on patrols, ${homeworldLabel("transportCrewBonus")} adds ${CIVIC_CHARTER_TRANSPORT_CREW} crew to every crew transport, and ${homeworldLabel("fabricatorBonusOutput")} gives each Fabricator job a ${hubPct(WORKS_DIRECTORATE_BONUS_CHANCE)} chance to deliver one more of its output (decided when the job starts). ${homeworldLabel("fabricatorBonusOutput")} is also needed for the Refinery's upgrades to levels 3 and 4.`;
+
 export const HELP_TOPICS: HelpTopic[] = [
   {
     id: "crew",
     title: "Crew and Captains",
-    body: `Crew is your roster of captains, found on the Crew tab under Captain Roster. Each captain commands one ship and earns XP every tick while out on a mission, so leveling is steady rather than only paying out at the end of a run. ${CAPTAIN_SOFT_CAP_TEXT} Your Fleet Admiral level rises alongside them, and it climbs faster the more captains you have working at once. Some captain slots start locked and open up once you have both the required talent and a high enough Fleet Admiral level. A captain needs a ship assigned (from the ship's page on the Ships tab) before it can be dispatched on missions.`,
+    body: `Crew is your roster of captains, found on the Crew tab under Captain Roster. Each captain commands one ship and earns XP every tick while out on a mission, so leveling is steady rather than only paying out at the end of a run. ${CAPTAIN_SOFT_CAP_TEXT} Your Fleet Admiral level rises alongside them, and it climbs faster the more captains you have working at once. Some captain slots start locked and open up once you have both the required talent and a high enough Fleet Admiral level. A captain needs a ship assigned (from the ship's page on the Ships tab) before it can be dispatched on missions.\n\n${CAPTAIN_TALENTS_PARAGRAPH}`,
   },
   {
     // 0.14.0 Complement CP-16: retirement's final warning and the Archive's Hall of Command (captainRetirement.ts,
@@ -1482,7 +1511,7 @@ Fabricated equipment keeps its quality too. A crafted blank holds the quality it
   {
     id: "homeworld",
     title: "Homeworld",
-    body: "Homeworld talents are your fleet-wide upgrades, opened with the Talents button on the Crew tab's Admiral page. They unlock and improve capabilities across the whole fleet, such as extra captain slots, deeper order queues, and better salvage odds. Your production facilities (the Refinery, Fabricator, and Research Lab) live in Facilities. Once your first refugee arrives, each facility shows a Posts row where the people your evacuations bring home work to make it better (see the Refugees topic). As the game grows, more of your empire management will be anchored at the Homeworld.",
+    body: "Homeworld talents are your fleet-wide upgrades, opened with the Talents button on the Crew tab's Admiral page. They unlock and improve capabilities across the whole fleet, such as extra captain slots, deeper order queues, and better salvage odds. " + HOMEWORLD_HUBS_PARAGRAPH + " Your production facilities (the Refinery, Fabricator, and Research Lab) live in Facilities. Once your first refugee arrives, each facility shows a Posts row where the people your evacuations bring home work to make it better (see the Refugees topic). As the game grows, more of your empire management will be anchored at the Homeworld.",
   },
   {
     id: "combat",
