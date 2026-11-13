@@ -2548,3 +2548,45 @@ docs/qa/2026-11-12-new-hire-default-qa.html.
 - (2026-11-12 afternoon) OC-F12 empty program as a default: "Allow with a warning (Recommended)" (as built).
 - (2026-11-12 evening) A recall in the MIDDLE of a field repair: "Keep the share (Recommended)": it keeps whatever was
   repaired so far, exactly like Cancel; nothing earned is thrown away.
+
+## OC-F14 follow-up BUILT (2026-11-12): a recall keeps what the repair repaired
+
+User answers 2026-11-12 afternoon: "Keep the repair (Recommended)": a recall while the ship flies back from a FINISHED
+field repair keeps it, as a canceled repair's flight back already did; moved replay pins are traced. Then (2026-11-12,
+on this build's open question) "Keep the share (Recommended)": a recall in the MIDDLE of a repair keeps whatever was
+repaired so far, exactly like Cancel (the same exact integer share floor(damage x whole seconds repaired / repair
+seconds)).
+
+- Engine (groundOps.ts closeGroundOps, new pure `recallKeepsRepair`): on a run stamped `Expedition.repairRules`, a recall
+  keeps what a repair the ship has set down for (`t` at or past its `arrivesAt`) has repaired, the automatic 25% repair
+  and the order alike. Finished (`t` at or past `repairedAt`, flying back from a world): the whole repair. Mid-repair:
+  `partialFieldRepair(damage, t - arrivesAt, repairedAt - arrivesAt)`, the very share cancelFieldRepairLeg keeps, stored
+  on the leg as its `hullRepaired` (its times stay as they were; it is not marked canceled). Either way the leg is
+  settled now (finishFieldRepair: done, the share off the hull damage). A canceled order's share is settled as before. A
+  repair the ship has not set down for (waiting, or flying out to a world) has repaired nothing and is left exactly as it
+  was. An orbit repair has no flight back (repairedAt == endsAt), so a recall at its end finds it settled. Exact and
+  deterministic: integer arithmetic on stored values at the recall's instant; after a recall (flying back and mid-repair)
+  one call == 997 s chunks == 1 s steps, one economyTick == 997-tick chunks == 1-tick steps, and a recall on a run
+  stepped live 1 s at a time == one on a run advanced in one call (recallKeepsRepairGoldens.test.ts).
+- Stamp choice: the rule RIDES the existing OC-F14 stamp (`repairRules: 1`), no new value, following the WR-10
+  `awayRules` precedent ("adds to the same stamp, nothing with it has shipped"): OC-F14 has never left the feature
+  branch (0.14.0 is not on staging). A run without the stamp (every run dispatched before OC-F14) recalls by the old
+  rule exactly. A `repairRules: 2` would have moved every stamped dispatch hash for no player. No SAVE_VERSION bump.
+  Test switch: model.ts RECALL_KEEPS_REPAIR_SWITCH (recallKeepsRepairSwitch.fixture.ts withRecallKeepsRepairOff).
+- Display (fieldRepairStripDisplay.ts): once the operations are over, the strip's hull readout no longer subtracts an
+  unsettled leg (the recall settled every repair it keeps), so it reads the hull the ship carries home (a stamped
+  mid-repair recall reads the rest after the share; an unstamped run recalled during the flight back used to read 0 and
+  hide the strip while the engine carried the damage home).
+- Goldens (recallKeepsRepairGoldens.test.ts, captured before the engine edit on 02cf05d5, commit 9ab01a7f): seven
+  recalls, each read as the recalled record and that record advanced home. Moved by "Keep the repair": worldFlightBack
+  (the order's 1162 damage repaired on the frozen world, recalled 10 s into the 300 s flight back: comes home repaired,
+  was 1162) and autoFlightBack (the automatic repair of 1200 plus the first hit, same flight back: comes home repaired).
+  Moved by "Keep the share": worldMidRepair (400 s into the ground time keeps 386 of 1162: comes home with 776, was
+  1162) and orbitLastSecond (131 s of the 132 s orbit repair keeps 47 of 48: comes home with 1, was 48). Unmoved:
+  orbitAtEnd (no flight back), canceledFlightBack (already kept), unstampedFlightBack (no stamp, old rule). The rule off
+  reproduces every capture; each moved fixture's stored record with the stamp taken off recalls exactly as the rule-off
+  fixture. One older assertion moved: fieldRepairOrder.test.ts "recall with the rule on" (an orbit repair recalled 50 s
+  in now keeps 18 of 48 and comes home with 30); the rule-off reading of 48 is asserted beside it. Nothing else moved.
+- Help: no paragraph describes a recall during a repair (RECALL, HULL DAMAGE AND FIELD REPAIR and ORDERING A FIELD
+  REPAIR do not), so none changed. QA: docs/qa/2026-11-12-field-repair-qa.html section 4, the recall row reworded and one
+  new row.

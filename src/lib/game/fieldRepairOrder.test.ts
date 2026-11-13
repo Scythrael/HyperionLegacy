@@ -18,6 +18,7 @@ import { economyTick } from "./tick";
 import { freshState, type AwayMember, type Expedition, type GameState } from "./model";
 import { OCF14_FAR, ocf14Damaged, ocf14Dispatch, ocf14Threshold, ocf14WindowOpen } from "./fieldRepairOrder.fixture";
 import { asPreCurveDispatch, plainAwayMember, withSlottedAwayTeams, dispatchPastPropulsion } from "./awayTeamTestFixtures";
+import { withRecallKeepsRepairOff } from "./recallKeepsRepairSwitch.fixture";
 import { expeditionCandidates } from "./expedition";
 
 const TOXIC_FROZEN = 0xa6fe4; // body 0 toxic (the ship scans it first), body 1 frozen (a repair world)
@@ -286,7 +287,10 @@ describe("OC-F14 review: the cancel pulls queued legs earlier, a new order after
     expect(done.groundOps!.hullDamage).toBeUndefined();
   });
 
-  it("recall with the rule on: during an orbit repair the hull comes home with its damage; during a canceled leg's flight back it keeps the share", () => {
+  // Moved by the follow-up (user 2026-11-12 "Keep the share (Recommended)"): a recall mid-repair keeps the share a Cancel
+  // would (50 s of 132 s keeps 18 of 48), where it used to come home with all 48; the rule off reproduces the old reading
+  // (recallKeepsRepairGoldens.test.ts traces the move).
+  it("recall with the rule on: during an orbit repair it keeps the share repaired so far; during a canceled leg's flight back it keeps the share", () => {
     const orbit = at(TOXIC_FROZEN, 200, 48);
     const ordered = orderFieldRepair(orbit.state, orbit.id);
     expect(ordered.expeditions[0].repairRules).toBe(1);
@@ -294,8 +298,11 @@ describe("OC-F14 review: the cancel pulls queued legs earlier, a new order after
     const recalled = recallExpedition(later(ordered, orbit.t + 50), orbit.id);
     const ops = recalled.expeditions[0].groundOps!;
     expect(ops.recalledAt).toBe(orbit.t + 50);
-    expect(ops.hullDamage).toBe(48);
-    expect(ops.repairLegs![0].done).toBeUndefined();
+    expect(ops.hullDamage).toBe(48 - 18);
+    expect(ops.repairLegs![0]).toMatchObject({ done: true, hullRepaired: partialFieldRepair(48, 50, 132) });
+    const old = withRecallKeepsRepairOff(() => recallExpedition(later(ordered, orbit.t + 50), orbit.id)).expeditions[0].groundOps!;
+    expect(old.hullDamage).toBe(48);
+    expect(old.repairLegs![0].done).toBeUndefined();
     const world = at(TOXIC_FROZEN, 200, 1162);
     const c = world.t + 300 + 400;
     const cut = cancelFieldRepair(later(orderFieldRepair(world.state, world.id), c), world.id);
