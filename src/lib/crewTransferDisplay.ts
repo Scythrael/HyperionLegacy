@@ -9,6 +9,12 @@
 // (crewTransfer.ts transferCrew, run as a preview on the live state), so the picker can never promise a move the
 // engine would not make: caps through remainingCapacityForSignature with the notables aboard counted, never evict,
 // locked ships refused, manual ships only (OC-7). Pure: reads state, never mutates.
+//
+// HOMEWORLD RESERVE CONTROLS (user 2026-11-12 evening, docs/mockups/2026-11-12-homeworld-reserve-controls-mockup.html): the
+// same picker with the reserve as the source. "Send to a ship" (a manual ship), "Recall to the pool" ("Only what a berth
+// can seat": the engine's room), auto-crew ships listed but not pickable with a note that they fill themselves ("Show,
+// not pickable"), and a warning before a Send says how many pool crew move to the reserve at the next tick ("Warn
+// first"; homeworldReserve.ts poolSurplusNow, the sweep's own rule on the state the Send would leave).
 
 import type { CrewBucket, CrewProfession, CrewRank, CrewRarity, GameState, ShipComplement, ShipInstance } from "./game/model";
 import { SHIP_TYPES, shipDisplayLabel } from "./game/model";
@@ -24,6 +30,8 @@ import { quartersCapacityBonus } from "./game/crewModules";
 import { crewLockReason, crewLockReasonText, crewLockUntilText } from "./game/crewLock";
 import {
   CREW_POOL,
+  HOMEWORLD_RESERVE,
+  isShipEndpoint,
   crewTransferGateText,
   crewTransferShortfallText,
   transferCrew,
@@ -32,6 +40,7 @@ import {
   type CrewTransferResult,
 } from "./game/crewTransfer";
 import { CREW_RARITY_LABEL, DIVISION_LABEL, buffChips, crewGroupName } from "./complementTableDisplay";
+import { fleetRoomReader, homeworldReserveOf, openShipRoomFor, poolSurplusNow, shipsWithOpenBerths } from "./game/homeworldReserve";
 
 // Every count the player reads is grouped the US way ("1,284").
 export function fmtCount(n: number): string {
@@ -42,15 +51,24 @@ function shipOf(state: GameState, id: string): ShipInstance | undefined {
   return state.ships.find((s) => s.id === id);
 }
 
-// The endpoint's display name: "Crew pool" or the ship's display label.
+// The endpoint's display name: "Crew pool", "Homeworld reserve" or the ship's display label.
 export function endpointName(state: GameState, endpoint: CrewTransferEndpoint): string {
   if (endpoint === CREW_POOL) return "Crew pool";
+  if (endpoint === HOMEWORLD_RESERVE) return "Homeworld reserve";
   const ship = shipOf(state, endpoint);
   return ship ? shipDisplayLabel(state, ship) : "That ship";
 }
 
+// The endpoint inside a sentence: "the crew pool", "the Homeworld reserve" or the ship's display label.
+export function endpointPhrase(state: GameState, endpoint: CrewTransferEndpoint): string {
+  if (endpoint === CREW_POOL) return "the crew pool";
+  if (endpoint === HOMEWORLD_RESERVE) return "the Homeworld reserve";
+  return endpointName(state, endpoint);
+}
+
 function bucketsAt(state: GameState, endpoint: CrewTransferEndpoint): readonly CrewBucket[] {
   if (endpoint === CREW_POOL) return state.crewPool;
+  if (endpoint === HOMEWORLD_RESERVE) return homeworldReserveOf(state);
   return shipOf(state, endpoint)?.complement?.buckets ?? [];
 }
 
@@ -86,7 +104,7 @@ export function poolHeadcount(state: GameState): number {
 export type TransferSourceBlock = { kind: "locked"; text: string } | { kind: "autoCrew"; text: string } | null;
 
 export function transferSourceBlock(state: GameState, from: CrewTransferEndpoint): TransferSourceBlock {
-  if (from === CREW_POOL) return null;
+  if (!isShipEndpoint(from)) return null;
   const ship = shipOf(state, from);
   if (!ship) return null;
   const lock = crewLockReason(state, from);
@@ -117,13 +135,18 @@ export interface DestinationCard {
   shortLine: string | null; // the phone's shorter facts line ("702 / 750 · room for 48")
   warn: string | null; // the reason it cannot be picked as it is (autoCrew, locked)
   shortWarn: string | null; // the phone's shorter reason
+  info: string | null; // a plain note, not a warning (from the reserve: an auto-crew ship fills itself)
+  shortInfo: string | null; // the phone's shorter note
   canSwitchToManual: boolean; // an auto-crew ship that is not locked: the card offers "Switch ... to manual"
 }
 
 // The cards for a transfer FROM `from`: the crew pool first (unless it is the source), then every other ship in fleet
-// order. A ship that is locked AND auto-crew reads as locked (the mode cannot change while it is out). Pure.
+// order. A ship that is locked AND auto-crew reads as locked (the mode cannot change while it is out). From the
+// Homeworld reserve, an auto-crew ship is listed but not pickable, with a note that it fills itself and no switch (user
+// 2026-11-12 "Show, not pickable"), and the pool card says a Recall moves what a berth can seat. Pure.
 export function transferDestinations(state: GameState, from: CrewTransferEndpoint): DestinationCard[] {
   const cards: DestinationCard[] = [];
+  const fromReserve = from === HOMEWORLD_RESERVE;
   if (from !== CREW_POOL) {
     const waiting = fmtCount(poolHeadcount(state));
     cards.push({
@@ -135,10 +158,12 @@ export function transferDestinations(state: GameState, from: CrewTransferEndpoin
       status: "ok",
       pickable: true,
       // Homeworld reserve (user 2026-11-12): the pool is no longer "no cap" (surplus no berth can take moves on).
-      line: `${waiting} waiting`,
+      line: fromReserve ? `${waiting} waiting · recall what a berth can seat` : `${waiting} waiting`,
       shortLine: `${waiting} waiting`,
       warn: null,
       shortWarn: null,
+      info: null,
+      shortInfo: null,
       canSwitchToManual: false,
     });
   }
@@ -160,12 +185,29 @@ export function transferDestinations(state: GameState, from: CrewTransferEndpoin
         shortLine: null,
         warn: `${crewLockReasonText(lock)}: crew locked ${crewLockUntilText(lock)}.`,
         shortWarn: lock === "onExpedition" ? "On an expedition until claimed." : "Out until it returns.",
+        info: null,
+        shortInfo: null,
         canSwitchToManual: false,
       });
       continue;
     }
     const berths = `${fmtCount(used)} / ${fmtCount(cap)} berths`;
     const shortBerths = `${fmtCount(used)} / ${fmtCount(cap)}`;
+    if (mode === "auto" && fromReserve) {
+      cards.push({
+        ...base,
+        status: "autoCrew",
+        pickable: false,
+        line: berths,
+        shortLine: null,
+        warn: null,
+        shortWarn: null,
+        info: "Auto-crew: fills from the pool, then this reserve, on its own every tick.",
+        shortInfo: "Draws from the reserve on its own.",
+        canSwitchToManual: false,
+      });
+      continue;
+    }
     if (mode === "auto") {
       cards.push({
         ...base,
@@ -175,6 +217,8 @@ export function transferDestinations(state: GameState, from: CrewTransferEndpoin
         shortLine: shortBerths,
         warn: "Switch the ship to manual crew first.",
         shortWarn: "Switch to manual crew first.",
+        info: null,
+        shortInfo: null,
         canSwitchToManual: true,
       });
       continue;
@@ -189,6 +233,8 @@ export function transferDestinations(state: GameState, from: CrewTransferEndpoin
         shortLine: `${shortBerths} · ${used > cap ? "over cap" : "full"}`,
         warn: null,
         shortWarn: null,
+        info: null,
+        shortInfo: null,
         canSwitchToManual: false,
       });
       continue;
@@ -201,14 +247,26 @@ export function transferDestinations(state: GameState, from: CrewTransferEndpoin
       shortLine: `${shortBerths} · room for ${fmtCount(room)}`,
       warn: null,
       shortWarn: null,
+      info: null,
+      shortInfo: null,
       canSwitchToManual: false,
     });
   }
   return cards;
 }
 
-// The destination the picker starts on: the first pickable card (the pool for a ship's transfer), else null.
-export function defaultDestination(cards: readonly DestinationCard[]): CrewTransferEndpoint | null {
+// The destination the picker starts on: the first pickable card (the pool for a ship's transfer), else null. The
+// reserve's two buttons open the same picker (mockup section 1 note): "ship" (Send) starts on the first ship with room,
+// else the crew pool; "pool" (Recall) starts on the crew pool.
+export function defaultDestination(cards: readonly DestinationCard[], prefer: "ship" | "pool" | null = null): CrewTransferEndpoint | null {
+  if (prefer === "pool") {
+    const pool = cards.find((c) => c.kind === "pool" && c.pickable);
+    if (pool) return pool.id;
+  }
+  if (prefer === "ship") {
+    const ship = cards.find((c) => c.kind === "ship" && c.pickable);
+    if (ship) return ship.id;
+  }
   return cards.find((c) => c.pickable)?.id ?? null;
 }
 
@@ -248,8 +306,8 @@ export interface PickRowView {
   rankLabel: string;
   rarity: CrewRarity;
   rarityLabel: string;
-  available: number; // aboard the source ship, or waiting in the pool
-  availableText: string; // "131 aboard" / "302 waiting"
+  available: number; // aboard the source ship, waiting in the pool, or in the reserve
+  availableText: string; // "131 aboard" / "302 waiting" / "31 in reserve"
   count: number; // the amount asked for
   willMove: number; // what the engine would move right now (the preview)
   upTo: number; // the most this row could move after the rows above it, if it asked for all it has
@@ -283,7 +341,95 @@ export interface TransferPreview {
   gateText: string | null; // the whole-transfer refusal, if any (a lock or auto-crew that changed mid-pick)
   summary: string; // the desktop line under the rows
   shortSummary: string; // the phone line
-  buttonLabel: string; // "Transfer 10"
+  buttonLabel: string; // "Transfer 10" ("Recall 31" from the reserve to the pool)
+  // From the reserve to a ship ("Warn first", user 2026-11-12): how many pool crew the next tick's sweep moves to the
+  // reserve after this Send (0 = no warning), and the warning's words.
+  swapCount: number;
+  swapWarning: string | null;
+  shortSwapWarning: string | null;
+}
+
+// "Kestrel Line 20, Lumen Drift 8": each open ship's room for a signature's division and rank (the sweep's reader).
+function roomByShipText(state: GameState, sig: CrewBucket): string {
+  return shipsWithOpenBerths(state)
+    .map((o) => ({ name: shipDisplayLabel(state, o.ship), room: openShipRoomFor(o, sig) }))
+    .filter((e) => e.room > 0)
+    .map((e) => `${e.name} ${fmtCount(e.room)}`)
+    .join(", ");
+}
+
+// "28 open Science berths at Ensign or above" (no rank words at the lowest rank: every berth seats it).
+function openBerthsText(n: number, profession: CrewProfession, rank: CrewRank): string {
+  return `${fmtCount(n)} open ${DIVISION_LABEL[profession]} ${n === 1 ? "berth" : "berths"}${rank <= 1 ? "" : ` at ${crewRankLabel(rank)} or above`}`;
+}
+
+// A Recall row's warning (mockup section 4): the fleet's open berths for the group's division and rank, less what of
+// the group already waits in the pool, is its room.
+function recallShortText(state: GameState, b: CrewBucket, count: number, moved: number): string {
+  const fleet = fleetRoomReader(state)(b);
+  const waiting = availableAt(state, CREW_POOL, signatureKey(b));
+  const left = count - moved;
+  if (fleet <= 0) return `No room: no berth in the fleet is open for ${DIVISION_LABEL[b.profession]} at ${crewRankLabel(b.rank)}. All ${fmtCount(count)} stay in the reserve.`;
+  const why = `the fleet has ${openBerthsText(fleet, b.profession, b.rank)} (${roomByShipText(state, b)})${waiting > 0 ? ` and ${fmtCount(waiting)} of this group already wait in the pool` : ""}`;
+  if (moved <= 0) return `No room: ${why}. All ${fmtCount(count)} stay in the reserve.`;
+  return `Room for ${fmtCount(moved)}: ${why}. The other ${fmtCount(left)} stay in the reserve.`;
+}
+
+// ", when its expedition is claimed" / ", when it returns" for a crew-locked ship ("" when it is home).
+function whenHomeText(state: GameState, shipId: string): string {
+  const lock = crewLockReason(state, shipId);
+  if (lock === null) return "";
+  return lock === "onExpedition" ? "when its expedition is claimed" : "when it returns";
+}
+
+function joinAnd(items: readonly string[]): string {
+  if (items.length <= 1) return items.join("");
+  return `${items.slice(0, -1).join(", ")} and ${items[items.length - 1]}`;
+}
+
+// The Send warning ("Warn first"; the pool's own Send too, user 2026-11-12 "Yes, same warning"): what the next tick's
+// sweep moves out of the pool once `next` (the state the Send would leave) stands. The count is poolSurplusNow, the
+// sweep's own rule, so it is exactly what the tick moves. When `before` already had pool crew over their berths (a
+// send back that landed this second, say), the several-group words say "At the next tick" instead of "After this".
+function swapWarningOf(before: GameState, next: GameState): { count: number; text: string | null; short: string | null } {
+  const surplus = poolSurplusNow(next);
+  const count = surplus.reduce((n, e) => n + e.count, 0);
+  if (count <= 0) return { count: 0, text: null, short: null };
+  const room = fleetRoomReader(next);
+  const groups = surplus
+    .map((e) => ({ e, b: next.crewPool.find((x) => signatureKey(x) === e.signatureKey) }))
+    .filter((g): g is { e: { signatureKey: string; count: number }; b: CrewBucket } => g.b !== undefined);
+  if (groups.length === 1) {
+    const { e, b } = groups[0];
+    const waiting = availableAt(next, CREW_POOL, e.signatureKey);
+    const left = room(b);
+    const name = crewGroupName(b.race, b.profession);
+    const ships = shipsWithOpenBerths(next)
+      .filter((o) => openShipRoomFor(o, b) > 0)
+      .map((o) => {
+        const when = whenHomeText(next, o.ship.id);
+        return `${shipDisplayLabel(next, o.ship)}${when ? `, ${when}` : ""}`;
+      });
+    const after =
+      left <= 0
+        ? "After this, the fleet has no berths left that can seat them"
+        : `After this, the fleet has ${fmtCount(left)} ${left === 1 ? "berth" : "berths"} left that can seat them${ships.length > 0 ? ` (${ships.join("; ")})` : ""}`;
+    const how = e.count >= waiting ? `all ${fmtCount(waiting)}` : fmtCount(e.count);
+    return {
+      count,
+      text: `${fmtCount(waiting)} of the ${name} at ${crewRankLabel(b.rank)} wait in the crew pool for open berths. ${after}, so ${how} of them move to the reserve at the next tick. Nobody is lost.`,
+      short: `${fmtCount(e.count)} ${name.replace(/ group$/, "")} crew at ${crewRankLabel(b.rank)} in the pool move to the reserve at the next tick.`,
+    };
+  }
+  const already = poolSurplusNow(before).length > 0;
+  const crew = `${fmtCount(count)} ${count === 1 ? "crewmember" : "crew"} in ${groups.length} ${groups.length === 1 ? "group" : "groups"} waiting in the crew pool ${count === 1 ? "has" : "have"} no berth left in the fleet`;
+  return {
+    count,
+    text: already
+      ? `At the next tick, ${crew}, so ${count === 1 ? "it moves" : "they move"} to the reserve. Nobody is lost.`
+      : `After this, ${crew}, so ${count === 1 ? "it moves" : "they move"} to the reserve at the next tick. Nobody is lost.`,
+    short: `${fmtCount(count)} pool crew move to the reserve at the next tick.`,
+  };
 }
 
 // The picker's live preview for moving `picks` from `from` to `to` (to null = no destination picked yet). Each row's
@@ -304,8 +450,10 @@ export function transferPreview(
   const gateOk = preview === null || preview.gate.ok;
   const movedByKey = new Map<string, number>();
   if (preview && preview.gate.ok) preview.results.forEach((r) => movedByKey.set(r.signatureKey, (movedByKey.get(r.signatureKey) ?? 0) + r.moved));
-  const targetShip = to !== null && to !== CREW_POOL ? shipOf(state, to) : undefined;
+  const targetShip = to !== null && isShipEndpoint(to) ? shipOf(state, to) : undefined;
   const toName = to === null ? "" : endpointName(state, to);
+  const recall = from === HOMEWORLD_RESERVE && to === CREW_POOL;
+  const fromReserve = from === HOMEWORLD_RESERVE;
 
   const rows: PickRowView[] = [];
   let asked = 0;
@@ -320,7 +468,7 @@ export function transferPreview(
     willMove += moved;
     // "up to": this row asking for everything it has, after the rows above it as asked.
     let upTo = available;
-    if (to !== null && targetShip && gateOk) {
+    if (to !== null && (targetShip || recall) && gateOk) {
       const before = picks.slice(0, i).filter((p) => p.count >= 1);
       const probe = transferCrew(state, from, to, [...before, { signatureKey: pick.signatureKey, count: Math.max(1, available) }]);
       upTo = probe.gate.ok ? (probe.results[probe.results.length - 1]?.moved ?? 0) : 0;
@@ -333,6 +481,10 @@ export function transferPreview(
         note = "ok";
         noteText = `Room for all ${fmtCount(count)}${count < upTo && upTo < available ? ` (up to ${fmtCount(upTo)})` : ""}.`;
         shortNoteText = null;
+      } else if (recall) {
+        note = "short";
+        noteText = recallShortText(state, b, count, moved);
+        shortNoteText = moved > 0 ? `Room for ${fmtCount(moved)}. The other ${fmtCount(count - moved)} stay.` : "No room. They all stay.";
       } else {
         note = "short";
         const left = count - moved;
@@ -342,8 +494,8 @@ export function transferPreview(
         const atRow = preview && preview.gate.ok && targetShip ? transferCrew(state, from, to, upToHere) : null;
         const after = atRow && atRow.gate.ok && targetShip ? shipOf(atRow.next, targetShip.id) : undefined;
         const why = after && atRow ? boundCapText(atRow.next, after, b.profession, b.rank) : `${toName} has no more room for that crew`;
-        const stays = from === CREW_POOL ? `The other ${fmtCount(left)} stay in the pool.` : `The other ${fmtCount(left)} stay aboard ${sourceName}.`;
-        noteText = moved > 0 ? `Room for ${fmtCount(moved)}: ${why}. ${stays}` : `No room: ${why}. ${from === CREW_POOL ? `All ${fmtCount(count)} stay in the pool.` : `All ${fmtCount(count)} stay aboard ${sourceName}.`}`;
+        const where = from === CREW_POOL ? "in the pool" : fromReserve ? "in the reserve" : `aboard ${sourceName}`;
+        noteText = moved > 0 ? `Room for ${fmtCount(moved)}: ${why}. The other ${fmtCount(left)} stay ${where}.` : `No room: ${why}. All ${fmtCount(count)} stay ${where}.`;
         shortNoteText = moved > 0 ? `Room for ${fmtCount(moved)}. The other ${fmtCount(left)} stay.` : "No room. They all stay.";
       }
     }
@@ -355,7 +507,7 @@ export function transferPreview(
       rarity: b.rarity,
       rarityLabel: CREW_RARITY_LABEL[b.rarity] ?? b.rarity,
       available,
-      availableText: from === CREW_POOL ? `${fmtCount(available)} waiting` : `${fmtCount(available)} aboard`,
+      availableText: from === CREW_POOL ? `${fmtCount(available)} waiting` : fromReserve ? `${fmtCount(available)} in reserve` : `${fmtCount(available)} aboard`,
       count,
       willMove: moved,
       upTo,
@@ -378,16 +530,53 @@ export function transferPreview(
 
   const stay = asked - willMove;
   const gateText = preview && !preview.gate.ok ? transferGateLine(state, preview) : null;
+  // "Warn first": a Send from the reserve that would move pool crew out at the next tick says so before Transfer.
+  // The pool's own Send gets the same warning (user 2026-11-12 "Yes, same warning (Recommended)").
+  const swap =
+    (fromReserve || from === CREW_POOL) && targetShip && preview && preview.gate.ok && preview.moved > 0
+      ? swapWarningOf(state, preview.next)
+      : { count: 0, text: null, short: null };
+  const movedKeys = preview && preview.gate.ok ? preview.results.filter((r) => r.moved > 0).map((r) => r.signatureKey) : [];
   return {
     rows,
     asked,
     willMove,
     stay,
     gateText,
-    summary: to === null ? "Pick where the crew go." : summaryLine(state, from, to, asked, willMove),
+    summary: to === null ? "Pick where the crew go." : recall ? recallSummaryLine(state, asked, willMove, movedKeys) : summaryLine(state, from, to, asked, willMove),
     shortSummary: to === null ? "Pick where the crew go." : shortSummaryLine(state, from, to, asked, willMove),
-    buttonLabel: `Transfer ${fmtCount(willMove)}`,
+    buttonLabel: recall ? `Recall ${fmtCount(willMove)}` : `Transfer ${fmtCount(willMove)}`,
+    swapCount: swap.count,
+    swapWarning: swap.text,
+    shortSwapWarning: swap.short,
   };
+}
+
+// The Recall summary (mockup section 4 and the "No ship with room" state): how many go to the pool, how many stay, and
+// which ships' berths they wait for there.
+function recallSummaryLine(state: GameState, asked: number, willMove: number, movedKeys: readonly string[]): string {
+  if (asked === 0) return "Set how many of each group to move.";
+  if (willMove <= 0) {
+    const anyShip = transferDestinations(state, HOMEWORLD_RESERVE).some((c) => c.kind === "ship" && c.pickable);
+    return anyShip
+      ? `No berth in the fleet can seat more of these crew. All ${fmtCount(asked)} stay in the reserve.`
+      : "No ship can take crew from the reserve right now: every manual ship is full, and the rest are on auto-crew or out. Room opens when a new ship joins, a quarters module goes in, a manual ship that is out comes home, or you send crew back from a manual ship.";
+  }
+  const head =
+    willMove >= asked
+      ? `Recalling ${fmtCount(asked)} to the crew pool.`
+      : `Recalling ${fmtCount(willMove)} of ${fmtCount(asked)} to the crew pool; ${fmtCount(asked - willMove)} stay in the reserve.`;
+  const sigs = movedKeys.map((k) => homeworldReserveOf(state).find((b) => signatureKey(b) === k)).filter((b): b is CrewBucket => b !== undefined);
+  const waitFor = shipsWithOpenBerths(state)
+    .filter((o) => sigs.some((b) => openShipRoomFor(o, b) > 0))
+    .map((o) => {
+      const name = shipDisplayLabel(state, o.ship);
+      const when = whenHomeText(state, o.ship.id);
+      return o.complement.mode === "active"
+        ? `${name} (manual: send them on from the pool${when ? ` ${when}` : ""})`
+        : `${name} (auto-crew: takes from the pool before the reserve${when ? ` ${when}` : ""})`;
+    });
+  return waitFor.length > 0 ? `${head} In the pool they wait for ${joinAnd(waitFor)}.` : head;
 }
 
 function transferGateLine(state: GameState, preview: CrewTransferResult): string | null {
@@ -411,16 +600,16 @@ function summaryLine(state: GameState, from: CrewTransferEndpoint, to: CrewTrans
   const head =
     willMove >= asked
       ? `Moving ${fmtCount(asked)} to ${toName}.`
-      : `Moving ${fmtCount(asked)} to ${toName}: room for ${fmtCount(willMove)}, ${fmtCount(asked - willMove)} stay.`;
-  // The source ship's berths change, or (from the pool) the destination's.
-  const tail = from !== CREW_POOL ? berthsChange(state, from, -willMove) : to !== CREW_POOL ? berthsChange(state, to, willMove) : "";
+      : `Moving ${fmtCount(asked)} to ${toName}: room for ${fmtCount(willMove)}, ${fmtCount(asked - willMove)} stay${from === HOMEWORLD_RESERVE ? " in the reserve" : ""}.`;
+  // The source ship's berths change, or (from the pool or the reserve) the destination's.
+  const tail = isShipEndpoint(from) ? berthsChange(state, from, -willMove) : isShipEndpoint(to) ? berthsChange(state, to, willMove) : "";
   return tail ? `${head} ${tail}` : head;
 }
 
 function shortSummaryLine(state: GameState, from: CrewTransferEndpoint, to: CrewTransferEndpoint, asked: number, willMove: number): string {
   if (asked === 0) return "Set how many to move.";
   const head = willMove >= asked ? `Room for all ${fmtCount(asked)}.` : `Room for ${fmtCount(willMove)} of ${fmtCount(asked)}.`;
-  const shipId = from !== CREW_POOL ? from : to !== CREW_POOL ? to : null;
+  const shipId = isShipEndpoint(from) ? from : isShipEndpoint(to) ? to : null;
   if (shipId === null) return head;
   const ship = shipOf(state, shipId);
   if (!ship) return head;
@@ -464,9 +653,12 @@ export function transferResultView(
     return { key: r.signatureKey, label, moved: r.moved, requested: r.requested, short: r.moved < r.requested, why };
   });
   const left = requested - result.moved;
-  const where = from === CREW_POOL ? "still in the crew pool" : `still aboard ${endpointName(before, from)}`;
+  const where = from === CREW_POOL ? "still in the crew pool" : from === HOMEWORLD_RESERVE ? "still in the Homeworld reserve" : `still aboard ${endpointName(before, from)}`;
+  const recall = from === HOMEWORLD_RESERVE && to === CREW_POOL;
   return {
-    heading: `Moved ${fmtCount(result.moved)} of ${fmtCount(requested)} to ${endpointName(before, to)}`,
+    heading: recall
+      ? `Recalled ${fmtCount(result.moved)} of ${fmtCount(requested)} to the crew pool`
+      : `Moved ${fmtCount(result.moved)} of ${fmtCount(requested)} to ${endpointName(before, to)}`,
     rows,
     footer:
       left > 0
@@ -484,8 +676,8 @@ export function transferLogLine(before: GameState, from: CrewTransferEndpoint, t
   const requested = result.results.reduce((n, r) => n + r.requested, 0);
   const left = requested - result.moved;
   const crew = result.moved === 1 ? "1 crewmember" : `${fmtCount(result.moved)} crew`;
-  const fromName = from === CREW_POOL ? "the crew pool" : endpointName(before, from);
-  const toName = to === CREW_POOL ? "the crew pool" : endpointName(before, to);
+  const fromName = endpointPhrase(before, from);
+  const toName = endpointPhrase(before, to);
   return `Transferred ${crew} from ${fromName} to ${toName}${left > 0 ? ` (${fmtCount(left)} stayed: no room)` : ""}.`;
 }
 
@@ -514,8 +706,13 @@ export interface PoolDivisionStat {
 
 // The pool's headcount per division, in the game's division order, each bar against the largest division.
 export function poolDivisionStats(state: GameState, professions: readonly CrewProfession[]): PoolDivisionStat[] {
+  return divisionStatsOf(state.crewPool, professions);
+}
+
+// The same per-division headcount for any list of crew groups (the Homeworld reserve's phone chips).
+export function divisionStatsOf(buckets: readonly CrewBucket[], professions: readonly CrewProfession[]): PoolDivisionStat[] {
   const counts = new Map<CrewProfession, number>();
-  for (const b of state.crewPool) counts.set(b.profession, (counts.get(b.profession) ?? 0) + Math.max(0, b.count));
+  for (const b of buckets) counts.set(b.profession, (counts.get(b.profession) ?? 0) + Math.max(0, b.count));
   const max = Math.max(1, ...professions.map((p) => counts.get(p) ?? 0));
   return professions.map((p) => {
     const count = counts.get(p) ?? 0;

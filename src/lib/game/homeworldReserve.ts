@@ -19,7 +19,12 @@
 //
 // REFILL: a passive ship fills from the pool first, then from the reserve with the same filler (autoCrewShip:
 // top-rank-down, lean divisions first, the reserve's group order), so the reserve is never a loss. A Personnel roster's
-// bulk fill (personnelRosters.ts applyRoster) draws the same way. Nothing moves crew from the reserve back to the pool.
+// bulk fill (personnelRosters.ts applyRoster) draws the same way. The reserve never flows back into the pool on its own.
+//
+// MANUAL CONTROLS (user 2026-11-12 evening, the reserve controls mockup): the player can "Send to a ship" (a manual ship's
+// open berths, crewTransfer.ts transferCrew with the reserve as the source) and "Recall to the pool", which moves only
+// what some berth in the fleet can seat ("Only what a berth can seat"), so nothing returns at the next tick. Both read
+// the fleet's open berths through fleetRoomReader below, the sweep's own reader.
 //
 // ORDER: CANONICAL (the canonicalOrder.ts rule): whenever the sweep adds to the reserve, the list is put in signature
 // key order (code unit order), because a big call meets the groups in another order than 1 s steps do (one sweep of a
@@ -31,7 +36,7 @@
 // after (deterministic, by the same rule as every later tick), and a crewmember any berth could take never moves.
 // withHomeworldReserveOnLoad (save.ts migrate, every load) only drops a malformed or empty field.
 
-import type { CrewBucket, GameState, ShipInstance } from "./model";
+import type { CrewBucket, CrewSignature, GameState, ShipInstance } from "./model";
 import { coalesceBuckets, notableSignature, signatureKey, totalCrew } from "./crew";
 import { HULL_CREW_CAPS_SWITCH, complementTotalCap, remainingCapacityForSignature } from "./commandStructure";
 import { quartersCapacityBonus } from "./crewModules";
@@ -94,30 +99,72 @@ export function sweepSurplusToReserve(
 // The sweep's memo (weakly, by pool list; never saved): what the room was read from when that pool was swept.
 const SWEPT = new WeakMap<CrewBucket[], { ships: GameState["ships"]; notables: GameState["notableCrew"]; equipment: GameState["equipment"]; caps: boolean }>();
 
-function sweepUncached(
-  state: GameState,
-  pool: CrewBucket[],
-  reserve: CrewBucket[],
-): { pool: CrewBucket[]; reserve: CrewBucket[] } {
-  // Every ship that has any berth open, with its occupancy and bonus (a ship at its total has room for no one).
-  const open: { ship: ShipInstance; complement: { buckets: CrewBucket[]; mode: "passive" | "active" }; bonus: number }[] = [];
+// A ship with at least one berth open, as the sweep reads it: its occupancy (bulk plus notables) and its quarters bonus.
+export interface OpenBerthShip {
+  ship: ShipInstance;
+  complement: { buckets: CrewBucket[]; mode: "passive" | "active" };
+  bonus: number;
+}
+
+// Every ship with any berth open (passive, passive crew-locked while out, and manual alike), in fleet order; a ship at its
+// total has room for no one. The ONE reader of "the fleet's open berths": the sweep, Recall's room and the Send warning
+// (crewTransfer.ts, crewTransferDisplay.ts) all read it, so the controls can never disagree with the next tick. Pure.
+export function shipsWithOpenBerths(state: GameState): OpenBerthShip[] {
+  const open: OpenBerthShip[] = [];
   for (const ship of state.ships) {
     const complement = seatedComplement(state, ship);
     const bonus = quartersCapacityBonus(state, ship);
     if (totalCrew(complement.buckets) >= complementTotalCap(ship.typeKey, bonus)) continue;
     open.push({ ship, complement, bonus });
   }
-  // The fleet's room for a division and rank (room depends on nothing else of a signature), memoized for this sweep.
+  return open;
+}
+
+// One open ship's room for crew of a signature's division and rank (the filler's own cap reader). Pure.
+export function openShipRoomFor(o: OpenBerthShip, sig: CrewSignature): number {
+  return Math.max(0, remainingCapacityForSignature(o.complement, o.ship.typeKey, sig, o.bonus));
+}
+
+// The fleet's room for a signature's division and rank: the SUM of every open ship's own room (room depends on nothing
+// else of a signature), memoized per division and rank for the life of the returned reader. Pure.
+export function fleetRoomReader(state: GameState): (sig: CrewSignature) => number {
+  const open = shipsWithOpenBerths(state);
   const roomByKey = new Map<string, number>();
-  const fleetRoom = (b: CrewBucket): number => {
+  return (b: CrewSignature): number => {
     const key = `${b.profession}|${b.rank}`;
     const known = roomByKey.get(key);
     if (known !== undefined) return known;
     let room = 0;
-    for (const o of open) room += Math.max(0, remainingCapacityForSignature(o.complement, o.ship.typeKey, b, o.bonus));
+    for (const o of open) room += openShipRoomFor(o, b);
     roomByKey.set(key, room);
     return room;
   };
+}
+
+// What the sweep would move out of the pool right now, one entry per pool group that would lose crew (its signatureKey
+// and how many), in pool order; empty when nothing would move. The SAME rule as sweepUncached below (each group keeps
+// min(its count, fleetRoomReader's room for its division and rank)), read fresh: a preview never touches the sweep's
+// memo. The Send warning reads it on the state a transfer would leave, so its count is what the next tick's sweep
+// moves. Pure.
+export function poolSurplusNow(state: GameState): { signatureKey: string; count: number }[] {
+  const pool = state.crewPool;
+  if (pool.length === 0) return [];
+  const fleetRoom = fleetRoomReader(state);
+  const moved: { signatureKey: string; count: number }[] = [];
+  for (const b of pool) {
+    const move = b.count - Math.min(b.count, fleetRoom(b));
+    if (move > 0) moved.push({ signatureKey: signatureKey(b), count: move });
+  }
+  return moved;
+}
+
+function sweepUncached(
+  state: GameState,
+  pool: CrewBucket[],
+  reserve: CrewBucket[],
+): { pool: CrewBucket[]; reserve: CrewBucket[] } {
+  // The fleet's room for a division and rank, over every ship with a berth open (memoized for this sweep).
+  const fleetRoom = fleetRoomReader(state);
   let nextPool: CrewBucket[] | null = null;
   let nextReserve: CrewBucket[] | null = null;
   let reserveIndex: Map<string, number> | null = null;

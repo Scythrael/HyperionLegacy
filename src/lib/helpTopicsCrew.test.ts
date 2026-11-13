@@ -53,9 +53,9 @@ describe("HELP_TOPICS: the crew topics (CP-21 close-out, Task 34)", () => {
     expect(b).toContain("auto-crew pauses (the toggle reads paused while out)");
     expect(b).toContain("Manual ships only: a ship on Auto-crew must be switched to manual first");
     expect(b).toContain("Personnel Rosters, in Facilities, has a Crew Pool tab");
-    // Homeworld reserve (user 2026-11-12, "Homeworld reserve (Recommended)").
+    // Homeworld reserve (user 2026-11-12, "Homeworld reserve (Recommended)"), and its controls (2026-11-12 evening: the reserve controls mockup).
     expect(b).toContain(
-      "The pool has no limit, but crew that no berth in your fleet can take move on to the Homeworld reserve, shown as a count on the Crew Pool tab; they keep their ranks and racials, and Auto-crew ships draw from the reserve when the pool cannot fill a berth.",
+      "The pool has no limit, but crew that no berth in your fleet can take move on to the Homeworld reserve, listed in its own section under the pool on the Crew Pool tab; they keep their ranks and racials, and Auto-crew ships draw from the reserve when the pool cannot fill a berth. Tick reserve groups to Send them to a manual ship, or to Recall them to the pool: Recall moves only the crew a berth in your fleet can seat, and the rest stay in the reserve. Before a Send that leaves crew waiting in the pool without a berth, the picker warns how many move to the reserve at the next tick.",
     );
     expect(b).toContain(`The fleet holds at most ${NOTABLE_CREW_CAP} notables, aboard a ship or not.`);
     expect(b).toContain("Send back unassigns a notable from the ship (they keep their name");

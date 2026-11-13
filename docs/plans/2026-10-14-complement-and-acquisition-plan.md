@@ -1451,6 +1451,39 @@ docs/mockups/2026-11-12-homeworld-reserve-controls-mockup.html:
   tab (starts closed); ticked rows show "Send N to a ship..." and "Recall N to the pool...".
 - Auto-crew ships in the Send picker: "Show, not pickable (Recommended)": listed with a note that they fill themselves.
 - Transfer warning: "Warn first (Recommended)": the confirm says how many pool crew will move to the reserve next tick.
+
+## Homeworld reserve controls BUILT (2026-11-12, carry note)
+
+Built from the 2026-11-12 evening answers above (mockup docs/mockups/2026-11-12-homeworld-reserve-controls-mockup.html).
+
+- **Engine** (`crewTransfer.ts`): the reserve is a transfer SOURCE (`HOMEWORLD_RESERVE = "reserve"`), never a target
+  (`intoReserve` refusal). To a ship: the same gates and caps as from the pool (manual only, crew-locked refused with the
+  real reason). To the pool ("Only what a berth can seat"): each pick's room is the fleet's open berths for its division
+  and rank less what of that group already waits in the pool; the rest stay (`noBerth`). A drained reserve is never
+  written empty. Pure, RNG-free, never on the tick.
+- **One reader**: `homeworldReserve.ts` now exports the sweep's own room reader (`shipsWithOpenBerths`,
+  `openShipRoomFor`, `fleetRoomReader`); the sweep calls it with unchanged behavior (every golden pin reproduced, none
+  moved, no switch needed), Recall reads it, and `poolSurplusNow` (the sweep's rule, uncached) gives the Send warning's
+  count, so the warning equals what the next tick moves. No SAVE_VERSION bump, no new saved field.
+- **UI** (option A): `CrewPoolPanel.svelte` has a Homeworld reserve section under the pool's table, closed at first,
+  open or closed remembered per device (`homeworldReservePreference.ts`, not the save); the pool's count line links to it
+  ("Listed below."). Ticked rows show "Send N to a ship..." and "Recall N to the pool..." (phone: sticky bar, "Send..." /
+  "Recall..."); both open `CrewTransferModal.svelte` (Send on the first ship with room, Recall on the crew pool).
+  Auto-crew ships are listed, not pickable, with "Auto-crew: fills from the pool, then this reserve, on its own every
+  tick." and no switch ("Show, not pickable"). The amber warning line sits under the summary ("Warn first").
+- **One call made in the build**: the mockup drew the warning for one pool group; with two or more groups affected the
+  warning gives the total and the number of groups in one sentence.
+- **The pool's own Send** (USER ANSWER 2026-11-12, verbatim pick: "Yes, same warning (Recommended)"): a Send from the
+  pool to a manual ship gets the same warning, the same `poolSurplusNow` count (tested equal to what the next tick
+  moves). Review fix round: the several-group words read "After this, N crew in G groups waiting in the crew pool have
+  no berth left in the fleet, so they move to the reserve at the next tick." ("At the next tick, ..." when pool crew
+  were already over their berths before the Send), and the no-room Recall summary adds "a manual ship that is out comes
+  home" to when room opens (a manual ship out on a run is not pickable until home).
+- **Tests**: `homeworldReserveControls.test.ts` (conservation, ranks and racials, recall never bounces, the warning's
+  count equals the next tick's sweep, locked and auto-crew refusals, the CP-21 memo equals a fresh fill),
+  `crewTransferReserveDisplay.test.ts` (the picker's words), `helpTopicsCrew.test.ts` (the Help line).
+- **Help**: the complement topic's Crew Pool paragraph. **QA**: docs/qa/2026-11-12-reserve-controls-qa.html.
+
 ## Notable crew band BUILT (2026-11-12, carry note)
 
 Built from the answers above and the signed mockup (option A). UI only: no engine or save change.
@@ -1469,7 +1502,8 @@ Built from the answers above and the signed mockup (option A). UI only: no engin
 - **All** list and the **empty hint** as drawn; Help: one sentence in the Complement topic's Notable Crew paragraph.
 - QA: `docs/qa/2026-11-12-notable-ticker-qa.html`.
 - (2026-11-12 night) Warning on the older "Send from the pool" picker (it can push pool crew to the reserve too): "Yes,
-  same warning (Recommended)": both pickers say how many pool crew move to the reserve next tick.
+  same warning (Recommended)": both pickers say how many pool crew move to the reserve next tick. BUILT: see the
+  Homeworld reserve controls carry note above ("The pool's own Send").
 
 ## USER ANSWERS (2026-11-13): CP-11 distinct recipes sign-off
 

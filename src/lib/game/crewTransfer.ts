@@ -14,6 +14,13 @@
 //   - No crew created or destroyed: every head that reaches the target left the source (moveBetweenBucketLists).
 // Only the fungible BULK moves. Notables are their own records (assignedShipId) and never move here.
 //
+// HOMEWORLD RESERVE (user 2026-11-12 evening, docs/mockups/2026-11-12-homeworld-reserve-controls-mockup.html): the reserve
+// is a SOURCE endpoint ("Send to a ship" and "Recall to the pool"), never a target (crew reach it only through the
+// every-tick sweep, homeworldReserve.ts). To a ship: the same gates and caps as from the pool. To the pool ("Only what a
+// berth can seat (Recommended)"): each pick's room is the fleet's open berths for its division and rank (fleetRoomReader,
+// the sweep's own reader) less what of that group already waits in the pool, so the next tick's sweep keeps every
+// recalled crewmember; what has no room stays in the reserve ("noBerth").
+//
 // WHY ITS OWN MODULE (the plan named crew.ts): the target's quarters bonus lives in crewModules.ts, which imports
 // seniorStaff.ts, which imports crew.ts, so asking crewModules from crew.ts would close an import cycle. This
 // module sits above all of them; nothing imports it back.
@@ -25,10 +32,17 @@ import { addToBucketList, coalesceBuckets, moveBetweenBucketLists, signatureKey 
 import { remainingCapacityForSignature } from "./commandStructure";
 import { quartersCapacityBonus } from "./crewModules";
 import { crewLockText, shipCrewLocked } from "./crewLock";
+import { fleetRoomReader, homeworldReserveOf, withHomeworldReserve } from "./homeworldReserve";
 
-// The crew pool endpoint. Any other string is a ship id.
+// The crew pool endpoint and the Homeworld reserve endpoint. Any other string is a ship id ("ship-N").
 export const CREW_POOL = "pool" as const;
-export type CrewTransferEndpoint = typeof CREW_POOL | string;
+export const HOMEWORLD_RESERVE = "reserve" as const;
+export type CrewTransferEndpoint = typeof CREW_POOL | typeof HOMEWORLD_RESERVE | string;
+
+// Is the endpoint a ship (neither the pool nor the reserve)? Pure.
+export function isShipEndpoint(endpoint: CrewTransferEndpoint): boolean {
+  return endpoint !== CREW_POOL && endpoint !== HOMEWORLD_RESERVE;
+}
 
 // One requested move: `count` crew of the bucket whose signatureKey (crew.ts) is `signatureKey`.
 export interface CrewTransferPick {
@@ -42,11 +56,12 @@ export interface CrewTransferPick {
 //   noShip:       a ship involved is no longer in the fleet
 //   onMission:    a ship involved is crew-locked (crewLockText gives the accurate mission / expedition words)
 //   autoCrew:     a ship involved is in auto-crew mode (OC-7: manual ships only)
+//   intoReserve:  the target is the Homeworld reserve (crew reach it only through the every-tick sweep)
 // shipId names the ship for the three ship reasons (the source is checked before the target).
-export type CrewTransferBlockReason = "noPicks" | "sameEndpoint" | "noShip" | "onMission" | "autoCrew";
+export type CrewTransferBlockReason = "noPicks" | "sameEndpoint" | "noShip" | "onMission" | "autoCrew" | "intoReserve";
 export type CrewTransferGate =
   | { ok: true }
-  | { ok: false; reason: "noPicks" | "sameEndpoint" }
+  | { ok: false; reason: "noPicks" | "sameEndpoint" | "intoReserve" }
   | { ok: false; reason: "noShip" | "onMission" | "autoCrew"; shipId: string };
 
 // The player-facing words for a refusal (US English). EXHAUSTIVE with no default. Pure.
@@ -62,6 +77,8 @@ export function crewTransferBlockText(reason: CrewTransferBlockReason): string {
       return "Ship is out on a mission";
     case "autoCrew":
       return "Switch the ship to manual crew first";
+    case "intoReserve":
+      return "Crew move to the Homeworld reserve only on their own";
   }
 }
 
@@ -73,6 +90,7 @@ export function crewTransferGateText(state: GameState, gate: CrewTransferGate): 
     case "sameEndpoint":
     case "noShip":
     case "autoCrew":
+    case "intoReserve":
       return crewTransferBlockText(gate.reason);
     case "onMission":
       return crewLockText(state, gate.shipId) ?? crewTransferBlockText(gate.reason);
@@ -83,9 +101,9 @@ function validPicks(picks: readonly CrewTransferPick[]): boolean {
   return picks.length > 0 && picks.every((p) => Number.isInteger(p.count) && p.count >= 1);
 }
 
-// Can crew move from `from` to `to`? Checked in order: noPicks, sameEndpoint, then for the source and then the
-// target ship: noShip, onMission, autoCrew. The pool endpoint has no checks. A fresh ship with no complement
-// reads as auto-crew (passive), the same default the tick uses. Pure.
+// Can crew move from `from` to `to`? Checked in order: noPicks, sameEndpoint, intoReserve, then for the source and then
+// the target ship: noShip, onMission, autoCrew. The pool and the reserve have no checks of their own. A fresh ship with
+// no complement reads as auto-crew (passive), the same default the tick uses. Pure.
 export function canTransferCrew(
   state: GameState,
   from: CrewTransferEndpoint,
@@ -94,7 +112,8 @@ export function canTransferCrew(
 ): CrewTransferGate {
   if (!validPicks(picks)) return { ok: false, reason: "noPicks" };
   if (from === to) return { ok: false, reason: "sameEndpoint" };
-  const shipIds = [from, to].filter((e) => e !== CREW_POOL);
+  if (to === HOMEWORLD_RESERVE) return { ok: false, reason: "intoReserve" };
+  const shipIds = [from, to].filter(isShipEndpoint);
   for (const shipId of shipIds) {
     if (!state.ships.some((s) => s.id === shipId)) return { ok: false, reason: "noShip", shipId };
   }
@@ -111,7 +130,8 @@ export function canTransferCrew(
 // What limited one pick (null when it moved in full):
 //   targetFull:  the target ship's total, division or inclusive rank cap bound first
 //   sourceShort: the source holds fewer of that bucket than requested (none at all included)
-export type CrewTransferShortfall = "targetFull" | "sourceShort";
+//   noBerth:     a Recall from the reserve: no more berths in the fleet can seat that crew (the rest stay in the reserve)
+export type CrewTransferShortfall = "targetFull" | "sourceShort" | "noBerth";
 
 export interface CrewTransferPickResult {
   signatureKey: string;
@@ -137,6 +157,8 @@ export function crewTransferShortfallText(limitedBy: CrewTransferShortfall): str
       return "the destination has no more room for that crew";
     case "sourceShort":
       return "not that many are available";
+    case "noBerth":
+      return "no more berths in the fleet can seat that crew";
   }
 }
 
@@ -156,6 +178,7 @@ function notableOccupant(n: NotableCrewMember): CrewBucket {
 
 function bucketsAt(state: GameState, endpoint: CrewTransferEndpoint): CrewBucket[] {
   if (endpoint === CREW_POOL) return state.crewPool;
+  if (endpoint === HOMEWORLD_RESERVE) return homeworldReserveOf(state);
   return state.ships.find((s) => s.id === endpoint)?.complement?.buckets ?? [];
 }
 
@@ -174,7 +197,9 @@ export function transferCrew(
 
   // The target ship's cap inputs: its hull, its quarters bonus, and its occupancy (bulk plus every notable
   // assigned to it). Absent for the pool (no cap).
-  const targetShip = to === CREW_POOL ? undefined : state.ships.find((s) => s.id === to);
+  const targetShip = isShipEndpoint(to) ? state.ships.find((s) => s.id === to) : undefined;
+  // A Recall (reserve to pool): the fleet's open berths, read once (a recall moves no ship, so they hold throughout).
+  const recallRoom = from === HOMEWORLD_RESERVE && to === CREW_POOL ? fleetRoomReader(state) : null;
   const bonusCapacity = targetShip ? quartersCapacityBonus(state, targetShip) : 0;
   let occupancy: CrewBucket[] = targetShip
     ? coalesceBuckets([
@@ -192,10 +217,14 @@ export function transferCrew(
     if (targetShip && bucket) {
       const complement: ShipComplement = { buckets: occupancy, mode: "active" };
       room = remainingCapacityForSignature(complement, targetShip.typeKey, bucket, bonusCapacity);
+    } else if (recallRoom && bucket) {
+      // The sweep keeps min(this group's pool count, the fleet's room), so the pool can hold this much more of it.
+      const waiting = target.filter((b) => signatureKey(b) === pick.signatureKey).reduce((n, b) => n + b.count, 0);
+      room = Math.max(0, recallRoom(bucket) - waiting);
     }
     const count = Math.min(pick.count, available, room);
     let limitedBy: CrewTransferShortfall | null = null;
-    if (count < pick.count) limitedBy = room < Math.min(pick.count, available) ? "targetFull" : "sourceShort";
+    if (count < pick.count) limitedBy = room < Math.min(pick.count, available) ? (recallRoom ? "noBerth" : "targetFull") : "sourceShort";
     if (bucket && count > 0) {
       const sig: CrewSignature = bucket;
       const step = moveBetweenBucketLists(source, target, sig, count);
@@ -212,12 +241,14 @@ export function transferCrew(
   const withBuckets = (endpoint: CrewTransferEndpoint, buckets: CrewBucket[], s: GameState): GameState =>
     endpoint === CREW_POOL
       ? { ...s, crewPool: buckets }
-      : {
-          ...s,
-          ships: s.ships.map((sh) =>
-            sh.id === endpoint ? { ...sh, complement: { buckets, mode: sh.complement?.mode ?? "active" } } : sh,
-          ),
-        };
+      : endpoint === HOMEWORLD_RESERVE
+        ? withHomeworldReserve(s, buckets)
+        : {
+            ...s,
+            ships: s.ships.map((sh) =>
+              sh.id === endpoint ? { ...sh, complement: { buckets, mode: sh.complement?.mode ?? "active" } } : sh,
+            ),
+          };
   const next = withBuckets(to, target, withBuckets(from, source, state));
   return { next, gate, results, moved };
 }

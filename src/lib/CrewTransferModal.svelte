@@ -10,12 +10,16 @@
   //   (4) after Transfer the modal stays open and shows the result row by row (Transfer more, Done);
   //   (5) on a phone it is two steps, where to and then how many (one DOM: the steps are container-query states).
   // If the SOURCE ship is on auto-crew the picker opens on the same "Switch to manual" line instead of the lists.
+  // HOMEWORLD RESERVE (user 2026-11-12 evening, docs/mockups/2026-11-12-homeworld-reserve-controls-mockup.html): the same
+  // picker with the reserve as the source. Send starts on the first ship with room, Recall on the crew pool (startOn);
+  // auto-crew ships are listed with a note, not pickable; a Send (from the reserve or the pool) that moves pool crew out at
+  // the next tick warns first.
   // PURE PRESENTATION: every number is crewTransferDisplay.ts (an engine preview, tested); the move itself is the
   // host's onTransfer (App.svelte doTransferCrew: crewTransfer.ts transferCrew, state = next, log, save).
   // ============================================================================
   import "./crewGroups.css";
   import type { GameState } from "./game/model";
-  import { CREW_POOL, type CrewTransferEndpoint, type CrewTransferPick, type CrewTransferResult } from "./game/crewTransfer";
+  import { HOMEWORLD_RESERVE, type CrewTransferEndpoint, type CrewTransferPick, type CrewTransferResult } from "./game/crewTransfer";
   import ActionModal from "./ActionModal.svelte";
   import Icon from "./ui/Icon.svelte";
   import {
@@ -23,6 +27,7 @@
     clampPickCount,
     defaultDestination,
     endpointName,
+    endpointPhrase,
     fmtCount,
     initialTransferPicks,
     picksAfterTransfer,
@@ -34,8 +39,11 @@
   } from "./crewTransferDisplay";
 
   export let state: GameState;
-  // Where the crew come from: a ship id, or "pool".
+  // Where the crew come from: a ship id, "pool", or "reserve" (the Homeworld reserve).
   export let from: CrewTransferEndpoint;
+  // Which card the picker starts on: "ship" = the first ship with room (the reserve's Send), "pool" = the crew pool (the
+  // reserve's Recall); null = the first pickable card.
+  export let startOn: "ship" | "pool" | null = null;
   // The picked groups' keys (crew.ts signatureKey), whole groups to start.
   export let keys: readonly string[];
   // Run the transfer (host: doTransferCrew). Returns the engine's result (moved 0 / a refusal included), or null.
@@ -55,13 +63,14 @@
   $: sourceBlock = transferSourceBlock(state, from);
   $: cards = transferDestinations(state, from);
   // Start on the first pickable card; keep the player's pick while it stays in the list.
-  $: if (to === null || !cards.some((c) => c.id === to)) to = defaultDestination(cards);
+  $: if (to === null || !cards.some((c) => c.id === to)) to = defaultDestination(cards, startOn);
   $: toCard = cards.find((c) => c.id === to) ?? null;
   $: toPickable = toCard !== null && toCard.pickable;
   $: preview = transferPreview(state, from, toPickable ? to : null, picks);
   $: pickedCrew = picks.reduce((n, p) => n + p.count, 0);
   $: pickedGroups = preview.rows.length;
   $: canTransfer = toPickable && preview.willMove > 0 && sourceBlock === null;
+  $: recalling = from === HOMEWORLD_RESERVE && toCard !== null && toCard.kind === "pool";
 
   function choose(id: CrewTransferEndpoint, pickable: boolean): void {
     if (pickable) to = id;
@@ -111,7 +120,7 @@
   }
 </script>
 
-<ActionModal title={result === null ? `Transfer crew from ${from === CREW_POOL ? "the crew pool" : fromName}` : "Transfer done"} wide={result === null} onClose={close}>
+<ActionModal title={result === null ? `Transfer crew from ${endpointPhrase(state, from)}` : "Transfer done"} wide={result === null} onClose={close}>
   {#if result !== null}
     <!-- (4) The result, row by row. Nobody is ever lost: what had no room stays where it was. -->
     <div class="tm-result" role="status">
@@ -143,7 +152,7 @@
             <div
               class="tm-dest"
               class:on={to === c.id}
-              class:off={!c.pickable && c.status !== "autoCrew"}
+              class:off={!c.pickable && !c.canSwitchToManual}
               role="radio"
               aria-checked={to === c.id}
               aria-disabled={!c.pickable}
@@ -168,6 +177,9 @@
               {#if c.warn}
                 <span class="tm-dw"><Icon name={c.status === "locked" ? "lock" : "warning"} size={12} /><span><span class="tm-wide-only">{c.warn}</span><span class="tm-narrow-only">{c.shortWarn}</span></span></span>
               {/if}
+              {#if c.info}
+                <span class="tm-di"><Icon name="info" size={12} /><span><span class="tm-wide-only">{c.info}</span><span class="tm-narrow-only">{c.shortInfo}</span></span></span>
+              {/if}
               {#if c.canSwitchToManual}
                 <span class="tm-da">
                   <button type="button" class="cg-btn sm" on:click|stopPropagation={() => switchAndPick(String(c.id))}><span class="tm-wide-only">{`Switch ${c.name} to manual`}</span><span class="tm-narrow-only">Switch to manual</span></button>
@@ -178,7 +190,7 @@
         </div>
 
         <div class="tm-picks">
-          <div class="tm-colh tm-wide-only">Crew to move{toPickable && toCard ? ` · room aboard ${toCard.name}` : ""}</div>
+          <div class="tm-colh tm-wide-only">Crew to move{toPickable && toCard ? (toCard.kind === "pool" ? " · room in the pool" : ` · room aboard ${toCard.name}`) : ""}</div>
           <div class="tm-rows">
             {#each preview.rows as r (r.key)}
               <div class="tm-pick">
@@ -214,6 +226,10 @@
             <p class="tm-warn"><Icon name="warning" size={14} /> <span>{preview.gateText}</span></p>
           {/if}
           <div class="tm-sum"><span class="tm-wide-only">{preview.summary}</span><span class="tm-narrow-only">{preview.shortSummary}</span></div>
+          {#if preview.swapWarning}
+            <!-- "Warn first" (user 2026-11-12): pool crew this Send leaves without a berth move to the reserve next tick. -->
+            <p class="tm-heads" role="note"><Icon name="warning" size={14} /> <span><span class="tm-wide-only">{preview.swapWarning}</span><span class="tm-narrow-only">{preview.shortSwapWarning}</span></span></p>
+          {/if}
         </div>
       </div>
     </div>
@@ -227,7 +243,7 @@
       <button type="button" class="cg-btn ghost tm-fbtn" class:tm-hide-narrow={step === 2} on:click={close}>Cancel</button>
       <button type="button" class="cg-btn ghost tm-fbtn tm-narrow-only" class:tm-hide-narrow={step === 1} on:click={() => (step = 1)}><Icon name="chevronLeft" size={14} /> Back</button>
       <button type="button" class="cg-btn pri tm-fbtn tm-narrow-only" class:tm-hide-narrow={step === 2} disabled={!toPickable || sourceBlock !== null} on:click={() => (step = 2)}>Next</button>
-      <button type="button" class="cg-btn pri tm-fbtn" class:tm-hide-narrow={step === 1} disabled={!canTransfer} on:click={doTransfer}><Icon name="transfer" size={14} /> {preview.buttonLabel}</button>
+      <button type="button" class="cg-btn pri tm-fbtn" class:tm-hide-narrow={step === 1} disabled={!canTransfer} on:click={doTransfer}><Icon name={recalling ? "crewPool" : "transfer"} size={14} /> {preview.buttonLabel}</button>
     {/if}
   </svelte:fragment>
 </ActionModal>
@@ -332,6 +348,26 @@
   .tm-da {
     grid-column: 2;
     margin-top: 4px;
+  }
+  .tm-di {
+    grid-column: 2;
+    font-size: var(--text-2xs);
+    color: var(--color-text-secondary);
+    display: flex;
+    gap: 5px;
+    align-items: flex-start;
+  }
+  .tm-heads {
+    margin: 8px 0 0;
+    padding: 7px 10px;
+    font-size: var(--text-xs);
+    color: var(--color-warning);
+    border: 1px dashed rgba(var(--color-warning-rgb, 251, 191, 36), 0.5);
+    border-radius: var(--corner);
+    background: rgba(var(--color-warning-rgb, 251, 191, 36), 0.05);
+    display: flex;
+    gap: 6px;
+    align-items: flex-start;
   }
   .tm-badge {
     font-family: var(--font-mono);
