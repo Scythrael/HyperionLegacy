@@ -20,6 +20,7 @@ import {
   telescopeMapView,
   TELESCOPE_MAP_RADIUS,
 } from "./telescopeCardDisplay";
+import { arcObstacleRadius } from "./completionDisplay";
 import { BEARING_TURN, ENEMY_SECTOR_WIDTH_PERMILLE, bearingDirection, homeworldPlacement, inEnemySector, type HomeworldPlacement } from "./game/galaxy";
 import { tierCandidateSystems } from "./game/expedition";
 
@@ -577,6 +578,37 @@ describe("telescopeMapEnemyView: enemy territory on the map", () => {
         expect(into, `${home.id} ${s.numeral}`).toBeLessThanOrEqual((3 * s.widthBearing) / 4 + 2);
       }
     }
+  });
+
+  // Completion tracking (0.14.0, user Q6 "B: arcs on region badges"): a badge wearing its green arc is one obstacle with
+  // it, so every slice label clears the arc too, and the arc stays inside the view; with no arcs the labels are unmoved.
+  it("completion arcs: the slice labels clear every arc, every arc fits the view, no arcs leaves the labels as they were", { timeout: 60_000 }, () => {
+    const R = arcObstacleRadius();
+    const hitsCircle = (b: ReturnType<typeof telescopeMapLabelBox>, cx: number, cy: number, r: number) =>
+      Math.hypot(Math.max(b.x0, Math.min(cx, b.x1)) - cx, Math.max(b.y0, Math.min(cy, b.y1)) - cy) < r;
+    let checked = 0;
+    for (const home of SEEDED) {
+      for (let level = 1; level <= TOP; level++) {
+        const map = telescopeMapView(level, home);
+        const [vx, vy, vw, vh] = map.viewBox.split(" ").map(Number);
+        const all = map.badges.map((b) => b.tier);
+        expect(telescopeMapEnemyView(level, home, [])).toEqual(telescopeMapEnemyView(level, home));
+        const view = telescopeMapEnemyView(level, home, all);
+        for (const s of view.sectors) {
+          const b = telescopeMapLabelBox(s.label);
+          for (const badge of map.badges) expect(hitsCircle(b, badge.x, badge.y, R), `${home.id} L${level} ${s.numeral} / arc ${badge.numeral}`).toBe(false);
+          checked++;
+        }
+        for (const badge of map.badges) {
+          const tag = `${home.id} L${level} arc ${badge.numeral}`;
+          expect(badge.x - R, tag).toBeGreaterThanOrEqual(vx);
+          expect(badge.x + R, tag).toBeLessThanOrEqual(vx + vw);
+          expect(badge.y - R, tag).toBeGreaterThanOrEqual(vy);
+          expect(badge.y + R, tag).toBeLessThanOrEqual(vy + vh);
+        }
+      }
+    }
+    expect(checked).toBeGreaterThan(500);
   });
 
   it("the provisional fixture has no enemy territory, so its map reads exactly as before", () => {

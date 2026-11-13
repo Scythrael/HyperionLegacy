@@ -53,6 +53,8 @@
   import ShortRangePanel from "./lib/ShortRangePanel.svelte";
   // Squads SQ-7.4: the Subspace Telescope Facilities card (its words and galaxy map are telescopeCardDisplay.ts).
   import TelescopeMap from "./lib/TelescopeMap.svelte";
+  import { systemRows } from "./lib/game/completion";
+  import { mapCompletionView } from "./lib/completionDisplay";
   import { telescopeCardView, telescopeMapEnemyView, telescopeMapView } from "./lib/telescopeCardDisplay";
   // Complement CP-19: the Personnel Rosters upgrade track card (its words are personnelRostersTrackDisplay.ts).
   import { rostersTrackView } from "./lib/personnelRostersTrackDisplay";
@@ -10998,7 +11000,12 @@
   $: telescopeView = telescopeCardView(state, { duration: (t) => durationReadout(t, showTickCounts, state.tickDurationSeconds), homeworld: telescopeHome });
   $: telescopeLevelNow = telescopeView.level;
   $: telescopeMap = telescopeMapView(telescopeLevelNow, telescopeHome);
-  $: telescopeEnemy = telescopeMapEnemyView(telescopeLevelNow, telescopeHome);
+  // Completion tracking (0.14.0): every visited system at its best completion (game/completion.ts systemRows), read by the
+  // Survey Log's Systems section and the telescope map's region arcs. The arcs ride the region badges, so the slice
+  // labels treat each badge with an arc as one obstacle with it.
+  $: visitedSystems = systemRows(state);
+  $: telescopeCompletion = mapCompletionView(telescopeMap.badges, visitedSystems);
+  $: telescopeEnemy = telescopeMapEnemyView(telescopeLevelNow, telescopeHome, telescopeCompletion.arcs.map((a) => a.tier));
   $: telescopeUpgradeCheck = canBuildFacilityUpgrade(state, SUBSPACE_TELESCOPE_FACILITY_KEY);
   $: telescopeUpgradeInFlight = state.activeProcesses.find(
     (p) =>
@@ -15799,7 +15806,7 @@
               <Panel>
                 <div class="panel-title">RANGE OVER THE GALAXY</div>
                 <div class="telescope-sub">Centered on your homeworld, on a square-root distance scale so the near rings stay readable. Badges I to VII are the regions.</div>
-                <TelescopeMap map={telescopeMap} enemy={telescopeEnemy} />
+                <TelescopeMap map={telescopeMap} enemy={telescopeEnemy} completion={telescopeCompletion} />
               </Panel>
             </div>
           {:else if activeFoundryFacility === "docks"}
@@ -16434,7 +16441,7 @@
                   text={SURVEY_LOG_HELP}
                 />
               </div>
-              <SurveyLogPanel entries={state.surveyLog ?? []} />
+              <SurveyLogPanel entries={state.surveyLog ?? []} systems={visitedSystems} />
             </Panel>
           {:else if activeFoundryFacility === "archive" && activeArchiveSubTab === "museum"}
             <!-- THE MUSEUM (Exploration 0.14.0, E4c): the Archive's relic collection. Every identified relic

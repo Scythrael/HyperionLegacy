@@ -40,3 +40,49 @@ old saves derive their % from stored records where possible, wrap-on-load if nee
 10. Log line: "B: a line on the claim card (Recommended)": "<System> completed: every body scanned, every objective
     done." (plus the hidden ledger entry).
 11. Abandoned: "A: keep its row, marked (Recommended)": stays at the % it reached, marked "Abandoned".
+
+## Completion tracking BUILT (2026-11-13): carry note
+
+Built to the eleven mockup answers above. Engine `src/lib/game/completion.ts` (one pure function, `systemCompletion`, over
+a tally of counts; `runCompletionTally`, `heldCompletionTally` and `recordTally` give a live run's, a held Resume system's
+and a record's), the hidden ledger `src/lib/game/notableEvents.ts`, display `src/lib/completionDisplay.ts` (tested), the
+Systems section `src/lib/SystemsSection.svelte`, the console in `ExpeditionPanel.svelte`, the arcs in `TelescopeMap.svelte`.
+
+- Q1 B: each body an equal share, its scan half and its objectives the other half (none: whole once scanned); a half scan
+  counts nothing; never dips. 100% only when complete (99 at most otherwise).
+- Q2 B: one record per system (GameState.systemRecords, keyed by system id, canonical key order), the best % kept (an
+  equal % from a visit that was not abandoned replaces an abandoned one). Candidate cards show "Visited: N%" or the badge.
+- Q3 B: a skipped objective counts as done; the lines note "N skipped".
+- Q4 A: a giant's ship study is its body's objective; the nebula sweep is one objective of the system.
+- Q5 A: records start at the update; runs in flight and Resume systems are listed live from day one.
+- Q6 B: a green arc outside each region badge (share of that region's listed systems completed), one legend line, "N charted
+  · M completed" on the key row, one accessible-name sentence; the slice labels treat a badge with an arc as one obstacle.
+- Q7 A: the compact line with a small ring under the header; each body card has its line; the badge joins the name at 100%.
+- Q8 A: the Systems section at the top of the Survey Log tab (open, Hide remembered; sort By tier, By completion, Newest
+  first, remembered per viewer); a table row from 620 px of panel width, a card below.
+- Q9 A: the Resume card's row is "Completion" with the one number; the recall claim's "saved to Resume at N%" reads it too.
+- Q10 B: the claim card's line at 100%, verbatim, plus the ledger event.
+- Q11 A: an abandon writes the record at the % it reached, marked "Abandoned".
+- Save: GameState.systemRecords and GameState.notableEvents, optional, appended, no SAVE_VERSION bump. The record keeps
+  counts PER BODY (the mockup's notes listed totals; equal body shares need the per-body counts); the % is never stored.
+- A claim writes the record unless the run was recalled and its system is held (listed In Resume) or nothing was charted.
+- Ledger: `notableEvents` with the Relics v2 content slice's shape and helper names (hub note 2026-11-13): kinds
+  "relicSetCompleted" (key `relic-set-completed:<setId>`, written when a study completes a set, at that instant) and
+  "systemCompleted" (key `system-completed:<systemId>`, at the claim of a 100% run). Reconcile with that slice at merge.
+- Glyph `systemComplete` (icons.ts, ICON_SEMANTICS "alert" like check), reviewed at 16 / 28 / 56 px.
+- Help: a new "System Completion" topic (the rule, where the % shows, no reward; helpTopics.ts SYSTEM_COMPLETION_PARAGRAPHS),
+  pointed to from Expedition Tiers (RESUME), Subspace Telescope (the arcs) and Survey Log (a SYSTEMS paragraph).
+- Ledger kept hidden by a test: only its writers (completion.ts, model.ts, notableEvents.ts, tick.ts) name it
+  (completionTracking.test.ts). The Relics v2 slice's `withNotableEventsOnLoad` is not in this branch; at the merge its
+  file joins that list.
+- RELEASE_GATE: 4 pending, all Relics v2 rows (relic:audit:completionBlank waits on open question 2 below).
+- Goldens: completionTrackingGoldens.test.ts (captured before the edit, 2652ed7c); the switch is model.ts
+  COMPLETION_TRACKING_SWITCH (completionTrackingSwitch.fixture.ts).
+- QA sheet: docs/qa/2026-11-13-completion-tracking-qa.html.
+
+OPEN QUESTIONS (not built, awaiting the user):
+1. The nebula sweep's WEIGHT under equal body shares: built as one more equal share of the system (whole once swept),
+   since it belongs to no body. Alternatives: fold it into every body's objective half, or count it in the numbers only.
+2. Relics v2 call 15 ("Relics owns the roll: one extra blank, one rarity step up", G7 calls it) against this design's
+   "no stat reward, no grind pressure": `planetCompletionRelicBlank` is NOT called; its registry row
+   (relic:audit:completionBlank) stays pending. Should a body or system reaching 100% roll the bonus blank?

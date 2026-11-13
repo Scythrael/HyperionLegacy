@@ -456,6 +456,12 @@ export const ICON_PATHS = {
   // Resume: a bookmark with a forward chevron inside (a system kept to pick up where you left off). The chevron's 5
   // unit height keeps it a chevron, not a dot, at 16 px.
   resume: ["M7 3h10v18l-5-3.5L7 21z", "M10.5 8.5l2.5 2.5-2.5 2.5"],
+  // Completion tracking (0.14.0, the approved 2026-11-13 mockup, "every body, every objective"): a system completed, an
+  // orbit with a planet riding it and a check inside. The planet's gap in the orbit keeps it apart from a check in a
+  // circle at 16 px; kept apart from `check` (one step done), `circle` (not reached), `skipped` (a circle with a bar) and
+  // `giant` (a ringed planet). Always drawn with the word "Completed" beside it, except on the telescope map (its legend
+  // says it). Reviewed at 16 / 28 / 56 px.
+  systemComplete: ["M20.1 9.4A8.5 8.5 0 1 1 14.6 3.9", "M18 3.8a2.2 2.2 0 1 0 0 4.4 2.2 2.2 0 0 0 0-4.4z", "M8.2 12.2l2.6 2.6 5-5.2"],
 
   // E-MOD EM-7: the v1 universal modules (the signed-off Relics, Refinery and Modules mockup, section C, "approved as
   // drawn"; each path is the mockup's own). The Long-Baseline Array draws with `telescope` (a long receiver), as the

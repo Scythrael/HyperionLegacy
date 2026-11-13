@@ -2,6 +2,7 @@
 // the three tallies, the records (best % kept, abandoned), the Systems rows, and the save round trip.
 
 import { describe, expect, it } from "vitest";
+import { readFileSync, readdirSync, statSync } from "node:fs";
 import type { CompletionBodyTally, Expedition, GameState, SystemRecord } from "./model";
 import {
   heldCompletionTally,
@@ -187,6 +188,21 @@ describe("the hidden ledger (notableEvents)", () => {
     const l = withNotableEvents(undefined, [a, b, a]);
     expect(l.map((e) => e.key)).toEqual(["system-completed:s1", "relic-set-completed:exc-t1-a"]);
     expect(withNotableEvents(l, [b])).toBe(l);
+  });
+  // User "Hidden until chat (Recommended)": the ledger is written, and nothing in play or on screen reads it. Every
+  // source file that names the field is one of its writers (or the type, or a test).
+  it("nothing shows or reads it: only its writers name it", () => {
+    const files: string[] = [];
+    const walk = (dir: string): void => {
+      for (const f of readdirSync(dir)) {
+        const p = `${dir}/${f}`;
+        if (statSync(p).isDirectory()) walk(p);
+        else if (/[.](ts|svelte)$/.test(f) && !/[.](test|fixture)[.]ts$/.test(f) && !/[.]d[.]ts$/.test(f)) files.push(p);
+      }
+    };
+    walk("src");
+    const named = files.filter((f) => /notableEvents|NotableEvent/.test(readFileSync(f, "utf-8"))).sort();
+    expect(named).toEqual(["src/lib/game/completion.ts", "src/lib/game/model.ts", "src/lib/game/notableEvents.ts", "src/lib/game/tick.ts"]);
   });
 });
 

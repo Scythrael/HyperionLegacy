@@ -36,6 +36,10 @@ import { DRIVE_CLASS_MAX, expeditionGateText, expeditionTierGates, shipDriveClas
 import { REGION_TIERS, REGION_TIER_NAMES, regionTierNumeral, stateHomeworld, type HomeworldPlacement } from "./game/galaxy";
 import { TELESCOPE_DETAIL_NAMES, telescopeLevel, telescopeReading } from "./game/telescope";
 import { TRAINING_EXPEDITION_LINE } from "./trainingRunDisplay";
+// Completion tracking (0.14.0, user Q9 "A: one number everywhere"): the Resume card's row and the recall claim's "saved
+// to Resume at N%" read the one completion function (game/completion.ts), the same number as the console and the list.
+import { heldCompletion } from "./game/completion";
+import { resumeCompletionText } from "./completionDisplay";
 import { VOYAGE_BAND_SCALE_PERMILLE, tierNominalSeconds } from "./game/voyage";
 import { TIER_HAUL_MULT } from "./game/riskFactors";
 import { runDifficultyAt } from "./game/runDifficulty";
@@ -398,8 +402,8 @@ export interface ResumeCardView {
   name: string;
   realStar: boolean;
   whereText: string; // "Tier II · Orion Arm · 400 ly from your homeworld"
-  percent: number; // charted, whole percent
-  chartedText: string; // "62% · 2 of 3 bodies scanned, the next scan picks up at body d"
+  percent: number; // the system's completion, whole percent (completion.ts, user Q9 A)
+  completionText: string; // "40% · Bodies 1/3 · Objectives 1/2. The next scan picks up at body c."
   objectivesText: string; // "3 keep their progress"
   transitText: string;
   outboundSeconds: number;
@@ -418,15 +422,16 @@ export function resumeCardsView(state: GameState, ship: ShipInstance, tier: Regi
     const sys = { tier: r.tier, distanceLy: r.distanceLy };
     const voyage = candidateVoyage(state, ship, sys, false, home);
     const gate = expeditionSystemGate(state, ship, sys, home);
-    const percent = Math.round(Math.max(0, Math.min(1, r.progress)) * 100);
-    const next = r.bodiesScanned < r.bodies ? `, the next scan picks up at body ${bodyLetter(r.bodiesScanned)}` : ", every body is scanned";
+    const completion = held ? heldCompletion(held) : null;
+    const percent = completion?.percent ?? 0;
+    const next = r.bodiesScanned < r.bodies ? ` The next scan picks up at body ${bodyLetter(r.bodiesScanned)}.` : " Every body is scanned.";
     return {
       id: r.id,
       name: r.systemName,
       realStar: held?.famousId != null,
       whereText: `${tierLabel(r.tier)} · ${lyNum(r.distanceLy)} ly from your homeworld`,
       percent,
-      chartedText: `${percent}% · ${r.bodiesScanned} of ${r.bodies} ${r.bodies === 1 ? "body" : "bodies"} scanned${next}`,
+      completionText: `${completion ? resumeCompletionText(completion) : `${percent}%`}.${next}`,
       objectivesText: r.objectivesInProgress === 0 ? "None under way" : `${r.objectivesInProgress} keep${r.objectivesInProgress === 1 ? "s" : ""} their progress`,
       transitText: `Out ${voyageSpanText(voyage.outboundSeconds)} · back ${voyageSpanText(voyage.returnSeconds)}`,
       outboundSeconds: voyage.outboundSeconds,
@@ -620,8 +625,7 @@ export function recallClaimView(state: Pick<GameState, "heldSystems">, exp: Expe
   const held = rc.held ? heldSystems(state).find((h) => h.id === rc.held) : undefined;
   const tierText = held ? `Tier ${regionTierNumeral(held.region.tier)}` : "";
   if (held?.kind === "resume") {
-    const view = resumableSystems(state).find((r) => r.id === held.id);
-    const pct = Math.round(Math.max(0, Math.min(1, view?.progress ?? 0)) * 100);
+    const pct = heldCompletion(held).percent;
     return { heading: `Home from ${exp.systemName} (recalled)`, text: `${found} ${exp.systemName} saved to Resume at ${pct}%.`, resumeChip: `In Resume: ${tierText}` };
   }
   if (held?.kind === "candidate") return { heading: `Home from ${exp.systemName} (recalled)`, text: `${found} ${exp.systemName} is a ${tierText} candidate again.`, resumeChip: null };
