@@ -449,16 +449,75 @@ replacing the Relics sub-tab: feed, queue, lanes, the reveal card, recent identi
 set cards by tier with Roman numeral tabs (section 4). Seven tier colors, Roman numerals, SVG glyphs only. One DOM,
 CSS breakpoints, verified at 375 px.
 
+**R2-7 carry note (2026-11-13):**
+- Built on the signed-off Relics v2 mockup (2026-10-21 artifact 6Pat4nwfbWzsUsqKUdMpKo, "I approve all 4 mockups as is";
+  every open question resolves to the option drawn). The 2026-10-09 scratchpad mockup is gone; the 10-21 mockup draws
+  the Identification, reveal, Cultures and exceptional set panels, so R2-7 follows it. View models: `src/lib/relicsV2Display.ts`
+  (pure, tested in `relicsV2Display.test.ts`).
+- Warehouse: `UnidentifiedRelicsPanel.svelte` under Logistics, Materials (blanks are not warehouse stock, so below the
+  material tiers): rarity rows by the region tiers that hold a blank (transposed from "tier x rarity" so seven tiers fit
+  at 375 px), totals, Identify jumps to the Identification tab.
+- Identification tab: the Research Lab's "relics" sub-tab (key kept, label Identification) is `RelicStudyPanel.svelte`
+  rewritten: lanes (busy, free, locked with "Opens at Research Lab V"), the queue (move up, move down, remove, an "about"
+  clear estimate), Queue all, Queue per waiting blank (a free lane starts at once), the inline reveal card
+  (`buildRelicRevealV2`: a general type with its tier, sample or real name and culture study; an exceptional piece named
+  on reveal with its value and set progress; the culture name reveal box), recent identifications from the completed-events
+  record. App handlers `doQueueRelicStudy` / `doQueueAllRelicStudies` / `doUnqueueRelicStudy` / `doMoveRelicQueueEntry`
+  replace `doStartRelicStudy`. The observer derives a v2 study's expected id against the Museum as it stood when first
+  watched, and falls back to the oldest unseen record when another exceptional landed in between.
+- Home: the running row reads "Identifying, Tier I · standard blank"; Recently Completed names an exceptional piece (it
+  showed the raw id).
+- Exceptional set cards by tier with Roman numeral tabs live on the Museum page (R2-8), one component for both.
+- Glyph: `exceptional` (icons.ts, verbatim from the mockup, ICON_SEMANTICS subject), tinted by tier. Tier colors:
+  `--region-tier-1..7` in app.css (the mockup's dark values). Checked at 16 / 28 / 56 px: distinct from `star` at 28 and
+  56; at 16 px its inner stroke is faint (the pages draw it at 14 to 20 px).
+- Wiring: `relic:audit:identifyQueue` LIVE (probe `content:relic:queue`: six blanks queued on a Lab I all identify in one
+  long resolve, five more than without the queue). Registry pins read the three flips and R2-5's renamed claims back
+  (`relicContentRegistry.fixture.ts relicContentReadBack`, innermost in every chain).
+
 ### R2-8: UI B, needs a NEW mockup sign-off
 The Museum v2 page (per-tier general shelves, culture samples under each type, the cap meter and frozen state, the
 exceptional sets), the Cultures tab detail and its name-reveal moment, and the glyph plan for exceptional pieces
 **[PROPOSAL]** one SVG glyph per set with its tier color, so the SVG work stays bounded (reviewed at 16 / 28 / 56 px).
 The mockup's soft-cap chart is explanation only; it is not an in-game screen.
 
+**R2-8 carry note (2026-11-13):** the new mockup sign-off is the 2026-10-21 one above (R2-8 / ML-7 / EM-10 "as drawn":
+shelves by rarity band per tier; hatched past-cap bar; culture samples under each type; inline reveal card).
+- Museum v2 page: `MuseumV2Panel.svelte` replaces the Archive's Museum mount: summary (general relics, exceptional pieces of
+  54), tier pills I to VII in the tier colors, the cap meter (fill to 1,000, the past-cap count hatched, the chip "Bonuses
+  held at the cap snapshot"), the tier's own bonus chips (what the engine reads: Tier I the v1 set math, Tiers II to VII
+  the curve, from `museumActiveRecord`), band shelves with every type (stat, live count, "Found in Tier IV+ regions" when
+  not open at the tier, "Culture samples (n)" from the tier's roster cultures' finds), the tier's exceptional set cards,
+  and for Tier I the old `MuseumPanel` (its set ladder) under "Tier I set bonuses".
+- Cultures tab: `CulturesPanel.svelte`, a new Research Lab sub-tab: the culture list (bare name or "Culture K-17", tier,
+  study bar) and the detail (identified or not, the lore line once identified, the study split between identified finds
+  and ancient data, finds as sample names, decoded ancient entries). The name reveal is the inline glowing card (once
+  per reveal while the tab is open; none under reduced motion); per the mockup's question 4 "as drawn", no system chat
+  line. The reveal card on the Identification tab also says it when a find names a culture.
+- OPEN (not decided, plan proposal never answered): "one SVG glyph per exceptional set with its tier color". The signed-off
+  mockup draws one shared exceptional glyph in the tier color, which is what shipped; 14 per-set glyphs wait on the user.
+- The culture detail does not name a "source planet" (the mockup's sample line): many planets share a culture (six per
+  tier), so the page says the culture is set by the planet a relic came from, without naming one.
+
 ### R2-9: Help, text, QA, close-out
 Help pages for relics, identification, cultures, the Museum curve and the soft cap; claim log lines for blanks by
 tier; patch-note draft (never the Intact Data Core line, never a DBD name); the curated desktop + mobile QA sheet;
 holistic review; staging only by the controller.
+
+**R2-9 carry note (2026-11-13):**
+- Help: the "Relics and the Museum" topic rewritten in seven parts (finding relics, blanks, identification with the lane
+  rungs read from `RELIC_STUDY_LANES_BY_LAB`, exceptional relics, cultures at `CULTURE_STUDY_POINTS`, the Museum with
+  Tier I's ladder kept and the curve above it, the soft cap at `RELIC_SOFT_CAP`); the Ancient Data Fragment topic's "The
+  cultures have no names yet" now says a fragment study gives its culture a study point.
+- Claim log: "N unidentified relics to the vault (Tier I 2, Tier II 1)" (`claimedBlanksByTierText`).
+- QA sheet: `docs/qa/2026-11-13-relics-v2-content-qa.html` (staging, devpreview.crystalisoft.com, 1280 and 375 px).
+- Patch-note lines [PROPOSAL, the wording is the user's]: "Relics are now found as blanks with a region tier and a
+  rarity. Queue them on the Research Lab's new Identification tab: lanes grow with the Lab, and the queue keeps going while
+  you are away. A rare few are exceptional relics, fourteen named sets from Tier I to Tier VII, each completed set a big
+  bonus. Every relic belongs to a long-dead culture: study enough of their finds and you learn their name. The Museum now
+  shows each region tier on its own shelf, with a soft cap at 1,000 relics per tier." (No Intact Data Core line, no
+  antagonist name, no franchise name.)
+- Holistic review and staging: the controller's.
 
 **Mockup coverage vs new sign-off**
 
