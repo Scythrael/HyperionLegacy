@@ -3,12 +3,12 @@
 //   - The tier tables are honored over 10,000 seeds per tier, and each tier shifts weight up the table.
 //   - The haul multiplier and the blank tier never move the relic chance (user call 13 "Better rarity only").
 //   - A blank's culture is a pure, stable derivation (body-tied for a new run, id-derived for an old token).
-//   - The three hooks (short-range drops, the planet completion roll, the general pick for a blank with no set) are
+//   - The two hooks (short-range drops, the planet completion roll; the general pick for a blank with no set is retired) are
 //     deterministic and do what the user's answers say; the grant hook's relic kinds round-trip a save.
 
 import { describe, it, expect } from "vitest";
 import { freshState, RELIC_DEFAULT_SEED, type EquipmentRarity, type GameState, type RegionTier, type RelicVaultToken } from "./model";
-import { CULTURE_ROSTER, RELIC_BAND_ODDS, RELIC_BANDS, RELIC_SETS, RELIC_TYPES, getRelicTypeById, relicBandOf, relicStudySeed, relicTypesInBand } from "./relics";
+import { CULTURE_ROSTER, RELIC_BAND_ODDS, RELIC_SETS, RELIC_TYPES, getRelicTypeById, relicBandOf } from "./relics";
 import {
   RELIC_BLANK_WEIGHTS,
   RELIC_BLANKS_VERSION,
@@ -16,7 +16,6 @@ import {
   EXPEDITION_RELIC_BLANKS_PER_HOUR,
   cultureForBody,
   generalTypeWeight,
-  identifyGeneralRelic,
   legacyTokenCultureId,
   planetCompletionRelicBlank,
   relicBlankCeiling,
@@ -33,7 +32,7 @@ import {
 import { relicTierCeiling, rollRelicToken, taskRelicSeed } from "./gambit";
 import { taskFullHaul } from "./groundTasks";
 import { makeExpeditionSeed, startExpedition } from "./expedition";
-import { economyTick, identifyStudiedRelic, tick } from "./tick";
+import { economyTick, identifyStudiedRelic, startRelicStudy, tick } from "./tick";
 import { startV1RelicStudy } from "./relicStudyV1.fixture";
 import { canGrant, grant } from "./processSpeed";
 import { deserialize, migrate, serialize, type SaveFile } from "./save";
@@ -41,6 +40,7 @@ import { makeRng } from "./combat/rng";
 import { onHull, withCrew } from "./firstRunsGoldens.fixture";
 import { asExpeditionVeteran } from "./awayTeamTestFixtures";
 import { R2_2_ADDED_ENTRY_IDS } from "./relicBlanks.fixture";
+import { GENERAL_PICK_ROW_ID, generalPickReadBack } from "./relicGeneralPickRegistry.fixture";
 import { WIRING_REGISTRY } from "./wiring/registry";
 
 const TIERS: readonly RegionTier[] = [1, 2, 3, 4, 5, 6, 7];
@@ -292,57 +292,43 @@ describe("R2-2 hook: the planet 100% completion roll (G7)", () => {
   });
 });
 
-describe("R2-2: a blank with no set identifies over the general pool", () => {
-  it("deterministic; the band follows RELIC_BAND_ODDS; every type is in its band", () => {
-    const N = 10_000;
-    for (const tier of [1, 7] as RegionTier[]) {
-      const counts: Record<string, number> = {};
-      for (let s = 1; s <= N; s++) {
-        const id = identifyGeneralRelic(tier, "standard", undefined, s);
-        expect(identifyGeneralRelic(tier, "standard", undefined, s)).toBe(id);
-        const band = getRelicTypeById(id)!.band;
-        counts[band] = (counts[band] ?? 0) + 1;
-      }
-      const row = RELIC_BAND_ODDS[tier].standard;
-      const total = RELIC_BANDS.reduce((a, b) => a + row[b], 0);
-      for (const b of RELIC_BANDS) {
-        const p = row[b] / total;
-        expect(Math.abs((counts[b] ?? 0) / N - p), `${tier} ${b}`).toBeLessThan(4 * Math.sqrt((p * (1 - p)) / N) + 0.002);
-      }
-    }
-  });
-
+// R2-2's general pick for a blank with no set (identifyGeneralRelic) is RETIRED by the R2-3 follow-up (2026-11-13): no
+// study in real play reached it (every setless blank entered the vault after R2-3 stamped `v: 2` on every new study).
+// Its two tests and the statistical half of the site bias test went with it; identification v2's site bias is pinned in
+// relicIdentify.test.ts ("the site bias doubles the source site's old set types").
+describe("R2-2: the site bias weights a blank with no set reads (identification v2)", () => {
   it("the site bias doubles the old set's types (user call 17)", () => {
     expect(generalTypeWeight(getRelicTypeById("geodeCore")!, "deepEarth")).toBe(2 * getRelicTypeById("geodeCore")!.weight);
     expect(generalTypeWeight(getRelicTypeById("glyphTablet")!, "deepEarth")).toBe(getRelicTypeById("glyphTablet")!.weight);
     expect(generalTypeWeight(getRelicTypeById("geodeCore")!, null)).toBe(getRelicTypeById("geodeCore")!.weight);
-    // Over many seeds, a Deep Earth site's standard reveals favor Geode Core (2 of 5 weight units in the band).
-    const N = 10_000;
-    let geode = 0;
-    let std = 0;
-    for (let s = 1; s <= N; s++) {
-      const id = identifyGeneralRelic(1, "standard", "caveNetwork", s);
-      if (getRelicTypeById(id)!.band === "standard") {
-        std++;
-        if (id === "geodeCore") geode++;
-      }
-    }
-    const p = 2 / (relicTypesInBand("standard").length + 1);
-    expect(Math.abs(geode / std - p)).toBeLessThan(0.03);
     expect(RELIC_TYPES.length).toBe(17);
   });
 
-  // R2-3: a v1 study (one in flight at the update); a NEW study identifies through identification v2 (relicIdentify.ts).
-  it("a setless blank's v1 study identifies through it, deposits a copy and its first find (offline == live)", () => {
+  // A v1 study (no `v`) of a setless blank exists in no save (no build started one), so it is a tampered save: it
+  // identifies nothing and records "nothing", like an unknown set. The same blank studied as every build studies it
+  // (identification v2) reveals a relic, deposits it and its first find (offline == live).
+  it("a setless blank: a v1 study (a tampered save) lands nothing; the real v2 study identifies it", () => {
     const token: RelicVaultToken = { id: "sr-1-relic-0", tier: "standard", quality: 0, regionTier: 1, cultureId: "culture-t1-2", source: "shortRange" };
     const s0: GameState = withRelicBlanks(freshState(), [token]);
     expect(s0.relicVault.map((t) => t.id)).toEqual(["sr-1-relic-0"]);
-    const started = startV1RelicStudy(s0, token.id);
+    const v1 = startV1RelicStudy(s0, token.id);
+    expect(v1.started).toBe(true);
+    const v1Proc = v1.next.activeProcesses.find((p) => p.kind === "relicStudy")!;
+    const v1Effect = v1Proc.effect as { type: "identifyRelic"; token: RelicVaultToken; studyIndex: number; v?: 2 };
+    expect(v1Effect.v).toBeUndefined();
+    expect(identifyStudiedRelic(v1.next, v1Effect.token, v1Effect.studyIndex)).toBeNull();
+    const v1Done = tick(v1Proc.remainingTicks + 5, v1.next, () => 0);
+    expect(v1Done.museumV2).toEqual(s0.museumV2);
+    expect(v1Done.relicDiscovered).toEqual(s0.relicDiscovered);
+    expect(v1Done.completionLog.at(-1)).toMatchObject({ kind: "relicStudy", reward: "nothing", subjectKey: token.id });
+
+    const started = startRelicStudy(s0, token.id);
     expect(started.started).toBe(true);
     const proc = started.next.activeProcesses.find((p) => p.kind === "relicStudy")!;
-    const effect = proc.effect as { type: "identifyRelic"; token: RelicVaultToken; studyIndex: number };
-    const expected = identifyGeneralRelic(1, "standard", undefined, relicStudySeed(started.next.relicSeed ?? RELIC_DEFAULT_SEED, effect.studyIndex, token.id));
-    expect(identifyStudiedRelic(started.next, effect.token, effect.studyIndex)).toBe(expected);
+    const effect = proc.effect as { type: "identifyRelic"; token: RelicVaultToken; studyIndex: number; v?: 2 };
+    expect(effect.v).toBe(2);
+    const expected = identifyStudiedRelic(started.next, effect.token, effect.studyIndex, effect.v)!;
+    expect(getRelicTypeById(expected)).toBeDefined();
     const span = proc.remainingTicks + 5;
     const offline = tick(span, started.next, () => 0);
     let live = started.next;
@@ -389,7 +375,9 @@ describe("R2-2: the grant hook's relic kinds (unused until the tutorial patch)",
 });
 
 describe("R2-2: the wiring registry additions (every registry pin holds them apart)", () => {
-  it("the five audit rows, each with its status and owner", () => {
+  // The R2-3 follow-up REMOVED the fifth, relic:audit:generalPick (pending until then); generalPickReadBack
+  // (relicGeneralPickRegistry.fixture.ts) puts it back for the pins taken before.
+  it("the four audit rows still in the registry, each with its status and owner", () => {
     expect(
       WIRING_REGISTRY.filter((e) => R2_2_ADDED_ENTRY_IDS.has(e.id)).map((e) => `${e.id}|${e.status.kind}|${e.status.kind === "pending" ? e.status.owner : ""}`),
     ).toEqual([
@@ -398,7 +386,13 @@ describe("R2-2: the wiring registry additions (every registry pin holds them apa
       "relic:audit:blankCulture|live|", // R2-6: live (probe content:relic:cultureReveal)
       "relic:audit:shortRangeBlanks|live|",
       "relic:audit:completionBlank|pending|G7 (calls the hook when a planet is fully completed)",
-      "relic:audit:generalPick|pending|Relics v2 R2-3 follow-up (retire the v1 setless branch of identifyStudiedRelic: identification v2, relic:audit:identifyV2, studies every new blank, G1-5's short-range blanks included, so no study reaches this pick)",
     ]);
+    expect(WIRING_REGISTRY.some((e) => e.id === GENERAL_PICK_ROW_ID)).toBe(false);
+    // The read-back restores it exactly once, right after relic:audit:identifyQueue, as it stood (pending).
+    const back = generalPickReadBack(WIRING_REGISTRY);
+    expect(back.length).toBe(WIRING_REGISTRY.length + 1);
+    const i = back.findIndex((e) => e.id === GENERAL_PICK_ROW_ID);
+    expect(back[i - 1].id).toBe("relic:audit:identifyQueue");
+    expect(back[i].status.kind).toBe("pending");
   });
 });

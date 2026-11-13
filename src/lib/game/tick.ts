@@ -213,7 +213,7 @@ import {
 // Exploration 0.14.0 (Phase E4a): the relic catalog's pure identification roll + study constants.
 // relics.ts imports only model/expeditionContent TYPES + the leaf PRNG, so this adds no import cycle.
 import { identifyRelic, relicStudySeed, relicStudyDurationTicks, museumBonuses, museumDepositGeneral } from "./relics";
-import { identifyGeneralRelic, vaultTokenCultureId, vaultTokenRegionTier } from "./relicBlanks";
+import { vaultTokenCultureId, vaultTokenRegionTier } from "./relicBlanks";
 // Relics v2 R2-3: identification v2 (the keyed three-draw roll and its deposit) and the lanes by Lab level.
 import { ORDERING2_SWITCH, compareProcessIds, inCanonicalKeyOrder, withDiscovered } from "./canonicalOrder";
 import { RELIC_STUDY_VERSION, applyRelicIdentification, identifyRelicV2, relicIdentificationId, relicStudyLanesAt } from "./relicIdentify";
@@ -9348,12 +9348,13 @@ export function processDataStudyLane(state: GameState): GameState {
 // relicSeed, studyIndex, tokenId)). A pure function of stored values (the save's fixed relicSeed + the
 // effect's own fields), so it is chunking-independent and reload-stable. Returns null for an unknown set (a
 // tampered save).
-// Relics v2 R2-2: a blank with NO set (a short-range, completion or grant blank: no site) identifies over the general
-// pool by band on the same keyed seed (relicBlanks.ts identifyGeneralRelic, its region tier's band odds). Every sited
-// blank keeps the v1 roll above exactly.
 // Relics v2 R2-3: without `v` this is the v1 roll (a study started before R2-3). A v2 study (`v: 2`) reveals through
 // identifyRelicV2, which also reads the Museum's exceptional copies at completion (`museum`, default the state's). The
 // UI's reveal observer calls it as a HINT only; the completion record the resolver wrote is authoritative.
+// R2-3 follow-up (2026-11-13): a v1 study of a blank with NO set returns null like an unknown set (a tampered save). No
+// build ever started one: a setless blank (a G1-5 short-range drop, the completion roll; grants go straight to the
+// Museum) reached the vault only after R2-3 stamped `v: 2` on every new study, and relic studies never shipped to main or
+// staging before it. R2-2's general pick for such a study (relicBlanks.ts identifyGeneralRelic) is retired with this branch.
 export function identifyStudiedRelic(
   state: GameState,
   token: RelicVaultToken,
@@ -9362,9 +9363,8 @@ export function identifyStudiedRelic(
   museum: MuseumV2 = state.museumV2
 ): string | null {
   if (v === RELIC_STUDY_VERSION) return relicIdentificationId(identifyRelicV2(state.relicSeed, museum, token, studyIndex));
-  const seed = relicStudySeed(state.relicSeed ?? RELIC_DEFAULT_SEED, studyIndex, token.id);
-  if (token.setId === undefined) return identifyGeneralRelic(vaultTokenRegionTier(token), token.tier, token.poiId, seed);
-  return identifyRelic(token.setId, token.tier, seed);
+  if (token.setId === undefined) return null;
+  return identifyRelic(token.setId, token.tier, relicStudySeed(state.relicSeed ?? RELIC_DEFAULT_SEED, studyIndex, token.id));
 }
 
 // What one completed relic study deposits, against the Museum and registry as they stand at its completion. A v2 study:

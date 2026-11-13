@@ -10,16 +10,16 @@
 //   - the blank stamp a flagged run writes (Expedition.relicBlanks): its tier and the body's culture, derived with no
 //     draw on any shared stream (a fresh keyed stream per body);
 //   - the read-time defaults of a vault token (tier I, a culture derived from the token id, source "expedition");
-//   - THREE HOOKS other slices call: the short-range relic drop (G1-5 wires it; user, short-range plan call 11: "rare,
-//     per hour, Tier I 0.08x and Tier II 0.15x of the expedition rate"), the planet 100% completion bonus roll (G7 calls
-//     it; user call 15 "Relics owns the roll": one extra blank, one rarity step up), and the general pick a blank with
-//     no site identifies through until R2-3's identification v2 (a short-range, completion or grant blank has no set);
+//   - TWO HOOKS other slices call: the short-range relic drop (G1-5 wires it; user, short-range plan call 11: "rare,
+//     per hour, Tier I 0.08x and Tier II 0.15x of the expedition rate") and the planet 100% completion bonus roll (G7
+//     calls it; user call 15 "Relics owns the roll": one extra blank, one rarity step up). (R2-2's third hook, the general
+//     pick for a blank with no site, is retired: identification v2 studies every such blank);
 //   - the site bias weights (user call 17: a blank's source site doubles the weight of its old set's types).
 // Pure functions only; every draw is an integer draw on a makeRng stream keyed by a fresh odd salt (salts.test.ts).
 // ============================================================================
 
 import { RELIC_DEFAULT_SEED, type EquipmentRarity, type Expedition, type GameState, type RegionTier, type RelicSetId, type RelicVaultToken } from "./model";
-import { CULTURE_ROSTER, RELIC_BAND_ODDS, RELIC_BANDS, RELIC_SITE_BIAS_MULT, relicBandOf, relicSetForPoi, relicTypesInBand, type RelicBand } from "./relics";
+import { CULTURE_ROSTER, RELIC_BAND_ODDS, RELIC_SITE_BIAS_MULT, relicBandOf, type RelicBand } from "./relics";
 import { makeRng, type Rng } from "./combat/rng";
 import { bodyLetter } from "./starCatalog";
 
@@ -277,7 +277,7 @@ export function planetCompletionRelicBlank(exp: Pick<Expedition, "id" | "seed" |
 }
 
 // ============================================================================
-// Site bias, and the general pick for a blank with no set
+// Site bias (identification v2 reads it, relicIdentify.ts)
 // ============================================================================
 
 // User call 17 ("Every set + site bias"): a general type's in-band weight for a blank from `siteSet` (the old set its
@@ -286,18 +286,6 @@ export function generalTypeWeight(type: { weight: number; siteSet: RelicSetId },
   return siteSet !== null && type.siteSet === siteSet ? type.weight * RELIC_SITE_BIAS_MULT : type.weight;
 }
 
-// The general type a blank reveals over the GENERAL POOL (no set): the band from RELIC_BAND_ODDS[region tier][the
-// blank's band], then a type inside the band weighted by generalTypeWeight. Two draws, in that order, on one makeRng
-// stream. A pure function of its inputs (offline == live by construction). Until R2-3's identification v2 this is the
-// study of a blank that has no set (a short-range, completion or grant blank); R2-3 builds on the same pick. Returns the
-// type id.
-export function identifyGeneralRelic(regionTier: RegionTier, rarity: EquipmentRarity, poiId: string | undefined, seed: number): string {
-  const rng = makeRng(seed >>> 0);
-  const odds = RELIC_BAND_ODDS[regionTier] ?? RELIC_BAND_ODDS[1];
-  const row = odds[relicBandOf(rarity)];
-  const bands = RELIC_BANDS.map((band) => ({ band, weight: row[band] })).filter((b) => b.weight > 0);
-  const band = bands[pickIndex(rng, bands)].band;
-  const site = relicSetForPoi(poiId);
-  const types = relicTypesInBand(band).map((t) => ({ id: t.id, weight: generalTypeWeight(t, site) }));
-  return types[pickIndex(rng, types)].id;
-}
+// (The R2-2 general pick for a blank with no set, identifyGeneralRelic, is RETIRED (the R2-3 follow-up, 2026-11-13): no
+// study in real play ever reached it. Every blank without a set entered the vault after R2-3, whose every study identifies
+// through identification v2 (relicIdentify.ts), which reads the site bias above.)

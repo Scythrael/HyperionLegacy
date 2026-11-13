@@ -1581,8 +1581,9 @@ export const RELIC_QUEUE_PROBE_BLANKS = 6;
 // Relics v2 R2-3 content probes ("content:relic:<a>"):
 //   exceptionalReveals  the exceptional copies the Museum holds after the probe's studies, each STARTED by the player's
 //                       start (startRelicStudy, a Lab I) and RESOLVED by the real resolver (resolveProcesses). On = the
-//                       study as started (the v2 stamp); off = the same study with the stamp removed (the v1 roll,
-//                       which never reveals an exceptional piece).
+//                       study as started (the v2 stamp); off = the same study with the stamp removed (the v1 path,
+//                       which never reveals an exceptional piece; for this probe's setless blank it lands nothing since
+//                       the R2-3 follow-up retired the general pick, and still 0 exceptional copies either way).
 //   lanes               the relic studies a Research Lab runs at once (relicStudySlotCount): on = Lab VII, off = Lab I.
 //   cultureReveal       the cultures named after RELIC_CULTURE_PROBE_STUDIES Tier I standard blanks are studied one after
 //                       another (Lab I, the real start and resolver): on = every blank carries the R2-2 culture stamp of

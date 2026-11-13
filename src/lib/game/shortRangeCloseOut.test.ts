@@ -11,7 +11,7 @@ const SR = "mission:shortRange";
 describe("G1-7: no registry row waits on a short-range slice", () => {
   it("no pending row is owned by a G1 slice", () => {
     // An owner names its slice first ("G1-4", "G1-6 ..."); a row owned by another slice may still mention G1 in passing
-    // (relic:audit:generalPick is the Relics v2 R2-3 follow-up's).
+    // (relic:audit:generalPick was the Relics v2 R2-3 follow-up's; that follow-up removed it).
     const waiting = releaseBlockers().filter((e) => e.status.kind === "pending" && /^G1(-\d)?\b/.test(e.status.owner)).map((e) => e.id);
     expect(waiting).toEqual([]);
   });

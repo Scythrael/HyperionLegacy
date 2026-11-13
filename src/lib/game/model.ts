@@ -8507,8 +8507,8 @@ export interface RelicVaultToken {
   quality: number; // 0..5 quality bucket carried from the reward roll (provenance; no effect yet)
   // The set this token identifies WITHIN (v1 identification), routed off its PoI at deposit. Relics v2 R2-2: OPTIONAL. A
   // blank with no site (a short-range blank, a planet completion blank, a grant) has neither a set nor a PoI; its study
-  // identifies over the general pool by band (relicBlanks.ts identifyGeneralRelic). Every expedition deposit still
-  // writes both, so a sited blank identifies exactly as before.
+  // identifies through identification v2 (relicIdentify.ts; every such blank reached the vault after R2-3, so no v1 study
+  // of one exists). Every expedition deposit still writes both, so a sited v1 study identifies exactly as before.
   setId?: RelicSetId;
   poiId?: string; // the PoI the finding came from (expeditionContent.ts POI_CATALOG id); absent = no site (see setId)
   studySpeed?: number; // WR-5c Preservationist (carried from the token): the study runs (1 + this) faster; absent = 0
