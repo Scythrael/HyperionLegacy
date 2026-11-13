@@ -367,7 +367,11 @@ Ember Court (theme becomes: a court famous for the grand weekly gatherings its h
   spout, and never once empty. The court's tea was always brewed after sundown, and served before sunrise." The set,
   Crucible, Coronet and Bellows lines ship as drafted above (the Banner line is dropped).
 
-## PROPOSAL (2026-11-13): theme-matched piece stats, for the user's sign-off
+## APPROVED (2026-11-13): theme-matched piece stats
+
+USER ANSWER (2026-11-13): "Approve the 4 swaps (Recommended)". Applied in code: relics.ts EXCEPTIONAL_STAT_THEME_SWAPS (the
+four CHANGE rows below; the Lightkeeper and Deepcut full sets follow their first pieces). The sheet test reads this table.
+The table as it was proposed:
 
 The user's 2026-11-02 structure answer "Match stats to themes (Recommended)" asked to reassign each exceptional
 piece's stat to fit its name, still covering all 14 Museum stats evenly, values unchanged. No table was drawn at the time,

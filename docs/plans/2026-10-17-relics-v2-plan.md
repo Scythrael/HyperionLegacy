@@ -396,8 +396,13 @@ per set; replaying a save does not duplicate; duplicates follow OC-7; ledger sur
   `ExceptionalSetDef` / `ExceptionalPieceDef` gained `flavor`. Ids unchanged. `relicsV2Catalog.test.ts` reads the sheet
   itself and asserts every name, flavor line and stat (68 rows), so the catalog cannot drift from what the user approved.
 - Stats: the sheet's stat column IS today's cycle (the names were fitted to it; the Teapot answer restates crewBonuses), so
-  stats are unchanged. OPEN for the user: the 2026-11-02 answer "Match stats to themes (Recommended)" asks for a per-piece
-  reassignment by theme; no reassignment table was drawn or approved, so none was invented.
+  stats are unchanged. The 2026-11-02 answer "Match stats to themes (Recommended)" then got its table (end of the name
+  sheet), APPROVED 2026-11-13 "Approve the 4 swaps": `relics.ts EXCEPTIONAL_STAT_THEME_SWAPS` lays the four on the cycle
+  (Guestbook crewBonuses, Wick hazardResist, Plumb Line extractionSpeed, Keeper's Chair craftingQuality; the Lightkeeper
+  and Deepcut full sets follow their first pieces). The sheet test reads the APPROVED table. Moved pins traced with a
+  switch-off (`relicStatSwaps.fixture.ts withoutThemeSwaps` reproduces every pre-swap value): `relicsV2MuseumGoldens`
+  golden 3's two exceptional pins (old pin under the switch, new pin beside it); the registry chains read the six rows'
+  pre-swap stat and probe back (`relicContentReadBack`).
 - Ledger: `GameState.notableEvents?` (optional, no SAVE_VERSION bump) and `notableEvents.ts` (append-only, one entry per
   key `relicSetCompleted:<set id>`, kind, set id, tier, game second). The relic chain stamps a completion at the window's
   start plus the study's completion instant (`notableSecond`), so one call, 997 s chunks and 1 s steps write the same

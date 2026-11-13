@@ -230,6 +230,18 @@ describe("R2-1 catalog: exceptional relics (user calls 5, 6, 7)", () => {
     const teapot = /\*\*Ember Court Teapot\*\* \(stat crewBonuses, same id\): "([^"]+)"/.exec(sheet.replace(/\n {2}/g, " "))!;
     rows.set("exc-t5-b-p1", { name: "Ember Court Teapot", stat: "crewBonuses", flavor: teapot[1] });
     expect(rows.size).toBe(14 + 54);
+    // MOVED by the four theme-matched stat swaps (user 2026-11-13 "Approve the 4 swaps"): the stat is the APPROVED table's
+    // proposed column (its "current" column is Part A's, checked to agree).
+    const approved = sheet.slice(sheet.indexOf("## APPROVED (2026-11-13): theme-matched piece stats"));
+    let swapped = 0;
+    for (const m of approved.matchAll(/^\| (exc-t\d-[a-z](?:-p\d)?) \| [^|]+ \| ([^|]+) \| ([^|]+) \| .+ \|$/gm)) {
+      const row = rows.get(m[1])!;
+      expect(m[2].trim(), m[1]).toBe(row.stat);
+      const next = m[3].trim().replace(/\*/g, "");
+      if (next !== row.stat) swapped++;
+      row.stat = next;
+    }
+    expect(swapped).toBe(4 + 2); // four pieces and the two full sets that follow them
     for (const set of EXCEPTIONAL_SETS) {
       expect({ name: set.label, stat: set.fullSet[0].stat, flavor: set.flavor }).toEqual(rows.get(set.id));
       for (const p of set.pieces) expect({ name: p.label, stat: p.stat, flavor: p.flavor }).toEqual(rows.get(p.id));

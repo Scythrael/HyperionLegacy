@@ -10,6 +10,7 @@
 
 import type { WiringEntry } from "./wiring/registry";
 import { tierNumeral } from "./galaxy";
+import { PRE_SWAP_PIECE_STAT } from "./relicStatSwaps.fixture";
 
 type Shape = Pick<WiringEntry, "status" | "probe" | "contexts" | "direction" | "curve" | "note" | "claim">;
 
@@ -39,21 +40,25 @@ export const RELIC_CONTENT_BEFORE: Readonly<Record<string, Partial<Shape>>> = {
 // R2-5 also renamed every exceptional set and piece, and the EXCEPTIONAL_SETS rows' claims read the labels: the claim
 // goes back to the R2-1 placeholder ("[PROPOSAL] Tier II Set A piece 3: transitSpeed", "[PROPOSAL] Tier II Exceptional
 // Set A full set: relicFindChance"), the rest of the row unchanged.
-function placeholderClaim(e: WiringEntry): string | null {
-  const m = /^relic:EXCEPTIONAL_SETS:exc-t(\d)-([a-z]):(?:exc-t\d-[a-z]-p(\d)|full)$/.exec(e.id);
+// The four theme-matched stat swaps (user 2026-11-13) moved six of those rows' stat (four pieces, two full sets): the
+// claim's stat and the probe go back to the pre-swap stat (relicStatSwaps.fixture.ts PRE_SWAP_PIECE_STAT).
+function placeholderRow(e: WiringEntry): { claim: string; probe: string } | null {
+  const m = /^relic:EXCEPTIONAL_SETS:(exc-t(\d)-([a-z])):(?:(exc-t\d-[a-z]-p(\d))|full)$/.exec(e.id);
   if (!m) return null;
-  const head = `[PROPOSAL] Tier ${tierNumeral(Number(m[1]))}`;
-  const letter = m[2].toUpperCase();
-  const tail = e.claim.slice(e.claim.lastIndexOf(":"));
-  return m[3] !== undefined ? `${head} Set ${letter} piece ${m[3]}${tail}` : `${head} Exceptional Set ${letter} full set${tail}`;
+  const head = `[PROPOSAL] Tier ${tierNumeral(Number(m[2]))}`;
+  const letter = m[3].toUpperCase();
+  const stat = PRE_SWAP_PIECE_STAT[m[4] ?? `${m[1]}-p1`];
+  return m[4] !== undefined
+    ? { claim: `${head} Set ${letter} piece ${m[5]}: ${stat}`, probe: `museum:${stat}` }
+    : { claim: `${head} Exceptional Set ${letter} full set: ${stat}`, probe: `museum:${stat}` };
 }
 
 export function relicContentReadBack(entries: readonly WiringEntry[]): WiringEntry[] {
   return entries.map((e) => {
-    const old = placeholderClaim(e);
+    const old = placeholderRow(e);
     // The piece rows' note named the sign-off sheet before it came (R2-5 rewrote it).
     const pieceNote = old !== null && !e.id.endsWith(":full") ? { note: "the piece held alone (no set completes); names and values await the R2-5 content sheet" } : {};
-    const base = old !== null ? ({ ...e, claim: old, ...pieceNote } as WiringEntry) : e;
+    const base = old !== null ? ({ ...e, ...old, ...pieceNote } as WiringEntry) : e;
     return RELIC_CONTENT_BEFORE[e.id] ? ({ ...base, ...RELIC_CONTENT_BEFORE[e.id] } as WiringEntry) : base;
   });
 }

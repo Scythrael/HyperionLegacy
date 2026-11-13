@@ -179,7 +179,7 @@
     <ol>
       <li><b>No save version change.</b> New fields are optional: the ledger (<code>notableEvents</code>) and nothing else; a dev save whose cultures were already at 10 points is named on load.</li>
       <li><b>Names are checked against the sheet.</b> A test reads the approved name sheet and asserts every set, piece and culture name, flavor and lore line, so nothing on screen can drift from what you approved.</li>
-      <li><b>Open for you: piece stats.</b> Your 2026-11-02 answer "Match stats to themes" asked for a reassignment by theme. No reassignment table was drawn, so the pieces keep the stats printed on the sheet you approved (the names were fitted to them). Say the word and a table comes to you for sign-off.</li>
+      <li><b>Piece stats (your 2026-11-13 answer "Approve the 4 swaps").</b> Four pieces moved to a stat that fits their name (the Guestbook, the Wick, the Plumb Line, the Keeper's Chair; the Lightkeeper and Deepcut full sets follow). Coverage stays twelve stats on 4 pieces and two on 3.</li>
       <li><b>Open for you: one glyph per set.</b> The plan proposed one SVG glyph per exceptional set; the signed-off mockup draws one shared exceptional glyph in the tier color, so that is what ships. At 16 px its inner stroke is faint; it is clear at 20 px and up.</li>
       <li><b>As drawn.</b> A culture's name reveal shows on the inline card only (no system chat line), per the mockup's open question 4 answered "as drawn".</li>
     </ol>
@@ -216,6 +216,7 @@ const SECTIONS = [
   ]},
   { n: "4", title: "Exceptional sets and the ledger", items: [
     { t: "Every set and piece name and flavor line is the one you approved (Waystation, Hearthward, Lightkeeper, Deepcut, Stormglass, Keelsong, Tidewright, Ember Court with the <b>Ember Court Teapot</b>, Veilward, Starwake, Grand Orrery, Dawnmaker, Kinring, Long Vigil).", c: true, how: "relicsV2Catalog.test.ts (reads the sheet: 68 names, flavors and stats)." },
+    { t: "The four stat swaps you approved: <b>Waystation Guestbook</b> +3.0% crew bonuses; <b>Lightkeeper's Wick</b> hazard resist (the Lightkeeper full set too); <b>Deepcut Plumb Line</b> +7.0% extraction speed (the Deepcut full set too); <b>Orrery Keeper's Chair</b> +13.0% crafting quality. Every other piece keeps its stat.", c: true, how: "relicsV2Catalog.test.ts (reads the APPROVED table); relicsV2MuseumGoldens.test.ts (the moved pins, reproduced with the swaps switched off)." },
     { t: "Completing a set logs <b>Set complete: Waystation Set is whole in the Museum.</b> once, also when it completes while you are away.", tag: "save", c: true, how: "rarityTraps.test.ts; relicsV2Content.test.ts (completion fires once per set; a duplicate piece adds nothing)." },
     { t: "A ledger entry is written once per set (no screen in 0.14.0) and survives save and load.", c: true, how: "relicsV2Content.test.ts (the ledger: once per key, its game second the same for one call, chunks and 1 s steps, round trip)." },
   ]},

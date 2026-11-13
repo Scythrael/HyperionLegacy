@@ -998,10 +998,19 @@ export const EXCEPTIONAL_FULL_SET_MULT = 5;
 // pieces over 14 stats, so every stat is fed), and a set's full-set bonus lands on its first piece's stat. This is the
 // stat column of the approved name sheet (docs/plans/2026-11-02-relic-name-sheets-DRAFT.md, "Approve all", user
 // 2026-11-13: the names were chosen to fit these stats; the Ember Court Teapot answer restates its stat, crewBonuses).
-// OPEN: the 2026-11-02 structure answer "Match stats to themes (Recommended)" asks for a per-piece reassignment by theme
-// (all 14 stats still covered evenly); no reassignment table has been drawn or signed off, so the cycle stands until the
-// user picks one (relics v2 plan, R2-5 carry note).
+// The theme-matched swaps below are laid on top of it.
 export const EXCEPTIONAL_PIECE_STAT_CYCLE: readonly MuseumStat[] = MUSEUM_STATS;
+
+// User 2026-11-13 "Approve the 4 swaps (Recommended)" (the 2026-11-02 answer "Match stats to themes"; the APPROVED table
+// at the end of docs/plans/2026-11-02-relic-name-sheets-DRAFT.md): four pieces take a stat that fits their name better.
+// A full set still lands on its first piece's stat, so the Lightkeeper and Deepcut full sets follow their first pieces.
+// Coverage stays twelve stats on 4 pieces and two on 3 (salvageYield and scienceTeamPower now). Values unchanged.
+export const EXCEPTIONAL_STAT_THEME_SWAPS: Readonly<Record<string, MuseumStat>> = {
+  "exc-t1-a-p2": "crewBonuses", // Waystation Guestbook (was craftingQuality)
+  "exc-t3-a-p1": "hazardResist", // Lightkeeper's Wick (was salvageYield)
+  "exc-t3-b-p1": "extractionSpeed", // Deepcut Plumb Line (was scienceTeamPower)
+  "exc-t6-c-p3": "craftingQuality", // Orrery Keeper's Chair (was crewBonuses)
+};
 
 export interface ExceptionalPieceDef {
   id: string; // stable: "<set id>-p<n>"
@@ -1191,13 +1200,14 @@ export const EXCEPTIONAL_SETS: readonly ExceptionalSetDef[] = (() => {
       const pieces: ExceptionalPieceDef[] = [];
       for (let k = 1; k <= size; k++) {
         const [label, flavor] = content.pieces[k - 1];
-        pieces.push({ id: `${id}-p${k}`, setId: id, label, flavor, stat: EXCEPTIONAL_PIECE_STAT_CYCLE[cursor % EXCEPTIONAL_PIECE_STAT_CYCLE.length], value });
+        pieces.push({ id: `${id}-p${k}`, setId: id, label, flavor, stat: EXCEPTIONAL_STAT_THEME_SWAPS[`${id}-p${k}`] ?? EXCEPTIONAL_PIECE_STAT_CYCLE[cursor % EXCEPTIONAL_PIECE_STAT_CYCLE.length], value });
         cursor++;
       }
       out.push({ id, tier, label: content.label, flavor: content.flavor, pieces, fullSet: [{ stat: pieces[0].stat, value: value * EXCEPTIONAL_FULL_SET_MULT }] });
     });
   }
   if (out.length !== Object.keys(EXCEPTIONAL_CONTENT).length) throw new Error("EXCEPTIONAL_CONTENT names a set the size table does not have");
+  for (const id of Object.keys(EXCEPTIONAL_STAT_THEME_SWAPS)) if (!out.some((s) => s.pieces.some((p) => p.id === id))) throw new Error(`EXCEPTIONAL_STAT_THEME_SWAPS names an unknown piece: ${id}`);
   return out;
 })();
 
