@@ -2543,3 +2543,6 @@ docs/qa/2026-11-12-new-hire-default-qa.html.
   says "a Security member with protocols of their own" (the Help topics never say "program"). The log lines say
   "built-in default". Clear has aria-label "Clear the new-hire default"; Copy to squad, Use default and Set for new
   hires point at their notes with aria-describedby.
+- (2026-11-12 afternoon) Recall during a FINISHED field repair's flight back (the old rule throws the repair away; a
+  canceled repair keeps its share): "Keep the repair (Recommended)": both keep it; moved replay pins are traced.
+- (2026-11-12 afternoon) OC-F12 empty program as a default: "Allow with a warning (Recommended)" (as built).

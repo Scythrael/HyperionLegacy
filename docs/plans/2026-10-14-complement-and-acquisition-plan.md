@@ -1425,3 +1425,20 @@ SUGGESTIONS.md "CRAFT-DUPLICATE CREW BUFF" stays the future design).
   lift also speed a drone pod's In-Combat Replenish during a wave ("Keep both"); `DOCKED_OVERTIME_CARRIES_INTO_FIRST_PAUSE`
   is no longer an open call ("Yes, keep it"); the Class VI and VII drive fuel amounts are no longer [PROPOSAL]
   ("Deuterium + antimatter"). Open call 1 above (bounding `crewPool`) is closed by this note.
+
+## USER ANSWERS (2026-11-12 afternoon): Homeworld reserve calls and the notable ticker mockup
+
+Homeworld reserve (after the build):
+- Manual controls: "Add controls (Recommended)": "Send to a ship" and "Recall to pool" on the reserve so the player can
+  hand-pick again. MOCKUP FIRST.
+- Sweep timing: "Every tick (Recommended)" (as built).
+- Manual ships count as berths: "Keep it (Recommended)" (as built).
+Notable ticker (docs/mockups/2026-11-12-personnel-notable-ticker-mockup.html):
+- Motion: "A: drift (Recommended)": scrolls like the Complement strip, pauses on hover, focus or touch; static under
+  Reduce motion.
+- Placement: "Under the tab row (Recommended)".
+- Per-ship Complement strip: "Keep it (Recommended)": keep both.
+- Tap: "Open the record card (Recommended)".
+- Empty state: "Show a short hint (Recommended)".
+- Entry: "Name, rank, division, ship (Recommended)": ship or "Unassigned"; favorites first, then the rest.
+- Record card: "Offer Send back + Retire (Recommended)".
