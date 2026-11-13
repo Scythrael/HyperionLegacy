@@ -3419,7 +3419,7 @@ function relicV2Entries(): WiringEntry[] {
           tolerance: 1e-12,
           on: withPieces([p.id]),
           off: withPieces([]),
-          note: "the piece held alone (no set completes); names and values await the R2-5 content sheet",
+          note: "the piece held alone (no set completes); names from the approved sheet (R2-5), values the approved 3% to 15%",
         }),
       );
     }

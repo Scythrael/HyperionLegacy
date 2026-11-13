@@ -2,6 +2,8 @@
 // and the v69 -> v70 MIGRATION step, all dormant. The R2-0 goldens (relicsV2Goldens.test.ts) prove nothing moved.
 
 import { describe, it, expect } from "vitest";
+import { readFileSync } from "node:fs";
+import { resolve as resolvePath } from "node:path";
 import {
   emptyMuseumV2,
   freshState,
@@ -211,10 +213,30 @@ describe("R2-1 catalog: exceptional relics (user calls 5, 6, 7)", () => {
     }
   });
 
-  it("every name is a [PROPOSAL] label until the user's sign-off sheet (no invented display name)", () => {
+  // MOVED by R2-5 (the user's 2026-11-13 "Approve all" on the name sheet): the labels were [PROPOSAL] placeholders until
+  // the sign-off; every name, flavor line and stat now reads exactly as the approved sheet has it (Part A, then the
+  // approved homage lines for the Keelsong and Ember Court sets, with the Ember Court Banner renamed the Teapot). Read
+  // from the sheet itself, so the catalog cannot drift from what the user approved.
+  it("every name, flavor line and stat is the approved sheet's (R2-5; no invented content)", () => {
+    const sheet = readFileSync(resolvePath(process.cwd(), "docs/plans/2026-11-02-relic-name-sheets-DRAFT.md"), "utf8").split("\r").join("");
+    const homageAt = sheet.indexOf("## HOMAGE DRAFT");
+    const partA = sheet.slice(sheet.indexOf("## Part A"), sheet.indexOf("## Part B"));
+    const rows = new Map<string, { name: string; stat: string; flavor: string }>();
+    for (const m of partA.matchAll(/^\| (exc-t\d-[a-z](?:-p\d)?) \| ([^|]+) \| ([^|]+) \| (.+) \|$/gm)) {
+      rows.set(m[1], { name: m[2].trim(), stat: m[3].trim().replace(/^full set: /, ""), flavor: m[4].trim() });
+    }
+    const homage = sheet.slice(homageAt, sheet.indexOf("### USER ANSWERS (2026-11-13) on the homage drafts"));
+    for (const m of homage.matchAll(/^\| (exc-t\d-[a-z](?:-p\d)?) \| ([^|]+) \| (.+) \|$/gm)) rows.get(m[1])!.flavor = m[3].trim();
+    // FINAL Ember Court: the Banner becomes the Teapot with its approved line (same id and stat).
+    const teapot = /\*\*Ember Court Teapot\*\* \(stat crewBonuses, same id\): "([^"]+)"/.exec(sheet.replace(/\n {2}/g, " "))!;
+    rows.set("exc-t5-b-p1", { name: "Ember Court Teapot", stat: "crewBonuses", flavor: teapot[1] });
+    expect(rows.size).toBe(14 + 54);
     for (const set of EXCEPTIONAL_SETS) {
-      expect(set.label.startsWith("[PROPOSAL] ")).toBe(true);
-      for (const p of set.pieces) expect(p.label.startsWith("[PROPOSAL] ")).toBe(true);
+      expect({ name: set.label, stat: set.fullSet[0].stat, flavor: set.flavor }).toEqual(rows.get(set.id));
+      for (const p of set.pieces) expect({ name: p.label, stat: p.stat, flavor: p.flavor }).toEqual(rows.get(p.id));
+    }
+    for (const text of EXCEPTIONAL_SETS.flatMap((s) => [s.label, s.flavor, ...s.pieces.flatMap((p) => [p.label, p.flavor])])) {
+      expect(text).not.toMatch(/PROPOSAL|—|--/);
     }
   });
 

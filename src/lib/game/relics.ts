@@ -44,7 +44,6 @@ import type { EquipmentRarity, GameState, MuseumV2, RegionTier, RegionTierKey, R
 import type { ExpeditionPoiId } from "./expeditionContent";
 import { makeRng } from "./combat/rng";
 import { diminishing } from "./diminishing";
-import { tierNumeral } from "./galaxy";
 
 // ============================================================================
 // Stats (the closed union E4b wires into consumers)
@@ -995,15 +994,20 @@ export const EXCEPTIONAL_PIECE_VALUE: Readonly<Record<RegionTier, number>> = { 1
 // User 2026-10-20 ("Approve (Recommended)": "full set 5x one piece"): a completed set's bonus, in pieces.
 export const EXCEPTIONAL_FULL_SET_MULT = 5;
 
-// [PROVISIONAL] (no stat was proposed per piece; the R2-5 content sheet assigns them): pieces take the Museum stats in
-// this order, cycling across the whole catalog (54 pieces over 14 stats, so every stat is fed), and a set's full-set
-// bonus lands on its first piece's stat.
+// The stat each piece grants, in catalog order across all 54 pieces: the Museum stats in MUSEUM_STATS order, cycling (54
+// pieces over 14 stats, so every stat is fed), and a set's full-set bonus lands on its first piece's stat. This is the
+// stat column of the approved name sheet (docs/plans/2026-11-02-relic-name-sheets-DRAFT.md, "Approve all", user
+// 2026-11-13: the names were chosen to fit these stats; the Ember Court Teapot answer restates its stat, crewBonuses).
+// OPEN: the 2026-11-02 structure answer "Match stats to themes (Recommended)" asks for a per-piece reassignment by theme
+// (all 14 stats still covered evenly); no reassignment table has been drawn or signed off, so the cycle stands until the
+// user picks one (relics v2 plan, R2-5 carry note).
 export const EXCEPTIONAL_PIECE_STAT_CYCLE: readonly MuseumStat[] = MUSEUM_STATS;
 
 export interface ExceptionalPieceDef {
   id: string; // stable: "<set id>-p<n>"
   setId: string;
-  label: string; // [PROPOSAL] until the user's sign-off sheet names it
+  label: string; // the approved name (relic name sheet, user 2026-11-13)
+  flavor: string; // the approved flavor line
   stat: MuseumStat;
   value: number; // flat fraction while held (duplicates add nothing, call 7)
 }
@@ -1011,7 +1015,8 @@ export interface ExceptionalPieceDef {
 export interface ExceptionalSetDef {
   id: string; // stable: "exc-t<tier>-<letter>"
   tier: RegionTier;
-  label: string; // [PROPOSAL] until the user's sign-off sheet names it
+  label: string; // the approved name (relic name sheet, user 2026-11-13)
+  flavor: string; // the approved flavor line
   pieces: readonly ExceptionalPieceDef[];
   fullSet: readonly { stat: MuseumStat; value: number }[]; // granted once every piece is held
 }
@@ -1025,35 +1030,174 @@ export function exceptionalSetLetter(index: number): string {
   return String.fromCharCode(97 + index);
 }
 
-// The 54 exceptional pieces in 14 sets, Tier I first. Ids are stable (a save stores them); labels are [PROPOSAL].
+// THE APPROVED CONTENT (Relics v2 R2-5; docs/plans/2026-11-02-relic-name-sheets-DRAFT.md Part A, user 2026-11-13
+// "Approve all"): every exceptional set and piece name with its flavor line, keyed by the stable set id. The Keelsong
+// lines are the approved homage lines, and the Ember Court lines are the approved homage lines with the set's first piece
+// the Ember Court Teapot (same id: the Banner renamed, user 2026-11-13). Labels and flavor only: ids never change (saves
+// store them); stats and values come from the tables above.
+type ExceptionalContent = { label: string; flavor: string; pieces: readonly (readonly [label: string, flavor: string])[] };
+export const EXCEPTIONAL_CONTENT: Readonly<Record<string, ExceptionalContent>> = {
+  "exc-t1-a": {
+    label: "Waystation Set",
+    flavor: "Someone kept these lights on for strangers, for centuries.",
+    pieces: [
+      ["Waystation Lantern", "Kept lit for travelers who never came back. It still lights when someone needs it."],
+      ["Waystation Guestbook", "Thousands of signatures in hundreds of hands, every one of them saying thank you."],
+    ],
+  },
+  "exc-t2-a": {
+    label: "Hearthward Set",
+    flavor: "Wherever they settled, these came out of the crate first.",
+    pieces: [
+      ["Hearthward Doorstone", "Worn smooth in one spot by countless hands touched to it on the way out."],
+      ["Hearthward Kettle", "Dented, mended, and somehow it always held enough for one more guest."],
+      ["Hearthward Weathervane", "It does not point with the wind. It points home."],
+    ],
+  },
+  "exc-t3-a": {
+    label: "Lightkeeper Set",
+    flavor: "No wrecks on their lane for four hundred years. Then the keepers left.",
+    pieces: [
+      ["Lightkeeper's Wick", "Trimmed every night by the same careful hand, down to the last thread."],
+      ["Lightkeeper's Beacon Glass", "Hold it to the sky and faint ships appear that are not there anymore."],
+      ["Lightkeeper's Watch Log", "Every passing ship, every night, in tidy columns. The last page is blank."],
+    ],
+  },
+  "exc-t3-b": {
+    label: "Deepcut Set",
+    flavor: "They dug for a thousand years and never once lost the vein.",
+    pieces: [
+      ["Deepcut Plumb Line", "Drop it anywhere and it hangs true, even where down is a matter of opinion."],
+      ["Deepcut Shift Bell", "Rung at the end of every shift so the whole crew came up together."],
+      ["Deepcut Drill Crown", "Its teeth are still sharp. The rock it was made for is long gone."],
+    ],
+  },
+  "exc-t4-a": {
+    label: "Stormglass Set",
+    flavor: "They did not fear the storms. They waited for them.",
+    pieces: [
+      ["Stormglass Vial", "Crystals bloom inside it a day before anything rare comes to the surface."],
+      ["Stormglass Siphon", "Built to drink lightning and pour it out slowly."],
+      ["Stormglass Mantle", "The rain runs off it, and so does almost everything else."],
+      ["Stormglass Almanac", "Three thousand years of forecasts. Most of them were right."],
+    ],
+  },
+  "exc-t4-b": {
+    label: "Keelsong Set",
+    flavor: "They never cut a timber. They sang it into the shape it wanted, and it held for a thousand years.",
+    pieces: [
+      ["Keelsong Tuning Fork", "Hum the right note and the grain of the hull turns to follow it."],
+      ["Keelsong Hymnal", "Kept by a young scholar who left home far too early to follow three friends, and wrote down every word."],
+      ["Keelsong Hold Drum", "Sized for hands twice as large as yours. Its beat still makes a crowded hold feel roomy."],
+      ["Keelsong Launch Horn", "However far its ships sailed, they came home sooner than they meant to. The yard was always calling."],
+    ],
+  },
+  "exc-t5-a": {
+    label: "Tidewright Set",
+    flavor: "They charted a sea with no shore and never once got lost.",
+    pieces: [
+      ["Tidewright Net Float", "Whatever it was tied to, it always came back with something."],
+      ["Tidewright Sounding Shell", "Put it to your ear and you hear the depth of whatever lies below you."],
+      ["Tidewright Spyglass", "It shows the horizon a few hours from now."],
+      ["Tidewright Star Table", "The stars and the tides on one carved slab, and they agree with each other."],
+    ],
+  },
+  "exc-t5-b": {
+    label: "Ember Court Set",
+    flavor: "The invitations went out every week, and every guest who came was back for the next one.",
+    pieces: [
+      ["Ember Court Teapot", "Well loved, chipped at the spout, and never once empty. The court's tea was always brewed after sundown, and served before sunrise."],
+      ["Ember Court Crucible", "The court's punch was brewed in it once. Nobody speaks of that night, but the ore it melts comes out richer."],
+      ["Ember Court Coronet", "The host wore it to greet each guest by name, and somehow every guest arrived bearing a gift."],
+      ["Ember Court Bellows", "It kept the hearth roaring through the longest gala, and blew out a party crasher or two."],
+    ],
+  },
+  "exc-t6-a": {
+    label: "Veilward Set",
+    flavor: "Where the sky was too bright to live under, they lived anyway.",
+    pieces: [
+      ["Veilward Shroud", "Woven so fine the starlight forgets to pass through."],
+      ["Veilward Codex", "Written in shadow-ink that only shows in the brightest light."],
+      ["Veilward Gauntlet", "It lets a careful hand work metal that is still glowing."],
+      ["Veilward Divining Rod", "It dips toward anything older than itself, and that is a short list."],
+    ],
+  },
+  "exc-t6-b": {
+    label: "Starwake Set",
+    flavor: "Their whole civilization fit in the holds, and there was room to spare.",
+    pieces: [
+      ["Starwake Strongbox", "Far larger inside than out. Nobody has found the bottom yet."],
+      ["Starwake Sail Spar", "It catches a wind that blows between the stars."],
+      ["Starwake Salvage Hook", "The caravan wasted nothing. This hook is why."],
+      ["Starwake Lookout Glass", 'The last lookout etched one word on the rim: "clear".'],
+    ],
+  },
+  "exc-t6-c": {
+    label: "Grand Orrery Set",
+    flavor: "Wind it, and it shows the Bulge as it was. Wind it further and it shows it as it will be.",
+    pieces: [
+      ["Orrery Sun-Gear", "A thousand teeth, each cut for one star."],
+      ["Orrery Measuring Arm", "Accurate to a hair across a light-year."],
+      ["Orrery Keeper's Chair", "Generations sat here winding it. The seat is worn into a gentle curve."],
+      ["Orrery Counterweight", "Cast from a single nugget of an ore no survey has found since."],
+    ],
+  },
+  "exc-t7-a": {
+    label: "Dawnmaker Set",
+    flavor: "Some of the stars you navigate by may have been planted.",
+    pieces: [
+      ["Dawnmaker Seedstone", "Heavy beyond its size, and warm, as if something inside is waiting to begin."],
+      ["Dawnmaker Ladle", "Built to pour something hotter than metal."],
+      ["Dawnmaker Heat Veil", "Worn close to a newborn star. It has never been singed."],
+      ["Dawnmaker Pattern Scroll", "A diagram of a sun, drawn before the sun was lit."],
+      ["Dawnmaker Hammer", "Light in the hand. Every blow lands exactly where it should."],
+    ],
+  },
+  "exc-t7-b": {
+    label: "Kinring Set",
+    flavor: "Not one world in the ring was ever left behind.",
+    pieces: [
+      ["Kinring Wayfinder", "It always points toward the nearest friend."],
+      ["Kinring Gift Chest", "Each world added one thing and passed it on. It is still full."],
+      ["Kinring Gate Key", "It opens a gate that no longer exists, and the route is still shorter for it."],
+      ["Kinring Mending Thread", "It mends anything it is drawn through, given time."],
+      ["Kinring Listening Horn", "Made to hear a call for help from the far side of the ring."],
+    ],
+  },
+  "exc-t7-c": {
+    label: "Long Vigil Set",
+    flavor: "They watched for a very long time. Their records do not say what for.",
+    pieces: [
+      ["Vigil Eye", "It has not blinked in an age, and it is not going to start now."],
+      ["Vigil Star Atlas", "Every star near the Core, and a careful note beside each one."],
+      ["Vigil Roll of Names", "Every watcher who stood the watch, in order. The list just stops."],
+      ["Vigil Core Auger", "It bored straight down through a world to reach something they needed."],
+      ["Vigil Coreglass", "Formed under a pressure that only exists in one place in the galaxy."],
+    ],
+  },
+};
+
+// The 54 exceptional pieces in 14 sets, Tier I first. Ids are stable (a save stores them); names and flavor lines come
+// from EXCEPTIONAL_CONTENT. Throws at load when the content and the size table disagree (a missing set or a wrong count).
 export const EXCEPTIONAL_SETS: readonly ExceptionalSetDef[] = (() => {
   const out: ExceptionalSetDef[] = [];
   let cursor = 0;
   for (const tier of REGION_TIER_LIST) {
     EXCEPTIONAL_SET_SIZES[tier].forEach((size, i) => {
-      const letter = exceptionalSetLetter(i);
-      const id = `exc-t${tier}-${letter}`;
+      const id = `exc-t${tier}-${exceptionalSetLetter(i)}`;
+      const content = EXCEPTIONAL_CONTENT[id];
+      if (!content || content.pieces.length !== size) throw new Error(`Exceptional content missing or mis-sized for ${id}`);
       const value = EXCEPTIONAL_PIECE_VALUE[tier];
       const pieces: ExceptionalPieceDef[] = [];
       for (let k = 1; k <= size; k++) {
-        pieces.push({
-          id: `${id}-p${k}`,
-          setId: id,
-          label: `[PROPOSAL] Tier ${tierNumeral(tier)} Set ${letter.toUpperCase()} piece ${k}`,
-          stat: EXCEPTIONAL_PIECE_STAT_CYCLE[cursor % EXCEPTIONAL_PIECE_STAT_CYCLE.length],
-          value,
-        });
+        const [label, flavor] = content.pieces[k - 1];
+        pieces.push({ id: `${id}-p${k}`, setId: id, label, flavor, stat: EXCEPTIONAL_PIECE_STAT_CYCLE[cursor % EXCEPTIONAL_PIECE_STAT_CYCLE.length], value });
         cursor++;
       }
-      out.push({
-        id,
-        tier,
-        label: `[PROPOSAL] Tier ${tierNumeral(tier)} Exceptional Set ${letter.toUpperCase()}`,
-        pieces,
-        fullSet: [{ stat: pieces[0].stat, value: value * EXCEPTIONAL_FULL_SET_MULT }],
-      });
+      out.push({ id, tier, label: content.label, flavor: content.flavor, pieces, fullSet: [{ stat: pieces[0].stat, value: value * EXCEPTIONAL_FULL_SET_MULT }] });
     });
   }
+  if (out.length !== Object.keys(EXCEPTIONAL_CONTENT).length) throw new Error("EXCEPTIONAL_CONTENT names a set the size table does not have");
   return out;
 })();
 

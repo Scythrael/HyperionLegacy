@@ -27,13 +27,27 @@ describe("R2-5 / R2-6 content golden 1: a 160-blank identification chain", () =>
     expect(done.museumV2.culturesNamed).toEqual([]);
     expect(hash(done.museumV2.cultures)).toBe("a29ddbfa");
     expect(hash(done.museumV2.exceptional)).toBe("98031451");
-    expect(stateHash(done)).toBe("7d57df2f");
+    // MOVED by R2-5 (the ledger, plan OC-16): the two completed sets now also write their ledger events, so the whole
+    // state gains `notableEvents` (pre-R2-5: no such key, stateHash 7d57df2f). Without it, nothing else moved.
+    expect(done.notableEvents?.map((e) => [e.key, e.kind, e.setId, e.tier])).toEqual([
+      ["relicSetCompleted:exc-t6-b", "relicSetCompleted", "exc-t6-b", 6],
+      ["relicSetCompleted:exc-t3-b", "relicSetCompleted", "exc-t3-b", 3],
+    ]);
+    const { notableEvents: _events, ...rest } = done;
+    expect(stateHash(rest as GameState)).toBe("7d57df2f");
   });
   it("997 tick chunks land the same whole state", () => {
     const one = resolveChain(contentGoldenStart(), Infinity);
     const chunks = resolveChain(contentGoldenStart(), 997);
-    expect(stateHash({ ...chunks, completionLog: [], nextCompletionLogId: 0 } as GameState)).toBe(stateHash({ ...one, completionLog: [], nextCompletionLogId: 0 } as GameState));
+    // The ledger's game seconds are compared through economyTick (relicsV2Content.test.ts): resolveProcesses called on
+    // its own does not advance gameTimeSeconds, which the stamp reads.
+    const bare = (s: GameState) => {
+      const { notableEvents: _e, ...r } = s;
+      return stateHash({ ...r, completionLog: [], nextCompletionLogId: 0 } as GameState);
+    };
+    expect(bare(chunks)).toBe(bare(one));
     expect(chunks.museumV2).toEqual(one.museumV2);
+    expect(chunks.notableEvents?.map((e) => e.key)).toEqual(one.notableEvents?.map((e) => e.key));
   });
 });
 
@@ -44,9 +58,14 @@ describe("R2-5 content golden 2: the grant seam's first exceptional piece", () =
     const r = grant(s, { relics: [{ kind: "firstExceptional" }] }, "Tutorial reward");
     expect(r.granted).toBe(true);
     expect(r.next.museumV2.exceptional).toEqual({ [set.pieces[1].id]: 1, [set.pieces[0].id]: 1 });
-    expect(r.next.museumV2.setsCompleted).toEqual([]);
-    expect(r.logLine).toBe("Tutorial reward. Received an exceptional relic.");
-    expect(stateHash(r.next)).toBe("8cbd822e");
+    // MOVED by R2-5: the granted piece completes the Waystation Set, so the set is listed in setsCompleted (pre-R2-5 the
+    // grant seam never checked; identification always did) with its ledger event at the grant's game second, and the
+    // line names the piece (pre-R2-5: "Received an exceptional relic.", setsCompleted [], stateHash 8cbd822e).
+    expect(r.next.museumV2.setsCompleted).toEqual(["exc-t1-a"]);
+    expect(r.next.notableEvents).toEqual([{ key: "relicSetCompleted:exc-t1-a", kind: "relicSetCompleted", atGameSeconds: s.gameTimeSeconds, setId: "exc-t1-a", tier: 1 }]);
+    expect(r.logLine).toBe("Tutorial reward. Received the exceptional Waystation Lantern.");
+    const { notableEvents: _events, ...rest } = r.next;
+    expect(stateHash({ ...rest, museumV2: { ...r.next.museumV2, setsCompleted: [] } } as GameState)).toBe("8cbd822e");
   });
 });
 
@@ -63,6 +82,7 @@ describe("R2-5 content golden 4: the set shoutout line", () => {
   it("names the completed set", () => {
     const before = freshState();
     const after: GameState = { ...before, museumV2: { ...before.museumV2, setsCompleted: ["exc-t3-b"] } };
-    expect(setCompletionShoutouts(before, after)).toEqual(["Set complete: Tier III Exceptional Set B is whole in the Museum."]);
+    // MOVED by R2-5: the approved name (pre-R2-5 the placeholder "Tier III Exceptional Set B").
+    expect(setCompletionShoutouts(before, after)).toEqual(["Set complete: Deepcut Set is whole in the Museum."]);
   });
 });

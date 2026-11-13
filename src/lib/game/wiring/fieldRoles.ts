@@ -291,8 +291,10 @@ export const FIELD_ROLES: Readonly<Record<string, Readonly<Record<string, FieldR
     id: "identity",
     tier: "identity",
     label: "display",
+    // R2-5: the approved set flavor line (each piece carries its own inside `pieces`).
+    flavor: "display",
     // R2-4: museum math v2 adds each held piece's value and each completed set's full-set bonus (relics.ts
-    // museumExceptionalBonuses); R2-5's content sheet names them and may retune the values.
+    // museumExceptionalBonuses); R2-5 names the sets and pieces (the approved sheet), values unchanged.
     pieces: "effect",
     fullSet: "effect",
   },

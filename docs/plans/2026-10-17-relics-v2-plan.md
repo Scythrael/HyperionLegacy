@@ -390,6 +390,26 @@ in-game time; idempotent key) (OC-16). If the notable-event ledger is not in yet
 (append-only list on GameState, idempotent by key, no UI), per the 2026-10-16 decision. Tests: completion fires once
 per set; replaying a save does not duplicate; duplicates follow OC-7; ledger survives a save round trip.
 
+**R2-5 carry note (2026-11-13, built on 0b5892e7):**
+- Content: `relics.ts EXCEPTIONAL_CONTENT` holds the 14 set and 54 piece names with their flavor lines exactly as the
+  approved sheet has them (Part A, the approved Keelsong and Ember Court homage lines, exc-t5-b-p1 the Ember Court Teapot);
+  `ExceptionalSetDef` / `ExceptionalPieceDef` gained `flavor`. Ids unchanged. `relicsV2Catalog.test.ts` reads the sheet
+  itself and asserts every name, flavor line and stat (68 rows), so the catalog cannot drift from what the user approved.
+- Stats: the sheet's stat column IS today's cycle (the names were fitted to it; the Teapot answer restates crewBonuses), so
+  stats are unchanged. OPEN for the user: the 2026-11-02 answer "Match stats to themes (Recommended)" asks for a per-piece
+  reassignment by theme; no reassignment table was drawn or approved, so none was invented.
+- Ledger: `GameState.notableEvents?` (optional, no SAVE_VERSION bump) and `notableEvents.ts` (append-only, one entry per
+  key `relicSetCompleted:<set id>`, kind, set id, tier, game second). The relic chain stamps a completion at the window's
+  start plus the study's completion instant (`notableSecond`), so one call, 997 s chunks and 1 s steps write the same
+  second (tested through economyTick). The grant seam now runs the same completion rule (`relicIdentify.ts
+  withSetCompletion`): a granted piece that completes its set lists it and writes its event; its log line names the piece
+  ("the exceptional Waystation Lantern"). Load: `withNotableEventsOnLoad` drops a malformed ledger and bad or repeated
+  entries. No UI reads the ledger in 0.14.0 (the shoutout still reads `setsCompleted`).
+- Goldens: `relicsV2ContentGoldens.test.ts` (goldens-first commit 8351ca2b). Moved, named: golden 1 (the chain's state gains
+  `notableEvents`; without it unchanged), golden 2 (the grant completes the Waystation Set and names the piece), golden 4
+  (the shoutout names the Deepcut Set); `relicBlanks.test.ts` grant line; the catalog's "[PROPOSAL] labels" test became
+  the sheet test.
+
 ### R2-6: Cultures (engine + names sign-off)
 `CULTURE_ROSTER` per tier (OC-10); study points from identified finds and from 15b ancient data (a `feedCultureData`
 seam 15b calls, OC-9); at the threshold the culture's name is revealed, appended to `culturesNamed`, and every sample

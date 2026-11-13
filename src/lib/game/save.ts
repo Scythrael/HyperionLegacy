@@ -67,6 +67,7 @@ import {
 } from "./groundTeams";
 import { withThirdBuffGrantedV70 } from "./crewThirdBuff";
 import { withHomeworldReserveOnLoad } from "./homeworldReserve";
+import { withNotableEventsOnLoad } from "./notableEvents";
 
 // SAVE v70 (0.14.0). WHAT v70 CONTAINS (one shared bump for the unreleased 0.14.0 schema; a later 0.14.0 slice that
 // needs a schema change APPENDS its own step to MIGRATIONS[69] below, documented beside this list, rather than
@@ -3174,6 +3175,9 @@ export function migrate(save: SaveFile, homeworldEntropy?: number): GameState {
   // Homeworld reserve (user 2026-11-12): an empty or malformed reserve field is dropped (identity on every well-formed
   // save, and on every save without one; no SAVE_VERSION bump). The pool is never moved at load (homeworldReserve.ts).
   state = withHomeworldReserveOnLoad(state);
+  // Relics v2 R2-5: the notable-event ledger, malformed or repeated entries left out (identity on every well-formed save
+  // and on every save without one; no SAVE_VERSION bump).
+  state = withNotableEventsOnLoad(state);
   // Hydrate the SHAPE first (Decimals, quality buckets), THEN reconcile any over-cap stack
   // down to its warehouse cap. clampInventoryToCaps needs the hydrated Decimal inventory +
   // the facility levels (both present after hydrateDecimals) to resolve each item's cap. It
