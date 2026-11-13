@@ -160,7 +160,13 @@ export function withoutCompletionTracking<T>(value: T): T {
 // Complement CP-19: and without the Personnel Rosters track at its pre-granted Level 1 (withoutPreGrantedRostersTrack).
 // Completion tracking: and without the system records and the hidden ledger (withoutCompletionTracking).
 export function withoutRunCounts<T>(input: T): T {
-  const value = withoutCompletionTracking(withoutPreGrantedRostersTrack(withV1Museum(input)));
+  return withoutCompletionTracking(withoutRunCountsKeepingCompletion(input));
+}
+
+// withoutRunCounts with the completion tracking keys KEPT: what completionTrackingGoldens.test.ts hashes, since those
+// two keys are exactly what its pins prove moved (and returned with the slice switched off). Pure: a shallow copy.
+export function withoutRunCountsKeepingCompletion<T>(input: T): T {
+  const value = withoutPreGrantedRostersTrack(withV1Museum(input));
   if (!value || typeof value !== "object" || !("runCounts" in value)) return value;
   const rest = { ...value } as Record<string, unknown>;
   delete rest.runCounts;

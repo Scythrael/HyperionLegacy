@@ -11,14 +11,14 @@ import { advanceExpedition, claimExpedition, abandonHeldSystem, recallExpedition
 import { exceptionalSetsOfTier } from "./relics";
 import { identifyRelicV2 } from "./relicIdentify";
 import { economyTick, startRelicStudy } from "./tick";
-import { fnv, goldenJson, withoutRunCounts, SWEEP_END } from "./firstRunsGoldens.fixture";
+import { fnv, goldenJson, withoutRunCountsKeepingCompletion, SWEEP_END } from "./firstRunsGoldens.fixture";
 import { RANK1, provingState } from "./safeFirstExpedition.fixture";
 
 // Real training runs (Safe first runs: every objective finishes, safeFirstExpedition.fixture.ts) on the explorer, a
 // full rank 1 crew, each of the fresh save's expedition seeds below and its first candidate.
 export const CT_SEEDS = [0x1001, 0x2002, 0x3003, 0x4004, 0x5005] as const;
 export const CT_FAR = SWEEP_END;
-export const ctHash = (v: unknown): string => fnv(goldenJson(withoutRunCounts(v)));
+export const ctHash = (v: unknown): string => fnv(goldenJson(withoutRunCountsKeepingCompletion(v)));
 
 export function ctDispatch(seed: number): { next: GameState; exp: Expedition } {
   const res = startExpedition(provingState("orion", RANK1, seed), "ship-1", 1, "cand-0");
