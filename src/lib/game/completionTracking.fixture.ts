@@ -10,6 +10,7 @@ import { emptyMuseumV2, freshState, type Expedition, type GameState, type RelicV
 import { advanceExpedition, claimExpedition, abandonHeldSystem, recallExpedition, heldSystems, startExpedition } from "./expedition";
 import { exceptionalSetsOfTier } from "./relics";
 import { identifyRelicV2 } from "./relicIdentify";
+import { runCompletion } from "./completion";
 import { economyTick, startRelicStudy } from "./tick";
 import { fnv, goldenJson, withoutRunCountsKeepingCompletion, SWEEP_END } from "./firstRunsGoldens.fixture";
 import { RANK1, provingState } from "./safeFirstExpedition.fixture";
@@ -52,10 +53,23 @@ function firstCharted(exp: Expedition): number {
   }
 }
 
-// RECALLED 60 s after its first body was charted: [the recall, the claim once home, the abandon of the held system].
-export function ctRecalled(seed: number): { recalled: GameState; claimed: GameState; abandoned: GameState } {
+// The first instant (600 s steps) the run's first body is 100% (scanned, every objective done) while the run still works.
+function firstBodyComplete(exp: Expedition): number {
+  let t = exp.phaseAnchorSeconds;
+  for (;;) {
+    t += 600;
+    if (t > exp.phaseAnchorSeconds + 1e7) throw new Error("no body was ever completed");
+    const e = advanceExpedition(exp, t);
+    if (e.phase === "complete" || e.phase === "return") throw new Error("the run finished before a body completed alone");
+    if (runCompletion(e).bodyLines[0].complete) return t;
+  }
+}
+
+// RECALLED 60 s after its first body was charted (`when` "charted"), or 60 s after its first body reached 100% (`when`
+// "bodyDone", the planet roll's abandon fixture): [the recall, the claim once home, the abandon of the held system].
+export function ctRecalled(seed: number, when: "charted" | "bodyDone" = "charted"): { recalled: GameState; claimed: GameState; abandoned: GameState } {
   const { next, exp } = ctDispatch(seed);
-  const at = firstCharted(exp) + 60;
+  const at = (when === "charted" ? firstCharted(exp) : firstBodyComplete(exp)) + 60;
   const recalled = recallExpedition({ ...next, gameTimeSeconds: at, expeditions: [advanceExpedition(exp, at)] }, exp.id);
   const home = advanceExpedition(recalled.expeditions[0], CT_FAR);
   if (home.phase !== "complete") throw new Error("the recalled run did not come home");
@@ -65,6 +79,21 @@ export function ctRecalled(seed: number): { recalled: GameState; claimed: GameSt
   if (!held) throw new Error("the recall held no Resume system");
   const abandoned = abandonHeldSystem({ ...claim.next, gameTimeSeconds: claim.next.gameTimeSeconds + 100 }, held.id);
   return { recalled, claimed: claim.next, abandoned };
+}
+
+// RESUMED: the recalled run's Resume system dispatched again (the same ship and captain), flown home finished and
+// claimed. [the resumed claim's state, the resumed run as claimed].
+export function ctResumed(seed: number, when: "charted" | "bodyDone" = "charted"): { claimed: GameState; exp: Expedition } {
+  const r = ctRecalled(seed, when);
+  const held = heldSystems(r.claimed).find((h) => h.kind === "resume");
+  if (!held) throw new Error("the recall held no Resume system");
+  const res = startExpedition(r.claimed, "ship-1", 1, held.id);
+  if (!res.success || !res.expedition) throw new Error(`resume refused: ${res.reason}`);
+  const done = advanceExpedition(res.expedition, CT_FAR);
+  if (done.phase !== "complete") throw new Error(`resumed run ${seed.toString(16)} did not finish`);
+  const claim = claimExpedition({ ...res.next, gameTimeSeconds: done.phaseAnchorSeconds, expeditions: [done] }, done.id);
+  if (!claim.success) throw new Error(`claim refused: ${claim.reason}`);
+  return { claimed: claim.next, exp: done };
 }
 
 // ===== The relic set completed inside an economy tick =====
