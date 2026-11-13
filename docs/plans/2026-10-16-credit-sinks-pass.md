@@ -358,3 +358,9 @@ or a mockup sign-off.
   "Replace them now (Recommended)" (emoji on the rows this build touches become SVG glyphs).
 - Deep Field Refinement: "Wait for aspects (Recommended)". Rare planet aspects are designed with the user first; Deep
   Field Refinement ships together with them (possibly after 0.14.0). Nothing inert ships now.
+
+## USER ANSWER (2026-11-13): replacement for Quick Service
+
+"Measure first (Recommended)": re-run the economy sim with Overtime and endless telescope cycles in place, show the user
+the late-game balance curve, then decide whether a new sink is needed (candidates on the table: crew training S6,
+endowments to the Museum, Archive or Research Lab, homeworld investment). Keeps 0.14.0 from growing. QUEUED.

@@ -20,7 +20,10 @@ import {
   postsStripShown,
   postsStripView,
   refugeeBestPost,
+  refugeePersonView,
+  REFUGEE_ECHO_MARK_LABEL,
 } from "./refugeeDisplay";
+import { refugeeEchoOf } from "./game/refugeeEchoes";
 
 function person(id: number, name: string, background: RefugeeBackground, skill: number, posting: RefugeeFacilityKey | null): RefugeeRecord {
   return { id, name, background, skill, origin: { tier: 1, destinationIndex: 0 }, portrait: { hair: (id % 4) as 0 | 1 | 2 | 3, palette: id % 8 }, arrivedAtSeconds: 0, posting };
@@ -498,5 +501,33 @@ describe("firstArrivalHintView (call 14 A)", () => {
     const r = dismissed.refugees!;
     const later = { ...dismissed, refugees: { ...r, list: [...r.list, person(2, "Bex Haddow", "dispatcher", 24, null)], arrivedTotal: 2 } };
     expect(firstArrivalHintView(later)).toBeNull();
+  });
+});
+
+describe("E5-6b: an echo refugee wears the shared mark and their own flavor line on every surface", () => {
+  const echo = refugeeEchoOf("ody-dagby")!;
+  const odyRecord = (posting: RefugeeFacilityKey | null): RefugeeRecord => ({ ...person(8, echo.name, echo.background, 47, posting), echo: echo.key });
+
+  it("the person view: echo and flavor for an echo, neither for anyone else", () => {
+    expect(refugeePersonView(odyRecord(null))).toMatchObject({ name: "Ody Dagby", backgroundLabel: "Scholar", echo: true, flavor: echo.flavor });
+    expect(refugeePersonView(person(1, "Mira Talven", "refiner", 42, null))).toMatchObject({ echo: false, flavor: null });
+    // A key this build does not know (hydration strips it on load; the view never trusts it either).
+    expect(refugeePersonView({ ...person(1, "Mira Talven", "refiner", 42, null), echo: "nobody" })).toMatchObject({ echo: false, flavor: null });
+  });
+
+  it("the arrival card, the Refugees tab, the Posts strip and the picker all carry it", () => {
+    const s = withPeople(withLevels(freshState(1), { research: 4, refinery: 1 }), [person(1, "Kesia Lunde", "scholar", 58, "research"), odyRecord(null)]);
+    expect(arrivalCardView(s, 8)!.person).toMatchObject({ echo: true, flavor: echo.flavor });
+    expect(refugeesTabView(s, "everyone", "skill").rows.find((r) => r.id === 8)).toMatchObject({ echo: true, flavor: echo.flavor });
+    expect(postPickerView(s, "research").waiting[0]).toMatchObject({ id: 8, echo: true });
+    expect(personPostView(s, 8)!.person).toMatchObject({ echo: true, flavor: echo.flavor });
+    const posted = postRefugee(s, 8, "research").next;
+    expect(postsStripView(posted, "research")!.slots.find((x) => x.id === 8)).toMatchObject({ echo: true, flavor: echo.flavor });
+    // Everyone else stays unmarked.
+    expect(postsStripView(posted, "research")!.slots.find((x) => x.id === 1)).toMatchObject({ echo: false, flavor: null });
+  });
+
+  it("the mark's spoken label", () => {
+    expect(REFUGEE_ECHO_MARK_LABEL).toBe("a special arrival");
   });
 });

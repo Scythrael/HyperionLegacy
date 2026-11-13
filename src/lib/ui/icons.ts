@@ -619,6 +619,13 @@ export const ICON_PATHS = {
   // Info: a circled i, a one-time note (the first-arrival hint).
   info: ["M12 3a9 9 0 1 1 0 18 9 9 0 0 1 0-18z", "M12 11v6", "M12 7.5v.5"],
 
+  // --- 0.14.0 E5-6b: the echo refugees' one shared mark (the user's "One shared mark": one subtle original glyph) ---
+
+  // Echo: a winking face, the quiet wink an echo's own flavor line carries (beside their name on the arrival card, the
+  // Refugees tab, the Posts popover and the picker). Kept apart from `info` (a larger circle with an i), `circle` (an
+  // empty ring) and `controller` by the closed eye and the smile.
+  refugeeEcho: ["M12 3.5a8.5 8.5 0 1 1 0 17 8.5 8.5 0 0 1 0-17z", "M9 9.3v1.4", "M13.6 10.3c.8-.8 2.1-.8 2.9 0", "M8.2 13.8c.9 1.7 2.3 2.6 3.8 2.6s2.9-.9 3.8-2.6"],
+
   // --- 0.14.0 CP-11: the crew module and early sensor array blueprints (CP-12's tiles reuse them) ---
 
   // Bridge Module: a command chair seen from behind (backrest, armrests, pedestal) facing a wide viewscreen with a readout

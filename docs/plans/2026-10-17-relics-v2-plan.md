@@ -798,3 +798,10 @@ user-named item (never a new entity the user did not name).
   make lots of sense. As for the Keelsong sets, please do some reasearch on the Ogier from Wheel of Time. Even all of
   our favorite well-known characters.  Especially the one who is most Loial to our taveren heroes. Muahaha."
   The hub drafts homage lines (original wording, no franchise names in game text) for the user's sign-off.
+- (2026-11-13, after the R2-5..R2-9 build) Set glyphs: "One per set (Recommended)": 14 distinct SVG glyphs, one per
+  exceptional set, each checked at 16, 28 and 56 px (the shared tinted glyph is replaced). Piece stats: the 2026-11-02
+  answer "Match stats to themes" was never applied; a theme-matched stat table is being drafted for the user's sign-off.
+- (2026-11-13) Theme-matched piece stats (table at the end of docs/plans/2026-11-02-relic-name-sheets-DRAFT.md):
+  "Approve the 4 swaps (Recommended)": Waystation Guestbook craftingQuality -> crewBonuses; Lightkeeper's Wick
+  salvageYield -> hazardResist (its full set follows); Deepcut Plumb Line scienceTeamPower -> extractionSpeed (its set
+  follows); Orrery Keeper's Chair crewBonuses -> craftingQuality. Keelsong and Ember Court unchanged.

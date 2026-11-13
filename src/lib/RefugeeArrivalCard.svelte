@@ -17,7 +17,7 @@
   import Icon from "./ui/Icon.svelte";
   import RefugeePortrait from "./ui/RefugeePortrait.svelte";
   import RefugeePostPicker from "./RefugeePostPicker.svelte";
-  import { REFUGEE_BACKGROUND_ICONS, arrivalCardView } from "./refugeeDisplay";
+  import { REFUGEE_BACKGROUND_ICONS, REFUGEE_ECHO_MARK_LABEL, arrivalCardView } from "./refugeeDisplay";
 
   export let state: GameState;
   export let refugeeId: number;
@@ -53,12 +53,13 @@
       <div class="rac-body">
         <span class="rac-pt"><RefugeePortrait hair={view.person.portrait.hair} palette={view.person.portrait.palette} size={toast ? 40 : 52} /></span>
         <div class="rac-who">
-          <div class="rac-big">{view.headline}</div>
+          <div class="rac-big">{view.headline}{#if view.person.echo}<span class="rac-echo"><Icon name="refugeeEcho" size={15} title={REFUGEE_ECHO_MARK_LABEL} /></span>{/if}</div>
           <div class="rac-line">
             <span class="rac-bg"><Icon name={REFUGEE_BACKGROUND_ICONS[view.person.background]} size={13} />{view.person.backgroundLabel}</span>
             <span class="rac-skill"><span>skill</span> {view.person.skill}</span>
             <span class="rac-match rac-long">{view.matchText}</span>
           </div>
+          {#if view.person.flavor}<div class="rac-flavor">{view.person.flavor}</div>{/if}
         </div>
         <div class="rac-acts">
           <button type="button" class="rac-btn pri" on:click={postBest}>
@@ -92,6 +93,9 @@
   .rac-bg :global(svg) { color: var(--color-accent); }
   .rac-skill { font-family: var(--font-mono); color: var(--color-text-primary); white-space: nowrap; }
   .rac-skill span { color: var(--color-text-dim); }
+  /* E5-6b: an echo's shared mark beside the name, and their own flavor line under the trade line. */
+  .rac-echo { display: inline-flex; vertical-align: -2px; margin-left: 6px; color: var(--color-accent-bright); }
+  .rac-flavor { margin-top: 3px; font-size: var(--text-xs); font-style: italic; color: var(--color-text-secondary); overflow-wrap: anywhere; }
   .rac-match { font-family: var(--font-mono); font-size: var(--text-3xs); letter-spacing: 0.06em; text-transform: uppercase; padding: 0 5px; border-radius: var(--corner); color: var(--color-success); border: 1px solid rgba(52, 211, 153, 0.45); white-space: nowrap; }
   .rac-acts { display: flex; flex-direction: column; gap: 6px; align-items: stretch; }
   .rac-btn { font: inherit; font-size: var(--text-sm); color: var(--color-accent); background: rgba(var(--color-accent-rgb), 0.06); border: 1px solid var(--color-border-strong); border-radius: var(--corner); padding: 4px 10px; min-height: 32px; cursor: pointer; white-space: nowrap; display: inline-flex; align-items: center; justify-content: center; }

@@ -120,6 +120,7 @@ import { hash, withoutEvacuationStamp } from "./firstRunsGoldens.fixture";
 import { withEvacuationDrawOff } from "./evacuationDrawSwitch.fixture";
 // E5-3: the Relocation farewell's test-only off switch (the pre-E5-3 game), tracing every moved pin.
 import { withRefugeeFarewellOff } from "./refugeeFarewellSwitch.fixture";
+import { withEchoRefugeesOff } from "./refugeeEchoSwitch.fixture"; // E5-6b: the echo refugees off (the game before E5-6b)
 import { E5_2_ADDED_ENTRY_IDS, E5_4_ADDED_ENTRY_IDS } from "./refugeeRegistry.fixture";
 // The short-range slow-start parity fix: its test-only off switch (the game before the fix), tracing every moved pin.
 import { withShortRangeFleetOff } from "./shortRangeFleetSwitch.fixture";
@@ -382,6 +383,10 @@ const GOLDEN: Record<string, unknown> = {
   "srfix:fleet:board": {"version": 1, "nextCycle": {"0": 154, "1": 150, "2": 85, "3": 91}},
   "srfix:old": ["766005", "595b2ef0", "aeb9c2c4", "2ce48141", "92f4c0ff", "7437f00f", "585cc328"],
   "srfix:old:previews": ["ce47edc0", "deaf482e", "d0fe0d97", "6680b6d7"],
+  // E5-6b (echo refugees): goldens 2 and 5 with the echoes live; every earlier pin above is traced with them off
+  // (refugeeEchoSwitch.fixture.ts withEchoRefugeesOff). Hour 0, the board and the previews do not move.
+  "e5-6b:fleet": ["766005", "7112415c", "cfe8fe3b", "bb4ee4d8", "3621ab92", "e158ec8e", "f749ace9"],
+  "e5-6b:old": ["766005", "7112415c", "cfe8fe3b", "bb4ee4d8", "3621ab92", "e158ec8e", "f749ace9"],
   // E5-4 (golden 3b): the eight seams with every refugee facility staffed (one matched person each, skill 50).
   // E5-4 fix round ("Carry the fractions"): cyclePlans moved a071a4f4 -> 5beb196c (each cycle plan now pays its
   // phases' rounding forward from phase to phase); traced: with the buffs off it still reads golden 3's own pin.
@@ -457,7 +462,9 @@ describe("E5-0 golden 2: a short-range fleet on Repeat on every slot, six hours"
   it("the whole state every hour, then every slot's preview", () => {
     // The pins, traced: the game before E5-2 (the Evacuation draw off).
     // Every pin before the slow-start parity fix is traced with the fix off (the header).
-    const preFix = <T,>(run: () => T): T => withShortRangeFleetOff(run);
+    // E5-6b: every pin before the echo refugees is traced with the echoes off (withEchoRefugeesOff, the game before
+    // E5-6b); the echoes' own pin is the last one.
+    const preFix = <T,>(run: () => T): T => withShortRangeFleetOff(() => withEchoRefugeesOff(run));
     const old = preFix(() => withEvacuationDrawOff(fleetHours));
     pin("fleet", old.hours);
     pin("fleet:previews", old.previews);
@@ -478,11 +485,20 @@ describe("E5-0 golden 2: a short-range fleet on Repeat on every slot, six hours"
     expect(now.s.completionLog.some((e) => e.kind === "refugeeFarewell")).toBe(true);
     // The slow-start parity fix: the four runs share the fresh ramp, so the hour calls now read the counters in the
     // order 1 s steps do; hour 0 is the same state.
-    const fixed = fleetHours();
+    const fixed = withEchoRefugeesOff(fleetHours);
     expect(fixed.hours[0]).toBe(now.hours[0]);
     pin("srfix:fleet", fixed.hours);
     pin("srfix:fleet:previews", fixed.previews);
     pin("srfix:fleet:board", fixed.board);
+    // E5-6b: about 1 in 50 arrivals is an echo refugee (their roster name and background); the fleet's Evacuations bring
+    // at least one home in the six hours, so the hours move from the first echo on. No draw moves: hour 0, the board and
+    // the previews are the parity fix's pins.
+    const echoes = fleetHours();
+    expect(echoes.hours[0]).toBe(fixed.hours[0]);
+    expect(echoes.previews).toEqual(fixed.previews);
+    expect(echoes.board).toEqual(fixed.board);
+    expect(echoes.s.refugees?.echoes?.length ?? 0).toBeGreaterThan(0);
+    pin("e5-6b:fleet", echoes.hours);
     // ...and the new hour-1 state IS the live game's: 3600 one-second steps land on the same state, compared STRICT
     // (the whole JSON, no key order or list normalized). This file runs with the ordering slice off for its pins, so
     // the comparison runs with it on: canonicalOrder.ts keeps `discovered`, the tallies and the inventory's keys in one
@@ -617,7 +633,8 @@ describe("E5-0 golden 5: the fleet's v70 save through deserialize + migrate, the
   it("the state every hour and every slot's preview", () => {
     // The pins, traced: the game before E5-2 (the Evacuation draw off).
     // Every pin before the slow-start parity fix is traced with the fix off (the header).
-    const preFix = <T,>(run: () => T): T => withShortRangeFleetOff(run);
+    // E5-6b: every pin before the echo refugees is traced with the echoes off (the game before E5-6b).
+    const preFix = <T,>(run: () => T): T => withShortRangeFleetOff(() => withEchoRefugeesOff(run));
     const old = preFix(() => withEvacuationDrawOff(oldSaveHours));
     pin("old", old.hours);
     pin("old:previews", old.previews);
@@ -641,10 +658,17 @@ describe("E5-0 golden 5: the fleet's v70 save through deserialize + migrate, the
     expect(now.previews).toEqual(e52.previews);
     pin("e5-3:old", now.hours);
     // The slow-start parity fix: the loaded save (hour 0) is the same state; the hour calls move as golden 2's do.
-    const fixed = oldSaveHours();
+    const fixed = withEchoRefugeesOff(oldSaveHours);
     expect(fixed.hours[0]).toBe(now.hours[0]);
     pin("srfix:old", fixed.hours);
     pin("srfix:old:previews", fixed.previews);
+    // E5-6b: the loaded save (hour 0) and the previews do not move; the hours move from the first echo arrival on. An
+    // old save simply starts rolling echoes on its next arrivals (no stamp: no saved state changes meaning).
+    const echoes = oldSaveHours();
+    expect(echoes.hours[0]).toBe(fixed.hours[0]);
+    expect(echoes.previews).toEqual(fixed.previews);
+    expect(echoes.s.refugees?.echoes?.length ?? 0).toBeGreaterThan(0);
+    pin("e5-6b:old", echoes.hours);
   });
 });
 

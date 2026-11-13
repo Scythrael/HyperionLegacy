@@ -1,0 +1,843 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Completion tracking</title>
+<style>
+  /* Tokens copied from src/app.css (default cyan theme), the same set as the 2026-11-10 and 2026-11-12 mockups.
+     Self-contained: no web fonts are loaded, so the font stacks fall back to system faces. */
+  :root {
+    color-scheme: dark;
+    --corner: 2px; --ui-scale: 1;
+    --color-bg-deep: #060a12; --color-bg-mid: #0a1120; --color-bg-raised: #0c1626;
+    --color-panel-bg: rgba(20, 40, 60, 0.32);
+    --color-border: rgba(103, 232, 249, 0.18); --color-border-strong: rgba(103, 232, 249, 0.4);
+    --color-accent: #67e8f9; --color-accent-bright: #8ff0e0; --color-accent-rgb: 103, 232, 249;
+    --color-text-primary: #e6f4f8; --color-text-secondary: #8fa3ad; --color-text-dim: #628591;
+    --color-warning: #fbbf24; --color-warning-rgb: 251, 191, 36; --color-danger: #f87171; --color-success: #34d399; --color-success-rgb: 52, 211, 153;
+    --font-display: "Orbitron", "Segoe UI", sans-serif; --font-body: "Space Grotesk", "Inter", "Segoe UI", sans-serif; --font-mono: "JetBrains Mono", Consolas, monospace;
+    --text-2xs: 10px; --text-xs: 11px; --text-sm: 12px; --text-md: 13px; --text-lg: 15px; --text-xl: 20px;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; }
+  body { background: var(--color-bg-deep); color: var(--color-text-primary); font-family: var(--font-body); font-size: 13px; line-height: 1.45; padding: 24px 16px 60px; overflow-x: hidden; }
+  .wrap { max-width: 1440px; margin: 0 auto; display: grid; grid-template-columns: minmax(0, 1fr); gap: 30px; min-width: 0; }
+  .wrap > * { min-width: 0; }
+  h1 { font-family: var(--font-display); font-size: 20px; letter-spacing: .08em; margin: 0 0 6px; }
+  .intro { margin: 0 0 6px; color: var(--color-text-secondary); max-width: 112ch; }
+  .intro b, .note b { color: var(--color-text-primary); }
+  .label { font-family: var(--font-display); font-size: 12px; letter-spacing: .18em; color: var(--color-accent); text-transform: uppercase; margin: 0 0 8px; }
+  .note { color: var(--color-text-secondary); font-size: 12px; margin: 8px 0 0; max-width: 112ch; }
+  .prop { color: var(--color-warning); font-family: var(--font-mono); font-size: 10.5px; }
+  .stage { border: 1px solid var(--color-border); border-radius: var(--corner); background: radial-gradient(900px 400px at 70% -10%, rgba(103,232,249,.07), transparent 60%), var(--color-bg-mid); padding: 18px 12px; overflow-x: auto; min-width: 0; }
+  .pair { display: flex; gap: 18px; flex-wrap: wrap; align-items: flex-start; }
+  .pair > div { min-width: 0; max-width: 100%; }
+  .frame-cap { font-family: var(--font-mono); font-size: 11px; color: var(--color-text-dim); margin: 0 0 6px; max-width: 100%; }
+  svg.g { width: 14px; height: 14px; flex: 0 0 auto; vertical-align: -2px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+  code { font-family: var(--font-mono); font-size: 11px; color: var(--color-accent-bright); }
+
+  /* Truth table */
+  table.t { border-collapse: collapse; font-size: 12px; width: 100%; max-width: 1200px; }
+  table.t th, table.t td { text-align: left; padding: 6px 10px 6px 0; border-bottom: 1px solid var(--color-border); vertical-align: top; }
+  table.t th { font-family: var(--font-mono); font-size: 10px; letter-spacing: .1em; text-transform: uppercase; color: var(--color-text-dim); font-weight: 400; }
+  table.t td { color: var(--color-text-secondary); }
+  table.t td b { color: var(--color-text-primary); font-weight: 500; }
+  table.t td.num { font-family: var(--font-mono); white-space: nowrap; }
+  table.t tr.dip td.num.ans { color: var(--color-warning); }
+  table.t tr.end td { color: var(--color-success); }
+
+  /* App shell (the 2026-11-12 mockups' measured shell) */
+  .shell { background: var(--color-bg-deep); border: 1px solid var(--color-border-strong); border-radius: var(--corner); box-shadow: 0 20px 60px rgba(0,0,0,.5); overflow: hidden; display: flex; flex-direction: column; }
+  .shell.desk { width: 1280px; }
+  .shell.phone { width: 375px; max-width: 100%; }
+  .topbar { display: grid; grid-template-columns: 44px minmax(0, 1fr) auto; gap: 10px; align-items: center; padding: 10px 12px; border-bottom: 1px solid var(--color-border); }
+  .tb-port { width: 44px; height: 44px; border: 1px solid var(--color-border-strong); background: rgba(var(--color-accent-rgb), .06); }
+  .tb-bars { display: grid; gap: 4px; min-width: 0; }
+  .tb-bar { display: grid; grid-template-columns: 54px minmax(0, 1fr) 64px; gap: 8px; align-items: center; font-family: var(--font-mono); font-size: 9.5px; color: var(--color-text-dim); letter-spacing: .08em; }
+  .tb-bar i { display: block; height: 5px; background: rgba(var(--color-accent-rgb), .12); }
+  .tb-bar i > b { display: block; height: 100%; width: 35%; background: var(--color-accent); }
+  .tb-set { font-family: var(--font-mono); font-size: 9.5px; letter-spacing: .1em; color: var(--color-accent); border: 1px solid var(--color-border-strong); padding: 10px 8px; }
+  .tab-body { padding: 8px 11px 0; display: flex; flex-direction: column; min-height: 0; }
+  .crumb { font-family: var(--font-mono); font-size: 10.5px; letter-spacing: .12em; color: var(--color-text-dim); text-transform: uppercase; margin: 0 0 8px; }
+  .crumb b { color: var(--color-accent-bright); font-weight: 600; }
+  .ctabs { display: flex; gap: 6px; padding-bottom: 6px; margin-bottom: 2px; overflow: hidden; }
+  .ctab { flex: 0 0 auto; background: rgba(var(--color-accent-rgb), 0.06); border: 1px solid rgba(var(--color-accent-rgb), 0.2); border-radius: var(--corner); padding: 9px 16px; color: var(--color-text-secondary); font-size: var(--text-md); letter-spacing: .04em; white-space: nowrap; }
+  .ctab.active { color: var(--color-accent-bright); border-color: var(--color-accent); background: rgba(var(--color-accent-rgb), 0.15); box-shadow: 0 0 10px rgba(var(--color-accent-rgb), .45), inset 0 0 7px rgba(var(--color-accent-rgb), .12); }
+  .ctab.new { border-style: dashed; }
+  .phone .ctab { padding: 8px 11px; font-size: 12px; }
+  .tsa { padding: 4px 0 14px; display: flex; flex-direction: column; gap: 12px; }
+  .navb { display: grid; grid-template-columns: repeat(6, 1fr); border-top: 1px solid var(--color-border); height: 50px; }
+  .navb span { display: grid; place-items: center; font-family: var(--font-mono); font-size: 9px; letter-spacing: .08em; color: var(--color-text-dim); }
+  .navb span.on { color: var(--color-accent-bright); background: rgba(var(--color-accent-rgb), .08); box-shadow: inset 0 2px 0 var(--color-accent); }
+  .shipcards { display: flex; gap: 6px; flex-wrap: wrap; }
+  .shipcard { border: 1px solid rgba(var(--color-accent-rgb), .2); border-radius: var(--corner); padding: 6px 10px; font-size: 12px; color: var(--color-text-secondary); background: rgba(var(--color-accent-rgb), .04); }
+  .shipcard.on { border-color: var(--color-accent); color: var(--color-text-primary); background: rgba(var(--color-accent-rgb), .12); }
+  .shipcard small { display: block; font-family: var(--font-mono); font-size: 9.5px; color: var(--color-text-dim); }
+
+  /* ExpeditionPanel.svelte, trimmed (real class names) */
+  .exp-body { display: flex; flex-direction: column; gap: 12px; padding: 12px; background: rgba(var(--color-accent-rgb), 0.04); border: 1px solid rgba(var(--color-accent-rgb), 0.14); border-radius: var(--corner); }
+  .exp-hdr { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; }
+  .exp-hdr-main { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+  .exp-hdr-system { font-family: var(--font-display); font-size: var(--text-lg); color: var(--color-text-primary); display: inline-flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  .exp-hdr-sub { font-size: var(--text-2xs); letter-spacing: 0.04em; text-transform: uppercase; color: var(--color-text-dim); }
+  .exp-section-tag { font-family: var(--font-mono); font-size: var(--text-2xs); letter-spacing: 0.12em; text-transform: uppercase; color: var(--color-accent-bright); }
+  .exp-btn { padding: 7px 14px; border-radius: var(--corner); border: 1px solid rgba(var(--color-accent-rgb), 0.4); background: rgba(var(--color-accent-rgb), 0.1); color: var(--color-text-primary); font-size: var(--text-sm); white-space: nowrap; font-family: inherit; display: inline-flex; gap: 6px; align-items: center; }
+  .exp-btn.primary { background: var(--color-accent); border-color: var(--color-accent); color: var(--color-bg-deep); }
+  .exp-stepper { display: flex; align-items: center; gap: 4px; }
+  .exp-step { display: flex; align-items: center; gap: 6px; color: var(--color-text-dim); }
+  .exp-step-dot { width: 20px; height: 20px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; font-size: var(--text-2xs); border: 1px solid rgba(var(--color-accent-rgb), 0.3); background: rgba(var(--color-accent-rgb), 0.06); flex: 0 0 auto; }
+  .exp-step-dot svg.g { width: 12px; height: 12px; }
+  .exp-step-label { font-size: var(--text-xs); }
+  .exp-step.active { color: var(--color-text-primary); }
+  .exp-step.active .exp-step-dot { border-color: var(--color-accent); background: var(--color-accent); color: var(--color-bg-deep); }
+  .exp-step.done { color: var(--color-success); }
+  .exp-step.done .exp-step-dot { border-color: var(--color-success); color: var(--color-success); }
+  .exp-step-link { flex: 1 1 6px; height: 2px; min-width: 6px; background: rgba(var(--color-accent-rgb), 0.2); border-radius: 2px; }
+  .exp-step-link.done { background: var(--color-success); }
+  .phone .exp-step-label { font-size: 10px; }
+  .exp-bar { position: relative; height: 10px; background: rgba(var(--color-accent-rgb), 0.1); border-radius: 999px; overflow: hidden; }
+  .exp-bar.slim { height: 7px; }
+  .exp-bar-fill { height: 100%; background: var(--color-accent); border-radius: 999px; }
+  .exp-bodies { display: grid; grid-template-columns: 1fr; gap: 8px; }
+  .exp-body-card { display: flex; flex-direction: column; gap: 5px; padding: 9px 10px; background: rgba(var(--color-accent-rgb), 0.05); border: 1px solid rgba(var(--color-accent-rgb), 0.14); border-radius: var(--corner); }
+  .exp-body-top { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
+  .exp-body-type { font-size: var(--text-sm); color: var(--color-text-primary); min-width: 0; overflow-wrap: anywhere; }
+  .exp-body-let { font-family: var(--font-display); color: var(--color-accent-bright); }
+  .exp-body-haz { font-size: var(--text-2xs); color: var(--color-text-dim); white-space: nowrap; }
+  .exp-body-scanpct { font-size: var(--text-2xs); color: var(--color-text-secondary); }
+  .exp-body-pois { display: flex; flex-wrap: wrap; gap: 4px; }
+  .exp-body-pois.dim { font-size: var(--text-2xs); color: var(--color-text-dim); font-style: italic; }
+  .exp-poi { font-size: var(--text-2xs); padding: 1px 7px; border-radius: 999px; background: rgba(var(--color-accent-rgb), 0.14); color: var(--color-accent-bright); }
+  .exp-chip { font-size: var(--text-2xs); padding: 1px 7px; border-radius: 999px; background: rgba(var(--color-accent-rgb), 0.14); color: var(--color-accent-bright); white-space: nowrap; display: inline-flex; gap: 4px; align-items: center; font-family: var(--font-body); letter-spacing: 0; }
+  .exp-chip svg.g { width: 11px; height: 11px; }
+  .exp-chip.star, .exp-chip.resume { background: none; border: 1px solid var(--color-accent); color: var(--color-accent-bright); }
+  .exp-chip.enemy { background: none; border: 1px dashed var(--color-danger); color: var(--color-danger); }
+  .exp-note { font-size: var(--text-2xs); color: var(--color-text-dim); }
+  .exp-findings { display: flex; align-items: baseline; gap: 8px; }
+  .exp-findings-count { font-family: var(--font-display); font-size: var(--text-xl); color: var(--color-accent-bright); }
+  .exp-findings-label { font-size: var(--text-xs); color: var(--color-text-secondary); }
+  .exp-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 210px), 1fr)); gap: 8px; }
+  .exp-target { display: flex; flex-direction: column; gap: 6px; padding: 9px 11px; text-align: left; background: rgba(var(--color-accent-rgb), 0.05); border: 1px solid rgba(var(--color-accent-rgb), 0.16); border-radius: var(--corner); color: var(--color-text-secondary); min-width: 0; }
+  .exp-target.resume { border-style: dashed; border-color: var(--color-accent); }
+  .exp-target-top { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+  .exp-target-name { font-size: var(--text-md); color: var(--color-text-primary); margin-right: auto; }
+  .exp-target-region { font-size: var(--text-2xs); color: var(--color-text-dim); }
+  .exp-rows { display: grid; grid-template-columns: 76px minmax(0, 1fr); gap: 4px 8px; font-size: var(--text-xs); color: var(--color-text-secondary); min-width: 0; }
+  .exp-row-k { color: var(--color-text-dim); display: inline-flex; gap: 4px; align-items: center; }
+  .exp-row-v { min-width: 0; display: flex; flex-direction: column; gap: 3px; color: var(--color-text-primary); }
+  .exp-row-small { font-size: var(--text-2xs); color: var(--color-text-secondary); }
+  .exp-reach { display: block; height: 5px; border-radius: 999px; background: rgba(var(--color-accent-rgb), .12); overflow: hidden; }
+  .exp-reach i { display: block; height: 100%; background: var(--color-accent); }
+  .exp-resume-wrap { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+  .exp-resume-foot { font-size: var(--text-2xs); color: var(--color-text-dim); }
+  .exp-link { color: var(--color-accent); text-decoration: underline dotted; }
+  .ph-line { height: 8px; border-radius: 2px; background: rgba(var(--color-accent-rgb), .07); margin-top: 6px; }
+  .ph-cap { font-family: var(--font-mono); font-size: 10px; color: var(--color-text-dim); }
+
+  /* NEW: completion, shared by every surface */
+  .cmp { display: inline-flex; gap: 6px; align-items: center; font-family: var(--font-mono); font-size: 11px; color: var(--color-text-secondary); flex-wrap: wrap; }
+  .cmp b { color: var(--color-text-primary); font-weight: 600; }
+  .cmp .pc { color: var(--color-accent-bright); font-weight: 600; }
+  .cmp.done .pc { color: var(--color-success); }
+  svg.ring { width: 16px; height: 16px; flex: none; transform: rotate(-90deg); }
+  svg.ring .tr { fill: none; stroke: rgba(var(--color-accent-rgb), .18); stroke-width: 2.4; }
+  svg.ring .ar { fill: none; stroke: var(--color-accent); stroke-width: 2.4; stroke-linecap: round; }
+  svg.ring.done .ar { stroke: var(--color-success); }
+  .done-chip { display: inline-flex; gap: 4px; align-items: center; font-family: var(--font-body); font-size: var(--text-2xs); letter-spacing: 0; text-transform: none; padding: 1px 7px 1px 4px; border-radius: 999px; border: 1px solid rgba(var(--color-success-rgb), .55); color: var(--color-success); background: rgba(var(--color-success-rgb), .08); white-space: nowrap; font-weight: 500; }
+  .done-chip svg.g { width: 13px; height: 13px; }
+  .exp-hdr-system .done-chip { font-size: 11px; }
+  .exp-body-comp { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; font-family: var(--font-mono); font-size: 10.5px; color: var(--color-text-secondary); border-top: 1px dashed rgba(var(--color-accent-rgb), .14); padding-top: 5px; }
+  .exp-body-comp b { color: var(--color-text-primary); font-weight: 500; }
+  .exp-body-comp .pc { color: var(--color-accent-bright); font-weight: 600; }
+  .exp-body-comp .sk { color: var(--color-text-dim); }
+  .exp-body-card.complete { border-color: rgba(var(--color-success-rgb), .45); }
+  .exp-body-card.complete .exp-body-comp .pc { color: var(--color-success); }
+  .cmp-row { display: grid; gap: 5px; padding: 8px 10px; border: 1px solid rgba(var(--color-accent-rgb), .18); border-radius: var(--corner); background: rgba(var(--color-accent-rgb), .03); }
+  .cmp-row .top { display: flex; justify-content: space-between; gap: 8px; align-items: baseline; flex-wrap: wrap; }
+  .cmp-row .sub { font-size: var(--text-2xs); color: var(--color-text-secondary); }
+  .newmark { outline: 1px dashed rgba(var(--color-warning-rgb), .75); outline-offset: 3px; border-radius: 2px; }
+
+  /* Glyph sheet */
+  .gsheet { display: flex; gap: 22px; flex-wrap: wrap; align-items: flex-end; }
+  .gcell { display: grid; gap: 6px; justify-items: center; font-family: var(--font-mono); font-size: 10px; color: var(--color-text-dim); }
+  .gcell .sizes { display: flex; gap: 12px; align-items: flex-end; padding: 10px 12px; border: 1px solid var(--color-border); border-radius: var(--corner); background: var(--color-bg-deep); }
+  .gcell.newg .sizes { border-color: rgba(var(--color-success-rgb), .55); }
+  .gcell svg.g.s16 { width: 16px; height: 16px; }
+  .gcell svg.g.s28 { width: 28px; height: 28px; }
+  .gcell svg.g.s56 { width: 56px; height: 56px; stroke-width: 1.6; }
+  .ok { color: var(--color-success); }
+  .acc { color: var(--color-accent); }
+
+  /* TelescopeMap.svelte, copied as is, plus the NEW completion marks */
+  .panel { position: relative; padding: 16px; background: var(--color-panel-bg); border: 1px solid var(--color-border); box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35); min-width: 0; }
+  .phone .panel { padding: 12px; }
+  .panel-title { font-size: var(--text-xs); letter-spacing: 1.5px; color: var(--color-accent); margin-bottom: 6px; font-weight: 600; }
+  .telescope-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 380px), 1fr)); gap: 12px; align-items: start; }
+  .telescope-sub { font-size: var(--text-xs); color: var(--color-text-dim); }
+  .tm { min-width: 0; }
+  .tm-svg { width: 100%; height: auto; max-width: 440px; display: block; margin: 6px auto 0; }
+  .tm-disk { fill: rgba(var(--color-accent-rgb), 0.04); stroke: var(--color-border); stroke-width: 1; }
+  .tm-arm { fill: none; stroke: var(--color-text-dim); stroke-width: 7; stroke-linecap: round; opacity: 0.24; }
+  .tm-arm.minor { stroke-width: 4; }
+  .tm-bulge { fill: rgba(var(--color-warning-rgb), 0.18); }
+  .tm-core { fill: var(--color-warning); }
+  .tm-home { fill: var(--color-accent); stroke: var(--color-bg-deep); stroke-width: 1.5; }
+  .tm-ring { fill: none; stroke: var(--color-accent); stroke-width: 1.6; }
+  .tm-ring-fill { fill: rgba(var(--color-accent-rgb), 0.08); stroke: none; }
+  .tm-ring.next { fill: none; stroke: var(--color-warning); stroke-dasharray: 4 4; stroke-width: 1.3; }
+  .tm-badge circle { fill: var(--color-bg-deep); stroke: var(--color-text-dim); stroke-width: 1.3; stroke-dasharray: 2.5 2; }
+  .tm-badge text { fill: var(--color-text-dim); font: 700 8.5px var(--font-mono, monospace); }
+  .tm-badge.in circle { stroke: var(--color-accent); stroke-dasharray: none; }
+  .tm-badge.in text { fill: var(--color-accent); }
+  .tm-label { fill: var(--color-text-secondary); font: 600 10px system-ui, sans-serif; paint-order: stroke; stroke: var(--color-bg-deep); stroke-width: 3px; }
+  .tm-label.small { font-size: 9px; fill: var(--color-text-dim); font-weight: 500; }
+  .tm-enemy { stroke: rgba(248, 113, 113, 0.45); stroke-width: 0.8; stroke-dasharray: 2 2; }
+  .tm-enemy-label { fill: var(--color-danger); font-weight: 700; font-family: var(--font-mono, monospace); paint-order: stroke; stroke: var(--color-bg-deep); stroke-width: 2.5px; stroke-linejoin: round; }
+  .tm-legend { list-style: none; margin: 8px 0 0; padding: 0; display: grid; gap: 3px; font-size: var(--text-xs); color: var(--color-text-secondary); }
+  .tm-legend li { display: flex; align-items: center; gap: 6px; min-width: 0; }
+  .tm-key { flex: 0 0 22px; height: 0; border-top: 2px solid var(--color-accent); }
+  .tm-key.dashed { border-top: 2px dashed var(--color-warning); }
+  .tm-key.hatch { height: 10px; border: 1px dashed rgba(248, 113, 113, 0.55); background: repeating-linear-gradient(45deg, rgba(248,113,113,0.5) 0 1px, rgba(248,113,113,0.06) 1px 4px); }
+  .tm-key.hatch.sm { flex: 0 0 12px; width: 12px; height: 8px; display: inline-block; vertical-align: -1px; }
+  .tm-regions { list-style: none; margin: 8px 0 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 190px), 1fr)); gap: 4px 12px; font-size: var(--text-xs); }
+  .tm-regions li { display: grid; grid-template-columns: 34px minmax(0, 1fr) auto; align-items: center; gap: 6px; color: var(--color-text-dim); min-width: 0; }
+  .tm-regions li.in { color: var(--color-text-primary); }
+  .tm-num { display: inline-grid; place-items: center; min-width: 30px; height: 18px; padding: 0 4px; border-radius: 9px; border: 1px dashed var(--color-text-dim); font: 700 10px var(--font-mono); }
+  .tm-regions li.in .tm-num { border: 1px solid var(--color-accent); color: var(--color-accent); }
+  .tm-name { overflow-wrap: anywhere; }
+  .tm-state { font-size: var(--text-2xs); }
+  .tm-part { font-size: var(--text-2xs); color: var(--color-text-secondary); white-space: nowrap; margin-left: 4px; display: inline-flex; gap: 4px; align-items: center; }
+  .tm-cmp { display: block; font-size: var(--text-2xs); color: var(--color-text-secondary); font-family: var(--font-mono); }
+  .tm-cmp .ok { display: inline-flex; gap: 3px; align-items: center; }
+  .tm-cmp svg.g { width: 11px; height: 11px; }
+  /* NEW, option A: a charted system's ring */
+  .tm-sys-track { fill: var(--color-bg-deep); stroke: rgba(var(--color-accent-rgb), 0.35); stroke-width: 1.6; }
+  .tm-sys-arc { fill: none; stroke: var(--color-accent-bright); stroke-width: 1.8; }
+  .tm-sys-dot { fill: var(--color-accent-bright); }
+  .tm-sys.done .tm-sys-track { stroke: var(--color-success); stroke-width: 1.8; }
+  .tm-sys.done .tm-sys-dot { fill: var(--color-success); }
+  .tm-sys.sel .tm-sys-halo { fill: none; stroke: var(--color-text-primary); stroke-width: 1; stroke-dasharray: 2 1.5; }
+  .tm-key.sys { flex: 0 0 12px; width: 12px; height: 12px; border: 0; display: inline-block; }
+  /* NEW, option B: a region's arc */
+  .tm-reg-track { fill: none; stroke: rgba(var(--color-success-rgb), 0.18); stroke-width: 2; }
+  .tm-reg-arc { fill: none; stroke: var(--color-success); stroke-width: 2; stroke-linecap: round; }
+  .tm-tip { margin-top: 8px; padding: 7px 9px; border: 1px solid var(--color-border-strong); border-radius: var(--corner); background: var(--color-bg-raised); font-size: 11.5px; display: grid; gap: 2px; }
+  .tm-tip .n { font-weight: 600; display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+  .tm-tip .m { font-family: var(--font-mono); font-size: 10.5px; color: var(--color-text-secondary); }
+
+  /* Archive (SurveyLogPanel.svelte look) and the NEW systems list */
+  .sl-gh { margin: 0 0 4px; font-family: var(--font-display); font-size: var(--text-xs); letter-spacing: 0.04em; color: var(--color-text-primary); display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap; }
+  .sl-count { font-family: var(--font-mono); color: var(--color-text-dim); font-weight: 400; }
+  .sl-chipbtn { font-size: var(--text-xs); min-height: 28px; padding: 3px 8px; color: var(--color-text-secondary); border: 1px solid rgba(var(--color-accent-rgb), 0.22); border-radius: var(--corner); display: inline-flex; gap: 6px; align-items: center; }
+  .sl-chipbtn.on { color: var(--color-text-primary); border-color: var(--color-accent-bright); background: rgba(var(--color-accent-rgb), 0.1); }
+  .sl-first { font-size: var(--text-2xs); color: var(--color-warning); }
+  .sl-card { padding: 12px; min-width: 0; border: 1px solid rgba(var(--color-accent-rgb), 0.16); border-radius: var(--corner); background: rgba(var(--color-accent-rgb), 0.04); }
+  .sl-empty { font-size: var(--text-sm); color: var(--color-text-secondary); margin: 0; }
+  .sy { border: 1px solid rgba(var(--color-accent-rgb), .22); border-radius: var(--corner); background: rgba(var(--color-accent-rgb), .025); }
+  .sy-hd { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 10px 12px; }
+  .sy-t { font-family: var(--font-mono); font-size: 10.5px; letter-spacing: .14em; text-transform: uppercase; color: var(--color-accent-bright); display: inline-flex; gap: 6px; align-items: center; }
+  .sy-n { font-family: var(--font-mono); font-size: 12px; color: var(--color-text-secondary); display: inline-flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+  .sy-n b { color: var(--color-text-primary); font-weight: 600; }
+  .sy-tools { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; padding: 0 12px 8px; }
+  .sy-tools .lbl { font-family: var(--font-mono); font-size: 10px; letter-spacing: .1em; text-transform: uppercase; color: var(--color-text-dim); display: inline-flex; gap: 4px; align-items: center; }
+  .sy-bd { padding: 0 12px 12px; display: grid; gap: 12px; }
+  .sy-foot { padding: 0 12px 10px; font-family: var(--font-mono); font-size: var(--text-2xs); color: var(--color-text-dim); }
+  .spacer { flex: 1; }
+  table.sys { width: 100%; border-collapse: collapse; table-layout: fixed; }
+  .sys th { text-align: left; font-family: var(--font-mono); font-weight: 400; font-size: 10px; letter-spacing: .1em; text-transform: uppercase; color: var(--color-text-dim); padding: 4px 8px; border-bottom: 1px solid var(--color-border); white-space: nowrap; }
+  .sys td { padding: 7px 8px; border-bottom: 1px solid rgba(var(--color-accent-rgb), .08); vertical-align: middle; font-size: 12.5px; color: var(--color-text-secondary); }
+  .sys td.nm { color: var(--color-text-primary); font-weight: 600; }
+  .sys td.nm span.wrapc { display: inline-flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+  .sys td.mono { font-family: var(--font-mono); font-size: 11.5px; white-space: nowrap; }
+  .sys td.mono .sk { color: var(--color-text-dim); font-size: 10.5px; }
+  .pbar { display: grid; grid-template-columns: 90px 40px auto; gap: 8px; align-items: center; }
+  .pbar i { display: block; height: 5px; border-radius: 999px; background: rgba(var(--color-accent-rgb), .12); overflow: hidden; }
+  .pbar i b { display: block; height: 100%; background: var(--color-accent); }
+  .pbar.done i b { background: var(--color-success); }
+  .pbar .v { font-family: var(--font-mono); font-size: 11.5px; color: var(--color-accent-bright); text-align: right; }
+  .pbar.done .v { color: var(--color-success); }
+  .pbar .done-chip { justify-self: start; }
+  .st-chip { font-size: var(--text-2xs); padding: 1px 7px; border-radius: 999px; border: 1px solid var(--color-border); color: var(--color-text-secondary); white-space: nowrap; display: inline-flex; gap: 4px; align-items: center; }
+  .st-chip.way { border-color: var(--color-accent); color: var(--color-accent-bright); }
+  .st-chip.res { border-style: dashed; border-color: var(--color-accent); color: var(--color-accent-bright); }
+  .st-chip svg.g { width: 11px; height: 11px; }
+  .syc { border: 1px solid rgba(var(--color-accent-rgb), .14); border-radius: var(--corner); background: rgba(var(--color-accent-rgb), .04); padding: 8px 10px; display: grid; gap: 4px; }
+  .syc.done { border-color: rgba(var(--color-success-rgb), .4); }
+  .syc .r1 { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; font-weight: 600; font-size: 13px; }
+  .syc .r2 { font-family: var(--font-mono); font-size: 10.5px; color: var(--color-text-secondary); }
+  .syc .pbar { grid-template-columns: minmax(0, 1fr) 40px; }
+  .sycs { display: grid; gap: 6px; }
+  .seg { display: inline-flex; border: 1px solid var(--color-border-strong); border-radius: var(--corner); overflow: hidden; }
+  .seg span { display: inline-flex; gap: 6px; align-items: center; padding: 6px 11px; font-size: 12px; color: var(--color-text-secondary); border-right: 1px solid var(--color-border); white-space: nowrap; }
+  .seg span:last-child { border-right: 0; }
+  .seg span.on { color: var(--color-text-primary); background: rgba(var(--color-accent-rgb), .16); }
+  .phone .seg { display: flex; }
+  .phone .seg span { flex: 1; justify-content: center; padding: 7px 4px; font-size: 11.5px; }
+
+  /* Callouts and open calls */
+  .callout { font-family: var(--font-mono); font-size: 10px; color: var(--color-warning); display: flex; gap: 6px; align-items: center; margin: 0; }
+  .callout::before { content: ""; width: 14px; height: 1px; background: var(--color-warning); flex: none; }
+  .oc { border: 1px dashed rgba(var(--color-warning-rgb), .65); background: rgba(var(--color-warning-rgb), .06); border-radius: var(--corner); padding: 8px 10px; font-size: 12px; color: var(--color-text-secondary); }
+  .oc .t { font-family: var(--font-mono); font-size: 10.5px; letter-spacing: .1em; color: var(--color-warning); text-transform: uppercase; margin-bottom: 4px; }
+  .oc .ab { display: grid; grid-template-columns: 18px 1fr; gap: 3px 6px; }
+  .oc .ab b { font-family: var(--font-mono); color: var(--color-warning); }
+  .oc .drawn { font-family: var(--font-mono); font-size: 10px; color: var(--color-text-dim); margin-top: 5px; }
+  .ocgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 420px), 1fr)); gap: 12px; }
+  ul.notes { margin: 0; padding-left: 18px; display: grid; gap: 6px; color: var(--color-text-secondary); max-width: 112ch; font-size: 12.5px; }
+  ul.notes b { color: var(--color-text-primary); }
+</style>
+</head>
+<body>
+<!-- Glyph path data copied from src/lib/ui/icons.ts, except i-systemComplete, the NEW glyph this mockup proposes. -->
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <defs>
+    <symbol id="i-systemComplete" viewBox="0 0 24 24"><path d="M20.1 9.4A8.5 8.5 0 1 1 14.6 3.9"/><path d="M18 3.8a2.2 2.2 0 1 0 0 4.4 2.2 2.2 0 0 0 0-4.4z"/><path d="M8.2 12.2l2.6 2.6 5-5.2"/></symbol>
+    <symbol id="i-check" viewBox="0 0 24 24"><path d="M4 12.5l5 5L20 6.5"/></symbol>
+    <symbol id="i-circle" viewBox="0 0 24 24"><path d="M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18z"/></symbol>
+    <symbol id="i-skipped" viewBox="0 0 24 24"><path d="M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18z"/><path d="M8 12h8"/></symbol>
+    <symbol id="i-giant" viewBox="0 0 24 24"><path d="M12 6a6 6 0 1 0 0 12 6 6 0 0 0 0-12z"/><path d="M2.5 15.5c2.5-1.3 6-2.6 9.5-3.4s7-1.1 9-.6"/></symbol>
+    <symbol id="i-star" viewBox="0 0 24 24"><path d="M12 3.5l2.6 5.3 5.9.9-4.3 4.1 1 5.8-5.2-2.7-5.2 2.7 1-5.8-4.3-4.1 5.9-.9z"/></symbol>
+    <symbol id="i-relic" viewBox="0 0 24 24"><path d="M12 3l7.8 4.5v9L12 21l-7.8-4.5v-9z"/><path d="M10 9.5a2 2 0 1 1 2.8 1.8c-.5.3-.8.7-.8 1.3v.9"/><path d="M12 15.9v.2"/></symbol>
+    <symbol id="i-resume" viewBox="0 0 24 24"><path d="M7 3h10v18l-5-3.5L7 21z"/><path d="M10.5 8.5l2.5 2.5-2.5 2.5"/></symbol>
+    <symbol id="i-recall" viewBox="0 0 24 24"><path d="M17 20v-9a5 5 0 0 0-10 0v2"/><path d="M4 10.5l3 3 3-3"/></symbol>
+    <symbol id="i-clock" viewBox="0 0 24 24"><path d="M12 3a9 9 0 1 1 0 18 9 9 0 0 1 0-18z"/><path d="M12 7v5l3 2"/></symbol>
+    <symbol id="i-chevronRight" viewBox="0 0 24 24"><path d="M9 6l6 6-6 6"/></symbol>
+    <symbol id="i-chevronUp" viewBox="0 0 24 24"><path d="M6 15l6-6 6 6"/></symbol>
+    <symbol id="i-sort" viewBox="0 0 24 24"><path d="M7.5 19V5"/><path d="M4 8.5l3.5-3.5L11 8.5"/><path d="M16.5 5v14"/><path d="M13 15.5l3.5 3.5 3.5-3.5"/></symbol>
+    <symbol id="i-telescope" viewBox="0 0 24 24"><path d="M5 8a7 7 0 0 0 9 9z"/><path d="M9.5 12.5l4-4"/><path d="M7 16l1.5 4.5"/><path d="M5 20.5h7"/><path d="M16 4.5a3.5 3.5 0 0 1 3.5 3.5"/><path d="M16.5 1.5a6.5 6.5 0 0 1 6 6"/></symbol>
+  </defs>
+</svg>
+
+<div class="wrap">
+  <div>
+    <h1>Completion tracking: per system and per body</h1>
+    <p class="intro">Hyperion Legacy 0.14.0, for sign-off before the build (<code>docs/plans/2026-11-13-completion-tracking-design.md</code>). Your 2026-11-13 answers, drawn as decided: <b>what counts is "Bodies + objectives": each body scanned plus each objective cleared on it, weighted evenly</b>; 100% means every body charted and every objective done. Shown on <b>the Expedition Console</b> (each system and body row), <b>the telescope map</b> (a small ring or tag on charted systems) and <b>the Survey Log / Archive</b> (every visited system with its %). At 100%: <b>a badge and a ledger entry</b>, no stat reward. The chat-event ledger stays <b>hidden until chat</b> (no screen in 0.14.0). S2-65 (completion gating relic rarity) is <b>not built</b>.</p>
+    <p class="intro">Sample save: the real Tier II system <b>OR-9359</b> (1,320 ly, from the engine's own candidate draw for this homeworld) is under way on <b>Kestrel</b>; ten other systems, also real draws for this homeworld (Wolf 359, 51 Pegasi, Betelgeuse, Eagle Nebula, LB-, OR-, PE-, SA-, SC- catalog systems), are in the Archive. Their body and objective counts are <b>sample numbers</b> inside each tier's real body range. Amber dashed boxes are questions for you; amber dashed outlines mark what is new on a screen.</p>
+  </div>
+
+  <!-- ===================== 0 ===================== -->
+  <section>
+    <p class="label">0. What the % is built from (the engine as built today)</p>
+    <div class="stage">
+      <table class="t">
+        <thead><tr><th>Fact</th><th>What it means for the %</th><th>Where (engine)</th></tr></thead>
+        <tbody>
+          <tr><td><b>A body counts once its scan finishes</b></td><td>"Bodies 2/3" counts bodies whose scan reached 100%. A half-scanned body counts 0 (its scan bar still shows the partial progress).</td><td><code>ExpeditionBody.scanned</code>, the once-only latch set at 100% scan.</td></tr>
+          <tr><td><b>Objectives exist only after a body's scan</b></td><td>A body's objectives are drawn the moment its scan finishes, so until every body is scanned nobody, not even the engine, knows the final objective count. Counting them evenly as answered, the % can <b>dip</b> when a scan reveals new objectives (section 2, the "how it updates" table). Question 1.</td><td><code>assignDiscoveriesAndActivities</code> on scan completion; <code>body.activities</code> is empty before.</td></tr>
+          <tr><td><b>An objective counts when done</b></td><td>"Objectives 3/5" counts <code>done</code> objectives on scanned bodies. Partial progress does not move the % (the objective cards already show it).</td><td><code>ExpeditionActivity.done</code> / <code>status</code>.</td></tr>
+          <tr><td><b>Objectives can be skipped</b></td><td>The player can Skip one, and an objective no deployed squads can cover is skipped by the plan. A skipped objective is not done, so the system ends under 100% (Question 3).</td><td><code>groundOps.ts</code> edit "skip", <code>planTasksForTeams</code> ("skippedNeedsSquads").</td></tr>
+          <tr><td><b>Studies and the nebula sweep</b></td><td>On a study run an orbital body gets one ship study instead of ground objectives, and a nebula is swept once per system. Do these count as objectives? (Question 4.)</td><td><code>Expedition.study</code>, <code>Expedition.nebula</code>; the run's progress bar already counts each at weight 1.</td></tr>
+          <tr><td><b>The run's existing progress number is different</b></td><td>The resume card's "Charted 62%" and the activities bar read <code>groundOpsProgress</code>: objectives only, weighted by difficulty, partial progress counted, skipped counted whole. Not the answered rule (Question 9).</td><td><code>groundOps.ts groundOpsProgress</code>, <code>resumableSystems</code>.</td></tr>
+          <tr><td><b>Nothing is kept after a claim (the gap)</b></td><td><b>Claim removes the run</b> from the save; no per-system record survives. The Survey Log keeps only study readouts (15% of studies) and the Wolf 359 entry. So the Archive list and the map marks need a <b>new small record per system</b>, written at claim (and at abandon), the builder's job. Recalled systems with charted bodies are kept (Resume) and in-flight runs are live, so both are listable today.</td><td><code>claimExpedition</code> filters <code>state.expeditions</code>; <code>GameState.heldSystems</code> holds recalls only.</td></tr>
+          <tr><td><b>The same system can come back</b></td><td>Each candidate list is drawn fresh: a famous system rolls 1 in 12 per slot and catalog numbers (0001 to 9999) can repeat, with new bodies from the new run's seed. Question 2.</td><td><code>tierCandidateSystems</code>, <code>FAMOUS_SYSTEM_ONE_IN</code>, <code>CATALOG_NUMBER_MAX</code>.</td></tr>
+        </tbody>
+      </table>
+      <p class="note">The rule drawn everywhere below (Question 1, option A, as answered): <b>% = (bodies scanned + objectives done) / (bodies + objectives found so far)</b>, rounded to a whole percent. A body not yet scanned counts as one unit (its scan). Example: 3 bodies, 2 scanned with 5 objectives found, 3 of them done: (2 + 3) / (3 + 5) = <b>63%</b>.</p>
+    </div>
+  </section>
+
+  <!-- ===================== 1 ===================== -->
+  <section>
+    <p class="label">1. The completed badge (a new SVG glyph)</p>
+    <div class="stage">
+      <div class="gsheet">
+        <div class="gcell newg">
+          <div class="sizes ok"><svg class="g s16"><use href="#i-systemComplete"/></svg><svg class="g s28"><use href="#i-systemComplete"/></svg><svg class="g s56"><use href="#i-systemComplete"/></svg></div>
+          <span>NEW systemComplete · 16 / 28 / 56 px · success hue</span>
+        </div>
+        <div class="gcell">
+          <div class="sizes acc"><svg class="g s16"><use href="#i-systemComplete"/></svg><svg class="g s28"><use href="#i-systemComplete"/></svg><svg class="g s56"><use href="#i-systemComplete"/></svg></div>
+          <span>the same, accent hue</span>
+        </div>
+        <div class="gcell">
+          <div class="sizes acc"><svg class="g s16"><use href="#i-check"/></svg><svg class="g s28"><use href="#i-check"/></svg></div><span>check (existing)</span>
+        </div>
+        <div class="gcell">
+          <div class="sizes acc"><svg class="g s16"><use href="#i-circle"/></svg><svg class="g s28"><use href="#i-circle"/></svg></div><span>circle (existing)</span>
+        </div>
+        <div class="gcell">
+          <div class="sizes acc"><svg class="g s16"><use href="#i-skipped"/></svg><svg class="g s28"><use href="#i-skipped"/></svg></div><span>skipped (existing)</span>
+        </div>
+        <div class="gcell">
+          <div class="sizes acc"><svg class="g s16"><use href="#i-giant"/></svg><svg class="g s28"><use href="#i-giant"/></svg></div><span>giant (existing)</span>
+        </div>
+        <div class="gcell">
+          <div class="sizes acc"><svg class="g s16"><use href="#i-star"/></svg><svg class="g s28"><use href="#i-star"/></svg></div><span>star (existing)</span>
+        </div>
+      </div>
+      <p class="note">A closed orbit with a planet riding it and a check inside: "every body, every objective". It needs a new glyph because the nearest existing ones already mean something else: <b>check</b> is "done" for a single step, <b>circle</b> is "not reached yet", <b>skipped</b> is a circle with a bar, <b>giant</b> is a ringed planet. The planet's gap in the orbit is what keeps it apart from check-in-a-circle at 16 px. Name <code>systemComplete</code> <span class="prop">[PROPOSAL]</span>, with its ICON_SEMANTICS line ("a system with every body scanned and every objective done"). It is always drawn with the word <b>Completed</b> beside it, except on the telescope map (section 3), where the legend says it.</p>
+    </div>
+  </section>
+
+  <!-- ===================== 2 ===================== -->
+  <section>
+    <p class="label">2. Expedition Console: the system line and the body rows</p>
+    <div class="stage">
+      <div class="pair">
+        <div>
+          <p class="frame-cap">Desktop 1280 px · Operations / Exploration / Expedition Console · OR-9359 in Ground Operations · option A (the system line under the header)</p>
+          <div class="shell desk">
+            <div class="topbar">
+              <div class="tb-port"></div>
+              <div class="tb-bars"><div class="tb-bar"><span>FA EXP</span><i><b></b></i><span>Lv 31 · 35%</span></div><div class="tb-bar"><span>CRAFT</span><i><b style="width:60%"></b></i><span>Lv 22 · 60%</span></div><div class="tb-bar"><span>TICK</span><i><b style="width:80%"></b></i><span>1.0s</span></div></div>
+              <div class="tb-set">SETTINGS</div>
+            </div>
+            <div class="tab-body">
+              <div class="crumb">Operations / <b>Exploration</b> / Expedition Console</div>
+              <div class="tsa">
+                <div class="shipcards"><span class="shipcard on">Kestrel<small>OR-9359 · Ground Operations</small></span><span class="shipcard">Lumen Drift<small>Docked</small></span></div>
+                <div class="exp-body">
+                  <div class="exp-hdr">
+                    <div class="exp-hdr-main">
+                      <span class="exp-hdr-system">OR-9359</span>
+                      <span class="exp-hdr-sub">Kestrel</span>
+                      <span class="exp-hdr-sub">Tier II · Orion Arm · 1,320 ly from your homeworld</span>
+                      <span class="cmp newmark" style="margin-top:5px"><svg class="ring" viewBox="0 0 16 16"><circle class="tr" cx="8" cy="8" r="6"/><circle class="ar" cx="8" cy="8" r="6" stroke-dasharray="23.6 37.7"/></svg>Bodies <b>2/3</b> · Objectives <b>3/5</b> · <span class="pc">63%</span></span>
+                    </div>
+                    <span class="exp-btn"><svg class="g"><use href="#i-recall"/></svg>Recall</span>
+                  </div>
+                  <div class="exp-stepper">
+                    <div class="exp-step done"><span class="exp-step-dot"><svg class="g"><use href="#i-check"/></svg></span><span class="exp-step-label">Transit</span></div><span class="exp-step-link done"></span>
+                    <div class="exp-step active"><span class="exp-step-dot">2</span><span class="exp-step-label">Scanning</span></div><span class="exp-step-link"></span>
+                    <div class="exp-step"><span class="exp-step-dot">3</span><span class="exp-step-label">Ground Operations</span></div><span class="exp-step-link"></span>
+                    <div class="exp-step"><span class="exp-step-dot">4</span><span class="exp-step-label">Return</span></div>
+                  </div>
+                  <div class="exp-section-tag">System scan · 80%</div>
+                  <div class="exp-bodies" id="bodies-desk"></div>
+                  <div class="exp-section-tag">Objective progress · 3 of 5 done</div>
+                  <div class="ph-cap">Team queues, timelines, supplies and objective cards: unchanged</div>
+                  <div class="exp-findings"><span class="exp-findings-count">7</span><span class="exp-findings-label">findings gathered</span></div>
+                </div>
+              </div>
+            </div>
+            <div class="navb"><span>HOME</span><span>CREW</span><span>SHIPS</span><span>FACILITIES</span><span>LOGISTICS</span><span class="on">OPS</span></div>
+          </div>
+        </div>
+
+        <div>
+          <p class="frame-cap">Phone 375 px · the same run, option A</p>
+          <div class="shell phone">
+            <div class="topbar">
+              <div class="tb-port"></div>
+              <div class="tb-bars"><div class="tb-bar"><span>FA EXP</span><i><b></b></i><span>Lv 31</span></div><div class="tb-bar"><span>TICK</span><i><b style="width:80%"></b></i><span>1.0s</span></div></div>
+              <div class="tb-set">SET</div>
+            </div>
+            <div class="tab-body">
+              <div class="crumb">Operations / <b>Exploration</b></div>
+              <div class="tsa">
+                <div class="shipcards"><span class="shipcard on">Kestrel<small>OR-9359</small></span><span class="shipcard">Lumen Drift<small>Docked</small></span></div>
+                <div class="exp-body">
+                  <div class="exp-hdr">
+                    <div class="exp-hdr-main">
+                      <span class="exp-hdr-system">OR-9359</span>
+                      <span class="exp-hdr-sub">Kestrel</span>
+                      <span class="exp-hdr-sub">Tier II · Orion Arm · 1,320 ly</span>
+                      <span class="cmp newmark" style="margin-top:5px"><svg class="ring" viewBox="0 0 16 16"><circle class="tr" cx="8" cy="8" r="6"/><circle class="ar" cx="8" cy="8" r="6" stroke-dasharray="23.6 37.7"/></svg>Bodies <b>2/3</b> · Objectives <b>3/5</b> · <span class="pc">63%</span></span>
+                    </div>
+                    <span class="exp-btn"><svg class="g"><use href="#i-recall"/></svg>Recall</span>
+                  </div>
+                  <div class="exp-stepper">
+                    <div class="exp-step done"><span class="exp-step-dot"><svg class="g"><use href="#i-check"/></svg></span></div><span class="exp-step-link done"></span>
+                    <div class="exp-step active"><span class="exp-step-dot">2</span></div><span class="exp-step-link"></span>
+                    <div class="exp-step"><span class="exp-step-dot">3</span><span class="exp-step-label">Ground Operations</span></div><span class="exp-step-link"></span>
+                    <div class="exp-step"><span class="exp-step-dot">4</span></div>
+                  </div>
+                  <div class="exp-section-tag">System scan · 80%</div>
+                  <div class="exp-bodies" id="bodies-phone"></div>
+                </div>
+              </div>
+            </div>
+            <div class="navb"><span>HOME</span><span>CREW</span><span>SHIPS</span><span>FAC</span><span>LOG</span><span class="on">OPS</span></div>
+          </div>
+        </div>
+      </div>
+
+      <p class="note">Each body card gains one line under its scan line: <b>Scanned · Objectives 3/3 · 100%</b> with the badge at 100%, <b>Scanned · Objectives 0/2 · 33%</b>, or <b>Not scanned yet · 0%</b> (its objectives appear when the scan ends). A body's own % is the same rule on one body: (scan + objectives done) / (1 + its objectives). A body whose scan found nothing to do reads <b>Scanned · No objectives · 100%</b>. A skipped objective shows as "1 skipped" in the line.</p>
+
+      <div class="pair" style="margin-top:16px">
+        <div style="width:640px">
+          <p class="frame-cap">Option B: the system % as its own bar row under the stepper (desktop; the body lines are the same as A)</p>
+          <div class="exp-body">
+            <div class="exp-hdr"><div class="exp-hdr-main"><span class="exp-hdr-system">OR-9359</span><span class="exp-hdr-sub">Kestrel</span><span class="exp-hdr-sub">Tier II · Orion Arm · 1,320 ly from your homeworld</span></div><span class="exp-btn"><svg class="g"><use href="#i-recall"/></svg>Recall</span></div>
+            <div class="ph-cap">Phase stepper</div>
+            <div class="cmp-row newmark">
+              <div class="top"><span class="exp-section-tag">Completion · 63%</span><span class="cmp">Bodies <b>2/3</b> · Objectives <b>3/5</b></span></div>
+              <div class="exp-bar slim"><div class="exp-bar-fill" style="width:63%"></div></div>
+              <div class="sub">Every body scanned and every objective done is 100%. New objectives appear as each scan finishes.</div>
+            </div>
+            <div class="exp-section-tag">System scan · 80%</div>
+            <div class="ph-cap">Body cards as in option A</div>
+          </div>
+        </div>
+        <div style="width:375px;max-width:100%">
+          <p class="frame-cap">At 100%: the badge joins the system name (option A shown; B fills its bar green)</p>
+          <div class="exp-body">
+            <div class="exp-hdr">
+              <div class="exp-hdr-main">
+                <span class="exp-hdr-system">Betelgeuse <span class="done-chip"><svg class="g"><use href="#i-systemComplete"/></svg>Completed</span></span>
+                <span class="exp-hdr-sub">Vesper Reach</span>
+                <span class="exp-hdr-sub">Tier II · Orion Arm · 539 ly</span>
+                <span class="cmp done" style="margin-top:5px"><svg class="ring done" viewBox="0 0 16 16"><circle class="tr" cx="8" cy="8" r="6"/><circle class="ar" cx="8" cy="8" r="6" stroke-dasharray="37.7 37.7"/></svg>Bodies <b>3/3</b> · Objectives <b>6/6</b> · <span class="pc">100%</span></span>
+              </div>
+            </div>
+            <div class="exp-stepper">
+              <div class="exp-step done"><span class="exp-step-dot"><svg class="g"><use href="#i-check"/></svg></span></div><span class="exp-step-link done"></span>
+              <div class="exp-step done"><span class="exp-step-dot"><svg class="g"><use href="#i-check"/></svg></span></div><span class="exp-step-link done"></span>
+              <div class="exp-step done"><span class="exp-step-dot"><svg class="g"><use href="#i-check"/></svg></span></div><span class="exp-step-link done"></span>
+              <div class="exp-step active"><span class="exp-step-dot">4</span><span class="exp-step-label">Return</span></div>
+            </div>
+            <div class="exp-note">The badge shows the moment the last objective is done, before the trip home. At the claim the system's record (and the hidden ledger entry) is written.</div>
+          </div>
+        </div>
+      </div>
+
+      <p class="label" style="margin-top:20px">How it updates during a run (OR-9359, start to finish)</p>
+      <table class="t" style="max-width:980px">
+        <thead><tr><th>Moment</th><th>Bodies</th><th>Objectives</th><th>% as answered (A)</th><th>% equal body shares (Q1 B)</th></tr></thead>
+        <tbody>
+          <tr><td>Arrives; body b scanning</td><td class="num">0/3</td><td class="num">0/0</td><td class="num ans">0%</td><td class="num">0%</td></tr>
+          <tr><td>b's scan ends: 3 objectives found</td><td class="num">1/3</td><td class="num">0/3</td><td class="num ans">17% (1 of 6)</td><td class="num">17%</td></tr>
+          <tr><td>b's 3 objectives done (c still scanning)</td><td class="num">1/3</td><td class="num">3/3</td><td class="num ans">67% (4 of 6)</td><td class="num">33%</td></tr>
+          <tr class="dip"><td>c's scan ends: 2 more objectives found (the drawn frames)</td><td class="num">2/3</td><td class="num">3/5</td><td class="num ans">63% (5 of 8), a dip</td><td class="num">50%</td></tr>
+          <tr><td>c's 2 objectives done; d's scan ends with 1 objective</td><td class="num">3/3</td><td class="num">5/6</td><td class="num ans">89% (8 of 9)</td><td class="num">83%</td></tr>
+          <tr class="end"><td>d's objective done: badge, then Return</td><td class="num">3/3</td><td class="num">6/6</td><td class="num ans">100%</td><td class="num">100%</td></tr>
+        </tbody>
+      </table>
+      <p class="note">The % moves only at two moments: a body's scan ending and an objective finishing (a whole step each, nothing in between), so it never ticks every second. Offline catch-up reads the same stored flags, so the % after a long absence equals what it would have been live.</p>
+
+      <p class="label" style="margin-top:20px">The dispatch side: a resume card (Question 9, option A drawn)</p>
+      <div class="pair">
+        <div style="width:300px;max-width:100%">
+          <div class="exp-resume-wrap">
+            <div class="exp-target resume">
+              <span class="exp-target-top"><span class="exp-target-name">LB-1467</span><span class="exp-chip resume"><svg class="g"><use href="#i-resume"/></svg> Resume</span></span>
+              <span class="exp-target-region">Tier I · Local Bubble · 147 ly from your homeworld</span>
+              <span class="exp-rows">
+                <span class="exp-row-k newmark">Completion</span>
+                <span class="exp-row-v newmark"><span class="exp-reach"><i style="width:40%"></i></span><span class="exp-row-small">40% · Bodies 1/3 · Objectives 1/2. The next scan picks up at body c.</span></span>
+                <span class="exp-row-k">Objectives</span><span class="exp-row-v">1 keeps its progress</span>
+                <span class="exp-row-k"><svg class="g"><use href="#i-clock"/></svg> Transit</span><span class="exp-row-v">Out 1h 10m · back 1h 4m<span class="exp-row-small">The trip is flown again. Any explorer can resume it.</span></span>
+              </span>
+              <span class="exp-row-small"><svg class="g" style="width:11px;height:11px"><use href="#i-chevronRight"/></svg> Select to resume</span>
+            </div>
+            <div class="exp-resume-foot">Stays open until finished or abandoned. <span class="exp-link">Abandon LB-1467</span></div>
+          </div>
+        </div>
+        <p class="note" style="max-width:60ch">Today this row reads "Charted 62% · 2 of 3 bodies scanned" with the run's difficulty-weighted objective progress. Drawn: one number in the whole game, the completion %, with the row renamed <b>Completion</b>. Candidate cards (systems never visited) get nothing new, unless Question 2 picks B.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===================== 3 ===================== -->
+  <section>
+    <p class="label">3. Telescope map: charted systems (real geometry, Level 6, enemy shading as approved)</p>
+    <div class="stage">
+      <p class="note" style="margin:0 0 12px">The map plots no systems today: only the homeworld, the seven region badges, the range rings and the enemy slices. Each charted system has a stored bearing and distance (<code>ExpeditionRegionStamp</code>), so it can be placed on the same square-root scale. Measured for this homeworld: <b>Tier I systems sit within 10 px of the homeworld dot</b> (the Local Bubble is 4 to 250 ly), and <b>Tiers III and IV share one ring</b>, so a Tier III system can land inside Tier IV's hatched slice. That is the real layout choice.</p>
+      <div class="pair">
+        <div>
+          <p class="frame-cap">Option A · desktop 1280 · a ring per charted system (Tier II and deeper), filled to its %; Tier I counted in the key</p>
+          <div class="shell desk">
+            <div class="topbar"><div class="tb-port"></div><div class="tb-bars"><div class="tb-bar"><span>FA EXP</span><i><b></b></i><span>Lv 31 · 35%</span></div><div class="tb-bar"><span>TICK</span><i><b style="width:80%"></b></i><span>1.0s</span></div></div><div class="tb-set">SETTINGS</div></div>
+            <div class="tab-body">
+              <div class="crumb">Facilities / <b>Subspace Telescope</b></div>
+              <div class="tsa">
+                <div class="telescope-grid">
+                  <div class="panel"><div class="panel-title">SUBSPACE TELESCOPE</div><div class="telescope-sub">Level 6</div><div class="ph-cap" style="margin-top:10px">Reading, next development cycle, Upgrade button and the ladder: unchanged</div><div class="ph-line" style="width:92%"></div><div class="ph-line" style="width:70%"></div><div class="ph-line" style="width:84%"></div><div class="ph-line" style="width:60%"></div><div class="ph-line" style="width:88%"></div></div>
+                  <div class="panel"><div class="panel-title">RANGE OVER THE GALAXY</div><div class="telescope-sub">Centered on your homeworld, on a square-root distance scale so the near rings stay readable. Badges I to VII are the regions.</div><div class="tm" id="mapA-desk"></div></div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div>
+          <p class="frame-cap">Option A · phone 375 · one ring tapped</p>
+          <div class="shell phone">
+            <div class="topbar"><div class="tb-port"></div><div class="tb-bars"><div class="tb-bar"><span>FA EXP</span><i><b></b></i><span>Lv 31</span></div></div><div class="tb-set">SET</div></div>
+            <div class="tab-body"><div class="crumb">Facilities / <b>Telescope</b></div>
+              <div class="tsa"><div class="panel"><div class="panel-title">RANGE OVER THE GALAXY</div><div class="tm" id="mapA-phone"></div></div></div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="pair" style="margin-top:18px">
+        <div>
+          <p class="frame-cap">Option B · desktop 1280 · no system dots; each region badge gets a green arc for its share of completed systems, numbers in the key</p>
+          <div class="shell desk">
+            <div class="topbar"><div class="tb-port"></div><div class="tb-bars"><div class="tb-bar"><span>FA EXP</span><i><b></b></i><span>Lv 31 · 35%</span></div><div class="tb-bar"><span>TICK</span><i><b style="width:80%"></b></i><span>1.0s</span></div></div><div class="tb-set">SETTINGS</div></div>
+            <div class="tab-body">
+              <div class="crumb">Facilities / <b>Subspace Telescope</b></div>
+              <div class="tsa">
+                <div class="telescope-grid">
+                  <div class="panel"><div class="panel-title">SUBSPACE TELESCOPE</div><div class="telescope-sub">Level 6</div><div class="ph-cap" style="margin-top:10px">Unchanged</div><div class="ph-line" style="width:92%"></div><div class="ph-line" style="width:70%"></div><div class="ph-line" style="width:84%"></div></div>
+                  <div class="panel"><div class="panel-title">RANGE OVER THE GALAXY</div><div class="telescope-sub">Centered on your homeworld, on a square-root distance scale so the near rings stay readable. Badges I to VII are the regions.</div><div class="tm" id="mapB-desk"></div></div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div>
+          <p class="frame-cap">Option B · phone 375</p>
+          <div class="shell phone">
+            <div class="topbar"><div class="tb-port"></div><div class="tb-bars"><div class="tb-bar"><span>FA EXP</span><i><b></b></i><span>Lv 31</span></div></div><div class="tb-set">SET</div></div>
+            <div class="tab-body"><div class="crumb">Facilities / <b>Telescope</b></div>
+              <div class="tsa"><div class="panel"><div class="panel-title">RANGE OVER THE GALAXY</div><div class="tm" id="mapB-phone"></div></div></div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <ul class="notes" style="margin-top:14px">
+        <li><b>A</b> answers "a small ring on charted systems" literally: each ring fills clockwise from the top to its %, and a completed system's ring is solid green with a green center. Rings sit above the hatch with a dark fill, so a ring in enemy territory still reads. The cost: Tier I cannot be plotted (it would cover the homeworld dot and its label), a dot may land on a badge or the "Homeworld" label on other homeworlds (here PE-2800's ring touches the Tier II slice label, so the build needs a nudge rule like the G2-9 slice labels), and <b>PE-2800 (Tier III, not enemy territory) sits inside Tier IV's hatched slice</b> (drawn: it is at its real bearing), which can read as "enemy". A tap shows the system's line.</li>
+        <li><b>B</b> reads at any size: the arc is outside each badge with a gap (the G2-9 slice labels would treat badge plus arc as one obstacle; here the Tier II arc grazes the II slice label), in green so it is not confused with the cyan range ring. It shows regions, not systems: per-system % lives in the console and the Archive. Tier III here is 1 of 1, a full arc.</li>
+        <li>Either way the region key below the map gains one line per reached region ("5 charted · 3 completed"), and the map's accessible name gains one sentence.</li>
+      </ul>
+    </div>
+  </section>
+
+  <!-- ===================== 4 ===================== -->
+  <section>
+    <p class="label">4. Survey Log / Archive: every visited system with its %</p>
+    <div class="stage">
+      <div class="pair">
+        <div>
+          <p class="frame-cap">Option A · desktop 1280 · Facilities / Archive / Survey Log: a Systems section above the readouts (starts open)</p>
+          <div class="shell desk">
+            <div class="topbar"><div class="tb-port"></div><div class="tb-bars"><div class="tb-bar"><span>FA EXP</span><i><b></b></i><span>Lv 31 · 35%</span></div><div class="tb-bar"><span>TICK</span><i><b style="width:80%"></b></i><span>1.0s</span></div></div><div class="tb-set">SETTINGS</div></div>
+            <div class="tab-body">
+              <div class="crumb">Facilities / <b>Archive</b></div>
+              <div class="ctabs"><span class="ctab">Archive</span><span class="ctab">Museum</span><span class="ctab active">Survey Log</span></div>
+              <div class="tsa">
+                <div class="panel">
+                  <div class="panel-title">SURVEY LOG</div>
+                  <div class="sy newmark" id="archA-desk"></div>
+                  <div class="ph-cap" style="margin-top:12px">Readouts (giants, nebulae, the Wolf 359 entry), the list beside the card: unchanged</div>
+                  <div class="ph-line" style="width:40%"></div><div class="ph-line" style="width:66%"></div><div class="ph-line" style="width:52%"></div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div>
+          <p class="frame-cap">Option A · phone 375 · the section's cards, "By completion"</p>
+          <div class="shell phone">
+            <div class="topbar"><div class="tb-port"></div><div class="tb-bars"><div class="tb-bar"><span>FA EXP</span><i><b></b></i><span>Lv 31</span></div></div><div class="tb-set">SET</div></div>
+            <div class="tab-body">
+              <div class="crumb">Facilities / <b>Archive</b></div>
+              <div class="ctabs"><span class="ctab">Archive</span><span class="ctab">Museum</span><span class="ctab active">Survey Log</span></div>
+              <div class="tsa"><div class="panel"><div class="panel-title">SURVEY LOG</div><div class="sy newmark" id="archA-phone"></div></div></div>
+            </div>
+            <div class="navb"><span>HOME</span><span>CREW</span><span>SHIPS</span><span class="on">FAC</span><span>LOG</span><span>OPS</span></div>
+          </div>
+        </div>
+      </div>
+      <div class="pair" style="margin-top:18px">
+        <div style="width:760px;max-width:100%">
+          <p class="frame-cap">Option B · the Archive gets a fourth tab, "Systems" <span class="prop">[PROPOSAL wording]</span> (desktop crop; the list is the same as A)</p>
+          <div class="shell" style="width:100%">
+            <div class="tab-body">
+              <div class="crumb">Facilities / <b>Archive</b></div>
+              <div class="ctabs"><span class="ctab">Archive</span><span class="ctab">Museum</span><span class="ctab">Survey Log</span><span class="ctab active new">Systems</span></div>
+              <div class="tsa"><div class="panel"><div class="panel-title">SYSTEMS</div><div class="ph-cap">The same tier groups, sort and rows as option A, as the whole tab</div><div class="ph-line" style="width:96%"></div><div class="ph-line" style="width:90%"></div><div class="ph-line" style="width:94%"></div></div></div>
+            </div>
+          </div>
+        </div>
+        <p class="note" style="max-width:52ch"><b>A</b> keeps "Survey Log" as the one place for what your expeditions recorded; the readouts move down a screen. <b>B</b> leaves the Survey Log untouched and gives the list its own tab (four tabs still fit at 375 px: "Archive · Museum · Survey Log · Systems", the last scrolls in a little).</p>
+      </div>
+      <ul class="notes" style="margin-top:14px">
+        <li>Rows: name (with "Real star" for a famous system), Bodies, Objectives (skipped ones noted), the % bar, and a state: <b>Under way</b> (live from the run), <b>In Resume</b> (live from the held record), or nothing once claimed. The badge and "Completed" replace the bar's number at 100%.</li>
+        <li>Grouped by tier with Roman numerals, nearest tier first; each group header counts its systems and completions. "By completion" and "Newest first" flatten the list. The choice is remembered per viewer, like the other sort chips.</li>
+        <li>Drawn as Question 5, option A: the list starts with this update, and its foot says so.</li>
+      </ul>
+    </div>
+  </section>
+
+  <!-- ===================== 5 ===================== -->
+  <section>
+    <p class="label">5. Questions for you (most important first)</p>
+    <div class="ocgrid">
+      <div class="oc"><div class="t">Question 1 · when scans reveal new objectives</div><div class="ab"><b>A</b><span><b>As answered: every body and every objective one equal unit</b>, counting the objectives found so far. Simple to read ("5 of 8"), but the % can dip when a scan finds more objectives (67% to 63% above).</span><b>B</b><span><b>Each body an equal share</b>: its scan is half of it, its objectives split the other half (a body with none: the scan is all of it). Never dips; a body with 6 objectives counts the same as one with 1.</span><b>C</b><span><b>Bodies only until every body is scanned</b> ("Bodies 2/3, objectives pending"), then A. No dip, but no % for most of the scan.</span></div><div class="drawn">Drawn: A (the frames); B shown in the "how it updates" table</div></div>
+      <div class="oc"><div class="t">Question 2 · revisiting a system</div><div class="ab"><b>A</b><span><b>Each run is its own entry.</b> Today a claimed system is gone; if the same name is drawn again later it is a fresh system with new bodies and its own row (the list may show "Betelgeuse" twice).</span><b>B</b><span><b>One row per system, best % kept</b>; the candidate card says "Visited: 67%" or shows the badge when it comes up again.</span><b>C</b><span><b>A completed system is never offered again</b> (a candidate rule change; a system under 100% may come back).</span></div><div class="drawn">Drawn: A (nothing on candidate cards)</div></div>
+      <div class="oc"><div class="t">Question 3 · skipped objectives</div><div class="ab"><b>A</b><span><b>Not done.</b> "Every objective done" stays literal: a system with a skipped objective ends under 100% (and, with Question 2 A, can never be finished later).</span><b>B</b><span><b>Done for the %</b>, as the run's own progress bar counts them today. 100% reachable after a skip, but "completed" would not mean every objective done.</span></div><div class="drawn">Drawn: A ("2 skipped" on LB-0059 and Eagle Nebula)</div></div>
+      <div class="oc"><div class="t">Question 4 · ship studies and the nebula sweep</div><div class="ab"><b>A</b><span><b>Both count as objectives</b>: a giant's study as its body's one objective, a nebula sweep as one objective of the system. Matches the run's progress bar today.</span><b>B</b><span><b>Studies count, the sweep does not</b> (a nebula is not a body).</span><b>C</b><span><b>Ground objectives only.</b> A gas giant is "Scanned · No objectives · 100%" once scanned.</span></div><div class="drawn">Drawn: none on screen (no study run in the sample); A is the engine's precedent</div></div>
+      <div class="oc"><div class="t">Question 5 · systems claimed before this update</div><div class="ab"><b>A</b><span><b>The list starts at the update.</b> Claimed runs left no record, so they cannot be listed truthfully. In-flight runs and Resume systems are listed from day one.</span><b>B</b><span><b>Also list the system names the Survey Log readouts remember</b>, marked "Visited before records" with no %. Partial (only systems whose study readout hit).</span></div><div class="drawn">Drawn: A (the list's foot line)</div></div>
+      <div class="oc"><div class="t">Question 6 · the telescope map</div><div class="ab"><b>A</b><span><b>A ring per charted system</b> (Tier II and deeper), Tier I in the key only. Literal to your answer; needs a nudge rule, and a Tier III ring can sit in Tier IV's hatch.</span><b>B</b><span><b>A green arc per region badge</b> (share completed) plus the key line. Always readable at 375 px; no per-system % on the map.</span></div><div class="drawn">Drawn: both (section 3)</div></div>
+      <div class="oc"><div class="t">Question 7 · the console's system line</div><div class="ab"><b>A</b><span><b>One compact line under the header</b> with a small ring: "Bodies 2/3 · Objectives 3/5 · 63%".</span><b>B</b><span><b>A Completion bar row</b> under the stepper, the numbers on its right and one line of help.</span></div><div class="drawn">Drawn: both (section 2); body lines are the same in each</div></div>
+      <div class="oc"><div class="t">Question 8 · where the list lives</div><div class="ab"><b>A</b><span><b>A Systems section at the top of the Survey Log tab.</b></span><b>B</b><span><b>Its own Archive tab</b>, "Systems".</span></div><div class="drawn">Drawn: both (section 4)</div></div>
+      <div class="oc"><div class="t">Question 9 · the resume card's existing %</div><div class="ab"><b>A</b><span><b>One number everywhere</b>: the row becomes "Completion 40% · Bodies 1/3 · Objectives 1/2".</span><b>B</b><span><b>Keep both</b>, the existing row renamed "Objective progress 62%" and the completion line added under it.</span></div><div class="drawn">Drawn: A</div></div>
+      <div class="oc"><div class="t">Question 10 · the "log line" at 100%</div><div class="ab"><b>A</b><span><b>The hidden ledger entry only</b> (your "Hidden until chat"); the badge is the visible part.</span><b>B</b><span><b>Also one line on the claim card</b>: "Betelgeuse completed: every body scanned, every objective done."</span></div><div class="drawn">Drawn: A</div></div>
+      <div class="oc"><div class="t">Question 11 · an abandoned Resume system</div><div class="ab"><b>A</b><span><b>Keeps its row</b> at the % it reached, marked "Abandoned".</span><b>B</b><span><b>Drops out of the list</b> (today Abandon lets its record go entirely).</span></div><div class="drawn">Drawn: none (no abandoned system in the sample)</div></div>
+    </div>
+  </section>
+
+  <!-- ===================== 6 ===================== -->
+  <section>
+    <p class="label">6. Notes for the build</p>
+    <ul class="notes">
+      <li><b>The chat-event ledger stays hidden</b> (your answer): reaching 100% appends one ledger event (system, tier, when), written at the claim; no screen, no count, no log view in 0.14.0. It joins the ledger's first event, a relic set completed.</li>
+      <li><b>A new per-system record</b> is the one save change: written at claim (and at abandon if Question 11 is A) with the system's id and name, tier, bearing and distance, body count, bodies scanned, objectives found, done and skipped, and when. Optional key, appended, no save bump; the % is always derived from these counts, never stored as a number.</li>
+      <li>One pure function computes the % for a live run, a held system and a record, so the console, the map and the Archive can never disagree; goldens first, deterministic, offline equals live by construction.</li>
+      <li>No reward and no grind pressure: nothing reads the % except these three displays and the ledger.</li>
+      <li>Player text says "objective" everywhere, Roman numerals for tiers, US English.</li>
+    </ul>
+  </section>
+</div>
+
+<script>
+const GEO = {"viewBox":"40 20 320 284","home":{"x":200,"y":200},"core":{"x":200.4,"y":100.8},"disk":"M328.3 132.2L329.5 138.2L330.5 144.3L331.1 150.5L331.5 156.8L331.6 163.2L331.3 169.6L330.7 176.1L329.8 182.6L328.5 189.1L326.9 195.7L324.9 202.2L322.6 208.8L319.8 215.3L316.6 221.8L313.0 228.3L309.0 234.7L304.5 241.0L299.5 247.1L294.0 253.1L288.0 259.0L281.5 264.6L274.4 269.9L266.7 274.8L258.6 279.3L249.8 283.4L240.6 286.8L231.0 289.7L221.0 291.7L210.8 293.0L200.4 293.5L190.0 293.0L179.7 291.8L169.7 289.8L160.1 287.0L150.8 283.5L142.1 279.5L133.8 275.0L126.2 270.0L119.0 264.7L112.5 259.1L106.4 253.3L100.9 247.2L95.9 241.1L91.4 234.8L87.3 228.4L83.7 221.9L80.5 215.4L77.7 208.8L75.4 202.2L73.4 195.7L71.7 189.1L70.5 182.5L69.6 176.0L69.0 169.5L68.7 163.1L68.8 156.8L69.2 150.5L69.8 144.2L70.8 138.1L72.1 132.1L73.6 126.2L75.4 120.4L77.4 114.7L79.7 109.1L82.3 103.7L85.1 98.4L88.1 93.3L91.3 88.4L94.8 83.6L98.4 79.0L102.3 74.5L106.3 70.3L110.5 66.3L114.9 62.4L119.5 58.8L124.2 55.3L129.0 52.1L134.0 49.1L139.1 46.3L144.3 43.8L149.6 41.4L155.0 39.4L160.4 37.5L166.0 35.9L171.6 34.6L177.3 33.4L183.0 32.6L188.7 32.0L194.5 31.6L200.2 31.5L206.0 31.6L211.7 32.0L217.5 32.6L223.2 33.5L228.8 34.6L234.5 36.0L240.0 37.6L245.5 39.4L250.9 41.5L256.2 43.8L261.4 46.4L266.4 49.2L271.4 52.2L276.2 55.4L280.9 58.9L285.5 62.5L289.8 66.4L294.0 70.4L298.1 74.7L301.9 79.1L305.6 83.7L309.0 88.5L312.2 93.5L315.3 98.6L318.0 103.8L320.6 109.3L322.9 114.8L324.9 120.5L326.7 126.3Z","arms":["M228.4 76.0L231.8 77.1L235.3 78.4L238.7 79.8L242.1 81.4L245.4 83.2L248.7 85.2L251.9 87.3L255.1 89.7L258.1 92.2L261.0 94.9L263.9 97.8L266.6 100.8L269.2 104.0L271.6 107.4L273.8 111.0L275.9 114.7L277.8 118.6L279.5 122.6L281.0 126.8L282.3 131.1L283.3 135.6L284.1 140.2L284.6 144.9L284.8 149.7L284.7 154.7L284.3 159.8L283.5 165.1L282.3 170.4L280.8 175.9L278.8 181.6L276.3 187.4L273.3 193.4L269.5 199.7L265.0 206.2L259.5 213.2L252.5 220.7L243.6 228.6L232.0 236.5L217.4 243.1L200.8 246.9L184.8 247.2L170.9 245.2L159.2 242.1L149.3 238.5L140.6 234.7L133.0 230.6L126.2 226.4L120.0 222.0L114.3 217.4L109.2 212.7L104.5 207.7L100.3 202.6L96.4 197.3L93.0 191.9L89.9 186.2L87.2 180.5L84.9 174.5L83.0 168.5L81.5 162.4L80.4 156.1L79.6 149.8L79.2 143.4L79.2 137.0L79.6 130.5L80.4 124.1L81.6 117.6L83.2 111.2L85.2 104.8L87.5 98.5L90.2 92.2L93.4 86.1","M219.9 83.9L222.4 84.6L224.8 85.4L227.2 86.3L229.6 87.3L231.9 88.4L234.2 89.7L236.4 91.0L238.6 92.5L240.8 94.1L242.8 95.8L244.8 97.6L246.6 99.5L248.4 101.5L250.1 103.5L251.6 105.7L253.0 108.0L254.3 110.3L255.4 112.7L256.4 115.2L257.2 117.7L257.8 120.2L258.3 122.8L258.5 125.4L258.5 128.1L258.3 130.7L257.9 133.3L257.2 135.9L256.2 138.4L254.9 140.8L253.2 143.1L251.3 145.4L248.8 147.4L246.0 149.2L242.5 150.8L238.5 152.1L233.5 153.1L227.6 153.7L220.3 154.0L211.4 154.2L200.8 154.9L189.3 156.5L178.3 159.2L168.7 162.1L160.6 164.6L153.9 166.4L148.1 167.4L143.0 167.7L138.4 167.3L134.3 166.5L130.7 165.1L127.3 163.4L124.3 161.3L121.6 158.9L119.1 156.2L117.0 153.3L115.1 150.1L113.6 146.8L112.2 143.2L111.2 139.5L110.5 135.7L110.0 131.8L109.8 127.7L109.9 123.6L110.2 119.4L110.9 115.2L111.8 110.9L113.0 106.7L114.5 102.4L116.3 98.1L118.4 93.9L120.7 89.7L123.3 85.6L126.2 81.6L129.4 77.7L132.8 73.9L136.5 70.2L140.4 66.7L144.6 63.3L149.0 60.1L153.7 57.2","M210.0 86.5L212.0 86.8L214.1 87.2L216.1 87.6L218.2 88.2L220.3 88.9L222.3 89.6L224.3 90.5L226.2 91.4L228.2 92.5L230.0 93.6L231.8 94.9L233.6 96.2L235.2 97.6L236.8 99.1L238.2 100.7L239.6 102.4L240.8 104.1L241.9 105.8L242.9 107.7L243.7 109.5L244.3 111.5L244.8 113.4L245.0 115.3L245.1 117.3L245.0 119.2L244.6 121.1L244.0 123.0L243.1 124.8L241.9 126.5L240.5 128.2L238.6 129.7L236.4 131.1L233.8 132.4L230.7 133.5L227.2 134.4L223.0 135.2L218.3 135.9L213.0 136.4L207.0 137.0L200.6 137.6L193.8 138.4L186.8 139.3L180.0 140.3L173.5 141.4L167.4 142.3L161.9 143.0L156.9 143.5L152.3 143.6L148.3 143.3L144.7 142.7L141.5 141.7L138.6 140.5L136.1 138.8L133.9 137.0L132.0 134.8L130.4 132.5L129.1 129.9L128.1 127.1L127.4 124.2L127.0 121.1L126.8 118.0L127.0 114.7L127.4 111.3L128.1 107.9L129.0 104.5L130.3 101.0L131.8 97.5L133.6 94.0L135.7 90.6L138.0 87.2L140.6 83.9L143.5 80.6L146.6 77.5L150.0 74.5L153.6 71.6L157.4 68.8L161.5 66.3L165.7 63.9L170.2 61.7L174.9 59.7","M254.3 178.5L252.0 180.5L249.5 182.4L246.7 184.3L243.7 186.2L240.2 188.1L236.3 190.0L231.8 192.0L226.4 194.0L219.3 196.3L206.0 201.0L182.6 204.1L174.5 205.0L168.3 205.4L163.1 205.5L158.4 205.3L154.2 205.0L150.3 204.5L146.7 203.8L143.3 203.0L140.0 202.1"],"bulge":"M222.5 102.1L222.7 103.3L222.6 104.5L222.2 105.6L221.6 106.7L220.8 107.8L219.7 108.7L218.3 109.6L216.7 110.3L214.9 111.0L212.9 111.6L210.6 112.0L208.2 112.4L205.7 112.6L203.1 112.7L200.4 112.8L197.8 112.7L195.1 112.6L192.6 112.3L190.2 112.0L187.9 111.5L185.9 110.9L184.0 110.3L182.4 109.5L181.1 108.6L180.0 107.7L179.1 106.7L178.5 105.6L178.1 104.4L178.0 103.2L178.2 102.0L178.5 100.8L179.1 99.6L179.9 98.4L180.9 97.2L182.0 96.1L183.4 95.1L184.9 94.1L186.5 93.2L188.2 92.4L190.1 91.8L192.0 91.2L194.0 90.7L196.1 90.4L198.2 90.2L200.3 90.2L202.5 90.2L204.6 90.4L206.6 90.8L208.6 91.2L210.6 91.8L212.4 92.5L214.2 93.3L215.8 94.2L217.3 95.1L218.6 96.2L219.8 97.3L220.8 98.5L221.6 99.7L222.2 100.9Z","ringR":69.4,"nextRingR":96.3,"badgeR":10,"badges":[{"n":"I","name":"Local Bubble","x":214.7,"y":212.9,"in":true},{"n":"II","name":"Orion Arm","x":174.2,"y":199.2,"in":true},{"n":"III","name":"Perseus Arm","x":210.3,"y":246.2,"in":true},{"n":"IV","name":"Sagittarius Arm","x":192.6,"y":155.1,"in":true},{"n":"V","name":"Scutum-Centaurus Arm","x":220.6,"y":138.3,"in":true},{"n":"VI","name":"Galactic Bulge","x":177,"y":112.6,"in":false},{"n":"VII","name":"Galactic Core","x":217.4,"y":103.8,"in":false}],"homeLabel":{"x":208,"y":192,"text":"Homeworld","size":10,"anchor":"start"},"coreLabel":{"x":200.4,"y":89.8,"text":"Galactic Core","size":9,"anchor":"middle"},"legend":["Solid ring: your range now, 12,984 ly.","Dashed ring: Level 7, 24,984 ly."],"aria":"Galaxy map centered on your homeworld. Subspace Telescope Level 6 reaches 12,984 light-years, Tiers I to V. Level 7 would reach 24,984 light-years, Tiers I to VI.","sectors":[{"n":"II","path":"M191.8 205.1 L171.2 217.9 A33.9 33.9 0 0 1 167.1 208.1 L190.7 202.3 A9.6 9.6 0 0 0 191.8 205.1Z","label":{"x":162.3,"y":218.5,"text":"II","size":8.5,"anchor":"middle"}},{"n":"III","path":"M212.0 231.7 L218.8 249.8 A53.2 53.2 0 0 1 170.8 244.5 L181.4 228.3 A33.9 33.9 0 0 0 212.0 231.7Z","label":{"x":189.2,"y":244.7,"text":"III","size":8.5,"anchor":"middle"}},{"n":"IV","path":"M167.3 208.8 L148.6 213.8 A53.2 53.2 0 0 1 186.2 148.6 L191.2 167.3 A33.9 33.9 0 0 0 167.3 208.8Z","label":{"x":162.3,"y":180.8,"text":"IV","size":8.5,"anchor":"middle"}},{"n":"V","path":"M253.0 195.7 L269.2 194.4 A69.4 69.4 0 0 1 163.8 259.2 L172.3 245.4 A53.2 53.2 0 0 0 253.0 195.7Z","label":{"x":232.1,"y":254.8,"text":"V","size":8.5,"anchor":"middle"}}],"enemyLegend":"Hatched: enemy territory. Combat risk is one step higher there.","enemyAria":"Hatched sectors are enemy territory in Tiers II, III, IV and V."};
+
+// The sample: real systems this homeworld's candidate draw produces; counts are samples inside each tier's body range.
+// bodies: [scanned, total]; obj: [done, found]; x, y: the real map point from bearing and distance (Tier II and deeper).
+const SYS = [
+  { name: "Wolf 359", tier: 1, star: true, bodies: [2, 2], obj: [4, 4], state: "", order: 1 },
+  { name: "51 Pegasi", tier: 1, star: true, bodies: [1, 1], obj: [2, 2], state: "", order: 3 },
+  { name: "LB-0375", tier: 1, bodies: [3, 3], obj: [5, 5], state: "", order: 2 },
+  { name: "LB-0059", tier: 1, bodies: [2, 2], obj: [2, 4], skipped: 2, state: "", order: 5 },
+  { name: "LB-1467", tier: 1, bodies: [1, 3], obj: [1, 2], state: "res", order: 8 },
+  { name: "Betelgeuse", tier: 2, star: true, bodies: [3, 3], obj: [6, 6], state: "", order: 7, x: 197.8, y: 213.9 },
+  { name: "OR-9359", tier: 2, bodies: [2, 3], obj: [3, 5], state: "way", order: 11, x: 187, y: 217.9 },
+  { name: "PE-2800", tier: 3, bodies: [2, 2], obj: [5, 5], state: "", order: 6, x: 158.5, y: 209.1 },
+  { name: "SA-2394", tier: 4, enemy: true, bodies: [4, 4], obj: [2, 6], skipped: 4, state: "", order: 9, x: 176, y: 168.7 },
+  { name: "Eagle Nebula", tier: 4, star: true, bodies: [3, 3], obj: [4, 6], skipped: 2, state: "", order: 4, x: 214.2, y: 156.1 },
+  { name: "SC-2200", tier: 5, enemy: true, bodies: [1, 4], obj: [1, 3], state: "res", order: 10, x: 258.2, y: 203.8 },
+];
+const TIER_NAMES = { 1: "Local Bubble", 2: "Orion Arm", 3: "Perseus Arm", 4: "Sagittarius Arm", 5: "Scutum-Centaurus Arm", 6: "Galactic Bulge", 7: "Galactic Core" };
+const NUM = { 1: "I", 2: "II", 3: "III", 4: "IV", 5: "V", 6: "VI", 7: "VII" };
+const pctOf = (s) => Math.round(((s.bodies[0] + s.obj[0]) / (s.bodies[1] + s.obj[1])) * 100);
+SYS.forEach((s) => { s.pct = pctOf(s); s.done = s.pct === 100; });
+const badge = (cls = "") => `<span class="done-chip ${cls}"><svg class="g"><use href="#i-systemComplete"/></svg>Completed</span>`;
+const glyph = (size = 11) => `<svg class="g" style="width:${size}px;height:${size}px"><use href="#i-systemComplete"/></svg>`;
+
+// Console body cards (OR-9359)
+const BODIES = [
+  { let: "b", type: "Terrestrial", haz: "Low", scan: 100, pois: ["Ancient Ruins", "Mineral Outcrop", "Derelict Outpost"], obj: [3, 3] },
+  { let: "c", type: "Frozen", haz: "Medium", scan: 100, pois: ["Crashed Ship", "Buried Vault"], obj: [0, 2] },
+  { let: "d", type: "Barren", haz: "Low", scan: 40, pois: [], obj: null },
+];
+function bodyCards() {
+  return BODIES.map((b) => {
+    let comp, complete = false;
+    if (b.obj === null) comp = `Not scanned yet · objectives appear when the scan ends · <span class="pc">0%</span>`;
+    else {
+      const p = Math.round(((1 + b.obj[0]) / (1 + b.obj[1])) * 100);
+      complete = p === 100;
+      comp = `Scanned · Objectives <b>${b.obj[0]}/${b.obj[1]}</b> · <span class="pc">${p}%</span>${complete ? " " + badge() : ""}`;
+    }
+    const pois = b.pois.length ? `<div class="exp-body-pois">${b.pois.map((p) => `<span class="exp-poi">${p}</span>`).join("")}</div>` : `<div class="exp-body-pois dim">Awaiting scan</div>`;
+    return `<div class="exp-body-card ${complete ? "complete" : ""}"><div class="exp-body-top"><span class="exp-body-type"><span class="exp-body-let">${b.let}</span> ${b.type}</span><span class="exp-body-haz">${b.haz} hazard</span></div>
+      <div class="exp-bar slim"><div class="exp-bar-fill" style="width:${b.scan}%;${b.scan === 100 ? "background:var(--color-success)" : ""}"></div></div>
+      <div class="exp-body-scanpct">${b.scan}% scanned</div>${pois}
+      <div class="exp-body-comp newmark">${comp}</div></div>`;
+  }).join("");
+}
+document.getElementById("bodies-desk").innerHTML = bodyCards();
+document.getElementById("bodies-phone").innerHTML = bodyCards();
+
+// Telescope map (TelescopeMap.svelte's draw order, the geometry from telescopeMapView / telescopeMapEnemyView)
+function mapView(variant, uid, selName) {
+  const g = GEO;
+  const hid = "h-" + uid;
+  let s = "";
+  const charted = SYS.filter((x) => x.x !== undefined);
+  const tally = {};
+  SYS.forEach((x) => { tally[x.tier] = tally[x.tier] || { n: 0, d: 0 }; tally[x.tier].n++; if (x.done) tally[x.tier].d++; });
+  const aria = variant === "A"
+    ? `Rings mark ${charted.length} charted systems in Tiers II to V, filled to their completion; ${charted.filter((x) => x.done).length} are completed.`
+    : `Green arcs show the share of each region's charted systems you have completed.`;
+  s += `<svg class="tm-svg" viewBox="${g.viewBox}" role="img" aria-label="${g.aria} ${g.enemyAria} ${aria}">`;
+  s += `<defs><pattern id="${hid}" patternUnits="userSpaceOnUse" width="4.5" height="4.5" patternTransform="rotate(45)"><rect width="4.5" height="4.5" fill="rgba(248, 113, 113, 0.06)"/><line x1="0" y1="0" x2="0" y2="4.5" stroke="rgba(248, 113, 113, 0.5)" stroke-width="1"/></pattern></defs>`;
+  s += `<path class="tm-disk" d="${g.disk}"/>`;
+  g.arms.forEach((d, i) => { s += `<path class="tm-arm ${i === g.arms.length - 1 ? "minor" : ""}" d="${d}"/>`; });
+  s += `<path class="tm-bulge" d="${g.bulge}"/><circle class="tm-core" cx="${g.core.x}" cy="${g.core.y}" r="3.5"/>`;
+  s += `<circle class="tm-ring-fill" cx="${g.home.x}" cy="${g.home.y}" r="${g.ringR}"/>`;
+  g.sectors.forEach((sec) => { s += `<path class="tm-enemy" fill="url(#${hid})" d="${sec.path}"/>`; });
+  if (g.nextRingR !== null) s += `<circle class="tm-ring next" cx="${g.home.x}" cy="${g.home.y}" r="${g.nextRingR}"/>`;
+  s += `<circle class="tm-ring" cx="${g.home.x}" cy="${g.home.y}" r="${g.ringR}"/><circle class="tm-home" cx="${g.home.x}" cy="${g.home.y}" r="4"/>`;
+  g.badges.forEach((b) => { s += `<g class="tm-badge ${b.in ? "in" : ""}"><circle cx="${b.x}" cy="${b.y}" r="${g.badgeR}"/><text x="${b.x}" y="${b.y + 3}" text-anchor="middle">${b.n}</text></g>`; });
+  if (variant === "B") {
+    const R = 12.5, C = 2 * Math.PI * R;
+    g.badges.forEach((b, i) => {
+      const t = tally[i + 1];
+      if (!t) return;
+      const f = t.d / t.n;
+      s += `<circle class="tm-reg-track" cx="${b.x}" cy="${b.y}" r="${R}"/>`;
+      if (f > 0) s += `<circle class="tm-reg-arc" cx="${b.x}" cy="${b.y}" r="${R}" stroke-dasharray="${(C * f).toFixed(1)} ${C.toFixed(1)}" transform="rotate(-90 ${b.x} ${b.y})"/>`;
+    });
+  }
+  if (variant === "A") {
+    const R = 4.6, C = 2 * Math.PI * R;
+    charted.forEach((x) => {
+      s += `<g class="tm-sys ${x.done ? "done" : ""} ${x.name === selName ? "sel" : ""}">`;
+      if (x.name === selName) s += `<circle class="tm-sys-halo" cx="${x.x}" cy="${x.y}" r="7.6"/>`;
+      s += `<circle class="tm-sys-track" cx="${x.x}" cy="${x.y}" r="${R}"/>`;
+      if (!x.done && x.pct > 0) s += `<circle class="tm-sys-arc" cx="${x.x}" cy="${x.y}" r="${R}" stroke-dasharray="${(C * x.pct / 100).toFixed(1)} ${C.toFixed(1)}" transform="rotate(-90 ${x.x} ${x.y})"/>`;
+      s += `<circle class="tm-sys-dot" cx="${x.x}" cy="${x.y}" r="${x.done ? 2 : 1.4}"/></g>`;
+    });
+  }
+  g.sectors.forEach((sec) => { s += `<text class="tm-enemy-label" x="${sec.label.x}" y="${sec.label.y}" text-anchor="${sec.label.anchor}" font-size="${sec.label.size}">${sec.label.text}</text>`; });
+  s += `<text class="tm-label" x="${g.homeLabel.x}" y="${g.homeLabel.y}" text-anchor="${g.homeLabel.anchor}">${g.homeLabel.text}</text>`;
+  s += `<text class="tm-label small" x="${g.coreLabel.x}" y="${g.coreLabel.y}" text-anchor="${g.coreLabel.anchor}">${g.coreLabel.text}</text></svg>`;
+
+  if (variant === "A" && selName) {
+    const x = SYS.find((y) => y.name === selName);
+    s += `<div class="tm-tip"><span class="n">${x.name}${x.done ? " " + badge() : ""}</span><span class="m">Tier ${NUM[x.tier]} · ${TIER_NAMES[x.tier]} · Bodies ${x.bodies[0]}/${x.bodies[1]} · Objectives ${x.obj[0]}/${x.obj[1]} · ${x.pct}%</span></div>`;
+  }
+  const keySys = `<svg class="tm-key sys" viewBox="0 0 12 12"><circle cx="6" cy="6" r="4.6" fill="none" stroke="rgba(103,232,249,.35)" stroke-width="1.6"/><circle cx="6" cy="6" r="4.6" fill="none" stroke="#8ff0e0" stroke-width="1.8" stroke-dasharray="17 29" transform="rotate(-90 6 6)"/></svg>`;
+  const keyDone = `<svg class="tm-key sys" viewBox="0 0 12 12"><circle cx="6" cy="6" r="4.6" fill="none" stroke="#34d399" stroke-width="1.8"/><circle cx="6" cy="6" r="2" fill="#34d399"/></svg>`;
+  s += `<ul class="tm-legend"><li><span class="tm-key"></span>${g.legend[0]}</li><li><span class="tm-key dashed"></span>${g.legend[1]}</li><li><span class="tm-key hatch"></span>${g.enemyLegend}</li>`;
+  if (variant === "A") s += `<li class="newmark">${keySys}A ring: a charted system, filled to its completion.</li><li class="newmark">${keyDone}Solid green with a center: completed. Tier I systems are counted in the key.</li>`;
+  else s += `<li class="newmark"><svg class="tm-key sys" viewBox="0 0 12 12"><circle cx="6" cy="6" r="4.6" fill="none" stroke="#34d399" stroke-width="2" stroke-dasharray="17 29" transform="rotate(-90 6 6)"/></svg>Green arc: the share of a region's charted systems you have completed.</li>`;
+  s += `</ul><ul class="tm-regions" aria-label="Regions">`;
+  const enemyTiers = g.sectors.map((x) => x.n);
+  g.badges.forEach((b, i) => {
+    const t = tally[i + 1];
+    const part = enemyTiers.includes(b.n) ? ` <span class="tm-part"><span class="tm-key hatch sm"></span>part enemy</span>` : "";
+    const cmp = t ? `<span class="tm-cmp newmark">${t.n} charted · <span class="ok">${glyph()} ${t.d} completed</span></span>` : "";
+    s += `<li class="${b.in ? "in" : ""}"><span class="tm-num">${b.n}</span><span class="tm-name">${b.name}${part}${cmp}</span><span class="tm-state">${b.in ? "In range" : "Beyond range"}</span></li>`;
+  });
+  s += `</ul>`;
+  return s;
+}
+document.getElementById("mapA-desk").innerHTML = mapView("A", "ad", null);
+document.getElementById("mapA-phone").innerHTML = mapView("A", "ap", "PE-2800");
+document.getElementById("mapB-desk").innerHTML = mapView("B", "bd", null);
+document.getElementById("mapB-phone").innerHTML = mapView("B", "bp", null);
+
+// Archive: the systems list
+const stateChip = (s) => s.state === "way" ? `<span class="st-chip way">Under way</span>` : s.state === "res" ? `<span class="st-chip res"><svg class="g"><use href="#i-resume"/></svg>In Resume</span>` : "";
+const pbar = (s) => s.done ? `<span class="pbar done"><i><b style="width:100%"></b></i><span class="v">100%</span>${badge()}</span>` : `<span class="pbar"><i><b style="width:${s.pct}%"></b></i><span class="v">${s.pct}%</span><span></span></span>`;
+const objText = (s) => `${s.obj[0]}/${s.obj[1]}${s.skipped ? ` <span class="sk">· ${s.skipped} skipped</span>` : ""}`;
+function archiveHead(sortOn) {
+  const total = SYS.length, done = SYS.filter((s) => s.done).length;
+  return `<div class="sy-hd"><span class="sy-t"><svg class="g"><use href="#i-systemComplete"/></svg>Systems</span><span class="sy-n"><b>${total}</b> visited · <span class="ok" style="display:inline-flex;gap:4px;align-items:center">${glyph(12)} <b style="color:inherit">${done}</b> completed</span></span><span class="spacer"></span><span class="sl-chipbtn"><svg class="g"><use href="#i-chevronUp"/></svg>Hide</span></div>
+    <div class="sy-tools"><span class="lbl"><svg class="g"><use href="#i-sort"/></svg>Sort</span><span class="seg"><span class="${sortOn === "tier" ? "on" : ""}">By tier</span><span class="${sortOn === "cmp" ? "on" : ""}">By completion</span><span class="${sortOn === "new" ? "on" : ""}">Newest first</span></span></div>`;
+}
+const foot = `<div class="sy-foot">Listed from this update on. Systems claimed before it left no record.</div>`;
+function archiveDesk() {
+  let s = archiveHead("tier") + `<div class="sy-bd">`;
+  [1, 2, 3, 4, 5].forEach((t) => {
+    const rows = SYS.filter((x) => x.tier === t).sort((a, b) => b.pct - a.pct || a.name.localeCompare(b.name));
+    if (!rows.length) return;
+    const d = rows.filter((x) => x.done).length;
+    s += `<div><h4 class="sl-gh">Tier ${NUM[t]} · ${TIER_NAMES[t]} <span class="sl-count">${rows.length} ${rows.length === 1 ? "system" : "systems"} · ${d} completed</span></h4>
+      <table class="sys"><thead><tr><th style="width:28%">System</th><th style="width:10%">Bodies</th><th style="width:18%">Objectives</th><th style="width:30%">Completion</th><th style="width:14%">State</th></tr></thead><tbody>`;
+    rows.forEach((x) => {
+      s += `<tr><td class="nm"><span class="wrapc">${x.name}${x.star ? ` <span class="exp-chip star">Real star</span>` : ""}${x.enemy ? ` <span class="exp-chip enemy">Enemy territory</span>` : ""}</span></td><td class="mono">${x.bodies[0]}/${x.bodies[1]}</td><td class="mono">${objText(x)}</td><td>${pbar(x)}</td><td>${stateChip(x)}</td></tr>`;
+    });
+    s += `</tbody></table></div>`;
+  });
+  return s + `</div>` + foot;
+}
+function archivePhone() {
+  let s = archiveHead("cmp") + `<div class="sy-bd"><div class="sycs">`;
+  [...SYS].sort((a, b) => b.pct - a.pct || a.order - b.order).forEach((x) => {
+    s += `<div class="syc ${x.done ? "done" : ""}"><div class="r1">${x.name}${x.done ? " " + badge() : ""}${stateChip(x)}</div>
+      <div class="r2">Tier ${NUM[x.tier]} · Bodies ${x.bodies[0]}/${x.bodies[1]} · Objectives ${x.obj[0]}/${x.obj[1]}${x.skipped ? ` · ${x.skipped} skipped` : ""}</div>
+      <span class="pbar ${x.done ? "done" : ""}"><i><b style="width:${x.pct}%"></b></i><span class="v">${x.pct}%</span></span></div>`;
+  });
+  return s + `</div></div>` + foot;
+}
+document.getElementById("archA-desk").innerHTML = archiveDesk();
+document.getElementById("archA-phone").innerHTML = archivePhone();
+</script>
+</body>
+</html>
