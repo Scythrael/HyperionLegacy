@@ -89,10 +89,14 @@
     onRetire(retireId);
     retireId = null;
     recordId = null;
-    // The retired notable's entry is gone, so focus cannot go back to it: hand it to the band (the All list, when
-    // open, keeps it instead).
+    // The retired notable's entry is gone, so focus cannot go back to it: hand it to the All list's dialog when it is
+    // open (its focus trap only holds focus that is inside it), otherwise to the band.
     await tick();
-    if (!allOpen && !bandEl.contains(document.activeElement)) bandEl.focus();
+    if (allOpen) {
+      const dialog = document.querySelector<HTMLElement>('[role="dialog"][aria-label^="All notable crew"]');
+      const first = dialog?.querySelector<HTMLElement>('button, [href], [tabindex]:not([tabindex="-1"])');
+      (first ?? dialog)?.focus();
+    } else if (!bandEl.contains(document.activeElement)) bandEl.focus();
   }
   // Send back keeps the card open (it now reads Unassigned); the button it was pressed on goes away, so focus moves to
   // the star to stay inside the card.

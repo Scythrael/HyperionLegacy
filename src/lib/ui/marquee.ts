@@ -141,6 +141,8 @@ export function marquee(node: HTMLElement, params: MarqueeParams) {
       sync();
     },
     destroy() {
+      // A track unmounted while paused must not leave its owner's "paused" state stuck on.
+      if (wasPaused) onPaused?.(false);
       if (raf !== 0) cancelAnimationFrame(raf);
       if (resumeTimer !== null) clearTimeout(resumeTimer);
       node.removeEventListener("mouseenter", onEnter);
