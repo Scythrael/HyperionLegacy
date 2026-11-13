@@ -689,3 +689,5 @@ user-named item (never a new entity the user did not name).
   "Approve the 4 swaps (Recommended)": Waystation Guestbook craftingQuality -> crewBonuses; Lightkeeper's Wick
   salvageYield -> hazardResist (its full set follows); Deepcut Plumb Line scienceTeamPower -> extractionSpeed (its set
   follows); Orrery Keeper's Chair crewBonuses -> craftingQuality. Keelsong and Ember Court unchanged.
+- (2026-11-13, after the R2-5..R2-9 review) Culture source planet (the signed-off mockup showed one; several planets can
+  share a culture): "First + count (Recommended)": "Found on HL-0412 c and 2 more", with the full list in the detail view.
