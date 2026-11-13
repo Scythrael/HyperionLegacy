@@ -201,6 +201,7 @@ import { countClaimedExpedition, runCountsOf, runDifficultyAt } from "./runDiffi
 // Gas Giant Study GG-2: the study stamp, the orbital bodies and their giant profiles (gasGiantStudy.ts never imports
 // this module).
 import { gearPermilleStamp, isStudyBody, nebulaStampFor, studyStampFor, sweepsNebula, withGiantProfiles } from "./gasGiantStudy";
+import { withAbandonRecord, withClaimRecord } from "./completion";
 // Gas Giant Study GG-5: the Research Lab's held data queue (dataStudy.ts imports neither this file nor tick.ts).
 import { dataArrivals } from "./dataStudy";
 // E5-4 (the Stargazer): the Subspace Telescope's refugee buff (refugeeBuffs.ts imports neither this file nor tick.ts).
@@ -2764,13 +2765,17 @@ export function claimExpedition(state: GameState, expeditionId: string): Expedit
   // Expedition Tiers G2-7 (user 2026-11-02): the first run home from Wolf 359 writes the derelict field's one-time
   // Survey Log entry, after the run's own readouts; every other claim leaves the key exactly as it was.
   const derelict = wolf359DerelictEntry(noted, exp, state.gameTimeSeconds);
-  const next = {
+  const claimed = {
     ...noted,
     // WR-5c: x the run's frozen Drillmaster (Expedition.explorerCaptain), exactly 1 without it.
     officers: foldOfficerPromotionCounters(repaired.officers, expeditionPromotionIncrements(exp), () => exp.explorerCaptain?.promotionMult ?? 1),
     runCounts: countClaimedExpedition(runCountsOf(state), exp),
     ...(derelict ? { surveyLog: [...(noted.surveyLog ?? []), derelict] } : {}),
   };
+  // Completion tracking (0.14.0, user 2026-11-13): the system's record (its best completion kept) and, at 100%, the
+  // hidden ledger's "system completed" event (completion.ts withClaimRecord). A recalled run whose system is held writes
+  // nothing here.
+  const next = withClaimRecord(claimed, exp, state.gameTimeSeconds);
   return {
     next,
     success: true,
@@ -3019,9 +3024,12 @@ export function resumableSystems(state: Pick<GameState, "heldSystems">, tier?: R
 export function canAbandonHeldSystem(state: Pick<GameState, "heldSystems">, id: string): boolean {
   return heldSystemById(state, id)?.kind === "resume";
 }
+// Completion tracking (user Q11 "keep its row, marked"): the abandoned system keeps its record at the % it reached,
+// marked abandoned (completion.ts withAbandonRecord).
 export function abandonHeldSystem(state: GameState, id: string): GameState {
   if (!canAbandonHeldSystem(state, id)) return state;
-  return { ...state, heldSystems: heldSystems(state).filter((h) => h.id !== id) };
+  const held = heldSystemById(state, id)!;
+  return withAbandonRecord({ ...state, heldSystems: heldSystems(state).filter((h) => h.id !== id) }, held, state.gameTimeSeconds);
 }
 
 // The recall of `exp` at `t` (the run advanced to `t` first): the recalled run and what it leaves behind, or the
