@@ -547,7 +547,7 @@ Built from the design's "USER (2026-11-03, verbatim): rare franchise nods among 
   "~1 in 50").
 - Roll: the arrival's own stream gains two draws AFTER E5-2's six (the echo check, then the pick), always taken, so a
   normal arrival is byte-identical. An echo takes the roster's name and background and its key (`RefugeeRecord.echo`);
-  skill, portrait and origin are rolled as for anyone (no stronger buff). [PROPOSAL] the pick: uniform among the echoes
+  skill, portrait and origin are rolled as for anyone (no stronger buff). The pick (the user, 2026-11-13: "Uniform pick (Recommended)"): uniform among the echoes
   not yet arrived, in roster order, so a rare roll is an echo until all 59 have arrived, then a normal refugee (the
   user's "when all have arrived, rare rolls become normal refugees").
 - Once per save: `RefugeeState.echoes` (keys, arrival order), threaded through `applyRefugeeDeliveries` in the

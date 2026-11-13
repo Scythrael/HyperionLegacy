@@ -13,8 +13,9 @@
 //   - They work like any refugee: the background on their row (picked to fit them), the normal skill roll for the
 //     evacuation's tier, no stronger buff.
 //
-// [PROPOSAL] (the builder's, the user's to change): which echo a rare roll brings is a uniform pick among the echoes
-// who have not arrived yet, in roster order (refugeeEchoPick), so a rare roll is an echo until every one has arrived.
+//   - The pick (the user, 2026-11-13: "Uniform pick (Recommended)"): which echo a rare roll brings is a uniform pick
+//     among the echoes who have not arrived yet, in roster order (refugeeEchoPick), so a rare roll is an echo until
+//     every one has arrived.
 
 import type { RefugeeBackground } from "./refugees";
 
@@ -115,7 +116,8 @@ export function isRefugeeEchoKey(key: unknown): key is string {
 }
 
 // Which echo a rare roll brings: a uniform pick (by `draw`, in [0, 1)) among the echoes who have not arrived yet, in
-// roster order; null once every echo has arrived (the rare roll then brings a normal refugee). [PROPOSAL] Pure.
+// roster order; null once every echo has arrived (the rare roll then brings a normal refugee). The user's decision
+// (2026-11-13, "Uniform pick (Recommended)"). Pure.
 export function refugeeEchoPick(arrived: readonly string[], draw: number): RefugeeEcho | null {
   const taken = new Set(arrived);
   const open = REFUGEE_ECHOES.filter((e) => !taken.has(e.key));

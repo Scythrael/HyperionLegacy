@@ -75,7 +75,7 @@
       </div>
       {#each view.rows as r (r.id)}
         <div class="rfp-row" class:echo={r.echo} role="row">
-          <span class="rfp-who" role="cell"><RefugeePortrait hair={r.portrait.hair} palette={r.portrait.palette} size={28} /><b>{r.name}{#if r.echo}<span class="rfp-echo"><Icon name="refugeeEcho" size={13} title={REFUGEE_ECHO_MARK_LABEL} /></span>{/if}</b></span>
+          <span class="rfp-who" role="cell"><RefugeePortrait hair={r.portrait.hair} palette={r.portrait.palette} size={28} /><span class="rfp-nm"><b>{r.name}</b>{#if r.echo}<span class="rfp-echo"><Icon name="refugeeEcho" size={13} title={REFUGEE_ECHO_MARK_LABEL} /></span>{/if}</span></span>
           <span class="rfp-bg" role="cell"><Icon name={REFUGEE_BACKGROUND_ICONS[r.background]} size={13} />{r.backgroundLabel}</span>
           <span class="rfp-num rfp-skill" role="cell"><span class="rfp-short">skill&nbsp;</span>{r.skill}</span>
           <span class="rfp-origin" role="cell">{r.originText}<span class="rfp-short">&nbsp;· <span class:ok={r.bestGood}>{r.bestShort}</span></span></span>
@@ -121,9 +121,11 @@
   .rfp-headrow { font-family: var(--font-mono); font-size: var(--text-2xs); letter-spacing: 0.1em; text-transform: uppercase; color: var(--color-text-dim); padding-top: 6px; padding-bottom: 6px; }
   .rfp-headrow .sorted { color: var(--color-accent-bright); }
   .rfp-who { display: flex; gap: 8px; align-items: center; min-width: 0; color: var(--color-text-primary); }
-  .rfp-who b { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  /* The name ellipsizes on its own; an echo's mark sits outside it, so a long name never clips the mark. */
+  .rfp-nm { display: flex; align-items: center; gap: 5px; min-width: 0; }
+  .rfp-who b { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
   /* E5-6b: an echo's shared mark beside their name, and their own flavor line across the row under it. */
-  .rfp-echo { display: inline-flex; vertical-align: -2px; margin-left: 5px; color: var(--color-accent-bright); }
+  .rfp-echo { display: inline-flex; flex: none; color: var(--color-accent-bright); }
   .rfp-flavor { grid-column: 1 / -1; padding-left: 36px; font-size: var(--text-xs); font-style: italic; color: var(--color-text-secondary); overflow-wrap: anywhere; }
   .rfp-bg { display: inline-flex; gap: 4px; align-items: center; white-space: nowrap; min-width: 0; }
   .rfp-bg :global(svg) { color: var(--color-accent); }
@@ -150,8 +152,8 @@
     .rfp-stats { display: none; }
     .rfp-row { grid-template-columns: 30px auto auto minmax(0, 1fr) auto; grid-template-areas: "pt nm nm nm act" "pt bg sk . act" "pt or or or or"; gap: 2px 8px; padding: 8px 10px; }
     .rfp-who { display: contents; }
-    .rfp-who :global(svg) { grid-area: pt; align-self: start; }
-    .rfp-who b { grid-area: nm; }
+    .rfp-who > :global(svg) { grid-area: pt; align-self: start; }
+    .rfp-nm { grid-area: nm; }
     .rfp-bg { grid-area: bg; font-size: var(--text-xs); }
     .rfp-skill { grid-area: sk; text-align: left; font-size: var(--text-xs); }
     .rfp-skill .rfp-short { color: var(--color-text-dim); }

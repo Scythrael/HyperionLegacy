@@ -237,21 +237,21 @@ describe("E5-2 the taper and the seeded refugee roll", () => {
       }
     }
     for (const roll of rolls) {
-      const a = rollRefugee(roll, 7, 100);
-      expect(json(rollRefugee(roll, 7, 100))).toBe(json(a));
+      const a = rollRefugee(roll, 7, 100, []);
+      expect(json(rollRefugee(roll, 7, 100, []))).toBe(json(a));
       const [lo, hi] = REFUGEE_SKILL_SPANS[roll.tier];
       expect(Number.isInteger(a.skill) && a.skill >= lo && a.skill <= hi).toBe(true);
       expect(REFUGEE_BACKGROUND_KEYS).toContain(a.background);
       expect(a.origin).toEqual({ tier: roll.tier, destinationIndex: roll.destinationIndex });
       expect(a.posting).toBeNull();
       // The id moves only the name's stream: the six draws are the roll's.
-      const b = rollRefugee(roll, 8, 100);
+      const b = rollRefugee(roll, 8, 100, []);
       expect({ ...b, id: 7, name: a.name }).toEqual(a);
     }
     // Tier II rolls stronger on average (a harder evacuation brings a more capable person).
     const mean = (t: 1 | 2) => {
       const rs = rolls.filter((r) => r.tier === t);
-      return rs.reduce((n, r) => n + rollRefugee(r, 1, 0).skill, 0) / rs.length;
+      return rs.reduce((n, r) => n + rollRefugee(r, 1, 0, []).skill, 0) / rs.length;
     };
     expect(mean(2)).toBeGreaterThan(mean(1));
   });
@@ -328,7 +328,7 @@ describe("E5-2 the cycle engine reports deliveries; economyTick brings people ho
     const s = economyTick(before, 1, RNG);
     const r = refugeesOf(s);
     expect(r.list).toHaveLength(1);
-    expect(r.list[0]).toEqual(rollRefugee(m.roll, 1, s0.gameTimeSeconds + m.plan.totalTicks * s0.tickDurationSeconds));
+    expect(r.list[0]).toEqual(rollRefugee(m.roll, 1, s0.gameTimeSeconds + m.plan.totalTicks * s0.tickDurationSeconds, []));
     expect([r.nextId, r.arrivedTotal, r.greet]).toEqual([2, 1, [1]]);
     const log = refugeeLog(s);
     expect(log).toHaveLength(1);
@@ -662,7 +662,7 @@ function onEchoEvacuation(s: GameState, captainId: number, slotId: number): Game
   let idx = -1;
   for (let i = 0; i < 20000 && idx < 0; i++) {
     const roll = rollShortRangeJob(s, slot, i);
-    if (roll.template === "evacuation" && rollRefugee(roll, 1, 0).echo !== undefined) idx = i;
+    if (roll.template === "evacuation" && rollRefugee(roll, 1, 0, []).echo !== undefined) idx = i;
   }
   expect(idx).toBeGreaterThanOrEqual(0);
   const board = { ...(s.shortRangeBoard ?? { version: 1 as const, nextCycle: {} }), nextCycle: { ...(s.shortRangeBoard?.nextCycle ?? {}), [slotId]: idx } };

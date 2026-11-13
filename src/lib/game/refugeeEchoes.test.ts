@@ -24,7 +24,7 @@ function rolls(n: number): ShortRangeRoll[] {
 
 // Every roll whose arrival is an echo when nobody has arrived yet.
 function echoRolls(n: number): ShortRangeRoll[] {
-  return rolls(n).filter((r) => rollRefugee(r, 1, 0).echo !== undefined);
+  return rolls(n).filter((r) => rollRefugee(r, 1, 0, []).echo !== undefined);
 }
 
 function evac(roll: ShortRangeRoll, atTick: number, slotId = 0): RefugeeDelivery {
@@ -108,14 +108,14 @@ describe("E5-6b arrivals: once per save, then normal refugees", () => {
     for (const roll of found) {
       const normal = rollRefugee(roll, 7, 5, all);
       expect(normal.echo).toBeUndefined();
-      expect(normal).toEqual(withEchoRefugeesOff(() => rollRefugee(roll, 7, 5)));
+      expect(normal).toEqual(withEchoRefugeesOff(() => rollRefugee(roll, 7, 5, [])));
     }
   });
 
   it("an echo keeps the normal skill roll, portrait and origin; takes the roster's name and background", () => {
     for (const roll of echoRolls(4000)) {
-      const on = rollRefugee(roll, 9, 42);
-      const off = withEchoRefugeesOff(() => rollRefugee(roll, 9, 42));
+      const on = rollRefugee(roll, 9, 42, []);
+      const off = withEchoRefugeesOff(() => rollRefugee(roll, 9, 42, []));
       const echo = refugeeEchoOf(on.echo)!;
       expect(on).toEqual({ ...off, name: echo.name, background: echo.background, echo: echo.key });
     }
@@ -158,7 +158,7 @@ describe("E5-6b arrivals: once per save, then normal refugees", () => {
   });
 
   it("a normal arrival adds no echoes key (an old save's state shape is unchanged)", () => {
-    const normal = rolls(400).find((r) => rollRefugee(r, 1, 0).echo === undefined)!;
+    const normal = rolls(400).find((r) => rollRefugee(r, 1, 0, []).echo === undefined)!;
     const out = applyRefugeeDeliveries(EMPTY, 1e9, [evac(normal, 1)], CALL).refugees;
     expect("echoes" in out).toBe(false);
     expect("echo" in out.list[0]).toBe(false);

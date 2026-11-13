@@ -115,7 +115,7 @@ function refugeeDraws(roll: Pick<ShortRangeRoll, "seed" | "tier">): RefugeeDraws
 // the echoes already arrived in this save (`arrivedEchoes`, E5-6b). The origin is the roll's tier and destination. A
 // rare roll (REFUGEE_ECHO_CHANCE) with an echo still to come brings that echo: their roster name and background and
 // their key (`echo`); skill, portrait and origin are rolled as for anyone. Pure.
-export function rollRefugee(roll: ShortRangeRoll, id: number, arrivedAtSeconds: number, arrivedEchoes: readonly string[] = []): RefugeeRecord {
+export function rollRefugee(roll: ShortRangeRoll, id: number, arrivedAtSeconds: number, arrivedEchoes: readonly string[]): RefugeeRecord {
   const d = refugeeDraws(roll);
   const echo = REFUGEE_ECHO_SWITCH.live && d.echo < REFUGEE_ECHO_CHANCE ? refugeeEchoPick(arrivedEchoes, d.echoPick) : null;
   if (echo !== null) {

@@ -61,7 +61,7 @@ function rollsBySlot(): ShortRangeRoll[][] {
 function rollPins(): Record<string, string> {
   const out: Record<string, string> = {};
   rollsBySlot().forEach((rolls, slotId) => {
-    out[`rolls:slot${slotId}`] = hash(rolls.map((roll, i) => rollRefugee(roll, slotId * 750 + i + 1, i * 10)));
+    out[`rolls:slot${slotId}`] = hash(rolls.map((roll, i) => rollRefugee(roll, slotId * 750 + i + 1, i * 10, [])));
   });
   return out;
 }
@@ -106,8 +106,8 @@ describe("E5-6b: the echo overlay moves only the echoes", () => {
     rollsBySlot().forEach((rolls, slotId) => {
       rolls.forEach((roll, i) => {
         const id = slotId * 750 + i + 1;
-        const on = rollRefugee(roll, id, i * 10);
-        const off = withEchoRefugeesOff(() => rollRefugee(roll, id, i * 10));
+        const on = rollRefugee(roll, id, i * 10, []);
+        const off = withEchoRefugeesOff(() => rollRefugee(roll, id, i * 10, []));
         if (on.echo === undefined) {
           expect(on).toEqual(off);
           return;
