@@ -156,3 +156,8 @@ of arrivals, rolled on the arrival's seeded stream; the card shows a small uniqu
 they work like any refugee (no stronger buffs). Franchises named by the user: Star Wars, Stargate, Babylon 5, Wheel of
 Time, Final Fantasy, Dragon Ball Z, My Hero Academia, "Etc." The roster of echo names + flavor lines is drafted as a
 sheet for the user's sign-off BEFORE it ships (like the relic names). Build after E5-6 as a small slice (E5-6b).
+
+## USER ANSWER (2026-11-13): echo roster sign-off
+
+The echo roster (docs/plans/2026-11-03-refugee-echo-roster-DRAFT.md, 59 names, once per save, one mark): "Approve all".
+Unblocks E5-6b (echo refugees).

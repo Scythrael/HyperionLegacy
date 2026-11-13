@@ -673,3 +673,12 @@ to show it to those who are also in mourning." Mockup published: https://claude.
 OPEN (user's idea, not yet designed): a memorial for each fallen titan of the franchise; the user names who and
 where. Same rules as the Sigil unless the user says otherwise: unnamed in game, an original echo, on an existing or
 user-named item (never a new entity the user did not name).
+
+## USER ANSWERS (2026-11-13): relic name sheet sign-off
+
+- Relic names (docs/plans/2026-11-02-relic-name-sheets-DRAFT.md, 110 names): "Approve all". Unblocks R2-5 to R2-9.
+- Keelsong and Ember Court homage flavor lines (user, verbatim): "For reference, look up "WoW Ember Court" and do some
+  studying into the actual concept of the Ember Court in WoW as well as the questlines and characters. Then that will
+  make lots of sense. As for the Keelsong sets, please do some reasearch on the Ogier from Wheel of Time. Even all of
+  our favorite well-known characters.  Especially the one who is most Loial to our taveren heroes. Muahaha."
+  The hub drafts homage lines (original wording, no franchise names in game text) for the user's sign-off.
