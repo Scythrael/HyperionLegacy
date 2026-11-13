@@ -11790,9 +11790,9 @@ export const GAS_GIANT_BLUEPRINTS: Readonly<Record<string, BlueprintDef>> = Obje
 //     Catalyst (M7 keeps the catalyst on top-tier recipes alone). The arrays take audit section 4.8's mixes, approved
 //     2026-11-03 ("Approve as proposed"). Flag Command takes no canister: call 14 places canisters in the tier 3+
 //     quarters and sensor modules only.
-//   [PROPOSAL] distinct recipes (user 2026-11-03, "Tell them apart"): section 5 gave three quarters pairs one recipe
-//     each, so one blueprint of each pair swaps one input for a like-cost tier 1 component (a Frame Segment and a Power
-//     Coupling are 4 refined units each, an Ingot and a Wafer 1 each), the user's to sign off:
+//   Distinct recipes (user 2026-11-03, "Tell them apart"; SIGNED OFF 2026-11-13, "Approve" on all three): section 5 gave
+//     three quarters pairs one recipe each, so one blueprint of each pair swaps one input for a like-cost tier 1
+//     component (a Frame Segment and a Power Coupling are 4 refined units each, an Ingot and a Wafer 1 each):
 //       Engineering Quarters: Frame 2 + Coupling 2 + Ti Ingot 1 -> Frame 2 + Coupling 2 + Wafer 1 (diagnostic consoles);
 //       Science Quarters: Frame 2 + Wafer 2 + Coupling 1 -> Frame 2 + Wafer 1 + Ti Ingot 1 + Coupling 1 (a titanium bench);
 //       Guest Wing: Frame 2 + Ti Ingot 2 + Coupling 1 -> Frame 1 + Ti Ingot 2 + Coupling 2 (fewer crew bunks to frame,

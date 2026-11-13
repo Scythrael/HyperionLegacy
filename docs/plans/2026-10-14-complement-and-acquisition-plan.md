@@ -1470,3 +1470,10 @@ Built from the answers above and the signed mockup (option A). UI only: no engin
 - QA: `docs/qa/2026-11-12-notable-ticker-qa.html`.
 - (2026-11-12 night) Warning on the older "Send from the pool" picker (it can push pool crew to the reserve too): "Yes,
   same warning (Recommended)": both pickers say how many pool crew move to the reserve next tick.
+
+## USER ANSWERS (2026-11-13): CP-11 distinct recipes sign-off
+
+All three [PROPOSAL] swaps approved ("Approve (Recommended)" on each): Engineering Quarters = Frame Segment 2 + Power
+Coupling 2 + Wafer 1; Science Quarters = Frame Segment 2 + Wafer 1 + Titanium Ingot 1 + Power Coupling 1; Guest Wing =
+Frame Segment 1 + Titanium Ingot 2 + Power Coupling 2. No longer [PROPOSAL]; the research and craft costs
+(`CREW_MODULE_BLUEPRINT_COSTS`) stay [PROVISIONAL] for 0.16.0.
