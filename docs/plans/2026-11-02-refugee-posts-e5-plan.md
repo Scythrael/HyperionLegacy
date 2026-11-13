@@ -538,6 +538,43 @@ off-match 25% of a skill 42 refugee, about 1.05%, needs T >= 97).
 - Hint: above the Facilities panes until "Got it" (`dismissRefugeeHint`); it names the waiting person and open post
   with the strongest real gain. [PROPOSAL] wording.
 
+#### E5-6b carry note: echo refugees (built 2026-11-13 on `0b5892e7`)
+
+Built from the design's "USER (2026-11-03, verbatim): rare franchise nods among refugees" answers and the roster sign-off
+(design "USER ANSWER (2026-11-13)": "Approve all", 59 names, once per save, one mark).
+- Roster: `refugeeEchoes.ts` `REFUGEE_ECHOES`, the 59 approved rows word for word (name, background, flavor), each with
+  a stable save key; the sheet's "Echoes" column is not in the code. Chance `REFUGEE_ECHO_CHANCE` = 1 / 50 (the user's
+  "~1 in 50").
+- Roll: the arrival's own stream gains two draws AFTER E5-2's six (the echo check, then the pick), always taken, so a
+  normal arrival is byte-identical. An echo takes the roster's name and background and its key (`RefugeeRecord.echo`);
+  skill, portrait and origin are rolled as for anyone (no stronger buff). [PROPOSAL] the pick: uniform among the echoes
+  not yet arrived, in roster order, so a rare roll is an echo until all 59 have arrived, then a normal refugee (the
+  user's "when all have arrived, rare rolls become normal refugees").
+- Once per save: `RefugeeState.echoes` (keys, arrival order), threaded through `applyRefugeeDeliveries` in the
+  (atTick, slotId) order, so one call == 997 s chunks == 1 s steps == offline (tests in refugeeArrival.test.ts). A
+  Relocation can take an echo along; they never return. Hydration strips an unknown key from a record (the person
+  stays) and keeps `echoes` to known keys, once each, plus every record's key. No SAVE_VERSION bump (optional fields).
+- Mark: one shared SVG glyph `refugeeEcho` (a winking face; ICON_SEMANTICS subject; its own paths), spoken label "a
+  special arrival" [PROPOSAL]. Mark and flavor line on the arrival card, the Refugees tab row, the Posts popover and
+  the person picker; the mark alone on the facility picker rows. The log lines are unchanged.
+- Help: the Refugees topic gains SPECIAL ARRIVALS (`REFUGEE_ECHO_HELP`, the chance read from the constant) [PROPOSAL
+  wording]. No franchise is named anywhere in game text.
+- [DEV] Refugees row on the Debug tab (+1, +3 refugees, +1 echo refugee; `refugeeDevGrant.ts`, a dynamic import behind
+  DEV_MODE): people minted by the real roll, queued for their arrival cards (the hub's 2026-11-04 note for this slice).
+- Registry: no row. An echo has no stat of its own (the buffs read background and skill only), so E5-6b owns no
+  wiring row.
+- Goldens: `refugeeEchoGoldens.test.ts` captured before the edit (3,000 rolls, 600 deliveries); with
+  `refugeeEchoSwitch.fixture.ts` `withEchoRefugeesOff` they read exactly. Refugee goldens 2 and 5 moved (an echo
+  arrives in hour 1): every earlier pin traced with the echoes off, new `e5-6b:fleet` / `e5-6b:old`; hour 0, the board
+  and the previews unchanged. No other pin in the suite moved.
+- QA sheet: `docs/qa/2026-11-13-echo-refugees-qa.html` (staging, 1280 px and 375 px).
+- Local visual pass (DEV_MODE dev server, a new save, the [DEV] grant): the Refugees tab at 1280 px and 375 px (mark
+  after the name, flavor line under the row; 375 px no horizontal scroll), both arrival cards (the echo's with mark and
+  flavor, the normal one without), "Leave all on the waiting list (2)" present, no console errors. The mark reviewed at
+  16, 28 and 56 px on dark and light backgrounds: a winking face at 28 and 56; at 16 the face reads, the wink is subtle.
+- Gates (2026-11-13): full suite 467 files / 12,066 tests green (311 skipped); `npm run check` 0 errors (the 2
+  pre-existing RadialWeb warnings); `test:perf` 4 / 4; RELEASE_GATE 4 pending, all relic rows (unchanged, none E5).
+
 ### Task E5-7: Help, QA sheet, close-out [small]
 
 **Files:**
