@@ -55,3 +55,33 @@ Purchase refusals).
 User questions: (1) canister prices vs 4 cr ice: retune now, stop selling craftable canisters, or 0.16.0? (2) salvage
 recovery ceiling below 100%? (3) lane join: wire for 0.14.0 or log as known? (4) Sell respects reservations? (5)
 over-cap deposits: keep (never trim) or refuse/hold at the source?
+
+## Lane 4: combat, patrols, gear wear, Overtime
+
+Critical: none (save/reload mid-run, replay == live over 101 cycles, Overtime in pauses all clean).
+Important:
+- I1 CONFIRMED (measured): veteran Repeat patrols spend most time paused to repair (tick.ts ~4285-4291 waits for every
+  combat piece to reach full; gearWear.ts ~127-132 battle rows [PROVISIONAL], ~148 home rate 40). 30,000 s Repeat
+  Sweep, Balanced, torpedoes on: destroyer 91% paused, carrier 92%, battleship 73%. Design consequence. (User q1.)
+- I2 CONFIRMED: a first patrol left on Repeat farms floor-strength enemies forever (tick.ts ~3950; runDifficulty.ts
+  nextPatrolCycleDifficulty). Fresh save, 20,000 s: 595 routes, 30,439 cr, captain level 14, ramp still 0. (User q2.)
+- I3 CONFIRMED: enemy torpedoes make the "any warship can win" Sweep losable (helpTopics.ts ~1181; combatRules.ts ~114):
+  veteran destroyer lost 3 of 4 seeds, carrier 1 of 4; 0 of 16 with torpedoes off. (User q4.)
+Minor:
+- M4 CONFIRMED (not player-visible): chunked calls break byte parity when a patrol ends in defeat mid-call
+  (gearWearEngine.ts ~1025-1075 trackGearRepairJobs; hull repair auto-start known-legacy tick.ts ~5902-5918).
+  Production steps 1 s, so real offline equals live. Add a parity test for a mid-call defeat.
+- M5 CONFIRMED outcomes: Aggressive and Balanced fight identically on Standard-Issue warships (resolveBattle.ts ~545-559
+  stanceHoldDistance; cause suspected: kits' firepower at short reach). The release QA line about stance logs will fail
+  for that pair. (User q5.)
+- M6 CONFIRMED: a paused-patrol Overtime step costs 1 cr more than docked (491 vs 490; processSpeed.ts ~251 prices the
+  pause incl. the one-tick margin from tick.ts ~4290); the patrol idles one tick after gear is full.
+- M7 CONFIRMED: Combat Patrols Help never mentions the Repeat repair pause.
+- M8 CONFIRMED diff, cause unknown (crew lane): a carrier's complement buckets differ by chunking during Repeat (from
+  5,000 s); destroyer and battleship clean.
+QA-list gaps: 9 lines (paused share on Repeat, training patrol on Repeat, Repeat until defeat, Overtime then Repeat
+pause length, pause vs docked price, Aggressive vs Balanced logs, close after defeat, carrier buckets offline, Help).
+User questions: (1) 73 to 92% paused share intended? (resume when the projection no longer breaks, retune wear rows,
+or 0.16.0) (2) should a Repeat run that began as training, or at any ramp step, ever climb or scale loot? (3) should
+Repeat fly a cycle whose pristine projection is a defeat? (4) fix the "any warship can win" text now or tune the
+chance? (5) should Aggressive and Balanced be guaranteed to differ on default kits?
