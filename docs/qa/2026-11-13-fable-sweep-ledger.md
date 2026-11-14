@@ -112,3 +112,26 @@ on relocation, notable cap, roster apply pool then reserve, retire pinned XO, 37
 offline crew math).
 User questions: (1) waiting echo exempt from Refugee Relocation? (2) prod saves on first 0.14.0 load: transports from
 "now", or a bounded welcome backlog? (3) Recruiter flat +1 final?
+
+## USER ANSWERS (2026-11-13/14) on the sweep's design questions
+
+- Prod save crew backlog (C1): "A welcome batch to fill the fleet (Recommended)": enough transports to fill every open
+  berth once, then normal transports from the update on. The freeze is fixed regardless.
+- Canisters (lane 1 I1): "Price near input value (Recommended)": canister sell price close to its ice value plus a
+  small refining margin.
+- Salvage ceiling (lane 1 I2): "Curve below 100% (Recommended)": diminishing curve approaching but never reaching 100%.
+- Repeat repair pause share (lane 4 I1): "Resume when safe (Recommended)": resume as soon as the next cycle's
+  projection no longer breaks gear, not at full.
+- Training patrol on Repeat (lane 4 I2): "Climb every N routes (Recommended)".
+- Instant recall reroll (lane 3 I3): "Recalled launch keeps the list (Recommended)". (Lane 3 I1 re-pay fixed regardless.)
+- Real stars (lane 3 I2): "Same system every visit (Recommended)": bodies seeded from the star.
+- Sweep vs torpedoes (lane 4 I3): "Fix the Help text (Recommended)"; tune in 0.16.0.
+- Doomed Repeat cycle (lane 4 q3): "Stop and explain (Recommended)".
+- Skip farming the planet roll (lane 3 q3): "Roll needs a real objective (Recommended)": skips still count for the %.
+- Over cap (lane 1 q5, lane 3 q4): "Never discard (Recommended)": deliveries may sit over the cap, nothing trimmed on
+  load, logs show what landed.
+- Echo on relocation (lane 2 q1): "Exempt echoes (Recommended)".
+- Still to ask: Aggressive vs Balanced identical on default kits; Recruiter flat +1; lane join (wire or log); Sell vs
+  reservations; boarders take 10% of credits; recall keeps the training run forever.
+- 2026-11-14 user report: staging "Completely unresponsive" (screenshot: Command Home on phone, Fleet Prestige 2
+  achievement just shown). Prime suspect: C1.
