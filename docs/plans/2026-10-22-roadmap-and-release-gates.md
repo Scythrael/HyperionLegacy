@@ -160,3 +160,10 @@ How it slots in (proposal, the user decides the details when QA starts):
   what the QA list is missing; (2) a full bug check across systems, read-only, with concrete failure scenarios; (3) its
   findings feed the existing loop (fix, verify, next round) next to the planned human and AI testers.
 - Tentative: the user said "at least, tentatively"; confirm the scope and cost estimate with the user before launching.
+
+## 0.14.0 on staging (2026-11-13)
+
+User answers: holistic review "Fold into the Fable sweep (Recommended)"; staging "Go to staging now" (pushed
+feat/crew-0.14.0:staging, eaf1fb80..c8a29e66, fast-forward; production unchanged); patch notes "Draft now (Recommended)".
+Release QA sheet: docs/qa/2026-11-13-0140-release-qa.html. Next: the Fable QA sweep (confirm scope and cost with the user
+first) and the QA rounds.
