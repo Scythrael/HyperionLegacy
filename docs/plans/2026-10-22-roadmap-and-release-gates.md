@@ -167,3 +167,7 @@ User answers: holistic review "Fold into the Fable sweep (Recommended)"; staging
 feat/crew-0.14.0:staging, eaf1fb80..c8a29e66, fast-forward; production unchanged); patch notes "Draft now (Recommended)".
 Release QA sheet: docs/qa/2026-11-13-0140-release-qa.html. Next: the Fable QA sweep (confirm scope and cost with the user
 first) and the QA rounds.
+- (2026-11-13) Fable QA sweep scope: "Full sweep, 4 lanes (Recommended)": four Fable agents in parallel, each owning a
+  slice (economy and crafting; crew, complement and refugees; expeditions, ground ops, relics and completion; combat,
+  patrols, gear wear and Overtime): plan, find QA-list gaps, bug-check read-only; the hub merges one findings ledger.
+  Patch notes drafted (docs/patch-notes/0.14.0-DRAFT.md, discord-0.14.0-DRAFT.md) for the user's review.
