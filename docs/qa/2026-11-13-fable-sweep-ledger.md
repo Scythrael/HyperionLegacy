@@ -85,3 +85,30 @@ User questions: (1) 73 to 92% paused share intended? (resume when the projection
 or 0.16.0) (2) should a Repeat run that began as training, or at any ramp step, ever climb or scale loot? (3) should
 Repeat fly a cycle whose pristine projection is a defeat? (4) fix the "any warship can win" text now or tune the
 chance? (5) should Aggressive and Balanced be guaranteed to differ on default kits?
+
+## Lane 2: crew, complement, refugees
+
+Critical:
+- C1 CONFIRMED (measured), RELEASE BLOCKER: a production 0.13.x (v54) save freezes on its first 0.14.0 tick and
+  floods crew. save.ts ~2326 (migration 54 sets lastTransportWindow ?? 0; nothing later updates it); crewOverlay.ts
+  ~1348 crewTransportsDue; transports.ts deliverDueTransports copies the pool per window (quadratic). Prod advances
+  gameTimeSeconds, so the first economyTick delivers every window since the save began: 30 days = 3.7 s and 17,250
+  crew; 180 days = 64.6 s and 103,650 crew (+531 KB); 365 days = 167 s and 210,210 crew (+768 KB). Fix: on a save
+  migrating from below v55 stamp lastTransportWindow = transportWindowIndex(gameTimeSeconds) (or a bounded welcome
+  backlog: user's call), and make deliverDueTransports build one batch map instead of copying per window.
+Important:
+- I1 CONFIRMED: the Mentor / Legendary Captain lift on an Earth-born officer's Crew Effectiveness is displayed but does
+  nothing (crewOverlay.ts ~512-526 officerEffectivenessRacials uses bridgeOfficerMultiplier only; the display uses
+  officerOutputMultiplier incl. captainOfficerOutputMult). Fix: use officerOutputMultiplier there.
+- I2 CONFIRMED by trace: a waiting echo refugee can leave on a Refugee Relocation and is gone for the save (Help says
+  so; no user answer found). (User question.)
+Minor:
+- M1 SUSPECTED: very old saves keep thousands of reserve groups in localStorage (reserve unbounded by design).
+- M2 SUSPECTED doc drift: Recruiter is a flat +1 (best captain) in code; a CP-19 plan line says D23 curve. (User q.)
+Clean: crew conservation fuzz 12 seeds x 500 mixed actions (nothing lost or duplicated, caps respected, save round trip
+byte-equal); lane UI text rules.
+QA-list gaps: 10 lines (load a real PRODUCTION save, export size, Mentor on Earth-born, Crew Effectiveness acts, echo
+on relocation, notable cap, roster apply pool then reserve, retire pinned XO, 375 reserve with 100+ groups, 4-day
+offline crew math).
+User questions: (1) waiting echo exempt from Refugee Relocation? (2) prod saves on first 0.14.0 load: transports from
+"now", or a bounded welcome backlog? (3) Recruiter flat +1 final?
