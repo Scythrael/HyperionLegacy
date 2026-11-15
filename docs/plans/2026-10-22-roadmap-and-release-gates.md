@@ -175,7 +175,7 @@ first) and the QA rounds.
 ## Fable pass 2 PROPOSAL (2026-11-14): bug, security and online readiness
 
 User ask (verbatim): "A full bug amd security check, as well as any vulnerabilities that could cause problems with online
-capability." Hub proposal (awaiting the user's OK), run AFTER the QA fixes and Codex's pass land:
+capability." APPROVED by the user 2026-11-14 ("Yes indeed"; finish the current QA first, then update this plan with anything needed). Run AFTER the QA fixes and Codex's pass land:
 1. Security lane: XSS / unsafe HTML on any player text or imported save, save import validation (schema, size, NaN or
    Infinity poisoning), dependency audit, secrets or debug code in the production build, Vercel headers and CSP.
 2. Online readiness lane (threat model for 0.14.1): what the client decides that a server must not trust (rewards,
