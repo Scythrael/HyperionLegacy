@@ -331,3 +331,18 @@ hint (rec.); entry = name, rank, division, ship or Unassigned, favorites first (
 Retire (rec.).
 Still open from before: CP-11 recipe sign-off; relic and echo names; credit sink to replace Quick Service; completion
 tracking plan; WR-12 close-out.
+
+## HUB HANDOFF (2026-11-14) @ feat 6cbafe8d, STAGING 6f0de0be
+
+0.14.0 on staging (user "Go to staging now"); prod unchanged 0.13.11.3. Release gate 0 pending (tag
+milestone/0.14.0-wiring-gate-zero). Freeze fix merged and redeployed (slice/freeze-fix); user confirmed it is functional.
+Full QA doc: docs/qa/2026-11-14-0140-full-qa.html (294 checks: 202 changes, 92 regression), sent to the user.
+Fable sweep ledger with all findings and USER ANSWERS: docs/qa/2026-11-13-fable-sweep-ledger.md.
+NEXT (answered, not yet built): canister sell price near input value; salvage curve below 100%; Repeat resume when
+safe; Repeat climbs every N routes; recalled launch keeps the list; real stars seeded from the star; Sweep Help text;
+doomed Repeat cycle stops and explains; planet roll needs a real objective; never discard over cap (logs show what
+landed); echoes exempt from relocation; plus the technical fixes (resume re-pay, anomaly flag, Mentor lift, lane-join
+decision pending, Overtime no-tick step, warehouse rung rounding, Refining Help, mid-call defeat parity, pause price
++1, carrier bucket chunk diff). STILL TO ASK: Aggressive vs Balanced identical on default kits; Recruiter flat +1;
+lane join wire or log; Sell vs reservations; boarders take 10% of credits; recall keeps the training run forever;
+offline catch-up speed for 4-day absences on phones (design change). Patch notes DRAFT: docs/patch-notes/0.14.0-DRAFT.md.
