@@ -17,8 +17,27 @@ export const MULTI_SLOT_TYPES: ReadonlySet<EquipmentSlotType> = new Set<Equipmen
 // ----------------------------------------------------------------------------
 // Every equipment piece currently FITTED to the given ship, read straight off the
 // fittedToShipId authority. PURE: filters the immutable pool, returns a fresh array.
+//
+// Staging freeze perf pass (2026-11-14; no outcome change): the pieces are indexed by ship ONCE per equipment list and
+// the read copies that ship's slice (the same pieces in the same order the filter returned, a fresh array every call).
+// Every equipment write makes a new list (nothing edits the list or a piece in place), so an index never goes stale; a
+// full fleet's per-tick crew fill no longer scans every spare in storage once per ship. The index keys every piece by its
+// fittedToShipId as it is (Map keys match as === does), so even a caller that slips a non-string id through reads the
+// same pieces the filter did.
+const FITTED_INDEX = new WeakMap<EquipmentInstance[], Map<string | null, EquipmentInstance[]>>();
+const NONE_FITTED: readonly EquipmentInstance[] = [];
 export function equippedFor(state: GameState, shipId: string): EquipmentInstance[] {
-  return state.equipment.filter((e) => e.fittedToShipId === shipId);
+  let index = FITTED_INDEX.get(state.equipment);
+  if (index === undefined) {
+    index = new Map();
+    for (const e of state.equipment) {
+      const list = index.get(e.fittedToShipId);
+      if (list === undefined) index.set(e.fittedToShipId, [e]);
+      else list.push(e);
+    }
+    FITTED_INDEX.set(state.equipment, index);
+  }
+  return (index.get(shipId) ?? NONE_FITTED).slice();
 }
 
 // ----------------------------------------------------------------------------

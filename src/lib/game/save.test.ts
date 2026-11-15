@@ -7,6 +7,7 @@ import { isWellFormedShortRangeBoard, shortRangeBoardSlots, shortRangeNextCycle 
 import { refugeesOf, type RefugeeState } from "./refugees";
 // SF-1: the run counters the v69 -> v70 step derives (handed to a "no step" load so the comparisons below isolate their step).
 import { veteranRunCountsV70 } from "./runDifficulty";
+import { TRANSPORT_WELCOME_PENDING } from "./transports";
 import { itemTotal } from "./inventory"; // Task 9a: read item TOTAL across quality buckets
 import { freshState, blueprintResearchable, shipDerivedStats, DEFAULT_EQUIPMENT_VARIETY, seedCombatStandardIssueForShip, SI_PLATING_HP, SI_EMITTER_CAP, SI_EMITTER_RECHARGE, type ShipTypeKey } from "./model";
 // Task 20 v27->v28: the Standard-Issue seed proves stat-neutrality by comparing a
@@ -278,7 +279,9 @@ describe("migrate, v54 -> v55 Crew 0.14.0 dormant data model backfill", () => {
     expect(migrated.crewPool).toEqual([]);
     expect(migrated.notableCrew).toEqual([]);
     expect(migrated.nextNotableId).toBe(1);
-    expect(migrated.lastTransportWindow).toBe(0);
+    // Staging freeze (user 2026-11-13, "A welcome batch to fill the fleet"): a pre-crew save waits for the welcome batch
+    // (transports.ts), not a transport for every window since it began. Was 0 before the fix.
+    expect(migrated.lastTransportWindow).toBe(TRANSPORT_WELCOME_PENDING);
     // Every ship gets a default complement.
     expect(migrated.ships.length).toBeGreaterThan(0);
     for (const s of migrated.ships) {

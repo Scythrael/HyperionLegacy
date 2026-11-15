@@ -38,7 +38,7 @@ import { coalesceBuckets, contributionForSignature, notableSignature, removeFrom
 import { shipCrewLocked } from "./crewLock";
 import { captainRacialBonus, officerCrewHoursMs, officerRacialBonus, officerRankMagnitudeFactor } from "./seniorStaff";
 import { getSeniorStaffBonusById } from "./seniorStaffBonuses";
-import { crewTransportsDue, deliverDueTransports, transportBatchSize } from "./transports";
+import { crewTransportsDue, deliverDueTransports, takesWelcomeBatch, transportBatchSize, welcomeTransportCount, welcomeTransportMarker } from "./transports";
 import { autoCrewShip } from "./autoCrew";
 // Homeworld reserve (user 2026-11-12): the surplus sweep and the reserve list (imports crew, commandStructure and
 // crewModules only, so no cycle).
@@ -1344,6 +1344,45 @@ type NoFillMemo = {
 };
 const NO_FILL_MEMO = new WeakMap<NonNullable<ShipInstance["complement"]>, NoFillMemo>();
 
+// Staging freeze perf pass (2026-11-14; no outcome change): a ship's bulk headcount, remembered per bucket LIST. Every
+// crew write makes a new list (the bucket helpers never edit one in place), so a list's headcount never changes; a full
+// fleet no longer re-sums every ship's groups on every tick of a catch-up. Weak, never saved.
+const BULK_HEADCOUNT = new WeakMap<CrewBucket[], number>();
+function bulkHeadcount(buckets: CrewBucket[]): number {
+  let n = BULK_HEADCOUNT.get(buckets);
+  if (n === undefined) {
+    n = totalCrew(buckets);
+    BULK_HEADCOUNT.set(buckets, n);
+  }
+  return n;
+}
+
+// WELCOME BATCH: every open berth in the fleet, every ship whatever its mode or run (its total berths with its quarters
+// bonus, less its bulk and its assigned notables, never below zero). Pure.
+function openBerthsOf(state: GameState): number {
+  let open = 0;
+  for (const ship of state.ships) {
+    const aboard =
+      totalCrew(ship.complement?.buckets ?? []) + state.notableCrew.filter((n) => (n.assignedShipId ?? null) === ship.id).length;
+    open += Math.max(0, complementTotalCap(ship.typeKey, quartersCapacityBonus(state, ship)) - aboard);
+  }
+  return open;
+}
+
+// Step 1 of resolveCrew with a window due: the backlog, or for a save that takes the welcome batch only the most recent
+// transports that fill every open berth once (after the crew already in the pool and the reserve). Pure.
+function deliverTransportsOrWelcome(state: GameState, reserveIn: CrewBucket[]): { pool: CrewBucket[]; lastWindow: number } {
+  // WR-6 (OC-B3): Civic Charter's extra crew per transport (exactly the base batch without it).
+  const batchSize = transportBatchSize(state);
+  const fromWindow = takesWelcomeBatch(state.lastTransportWindow, state.gameTimeSeconds)
+    ? welcomeTransportMarker(
+        state.gameTimeSeconds,
+        welcomeTransportCount(openBerthsOf(state), totalCrew(state.crewPool) + totalCrew(reserveIn), batchSize),
+      )
+    : state.lastTransportWindow;
+  return deliverDueTransports(transportSeedFor(state), state.crewPool, fromWindow, state.gameTimeSeconds, batchSize);
+}
+
 export function resolveCrew(state: GameState): GameState {
   const due = crewTransportsDue(state.lastTransportWindow, state.gameTimeSeconds);
   // Homeworld reserve: with the switch off (test only) the reserve is neither drawn nor written.
@@ -1353,17 +1392,12 @@ export function resolveCrew(state: GameState): GameState {
 
   // 1) Deliver the whole due backlog into the pool (advancing the window marker). CP-21: with none due, the pool and the
   //    marker are exactly what deliverDueTransports would return (a copy of the same groups, the same marker).
+  //    WELCOME BATCH (staging freeze, user 2026-11-13): a save from before the crew layer, or one whose marker is further
+  //    behind than any catch-up reaches, gets only the transports that fill every open berth once (transports.ts).
   const delivered =
     due === 0
       ? { pool: state.crewPool, lastWindow: state.lastTransportWindow }
-      : deliverDueTransports(
-          transportSeedFor(state),
-          state.crewPool,
-          state.lastTransportWindow,
-          state.gameTimeSeconds,
-          // WR-6 (OC-B3): Civic Charter's extra crew per transport (exactly the base batch without it).
-          transportBatchSize(state),
-        );
+      : deliverTransportsOrWelcome(state, reserveIn);
 
   // 2) Auto-crew every PASSIVE ship from the (post-delivery) pool, in state.ships order (monotonic,
   //    stable across save/load/offline). Each ship pulls min(available, remaining-cap) top-rank-down.
@@ -1380,7 +1414,7 @@ export function resolveCrew(state: GameState): GameState {
     // CP-21: an empty pool (and an empty reserve) fills no one.
     if (pool.length === 0 && reserve.length === 0) return ship;
     const bulk = ship.complement?.buckets ?? [];
-    const before = totalCrew(bulk);
+    const before = bulkHeadcount(bulk);
     // CP-8 (B23): every NOTABLE assigned to the ship holds one slot of its signature, so the filler's occupancy is
     // the bulk PLUS those notables (the applyRoster step (c) rule) and bulk plus notables never exceed a cap. The
     // notable slots are stripped back out afterward: ship.complement keeps only the fungible bulk. With no notable

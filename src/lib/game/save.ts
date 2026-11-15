@@ -66,6 +66,7 @@ import {
   v68ShipGroundTeamsFromV67,
 } from "./groundTeams";
 import { withThirdBuffGrantedV70 } from "./crewThirdBuff";
+import { TRANSPORT_WELCOME_PENDING } from "./transports";
 import { withHomeworldReserveOnLoad } from "./homeworldReserve";
 import { withNotableEventsOnLoad } from "./notableEvents";
 import { withCultureRevealsOnLoad } from "./relics";
@@ -2323,7 +2324,9 @@ const MIGRATIONS: Record<number, Migration> = {
     crewPool: state.crewPool ?? [],
     notableCrew: state.notableCrew ?? [],
     nextNotableId: state.nextNotableId ?? 1,
-    lastTransportWindow: state.lastTransportWindow ?? 0,
+    // Staging freeze (user 2026-11-13, "A welcome batch to fill the fleet"): a pre-crew save takes the welcome batch on
+    // its first tick (transports.ts TRANSPORT_WELCOME_PENDING), never a transport for every window since it began.
+    lastTransportWindow: state.lastTransportWindow ?? TRANSPORT_WELCOME_PENDING,
     ships: (state.ships ?? []).map((s: any) => ({
       ...s,
       complement: s.complement ?? { buckets: [], mode: "passive" },

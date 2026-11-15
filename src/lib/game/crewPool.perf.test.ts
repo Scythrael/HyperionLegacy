@@ -16,6 +16,7 @@ import { tick } from "./tick";
 import { TRANSPORT_WINDOW_SECONDS } from "./transports";
 import { homeworldReserveCount } from "./homeworldReserve";
 import { withHomeworldReserveOff } from "./homeworldReserveSwitch.fixture";
+import { withTransportWelcomeOff } from "./transportWelcomeSwitch.fixture";
 
 const DAY = 86400;
 // The fleet below seats 2,920 crew, about 5 days of transports; 35 more days leave about 20,000 in the pool.
@@ -48,7 +49,9 @@ export function fullFleetWithDeepPool(): GameState {
     gameTimeSeconds: POOL_DAYS * DAY + 7,
     lastTransportWindow: 0,
   };
-  return resolveCrew(start);
+  // The welcome batch (staging freeze 2026-11-14) would deliver only a fleet's worth of a backlog this long; the deep pool
+  // is the point of this fixture, so it is built with the welcome off (the backlog exactly as before).
+  return withTransportWelcomeOff(() => resolveCrew(start));
 }
 
 describe("crew pool stays cheap once every berth is full", () => {

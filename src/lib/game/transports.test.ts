@@ -13,7 +13,14 @@ import {
   transportBatch,
   foldTransportBatch,
   deliverDueTransports,
+  takesWelcomeBatch,
+  welcomeTransportCount,
+  welcomeTransportMarker,
+  TRANSPORT_WELCOME_AFTER_WINDOWS,
+  TRANSPORT_WELCOME_PENDING,
+  TRANSPORT_WELCOME_SWITCH,
 } from "./transports";
+import { OFFLINE_CAP_SECONDS_BASE } from "./offlineCap";
 import { totalCrew } from "./crew";
 
 describe("transport accumulator (game-time windows)", () => {
@@ -112,5 +119,80 @@ describe("folding batches into a pool", () => {
     stepped = deliverDueTransports(seed, stepped.pool, stepped.lastWindow, TRANSPORT_WINDOW_SECONDS * 3);
     expect(totalCrew(stepped.pool)).toBe(totalCrew(oneStep.pool));
     expect(stepped.lastWindow).toBe(oneStep.lastWindow);
+  });
+});
+
+// Staging freeze (2026-11-14): deliverDueTransports builds one list instead of folding the pool per window. The reference
+// below is the per-window fold it replaced, verbatim; the two must agree group for group, count for count, in order.
+function perWindowFoldReference(seed: number, pool: CrewBucket[], lastWindow: number, gameTimeSeconds: number, batchSize: number) {
+  const current = transportWindowIndex(gameTimeSeconds);
+  let next = pool.map((b) => ({ ...b }));
+  for (let w = lastWindow + 1; w <= current; w += 1) {
+    next = foldTransportBatch(next, transportBatch(seed, w, batchSize));
+  }
+  return { pool: next, lastWindow: Math.max(lastWindow, current) };
+}
+
+describe("deliverDueTransports: one pass, the same result as the per-window fold", () => {
+  it("agrees on seeded pools (with repeated signatures in the pool), batch sizes and spans", () => {
+    for (const seed of [1, 7, 999, 0x5eed, 0xdeadbeef]) {
+      // A pool seeded from earlier transports, with one group duplicated (only the FIRST of a signature takes the merge).
+      const prior = perWindowFoldReference(seed ^ 0x55, [], 0, TRANSPORT_WINDOW_SECONDS * 40, TRANSPORT_BATCH_SIZE).pool;
+      const pool = [...prior, { ...prior[0], count: 3 }, ...prior.slice(1, 4).map((b) => ({ ...b, count: 1 }))];
+      for (const batchSize of [TRANSPORT_BATCH_SIZE, TRANSPORT_BATCH_SIZE + 3]) {
+        for (const [last, windows] of [[0, 0], [0, 1], [3, 50], [-1, 7], [-20, 300], [5, 0]] as const) {
+          const t = TRANSPORT_WINDOW_SECONDS * (Math.max(0, last) + windows) + 11;
+          const fast = deliverDueTransports(seed, pool, last, t, batchSize);
+          expect(fast).toEqual(perWindowFoldReference(seed, pool, last, t, batchSize));
+        }
+      }
+      // Never mutates its input pool.
+      const before = JSON.stringify(pool);
+      deliverDueTransports(seed, pool, 0, TRANSPORT_WINDOW_SECONDS * 30);
+      expect(JSON.stringify(pool)).toBe(before);
+    }
+  });
+});
+
+describe("welcome batch (user 2026-11-13, \"A welcome batch to fill the fleet\")", () => {
+  it("takes the welcome only for a pending marker or one further behind than a catch-up reaches", () => {
+    const capWindows = Math.floor(OFFLINE_CAP_SECONDS_BASE / TRANSPORT_WINDOW_SECONDS);
+    expect(TRANSPORT_WELCOME_AFTER_WINDOWS).toBe(capWindows + 1);
+    expect(takesWelcomeBatch(TRANSPORT_WELCOME_PENDING, 0)).toBe(true);
+    expect(takesWelcomeBatch(TRANSPORT_WELCOME_PENDING, 86400 * 365)).toBe(true);
+    // A four-day absence (a whole offline cap) straddling a window edge is an ordinary backlog.
+    expect(takesWelcomeBatch(0, (capWindows + 1) * TRANSPORT_WINDOW_SECONDS + 5)).toBe(false);
+    expect(takesWelcomeBatch(0, (capWindows + 2) * TRANSPORT_WINDOW_SECONDS)).toBe(true);
+    expect(takesWelcomeBatch(10, 11 * TRANSPORT_WINDOW_SECONDS)).toBe(false);
+    const was = TRANSPORT_WELCOME_SWITCH.live;
+    TRANSPORT_WELCOME_SWITCH.live = false;
+    try {
+      expect(takesWelcomeBatch(TRANSPORT_WELCOME_PENDING, 86400 * 365)).toBe(false);
+    } finally {
+      TRANSPORT_WELCOME_SWITCH.live = was;
+    }
+  });
+
+  it("counts the transports that fill the open berths once, after the crew on hand", () => {
+    expect(welcomeTransportCount(0, 0, 12)).toBe(0);
+    expect(welcomeTransportCount(12, 0, 12)).toBe(1);
+    expect(welcomeTransportCount(13, 0, 12)).toBe(2);
+    expect(welcomeTransportCount(6250, 0, 12)).toBe(521);
+    expect(welcomeTransportCount(100, 90, 12)).toBe(1);
+    expect(welcomeTransportCount(100, 500, 12)).toBe(0);
+    expect(welcomeTransportCount(24, 0, 15)).toBe(2);
+  });
+
+  it("the welcome marker delivers exactly the most recent windows and lands the marker at now", () => {
+    const t = TRANSPORT_WINDOW_SECONDS * 17520 + 7;
+    const marker = welcomeTransportMarker(t, 521);
+    expect(marker).toBe(17520 - 521);
+    const { pool, lastWindow } = deliverDueTransports(42, [], marker, t);
+    expect(lastWindow).toBe(17520);
+    expect(totalCrew(pool)).toBe(521 * TRANSPORT_BATCH_SIZE);
+    // A young save: the welcome reaches below window 0 and still delivers exactly that many transports.
+    const young = deliverDueTransports(42, [], welcomeTransportMarker(100, 5), 100);
+    expect(young.lastWindow).toBe(0);
+    expect(totalCrew(young.pool)).toBe(5 * TRANSPORT_BATCH_SIZE);
   });
 });
