@@ -171,3 +171,17 @@ first) and the QA rounds.
   slice (economy and crafting; crew, complement and refugees; expeditions, ground ops, relics and completion; combat,
   patrols, gear wear and Overtime): plan, find QA-list gaps, bug-check read-only; the hub merges one findings ledger.
   Patch notes drafted (docs/patch-notes/0.14.0-DRAFT.md, discord-0.14.0-DRAFT.md) for the user's review.
+
+## Fable pass 2 PROPOSAL (2026-11-14): bug, security and online readiness
+
+User ask (verbatim): "A full bug amd security check, as well as any vulnerabilities that could cause problems with online
+capability." Hub proposal (awaiting the user's OK), run AFTER the QA fixes and Codex's pass land:
+1. Security lane: XSS / unsafe HTML on any player text or imported save, save import validation (schema, size, NaN or
+   Infinity poisoning), dependency audit, secrets or debug code in the production build, Vercel headers and CSP.
+2. Online readiness lane (threat model for 0.14.1): what the client decides that a server must not trust (rewards,
+   credits, rolls, the CLOCK: offline catch-up trusts device time), which actions the server must re-check, replay-based
+   validation (strict offline == live makes replay checks possible), id collisions, idempotency, version skew.
+3. Exploit and economy abuse lane: repeatable free actions, re-pay and reroll loops, sell/refund loops, overflow.
+4. Regression lane: verify every first-sweep fix and look for breakage.
+Outputs: one findings ledger plus a separate online threat model doc (input to 0.14.1 design). First sweep used ~10% of
+the weekly Fable allowance.
