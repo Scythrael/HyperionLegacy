@@ -25,6 +25,11 @@ import { totalCrew } from "./crew";
 import { installPiece } from "./wiring/probes";
 import { stateHash } from "./firstRunsGoldens.fixture";
 import { withHomeworldReserveOff } from "./homeworldReserveSwitch.fixture";
+// Welcome batch (staging freeze 2026-11-14; transports.ts): this file's pins were captured before it and build their
+// crew from a backlog longer than any catch-up (a fixture shortcut), so the whole file runs with it off and its pins
+// keep proving their own slice (switch-off reproduction: every pin holds with it off). transportWelcome.test.ts pins it.
+import { transportWelcomeOffForThisFile } from "./transportWelcomeSwitch.fixture";
+transportWelcomeOffForThisFile();
 
 const CAPTURE = Boolean(import.meta.env.HWR_CAPTURE);
 const DAY = 86400;

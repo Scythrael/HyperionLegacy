@@ -69,6 +69,11 @@ import { wr9OffForThisFile } from "./wr9Switch.fixture";
 // proving their own slice (switch-off reproduction: every pin holds with it off). homeworldReserveGoldens pins the reserve.
 import { homeworldReserveOffForThisFile } from "./homeworldReserveSwitch.fixture";
 homeworldReserveOffForThisFile();
+// Welcome batch (staging freeze 2026-11-14; transports.ts): this file's pins were captured before it and build their
+// crew from a backlog longer than any catch-up (a fixture shortcut), so the whole file runs with it off and its pins
+// keep proving their own slice (switch-off reproduction: every pin holds with it off). transportWelcome.test.ts pins it.
+import { transportWelcomeOffForThisFile } from "./transportWelcomeSwitch.fixture";
+transportWelcomeOffForThisFile();
 
 // Wiring WR-9: this file's pins are about other slices and were captured before WR-9; it runs with WR-9 off (the
 // WR-9 moves are pinned and proven in wr9Goldens.test.ts), so every pin here keeps proving its own slice exactly.

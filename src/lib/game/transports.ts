@@ -18,7 +18,8 @@
 import type { CrewBucket, CrewSignature, GameState } from "./model";
 import { HOMEWORLD_TALENTS } from "./model";
 import { generateComplementCrew } from "./crewGeneration";
-import { addToBucketList, coalesceBuckets } from "./crew";
+import { addToBucketList, coalesceBuckets, signatureKey } from "./crew";
+import { OFFLINE_CAP_SECONDS_BASE } from "./offlineCap";
 
 // The transport window length, in gameTimeSeconds. Models "a transport arrives roughly every half
 // hour" as a game-time window so delivery is a pure function of the window index. FIRST-PASS ~1800s;
@@ -89,6 +90,13 @@ export function foldTransportBatch(pool: CrewBucket[], batch: CrewBucket[]): Cre
 // report the advanced window marker. Returns { pool, lastWindow } so a later tick-wiring phase can
 // write both back onto GameState (crewPool + lastTransportWindow) without a per-tick catch-up loop.
 // Same-input determinism holds end to end. Never mutates the input pool. Pure.
+//
+// STAGING FREEZE FIX (2026-11-14; a pure optimization, no outcome change: transports.test.ts pins it against the
+// per-window fold): this used to fold each window's batch with foldTransportBatch, which copies the WHOLE pool for every
+// crew group of every window, so a long backlog cost windows x pool size (a year-old save: 17,520 windows, minutes on a
+// phone). It now builds the one result list in a single pass: the pool copied once, then every batch group merged into
+// the FIRST pool group of its signature (addToBucketList's rule) through a signature index, or appended in order. The
+// same groups, counts and order as the per-window fold, in time linear in the crew delivered.
 export function deliverDueTransports(
   seed: number,
   pool: CrewBucket[],
@@ -98,11 +106,64 @@ export function deliverDueTransports(
   batchSize: number = TRANSPORT_BATCH_SIZE,
 ): { pool: CrewBucket[]; lastWindow: number } {
   const current = transportWindowIndex(gameTimeSeconds);
-  let next = pool.map((b) => ({ ...b }));
+  const next = pool.map((b) => ({ ...b }));
+  const firstIndex = new Map<string, number>();
+  for (let i = 0; i < next.length; i += 1) {
+    const key = signatureKey(next[i]);
+    if (!firstIndex.has(key)) firstIndex.set(key, i);
+  }
   // Deliver each owed window's batch, in order, from lastWindow+1 up to the current window.
   for (let w = lastWindow + 1; w <= current; w += 1) {
-    next = foldTransportBatch(next, transportBatch(seed, w, batchSize));
+    for (const b of transportBatch(seed, w, batchSize)) {
+      if (b.count <= 0) continue;
+      const key = signatureKey(b);
+      const at = firstIndex.get(key);
+      if (at !== undefined) {
+        next[at] = { ...next[at], count: next[at].count + b.count };
+      } else {
+        firstIndex.set(key, next.length);
+        next.push({ ...b });
+      }
+    }
   }
   // Never move the marker backward (a lastWindow ahead of current leaves it untouched).
   return { pool: next, lastWindow: Math.max(lastWindow, current) };
+}
+
+// WELCOME BATCH (staging freeze, user 2026-11-13: "A welcome batch to fill the fleet (Recommended)": enough transports
+// to fill every open berth once, then normal transports from the update on).
+//
+// A save from before the crew layer (v54 and older) has no transport window on record, and its game clock may have run
+// for months, so delivering "every window since the save began" floods it with hundreds of thousands of crew. The same
+// holds for any save whose window marker fell further behind than one offline catch-up can ever reach. Such a save
+// instead receives the MOST RECENT `welcomeTransportCount` windows' transports (deterministic, the ordinary batches of
+// those windows) and its marker moves to now. A marker below zero (TRANSPORT_WELCOME_PENDING, what the v54 -> v55
+// migration records) always takes the welcome; an ordinary marker takes it only when it is behind by more than the
+// windows the offline cap can span (OFFLINE_CAP_SECONDS_BASE, plus one for a span that straddles a window edge), which a
+// live or offline catch-up never is (both step the economy one second at a time).
+export const TRANSPORT_WELCOME_PENDING = -1;
+export const TRANSPORT_WELCOME_AFTER_WINDOWS = Math.floor(OFFLINE_CAP_SECONDS_BASE / TRANSPORT_WINDOW_SECONDS) + 1;
+
+// TEST-ONLY switch (the HOMEWORLD_RESERVE_SWITCH precedent): OFF delivers the whole backlog as before the welcome batch,
+// so a golden file that builds its crew pool from a long backlog keeps proving its own slice. Always live in the game.
+export const TRANSPORT_WELCOME_SWITCH = { live: true };
+
+// True when this marker takes the welcome batch instead of its backlog. Pure.
+export function takesWelcomeBatch(lastWindow: number, gameTimeSeconds: number): boolean {
+  if (!TRANSPORT_WELCOME_SWITCH.live) return false;
+  return lastWindow < 0 || crewTransportsDue(lastWindow, gameTimeSeconds) > TRANSPORT_WELCOME_AFTER_WINDOWS;
+}
+
+// How many transports fill `openBerths` once, after the crew already waiting (`crewOnHand`, the pool and the reserve)
+// take their share: ceil(the rest / the crew per transport), never negative. Pure.
+export function welcomeTransportCount(openBerths: number, crewOnHand: number, batchSize: number): number {
+  const need = Math.max(0, Math.floor(openBerths) - Math.max(0, Math.floor(crewOnHand)));
+  if (need === 0 || batchSize <= 0) return 0;
+  return Math.ceil(need / batchSize);
+}
+
+// The marker the welcome batch delivers from: the current window less the welcome transports, so deliverDueTransports
+// delivers exactly the most recent `transports` windows and leaves the marker at now. Pure.
+export function welcomeTransportMarker(gameTimeSeconds: number, transports: number): number {
+  return transportWindowIndex(gameTimeSeconds) - Math.max(0, Math.floor(transports));
 }

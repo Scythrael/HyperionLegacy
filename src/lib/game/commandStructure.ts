@@ -137,7 +137,9 @@ function allocateRanks(divisionCap: number): Record<CrewRank, number> {
 // complementTotalCap), never baked into the cached base.
 // CP-5: keyed by the hull AND the per-hull caps switch (below), so a test that turns the switch off never reads a template
 // cached with it on (and the reverse).
-const STRUCTURE_CACHE = new Map<string, CommandStructure>();
+// Staging freeze perf pass (2026-11-14; no outcome change): one map per switch position keyed by the bare hull, so the
+// hot read (every passive ship, every tick) builds no key string. The same entries the string key held.
+const STRUCTURE_CACHE = { live: new Map<ShipTypeKey, CommandStructure>(), off: new Map<ShipTypeKey, CommandStructure>() };
 
 // Complement plan CP-5 (per-hull crew caps; user 2026-10-16 OC-5 "Eir 900, Orion/Aurora 750 (Recommended)" and the
 // division leans, OC-6 "Never evict (Recommended)"): a hull's own SHIP_TYPES complementCap / complementDivisionWeights
@@ -181,11 +183,11 @@ const capsKey = (hullType: ShipTypeKey): string => `${hullType}|${HULL_CREW_CAPS
 // simply makes the ship-total cap the (mild) binding ceiling: you cannot fill every division to its
 // rounded cap at once. Pure (returns the shared cached instance; callers must not mutate it).
 export function commandStructureForHull(hullType: ShipTypeKey): CommandStructure {
-  const key = capsKey(hullType);
-  const cached = STRUCTURE_CACHE.get(key);
+  const cache = HULL_CREW_CAPS_SWITCH.live ? STRUCTURE_CACHE.live : STRUCTURE_CACHE.off;
+  const cached = cache.get(hullType);
   if (cached) return cached;
   const structure = buildStructure(hullType, 0);
-  STRUCTURE_CACHE.set(key, structure);
+  cache.set(hullType, structure);
   return structure;
 }
 
