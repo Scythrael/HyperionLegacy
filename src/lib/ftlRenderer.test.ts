@@ -143,3 +143,36 @@ describe("motion", () => {
     expect(calls.fillRect).toBe(drawn + 1);
   });
 });
+
+// User report 2026-11-15 (staging, Android, after the tab sat in the background): a solid magenta band at two
+// thirds of the screen. The browser had reset the canvas context, dropping the pixel-ratio transform; frames then
+// drew into the top-left 1/dpr only and streaks past that edge never faded. Every frame now re-applies the scale.
+describe("context reset in the background", () => {
+  it("every drawn frame applies the pixel-ratio scale before it paints, even after the context lost it", () => {
+    const { ctx } = fakeCtx();
+    let scale = 1;
+    const log: string[] = [];
+    ctx.setTransform = ((a: number) => {
+      scale = a;
+      log.push(`t${a}`);
+    }) as FtlContext["setTransform"];
+    const fill = ctx.fillRect;
+    ctx.fillRect = (...args: Parameters<FtlContext["fillRect"]>) => {
+      log.push(`f@${scale}`);
+      fill(...args);
+    };
+    const e = fakeEnv();
+    const r = new FtlRenderer(ctx, FTL_DEFAULTS, [[255, 0, 255]], e.env);
+    r.resize(400, 800, 1.5);
+    r.start(false);
+    e.frame(0);
+    // the browser discards and restores the canvas: its transform is back to identity
+    scale = 1;
+    log.length = 0;
+    e.frame(17);
+    e.frame(34);
+    const fills = log.filter((x) => x.startsWith("f@"));
+    expect(fills.length).toBe(2);
+    expect(fills.every((x) => x === "f@1.5")).toBe(true);
+  });
+});

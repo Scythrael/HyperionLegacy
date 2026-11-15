@@ -69,6 +69,7 @@ export class FtlRenderer {
   private count = 0;
   private w = 0;
   private h = 0;
+  private dpr = 1;
   private settings: FtlSettings;
   private still = false;
   private speed = 0.4;
@@ -102,6 +103,7 @@ export class FtlRenderer {
   resize(cssW: number, cssH: number, dpr: number): void {
     this.w = cssW;
     this.h = cssH;
+    this.dpr = dpr;
     this.ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     if (!this.running) this.drawFrame(1);
   }
@@ -218,6 +220,11 @@ export class FtlRenderer {
     }
     this.speed += (target - this.speed) * (1 - Math.pow(0.94, f));
     const speed = this.speed;
+    // Re-apply the pixel-ratio scale every frame. A browser can reset the context while the tab sits in
+    // the background (Android discards canvas state; resetting canvas.width does the same), which drops
+    // the transform. Without this the frame drew into the top-left 1/dpr of the canvas, and streaks past
+    // that edge were never faded again, building a solid band (user report 2026-11-15).
+    ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
     ctx.globalAlpha = 1;
     ctx.fillStyle = still ? STILL_FILL : this.fades[Math.min(3, Math.max(0, Math.round(f) - 1))];
     ctx.fillRect(0, 0, w, h);

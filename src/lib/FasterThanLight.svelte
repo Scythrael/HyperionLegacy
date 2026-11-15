@@ -42,6 +42,14 @@
 
   function onVisibility(): void {
     hidden = document.visibilityState === "hidden";
+    // Back from the background: re-measure (the viewport may have changed while hidden) before moving.
+    if (!hidden) sizeCanvas();
+    run(false);
+  }
+
+  // The browser rebuilt a discarded canvas (blank, default state): size it again and redraw.
+  function onContextRestored(): void {
+    sizeCanvas();
     run(false);
   }
 
@@ -59,6 +67,7 @@
       window.addEventListener("resize", sizeCanvas);
     }
     document.addEventListener("visibilitychange", onVisibility);
+    canvas.addEventListener("contextrestored", onContextRestored);
     run(settings.jumpOnStart);
   });
 
@@ -66,6 +75,7 @@
     renderer?.stop();
     renderer = null;
     observer?.disconnect();
+    canvas?.removeEventListener("contextrestored", onContextRestored);
     if (typeof window !== "undefined") {
       window.removeEventListener("resize", sizeCanvas);
       document.removeEventListener("visibilitychange", onVisibility);
