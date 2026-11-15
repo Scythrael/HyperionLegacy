@@ -54,6 +54,27 @@ for 0.13.11.1: keep Starfall as data (a preset record: style id + color stops) s
 
 Balancing method (user 2026-10-23: "Then we will build off of this for our balancing plans and such as well."): the 0.13.11.1 minigame tuning approach is the template for the 0.16.0 balance pass: simulate OPTIMAL, AVERAGE and CASUAL player profiles; report time to each milestone; measure the FELT effect of each reset or upgrade (multiplier gained per action), not just totals; check that no setting or strategy beats the default by more than a small margin; tune one layer while holding the overall pace; present options with numbers and let the user pick.
 
+## 0.16.0: minigame scale cut to e1,000 (user, 2026-11-14)
+
+User, verbatim: "I think we should cut down the scaling of tje minigame massively. I think we should top out at e1000
+instead. What are your thoughts on it? I feel like e25m is way too massive. Plus, we will quickly run out of maximum
+number to hit before long." After the facts below, the user chose "Log it for 0.16.0" (0.14.0 ships at the current
+scale).
+
+Facts given (2026-11-14):
+- Range is not a risk: the minigame runs on `break_infinity.js` (exponents to about 9e15); e1,000 is already past
+  a plain JS number (about e308), so the library stays either way.
+- What the cut touches: every Ore milestone above e1,000 (e10k, e100k, e777,777 finale, e1,000,000, e2m to e7m,
+  e10,000,000 Starfall theme, e20m, the secret e25,000,000 Faster Than Light background; several names joke about
+  the zeros), the prestige bars, both softening curves (FINALE_EXPONENT, STARFALL_EXPONENT), the relic ceiling
+  (RELIC_CEILING_MULT 2.5, user-locked 2026-10-27), Help, goldens and minigame QA.
+- Prod saves already past e1,000 need a remap that keeps every earned milestone and reward.
+
+Direction for 0.16.0 (to confirm when the patch starts): same TIME to each beat (10-22 pacing: finale in days,
+e1,000,000-equivalent in about a month, e10,000,000-equivalent in about 6 months), smaller numbers, top beat at
+e1,000. Use the balancing method above (optimal, average, casual profiles). Open questions then: new thresholds and
+names, the save remap rule, and where the relic ceiling's plateau lands.
+
 ## 1.0 content length target (user, 2026-10-27, verbatim)
 
 "I'm thinking ~2 years of content from start to finish for 1.0 overall." (Said about relic collection pacing: "we will
