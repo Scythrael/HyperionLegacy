@@ -131,8 +131,17 @@ User questions: (1) waiting echo exempt from Refugee Relocation? (2) prod saves 
 - Over cap (lane 1 q5, lane 3 q4): "Never discard (Recommended)": deliveries may sit over the cap, nothing trimmed on
   load, logs show what landed.
 - Echo on relocation (lane 2 q1): "Exempt echoes (Recommended)".
-- Still to ask: Aggressive vs Balanced identical on default kits; Recruiter flat +1; lane join (wire or log); Sell vs
-  reservations; boarders take 10% of credits; recall keeps the training run forever.
+- Lane join (lane 1 I3, 2026-11-15): "Wire it in 0.14.0 (Recommended)": a free lane joins the running order.
+- Sell vs reservations (lane 1 M7): "Sell only free stock (Recommended)".
+- Recruiter (lane 2 M2): "Keep flat +1 (Recommended)": fix the CP-19 plan line, no curve.
+- Aggressive vs Balanced (lane 4 M5): "Log for 0.16.0 (Recommended)": fix the QA line; Help says the difference shows
+  with longer-reach gear.
+- Boarders (lane 3 q6): "Keep 10% (Recommended)".
+- Recall keeps the training run (lane 3 q5): "Acceptable (Recommended)".
+- Ships roster sort, view, search (R6-3): "Remember them (Recommended)": persist across reloads like favorites.
+- Offline catch-up on phones: "Measure first (Recommended)": time a 4-day catch-up under phone-speed CPU throttling
+  (plus a real phone by the user or Codex), then bring numbers and options.
+- Minigame scale (2026-11-14): cut the top to e1,000, LOGGED FOR 0.16.0 (roadmap doc section).
 - 2026-11-14 user report: staging "Completely unresponsive" (screenshot: Command Home on phone, Fleet Prestige 2
   achievement just shown). Prime suspect: C1.
 
