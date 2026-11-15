@@ -135,3 +135,64 @@ User questions: (1) waiting echo exempt from Refugee Relocation? (2) prod saves 
   reservations; boarders take 10% of credits; recall keeps the training run forever.
 - 2026-11-14 user report: staging "Completely unresponsive" (screenshot: Command Home on phone, Fleet Prestige 2
   achievement just shown). Prime suspect: C1.
+
+## Automated QA run (2026-11-14): FAILs
+
+Two automated runs over the full QA sheet (docs/qa/2026-11-14-0140-full-qa.html) on feat/crew-0.14.0 @ c2232ad5.
+Part A (202 checks): 114 PASS, 4 FAIL, 62 NEEDS_HUMAN, 22 KNOWN_ISSUE (every KNOWN_ISSUE is a ledger item above with no
+src fix since the ledger). Part B (92 checks): 75 PASS, 6 FAIL, 11 NEEDS_HUMAN. Every result is badged on its row in the
+sheet. Row ids are section plus 1-based row number. Line numbers are approximate (taken at c2232ad5).
+
+Part A (0.14.0 changes):
+
+- A1-2, welcome batch fills totals but not ships. Total crew equals berths (8,340 / 8,340), yet explorers sit half
+  empty (Eir 291/900, Aurora 351/750, Orion 555/750; late freighters and prospectors 20/30 and 20/50) and the Homeworld
+  reserve holds about 1,316 (browser) to 1,760 (engine) crew, thousands not tens, with 0 Science. After 4 more days:
+  7,494 / 8,340 seated. Repro: migrate a v54 save (365 d, 25 ships) and tick 3600 (scratch a1.qa.test.ts and
+  a1b.qa.test.ts), or import it in the browser and open the Eir and Aurora Complement and the Crew Pool. Cause:
+  welcomeTransportCount (src/lib/game/transports.ts ~159, used at crewOverlay.ts ~1374-1380) sizes the welcome by
+  TOTAL berths, but transports roll random divisions and ranks; the per-division and per-rank caps
+  (commandStructure.ts remainingCapacityForSignature) reject the mismatch and the surplus is swept to the reserve.
+- A4-26, retiring a captain leaves the consumed XO pinned in a saved roster. After retireCaptain,
+  seatAssignments still reads {executive: "officer-xo"} while officers is empty, also after save and reload. Repro
+  (scratch gaps.qa.test.ts): assignSeat(roster, executive, XO), then retireCaptain. Cause: captainRetirement.ts consumes
+  the XO via fireOfficer (seniorStaff.ts ~652), which filters state.officers only and never scrubs
+  personnelRosters[].seatAssignments; the roster panel select (PersonnelRostersPanel.svelte ~470) is then bound to an
+  id with no option.
+- A2-7, the Personnel Rosters facility card uses an emoji glyph. The 375 layout itself holds (no sideways scroll on any
+  fresh-save tab). Repro: Facilities tab, the Personnel Rosters card. Cause: src/App.svelte ~11628
+  fpane("personnelRosters", emoji, ...), new in 0.14.0; needs an SVG icon in icons.ts.
+- A0-1, About still reads "Version 0.13.11.3". Expected until the release wiring bumps APP_VERSION
+  (src/lib/patchNotes.ts:18). Repro: System window, About, on the 0.14.0 build.
+
+Part B (regression):
+
+- R2-1, Home's time left for refines and crafts ignores time already spent. Repro: Refine x100 Polysilicate Wafer at
+  1x; the Home row reads 33:00 for a whole 20 s item while the Refinery console reads 32:52. Cause: craftQueue.ts
+  ~511-513 etaTicks = (remaining + 1) * durationTicks ignores the in-flight job's remainingTicks, so the Home ETA
+  overstates and steps per item.
+- R3-1, locked captain slots lack their requirements. Repro: fresh save, Crew, Captain Roster: slots 2 to 4 read only
+  "Locked / Recruit via Homeworld Talents -> Fleet Logistics"; no Fleet Admiral level or talent cost shown. Code:
+  App.svelte ~18030-18031.
+- R5-2, no continuous refine order in the UI. Repro: Refinery, Production, configure a line: only Qty (batch) exists.
+  App.svelte ~8933-8934 notes continuous is engine-supported but not surfaced. Confirm-first, live status and Cancel
+  worked.
+- R6-3, Ships roster sort, view and search reset on reload. Repro: sort Name and By class, reload: sort reverts to
+  Attention, the filter to All, the search clears; only favorites persist. Documented as intentional (App.svelte
+  ~2089-2094 marks these non-persisted), so this is a sheet versus design call.
+- R8-6, While You Were Away has no auto-salvage section. The engine runs auto-salvage offline (salvage.test ~4338
+  parity), but OfflineSummary (offlineSummary.ts ~92-105) carries only missions, credits, XP, materials, repairs and
+  relics. Repro: Debug +1h, the recap lists nothing taken.
+- R11-4, While You Were Away has no section for queued orders that started or upgrades that finished. The engine does
+  both offline (craftQueue offline parity tests); the recap shows only captain XP and materials (offlineSummary.ts
+  ~92-105).
+
+Not counted as FAILs (observations from passing rows):
+
+- Sheet lines that do not match the app: A16-1 the Wiring tab's owned sources on a fresh save are 24 (Ship 16 from
+  Standard Issue plus 8 pre-granted facility rung-1 sources: Mission Control, Lab, Fabricator, Telescope, Personnel
+  Rosters), while the sheet names only Standard Issue and the complement. R1-4 there is no header currency order
+  control (fixed order by design, App.svelte ~2977-2991), and tapping a currency opens a description popover, not a
+  numeric breakdown.
+- R2-5 Statistics: "Fleet Admiral XP Awarded" equals Captain XP and excludes the Fleet Admiral XP from finite work
+  (upgrades, research, crafting): tick.ts ~5637-5638 adds that process XP without a lifetimeStats fold.

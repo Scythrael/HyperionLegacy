@@ -184,6 +184,36 @@
   .foot { margin-top: 26px; color: #5d6d86; font-size: 11.5px; text-align: center; }
   [hidden] { display: none !important; }
 
+  /* Claude's automated pass (2026-11-14) */
+  .claude { background: linear-gradient(180deg, rgba(111,242,176,0.07), transparent); border: 1px solid rgba(111,242,176,0.3); border-radius: 14px; padding: 16px 18px; margin-bottom: 18px; }
+  .claude h2 { margin: 0 0 4px; font-size: 15px; color: #6ff2b0; letter-spacing: 0.3px; }
+  .claude p { margin: 0 0 10px; color: #8497af; font-size: 12.5px; }
+  .claude table { width: 100%; border-collapse: collapse; font-size: 12.5px; table-layout: fixed; margin-bottom: 12px; }
+  .claude th { text-align: right; font-size: 10px; letter-spacing: 0.6px; text-transform: uppercase; color: #5d6d86; font-weight: 650; padding: 5px 4px; border-bottom: 1px solid #2a3a54; }
+  .claude th:first-child, .claude td:first-child { text-align: left; }
+  .claude th:first-child { width: 28%; }
+  .claude td { padding: 5px 4px; border-bottom: 1px solid #1f2c40; text-align: right; font-variant-numeric: tabular-nums; color: #dce6f3; }
+  .claude td:first-child { color: #8497af; }
+  .claude tr.tot td { font-weight: 750; border-bottom: none; }
+  .claude .c-p { color: #6ff2b0; } .claude .c-f { color: #ff7d8a; } .claude .c-h { color: #ffd36b; } .claude .c-k { color: #ffb86b; }
+  .claude .fails { margin: 0 0 12px; padding-left: 18px; font-size: 12.5px; color: #8497af; }
+  .claude .fails li { margin-bottom: 3px; overflow-wrap: anywhere; }
+  .claude .fails a { color: #ff7d8a; text-decoration: none; font-weight: 650; }
+  .claude .fails a:hover { text-decoration: underline; }
+  .claude .ctl { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+  .claude .ctl .note { color: #5d6d86; font-size: 12px; }
+  .btn[aria-pressed="true"] { color: #070b12; background: #ffd36b; border-color: #ffd36b; }
+  .chip.cp { color: #6ff2b0; background: rgba(111,242,176,0.16); border: 1px solid #6ff2b0; }
+  .chip.cf { color: #ff7d8a; background: rgba(255,125,138,0.16); border: 1px solid #ff7d8a; }
+  .chip.ch { color: #ffd36b; background: rgba(255,211,107,0.14); border: 1px solid #ffd36b; }
+  .chip.ck { color: #ffb86b; background: rgba(255,184,107,0.14); border: 1px solid #ffb86b; }
+  .body .cl { display: block; margin-top: 6px; font-size: 11.5px; line-height: 1.45; color: #8497af; }
+  .body .cl .chip { margin-right: 6px; }
+  .body .cl i { font-style: normal; color: #5d6d86; }
+  .body .cl b { color: #dce6f3; font-weight: 650; }
+  .item.cl-fail { border-color: rgba(255,125,138,0.35); }
+  body.human-only .item.cl-pass, body.human-only section.all-pass { display: none; }
+
   @media (max-width: 700px) {
     .sumgrid { grid-template-columns: 1fr; }
   }
@@ -226,6 +256,21 @@
       <button type="button" data-scope="all" aria-pressed="true">Full pass (A + B)</button>
       <button type="button" data-scope="A" aria-pressed="false">Changes only (A)</button>
       <button type="button" data-scope="B" aria-pressed="false">Regression only (B)</button>
+    </div>
+  </div>
+
+  <div class="claude" id="claude-pass">
+    <h2>Claude's automated pass (2026-11-14)</h2>
+    <p>Two automated runs on feat/crew-0.14.0 @ c2232ad5 (dev server in the browser pane at 1280 and 375, engine tests, the existing test suite, code reading and the sweep ledger). Each row below carries its result as a badge with the method and evidence. Claude's results never tick your boxes: your ticks stay yours.</p>
+    <table>
+      <thead><tr><th>Run</th><th class="c-p">Pass</th><th class="c-f">Fail</th><th class="c-h">Human</th><th class="c-k">Known</th><th>All</th></tr></thead>
+      <tbody id="claudeBody"></tbody>
+    </table>
+    <p><b style="color:#ff7d8a">The FAILs</b> (repro and file:line in the <a href="2026-11-13-fable-sweep-ledger.md">sweep ledger</a>, section "Automated QA run (2026-11-14): FAILs"):</p>
+    <ul class="fails" id="claudeFails"></ul>
+    <div class="ctl">
+      <button class="btn" type="button" id="humanBtn" aria-pressed="false">Show only checks left for a human</button>
+      <span class="note" id="humanNote"></span>
     </div>
   </div>
 
@@ -719,6 +764,323 @@ const SECTIONS = [
   ]},
 ];
 
+// Claude's automated pass (2026-11-14), keyed by row key (section id + 0-based row index; row N of a section is key N-1).
+// Each value: [status, method, evidence, repro, cause]; status P = PASS, F = FAIL, H = needs a human, K = known issue.
+const CLAUDE = {
+  "A0-0": ["F", "browser desktop", "System window shows Settings/Log/About/Patch Notes/Community/Debug, but About reads \"Version 0.13.11.3\" (APP_VERSION not bumped to 0.14.0)", "Open the System window > About on the 0.14.0 build", "src/lib/patchNotes.ts:18 APP_VERSION = \"0.13.11.3\" (probably bumped together with the patch notes wiring)"],
+  "A0-1": ["P", "browser desktop", "new origin (app.localhost:5173) started a fresh save: 1 General Freighter, FA Lv 1, Captain 1 Lv 1"],
+  "A0-2": ["H", "n/a", "needs the user's real live 0.13.x export"],
+  "A0-3": ["P", "browser desktop", "0 console errors across the fresh-save tab tour, Help, Settings, Debug, old-save import and +24h offline sim"],
+  "A1-0": ["P", "browser 375 + engine test", "synthetic v54 save (365 d, 25 ships, 400 spares) imported via Settings > Save Data > Import: first paint 696 ms after reload, one long task 186 ms; engine 500 d / 30 ships / 600 spares: migrate + first ticks 236 ms (scratch a1.qa.test.ts). A real prod save is still worth one human pass"],
+  "A1-1": ["F", "engine test + browser 375", "total crew = berths (8,340 / 8,340) but ships are NOT near full: Eir 291/900, Aurora 351/750, Orion 555/750, late freighters/prospectors 20/30 and 20/50; Homeworld reserve 1,316 (browser) to 1,760 (engine), thousands not tens; the reserve holds 0 Science crew. After 4 more days: 7,494 / 8,340 seated, 3,174 spare", "scratch a/a1.qa.test.ts and a/a1b.qa.test.ts: migrate a v54 save (365 d, 25 ships), tick 3600; or import it in the browser and open Eir / Aurora Complement and the Crew Pool", "welcomeTransportCount (src/lib/game/transports.ts:159, used at crewOverlay.ts:1374-1380) sizes the welcome by TOTAL berths, but transports roll random divisions and ranks; the per-division and per-rank caps (commandStructure.ts remainingCapacityForSignature) reject the mismatch, the surplus is swept to the Homeworld reserve, and Science-heavy explorer hulls stay far under (the reserve has 0 Science)"],
+  "A1-2": ["P", "engine test", "2x serialize/migrate reload: crew 8,340 -> 8,340 (no second welcome); next hour +24 (2 transports); seated never exceeds berths"],
+  "A1-3": ["H", "n/a", "phone hardware feel; at 375 emulation the imported old save stayed responsive (no long task after load)"],
+  "A1-4": ["P", "engine test + browser 375", "4 x tick(+24h): 1,770 / 1,570 / 1,530 / 1,548 ms; crew +2,304 exactly (12 x 192 windows), seated <= berths; browser Debug +24h: 1.35 s block, recap \"You were away for ~1d ... pays up to 4d\". Cap-reached line past 4 d not driven"],
+  "A1-5": ["P", "engine test", "LZ export: v54 27 KB -> after first load 63 KB -> after 4 days 67 KB"],
+  "A1-6": ["P", "engine test", "re-import of the post-catch-up export: 12 ms, crew 10,668 = 10,668, same ships and equipment count, no welcome"],
+  "A1-7": ["P", "engine test", "fresh save: marker is not WELCOME_PENDING; 3 h -> +72 crew (6 transports of 12), seated 23 <= 30 berths"],
+  "A2-0": ["P", "browser desktop", "fresh save: every bottom tab and sub-tab, Settings and Help opened; 0 console errors"],
+  "A2-1": ["P", "browser desktop + existing test", "map center label \"Homeworld\", \"Galactic Core\" above it (y 351 vs 490); per-profile homeworld randomness: src/lib/homeworldEntropy.test.ts passes"],
+  "A2-2": ["P", "browser desktop", "2 free Tier I slots with next job + Training run chip; slots 3/4 \"Opens at Mission Control level 2/3\", 2.50K 02:00 / 6.00K 04:00; all 8 job types \"Training run next\""],
+  "A2-3": ["P", "browser desktop", "no Posts rows, no Refugees tab, \"NOTABLE CREW 0 / 50\" + Graduate hint, no Fleet care on Command Home"],
+  "A2-4": ["P", "browser desktop + existing test", "Personnel Rosters \"Level 1 ... Board 10\", Upgrades \"10 candidates per board\"; cp19RostersTrack.test.ts passes. Boards themselves not open on a fresh save"],
+  "A2-5": ["H", "n/a", "needs a real migrated save with crew, officers and runs in flight"],
+  "A2-6": ["F", "browser 375", "no sideways scroll on any fresh-save tab at 375 (scrollWidth 375 everywhere), but the new 0.14.0 Personnel Rosters facility card uses an emoji glyph", "Facilities tab: the Personnel Rosters card glyph", "src/App.svelte:11628 fpane(\"personnelRosters\", \"🧑‍🚀\", ...) is an emoji, not an SVG icon (new in 0.14.0, absent on main)"],
+  "A3-0": ["P", "existing test safeFirstExpedition.test.ts::SF-2 forecast leaves nothing unfinished at Guaranteed; a crew that cannot fight still finishes 100%, every loss fell back", "engine contract green"],
+  "A3-1": ["P", "existing test enemyRanks.test.ts / helpTopics.test.ts + enemyTorpedoes.test.ts::no Elite or Boss on a training run; no torpedo on the training run", "gear-pristine half via safeFirstRunsContract; UI not driven"],
+  "A3-2": ["H", "n/a", "chip/forecast UI on a 2nd run not driven; engine SF-2 forecast-agrees tests pass"],
+  "A3-3": ["P", "existing test safeFirstPatrol.test.ts + gearWearStep5Goldens.test.ts::first patrol Guaranteed on every hull; training cycle takes no wear", "engine"],
+  "A3-4": ["P", "existing test safeFirstRunsContract.test.ts + gatheringTrainingWearGoldens.test.ts::SF-5 gathering cannot be lost: every MISSIONS key x hull x stop path", "engine"],
+  "A3-5": ["H", "n/a", "the fresh starter freighter meets no sheet, so the pre-pick could not be shown; Help states the rule"],
+  "A3-6": ["P", "existing test shortRangeCycle.test.ts::G1-4 recall mid-cycle delivers then idles; recalled before it left: nothing paid, template keeps its training run", "Repeat-default UI not checked"],
+  "A3-7": ["H", "n/a", "calm-wait color/line needs a cap-full state in the UI"],
+  "A3-8": ["H", "n/a", "dispatch popup layout needs a qualifying ship"],
+  "A3-9": ["K", "ledger", "ledger item; no src fix since the ledger (git diff 77ff9acc..HEAD in src = transport/crew freeze fix only) (lane 4 I2)"],
+  "A3-10": ["H", "n/a", "user decision (lane 3 q5)"],
+  "A4-0": ["P", "browser 375 + existing test cp5HullCaps.test.ts", "Complement tab reads 160/160 (Battleship), x/900 (Eir), x/750 (Aurora); hull caps tests pass; Shipyard build card not opened"],
+  "A4-1": ["H", "existing test cp12Goldens.test.ts", "engine never-evict rule passes; \"Over capacity\" wording not driven"],
+  "A4-2": ["P", "existing test crewLock.test.ts::CP-6 refusals while a ship is locked", "amber lock icons not visually checked"],
+  "A4-3": ["P", "existing test salvageCrew.test.ts::away members, officers and notables become unassigned; the complement returns to the pool", "confirm text not driven"],
+  "A4-4": ["P", "existing test crewGraduation.test.ts::CP-8 graduate drops the bucket by one and adds a named notable; ship crew map unchanged", "engine"],
+  "A4-5": ["H", "n/a", "manifest paging UI on a 750+ ship not driven"],
+  "A4-6": ["H", "n/a", "phone layout"],
+  "A4-7": ["P", "existing test src/lib/crewTransferDisplay.test.ts + crewTransfer.test.ts", "green"],
+  "A4-8": ["P", "existing test homeworldReserveControls.test.ts::Recall moves only what a berth can seat; nothing bounces next tick", "engine"],
+  "A4-9": ["P", "existing test homeworldReserveControls.test.ts::the warning count is exactly what the next tick sweep moves out of the pool", "engine"],
+  "A4-10": ["H", "existing test src/lib/notableTickerDisplay.test.ts", "drift, hover and Reduce motion are visual"],
+  "A4-11": ["H", "n/a", "phone layout"],
+  "A4-12": ["P", "existing test cp11CrewModuleBlueprints.test.ts::a fresh save researches, crafts and installs a Wide-Beam Array, a Balanced Command and Utilitarian Quarters", "engine"],
+  "A4-13": ["P", "existing test cp12BridgeQuartersTiles.test.ts::Systems tiles draw and install", "engine"],
+  "A4-14": ["P", "existing test cp13HullFamily.test.ts::the sheet lines act: transit and unload (General), sensors (Explorer)", "engine"],
+  "A4-15": ["P", "existing test cp14HullSensors.test.ts::Aurora 35, Orion 25, Eir 15, warships 10, others 0", "engine"],
+  "A4-16": ["P", "existing test captainRetirement.test.ts + src/lib/hallOfCommandDisplay.test.ts", "final-retirement text and Hall entry green; 2-across layout not checked"],
+  "A4-17": ["P", "existing test personnelRosters.test.ts + src/lib/shipRosterDisplay.test.ts", "apply-only, evict/pull naming green"],
+  "A4-18": ["P", "existing test cp18SoftLevelCap.test.ts::xpForNextLevel past the soft cap: the agreed numbers", "engine"],
+  "A4-19": ["P", "existing test cp19RostersTrack.test.ts + browser desktop", "\"buying a rung costs 3,000 credits and its time, then the boards read 12\"; UI shows 3.00K, 10 -> 12"],
+  "A4-20": ["P", "browser desktop + existing test src/lib/graphPalettePreference.test.ts", "Settings > UI shows Graph colors Default / Color-blind safe / Monochrome; storage round-trip tests pass; repaint not visually judged"],
+  "A4-21": ["K", "ledger", "ledger item; no src fix since the ledger (git diff 77ff9acc..HEAD in src = transport/crew freeze fix only) (lane 2 I1)"],
+  "A4-22": ["H", "existing test officerBonuses.test.ts", "officer lift tests pass; the swap-and-restore readout walk was not driven"],
+  "A4-23": ["P", "existing test crewGraduation.test.ts::the cap is the user's 50 fleet-wide (OC-8); \"The fleet already has 50 notable crew\"; retire frees a slot", "engine"],
+  "A4-24": ["P", "existing test homeworldReserve.test.ts::the pool is drawn first: the reserve covers only what the pool cannot", "roster apply uses the same draw (homeworldReserve.ts header); result listing UI not driven"],
+  "A4-25": ["F", "engine test", "after retireCaptain the roster still pins the consumed XO: seatAssignments {executive:\"officer-xo\"} while officers is [], unchanged after save/reload (scratch gaps.qa.test.ts)", "scratch a/gaps.qa.test.ts: assignSeat(roster, executive, XO) then retireCaptain; roster.seatAssignments.executive still names the consumed officer, also after serialize/migrate", "captainRetirement.ts retireCaptain consumes the XO via seniorStaff.ts:652 fireOfficer, which filters state.officers only and never scrubs personnelRosters[].seatAssignments; the roster panel select (PersonnelRostersPanel.svelte:470) is then bound to an id with no option"],
+  "A4-26": ["H", "n/a", "phone"],
+  "A4-27": ["H", "n/a", "user decision (lane 2 q3); engine is a flat +1 per cp19Goldens"],
+  "A5-0": ["H", "n/a", "tab UI with an explorer not driven"],
+  "A5-1": ["H", "existing test helpTopics.test.ts (gates from propulsion.ts)", "gate rules green; UI not driven"],
+  "A5-2": ["P", "existing test expeditionTierCandidates.test.ts", "green (three candidates, enemy territory step)"],
+  "A5-3": ["P", "existing test expeditionRecall.test.ts::at 40% of the outbound leg the return is 40% of the return leg", "confirm focus not checked"],
+  "A5-4": ["P", "existing test expeditionRecall.test.ts::an Aurora resumes the Orion's system; abandon lets the saved progress go, once", "engine"],
+  "A5-5": ["P", "existing test expeditionRecall.test.ts::a returned candidate rolls off with the next dispatch; a held launch leaves every tier's list deep-equal", "engine"],
+  "A5-6": ["H", "n/a", "Roman numerals across many screens; Survey Log part covered by completionDisplay.test.ts"],
+  "A5-7": ["P", "existing test gasGiantStudy*.test.ts", "study leg, claim to shelf, offline == live green"],
+  "A5-8": ["P", "existing test gasGiantDataStudy.test.ts", "lane, auto-study pause and boosts green"],
+  "A5-9": ["H", "n/a", "Survey Log card visuals"],
+  "A5-10": ["P", "existing test emodEm8.test.ts", "recipe, power and extra discovery green"],
+  "A5-11": ["P", "existing test fieldRepair.test.ts + src/lib/fieldRepairStripDisplay.test.ts", "green"],
+  "A5-12": ["P", "existing test fieldRepairOrder.test.ts", "order, cancel and recall keep the share green"],
+  "A5-13": ["H", "n/a", "phone"],
+  "A5-14": ["P", "existing test gasGiantStudyLeg.test.ts::offline == live across the study", "plus fieldRepairOrder parity"],
+  "A5-15": ["K", "ledger", "ledger item; no src fix since the ledger (git diff 77ff9acc..HEAD in src = transport/crew freeze fix only) (lane 3 I1)"],
+  "A5-16": ["K", "ledger", "ledger item; no src fix since the ledger (git diff 77ff9acc..HEAD in src = transport/crew freeze fix only) (lane 3 M1)"],
+  "A5-17": ["K", "ledger", "ledger item; no src fix since the ledger (git diff 77ff9acc..HEAD in src = transport/crew freeze fix only) (lane 3 I2)"],
+  "A5-18": ["K", "ledger", "ledger item; no src fix since the ledger (git diff 77ff9acc..HEAD in src = transport/crew freeze fix only) (lane 3 I3)"],
+  "A5-19": ["P", "existing test expeditionRecall.test.ts::an Aurora resumes ...: res.next.heldSystems is [] at launch", "a second explorer then gets noSuchCandidate"],
+  "A5-20": ["P", "engine test", "abandon while returning: entry leaves, ship lands, claim succeeds, Survey Log row state \"abandoned\" at 85% (scratch abandon.qa.test.ts)"],
+  "A5-21": ["P", "code inspection", "a held launch runs expeditionSystemGate (outOfReach) before any write: src/lib/game/expedition.ts:1523-1529; a refusal returns the same state, so the entry stays"],
+  "A5-22": ["K", "ledger", "ledger item; no src fix since the ledger (git diff 77ff9acc..HEAD in src = transport/crew freeze fix only) (lane 3 M2)"],
+  "A5-23": ["H", "n/a", "medical-bay-at-claim state not built"],
+  "A5-24": ["H", "n/a", "needs a real 0.13.x in-flight export"],
+  "A5-25": ["H", "n/a", "offline across a recall not separately driven (expeditionRecall parity tests pass)"],
+  "A5-26": ["H", "n/a", "user decision (lane 3 q6)"],
+  "A6-0": ["P", "existing test fieldKits*.test.ts + quartermaster.test.ts", "prices and buy debit green"],
+  "A6-1": ["H", "n/a", "pack card UI"],
+  "A6-2": ["P", "existing test enemyRanks.test.ts::finals: Challenging and Dangerous an Elite, Deadly a Boss", "odds chip UI not checked"],
+  "A6-3": ["P", "existing test fieldKitsConditions.test.ts / medicalBay.test.ts", "green; table layout not checked"],
+  "A6-4": ["H", "n/a", "phone"],
+  "A6-5": ["P", "existing test wr10.test.ts + fieldKits.test.ts", "green"],
+  "A6-6": ["P", "existing test wr10.test.ts", "green"],
+  "A6-7": ["P", "existing test accountHireDefault.test.ts::OC-F12 Set for new hires; nobody already hired changes", "engine"],
+  "A7-0": ["P", "existing test relicsV2BlanksGoldens.test.ts / relicBlanks.test.ts", "green; log wording not driven"],
+  "A7-1": ["P", "existing test relicIdentify.test.ts::R2-3 queue and lanes by Lab tier", "engine"],
+  "A7-2": ["P", "existing test src/lib/relicReveal.test.ts", "green; glow and Reduce motion are visual"],
+  "A7-3": ["P", "existing test relicsV2Content.test.ts + relicIdentify.test.ts", "set completed once green"],
+  "A7-4": ["P", "existing test relicsV2Catalog.test.ts + src/lib/relicsV2Display.test.ts", "green"],
+  "A7-5": ["P", "existing test relicsV2Museum.test.ts", "soft cap 1,000 per tier green; visuals not checked"],
+  "A7-6": ["H", "n/a", "phone"],
+  "A7-7": ["P", "existing test relicIdentify.test.ts::a mid-chain Lab upgrade opens the second lane at its completion tick", "engine"],
+  "A7-8": ["P", "existing test shortRangeRelics.test.ts + relicBlanks.test.ts", "G1-5 short-range relic drops land as blanks"],
+  "A8-0": ["P", "existing test refugeeArrival.test.ts", "green; glyph not checked"],
+  "A8-1": ["P", "existing test refugees.test.ts + src/lib/refugeeDisplay.test.ts", "posts, move, back to waiting green"],
+  "A8-2": ["H", "existing test src/lib/refugeeDisplay.test.ts", "tab layout not driven"],
+  "A8-3": ["H", "n/a", "arrival card UI"],
+  "A8-4": ["H", "n/a", "phone"],
+  "A8-5": ["P", "existing test refugees.test.ts", "taper and relocation green"],
+  "A8-6": ["P", "existing test refugeeBuffs.test.ts", "green"],
+  "A8-7": ["P", "existing test refugeeEchoes.test.ts", "unique roster, once per save; mark visuals not checked"],
+  "A8-8": ["P", "existing test refugeeArrival.test.ts::offline == live: a 2 h offline replay", "recap text not driven"],
+  "A8-9": ["K", "ledger", "ledger item; no src fix since the ledger (git diff 77ff9acc..HEAD in src = transport/crew freeze fix only) (lane 2 I2); refugeeEchoes.test.ts even asserts that an echo who leaves on a Refugee Relocation never comes back"],
+  "A9-0": ["H", "n/a", "gear card visuals"],
+  "A9-1": ["H", "n/a", "color and theme"],
+  "A9-2": ["H", "n/a", "Ship Systems meters"],
+  "A9-3": ["H", "existing test homeDashboard.test.ts", "Fleet care UI not driven"],
+  "A9-4": ["P", "existing test gearWearStep5.test.ts::patrols wear by battle only", "engine"],
+  "A9-5": ["P", "existing test gearWearStep5Fixes.test.ts", "Overtime strip states green"],
+  "A9-6": ["H", "n/a", "hover/pin feel"],
+  "A9-7": ["P", "existing test src/lib/jobOvertimeDisplay.test.ts", "green"],
+  "A9-8": ["P", "existing test processSpeed.test.ts + src/lib/jobOvertimeDisplay.test.ts", "green"],
+  "A9-9": ["K", "ledger", "ledger item; no src fix since the ledger (git diff 77ff9acc..HEAD in src = transport/crew freeze fix only) (lane 1 M1)"],
+  "A9-10": ["P", "existing test gearWearStep5.test.ts / processSpeed.test.ts", "offline == live with Overtime green"],
+  "A9-11": ["P", "existing test gearWearCloseout.test.ts::Overtime during a repair pause: the pause ends earlier; offline == live", "engine"],
+  "A9-12": ["K", "ledger", "ledger item; no src fix since the ledger (git diff 77ff9acc..HEAD in src = transport/crew freeze fix only) (lane 4 M6)"],
+  "A10-0": ["P", "existing test enemyTorpedoes.test.ts + browser desktop (Help)", "Help shows the Marauder ramp to 40%, carriers, Defensive point defense"],
+  "A10-1": ["P", "existing test enemyTorpedoes.test.ts / enemyTorpedoGoldens.test.ts", "green"],
+  "A10-2": ["P", "existing test patrolRampGoldens.test.ts::SF-4 golden 5: the Threat Assessment", "engine"],
+  "A10-3": ["P", "existing test enemyTorpedoes.test.ts::ship events: the chance by tier; none on the training run", "engine"],
+  "A10-4": ["P", "existing test cp4FlightDeck.test.ts::Integrity on Deck Handling below half hull; offline == live", "tooltip text via helpTopics"],
+  "A10-5": ["P", "existing test cp4FlightDeck.test.ts / patrol-tick.test.ts parity", "green"],
+  "A10-6": ["K", "ledger", "ledger item; no src fix since the ledger (git diff 77ff9acc..HEAD in src = transport/crew freeze fix only) (lane 4 I1)"],
+  "A10-7": ["K", "ledger", "ledger item; no src fix since the ledger (git diff 77ff9acc..HEAD in src = transport/crew freeze fix only) (lane 4 q3)"],
+  "A10-8": ["H", "n/a", "user decision (lane 4 M5)"],
+  "A10-9": ["H", "n/a", "offline defeat recap not driven"],
+  "A10-10": ["K", "ledger", "lane 4 M8 open; not re-measured"],
+  "A11-0": ["P", "existing test src/lib/completionDisplay.test.ts::the console line Bodies 2/3 · Objectives 3/5 · 50%, the ring", "display"],
+  "A11-1": ["P", "existing test completionTracking.test.ts::skipped objectives count as done, counted apart", "engine"],
+  "A11-2": ["P", "existing test src/lib/completionDisplay.test.ts / completionTracking.test.ts", "green"],
+  "A11-3": ["P", "existing test completionRollGoldens.test.ts", "planet roll pays once"],
+  "A11-4": ["P", "existing test src/lib/completionDisplay.test.ts::Survey Log Systems section grouped by tier with Roman numerals", "1280/375 layout not checked"],
+  "A11-5": ["P", "engine test", "abandoned row kept at 85% (scratch abandon.qa.test.ts) + completionTracking tests"],
+  "A11-6": ["H", "n/a", "needs a migrated save"],
+  "A11-7": ["K", "ledger", "ledger item; no src fix since the ledger (git diff 77ff9acc..HEAD in src = transport/crew freeze fix only) (lane 3 q3)"],
+  "A12-0": ["P", "browser desktop + browser 375", "Level 1: badges I to VII, Homeworld and Galactic Core: 0 overlaps, 0 clipped at 1280 and 375; Level 8 not reached"],
+  "A12-1": ["H", "n/a", "needs Telescope Level 2+"],
+  "A12-2": ["H", "n/a", "needs Telescope Level 2+"],
+  "A12-3": ["H", "n/a", "needs completed systems"],
+  "A12-4": ["P", "existing test wolf359Derelict.test.ts", "green"],
+  "A12-5": ["P", "existing test src/lib/telescopeCardDisplay.test.ts", "green"],
+  "A12-6": ["P", "existing test helpTopics.test.ts (blind launches) + telescope.test.ts", "green; confirm UI not driven"],
+  "A13-0": ["P", "browser desktop", "all listed topics present and open with content (27 checked)"],
+  "A13-1": ["P", "browser desktop", "\"How short-range missions work\" lands on Short-Range Missions; the other links were not clicked"],
+  "A13-2": ["P", "browser desktop + existing test src/lib/helpTopics.test.ts", "Overtime 25% / 3 steps / 1.75x, torpedo 7.7 / 21.8 / 35.8 / 40%, Corroded, boards 3,000 to 15,000, 8% past level 30 all present"],
+  "A13-3": ["P", "browser desktop", "TALENTS paragraph, Home Guard / Civic Charter / Works Directorate and the RACIALS commanding-captain line all present"],
+  "A13-4": ["P", "browser desktop", "27 topics scanned: no em dash, no double hyphen, no fit/fitting, no UK spellings, no Arabic tier or class numerals"],
+  "A13-5": ["P", "browser 375", "Help at 375: scrollWidth 375, no sideways scroll"],
+  "A13-6": ["K", "browser desktop", "still says \"each upgrade unlocks another line\" (src/lib/helpTopics.ts:1191)"],
+  "A13-7": ["K", "browser desktop", "Sweep still \"any warship can win\"; no repair-pause line"],
+  "A13-8": ["K", "browser desktop", "Storage still says \"producers automatically pause when a material is full\""],
+  "A14-0": ["H", "n/a", "minigame UI"],
+  "A14-1": ["H", "n/a", "needs a migrated save with minigame progress"],
+  "A14-2": ["H", "n/a", "minigame Help"],
+  "A14-3": ["H", "existing test materialLines.test.ts", "Refinery not built on a fresh save"],
+  "A14-4": ["P", "existing test gasGiantContent.test.ts + materialLines.test.ts", "10 ice -> 1 canister green"],
+  "A14-5": ["P", "existing test materialQualityCarry.test.ts + ml5Goldens.test.ts", "green"],
+  "A14-6": ["H", "n/a", "needs a migrated save"],
+  "A14-7": ["K", "ledger", "ledger item; no src fix since the ledger (git diff 77ff9acc..HEAD in src = transport/crew freeze fix only) (lane 1 I1)"],
+  "A14-8": ["K", "ledger", "ledger item; no src fix since the ledger (git diff 77ff9acc..HEAD in src = transport/crew freeze fix only) (lane 1)"],
+  "A14-9": ["H", "n/a", "user decision (lane 1 I3)"],
+  "A14-10": ["K", "ledger", "ledger item; no src fix since the ledger (git diff 77ff9acc..HEAD in src = transport/crew freeze fix only) (lane 1 I2)"],
+  "A14-11": ["K", "ledger", "ledger item; no src fix since the ledger (git diff 77ff9acc..HEAD in src = transport/crew freeze fix only) (lane 1 M2)"],
+  "A14-12": ["H", "n/a", "user decision (lane 1 q4)"],
+  "A14-13": ["H", "n/a", "research queue across an offline gap not driven"],
+  "A14-14": ["P", "existing test wiringBugs.test.ts::OC-C1: every Fuel Depot level adds to the whole fleet's reach", "UI shows \"Fleet reach +0%\" at Level 0"],
+  "A14-15": ["P", "engine test", "canBuyFieldKits: 10 cr -> insufficientCredits (\"Not enough credits.\"), huge qty -> overCap; buyFieldKits writes nothing (scratch gaps.qa.test.ts)"],
+  "A14-16": ["K", "ledger", "lane 1 M4 open"],
+  "A15-0": ["H", "n/a", "research and build walk"],
+  "A15-1": ["H", "existing test seniorStaff*.test.ts / racialsWired.test.ts", "UI not driven"],
+  "A15-2": ["P", "engine test", "fresh save 3 h -> 72 crew (2 transports an hour of 12); transports.test.ts green"],
+  "A15-3": ["P", "existing test personnelRosters.test.ts", "green"],
+  "A15-4": ["P", "existing test shipPower.test.ts / powerInstallGate.test.ts", "install over output refused green"],
+  "A15-5": ["P", "existing test reactorTech.test.ts", "green"],
+  "A15-6": ["H", "n/a", "survey mission comparison not driven"],
+  "A15-7": ["P", "existing test wiringBugs.test.ts::B2: a supply run dispatched at the cap keeps running and earns its margin", "engine"],
+  "A15-8": ["H", "n/a", "stance UI and the Standoff save rename not driven"],
+  "A15-9": ["P", "existing test wiringPlaceholderTalents.test.ts + racialsWired.test.ts", "Works Directorate, Salvage Operations and the captain racial green"],
+  "A15-10": ["H", "n/a", "needs a migrated save"],
+  "A15-11": ["P", "existing test materialQualityDelivery.test.ts", "green"],
+  "A15-12": ["H", "existing test src/lib/installOnPicker.test.ts + src/lib/squadLoadoutDisplay.test.ts", "UI not driven"],
+  "A15-13": ["P", "existing test quartermaster-sell.test.ts", "green"],
+  "A15-14": ["P", "existing test memberEquipment.test.ts::a second Neural Backup refuses on any member, any ship or the bench", "2-slot races per the racials tests"],
+  "A15-15": ["H", "browser desktop", "Patch Notes still shows 0.13.11.3; awaits the user approving and wiring the 0.14.0 draft"],
+  "A16-0": ["P", "browser desktop", "Wiring: 1,824 entries, 0 pending, contributing nothing 0; owned 24 = Ship 16 (Standard Issue) + 8 pre-granted facility rung-1 sources (Mission Control, Lab, Fabricator, Telescope, Personnel Rosters); the sheet only names Standard Issue and the complement"],
+  "A16-1": ["H", "n/a", "talent allocation walk"],
+  "A16-2": ["P", "code inspection", "\"No bonus yet\" / \"(first-pass)\" remain only as fallbacks for effect type none, carried by no node (tick.ts:1002,1066; captainSecondaryEffects.ts:258,262)"],
+  "A16-3": ["H", "n/a", "user decision"],
+  "A16-4": ["H", "n/a", "officer promotion over time not driven"],
+  "A16-5": ["P", "existing test wiringBugs.test.ts::B2: both transports dispatch at the ore cap", "engine"],
+  "A16-6": ["P", "browser desktop + existing test save.test.ts (WR-4)", "Fuel Depot card reads \"Fleet reach +0%\", no fuel purchase or tank seen"],
+  "A16-7": ["H", "n/a", "needs a real expedition comparison"],
+  "A16-8": ["H", "n/a", "by hand by design"],
+  "R1-0": ["P", "UI (dev server, browser pane)", "Six tabs open their overview, .active set, 0 console errors; at 375 the bar sits at bottom (762-812) with 6 SVG icons."],
+  "R1-1": ["P", "UI (dev server, browser pane)", "Uninstalled Hull Plating: nav aria 'Ships (needs attention)', row '⚠ No hull plating'; both cleared after reinstall."],
+  "R1-2": ["P", "UI (dev server, browser pane)", "FA EXP/CRAFT/TICK labels share x=94 in one block, CRAFT row under FA level; tick smoothness and light theme not judged by eye."],
+  "R1-3": ["P", "UI (dev server, browser pane)", "Toggle updates band at once and survives reload; band 343px at 375. Note: no order control exists (fixed order by design, App.svelte:2977-2991); tap opens description popover, not a numeric breakdown."],
+  "R1-4": ["P", "UI (dev server, browser pane) + code", "Header Help opens Home Help; gear opens System on Settings (Settings/Log/About/Patch Notes/Community); portrait handler sets Crew > Admiral (App.svelte:12519)."],
+  "R1-5": ["H", "UI (dev server, browser pane)", "At 375@1.5x Ops .ctabs overflow-x:auto (scrollWidth 1449 > 353), no page overflow; edge fades and no bleed-through need eyes on a device."],
+  "R1-6": ["P", "UI (dev server, browser pane)", "Salvage confirm is a bottom sheet at 375 (top 547, bottom 812); Escape closed install picker and System window; focus stayed in dialog after 6 Tabs; recovery ignores Escape."],
+  "R1-7": ["H", "UI (dev server, browser pane)", "Material tooltip (Stored/Allocated/Free, flavor below) and weapon detail (damage, accuracy, fire rate, range, family) verified; ship, ship-system hover and in-progress craft tooltips not checked."],
+  "R1-8": ["H", "existing vitest (66 files, 2155 tests green)", "Needs a real redeploy while open; updateDetector.test.ts passes."],
+  "R2-0": ["F", "UI (dev server, browser pane) + code", "Repro: Refine x100 Polysilicate Wafer at 1x; Home row reads 33:00 for a whole 20 s item while the Refinery console reads 32:52. craftQueue.ts:511-513 etaTicks=(remaining+1)*durationTicks ignores the in-flight job's remainingTicks, so the Home ETA overstates and steps per item. Rows and jump-on-tap otherwise fine."],
+  "R2-1": ["P", "UI (dev server, browser pane)", "Counter, Show all expands to GO shortcuts ('Research bay idle', '7 facility upgrades ready'); single-ready-upgrade naming and reduced-motion ticker not exercised."],
+  "R2-2": ["P", "UI (dev server, browser pane)", "Refinery and Shipyard left NOT YET UNLOCKED once built/founded."],
+  "R2-3": ["P", "UI (dev server, browser pane) + existing vitest (66 files, 2155 tests green)", "Rows expand (source, action, time elapsed, when); completionLog.test 'Uninspected blank' and patrolEndReason.test cover patrol name/why-stopped."],
+  "R2-4": ["P", "UI (dev server, browser pane)", "Crafted 0->40, Refined 58->300, Missions 52->159; no NaN/negative. Side note: 'Fleet Admiral XP Awarded' equals Captain XP and excludes finite-work FA XP (tick.ts:5637-5638 adds process XP without a lifetimeStats fold)."],
+  "R2-5": ["P", "UI (dev server, browser pane)", "All 57 Help topics open with content; header [?] opens the same Help."],
+  "R2-6": ["P", "UI (dev server, browser pane)", "Locked tabs are div.ctab.locked 'Coming soon'; clicking changes nothing."],
+  "R3-0": ["F", "UI (dev server, browser pane) + code", "Repro: fresh save, Crew > Captain Roster: slots 2-4 read only 'Locked / Recruit via Homeworld Talents -> Fleet Logistics'; no Fleet Admiral level or talent cost shown (App.svelte:18030-18031)."],
+  "R3-1": ["P", "UI (dev server, browser pane)", "Inline rename (no popup) persisted across reload; Overview/Talents/Ship/Prestige render; Equipment reads locked."],
+  "R3-2": ["H", "UI (dev server, browser pane)", "Spec chosen, hub learned, two nodes revealed, owned class applied, Stat Points 6->5 with effect shown; drag/touch pan needs a device."],
+  "R3-3": ["P", "existing vitest (66 files, 2155 tests green) + scratch vitest b/partB.scratch.test.ts (5/5 green)", "tick.test per-tick captain XP; scratch: 2 captains give exactly 2x FA XP per tick of 1, economyTick FA gain higher with a captain out."],
+  "R3-4": ["P", "UI (dev server, browser pane)", "Swap hull picker shows BR, Hold, LY range; favorite star code-backed (App.svelte:21704); only parked ships listed."],
+  "R3-5": ["P", "UI (dev server, browser pane)", "PROFILE, FA level/XP, Talents opens 5 Homeworld categories + tree; Reset asks (50 cr) and refunded 4 points (captain slot kept by design)."],
+  "R3-6": ["P", "existing vitest (66 files, 2155 tests green) + UI (dev server, browser pane)", "process.test 'FA XP = durationTicks' on upgrade/research completion; header FA XP rose after research, upgrades, crafts, builds."],
+  "R4-0": ["P", "UI (dev server, browser pane)", "Overview lists Gathering/Combat Patrols boards; Gathering rows condensed with More info + Assign."],
+  "R4-1": ["P", "UI (dev server, browser pane)", "Four missions present with own 3-icon reward rows; Salvage needs Lv 2, Forage Lv 3; no Local Deuterium Skim. Only Local Asteroid actually dispatched."],
+  "R4-2": ["P", "UI (dev server, browser pane)", "Timing 1+25+90+25+8 = Total 149 ticks (~2m); 'Trip distance 25 LY / Ship range 100 LY'. Out-of-reach copy not exercised (fuel-to-reach.test passes)."],
+  "R4-3": ["P", "UI (dev server, browser pane) + existing vitest (66 files, 2155 tests green)", "One dispatch kept cycling (52 completions); card shows XP/tick; tick.test:1256 recall ends after the cycle."],
+  "R4-4": ["P", "scratch vitest b/partB.scratch.test.ts (5/5 green) + existing vitest (66 files, 2155 tests green)", "Bonus roll lands rare in the same tick as primary common (primary is one tier per tick by design since the 2026-07-08 rework, tick.ts:2009); equipment.test:406 rig fits any captain."],
+  "R4-5": ["P", "existing vitest (66 files, 2155 tests green)", "mission-control.test passes; tab opens without overflow. Upgrades build not exercised by hand."],
+  "R4-6": ["P", "UI (dev server, browser pane)", "Dispatch popup: Threat assessment and Stance '?' explainers, Once/Repeatedly; repeat patrol transited, fought waves, relaunched; recap showed combat completions and credits."],
+  "R4-7": ["H", "UI (dev server, browser pane)", "View Combat Log: Log-Guided/Visual modes, hull/shield bars, range track, live log lines. Floating numbers, reduced motion and replay parity need eyes."],
+  "R4-8": ["P", "existing vitest (66 files, 2155 tests green)", "berths.test: held ships queue in order, 'Waiting for a docking bay (Nth in line)' with ETA, patrols never occupy a berth."],
+  "R5-0": ["P", "UI (dev server, browser pane)", "Cards show level/status rows; console has back, name and sub-tabs on one row (y 154-162); back returns."],
+  "R5-1": ["F", "UI (dev server, browser pane) + code", "Repro: Refinery > Production > configure a line: only Qty (batch) exists, no continuous option. App.svelte:8933-8934 notes continuous is engine-supported but not surfaced. Confirm-first, live status and Cancel worked."],
+  "R5-2": ["P", "UI (dev server, browser pane)", "Titanium Ore tooltip: Allocated 4.98K / Free 8.40K / Stored 13.4K; shipyard queue remove returned components; facility.test:248 blocks upgrades on reserved stock."],
+  "R5-3": ["P", "UI (dev server, browser pane)", "In-progress lines read 'Upgrade already in progress / Currently upgrading... 02:00 remaining'; rungs name 'Requires Fleet Admiral level N'."],
+  "R5-4": ["P", "UI (dev server, browser pane)", "Line picks Tier/Item/Qty; batch countdown 1:00:00 for 30 items; CRAFT level rose 1->7."],
+  "R5-5": ["P", "UI (dev server, browser pane)", "TIER I/II headings, cost credits + time, Tier II reads 'Requires Research Lab level 2'; researched Frame Segment became craftable."],
+  "R5-6": ["P", "UI (dev server, browser pane) + existing vitest (66 files, 2155 tests green)", "Shipyard: queued build auto-started, remove refunded 4 Frame + 2 Couplings; full queue names Homeworld Talents -> Fleet Logistics (Standing Orders); craftQueue offline parity tests. Reorder not exercised."],
+  "R5-7": ["P", "UI (dev server, browser pane) + existing vitest (66 files, 2155 tests green)", "Materials tiles show fill %; craft-lines/fabricator storageFull reasons; warehouse cap tests."],
+  "R5-8": ["P", "existing vitest (66 files, 2155 tests green)", "salvage.test:1944 marks recovered exotic discovered (no masked tile)."],
+  "R5-9": ["P", "UI (dev server, browser pane) + existing vitest (66 files, 2155 tests green)", "Header has no fuel readout; Fuel Depot is reach % only; dispatch-requirements.test:36 no fuel stockpile."],
+  "R6-0": ["P", "UI (dev server, browser pane)", "Cards show cost, time, crew berths; speed rung says '+1 bay'; second freighter queued and built after the first."],
+  "R6-1": ["P", "UI (dev server, browser pane) + existing vitest (66 files, 2155 tests green)", "Docks console shows Expand Docks and Add Docking Bay; docks-expansion and berths tests: +1 per rung, ceiling 10."],
+  "R6-2": ["F", "UI (dev server, browser pane) + code", "Repro: Ships roster, sort Name + By class, reload: sort reverts to Attention and filter to All (search too). Only favorites persist. App.svelte:2089-2094 marks these non-persisted."],
+  "R6-3": ["P", "UI (dev server, browser pane)", "BR on top, Offense 'N / N HARDPOINTS', Defense, Systems, Modules and live stat readout; BR moved 1.31K->1.21K->3.17K with gear."],
+  "R6-4": ["P", "UI (dev server, browser pane)", "Picker lists installed + spares with net BR (+1.86K, Blocked for locked), comparison 1.21K->1.31K; weapon Swap replaced in one step."],
+  "R6-5": ["P", "UI (dev server, browser pane)", "Hull Plating uninstall left slot 'Empty', piece went to spares, BR dropped."],
+  "R6-6": ["P", "UI (dev server, browser pane) + existing vitest (66 files, 2155 tests green)", "New Destroyer launched 4/4 Standard weapons; quartermaster.test:397 requisition allowed while baseline rests in a loadout."],
+  "R6-7": ["P", "existing vitest (66 files, 2155 tests green)", "armory.test passes (create/rename/delete, check-out locks, edits propagate, check-in frees, no salvage of resting gear). Not exercised by hand."],
+  "R6-8": ["P", "UI (dev server, browser pane) + existing vitest (66 files, 2155 tests green)", "One 'Confirm Salvage' sheet; berths 5/8 -> 4/8 at once; salvage.test:966/1023 (spares returned, ~% refund, on-mission refused)."],
+  "R6-9": ["P", "UI (dev server, browser pane) + existing vitest (66 files, 2155 tests green)", "Bay reads '2 / 25 spare' with Upgrade Bay; inspectBlank.test bay-full = 0 inspected, nothing lost."],
+  "R7-0": ["P", "UI (dev server, browser pane)", "Themed categories, TIER I/TIER II split, undiscovered shown as masked tiles."],
+  "R7-1": ["P", "UI (dev server, browser pane)", "Spares grouped by slot, tiles show icon + iL; favorite sorted to top with star; Lock disabled Install and Salvage (equipment/salvage/armory lock tests)."],
+  "R7-2": ["P", "existing vitest (66 files, 2155 tests green)", "inspectBlank.test clamps Max to free bay slots, never consumes without a system; inspectSort.test best-first. Not exercised by hand."],
+  "R7-3": ["P", "existing vitest (66 files, 2155 tests green) + UI (dev server, browser pane)", "inspectRevealPreference.test passes; 'Reveal each inspection roll' switch present."],
+  "R7-4": ["P", "UI (dev server, browser pane) + existing vitest (66 files, 2155 tests green)", "Sell 25 Deuterium Ice showed Total 100 CR and logged 'Sold 25 ... for 100 credits'; quartermaster tests for Requisition."],
+  "R7-5": ["P", "existing vitest (66 files, 2155 tests green)", "archive.test: enshrine consumes, keeps best score, completion % positive."],
+  "R8-0": ["P", "existing vitest (66 files, 2155 tests green)", "salvage.test recipe fractions with chance rounding; three lanes finish together."],
+  "R8-1": ["P", "UI (dev server, browser pane) + existing vitest (66 files, 2155 tests green)", "Rules UI present, 'No rule chosen yet, so nothing would be queued'; salvage.test 'BOTH axes ticked takes only pieces matching BOTH', 'NOTHING ticked takes NOTHING'."],
+  "R8-2": ["P", "existing vitest (66 files, 2155 tests green)", "salvage.test within-grace never selected incl. offline parity (4495), locked/favorite/loadout protections pass."],
+  "R8-3": ["P", "existing vitest (66 files, 2155 tests green)", "salvage.test:4081 fires when a rule reaches Standard-Issue, 4109 silent otherwise; preference test passes."],
+  "R8-4": ["P", "existing vitest (66 files, 2155 tests green)", "salvageConfirmPreference.test and salvage.test:2824 (confirm tiers never auto-taken)."],
+  "R8-5": ["F", "existing vitest (66 files, 2155 tests green) + code", "Engine runs offline (salvage.test:4338 parity) but the While You Were Away recap has no auto-salvage section: OfflineSummary (offlineSummary.ts:92-105) carries only missions, credits, XP, materials, repairs, relics. Repro: Debug +1h recap lists nothing taken."],
+  "R9-0": ["P", "UI (dev server, browser pane)", "Manual preset, Color 1 Purple -> data-theme purple, accent color variable #a678f9, persisted reload. Only 'flat' style offered; starfield/log recolor and light/dark not judged by eye."],
+  "R9-1": ["P", "UI (dev server, browser pane)", "Select 0.9-1.5; UI scale variable 1.5 applied; at 375 no sideways scroll across 66 screens."],
+  "R9-2": ["P", "UI (dev server, browser pane)", "All four switches set data attributes at once and survived reload; visual effects not judged by eye."],
+  "R9-3": ["P", "UI (dev server, browser pane)", "Tick bar off removed TICK row; XP values showed 'Lv 21 · 55.4K / 331K (16.8%)'."],
+  "R9-4": ["P", "existing vitest (66 files, 2155 tests green) + UI (dev server, browser pane)", "combatLogPreference.test passes; Log style/speed/Damage colors/Auto-scroll controls present."],
+  "R9-5": ["P", "UI (dev server, browser pane)", "Editing one switch made level 'Custom'; picking Ask me everything asked 'Overwrite your settings?' before applying."],
+  "R9-6": ["P", "UI (dev server, browser pane)", "'Always use the mobile layout' switch is disabled."],
+  "R9-7": ["H", "UI (dev server, browser pane) + code", "Mouse click toggles the bubble shut after hover-open; touch path is click-only by design (HelpTip.svelte:125-132). Needs a real tap."],
+  "R9-8": ["P", "UI (dev server, browser pane)", "SUPERDUPERLEET: 'Code redeemed. +1,337 credits'; again: 'already redeemed on this account'; made-up: 'That code isn't recognized.'"],
+  "R9-9": ["P", "UI (dev server, browser pane)", "Log lists actions; About names a build ('Version 0.13.11.3' on this 0.14.0 branch); Patch Notes shows latest + 'View all' page renders 0.13.11.3 down to 0.2.0; Community Discord link target _blank."],
+  "R9-10": ["H", "UI (dev server, browser pane) + existing vitest (66 files, 2155 tests green)", "Preset Default/Manual with locked option 'unlocked by completing an achievement'; did not switch styles. backgroundStyle tests pass."],
+  "R10-0": ["P", "UI (dev server, browser pane)", "Rename persisted after a 35 s wait + reload; a second rename made right before reload also persisted."],
+  "R10-1": ["P", "UI (dev server, browser pane)", "Export captured as fleet-admiral-save-*.json (no file written); re-import kept runs in flight, ships and the lock flag. Same profile, not a second one."],
+  "R10-2": ["P", "UI (dev server, browser pane)", "Cancel left save byte-identical; junk JSON refused with 'That file isn't a valid Fleet Admiral save.' and no change."],
+  "R10-3": ["P", "UI (dev server, browser pane)", "Delete asks (type DELETE); confirming started a brand new save (FA Lv 1, 0 credits)."],
+  "R10-4": ["P", "UI (dev server, browser pane)", "Corrupted stored save: 'SAVE COULD NOT BE LOADED', read-only raw text, Download backup / Start fresh; Escape did not close; stored value untouched."],
+  "R10-5": ["P", "UI (dev server, browser pane)", "Reload with refine, research, mission and patrol running: each resumed with consistent time left (research 00:57->00:46 over 11 s). Expedition and upgrade not in this run."],
+  "R11-0": ["P", "UI (dev server, browser pane)", "Debug +1h: 'You were away for ~1h', 4d cap note, missions by type, credits, FA and captain XP, materials banked."],
+  "R11-1": ["P", "existing vitest (66 files, 2155 tests green)", "offlineCap.test:73: 5-day absence pays 4 days, recap says cap reached, no second popup. Debug +24h clicks are separate absences, so the cap is unreachable that way."],
+  "R11-2": ["H", "-", "Needs a real 10-minute background tab or phone sleep."],
+  "R11-3": ["F", "existing vitest (66 files, 2155 tests green) + code", "Engine starts queued orders and finishes upgrades offline (craftQueue offline parity tests), but the recap has no section for them (offlineSummary.ts:92-105); only captain XP and materials appear."],
+  "R12-0": ["P", "UI (dev server, browser pane) + code", "'Endless Greed' toast after repeated re-entries (41st), z-index 2100 above dialogs (1000), shown once. A first redeem alone raises no achievement."],
+  "R12-1": ["P", "UI (dev server, browser pane)", "Finished jobs appeared in Recently Completed within a tick; Ships dot and amber flag appeared and cleared with their cause."],
+  "R13-0": ["P", "UI (dev server, browser pane)", "375 @1.5x: 47 console tabs + ship tabs + captain tabs + every Settings/System tab, scrollWidth == 375, no element past the edge."],
+  "R13-1": ["H", "-", "Home indicator and in-sheet scrolling need a phone."],
+  "R13-2": ["H", "-", "Tap-only reachability needs a touch device (see the Settings ? toggle note)."],
+  "R13-3": ["P", "UI (dev server, browser pane)", "At 1280 main is 1280 wide, roster rows 1258 px; no narrow column."],
+  "R13-4": ["H", "-", "Orientation change needs a phone."],
+};
+function esc(s) { return String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;"); }
+const CL_BADGE = {
+  P: '<span class="chip cp">Verified by Claude: PASS</span>',
+  F: '<span class="chip cf">FAIL (Claude)</span>',
+  H: '<span class="chip ch">Needs a human</span>',
+  K: '<span class="chip ck">Known issue</span>',
+};
+const CL_CLASS = { P: "cl-pass", F: "cl-fail", H: "cl-human", K: "cl-known" };
+function claudeLine(key) {
+  const c = CLAUDE[key];
+  if (!c) return "";
+  const method = c[1] && c[1] !== "n/a" && c[1] !== "-" ? "<i>" + esc(c[1]) + ":</i> " : "";
+  const lead = c[0] === "H" ? "<i>Why:</i> " : "";
+  let s = '<span class="cl">' + CL_BADGE[c[0]] + method + lead + esc(c[2]);
+  if (c[3]) s += " <b>Repro:</b> " + esc(c[3]);
+  if (c[4]) s += " <b>Cause:</b> " + esc(c[4]);
+  return s + "</span>";
+}
+
 const STORE = "hl-qa-0140-full-v1";
 const SCOPE_STORE = "hl-qa-0140-full-scope-v1";
 let userState = {};
@@ -802,11 +1164,13 @@ SECTIONS.forEach((sec) => {
       const mobCell = it.only === "desk" ? '<span class="na">n/a</span>' : cb("mob", "m-" + key, !!userState["m-" + key], "Checked at 375 px");
       cells = '<div class="cell">' + deskCell + '</div><div class="cell">' + mobCell + "</div>";
     }
-    html += '<div class="item" data-key="' + key + '">' + cells +
+    const cl = CLAUDE[key];
+    html += '<div class="item' + (cl ? " " + CL_CLASS[cl[0]] : "") + '" id="row-' + key + '" data-key="' + key + '">' + cells +
       '<div class="body"><span class="t">' + it.t + "</span>" + (it.kn ? '<span class="kn">' + it.kn + "</span>" : "") +
-      (meta ? '<div class="meta">' + meta + "</div>" : "") + "</div></div>";
+      (meta ? '<div class="meta">' + meta + "</div>" : "") + claudeLine(key) + "</div></div>";
   });
   html += "</div>";
+  if (sec.items.every((it, ii) => CLAUDE[keyOf(sec, ii)] && CLAUDE[keyOf(sec, ii)][0] === "P")) el.classList.add("all-pass");
   el.innerHTML = html;
   secWrap.appendChild(el);
 });
@@ -911,6 +1275,47 @@ document.getElementById("resetBtn").addEventListener("click", () => {
   secWrap.querySelectorAll('input[type="checkbox"]').forEach((i) => (i.checked = false));
   recompute();
 });
+// Claude's pass: totals per part and status, the FAIL list and the "left for a human" filter.
+(function () {
+  const counts = { A: { P: 0, F: 0, H: 0, K: 0 }, B: { P: 0, F: 0, H: 0, K: 0 } };
+  const fails = [];
+  SECTIONS.forEach((sec) => sec.items.forEach((it, ii) => {
+    const key = keyOf(sec, ii), c = CLAUDE[key];
+    if (!c) return;
+    counts[sec.part][c[0]] += 1;
+    if (c[0] === "F") fails.push({ key: key, label: sec.id + "-" + (ii + 1), ev: c[2] });
+  }));
+  const row = (name, o, cls) => {
+    const all = o.P + o.F + o.H + o.K;
+    return '<tr' + (cls ? ' class="' + cls + '"' : "") + "><td>" + name + '</td><td class="c-p">' + o.P + '</td><td class="c-f">' + o.F +
+      '</td><td class="c-h">' + o.H + '</td><td class="c-k">' + o.K + "</td><td>" + all + "</td></tr>";
+  };
+  const sum = { P: 0, F: 0, H: 0, K: 0 };
+  ["P", "F", "H", "K"].forEach((s) => (sum[s] = counts.A[s] + counts.B[s]));
+  document.getElementById("claudeBody").innerHTML = row("Part A", counts.A) + row("Part B", counts.B) + row("Total", sum, "tot");
+  document.getElementById("claudeFails").innerHTML = fails.map((f) =>
+    '<li><a href="#row-' + f.key + '">' + f.label + "</a> " + esc(f.ev.length > 150 ? f.ev.slice(0, 147) + "..." : f.ev) + "</li>").join("");
+  const left = sum.F + sum.H + sum.K;
+  const HUMAN_STORE = "hl-qa-0140-full-human-v1";
+  const btn = document.getElementById("humanBtn");
+  let humanOnly = false;
+  try { humanOnly = localStorage.getItem(HUMAN_STORE) === "1"; } catch (e) {}
+  function applyHuman() {
+    document.body.classList.toggle("human-only", humanOnly);
+    btn.setAttribute("aria-pressed", humanOnly ? "true" : "false");
+    btn.textContent = humanOnly ? "Show every check" : "Show only checks left for a human";
+    document.getElementById("humanNote").textContent = humanOnly
+      ? "Showing the " + left + " rows Claude did not pass (fail, needs a human, known issue)."
+      : left + " rows are left for a human: " + sum.F + " fail, " + sum.H + " need a human, " + sum.K + " known issue.";
+  }
+  btn.addEventListener("click", () => {
+    humanOnly = !humanOnly;
+    try { localStorage.setItem(HUMAN_STORE, humanOnly ? "1" : "0"); } catch (e) {}
+    applyHuman();
+  });
+  applyHuman();
+})();
+
 applyScope();
 recompute();
 </script>
