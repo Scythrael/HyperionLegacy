@@ -1,0 +1,160 @@
+src\App.svelte:2456: 🪨  | return "🪨";
+src\App.svelte:2458: 🔷  | return "🔷";
+src\App.svelte:2461: ️  | return "⚙️";
+src\App.svelte:2464: 🛡️  | return "🛡️";
+src\App.svelte:2468: ️  | return "♻️";
+src\App.svelte:4550: ️  | refine: "⚙️",       // Refinery line
+src\App.svelte:4551: 🔧  | fabricate: "🔧",    // Fabricator bay
+src\App.svelte:4552: 🔬  | research: "🔬",     // Research Lab
+src\App.svelte:4553: 🚧  | shipBuild: "🚧",    // Shipyard build
+src\App.svelte:4555: 📦  | storage: "📦",      // Ship Systems storage upgrade
+src\App.svelte:4559: ️  | salvage: "♻️",      // a completed salvage run
+src\App.svelte:4560: ️  | extraction: "⛏️",   // captain on a gathering / extraction mission
+src\App.svelte:4561: ️  | patrol: "⚔️",       // captain on a combat patrol
+src\App.svelte:4562: 👤  | dispatch: "👤",     // idle captain awaiting orders (the dispatch prompt)
+src\App.svelte:11561: ️  | fpane("refinery", "⚗️", FACILITY_LABELS.refinery, `Level ${refineryLevel}`,
+src\App.svelte:11567: 🔧  | fpane("fabricator", "🔧", FACILITY_LABELS.fabricator, `Level ${fabricatorLevel}`,
+src\App.svelte:11573: 🔬  | fpane("research", "🔬", FACILITY_LABELS.research, `Level ${researchLevel}`,
+src\App.svelte:11586: 🛠️  | fpane("shipyard", "🛠️", FACILITY_LABELS.shipyard, `Level ${shipyardLevel}`,
+src\App.svelte:11591: ️  | fpane("salvageBay", "♻️", FACILITY_LABELS.salvageBay, "Recycling bay",
+src\App.svelte:11602: 📦  | fpane("warehouse", "📦", FACILITY_LABELS.warehouse, `Level ${warehouseT1Level}`,
+src\App.svelte:11606: 🚉  | fpane("docks", "🚉", FACILITY_LABELS.docks, "Ship storage",
+src\App.svelte:11610: 📦  | fpane("quartermaster", "📦", FACILITY_LABELS.quartermaster, "Supply counter",
+src\App.svelte:11616: 🗄️  | fpane("armory", "🗄️", FACILITY_LABELS.armory, "Loadout bay",
+src\App.svelte:11621: 🏛️  | fpane("archive", "🏛️", FACILITY_LABELS.archive, "Completion record",
+src\App.svelte:11628: 🧑🚀  | fpane("personnelRosters", "🧑‍🚀", FACILITY_LABELS.personnelRosters, `Level ${rostersView.le
+src\App.svelte:12171: ️  | ⚠️ Salvage Lanes (2026-09-04): the fallback was a hardcoded `?? 1`, correct only
+src\App.svelte:12310: ️  | ⚠️ THE SLOT READOUT IS INTENTIONALLY ALSO PRINTED BY THE CATALOGUE PANEL BELOW. That
+src\App.svelte:12493: ️  | ⚠️ WHAT THE FIRST BUILD GOT WRONG, so it is not repeated: it bolted the collapse, gear
+src\App.svelte:12499: ️  | ⚠️ ONE RESPONSIVE COMPONENT, NOT TWO VIEW LAYERS. The platform split (separate mobile and
+src\App.svelte:12521: 🖼️  | 🖼️
+src\App.svelte:12914: ️  | ⚠️ THE `&& refineryQueue.canEnqueue` CLAUSE WAS REMOVED (queue-full popup,
+src\App.svelte:12972: ️  | ⚠️ The 0.13.3 holistic pass then changed ONE label: "Allocated" reads
+src\App.svelte:13028: ️  | ⚠️ IT IS DELIBERATELY LEFT ENABLED WHEN THE QUEUE IS FULL (queue-full
+src\App.svelte:13491: ️  | ⚠️ THE SECOND CONDITION IS FABRICATOR-SPECIFIC AND LOAD-BEARING (the
+src\App.svelte:13501: ️  | ⚠️ THE `&& fabricatorQueue.canEnqueue` CLAUSE WAS REMOVED (queue-full
+src\App.svelte:13589: ️  | ⚠️ The 0.13.3 holistic pass then changed ONE label here too, in step with
+src\App.svelte:13657: ️  | ⚠️ faTalentBonus IS PASSED (the Unit 3.1 standing note): the
+src\App.svelte:13709: ️  | ⚠️ IT IS DELIBERATELY LEFT ENABLED WHEN THE QUEUE IS FULL
+src\App.svelte:13935: ️  | ⚠️ RENDERED UNCONDITIONALLY, unlike the Refinery's {#if refineryBuilt}
+src\App.svelte:14054: ️  | ⚠️ IT IS ADDED BESIDE THE THREE-STATE CHAIN ABOVE, NEVER INSIDE IT,
+src\App.svelte:14068: ️  | ⚠️ AND IT IS DELIBERATELY OFFERED WHILE `gate` IS BLOCKED. tierLocked,
+src\App.svelte:14531: ️  | ⚠️ THE TWO GRIDS WERE SWAPPED (user request, 2026-09-10): Salvaged Materials
+src\App.svelte:14584: ️  | ⚠️ NOTHING ABOUT IT GOES ON THE HOME DASHBOARD, by that same instruction. That
+src\App.svelte:14663: ️  | ⚠️ ITS SOURCE MOVED, AND SO DID WHAT IT CAN HONESTLY SAY. It used to be set
+src\App.svelte:14746: ️  | <div class="warehouse-stub-glyph">♻️</div>
+src\App.svelte:14816: ️  | ⚠️ THE BUTTON IS GATED ON `free` AS OF THE BATCH-SALVAGE FOLLOW-UP, which
+src\App.svelte:14892: ️  | ⚠️ TESTED ON WHOLE UNITS, NOT ON selFree (2026-09-10). A leftover
+src\App.svelte:14906: ️  | ⚠️ Salvage Lanes (2026-09-04): "through the single bay" is no
+src\App.svelte:14908: ️  | ⚠️ `state` is passed to salvageDurationPreview so these lines
+src\App.svelte:14931: ️  | ⚠️ THE `(max N)` READOUT IS NOW A RAW INTEGER, matching the Refinery and
+src\App.svelte:14962: ️  | ⚠️ DELIBERATELY LEFT ENABLED WHEN THE QUEUE IS FULL (queue-full popup,
+src\App.svelte:14974: ️  | ⚠️ THE STOCK GATE NOW READS selFreeUnits, NOT selFree (2026-09-10). It is
+src\App.svelte:15017: 🛰️  | <div class="warehouse-stub-glyph">🛰️</div>
+src\App.svelte:15079: 🔒  | <span class="sb-tile-lock" aria-hidden="true">🔒</span>
+src\App.svelte:15121: ️  | ⚠️ NOTHING HERE CONSULTS equipmentStorageCap, deliberately. Salvage is the
+src\App.svelte:15198: 🔒🔓  | {sys.locked === true ? "🔒 Locked" : "🔓 Lock"}
+src\App.svelte:15245: ️  | ⚠️ THIS TAB SELLS LANES AND NOTHING ELSE. A salvage SPEED rung was floated at
+src\App.svelte:15250: ️  | ⚠️ THE TWO NUMBERS ON THIS FACILITY ARE DIFFERENT THINGS, and the explainer
+src\App.svelte:15391: ️  | ⚠️ GATED, unlike the Research Lab's unconditional panel, and the difference is
+src\App.svelte:15622: ️  | ⚠️ IT IS ADDED BESIDE THE BUILD BUTTON, NEVER REPLACING IT, and that is
+src\App.svelte:15635: ️  | ⚠️ RENDERED FOR EVERY HULL, INCLUDING WHILE `gate` IS BLOCKED, and
+src\App.svelte:15643: ️  | ⚠️ AND THERE IS DELIBERATELY NO DUPLICATE GATE. Queueing three
+src\App.svelte:15650: ️  | ⚠️ AND IT IS DELIBERATELY LEFT ENABLED WHEN THE QUEUE IS FULL (queue-full
+src\App.svelte:16004: ️  | ⚠️ THE COPY MUST NOT PROMISE AN IMMEDIATE THROUGHPUT GAIN. The track runs to 10
+src\App.svelte:16057: ️  | ⚠️ THE ROW LIST IS DERIVED, NOT WRITTEN HERE. It iterates
+src\App.svelte:16225: 🪙  | <div class="warehouse-stub-glyph">🪙</div>
+src\App.svelte:16360: 🗄️  | <div class="warehouse-stub"><div class="warehouse-stub-glyph">🗄️</div><p>No loadouts yet. 
+src\App.svelte:16511: 🔒  | <span class="ship-pick-name"><span style="color:{equipmentRarityColor(cand.rarity)};">{#if
+src\App.svelte:16791: 🛰️  | <div class="warehouse-stub-glyph">🛰️</div>
+src\App.svelte:16825: 🔒  | <span class="sb-tile-lock" aria-hidden="true">🔒</span>
+src\App.svelte:16909: 🔒  | >🔒 {label}</span>
+src\App.svelte:17037: 🔬  | <div class="warehouse-stub-glyph">🔬</div>
+src\App.svelte:17195: 🗄️  | <div class="warehouse-stub-glyph">🗄️</div>
+src\App.svelte:17385: 🚀  | <span class="ship-row-glyph" aria-hidden="true">🚀</span>
+src\App.svelte:17754: 🖼️  | <div class="mission-portrait-frame profile-portrait" aria-hidden="true">🖼️</div>
+src\App.svelte:17957: 🎖️  | <span class="cpane-portrait" aria-hidden="true">🎖️</span>
+src\App.svelte:18028: 🔒  | <span class="cpane-portrait" aria-hidden="true">🔒</span>
+src\App.svelte:18105: 🎖️  | <span class="cc-portrait" aria-hidden="true">🎖️</span>
+src\App.svelte:18394: 🔒  | label: (prestigeCommitted !== null && prestigeCommitted !== b ? "🔒 " : "") + SECONDARY_BRA
+src\App.svelte:18407: 🔒  | <div class="cc-prestige-locked">🔒 Committed to {SECONDARY_BRANCH_LABEL[prestigeCommitted]}
+src\App.svelte:18431: 🔒  | <div class="research-cost">🔒 Crew equipment, coming in a later update.</div>
+src\App.svelte:18478: ️  | ⚠️ MOVED, NOT COPIED. The per-captain card markup lives in the two snippets
+src\App.svelte:18657: 🚀  | <span class="mpane-glyph" aria-hidden="true">{#if ownGlyph}<Icon name={ownGlyph} size={22}
+src\App.svelte:18777: 🔒  | <span class="mpane-glyph" aria-hidden="true">🔒</span>
+src\App.svelte:18875: ️  | ⚠️ Exploration 0.14.0 (Phase E1b): the SURVEY missions (briefly hosted here
+src\App.svelte:19274: 🔒  | <div class="research-cost" style="color: var(--color-text-secondary)">🔒 {MISSIONS[mKey].la
+src\App.svelte:19493: ️  | ⚠️ Every field here already existed on CompletionRow EXCEPT `source`, which 0.13.5
+src\App.svelte:19598: ️  | ⚠️ THE TICKER IS ACTIONABLE NOW (0.13.5, user). It was deliberately DISPLAY-ONLY,
+src\App.svelte:19606: ️  | ⚠️ IT RENDERS THE SAME needsPromptButton SNIPPET the expanded list does, rather
+src\App.svelte:19819: ️  | switching it on reveals the rest. ⚠️ Symmetric spacing: the divider and gap
+src\App.svelte:19852: 🔒  | <span class="home-lock-ico" aria-hidden="true">🔒</span>
+src\App.svelte:19983: ️  | ⚠️ THE SPLIT ALSO ENCODES STORAGE, which is the part that must not be got wrong: a
+src\App.svelte:19998: ️  | ⚠️ settings-section (the 6px gap) was MISSING here, so Accessibility sat flush against UI
+src\App.svelte:20074: ️  | ⚠️ A TOGGLE, not a dropdown, because there is exactly ONE palette today; the same Toggle
+src\App.svelte:20440: ️  | ⚠️ MOVED, NOT MIRRORED, and the distinction is the reason the link existed first: these
+src\App.svelte:20591: ️  | enabled}). ⚠️ NAME EVERY SELECTING RULE (quality, rarity, duplicates); a fourth
+src\App.svelte:20707: ️  | one save field). ⚠️ The label stays "Confirm before salvaging" WORD-FOR-WORD: the
+src\App.svelte:21748: ️  | ⚠️ This will not beat your record of {formatNumber(row.archived)}. Enshrining it consumes 
+src\App.svelte:21788: ️  | ⚠️ THIS DIALOG IS NOT ITSELF A MANAGED CONFIRMATION, and that exclusion is load-bearing
+src\App.svelte:21793: ️  | ⚠️ It also appears ONLY when the current level is Custom (presetOverwriteNeedsConfirm). Mo
+src\App.svelte:21983: ️  | ⚠️ WHAT THIS TEXT MUST NOT SAY: that leaving Duplicates ON keeps the player safe. It
+src\App.svelte:22040: ️  | ⚠️ THESE TWO MOVED UP ONE LEVEL in Unit 6.5, and the values are unchanged. They used
+src\App.svelte:22706: ️  | /* ⚠️ ONE GRID for all stat rows, so every bar is the SAME width. Each .tb-statrow is disp
+src\App.svelte:22721: ️  | /* RESOURCES: currency (popup). ⚠️ position:relative HERE (not on .tb-pop-wrap) so on
+src\App.svelte:22788: ️  | /* ⚠️ THE ONE INFO-TOOLTIP SURFACE (0.13.5 tooltip standardization, user: "info tooltips s
+src\App.svelte:23174: ️  | /* ⚠️ SOLID dark bg, not panel-strong (which is rgba(accent, 0.06), nearly transparent). W
+src\App.svelte:23185: ️  | /* ⚠️ A REAL <select>, NOT A CUSTOM WIDGET. It gets keyboard navigation, screen-reader sup
+src\App.svelte:23206: ️  | /* ⚠️ DE-EMPHASISED IN 0.13.5 (external UX review point 2): was a full-strength
+src\App.svelte:23274: ️  | ⚠️ The duration is --bar-step-seconds (the live tick length), NOT a fixed 0.2s. At 0.2s th
+src\App.svelte:23442: 🖼️  | the 🖼️ emoji placeholder in the template), so this is a dashed
+src\App.svelte:23554: ️  | /* Crafting level. ⚠️ Amber, so it reads as a SIBLING track to Fleet Admiral level rather 
+src\App.svelte:23566: ️  | /* ⚠️ THE BORDER BELONGS TO THE OUTER ROW, NOT THE INNER BUTTON (fixed 2026-09-13).
+src\App.svelte:23575: ️  | /* ⚠️ Own stacking context, so an expanded row's detail cannot paint over its neighbor. */
+src\App.svelte:23624: ️  | /* ⚠️ THE TIME IS A FIXED-WIDTH COLUMN, which is the whole reason the rows read as tidy: t
+src\App.svelte:23657: ️  | /* ⚠️ The detail sits INSIDE the row's frame now (the border moved to .done-row above), so
+src\App.svelte:23688: ️  | /* SHOW MORE HISTORY. ⚠️ Matched spacing above AND below once open, per the user: the togg
+src\App.svelte:23751: ️  | /* ⚠️ 0.13.5: was rgba(accent, 0.4), which resolves to 3.01:1 against the panel and fails
+src\App.svelte:24016: 🎖️🔒  | /* Squared portrait box (no per-captain art asset yet), the 🎖️/🔒 glyph framed like
+src\App.svelte:24149: ️  | /* ⚠️ The label cell is a flex row [truncating text · ⓘ]: the TEXT ellipsizes, but the ⓘ i
+src\App.svelte:24411: ️  | /* The header owns the gap below itself, so the embedded strip must not add its own. ⚠️ fl
+src\App.svelte:24909: ️  | /* ⚠️ CONTENT-SIZED, not a fixed 210px. The old fixed width capped the card at ~60% of a p
+src\App.svelte:25102: ️  | /* ⚠️ The ticker item now WRAPS the shared prompt button rather than duplicating its marku
+src\App.svelte:25187: ️  | /* ⚠️ RECENTLY COMPLETED IS A SINGLE COLUMN, NOT THE 2-UP GRID (fixed 2026-09-13, take two
+src\App.svelte:25253: ️  | /* ⚠️ flex-wrap IS LOAD-BEARING, NOT TIDYING (mobile overflow fix, 2026-09-11, user report
+src\App.svelte:25290: ️  | /* ⚠️ THE GREEN LEFT ACCENT WAS REMOVED (user, 2026-09-13). It marked a row as "finished",
+src\App.svelte:25729: ️  | /* ⚠️ 0.13.5: the ANIMATION is disabled too, not just the transition. With it off, the inl
+src\lib\CombatView.svelte:1396: ️  | <div class="portrait">{"\u{1F6E1}️"}</div>
+src\lib\CombatView.svelte:1491: ️  | <div class="portrait">{"☠️"}</div>
+src\lib\CombatView.svelte:1623: ️  | <div class="cvm-ico">{"\u{1F6E1}️"}</div>
+src\lib\CombatView.svelte:1723: ️  | <div class="cvm-ico">{destroyed ? "\u{1F480}" : "☠️"}</div>
+src\lib\CombatView.svelte:2143: ️  | /* The main arena hull/shield gauges. ⚠️ Smoothed over --combat-step-seconds (the log's re
+src\lib\ConsoleTabs.svelte:64: 🔒  | <div class="ctab locked" title="Coming soon, not yet available">🔒 {t.label}</div>
+src\lib\EquipmentTooltip.svelte:132: ️  | prospectorHold: "⛏️",
+src\lib\EquipmentTooltip.svelte:133: 📦  | balancedHold: "📦",
+src\lib\EquipmentTooltip.svelte:134: 🏗️  | haulerHold: "🏗️",
+src\lib\EquipmentTooltip.svelte:136: 🚀  | sprintDrive: "🚀",
+src\lib\EquipmentTooltip.svelte:138: 🧭  | balancedDrive: "🧭",
+src\lib\EquipmentTooltip.svelte:140: ️  | highOutputCore: "⚛️",
+src\lib\EquipmentTooltip.svelte:141: 🔋  | efficientCore: "🔋",
+src\lib\EquipmentTooltip.svelte:142: ️  | balancedCore: "⚖️",
+src\lib\EquipmentTooltip.svelte:187: 📦  | cargoBay: "📦",
+src\lib\EquipmentTooltip.svelte:188: 🚀  | ftlDrive: "🚀",
+src\lib\EquipmentTooltip.svelte:189: ️  | reactorCore: "⚛️",
+src\lib\EquipmentTooltip.svelte:190: 🛠️  | specUtility: "🛠️",
+src\lib\EquipmentTooltip.svelte:191: 🛡️  | hullPlating: "🛡️",
+src\lib\EquipmentTooltip.svelte:192: 🔰  | shieldEmitters: "🔰",
+src\lib\EquipmentTooltip.svelte:193: 🔫  | weapon: "🔫",
+src\lib\EquipmentTooltip.svelte:194: 🛸  | droneBay: "🛸",
+src\lib\EquipmentTooltip.svelte:230: 🛰️  | return SLOT_ICON_FALLBACK[slotType] ?? "🛰️";
+src\lib\EquipmentTooltip.svelte:253: 🛰️  | if (bp === undefined) return "🛰️";
+src\lib\EquipmentTooltip.svelte:257: 🛰️  | return "🛰️";
+src\lib\HelpTip.svelte:220: ️  | /* ⚠️ FIXED, positioned from JS (see show()), so no ancestor overflow can clip it. top/lef
+src\lib\HelpTip.svelte:227: ️  | /* ⚠️ GENUINELY OPAQUE, via the same idiom the Ship Systems dialog uses: an accent tint la
+src\lib\SettingRow.svelte:67: ️  | /* ⚠️ WRAPS ON PURPOSE. A long label beside a wide control (the combat-log speed buttons, 
+src\lib\ShipSystemsPanel.svelte:2777: ️  | /* The repair fill. ⚠️ --bar-step-seconds is the LIVE TICK LENGTH, published on documentEl
+src\lib\SubTabs.svelte:65: 🔒  | {#if tab.locked}🔒 {/if}{#if tab.crewLock}<span class="sub-tab-lock"><Icon name="lock" size
+src\lib\game\allocation.ts:116: ️  | mode: CraftLineMode; // batch (fixed N) or continuous (unbounded); see CraftLineMode's ⚠️ 
+src\lib\game\model.ts:14612: ️  | return 750 * level * level; // ⚠️ 0.12.1 TEMPORARY base (was 375000); tunable, see note ab
+src\lib\game\tick.ts:10938: ️  | {}, // ⚠️ no inputs: consume-at-completion, see the header
+src\lib\game\tick.ts:11002: ️  | {}, // ⚠️ no inputs: consume-at-completion, exactly as the manual path

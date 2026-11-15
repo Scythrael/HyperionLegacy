@@ -205,3 +205,20 @@ Not counted as FAILs (observations from passing rows):
   numeric breakdown.
 - R2-5 Statistics: "Fleet Admiral XP Awarded" equals Captain XP and excludes the Fleet Admiral XP from finite work
   (upgrades, research, crafting): tick.ts ~5637-5638 adds that process XP without a lifetimeStats fold.
+
+## User report 2026-11-15: Faster Than Light band (FIXED, 0c2a4eb7)
+
+Staging on an Android phone (Brave), after the tab sat in the background: a solid magenta vertical band at two
+thirds of the screen width (and a matching horizontal one at two thirds height, mostly behind panels). Cause: the
+browser reset the canvas context while hidden, dropping the 1.5x pixel-ratio transform; ftlRenderer set it only on
+resize, so frames drew into the top-left 1/1.5 of the canvas and streaks that crossed that edge were never faded.
+Fix: every frame re-applies the scale; FasterThanLight.svelte re-measures on return to visible and on
+`contextrestored`. Regression test fails on the old renderer; a real-browser canvas check after a forced reset
+left 0 stuck pixels past two thirds.
+
+## Emoji in shipped UI (found 2026-11-15 from the same screenshot)
+
+The SVG-only rule (icons.ts) is broken in more places than A2-7: ship rows (🚀), the profile portrait (🖼️), every
+facility card glyph, empty-state glyphs, lock glyphs (🔒/🔓), captain portraits (🎖️), Equipment tooltip system glyphs,
+job-kind glyphs. Most predate the rule. Line-by-line list: docs/qa/2026-11-15-emoji-inventory.txt (comment lines
+with ⚠️ are code notes, not UI). Scope question for the user: sweep them all in 0.14.0 or only the 0.14.0 ones.
