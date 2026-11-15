@@ -1,0 +1,918 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>0.14.0 QA: full pass</title>
+<style>
+  * { box-sizing: border-box; }
+  html { color-scheme: dark; }
+  body {
+    margin: 0;
+    background:
+      radial-gradient(1200px 600px at 78% -10%, rgba(56,224,255,0.10), transparent 60%),
+      radial-gradient(900px 500px at 8% 8%, rgba(185,139,255,0.08), transparent 55%),
+      #070b12;
+    color: #dce6f3;
+    font: 14px/1.55 ui-sans-serif, system-ui, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    padding: env(safe-area-inset-top, 0) 0 calc(env(safe-area-inset-bottom, 0) + 48px);
+    overflow-x: hidden;
+  }
+  .wrap { max-width: 980px; margin: 0 auto; padding: 28px 18px 0; }
+  a { color: #38e0ff; }
+  code { font-size: 12.5px; color: #7cf6c9; overflow-wrap: anywhere; }
+
+  .eyebrow { font-size: 11px; letter-spacing: 3px; text-transform: uppercase; color: #38e0ff; opacity: 0.85; margin: 0 0 6px; }
+  h1 { font-size: clamp(22px, 4.4vw, 34px); line-height: 1.1; margin: 0 0 4px; text-wrap: balance; font-weight: 750; letter-spacing: 0.3px; }
+  h1 .v { color: #38e0ff; }
+  .sub { color: #8497af; margin: 0 0 20px; font-size: 13px; }
+
+  .progress-card {
+    background: linear-gradient(180deg, #111a29, #0b1220);
+    border: 1px solid #2a3a54; border-radius: 16px; padding: 20px 22px; box-shadow: 0 0 0 1px #1f2c40, 0 18px 40px -24px #000; margin-bottom: 20px;
+  }
+  .progress-top { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+  .pct { font-size: clamp(30px, 8vw, 52px); font-weight: 800; line-height: 1; letter-spacing: -1px; color: #38e0ff;
+    text-shadow: 0 0 24px rgba(56,224,255,0.45); font-variant-numeric: tabular-nums; }
+  .pct small { font-size: 15px; font-weight: 600; color: #8497af; margin-left: 8px; letter-spacing: 0; }
+  .rowcount { color: #dce6f3; font-size: 15px; font-weight: 650; font-variant-numeric: tabular-nums; }
+  .rowcount b { color: #7cf6c9; }
+  .bar { margin-top: 16px; height: 16px; border-radius: 999px; background: #0a1220; border: 1px solid #2a3a54; overflow: hidden; }
+  .bar > i { display: block; height: 100%; width: 0%; background: linear-gradient(90deg, #2bd0ff, #7cf6c9);
+    box-shadow: 0 0 18px rgba(56,224,255,0.6); border-radius: 999px; transition: width .35s cubic-bezier(.2,.8,.2,1); }
+  .substats { display: flex; gap: 18px; flex-wrap: wrap; margin-top: 14px; font-size: 12.5px; color: #8497af; }
+  .substats .dot { display: inline-block; width: 9px; height: 9px; border-radius: 3px; margin-right: 7px; vertical-align: middle; }
+  .substats b { color: #dce6f3; font-variant-numeric: tabular-nums; }
+  .d-desk { background: #38e0ff; box-shadow: 0 0 10px #38e0ff; }
+  .d-mob { background: #ffcc66; box-shadow: 0 0 10px #ffcc66; }
+  .d-any { background: #7cf6c9; box-shadow: 0 0 10px #7cf6c9; }
+
+  .scope { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-top: 16px; }
+  .scope .lbl { font-size: 11px; letter-spacing: 1.5px; text-transform: uppercase; color: #5d6d86; margin-right: 4px; }
+  .scope button { background: #0b1220; color: #8497af; border: 1px solid #2a3a54; border-radius: 999px; padding: 6px 13px; font-size: 12.5px; font-weight: 650; cursor: pointer; }
+  .scope button[aria-pressed="true"] { color: #070b12; background: #38e0ff; border-color: #38e0ff; }
+  .scope button:hover { border-color: #38e0ff; }
+
+  .summary { background: #0b1220; border: 1px solid #1f2c40; border-radius: 14px; padding: 16px 18px; margin-bottom: 18px; }
+  .summary h2 { margin: 0 0 4px; font-size: 15px; color: #6ff2b0; letter-spacing: 0.3px; }
+  .summary p { margin: 0 0 10px; color: #8497af; font-size: 12.5px; }
+  .summary .totals { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 12px; }
+  .summary .tot { flex: 1 1 140px; border: 1px solid #2a3a54; border-radius: 10px; padding: 10px 12px; background: #0a1220; min-width: 0; }
+  .summary .tot b { display: block; font-size: 24px; font-weight: 800; color: #38e0ff; font-variant-numeric: tabular-nums; line-height: 1.1; }
+  .summary .tot span { font-size: 11.5px; color: #8497af; }
+  .summary .tot.reg b { color: #ffcc66; }
+  .summary .tot.all b { color: #7cf6c9; }
+  .sumgrid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+  .sumgrid table { width: 100%; border-collapse: collapse; font-size: 12.5px; table-layout: fixed; }
+  .sumgrid caption { text-align: left; font-size: 10.5px; letter-spacing: 1px; text-transform: uppercase; color: #5d6d86; padding: 0 0 6px; }
+  .sumgrid td { padding: 4px 6px; border-bottom: 1px solid #1f2c40; color: #8497af; vertical-align: top; overflow-wrap: anywhere; }
+  .sumgrid td.n { width: 40px; color: #38e0ff; font-weight: 700; font-variant-numeric: tabular-nums; }
+  .sumgrid td.c { width: 64px; text-align: right; font-variant-numeric: tabular-nums; color: #dce6f3; white-space: nowrap; }
+  .sumgrid td a { text-decoration: none; color: #8497af; }
+  .sumgrid td a:hover { color: #38e0ff; }
+  .sumgrid tr.out td { opacity: 0.4; }
+  .sumgrid tr.sub td { color: #dce6f3; font-weight: 700; border-bottom: none; }
+
+  .legend { background: #0b1220; border: 1px solid #1f2c40; border-radius: 12px; padding: 14px 16px; margin-bottom: 18px; font-size: 12.5px; color: #8497af; }
+  .legend p { margin: 0 0 8px; }
+  .legend p:last-child { margin-bottom: 0; }
+  .legend b { color: #dce6f3; }
+  .howto { background: linear-gradient(180deg, rgba(56,224,255,0.07), transparent); border: 1px solid rgba(56,224,255,0.28); border-radius: 12px; padding: 14px 16px; margin-bottom: 18px; font-size: 13px; color: #8497af; }
+  .howto h2 { margin: 0 0 6px; font-size: 14px; color: #38e0ff; letter-spacing: 0.3px; }
+  .howto ol, .howto ul { margin: 6px 0 0; padding-left: 20px; }
+  .howto li { margin-bottom: 5px; }
+  .howto b { color: #dce6f3; }
+
+  .chip { display: inline-block; padding: 1px 8px; border-radius: 999px; font-size: 11px; font-weight: 650; letter-spacing: 0.3px; vertical-align: middle; }
+  .chip.save { color: #ff9a6b; background: rgba(255,154,107,0.12); border: 1px solid rgba(255,154,107,0.4); }
+  .chip.fresh { color: #f0a8ff; background: rgba(240,168,255,0.10); border: 1px solid rgba(240,168,255,0.4); }
+  .chip.device { color: #7fb2ff; background: rgba(127,178,255,0.12); border: 1px solid rgba(127,178,255,0.4); }
+  .chip.theme { color: #7cf6c9; background: rgba(124,246,201,0.10); border: 1px solid rgba(124,246,201,0.35); }
+  .chip.debug { color: #b98bff; background: rgba(185,139,255,0.12); border: 1px solid rgba(185,139,255,0.4); }
+  .chip.only { color: #dce6f3; background: rgba(255,255,255,0.05); border: 1px solid #2a3a54; }
+  .chip.kp { color: #ffb86b; background: rgba(255,184,107,0.12); border: 1px solid rgba(255,184,107,0.5); }
+  .chip.kd { color: #ff8fb8; background: rgba(255,143,184,0.10); border: 1px solid rgba(255,143,184,0.45); }
+  .chip.ko { color: #a9b4ff; background: rgba(169,180,255,0.10); border: 1px solid rgba(169,180,255,0.45); }
+  .chip.kf { color: #6ff2b0; background: rgba(111,242,176,0.10); border: 1px solid rgba(111,242,176,0.45); }
+  .chip.gap { color: #8497af; background: transparent; border: 1px dashed #2a3a54; }
+  .src { color: #5d6d86; font-size: 11.5px; }
+
+  .jump { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 18px; }
+  .jump a { text-decoration: none; font-size: 12px; color: #8497af; border: 1px solid #2a3a54; border-radius: 999px; padding: 3px 10px; background: #0b1220; }
+  .jump a:hover { color: #38e0ff; border-color: #38e0ff; }
+  .jump a b { color: #38e0ff; font-variant-numeric: tabular-nums; margin-right: 4px; }
+  .jump a.reg b { color: #ffcc66; }
+  .jump .jl { width: 100%; font-size: 10.5px; letter-spacing: 1px; text-transform: uppercase; color: #5d6d86; margin-top: 4px; }
+
+  .toolbar { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-bottom: 22px; }
+  .btn { background: #111a29; color: #dce6f3; border: 1px solid #2a3a54; border-radius: 8px; padding: 7px 13px; font-size: 12.5px; cursor: pointer; font-weight: 600; }
+  .btn:hover { border-color: #38e0ff; color: #38e0ff; }
+  .toolbar .note { color: #5d6d86; font-size: 12px; }
+
+  .part { margin: 34px 0 18px; padding: 16px 18px; border-radius: 14px; border: 1px solid rgba(56,224,255,0.35); background: linear-gradient(90deg, rgba(56,224,255,0.10), transparent); }
+  .part.reg { border-color: rgba(255,204,102,0.4); background: linear-gradient(90deg, rgba(255,204,102,0.10), transparent); }
+  .part .pk { font-size: 11px; letter-spacing: 3px; text-transform: uppercase; color: #38e0ff; }
+  .part.reg .pk { color: #ffcc66; }
+  .part h2 { margin: 2px 0 4px; font-size: 20px; }
+  .part p { margin: 0; color: #8497af; font-size: 12.5px; }
+
+  section { margin-bottom: 30px; scroll-margin-top: 12px; }
+  .sec-head { display: flex; align-items: center; gap: 12px; margin: 0 0 6px; }
+  .sec-num { font-variant-numeric: tabular-nums; font-weight: 800; color: #38e0ff; font-size: 13px; letter-spacing: 1px;
+    background: rgba(56,224,255,0.08); border: 1px solid rgba(56,224,255,0.3); border-radius: 7px; padding: 3px 9px; min-width: 34px; text-align: center; }
+  section.reg .sec-num { color: #ffcc66; background: rgba(255,204,102,0.08); border-color: rgba(255,204,102,0.35); }
+  .sec-title { font-size: 16px; font-weight: 700; letter-spacing: 0.2px; min-width: 0; }
+  .sec-line { flex: 1; height: 1px; background: linear-gradient(90deg, #2a3a54, transparent); }
+  .sec-done { font-size: 11.5px; color: #5d6d86; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .sec-note { color: #8497af; font-size: 12.5px; font-style: italic; margin: 0 0 10px; border-left: 2px solid #2a3a54; padding: 2px 0 2px 12px; }
+
+  .sheets { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 8px; margin: 0 0 12px; }
+  .sheet { background: #0b1220; border: 1px solid #1f2c40; border-radius: 10px; padding: 10px 12px; font-size: 12.5px; color: #8497af; min-width: 0; }
+  .sheet a { font-weight: 650; text-decoration: none; }
+  .sheet a:hover { text-decoration: underline; }
+  .sheet .file { display: block; color: #5d6d86; font-size: 11px; margin-top: 1px; overflow-wrap: anywhere; }
+  .sheet p { margin: 6px 0 0; }
+  .sheets-label { font-size: 10.5px; letter-spacing: 1px; text-transform: uppercase; color: #5d6d86; margin: 0 0 6px; }
+
+  .items { display: flex; flex-direction: column; gap: 2px; }
+  .col-head, .item { display: grid; grid-template-columns: 52px 52px 1fr; gap: 10px; }
+  .col-head { align-items: center; padding: 4px 12px; font-size: 10.5px; letter-spacing: 1px; text-transform: uppercase; color: #5d6d86; }
+  .col-head .ch { text-align: center; }
+  .col-head .ch.desk { color: #38e0ff; }
+  .col-head .ch.mob { color: #ffcc66; }
+  .item { align-items: start; padding: 10px 12px; border-radius: 10px; border: 1px solid transparent; }
+  .item:nth-child(odd) { background: rgba(255,255,255,0.014); }
+  .item.done { background: rgba(124,246,201,0.05); border-color: rgba(124,246,201,0.18); }
+  .cell { display: flex; justify-content: center; padding-top: 1px; }
+  .cell.span2 { grid-column: span 2; flex-direction: column; align-items: center; gap: 2px; }
+  .eith { font-size: 9.5px; letter-spacing: 0.5px; color: #5d6d86; text-transform: uppercase; }
+  .na { font-size: 10.5px; color: #5d6d86; padding-top: 3px; letter-spacing: 0.5px; }
+
+  .cb { position: relative; width: 22px; height: 22px; }
+  .cb input { position: absolute; inset: 0; opacity: 0; margin: 0; cursor: pointer; }
+  .cb .box { width: 22px; height: 22px; border-radius: 6px; border: 2px solid #2a3a54; display: grid; place-items: center; transition: .12s; background: #0a1220; }
+  .cb .box svg { width: 13px; height: 13px; opacity: 0; transform: scale(.5); transition: .12s; }
+  .cb input:checked + .box svg { opacity: 1; transform: scale(1); }
+  .cb input:focus-visible + .box { outline: 2px solid #38e0ff; outline-offset: 2px; }
+  .cb.desk input:checked + .box { background: rgba(56,224,255,0.18); border-color: #38e0ff; }
+  .cb.desk .box svg { color: #38e0ff; }
+  .cb.mob input:checked + .box { background: rgba(255,204,102,0.18); border-color: #ffcc66; }
+  .cb.mob .box svg { color: #ffcc66; }
+  .cb.any input:checked + .box { background: rgba(124,246,201,0.18); border-color: #7cf6c9; }
+  .cb.any .box svg { color: #7cf6c9; }
+  .cb.desk input:hover + .box { border-color: #38e0ff; }
+  .cb.mob input:hover + .box { border-color: #ffcc66; }
+  .cb.any input:hover + .box { border-color: #7cf6c9; }
+
+  .body { min-width: 0; overflow-wrap: anywhere; }
+  .body .t { color: #dce6f3; }
+  .body .ex { display: block; color: #8497af; margin-top: 3px; }
+  .body .ex b { color: #7cf6c9; font-weight: 650; }
+  .body .kn { display: block; color: #ffb86b; font-size: 12px; margin-top: 4px; }
+  .meta { margin-top: 5px; display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+
+  .index { background: #0b1220; border: 1px solid #1f2c40; border-radius: 14px; padding: 16px 18px; margin-top: 12px; }
+  .index h2 { margin: 0 0 4px; font-size: 15px; color: #6ff2b0; letter-spacing: 0.3px; }
+  .index p { margin: 0 0 10px; color: #8497af; font-size: 12.5px; }
+  .index table { width: 100%; border-collapse: collapse; font-size: 12.5px; table-layout: fixed; }
+  .index th { text-align: left; font-size: 10.5px; letter-spacing: 1px; text-transform: uppercase; color: #5d6d86; font-weight: 650; padding: 6px 8px; border-bottom: 1px solid #2a3a54; }
+  .index td { padding: 6px 8px; border-bottom: 1px solid #1f2c40; vertical-align: top; overflow-wrap: anywhere; color: #8497af; }
+  .index td a { text-decoration: none; }
+  .index td a:hover { text-decoration: underline; }
+  .index col.c-date { width: 92px; }
+  .index col.c-sec { width: 36%; }
+  .foot { margin-top: 26px; color: #5d6d86; font-size: 11.5px; text-align: center; }
+  [hidden] { display: none !important; }
+
+  @media (max-width: 700px) {
+    .sumgrid { grid-template-columns: 1fr; }
+  }
+  @media (max-width: 520px) {
+    .col-head, .item { grid-template-columns: 34px 34px 1fr; gap: 6px; }
+    .item { padding: 10px 8px; }
+    .col-head { padding: 4px 8px; font-size: 9.5px; letter-spacing: 0.5px; }
+    .wrap { padding-left: 14px; padding-right: 14px; }
+    .sheets { grid-template-columns: 1fr; }
+    .index, .summary { padding: 14px 10px; }
+    .index col.c-date { width: 0; }
+    .index .h-date, .index .d-date { display: none; }
+    .index col.c-sec { width: 40%; }
+    .sec-head { gap: 8px; }
+    .sec-title { font-size: 15px; }
+    .progress-card { padding: 16px 14px; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <p class="eyebrow">Hyperion Legacy QA, 0.14.0 full pass</p>
+  <h1><span class="v">0.14.0</span> Full QA: every change, then full regression</h1>
+  <p class="sub">One sheet for the whole release. Part A walks every 0.14.0 change by player journey: the 2026-11-13 release sheet (all of its checks), every "QA-list gap" line from the Fable sweep ledger, and the staging freeze fix of 2026-11-14. Part B is a full regression of everything the game had before 0.14.0, built from the app's tabs, its Help topics and every older patch note. Run Part A alone for a changes-only pass, or both for the full pass.</p>
+
+  <div class="progress-card">
+    <div class="progress-top">
+      <div class="pct" id="pct">0%<small id="pctlabel">ready</small></div>
+      <div class="rowcount"><b id="doneCount">0</b> / <span id="totalCount">0</span> checks complete <span id="scopeName" style="color:#8497af;font-weight:500"></span></div>
+    </div>
+    <div class="bar"><i id="barFill"></i></div>
+    <div class="substats">
+      <span><span class="dot d-desk"></span>You at 1280 px <b id="deskCount">0</b> / <span id="deskTotal">0</span></span>
+      <span><span class="dot d-mob"></span>You at 375 px <b id="mobCount">0</b> / <span id="mobTotal">0</span></span>
+      <span><span class="dot d-any"></span>Either width <b id="anyCount">0</b> / <span id="anyTotal">0</span></span>
+      <span style="color:#5d6d86">A row is complete when every box it shows is ticked.</span>
+    </div>
+    <div class="scope" role="group" aria-label="Which checks to run">
+      <span class="lbl">Run</span>
+      <button type="button" data-scope="all" aria-pressed="true">Full pass (A + B)</button>
+      <button type="button" data-scope="A" aria-pressed="false">Changes only (A)</button>
+      <button type="button" data-scope="B" aria-pressed="false">Regression only (B)</button>
+    </div>
+  </div>
+
+  <div class="summary" id="summary">
+    <h2>Summary</h2>
+    <p>Checks per section. The numbers count rows (one row can carry a 1280 and a 375 box). Out-of-scope sections dim when you pick a run above.</p>
+    <div class="totals">
+      <div class="tot"><b id="sumA">0</b><span>Part A: 0.14.0 changes</span></div>
+      <div class="tot reg"><b id="sumB">0</b><span>Part B: full regression</span></div>
+      <div class="tot all"><b id="sumAll">0</b><span>Total checks</span></div>
+      <div class="tot"><b id="sumKnown" style="color:#ffb86b">0</b><span>Rows marked known issue</span></div>
+    </div>
+    <div class="sumgrid">
+      <table><caption>Part A: changes</caption><tbody id="sumBodyA"></tbody></table>
+      <table><caption>Part B: regression</caption><tbody id="sumBodyB"></tbody></table>
+    </div>
+  </div>
+
+  <div class="howto" id="before">
+    <h2>Before you start</h2>
+    <ul>
+      <li><b>Where:</b> staging only, <b><a href="https://devpreview.crystalisoft.com" target="_blank" rel="noopener">https://devpreview.crystalisoft.com</a></b>, on the 0.14.0 build that carries the freeze fix (merge 6f0de0be, fix 3ba8af02). Staging is a preview build, so the System window (the gear) has a <b>Debug</b> tab. There is no <code>?dev</code> switch: wherever a linked sheet says "?dev Debug", read it as the Debug tab on staging.</li>
+      <li><b>A fresh save:</b> a new browser profile opened on devpreview. Clearing site data alone is not a reliable reset, so use a new profile (or Settings, Save Data, Delete Save in a profile you do not need).</li>
+      <li><b>An old save:</b> in the live game, Settings, Save Data, <b>Export Save</b>, and keep that file safe as your backup. Note its size in KB. In a second browser profile open devpreview and use Settings, Save Data, <b>Import Save</b>. The older and longer-played the save, the better: it is what found the freeze.</li>
+      <li><b>Keep the console open</b> in both profiles for the whole pass. No console errors is part of every section.</li>
+      <li><b>Changes only:</b> run Part A (sections A0 to A16). <b>Full regression:</b> run Part A, then Part B (R1 to R13). Part B rows tagged "fresh save" are quickest on the fresh profile; everything else can use either.</li>
+      <li><b>Known issues:</b> rows from the Fable sweep ledger (<a href="2026-11-13-fable-sweep-ledger.md">2026-11-13-fable-sweep-ledger.md</a>) whose fix has not landed carry a chip. The row's text states the behavior you answered for; until the fix lands such a row is expected to fail, so note it and move on instead of re-reporting it.</li>
+    </ul>
+  </div>
+
+  <div class="legend">
+    <p><b>The columns.</b> <b style="color:#38e0ff">1280</b> is desktop, <b style="color:#ffcc66">375</b> is a phone width (or a real phone). A row that only makes sense at one width shows <span class="na">n/a</span> in the other column with a <span class="chip only">desktop only</span> or <span class="chip only">phone only</span> tag. A row with <b style="color:#7cf6c9">one centered box</b> checks rules, not layout: one pass at either width is enough.</p>
+    <p>Tags: <span class="chip fresh">fresh save</span> a new save. <span class="chip save">needs real save</span> your old (migrated) save. <span class="chip device">needs device</span> touch, a real phone, or a visual call. <span class="chip theme">light + dark</span> look at it in a light and a dark theme color. <span class="chip debug">Debug tab</span> uses the staging Debug tab.</p>
+    <p>Status: <span class="chip kf">fixed, verify</span> a ledger finding fixed on the branch. <span class="chip kp">known issue, fix pending</span> you answered the design question (or it is a plain bug); the fix has not landed. <span class="chip kd">known issue, decision pending</span> still on your list of questions. <span class="chip ko">known issue, open</span> a minor finding not yet scheduled. <span class="chip gap">sweep gap</span> a check the Fable sweep said the QA list was missing.</p>
+  </div>
+
+  <nav class="jump" id="jump" aria-label="Jump to a section"></nav>
+
+  <div class="toolbar">
+    <button class="btn" type="button" id="resetBtn">Reset my ticks</button>
+    <span class="note">Ticks and the run choice persist in this browser only.</span>
+  </div>
+
+  <div id="sections"></div>
+
+  <div class="index" id="link-index">
+    <h2>Link index: every 0.14.0 per-slice sheet</h2>
+    <p>Each sheet has one home section in Part A. The 0.13.x sheets (2026-09) predate this release; Part B replaces them for regression.</p>
+    <table>
+      <colgroup><col class="c-date" /><col /><col class="c-sec" /></colgroup>
+      <thead><tr><th class="h-date">Date</th><th>Sheet</th><th>Home section</th></tr></thead>
+      <tbody id="indexBody"></tbody>
+    </table>
+  </div>
+
+  <p class="foot">0.14.0 full QA, 2026-11-14. Boxes persist in this browser only.</p>
+</div>
+
+<script>
+const TICK = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>';
+const DEV = '<a href="https://devpreview.crystalisoft.com" target="_blank" rel="noopener">devpreview.crystalisoft.com</a>';
+
+// Every 0.14.0 per-slice sheet, its short name and a 1 to 3 line summary. Each one has one home section in Part A.
+const SHEETS = {
+  fk:   { f: "2026-10-27-field-kits-qa.html", name: "Field Kits", sum: "Kits and per-member packs, the free set, the Quartermaster top-up at launch, grenade charges, enemy ranks (Elite, Boss), conditions and their severity with bay times, the protocol rules with the Boss reserve, and the field devices (FKR-8)." },
+  gg:   { f: "2026-10-30-gas-giant-study-qa.html", name: "Gas Giant Study", sum: "GG-0 to GG-8: the ship's study of a gas giant from orbit, the nebula sweep, the pickup pause, Gas Storage Canisters, the Research Lab's Data study lane, ancient data and the three special blueprints, the Survey Log readouts and six Help topics." },
+  mg:   { f: "2026-10-30-minigame-prestige-redesign-qa.html", name: "Minigame prestige redesign", sum: "The v0.0000001a minigame, Slices 1 to 7: rising bars, automations at milestones and the Automation tab, leveled skills and the Skill Point schedule, pay at the bar, the late milestones, the one-time save conversion and the rewritten Help." },
+  cp10: { f: "2026-11-02-cp10-transfer-pool-qa.html", name: "Crew transfer, the crew pool, lock marks (CP-10)", sum: "Transfer between ships with destination cards and per-row warnings, the Crew Pool as its own Personnel Rosters tab, the lock marks on a ship that is out, Unassigned members, the two-step phone flow." },
+  cp5:  { f: "2026-11-02-cp5-crew-caps-qa.html", name: "Per-hull crew caps (CP-5)", sum: "Each hull's own berths and division mix (Eir 900, Orion and Aurora 750, Battleship and Carrier 160, Destroyer 120). No hull or division shrinks, and a complement over a cap never evicts anyone." },
+  cp9:  { f: "2026-11-02-cp9-complement-manifest-qa.html", name: "Crew groups, Graduate and the Manifest (CP-9)", sum: "Crew groups with one chip per buff, sort and filter chips, Graduate one on each row, notable cards with Send back, the read-only paged Manifest, and the phone cards with a sticky selection bar." },
+  em8:  { f: "2026-11-02-em8-precursor-lens-qa.html", name: "Precursor Lens module (EM-8)", sum: "The Special universal module: identifying the relic unmasks its research, it crafts from a Precursor Circuit, Photonic Gel and a Polysilicate Wafer, and installed it gives each scanned body a chance at one extra hidden discovery." },
+  sfr:  { f: "2026-11-02-safe-first-runs-qa.html", name: "Safe first runs (SF-0 to SF-7)", sum: "The first expedition and first patrol are training runs that cannot fail, the first job of each short-range type is its smallest, gathering can never be lost, a gentle Tier I curve follows, Tier II and up are at full strength; no safe first run wears gear." },
+  srm:  { f: "2026-11-02-short-range-missions-qa.html", name: "Short-Range Missions (G1-0 to G1-7)", sum: "The Ops Short-Range board, its slots and Mission Control rungs, one requirement sheet per tier, seven jobs that re-roll each cycle, guest quarters, Repeat and Recall, the calm waits, the slow start, run bonuses (Pilot Cunning included), relic finds and the Help topic." },
+  cp11: { f: "2026-11-03-cp11-crew-modules-qa.html", name: "Crew module and array blueprints (CP-11)", sum: "Fifteen new blueprints, so every Bridge Module, every Crew Quarters module (the Guest Wing included) and the three early sensor arrays can be researched and crafted with no relic." },
+  cp12: { f: "2026-11-03-cp12-bridge-quarters-qa.html", name: "Bridge and Crew Quarters tiles, Sensor Suite (CP-12)", sum: "The Ship Systems board gains Bridge Module and Crew Quarters install tiles beside the sensor tile (renamed Sensor Suite), and the Fabricator files bridge and quarters blueprints under a Crew Modules group." },
+  cp13: { f: "2026-11-03-cp13-hull-family-qa.html", name: "Hull bonuses for bridge and quarters (CP-13)", sum: "Every Bridge Module and Crew Quarters module also gives its hull family's bonus (+5% to +10%), shown on the tile and in the install comparison; move it to another hull family and the bonus changes." },
+  ref:  { f: "2026-11-03-refugee-posts-qa.html", name: "Refugee Posts (E5-0 to E5-7)", sum: "The Evacuation job and the people it brings home, the taper against open posts, relocation farewells, Posts rows under each facility, the picker and popover, the Crew tab's Refugees list, the arrival card and phone toast, and every background's buff." },
+  cp14: { f: "2026-11-04-cp14-hull-sensors-qa.html", name: "Hull base sensors and Science amplification (CP-14)", sum: "Every hull carries its own sensors (Aurora 35, Orion 25, Eir 15, warships 10), multiplied by the Science division and the Science officer. Tiers I and II ask for no frontier sensors." },
+  cp16: { f: "2026-11-06-cp16-hall-of-command-qa.html", name: "Final-retirement warning and the Hall of Command (CP-16)", sum: "The retire confirm warns before a captaincy's 5th and last retirement, and every retirement writes a Hall of Command card in the Archive: level, missions flown, the in-game day and notable firsts." },
+  cp17: { f: "2026-11-06-cp17-roster-dropdown-qa.html", name: "Roster picker on the ship personnel screen (CP-17)", sum: "A Personnel Roster picker on a ship's Senior Staff and Complement tabs: picking changes nothing until Apply, the Unsaved Configuration and Pulled From Another Ship confirms, the hull line for loadouts, the crew lock." },
+  cp18: { f: "2026-11-09-cp18-soft-level-cap-qa.html", name: "Soft captain level cap (CP-18)", sum: "Past level 30 each captain level costs x1.08 more experience, compounding; levels never stop, and nothing at or below level 30 changes." },
+  cp19: { f: "2026-11-09-cp19-rosters-track-qa.html", name: "Personnel Rosters track (CP-19)", sum: "Personnel Rosters gains an Upgrades tab: five levels, each adding 2 candidates to both candidate boards (10 to 20), with the Recruiter talent's +1 read through." },
+  cp20: { f: "2026-11-09-cp20-graph-colors-qa.html", name: "Complement graph colors (CP-20)", sum: "Settings, UI, Accessibility, Graph colors: Default, Color-blind safe and Monochrome for the Complement rank bars, stored on the device only; the global Color-blind palette toggle switches Default." },
+  tmap: { f: "2026-11-09-g2-7-telescope-map-qa.html", name: "Telescope map per homeworld, enemy territory, Wolf 359 (G2-7)", sum: "The Subspace Telescope map per homeworld with hatched enemy territory slices, the one-time Wolf 359 derelict field Survey Log entry, and the Expedition Tiers Help topic with truthful telescope, risk and fuel text." },
+  gw:   { f: "2026-11-09-gear-wear-step5-qa.html", name: "Gear wear step 5: the wear UI", sum: "Condition on every gear card and Ship Systems slot, the Gear chip, Fleet care on Command Home, combat-only wear on patrols, Overtime on gear repair, repair pauses, the bay rate and exact credit." },
+  cp4:  { f: "2026-11-10-cp4-flight-deck-qa.html", name: "Flight Deck Integrity on drone replenish (CP-4)", sum: "On a patrol, while a carrier is below half hull, the Flight Deck's Integrity (the Pilot's plus a share of the XO's) makes its own Deck Handling rebuild lost drones faster." },
+  torp: { f: "2026-11-10-enemy-torpedoes-qa.html", name: "Enemy torpedoes (WR-8b)", sum: "Every Corsair Carrier and a Marauder at a rising chance carry the Concussion Torpedo, as do scan event vessels by tier; a ship flying Defensive with working point defense shoots some down." },
+  ml5:  { f: "2026-11-10-ml5-quality-blanks-qa.html", name: "Quality blanks (ML-5)", sum: "A Fabricator order stamps the average material quality on each equipment blank, Crafted Blanks show the split by quality, and inspecting takes the highest quality blank first." },
+  ot:   { f: "2026-11-10-ot-ui-overtime-buttons-qa.html", name: "OT-UI: Overtime buttons on running jobs", sum: "One-tap Overtime steps (+25% each, three steps, 1.75x) on builds, research, data studies, facility upgrades, the Docks, docking bays, the Systems Bay and hull repair; the rate chip, no bar jump, and both times on Command Home." },
+  wr10: { f: "2026-11-10-wr10-away-team-qa.html", name: "Away team and ground rules (WR-10)", sum: "New away rules on new expeditions: Neural Backup brings back its wearer, Fall Back shields for the round, Casters can leave a member Corroded, a Science member's rank lifts their own fieldwork; plus the Saboteur and Quick Draw fixes." },
+  comp: { f: "2026-11-11-complement-qa.html", name: "Complement and Acquisition, full sheet (CP-0 to CP-21)", sum: "The close-out for the whole complement plan: live crew buffs, berths, the crew lock, salvage that loses nobody, transfers and the pool, notables and the Manifest, crew modules, hull bonuses and sensors, retirement, the picker, the soft cap, boards, graph colors and five Help topics. Start here; the CP sheets hold the depth." },
+  g2:   { f: "2026-11-11-g2-expedition-tiers-qa.html", name: "Expedition Tiers, full G2 sheet (G2-9 close-out)", sum: "The whole Expedition Tiers feature: seven region tabs and their gates, candidate cards and the reach bar, drive classes, an old save's homeworld, recall, resume, held candidates, labeled enemy sectors on the map, and Roman numerals for every tier." },
+  ml:   { f: "2026-11-11-material-lines-qa.html", name: "Material Lines and recipe realism (ML close-out)", sum: "Biofiber and Resin Distillate, the changed recipes and their salvage refunds, Material Quality on delivery, Use best materials, the grouped Refinery, the Cometary Ice Harvest and the Deuterium fuel chain." },
+  fr:   { f: "2026-11-12-field-repair-qa.html", name: "OC-F14: the player-ordered field repair", sum: "A one-tap Field repair strip on an expedition's Ship lane while the hull is damaged: it repairs wherever finishes sooner (orbit or a world, a tie goes to orbit), shows the time first, and can be canceled keeping the share repaired." },
+  nh:   { f: "2026-11-12-new-hire-default-qa.html", name: "OC-F12: the new-hire default program", sum: "Set for new hires on a Security member's program, the NEW HIRES status line with Clear (Security only), and Balanced meaning no default. Members already hired never change." },
+  nt:   { f: "2026-11-12-notable-ticker-qa.html", name: "The notable crew band in Crew", sum: "A fleet-wide notable crew band under the Crew tabs: N / 50, favorites first, a drift that holds still on hover, touch and Reduce motion, a record card with Send back and Retire, and All grouped by ship." },
+  rc:   { f: "2026-11-12-reserve-controls-qa.html", name: "Homeworld reserve controls", sum: "The Homeworld reserve section under the Crew Pool: Send groups to a manual ship, Recall to the pool only what a berth can seat, and a warning before a Send leaves pool crew without a berth." },
+  ct:   { f: "2026-11-13-completion-tracking-qa.html", name: "Completion tracking: per system and per body", sum: "A completion % per body and per system: the console line, the Resume card, a claim line at 100%, the planet bonus relic roll, the Survey Log's Systems section and green arcs on the telescope's region badges." },
+  echo: { f: "2026-11-13-echo-refugees-qa.html", name: "Echo Refugees (E5-6b)", sum: "About 1 in 50 arrivals is an echo from the approved roster of 59: a winking-face mark and a flavor line, the normal skill roll and buff, at most once per save. Plus a [DEV] refugee grant in the Debug tab." },
+  rel:  { f: "2026-11-13-relics-v2-content-qa.html", name: "Relics v2 content: sets, cultures, Identification, the Museum", sum: "The Unidentified Relics table, the Identification tab with lanes and a queue, the reveal card, the 14 exceptional sets with their approved names, the Cultures tab and the Museum with its soft cap." },
+};
+
+// Row fields: t = the check (steps, then the expected result), src = SHEETS key, tag = string or array,
+// only = "desk" | "mob" | "any" (any: one box, either width), ki = "fixed" | "pending" | "decide" | "open",
+// gap = the ledger line it answers (shows the sweep gap chip), kn = a short known-issue note.
+const SECTIONS = [
+  // PART A: 0.14.0 CHANGES
+  { id: "A0", part: "A", title: "Before you start", note: "Staging only, on the 0.14.0 build that carries the freeze fix. The full setup is in the box at the top of this sheet.", sheets: [], items: [
+    { t: "Open " + DEV + ": the System window (the gear) shows Settings, Log, About, Patch Notes, Community and <b>Debug</b>. About names the 0.14.0 build. There is no <code>?dev</code> switch to add.", tag: "debug", only: "any" },
+    { t: "Fresh profile ready: a new browser profile on devpreview starts a brand new save (no ships beyond the starter fleet, Level 1 everything).", tag: "fresh", only: "any" },
+    { t: "Old profile ready: your live 0.13.x save exported (Settings, Save Data, Export Save), its size in KB noted, and the file kept as a backup. It is imported on devpreview in A1, not before.", tag: "save", only: "any" },
+    { t: "Console open in both profiles. Any red console error anywhere in the pass fails the row you were on.", only: "any" },
+  ]},
+
+  { id: "A1", part: "A", title: "Old save first load (the staging freeze fix)", note: "Release blocker C1 (ledger lane 2, user report 2026-11-14 \"Completely unresponsive\"): a 0.13.x save owed a crew transport for every half hour since it began, so its first 0.14.0 tick could take minutes and flood the fleet with crew. Fixed in 3ba8af02: the first load delivers a welcome batch that fills every open berth once, then transports run normally. A 365-day test save went from 142.6 s to 0.25 s.", sheets: [], items: [
+    { t: "In the old profile on devpreview, Settings, Save Data, <b>Import Save</b> with your exported 0.13.x file. <span class=\"ex\">Expected: within <b>2 seconds</b> the game is drawn and answers taps, the header TICK moves, and the browser never offers to stop an unresponsive page.</span>", tag: "save", ki: "fixed", gap: "lane 2: load a real production save" },
+    { t: "Ships, open each ship's Complement tab, then Facilities, Personnel Rosters, Crew Pool and the Homeworld reserve below it. <span class=\"ex\">Expected: ships read close to <b>N / M berths</b> full, the pool and reserve hold a few spares (tens, not thousands), and the fleet's total crew is about its total berths (the fix measured 6,276 crew for 6,250 berths).</span>", tag: "save", only: "any", ki: "fixed" },
+    { t: "Reload twice, then leave the game open for one hour of game time. <span class=\"ex\">Expected: no second welcome batch (the counts do not jump on reload); afterward transports arrive at the normal pace, about one every half hour, and only fill open berths or wait in the pool.</span>", tag: "save", only: "any", ki: "fixed" },
+    { t: "On a phone with the old save: Command Home, scroll the whole board, open Ops and Crew and come back. <span class=\"ex\">Expected: every scroll and tap answers at once (the reported freeze was Command Home on a phone).</span>", tag: ["save", "device"], only: "mob", ki: "fixed" },
+    { t: "A 4-day absence: on the old save, Debug tab, Offline sim, press <b>+24h</b> four times (or close the tab for 4 days). <span class=\"ex\">Expected: each step finishes in a few seconds, the game stays responsive, the While You Were Away recap shows the time paid (and says the cap was reached if you go past 4 days), and crew that arrived stay within open berths plus the pool.</span>", tag: ["save", "debug"], only: "any", ki: "fixed", gap: "lane 2: 4-day offline crew math" },
+    { t: "Export size: Settings, Save Data, Export Save on the old save after the first load and again after the 4-day catch-up. <span class=\"ex\">Expected: each file is close to your 0.13.x export plus a modest crew share (hundreds of KB at most, never several MB); the second is not much bigger than the first.</span>", tag: "save", only: "any", ki: "fixed", gap: "lane 2: export size" },
+    { t: "Import that post-catch-up export into a third browser profile. <span class=\"ex\">Expected: it loads within 2 s with the same crew counts, ships and gear, and no new welcome batch.</span>", tag: "save", only: "any", ki: "fixed" },
+    { t: "On the fresh save, watch crew arrive over the first hours. <span class=\"ex\">Expected: no welcome batch; crew come only by normal transports into open berths.</span>", tag: "fresh", only: "any" },
+  ]},
+
+  { id: "A2", part: "A", title: "New save", note: "A brand new save: what a new player sees before any run.", sheets: [], items: [
+    { t: "Start a new save. No console errors opening Home, Personnel, Facilities, Logistics, Operations (every tab), Settings and Help.", tag: "fresh" },
+    { t: "Facilities, Subspace Telescope: the map's center dot reads <b>Homeworld</b> with the Galactic Core toward the top. A second fresh save in another profile puts the homeworld somewhere else (different candidate distances on the expedition card).", src: "g2", tag: "fresh" },
+    { t: "Operations, Short-Range: two free Tier I slots, each showing its NEXT job, and two locked slots naming their Mission Control level, cost and time. Every job type reads <b>Training run next</b>.", src: "srm", tag: "fresh" },
+    { t: "Nothing that needs history shows yet: no Posts rows under any facility, no Refugees tab under Crew, no first-arrival hint; the Crew notable band reads <b>NOTABLE CREW 0 / 50</b> with the Graduate hint; Command Home has no Fleet care section.", src: "ref", tag: "fresh" },
+    { t: "Personnel Rosters reads <b>Level 1</b> with <b>Board 10</b> (11 with a Recruiter captain); the officer board and the away-team recruit board each show 10 candidates.", src: "cp19", tag: "fresh" },
+    { t: "Your migrated save loads clean: every ship keeps its crew, officers, notables and installed gear; an expedition or patrol already in flight from before the update finishes exactly as it would have; no training run chip or \"First run\" line shows anywhere.", src: "comp", tag: "save" },
+    { t: "On both saves the layout holds at 375 px: Home, Operations and Facilities have no sideways page scroll, and every new glyph you meet is SVG in the theme color (no emoji).", tag: ["device", "theme"] },
+  ]},
+
+  { id: "A3", part: "A", title: "First runs (safe first runs, the training run, the short-range board)", note: "Fresh save. The first of each run type cannot be lost and wears no gear.", sheets: ["sfr", "srm"], items: [
+    { t: "Dispatch the first expedition from an explorer: the launch forecast reads <b>Guaranteed</b>. The run completes 100%: no Skip needed, no hull damage, no failed scan event, no affixes or ambushes; a lost fight reads \"guards fell back\" with the training line.", src: "sfr", tag: "fresh" },
+    { t: "The training expedition fields no Elite and no Boss, no Corroding caster and no torpedo, and the ship's and members' gear come home pristine.", src: "sfr", tag: "fresh" },
+    { t: "The second expedition shows no chip, is slightly tougher and its forecast agrees with the result. A Tier II run never shows the chip. Recall the first expedition before it ends: the next run is still the training run.", src: "sfr" },
+    { t: "The first patrol flies at most 2 waves of one Raider each, is won, comes home with no damage and no gear wear. The second patrol reads its real threat band.", src: "sfr", tag: "fresh" },
+    { t: "The first gathering run's first delivery takes no gear wear (the second does). A gathering run is never lost: recall it half way or let it run dry on a relaunch; never a defeat or hull damage.", src: "sfr" },
+    { t: "Short-Range: the free slot pre-picks the ready captain whose ship clears the sheet by the widest margin; <b>Send</b> dispatches in one tap. The first job shows the <b>Training run</b> chip and is the smallest roll of its type; the card shows the timeline (out, on site, back, unloading).", src: "srm" },
+    { t: "Repeat is on by default. Recall mid-cycle: the ship finishes the cycle, delivers and docks. Recall before it leaves: it ends at once, nothing is paid, and that job type keeps its training run.", src: "srm" },
+    { t: "The calm waits: a Supply Pickup with Titanium Ore at its cap waits at home with a calm line (no warning color); a Supply Drop-off short of credits names the load and leaves once you can pay.", src: "srm" },
+    { t: "Layout: at 1280 the dispatch popup is the wide two-column card; at 375 it opens as a sheet, the six requirement bars stay readable, and the training chip wraps cleanly on the expedition, patrol and gathering cards.", src: "srm", tag: "device" },
+    { t: "Fresh save: send the first patrol on <b>Repeat</b> and leave it for several hours (Debug, Offline sim +8h). <span class=\"ex\">Expected (your answer, \"Climb every N routes\"): the threat climbs a step every few routes instead of staying at the training floor forever.</span>", tag: ["fresh", "debug"], only: "any", ki: "pending", gap: "lane 4: training patrol on Repeat", kn: "Today it stays at floor strength: 595 routes in 20,000 s with the ramp still 0 (lane 4 I2)." },
+    { t: "Recall the first expedition before it ends, three times in a row. <span class=\"ex\">Expected: the training run is kept each time. Whether recalling forever should keep it forever is still your call.</span>", only: "any", ki: "decide", gap: "lane 3 q5: recall keeps the training run" },
+  ]},
+
+  { id: "A4", part: "A", title: "Crew and complement", note: "Start with the full complement sheet; each CP sheet holds one slice in depth.", sheets: ["comp", "cp5", "cp9", "cp10", "cp11", "cp12", "cp13", "cp14", "cp16", "cp17", "cp18", "cp19", "cp20", "nt", "rc"], items: [
+    { t: "Shipyard build cards show each hull's crew berths: Eir 900, Orion 750, Aurora 750, Battleship 160, Carrier 160, Destroyer 120, prospectors 50, General Freighter 30. A ship's Complement tab reads <b>N / M berths</b>.", src: "cp5" },
+    { t: "Uninstall a ship's Crew Quarters: nobody is removed, the slot is empty again, and the panel says <b>Over capacity</b> or marks a division <b>Over cap</b> in words (readable without color).", src: "cp5", tag: "theme" },
+    { t: "The crew lock: send a ship out. Senior Staff, Away Team and Complement wear an amber lock (Loadout does not); Transfer, Graduate and Send back are grayed out with the reason. Claim it: every lock clears and an Auto-crew ship fills from the pool on the next tick.", src: "cp10" },
+    { t: "Salvage a crewed hull: the confirm names who goes back; away-team members land under Unassigned, officers under Available Officers, notables unassigned. Save and reload: nothing points at the removed ship.", src: "comp", tag: "save" },
+    { t: "Complement, <b>Graduate one</b>: the confirm shows the name they get; the group drops by one and that notable appears marked <b>just graduated</b>; the ship's header and division counts do not change.", src: "cp9" },
+    { t: "Open the Manifest on a full Orion or a 750+ crew ship: it opens fast, pages with <b>Rows 51 to 100 of N crew</b>, a division chip narrows it, and the same crew keep the same names when you reopen it. Nothing on it can be changed.", src: "cp9" },
+    { t: "Phone Complement: the sort chips and division chips are two rows that scroll sideways inside themselves, each group is a card, the selection bar sticks to the bottom, and Graduate opens as a bottom sheet.", src: "cp9", only: "mob", tag: "device" },
+    { t: "Personnel Rosters, <b>Crew Pool</b>: pick crew and <b>Send N to a ship...</b> to a manual ship. Ask for more than it can take: each short row names the cap that stopped it; the result lists row by row and no crew appear or vanish.", src: "cp10" },
+    { t: "Homeworld reserve (under the pool): <b>Show groups</b>, tick groups, Send to a manual ship (Auto-crew ships are listed dashed, not pickable). <b>Recall</b> moves only what a berth can seat; wait a few ticks and nothing bounces back.", src: "rc" },
+    { t: "Reserve warning: Send reserve crew to a ship whose berths pool crew are waiting for: an amber dashed line says how many move to the reserve. Transfer, watch a tick: the pool drops by exactly that number.", src: "rc" },
+    { t: "Crew, the notable band under the tab row: <b>NOTABLE CREW N / 50</b>, favorites first, name, Rank · Division and ship. With more names than show at once it drifts; hover, Tab or touch stops it; Reduce motion keeps it still. Tap an entry: the record card with Send back and Retire.", src: "nt", tag: "theme" },
+    { t: "Phone notable band: the label shrinks to the glyph and count, entries are 34 px tall, the record card is a bottom sheet, nothing scrolls sideways.", src: "nt", only: "mob", tag: "device" },
+    { t: "Research and craft a Wide-Beam Array, a Balanced Command and a Utilitarian Quarters with no relic (Research lists them; the Fabricator files bridge and quarters under <b>Crew Modules</b>). Each blank inspects into the right piece.", src: "cp11" },
+    { t: "Ship Systems: install them from the <b>Sensor Suite</b>, <b>Bridge Module</b> and <b>Crew Quarters</b> tiles. Each tile names its variant (\"Balanced Command · every officer +10%\", \"Utilitarian Quarters · +12 crew berths\"); Install, Swap and Uninstall are disabled on a ship that is out.", src: "cp12" },
+    { t: "Hull bonus: a Balanced Command on a General Freighter reads <b>Hull bonus on General: FTL transit speed +6% and unload speed +6%</b>; FTL Speed rises 6% and its popover shows a Hull bonus line. Move it to an explorer: the line changes to sensors +10%.", src: "cp13" },
+    { t: "Hull sensors: a bare Aurora's Ship Systems shows <b>Sensors 35</b> (Orion 25, Eir 15, warships 10; freighter and prospectors none). Seat Science crew and a Science officer: Sensors rises, and the popover lines add up to the value.", src: "cp14" },
+    { t: "Retire a captain with 4 retirements: the confirm shows the bordered <b>final retirement (5 of 5)</b> warning. Confirm: the Archive opens with a <b>HALL OF COMMAND</b> card (level, Retirement 5 of 5 with a final tag, missions, the day, notable firsts). Two or more cards sit two across at 1280, full width at 375.", src: "cp16", tag: "save" },
+    { t: "A ship's Senior Staff tab: the <b>PERSONNEL ROSTER</b> bar. Picking a roster changes nothing; only Apply acts. On an unsaved ship a roster that evicts an officer opens Unsaved Configuration; one that pulls from another ship names each person first. At 375 the select and Apply share a row.", src: "cp17" },
+    { t: "Soft level cap: a level 31 captain reads <b>/ 10.0K XP toward Level 32</b> (was 9.30K); level 30 and below read as before. On your save a past-30 captain keeps the same level, talent points and XP; only the number after the slash grew.", src: "cp18", tag: "save" },
+    { t: "Personnel Rosters, <b>Upgrades</b>: Upgrade Level 1 to 2 costs 3,000 credits and builds over time; when done both boards show 12. The first 10 candidates are the same people in the same places; the 2 new ones join after them.", src: "cp19" },
+    { t: "Settings, UI, Accessibility, <b>Graph colors</b>: Default, Color-blind safe and Monochrome repaint an open Complement tab at once and survive a reload. With the Color-blind palette toggle on, Default shows the color-blind steps; Monochrome still overrides it.", src: "cp20", tag: "theme" },
+    { t: "Seat an Earth-born officer on a ship whose captain has the Mentor (or Legendary Captain) lift, then open that officer's Crew Effectiveness. <span class=\"ex\">Expected: the lifted value shown is the value that acts (the ship's numbers it feeds move by the same share).</span>", only: "any", ki: "pending", gap: "lane 2: Mentor on Earth-born", kn: "Today the lift is displayed but does nothing (lane 2 I1)." },
+    { t: "Crew Effectiveness acts: on one ship note FTL Speed, Sensors and a weapon's damage, then swap in a higher-effectiveness officer for the matching seat (Pilot, Science, Tactical). <span class=\"ex\">Expected: the matching stat rises, its popover names the officer line, and swapping back restores the old value exactly.</span>", only: "any", gap: "lane 2: Crew Effectiveness acts" },
+    { t: "The notable cap: graduate notables until the band reads <b>50 / 50</b>, then try Graduate one more. <span class=\"ex\">Expected: refused with a reason that names the 50 cap; nobody is lost; Send back one and Graduate works again.</span>", only: "any", gap: "lane 2: notable cap" },
+    { t: "Apply a roster that needs crew from both the Crew Pool and the Homeworld reserve. <span class=\"ex\">Expected: the pool is drawn first, then the reserve; the result lists both; the pool, the reserve and the ship's counts add up before and after.</span>", only: "any", gap: "lane 2: roster apply pool then reserve" },
+    { t: "Retire a captain whose seated Executive Officer is named in a saved roster. <span class=\"ex\">Expected: the XO takes the captaincy, the roster no longer lists them as XO (or says the seat is open), and after a reload nothing points at an empty seat.</span>", tag: "save", only: "any", gap: "lane 2: retire pinned XO" },
+    { t: "Old save with 100 or more reserve groups (or grant crew in the Debug tab until it has): Personnel Rosters, Crew Pool, Homeworld reserve, <b>Show groups</b> at 375. <span class=\"ex\">Expected: the list scrolls smoothly inside the page, ticks answer at once, and nothing scrolls sideways.</span>", tag: ["save", "device"], only: "mob", gap: "lane 2: 375 reserve with 100+ groups" },
+    { t: "A Recruiter captain adds a flat <b>+1</b> to both candidate boards (the best Recruiter only, not one per captain). <span class=\"ex\">Expected: Board 11 at Level 1. Whether it stays a flat +1 is still your call.</span>", only: "any", ki: "decide", gap: "lane 2 q3: Recruiter flat +1" },
+  ]},
+
+  { id: "A5", part: "A", title: "Expeditions and tiers", note: "The expedition card, a run in flight, and what the ship does in a system.", sheets: ["g2", "gg", "em8", "fr"], items: [
+    { t: "The expedition card shows seven tabs, <b>Tier I</b> to <b>Tier VII</b>. With an explorer Tier I reads Ready and each deeper tab names the first gate the ship misses; a non-explorer hull reads the explorer gate on every tab, Tier I included. Arrow keys, Home and End move between tabs.", src: "g2" },
+    { t: "Install a Class II drive on an explorer: Tier II opens if its reach allows (Tiers I and II ask for no frontier sensors). A Class III drive opens Tier III once Sensors read 20 or more. Too far: <b>Beyond this ship's reach</b> with the round trip and the reach.", src: "g2" },
+    { t: "Each tier offers three candidates, nearest first: region, distance from your homeworld, one-way transit, the reach bar and the graded risk. A candidate in enemy territory says so and its Combat risk reads one step higher.", src: "g2" },
+    { t: "Recall a run 40% of the way out: one confirm (Keep going has focus) names the time home, and the return is 40% of the return leg. A run already heading home shows no Recall. The stepper reads <b>Recalled · home in X</b>.", src: "g2" },
+    { t: "Recall after at least one body is charted: the system goes to its tier's <b>Resume</b> list. Resume it with any explorer: finished scans stay done, objectives keep their progress. Abandon: one confirm and it leaves the list.", src: "g2" },
+    { t: "Recall before arrival: the system returns as a fourth candidate on its tier; launch from the list and it rolls off with the old list. Launch to it instead: every list on screen stays the same.", src: "g2" },
+    { t: "Roman numerals everywhere: Research tier headers, the Fabricator tier picker and gear rows, hull tooltips, the Warehouse tier tabs and Overtime pricing all read <b>Tier II</b>, never a plain number.", src: "g2" },
+    { t: "A system with a gas giant: the card shows its canister range. In flight the study sits on the ship lane (30 min with no Science aboard, faster with Science crew and a Galileo-Class Probe); the expedition heads home only after every study and the sweep. Claim: canisters land on the Gas Storage Canisters shelf.", src: "gg" },
+    { t: "Research Lab, <b>Data study</b>: the oldest held data starts on its own and takes 20 minutes beside blueprint research. Auto-study off holds the countdown and Home shows the paused line. A finished study banks <b>+12%</b> speed for that family.", src: "gg" },
+    { t: "Archive, Survey Log: a gas giant's card (mass, radius, gases, the star bar with the deuterium and fusion lines) and a nebula's life-cycle strip. On a phone the selected card shows first and the list follows.", src: "gg", tag: "theme" },
+    { t: "Precursor Lens: the Fabricator recipe asks for 1 Precursor Circuit, 2 Photonic Gel and 1 Polysilicate Wafer; installed, it adds 9 to the power bar. Dispatch with it: over a few bodies some show one more discovery, none loses one.", src: "em8" },
+    { t: "Field repair: after the first hull damage a <b>HULL</b> strip appears under the Ship lane (a bar with a dashed mark at 25%, <b>N damage of MAX · auto at A</b>). Its preview picks the faster site, orbit or a world (a tie goes to orbit), and the time it shows is what the order takes.", src: "fr" },
+    { t: "Tap <b>Order field repair</b>: no confirm, a Repairing chip with a thin bar, and Settings, Log reads <b>Field repair ordered ...</b>. Cancel while repairing keeps the share repaired so far; Recall during a repair keeps it too. Back on the scan with a whole hull the strip is gone.", src: "fr" },
+    { t: "Phone field repair: the lane stacks, the button drops to its own row with a 32 px tap height, and the preview uses the short body name; nothing scrolls sideways.", src: "fr", only: "mob", tag: "device" },
+    { t: "Offline: close the game mid-study (or mid-repair) for a while and reopen: the run moved on exactly as if you had watched.", src: "gg", tag: "save" },
+    { t: "Win a scan event that pays (a ship battle's salvage, a probe's data), recall after that body, then Resume the system and finish it. <span class=\"ex\">Expected: the event already paid is not offered or paid again; the claim log shows it once across both trips.</span>", only: "any", ki: "pending", gap: "lane 3: recall/resume reward checks", kn: "Today a recall and resume re-pays it, without limit (lane 3 I1, fix decided regardless)." },
+    { t: "A held candidate with an anomaly: recall before arrival so it returns as a held candidate, then launch to it. <span class=\"ex\">Expected: the anomaly haul pays once, not again on the held launch.</span>", only: "any", ki: "open", gap: "lane 3: recall/resume reward checks (anomaly)", kn: "Lane 3 M1: the held candidate repeats the haul." },
+    { t: "Visit a real named star (a candidate with a catalog name, not a generated code) twice, a few days apart. <span class=\"ex\">Expected (your answer, \"Same system every visit\"): the same bodies each time, so its Visited % and planet bonuses stay true.</span>", only: "any", ki: "pending", gap: "lane 3: real-star revisit", kn: "Today a real star's bodies differ per visit (lane 3 I2)." },
+    { t: "Launch an expedition and Recall it at once (before it has gone anywhere). <span class=\"ex\">Expected (your answer, \"Recalled launch keeps the list\"): the tier's candidate list is the same three systems as before the launch; recall is never a free reroll.</span>", only: "any", ki: "pending", gap: "lane 3: instant recall", kn: "Today an instant recall rerolls the list for free (lane 3 I3)." },
+    { t: "Two explorers, one held system: Resume it with the first explorer, then open the second explorer's card. <span class=\"ex\">Expected: the system is no longer offered on the Resume list (or reads in flight), so it cannot be flown twice at once.</span>", only: "any", gap: "lane 3: two explorers on one held system" },
+    { t: "Recall a run with at least one body charted, then Abandon its Resume entry while the ship is still flying home. <span class=\"ex\">Expected: the entry leaves the list, the ship still lands and its claim is clean, and the Survey Log row reads Abandoned at the % it reached.</span>", only: "any", gap: "lane 3: abandon while flying home" },
+    { t: "Try to Resume a held Tier II or deeper system with an explorer whose reach is too short. <span class=\"ex\">Expected: refused before launch with <b>Beyond this ship's reach</b> and the round trip; the entry stays on the list.</span>", only: "any", gap: "lane 3: short-reach resume" },
+    { t: "Fill a material in the Warehouse to its cap, then claim an expedition that brings more of it. <span class=\"ex\">Expected (your answer, \"Never discard\"): the delivery lands even over the cap and the claim log shows what actually landed.</span>", only: "any", ki: "pending", gap: "lane 3: warehouse cap log", kn: "Today the excess is discarded while the log claims the full deposit (lane 3 M2)." },
+    { t: "Claim an expedition while an away-team member is still in the medical bay. <span class=\"ex\">Expected: they come home <b>Injured</b> with the bay time left on their card, cannot deploy until it runs out, and recover on their own.</span>", only: "any", gap: "lane 3: medical bay at claim" },
+    { t: "Old save with an expedition already in flight from 0.13.x (or an export taken mid-run): load it on devpreview. <span class=\"ex\">Expected: the run continues and claims normally, with no completion % for the part flown before the update.</span>", tag: "save", only: "any", gap: "lane 3: migrated in-flight save" },
+    { t: "Recall a run, close the game before it lands, reopen after it should be home. <span class=\"ex\">Expected: the ship is home, the Resume entry exists exactly as it would live, and the recap agrees.</span>", only: "any", gap: "lane 3: offline across recall" },
+    { t: "A boarding scan event: boarders take 10% of the credits found on that trip. <span class=\"ex\">Expected: the log names the share taken. Whether it stays is still your call.</span>", only: "any", ki: "decide", gap: "lane 3 q6: boarders take 10%" },
+  ]},
+
+  { id: "A6", part: "A", title: "Ground ops and away teams", note: "Field Kits, the new away rules, and what new Security hires start with.", sheets: ["fk", "wr10", "nh"], items: [
+    { t: "Quartermaster, Purchase: First Aid Kit 60, Antitoxin 60, Combat Stim 150, Splint 95, Trauma Kit 660, Injury Kit 420 credits. A buy lands in Logistics, Field Kits, and credits drop by exactly the total.", src: "fk" },
+    { t: "Dispatch: one pack card per Security member (role glyph, tool and charges, the free set, a 0 to 9 stepper per kit). Turn on the Quartermaster top-up: launch buys only the shortfall and is never blocked; the launch log names the purchase.", src: "fk" },
+    { t: "Enemy ranks: Challenging and Dangerous objectives end with an Elite, Deadly with a Boss. Odds chips read lower on a ranked objective, and packing more kits nudges them up.", src: "fk" },
+    { t: "In a run, each team's supplies table sits under its timeline. The right kit clears each condition (Trauma Kit, Splint); bay times read Fracture 30 min, Broken Bone 1 h, Shattered Bone 2 h.", src: "fk" },
+    { t: "Phone: the dispatch pack cards, the supplies table and the Purchase tab show no sideways scroll; the steppers are easy to tap.", src: "fk", only: "mob", tag: "device" },
+    { t: "Battle logs on a new expedition: <b>Neural Backup</b> revives its wearer (once per battle, never a squadmate); a Fall Back line ends <b>Shielded</b>; a Caster's hit can leave a member <b>Corroded</b>, cleared by Cure or a First Aid Kit.", src: "wr10" },
+    { t: "A Quick Draw member who was Stunned or afraid still acts in round 2; a Suppress rule always Suppresses (unless resisted); the editor's hints and the Neural Backup and Med Kit blueprint text say what they now do.", src: "wr10" },
+    { t: "Tactical Protocols: pick a Security member on Decapitate and tap <b>Set for new hires</b> (no confirm, a green Saved line). Hire a Security candidate: their chip reads Custom with the built-in cure, heal, brace and grenade rules, then Decapitate's. <b>Clear</b> returns to the built-in default; earlier hires never change.", src: "nh" },
+  ]},
+
+  { id: "A7", part: "A", title: "Relics and the Museum", note: "From a claim's blanks to identified cultures and a full Museum shelf.", sheets: ["rel"], items: [
+    { t: "Claim an expedition that found relics: the log reads <b>N unidentified relics to the vault (Tier I 2, Tier II 1)</b>. Logistics, Materials, <b>Unidentified Relics</b>: rows by rarity, tier columns in Roman numerals; Identify jumps to the Research Lab.", src: "rel" },
+    { t: "Research Lab, <b>Identification</b> (beside a new Cultures tab): lanes by Lab tier (Research Lab III, 2 lanes), <b>Queue all</b>, move up, move down and remove. Close the game: queued blanks keep starting as lanes free, and all are identified on return.", src: "rel", tag: "save" },
+    { t: "The reveal card: a general relic reads as <b>Relic Sample K17-42</b> with its culture's study count; the find that brings a culture to 10 adds a glowing box naming it (no animation with Reduce motion). An exceptional relic shows its set's glyph, approved name and set progress.", src: "rel", tag: "theme" },
+    { t: "Exceptional sets: every set and piece name is the approved one (Waystation to Long Vigil, the Ember Court Teapot included). Completing a set logs <b>Set complete: ... is whole in the Museum.</b> once, also while away.", src: "rel" },
+    { t: "Cultures tab: each culture met with its name once revealed (or Culture K-17), its tier in Roman numerals, a bar and N / 10; the detail lists where its relics were found (<b>Found on LB-0412 c and 2 more</b>). An Ancient Data Fragment study counts toward it.", src: "rel" },
+    { t: "Archive, Museum: <b>General relics N · Exceptional pieces M of 54</b>, tier pills Tier I to Tier VII, the soft cap meter (1,000 per tier, the excess hatched), the rarity shelves and the set cards; Tier I keeps its familiar set ladder.", src: "rel" },
+    { t: "Phone: the Unidentified Relics table, the Identification tab's lanes and the Museum stack in one column with no sideways page scroll.", src: "rel", only: "mob", tag: "device" },
+    { t: "Upgrade the Research Lab from II to III while the Identification queue holds several blanks. <span class=\"ex\">Expected: when the upgrade finishes a second lane starts the next queued blank on its own; nothing in the queue is lost or doubled.</span>", only: "any", gap: "lane 3: Lab III lanes" },
+    { t: "Run Short-Range jobs on Repeat until one turns up a relic. <span class=\"ex\">Expected: the job's line names the find, and it lands as an unidentified blank in the Unidentified Relics table at the job's tier.</span>", only: "any", gap: "lane 3: short-range relic" },
+  ]},
+
+  { id: "A8", part: "A", title: "Refugees", note: "Evacuation brings people home; posts put them to work.", sheets: ["ref", "echo"], items: [
+    { t: "Short-Range: an Evacuation shows as a slot's next job (<b>N people to bring out of ...</b>). The first one brings someone home: <b>Evacuation complete: {name}, a {background}, joins your homeworld.</b> with a person-in-a-house glyph (Tier I skill 20 to 50).", src: "ref" },
+    { t: "After the first arrival every built facility shows a <b>Posts</b> row (Posts 1 / 1 at Level 1). An empty post opens the picker sorted by what each person would add; a filled post's popover offers Move and Back to waiting list, free and instant. A full facility lets you pick who goes back.", src: "ref" },
+    { t: "Crew, <b>Refugees</b> (third tab, with a waiting-count pill): Waiting, Posted, <b>Open posts N of M</b>; Show and Sort work; each row's Best post reads like <b>Refinery 1 open +6.1%</b>. \"How refugees work\" opens Help.", src: "ref" },
+    { t: "Desktop arrival: a card above the Short-Range board with <b>Post at the {facility} (+x%)</b> and Leave on the waiting list; with two or more queued, <b>Leave all on the waiting list (N)</b> clears them.", src: "ref", only: "desk" },
+    { t: "Phone arrival: a toast at the top (Post at {facility}, Later) for a few seconds that never blocks the header, then tucks into the Refugees tab's badge; several arrivals after time away tuck as one. The picker opens as a bottom sheet.", src: "ref", only: "mob", tag: "device" },
+    { t: "The taper and farewells: with more people waiting than open posts, some evacuations bring nobody (a calm check-glyph line, never a failure). A Refugee Relocation takes the longest-waiting person with a farewell line; nobody posted ever leaves.", src: "ref" },
+    { t: "Buffs act: post a Scholar at the Research Lab (the next project starts shorter), a Refiner at the Refinery (some jobs deliver an extra batch), a Fuel handler at the Fuel Depot (dispatch windows show longer reach). Off match still gives a quarter share.", src: "ref" },
+    { t: "Echo refugees: Debug tab, [DEV] Refugees, <b>+1 echo refugee</b>. The arrival shows a small winking-face mark after the name and an italic flavor line; the mark and line follow them to the Refugees tab, their post's popover and the picker. Grant several: nobody repeats, even after a reload.", src: "echo", tag: ["debug", "theme"] },
+    { t: "Offline: close the tab with an Evacuation on Repeat, come back after 2 hours: the same people arrive as if you had watched (echoes included), the While You Were Away recap reads true, and the cards or toast wait for you.", src: "ref", tag: "save" },
+    { t: "Leave an echo refugee waiting (not posted) and run Refugee Relocations until the waiting list empties of everyone else. <span class=\"ex\">Expected (your answer, \"Exempt echoes\"): the echo is never taken by a relocation.</span>", tag: "debug", only: "any", ki: "pending", gap: "lane 2: echo on relocation", kn: "Today a waiting echo can leave on a relocation and is gone for the save (lane 2 I2)." },
+  ]},
+
+  { id: "A9", part: "A", title: "Gear wear and Overtime", note: "Gear wears gently and repairs free; Overtime only speeds things up for credits.", sheets: ["gw", "ot"], items: [
+    { t: "Debug tab, [DEV] Gear wear, <b>Wear all to 70%</b>. Open a ship and a Cargo Bay: the card shows Condition, a bar with ticks at 60, 80 and 95, <b>Worn 70%</b>, struck-through new values beside the worn ones, and <b>Back to full in about 8 min at home, on its own. Repair is always free.</b>", src: "gw", tag: "debug" },
+    { t: "<b>Wear all to 40%</b>: a weapon reads <b>Battered</b> in amber. No red anywhere and no warning icon, in either theme.", src: "gw", tag: ["debug", "theme"] },
+    { t: "Ship Systems: every installed slot has a small meter and percent; the header shows a <b>Gear N%</b> chip plus <b>Recovering, full in about N min</b>. Nothing on the board asks for a click. At 375 the meters stay on their rows and never push Swap or Uninstall off screen.", src: "gw" },
+    { t: "Command Home: with worn gear a <b>Fleet care</b> section appears (<b>Nothing needs you</b>, one row per ship); it only reports, with no Overtime button. Restore all gear: it disappears within a tick.", src: "gw", tag: "debug" },
+    { t: "Patrols wear gear by battle only (weapons, shields, plating, drone pods, and the reactor and drive by hits taken); the training patrol leaves no wear; a gathering mission still wears its cargo bay, drive and reactor by use.", src: "gw" },
+    { t: "Gear card <b>OVERTIME</b> strip on a docked ship: three pips, <b>+25% · N cr</b>, one tap (no confirm), credits drop by exactly N and the System Log names the step. A ship that is out reads <b>Docked only</b>; short of credits reads <b>N cr · need M more</b>.", src: "gw" },
+    { t: "Desktop: hover a mid-screen piece and rest 3 s: the card opens beside the tile and stays steady; move onto it and click Overtime: it buys and the card stays. Phone: tap a piece to pin the card, then tap the button.", src: "gw", tag: "device" },
+    { t: "Running jobs: a Tier II Destroyer's 10 min build shows an OVERTIME strip with <b>+25% · 200 cr</b>; research, a data study, facility upgrades, Expand Docks, Add Docking Bay, Upgrade Bay and a hull repair each have one. With Auto-study off the data study's button reads Paused.", src: "ot" },
+    { t: "Buy a step: the bar does not jump, it fills faster, with a <b>1.25x</b> chip by the time. Command Home shows the chip only (no buy button); Recently completed reads <b>took 07:20 with Overtime (10:00 at the normal rate)</b>. No strip on refining, crafting, missions, patrols or expeditions.", src: "ot" },
+    { t: "Watch a short job into its last seconds (under one tick left). <span class=\"ex\">Expected: Overtime is not offered (or costs nothing) once a step can no longer save a whole tick.</span>", only: "any", ki: "open", gap: "lane 1: Overtime last seconds", kn: "Lane 1 M1: a step can still be sold that saves no time." },
+    { t: "Buy two Overtime steps on a long build, close the game, reopen after it should be done. <span class=\"ex\">Expected: it finished at the Overtime time (the Recently completed line shows both times), credits were charged once, and the job delivers exactly what it would have.</span>", only: "any", gap: "lane 1: Overtime then close" },
+    { t: "On a patrol paused to repair gear between Repeat cycles, buy an Overtime step on the gear repair. <span class=\"ex\">Expected: the pause shortens by the bought share and the patrol relaunches as soon as the repair is done, with no extra idle tick.</span>", only: "any", gap: "lane 4: Overtime then Repeat pause length" },
+    { t: "Compare the Overtime price for the same gear repair on a docked ship and on a patrol paused at home. <span class=\"ex\">Expected: the same price.</span>", only: "any", ki: "open", gap: "lane 4: pause vs docked price", kn: "Lane 4 M6: the paused price is 1 cr higher (491 vs 490)." },
+  ]},
+
+  { id: "A10", part: "A", title: "Patrols and torpedoes", note: "Enemies now carry torpedoes; a carrier's Flight Deck rallies below half hull.", sheets: ["torp", "cp4"], items: [
+    { t: "Combat Patrols, Crimson-Reaver Warband, More info: a <b>Torpedoes:</b> line (every Corsair Carrier, a Marauder 40% of the time, shot down only in Defensive with working point defense). The Sweep shows only the Marauder part; a fresh save shows no line before the training patrol.", src: "torp" },
+    { t: "Fly a Warband Defensive on a ship with a Point-Defense Array: some log lines read <b>point defense shoots down ...'s torpedo</b> and the arena shows shot down. Fly it Balanced or Aggressive: no shot down lines.", src: "torp" },
+    { t: "The Warband's Threat Assessment reads a harder band than before for a Standard-Issue ship in Balanced; switching to Defensive lifts it (most on a Battleship).", src: "torp" },
+    { t: "Expedition scan events: a hostile probe or cloaked vessel can now carry a torpedo (more at Tier II and up), with no shot down lines; the training expedition never meets one.", src: "torp" },
+    { t: "Personnel, Senior Staff: the Pilot's Integrity tooltip says below half hull on a patrol the Flight Deck's own Deck Handling rebuilds lost drones faster. On a carrier patrol that dips below half hull the drone pips come back between waves, and the Combat View matches the live run.", src: "cp4" },
+    { t: "Offline: leave a Repeat Warband (or a carrier patrol) running, come back: the recap and the log agree with a patrol watched live.", src: "torp", tag: "save" },
+    { t: "A veteran warship on a Repeat Sweep (Balanced) for several hours (Debug, Offline sim +8h). <span class=\"ex\">Expected (your answer, \"Resume when safe\"): it waits at home only until its gear can take the next cycle without breaking, not until every piece is at full; most of its time is spent flying, not paused.</span>", tag: "debug", only: "any", ki: "pending", gap: "lane 4: paused share on Repeat", kn: "Today a destroyer spends 91% of the time paused, a carrier 92%, a battleship 73% (lane 4 I1)." },
+    { t: "A Repeat patrol whose next cycle would be a defeat even with pristine gear. <span class=\"ex\">Expected (your answer, \"Stop and explain\"): Repeat stops before that cycle and Recently completed says why, in calm words.</span>", only: "any", ki: "pending", gap: "lane 4: Repeat until defeat", kn: "Today Repeat flies the doomed cycle (lane 4 q3)." },
+    { t: "Fly the same patrol with the same Standard-Issue warship in Aggressive, then Balanced. <span class=\"ex\">Expected: the two battle logs differ. Whether default kits must differ is still your call.</span>", only: "any", ki: "decide", gap: "lane 4: Aggressive vs Balanced logs", kn: "Today they fight identically on Standard-Issue warships (lane 4 M5)." },
+    { t: "Close the game during a patrol that ends in a defeat while you are away. <span class=\"ex\">Expected: on return the recap names the defeat and the hull state matches a live run; a hull repair starts on its own as it would live.</span>", only: "any", gap: "lane 4: close after defeat" },
+    { t: "A carrier on a Repeat patrol for several hours while away, then compare its Complement counts with a twin left running live (or note them before and after). <span class=\"ex\">Expected: the same crew counts per division either way.</span>", only: "any", ki: "open", gap: "lane 4: carrier buckets offline", kn: "Lane 4 M8: a carrier's complement buckets can differ by chunking; cause unknown." },
+  ]},
+
+  { id: "A11", part: "A", title: "Completion tracking", note: "Every system and body gets a completion %; nothing is lost for leaving one unfinished.", sheets: ["ct"], items: [
+    { t: "Expedition Console: under the system's name a small ring and <b>Bodies 2/3 · Objectives 3/5 · 50%</b>; each body card has its line (<b>Scanned · Objectives 0/2 · 50%</b>, <b>Not scanned yet ... 0%</b>). At 100% a green <b>Completed</b> chip joins the name.", src: "ct", tag: "theme" },
+    { t: "Skip an objective: the run can still reach 100% and the line notes <b>1 skipped</b>. A gas giant's study counts as its body's objective and a nebula sweep as one share of the system.", src: "ct" },
+    { t: "Recall a run: its Resume card's first row is <b>Completion: 40% · Bodies 1/3 ...</b> and the claim card says <b>saved to Resume at N%</b>. A candidate visited before shows <b>Visited: N%</b> or the Completed badge.", src: "ct" },
+    { t: "Claim a run home at 100%: the claim card reads <b>SYSTEM completed: every body scanned, every objective done.</b> and the log names <b>Planets completed</b> with one bonus relic blank each. A planet never pays twice, even on a revisit.", src: "ct" },
+    { t: "Facilities, Archive, Survey Log: the <b>Systems</b> section sits on top (<b>N visited · M completed</b>, Hide remembered), grouped by tier with Roman numerals; Sort By tier, By completion, Newest first. A table at 1280, cards at 375.", src: "ct", tag: "device" },
+    { t: "Abandon a Resume system: its row stays at the % it reached, marked <b>Abandoned</b>. A revisited system keeps one row at its best %.", src: "ct" },
+    { t: "On your migrated save the Systems section lists runs in flight and Resume systems from the first look, and its foot reads <b>Listed from this update on. Systems claimed before it left no record.</b>", src: "ct", tag: "save" },
+    { t: "Finish a planet by skipping every objective (or a planet with no objectives at all). <span class=\"ex\">Expected (your answer, \"Roll needs a real objective\"): the planet still reaches 100% for the %, but no bonus relic blank is rolled for it.</span>", only: "any", ki: "pending", gap: "lane 3: skip-all body bonus", kn: "Today a scan-and-skip pays the bonus roll (lane 3 q3)." },
+  ]},
+
+  { id: "A12", part: "A", title: "Telescope", note: "The galaxy map now knows your homeworld, enemy territory and what you have completed.", sheets: ["tmap"], items: [
+    { t: "Subspace Telescope at Level 1 and at Level 8 (or as high as you have): the seven badges I to VII sit apart, none on a dot or under the Homeworld or Galactic Core label, nothing clipped at the edges.", src: "tmap", tag: "device" },
+    { t: "Level 1: no hatching. Level 2 or higher: one thin hatched slice per reached region from Tier II out, with a dashed edge and no red fill or pulse; the legend reads <b>Hatched: enemy territory</b> and those key rows read <b>part enemy</b>.", src: "tmap", tag: "theme" },
+    { t: "Each hatched slice carries its tier in small Roman numerals (Tiers III and IV share a ring, their labels apart); no label covers a badge, a dot or another label, and the color-blind palette keeps them in its danger color.", src: "g2", tag: "theme" },
+    { t: "Completion arcs: each region with a listed system gets a green arc outside its badge for the share completed, its key row reads <b>N charted · M completed</b>, and no slice label sits on an arc.", src: "ct", tag: "theme" },
+    { t: "Wolf 359: after the first run it appears in the Tier I list. Claim a run that reached it: the log adds the derelict field line and the Survey Log gains a <b>Derelict field</b> entry, once; a second visit writes nothing more.", src: "tmap" },
+    { t: "The telescope on the candidate card: at Telescope Level 1 a candidate shows which risks are present; each upgrade adds detail (each world's grades, then a recommended team), and the Upgrades tab names what the next level adds. <span class=\"ex\">Expected: what the card shows matches the level the facility reads.</span>", gap: "lane 1: telescope card" },
+    { t: "Blind launch: pick a candidate beyond the telescope's range. <span class=\"ex\">Expected: it can still be launched, after one plain confirm that says the system is unread.</span>", only: "any" },
+  ]},
+
+  { id: "A13", part: "A", title: "Help", note: "Every new system has a topic; spot check that the numbers match the screens.", sheets: [], items: [
+    { t: "Help lists the new topics and each opens: Expedition Tiers, System Completion, Short-Range Missions, Refugees, Gear wear, Overtime, Hull bonuses, Retirement and the Hall of Command, Relics and the Museum, Material lines and quality, the six gas giant topics, and the five crew topics (Complement and the Crew Pool, Senior Staff and Officer Stats, Recruiting, Away-Team Members, Implants)." },
+    { t: "In-game links land on the right topic: \"How short-range missions work\" on the board, \"How refugees work\" on the Refugees tab, the Gear wear link on the Ship Systems chips, the graph key's Graph colors line. Expedition Tiers is linked from Risk Factors, Objective Difficulty and Fuel.", src: "srm" },
+    { t: "Spot check numbers against the screens: Overtime (+25% a step, 3 steps, 1.75x), the torpedo chances in Combat Patrols, the Corroded chance in Field Kits, the candidate board costs (3,000 to 15,000) in Personnel Rosters, the soft level cap (8% more past level 30) in Crew and Captains.", src: "ot" },
+    { t: "WR-12 additions: Crew and Captains has a TALENTS paragraph (Prospector +1% bonus roll chance, Tactician +1% ship weapon damage, Explorer +1% relic find, Combat Readiness +5% weapon damage, Survey Doctrine +5% expedition scan rate); Homeworld names Home Guard (+5% patrol shields), Civic Charter (+1 crew a transport) and Works Directorate (5% Fabricator bonus output); Complement's RACIALS line says the commanding captain carries a racial too." },
+    { t: "Text sweep across the new topics: US English, no em dashes or double hyphens, gear is installed (never the old word), objectives are objectives, and every tier and drive class reads in Roman numerals." },
+    { t: "Phone: Help scrolls inside its panel, long lists wrap, nothing scrolls sideways.", only: "mob", tag: "device" },
+    { t: "Help, Refining: the line about upgrades matches the Refinery's Upgrades tab (levels 1 to 3 add a line, level 4 is speed). <span class=\"ex\">Expected: no claim that every upgrade unlocks another line.</span>", only: "any", ki: "open", gap: "lane 1: Refining Help", kn: "Lane 1 M3: the text says each upgrade unlocks another line." },
+    { t: "Help, Combat Patrols: it explains that a Repeat patrol waits at home to repair gear between cycles, and the Sweep text no longer promises that any warship can win. <span class=\"ex\">Expected (your answer, \"Fix the Help text\"): both lines true to the game.</span>", only: "any", ki: "pending", gap: "lane 4: Help", kn: "Lane 4 M7 and I3: the repair pause is not mentioned, and torpedoes make the Sweep losable." },
+    { t: "Help, Storage: what happens at a material's cap matches the game. <span class=\"ex\">Expected (your answer, \"Never discard\"): deliveries may sit over the cap and nothing is trimmed on load; the topic says so.</span>", only: "any", ki: "pending", gap: "lane 1: storage at cap", kn: "Lane 1 M5 and M6: Storage Help says producers pause, while secondary loot is clamped and over-cap deposits are trimmed on load." },
+  ]},
+
+  { id: "A14", part: "A", title: "Also in this release (the minigame, material lines, the economy)", note: "The parts of 0.14.0 outside the journeys above, plus the economy gaps from sweep lane 1.", sheets: ["mg", "ml", "ml5"], items: [
+    { t: "Minigames, Play: six tabs (arrow keys move between them, Escape closes), the window stays on one screen. The <b>Automation</b> tab's 1 / 10 / Max buttons and switches act and survive a reload.", src: "mg" },
+    { t: "Your migrated save opens the minigame with the same Ore, Captain, Augment and Dream Points; owned skills convert (Head Start, Tenfold Training, Overdrive) with the same effect, and your Captain Points multiplier matches the live game. Reload: nothing changes again.", src: "mg", tag: "save" },
+    { t: "Minigame Help ([?]) has its ten sections, matches the game, and spoils no ??? (no Auto Prestigeception, no e25,000,000).", src: "mg" },
+    { t: "Refinery, Production: five lines in order (Structural, Heavy metals, Recovered tech, Organic, Volatiles), each naming where its raws come from; Biofiber reads 5 Fibrous Biomass into 1 and Resin Distillate 3 Volatile Resin into 1. Below 1,100 px it goes to one column.", src: "ml" },
+    { t: "Operations, Missions, Tier I: the <b>Cometary Ice Harvest</b> brings home Deuterium Ice; the Refinery turns 10 into 1 Deuterium Canister; Reactor Core blueprints and Class III and higher FTL Drive blueprints refuse to start without canisters.", src: "ml" },
+    { t: "Fabricator, an equipment blueprint: <b>Use best materials</b> shows (starting off) with <b>THIS ORDER USES</b> by quality and <b>Carried quality</b>. The finished blank keeps that quality in Crafted Blanks' By quality chips, and Inspect takes the highest quality first.", src: "ml5" },
+    { t: "On your migrated save: every item is still there, old blanks show a single Q0 chip, and gear you crafted before keeps every stat (a reworked recipe changed nothing already made).", src: "ml5", tag: "save" },
+    { t: "Quartermaster, Sell: the Deuterium Canister's price. <span class=\"ex\">Expected (your answer, \"Price near input value\"): close to the value of the 10 ice it took plus a small refining margin.</span>", only: "any", ki: "pending", gap: "lane 1: canister sell math", kn: "Today ice sells for 4 cr and a canister for 450 cr (lane 1 I1)." },
+    { t: "One freighter cycle of the Cometary Ice Harvest, refined to canisters and sold. <span class=\"ex\">Expected: earns about what an ordinary Tier I mission cycle earns, not thousands of credits.</span>", only: "any", ki: "pending", gap: "lane 1: ice economy", kn: "Today one cycle sells for about 2,700 cr, some 60x the planned early income." },
+    { t: "Start one Refinery order while two lanes stand free. <span class=\"ex\">Expected: the result matches the Refinery Help. Whether free lanes should join a running order (wire it) or stay as known is still your call.</span>", only: "any", ki: "decide", gap: "lane 1: two-line refine order", kn: "Lane 1 I3: a free lane never joins a running order (since 0.13.4)." },
+    { t: "With large Museum bonuses (old save or Debug grants), build a hull or craft a piece, then salvage it. <span class=\"ex\">Expected (your answer, \"Curve below 100%\"): the refund nears but never reaches what it cost; build then salvage never makes a profit.</span>", tag: "debug", only: "any", ki: "pending", gap: "lane 1: salvage refund ceiling", kn: "Today the refund can reach 0.93 to 1.16 of the cost (lane 1 I2)." },
+    { t: "Warehouse rungs 5 to 7 (and Tier II rung 5): hold exactly the listed ore and press Upgrade. <span class=\"ex\">Expected: the upgrade starts.</span>", only: "any", ki: "open", gap: "lane 1: Warehouse exact ore", kn: "Lane 1 M2: the cost is 12000000.000000002, so exactly the listed ore is refused." },
+    { t: "Queue a Fabricator order that reserves a material, then go to Quartermaster, Sell and try to sell that material. <span class=\"ex\">Expected: what the Sell counter allows matches your call on reservations (still to ask); a queued order never silently loses its stock.</span>", only: "any", ki: "decide", gap: "lane 1 q4: Sell vs reservations", kn: "Lane 1 M7: Sell checks the total, not the free amount." },
+    { t: "Research Lab: queue a second project behind a running one, then close the game. <span class=\"ex\">Expected: it starts the moment the bay frees (also offline), and both are done on return.</span>", only: "any", gap: "lane 1: research queue" },
+    { t: "Fuel Depot: note a ship's reach in a dispatch window, upgrade the Fuel Depot one level. <span class=\"ex\">Expected: every ship's reach grows 5% for missions, patrols and expeditions alike; the Fuel Depot shows no fuel purchase or tank.</span>", only: "any", gap: "lane 1: Fuel Depot range" },
+    { t: "Quartermaster, Purchase: try to buy kits with too few credits, and with the Field Kits store full. <span class=\"ex\">Expected: refused with a reason, credits unchanged, nothing added.</span>", only: "any", gap: "lane 1: Purchase refusals" },
+    { t: "Post a Refiner at the Refinery, let a job deliver its extra batch, then open Home, Statistics. <span class=\"ex\">Expected: the lifetime refined count includes the extra batch.</span>", only: "any", ki: "open", gap: "lane 1 M4: lifetime refined stat" },
+  ]},
+
+  { id: "A15", part: "A", title: "More of 0.14.0 (from the patch notes draft)", note: "Features in docs/patch-notes/0.14.0-DRAFT.md that the journeys above do not walk on their own.", sheets: [], items: [
+    { t: "Explorer hulls: research the Orion, Aurora and Eir blueprints at the Research Lab, then build one at the Shipyard. <span class=\"ex\">Expected: the build card shows its berths, sensors and guest quarters; the finished ship carries large shields and reach.</span>" },
+    { t: "Senior Staff: a ship's Senior Staff tab has seven seats (Executive Officer, Pilot, Operations, Science, Tactical, Medical, Engineering). Hire from the officer board into an empty seat. <span class=\"ex\">Expected: the officer's origin (six human origins, four allied species) shows its racial bonus, stronger on an officer than on crew.</span>" },
+    { t: "Crew transports: with open berths, crew arrive by transport about every half hour of game time and fill Auto-crew ships first, then wait in the pool. With Civic Charter owned each transport brings one more.", only: "any" },
+    { t: "Personnel Rosters, Rosters: save a ship's officers and notables as a named roster, linked to an Armory loadout. Apply it to another ship. <span class=\"ex\">Expected: the people and the linked loadout move together; picking alone changes nothing until Apply.</span>" },
+    { t: "Power and Modules: Ship Systems shows a <b>Power</b> bar (output against draw). Research a Tier II module, craft and install it in the Modules row. <span class=\"ex\">Expected: the draw rises by the module's cost, an install that would exceed output is refused with the numbers, and every pre-0.14.0 loadout still stays within its output.</span>" },
+    { t: "Reactor Cores: install a crafted core with spare power. <span class=\"ex\">Expected: unused power shows as extra drive speed, and a crafted core never makes the ship slower than the Standard-Issue one.</span>", only: "any" },
+    { t: "Survey missions: Survey Mineral Anomaly and Survey Stellar Phenomena dispatch and deliver rarer finds, more with stronger sensors (compare an explorer against a freighter).", only: "any" },
+    { t: "Supply runs: the Frontier Supply Run and the Colony Supply Lift charge credits for supplies at launch and pay them back with a margin on delivery; with a full ore warehouse they still dispatch.", only: "any" },
+    { t: "Stances: the patrol dispatch offers Aggressive, Balanced and <b>Defensive</b> (formerly Standoff), each with its explainer. On your old save, a patrol that flew Standoff keeps its stance under the new name.", tag: "save" },
+    { t: "Talents that now work: Works Directorate (5% chance of one more Fabricator output, decided when the job starts), Salvage Operations (10 percentage points more back from a whole ship), and the commanding captain's origin racial. <span class=\"ex\">Expected: each shows its line in the matching readout and moves the number.</span>", only: "any" },
+    { t: "Old save heads-up items: the Archive's completion % reads lower (new slots) while every enshrined piece is still there; a standing craft line on a reworked recipe waits for the new materials and then carries on; Reclaimed Alloy reads uncommon.", tag: "save", only: "any" },
+    { t: "Material Quality on delivery: install a Refinery-Feed Rig (or a Prospecting Rig with a Material Quality line) and run a gathering mission. <span class=\"ex\">Expected: some units arrive one quality higher, shown by quality in Materials.</span>", only: "any" },
+    { t: "Logistics, <b>Away-Team Gear</b>: spare away-team gear and implants grouped by slot, each with <b>Install on...</b> that opens the member picker. Armory, <b>Squad Loadouts</b>: one loadout per ground team, saved and applied." },
+    { t: "Quartermaster, Sell: gas canisters and the other new sellables are listed with prices; selling any quantity pays exactly the shown total.", only: "any" },
+    { t: "Implants: a Martian or Stheni member has 2 implant slots, others 1. The Neural Backup is unique: a second one can be crafted but only one can be worn fleet-wide.", only: "any" },
+    { t: "The patch notes: Settings, Patch Notes shows the 0.14.0 entry once you approve the text and it is wired in (the draft lives in docs/patch-notes/0.14.0-DRAFT.md); it renders as sections at both widths." },
+  ]},
+
+  { id: "A16", part: "A", title: "Wiring close-out", note: "From section 7 of docs/plans/2026-10-15-wiring-registry-and-audit-plan.md (for WR-12). \"?dev Debug > Wiring\" there means Debug tab, Wiring, on staging.", sheets: [], items: [
+    { t: "Debug tab, <b>Wiring</b>, on staging: it lists every system; a fresh save shows owned sources only for Standard Issue and the default complement; \"contributing nothing\" is empty except <code>deferred</code> rows, and the release gate shows no pending rows.", tag: ["debug", "fresh"] },
+    { t: "Allocate one captain talent node per tree: the Wiring panel shows its contribution and the matching readout in the game moves.", tag: "debug" },
+    { t: "No talent, Homeworld node or tooltip anywhere reads <b>No bonus yet</b> or <b>(first-pass)</b>." },
+    { t: "Combat positions (OC-D9, built in WR-8: fights open at range and close): the same patrol flown in a different stance gives a different battle log. Use Defensive against either of the others: Aggressive and Balanced can match on Standard-Issue warships (see A10).", ki: "decide" },
+    { t: "Officer promotion (OC-E10): an officer promotes after meeting its objective set (hours out on runs, kills, objectives completed by the ship's squads).", tag: "save" },
+    { t: "A supply run dispatches with a full ore warehouse (OC-I3: transports are never blocked by the ore cap)." },
+    { t: "Fuel Depot (OC-C1, \"Turn into range\"): no fuel purchase or fuel tank surface remains anywhere, and the Fuel Depot's levels lengthen fleet reach (dispatch windows read the longer range)." },
+    { t: "Sensor array descriptions (Wide-Beam, Balanced, Focused-Beam and the rest) match their measured scan rates on a real expedition." },
+    { t: "By hand, once: the first expedition on a fresh Orion with everything on auto completes at 100%.", tag: "fresh" },
+  ]},
+
+  // PART B: FULL REGRESSION (everything before 0.14.0)
+  { id: "R1", part: "B", title: "Shell, header and navigation", note: "From 0.12.0 Console, 0.13.1, 0.13.2, 0.13.5, 0.13.6, 0.13.11.1 and 0.10.1.", sheets: [], items: [
+    { t: "The nav: Home, Crew, Ships, Facilities, Logistics and Ops each open on their overview; the active tab glows; on a phone the bar sits at the bottom with its icons. <span class=\"ex\">Expected: one tap each, no blank screen, no console error.</span>" },
+    { t: "Ships nav: damage a ship or leave a required weapon, shield or plating slot empty. <span class=\"ex\">Expected: an attention dot on the Ships tab and an amber flag on that ship's row; it clears when fixed.</span>" },
+    { t: "Header stat block: FA EXP, CRAFT and TICK sit in one aligned block, the crafting level beside the Fleet Admiral level; the tick bar fills smoothly and reaches 100% each tick.", tag: "theme" },
+    { t: "Header currencies band: up to four currencies, each with a tooltip; tapping a currency opens its breakdown. Settings, UI, <b>HEADER CURRENCIES</b>: change which show and their order. <span class=\"ex\">Expected: the band updates at once, survives a reload, compact on a phone and full width on desktop.</span>" },
+    { t: "Header buttons: <b>Help [?]</b> opens Help; the gear opens the System window on Settings (Settings, Log, About, Patch Notes, Community); the portrait opens Crew, Admiral.", },
+    { t: "Console tab rows (every perspective and facility): the row scrolls sideways inside itself on a phone with the edge fades; page content scrolls under it without showing through; locked tabs read locked and do nothing.", tag: "device" },
+    { t: "Action windows (install, confirms, the ship and system pickers, the recap): a bottom sheet on a phone, a centered card on desktop, one header, scroll and footer. Escape closes each (except save recovery), and keyboard focus stays inside.", tag: "device" },
+    { t: "The item tooltip: open it on a material, a gear piece, a ship, a ship system and an in-progress craft. <span class=\"ex\">Expected: stats above the divider, flavor below; weapons show damage range, projectiles, accuracy, fire rate, range and family; an in-progress craft shows its stat ranges and rollable affixes; long names wrap on a phone.</span>" },
+    { t: "Update banner: the next time staging redeploys while the game is open, <b>A new version of Hyperion Legacy is available</b> appears with Export Save, Refresh and dismiss. <span class=\"ex\">Expected: Export keeps the banner open, dismiss only snoozes it for a few hours, nothing reloads by itself.</span>", only: "any" },
+  ]},
+
+  { id: "R2", part: "B", title: "Home: Command Home, Statistics, Help", note: "From 0.12.0, 0.13.1, 0.13.3 and 0.13.5.", sheets: [], items: [
+    { t: "Command Home, <b>IN PROGRESS</b>: run a mission, a patrol, a research, a refine, a craft, a ship build and a facility upgrade together. <span class=\"ex\">Expected: each has its own row with a live bar and the real time left (a refine or craft shows the whole order's time); tapping a row jumps to it.</span>" },
+    { t: "<b>NEEDS YOUR ORDERS</b>: leave a captain idle, a bay free and an upgrade affordable. <span class=\"ex\">Expected: a counter, a gentle ticker (still under Reduce motion), Show all expands one-tap shortcuts; an idle captain's shortcut opens the board that ship can dispatch from; exactly one ready upgrade names its facility and opens its Upgrades tab.</span>" },
+    { t: "<b>NOT YET UNLOCKED</b> lists what is still ahead, and an entry leaves the list once it unlocks.", only: "any" },
+    { t: "<b>RECENTLY COMPLETED</b>: one line per item that expands for detail. A finished patrol names the patrol, the routes flown and why it stopped; a finished craft reports an uninspected blank (not a system).", only: "any" },
+    { t: "Home, <b>Statistics</b>: the lifetime, career and fleet groups. <span class=\"ex\">Expected: numbers rise after a mission cycle, a craft and a refine; nothing reads NaN, negative or blank.</span>", only: "any" },
+    { t: "Home, <b>Help</b>: every topic in the list opens (a left rail at 1280, a list at 375) and scrolls inside its panel; the header [?] opens the same Help.", tag: "device" },
+    { t: "Home's <b>Achievements</b>, <b>Completion</b> and <b>Leaderboards</b> tabs read locked (coming soon) and do nothing when tapped.", only: "any" },
+  ]},
+
+  { id: "R3", part: "B", title: "Captains, talents and the Fleet Admiral", note: "From 0.3.0, 0.5.0, 0.12.0, 0.12.1 and 0.13.5. The captain Prestige tab and retirement are 0.14.0 (A4).", sheets: [], items: [
+    { t: "Crew, <b>Captain Roster</b>: the captain grid; captain slots 3 and 4 read Locked with their Fleet Admiral level and talent cost until both are met, then unlock.", tag: "fresh" },
+    { t: "Open a captain: rename in the frame (no popup) and reload; the Overview, Talents, Ship and Prestige tabs open, Equipment reads locked. <span class=\"ex\">Expected: the name sticks and each tab renders.</span>" },
+    { t: "Captain Talents: pick a specialization (Prospector, Tactician or Explorer). The radial web pans by drag and touch, new nodes reveal as you learn, learned links glow, and a Stat Point spends with its effect shown in the readout.", tag: "device" },
+    { t: "Captain XP: a captain on a mission gains XP every tick; the Fleet Admiral gains faster with more captains out at once.", only: "any" },
+    { t: "A captain's Ship tab: assign a hull. <span class=\"ex\">Expected: the picker shows Battle Rating, Holds, Range and a favorite star; a ship that is out cannot be reassigned.</span>" },
+    { t: "Crew, <b>Admiral</b>: PROFILE (name), FLEET ADMIRAL level and XP, ADMIRAL ACTIONS, Talents opens the Fleet Admiral and Homeworld talent trees in a focused window. Spend points, then use Homeworld Talents Reset. <span class=\"ex\">Expected: Reset asks first and refunds every point.</span>" },
+    { t: "Fleet Admiral XP from finite work: finish a facility upgrade, a craft, a research and a ship build. <span class=\"ex\">Expected: the FA EXP bar moves on each.</span>", only: "any" },
+  ]},
+
+  { id: "R4", part: "B", title: "Operations: missions, mining and patrols", note: "From 0.4.0, 0.9.0, 0.13.0, 0.13.4, 0.13.5, 0.13.6 and 0.13.9.", sheets: [], items: [
+    { t: "Ops, <b>Overview</b> lists every board; Gathering rows are condensed with More info plus Assign or Dispatch." },
+    { t: "Gathering: dispatch <b>Local Asteroid</b>, <b>Lunar Mine Contract</b>, <b>Salvage Skirmish Wreckage</b> and <b>Forage Minerals &amp; Flora on Nearby Moon</b>. <span class=\"ex\">Expected: each delivers its own trio of raws; Salvage and Forage ask for a more experienced captain; no Local Deuterium Skim remains.</span>", only: "any" },
+    { t: "The dispatch window: distance and the hull's reach in lightyears, including the installed FTL Drive; an out-of-reach trip says how far it is; the timing list (Orders Received included) adds up to the total, shown in s, min, h or d.", },
+    { t: "Repeat: a mission on Repeat runs cycle after cycle and its XP per tick shows; Recall ends it after the cycle in progress.", only: "any" },
+    { t: "Mining loot: over a few cycles uncommon and rare materials drop in the same tick as commons; a Prospecting Rig can be installed on any hull of its class whatever the captain's specialization.", only: "any" },
+    { t: "Ops, <b>Mission Control</b>: the mission list with completion counts, and its Upgrades tab opens and builds.", only: "any" },
+    { t: "Ops, <b>Combat Patrols</b>: the Dispatch popup with its threat and stance explainers; dispatch once and on Repeat. <span class=\"ex\">Expected: the patrol transits out, fights its waves and transits home with loot and bounty.</span>" },
+    { t: "The Combat View from an in-progress patrol: Log-Guided and Visual modes, live hull and shield bars, status pips, the range track; the replay matches the live result; Reduce motion stops the floating numbers.", tag: "device" },
+    { t: "Docking bays: with every bay busy, the next ship home reads <b>Waiting for a docking bay (2nd in line)</b> with an estimate, then docks in order; patrols never wait for a bay.", only: "any" },
+  ]},
+
+  { id: "R5", part: "B", title: "Facilities: refining, crafting, research, storage", note: "From 0.6.0, 0.8.0, 0.10.0, 0.11.0, 0.12.0, 0.13.3, 0.13.4, 0.13.6, 0.13.8 and 0.13.9.", sheets: [], items: [
+    { t: "Facilities dashboard: each facility card shows aligned status and progress rows; tap one to open its console (back, name and sub-tabs on one row); back returns to the dashboard." },
+    { t: "Refinery orders: start <b>Refine N</b> and a continuous order. <span class=\"ex\">Expected: live status and the pause reason (out of ingredients, storage full); Stop ends it; with Confirm before refining on, a start asks first.</span>", only: "any" },
+    { t: "Reservations: starting a refine or craft reserves its materials. The material's tooltip shows <b>Allocated</b>, <b>Free</b> and <b>Total</b>; cancel the order and the unstarted materials return to Free; a facility upgrade cannot spend reserved stock.", only: "any" },
+    { t: "Refinery and Fabricator Upgrades: buy a rung. <span class=\"ex\">Expected: a clean \"in progress\" line while it runs (no clipped button); later rungs name their Fleet Admiral level or talent gate.</span>", only: "any" },
+    { t: "Fabricator lines: each slot picks a tier, an item and an amount; a craft makes blanks; the countdown shows the whole batch, not one item; CRAFT XP rises on completion.", only: "any" },
+    { t: "Research Lab: blueprints by tier (Roman numerals) cost time plus credits; the Lab's level gates the tiers; a finished blueprint unlocks its Fabricator recipe.", only: "any" },
+    { t: "Order queues at the Refinery, Fabricator, Salvage Bay, Research Lab and Shipyard: queue behind a running order, reorder, remove one before it starts. <span class=\"ex\">Expected: removing refunds every held material; a queued order starts on its own (also offline); a full queue names Homeworld Talents, Fleet Logistics (Standing Orders).</span>", only: "any" },
+    { t: "Warehouse: the material tabs with fill gauges; a capacity upgrade raises the cap after its build time; a producer at a full material pauses with the reason.", only: "any" },
+    { t: "Salvage-only exotic materials: once picked up they show in Materials with a count (never hidden).", only: "any" },
+    { t: "Fuel Depot: there is no header fuel readout, no fuel purchase and no tank; leftover Deuterium Ice is not converted into fuel.", only: "any" },
+  ]},
+
+  { id: "R6", part: "B", title: "Ships, hulls, the Shipyard and equipment", note: "From 0.4.0, 0.10.0, 0.11.0, 0.11.1, 0.13.2, 0.13.4, 0.13.5, 0.13.6 and 0.13.9. Every slot allows empty (late 0.13.0): uninstall leaves the slot empty, and that is correct.", sheets: [], items: [
+    { t: "Shipyard: build cards with cost, time and berths; berths are bought on their own track (the speed upgrades say they include one); builds queue and finish one after another.", only: "any" },
+    { t: "Docks: <b>Expand Docks</b> raises the hull cap by one per rung; <b>Add Docking Bay</b> adds one bay at a time up to ten.", only: "any" },
+    { t: "Ships roster: sort (needs attention first, name, class, rating, status), favorite a ship to pin it up top, group by class and search by name or class. <span class=\"ex\">Expected: each works and the choice survives a reload.</span>" },
+    { t: "A ship's Loadout board: Battle Rating at the top, the Offense grid (scales with hardpoints), Defense and Systems, and a live stat readout that moves as gear changes." },
+    { t: "Install or Swap on a slot opens the picker: what is installed, the compatible spares with each one's net Battle Rating change, and the side-by-side comparison. Swap on a weapon or drone pod replaces it in one step.", tag: "device" },
+    { t: "Uninstall a piece. <span class=\"ex\">Expected: the slot stays <b>empty</b> (no baseline drops in), the piece returns to spares, and the ship can still be dispatched where its rules allow.</span>", only: "any" },
+    { t: "A newly built warship launches with a Standard-Issue weapon in every hardpoint; Quartermaster, Requisition issues a free Standard-Issue piece for an empty slot (also while that piece sits in an Armory loadout).", only: "any" },
+    { t: "Armory, <b>Ship Loadouts</b>: create, rename and delete a loadout; check it out to a ship. <span class=\"ex\">Expected: that ship's install screen locks; editing the loadout updates every ship running it; check in frees the ship; loadout gear takes no Systems Bay space and cannot be salvaged.</span>", only: "any" },
+    { t: "Ship salvage: salvage a docked ship. <span class=\"ex\">Expected: one confirm; installed systems go back to spares first; a share of the hull's materials and credits comes back; the dock slot frees at once. A ship out on a run cannot be salvaged.</span>", only: "any" },
+    { t: "Systems Bay: the spare cap shows; a timed upgrade raises it; a full bay pauses inspection rather than losing anything.", only: "any" },
+  ]},
+
+  { id: "R7", part: "B", title: "Logistics: materials, spares and blanks", note: "From 0.8.0, 0.12.0, 0.13.6, 0.13.7 and 0.13.9.", sheets: [], items: [
+    { t: "Logistics, <b>Materials</b>: themed categories, tier splits in Roman numerals, undiscovered items masked until found." },
+    { t: "Logistics, <b>Ship Equipment</b>: spares grouped by slot, each tile with icon, item level and rarity. Favorite one: it sorts to the top. Lock one: auto-salvage, manual salvage, install and loadouts cannot take it until unlocked." },
+    { t: "Logistics, <b>Crafted Blanks</b>: one tile per blueprint with its count. Inspect one, then <b>Max</b>. <span class=\"ex\">Expected: Max inspects as many as the spare bay has room for; the results list is sorted best first (rarity, then quality) and each entry expands; a blank is never used up without a system.</span>" },
+    { t: "Settings, UI, INSPECTION: <b>Reveal each inspection roll</b> on shows the reveal for each roll; off goes straight to the result.", only: "any" },
+    { t: "Quartermaster: <b>Requisition</b> issues free Standard-Issue pieces; <b>Sell</b> sells any quantity you set and pays exactly the shown total.", only: "any" },
+    { t: "Archive: <b>Enshrine</b> a spare. <span class=\"ex\">Expected: the piece is consumed, its score kept, the completion % rises; a better roll later raises the mark.</span>", only: "any" },
+  ]},
+
+  { id: "R8", part: "B", title: "Salvage and auto-salvage", note: "From 0.11.0, 0.13.3, 0.13.3.1, 0.13.5, 0.13.6 and 0.13.9.", sheets: [], items: [
+    { t: "Salvage Bay: salvage a spare by hand. <span class=\"ex\">Expected: materials of its current recipe come back (small recipes give a matching chance on the fractions); with Salvage Bay upgrades up to three run at once.</span>", only: "any" },
+    { t: "Settings, Gameplay, SALVAGE BAY: turn <b>Auto-salvage</b> on, pick <b>Quality tiers to queue</b> and <b>Rarity bands to queue</b>, try <b>Duplicates only</b>. <span class=\"ex\">Expected: only spares that match both are taken; with nothing picked nothing is ever taken.</span>", only: "any" },
+    { t: "Protection: favorited or locked spares, loadout gear, and a spare just crafted or just uninstalled within the <b>Grace period</b> are never taken by auto-salvage; the grace keeps counting while the game is closed.", only: "any" },
+    { t: "<b>Warn before auto-salvage can take Standard-Issue gear</b>: with rules that would take one, the warning shows before it happens.", only: "any" },
+    { t: "Settings, Confirmations: <b>Confirm before salvaging</b> and <b>Quality tiers that confirm before salvaging</b> ask before a matching manual salvage.", only: "any" },
+    { t: "Offline: auto-salvage runs while you are away and the While You Were Away recap lists what it took, matching the rules.", only: "any" },
+  ]},
+
+  { id: "R9", part: "B", title: "Settings", note: "From 0.10.2, 0.13.5, 0.13.6 and 0.13.11. Theme and accessibility rows need both widths.", sheets: [], items: [
+    { t: "Settings, UI, <b>UI THEME</b>: Theme preset, Theme style, Theme color (every accent, Purple, Pink, Chartreuse and Vermilion included), and Color 1 and Color 2 where the style offers a gradient. <span class=\"ex\">Expected: the whole UI recolors (starfield and log too) and the choice survives a reload.</span>", tag: "theme" },
+    { t: "<b>Text and interface size</b>: step from 0.9x to 1.5x. <span class=\"ex\">Expected: the whole interface scales together, and at 1.5x on a phone nothing scrolls sideways.</span>" },
+    { t: "ACCESSIBILITY: <b>Reduce motion</b> (bars step, tickers hold, the Combat View stops floating numbers), <b>High contrast</b>, <b>Dyslexia-friendly text</b>, and the <b>Color-blind palette</b> (status and rarity colors remap, the accent stays). <span class=\"ex\">Expected: each acts at once and survives a reload.</span>", tag: "theme" },
+    { t: "TICK BAR and READOUTS: <b>Show the tick bar</b>, <b>Show tick counts</b> and <b>Show experience values</b> each show or hide their readout.", only: "any" },
+    { t: "COMBAT LOG: <b>Log style</b>, <b>Log speed</b>, <b>Auto-scroll</b> and <b>Damage colors</b> change the Combat View's log as named.", only: "any" },
+    { t: "Confirmations: <b>Confirmation level</b> from Ask me everything, Tutorial, Beginner, Intermediate and Advanced to Stop asking. Edit a single checkbox. <span class=\"ex\">Expected: the level reads Custom; picking a level again asks before overwriting your edits.</span>", only: "any" },
+    { t: "<b>Always use the mobile layout</b> reads disabled with its \"not available yet\" note.", only: "any" },
+    { t: "On a phone, every Settings ? help opens on the first tap.", only: "mob", tag: "device" },
+    { t: "Settings, <b>Codes</b>: enter the code from the 0.13.11.1 patch note. <span class=\"ex\">Expected: accepted with its popup; entering it again says it was already used; a made-up code is refused politely.</span>", only: "any" },
+    { t: "The System window's other tabs: <b>Log</b> lists recent actions, <b>About</b> names the build, <b>Patch Notes</b> renders every older entry as sections (0.13.5 and later structured, earlier ones as summaries), <b>Community</b> opens the Discord link in a new tab." },
+    { t: "Background setting works: Settings, UI, <b>BACKGROUND</b>, change the preset, then pick Manual and a Background style (and Configure, where offered). <span class=\"ex\">Expected: the background changes at once, locked styles read locked, and the choice survives a reload.</span>", tag: "theme" },
+  ]},
+
+  { id: "R10", part: "B", title: "Save safety", note: "From 0.2.0, 0.10.1, 0.10.2 and 0.13.5. Use the fresh profile for anything destructive.", sheets: [], items: [
+    { t: "Autosave: change something (rename a captain, start a craft), wait 30 seconds, reload. Then change something else and close the tab at once, reopen. <span class=\"ex\">Expected: both changes are there.</span>", only: "any" },
+    { t: "Settings, Save Data, <b>Export Save</b>: a .json downloads. Import it in another profile with <b>Import Save</b>. <span class=\"ex\">Expected: ships, gear, captains, crew, queues and runs in flight all match; favorites and locks (kept in the save) carry over.</span>", only: "any" },
+    { t: "Import Save, then cancel at the confirm: nothing changes. Import a file that is not a save: refused with no change.", only: "any" },
+    { t: "Settings, Save Data, <b>Delete Save</b> (fresh profile): it asks first; confirming starts a brand new save.", tag: "fresh", only: "any" },
+    { t: "Save recovery: if you can produce an unreadable save (DevTools, edit the stored save text), reload. <span class=\"ex\">Expected: the recovery window shows the raw text to copy, keeps the old save untouched, starts fresh only on your explicit choice, and Escape does not close it.</span>", tag: "device", only: "any" },
+    { t: "Reload mid-everything (a mission, a patrol, an expedition, a refine, a craft, a research, an upgrade): each picks up exactly where it was, with the same time left.", only: "any" },
+  ]},
+
+  { id: "R11", part: "B", title: "Offline and While You Were Away", note: "From 0.8.0, 0.13.3, 0.13.10 and 0.13.11.3 (cap 4 days).", sheets: [], items: [
+    { t: "Close the game for an hour (or Debug, Offline sim <b>+1h</b>) with runs and jobs going. <span class=\"ex\">Expected: the While You Were Away window shows the time actually paid and what happened; everything advanced exactly as if you had watched.</span>", only: "any" },
+    { t: "Stay away more than 4 days (or Offline sim +24h five times). <span class=\"ex\">Expected: 4 days are paid, the recap says the cap was reached, and no second popup claims unpaid time.</span>", tag: "debug", only: "any" },
+    { t: "Leave the game in a background tab (or let the phone sleep) for 10 minutes. <span class=\"ex\">Expected: on return no time is lost; progress matches 10 minutes.</span>", tag: "device", only: "any" },
+    { t: "Offline facilities and queues: a queued order starts while you are away, facility upgrades finish, captains earn XP; the recap lists them.", only: "any" },
+  ]},
+
+  { id: "R12", part: "B", title: "Notifications and achievements", note: "From 0.13.1, 0.13.5 and 0.13.11.1. Achievements as a tab are still locked (R2).", sheets: [], items: [
+    { t: "The achievement popup: redeem a code (R9). <span class=\"ex\">Expected: the popup shows once above everything (open windows included), reads cleanly at both widths and dismisses.</span>" },
+    { t: "Recently completed and the attention marks act as the game's notices: a finished job appears within a tick, the Ships dot and amber flags appear and clear with their cause.", only: "any" },
+  ]},
+
+  { id: "R13", part: "B", title: "Layout pass at both widths", note: "A last sweep of every screen. Use a real phone for the touch rows.", sheets: [], items: [
+    { t: "At 375: walk Home (each tab), Crew (each tab), Ships (roster and a ship's every tab), every Facilities console and its sub-tabs, every Logistics tab, every Ops tab, and every Settings tab. <span class=\"ex\">Expected: no sideways page scroll anywhere.</span>", only: "mob", tag: "device" },
+    { t: "Bottom sheets on a phone scroll inside themselves and their footer buttons sit above the home indicator.", only: "mob", tag: "device" },
+    { t: "On a phone every action is reachable by tap (no hover-only control); steppers, switches and tabs are easy to hit.", only: "mob", tag: "device" },
+    { t: "At 1280 the layout uses the width (no narrow centered column), panels align, and no text overlaps.", only: "desk" },
+    { t: "Turn a phone to landscape and back on Home, a facility console and the Combat View: the layout reflows with nothing cut off.", only: "mob", tag: "device" },
+  ]},
+];
+
+const STORE = "hl-qa-0140-full-v1";
+const SCOPE_STORE = "hl-qa-0140-full-scope-v1";
+let userState = {};
+try { userState = JSON.parse(localStorage.getItem(STORE) || "{}") || {}; } catch (e) { userState = {}; }
+function save() { try { localStorage.setItem(STORE, JSON.stringify(userState)); } catch (e) {} }
+let scope = "all";
+try { const s = localStorage.getItem(SCOPE_STORE); if (s === "A" || s === "B" || s === "all") scope = s; } catch (e) {}
+function saveScope() { try { localStorage.setItem(SCOPE_STORE, scope); } catch (e) {} }
+
+const CHIP = {
+  save: '<span class="chip save">needs real save</span>',
+  fresh: '<span class="chip fresh">fresh save</span>',
+  device: '<span class="chip device">needs device</span>',
+  theme: '<span class="chip theme">light + dark</span>',
+  debug: '<span class="chip debug">Debug tab</span>',
+};
+const KI = {
+  fixed: '<span class="chip kf">fixed, verify</span>',
+  pending: '<span class="chip kp">known issue, fix pending</span>',
+  decide: '<span class="chip kd">known issue, decision pending</span>',
+  open: '<span class="chip ko">known issue, open</span>',
+};
+
+function cb(kind, id, checked, label) {
+  return '<span class="cb ' + kind + '"><input type="checkbox" id="' + id + '" ' + (checked ? "checked " : "") +
+    'aria-label="' + label + '"><span class="box">' + TICK + "</span></span>";
+}
+function tagList(it) { return it.tag ? (Array.isArray(it.tag) ? it.tag : [it.tag]) : []; }
+function secId(sec) { return "sec-" + sec.id; }
+function keyOf(sec, ii) { return sec.id + "-" + ii; }
+
+const jump = document.getElementById("jump");
+const secWrap = document.getElementById("sections");
+let lastPart = "";
+jump.insertAdjacentHTML("beforeend", '<a href="#before"><b>!</b>Before you start</a>');
+SECTIONS.forEach((sec) => {
+  if (sec.part !== lastPart) {
+    lastPart = sec.part;
+    const isReg = sec.part === "B";
+    jump.insertAdjacentHTML("beforeend", '<span class="jl" data-part="' + sec.part + '">' + (isReg ? "Part B: full regression" : "Part A: 0.14.0 changes") + "</span>");
+    const div = document.createElement("div");
+    div.className = "part" + (isReg ? " reg" : "");
+    div.dataset.part = sec.part;
+    div.id = "part-" + sec.part;
+    div.innerHTML = isReg
+      ? '<div class="pk">Part B</div><h2>Full regression: everything before 0.14.0</h2><p>One section per area of the game as it stood at 0.13.11.3, built from the app\'s tabs, its Help topics and every older patch note. Run it after Part A for the full pass. The hidden extras get one row only (R9, Background setting works); their own checks live in A14 and the minigame sheet.</p>'
+      : '<div class="pk">Part A</div><h2>0.14.0 changes</h2><p>The release sheet\'s journeys, every QA-list gap from the Fable sweep ledger, the staging freeze fix and the rest of the 0.14.0 patch notes. This is the changes-only pass.</p>';
+    secWrap.appendChild(div);
+  }
+  const reg = sec.part === "B";
+  jump.insertAdjacentHTML("beforeend", '<a href="#' + secId(sec) + '" data-part="' + sec.part + '"' + (reg ? ' class="reg"' : "") + "><b>" + sec.id + "</b>" + sec.title.split(" (")[0] + "</a>");
+  const el = document.createElement("section");
+  el.id = secId(sec);
+  el.dataset.part = sec.part;
+  if (reg) el.className = "reg";
+  let html = '<div class="sec-head"><span class="sec-num">' + sec.id + '</span><span class="sec-title">' + sec.title +
+    '</span><span class="sec-line"></span><span class="sec-done" id="secdone-' + sec.id + '"></span></div>';
+  if (sec.note) html += '<p class="sec-note">' + sec.note + "</p>";
+  if (sec.sheets.length) {
+    html += '<p class="sheets-label">Folded-in sheets (' + sec.sheets.length + ")</p><div class=\"sheets\">";
+    sec.sheets.forEach((k) => {
+      const s = SHEETS[k];
+      html += '<div class="sheet"><a href="' + s.f + '">' + s.name + '</a><span class="file">' + s.f + "</span><p>" + s.sum + "</p></div>";
+    });
+    html += "</div>";
+  }
+  html += '<div class="items"><div class="col-head"><span class="ch desk">1280</span><span class="ch mob">375</span><span></span></div>';
+  sec.items.forEach((it, ii) => {
+    const key = keyOf(sec, ii);
+    let meta = it.ki ? KI[it.ki] : "";
+    meta += tagList(it).map((t) => CHIP[t] || "").join("");
+    if (it.only === "desk") meta += '<span class="chip only">desktop only</span>';
+    if (it.only === "mob") meta += '<span class="chip only">phone only</span>';
+    if (it.gap) meta += '<span class="chip gap">sweep gap</span><span class="src">ledger ' + it.gap + "</span>";
+    if (it.src) meta += '<span class="src">from: ' + SHEETS[it.src].name + "</span>";
+    let cells;
+    if (it.only === "any") {
+      cells = '<div class="cell span2">' + cb("any", "a-" + key, !!userState["a-" + key], "Checked at either width") + '<span class="eith">either</span></div>';
+    } else {
+      const deskCell = it.only === "mob" ? '<span class="na">n/a</span>' : cb("desk", "d-" + key, !!userState["d-" + key], "Checked at 1280 px");
+      const mobCell = it.only === "desk" ? '<span class="na">n/a</span>' : cb("mob", "m-" + key, !!userState["m-" + key], "Checked at 375 px");
+      cells = '<div class="cell">' + deskCell + '</div><div class="cell">' + mobCell + "</div>";
+    }
+    html += '<div class="item" data-key="' + key + '">' + cells +
+      '<div class="body"><span class="t">' + it.t + "</span>" + (it.kn ? '<span class="kn">' + it.kn + "</span>" : "") +
+      (meta ? '<div class="meta">' + meta + "</div>" : "") + "</div></div>";
+  });
+  html += "</div>";
+  el.innerHTML = html;
+  secWrap.appendChild(el);
+});
+
+// The link index: every sheet with its home section, by date.
+const homes = [];
+SECTIONS.forEach((sec) => sec.sheets.forEach((k) => homes.push({ k: k, sec: sec })));
+homes.sort((a, b) => (SHEETS[a.k].f < SHEETS[b.k].f ? -1 : 1));
+document.getElementById("indexBody").innerHTML = homes.map((h) => {
+  const s = SHEETS[h.k];
+  return '<tr><td class="d-date">' + s.f.slice(0, 10) + '</td><td><a href="' + s.f + '">' + s.name + '</a></td><td><a href="#' + secId(h.sec) + '">' + h.sec.id + " · " + h.sec.title.split(" (")[0] + "</a></td></tr>";
+}).join("");
+
+// The summary tables (static counts, live done counts).
+function sumRows(part) {
+  let total = 0;
+  const rows = SECTIONS.filter((s) => s.part === part).map((sec) => {
+    total += sec.items.length;
+    return '<tr data-part="' + part + '"><td class="n">' + sec.id + '</td><td><a href="#' + secId(sec) + '">' + sec.title.split(" (")[0] + '</a></td><td class="c" id="sum-' + sec.id + '">0 / ' + sec.items.length + "</td></tr>";
+  }).join("");
+  return { html: rows + '<tr class="sub"><td class="n"></td><td>Total</td><td class="c" id="sumsub-' + part + '">0 / ' + total + "</td></tr>", total: total };
+}
+const sa = sumRows("A"), sb = sumRows("B");
+document.getElementById("sumBodyA").innerHTML = sa.html;
+document.getElementById("sumBodyB").innerHTML = sb.html;
+document.getElementById("sumA").textContent = sa.total;
+document.getElementById("sumB").textContent = sb.total;
+document.getElementById("sumAll").textContent = sa.total + sb.total;
+let knownCount = 0;
+SECTIONS.forEach((s) => s.items.forEach((it) => { if (it.ki && it.ki !== "fixed") knownCount += 1; }));
+document.getElementById("sumKnown").textContent = knownCount;
+
+function inScope(sec) { return scope === "all" || scope === sec.part; }
+function isDone(key, it) {
+  if (it.only === "any") return !!userState["a-" + key];
+  return (it.only === "mob" || !!userState["d-" + key]) && (it.only === "desk" || !!userState["m-" + key]);
+}
+function applyScope() {
+  document.querySelectorAll(".scope button").forEach((b) => b.setAttribute("aria-pressed", b.dataset.scope === scope ? "true" : "false"));
+  document.querySelectorAll("[data-part]").forEach((n) => {
+    const show = scope === "all" || n.dataset.part === scope;
+    if (n.tagName === "TR") n.classList.toggle("out", !show);
+    else n.hidden = !show;
+  });
+  document.getElementById("scopeName").textContent = scope === "A" ? "(changes only)" : scope === "B" ? "(regression only)" : "(full pass)";
+}
+function recompute() {
+  let total = 0, done = 0, desk = 0, mob = 0, any = 0, deskTotal = 0, mobTotal = 0, anyTotal = 0;
+  const partDone = { A: 0, B: 0 }, partTotal = { A: 0, B: 0 };
+  SECTIONS.forEach((sec) => {
+    let secDone = 0;
+    const live = inScope(sec);
+    sec.items.forEach((it, ii) => {
+      const key = keyOf(sec, ii);
+      const d = isDone(key, it);
+      if (d) secDone += 1;
+      partTotal[sec.part] += 1;
+      if (d) partDone[sec.part] += 1;
+      if (live) {
+        total += 1;
+        if (d) done += 1;
+        if (it.only === "any") { anyTotal += 1; if (userState["a-" + key]) any += 1; }
+        else {
+          if (it.only !== "mob") { deskTotal += 1; if (userState["d-" + key]) desk += 1; }
+          if (it.only !== "desk") { mobTotal += 1; if (userState["m-" + key]) mob += 1; }
+        }
+      }
+      const row = secWrap.querySelector('.item[data-key="' + key + '"]');
+      if (row) row.classList.toggle("done", d);
+    });
+    const sd = document.getElementById("secdone-" + sec.id);
+    if (sd) sd.textContent = secDone + " / " + sec.items.length;
+    const sm = document.getElementById("sum-" + sec.id);
+    if (sm) sm.textContent = secDone + " / " + sec.items.length;
+  });
+  ["A", "B"].forEach((p) => { const n = document.getElementById("sumsub-" + p); if (n) n.textContent = partDone[p] + " / " + partTotal[p]; });
+  const pctVal = total ? Math.round((done / total) * 100) : 0;
+  document.getElementById("pct").firstChild.textContent = pctVal + "%";
+  document.getElementById("barFill").style.width = pctVal + "%";
+  document.getElementById("doneCount").textContent = done;
+  document.getElementById("totalCount").textContent = total;
+  document.getElementById("deskCount").textContent = desk;
+  document.getElementById("deskTotal").textContent = deskTotal;
+  document.getElementById("mobCount").textContent = mob;
+  document.getElementById("mobTotal").textContent = mobTotal;
+  document.getElementById("anyCount").textContent = any;
+  document.getElementById("anyTotal").textContent = anyTotal;
+  document.getElementById("pctlabel").textContent = pctVal >= 100 ? "launch-ready" : (pctVal >= 60 ? "closing in" : "in progress");
+}
+
+secWrap.addEventListener("change", (e) => {
+  const inp = e.target;
+  if (!inp.id || "dma".indexOf(inp.id[0]) < 0 || inp.id[1] !== "-") return;
+  if (inp.checked) userState[inp.id] = true; else delete userState[inp.id];
+  save(); recompute();
+});
+document.querySelectorAll(".scope button").forEach((b) => b.addEventListener("click", () => {
+  scope = b.dataset.scope; saveScope(); applyScope(); recompute();
+}));
+document.getElementById("resetBtn").addEventListener("click", () => {
+  userState = {}; save();
+  secWrap.querySelectorAll('input[type="checkbox"]').forEach((i) => (i.checked = false));
+  recompute();
+});
+applyScope();
+recompute();
+</script>
+</body>
+</html>
