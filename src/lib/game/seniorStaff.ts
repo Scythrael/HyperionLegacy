@@ -651,7 +651,21 @@ export function canFireOfficer(state: GameState, officerId: string): OfficerGate
 // while that ship is locked (captainRetirement.ts), so the two never disagree. Pure.
 export function fireOfficer(state: GameState, officerId: string): GameState {
   if (!canFireOfficer(state, officerId).ok) return state;
-  return { ...state, officers: state.officers.filter((o) => o.id !== officerId) };
+  // FR-C A4-26: also drop the officer's pin from every saved Personnel Roster (retireCaptain consumes the
+  // XO through here), so no roster keeps a seat bound to an officer who no longer exists. A roster without
+  // that pin keeps its reference.
+  const personnelRosters = (state.personnelRosters ?? []).map((r) => {
+    const seats = Object.keys(r.seatAssignments) as (keyof typeof r.seatAssignments)[];
+    if (!seats.some((seat) => r.seatAssignments[seat] === officerId)) return r;
+    const seatAssignments = { ...r.seatAssignments };
+    for (const seat of seats) if (seatAssignments[seat] === officerId) delete seatAssignments[seat];
+    return { ...r, seatAssignments };
+  });
+  return {
+    ...state,
+    officers: state.officers.filter((o) => o.id !== officerId),
+    ...(state.personnelRosters !== undefined ? { personnelRosters } : {}),
+  };
 }
 
 // Can this officer take `shipId`'s matching seat? noOfficer, then onMission for the ship it LEAVES, then
