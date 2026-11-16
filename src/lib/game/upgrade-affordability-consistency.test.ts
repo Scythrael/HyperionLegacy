@@ -23,7 +23,7 @@
 import { describe, it, expect } from "vitest";
 import { canBuildFacilityUpgrade } from "./tick";
 import { freeItemForState, type CraftLine } from "./allocation";
-import { freshState } from "./model";
+import { freshState, FACILITIES } from "./model";
 import { itemTotal } from "./inventory";
 import Decimal from "break_infinity.js";
 
@@ -82,5 +82,26 @@ describe("upgrade readiness row reads the FREE amount, consistent with the Build
     // 800,000 free >= 750,000 need, and no other gate, so the upgrade is buildable.
     const check = canBuildFacilityUpgrade(state, "warehouseT1");
     expect(check.ok).toBe(true);
+  });
+});
+
+// FR-C lane 1 M2: Warehouse rungs 5 to 7 (and T2 rung 5) cost 12000000.000000002 and so on (Decimal times/div drift), so
+// holding exactly the listed ore could not buy them. Every warehouse rung cost is now an exact whole number.
+describe("warehouse rung costs are exact whole numbers", () => {
+  it("every T1 and T2 rung material cost is an integer, and exactly the listed amount buys it", () => {
+    for (const key of ["warehouseT1", "warehouseT2"] as const) {
+      FACILITIES[key].upgrades.forEach((rung, i) => {
+        for (const [itemId, cost] of Object.entries(rung.materials)) {
+          // The cost IS the Decimal of its whole number (break_infinity cannot print every big integer exactly, so the
+          // check is equality with the whole number's own Decimal, the same value a stock of that size holds).
+          const whole = Math.round(cost.toNumber());
+          expect(cost.eq(new Decimal(whole)), `${key}[${i}] ${itemId} ${cost.toString()}`).toBe(true);
+          const state = freshState();
+          state.facilities = { ...state.facilities, [key]: { level: i } };
+          state.inventory = { ...state.inventory, [itemId]: [new Decimal(whole)] };
+          expect(freeItemForState(state, itemId).gte(cost), `${key}[${i}] exact stock covers ${itemId}`).toBe(true);
+        }
+      });
+    }
   });
 });

@@ -5928,6 +5928,13 @@ function warehouseT1CapAtLevel(level: number): Decimal {
   return new Decimal(WAREHOUSE_T1_BASE_CAP).times(2 ** level);
 }
 
+// FR-C lane 1 M2: 3/4 of a warehouse cap as an EXACT whole number. break_infinity's times/div drift (rung 5's
+// 12,000,000 came out 12000000.000000002, unbuyable with exactly the listed ore), so the product is taken in plain
+// numbers (every cap here is an integer far below 2^53, divisible by 4) and rounded, then wrapped once.
+function exactThreeQuarters(cap: Decimal): Decimal {
+  return new Decimal(Math.round((Math.round(cap.toNumber()) * 3) / 4));
+}
+
 // Builds T1's finite (~25-rung) doubling track. Rung i (level i -> i+1):
 //   - materials: { commonOre: 75% of the cap at level i }, steep, scales with cap.
 //   - durationTicks: escalating placeholder in the Refinery's ballpark, grows
@@ -5940,7 +5947,8 @@ function buildWarehouseT1Upgrades(): FacilityUpgradeDef[] {
   const upgrades: FacilityUpgradeDef[] = [];
   for (let i = 0; i < WAREHOUSE_T1_RUNG_COUNT; i++) {
     upgrades.push({
-      materials: { commonOre: warehouseT1CapAtLevel(i).times(3).div(4) }, // 75% of cap at level i
+      // FR-C lane 1 M2: 75% of the cap at level i, as an EXACT whole number (Decimal times/div drifted to 12000000.000000002).
+      materials: { commonOre: exactThreeQuarters(warehouseT1CapAtLevel(i)) },
       durationTicks: 20 * (i + 1), // TUNABLE placeholder: 20, 40, ... 500 (Refinery ballpark)
       effect: { storageCapMult: 2 },
     });
@@ -5979,7 +5987,7 @@ function buildWarehouseT2Upgrades(): FacilityUpgradeDef[] {
   // Rungs 1..N-1: the denseOre-priced cap upgrades.
   for (let i = 1; i < WAREHOUSE_T2_RUNG_COUNT; i++) {
     upgrades.push({
-      materials: { denseOre: warehouseT2CapAtLevel(i).times(3).div(4) }, // 75% of T2 cap at level i
+      materials: { denseOre: exactThreeQuarters(warehouseT2CapAtLevel(i)) }, // 75% of T2 cap at level i (exact, FR-C M2)
       durationTicks: 60 * (i + 1), // TUNABLE placeholder, escalating
       effect: { storageCapMult: 2 },
     });
