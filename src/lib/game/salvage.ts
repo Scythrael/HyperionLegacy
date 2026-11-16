@@ -224,6 +224,25 @@ export function salvageYieldMult(state: GameState): number {
 export const SALVAGE_FRACTION_MIN = 0.3;
 export const SALVAGE_FRACTION_MAX = 0.4;
 
+// FR-C lane 1 I2 (user 2026-11-13/14, "Curve below 100% (Recommended)": a diminishing curve approaching but never reaching
+// 100%). The summed recovery fraction (band + quality + talent, x the Museum and Salvager multiplier) had no ceiling, so
+// late bonuses pushed it to 0.93 to 1.16 and build then salvage turned a profit. It now passes this curve:
+//   - the IDENTITY up to SALVAGE_RECOVERY_KNEE, so every ordinary salvage (the 30 to 40% band plus the usual bonuses)
+//     recovers exactly what it did, bit for bit, with no extra draw;
+//   - above it, knee + (1 - knee) x tanh((raw - knee) / (1 - knee)): continuous with slope 1 at the knee, strictly rising
+//     and concave (each extra point recovers a little less, D23), approaching 100% and never reaching it (no hard cap).
+//     Raw 0.93 -> 0.85, raw 1.16 -> 0.93.
+// Float guard (effectiveHazardResist's): tanh rounds to exactly 1 far out, so the result is held one ulp under 100%.
+// [PROVISIONAL] the knee (50%), for 0.16.0 balancing.
+export const SALVAGE_RECOVERY_KNEE = 0.5;
+const SALVAGE_RECOVERY_BELOW_FULL = 1 - Number.EPSILON;
+export function salvageRecoveryCurve(raw: number): number {
+  if (!(raw > SALVAGE_RECOVERY_KNEE)) return raw;
+  const span = 1 - SALVAGE_RECOVERY_KNEE;
+  const f = SALVAGE_RECOVERY_KNEE + span * Math.tanh((raw - SALVAGE_RECOVERY_KNEE) / span);
+  return f < 1 ? f : SALVAGE_RECOVERY_BELOW_FULL;
+}
+
 // Per-quality-tier yield bonus: a higher-quality system was worth more to build, so
 // it gives back a little more. Added ON TOP of the band, scaling with the salvaged
 // piece's own quality rung (0..5), e.g. a quality-5 system recovers +0.10 over a
@@ -444,12 +463,14 @@ export function salvageEquipment(
   const rounding = salvageRoundingStream(bandDraw);
   // E4b: the museum's salvageYield scales the WHOLE fraction (salvageYieldMult, 1 with no museum),
   // BEFORE chance-rounding, so the multiplier never adds a shared-stream draw.
-  const fraction =
+  // FR-C I2: through the recovery curve (the identity up to its knee), so the fraction never reaches 100%.
+  const fraction = salvageRecoveryCurve(
     (band +
       piece.quality * SALVAGE_QUALITY_BONUS_PER_TIER +
       salvageTalentBonus(state).yieldBonus +
       talentBonus) *
-    salvageYieldMult(state);
+    salvageYieldMult(state),
+  );
 
   // --- Deposit the recovered inputs at quality 0 ----------------------------
   // The blueprint that crafted this piece is guaranteed to exist (a crafted piece
@@ -835,7 +856,8 @@ export type SalvageShipResult =
 export function hullTeardownFraction(state: GameState, bandDraw: number): number {
   const band = SALVAGE_FRACTION_MIN + bandDraw * (SALVAGE_FRACTION_MAX - SALVAGE_FRACTION_MIN);
   const talent = salvageTalentBonus(state).yieldBonus;
-  return (talent === 0 ? band : band + talent) * salvageYieldMult(state);
+  // FR-C I2: through the recovery curve (the identity up to its knee), so a teardown never refunds 100% or more.
+  return salvageRecoveryCurve((talent === 0 ? band : band + talent) * salvageYieldMult(state));
 }
 
 // ----------------------------------------------------------------------------
