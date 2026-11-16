@@ -116,7 +116,7 @@ describe("Belter + Deck Handling: a patrol cycle's drones replenish faster", () 
     expect(replay.available).toBe(true);
     const start = patrolOf(belter.s).replenishCarryStart;
     if (start) expect(JSON.stringify(replay)).toContain(`"replenishCarryPpm":`);
-  });
+  }, 60_000); // long Repeat patrol sim (FR-E stop and safe-resume projections add about 20%): slow under full-suite load
 
   // WR-8b fix round: the same long Repeat patrol against the live enemies (WR-8b on: the Sweep's Marauders carry
   // torpedoes at full strength, 40%). The bank must still pay, carry across relaunches and stay off for another race.
@@ -171,7 +171,7 @@ describe("Belter + Deck Handling: a patrol cycle's drones replenish faster", () 
     expect(control.torpedoCycles).toBeGreaterThan(0);
     expect(control.paid).toBe(0);
     expect(control.last.playerDrones.every((sq) => sq.deckHandlingPpm === undefined)).toBe(true);
-  });
+  }, 60_000); // long Repeat patrol sim, as above
 
   it("a hull without drones keeps an empty screen; a ship without the key writes nothing", () => {
     const s = belterXo(combatBase("destroyer"));
