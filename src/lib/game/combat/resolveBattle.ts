@@ -355,18 +355,14 @@ function advanceMovement(
 	// can move and its target is farther than where it parks) while none of its guns reaches any foe moves evasively
 	// until one does or it stops closing. Read from where the ship stands AFTER this tick's move (or on a tick it banks
 	// no step), so it stops the tick a gun reaches. Pure geometry, no draw.
-	const settleEvasion = (): void => {
-		if (rules && self.evasiveClose !== undefined) {
-			self.evasiveClose.active = effectiveSpeed > 0 && Math.abs(target.position - self.position) > preferred && outOfReach(self, combatants);
-		}
-	};
+	// (settleEvasion below; a module function, not a closure per tick: PATROL CATCH-UP PERFORMANCE.)
 
 	// Bank this tick's worth of tenths (effective speed tenths per second * dt).
 	acc.move += effectiveSpeed * DT_DECISEC;
 	// Convert whole banked units into position steps; keep the remainder banked.
 	const wholeSteps = Math.floor(acc.move / TENTHS_PER_SECOND);
 	if (wholeSteps <= 0) {
-		settleEvasion();
+		settleEvasion(self, target, effectiveSpeed, preferred, rules, combatants);
 		return;
 	}
 	acc.move -= wholeSteps * TENTHS_PER_SECOND;
@@ -384,7 +380,14 @@ function advanceMovement(
 		if (!closing && effectiveSpeed <= effectiveMoveSpeed(target)) delta = 0;
 	}
 	self.position += delta;
-	settleEvasion();
+	settleEvasion(self, target, effectiveSpeed, preferred, rules, combatants);
+}
+
+// advanceMovement's closing-evasion read (WR-8 review, answer 5), from where `self` stands now.
+function settleEvasion(self: Combatant, target: Combatant, effectiveSpeed: number, preferred: number, rules: boolean, combatants: readonly Combatant[]): void {
+	if (rules && self.evasiveClose !== undefined) {
+		self.evasiveClose.active = effectiveSpeed > 0 && Math.abs(target.position - self.position) > preferred && outOfReach(self, combatants);
+	}
 }
 
 // The combatant's movement speed this tick (position units per second), with its debuffs and drive condition. Pure.
@@ -412,23 +415,33 @@ function effectiveMoveSpeed(c: Combatant): number {
 // WR-8: this combatant's damage sources as (reach, expected damage per second): each firing weapon (an offline one
 // excluded; Sensor Power Drain shrinks its reach exactly as the firing gate does) and each offense squadron with a
 // live drone. Expected damage = average yield x projectiles (or online drones) x accuracy / the cooldown. Pure.
-function damageSources(c: Combatant): { reach: number; dps: number }[] {
+// PATROL CATCH-UP PERFORMANCE (0.14.0): read every movement tick of every combatant, so the sources are written into two
+// reused buffers (weapons first, then squadrons, the order the readers sum in) instead of a fresh list of objects; the
+// values and their order are exactly the list's. Returns the count; DAMAGE_SOURCE_GUNS is how many are weapons. The
+// buffers are read before the next call (no reader calls it twice at once).
+const DAMAGE_SOURCE_REACH: number[] = [];
+const DAMAGE_SOURCE_DPS: number[] = [];
+let DAMAGE_SOURCE_GUNS = 0;
+function damageSources(c: Combatant): number {
 	const rangeDelta = activeStatDelta(c.statusEffects, "range");
-	const out: { reach: number; dps: number }[] = [];
+	let n = 0;
 	for (const w of c.weapons) {
 		if (w.durability <= 0) continue;
-		const reach = rangeDelta !== 0 ? applyPercentDelta(w.range, rangeDelta) : w.range;
-		const dps = (((w.yieldMin + w.yieldMax) / 2) * w.projectileCount * (w.accuracy / 100)) / (Math.max(1, w.cooldownDeciSec) / TENTHS_PER_SECOND);
-		out.push({ reach, dps });
+		DAMAGE_SOURCE_REACH[n] = rangeDelta !== 0 ? applyPercentDelta(w.range, rangeDelta) : w.range;
+		DAMAGE_SOURCE_DPS[n] = (((w.yieldMin + w.yieldMax) / 2) * w.projectileCount * (w.accuracy / 100)) / (Math.max(1, w.cooldownDeciSec) / TENTHS_PER_SECOND);
+		n++;
 	}
+	DAMAGE_SOURCE_GUNS = n;
 	for (const sq of c.drones) {
 		if (!(sq.yieldMax > 0)) continue;
-		const online = sq.drones.filter((d) => d.alive && d.status === "online").length;
+		let online = 0;
+		for (const d of sq.drones) if (d.alive && d.status === "online") online++;
 		if (online === 0) continue;
-		const dps = (((sq.yieldMin + sq.yieldMax) / 2) * online * (sq.accuracy / 100)) / (Math.max(1, sq.attackCooldownDeciSec) / TENTHS_PER_SECOND);
-		out.push({ reach: sq.range, dps });
+		DAMAGE_SOURCE_REACH[n] = sq.range;
+		DAMAGE_SOURCE_DPS[n] = (((sq.yieldMin + sq.yieldMax) / 2) * online * (sq.accuracy / 100)) / (Math.max(1, sq.attackCooldownDeciSec) / TENTHS_PER_SECOND);
+		n++;
 	}
-	return out;
+	return n;
 }
 
 // WR-8 review (answer 5, "it stops the moment any of its guns can fire"): true when none of `c`'s working guns
@@ -436,10 +449,11 @@ function damageSources(c: Combatant): { reach: number; dps: number }[] {
 // instead; false for a ship with no source at all (it is not closing to fire). Pure, no draw.
 function outOfReach(c: Combatant, combatants: readonly Combatant[]): boolean {
 	const all = damageSources(c);
-	const guns = all.slice(0, c.weapons.filter((w) => w.durability > 0).length);
-	const sources = guns.length > 0 ? guns : all;
-	if (sources.length === 0) return false;
-	const reach = Math.max(...sources.map((s) => s.reach));
+	// Its working guns (the first sources), else every source.
+	const count = DAMAGE_SOURCE_GUNS > 0 ? DAMAGE_SOURCE_GUNS : all;
+	if (count === 0) return false;
+	let reach = -Infinity;
+	for (let i = 0; i < count; i++) reach = Math.max(reach, DAMAGE_SOURCE_REACH[i]);
 	for (const o of combatants) if (o.alive && o.team !== c.team && Math.abs(o.position - c.position) <= reach) return false;
 	return true;
 }
@@ -542,21 +556,38 @@ function fireSquadronAtDrones(self: Combatant, guard: Combatant, squadron: Drone
 //               expected damage (exactly the share is a tie and goes to the closer range).
 //   standoff  : (Defensive) its longest reach.
 export function stanceHoldDistance(c: Combatant): number {
-	const sources = damageSources(c);
-	if (sources.length === 0) return stancePreferredDistance(c.stance);
+	const n = damageSources(c);
+	if (n === 0) return stancePreferredDistance(c.stance);
+	const reach = DAMAGE_SOURCE_REACH;
+	const dps = DAMAGE_SOURCE_DPS;
 	if (c.stance === "aggressive") {
-		const guns = sources.slice(0, c.weapons.filter((w) => w.durability > 0).length);
-		const pool = guns.length > 0 ? guns : sources;
-		return Math.min(...pool.map((s) => s.reach));
+		// Its working guns (the first sources), else every source.
+		const pool = DAMAGE_SOURCE_GUNS > 0 ? DAMAGE_SOURCE_GUNS : n;
+		let shortest = Infinity;
+		for (let i = 0; i < pool; i++) shortest = Math.min(shortest, reach[i]);
+		return shortest;
 	}
-	if (c.stance === "standoff") return Math.max(...sources.map((s) => s.reach));
-	const total = sources.reduce((n, s) => n + s.dps, 0);
-	const reaches = [...new Set(sources.map((s) => s.reach))].sort((a, b) => b - a);
-	for (const r of reaches) {
-		const share = sources.filter((s) => s.reach >= r).reduce((n, s) => n + s.dps, 0);
+	if (c.stance === "standoff") {
+		let longest = -Infinity;
+		for (let i = 0; i < n; i++) longest = Math.max(longest, reach[i]);
+		return longest;
+	}
+	// The firepower summed in source order (weapons, then squadrons), as the list was.
+	let total = 0;
+	for (let i = 0; i < n; i++) total += dps[i];
+	// Each distinct reach, longest first; the share is the firepower of the sources reaching it, in source order. With
+	// no reach taking the share, the shortest reach.
+	let r = -Infinity;
+	for (let i = 0; i < n; i++) r = Math.max(r, reach[i]);
+	for (;;) {
+		let share = 0;
+		for (let i = 0; i < n; i++) if (reach[i] >= r) share += dps[i];
 		if (total > 0 && share > BALANCED_FIREPOWER_SHARE * total) return r;
+		let next = -Infinity;
+		for (let i = 0; i < n; i++) if (reach[i] < r) next = Math.max(next, reach[i]);
+		if (next === -Infinity) return r;
+		r = next;
 	}
-	return reaches[reaches.length - 1];
 }
 
 // E-CREW 0.14.0 (Task 21): is `c` STEADY UNDER FIRE right now? True only for a combatant that carries the
