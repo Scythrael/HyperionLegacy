@@ -159,9 +159,14 @@ export function canBuyOvertime(state: GameState, ref: ProcessRef): OvertimeQuote
   if (steps >= OVERTIME_MAX_STEPS) return { ok: false, reason: "maxSteps" };
   if (p.remainingTicks <= OVERTIME_FINISHING_TICKS) return { ok: false, reason: "finishing" };
   const step = steps + 1;
+  // FR-C lane 1 M1: a job completes once its time left reaches 0, so it finishes after ceil(remainingTicks) ticks. A step
+  // whose rescale leaves that whole-tick count unchanged would buy nothing, so it is refused like the last tick
+  // ("finishing"), before any price is asked.
+  const rescaled = rescaledRemaining(p.remainingTicks, steps, step);
+  if (Math.ceil(rescaled) >= Math.ceil(p.remainingTicks)) return { ok: false, reason: "finishing" };
   const cost = overtimeStepCost(state, p, step);
   if (state.credits.lt(cost)) return { ok: false, reason: "credits", cost };
-  const ticksSaved = p.remainingTicks - rescaledRemaining(p.remainingTicks, steps, step);
+  const ticksSaved = p.remainingTicks - rescaled;
   return { ok: true, step, cost, ticksSaved };
 }
 

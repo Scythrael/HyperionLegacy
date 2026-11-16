@@ -307,7 +307,37 @@ describe("Overtime: refusals", () => {
     expect(r.bought).toBe(false);
     expect(r.next).toBe(broke);
   });
+
+  // FR-C lane 1 M1: a job completes once its time left reaches 0, so it finishes after ceil(remainingTicks) ticks. A step
+  // whose rescale leaves that whole-tick count unchanged buys nothing, so it is refused ("finishing") and never sold.
+  it("refuses a step that would save no whole tick, and every sold step saves at least one", () => {
+    const { state, ref } = withJob("shipBuild");
+    for (let left = 40; left >= 2; left--) {
+      let s = stepped(state, JOB_TICKS - left);
+      for (let k = 0; k < OVERTIME_MAX_STEPS; k++) {
+        const job = s.activeProcesses.find((p) => p.id === (ref as { id: string }).id)!;
+        const q = canBuyOvertime(s, ref);
+        if (!q.ok) {
+          if (q.reason === "finishing" && job.remainingTicks > 1) {
+            // Refused for saving nothing: the next step's whole-tick count really is unchanged.
+            const after = buyOvertimeIgnoringWholeTicks(job, k);
+            expect(Math.ceil(after), `left ${left}, step ${k + 1}`).toBe(Math.ceil(job.remainingTicks));
+          }
+          break;
+        }
+        const before = Math.ceil(job.remainingTicks);
+        s = buy(s, ref);
+        const now = s.activeProcesses.find((p) => p.id === (ref as { id: string }).id)!;
+        expect(before - Math.ceil(now.remainingTicks), `left ${left}, step ${k + 1}`).toBeGreaterThanOrEqual(1);
+      }
+    }
+  });
 });
+
+// The time left one more Overtime step would leave (processSpeed.ts rescale, without its whole-tick rule).
+function buyOvertimeIgnoringWholeTicks(job: { remainingTicks: number }, steps: number): number {
+  return (job.remainingTicks * overtimeRate(steps)) / overtimeRate(steps + 1);
+}
 
 // ============================================================================
 // OT-UI (user 2026-11-10): "Show both times" (the completion log) and "Chip + no jump" (the bar measures work done)
