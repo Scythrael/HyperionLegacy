@@ -151,14 +151,15 @@ export function refugeeArrives(roll: ShortRangeRoll, waiting: number, openPosts:
 }
 
 // E5-3: who a Refugee Relocation takes along, the longest-waiting refugee (the lowest id among those with no posting;
-// ids are minted in arrival order), or null when nobody is waiting. Never a posted refugee. Pure.
+// ids are minted in arrival order), or null when nobody is waiting. Never a posted refugee, never an echo. Pure.
 // E5-3: the TEST-ONLY off switch (refugeeFarewellSwitch.fixture.ts): with `live` false a Relocation takes nobody, the
 // game before E5-3 exactly, so a golden captured before it can be traced. Never written by app code.
 export const REFUGEE_FAREWELL_SWITCH: { live: boolean } = { live: true };
 
 export function refugeeFarewellPick(refugees: RefugeeState): RefugeeRecord | null {
   let pick: RefugeeRecord | null = null;
-  for (const r of refugees.list) if (r.posting === null && (pick === null || r.id < pick.id)) pick = r;
+  // FR-C crew lane I2 (user 2026-11-13/14, "Exempt echoes"): a waiting echo refugee never leaves (they arrive once per save).
+  for (const r of refugees.list) if (r.posting === null && r.echo === undefined && (pick === null || r.id < pick.id)) pick = r;
   return pick;
 }
 

@@ -897,7 +897,10 @@ describe("HELP_TOPICS", () => {
       expect(b()).toContain("Move here");
       expect(b()).toContain("Leave all on the waiting list");
       expect(b()).toContain(`${articleFor(reloc)} ${reloc} job takes one person from the waiting list along to lead the new camp, the one who has waited longest`);
-      expect(b()).toContain("With nobody waiting it runs exactly as before.");
+      expect(b()).toContain("With nobody it can take, it runs exactly as before.");
+      // FR-C crew lane I2: echoes are exempt from a relocation.
+      expect(b()).toContain("never one of the special arrivals, who always stay");
+      expect(REFUGEE_ECHO_HELP).toContain("a relocation never takes one of them along");
       expect(b()).toContain("POSTED PEOPLE ALWAYS STAY: nothing ever takes a posted refugee away.");
     });
 

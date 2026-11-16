@@ -541,6 +541,17 @@ describe("E5-3 a delivered Refugee Relocation takes the longest-waiting refugee 
     expect(refugeeFarewellPick(refugeesOf(freshState()))).toBeNull();
   });
 
+  // FR-C crew lane I2 (user 2026-11-13/14, "Exempt echoes (Recommended)"): a waiting echo refugee never leaves on a
+  // Refugee Relocation (an echo arrives once per save, so leaving would lose them for good). The next-longest-waiting
+  // ordinary refugee goes instead, and with only echoes waiting nobody goes.
+  it("refugeeFarewellPick never takes a waiting echo refugee", () => {
+    const base = refugeesOf(withWaiting(freshState(), 3));
+    const echoFirst: RefugeeState = { ...base, list: base.list.map((r) => (r.id === 1 ? { ...r, echo: "someEcho" } : r)) };
+    expect(refugeeFarewellPick(echoFirst)?.id).toBe(2);
+    const allEchoes: RefugeeState = { ...base, list: base.list.map((r) => ({ ...r, echo: `echo-${r.id}` })) };
+    expect(refugeeFarewellPick(allEchoes)).toBeNull();
+  });
+
   it("with three waiting (and one posted) it removes the lowest-id waiting refugee only and emits one farewell", () => {
     const base = refugeesOf(withWaiting(freshState(), 4));
     const r0: RefugeeState = { ...base, list: base.list.map((r) => (r.id === 1 ? { ...r, posting: "research" } : r)), greet: [3, 4] };
