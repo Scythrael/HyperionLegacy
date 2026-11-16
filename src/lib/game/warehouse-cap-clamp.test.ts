@@ -24,6 +24,11 @@
 // haul genuinely exceeds the gap left below the cap, so it really overshoots).
 // ============================================================================
 import { describe, it, expect } from "vitest";
+// FR-C lane 1 M5 / M6 (user 2026-11-13/14, "Never discard"): deposits now land in full and a load trims nothing. This
+// file pins the pre-change clamp and load trim, so it runs with that change OFF (neverDiscardSwitch.fixture.ts);
+// neverDiscard.test.ts pins the new rule.
+import { neverDiscardOffForThisFile } from "./neverDiscardSwitch.fixture";
+neverDiscardOffForThisFile();
 import { addToInventory, itemCap, tierCap, economyTick, tick } from "./tick";
 import { freshState, type CaptainMissionState, type MissionKey } from "./model";
 import { itemTotal } from "./inventory";

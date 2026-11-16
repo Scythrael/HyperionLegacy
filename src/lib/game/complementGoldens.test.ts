@@ -35,6 +35,11 @@ ordering2OffForThisFile();
 import { repairRulesOffForThisFile } from "./fieldRepairRulesSwitch.fixture";
 repairRulesOffForThisFile();
 import { describe, expect, it, vi } from "vitest";
+// FR-C lane 1 M5 / M6 (Never discard: deliveries land in full, a load trims nothing) came after every pin here: the file
+// runs with it off (neverDiscardSwitch.fixture.ts), so its pins keep proving their own slice; neverDiscard.test.ts pins
+// the move.
+import { neverDiscardOffForThisFile } from "./neverDiscardSwitch.fixture";
+neverDiscardOffForThisFile();
 // Wiring WR-10 (the away rules stamped at dispatch, a hire's account program) came after every pin here: the whole file
 // runs with WR-10 off (wr10Switch.fixture.ts), so its pins keep proving their own slice (wr10Goldens.test.ts pins WR-10's).
 import { wr10OffForThisFile } from "./wr10Switch.fixture";

@@ -40,6 +40,7 @@ import { resolveCrew } from "./crewOverlay";
 import { editShip, installPiece, wiringBase, withRunningJobs } from "./wiring/probes";
 import { WIRING_REGISTRY } from "./wiring/registry";
 import { OTUI_RESTATED_ID, otUiReadBack } from "./otUiRegistry.fixture";
+import { withNeverDiscardOff } from "./neverDiscardSwitch.fixture";
 import { asPreCurveDispatch, ensureMinimumAwayTeam, plainAwayMember, withSlottedAwayTeams, dispatchPastPropulsion } from "./awayTeamTestFixtures";
 import {
   OVERTIME_CREDITS_PER_MINUTE,
@@ -809,7 +810,18 @@ describe("grant: items, credits, gear and a hull, with a log line", () => {
     expect(granted.nextEquipmentId).toBe(built.nextEquipmentId);
   });
 
-  it("items respect the storage cap and the log names what arrived", () => {
+  // FR-C (user 2026-11-13/14, "Never discard"): a grant's items land in full, past the cap, and the log names them all.
+  it("items land in full even past the storage cap, and the log names what arrived", () => {
+    const s = freshState();
+    const cap = itemCap(s, "frameSegment").toNumber();
+    const r = grant(s, { items: { frameSegment: cap + 1000 } }, "Quest reward");
+    expect(Math.round(itemTotal(r.next.inventory, "frameSegment").toNumber())).toBe(cap + 1000);
+    expect(r.logLine).toBe(`Quest reward. Received ${(cap + 1000).toLocaleString("en-US")} Frame Segments.`);
+    expect(canGrant(r.next, { items: { frameSegment: 5 } })).toEqual({ ok: true });
+  });
+
+  // The pre-FR-C rule, with the change switched off (neverDiscardSwitch.fixture.ts): items filled up to the cap.
+  it("with Never discard off: items respect the storage cap and the log names what arrived", () => withNeverDiscardOff(() => {
     const s = freshState();
     const cap = itemCap(s, "frameSegment").toNumber();
     const r = grant(s, { items: { frameSegment: cap + 1000 } }, "Quest reward");
@@ -822,7 +834,7 @@ describe("grant: items, credits, gear and a hull, with a log line", () => {
     expect(none.next).toBe(r.next);
     // A bundle that also carries something else still arrives, naming only what came.
     expect(grant(r.next, { credits: 3, items: { frameSegment: 5 } }, "Quest reward").logLine).toBe("Quest reward. Received 3 credits.");
-  });
+  }));
 
   it("refuses atomically: an empty grant, a bad amount, an unknown item, a non-gear blueprint, an unknown hull, full docks", () => {
     const s = freshState();

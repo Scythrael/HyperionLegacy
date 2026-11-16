@@ -27,6 +27,11 @@ ordering2OffForThisFile();
 import { laneJoinOffForThisFile } from "./laneJoinSwitch.fixture";
 laneJoinOffForThisFile();
 import { describe, expect, it } from "vitest";
+// FR-C lane 1 M5 / M6 (Never discard: deliveries land in full, a load trims nothing) came after every pin here: the file
+// runs with it off (neverDiscardSwitch.fixture.ts), so its pins keep proving their own slice; neverDiscard.test.ts pins
+// the move.
+import { neverDiscardOffForThisFile } from "./neverDiscardSwitch.fixture";
+neverDiscardOffForThisFile();
 import { cp16OffForThisFile } from "./cp16Switch.fixture";
 // Complement CP-16 (the Hall of Command) came after every pin here: the file runs with the slice off, so its pins
 // keep proving their own slice (cp16Goldens.test.ts pins what CP-16 moved: the missions counter, the notables and

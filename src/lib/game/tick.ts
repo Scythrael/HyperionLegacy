@@ -4511,6 +4511,15 @@ export function applyCraftingXp(state: GameState, craftingXpDelta: number): Game
 // received it (so it was already discovered), meaning the two readings coincide in
 // practice; gating on the requested amount keeps the reveal rule unchanged from
 // before the clamp (drift-proof).
+// FR-C lane 1 M5 / M6 and lane 3 M2 (user 2026-11-13/14, "Never discard (Recommended)": deliveries may sit over the cap,
+// nothing trimmed on load, logs show what landed). With this live, addToInventory lands every deposit IN FULL (a
+// mission's finds, an expedition haul, a craft's output, a time-skip grant): nothing is clamped away and an over-cap
+// stack is never drained. The cap still PAUSES producers (materialAtCap: missions, trickle and lines stop at it) and a
+// purchase is still refused over it (their own gates); a load no longer trims (save.ts migrate). The TEST-ONLY off
+// switch (neverDiscardSwitch.fixture.ts) restores the old clamp and load trim, so a golden captured before can be
+// traced. Never written by app code.
+export const NEVER_DISCARD_SWITCH: { live: boolean } = { live: true };
+
 export function addToInventory(
   inventory: Record<string, Decimal[]>,
   discovered: string[],
@@ -4545,9 +4554,9 @@ export function addToInventory(
   // with NO bucket going negative, and the player keeps their best stock. The delta >= 0
   // path is UNCHANGED and byte-identical: a positive delta lands on the rolled tier, a zero
   // delta is a no-op on bucket 0 (never growing the array for a full-warehouse discard).
+  // FR-C (Never discard): the whole amount lands; the old clamp (and its over-cap drain) only with the switch off.
   const priorTotal = itemTotal(inventory, itemId);
-  const clampedTotal = Decimal.min(priorTotal.plus(amount), cap);
-  const delta = clampedTotal.minus(priorTotal);
+  const delta = NEVER_DISCARD_SWITCH.live ? amount : Decimal.min(priorTotal.plus(amount), cap).minus(priorTotal);
   let nextInventory: Record<string, Decimal[]>;
   if (delta.lt(0)) {
     // Over-cap re-clamp: drain the overflow (priorTotal - cap) lowest-quality-first so no

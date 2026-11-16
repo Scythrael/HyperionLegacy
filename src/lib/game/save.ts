@@ -23,7 +23,7 @@ import { combatHullTypeOf, defaultSystemDurabilityForHull } from "./combat/bridg
 // shape-preserving, so it is applied on EVERY load with no SAVE_VERSION bump. See
 // clampInventoryToCaps in tick.ts for the full rationale. This is a one-way import (tick.ts
 // never imports save.ts), so it introduces no module cycle.
-import { clampInventoryToCaps, reconcileDiscovered, installMissingCombatBaselines } from "./tick";
+import { NEVER_DISCARD_SWITCH, clampInventoryToCaps, reconcileDiscovered, installMissingCombatBaselines } from "./tick";
 // Guarded localStorage access (blocked site data / quota-exceeded degrade to "no
 // persistence" instead of throwing). Save WRITES already sat inside try/catch; the
 // bare READ/remove accessors here (loadFromLocalStorage, exportRawSave, hasRawSave,
@@ -3198,7 +3198,12 @@ export function migrate(save: SaveFile, homeworldEntropy?: number): GameState {
   // an existing save's hidden stock becomes visible on the very next load. Ordered AFTER the
   // clamp so it reads the hydrated inventory (a clamped-to-zero stack, were one ever possible,
   // correctly stays undiscovered since itemTotal is then 0).
-  return reconcileDiscovered(clampInventoryToCaps(hydrateDecimals(state)));
+  // FR-C lane 1 M6 (user 2026-11-13/14, "Never discard"): a load TRIMS NOTHING any more. A stack over its cap (a salvage
+  // refund or kits coming home, which deposit raw, or any delivery since addToInventory stopped clamping) is the
+  // player's stock and stays; producers simply stay paused until it drops under the cap. The old trim runs only with
+  // the test-only switch off (tick.ts NEVER_DISCARD_SWITCH).
+  const hydrated = hydrateDecimals(state);
+  return reconcileDiscovered(NEVER_DISCARD_SWITCH.live ? hydrated : clampInventoryToCaps(hydrated));
 }
 
 // `savedAtMs` (HOTFIX 0.13.10) is what last_saved_at records. The live game passes how far its
