@@ -12877,7 +12877,8 @@
               <div class="refinery-split-side">
               <Panel>
                 <div class="panel-title">PRODUCTION LINES</div>
-                <div class="research-cost">Refine slots: {(state.refineLines ?? []).length} / {refinerySlots} in use</div>
+                <!-- FR-C lane 1 I3: a joined lane is borrowed, so it is counted apart (its slot stays open to the player). -->
+                <div class="research-cost">Refine slots: {claimedLaneCount(state.refineLines ?? [])} / {refinerySlots} in use{#if (state.refineLines ?? []).length > claimedLaneCount(state.refineLines ?? [])} · {(state.refineLines ?? []).length - claimedLaneCount(state.refineLines ?? [])} more helping a batch{/if}</div>
 
                 {#if !refineryBuilt}
                   <p class="research-status" style="margin-top: 10px;">
@@ -13462,7 +13463,8 @@
                    allocation helpers. Reuses .mission-card / .buy-btn / .dev-btn.danger. -->
               <Panel>
                 <div class="panel-title">CRAFT</div>
-                <div class="research-cost">Craft slots: {(state.fabricateLines ?? []).length} / {fabricateSlots} in use</div>
+                <!-- FR-C lane 1 I3: a joined lane is borrowed, so it is counted apart (its slot stays open to the player). -->
+                <div class="research-cost">Craft slots: {claimedLaneCount(state.fabricateLines ?? [])} / {fabricateSlots} in use{#if (state.fabricateLines ?? []).length > claimedLaneCount(state.fabricateLines ?? [])} · {(state.fabricateLines ?? []).length - claimedLaneCount(state.fabricateLines ?? [])} more helping a batch{/if}</div>
 
                 {#if !fabricatorBuilt}
                   <p class="research-status" style="margin-top: 10px;">
