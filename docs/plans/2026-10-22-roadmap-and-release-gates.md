@@ -206,3 +206,28 @@ capability." APPROVED by the user 2026-11-14 ("Yes indeed"; finish the current Q
 4. Regression lane: verify every first-sweep fix and look for breakage.
 Outputs: one findings ledger plus a separate online threat model doc (input to 0.14.1 design). First sweep used ~10% of
 the weekly Fable allowance.
+
+### Fable pass 2: additions after the 2026-11-16 fix round
+
+What the fix round changed that pass 2 must cover (merged to feat at 9190eaa8, emoji sweep ee5cc47a, follow-ups
+4ad2189b; carrier crew chunking fix pending):
+- New save state to validate on import and to treat as client-claimed online: `Expedition.listNotes`, `heldLaunch`,
+  `HeldSystem.listSeed` / `scanStepsRolled` / `anomalyCharted`, `GameState.listRewinds`, `repairPause.target` /
+  `jobMinutes`, `craftOrders` and `joined` lanes, `recapTally` (with the 200-entry `promoted` ring), the completion
+  log's `auto` stamp, the ship roster view preference (device storage). Lane 1 checks schema, bounds and NaN for each.
+- Never discard over cap: deliveries now land in full and a load trims nothing. Lane 1/3: can any path grow an
+  inventory or the save without bound (mission secondary finds are open user question 12), and what does that do to
+  save size, export/import and a future server.
+- Seed rewind on recall (`rewindExpeditionSeed`, list restore): lane 2 (a server must own or verify the list seed) and
+  lane 3 (any recall/relaunch order that rerolls, re-pays or rewinds; FR-E review found two such chains, both fixed).
+- Lane join (borrowed lanes, Cancel stops the whole order), the welcome batch's max-flow seating, Sell's Free
+  (minus queued salvage), Overtime refusal epsilon, the salvage refund curve and the 50 cr canister: lane 3 for
+  sell/refund/craft loops at the new prices; lane 4 for regressions.
+- Repeat patrols: resume when safe, climb every 20 routes [PROVISIONAL], the outmatched stop. Lane 3: can a player farm
+  a floor route or force a cheap pause loop; lane 4: patrol and gear wear regressions.
+- Emoji sweep: the guard test (noEmoji.test.ts) is the regression check; lane 1 also confirms no `{@html}` path was
+  introduced by the icon conversions.
+- Performance as a stability issue: Repeat patrols simulate about 20% slower after FR-E; include it in the phone
+  catch-up measurement (user: "Measure first").
+- Model note (user 2026-11-16 check): the first sweep ran on Fable 5.2 (4 lanes); everything since (automated QA,
+  builders, reviews) ran on Opus 5.5. Pass 2 runs on Fable 5.2, so its regression lane also double-checks the Opus fixes.
