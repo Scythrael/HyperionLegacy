@@ -46,6 +46,7 @@ import {
   takesWelcomeBatch,
   transportBatchSize,
   transportWindowIndex,
+  TRANSPORT_WINDOW_SECONDS,
   welcomeSeatBatch,
   welcomeTransportCount,
   welcomeTransportMarker,
@@ -1477,7 +1478,35 @@ function welcomeSeat(state: GameState, reserveIn: CrewBucket[]): GameState {
   return HOMEWORLD_RESERVE_SWITCH.live ? withHomeworldReserve(next, reserveLeft) : next;
 }
 
-export function resolveCrew(stateIn: GameState): GameState {
+// Lane 4 M8 (docs/qa/2026-11-13-fable-sweep-ledger.md): A CALL THAT SPANS TWO OR MORE TRANSPORT WINDOWS FILLS WINDOW BY
+// WINDOW. 1 s steps deliver each window on the tick it opens and fill the passive ships from it (then sweep the surplus)
+// before the next one arrives; one pass over the whole backlog instead fills from every window at once, so a ship with
+// open berths took its crew in another order (the filler goes top rank down over the joined pool: a carrier home from a
+// Repeat run kept different complement buckets). With `callStart` (economyTick passes the state its call began from, on
+// a call longer than one tick) each owed window is resolved at its own opening instant, in order, and the call's own
+// time last, exactly the sequence of 1 s steps. Each earlier window fills only the ships that were not crew-locked at
+// the call's start: a run that ended inside the call is home only from an instant the call does not hold (economyTick
+// splits the call where a patrol ship comes home, so a patrol ship is home from the start of the part after it; a ship
+// back from another run inside the call fills at the call's end, as it always did). A call of at most one tick (every
+// production call), a welcome batch and one window or none resolve in one pass, exactly as before.
+// The test-only switch (patrolHomeSplitSwitch.fixture.ts): off, every call resolves in one pass. Live in the game.
+export const CREW_WINDOW_FILL_SWITCH = { live: true };
+
+export function resolveCrew(stateIn: GameState, callStart: GameState | null = null): GameState {
+  if (callStart === null || !CREW_WINDOW_FILL_SWITCH.live) return resolveCrewOnce(stateIn, null);
+  const now = stateIn.gameTimeSeconds;
+  if (crewTransportsDue(stateIn.lastTransportWindow, now) < 2 || takesWelcomeBatch(stateIn.lastTransportWindow, now)) return resolveCrewOnce(stateIn, null);
+  const lockedAtStart = new Set(callStart.ships.filter((ship) => shipCrewLocked(callStart, ship.id)).map((ship) => ship.id));
+  let state = stateIn;
+  for (let w = stateIn.lastTransportWindow + 1; w < transportWindowIndex(now); w += 1) {
+    // Only the transports read the clock here: the window opens at its first second.
+    state = { ...resolveCrewOnce({ ...state, gameTimeSeconds: w * TRANSPORT_WINDOW_SECONDS }, lockedAtStart), gameTimeSeconds: now };
+  }
+  return resolveCrewOnce(state, null);
+}
+
+// `heldLocked`: ships that take no crew in this pass whatever their state says (resolveCrew's earlier windows).
+function resolveCrewOnce(stateIn: GameState, heldLocked: ReadonlySet<string> | null): GameState {
   // FR-C A1-2: a save that takes the welcome batch is welcomed seat by seat first (welcomeSeat); its marker is then at
   // now, so the rest of this pass runs as on any tick with no window due.
   const state =
@@ -1512,7 +1541,7 @@ export function resolveCrew(stateIn: GameState): GameState {
     // SUGGESTIONS 151 "Crew-allocation settings LOCK when a mission starts"): a passive ship that is crew-locked
     // (crewLock.ts shipCrewLocked: out on a mission or patrol, or on an expedition until it is claimed) takes no
     // crew either; it fills from the pool on the first tick after it returns or its run is claimed.
-    if (mode !== "passive" || shipCrewLocked(state, ship.id)) return ship;
+    if (mode !== "passive" || shipCrewLocked(state, ship.id) || heldLocked?.has(ship.id) === true) return ship;
     // CP-21: an empty pool (and an empty reserve) fills no one.
     if (pool.length === 0 && reserve.length === 0) return ship;
     const bulk = ship.complement?.buckets ?? [];

@@ -139,6 +139,7 @@ canonicalOrderOffForThisFile();
 // Ordering determinism part 2 (canonicalOrder.ts: inventory keys and a call's completion log in one order) came after every pin here, traced order-only: the file runs with it off (ordering2Switch.fixture.ts).
 import { ordering2OffForThisFile } from "./ordering2Switch.fixture";
 ordering2OffForThisFile();
+import { withCrewWindowFillOff } from "./patrolHomeSplitSwitch.fixture";
 import { describe, expect, it, vi } from "vitest";
 // WR-8b (enemy torpedoes) came after every pin here: the file runs with it off (enemyTorpedoSwitch.fixture.ts), so its
 // pins keep proving their own slice (enemyTorpedoGoldens.test.ts pins what WR-8b moved, enemyTorpedoes.test.ts proves it).
@@ -917,7 +918,11 @@ describe("G1-0 golden 1 + 2: a mixed fleet over six hours, and the Home and Ship
   });
   // CP-8 / OC-11: with the pause off the run reproduces the record from before OC-11, views included.
   it("OC-11 is the only cause of the fleet move", () => {
-    const before = withOc11Off(() => fleetRun());
+    // Lane 4 M8 (the window-by-window crew fill, patrolHomeSplitSwitch.fixture.ts) came after this capture: with the pause
+    // off every ship is unlocked, so each hour's call (two transport windows) now fills them window by window, as 1 s
+    // steps do, where the capture filled once from both. Off here, the run reproduces the capture; the live golden above
+    // (ships out on runs, the pause on) is not moved by it.
+    const before = withOc11Off(() => withCrewWindowFillOff(() => fleetRun()));
     expect(before.hours).toEqual(FLEET_BEFORE_OC11);
     expect(before.seen).toEqual(GOLDEN.views);
   });

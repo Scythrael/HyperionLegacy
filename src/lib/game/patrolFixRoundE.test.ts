@@ -2,7 +2,7 @@
 //   I1  "Resume when safe": a Repeat patrol paused for repairs heads out once the next route no longer breaks its gear;
 //   I2  "Climb every N routes": a Repeat run climbs the patrol curve every PATROL_CLIMB_EVERY_ROUTES routes;
 //   q3  "Stop and explain": Repeat never flies a route it would lose even fully repaired; it stops and says why;
-//   M4  a patrol that ends in defeat mid-call: what holds across chunkings, and what starts at the call's end;
+//   M4  a patrol that ends in defeat mid-call: the same across chunkings (lane 4 M8 made the whole state so);
 //   M6  a pause's Overtime step costs what the same gear's docked step costs;
 //   I3, M5, M7: the Combat Patrols Help.
 
@@ -339,7 +339,7 @@ describe("FR-E M4: a patrol that ends in defeat mid-call (the stop rule off, to 
     const r = dispatchCaptainOnPatrol(veteran("carrier"), 1, "crimsonReaverSweep", "balanced", true);
     return r.next;
   });
-  it("the patrol's own outcome is the same across chunkings; the repair job and the crew fill start at the call's end", () => {
+  it("the patrol's own outcome is the same across chunkings, and so are the repair job and the crew fill", () => {
     const T = 8000;
     const [one, chunks, steps] = withStopDoomedOff(() => [economyTick(lost(), T, RNG), chunked(lost(), T, 997), stepped(lost(), T)]);
     for (const [name, x] of [["one", one], ["chunks", chunks]] as const) {
@@ -349,10 +349,13 @@ describe("FR-E M4: a patrol that ends in defeat mid-call (the stop rule off, to 
       expect(x.credits.toString(), name).toBe(steps.credits.toString());
       expect(JSON.stringify(x.completionLog?.filter((e) => e.kind === "patrolRun")), name).toBe(JSON.stringify(steps.completionLog?.filter((e) => e.kind === "patrolRun")));
     }
-    // KNOWN (not player-visible): the Shipyard repair job auto-starts, and a passive ship's crew fill runs, at the end of
-    // the economyTick call the defeat lands in (tick.ts, crewOverlay.ts resolveCrew), so a call that spans the limp's
-    // end starts them later than 1 s steps do. The game always steps one tick per call (live play and the offline
-    // catch-up alike, tick.ts tick), so what a player sees is the 1 s result exactly:
+    // Lane 4 M8 (patrolHomeSplit.test.ts): the call splits at the tick the wreck lands and fills crew window by window,
+    // so the ships and the Shipyard's processes match 1 s steps too (they started at the call's end before). The game
+    // always steps one tick per call (live play and the offline catch-up alike, tick.ts tick), and that is the 1 s result:
+    for (const [name, x] of [["one", one], ["chunks", chunks]] as const) {
+      expect(JSON.stringify(x.ships), name).toBe(JSON.stringify(steps.ships));
+      expect(JSON.stringify(x.activeProcesses), name).toBe(JSON.stringify(steps.activeProcesses));
+    }
     const offline = withStopDoomedOff(() => tick(T * lost().tickDurationSeconds, lost(), RNG));
     expect(JSON.stringify(offline.ships)).toBe(JSON.stringify(steps.ships));
     expect(JSON.stringify(offline.activeProcesses)).toBe(JSON.stringify(steps.activeProcesses));
