@@ -335,6 +335,31 @@ describe("Overtime: refusals", () => {
   });
 });
 
+// FR-C fix pass: the refusal counts whole ticks with the completion's own rule (ceil(x - epsilon)), so a float leftover
+// like 4.000000000000001 (which completes on tick 4, not 5) cannot let a step that saves nothing through.
+describe("Overtime: the whole-tick rule matches completion", () => {
+  it("refuses a step on a float leftover that would still complete on the same tick", () => {
+    const { state, ref } = withJob("shipBuild");
+    const id = (ref as { id: string }).id;
+    const leftover = 4.000000000000001;
+    const s: GameState = { ...state, activeProcesses: state.activeProcesses.map((p) => (p.id === id ? { ...p, remainingTicks: leftover } : p)) };
+    // 4.000000000000001 completes on its 4th tick; one step would leave 3.2, which completes on its 4th tick too.
+    expect(completionTick(s, ref)).toBe(4);
+    const q = canBuyOvertime(s, ref);
+    expect(q).toEqual({ ok: false, reason: "finishing" });
+    expect(buyOvertime(s, ref).next).toBe(s);
+  });
+
+  it("still sells a step that saves a whole tick by the completion's count", () => {
+    const { state, ref } = withJob("shipBuild");
+    const id = (ref as { id: string }).id;
+    const s: GameState = { ...state, activeProcesses: state.activeProcesses.map((p) => (p.id === id ? { ...p, remainingTicks: 5.000000000000001 } : p)) };
+    // 5 ticks becomes 4 (5.000000000000001 x 0.8 = 4.000000000000001, which completes on its 4th tick).
+    expect(canBuyOvertime(s, ref).ok).toBe(true);
+    expect(completionTick(buy(s, ref), ref)).toBe(4);
+  });
+});
+
 // The time left one more Overtime step would leave (processSpeed.ts rescale, without its whole-tick rule).
 function buyOvertimeIgnoringWholeTicks(job: { remainingTicks: number }, steps: number): number {
   return (job.remainingTicks * overtimeRate(steps)) / overtimeRate(steps + 1);

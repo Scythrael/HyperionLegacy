@@ -1898,7 +1898,8 @@ function craftOrderFinished(state: GameState, lineId: string): boolean {
 // Ordering determinism part 2 (canonicalOrder.ts): the whole tick of a resolve window a job
 // completes on (1 = the window's first), from its time left at the window's start: the first
 // whole tick at which that time reaches 0, resolveProcesses' own epsilon test. Pure.
-function completionTickIn(remainingTicks: number): number {
+// FR-C fix pass: exported so Overtime's whole-tick refusal (processSpeed.ts) counts ticks by this same rule.
+export function completionTickIn(remainingTicks: number): number {
   return Math.max(1, Math.ceil(remainingTicks - MISSION_TICK_EPSILON));
 }
 

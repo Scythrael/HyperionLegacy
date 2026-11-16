@@ -49,7 +49,7 @@ import {
   type TimedProcess,
   type TimedProcessKind,
 } from "./model";
-import { NEVER_DISCARD_SWITCH, addToInventory, itemCap, mintBuiltShip } from "./tick";
+import { NEVER_DISCARD_SWITCH, addToInventory, completionTickIn, itemCap, mintBuiltShip } from "./tick";
 import { advanceExpedition } from "./expedition";
 import { expeditionHomeNow } from "./gearWearEngine";
 import { itemTotal } from "./inventory";
@@ -162,8 +162,10 @@ export function canBuyOvertime(state: GameState, ref: ProcessRef): OvertimeQuote
   // FR-C lane 1 M1: a job completes once its time left reaches 0, so it finishes after ceil(remainingTicks) ticks. A step
   // whose rescale leaves that whole-tick count unchanged would buy nothing, so it is refused like the last tick
   // ("finishing"), before any price is asked.
+  // FR-C fix pass: both sides count whole ticks by the completion's own rule (tick.ts completionTickIn, ceil(x - epsilon)),
+  // so a float leftover such as 4.000000000000001 (which completes on its 4th tick) cannot let a step that saves nothing through.
   const rescaled = rescaledRemaining(p.remainingTicks, steps, step);
-  if (Math.ceil(rescaled) >= Math.ceil(p.remainingTicks)) return { ok: false, reason: "finishing" };
+  if (completionTickIn(rescaled) >= completionTickIn(p.remainingTicks)) return { ok: false, reason: "finishing" };
   const cost = overtimeStepCost(state, p, step);
   if (state.credits.lt(cost)) return { ok: false, reason: "credits", cost };
   const ticksSaved = p.remainingTicks - rescaled;
