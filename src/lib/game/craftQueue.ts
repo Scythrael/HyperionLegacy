@@ -505,6 +505,10 @@ function runningRowsFor(state: GameState, facility: QueueFacilityKey): CraftQueu
     // 1 for an unattached lane: it is one lane doing one order's work.
     const lanesAttached =
       line.orderId === undefined ? 1 : lines.filter((l) => l.orderId === line.orderId).length;
+    // FR-C lane 1 I3: an attached lane's unstarted units are its ORDER's shared pool (the lane's own count is a mirror
+    // written when it last started a unit, so a joined lane's would lag); an unattached lane reads its own.
+    const order = line.orderId === undefined ? undefined : (state.craftOrders ?? []).find((o) => o.id === line.orderId);
+    const unstarted = order !== undefined ? order.remaining : line.remaining;
     // The ORDER-level estimate. Per-iteration duration comes from the in-flight job, so with
     // nothing running there is no rate to extrapolate from and the honest answer is null rather
     // than a fabricated number.
@@ -519,11 +523,11 @@ function runningRowsFor(state: GameState, facility: QueueFacilityKey): CraftQueu
     const etaTicks =
       job === undefined || job.durationTicks <= 0
         ? null
-        : job.remainingTicks + Math.ceil((line.remaining * job.durationTicks) / Math.max(1, lanesAttached));
+        : job.remainingTicks + Math.ceil((unstarted * job.durationTicks) / Math.max(1, lanesAttached));
     const orderTotalTicks =
       job === undefined || job.durationTicks <= 0
         ? null
-        : Math.ceil(((line.remaining + 1) * job.durationTicks) / Math.max(1, lanesAttached));
+        : Math.ceil(((unstarted + 1) * job.durationTicks) / Math.max(1, lanesAttached));
     return {
       id: line.id,
       label: craftLineOutputLabel(line.kind, line.recipeKey),
