@@ -37,6 +37,11 @@ import type { GameState, CaptainState, CaptainStopReason, ShipInstance } from ".
 import { MISSIONS, PATROLS, xpForNextLevel, xpForNextFleetAdminLevel, shipDisplayLabel } from "./model";
 import { itemTotal } from "./inventory";
 import { formatDuration } from "./format";
+// FR-C R8-6 / R11-4: the recap's auto-salvage, started-order and finished-upgrade sections read the completed-events log
+// and the queue through the SAME views the Home board and the consoles use (pure readers, no sim contact).
+import type { CompletionLogEntry, QueueFacilityKey } from "./model";
+import { completionRowView } from "./homeDashboard";
+import { buildAllCraftQueues } from "./craftQueue";
 
 // One material whose on-hand total rose across the offline advance. `qty` is the
 // POSITIVE delta (after - before) as a Decimal, so the UI can format it with the
@@ -84,6 +89,27 @@ export interface OfflineShipInRepair {
   name: string;
 }
 
+// FR-C R8-6: what the Auto-Salvage Terminal took while away, one row per thing it broke down (the completed-events
+// entry's own label, "Salvaged, Prospector Hold"), with how many.
+export interface OfflineAutoSalvageRow {
+  label: string;
+  count: number;
+}
+
+// FR-C R11-4: a queued order that started while away (it left its facility's queue), named as its queue row named it.
+export interface OfflineOrderStarted {
+  id: string;
+  facility: QueueFacilityKey;
+  label: string;
+}
+
+// FR-C R11-4: an upgrade that finished while away (a facility level, a Docks, Systems Bay or berth expansion), named as
+// its RECENTLY COMPLETED row names it ("Upgraded, Fuel Depot, Level 2").
+export interface OfflineUpgradeFinished {
+  id: string;
+  label: string;
+}
+
 // The complete before/after diff the "While you were away" modal renders. Every
 // collection is empty (and every scalar zero) when nothing of that kind happened,
 // so a section can be shown purely on its own non-emptiness. `hasContent` is the
@@ -102,6 +128,42 @@ export interface OfflineSummary {
   // G1-5: the unidentified relics that reached the vault while away (short-range cycles find them as they deliver; an
   // expedition's relics only land when the player claims it). A whole count, 0 when none.
   relicsFound: number;
+  // FR-C R8-6 / R11-4 (each empty when nothing of the kind happened).
+  autoSalvaged: OfflineAutoSalvageRow[];
+  ordersStarted: OfflineOrderStarted[];
+  upgradesFinished: OfflineUpgradeFinished[];
+}
+
+// FR-C R11-4: the completion kinds that are an UPGRADE finishing (a facility level, or a Docks, Systems Bay or transit
+// berth expansion).
+const UPGRADE_KINDS: ReadonlySet<string> = new Set(["facilityUpgrade", "equipmentStorageUpgrade", "docksExpansion", "transitBerthExpansion"]);
+
+// The completed-events entries the advance WROTE: ids are minted "done-N" from nextCompletionLogId, so an entry is new
+// iff its number is at or past the BEFORE snapshot's counter. Fail-open: a malformed log or id reads as none.
+function newCompletionEntries(before: GameState, after: GameState): CompletionLogEntry[] {
+  const from = typeof before?.nextCompletionLogId === "number" ? before.nextCompletionLogId : Number.POSITIVE_INFINITY;
+  const log = Array.isArray(after?.completionLog) ? after.completionLog : [];
+  return log.filter((e) => {
+    const n = typeof e?.id === "string" && e.id.startsWith("done-") ? Number(e.id.slice(5)) : NaN;
+    return Number.isFinite(n) && n >= from;
+  });
+}
+
+// The queued orders that STARTED: in BEFORE's queue, gone from AFTER's (offline, only the promotion pass removes one).
+// Named by BEFORE's own queue rows. Fail-open to none.
+function ordersStartedOf(before: GameState, after: GameState): OfflineOrderStarted[] {
+  const beforeQueue = Array.isArray(before?.processQueue) ? before.processQueue : [];
+  if (beforeQueue.length === 0) return [];
+  const stillQueued = new Set((Array.isArray(after?.processQueue) ? after.processQueue : []).map((j) => j.id));
+  const left = beforeQueue.filter((j) => !stillQueued.has(j.id));
+  if (left.length === 0) return [];
+  const rows = new Map<string, { facility: QueueFacilityKey; label: string }>();
+  try {
+    for (const view of buildAllCraftQueues(before)) for (const row of view.queued) rows.set(row.id, { facility: view.facility, label: row.summary });
+  } catch {
+    // a malformed snapshot: the rows below fall back to the raw facility
+  }
+  return left.map((j) => ({ id: j.id, facility: j.facility, label: rows.get(j.id)?.label ?? "Queued order" }));
 }
 
 // --- Small fail-open readers ------------------------------------------------
@@ -361,6 +423,22 @@ export function summarizeOfflineProgress(
   const beforeVault = new Set(vaultIdsOf(before));
   const relicsFound = vaultIdsOf(after).filter((id) => id !== "" && !beforeVault.has(id)).length;
 
+  // --- FR-C R8-6 / R11-4: auto-salvage taken, upgrades finished (the log), queued orders started (the queue) ---
+  const autoSalvaged: OfflineAutoSalvageRow[] = [];
+  const upgradesFinished: OfflineUpgradeFinished[] = [];
+  for (const entry of newCompletionEntries(before, after)) {
+    if (entry.kind === "salvageJob" && entry.auto === true && !entry.stale) {
+      const label = completionRowView(entry, after).primaryLabel;
+      const row = autoSalvaged.find((r) => r.label === label);
+      if (row !== undefined) row.count += 1;
+      else autoSalvaged.push({ label, count: 1 });
+    } else if (UPGRADE_KINDS.has(entry.kind)) {
+      const view = completionRowView(entry, after);
+      upgradesFinished.push({ id: entry.id, label: view.secondaryLabel !== null ? `${view.primaryLabel}, ${view.secondaryLabel}` : view.primaryLabel });
+    }
+  }
+  const ordersStarted = ordersStartedOf(before, after);
+
   // --- hasContent gate ---
   // True iff at least one section carries something worth surfacing. The modal (and
   // the onMount open-decision) reads this single boolean rather than re-checking each
@@ -373,7 +451,10 @@ export function summarizeOfflineProgress(
     captainsProgressed.length > 0 ||
     materialsGained.length > 0 ||
     shipsInRepair.length > 0 ||
-    relicsFound > 0;
+    relicsFound > 0 ||
+    autoSalvaged.length > 0 ||
+    ordersStarted.length > 0 ||
+    upgradesFinished.length > 0;
 
   return {
     secondsAway,
@@ -386,6 +467,9 @@ export function summarizeOfflineProgress(
     materialsGained,
     shipsInRepair,
     relicsFound,
+    autoSalvaged,
+    ordersStarted,
+    upgradesFinished,
   };
 }
 

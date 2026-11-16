@@ -1948,6 +1948,8 @@ function recordCompletion(args: {
       ...(contribution.salvageSubject !== undefined ? { salvageSubject: contribution.salvageSubject } : {}),
       ...(contribution.salvageRoll !== undefined ? { salvageRoll: contribution.salvageRoll } : {}),
       ...(overtime !== undefined ? { overtime } : {}),
+      // FR-C R8-6: an auto-salvage teardown says so, for the While You Were Away recap (absent on every other entry).
+      ...(process.effect.type === "salvageResolve" && process.effect.auto === true && RECAP_FOLDS_SWITCH.live ? { auto: true as const } : {}),
     };
     return { log: pushCompletionEntry(acc.log, entry), nextId: acc.nextId + 1, open: acc.open };
   }
@@ -4520,6 +4522,11 @@ export function applyCraftingXp(state: GameState, craftingXpDelta: number): Game
 // traced. Never written by app code.
 export const NEVER_DISCARD_SWITCH: { live: boolean } = { live: true };
 
+// FR-C R2-5 and R8-6: TEST-ONLY off switch for the two read-side folds of this round (the finite-work Fleet Admiral XP in
+// lifetimeStats.fleetAdminXpAwarded, and the `auto` stamp on an auto-salvage completed-events entry), so a golden that
+// hashes lifetimeStats or the completion log can be traced (recapFoldsSwitch.fixture.ts). Never written by app code.
+export const RECAP_FOLDS_SWITCH: { live: boolean } = { live: true };
+
 export function addToInventory(
   inventory: Record<string, Decimal[]>,
   discovered: string[],
@@ -5671,11 +5678,23 @@ export function economyTick(
   // early-outs to a same-reference no-op today, inert but correct + drift-proof
   // for when processes exist.
   const {
-    next: postProcessStateRaw,
+    next: postProcessResolved,
     fleetAdminXpDelta: processFleetAdminXpDelta,
     craftingXpDelta: processCraftingXpDelta,
   } = resolveProcesses(postMissionState, ticksElapsed, rng, nowMs);
   fleetAdminXpDelta += processFleetAdminXpDelta;
+  // FR-C R2-5: the Fleet Admiral XP finite work grants (upgrades, research, crafting) counts in Statistics' "Fleet Admiral
+  // XP Awarded" too (it held only the mission XP folded above). The same once-per-call fold on both paths.
+  const postProcessStateRaw: GameState =
+    processFleetAdminXpDelta > 0 && RECAP_FOLDS_SWITCH.live
+      ? {
+          ...postProcessResolved,
+          lifetimeStats: {
+            ...postProcessResolved.lifetimeStats,
+            fleetAdminXpAwarded: postProcessResolved.lifetimeStats.fleetAdminXpAwarded.plus(processFleetAdminXpDelta),
+          },
+        }
+      : postProcessResolved;
 
   // 0.13.4 Phase 2 Unit 2.2: drain the patrol endings the captain map collected into the
   // completion log.

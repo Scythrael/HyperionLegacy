@@ -1535,6 +1535,12 @@ function rowForCompletion(entry: CompletionLogEntry, state: GameState): Completi
   };
 }
 
+// FR-C R8-6 / R11-4: one completed-events entry as the Home board's row, for the While You Were Away recap (which names
+// the same things the RECENTLY COMPLETED section does, from the same records). Pure.
+export function completionRowView(entry: CompletionLogEntry, state: GameState): CompletionRow {
+  return rowForCompletion(entry, state);
+}
+
 // The NEWEST-FIRST display window over the stored ring buffer. The record array is
 // chronological (oldest at index 0, the eviction end), so "newest first" is the tail
 // reversed. Never mutates the stored array.

@@ -7328,6 +7328,9 @@ export interface CompletionLogEntry {
   // the resolver could still see it. Absent everywhere else, and absent on every entry
   // written before this field existed, so every read is presence-checked.
   salvageSubject?: CompletionSalvageSubject;
+  // FR-C R8-6: true on a "salvageJob" entry the Auto-Salvage Terminal ran (its effect's `auto` stamp), so the While You
+  // Were Away recap can name what auto-salvage took. Absent on every other entry and on every entry written before it.
+  auto?: true;
   // G1-5: the unidentified relics a short-range run found over its cycles (they went to the vault as each cycle was
   // delivered). Written only on a "shortRangeRun" entry that found at least one, and on every "shortRangeRelicFind"
   // entry (the relics that one cycle found); absent everywhere else.
