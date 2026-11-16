@@ -260,3 +260,8 @@ Fleet: 11 ships, 5 combat hulls on Repeat Crimson-Reaver Sweep (Standard Issue g
   the freeze into a visible wait on prod and 0.14.0).
 - Side finding: on prod, `tick(3600)` with a constant rng does not equal 997 s economyTick chunks (0.14.0 matches).
 - Investigator's harness and prototype: C:/Users/berga/AppData/Local/Temp/hl-perf-patrol (scratch, not durable).
+- 2026-11-16 status: the exact speedups are MERGED (cf39128c, tag slice/patrol-perf, on staging): lazy relaunch
+  inputs, probe-mode projections, per-cycle setup cache, allocation-free movement reads. Five Repeat patrols: about 260
+  to 330 us per step (was about 1,800 to 2,300); a real 4-day catch-up 38 s desktop (was 187 s on unoptimized feat;
+  prod about 31 to 48 s). Phones still minutes in the worst case: async catch-up (user question 13) and the remaining
+  FR-E safe-repair search cost (about 26%, a design change) are open. Parity pinned against base c4c1d89c hashes.
