@@ -56,13 +56,6 @@ import { groundSiteLabel } from "./expeditionContent";
 import { FLORA_POISON_PERMILLE_PER_GRADE, riskAmbushChance, riskRewardBonus } from "./riskFactors";
 import { asPreCurveDispatch, asPreG2NamesDispatch, plainAwayMember, withSlottedAwayTeams, withoutEnemyRanks, withoutRisk, dispatchPastPropulsion } from "./awayTeamTestFixtures";
 import { wr11OffForThisFile } from "./wr11Switch.fixture";
-import { fixRoundEOffForThisFile } from "./fixRoundESwitch.fixture";
-
-// Fix round FR-E (0.14.0): this file's fixtures launch real stars, recall and resume, or fly Repeat patrols that pause,
-// climb or meet a route they would lose, and its pins are about another slice; it runs with the round's fixes off
-// (fixRoundESwitch.fixture.ts), so they keep proving that slice. The round's own pins: expeditionFixRoundEGoldens and
-// patrolFixRoundE tests.
-fixRoundEOffForThisFile();
 // Wiring WR-11 came after every pin here: the whole file runs with WR-11 off (wr11Switch.fixture.ts), so its pins keep
 // proving their own slice moved nothing else (WR-11's own moves are pinned in wr11Goldens.test.ts).
 wr11OffForThisFile();
@@ -256,13 +249,15 @@ describe("SQ-4 the gate: a flagged run without a risk profile resolves byte-iden
 // ===== preview == run =====
 
 describe("SQ-4 the risk profile: drawn at dispatch from the committed seed, so the preview never lies", () => {
-  it("startExpedition stores exactly expeditionRiskPreview(seed): the profile and every body's grades", () => {
+  // Fix round FR-E (lane 3 I2): a real star's bodies are the star's, so the preview reads the candidate's region (its
+  // starId), exactly as the console does (ExpeditionPanel.svelte hands each preview the candidate's region).
+  it("startExpedition stores exactly expeditionRiskPreview(seed, region): the profile and every body's grades", () => {
     for (let k = 0; k < 12; k += 1) {
       const s = { ...compState("one"), expeditionSeed: (0x51ed27 + k * 0x9e3779b) >>> 0 };
       for (const cand of expeditionCandidates(s, "ship-1")) {
         const res = asPreCurveDispatch(asPreG2NamesDispatch(dispatchPastPropulsion(s, "ship-1", 1, cand.id)));
         const exp = res.expedition!;
-        const preview = expeditionRiskPreview(cand.seed);
+        const preview = expeditionRiskPreview(cand.seed, cand.region);
         expect(exp.seed).toBe(cand.seed);
         expect(exp.risk).toEqual(preview.profile);
         expect(exp.bodies.map((b) => b.risk)).toEqual(preview.bodies);

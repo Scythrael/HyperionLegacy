@@ -10,12 +10,9 @@ import { groundOpsProgress } from "./groundOps";
 import { isStudyBody } from "./gasGiantStudy";
 import { installMissingCombatBaselines } from "./tick";
 import { asExpeditionVeteran, plainAwayMember } from "./awayTeamTestFixtures";
-import { fixRoundEExpeditionsOffForThisFile } from "./fixRoundESwitch.fixture";
 
-// Fix round FR-E (0.14.0): this file's fixtures launch real stars, recall and resume, or finish planets by skips, and its
-// pins are about another slice; it runs with the round's expedition fixes off (fixRoundESwitch.fixture.ts), so they keep
-// proving that slice. The round's own pins: expeditionFixRoundEGoldens.test.ts.
-fixRoundEExpeditionsOffForThisFile();
+// Fix round FR-E (0.14.0): this file runs with the round on, so its resume paths are pinned on the rules the game plays
+// (a recall keeps the rolled scan boundaries of the body it cut short, a real star's bodies are the star's).
 
 const T0 = 100_000;
 const FINAL = T0 + 3_000_000;
@@ -71,7 +68,9 @@ function midStudy(exp: Expedition, giant: number): number {
 function recallAndClaim(state: GameState, exp: Expedition, t: number): GameState {
   const s1 = recallExpedition(at(state, t), exp.id);
   const home = advanceExpedition(s1.expeditions[0], FINAL);
-  return claimExpedition({ ...s1, gameTimeSeconds: home.phaseAnchorSeconds, expeditions: [home] }, exp.id).next;
+  const s2 = claimExpedition({ ...s1, gameTimeSeconds: home.phaseAnchorSeconds, expeditions: [home] }, exp.id).next;
+  // (The Shipyard repairs any hull damage the scan events left before the resumed launch.)
+  return { ...s2, ships: s2.ships.map(({ damaged: _d, repairDamage: _r, ...sh }) => sh as GameState["ships"][number]), activeProcesses: [] };
 }
 
 function finish(run: Expedition): Expedition {

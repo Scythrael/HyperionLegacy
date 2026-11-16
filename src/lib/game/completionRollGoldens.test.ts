@@ -19,12 +19,17 @@ import { withCompletionRollOff, withHeldSkipsOff } from "./completionTrackingSwi
 import { heldCompletion, runCompletion } from "./completion";
 import { advanceExpedition, claimExpedition } from "./expedition";
 import { economyTick } from "./tick";
-import { fixRoundEExpeditionsOffForThisFile } from "./fixRoundESwitch.fixture";
+import { fixRoundESwitchesOffForThisFile } from "./fixRoundESwitch.fixture";
 
-// Fix round FR-E (0.14.0): this file's fixtures launch real stars, recall and resume, or finish planets by skips, and its
-// pins are about another slice; it runs with the round's expedition fixes off (fixRoundESwitch.fixture.ts), so they keep
-// proving that slice. The round's own pins: expeditionFixRoundEGoldens.test.ts.
-fixRoundEExpeditionsOffForThisFile();
+// Fix round FR-E (0.14.0): the no-repay rule (lane 3 I1, RECALL_NO_REPAY_SWITCH: a recall keeps the scan boundaries
+// already rolled on the body it cut short, and the resumed run skips them) moves the late recalls and the resumed
+// claims of seeds 1001, 3003 and 5005; the planet roll rule (lane 3 q3, PLANET_ROLL_REAL_OBJECTIVE_SWITCH: a planet
+// finished by skips alone pays no 100% roll) moves the skip recall's abandons and resumed claims; and the star rule
+// (lane 3 I2, STAR_BODIES_SWITCH: a real star's bodies are drawn from the star, not from its candidate slot) moves seed
+// 4004's system (a real star). The pins here predate the round and are about another slice, so the file runs with those
+// fixes off (fixRoundESwitch.fixture.ts); every other fix of the round runs here. The round's own pins:
+// expeditionFixRoundE.test.ts and expeditionFixRoundEGoldens.test.ts.
+fixRoundESwitchesOffForThisFile("recallNoRepay", "planetRollRealObjective", "starBodies");
 
 // Captured on the code BEFORE the engine edit (913ff6b1).
 const BEFORE_CLAIMS: Record<string, string> = {

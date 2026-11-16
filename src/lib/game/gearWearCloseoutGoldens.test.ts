@@ -33,13 +33,14 @@ import { onHull, hash } from "./firstRunsGoldens.fixture";
 import { asPatrolVeteran } from "./awayTeamTestFixtures";
 import { withCloseoutOff } from "./gearWearCloseoutSwitch.fixture";
 import { withEnemyTorpedoesOff } from "./enemyTorpedoSwitch.fixture";
-import { fixRoundEOffForThisFile } from "./fixRoundESwitch.fixture";
+import { fixRoundESwitchesOffForThisFile } from "./fixRoundESwitch.fixture";
 
-// Fix round FR-E (0.14.0): this file's fixtures launch real stars, recall and resume, or fly Repeat patrols that pause,
-// climb or meet a route they would lose, and its pins are about another slice; it runs with the round's fixes off
-// (fixRoundESwitch.fixture.ts), so they keep proving that slice. The round's own pins: expeditionFixRoundEGoldens and
-// patrolFixRoundE tests.
-fixRoundEOffForThisFile();
+// Fix round FR-E (0.14.0): Resume when safe (lane 4 I1, PATROL_RESUME_WHEN_SAFE_SWITCH: a Repeat repair pause ends once
+// the next route is safe, not at full) moves the pauseFirst and pauseRepeat rows; and the pause's docked pricing (lane
+// 4 M6, PAUSE_JOB_LIKE_DOCKED_SWITCH: a repair pause records the docked job's length for its Overtime) moves the same
+// pauses' records. The pins here predate the round and are about another slice, so the file runs with those fixes off
+// (fixRoundESwitch.fixture.ts); every other fix of the round runs here. The round's own pins: patrolFixRoundE.test.ts.
+fixRoundESwitchesOffForThisFile("resumeWhenSafe", "pauseJobLikeDocked");
 
 const CAPTURE = Boolean(import.meta.env.GWCLOSE_CAPTURE);
 const RNG = () => 0.5;

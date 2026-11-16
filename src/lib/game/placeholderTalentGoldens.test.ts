@@ -92,13 +92,13 @@ import { wr11OffForThisFile } from "./wr11Switch.fixture";
 // fleet whose surplus crew the reserve now moves out of the pool, so the whole file runs with it off and its pins keep
 // proving their own slice (switch-off reproduction: every pin holds with it off). homeworldReserveGoldens pins the reserve.
 import { homeworldReserveOffForThisFile } from "./homeworldReserveSwitch.fixture";
-import { fixRoundEOffForThisFile } from "./fixRoundESwitch.fixture";
+import { fixRoundESwitchesOffForThisFile } from "./fixRoundESwitch.fixture";
 
-// Fix round FR-E (0.14.0): this file's fixtures launch real stars, recall and resume, or fly Repeat patrols that pause,
-// climb or meet a route they would lose, and its pins are about another slice; it runs with the round's fixes off
-// (fixRoundESwitch.fixture.ts), so they keep proving that slice. The round's own pins: expeditionFixRoundEGoldens and
-// patrolFixRoundE tests.
-fixRoundEOffForThisFile();
+// Fix round FR-E (0.14.0): the stop rule (lane 4 q3, PATROL_STOP_DOOMED_SWITCH: Repeat stops "outmatched" before a
+// route it would lose even fully repaired) moves every row (its Repeat patrol meets a route it would lose). The pins
+// here predate the round and are about another slice, so the file runs with that fix off (fixRoundESwitch.fixture.ts);
+// every other fix of the round runs here. The round's own pins: patrolFixRoundE.test.ts.
+fixRoundESwitchesOffForThisFile("stopDoomed");
 homeworldReserveOffForThisFile();
 crewHoursFloatForThisFile();
 

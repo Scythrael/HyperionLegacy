@@ -13,6 +13,7 @@ import {
   type GameState,
   type GroundTeamKind,
   type NotableCrewMember,
+  type RegionTier,
   type SeniorStaffOfficer,
   type ShipGroundTeam,
 } from "./model";
@@ -38,13 +39,6 @@ import { TELESCOPE_DETAIL, blindLaunchCount } from "./telescope";
 import { forecastTasksText, previewForHull, recommendLaunch, taskDemand, taskDemandText, type SystemTaskPreview } from "./launchRecommendation";
 import { deserialize, migrate, serialize } from "./save";
 import { plainAwayMember, withoutShipEvents, dispatchPastPropulsion } from "./awayTeamTestFixtures";
-import { fixRoundEOffForThisFile } from "./fixRoundESwitch.fixture";
-
-// Fix round FR-E (0.14.0): this file's fixtures launch real stars, recall and resume, or fly Repeat patrols that pause,
-// climb or meet a route they would lose, and its pins are about another slice; it runs with the round's fixes off
-// (fixRoundESwitch.fixture.ts), so they keep proving that slice. The round's own pins: expeditionFixRoundEGoldens and
-// patrolFixRoundE tests.
-fixRoundEOffForThisFile();
 
 const T0 = 100_000;
 // The instant the bodies are scanned: the outbound transit (the regular one since safe first runs SF-2 retired the 30
@@ -89,6 +83,11 @@ function crewedState(seedShift = 0): GameState {
   };
 }
 
+// The region the console previews candidate 0 of `tier` on (its ExpeditionCandidate.region, exactly what
+// ExpeditionPanel.svelte hands the previews): fix round FR-E (lane 3 I2) seeds a real star's bodies from the star
+// (region.starId), so a preview made on the bare seed would read another system. Pure.
+const candRegion = (state: GameState, tier: RegionTier = 1): ExpeditionRegion => expeditionCandidates(state, "ship-1", tier)[0].region;
+
 // The run's stamped tasks in the preview's shape (body order, then discovery order).
 function stampedTasks(exp: Expedition): SystemTaskPreview["tasks"] {
   return exp.bodies.flatMap((b, bodyIndex) =>
@@ -127,9 +126,9 @@ describe("the task preview equals the run's stamped tasks (the forecast cannot l
     for (let k = 0; k < 16; k++) {
       const s = crewedState(k);
       const exp = dispatchAndScan(s);
-      const preview = systemTaskPreview(exp.seed, exp.scanParams);
+      const preview = systemTaskPreview(exp.seed, exp.scanParams, candRegion(s));
       expect(preview.tier).toBe(1);
-      expect(preview.bodies).toEqual(expeditionRiskPreview(exp.seed).bodies);
+      expect(preview.bodies).toEqual(expeditionRiskPreview(exp.seed, candRegion(s)).bodies);
       expect(stampedTasks(exp), `system ${k}`).toEqual(preview.tasks);
       for (const t of preview.tasks) expect(t.needs.security <= 1 && t.needs.science <= 1).toBe(true); // safe tiers adapt
       tasks += preview.tasks.length;
@@ -144,7 +143,9 @@ describe("the task preview equals the run's stamped tasks (the forecast cannot l
     for (let k = 0; k < 24; k++) {
       const s = crewedState(k);
       const exp = dispatchAndScan(s, region);
-      const preview = systemTaskPreview(exp.seed, exp.scanParams, region);
+      // (The forced region keeps the candidate's own star: its bodies are the star's.)
+      const starId = candRegion(s, region.tier).starId;
+      const preview = systemTaskPreview(exp.seed, exp.scanParams, { ...region, ...(starId !== undefined ? { starId } : {}) });
       const deployed = crewSquadsOf(exp.groundOps!.teams);
       const fielded = preview.tasks.filter((t) => !t.hostile || hostileSiteFieldable(t.poiId as "enemyColony", deployed));
       expect(stampedTasks(exp), `system ${k}`).toEqual(fielded);
@@ -169,7 +170,7 @@ describe("the candidate carries only what its detail shows", () => {
 
   it("Per body (Level 3) adds the task demand of the system", () => {
     for (const c of cands(atLevel(3, s))) {
-      const preview = previewForHull(systemTaskPreview(c.seed, params), "generalFreighter");
+      const preview = previewForHull(systemTaskPreview(c.seed, params, c.region), "generalFreighter");
       expect(c.telescope.demand).toEqual(taskDemand(preview));
       expect(taskDemandText(c.telescope.demand!)).toMatch(/bod(y|ies)/);
       expect([c.telescope.recommendation, c.telescope.forecast]).toEqual([null, null]);
@@ -179,8 +180,8 @@ describe("the candidate carries only what its detail shows", () => {
   it("Recommendation (Level 5) adds the recommendation (odds read only when the fights are risky)", () => {
     const s5 = atLevel(5, s);
     for (const c of cands(s5)) {
-      const preview = previewForHull(systemTaskPreview(c.seed, params), "generalFreighter");
-      const oddsOf = (kinds: readonly GroundTeamKind[]) => compositionFightOdds(s5, "ship-1", c.seed, kinds, preview);
+      const preview = previewForHull(systemTaskPreview(c.seed, params, c.region), "generalFreighter");
+      const oddsOf = (kinds: readonly GroundTeamKind[]) => compositionFightOdds(s5, "ship-1", c.seed, kinds, preview, c.region);
       expect(c.telescope.recommendation).toEqual(recommendLaunch(preview, "generalFreighter", ["ground", "ground"], oddsOf));
       // Today's systems are Tier I: the odds never weigh in there (follow-up 3), so no launch is simulated.
       expect(c.telescope.recommendation!.ranked.every((r) => r.fightOdds === null)).toBe(true);
@@ -226,7 +227,7 @@ describe("the forecast (design 6.3 Forecast) against a real dispatch", () => {
       const s = crewedState(k);
       const cand = cands(s)[0];
       const kinds = shipTeamKinds(s.ships[0]);
-      const f = launchForecast(s, "ship-1", cand.seed, kinds)!;
+      const f = launchForecast(s, "ship-1", cand.seed, kinds, cand.region)!;
       expect(f.teamsDeployed).toBe(2);
       const exp = dispatchAndScan(s);
       const all = exp.bodies.flatMap((b) => b.activities);
@@ -244,7 +245,7 @@ describe("the forecast (design 6.3 Forecast) against a real dispatch", () => {
       } else {
         expect(f.note).toBe("No fights expected");
       }
-      expect(launchForecast(s, "ship-1", cand.seed, kinds)).toEqual(f); // deterministic
+      expect(launchForecast(s, "ship-1", cand.seed, kinds, cand.region)).toEqual(f); // deterministic
     }
     expect(fights).toBeGreaterThan(0);
   });

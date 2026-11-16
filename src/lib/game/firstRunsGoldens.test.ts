@@ -119,12 +119,16 @@ homeworldReserveOffForThisFile();
 // crew from a backlog longer than any catch-up (a fixture shortcut), so the whole file runs with it off and its pins
 // keep proving their own slice (switch-off reproduction: every pin holds with it off). transportWelcome.test.ts pins it.
 import { transportWelcomeOffForThisFile } from "./transportWelcomeSwitch.fixture";
-import { fixRoundEOffForThisFile } from "./fixRoundESwitch.fixture";
+import { fixRoundESwitchesOffForThisFile } from "./fixRoundESwitch.fixture";
 
-// Fix round FR-E (0.14.0): this file's fixtures launch real stars, recall and resume, or finish planets by skips, and its
-// pins are about another slice; it runs with the round's fixes off (fixRoundESwitch.fixture.ts), so they keep
-// proving that slice. The round's own pins: expeditionFixRoundEGoldens.test.ts.
-fixRoundEOffForThisFile();
+// Fix round FR-E (0.14.0): the star rule (lane 3 I2, STAR_BODIES_SWITCH: a real star's bodies are drawn from the star,
+// not from its candidate slot) moves the Orion second runs and the REAL second run (the list after the first run holds
+// Wolf 359); and the stop rule (lane 4 q3, PATROL_STOP_DOOMED_SWITCH: Repeat stops "outmatched" before a route it would
+// lose even fully repaired) moves a Repeat patrol's first two cycles. The pins here predate the round and are about
+// another slice, so the file runs with those fixes off (fixRoundESwitch.fixture.ts); every other fix of the round runs
+// here. The round's own pins: expeditionFixRoundE.test.ts and expeditionFixRoundEGoldens.test.ts and
+// patrolFixRoundE.test.ts.
+fixRoundESwitchesOffForThisFile("starBodies", "stopDoomed");
 transportWelcomeOffForThisFile();
 combatRulesOffForThisFile();
 // Wiring WR-11 came after every pin here: the whole file runs with WR-11 off (wr11Switch.fixture.ts), so its pins keep
