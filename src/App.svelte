@@ -1174,6 +1174,8 @@
     // nothing of its own.
     buildAutoSalvageTerminal,
     queuedOrderLabel,
+    // FR-C fix pass: the whole-order time left and total the line cards share with Home.
+    orderTimeLeft,
     type CraftQueueRow,
     type CraftQueueView,
   } from "./lib/game/craftQueue";
@@ -11409,9 +11411,9 @@
   // started iteration. That queued count is exactly `line.remaining`: stepCraftLine
   // (tick.ts) decrements it the instant each job starts, so while a job is in flight
   // `line.remaining` already excludes the in-flight item and counts only what is
-  // still queued behind it. The paired "total" is (queued + 1) full durations (every
-  // pending iteration at full length), so at each item's start remaining == total
-  // and the showTicks "X / Y ticks" figure reads sensibly.
+  // still queued behind it. The paired "total" is the in-flight item's full duration plus
+  // the same queued share (FR-C fix pass, orderTimeLeft), so at each item's start
+  // remaining == total and the total never reads below the time left.
   //
   // A CONTINUOUS line is endless (line.remaining is pinned at 1 and never counts
   // down), so there is no finite batch to total, it keeps the plain per-item
@@ -11456,11 +11458,9 @@
     if (line.mode.kind === "batch") {
       // FR-C lane 1 I3: an attached lane reads its ORDER's pool, shared across the lanes working it (the same estimate
       // craftQueue.ts gives Home). One lane on its own work reads exactly as before.
-      const queued = lanePoolRemaining(line); // not-yet-started iterations (in-flight already excluded)
-      const lanes = Math.max(1, laneShareCount(line));
-      const totalTicks = Math.ceil(((queued + 1) * job.durationTicks) / lanes); // in-flight + queued, all at full duration
-      const remainingTicks = job.remainingTicks + Math.ceil((queued * job.durationTicks) / lanes);
-      return remainingReadout(remainingTicks, totalTicks, showTicks, secPerTick);
+      // FR-C fix pass: craftQueue.ts orderTimeLeft, so the total never reads below the time left with 2+ lanes.
+      const { etaTicks, totalTicks } = orderTimeLeft(job.remainingTicks, job.durationTicks, lanePoolRemaining(line), laneShareCount(line));
+      return remainingReadout(etaTicks, totalTicks, showTicks, secPerTick);
     }
     return remainingReadout(job.remainingTicks, job.durationTicks, showTicks, secPerTick);
   }
@@ -12912,7 +12912,7 @@
                           {#each Object.keys(recipe.input) as inId, i}{formatNumber(recipe.input[inId])}× [{ITEMS[inId]?.label ?? inId}]{i < Object.keys(recipe.input).length - 1 ? " + " : ""}{/each}
                           → [{ITEMS[recipe.output.itemId]?.label ?? recipe.output.itemId}]
                         {:else}[{line.recipeKey}]{/if}
-                        · {line.remaining > 0 ? (line.mode.kind === "batch" ? `batch ${line.remaining}` : "continuous") : "finishing current run"}
+                        · {lanePoolRemaining(line) > 0 ? (line.mode.kind === "batch" ? `batch ${lanePoolRemaining(line)}` : "continuous") : "finishing current run"}
                       </div>
                       <div class="research-bar-track">
                         <div class="research-bar-fill" style="width:{Math.min(100, progress * 100)}%"></div>
@@ -12923,6 +12923,7 @@
                       <!-- FR-C lane 1 I3: a joined lane says it is helping, and that it hands the bay back. -->
                       {#if line.joined}
                         <div class="research-cost">Joined to help this order; it hands the bay back when you start or queue something else.</div>
+                        <div class="research-cost">Cancel on this line stops the whole batch.</div>
                       {/if}
                       <!-- ⚠️ THE LANE COUNT EXISTS TO EXPLAIN A NUMBER THAT WOULD OTHERWISE LOOK
                            BROKEN (0.13.4 Phase 6, design 7.6). When a second lane joins this order,
@@ -13505,7 +13506,7 @@
                             → {bp.recipe.outputQty}× [{ITEMS[bp.recipe.outputItem ?? ""]?.label ?? bp.recipe.outputItem}]
                           {/if}
                         {:else}[{line.recipeKey}]{/if}
-                        · {line.remaining > 0 ? (line.mode.kind === "batch" ? `batch ${line.remaining}` : "continuous") : "finishing current run"}
+                        · {lanePoolRemaining(line) > 0 ? (line.mode.kind === "batch" ? `batch ${lanePoolRemaining(line)}` : "continuous") : "finishing current run"}
                       </div>
                       <div class="research-bar-track">
                         <div class="research-bar-fill" style="width:{Math.min(100, progress * 100)}%"></div>
@@ -13516,6 +13517,7 @@
                       <!-- FR-C lane 1 I3: a joined lane says it is helping, and that it hands the bay back. -->
                       {#if line.joined}
                         <div class="research-cost">Joined to help this order; it hands the bay back when you start or queue something else.</div>
+                        <div class="research-cost">Cancel on this line stops the whole batch.</div>
                       {/if}
                       <!-- ⚠️ THE LANE COUNT EXISTS TO EXPLAIN A NUMBER THAT WOULD OTHERWISE LOOK
                            BROKEN (0.13.4 Phase 6, design 7.6). When a second lane joins this order,

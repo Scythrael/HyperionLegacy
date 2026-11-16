@@ -15,7 +15,9 @@ import Decimal from "break_infinity.js";
 import { freshState, FACILITIES, REFINE_RECIPES, type GameState } from "./model";
 import { allocatedItem, freeItemForState } from "./allocation";
 import { canStartLine, cancelLine, economyTick, enqueueOrder, refineSlotCount, startLine, tick } from "./tick";
-import { itemTotal } from "./inventory";
+import { getBucket, itemTotal } from "./inventory";
+import { buildAllCraftQueues, orderTimeLeft } from "./craftQueue";
+import { buildHomeDashboard } from "./homeDashboard";
 import { withLaneJoinOff } from "./laneJoinSwitch.fixture";
 
 const RNG = () => 0.5;
@@ -228,5 +230,68 @@ describe("the move, traced (the lane-join switch off reproduces the pre-fix game
     expect(itemTotal(shortRun.s.inventory, OUTPUT).toNumber()).toBe(12);
     const shortOff = run(threeLaneRefinery(), "refine", RECIPE, 12, Math.ceil((12 * REFINE_RECIPES[RECIPE].durationTicks) / 2), true);
     expect(itemTotal(shortOff.s.inventory, OUTPUT).toNumber()).toBeLessThan(12);
+  });
+});
+
+// FR-C fix pass: the joined lanes of ONE order read as one order everywhere (the same units left on every lane, on the
+// consoles and on Home), and the order's total never reads below its time left.
+describe("joined lanes read one order", () => {
+  function joined(): GameState {
+    let s = startLine(threeLaneRefinery(), "refine", RECIPE, { kind: "batch", remaining: 30 }).next;
+    for (let i = 0; i < 3; i++) s = economyTick(s, 1, RNG);
+    expect(inFlight(s)).toBe(3);
+    return s;
+  }
+
+  it("every running row of the order shows the order's unstarted units and the same mode label", () => {
+    const s = joined();
+    const order = (s.craftOrders ?? [])[0];
+    const rows = buildAllCraftQueues(s).find((v) => v.facility === "refinery")!.running;
+    expect(rows).toHaveLength(3);
+    expect(new Set(rows.map((r) => r.remaining))).toEqual(new Set([order.remaining]));
+    expect(new Set(rows.map((r) => r.modeLabel))).toEqual(new Set([`batch ${order.remaining}`]));
+  });
+
+  it("Home's units-left line reads the same number on every lane: the unstarted pool plus the units in flight", () => {
+    const s = joined();
+    const order = (s.craftOrders ?? [])[0];
+    const lines = buildHomeDashboard(s).inProgress.filter((r) => r.secondaryLabel?.endsWith("to refine")).map((r) => r.secondaryLabel);
+    expect(lines).toHaveLength(3);
+    expect(new Set(lines)).toEqual(new Set([`${order.remaining + 3} to refine`]));
+  });
+
+  it("the order total never reads below the time left (two lanes, one unit waiting)", () => {
+    // The old total, ceil((unstarted + 1) x duration / lanes), read 10 here while the time left read 15.
+    expect(orderTimeLeft(10, 10, 1, 2)).toEqual({ etaTicks: 15, totalTicks: 15 });
+    for (const [rem, dur, unstarted, lanes] of [[3, 10, 1, 2], [10, 10, 7, 3], [1, 20, 0, 2], [20, 20, 5, 4]]) {
+      const t = orderTimeLeft(rem, dur, unstarted, lanes);
+      expect(t.totalTicks).toBeGreaterThanOrEqual(t.etaTicks);
+    }
+    const s = joined();
+    for (const row of buildAllCraftQueues(s).find((v) => v.facility === "refinery")!.running) {
+      expect(row.orderTotalTicks!).toBeGreaterThanOrEqual(row.etaTicks!);
+    }
+  });
+});
+
+// FR-C fix pass (live pin for the ML-4 goldens that run with the join off): a joined lane spends best-first too, so
+// the batch's whole output carries the good stock's quality.
+describe("a joined lane honors Use best materials", () => {
+  it("every unit of a joined best-first batch lands at the good stock's quality", () => {
+    const base = threeLaneRefinery();
+    const s0: GameState = { ...base, inventory: { ...base.inventory, [INPUT]: [new Decimal(600), new Decimal(0), new Decimal(12 * PER)] } };
+    const r = startLine(s0, "refine", RECIPE, { kind: "batch", remaining: 12 }, "best");
+    expect(r.started).toBe(true);
+    let s = r.next;
+    let peak = 0;
+    const noRoll = () => 0.999999;
+    for (let i = 0; i < 12 * REFINE_RECIPES[RECIPE].durationTicks; i++) {
+      s = economyTick(s, 1, noRoll);
+      peak = Math.max(peak, lanes(s).length);
+    }
+    expect(peak).toBe(3);
+    expect(itemTotal(s.inventory, OUTPUT).toNumber()).toBe(12);
+    expect(getBucket(s.inventory, OUTPUT, 2).toNumber()).toBe(12);
+    expect(getBucket(s.inventory, INPUT, 2).toNumber()).toBe(0);
   });
 });

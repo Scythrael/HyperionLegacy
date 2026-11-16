@@ -679,7 +679,8 @@ function rowForProcess(
   if (runningRow !== undefined && !runningRow.continuous && runningRow.etaTicks !== null) {
     remainingTicks = runningRow.etaTicks;
     durationTicks = runningRow.orderTotalTicks ?? runningRow.etaTicks;
-    secondaryLabel = `${runningRow.remaining + 1} to ${process.kind === "refineJob" ? "refine" : "fabricate"}`;
+    // FR-C fix pass: the order's unstarted pool plus its units in flight, so every joined lane reads the same number.
+    secondaryLabel = `${runningRow.remaining + (runningRow.unitsInFlight ?? 1)} to ${process.kind === "refineJob" ? "refine" : "fabricate"}`;
   }
 
   // Gas Giant Study GG-6: a data study while the lane is paused holds its countdown (dataStudy.ts setDataStudyPaused),
