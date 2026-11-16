@@ -6,15 +6,15 @@
 // crew-locked ships refused with the reason; auto-crew ships refused (the picker lists them, not pickable); the reserve
 // is never a target; a drained reserve is never written empty; the CP-21 perf memo still equals a fresh fill.
 import { describe, expect, it } from "vitest";
-// FR-C A1-2 (the welcome batch seats crew seat by seat) came after these cases, whose fixtures carry a transport marker
-// far enough behind to take the welcome: the file runs with it off (welcomeSeatSwitch.fixture.ts), so they keep testing
-// the reserve controls they were written for; transportWelcomeSeat.test.ts pins the welcome.
-import { welcomeSeatOffForThisFile } from "./welcomeSeatSwitch.fixture";
-welcomeSeatOffForThisFile();
+// FR-C A1-2 (the welcome batch seats crew seat by seat) came after these cases. Their fleet is filled from a real
+// transport BACKLOG (random divisions and ranks, so a surplus reaches the reserve), so openFleet's marker sits exactly
+// at the backlog limit (TRANSPORT_WELCOME_AFTER_WINDOWS behind), never far enough to take the welcome;
+// transportWelcomeSeat.test.ts pins the welcome.
 import { freshState, type CrewBucket, type Expedition, type GameState, type ShipInstance, type ShipTypeKey } from "./model";
 import { resolveCrew } from "./crewOverlay";
 import { signatureKey, totalCrew } from "./crew";
 import { tick } from "./tick";
+import { TRANSPORT_WELCOME_AFTER_WINDOWS, takesWelcomeBatch, transportWindowIndex } from "./transports";
 import {
   CREW_POOL,
   HOMEWORLD_RESERVE,
@@ -42,18 +42,19 @@ function lcg(seed: number): () => number {
   };
 }
 
-// ship-1 (the freighter) plus five parked passive hulls filled by the real resolveCrew from `days` of transports; the
+// ship-1 (the freighter) plus five parked passive hulls filled by the real resolveCrew from a transport backlog; the
 // surplus is in the reserve, the pool empty, the next window 1,793 s away. Then the Aurora is MANUAL and emptied (its
 // crew go nowhere: the test only needs open berths, so conservation is checked from this state on).
 function openFleet(days = 8): GameState {
   const base = freshState();
+  expect(takesWelcomeBatch(Math.max(0, transportWindowIndex(days * DAY + 7) - TRANSPORT_WELCOME_AFTER_WINDOWS), days * DAY + 7)).toBe(false);
   const extra: ShipInstance[] = FLEET.map((typeKey, i) => ({ id: `ship-${i + 2}`, typeKey, assignedCaptainId: null }));
   const filled = resolveCrew({
     ...base,
     ships: [...base.ships, ...extra],
     nextShipId: base.ships.length + extra.length + 1,
     gameTimeSeconds: days * DAY + 7,
-    lastTransportWindow: 0,
+    lastTransportWindow: Math.max(0, transportWindowIndex(days * DAY + 7) - TRANSPORT_WELCOME_AFTER_WINDOWS),
   });
   return resolveCrew({
     ...filled,

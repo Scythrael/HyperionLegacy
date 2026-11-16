@@ -22,10 +22,9 @@
 // ============================================================================
 import { describe, it, expect } from "vitest";
 // FR-C lane 1 M5 / M6 (user 2026-11-13/14, "Never discard"): deposits now land in full and a load trims nothing. This
-// file pins the pre-change clamp and load trim, so it runs with that change OFF (neverDiscardSwitch.fixture.ts);
-// neverDiscard.test.ts pins the new rule.
-import { neverDiscardOffForThisFile } from "./neverDiscardSwitch.fixture";
-neverDiscardOffForThisFile();
+// file pins the pre-change clamp and load trim: ONLY those old-rule cases run with that change OFF (withNeverDiscardOff,
+// neverDiscardSwitch.fixture.ts); every other case runs live. neverDiscard.test.ts pins the new rule.
+import { withNeverDiscardOff } from "./neverDiscardSwitch.fixture";
 import { clampInventoryToCaps, reconcileDiscovered, itemCap, tierCap } from "./tick";
 import { serialize, deserialize, migrate, SAVE_VERSION, type SaveFile } from "./save";
 import { freshState } from "./model";
@@ -104,7 +103,7 @@ describe("migrate, a head-version save with an over-cap ore stack is clamped on 
   // (6) INTEGRATION proof. A save at the CURRENT SAVE_VERSION (so NO versioned migration
   //     runs) that holds over-cap ore is nonetheless trimmed to cap by the load path, which
   //     is exactly what un-sticks the reported legit save without a SAVE_VERSION bump.
-  it("clamps 1.52M ore to the cap through serialize -> deserialize -> migrate", () => {
+  it("clamps 1.52M ore to the cap through serialize -> deserialize -> migrate", () => withNeverDiscardOff(() => {
     const state = freshState();
     const cap = tierCap(state, 1); // commonOre is tier 1
     state.inventory = { ...state.inventory, commonOre: [cap.times(1.52)] };
@@ -116,7 +115,7 @@ describe("migrate, a head-version save with an over-cap ore stack is clamped on 
     const migrated = migrate(save);
     expect(itemTotal(migrated.inventory, "commonOre").equals(cap)).toBe(true);
     expect(itemTotal(migrated.inventory, "commonOre").gt(cap)).toBe(false);
-  });
+  }));
 });
 
 // ============================================================================

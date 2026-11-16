@@ -9,7 +9,7 @@ import { resolveCrew } from "./crewOverlay";
 import { totalCrew } from "./crew";
 import { homeworldReserveCount } from "./homeworldReserve";
 import { CREW_PROFESSIONS, complementTotalCap, remainingCapacityForSignature } from "./commandStructure";
-import { TRANSPORT_BATCH_SIZE, TRANSPORT_WELCOME_PENDING, TRANSPORT_WINDOW_SECONDS, transportWindowIndex } from "./transports";
+import { TRANSPORT_BATCH_SIZE, TRANSPORT_WELCOME_AFTER_WINDOWS, TRANSPORT_WELCOME_PENDING, TRANSPORT_WINDOW_SECONDS, transportWindowIndex } from "./transports";
 import { migrate, type SaveFile } from "./save";
 import { withWelcomeSeatOff } from "./welcomeSeatSwitch.fixture";
 
@@ -134,5 +134,36 @@ describe("the welcome batch fills every ship, seat by seat", () => {
   it("before the fix (switch off) the same fleet was left with open seats and a spill", () => {
     const out = withWelcomeSeatOff(() => resolveCrew(fleet()));
     expect(seated(out)).toBeLessThan(berths(out));
+  });
+});
+
+// FR-C fix pass: the welcome's ELIGIBILITY under the seat-by-seat welcome (transportWelcome.test.ts pins the old
+// transport-count totals with it off). Who takes the welcome is unchanged: a pending marker (a pre-crew save, however
+// young) or one further behind than any catch-up; a marker within the offline cap keeps its ordinary backlog.
+describe("who takes the welcome (live)", () => {
+  const all = (s: GameState) => seated(s) + totalCrew(s.crewPool) + homeworldReserveCount(s);
+  const at = (gameTimeSeconds: number, lastTransportWindow: number): GameState => ({ ...fleet(), gameTimeSeconds, lastTransportWindow });
+
+  it("a young pre-crew save takes the welcome: every berth seated once, nothing spare, marker at its first window", () => {
+    const s = at(600, TRANSPORT_WELCOME_PENDING);
+    const out = resolveCrew(s);
+    expect(seated(out)).toBe(berths(out));
+    expect(all(out)).toBe(berths(s));
+    expect(out.lastTransportWindow).toBe(0);
+  });
+
+  it("a marker further behind than any catch-up takes the welcome, with its marker at now", () => {
+    const far = at((TRANSPORT_WELCOME_AFTER_WINDOWS + 1) * TRANSPORT_WINDOW_SECONDS, 0);
+    const out = resolveCrew(far);
+    expect(seated(out)).toBe(berths(out));
+    expect(all(out)).toBe(berths(far));
+    expect(out.lastTransportWindow).toBe(transportWindowIndex(far.gameTimeSeconds));
+  });
+
+  it("a marker within the offline cap keeps its backlog: ordinary transports, every one of them", () => {
+    const within = at(TRANSPORT_WELCOME_AFTER_WINDOWS * TRANSPORT_WINDOW_SECONDS, 0);
+    const out = resolveCrew(within);
+    expect(all(out)).toBe(TRANSPORT_WELCOME_AFTER_WINDOWS * TRANSPORT_BATCH_SIZE);
+    expect(out.lastTransportWindow).toBe(transportWindowIndex(within.gameTimeSeconds));
   });
 });

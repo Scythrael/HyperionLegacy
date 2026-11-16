@@ -25,10 +25,9 @@
 // ============================================================================
 import { describe, it, expect } from "vitest";
 // FR-C lane 1 M5 / M6 (user 2026-11-13/14, "Never discard"): deposits now land in full and a load trims nothing. This
-// file pins the pre-change clamp and load trim, so it runs with that change OFF (neverDiscardSwitch.fixture.ts);
-// neverDiscard.test.ts pins the new rule.
-import { neverDiscardOffForThisFile } from "./neverDiscardSwitch.fixture";
-neverDiscardOffForThisFile();
+// file pins the pre-change clamp and load trim: ONLY those old-rule cases run with that change OFF (withNeverDiscardOff,
+// neverDiscardSwitch.fixture.ts); every other case runs live. neverDiscard.test.ts pins the new rule.
+import { withNeverDiscardOff } from "./neverDiscardSwitch.fixture";
 import { addToInventory, itemCap, tierCap, economyTick, tick } from "./tick";
 import { freshState, type CaptainMissionState, type MissionKey } from "./model";
 import { itemTotal } from "./inventory";
@@ -63,7 +62,7 @@ function missionCaptain(missionKey: MissionKey = "shortOreRun"): CaptainMissionS
 
 describe("warehouse cap clamp, addToInventory clamps producer deposits at the item's cap", () => {
   // (1) An over-cap deposit lands EXACTLY at the cap; the overflow is discarded.
-  it("clamps a deposit that would exceed the cap to EXACTLY the cap (overflow discarded)", () => {
+  it("clamps a deposit that would exceed the cap to EXACTLY the cap (overflow discarded)", () => withNeverDiscardOff(() => {
     const state = freshState();
     const cap = itemCap(state, "commonOre"); // tier-1 cap (1,000,000 at level 0)
     // Start 100 below the cap, then deposit 500 -> naive would be cap+400.
@@ -72,7 +71,7 @@ describe("warehouse cap clamp, addToInventory clamps producer deposits at the it
     // Lands AT the cap, never past it.
     expect(itemTotal(next, "commonOre").equals(cap)).toBe(true);
     expect(itemTotal(next, "commonOre").gt(cap)).toBe(false);
-  });
+  }));
 
   // (2) An UNCAPPED item (its cap is the sentinel) is never clamped, deposits
   //     accumulate freely, because no reachable quantity approaches 1e1000.
@@ -116,7 +115,7 @@ describe("warehouse cap clamp, addToInventory clamps producer deposits at the it
   //     overflow lived in higher tiers (a permanently negative per-quality readout that
   //     never healed). The fix drains the overflow LOWEST-quality-first, so the stack lands
   //     at exactly cap with NO bucket negative.
-  it("re-clamps an over-cap quality inventory to cap with NO bucket going negative", () => {
+  it("re-clamps an over-cap quality inventory to cap with NO bucket going negative", () => withNeverDiscardOff(() => {
     const state = freshState();
     const cap = itemCap(state, "commonOre");
     // Seed OVER cap with the overflow parked in a HIGHER tier: bucket 0 holds only 5, but
@@ -130,7 +129,7 @@ describe("warehouse cap clamp, addToInventory clamps producer deposits at the it
     for (const bucket of next["commonOre"]) {
       expect(bucket.gte(0)).toBe(true);
     }
-  });
+  }));
 });
 
 describe("warehouse cap clamp, ⚠️ offline parity across a cap-crossing mission span", () => {
@@ -143,7 +142,7 @@ describe("warehouse cap clamp, ⚠️ offline parity across a cap-crossing missi
   //     Non-vacuity is proven by a CONTROL run from 0: over the same span the haul is
   //     far larger than the tiny gap left below the cap, so the crossing genuinely
   //     overshoots (and the clamp is what pins it to the cap rather than past it).
-  it("tick(bigSpan) == looping economyTick(_,1); commonOre ends EXACTLY at cap after a cap crossing", () => {
+  it("tick(bigSpan) == looping economyTick(_,1); commonOre ends EXACTLY at cap after a cap crossing", () => withNeverDiscardOff(() => {
     const SPAN_TICKS = 300; // > 2 shortOreRun cycles (149 ticks each) -> at least one cycle delivers
     const GAP = new Decimal(10); // seed the inventory this far below the cap
 
@@ -178,5 +177,5 @@ describe("warehouse cap clamp, ⚠️ offline parity across a cap-crossing missi
     expect(itemTotal(viaTick.inventory, "commonOre").equals(itemTotal(stepped.inventory, "commonOre"))).toBe(true);
     expect(itemTotal(viaTick.inventory, "commonOre").equals(cap)).toBe(true);
     expect(itemTotal(viaTick.inventory, "commonOre").gt(cap)).toBe(false); // never overshoots
-  });
+  }));
 });
