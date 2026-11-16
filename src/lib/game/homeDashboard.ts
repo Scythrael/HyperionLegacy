@@ -658,8 +658,9 @@ function rowForProcess(
   // order. Showing the per-item value made the board claim an order was seconds from done and
   // then immediately start another, over and over, which reads as broken.
   //
-  // The queue module already computes the order-level total as CraftQueueRunningRow.etaTicks
-  // (ceil((remaining + 1) * durationTicks / lanesAttached), lane-adjusted; see craftQueue.ts),
+  // The queue module already computes the order-level time left as CraftQueueRunningRow.etaTicks
+  // (the in-flight unit's remainingTicks + ceil(remaining * durationTicks / lanesAttached) since FR-C R2-1, and the order
+  // total as orderTotalTicks; see craftQueue.ts),
   // so the board READS THAT rather than minting a second, disagreeing estimate. A running
   // refine/fabricate process carries process.lineId equal to that running row's id, which is
   // the craft LINE id the map is keyed by. remaining counts iterations NOT yet started, so
@@ -677,7 +678,7 @@ function rowForProcess(
       : undefined;
   if (runningRow !== undefined && !runningRow.continuous && runningRow.etaTicks !== null) {
     remainingTicks = runningRow.etaTicks;
-    durationTicks = runningRow.etaTicks;
+    durationTicks = runningRow.orderTotalTicks ?? runningRow.etaTicks;
     secondaryLabel = `${runningRow.remaining + 1} to ${process.kind === "refineJob" ? "refine" : "fabricate"}`;
   }
 

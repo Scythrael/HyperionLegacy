@@ -156,6 +156,9 @@ export interface CraftQueueRunningRow {
   // count holds, which is exactly why the lane count is surfaced alongside: the estimate is
   // honest about the assumption rather than hiding it.
   etaTicks: number | null;
+  // FR-C R2-1: the ORDER's total ticks at the current allocation (every unit at full length), the "Y" of the Refinery
+  // console's "X / Y". Present on craft-line rows only (null with nothing in flight); other running rows omit it.
+  orderTotalTicks?: number | null;
 }
 
 // One WAITING order at a facility, in queue order. Everything the Phase 4 row needs
@@ -508,7 +511,16 @@ function runningRowsFor(state: GameState, facility: QueueFacilityKey): CraftQueu
     //
     // remaining counts iterations NOT YET STARTED, so the in-flight one is added back before
     // dividing: a 10-unit order with 1 running and 9 waiting has 10 iterations of work left, not 9.
+    //
+    // FR-C R2-1: the in-flight unit counts only its OWN remainingTicks (the time already spent on it is done), then every
+    // unstarted unit at full length shared across the lanes. It used (remaining + 1) full durations, so the Home ETA
+    // overstated by the time spent and stepped per item (33:00 on Home while the console read 32:52). With one lane this
+    // is exactly the Refinery console's lineRemainingReadout.
     const etaTicks =
+      job === undefined || job.durationTicks <= 0
+        ? null
+        : job.remainingTicks + Math.ceil((line.remaining * job.durationTicks) / Math.max(1, lanesAttached));
+    const orderTotalTicks =
       job === undefined || job.durationTicks <= 0
         ? null
         : Math.ceil(((line.remaining + 1) * job.durationTicks) / Math.max(1, lanesAttached));
@@ -523,6 +535,7 @@ function runningRowsFor(state: GameState, facility: QueueFacilityKey): CraftQueu
       durationTicks: job?.durationTicks ?? null,
       lanesAttached,
       etaTicks,
+      orderTotalTicks,
     };
   });
 }

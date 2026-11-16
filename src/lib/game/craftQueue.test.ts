@@ -2578,7 +2578,9 @@ describe("buildCraftQueue: RUNNING work sits alongside the QUEUED orders", () =>
       // the order-level ETA is the whole batch (remaining not-yet-started, plus the one in flight)
       // at this lane's own iteration cost.
       lanesAttached: 1,
-      etaTicks: Math.ceil((line.remaining + 1) * job!.durationTicks),
+      // FR-C R2-1: the time already spent on the unit in flight counts (its remainingTicks), plus every unstarted unit.
+      etaTicks: job!.remainingTicks + line.remaining * job!.durationTicks,
+      orderTotalTicks: (line.remaining + 1) * job!.durationTicks,
     });
     // Non-vacuous: the bar is genuinely partway, not the 0 an absent job would give.
     expect(view.running[0].progress).toBeGreaterThan(0);
