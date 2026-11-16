@@ -213,6 +213,14 @@ describe("GG-1 the Deuterium Canister recipe (Deuterium Ice x10)", () => {
   it("the canister sells above the ice it took (no loss on the refine)", () => {
     expect(GAS_CANISTER_SELL_VALUE.deuteriumCanister).toBeGreaterThan(10 * (ITEMS.deuteriumIce.sellValue ?? 0));
   });
+
+  // FR-C lane 1 I1 (user 2026-11-13/14, "Price near input value"): ice to canister to Sell paid about 60x the planned early
+  // income (450 cr for 40 cr of ice). The canister now sells for its ice value plus a small refining margin.
+  it("the canister sells near the ice it took (input value plus a small margin, never a money run)", () => {
+    const iceIn = REFINE_RECIPES.refineDeuteriumCanister.input.deuteriumIce.toNumber() * (ITEMS.deuteriumIce.sellValue ?? 0);
+    expect(GAS_CANISTER_SELL_VALUE.deuteriumCanister).toBeLessThanOrEqual(1.5 * iceIn);
+    expect(ITEMS.deuteriumCanister.sellValue).toBe(GAS_CANISTER_SELL_VALUE.deuteriumCanister);
+  });
 });
 
 describe("GG-1 giant classes (call 1: by name + Sudarsky) and nebula kinds (call 2)", () => {

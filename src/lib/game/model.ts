@@ -10645,14 +10645,21 @@ export const DEUTERIUM_ICE_SELL_VALUE = 4;
 // module (E-MOD EM-8, precursorLensBp). [PROVISIONAL] prices for 0.16.0.
 export const SALVAGE_DROP_SELL_VALUE = { salvagedCircuitry: 12, precursorCircuit: 300 } as const;
 
-// The Deuterium Canister anchors the scale (450 cr); the Standard band sells under it and each band up roughly doubles.
-// It was set when ten Deuterium Ice sold for 400 cr; ice is now a cheap crafting input (DEUTERIUM_ICE_SELL_VALUE), so
-// the refine adds most of the value.
+// FR-C lane 1 I1 (user 2026-11-13/14, "Price near input value (Recommended)"): the Deuterium Canister is the one canister
+// the Refinery makes from a cheap input (10 Deuterium Ice), and at 450 cr it made ice to canister to Sell about 60x the
+// planned early income. It now sells for the ice it took plus a small refining margin, DERIVED from the recipe and the ice
+// price so the two can never drift apart again: 10 x 4 cr x 1.25 = 50 cr. The other canisters come from Gas Giant Study
+// fieldwork, not from a refine, and keep their prices (the band scale they were set on is unchanged).
+// [PROVISIONAL] the margin (+25%), for 0.16.0 balancing.
+export const DEUTERIUM_CANISTER_REFINE_MARGIN = 1.25;
+export const DEUTERIUM_CANISTER_SELL_VALUE = Math.round(
+  REFINE_RECIPES.refineDeuteriumCanister.input.deuteriumIce.toNumber() * DEUTERIUM_ICE_SELL_VALUE * DEUTERIUM_CANISTER_REFINE_MARGIN,
+);
 export const GAS_CANISTER_SELL_VALUE = {
   hydrogenCanister: 200,
   methaneCanister: 200,
   ammoniaCanister: 450,
-  deuteriumCanister: 450,
+  deuteriumCanister: DEUTERIUM_CANISTER_SELL_VALUE,
   helium3Canister: 1_000,
   antimatterCell: 2_500,
 } as const;
