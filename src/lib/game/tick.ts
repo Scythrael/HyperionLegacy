@@ -320,6 +320,7 @@ import { generateEnemyWave } from "./combat/enemyWave";
 import { resolveBattle } from "./combat/resolveBattle";
 import { recoverPatrolDrones } from "./combat/droneDefense";
 import type { DroneSquadron } from "./combat/drones";
+import type { Combatant } from "./combat/types";
 // Combat 0.13.0 (Phase 12b-1): the SHARED per-wave leaves. buildPatrolPlayerCombatant
 // builds the wave's player combatant from the carry-state; regenPatrolShield is the
 // between-wave shield-regen formula. The DISPLAY-ONLY patrol replay (patrolReplay.ts)
@@ -4376,17 +4377,25 @@ export function projectedCycleBreak(mission: PatrolMissionState, playerId: strin
   const frozen = mission.cycleStartCondition;
   if (!storedGear || frozen === undefined) return false;
   if (!storedGear.some((p) => REPAIR_PAUSE_SLOTS.has(p.slotType) && (frozen[p.id] ?? CONDITION_FULL) < CONDITION_FULL)) return false;
+  // PATROL CATCH-UP PERFORMANCE (PATROL_PERF_SWITCH): the answer is yes at the first wave a system breaks, so the
+  // projection stops there (and keeps no display record); with no break it runs to its end (or its defeat), as before.
+  if (PATROL_PERF_SWITCH.live) {
+    const probed = resolveMissionCycle(mission, playerId, hullType, storedGear, { stopAfterWave: projectedSystemBroke });
+    return probed.stopped === true || (PATROL_REPAIR_ON_PROJECTED_DEFEAT && probed.defeated);
+  }
   const cycle = resolveMissionCycle(mission, playerId, hullType, storedGear);
   if (PATROL_REPAIR_ON_PROJECTED_DEFEAT && cycle.defeated) return true;
-  return cycle.waves.some((w) => {
-    const end = w.playerEnd;
-    if (!end) return false;
-    return (
-      end.weapons.some((weapon) => weapon.durability <= PATROL_BREAK_MARGIN) ||
-      (end.reactor !== undefined && end.reactor.durability <= PATROL_BREAK_MARGIN) ||
-      (end.ftl !== undefined && end.ftl.durability <= PATROL_BREAK_MARGIN)
-    );
-  });
+  return cycle.waves.some((w) => projectedSystemBroke(w.playerEnd));
+}
+
+// A wave's end state with a combat system (a weapon, the reactor, the drive) down to PATROL_BREAK_MARGIN. Pure.
+function projectedSystemBroke(end: Combatant | undefined): boolean {
+  if (!end) return false;
+  return (
+    end.weapons.some((weapon) => weapon.durability <= PATROL_BREAK_MARGIN) ||
+    (end.reactor !== undefined && end.reactor.durability <= PATROL_BREAK_MARGIN) ||
+    (end.ftl !== undefined && end.ftl.durability <= PATROL_BREAK_MARGIN)
+  );
 }
 
 // Fix round FR-E (lane 4 q3, user 2026-11-14 "Stop and explain (Recommended)"): would `mission` (a cycle about to fly)
@@ -4394,7 +4403,8 @@ export function projectedCycleBreak(mission: PatrolMissionState, playerId: strin
 // at full, resolveMissionCycle, no draw spent)? Then no repair pause can save it, and Repeat stops instead of flying it.
 // Pure.
 export function projectedPristineDefeat(mission: PatrolMissionState, playerId: string, hullType: CombatHullType, storedGear: EquipmentInstance[]): boolean {
-  return resolveMissionCycle({ ...mission, cycleStartCondition: {} }, playerId, hullType, storedGear).defeated;
+  // PATROL CATCH-UP PERFORMANCE: as a projection (no display record kept; PATROL_PERF_SWITCH off, the display replay).
+  return resolveMissionCycle({ ...mission, cycleStartCondition: {} }, playerId, hullType, storedGear, PATROL_PERF_SWITCH.live ? {} : undefined).defeated;
 }
 
 // Test switches only (fixRoundESwitch.fixture.ts; always live in the game; off, each fix is undone exactly):

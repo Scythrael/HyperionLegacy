@@ -254,9 +254,21 @@ export interface ResolvePatrolWavesResult {
   defeated: boolean;
   finalPlayerHull: number;
   finalPlayerShield: number;
+  // PATROL CATCH-UP PERFORMANCE: true when a projection probe stopped the cycle early (PatrolProjectionProbe).
+  stopped?: boolean;
 }
 
-export function resolvePatrolWaves(input: ResolvePatrolWavesInput): ResolvePatrolWavesResult {
+// PATROL CATCH-UP PERFORMANCE (0.14.0): a PROJECTION of a cycle (tick.ts projectedCycleBreak, projectedPristineDefeat)
+// needs only each wave's outcome and the player's end state, never the display record. With a probe the waves resolve
+// exactly as the live loop resolves them (generateLog off, the live loop's own mode: the outcome never depends on the
+// log), no display record is kept (waves stays empty), and stopAfterWave, read with each wave's player end state (the
+// battle's private clone, read only, before the next wave's recovery), stops the cycle at the first wave it answers true
+// (the result then says stopped). Without a probe the replay is unchanged.
+export interface PatrolProjectionProbe {
+  stopAfterWave?: (playerEnd: Combatant | undefined) => boolean;
+}
+
+export function resolvePatrolWaves(input: ResolvePatrolWavesInput, probe?: PatrolProjectionProbe): ResolvePatrolWavesResult {
   const { playerId, stats, hullType, stance, masterSeed, factionId, def } = input;
 
   // Combat-defense BLOCKER fix (2026-08-27): the FOLDED shield cap + recharge for the between-wave
@@ -298,6 +310,7 @@ export function resolvePatrolWaves(input: ResolvePatrolWavesInput): ResolvePatro
   const waves: PatrolReplayWave[] = [];
   let wavesWon = 0;
   let defeated = false;
+  let stopped = false;
 
   // The previous wave's route tick, so the inter-wave recovery count is the number of
   // NON-wave whole route ticks strictly between two waves. 0 before the first wave, so the
@@ -367,8 +380,9 @@ export function resolvePatrolWaves(input: ResolvePatrolWavesInput): ResolvePatro
     // Snapshot the START state before the battle. resolveBattle does NOT mutate its
     // inputs (it clones internally), but we clone anyway so the returned record is a
     // fully independent, stable object the UI can hold onto.
-    const playerStart = cloneCombatant(player);
-    const enemyStart = enemies.map(cloneCombatant);
+    // A projection (probe) keeps no display record, so it takes no snapshot.
+    const playerStart = probe ? player : cloneCombatant(player);
+    const enemyStart = probe ? enemies : enemies.map(cloneCombatant);
 
     // BATTLE with the BATTLE-salt derivation (distinct from the enemy seed) and
     // generateLog:true for the flavored stream. The outcome is byte-identical to the
@@ -377,7 +391,7 @@ export function resolvePatrolWaves(input: ResolvePatrolWavesInput): ResolvePatro
       { combatants: [player, ...enemies] },
       deriveWaveSeed(masterSeed, waveIndex, WAVE_BATTLE_SEED_SALT),
       // WR-8: the live loop's options (pre-charge and the rules' paths under the stamp), plus the log.
-      { generateLog: true, ...patrolBattleOptions(stamped) },
+      { generateLog: !probe, ...patrolBattleOptions(stamped) },
     );
 
     // Read the player + enemies out of finalCombatants BY ID (never by index).
@@ -391,9 +405,12 @@ export function resolvePatrolWaves(input: ResolvePatrolWavesInput): ResolvePatro
     // looking each started enemy's final state up by id (robust to the id format; no numeric
     // id parsing). The filter is defensive: the sim never drops a combatant, so every
     // started enemy resolves.
-    const enemyEnd = enemyStart
-      .map((start) => finalCombatants.find((c) => c.id === start.id))
-      .filter((c): c is Combatant => c !== undefined);
+    // (A projection keeps no record, so it skips this read.)
+    const enemyEnd = probe
+      ? []
+      : enemyStart
+          .map((start) => finalCombatants.find((c) => c.id === start.id))
+          .filter((c): c is Combatant => c !== undefined);
 
     // The EXACT live-loop win test: the objective named "player" AND the player is
     // actually alive with hull > 0 (a cap-tiebreak "player" with a dead player, or a
@@ -404,7 +421,7 @@ export function resolvePatrolWaves(input: ResolvePatrolWavesInput): ResolvePatro
       playerEnd.alive &&
       playerEnd.hull > 0;
 
-    waves.push({
+    if (!probe) waves.push({
       waveIndex,
       routeTick,
       enemyHullIds: hullIds,
@@ -421,6 +438,12 @@ export function resolvePatrolWaves(input: ResolvePatrolWavesInput): ResolvePatro
       playerWon,
       ...(!playerWon && patrolWaveBreaksOff(stamped) ? { brokeOff: true as const } : {}),
     });
+
+    // A projection stops at the first wave its probe answers (the player's end state as the battle left it).
+    if (probe?.stopAfterWave?.(playerEnd) === true) {
+      stopped = true;
+      break;
+    }
 
     if (playerWon) {
       wavesWon += 1;
@@ -456,6 +479,7 @@ export function resolvePatrolWaves(input: ResolvePatrolWavesInput): ResolvePatro
     defeated,
     finalPlayerHull: carryHull,
     finalPlayerShield: carryShield,
+    ...(stopped ? { stopped: true } : {}),
   };
 }
 
@@ -504,6 +528,8 @@ export function resolveMissionCycle(
   playerId: string,
   hullType: CombatHullType,
   storedGear: EquipmentInstance[],
+  // PATROL CATCH-UP PERFORMANCE: a projection's probe (resolvePatrolWaves); absent for the display replay.
+  probe?: PatrolProjectionProbe,
 ): ResolvePatrolWavesResult {
   const shipDef = SHIP_TYPES[hullType];
   // WR-7 follow-up OC-D8: the route THIS cycle flies (its frozen legs place the wave window), as the live loop reads it.
@@ -569,7 +595,7 @@ export function resolveMissionCycle(
     ...(mission.favoredSpec === 1 ? { favoredHull: hullType } : {}),
     // CP-13: the cycle's stored weapon line (absent on a cycle without one).
     ...(mission.hullWeapon !== undefined ? { hullWeapon: mission.hullWeapon } : {}),
-  });
+  }, probe);
   return resolved;
 }
 
