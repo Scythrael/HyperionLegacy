@@ -12941,7 +12941,8 @@ export function resolveProcesses(
       if (process.kind === "refineJob") {
         const itemId = process.effect.itemId;
         const priorRefined = lifetimeStats.itemsRefined[itemId] ?? new Decimal(0);
-        const refined = { ...lifetimeStats.itemsRefined, [itemId]: priorRefined.plus(process.effect.amount) };
+        // FR-C lane 1 M4: the DELIVERED output (a Refiner extra batch doubles it), the same amount itemsCrafted adds.
+        const refined = { ...lifetimeStats.itemsRefined, [itemId]: priorRefined.plus(outputAmount) };
         lifetimeStats = {
           ...lifetimeStats,
           // Ordering determinism (canonicalOrder.ts): a new key lands in canonical key order.
