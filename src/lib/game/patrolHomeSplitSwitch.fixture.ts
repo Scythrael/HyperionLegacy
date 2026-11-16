@@ -1,9 +1,10 @@
 // Lane 4 M8 (0.14.0, docs/qa/2026-11-13-fable-sweep-ledger.md lane 4 M8 and M4): the test-only switches golden files use
 // to prove what the fix moved (the fixRoundESwitch.fixture.ts precedent). TEST-ONLY (imported by *.test.ts files only).
 //
-//   PATROL_HOME_SPLIT_SWITCH (tick.ts) "homeSplit": a patrol run that ends inside an economyTick call longer than one
-//     tick splits the call at the whole tick the ship comes home, so the passive crew fill, the Shipyard repair
-//     auto-start, the docked gear repair job and the crew hours happen there (as 1 s steps do), not at the call's end;
+//   PATROL_HOME_SPLIT_SWITCH (tick.ts) "homeSplit": a run that ends inside an economyTick call longer than one tick (a
+//     patrol, an extraction mission, a Short-Range run, an expedition, or a run dropped in tick 1) splits the call at the
+//     whole tick the ship comes home, so the passive crew fill, the Shipyard repair auto-start, the docked gear repair
+//     job and the crew hours happen there (as 1 s steps do), not at the call's end (runReturnSplit.test.ts);
 //   CREW_WINDOW_FILL_SWITCH (crewOverlay.ts) "windowFill": a call longer than one tick that spans two or more transport
 //     windows delivers and fills window by window (as 1 s steps do), not from the whole backlog at once.
 // Both act only on a call longer than one tick: production steps one tick per call, so no player sees either.

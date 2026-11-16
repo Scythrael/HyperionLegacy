@@ -466,7 +466,7 @@ import { CREW_STAT_KEYS } from "./crewBuffs";
 // Exploration 0.14.0 (Phase E2a): the per-tick EXPEDITION engine, run once per whole tick at the tail
 // seam (same posture as resolveCrew). Deterministic + offline-safe; a same-reference no-op with no
 // active expedition (additive-neutral), so a save with no expedition is byte-identical to before.
-import { resolveExpeditions } from "./expedition";
+import { expeditionCompletionTick, resolveExpeditions } from "./expedition";
 // Crew 0.14.0 (Phase C-3b): the fleet-wide captain-XP multiplier from accumulated retirements. It is
 // x1 (byte-identical) until a captain retires, so wiring it into captain XP accrual below changes no
 // existing save's behavior (every existing save has 0 retirements).
@@ -2399,6 +2399,9 @@ export function tickCaptainMission(
   // GEAR WEAR step 3: the instant (ticks into this call) each completed cycle delivered, in order. Absent on the
   // early-outs (nothing delivered).
   cycleEndTicks?: number[];
+  // Lane 4 M8: the instant (ticks into this call) the run ended (a recalled run's last cycle delivered: the ship is home,
+  // its crew lock released), for economyTick to split a longer call there. Absent while the run goes on.
+  endedAtTicks?: number;
   // Complement CP-16: the level milestones (10, 20, ...) this call's XP crossed, each with the call's whole tick its
   // crossing XP was credited on (captainNotables.ts levelMilestoneTicks). Absent when none was crossed.
   levelMilestones?: { level: number; atTick: number }[];
@@ -2542,6 +2545,8 @@ export function tickCaptainMission(
   // GEAR WEAR step 3: the instant (ticks into this call) each completed cycle delivered, in order, so economyTick
   // applies each cycle's use wear at its own instant (gearWearEngine.ts), however the span is chunked.
   const cycleEndTicks: number[] = [];
+  // Lane 4 M8: where in the call the run ended (the one `mission = null` below), null while it goes on.
+  let endedAtTicks: number | null = null;
   // The credit budget this call may still draw on (seeded from creditsBudget, drawn down by a transport's working
   // capital at a cycle start), only at cycle boundaries, so credits fall out of the per-tick stepping identically
   // (closed-form / stepped-safe). NOTE: creditsRemaining is NOT replenished by credits EARNED within this same call,
@@ -2949,6 +2954,7 @@ export function tickCaptainMission(
         // auto-buy that once sat between the two are gone (unreachable since 0.13.6: the budget was infinite). The
         // reconstruction reuses `missionKey` (function-scope const == this mission's key; auto-repeat never changes it).
         if (mission.recalled) {
+          endedAtTicks = ticksElapsed - remaining;
           mission = null;
         } else {
           // E-CREW (Task 20): advance the run's output-rounding cursor (only while Command Presence is live).
@@ -3159,6 +3165,8 @@ export function tickCaptainMission(
     berthsClaimed,
     // GEAR WEAR step 3: each delivered cycle's instant, ticks into this call.
     cycleEndTicks,
+    // Lane 4 M8: only when the run ended this call.
+    ...(endedAtTicks !== null ? { endedAtTicks } : {}),
     // Complement CP-16: only when a milestone was crossed.
     ...(levelMilestones.length > 0 ? { levelMilestones } : {}),
   };
@@ -3423,10 +3431,10 @@ interface PatrolTickResult {
   // a stamped cycle's patrol ended at (null otherwise), for economyTick to hand to the wear engine.
   gearWear: PatrolWearEvent[];
   endedAtTicks: number | null;
-  // Lane 4 M8: the offset into the call the run ended at (the ship is home, its crew lock released), on EVERY ending this
-  // function makes (endedAtTicks is only a stamped cycle's); null while the run goes on. economyTick splits a longer call
-  // at the whole tick it lands on (PATROL_HOME_SPLIT_SWITCH).
-  homeAtTicks: number | null;
+  // Lane 4 M8: the run's return, the offset into the call the run ended at (the ship is home, its crew lock released),
+  // on EVERY ending this function makes (endedAtTicks is only a stamped cycle's); null while the run goes on. economyTick
+  // splits a longer call at the whole tick it lands on (PATROL_HOME_SPLIT_SWITCH).
+  returnAtTicks: number | null;
   // GEAR WEAR step 4 (pause to repair): the home repair windows that closed this call (absolute game seconds), for the
   // wear engine, and (user "Count on the run") the pauses of the run that ended this call, for its one log entry.
   repairWindows: RepairWindow[];
@@ -3538,7 +3546,7 @@ export function tickCaptainPatrol(
     curveRunsCompleted: 0,
     gearWear: [],
     endedAtTicks: null,
-    homeAtTicks: null,
+    returnAtTicks: null,
     repairWindows: [],
     endRepairPauses: 0,
   };
@@ -4318,7 +4326,7 @@ export function tickCaptainPatrol(
     gearWear: gearWearEvents,
     endedAtTicks,
     // Every ending breaks the route loop at once, so the offset is where `remaining` stopped (offsetNow).
-    homeAtTicks: endReason === null ? null : offsetNow(),
+    returnAtTicks: endReason === null ? null : offsetNow(),
     repairWindows: pauseWindows,
     endRepairPauses: endReason === null ? 0 : pausesThisRun,
     // Complement CP-16: only when a milestone was crossed.
@@ -4783,18 +4791,22 @@ function runCounterIncrements(
   return inc;
 }
 
-// Lane 4 M8 (docs/qa/2026-11-13-fable-sweep-ledger.md; FR-E traced it to M4's cause): A PATROL RUN THAT ENDS INSIDE A
-// LONGER CALL SPLITS THE CALL AT THE WHOLE TICK THE SHIP COMES HOME. Everything this function does once, at its end (the
+// Lane 4 M8 (docs/qa/2026-11-13-fable-sweep-ledger.md; FR-E traced it to M4's cause): A RUN THAT ENDS INSIDE A LONGER
+// CALL SPLITS THE CALL AT THE WHOLE TICK THE SHIP COMES HOME. Everything this function does once, at its end (the
 // passive crew fill and the transports before it, resolveCrew; the Shipyard hull repair auto-start, processShipRepairs;
 // the docked gear repair job; the crew hours of a ship out at the call's start), used to run at the END of a call that
 // spanned the ship's return, so one long call, 997 s chunks and 1 s steps differed (a carrier home from a defeat on a
 // Repeat run took its crew, and its Shipyard repair began, at the call's end; the transports that land after the return
 // are crewOverlay.ts CREW_WINDOW_FILL_SWITCH's half of the fix). Now such a call runs as two:
 // up to the end of the tick the run ended in (where a 1 s step would run its end), then the rest (split again at the
-// next return, if any). Detected after the captain map (a probe: the call stops there and nothing it computed is used);
-// the draws the probe made are replayed to the split calls first, so the split reads the stream as two calls from the
-// start would. A call of at most one tick never splits: production steps one tick per call (the live loop and tick()'s
-// offline catch-up alike, plus a trailing fraction below one), so nothing a player sees changes.
+// next return, if any). A run's return is any of: a patrol's end (tickCaptainPatrol returnAtTicks), an extraction
+// mission's last delivery (tickCaptainMission endedAtTicks) or its at-base stop on a full warehouse (tick 1), a
+// Short-Range run's last delivery (sr.endedAtTicks), a mission whose key is gone (dropped in tick 1), and an
+// expedition's completion (the whole tick advanceExpedition first reports it complete). Detected after the captain map
+// (a probe: the call stops there and nothing it computed is used); the draws the probe made are replayed to the split
+// calls first, so the split reads the stream as two calls from the start would. A call of at most one tick never
+// splits: production steps one tick per call (the live loop and tick()'s offline catch-up alike, plus a trailing
+// fraction below one), so nothing a player sees changes. (The name says PATROL: it began with a patrol's return.)
 // The test-only switch (patrolHomeSplitSwitch.fixture.ts): off, the call runs whole as before. Live in the game.
 export const PATROL_HOME_SPLIT_SWITCH = { live: true };
 
@@ -4806,7 +4818,7 @@ export function economyTick(
 ): GameState {
   if (!PATROL_HOME_SPLIT_SWITCH.live || !(ticksElapsed > 1)) return economyTickCall(state, ticksElapsed, rng, nowMs, null);
   const tape: number[] = [];
-  const split: HomeSplit = { atTick: null };
+  const split: ReturnSplit = { atTick: null };
   const whole = economyTickCall(state, ticksElapsed, () => {
     const d = rng();
     tape.push(d);
@@ -4817,12 +4829,21 @@ export function economyTick(
   const replay = (): number => (read < tape.length ? tape[read++] : rng());
   // The first part ends at the earliest return, so it holds none earlier (it runs whole).
   const home = economyTickCall(state, split.atTick, replay, nowMs, null);
+  // LEFTOVER TAPE: the probe ran the captain map over the whole call, the first part over `atTick` ticks only, so the
+  // parts may read fewer of the probe's draws than it made (the second part's own map reads on from where the first
+  // part stopped, and its draws need not line up with the probe's). Any entry no part reads is dropped with the tape.
+  // That cannot change the state this returns: the parts read the stream in order from its first draw (the tape, then
+  // `rng` itself), exactly the values two calls made from the start would read, and the returned state is a function of
+  // those values alone. The only trace is that the caller's `rng` has advanced past the unread entries, which a later
+  // call reads as an ordinary next draw; production never gets here (one tick per call), and runReturnSplit.test.ts
+  // proves a split call with a stateful rng equals the two calls made by hand.
   return economyTick(home, ticksElapsed - split.atTick, replay, nowMs);
 }
 
-// The probe's report: the whole tick (1 = the call's first) the earliest patrol run that ended inside the call ended in,
-// when that is before the call's last tick; null otherwise (the call stands as it ran).
-type HomeSplit = { atTick: number | null };
+// The probe's report: the whole tick (1 = the call's first) the earliest run that came home inside the call (a patrol,
+// an extraction mission, a Short-Range run or an expedition: PATROL_HOME_SPLIT_SWITCH) came home in, when that is
+// before the call's last tick; null otherwise (the call stands as it ran).
+type ReturnSplit = { atTick: number | null };
 
 function economyTickCall(
   state: GameState,
@@ -4835,7 +4856,7 @@ function economyTickCall(
   // parameter comment for the full parity argument, and tick() for the offline schedule.
   nowMs: number,
   // Lane 4 M8: non-null on economyTick's probe of a call longer than one tick (PATROL_HOME_SPLIT_SWITCH).
-  homeSplit: HomeSplit | null
+  returnSplit: ReturnSplit | null
 ): GameState {
   // gameTimeSeconds is tracked in SECONDS, but economyTick is handed ticksElapsed
   // (not deltaSeconds), so recover the elapsed seconds via the fleet's shared
@@ -4854,8 +4875,9 @@ function economyTickCall(
   // whole call's span counts once. It accrues in whole milliseconds (crewHoursMs, integer adds: the crewHours
   // determinism fix 2026-10-30), so while the ship stays out one call over a span, any chunking of it and 1 s steps
   // land on the same counter. A ship that comes home inside a call counts to the call's end; tick() (offline) and the
-  // live loop both step one tick per call, so offline == live. (Lane 4 M8: a patrol ship's return splits a longer call
-  // there, economyTick's PATROL_HOME_SPLIT_SWITCH, so its count ends at the tick it lands in, as 1 s steps end it.)
+  // live loop both step one tick per call, so offline == live. (Lane 4 M8: any run's return, a patrol, an extraction
+  // mission, a Short-Range run or an expedition, splits a longer call there, economyTick's PATROL_HOME_SPLIT_SWITCH, so
+  // its count ends at the tick it lands in, as 1 s steps end it.)
   const shipsOnRuns = shipsOutOnRuns(state);
   // WR-4 (B4): enemy ships each ship's patrol destroyed this call (officers' shipsDestroyed).
   const shipKills = new Map<string, number>();
@@ -5019,8 +5041,13 @@ function economyTickCall(
   // E5-2 (Refugee Posts): every Evacuation and Refugee Relocation cycle delivered this call (refugeeArrival.ts rolls the
   // arrivals after the captain map, in (atTick, slotId) order).
   const refugeeDeliveries: RefugeeDelivery[] = [];
-  // Lane 4 M8: the earliest whole tick a patrol run ended in this call (Infinity: none).
-  let earliestHomeTick = Infinity;
+  // Lane 4 M8: the earliest whole tick a run came home in this call (Infinity: none), from each kind of return below
+  // (PATROL_HOME_SPLIT_SWITCH). `atTicks` is the offset into the call; a run dropped before it moves (offset 0) is home
+  // in tick 1, where a 1 s step drops it.
+  let earliestReturnTick = Infinity;
+  const noteReturn = (atTicks: number): void => {
+    earliestReturnTick = Math.min(earliestReturnTick, Math.max(1, Math.ceil(atTicks - 1e-9)));
+  };
   const captains = state.captains.map((captain) => {
     if (captain.mission === null) return captain;
     // UNKNOWN-KEY INERT GUARD (fix: a removed/renamed mission/patrol key hard-crashed every tick,
@@ -5059,6 +5086,8 @@ function economyTickCall(
           routes: captain.mission.routesCompletedThisRun ?? 0,
         });
       }
+      // Lane 4 M8: the ship is home from tick 1.
+      noteReturn(0);
       return { ...captain, mission: null };
     }
     // Combat 0.13.0 (Phase 9b.5a): ROUTE by mission KIND. CaptainState.mission is now a
@@ -5175,10 +5204,8 @@ function economyTickCall(
         // Reading `endReason !== null` is the whole gate: the invariant on the field is that it
         // is non-null exactly when the patrol ended, so this records every ending the tick helper
         // produces and nothing else. A patrol that merely advanced pushes nothing.
-        // Lane 4 M8: the whole tick the ship came home in (the probe's split point).
-        if (patrolResult.homeAtTicks !== null) {
-          earliestHomeTick = Math.min(earliestHomeTick, Math.max(1, Math.ceil(patrolResult.homeAtTicks - 1e-9)));
-        }
+        // Lane 4 M8: the run's return (the probe's split point).
+        if (patrolResult.returnAtTicks !== null) noteReturn(patrolResult.returnAtTicks);
         if (patrolResult.endReason !== null) {
           patrolEndings.push({
             captainId: captain.id,
@@ -5338,6 +5365,8 @@ function economyTickCall(
         if (sr.ended !== null) {
           shortRangeEndings.push({ captainId: captain.id, ...sr.ended });
           shortRangeEndTicks.push(Math.max(1, Math.ceil((sr.endedAtTicks ?? ticksElapsed) - 1e-9)));
+          // Lane 4 M8: the run's return (its last delivery).
+          noteReturn(sr.endedAtTicks ?? ticksElapsed);
         }
         for (const find of sr.relics) shortRangeRelics.push(find);
         for (const c of sr.relicCycles) shortRangeRelicCycles.push({ captainId: captain.id, ...c });
@@ -5415,6 +5444,8 @@ function economyTickCall(
         // deterministic ROOT of the cargo wall-stop (the materialAtCap seam), the ONLY place
         // that knows the stop is cap-caused rather than a user recall. Same check live and
         // offline (both step economyTick(_,1)), display-only string, so parity is unperturbed.
+        // Lane 4 M8: the ship never left; it is home from tick 1.
+        noteReturn(0);
         return { ...captain, mission: null, lastStopReason: "cargo" as const };
       }
       // Mid-cycle / ship out: flag recalled and let the normal advance below fly it home + end.
@@ -5529,6 +5560,7 @@ function economyTickCall(
       lifetimeStatsDelta: captainLifetimeStatsDelta,
       berthsClaimed: captainBerthsClaimed,
       cycleEndTicks,
+      endedAtTicks: missionEndedAtTicks,
       levelMilestones: missionLevelMilestones,
     } = tickCaptainMission(
       ticksElapsed,
@@ -5546,6 +5578,8 @@ function economyTickCall(
     );
     // 0.13.4 Phase 3: draw the shared berth budget down so the next captain in this map sees it.
     berthBudgetRemaining -= captainBerthsClaimed;
+    // Lane 4 M8: the run's return (a recalled run's last delivery), only when the mission really ended this call.
+    if (updated.mission === null && missionEndedAtTicks !== undefined) noteReturn(missionEndedAtTicks);
     // Mission Rework (Task 1): the captain's delta is now keyed by its mission's own
     // item keys, so fold over the ACTUAL keys present and grow-on-demand (`?? 0`)
     // rather than assuming the fixed 3 ore tiers. For an ore-only fleet the keys are
@@ -5613,11 +5647,19 @@ function economyTickCall(
     return commandRecord(deliveredCaptain, extractionCycles, missionLevelMilestones);
   });
 
-  // Lane 4 M8: the probe stops here when a patrol run came home before the call's last tick; economyTick runs the call
-  // again as two, split there. Nothing computed above is kept (the map is pure; its draws are replayed).
-  if (homeSplit !== null && earliestHomeTick < ticksElapsed - 1e-9) {
-    homeSplit.atTick = earliestHomeTick;
-    return state;
+  // Lane 4 M8: the probe stops here when a run came home before the call's last tick; economyTick runs the call again
+  // as two, split there. Nothing computed above is kept (the map is pure; its draws are replayed). An expedition's
+  // completion is a return too (its crew hours end there): resolveExpeditions advances it at the call's end, read here
+  // off the incoming state (only on the probe: the search costs a few advanceExpedition calls per run in flight).
+  if (returnSplit !== null) {
+    for (const exp of state.expeditions) {
+      const at = expeditionCompletionTick(exp, state.gameTimeSeconds, state.tickDurationSeconds, ticksElapsed);
+      if (at !== null) noteReturn(at);
+    }
+    if (earliestReturnTick < ticksElapsed - 1e-9) {
+      returnSplit.atTick = earliestReturnTick;
+      return state;
+    }
   }
 
   // passiveTrickle (Homeworld Talent economyTrickle): flat fleet-wide

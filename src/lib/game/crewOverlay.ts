@@ -1486,9 +1486,13 @@ function welcomeSeat(state: GameState, reserveIn: CrewBucket[]): GameState {
 // a call longer than one tick) each owed window is resolved at its own opening instant, in order, and the call's own
 // time last, exactly the sequence of 1 s steps. Each earlier window fills only the ships that were not crew-locked at
 // the call's start: a run that ended inside the call is home only from an instant the call does not hold (economyTick
-// splits the call where a patrol ship comes home, so a patrol ship is home from the start of the part after it; a ship
-// back from another run inside the call fills at the call's end, as it always did). A call of at most one tick (every
-// production call), a welcome batch and one window or none resolve in one pass, exactly as before.
+// splits the call at the whole tick any run comes home, a patrol, an extraction mission, a Short-Range run or an
+// expedition: tick.ts PATROL_HOME_SPLIT_SWITCH, so the ship is home from the start of the part after it). A call of at
+// most one tick (every production call), a welcome batch and one window or none resolve in one pass, exactly as before.
+// ASSUMPTION (heldLocked): nothing inside economyTick LOCKS a ship. A ship is locked only by a player action between
+// calls (a dispatch on a mission, a patrol or a Short-Range run, an expedition launch); inside a call a lock can only
+// end. So a ship unlocked at the call's start stays unlocked through every earlier window, and holding the start's
+// locked set is exact. A future in-call lock (an automatic dispatch, say) breaks this and must split the call there too.
 // The test-only switch (patrolHomeSplitSwitch.fixture.ts): off, every call resolves in one pass. Live in the game.
 export const CREW_WINDOW_FILL_SWITCH = { live: true };
 
@@ -1505,7 +1509,8 @@ export function resolveCrew(stateIn: GameState, callStart: GameState | null = nu
   return resolveCrewOnce(state, null);
 }
 
-// `heldLocked`: ships that take no crew in this pass whatever their state says (resolveCrew's earlier windows).
+// `heldLocked`: ships that take no crew in this pass whatever their state says (resolveCrew's earlier windows: the ships
+// locked at the call's start; see the ASSUMPTION above CREW_WINDOW_FILL_SWITCH).
 function resolveCrewOnce(stateIn: GameState, heldLocked: ReadonlySet<string> | null): GameState {
   // FR-C A1-2: a save that takes the welcome batch is welcomed seat by seat first (welcomeSeat); its marker is then at
   // now, so the rest of this pass runs as on any tick with no window due.
