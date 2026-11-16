@@ -11,7 +11,7 @@ import {
   type EquipmentInstance,
   type GameState,
 } from "./model";
-import { economyTick, enqueueOrder, startFacilityUpgrade, startLine, tick } from "./tick";
+import { economyTick, enqueueOrder, removeQueuedOrder, startFacilityUpgrade, startLine, tick } from "./tick";
 import { summarizeOfflineProgress } from "./offlineSummary";
 
 const RNG = () => 0.5;
@@ -80,5 +80,64 @@ describe("the recap's auto-salvage, started-order and finished-upgrade sections"
     expect(sum.autoSalvaged).toEqual([]);
     expect(sum.ordersStarted).toEqual([]);
     expect(sum.upgradesFinished).toEqual([]);
+  });
+});
+
+// FR-C fix pass: the recap counts from cumulative tallies, not the 50-entry completed-events log, so a long absence with
+// the Auto-Salvage Terminal busy neither undercounts what it took nor drops an upgrade that finished early.
+describe("the recap stays exact past the completed-events log's 50 entries", () => {
+  function longAwayState(spares: number): GameState {
+    const s = awayState();
+    const extra = Array.from({ length: spares }, (_, i) => spare(`eq-long-${i}`));
+    return { ...s, equipment: [...s.equipment, ...extra] };
+  }
+
+  it("counts every auto-salvage and keeps the upgrade that finished first", () => {
+    const before = longAwayState(80);
+    const after = tick(4 * 86_400, before, RNG);
+    const sum = summarizeOfflineProgress(before, after, 4 * 86_400);
+    // The engine ran more than the log can hold, so the old reading (the log) could not have counted them all.
+    const logged = after.nextCompletionLogId - before.nextCompletionLogId;
+    expect(logged).toBeGreaterThan(50);
+    const consumed = before.equipment.length - after.equipment.length;
+    expect(consumed).toBeGreaterThan(50);
+    expect(sum.autoSalvaged.reduce((n, r) => n + r.count, 0)).toBe(consumed);
+    // The Fuel Depot rung finished in the first minutes, long since evicted from the log.
+    expect(after.completionLog.some((e) => e.kind === "facilityUpgrade")).toBe(false);
+    expect(sum.upgradesFinished.map((u) => u.label)).toEqual(["Upgraded, Fuel Depot, Level 1"]);
+  });
+
+  it("offline equals live past the cap too", () => {
+    const before = longAwayState(60);
+    const span = 6 * 3600;
+    const offline = tick(span, before, RNG);
+    let chunked = before;
+    for (let t = 0; t < span; t += 997) chunked = tick(Math.min(997, span - t), chunked, RNG);
+    const a = summarizeOfflineProgress(before, offline, span);
+    const b = summarizeOfflineProgress(before, chunked, span);
+    expect(a.autoSalvaged).toEqual(b.autoSalvaged);
+    expect(a.upgradesFinished).toEqual(b.upgradesFinished);
+    expect(a.ordersStarted).toEqual(b.ordersStarted);
+    expect(offline.recapTally).toEqual(chunked.recapTally);
+  });
+});
+
+// FR-C fix pass: "Queued orders started" lists only orders the ENGINE started, never one the player removed (a recap
+// still open spans the live play between two absences, awayRecapSpan).
+describe("queued orders started counts engine starts only", () => {
+  it("an order the player removed between absences is not listed as started", () => {
+    const before = awayState();
+    const id = before.processQueue[0].id;
+    const removed = removeQueuedOrder(before, id);
+    const after = tick(3600 * before.tickDurationSeconds, removed, RNG);
+    const sum = summarizeOfflineProgress(before, after, 3600);
+    expect(sum.ordersStarted.map((o) => o.id)).not.toContain(id);
+  });
+
+  it("an order the engine promoted is listed", () => {
+    const before = awayState();
+    const id = before.processQueue[0].id;
+    const after = tick(3600 * before.tickDurationSeconds, before, RNG);
+    expect(summarizeOfflineProgress(before, after, 3600).ordersStarted.map((o) => o.id)).toEqual([id]);
   });
 });

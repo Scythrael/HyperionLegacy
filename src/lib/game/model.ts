@@ -7380,6 +7380,35 @@ export interface OpenJobBatch {
 // front).
 export const COMPLETION_LOG_CAP = 50;
 
+// FR-C fix pass: the While You Were Away recap's cumulative counters (GameState.recapTally). Each only ever grows, so
+// the recap's before/after diff is exact however long the absence ran, unlike the 50-entry log.
+//   autoSalvage: one count per thing the Auto-Salvage Terminal broke down, keyed by recapSalvageKey (the naming ids
+//                of its completed-events entry), bumped once per auto-salvage completion that consumed its target.
+//   upgrades:    per upgrade track (recapUpgradeKey: the entry's kind and subject), how many completed and the level
+//                (or count) the newest one reached. Every upgrade completion raises its track by exactly one, so the
+//                levels a span reached are the `n` newest: level - n + 1 through level.
+//   promoted:    the ids of the queued orders the ENGINE started (the promotion pass took the whole order out of the
+//                queue), newest last, capped at RECAP_PROMOTED_CAP. Only the player adds to the queue, so one absence
+//                can promote at most what was queued when it began (the queue depth caps keep that far under the cap).
+export interface RecapTally {
+  autoSalvage?: Record<string, number>;
+  upgrades?: Record<string, { n: number; level: number }>;
+  promoted?: string[];
+}
+
+export const RECAP_PROMOTED_CAP = 200;
+
+// The tally key of an auto-salvage entry: the fields its row is named from (reward, subject and the consumed target's
+// naming ids), so the recap rebuilds the same label the Home board shows. Pure.
+export function recapSalvageKey(entry: Pick<CompletionLogEntry, "reward" | "subjectKey" | "salvageSubject">): string {
+  return JSON.stringify([entry.reward, entry.subjectKey, entry.salvageSubject ?? null]);
+}
+
+// The tally key of an upgrade track: the entry's kind and subject ("facilityUpgrade|fuelStorage"). Pure.
+export function recapUpgradeKey(entry: Pick<CompletionLogEntry, "kind" | "subjectKey">): string {
+  return `${entry.kind}|${entry.subjectKey ?? ""}`;
+}
+
 // --- Crafting 0.13.3 (Phase 2 Unit 2.2): salvage DURATION -------------------
 // docs/plans/2026-09-01-crafting-0.13.3-design.md §7.2.
 //
@@ -10156,6 +10185,10 @@ export interface GameState {
   // (see OpenJobBatch). Never rendered; this is engine bookkeeping that exists purely so
   // ONE entry can be emitted per ORDER rather than one per iteration.
   openJobBatches: OpenJobBatch[];
+  // FR-C fix pass (While You Were Away, exact for any absence): cumulative counters the engine bumps as it works, which
+  // the recap diffs before against after (the completed-events log above holds only the newest 50, so a long absence
+  // evicted the early entries). Absent on a save until the engine first bumps one (absent reads as all zero).
+  recapTally?: RecapTally;
   // --- Crew 0.14.0 (Phase 0, DORMANT) --------------------------------------------------------
   // The crew layer's fleet-wide state, landed dormant so the save shape moves once at the start
   // of the release. NOTHING reads or writes any of these yet (the Senior Staff engine, transports,

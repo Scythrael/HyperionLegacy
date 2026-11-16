@@ -193,6 +193,10 @@ import {
   type OpenJobBatch,
   type FacilityState,
   COMPLETION_LOG_CAP,
+  RECAP_PROMOTED_CAP,
+  recapSalvageKey,
+  recapUpgradeKey,
+  type RecapTally,
   // 0.13.3.1 Feature 3: the ONE writer of EquipmentInstance.graceStartedAtGameSeconds. The
   // three crafted-mint branches below call it so a fresh craft is not swept away by the
   // auto-salvage rules; the uninstall routes (equipment.ts, salvageShip) call it for the
@@ -1428,6 +1432,32 @@ function completionOvertime(process: TimedProcess, tickDurationSeconds: number):
 function pushCompletionEntry(log: CompletionLogEntry[], entry: CompletionLogEntry): CompletionLogEntry[] {
   const next = [...log, entry];
   return next.length > COMPLETION_LOG_CAP ? next.slice(next.length - COMPLETION_LOG_CAP) : next;
+}
+
+// FR-C fix pass (While You Were Away, exact for any absence): bump the recap's cumulative tally for ONE entry the
+// completion recorder just wrote. An auto-salvage that consumed its target counts under its naming key; an upgrade
+// counts on its track with the level it reached. Every other entry returns the tally by reference. Pure.
+const RECAP_UPGRADE_KINDS: ReadonlySet<string> = new Set(["facilityUpgrade", "equipmentStorageUpgrade", "docksExpansion", "transitBerthExpansion"]);
+function bumpRecapTally(tally: RecapTally | undefined, entry: CompletionLogEntry): RecapTally | undefined {
+  if (entry.kind === "salvageJob" && entry.auto === true && !entry.stale) {
+    const key = recapSalvageKey(entry);
+    const counts = tally?.autoSalvage ?? {};
+    return { ...tally, autoSalvage: { ...counts, [key]: (counts[key] ?? 0) + 1 } };
+  }
+  if (RECAP_UPGRADE_KINDS.has(entry.kind) && entry.level !== null) {
+    const key = recapUpgradeKey(entry);
+    const tracks = tally?.upgrades ?? {};
+    return { ...tally, upgrades: { ...tracks, [key]: { n: (tracks[key]?.n ?? 0) + 1, level: entry.level } } };
+  }
+  return tally;
+}
+
+// FR-C fix pass: the promotion pass took queued order `id` wholly out of the queue (the engine started it), newest
+// last, capped at RECAP_PROMOTED_CAP. Pure.
+function recordRecapPromotion(state: GameState, id: string): GameState {
+  const prior = state.recapTally?.promoted ?? [];
+  const next = [...prior, id];
+  return { ...state, recapTally: { ...state.recapTally, promoted: next.length > RECAP_PROMOTED_CAP ? next.slice(next.length - RECAP_PROMOTED_CAP) : next } };
 }
 
 // Infrastructure 0.13.4 (Phase 2 Unit 2.2, design §6.4): append ONE completion-log entry per
@@ -12300,7 +12330,9 @@ export function promoteQueuedOrders(state: GameState): GameState {
       // before the loop and moves on to the next ENTRY. That is the intended bound, not a
       // limitation: one unit per job duration is what keeps the per-unit rng draw pattern
       // identical to the single-unit path, which is the whole parity argument.
-      working = next;
+      // FR-C fix pass: an order that left the queue whole (a salvage batch's last unit included) is one the ENGINE
+      // started, recorded for the While You Were Away recap ("Queued orders started").
+      working = RECAP_FOLDS_SWITCH.live && !(next.processQueue ?? []).some((j) => j.id === job.id) ? recordRecapPromotion(next, job.id) : next;
     }
   }
 
@@ -13631,7 +13663,14 @@ export function resolveProcesses(
   if (ORDERING2_SWITCH.live && toRecord.length > 1) {
     toRecord.sort((a, b) => a.tick - b.tick || compareProcessIds(a.args.process.id, b.args.process.id));
   }
-  for (const { args } of toRecord) completionAcc = recordCompletion({ ...args, acc: completionAcc });
+  // FR-C fix pass: each entry the recorder writes bumps the recap's cumulative tally (an entry is new iff the id counter
+  // moved, and pushCompletionEntry always appends it last), so the recap counts exactly past the log's cap.
+  let recapTally = state.recapTally;
+  for (const { args } of toRecord) {
+    const priorId = completionAcc.nextId;
+    completionAcc = recordCompletion({ ...args, acc: completionAcc });
+    if (completionAcc.nextId !== priorId && RECAP_FOLDS_SWITCH.live) recapTally = bumpRecapTally(recapTally, completionAcc.log[completionAcc.log.length - 1]);
+  }
 
   return {
     next: {
@@ -13682,6 +13721,8 @@ export function resolveProcesses(
       completionLog: completionAcc.log,
       nextCompletionLogId: completionAcc.nextId,
       openJobBatches: completionAcc.open,
+      // FR-C fix pass: written only when an entry bumped it (byte-identical otherwise, key set included).
+      ...(recapTally !== state.recapTally ? { recapTally } : {}),
       activeProcesses: stillActive,
       // Exploration 0.14.0 (Phase E4a): the museum + first-find registry, written back ONLY when a relic
       // study completed this call (conditional spread), so every call that completes no study lands
