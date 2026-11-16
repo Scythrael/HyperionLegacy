@@ -19,6 +19,12 @@ import { withCompletionRollOff, withHeldSkipsOff } from "./completionTrackingSwi
 import { heldCompletion, runCompletion } from "./completion";
 import { advanceExpedition, claimExpedition } from "./expedition";
 import { economyTick } from "./tick";
+import { fixRoundEExpeditionsOffForThisFile } from "./fixRoundESwitch.fixture";
+
+// Fix round FR-E (0.14.0): this file's fixtures launch real stars, recall and resume, or finish planets by skips, and its
+// pins are about another slice; it runs with the round's expedition fixes off (fixRoundESwitch.fixture.ts), so they keep
+// proving that slice. The round's own pins: expeditionFixRoundEGoldens.test.ts.
+fixRoundEExpeditionsOffForThisFile();
 
 // Captured on the code BEFORE the engine edit (913ff6b1).
 const BEFORE_CLAIMS: Record<string, string> = {

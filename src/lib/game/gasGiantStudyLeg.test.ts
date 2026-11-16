@@ -49,6 +49,12 @@ import {
 } from "./gasGiantStudy";
 import { ITEMS } from "./model";
 import { asPreNebulaDispatch, dispatchPastPropulsion, plainAwayMember, withoutStudy } from "./awayTeamTestFixtures";
+import { fixRoundEExpeditionsOffForThisFile } from "./fixRoundESwitch.fixture";
+
+// Fix round FR-E (0.14.0): this file's fixtures launch real stars, recall and resume, or finish planets by skips, and its
+// pins are about another slice; it runs with the round's expedition fixes off (fixRoundESwitch.fixture.ts), so they keep
+// proving that slice. The round's own pins: expeditionFixRoundEGoldens.test.ts.
+fixRoundEExpeditionsOffForThisFile();
 
 const SEC = ["member-1", "member-2", "member-3", "member-4", "member-5", "member-6"];
 const SCI = ["member-11", "member-12", "member-13", "member-14", "member-15", "member-16"];

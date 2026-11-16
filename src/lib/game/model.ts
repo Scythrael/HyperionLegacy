@@ -1212,6 +1212,23 @@ export const COMPLETION_ROLL_SWITCH = { live: true };
 // the fix moved return. Always live in the game.
 export const COMPLETION_HELD_SKIPS_SWITCH = { live: true };
 
+// Test switches only (the same pattern, fix round FR-E, docs/qa/2026-11-13-fable-sweep-ledger.md lane 3 and the USER
+// ANSWERS of 2026-11-13/14). Each is always live in the game; off, its fix is undone, so a golden can show that the pins
+// that fix moved return:
+//   RECALL_NO_REPAY_SWITCH (lane 3 I1 and M1): off, a recall keeps no scan boundaries rolled on the body it cut short
+//     (HeldSystem.scanStepsRolled) and no charted anomaly (HeldSystem.anomalyCharted), so a relaunch or a resume pays them
+//     again;
+//   RECALL_KEEPS_LIST_SWITCH (lane 3 I3, "Recalled launch keeps the list (Recommended)"): off, a recall that sends its
+//     system back to the candidates leaves the fresh list the launch drew;
+//   STAR_BODIES_SWITCH (lane 3 I2, "Same system every visit (Recommended)"): off, a real star's bodies are drawn from its
+//     candidate slot's seed, as before;
+//   PLANET_ROLL_REAL_OBJECTIVE_SWITCH (lane 3 q3, "Roll needs a real objective (Recommended)"): off, a planet pays its
+//     100% roll however it got there (skips alone, or no objectives).
+export const RECALL_NO_REPAY_SWITCH = { live: true };
+export const RECALL_KEEPS_LIST_SWITCH = { live: true };
+export const STAR_BODIES_SWITCH = { live: true };
+export const PLANET_ROLL_REAL_OBJECTIVE_SWITCH = { live: true };
+
 // Test switch only (the same pattern, Wiring WR-9): off, a captain mission is dispatched without the Pilot's Cunning
 // stamp (CaptainMissionState.pilotCunning), an expedition without Command Presence on its objective hauls
 // (Expedition.groundOutputShare) or Operations Integrity on its offload (GroundOpsFactors.offloadSteady), and a
@@ -8892,6 +8909,10 @@ export interface Expedition {
   // so an offline catch-up must read the player's choice off the stored expedition. Kept deterministic:
   // the flag is a fixed input, not a live value, so one-big == many-small parity is preserved.
   anomalyOptIn: boolean;
+  // Fix round FR-E (lane 3 M1): this run was launched to a candidate whose route anomaly an earlier trip charted
+  // (HeldSystem.anomalyCharted): it is resolved from the start (no second detour, no second haul), and a recall of this
+  // run keeps the note. Absent on every other run. Optional, no SAVE bump.
+  anomalyMet?: 1;
   findings: ExpeditionFinding[];
   seed: number; // per-expedition PRNG seed (reload-deterministic, like inspectSeed)
   // --- E3a away-team SNAPSHOT (captured at dispatch, exactly like the sensor snapshot above) ------------
@@ -9074,7 +9095,9 @@ export interface Expedition {
   // objectives keep their progress). Absent on every other run. Optional, no SAVE bump.
   // Completion tracking (review fix): `skipped`, the held system's skipped objective ids (HeldSystem.skipped), counted as
   // skipped by the completion tally until the resumed run finishes them. Absent when none.
-  resume?: { version: 1; heldId: string; scannedBodies: number; skipped?: string[] };
+  // Fix round FR-E (lane 3 I1): `scanStepsRolled`, the held system's HeldSystem.scanStepsRolled (the boundaries of the
+  // first uncharted body already rolled on an earlier trip), skipped when this run's window opens. Absent when none.
+  resume?: { version: 1; heldId: string; scannedBodies: number; skipped?: string[]; scanStepsRolled?: number };
   // Gas Giant Study GG-2 (D22, OC-G2 "Ship-only study"): the STUDY flag, frozen at dispatch on a run whose system holds
   // an orbital-only body (gasGiantStudy.ts studyStampFor). Present: an orbital body gets no ground objectives (no PoI,
   // no hostile site, no clearing, no supply cache) and ONE ship study instead (GroundOpsState.studyLegs, GG-3). Absent
@@ -9190,6 +9213,20 @@ export interface HeldSystem {
   // the completion tally (completion.ts heldCompletionTally) and the record and planet roll at an abandon read this, and
   // a resumed run carries it (Expedition.resume.skipped). Absent when none. Appended last; no SAVE bump.
   skipped?: string[];
+  // Fix round FR-E (lane 3 I1, "an unbounded loop must be closed"): the scan boundaries of the first uncharted body (the
+  // one the recall cut short) already rolled on an earlier trip. Their events (supply caches, ship events and the salvage
+  // they pay) came home with that trip, so the next launch to the system (a resume, or a candidate launched again) skips
+  // them: its scan of that body starts over, but nothing on those boundaries is rolled or paid twice. Absent when none.
+  scanStepsRolled?: number;
+  // Fix round FR-E (lane 3 M1): the route's anomaly was charted on an earlier trip (its small haul came home with it), so
+  // a candidate launched again meets no anomaly (no second detour, no second haul), as a resumed run never does. Absent
+  // otherwise.
+  anomalyCharted?: true;
+  // Fix round FR-E (lane 3 I3, user "Recalled launch keeps the list (Recommended)"): a candidate whose recall restored the
+  // list it was launched from (expedition.ts recallExpedition). The system is offered again in its own slot of that list,
+  // so this record is a NOTE on the slot (its kept boundaries and anomaly, read by a launch from the slot), never an extra
+  // candidate; it rolls off with the next list drawn, like every held candidate. Absent otherwise.
+  inList?: true;
 }
 
 // Completion tracking (0.14.0, user answers 2026-11-13): one body of a SYSTEM RECORD (and of every completion tally,
@@ -10234,6 +10271,11 @@ export interface GameState {
   // that never made one keeps its exact shape and its list (no load step, no SAVE bump). A plain number,
   // hydrateDecimals carries it through its `...state` spread.
   heldLaunches?: number;
+  // Fix round FR-E (lane 3 I3, user "Recalled launch keeps the list (Recommended)"): how many recalls restored the list
+  // their run was launched from (expedition.ts recallExpedition). Such a launch drew a list that the recall took back, so
+  // the Wolf 359 clock (expedition.ts listDraws) does not count it either. OPTIONAL: absent reads 0 and is written only
+  // by such a recall (no load step, no SAVE bump).
+  listRewinds?: number;
   // Gas Giant Study GG-3 (plan docs/plans/2026-10-17-gas-giant-study-plan.md section 3.3): the SURVEY LOG, one entry per
   // ship study whose Survey Log readout hit (15%, user 2026-10-09), appended in claim order by
   // expedition.ts depositExpeditionFindings. Every displayed number derives from the entry's stored fields (the

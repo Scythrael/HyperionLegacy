@@ -91,6 +91,12 @@ import { withV1Museum, withoutEvacuationStamp } from "./firstRunsGoldens.fixture
 // cycles and runs; combatDescriptorGoldens.test.ts pins the combat rules themselves).
 import { combatRulesOffForThisFile } from "./combatRulesSwitch.fixture";
 import { wr11OffForThisFile } from "./wr11Switch.fixture";
+import { fixRoundEExpeditionsOffForThisFile } from "./fixRoundESwitch.fixture";
+
+// Fix round FR-E (0.14.0): this file's fixtures launch real stars, recall and resume, or finish planets by skips, and its
+// pins are about another slice; it runs with the round's expedition fixes off (fixRoundESwitch.fixture.ts), so they keep
+// proving that slice. The round's own pins: expeditionFixRoundEGoldens.test.ts.
+fixRoundEExpeditionsOffForThisFile();
 combatRulesOffForThisFile();
 // Wiring WR-11 came after every pin here: the whole file runs with WR-11 off (wr11Switch.fixture.ts), so its pins keep
 // proving their own slice moved nothing else (WR-11's own moves are pinned in wr11Goldens.test.ts).

@@ -104,6 +104,12 @@ wr11OffForThisFile();
 // 100%, which these vault and claim pins (about their own slice) were captured without. The roll is off for this file;
 // its moves are pinned and proven in completionRollGoldens.test.ts.
 import { completionRollOffForThisFile } from "./completionTrackingSwitch.fixture";
+import { fixRoundEExpeditionsOffForThisFile } from "./fixRoundESwitch.fixture";
+
+// Fix round FR-E (0.14.0): this file's fixtures launch real stars, recall and resume, or finish planets by skips, and its
+// pins are about another slice; it runs with the round's expedition fixes off (fixRoundESwitch.fixture.ts), so they keep
+// proving that slice. The round's own pins: expeditionFixRoundEGoldens.test.ts.
+fixRoundEExpeditionsOffForThisFile();
 completionRollOffForThisFile();
 
 // ===== shared helpers =====

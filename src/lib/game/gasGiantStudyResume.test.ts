@@ -10,6 +10,12 @@ import { groundOpsProgress } from "./groundOps";
 import { isStudyBody } from "./gasGiantStudy";
 import { installMissingCombatBaselines } from "./tick";
 import { asExpeditionVeteran, plainAwayMember } from "./awayTeamTestFixtures";
+import { fixRoundEExpeditionsOffForThisFile } from "./fixRoundESwitch.fixture";
+
+// Fix round FR-E (0.14.0): this file's fixtures launch real stars, recall and resume, or finish planets by skips, and its
+// pins are about another slice; it runs with the round's expedition fixes off (fixRoundESwitch.fixture.ts), so they keep
+// proving that slice. The round's own pins: expeditionFixRoundEGoldens.test.ts.
+fixRoundEExpeditionsOffForThisFile();
 
 const T0 = 100_000;
 const FINAL = T0 + 3_000_000;

@@ -119,6 +119,12 @@ homeworldReserveOffForThisFile();
 // crew from a backlog longer than any catch-up (a fixture shortcut), so the whole file runs with it off and its pins
 // keep proving their own slice (switch-off reproduction: every pin holds with it off). transportWelcome.test.ts pins it.
 import { transportWelcomeOffForThisFile } from "./transportWelcomeSwitch.fixture";
+import { fixRoundEExpeditionsOffForThisFile } from "./fixRoundESwitch.fixture";
+
+// Fix round FR-E (0.14.0): this file's fixtures launch real stars, recall and resume, or finish planets by skips, and its
+// pins are about another slice; it runs with the round's expedition fixes off (fixRoundESwitch.fixture.ts), so they keep
+// proving that slice. The round's own pins: expeditionFixRoundEGoldens.test.ts.
+fixRoundEExpeditionsOffForThisFile();
 transportWelcomeOffForThisFile();
 combatRulesOffForThisFile();
 // Wiring WR-11 came after every pin here: the whole file runs with WR-11 off (wr11Switch.fixture.ts), so its pins keep

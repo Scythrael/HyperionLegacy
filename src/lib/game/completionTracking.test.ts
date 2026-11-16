@@ -22,6 +22,7 @@ import { withNotableEvents, systemCompletedEvent, relicSetCompletedEvent, notabl
 import { advanceExpedition, claimExpedition, editGroundOps, heldSystems } from "./expedition";
 import { CT_FAR, ctClaimed, ctDispatch, ctFinished, ctRecalled } from "./completionTracking.fixture";
 import { deserialize, migrate, serialize } from "./save";
+import { withPlanetRollRealObjectiveOff } from "./fixRoundESwitch.fixture";
 
 const body = (scanned: boolean, objectives = 0, done = 0, skipped = 0): CompletionBodyTally => ({ scanned, objectives, done, skipped });
 
@@ -166,11 +167,15 @@ describe("the planet roll (user 2026-11-13 \"Planet roll + system badge\"): once
   });
   it("bodiesToRoll: the bodies at 100% the record has not paid", () => {
     const t = { bodies: [body(true, 1, 1), body(true, 2, 1), body(true, 0), body(false)], nebula: { done: false } };
-    expect(bodiesToRoll(t, undefined)).toEqual([0, 2]);
-    expect(bodiesToRoll(t, { bodiesRolled: [0] })).toEqual([2]);
+    // Fix round FR-E (lane 3 q3, user "Roll needs a real objective"): body 2 (no objectives) is 100% but pays no roll.
+    expect(bodiesToRoll(t, undefined)).toEqual([0]);
+    expect(withPlanetRollRealObjectiveOff(() => bodiesToRoll(t, undefined))).toEqual([0, 2]);
+    expect(bodiesToRoll(t, { bodiesRolled: [0] })).toEqual([]);
+    expect(withPlanetRollRealObjectiveOff(() => bodiesToRoll(t, { bodiesRolled: [0] }))).toEqual([2]);
     expect(bodiesToRoll(t, { bodiesRolled: [0, 2] })).toEqual([]);
-    // A skipped objective counts as done (Q3 B), so its body pays too.
+    // A skipped objective counts as done (Q3 B) for the %, and its body pays when one objective there was really done.
     expect(bodiesToRoll({ bodies: [body(true, 2, 1, 1)], nebula: null }, undefined)).toEqual([0]);
+    expect(bodiesToRoll({ bodies: [body(true, 2, 0, 2)], nebula: null }, undefined)).toEqual([]);
   });
   it("the paid bodies survive a better visit replacing the record AND a worse visit that is dropped", () => {
     const a = withSystemRecord(undefined, rec([body(true, 1, 1), body(false)], 1, undefined, true), [0]);
