@@ -39,7 +39,7 @@ import { shipCrewLocked } from "./crewLock";
 import { captainRacialBonus, officerCrewHoursMs, officerRacialBonus, officerRankMagnitudeFactor } from "./seniorStaff";
 import { getSeniorStaffBonusById } from "./seniorStaffBonuses";
 import {
-  WELCOME_FIT_SWITCH,
+  WELCOME_SEAT_SWITCH,
   crewTransportsDue,
   deliverDueTransports,
   foldTransportBatch,
@@ -51,6 +51,7 @@ import {
   welcomeTransportMarker,
 } from "./transports";
 import { autoCrewShip } from "./autoCrew";
+import { seatCrewOnHand } from "./welcomeSeating";
 // Homeworld reserve (user 2026-11-12): the surplus sweep and the reserve list (imports crew, commandStructure and
 // crewModules only, so no cycle).
 import { HOMEWORLD_RESERVE_SWITCH, NO_RESERVE, homeworldReserveOf, sweepSurplusToReserve, withHomeworldReserve } from "./homeworldReserve";
@@ -1398,19 +1399,20 @@ function deliverTransportsOrWelcome(state: GameState, reserveIn: CrewBucket[]): 
 
 // FR-C A1-2 (QA 2026-11-14): the WELCOME BATCH, seat by seat. The old welcome delivered the most recent ordinary
 // transports, sized by the fleet's TOTAL berths, and their random divisions and ranks did not match what the ships had
-// open, so explorers sat half empty and the surplus was swept to the Homeworld reserve. Now, ship by ship in state.ships
-// order:
-//   - a PASSIVE ship that is not crew-locked first takes the crew already on hand, the pool then the reserve, through the
-//     same autoCrewShip filler resolveCrew uses;
-//   - its remaining open SEATS are then read by running that same filler over an unlimited supply of every division and
-//     rank (so the seats follow the filler's own order: the lean division first, top rank down), and one welcome
-//     crewmember is rolled per seat (generateComplementCrew with the division and rank pinned, deterministic in the save's
-//     transport seed and a running seat index) and seated there directly;
-//   - an ACTIVE or crew-locked ship takes nobody now (resolveCrew's rule): its open seats' crew go to the pool, for the
-//     player (or the ship's return) to place.
+// open, so explorers sat half empty and the surplus was swept to the Homeworld reserve. Now:
+//   - the crew already on hand (the pool, then the reserve) are seated first on the PASSIVE ships that are not
+//     crew-locked, as many as can be seated (welcomeSeating.ts, rank- and division-aware: FR-C fix pass, since the
+//     ship-by-ship top-rank-down fill stranded crew a later ship's seats could have held);
+//   - each such ship's remaining open SEATS are then read by running the autoCrewShip filler over an unlimited supply of
+//     every division and rank (so the seats follow the filler's own order: the lean division first, top rank down),
+//     and one welcome crewmember is rolled per seat (generateComplementCrew with the division and rank pinned,
+//     deterministic in the save's transport seed and a running seat index) and seated there directly;
+//   - an ACTIVE or crew-locked ship takes nobody now (resolveCrew's rule): the crew still on hand are counted against
+//     its open seats (seated only on paper), and crew are rolled into the pool only for the seats left, for the player
+//     (or the ship's return) to place.
 // The marker moves to now, so normal transports resume from the update on. Pure.
 const WELCOME_SUPPLY = 1_000_000;
-function welcomeFit(state: GameState, reserveIn: CrewBucket[]): GameState {
+function welcomeSeat(state: GameState, reserveIn: CrewBucket[]): GameState {
   const current = transportWindowIndex(state.gameTimeSeconds);
   const supply: CrewBucket[] = [];
   for (const profession of CREW_PROFESSIONS) {
@@ -1420,31 +1422,34 @@ function welcomeFit(state: GameState, reserveIn: CrewBucket[]): GameState {
     }
   }
   const seed = transportSeedFor(state);
-  let pool = state.crewPool;
-  let reserve = reserveIn;
+  // Each ship's occupancy (bulk plus assigned notables, the fill rule) and whether it fills now.
+  const rows = state.ships.map((ship) => {
+    const notables = state.notableCrew.filter((n) => (n.assignedShipId ?? null) === ship.id);
+    return {
+      ship,
+      mode: ship.complement?.mode ?? "passive",
+      bonus: quartersCapacityBonus(state, ship),
+      notables,
+      occupancy: coalesceBuckets([...(ship.complement?.buckets ?? []), ...notables.map((n) => ({ ...notableSignature(n), count: 1 }))]),
+      fills: (ship.complement?.mode ?? "passive") === "passive" && !shipCrewLocked(state, ship.id),
+    };
+  });
+  // 1) The crew on hand: as many as the filling ships can seat, then (on paper) the others.
+  const filling = rows.filter((r) => r.fills);
+  const waiting = rows.filter((r) => !r.fills);
+  const onHand = seatCrewOnHand(filling.map((r) => ({ typeKey: r.ship.typeKey, bonus: r.bonus, occupancy: r.occupancy })), [state.crewPool, reserveIn]);
+  const onPaper = seatCrewOnHand(waiting.map((r) => ({ typeKey: r.ship.typeKey, bonus: r.bonus, occupancy: r.occupancy })), onHand.left);
+  const seatedOf = new Map<string, CrewBucket[]>();
+  filling.forEach((r, i) => seatedOf.set(r.ship.id, onHand.seated[i]));
+  waiting.forEach((r, i) => seatedOf.set(r.ship.id, onPaper.seated[i]));
+  // 2) The seats nobody on hand can take, one welcome crewmember each, in state.ships order.
   const forPool: { profession: CrewProfession; rank: CrewSignature["rank"] }[] = [];
   let seatIndex = 0;
-  const ships = state.ships.map((ship) => {
-    const mode = ship.complement?.mode ?? "passive";
-    const bonus = quartersCapacityBonus(state, ship);
-    const notables = state.notableCrew.filter((n) => (n.assignedShipId ?? null) === ship.id);
-    let complement: NonNullable<ShipInstance["complement"]> = {
-      buckets: coalesceBuckets([...(ship.complement?.buckets ?? []), ...notables.map((n) => ({ ...notableSignature(n), count: 1 }))]),
-      mode,
-    };
-    const fills = mode === "passive" && !shipCrewLocked(state, ship.id);
-    if (fills && pool.length > 0) {
-      const fromPool = autoCrewShip(pool, ship.typeKey, complement, bonus);
-      pool = fromPool.pool;
-      complement = fromPool.complement;
-    }
-    if (fills && reserve.length > 0) {
-      const fromReserve = autoCrewShip(reserve, ship.typeKey, complement, bonus);
-      reserve = fromReserve.pool;
-      complement = fromReserve.complement;
-    }
+  const ships = rows.map((r) => {
+    const placed = seatedOf.get(r.ship.id) ?? [];
+    const complement: NonNullable<ShipInstance["complement"]> = { buckets: placed.length > 0 ? foldTransportBatch(r.occupancy, placed) : r.occupancy, mode: r.mode };
     // The open seats, as the filler itself would take them from an unlimited supply.
-    const ideal = autoCrewShip(supply, ship.typeKey, complement, bonus).complement.buckets;
+    const ideal = autoCrewShip(supply, r.ship.typeKey, complement, r.bonus).complement.buckets;
     const seats: { profession: CrewProfession; rank: CrewSignature["rank"] }[] = [];
     for (const profession of CREW_PROFESSIONS) {
       for (const rank of [8, 7, 6, 5, 4, 3, 2, 1] as const) {
@@ -1453,31 +1458,33 @@ function welcomeFit(state: GameState, reserveIn: CrewBucket[]): GameState {
         for (let i = 0; i < open; i += 1) seats.push({ profession, rank });
       }
     }
-    if (!fills) {
+    if (!r.fills) {
       forPool.push(...seats);
-      return ship;
+      return r.ship;
     }
     const batch = welcomeSeatBatch(seed, current, seats, seatIndex);
     seatIndex += seats.length;
     let buckets = batch.length === 0 ? complement.buckets : foldTransportBatch(complement.buckets, batch);
-    for (const n of notables) buckets = removeFromBucketList(buckets, notableSignature(n), 1);
-    const before = totalCrew(ship.complement?.buckets ?? []);
-    return totalCrew(buckets) > before ? { ...ship, complement: { buckets, mode } } : ship;
+    for (const n of r.notables) buckets = removeFromBucketList(buckets, notableSignature(n), 1);
+    const before = totalCrew(r.ship.complement?.buckets ?? []);
+    return totalCrew(buckets) > before ? { ...r.ship, complement: { buckets, mode: r.mode } } : r.ship;
   });
+  // What the filling ships did not take stays on hand (the crew seated on paper included): the pool's, then the reserve's.
+  const [poolLeft, reserveLeft] = onHand.left;
   const poolBatch = welcomeSeatBatch(seed, current, forPool, seatIndex);
-  const nextPool = poolBatch.length === 0 ? pool : foldTransportBatch(pool, poolBatch);
+  const nextPool = poolBatch.length === 0 ? poolLeft : foldTransportBatch(poolLeft, poolBatch);
   const next: GameState = { ...state, ships, crewPool: nextPool, lastTransportWindow: current };
-  return HOMEWORLD_RESERVE_SWITCH.live ? withHomeworldReserve(next, reserve) : next;
+  return HOMEWORLD_RESERVE_SWITCH.live ? withHomeworldReserve(next, reserveLeft) : next;
 }
 
 export function resolveCrew(stateIn: GameState): GameState {
-  // FR-C A1-2: a save that takes the welcome batch is welcomed seat by seat first (welcomeFit); its marker is then at
+  // FR-C A1-2: a save that takes the welcome batch is welcomed seat by seat first (welcomeSeat); its marker is then at
   // now, so the rest of this pass runs as on any tick with no window due.
   const state =
-    WELCOME_FIT_SWITCH.live &&
+    WELCOME_SEAT_SWITCH.live &&
     crewTransportsDue(stateIn.lastTransportWindow, stateIn.gameTimeSeconds) > 0 &&
     takesWelcomeBatch(stateIn.lastTransportWindow, stateIn.gameTimeSeconds)
-      ? welcomeFit(stateIn, HOMEWORLD_RESERVE_SWITCH.live ? homeworldReserveOf(stateIn) : NO_RESERVE)
+      ? welcomeSeat(stateIn, HOMEWORLD_RESERVE_SWITCH.live ? homeworldReserveOf(stateIn) : NO_RESERVE)
       : stateIn;
   const due = crewTransportsDue(state.lastTransportWindow, state.gameTimeSeconds);
   // Homeworld reserve: with the switch off (test only) the reserve is neither drawn nor written.

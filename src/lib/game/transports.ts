@@ -165,10 +165,10 @@ export function welcomeTransportCount(openBerths: number, crewOnHand: number, ba
 // FR-C A1-2 (QA 2026-11-14): the welcome batch used to deliver the most recent `welcomeTransportCount` ORDINARY
 // transports, whose random divisions and ranks the ships' division and rank caps then refused, so explorers sat half
 // empty and the surplus went to the Homeworld reserve. With this live the welcome instead sends ONE crewmember per open
-// SEAT, of that seat's division and rank (crewOverlay.ts welcomeFit), rolled deterministically like any transport
-// crew (generateComplementCrew with the division and rank pinned), and seats it directly. The TEST-ONLY off switch (welcomeFitSwitch.fixture.ts)
+// SEAT, of that seat's division and rank (crewOverlay.ts welcomeSeat), rolled deterministically like any transport
+// crew (generateComplementCrew with the division and rank pinned), and seats it directly. The TEST-ONLY off switch (welcomeSeatSwitch.fixture.ts)
 // restores the transport-count welcome, so a golden captured before can be traced. Always live in the game.
-export const WELCOME_FIT_SWITCH = { live: true };
+export const WELCOME_SEAT_SWITCH = { live: true };
 
 // One welcome crewmember per seat, as a coalesced bucket list. Deterministic in (seed, windowIndex, seats). Pure.
 export function welcomeSeatBatch(

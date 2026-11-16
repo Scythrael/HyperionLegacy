@@ -4,10 +4,10 @@
 // oldSaveFirstLoad.perf.test.ts.
 import { describe, expect, it } from "vitest";
 // FR-C A1-2 (the welcome batch seats one crewmember per open seat) came after every pin here: the file runs with it off
-// (welcomeFitSwitch.fixture.ts), so these pins keep proving the transport-count welcome they were written for;
-// transportWelcomeFit.test.ts pins the seat-by-seat welcome.
-import { welcomeFitOffForThisFile } from "./welcomeFitSwitch.fixture";
-welcomeFitOffForThisFile();
+// (welcomeSeatSwitch.fixture.ts), so these pins keep proving the transport-count welcome they were written for;
+// transportWelcomeSeat.test.ts pins the seat-by-seat welcome.
+import { welcomeSeatOffForThisFile } from "./welcomeSeatSwitch.fixture";
+welcomeSeatOffForThisFile();
 import { freshState, type GameState, type ShipTypeKey } from "./model";
 import { migrate, type SaveFile } from "./save";
 import { resolveCrew } from "./crewOverlay";
