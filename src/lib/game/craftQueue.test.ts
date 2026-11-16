@@ -1593,6 +1593,8 @@ describe("promoteQueuedOrders: a free slot pulls the oldest eligible order out o
       recipeKey: REFINE_KEY,
       remaining: 2,
       mode: { kind: "batch", remaining: 2 },
+      // FR-C lane 1 I3: a promoted batch runs under its own order, so a free lane can join it (was: no orderId).
+      orderId: "ord-1",
     });
     expect(promoted.nextCraftLineId).toBe(2);
     // And it is GONE from the queue: an order that promoted twice would double-book.

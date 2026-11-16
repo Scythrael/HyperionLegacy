@@ -129,6 +129,12 @@ export interface CraftLine {
   // is what keeps the 101 parity baseline meaningful. So this is ADDITIVE: when it is undefined,
   // the lane behaves precisely as it did before, reading its own `remaining`.
   orderId?: string;
+  // FR-C lane 1 I3 (user 2026-11-15, "Wire it in 0.14.0"): true on a lane the JOIN PASS minted onto a running order
+  // (tick.ts joinFreeLanesToRunningOrders). Such a lane is BORROWED capacity: it does not count against the facility's
+  // slots for the player's next line or queued order (canStartLine / the queue's hasFreeSlot read claimedLaneCount),
+  // and when the facility holds more lanes than slots it hands its slot back as soon as it finishes the unit it is on.
+  // Absent on every lane the player (or the queue) started, so every older lane is byte-identical.
+  joined?: true;
   // Material Lines ML-4 (L5, user 2026-10-19 "Toggle, lowest-first default"): "best" = this line's "Use best
   // materials" toggle, so each job spends the highest quality stock first and carries more quality into its output.
   // Written only when the player turned it on (absent = lowest-first, the documented consume policy), so every line

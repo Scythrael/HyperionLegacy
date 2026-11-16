@@ -920,6 +920,8 @@
     // amount field clamps to. All PURE except startLine/cancelLine which return new state.
     startLine,
     cancelLine,
+    // FR-C lane 1 I3: the slots a facility's lanes CLAIM (a joined lane is borrowed, so it leaves a slot open).
+    claimedLaneCount,
     canStartLine,
     maxAffordableIterations,
     type StartLineBlockReason,
@@ -11407,6 +11409,22 @@
   //
   // 1 for an unattached lane, which is the honest answer (one lane, one order's work) and is what
   // suppresses the readout for every ordinary line.
+  // FR-C lane 1 I3: a lane with no unit in flight while its facility holds more lanes than slots is waiting for a joined
+  // (borrowed) lane to finish its current run and hand the bay back.
+  function laneWaitsForBorrowedBay(line: CraftLine): boolean {
+    const lines = (line.kind === "refine" ? state.refineLines : state.fabricateLines) ?? [];
+    const slots = line.kind === "refine" ? refinerySlots : fabricateSlots;
+    return lines.length > slots && !line.joined;
+  }
+
+  // FR-C lane 1 I3: the units not yet started on this lane's work: its order's shared pool when it is attached to one
+  // (several lanes may pull from it), else its own count.
+  function lanePoolRemaining(line: CraftLine): number {
+    if (line.orderId === undefined) return line.remaining;
+    const order = (state.craftOrders ?? []).find((o) => o.id === line.orderId);
+    return order !== undefined ? order.remaining : line.remaining;
+  }
+
   function laneShareCount(line: { id: string; orderId?: string }): number {
     if (line.orderId === undefined) return 1;
     const all = [...(state.refineLines ?? []), ...(state.fabricateLines ?? [])];
@@ -11420,9 +11438,12 @@
     secPerTick: number,
   ): string {
     if (line.mode.kind === "batch") {
-      const queued = line.remaining; // not-yet-started iterations (in-flight already excluded)
-      const totalTicks = (queued + 1) * job.durationTicks; // in-flight + queued, all at full duration
-      const remainingTicks = job.remainingTicks + queued * job.durationTicks;
+      // FR-C lane 1 I3: an attached lane reads its ORDER's pool, shared across the lanes working it (the same estimate
+      // craftQueue.ts gives Home). One lane on its own work reads exactly as before.
+      const queued = lanePoolRemaining(line); // not-yet-started iterations (in-flight already excluded)
+      const lanes = Math.max(1, laneShareCount(line));
+      const totalTicks = Math.ceil(((queued + 1) * job.durationTicks) / lanes); // in-flight + queued, all at full duration
+      const remainingTicks = job.remainingTicks + Math.ceil((queued * job.durationTicks) / lanes);
       return remainingReadout(remainingTicks, totalTicks, showTicks, secPerTick);
     }
     return remainingReadout(job.remainingTicks, job.durationTicks, showTicks, secPerTick);
@@ -12848,7 +12869,8 @@
                   </p>
                 {:else}
                   {@const refineLines = state.refineLines ?? []}
-                  {@const idleSlots = Math.max(0, refinerySlots - refineLines.length)}
+                  <!-- FR-C lane 1 I3: a joined lane is borrowed capacity, so its slot stays open for the player's next line. -->
+                  {@const idleSlots = Math.max(0, refinerySlots - claimedLaneCount(refineLines))}
 
                   <!-- Active refine lines (one card each). -->
                   {#each refineLines as line, li (line.id)}
@@ -12879,8 +12901,12 @@
                         <div class="research-bar-fill" style="width:{Math.min(100, progress * 100)}%"></div>
                       </div>
                       <div class="research-readout">
-                        {#if job}{lineRemainingReadout(job, line, showTickCounts, state.tickDurationSeconds)}{:else}Queued, starts next tick{/if}
+                        {#if job}{lineRemainingReadout(job, line, showTickCounts, state.tickDurationSeconds)}{:else if laneWaitsForBorrowedBay(line)}Starts when a joined line finishes its current run{:else}Queued, starts next tick{/if}
                       </div>
+                      <!-- FR-C lane 1 I3: a joined lane says it is helping, and that it hands the bay back. -->
+                      {#if line.joined}
+                        <div class="research-cost">Joined to help this order; it hands the bay back when you start or queue something else.</div>
+                      {/if}
                       <!-- ⚠️ THE LANE COUNT EXISTS TO EXPLAIN A NUMBER THAT WOULD OTHERWISE LOOK
                            BROKEN (0.13.4 Phase 6, design 7.6). When a second lane joins this order,
                            it finishes in roughly half the time, so the whole-batch countdown HALVES
@@ -13414,7 +13440,8 @@
                   </p>
                 {:else}
                   {@const fabricateLines = state.fabricateLines ?? []}
-                  {@const idleSlots = Math.max(0, fabricateSlots - fabricateLines.length)}
+                  <!-- FR-C lane 1 I3: a joined lane is borrowed capacity, so its slot stays open for the player's next line. -->
+                  {@const idleSlots = Math.max(0, fabricateSlots - claimedLaneCount(fabricateLines))}
 
                   <!-- Active fabricate lines (one card each). -->
                   {#each fabricateLines as line, li (line.id)}
@@ -13452,8 +13479,12 @@
                         <div class="research-bar-fill" style="width:{Math.min(100, progress * 100)}%"></div>
                       </div>
                       <div class="research-readout">
-                        {#if job}{lineRemainingReadout(job, line, showTickCounts, state.tickDurationSeconds)}{:else}Queued, starts next tick{/if}
+                        {#if job}{lineRemainingReadout(job, line, showTickCounts, state.tickDurationSeconds)}{:else if laneWaitsForBorrowedBay(line)}Starts when a joined line finishes its current run{:else}Queued, starts next tick{/if}
                       </div>
+                      <!-- FR-C lane 1 I3: a joined lane says it is helping, and that it hands the bay back. -->
+                      {#if line.joined}
+                        <div class="research-cost">Joined to help this order; it hands the bay back when you start or queue something else.</div>
+                      {/if}
                       <!-- ⚠️ THE LANE COUNT EXISTS TO EXPLAIN A NUMBER THAT WOULD OTHERWISE LOOK
                            BROKEN (0.13.4 Phase 6, design 7.6). When a second lane joins this order,
                            it finishes in roughly half the time, so the whole-batch countdown HALVES
