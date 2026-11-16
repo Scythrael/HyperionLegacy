@@ -241,3 +241,22 @@ Not fixed: lane 4 M8. Cause found: it is M4's. The carrier's Repeat run ends mid
 END of the economyTick call, so a call that spans the end fills from a pool holding later transports. Production always
 steps one tick per call, so players never see it; a chunk-invariant fix needs the crew engine to fill at the unlock
 instant (crew lane, crewOverlay.ts).
+
+## Offline catch-up with Repeat patrols (found 2026-11-16, M8 review then a profiling pass)
+
+Fleet: 11 ships, 5 combat hulls on Repeat Crimson-Reaver Sweep (Standard Issue gear, full crew), 6 idle; production
+`tick()` in 1 s steps, desktop Ryzen 9 5900X; phones assumed 3x to 6x slower.
+- 0.14.0 (c8793c36): about 1,744 us per step; a 4-day catch-up about 8 to 10 minutes desktop (phones 25 to 60 minutes,
+  effectively a hang); about 6 s per hour away. Same freeze class as the 2026-11-14 staging freeze.
+- PROD 0.13.11.3 (eaf1fb8): about 112 us per step; a 4-day catch-up about 31 to 48 s desktop, 1.5 to 5 minutes on a
+  phone (half that for 2 days). The 0.13.11.3 cap raise (2 to 4 days) doubled the worst case. Prod hot spot: per-step
+  `foldedPlayerDefense` -> `shipToCombatant` (21%), `resolveBattle` (19%), `shipDerivedStats` (9%).
+- 0.14.0 hot spots: relaunch-only inputs built every step in economyTick's patrol arm (about 69%, crew rollup inside
+  each); FR-E projections (about 11%, 86% of battles resolved are projections); per-step cycle setup.
+- Exact fixes (byte-identical, no rule change): lazy relaunch inputs (prototype proven: 1,744 -> 494 us), trimmed and
+  cached projections, per-cycle setup cache, optional quiet-second fast path. Perf slice building 2026-11-16.
+- Non-exact or UX options (user decisions): larger catch-up chunks (7x to 8x cheaper but loot differs with a real rng
+  stream); asynchronous catch-up over frames or a worker with a progress bar (identical results by construction; turns
+  the freeze into a visible wait on prod and 0.14.0).
+- Side finding: on prod, `tick(3600)` with a constant rng does not equal 997 s economyTick chunks (0.14.0 matches).
+- Investigator's harness and prototype: C:/Users/berga/AppData/Local/Temp/hl-perf-patrol (scratch, not durable).
