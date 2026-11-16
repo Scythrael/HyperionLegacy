@@ -33,6 +33,12 @@ import { describe, expect, it } from "vitest";
 // planet's name (display only). The file runs with the stamp off, so every pin reproduces as captured (relicPlanet.fixture.ts).
 import { planetStampOffForThisFile } from "./relicPlanet.fixture";
 planetStampOffForThisFile();
+// Lane 4 M8 (the patrol home split, patrolHomeSplitSwitch.fixture.ts) came after these pins: a patrol row advances its
+// Dispatch Once run in one call two ticks past the route's end, and the call now splits at the tick the ship comes home,
+// so the crew hours stop there and the passive crew fill runs there (as 1 s steps do), not two ticks later. The file runs
+// with the split off, so every pin reproduces as captured (patrolHomeSplit.test.ts proves the split itself).
+import { lane4M8SwitchesOffForThisFile } from "./patrolHomeSplitSwitch.fixture";
+lane4M8SwitchesOffForThisFile("homeSplit");
 import Decimal from "break_infinity.js";
 import { PATROLS, SHIP_TYPES, type Expedition, type GameState, type PatrolKey, type PatrolMissionState, type RegionTier, type ShipTypeKey } from "./model";
 import { dispatchCaptainOnPatrol, economyTick } from "./tick";

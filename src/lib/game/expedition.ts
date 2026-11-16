@@ -2626,6 +2626,24 @@ export function advanceExpedition(exp: Expedition, nowSeconds: number): Expediti
   return e;
 }
 
+// Lane 4 M8 (tick.ts PATROL_HOME_SPLIT_SWITCH): the whole tick (1 = the call's first) of a call of `ticksElapsed` ticks
+// from `startSeconds` at whose end this run is first complete, as resolveExpeditions would find it stepping one tick
+// per call; null when it is not complete by the call's end (or was complete before it). The run only ever moves forward
+// with the clock, so a binary search over the call's whole ticks finds it. Pure (advanceExpedition clones).
+export function expeditionCompletionTick(exp: Expedition, startSeconds: number, tickSeconds: number, ticksElapsed: number): number | null {
+  if (exp.phase === "complete") return null;
+  const doneAt = (t: number): boolean => advanceExpedition(exp, startSeconds + Math.min(t, ticksElapsed) * tickSeconds).phase === "complete";
+  let hi = Math.ceil(ticksElapsed - 1e-9);
+  if (hi < 1 || !doneAt(hi)) return null;
+  let lo = 1;
+  while (lo < hi) {
+    const mid = Math.floor((lo + hi) / 2);
+    if (doneAt(mid)) hi = mid;
+    else lo = mid + 1;
+  }
+  return lo;
+}
+
 // ============================================================================
 // The per-tick engine (resolveExpeditions) + claim
 // ============================================================================
