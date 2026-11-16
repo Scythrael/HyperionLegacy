@@ -156,10 +156,15 @@ export function refugeeArrives(roll: ShortRangeRoll, waiting: number, openPosts:
 // game before E5-3 exactly, so a golden captured before it can be traced. Never written by app code.
 export const REFUGEE_FAREWELL_SWITCH: { live: boolean } = { live: true };
 
+// FR-C crew lane I2: the TEST-ONLY off switch (refugeeEchoExemptSwitch.fixture.ts). With `live` false a waiting echo may
+// leave on a Relocation again (the game before the exemption exactly), so a golden captured before it can be traced.
+export const REFUGEE_ECHO_EXEMPT_SWITCH: { live: boolean } = { live: true };
+
 export function refugeeFarewellPick(refugees: RefugeeState): RefugeeRecord | null {
   let pick: RefugeeRecord | null = null;
   // FR-C crew lane I2 (user 2026-11-13/14, "Exempt echoes"): a waiting echo refugee never leaves (they arrive once per save).
-  for (const r of refugees.list) if (r.posting === null && r.echo === undefined && (pick === null || r.id < pick.id)) pick = r;
+  const exempt = REFUGEE_ECHO_EXEMPT_SWITCH.live;
+  for (const r of refugees.list) if (r.posting === null && (!exempt || r.echo === undefined) && (pick === null || r.id < pick.id)) pick = r;
   return pick;
 }
 

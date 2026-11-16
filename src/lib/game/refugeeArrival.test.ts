@@ -4,6 +4,7 @@
 // live; an old save's draws identical before each slot's stamp).
 
 import { describe, expect, it } from "vitest";
+import { withEchoExemptOff } from "./refugeeEchoExemptSwitch.fixture";
 import { freshState, type CaptainState, type GameState, type ShortRangeMissionState } from "./model";
 import {
   EVACUATION_DRAW_SWITCH,
@@ -548,6 +549,8 @@ describe("E5-3 a delivered Refugee Relocation takes the longest-waiting refugee 
     const base = refugeesOf(withWaiting(freshState(), 3));
     const echoFirst: RefugeeState = { ...base, list: base.list.map((r) => (r.id === 1 ? { ...r, echo: "someEcho" } : r)) };
     expect(refugeeFarewellPick(echoFirst)?.id).toBe(2);
+    // The trace: with the exemption off (the game before it) the echo, waiting longest, went.
+    expect(withEchoExemptOff(() => refugeeFarewellPick(echoFirst))?.id).toBe(1);
     const allEchoes: RefugeeState = { ...base, list: base.list.map((r) => ({ ...r, echo: `echo-${r.id}` })) };
     expect(refugeeFarewellPick(allEchoes)).toBeNull();
   });
