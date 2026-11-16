@@ -36,6 +36,7 @@
   // The reusable rarity-bordered equipment card (0.11.0 Phase D). The reactor / ftl
   // system-condition tooltips embed it for the PLAYER ship's installed piece.
   import EquipmentTooltip from "./EquipmentTooltip.svelte";
+  import Icon from "./ui/Icon.svelte";
   import {
     replayPatrol,
     foldWaveSnapshots,
@@ -467,11 +468,14 @@
     if (kind === "buff") return "buff";
     return "debuff";
   }
-  // A short glyph for the pip face: a flame for DoTs, an up-chevron for buffs, and
-  // the disruption's initial letter otherwise (matching the mockup's T / C pips).
+  // A short glyph for the pip face: the flame SVG for DoTs (pipFace below draws it; the 0.14.0 emoji sweep retired the
+  // fire emoji), an up-triangle for buffs, and the disruption's initial letter otherwise (matching the mockup's T / C
+  // pips).
+  function effectIsDot(defId: string): boolean {
+    return STATUS_EFFECT_DEFS[defId]?.kind === "dot";
+  }
   function effectPipGlyph(defId: string): string {
     const def = STATUS_EFFECT_DEFS[defId];
-    if (def?.kind === "dot") return "\u{1F525}"; // fire
     if (def?.kind === "buff") return "▲"; // up-triangle
     const name = def?.displayName ?? defId;
     return name.charAt(0).toUpperCase();
@@ -1249,10 +1253,12 @@
      The cards carry no interactive controls, so a click anywhere inside one bubbles to the
      window dismiss handler and simply closes it. All display-only.
      ========================================================================== -->
+<!-- A status pip's face: the flame glyph for a damage over time effect, else its text glyph. -->
+{#snippet pipFace(defId: string)}{#if effectIsDot(defId)}<Icon name="flame" size="1.2em" />{:else}{effectPipGlyph(defId)}{/if}{/snippet}
 {#snippet effectTip(defId: string, rank: number)}
   <div class="cv-tip" role="status">
     <div class="cv-tip-hd">
-      <span class="pip {effectPipClass(defId)}">{effectPipGlyph(defId)}</span>
+      <span class="pip {effectPipClass(defId)}">{@render pipFace(defId)}</span>
       <span class="cv-tip-title">{effectPipTitle(defId, rank)}</span>
     </div>
     {#if STATUS_EFFECT_DEFS[defId]?.flavor}
@@ -1393,7 +1399,7 @@
            the SAME id; only the laid-out one is targeted. -->
       <div class="ship" data-cid={wave.playerStart.id}>
         <div class="ship-head">
-          <div class="portrait">{"\u{1F6E1}️"}</div>
+          <div class="portrait" aria-hidden="true"><Icon name="ship" /></div>
           <div>
             <div class="ship-name">{playerName}</div>
             <div class="ship-class">{shipClassLabel}{#if shipClassLabel} &middot; {/if}{stanceLabel} stance</div>
@@ -1422,7 +1428,7 @@
                 on:mouseenter={(ev) => onPipEnter(ev, key, tip)}
                 on:mouseleave={() => onPipLeave(key)}
                 on:keydown={(ev) => onPipKeydown(ev, key, tip)}
-              >{effectPipGlyph(e.defId)}</span>
+              >{@render pipFace(e.defId)}</span>
             {/each}
           </div>
         {/if}
@@ -1488,7 +1494,7 @@
       <!-- data-cid = the featured enemy id (the Visual-mode pop/tracer anchor). -->
       <div class="ship enemy" data-cid={enemyFeatured?.id}>
         <div class="ship-head">
-          <div class="portrait">{"☠️"}</div>
+          <div class="portrait" aria-hidden="true"><Icon name="hostile" /></div>
           <div>
             <div class="ship-name">{enemyName}</div>
             <div class="ship-class">{faction ? faction.name : "Hostile"}</div>
@@ -1517,7 +1523,7 @@
                 on:mouseenter={(ev) => onPipEnter(ev, key, tip)}
                 on:mouseleave={() => onPipLeave(key)}
                 on:keydown={(ev) => onPipKeydown(ev, key, tip)}
-              >{effectPipGlyph(e.defId)}</span>
+              >{@render pipFace(e.defId)}</span>
             {/each}
           </div>
         {/if}
@@ -1620,7 +1626,7 @@
           on:click={() => toggleExpanded(playerRowId)}
           aria-expanded={expandedId === playerRowId}
         >
-          <div class="cvm-ico">{"\u{1F6E1}️"}</div>
+          <div class="cvm-ico" aria-hidden="true"><Icon name="ship" /></div>
           <div class="cvm-main">
             <div class="cvm-name">{playerName}</div>
             <div class="cvm-sub">{shipClassLabel}{#if shipClassLabel} &middot; {/if}{stanceLabel}</div>
@@ -1665,7 +1671,7 @@
                         on:mouseenter={(ev) => onPipEnter(ev, key, tip)}
                         on:mouseleave={() => onPipLeave(key)}
                         on:keydown={(ev) => onPipKeydown(ev, key, tip)}
-                      ><span class="pip {effectPipClass(e.defId)}">{effectPipGlyph(e.defId)}</span></span>
+                      ><span class="pip {effectPipClass(e.defId)}">{@render pipFace(e.defId)}</span></span>
                     {/each}
                   {:else}
                     <span class="cvm-none">none</span>
@@ -1720,7 +1726,7 @@
             on:click={() => toggleExpanded(enemy.id)}
             aria-expanded={expandedId === enemy.id}
           >
-            <div class="cvm-ico">{destroyed ? "\u{1F480}" : "☠️"}</div>
+            <div class="cvm-ico" aria-hidden="true"><Icon name={destroyed ? "shipDebris" : "hostile"} /></div>
             <div class="cvm-main">
               <div class="cvm-name">
                 <span class="cvm-nametext">{eLabel}</span>
@@ -1772,7 +1778,7 @@
                           on:mouseenter={(ev) => onPipEnter(ev, key, tip)}
                           on:mouseleave={() => onPipLeave(key)}
                           on:keydown={(ev) => onPipKeydown(ev, key, tip)}
-                        ><span class="pip {effectPipClass(e.defId)}">{effectPipGlyph(e.defId)}</span></span>
+                        ><span class="pip {effectPipClass(e.defId)}">{@render pipFace(e.defId)}</span></span>
                       {/each}
                     {:else}
                       <span class="cvm-none">none</span>

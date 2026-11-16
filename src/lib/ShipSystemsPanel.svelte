@@ -89,6 +89,7 @@
   import { conditionMeter, pieceWearCard, shipGearSummary } from "./gearWearDisplay";
   const GEAR_WEAR_HELP_TOPIC_ID = "gearWear";
   import Icon from "./ui/Icon.svelte";
+  import type { IconName } from "./ui/icons";
   // OT-UI (the 2026-11-10 Overtime buttons mockup, approved): the hull repair's Overtime strip and rate chip.
   import JobOvertimeStrip from "./JobOvertimeStrip.svelte";
   import OvertimeRateChip from "./OvertimeRateChip.svelte";
@@ -129,7 +130,7 @@
   // control is injected into the card's footer <slot>. EquipmentTooltip was extended on
   // this branch (commit df53dd5) for weapon/drone blueprint name resolution and is
   // otherwise preserved.
-  import EquipmentTooltip, { equipmentRarityColor, equipmentIcon, equipmentSvgIcon } from "./EquipmentTooltip.svelte";
+  import EquipmentTooltip, { equipmentRarityColor, equipmentSvgIcon } from "./EquipmentTooltip.svelte";
   // Shared PURE viewport-clamp math for the floating tooltip (prefer-above / flip-below
   // / clamp). Extracted so this panel and the Combat View pip tooltips share ONE clamp
   // implementation; the measure + await-tick + reflow flow below stays local.
@@ -235,23 +236,11 @@
   // The tiles whose pieces carry a variant (an array or a crew module): their tile names it on its own line.
   const VARIANT_LINE_SLOTS: ReadonlySet<EquipmentSlotType> = new Set<EquipmentSlotType>(["sensor", ...CREW_MODULE_TILE_SLOTS]);
 
-  // A stable per-slotType glyph for the combat slots (weapon / shield / plating /
-  // drone), which carry no economy "variety" and so are not covered by the shared
-  // equipmentIcon map. Economy slots fall through to equipmentIcon (the single-source
-  // variety glyph), so cargo / FTL / reactor / rig tiles stay identical to the bay.
-  function tileIcon(piece: EquipmentInstance): string {
-    switch (piece.slotType) {
-      case "weapon":
-        return "\u{1F52B}"; // pistol: a mounted weapon
-      case "shieldEmitters":
-        return "\u{1F6E1}\u{FE0F}"; // shield
-      case "hullPlating":
-        return "\u{1F9F1}"; // brick: hull plating
-      case "droneBay":
-        return "\u{1F6F0}\u{FE0F}"; // satellite: a drone squadron pod
-      default:
-        return equipmentIcon(piece); // economy slots -> the shared variety glyph
-    }
+  // A tile's SVG glyph: the shared variety-or-slot glyph (EquipmentTooltip equipmentSvgIcon, the single source), so the
+  // combat tiles (weapon / shield / plating / drone) and the economy tiles stay identical to the bay. The 0.14.0 emoji
+  // sweep retired the combat slots' own emoji here; the generic gear is only a type-level fallback.
+  function tileIcon(piece: EquipmentInstance): IconName {
+    return equipmentSvgIcon(piece) ?? "equipment";
   }
 
   // Captain-specialization display names (the CaptainTalentBranch -> title map the
@@ -1692,7 +1681,7 @@
             {/if}
           {/if}
         </div>
-        <div class="ss-portrait" aria-hidden="true">{assignedCaptain ? "\u{1F9D1}‍\u{1F680}" : "⚓"}</div>
+        <div class="ss-portrait" aria-hidden="true"><Icon name={assignedCaptain ? "captain" : "docks"} /></div>
       </div>
       {#if !embedded}
         <button class="ss-close" on:click={onClose} aria-label="Close Ship Systems">&#10005;</button>
@@ -1881,7 +1870,7 @@
                   >
                     <span class="ss-tile" style="--tc: {equipmentRarityColor(weapon.rarity)}">
                       <span class="ss-tile-dot"></span>
-                      <span class="ss-tile-ic">{tileIcon(weapon)}</span>
+                      <span class="ss-tile-ic"><Icon name={tileIcon(weapon)} /></span>
                       <span class="ss-tile-il">iL {weapon.iLevel}</span>
                     </span>
                     <span class="ss-hp-name">{weaponName(weapon)}</span>
@@ -1949,7 +1938,7 @@
                   >
                     <span class="ss-tile" style="--tc: {equipmentRarityColor(fitted.rarity)}">
                       <span class="ss-tile-dot"></span>
-                      <span class="ss-tile-ic">{tileIcon(fitted)}</span>
+                      <span class="ss-tile-ic"><Icon name={tileIcon(fitted)} /></span>
                       <span class="ss-tile-il">iL {fitted.iLevel}</span>
                     </span>
                     <span class="ss-slot-text">
@@ -1995,7 +1984,6 @@
               {@const fitted = fittedBySlot[meta.slotType]}
               <div class="ss-slot" class:sel={selectedSlot === meta.slotType} class:locked={editsBlocked}>
                 {#if fitted}
-                  {@const fittedSvg = equipmentSvgIcon(fitted)}
                   {@const variantLine = VARIANT_LINE_SLOTS.has(fitted.slotType) && ship ? shipSystemTileLine(safeState, ship, fitted) : null}
                   {@const hullLine = ship ? hullFamilyBonusLine(safeState, ship, fitted) : null}
                   <button
@@ -2010,7 +1998,7 @@
                   >
                     <span class="ss-tile" style="--tc: {equipmentRarityColor(fitted.rarity)}">
                       <span class="ss-tile-dot"></span>
-                      <span class="ss-tile-ic">{#if fittedSvg !== null}<Icon name={fittedSvg} />{:else}{tileIcon(fitted)}{/if}</span>
+                      <span class="ss-tile-ic"><Icon name={tileIcon(fitted)} /></span>
                       <span class="ss-tile-il">iL {fitted.iLevel}</span>
                     </span>
                     <span class="ss-slot-text">
@@ -2086,7 +2074,6 @@
                   </div>
                 {:else}
                   {@const piece = t.piece}
-                  {@const svg = equipmentSvgIcon(piece)}
                   {@const cond = meterOf(piece).percent}
                   <div class="ss-mod-tile" class:sel={selectedSlot === piece.slotType && piece.slotType === "specUtility"} class:locked={editsBlocked} style="--tc: {equipmentRarityColor(piece.rarity)}">
                     <button
@@ -2100,7 +2087,7 @@
                       on:blur={blurOut}
                     >
                       <span class="ss-mod-cat">{moduleTileCategory(piece)}</span>
-                      <span class="ss-mod-glyph" aria-hidden="true">{#if svg !== null}<Icon name={svg} size={22} />{:else}{tileIcon(piece)}{/if}</span>
+                      <span class="ss-mod-glyph" aria-hidden="true"><Icon name={tileIcon(piece)} size={22} /></span>
                       <span class="ss-mod-name">{spareLabel(piece)}</span>
                       <span class="ss-mod-sub">{piece.rarity} &middot; iL {piece.iLevel} &middot; {moduleTileDrawText(piece)}</span>
                       <!-- Gear wear step 5: the live condition (settled to now), in its band's color. -->
@@ -2153,7 +2140,7 @@
                     >
                       <span class="ss-tile" style="--tc: {equipmentRarityColor(pod.rarity)}">
                         <span class="ss-tile-dot"></span>
-                        <span class="ss-tile-ic">{tileIcon(pod)}</span>
+                        <span class="ss-tile-ic"><Icon name={tileIcon(pod)} /></span>
                         <span class="ss-tile-il">iL {pod.iLevel}</span>
                       </span>
                       <span class="ss-hp-name">{droneRoleName(pod.droneRole)}</span>
@@ -2225,10 +2212,9 @@
               <div class="ss-installed">
                 <span class="ss-installed-tag">Installed</span>
                 {#if installedPiece}
-                  {@const installedSvg = equipmentSvgIcon(installedPiece)}
                   <span class="ss-tile" style="--tc: {equipmentRarityColor(installedPiece.rarity)}">
                     <span class="ss-tile-dot"></span>
-                    <span class="ss-tile-ic">{#if installedSvg !== null}<Icon name={installedSvg} />{:else}{tileIcon(installedPiece)}{/if}</span>
+                    <span class="ss-tile-ic"><Icon name={tileIcon(installedPiece)} /></span>
                     <span class="ss-tile-il">iL {installedPiece.iLevel}</span>
                   </span>
                   <span class="ss-slot-text">
@@ -2252,7 +2238,6 @@
                     {#each pickerSpares as spare (spare.id)}
                       {@const gate = canFitEquipment(safeState, shipId, spare.id, replacingId)}
                       {@const net = spareNetRating(spare)}
-                      {@const spareSvg = equipmentSvgIcon(spare)}
                       <button
                         type="button"
                         class="ss-spare-tile"
@@ -2268,7 +2253,7 @@
                       >
                         <span class="ss-tile" style="--tc: {equipmentRarityColor(spare.rarity)}">
                           <span class="ss-tile-dot"></span>
-                          <span class="ss-tile-ic">{#if spareSvg !== null}<Icon name={spareSvg} />{:else}{tileIcon(spare)}{/if}</span>
+                          <span class="ss-tile-ic"><Icon name={tileIcon(spare)} /></span>
                           <span class="ss-tile-il">iL {spare.iLevel}</span>
                         </span>
                         <span class="ss-slot-text">
@@ -2390,7 +2375,7 @@
                hardpoint / drone-bay capacity. -->
           <div class="ss-cat">
             <div class="ss-cat-head">
-              <span class="ss-cat-glyph" aria-hidden="true">&#128640;</span> Innate
+              <span class="ss-cat-glyph" aria-hidden="true"><Icon name="ship" /></span> Innate
               <span class="ss-cat-note">the hull itself</span>
             </div>
             <div class="ss-srow"><span class="ss-sk">Hull frame</span><span class="ss-sv">{fmtFlat(combatReadout.innateHullArmor)}</span></div>
@@ -2403,7 +2388,7 @@
           <!-- SYSTEMS - OFFENSIVE: the installed weapons + the mounted / cap count + the
                advisory Battle Rating from the same folded loadout. -->
           <div class="ss-cat">
-            <div class="ss-cat-head"><span class="ss-cat-glyph" aria-hidden="true">&#9876;&#65039;</span> Systems &middot; Offensive</div>
+            <div class="ss-cat-head"><span class="ss-cat-glyph" aria-hidden="true"><Icon name="roleOffense" /></span> Systems &middot; Offensive</div>
             {#each mountedWeapons as weapon (weapon.id)}
               <div class="ss-srow ss-srow-sub">
                 <span class="ss-sk"><span class="ss-fam" style="background: {weaponFamilyColor(weapon.weaponType)}"></span>{weaponName(weapon)}</span>
@@ -2424,7 +2409,7 @@
                emitter cap x the hull's shield effectiveness. Each shows its split so the source of the
                number is visible. -->
           <div class="ss-cat">
-            <div class="ss-cat-head"><span class="ss-cat-glyph" aria-hidden="true">&#128737;&#65039;</span> Systems &middot; Defensive</div>
+            <div class="ss-cat-head"><span class="ss-cat-glyph" aria-hidden="true"><Icon name="roleDefense" /></span> Systems &middot; Defensive</div>
             <div class="ss-srow">
               <span class="ss-sk">Hull integrity</span>
               <span class="ss-sv">{fmtFlat(combatReadout.hullTotal)} <small>= {fmtFlat(combatReadout.innateHullArmor)} frame{#if combatReadout.platingHullStrength > 0} + {fmtFlat(combatReadout.platingHullStrength)} plating{/if}</small></span>
@@ -2449,7 +2434,7 @@
           <!-- SYSTEMS - SUPPORT: the installed drone pods (carrier-only). A hull with no
                bays shows a "no drone bays" empty state rather than an empty group. -->
           <div class="ss-cat">
-            <div class="ss-cat-head"><span class="ss-cat-glyph" aria-hidden="true">&#128752;&#65039;</span> Systems &middot; Support</div>
+            <div class="ss-cat-head"><span class="ss-cat-glyph" aria-hidden="true"><Icon name="drone" /></span> Systems &middot; Support</div>
             {#if hasDroneBays}
               <div class="ss-srow"><span class="ss-sk">Drone bays used</span><span class="ss-sv">{mountedPods.length} / {droneBayCap}</span></div>
               {#each mountedPods as pod (pod.id)}
@@ -2472,7 +2457,7 @@
              the inline "(...)" note stays the gear-only delta, an (i) button opens the stat's
              definition popover, and tapping the value opens its SOURCE-buckets popover. -->
         <div class="ss-cat">
-          <div class="ss-cat-head"><span class="ss-cat-glyph" aria-hidden="true">&#9935;</span> Exploration / Prospecting</div>
+          <div class="ss-cat-head"><span class="ss-cat-glyph" aria-hidden="true"><Icon name="pickaxe" /></span> Exploration / Prospecting</div>
           {#each readoutRows as row (row.key)}
             {@const gearNote = fmtDelta({ label: row.label, base: row.base, fitted: row.gear, kind: row.kind })}
             <div class="ss-srow">

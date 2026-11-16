@@ -6,7 +6,9 @@
   // crewLock (CP-10, user pick 8 2026-11-02): the words of a crew lock on what the tab edits; the tab stays live and
   // wears a small SVG lock before its label (the panel says the same in its lock line). Not `locked`, which means a
   // tab that is not built yet.
-  export let tabs: { key: string; label: string; locked?: boolean; badge?: string; crewLock?: string }[];
+  // viewLock (0.14.0 emoji sweep): the same small SVG lock on a LIVE tab that is view-only for another reason (a
+  // captain committed to another prestige branch), its words in the title. It replaced a lock emoji in the label.
+  export let tabs: { key: string; label: string; locked?: boolean; badge?: string; crewLock?: string; viewLock?: string }[];
   export let active: string;
   export let onSelect: (key: string) => void;
 
@@ -57,12 +59,12 @@
         class:active={active === tab.key}
         class:locked={tab.locked}
         aria-disabled={tab.locked ? true : undefined}
-        title={tab.locked ? "Coming soon, not yet available" : tab.crewLock}
+        title={tab.locked ? "Coming soon, not yet available" : tab.crewLock ?? tab.viewLock}
         on:click={() => {
           if (!tab.locked) onSelect(tab.key);
         }}
       >
-        {#if tab.locked}🔒 {/if}{#if tab.crewLock}<span class="sub-tab-lock"><Icon name="lock" size={11} /></span><span class="sub-tab-sr">Crew locked: </span>{/if}{tab.label}
+        {#if tab.locked}<span class="sub-tab-lock"><Icon name="lock" size={11} /></span><span class="sub-tab-sr">Locked: </span>{/if}{#if tab.crewLock}<span class="sub-tab-lock"><Icon name="lock" size={11} /></span><span class="sub-tab-sr">Crew locked: </span>{/if}{#if tab.viewLock && !tab.crewLock}<span class="sub-tab-lock"><Icon name="lock" size={11} /></span><span class="sub-tab-sr">View only: </span>{/if}{tab.label}
         {#if tab.badge}<span class="sub-tab-badge">{tab.badge}</span>{/if}
       </button>
     {/each}

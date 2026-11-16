@@ -8,10 +8,9 @@
 // accreting across App.svelte. This module is that home: adding an icon is a
 // DATA addition here, never new markup at the call site.
 //
-// MIGRATION POLICY (enforced in review, from the design): all NEW icons are
-// SVG through <Icon>. Existing emoji (HOME_ICON_GLYPH, the roster glyph, the
-// loadout-board tiles, the warehouse material glyphs) migrate ONLY on a surface
-// a later unit already rewrites. There is no standalone emoji sweep in 0.13.3.
+// MIGRATION POLICY: every icon is SVG through <Icon>. The 0.14.0 emoji sweep
+// (user 2026-11-16 "All of them in 0.14.0") moved the last player-facing emoji
+// here, and src/lib/noEmoji.test.ts now fails the build if one comes back.
 //
 // DRAWING CONTRACT, so a new icon matches the ones already here:
 //   - One 24x24 grid (viewBox "0 0 24 24"), the same grid the 0.13.2 nav icons
@@ -683,6 +682,58 @@ export const ICON_PATHS = {
   // Facility upgrade: a flat-roofed block with its door and an arrow rising beside it (Command Home's facility upgrade
   // rows; was the hammer and wrench emoji). Kept apart from `warehouse` (a pitched roof) and `arrowUp` (no block).
   facilityUpgrade: ["M4 21V10h9v11", "M2.5 21h12", "M7.5 21v-4h2v4", "M18.5 20V5", "M15 8.5L18.5 5 22 8.5"],
+
+  // The 0.14.0 emoji sweep (user 2026-11-16 "All of them in 0.14.0"): the glyphs no existing icon already meant.
+  // Each reviewed at 16 / 28 / 56 px in both themes.
+  // Pickaxe: a tapered, curved pick head with its handle through the middle (a thin head read as an arrow at 16 px) (a captain out mining, the Prospector Hold, the
+  // Exploration / Prospecting systems). Kept apart from `excDeepcut` (a pick over a plumb bob) by the bare tool.
+  pickaxe: ["M6 3.5Q19 4.5 20.5 18Q16.5 8 6 3.5z", "M14.9 9.4L3.5 20.8"],
+  // Person: one head and shoulders (an idle captain awaiting orders). Kept apart from `recruit` (no plus) and `team`.
+  person: ["M12 3.5a4 4 0 1 0 0 8 4 4 0 0 0 0-8z", "M4.5 20.5c.7-4 3.6-6.5 7.5-6.5s6.8 2.5 7.5 6.5"],
+  // Captain: a bust in a peaked officer's cap (a captain's portrait slot, a ship with its captain aboard).
+  captain: ["M7.5 7.5c0-2.8 2-4.5 4.5-4.5s4.5 1.7 4.5 4.5", "M5.5 7.5h13", "M12 5.1v.2", "M9 8.5v1.5a3 3 0 0 0 6 0V8.5", "M5 21c.6-3.8 3.4-6 7-6s6.4 2.2 7 6"],
+  // Portrait: a frame holding a head and shoulders (the Fleet Admiral's portrait, art to come).
+  portrait: ["M4 3h16v18H4z", "M12 7a2.5 2.5 0 1 0 0 5 2.5 2.5 0 0 0 0-5z", "M7.5 18c.5-2.6 2.2-4 4.5-4s4 1.4 4.5 4"],
+  // Unlock: `lock`'s padlock with its shackle swung open (the Lock button on a piece that is not locked yet).
+  unlock: ["M6 11h12a1 1 0 0 1 1 1v8a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1v-8a1 1 0 0 1 1-1z", "M8 11V7a4 4 0 0 1 7.8-1.2"],
+  // Edit: a pencil on the diagonal with its ferrule line (Rename).
+  edit: ["M15.5 4.5l4 4L9 19l-5 1 1-5z", "M13 7l4 4"],
+  // Go to: an arrow leaving up and to the right (a link that jumps to another screen).
+  goTo: ["M7 17L17 7", "M9 7h8v8"],
+  // Ship gear (the economy and combat slots and their varieties; each its own glyph, the standing distinct-icon rule).
+  // Cargo hold: a ribbed shipping container (the Balanced Hold and the Cargo Bay slot). Kept apart from `supplyCache`
+  // (a lidded crate) by the ribs.
+  cargoHold: ["M3 6.5h18v12H3z", "M7.5 9.5v6M12 9.5v6M16.5 9.5v6"],
+  // Cargo stack: three crates stacked two and one (the Hauler Hold, the most cargo).
+  cargoStack: ["M3 13.5h18v7H3z", "M12 13.5v7", "M7.5 6.5h9v7h-9z"],
+  // Sprint drive: the fleet delta flying right with speed lines behind it. Kept apart from `drive` (a rocket bell).
+  sprintDrive: ["M21.5 12L8 18.5l2.5-6.5L8 5.5z", "M2.5 8.5h4M1.5 12h6M2.5 15.5h4"],
+  // Compass: a ring with an upright needle and cardinal ticks (the Balanced Drive). Kept apart from
+  // `relicDeepVeinCompass` (a diagonal kite needle and one tick) by the upright needle and the four ticks.
+  compass: ["M12 4a8 8 0 1 0 0 16 8 8 0 0 0 0-16z", "M12 7.5l2 4.5-2 4.5-2-4.5z", "M12 1.5V4M12 20v2.5M1.5 12H4M20 12h2.5"],
+  // Atom: three crossed orbits around a nucleus (the High-Output Core and the Reactor Core slot).
+  atom: ["M2.5 12a9.5 3.8 0 1 0 19 0 9.5 3.8 0 1 0-19 0z", "M7.25 3.77a9.5 3.8 60 1 0 9.5 16.45 9.5 3.8 60 1 0-9.5-16.45z", "M16.75 3.77a9.5 3.8 120 1 0-9.5 16.45 9.5 3.8 120 1 0 9.5-16.45z", "M12 11.9v.2"],
+  // Efficient core: an upright cell holding a leaf (the Efficient Core). Kept apart from `moduleCapacitor` (a cell on
+  // its side with two bars) by the upright body and the leaf.
+  coreEfficient: ["M7.5 5h9v16h-9z", "M10 3h4v2", "M10 18c0-4 1.6-6.5 4.5-7.5 0 4-1.6 6.5-4.5 7.5z"],
+  // Balance: a beam scale with two hanging pans (the Balanced Core).
+  balance: ["M12 4v16", "M8 20.5h8", "M4.5 7h15", "M2 13.5L4.5 7 7 13.5", "M2 13.5a2.5 2.5 0 0 0 5 0", "M17 13.5L19.5 7 22 13.5", "M17 13.5a2.5 2.5 0 0 0 5 0"],
+  // Plating: a riveted hull panel with its seam (the Hull Plating slot). Kept apart from `hullRepair` (a cracked plate
+  // with a patch) and `moduleBracing` (a frame braced corner to corner).
+  plating: ["M7.5 3h9l4.5 4.5v9L16.5 21h-9L3 16.5v-9z", "M8 8v.2M16 8v.2M8 16v.2M16 16v.2"],
+  // Shield emitter: an emitter on a deck line throwing up a dome (the Shield Emitters slot). Kept apart from `security`
+  // and the shield modules (heater shields) by the dome.
+  shieldEmitter: ["M2.5 17.5h19", "M3 17.5a9 9 0 0 1 18 0", "M7 17.5a5 5 0 0 1 10 0", "M12 17.5v3", "M9.5 20.5h5"],
+  // Ship weapon: a deck turret with twin barrels raised (a ship's weapon mount). Named apart from `weaponHand`. One barrel
+  // read as a desk lamp at 16 px; the twin barrels read as a gun.
+  shipWeapon: ["M2 20.5h14", "M3.5 20.5V17a5 5 0 0 1 10 0v3.5", "M11.5 13l9.5-4.5", "M12.8 15.5l9-4.2"],
+  // Drone: a quad-rotor drone, a body with four rotor rings (the Drone Bay slot and the Support systems).
+  drone: ["M10 10h4v4h-4z", "M10 10L6.8 6.8M14 10l3.2-3.2M10 14l-3.2 3.2M14 14l3.2 3.2", "M5 2.5a2.5 2.5 0 1 0 0 5 2.5 2.5 0 0 0 0-5zM19 2.5a2.5 2.5 0 1 0 0 5 2.5 2.5 0 0 0 0-5zM5 16.5a2.5 2.5 0 1 0 0 5 2.5 2.5 0 0 0 0-5zM19 16.5a2.5 2.5 0 1 0 0 5 2.5 2.5 0 0 0 0-5z"],
+  // Hostile: a skull (an enemy ship's portrait in combat).
+  hostile: ["M12 3a8 8 0 0 0-8 8c0 2.6 1.2 4.5 3 5.6V20h10v-3.4c1.8-1.1 3-3 3-5.6a8 8 0 0 0-8-8z", "M9 10a1.5 1.5 0 1 0 0 3 1.5 1.5 0 0 0 0-3zM15 10a1.5 1.5 0 1 0 0 3 1.5 1.5 0 0 0 0-3z", "M10.5 20v-2.5M13.5 20v-2.5"],
+  // Flame: a fire with a side lick (a damage-over-time effect's pip). A symmetric tongue read as a water drop at 16 px;
+  // the lick on its left is what makes it fire. Kept apart from `refinery` (a flame in a furnace).
+  flame: ["M12 21.5c-3.9 0-6.5-2.6-6.5-6 0-2.6 1.4-4.4 2.9-5.9.2 1.6.9 2.7 2 3.2-.4-3.6 1.1-6.6 3.6-9.3.3 3.3 1.9 5.2 3.4 7 1.2 1.5 1.1 2.9 1.1 5 0 3.4-2.6 6-6.5 6z"],
 } as const satisfies Record<string, readonly string[]>;
 
 /**
