@@ -233,7 +233,7 @@ const GOLDEN: Record<string, string | string[]> = {
   // Mission Control, OC-15's Lab and Fabricator tiers) are in the rows. The rungs test reads back to every earlier
   // value: without OC-15's rungs G1-6's pin (rungsG16), without G1-6's OC-15's (RUNGS_OC15), without both the
   // pre-flip capture (rungsBeforeG16).
-  rungs: "6790392f",
+  rungs: "ecda6fad", // FR-C lane 1 M2: exact warehouse costs (was 6790392f; traced in the rungs case)
   rungsG16: "5394692d",
   rungsBeforeG16: "9928b877",
   utility: [
@@ -349,9 +349,27 @@ describe("WR-4 pre-fix goldens", () => {
       }
       return out;
     };
+    // FR-C lane 1 M2 (Warehouse rung costs are exact whole numbers): the poor rows' "Need N" reasons name the warehouse
+    // costs, so the fix moved this pin (was 6790392f). With the T1 / T2 tracks priced the old way (the Decimal times/div
+    // that drifted to 12000000.000000002) every row hashes to the old pin again, so the exact costs are the only move;
+    // the read-backs below run with them too.
+    const t1 = FACILITIES.warehouseT1;
+    const t2 = FACILITIES.warehouseT2;
+    const drift = (cap: number, level: number): Decimal => new Decimal(cap).times(2 ** level).times(3).div(4);
+    const withPreFrcM2 = <T,>(fn: () => T): T => {
+      try {
+        FACILITIES.warehouseT1 = { ...t1, upgrades: t1.upgrades.map((r, i) => ({ ...r, materials: { commonOre: drift(1_000_000, i) } })) };
+        FACILITIES.warehouseT2 = { ...t2, upgrades: t2.upgrades.map((r, i) => (i === 0 ? r : { ...r, materials: { denseOre: drift(1_000_000, i) } })) };
+        return fn();
+      } finally {
+        FACILITIES.warehouseT1 = t1;
+        FACILITIES.warehouseT2 = t2;
+      }
+    };
     const out = rows();
     expect(out.some((l) => l.endsWith("|ok"))).toBe(true);
     expect(hash(out)).toEqual(GOLDEN.rungs);
+    expect(hash(withPreFrcM2(rows))).toEqual("6790392f");
     // The read-back to both earlier values: without the OC-15 rungs the rows are G1-6's pin, without the G1-6 board
     // rungs (Mission Control cut back to its founding rung) they are OC-15's, and without both the pre-flip capture.
     const mc = FACILITIES.missionControl;
@@ -363,9 +381,9 @@ describe("WR-4 pre-fix goldens", () => {
         FACILITIES.missionControl = mc;
       }
     };
-    expect(hash(withPreOc15Tracks(rows))).toEqual(GOLDEN.rungsG16);
-    expect(hash(withoutG16(rows))).toEqual(RUNGS_OC15);
-    expect(hash(withoutG16(() => withPreOc15Tracks(rows)))).toEqual(GOLDEN.rungsBeforeG16);
+    expect(hash(withPreFrcM2(() => withPreOc15Tracks(rows)))).toEqual(GOLDEN.rungsG16);
+    expect(hash(withPreFrcM2(() => withoutG16(rows)))).toEqual(RUNGS_OC15);
+    expect(hash(withPreFrcM2(() => withoutG16(() => withPreOc15Tracks(rows))))).toEqual(GOLDEN.rungsBeforeG16);
   });
 
   it("utility: the Damage Control and Pathfinder Suite readers", () => {
