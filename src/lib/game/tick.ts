@@ -3464,6 +3464,90 @@ function lazyOnce<T>(compute: () => T): () => T {
   };
 }
 
+// PATROL CATCH-UP PERFORMANCE: a cycle's setup (its frozen gear view, the folded carry pools, the Damage Control Suite's
+// patch-up fraction and the stamped cycle's system pools), a pure function of the cycle's frozen records, the ship's
+// type and its installed pieces. Computed once per cycle instead of on every 1 s step: reused while every input is the
+// SAME object (or value) it was computed from. A gear change of any kind (an install, a swap, wear or repair landing on
+// a piece) replaces that piece object in the state, and a relaunch mints new records, so either misses and recomputes.
+interface PatrolCycleSetup {
+  cycleGear: EquipmentInstance[] | undefined;
+  foldedDefense: ReturnType<typeof foldedPlayerDefense>;
+  waveHullRegenFraction: number;
+  cyclePools: ReturnType<typeof patrolCyclePools>;
+}
+interface PatrolCycleSetupEntry {
+  gear: readonly EquipmentInstance[] | undefined;
+  cycleStartCondition: PatrolMissionState["cycleStartCondition"];
+  officerCombat: PatrolMissionState["officerCombat"];
+  captainCombat: PatrolMissionState["captainCombat"];
+  combatRules: PatrolMissionState["combatRules"];
+  favoredSpec: PatrolMissionState["favoredSpec"];
+  typeKey: ShipInstance["typeKey"];
+  setup: PatrolCycleSetup;
+}
+// Keyed on the cycle's wave schedule (one array per cycle, minted with it and only ever replaced whole), and checked
+// against every input above before it is reused.
+const PATROL_CYCLE_SETUP = new WeakMap<readonly number[], PatrolCycleSetupEntry>();
+
+function samePieces(a: readonly EquipmentInstance[] | undefined, b: readonly EquipmentInstance[] | undefined): boolean {
+  if (a === undefined || b === undefined) return a === b;
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return false;
+  return true;
+}
+
+function computePatrolCycleSetup(
+  installedGear: EquipmentInstance[] | undefined,
+  mission: PatrolMissionState,
+  ship: ShipInstance,
+  hullType: CombatHullType,
+  shipDef: ShipTypeDef,
+): PatrolCycleSetup {
+  const cycleGear = patrolCycleGear(installedGear, mission);
+  const suite = cycleGear && mission.favoredSpec === 1 ? withFavoredLines(cycleGear, ship.typeKey) : cycleGear;
+  return {
+    cycleGear,
+    foldedDefense: foldedPlayerDefense(shipDef, cycleGear, mission.officerCombat, mission.captainCombat),
+    waveHullRegenFraction: damageControlEffect(suite).waveHullRegenFraction,
+    cyclePools: patrolCyclePools(hullType, shipDef, cycleGear, mission),
+  };
+}
+
+function patrolCycleSetup(
+  installedGear: EquipmentInstance[] | undefined,
+  mission: PatrolMissionState,
+  ship: ShipInstance,
+  hullType: CombatHullType,
+  shipDef: ShipTypeDef,
+): PatrolCycleSetup {
+  if (!PATROL_PERF_SWITCH.live) return computePatrolCycleSetup(installedGear, mission, ship, hullType, shipDef);
+  const hit = PATROL_CYCLE_SETUP.get(mission.waveTicks);
+  if (
+    hit !== undefined &&
+    hit.cycleStartCondition === mission.cycleStartCondition &&
+    hit.officerCombat === mission.officerCombat &&
+    hit.captainCombat === mission.captainCombat &&
+    hit.combatRules === mission.combatRules &&
+    hit.favoredSpec === mission.favoredSpec &&
+    hit.typeKey === ship.typeKey &&
+    samePieces(hit.gear, installedGear)
+  ) {
+    return hit.setup;
+  }
+  const setup = computePatrolCycleSetup(installedGear, mission, ship, hullType, shipDef);
+  PATROL_CYCLE_SETUP.set(mission.waveTicks, {
+    gear: installedGear === undefined ? undefined : [...installedGear],
+    cycleStartCondition: mission.cycleStartCondition,
+    officerCombat: mission.officerCombat,
+    captainCombat: mission.captainCombat,
+    combatRules: mission.combatRules,
+    favoredSpec: mission.favoredSpec,
+    typeKey: ship.typeKey,
+    setup,
+  });
+  return setup;
+}
+
 // tickCaptainPatrol: advance ONE captain's patrol by `ticksElapsed` route ticks. PURE
 // given its inputs (the only randomness is the state-derived combat seeds, never
 // Math.random), so it is closed-form / offline==live (see the header invariant). A
@@ -3611,8 +3695,11 @@ export function tickCaptainPatrol(
   // cycleStartCondition), which every wave, the carry pools and the Damage Control Suite read. A cycle without the
   // stamp (one that started before step 4, or the training cycle) reads the stored gear, which every combat reader takes
   // as pristine: exactly the cycle it was. `let`: a relaunch freezes its own.
-  let cycleGear = patrolCycleGear(installedGear, captain.mission);
-  let foldedDefense = foldedPlayerDefense(shipDef, cycleGear, captain.mission.officerCombat, captain.mission.captainCombat);
+  // PATROL CATCH-UP PERFORMANCE: the cycle's setup (this view, these pools, the suite's fraction and the system pools
+  // below) is computed once per cycle and reused while its inputs are unchanged (patrolCycleSetup).
+  const setupAtStart = patrolCycleSetup(installedGear, captain.mission, ship, hullType, shipDef);
+  let cycleGear = setupAtStart.cycleGear;
+  let foldedDefense = setupAtStart.foldedDefense;
   // Command Presence's per-wave reward share (0 = no multiply, byte-identical rewards). Read on the first WON wave only
   // (economyTick hands it as a lazy getter, PATROL_PERF_SWITCH), the same value whenever it is read.
   const patrolOutputShare = lazyOnce(() => Math.max(0, officerEffects.outputShare ?? 0));
@@ -3624,7 +3711,7 @@ export function tickCaptainPatrol(
   // stamp rides every relaunch); a run in flight from before reads them as stored.
   const favoredRun = captain.mission.favoredSpec === 1;
   const suiteGear = (g: EquipmentInstance[] | undefined): EquipmentInstance[] | undefined => (g && favoredRun ? withFavoredLines(g, ship.typeKey) : g);
-  let waveHullRegenFraction = damageControlEffect(suiteGear(cycleGear)).waveHullRegenFraction;
+  let waveHullRegenFraction = setupAtStart.waveHullRegenFraction;
 
   // WORKING mission copy. Spread makes a fresh object (so wavesWon/phase/etc. mutations
   // never touch the input), and playerDrones is DEEP-cloned so the between-wave
@@ -3706,7 +3793,7 @@ export function tickCaptainPatrol(
   // stamped cycle's pools (the start it opened at and its ceilings) for the cycle's pool wear (null: an unstamped
   // cycle, which wears nothing); and the offset a stamped cycle's patrol ended at.
   const gearWearEvents: PatrolWearEvent[] = [];
-  let cyclePools = patrolCyclePools(hullType, shipDef, cycleGear, captain.mission);
+  let cyclePools = setupAtStart.cyclePools;
   let endedAtTicks: number | null = null;
   // GEAR WEAR step 4 (pause to repair): the home repair windows of the pauses that closed this call (absolute game
   // seconds); the run's pauses so far (user "Count on the run": its one log entry says how many).
