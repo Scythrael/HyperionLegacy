@@ -325,6 +325,30 @@ export const ICON_SEMANTICS: Record<IconName, IconSemantic> = {
   // OT-UI (2026-11-10): the things two Command Home rows and the damaged banner name (a hull repair, a facility upgrade).
   hullRepair: "subject",
   facilityUpgrade: "subject",
+  // 0.14.0 emoji sweep. Things: each names a job, a person, a piece of ship gear or a combatant.
+  pickaxe: "subject",
+  person: "subject",
+  captain: "subject",
+  portrait: "subject",
+  cargoHold: "subject",
+  cargoStack: "subject",
+  sprintDrive: "subject",
+  compass: "subject",
+  atom: "subject",
+  coreEfficient: "subject",
+  balance: "subject",
+  plating: "subject",
+  shieldEmitter: "subject",
+  shipWeapon: "subject",
+  drone: "subject",
+  hostile: "subject",
+  // A burn on a combatant: an ATTENTION meaning (it is taking damage every round), so a pack must keep it a flame.
+  flame: "alert",
+  // Unlocked is the safety state's other half: `lock` is an alert, so its open twin is one too.
+  unlock: "alert",
+  // Verbs: rename, and jump to another screen.
+  edit: "action",
+  goTo: "action",
 };
 
 // ---------------------------------------------------------------------------
