@@ -1618,11 +1618,24 @@ export function startExpedition(
   // dispatch FROM THE LIST draws a fresh list, and every system a recall returned to the candidates rolls off with it,
   // like the list's own three. Resumable systems stay (they are kept until finished or abandoned).
   const heldNow = heldSystems(state);
+  // FR-E fix pass (lane 3 I3): a note waiting for a list a restore took back (HeldSystem.listSeed, not the list on
+  // screen) does not roll off: this very dispatch may be the one that draws its list again.
+  const keepsList = RECALL_KEEPS_LIST_SWITCH.live;
+  const rollsOff = (h: HeldSystem): boolean => h.kind === "candidate" && !(keepsList && noteWaiting(state, h));
   const heldLeft = held
     ? heldNow.filter((h) => h.id !== held.id)
-    : heldNow.some((h) => h.kind === "candidate")
-      ? heldNow.filter((h) => h.kind !== "candidate")
+    : heldNow.some(rollsOff)
+      ? heldNow.filter((h) => !rollsOff(h))
       : undefined;
+  // FR-E fix pass (lane 3 I3, the review's re-pay loop): what a dispatch from the list rolls off rides the run
+  // (Expedition.listNotes), so a recall that restores the list puts it back; a launch to a held candidate draws no list
+  // and is marked (Expedition.heldLaunch), so its recall never restores one.
+  const listNotes = keepsList && !held ? heldNow.filter(rollsOff) : [];
+  const listStamp = {
+    ...(listNotes.length > 0 ? { listNotes } : {}),
+    ...(keepsList && held?.kind === "candidate" ? { heldLaunch: 1 as const } : {}),
+  };
+  const stamped: Expedition = Object.keys(listStamp).length > 0 ? { ...expedition, ...listStamp } : expedition;
 
   // Complement CP-16: the dispatch is the captain's first expedition, and (Tier II or deeper) their first Tier II+ run,
   // when their command has none yet (recorded at this instant; the run carries its captain, Expedition.captainId).
@@ -1633,7 +1646,7 @@ export function startExpedition(
   return {
     next: noted({
       ...packed,
-      expeditions: [...state.expeditions, expedition],
+      expeditions: [...state.expeditions, stamped],
       nextExpeditionId: number + 1,
       // Safe first runs SF-1 (review): the counters as they read BEFORE this dispatch. A state without stored counters
       // (a dev save or fixture from before SF-1) derives them from its history, and that derivation would read this
@@ -1650,7 +1663,7 @@ export function startExpedition(
       ...(heldLeft !== undefined ? { heldSystems: heldLeft } : {}),
     }),
     success: true,
-    expedition,
+    expedition: stamped,
   };
 }
 
@@ -3067,8 +3080,17 @@ function heldSystemById(state: Pick<GameState, "heldSystems">, id: string): Held
 
 // FR-E (lane 3 I1, M1, I3): the note a recall left on candidate `cand` of the list on screen (HeldSystem.inList), or
 // null. Pure.
-function listNoteFor(state: Pick<GameState, "heldSystems">, cand: Pick<CandidateSystem, "seed" | "systemId">): HeldSystem | null {
-  return heldSystems(state).find((h) => h.kind === "candidate" && h.inList === true && h.seed === cand.seed && h.systemId === cand.systemId) ?? null;
+function listNoteFor(state: Pick<GameState, "heldSystems" | "expeditionSeed">, cand: Pick<CandidateSystem, "seed" | "systemId">): HeldSystem | null {
+  return (
+    heldSystems(state).find((h) => h.kind === "candidate" && h.inList === true && !noteWaiting(state, h) && h.seed === cand.seed && h.systemId === cand.systemId) ??
+    null
+  );
+}
+
+// FR-E fix pass (lane 3 I3): is `h` a note on a list that is not on screen (HeldSystem.listSeed): a restore took its list
+// back, and it waits for the next launch from the restored list to draw it again? Pure.
+function noteWaiting(state: Pick<GameState, "expeditionSeed">, h: HeldSystem): boolean {
+  return h.inList === true && typeof h.listSeed === "number" && h.listSeed !== state.expeditionSeed;
 }
 
 // A held system as a candidate (its own id; slot -1: it is not one of the list's slots). Pure.
@@ -3200,15 +3222,22 @@ export function recallExpedition(state: GameState, expeditionId: string): GameSt
   if (index < 0) return state;
   const res = recallAt(state.expeditions[index], state.gameTimeSeconds);
   if (!res.ok) return state;
-  const expeditions = state.expeditions.map((e, i) => (i === index ? res.exp : e));
+  // FR-E fix pass: the held candidates the run's launch rolled off (Expedition.listNotes) leave the record here: back to
+  // the save with a restored list, or gone for good with the list they were on.
+  const { listNotes, ...recalled } = res.exp;
+  const run: Expedition = listNotes === undefined ? res.exp : recalled;
+  const expeditions = state.expeditions.map((e, i) => (i === index ? run : e));
   // FR-E (lane 3 I3, user "Recalled launch keeps the list (Recommended)"): a system that goes back to the candidates
   // (nothing charted) goes back to the list it was launched from, when that launch drew the list on screen: the list is
   // restored (no free reroll) and the system is offered in its own slot again, its held record a note on that slot
-  // (HeldSystem.inList). Notes on the list the recall takes back go with it.
+  // (HeldSystem.inList, on HeldSystem.listSeed). The fix pass: the held candidates the launch rolled off come back with
+  // the list; the notes on the list the recall takes back wait in the save for it to be drawn again (the next launch
+  // from the restored one draws it), so no note is lost while its slot can still be launched.
   const restored = res.held?.kind === "candidate" ? restoredListSeed(state, res.exp) : null;
   if (restored !== null && res.held) {
-    const kept = heldSystems(state).filter((h) => !(h.kind === "candidate" && h.inList === true));
-    return { ...state, expeditions, expeditionSeed: restored, listRewinds: listRewindCount(state) + 1, heldSystems: [...kept, { ...res.held, inList: true }] };
+    const note: HeldSystem = { ...res.held, inList: true, listSeed: restored };
+    const back = [...heldSystems(state), ...(listNotes ?? []), note].sort((x, y) => x.heldAt - y.heldAt);
+    return { ...state, expeditions, expeditionSeed: restored, listRewinds: listRewindCount(state) + 1, heldSystems: back };
   }
   return { ...state, expeditions, ...(res.held ? { heldSystems: [...heldSystems(state), res.held] } : {}) };
 }
@@ -3233,9 +3262,12 @@ function listRewindCount(state: Pick<GameState, "listRewinds">): number {
 
 // FR-E (lane 3 I3): the expedition seed of the list run `exp` was launched from, when that launch drew the list on
 // screen (the list before it holds `exp`'s system at `exp`'s seed in its tier), else null (another list was drawn
-// since, or the switch is off). Pure.
-function restoredListSeed(state: GameState, exp: Pick<Expedition, "seed" | "targetSystemId" | "region">): number | null {
-  if (!RECALL_KEEPS_LIST_SWITCH.live || !exp.region) return null;
+// since, or the switch is off). The fix pass: only a launch FROM THE LIST draws a list; a launch to a held candidate
+// (Expedition.heldLaunch) or a resumed system draws none, so its recall restores nothing even when its seed sits on the
+// list before the one on screen. A launch from that list is then the one that drew the list on screen: a second launch
+// from it would need the list restored first, and only the recall of the first can do that. Pure.
+function restoredListSeed(state: GameState, exp: Pick<Expedition, "seed" | "targetSystemId" | "region" | "heldLaunch" | "resume">): number | null {
+  if (!RECALL_KEEPS_LIST_SWITCH.live || !exp.region || exp.heldLaunch === 1 || exp.resume !== undefined) return null;
   const before = rewindExpeditionSeed(state.expeditionSeed);
   const shape = { ...state, expeditionSeed: before, listRewinds: listRewindCount(state) + 1 };
   return tierCandidateSystems(shape, exp.region.tier).some((c) => c.seed === exp.seed && c.systemId === exp.targetSystemId) ? before : null;

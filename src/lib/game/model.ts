@@ -9177,6 +9177,16 @@ export interface Expedition {
   // repair once finished (flying back) and mid-repair the share a Cancel would keep (groundOps.ts closeGroundOps).
   // Optional, no SAVE bump.
   repairRules?: 1;
+  // Fix round FR-E fix pass (lane 3 I3, the review's re-pay loop): the held candidates this launch FROM THE LIST rolled off
+  // the console (ordinary held candidates, and the notes on the list it launched from), kept on the run so that a recall
+  // that restores the list puts them back (expedition.ts recallExpedition) and a note's kept boundaries and anomaly are
+  // never lost to another ship's launch and instant recall. They roll off for good when the run is claimed. Written only
+  // when there were any, and dropped from the record by its recall. Optional, no SAVE bump.
+  listNotes?: HeldSystem[];
+  // Fix round FR-E fix pass (lane 3 I3, the review's list rewind): this run was launched to a held candidate (a "held-<id>"
+  // launch, which draws no list), so its recall never restores a list, however its seed matches an older one. Absent on
+  // every other run. Optional, no SAVE bump.
+  heldLaunch?: 1;
 }
 
 // Expedition Tiers G2-5 (user #7 "Based on distance traveled 1:1"; G13 one confirm with the return time; G14 detour
@@ -9238,6 +9248,11 @@ export interface HeldSystem {
   // so this record is a NOTE on the slot (its kept boundaries and anomaly, read by a launch from the slot), never an extra
   // candidate; it rolls off with the next list drawn, like every held candidate. Absent otherwise.
   inList?: true;
+  // Fix round FR-E fix pass: the expedition seed of the list a note (inList) sits on. A recall that restores an older list
+  // leaves the notes on the list it takes back in the save, waiting: that list is drawn again by the next launch from
+  // the restored one (the list chain is fixed), and its notes are live again. A note whose list is not on screen is
+  // neither a candidate nor rolled off. Written with inList; absent otherwise.
+  listSeed?: number;
 }
 
 // Completion tracking (0.14.0, user answers 2026-11-13): one body of a SYSTEM RECORD (and of every completion tally,

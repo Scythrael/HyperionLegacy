@@ -248,3 +248,138 @@ describe("FR-E q3: the planet roll needs a real objective finished there", () =>
     expect(bodiesToRoll(tally([{ scanned: true, objectives: 1, done: 1, skipped: 0 }]), { bodiesRolled: [0] })).toEqual([]);
   });
 });
+
+// ===== Fix pass (the FR-E review): the list restore and the notes it carries =====
+//   R1  a list launch carries the candidate records it rolls off (Expedition.listNotes) and a recall that restores its
+//       list puts them back, so a note on the list (its kept boundaries and anomaly) survives another ship's launch and
+//       instant recall, and an ordinary held candidate does too; across a chain of restores, the notes on a list a
+//       restore takes back wait for that list to be drawn again (HeldSystem.listSeed).
+//   R2  a recall restores only the list its own launch drew: a run launched from a held candidate (no list drawn) never
+//       rewinds the list, however its seed matches an older list.
+describe("FR-E fix pass R1: the notes a list launch rolls off come back with its list", () => {
+  const free = (s: GameState): GameState => ({ ...s, expeditions: [] });
+  const SLOTS = ["cand-1-0", "cand-1-1", "cand-1-2"];
+  // A run X launched from the list of a fresh save, and an instant mid-scan of its first body with an event paid. Pure.
+  function cutFirstBody(): { base: GameState; state: GameState; exp: Expedition; cand: string; hit: { t: number; body: number; rolled: number } } {
+    for (let seed = 1; seed < 400; seed++) {
+      const base = crewed(0x1000 + seed);
+      for (const cand of SLOTS) {
+        const res = startExpedition(base, "ship-1", 1, cand);
+        if (!res.success) continue;
+        const hit = midBodyWithEvent(res.expedition!, true);
+        if (hit) return { base, state: res.next, exp: res.expedition!, cand, hit };
+      }
+    }
+    throw new Error("no run cuts its first body short with an event");
+  }
+  const repaidOn = (e: Expedition, rolled: number) => (e.scanEvents ?? []).filter((ev) => ev.bodyIndex === 0 && ev.step <= rolled);
+
+  it("another ship's launch and instant recall keep the note: the relaunch pays nothing twice (the reviewer's loop)", () => {
+    const { base, state, exp, cand, hit } = cutFirstBody();
+    const s1 = recallExpedition(at(state, hit.t), exp.id);
+    expect(s1.expeditionSeed).toBe(base.expeditionSeed);
+    const [note] = heldSystems(s1);
+    expect([note.inList, note.scanStepsRolled]).toEqual([true, hit.rolled]);
+    // Ship Y launches another slot of the same list (drawing the next list), then is recalled at once.
+    const y = startExpedition(free(s1), "ship-1", 1, SLOTS.find((c) => c !== cand)!);
+    expect(y.success, y.reason).toBe(true);
+    expect(heldSystems(y.next)).toEqual([]);
+    expect(y.expedition!.listNotes).toEqual([note]);
+    const s2 = recallExpedition(y.next, y.expedition!.id);
+    expect(s2.expeditionSeed).toBe(base.expeditionSeed);
+    expect(heldSystems(s2).find((h) => h.fromExpeditionId === exp.id)).toEqual(note);
+    // X launched again from its slot: past the rolled boundaries, none of them paid again; again and again.
+    let s = s2;
+    for (let round = 0; round < 3; round++) {
+      const x = startExpedition(free(s), "ship-1", 1, cand);
+      expect(x.success, x.reason).toBe(true);
+      expect(x.expedition!.scanStepCursor).toBe(hit.rolled);
+      expect(repaidOn(advanceExpedition(x.expedition!, FINAL), hit.rolled)).toEqual([]);
+      const back = recallExpedition(x.next, x.expedition!.id);
+      expect(back.expeditionSeed).toBe(base.expeditionSeed);
+      const yy = startExpedition(free(back), "ship-1", 1, SLOTS.find((c) => c !== cand)!);
+      s = recallExpedition(yy.next, yy.expedition!.id);
+    }
+  });
+
+  it("an ordinary held candidate on the console when the list launch rolled it off comes back with the restore", () => {
+    const s0 = crewed();
+    const a = startExpedition(s0, "ship-1", 1, "cand-1-0");
+    const b = startExpedition(free(a.next), "ship-1", 1, "cand-1-0");
+    // A's list is gone (B drew another): A's recall leaves an ordinary held candidate.
+    const s1 = recallExpedition({ ...b.next, expeditions: [a.expedition!, b.expedition!] }, a.expedition!.id);
+    const heldA = heldSystems(s1).find((h) => h.fromExpeditionId === a.expedition!.id)!;
+    expect([heldA.kind, heldA.inList]).toEqual(["candidate", undefined]);
+    expect(expeditionCandidates(s1, "ship-1", 1).map((c) => c.id)).toContain(heldA.id);
+    // Y launches from the list on screen (rolling the held candidate off), then is recalled at once.
+    const y = startExpedition({ ...s1, expeditions: [] }, "ship-1", 1, "cand-1-2");
+    expect(y.success, y.reason).toBe(true);
+    expect(heldSystems(y.next).some((h) => h.id === heldA.id)).toBe(false);
+    const back = recallExpedition(y.next, y.expedition!.id);
+    expect(back.expeditionSeed).toBe(s1.expeditionSeed);
+    expect(heldSystems(back).find((h) => h.id === heldA.id)).toEqual(heldA);
+    expect(expeditionCandidates(back, "ship-1", 1).map((c) => c.id)).toEqual(["cand-1-0", "cand-1-1", "cand-1-2", heldA.id]);
+  });
+
+  it("a chain of restores with several ships: every note waits for its own list", () => {
+    const { base, state, exp, cand, hit } = cutFirstBody();
+    const s1 = recallExpedition(at(state, hit.t), exp.id); // L1 restored, X's note on it
+    // A launches another slot of L1 (draws L2, carries X's note); B launches from L2 (draws L3).
+    const a = startExpedition(free(s1), "ship-1", 1, SLOTS.find((c) => c !== cand)!);
+    const l2 = a.next.expeditionSeed;
+    const b = startExpedition(free(a.next), "ship-1", 1, "cand-1-0");
+    // B's route anomaly is charted (forced, as in M1), and B is recalled past it: its note on L2 keeps the anomaly.
+    const bc: Expedition = { ...b.expedition!, anomalyResolved: true, anomalyCharted: true };
+    const v = bc.voyage!;
+    const tb = hit.t + Math.ceil(v.outboundSeconds * ANOMALY_CHECK_FRACTION + v.anomalySeconds + 60);
+    const s2 = recallExpedition(at({ ...b.next, expeditions: [a.expedition!, bc] }, tb), bc.id);
+    expect(s2.expeditionSeed).toBe(l2);
+    const noteB = heldSystems(s2).find((h) => h.fromExpeditionId === bc.id)!;
+    expect([noteB.inList, noteB.anomalyCharted]).toEqual([true, true]);
+    // A recalled: L1 restored with X's note and A's; B's note waits (its list is not on screen, and it is no candidate).
+    const s3 = recallExpedition(s2, a.expedition!.id);
+    expect(s3.expeditionSeed).toBe(base.expeditionSeed);
+    expect(s3.listRewinds).toBe(3);
+    expect(heldSystems(s3).find((h) => h.fromExpeditionId === exp.id)?.scanStepsRolled).toBe(hit.rolled);
+    expect(heldSystems(s3).find((h) => h.fromExpeditionId === bc.id)).toEqual(noteB);
+    expect(expeditionCandidates(s3, "ship-1", 1).map((c) => c.id)).toEqual(SLOTS);
+    // X again from its slot of L1 (draws L2 again): nothing re-paid; B's note is live on L2, and its slot meets the
+    // anomaly already.
+    const x = startExpedition(free(s3), "ship-1", 1, cand);
+    expect(x.expedition!.scanStepCursor).toBe(hit.rolled);
+    expect(x.next.expeditionSeed).toBe(l2);
+    expect(heldSystems(x.next).map((h) => h.fromExpeditionId)).toEqual([bc.id]);
+    const again = startExpedition(free(x.next), "ship-1", 1, "cand-1-0");
+    expect(again.expedition!.seed).toBe(bc.seed);
+    expect([again.expedition!.anomalyResolved, again.expedition!.anomalyMet]).toEqual([true, 1]);
+    expect(heldSystems(again.next)).toEqual([]);
+  });
+});
+
+describe("FR-E fix pass R2: a recall restores only the list its own launch drew", () => {
+  it("a held launch whose seed matches an older list never rewinds the list (the reviewer's two-ship repro)", () => {
+    const s0 = crewed();
+    const a = startExpedition(s0, "ship-1", 1, "cand-1-0"); // from L1, draws L2
+    const b = startExpedition({ ...a.next, expeditions: [] }, "ship-1", 1, "cand-1-1"); // from L2, draws L3
+    const both = { ...b.next, expeditions: [a.expedition!, b.expedition!] };
+    const s1 = recallExpedition(both, a.expedition!.id); // L3 not A's: A an ordinary held candidate
+    expect(s1.expeditionSeed).toBe(b.next.expeditionSeed);
+    const heldA = heldSystems(s1).find((h) => h.fromExpeditionId === a.expedition!.id)!;
+    const s2 = recallExpedition(s1, b.expedition!.id); // L2 restored with B's note
+    expect(s2.expeditionSeed).toBe(a.next.expeditionSeed);
+    expect(s2.listRewinds).toBe(1);
+    const noteB = heldSystems(s2).find((h) => h.fromExpeditionId === b.expedition!.id)!;
+    expect(noteB.inList).toBe(true);
+    // A launched again from its held id: no list drawn. Its recall leaves the list on screen alone.
+    const a2 = startExpedition({ ...s2, expeditions: [] }, "ship-1", 1, heldA.id);
+    expect(a2.success, a2.reason).toBe(true);
+    expect(a2.next.expeditionSeed).toBe(s2.expeditionSeed);
+    const s3 = recallExpedition(a2.next, a2.expedition!.id);
+    expect(s3.expeditionSeed).toBe(s2.expeditionSeed);
+    expect(s3.listRewinds).toBe(1);
+    expect(heldSystems(s3).find((h) => h.fromExpeditionId === b.expedition!.id)).toEqual(noteB);
+    const heldA2 = heldSystems(s3).find((h) => h.fromExpeditionId === a2.expedition!.id)!;
+    expect([heldA2.kind, heldA2.inList]).toEqual(["candidate", undefined]);
+    expect(tierCandidateSystems(s3, 1)).toEqual(tierCandidateSystems(s2, 1));
+  });
+});
