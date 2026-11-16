@@ -6,6 +6,11 @@
 // crew-locked ships refused with the reason; auto-crew ships refused (the picker lists them, not pickable); the reserve
 // is never a target; a drained reserve is never written empty; the CP-21 perf memo still equals a fresh fill.
 import { describe, expect, it } from "vitest";
+// FR-C A1-2 (the welcome batch seats crew seat by seat) came after these cases, whose fixtures carry a transport marker
+// far enough behind to take the welcome: the file runs with it off (welcomeFitSwitch.fixture.ts), so they keep testing
+// the reserve controls they were written for; transportWelcomeFit.test.ts pins the welcome.
+import { welcomeFitOffForThisFile } from "./welcomeFitSwitch.fixture";
+welcomeFitOffForThisFile();
 import { freshState, type CrewBucket, type Expedition, type GameState, type ShipInstance, type ShipTypeKey } from "./model";
 import { resolveCrew } from "./crewOverlay";
 import { signatureKey, totalCrew } from "./crew";

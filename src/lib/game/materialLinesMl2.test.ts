@@ -20,6 +20,11 @@ import { laneJoinOffForThisFile } from "./laneJoinSwitch.fixture";
 laneJoinOffForThisFile();
 import { GAS_CANISTER_IDS } from "./gasGiantContent";
 import { describe, expect, it } from "vitest";
+// FR-C R2-5 / R8-6 (the finite-work FA XP folded into lifetimeStats, the auto-salvage log stamp) came after every pin
+// here: the file runs with them off (recapFoldsSwitch.fixture.ts), so its pins keep proving their own slice;
+// faXpAwardedStat.test.ts and offlineRecapSections.test.ts pin the moves.
+import { recapFoldsOffForThisFile } from "./recapFoldsSwitch.fixture";
+recapFoldsOffForThisFile();
 import Decimal from "break_infinity.js";
 import {
   BLUEPRINTS,
