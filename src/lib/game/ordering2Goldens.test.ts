@@ -4,6 +4,11 @@
 // ORDERING2_CAPTURE = an output path: record every row instead of asserting.
 
 import { describe, expect, it } from "vitest";
+// FR-C R2-5 / R8-6 (the finite-work FA XP folded into lifetimeStats, the auto-salvage log stamp) came after every pin
+// here: the file runs with them off (recapFoldsSwitch.fixture.ts), so its pins keep proving their own slice;
+// faXpAwardedStat.test.ts and offlineRecapSections.test.ts pin the moves.
+import { recapFoldsOffForThisFile } from "./recapFoldsSwitch.fixture";
+recapFoldsOffForThisFile();
 import { writeFileSync } from "node:fs";
 import { ORDERING2_PINS_PRE, ordering2Rows } from "./ordering2Goldens.fixture";
 import { asOrdering2Normalized, withOrdering2Off } from "./ordering2Switch.fixture";

@@ -129,7 +129,7 @@ export interface CraftQueueRunningRow {
   label: string;                 // what it produces ("Titanium Ingot"), see craftOrderOutputLabel
   modeLabel: string;             // "batch 5" / "continuous" / "finishing current run"
   continuous: boolean;           // true for a continuous line (drives the section 5.4 warning)
-  remaining: number;             // iterations not yet started; 0 = finishing its last run
+  remaining: number;             // iterations not yet started (an attached lane: its ORDER's pool); 0 = finishing its last run
   progress: number;              // 0..1 for the slim bar; 0 while no iteration is in flight yet
   remainingTicks: number | null; // raw ticks left on the in-flight iteration; null = none in flight
   durationTicks: number | null;  // raw total ticks of that iteration; null = none in flight
@@ -156,6 +156,13 @@ export interface CraftQueueRunningRow {
   // count holds, which is exactly why the lane count is surfaced alongside: the estimate is
   // honest about the assumption rather than hiding it.
   etaTicks: number | null;
+  // FR-C R2-1: the ORDER's total ticks at the current allocation (the in-flight unit's full length plus the shared
+  // unstarted units, orderTimeLeft), the "Y" of the Refinery console's "X / Y", never below etaTicks. Present on
+  // craft-line rows only (null with nothing in flight); other running rows omit it.
+  orderTotalTicks?: number | null;
+  // FR-C fix pass: the units of this row's work in flight right now (every lane of its order with a job), so Home's
+  // "N to refine" reads remaining + unitsInFlight, one number on every joined lane. Craft-line rows only.
+  unitsInFlight?: number;
 }
 
 // One WAITING order at a facility, in queue order. Everything the Phase 4 row needs
@@ -415,9 +422,21 @@ function queuedModeLabel(order: QueuedOrder): string {
 // expression (App.svelte, the refine + fabricate line cards): a line at remaining 0
 // is finishing its last in-flight iteration and has nothing left to cancel, which is
 // why it reads differently from a line with work still queued inside it.
-function runningModeLabel(line: CraftLine): string {
-  if (line.remaining <= 0) return "finishing current run";
-  return line.mode.kind === "batch" ? `batch ${line.remaining}` : "continuous";
+// FR-C fix pass: `unstarted` is the units not yet started on the line's work (its ORDER's shared pool when attached, so
+// every joined lane of one order reads the same number), defaulting to the line's own count.
+function runningModeLabel(line: CraftLine, unstarted: number = line.remaining): string {
+  if (unstarted <= 0) return "finishing current run";
+  return line.mode.kind === "batch" ? `batch ${unstarted}` : "continuous";
+}
+
+// FR-C R2-1 and the fix pass: an order's time left and its total, from the in-flight unit (its own remainingTicks and
+// its full durationTicks) and the units not yet started, shared across the lanes working it. The total is the
+// in-flight unit's full length plus the same shared unstarted share, so it never reads below the time left (the old
+// ceil((unstarted + 1) x duration / lanes) did, with two lanes or more). With one lane both are the plain sums. Pure;
+// the Home board (etaTicks / orderTotalTicks below) and the Refinery and Fabricator cards (App.svelte) share it.
+export function orderTimeLeft(remainingTicks: number, durationTicks: number, unstarted: number, lanes: number): { etaTicks: number; totalTicks: number } {
+  const shared = Math.ceil((Math.max(0, unstarted) * durationTicks) / Math.max(1, lanes));
+  return { etaTicks: remainingTicks + shared, totalTicks: durationTicks + shared };
 }
 
 // True when a mode never releases its slot. Hoisted so both row builders ask it the
@@ -502,27 +521,42 @@ function runningRowsFor(state: GameState, facility: QueueFacilityKey): CraftQueu
     // 1 for an unattached lane: it is one lane doing one order's work.
     const lanesAttached =
       line.orderId === undefined ? 1 : lines.filter((l) => l.orderId === line.orderId).length;
+    // FR-C lane 1 I3: an attached lane's unstarted units are its ORDER's shared pool (the lane's own count is a mirror
+    // written when it last started a unit, so a joined lane's would lag); an unattached lane reads its own.
+    const order = line.orderId === undefined ? undefined : (state.craftOrders ?? []).find((o) => o.id === line.orderId);
+    const unstarted = order !== undefined ? order.remaining : line.remaining;
     // The ORDER-level estimate. Per-iteration duration comes from the in-flight job, so with
     // nothing running there is no rate to extrapolate from and the honest answer is null rather
     // than a fabricated number.
     //
     // remaining counts iterations NOT YET STARTED, so the in-flight one is added back before
     // dividing: a 10-unit order with 1 running and 9 waiting has 10 iterations of work left, not 9.
-    const etaTicks =
-      job === undefined || job.durationTicks <= 0
-        ? null
-        : Math.ceil(((line.remaining + 1) * job.durationTicks) / Math.max(1, lanesAttached));
+    //
+    // FR-C R2-1: the in-flight unit counts only its OWN remainingTicks (the time already spent on it is done), then every
+    // unstarted unit at full length shared across the lanes. It used (remaining + 1) full durations, so the Home ETA
+    // overstated by the time spent and stepped per item (33:00 on Home while the console read 32:52). With one lane this
+    // is exactly the Refinery console's lineRemainingReadout.
+    const timeLeft =
+      job === undefined || job.durationTicks <= 0 ? null : orderTimeLeft(job.remainingTicks, job.durationTicks, unstarted, lanesAttached);
+    const etaTicks = timeLeft?.etaTicks ?? null;
+    const orderTotalTicks = timeLeft?.totalTicks ?? null;
+    // FR-C fix pass: the units of this line's work in flight right now (every lane of its order with a job), so Home's
+    // "N to refine" reads unstarted + in flight, the same number on every joined lane.
+    const unitsInFlight =
+      line.orderId === undefined ? (job !== undefined ? 1 : 0) : lines.filter((l) => l.orderId === line.orderId && jobByLine.has(l.id)).length;
     return {
       id: line.id,
       label: craftLineOutputLabel(line.kind, line.recipeKey),
-      modeLabel: runningModeLabel(line),
+      modeLabel: runningModeLabel(line, unstarted),
       continuous: isContinuous(line.mode),
-      remaining: line.remaining,
+      remaining: unstarted,
+      unitsInFlight,
       progress,
       remainingTicks: job?.remainingTicks ?? null,
       durationTicks: job?.durationTicks ?? null,
       lanesAttached,
       etaTicks,
+      orderTotalTicks,
     };
   });
 }

@@ -920,6 +920,8 @@
     // amount field clamps to. All PURE except startLine/cancelLine which return new state.
     startLine,
     cancelLine,
+    // FR-C lane 1 I3: the slots a facility's lanes CLAIM (a joined lane is borrowed, so it leaves a slot open).
+    claimedLaneCount,
     canStartLine,
     maxAffordableIterations,
     type StartLineBlockReason,
@@ -1172,6 +1174,8 @@
     // nothing of its own.
     buildAutoSalvageTerminal,
     queuedOrderLabel,
+    // FR-C fix pass: the whole-order time left and total the line cards share with Home.
+    orderTimeLeft,
     type CraftQueueRow,
     type CraftQueueView,
   } from "./lib/game/craftQueue";
@@ -1355,6 +1359,10 @@
   // precisely because nothing in the tick reads it, which is exactly what stopped being
   // true of the salvage-confirm pref (it now gates auto-salvage, so it moved into the save).
   import { loadShipFavorites, saveShipFavorites } from "./lib/shipFavoritesPreference";
+  // FR-C R6-3 (user "Remember them"): the roster's sort, view and search, per device, the same way as favorites.
+  import { loadShipRosterView, saveShipRosterView } from "./lib/shipRosterViewPreference";
+  // FR-C R3: a locked captain slot names what unlocks it (talent, Admin Points, Fleet Admiral level).
+  import { lockedCaptainSlotRequirement } from "./lib/captainSlotDisplay";
   // Combat-log DISPLAY preferences (Combat 0.13.0). localStorage-backed, surfaced in
   // the Options settings as the first section of a growing accessibility/theming hub.
   import {
@@ -2086,12 +2094,15 @@
   }
 
   // ── Ships-tab roster controls (0.13.2 Unit 3) ────────────────────────────────
-  // Non-persisted UI selections that shape the roster grid (they reset on reload, like
-  // every other transient view control). The sort defaults to "attention" so the hulls
-  // that need the player (damaged / an empty required combat slot) lead the list.
-  let shipSortKey: ShipSortKey = "attention";
-  let shipFilterKey: ShipFilterKey = "all";
-  let shipSearch = "";
+  // The UI selections that shape the roster grid. FR-C R6-3 (user 2026-11-13/14, "Remember them (Recommended)"):
+  // they PERSIST across reloads per device, the same way favorites do (shipRosterViewPreference.ts, never the save).
+  // A fresh device starts on "attention" so the hulls that need the player (damaged / an empty required combat slot)
+  // lead the list.
+  const storedShipRosterView = loadShipRosterView();
+  let shipSortKey: ShipSortKey = storedShipRosterView.sortKey;
+  let shipFilterKey: ShipFilterKey = storedShipRosterView.filterKey;
+  let shipSearch = storedShipRosterView.search;
+  $: saveShipRosterView({ sortKey: shipSortKey, filterKey: shipFilterKey, search: shipSearch });
 
   // Favorites: the per-device set of favorited ship ids, loaded from localStorage at
   // declaration (mirroring salvageConfirmQualities above). NOT on GameState, so it adds no
@@ -2875,6 +2886,14 @@
   let cfgTier = 1;
   let cfgRecipeKey = "";
   let cfgQty = 1;
+  // FR-C R5 (QA 2026-11-14 R5-2): the Refinery configurator's run mode. "batch" runs cfgQty units; "continuous" keeps the
+  // line refining until it is cancelled (the engine's CraftLineMode, always supported, now offered). Reset to batch each
+  // time the form opens.
+  let cfgRunMode: "batch" | "continuous" = "batch";
+  // The mode a refine Start / Add to queue submits, and the unit count its gate and REQUIRES preview read (a continuous
+  // line reserves exactly its one next run).
+  $: cfgRefineMode = (cfgRunMode === "continuous" ? { kind: "continuous" } : { kind: "batch", remaining: Math.floor(cfgQty) }) as CraftLineMode;
+  $: cfgRefineRuns = cfgRunMode === "continuous" ? 1 : Math.floor(cfgQty);
   // Material Lines ML-4 (L5): the order's "Use best materials" toggle. Starts OFF (lowest quality first) every time a
   // configurator opens (mockup sign-off 2026-10-21: it does not remember the last choice).
   let cfgBestMaterials = false;
@@ -8887,6 +8906,7 @@
   function openConfigurator(kind: CraftLineKind, slotIndex: number) {
     openConfig = { kind, slotIndex };
     cfgQty = 1;
+    cfgRunMode = "batch"; // FR-C R5: a fixed batch by default, every time
     cfgBestMaterials = false; // ML-4: lowest quality first, every time
     if (kind === "refine") {
       cfgTier = 1; // REFINE_RECIPES carry no tier -> a single synthetic "Tier 1"
@@ -8930,8 +8950,8 @@
   // doStartLine is the SINGLE entry point every configurator Start button calls. Mirrors the
   // sibling do* commit idiom but routes through the optional confirm first: if
   // refineConfirmEnabled is on, stash the pending line + open the modal (Confirm commits);
-  // otherwise commit straight away. `mode` is the batch/continuous run-mode (the configurator
-  // only builds batch; continuous is engine-supported but not surfaced by this UI).
+  // otherwise commit straight away. `mode` is the batch/continuous run-mode (FR-C R5: the Refinery
+  // configurator offers both; the Fabricator's builds batch).
   // ML-4: `best` is the configurator's "Use best materials" toggle (carried through the confirm).
   function doStartLine(kind: CraftLineKind, recipeKey: string, mode: CraftLineMode, best = false) {
     if (refineConfirmEnabled) {
@@ -11391,9 +11411,9 @@
   // started iteration. That queued count is exactly `line.remaining`: stepCraftLine
   // (tick.ts) decrements it the instant each job starts, so while a job is in flight
   // `line.remaining` already excludes the in-flight item and counts only what is
-  // still queued behind it. The paired "total" is (queued + 1) full durations (every
-  // pending iteration at full length), so at each item's start remaining == total
-  // and the showTicks "X / Y ticks" figure reads sensibly.
+  // still queued behind it. The paired "total" is the in-flight item's full duration plus
+  // the same queued share (FR-C fix pass, orderTimeLeft), so at each item's start
+  // remaining == total and the total never reads below the time left.
   //
   // A CONTINUOUS line is endless (line.remaining is pinned at 1 and never counts
   // down), so there is no finite batch to total, it keeps the plain per-item
@@ -11407,6 +11427,22 @@
   //
   // 1 for an unattached lane, which is the honest answer (one lane, one order's work) and is what
   // suppresses the readout for every ordinary line.
+  // FR-C lane 1 I3: a lane with no unit in flight while its facility holds more lanes than slots is waiting for a joined
+  // (borrowed) lane to finish its current run and hand the bay back.
+  function laneWaitsForBorrowedBay(line: CraftLine): boolean {
+    const lines = (line.kind === "refine" ? state.refineLines : state.fabricateLines) ?? [];
+    const slots = line.kind === "refine" ? refinerySlots : fabricateSlots;
+    return lines.length > slots && !line.joined;
+  }
+
+  // FR-C lane 1 I3: the units not yet started on this lane's work: its order's shared pool when it is attached to one
+  // (several lanes may pull from it), else its own count.
+  function lanePoolRemaining(line: CraftLine): number {
+    if (line.orderId === undefined) return line.remaining;
+    const order = (state.craftOrders ?? []).find((o) => o.id === line.orderId);
+    return order !== undefined ? order.remaining : line.remaining;
+  }
+
   function laneShareCount(line: { id: string; orderId?: string }): number {
     if (line.orderId === undefined) return 1;
     const all = [...(state.refineLines ?? []), ...(state.fabricateLines ?? [])];
@@ -11420,10 +11456,11 @@
     secPerTick: number,
   ): string {
     if (line.mode.kind === "batch") {
-      const queued = line.remaining; // not-yet-started iterations (in-flight already excluded)
-      const totalTicks = (queued + 1) * job.durationTicks; // in-flight + queued, all at full duration
-      const remainingTicks = job.remainingTicks + queued * job.durationTicks;
-      return remainingReadout(remainingTicks, totalTicks, showTicks, secPerTick);
+      // FR-C lane 1 I3: an attached lane reads its ORDER's pool, shared across the lanes working it (the same estimate
+      // craftQueue.ts gives Home). One lane on its own work reads exactly as before.
+      // FR-C fix pass: craftQueue.ts orderTimeLeft, so the total never reads below the time left with 2+ lanes.
+      const { etaTicks, totalTicks } = orderTimeLeft(job.remainingTicks, job.durationTicks, lanePoolRemaining(line), laneShareCount(line));
+      return remainingReadout(etaTicks, totalTicks, showTicks, secPerTick);
     }
     return remainingReadout(job.remainingTicks, job.durationTicks, showTicks, secPerTick);
   }
@@ -12840,7 +12877,8 @@
               <div class="refinery-split-side">
               <Panel>
                 <div class="panel-title">PRODUCTION LINES</div>
-                <div class="research-cost">Refine slots: {(state.refineLines ?? []).length} / {refinerySlots} in use</div>
+                <!-- FR-C lane 1 I3: a joined lane is borrowed, so it is counted apart (its slot stays open to the player). -->
+                <div class="research-cost">Refine slots: {claimedLaneCount(state.refineLines ?? [])} / {refinerySlots} in use{#if (state.refineLines ?? []).length > claimedLaneCount(state.refineLines ?? [])} · {(state.refineLines ?? []).length - claimedLaneCount(state.refineLines ?? [])} more helping a batch{/if}</div>
 
                 {#if !refineryBuilt}
                   <p class="research-status" style="margin-top: 10px;">
@@ -12848,7 +12886,8 @@
                   </p>
                 {:else}
                   {@const refineLines = state.refineLines ?? []}
-                  {@const idleSlots = Math.max(0, refinerySlots - refineLines.length)}
+                  <!-- FR-C lane 1 I3: a joined lane is borrowed capacity, so its slot stays open for the player's next line. -->
+                  {@const idleSlots = Math.max(0, refinerySlots - claimedLaneCount(refineLines))}
 
                   <!-- Active refine lines (one card each). -->
                   {#each refineLines as line, li (line.id)}
@@ -12873,14 +12912,19 @@
                           {#each Object.keys(recipe.input) as inId, i}{formatNumber(recipe.input[inId])}× [{ITEMS[inId]?.label ?? inId}]{i < Object.keys(recipe.input).length - 1 ? " + " : ""}{/each}
                           → [{ITEMS[recipe.output.itemId]?.label ?? recipe.output.itemId}]
                         {:else}[{line.recipeKey}]{/if}
-                        · {line.remaining > 0 ? (line.mode.kind === "batch" ? `batch ${line.remaining}` : "continuous") : "finishing current run"}
+                        · {lanePoolRemaining(line) > 0 ? (line.mode.kind === "batch" ? `batch ${lanePoolRemaining(line)}` : "continuous") : "finishing current run"}
                       </div>
                       <div class="research-bar-track">
                         <div class="research-bar-fill" style="width:{Math.min(100, progress * 100)}%"></div>
                       </div>
                       <div class="research-readout">
-                        {#if job}{lineRemainingReadout(job, line, showTickCounts, state.tickDurationSeconds)}{:else}Queued, starts next tick{/if}
+                        {#if job}{lineRemainingReadout(job, line, showTickCounts, state.tickDurationSeconds)}{:else if laneWaitsForBorrowedBay(line)}Starts when a joined line finishes its current run{:else}Queued, starts next tick{/if}
                       </div>
+                      <!-- FR-C lane 1 I3: a joined lane says it is helping, and that it hands the bay back. -->
+                      {#if line.joined}
+                        <div class="research-cost">Joined to help this order; it hands the bay back when you start or queue something else.</div>
+                        <div class="research-cost">Cancel on this line stops the whole batch.</div>
+                      {/if}
                       <!-- ⚠️ THE LANE COUNT EXISTS TO EXPLAIN A NUMBER THAT WOULD OTHERWISE LOOK
                            BROKEN (0.13.4 Phase 6, design 7.6). When a second lane joins this order,
                            it finishes in roughly half the time, so the whole-batch countdown HALVES
@@ -12927,12 +12971,12 @@
                     {@const isOpen = openConfig?.kind === "refine" && openConfig.slotIndex === slotIndex}
                     {#if isOpen}
                       {@const maxQty = maxAffordableIterations(state, "refine", cfgRecipeKey)}
-                      {@const gate = canStartLine(state, "refine", cfgRecipeKey, Math.floor(cfgQty))}
+                      {@const gate = canStartLine(state, "refine", cfgRecipeKey, cfgRefineRuns)}
                       {@const perIteration = lineInputsPerIteration({ id: "", kind: "refine", recipeKey: cfgRecipeKey, remaining: 0, mode: { kind: "continuous" } })}
                       <!-- The queue button's own gate + its persistent reason, from ONE helper so
                            the disabled state, the note below and (queue-full popup, 2026-09-10)
                            what the click actually does can never disagree. -->
-                      {@const queueCtl = craftQueueButtonState(state, refineryQueue, "refine", cfgRecipeKey, cfgQty)}
+                      {@const queueCtl = craftQueueButtonState(state, refineryQueue, "refine", cfgRecipeKey, cfgRefineRuns)}
                       <div class="mission-card" id="refine-config" style="margin-top: 10px;">
                         <div class="research-name">{#if isQueueOpener}<Icon name="queue" size={12} /> Queue · configure an order{:else}<Icon name="refinery" size={12} /> Line {slotIndex + 1} · configure a craft{/if}</div>
 
@@ -12953,13 +12997,27 @@
                               {/each}
                             </select>
                           </label>
-                          <!-- Qty field, bounded 1..maxAffordableIterations. -->
+                          <!-- FR-C R5: the run mode, in the Tier / Item dropdown style. Continuous refines until
+                               cancelled, reserving one run at a time, so it has no quantity. -->
                           <label style="display: inline-flex; align-items: center; gap: 6px;">
-                            Qty
-                            <input class="modal-input" type="number" min="1" max={maxQty} step="1" style="width: 80px;" bind:value={cfgQty} aria-label="Quantity" />
-                            <span class="research-cost">(max {maxQty})</span>
+                            Run
+                            <select class="modal-input" bind:value={cfgRunMode} aria-label="Run mode">
+                              <option value="batch">Batch</option>
+                              <option value="continuous">Continuous</option>
+                            </select>
                           </label>
+                          <!-- Qty field, bounded 1..maxAffordableIterations (a batch only). -->
+                          {#if cfgRunMode === "batch"}
+                            <label style="display: inline-flex; align-items: center; gap: 6px;">
+                              Qty
+                              <input class="modal-input" type="number" min="1" max={maxQty} step="1" style="width: 80px;" bind:value={cfgQty} aria-label="Quantity" />
+                              <span class="research-cost">(max {maxQty})</span>
+                            </label>
+                          {/if}
                         </div>
+                        {#if cfgRunMode === "continuous"}
+                          <p class="research-cost" style="margin-top: 6px;">Refines one run after another until you cancel it, reserving only the next run's materials. It pauses while the output is full or the materials run out, and carries on when they are back.</p>
+                        {/if}
 
                         <!-- REQUIRES (×qty) preview: per input, its per/ea → total, plus free / allocated / total.
                              0.13.3 Unit 6.1 (presentation only): the header takes the section-header
@@ -12974,12 +13032,12 @@
                              this release and an unchanged label would have made the number lie. Same
                              `allocated` read, same position, same .cfg-line-dim treatment. -->
                         <div class="home-sec-hd" style="margin-top: 8px;">
-                          <span class="home-sec-h"><Icon name="warehouse" size={12} /> REQUIRES (×{Math.max(1, Math.floor(cfgQty))})</span>
+                          <span class="home-sec-h"><Icon name="warehouse" size={12} /> REQUIRES ({cfgRunMode === "continuous" ? "each run" : `×${Math.max(1, Math.floor(cfgQty))}`})</span>
                           <span class="home-sec-rule"></span>
                         </div>
                         {#each Object.keys(perIteration) as itemId}
                           {@const per = perIteration[itemId]}
-                          {@const total = per.times(Math.max(1, Math.floor(cfgQty)))}
+                          {@const total = per.times(Math.max(1, cfgRefineRuns))}
                           {@const free = freeItem(state.inventory, allLines, queuedOrders, itemId)}
                           {@const allocated = allocatedItem(allLines, queuedOrders, itemId, state.craftOrders ?? [])}
                           {@const stock = itemTotal(state.inventory, itemId)}
@@ -13002,7 +13060,7 @@
                         <CraftQualityPreview
                           inventory={state.inventory}
                           perRun={perIteration}
-                          runs={cfgQty}
+                          runs={cfgRefineRuns}
                           best={cfgBestMaterials}
                           {...orderStockContext(perIteration, (id) => freeItem(state.inventory, allLines, queuedOrders, id), (id) => allocatedItem(allLines, queuedOrders, id, state.craftOrders ?? []), isQueueOpener)}
                         />
@@ -13012,9 +13070,9 @@
                             class="buy-btn"
                             disabled={!gate.ok}
                             title={gate.ok ? undefined : startLineBlockText(gate.reason)}
-                            on:click={() => doStartLine("refine", cfgRecipeKey, { kind: "batch", remaining: Math.floor(cfgQty) }, cfgBestMaterials)}
+                            on:click={() => doStartLine("refine", cfgRecipeKey, cfgRefineMode, cfgBestMaterials)}
                           >
-                            Refine · ×{Math.max(1, Math.floor(cfgQty))}
+                            Refine · {cfgRunMode === "continuous" ? "continuous" : `×${Math.max(1, Math.floor(cfgQty))}`}
                           </button>
                           <!-- ADD TO QUEUE (0.13.3 Unit 4.2): the same configured order, parked
                                to run later instead of now. Kept as a SEPARATE button rather than
@@ -13039,9 +13097,9 @@
                             disabled={queueCtl.blockText !== "" && !queueCtl.queueFullOnly}
                             on:click={() => queueCtl.queueFullOnly
                               ? openQueueFullNotice("refinery")
-                              : doEnqueueLine("refinery", "refine", cfgRecipeKey, { kind: "batch", remaining: Math.floor(cfgQty) }, cfgBestMaterials)}
+                              : doEnqueueLine("refinery", "refine", cfgRecipeKey, cfgRefineMode, cfgBestMaterials)}
                           >
-                            Add to queue · ×{Math.max(1, Math.floor(cfgQty))}
+                            Add to queue · {cfgRunMode === "continuous" ? "continuous" : `×${Math.max(1, Math.floor(cfgQty))}`}
                           </button>
                           <button class="dev-btn" on:click={closeConfigurator}>Close</button>
                         </div>
@@ -13406,7 +13464,8 @@
                    allocation helpers. Reuses .mission-card / .buy-btn / .dev-btn.danger. -->
               <Panel>
                 <div class="panel-title">CRAFT</div>
-                <div class="research-cost">Craft slots: {(state.fabricateLines ?? []).length} / {fabricateSlots} in use</div>
+                <!-- FR-C lane 1 I3: a joined lane is borrowed, so it is counted apart (its slot stays open to the player). -->
+                <div class="research-cost">Craft slots: {claimedLaneCount(state.fabricateLines ?? [])} / {fabricateSlots} in use{#if (state.fabricateLines ?? []).length > claimedLaneCount(state.fabricateLines ?? [])} · {(state.fabricateLines ?? []).length - claimedLaneCount(state.fabricateLines ?? [])} more helping a batch{/if}</div>
 
                 {#if !fabricatorBuilt}
                   <p class="research-status" style="margin-top: 10px;">
@@ -13414,7 +13473,8 @@
                   </p>
                 {:else}
                   {@const fabricateLines = state.fabricateLines ?? []}
-                  {@const idleSlots = Math.max(0, fabricateSlots - fabricateLines.length)}
+                  <!-- FR-C lane 1 I3: a joined lane is borrowed capacity, so its slot stays open for the player's next line. -->
+                  {@const idleSlots = Math.max(0, fabricateSlots - claimedLaneCount(fabricateLines))}
 
                   <!-- Active fabricate lines (one card each). -->
                   {#each fabricateLines as line, li (line.id)}
@@ -13446,14 +13506,19 @@
                             → {bp.recipe.outputQty}× [{ITEMS[bp.recipe.outputItem ?? ""]?.label ?? bp.recipe.outputItem}]
                           {/if}
                         {:else}[{line.recipeKey}]{/if}
-                        · {line.remaining > 0 ? (line.mode.kind === "batch" ? `batch ${line.remaining}` : "continuous") : "finishing current run"}
+                        · {lanePoolRemaining(line) > 0 ? (line.mode.kind === "batch" ? `batch ${lanePoolRemaining(line)}` : "continuous") : "finishing current run"}
                       </div>
                       <div class="research-bar-track">
                         <div class="research-bar-fill" style="width:{Math.min(100, progress * 100)}%"></div>
                       </div>
                       <div class="research-readout">
-                        {#if job}{lineRemainingReadout(job, line, showTickCounts, state.tickDurationSeconds)}{:else}Queued, starts next tick{/if}
+                        {#if job}{lineRemainingReadout(job, line, showTickCounts, state.tickDurationSeconds)}{:else if laneWaitsForBorrowedBay(line)}Starts when a joined line finishes its current run{:else}Queued, starts next tick{/if}
                       </div>
+                      <!-- FR-C lane 1 I3: a joined lane says it is helping, and that it hands the bay back. -->
+                      {#if line.joined}
+                        <div class="research-cost">Joined to help this order; it hands the bay back when you start or queue something else.</div>
+                        <div class="research-cost">Cancel on this line stops the whole batch.</div>
+                      {/if}
                       <!-- ⚠️ THE LANE COUNT EXISTS TO EXPLAIN A NUMBER THAT WOULD OTHERWISE LOOK
                            BROKEN (0.13.4 Phase 6, design 7.6). When a second lane joins this order,
                            it finishes in roughly half the time, so the whole-batch countdown HALVES
@@ -16236,7 +16301,8 @@
                       </div>
                       <div class="cq-list">
                         {#each section.items as entry (entry.itemId)}
-                          {@const ownedWhole = wholeUnitsFree(entry.owned.toNumber())}
+                          <!-- FR-C M7 ("Sell only free stock"): the row sells up to the FREE amount; reserved stock stays put. -->
+                          {@const ownedWhole = wholeUnitsFree(entry.free.toNumber())}
                           {@const qty = sellQtyFor(entry.itemId, ownedWhole)}
                           <div class="cq-row">
                             <div class="cq-body">
@@ -16252,7 +16318,7 @@
                                 {#if entry.retired}<span class="qm-retire-tag">Retired</span>{/if}
                               </span>
                               <span class="home-l2">
-                                <span class="home-meta">owned {formatNumber(entry.owned)}</span>
+                                <span class="home-meta">owned {formatNumber(entry.owned)}{#if entry.free.lt(entry.owned)}, free {formatNumber(entry.free)} (the rest is reserved){/if}</span>
                               </span>
                               <!-- Unit price on its own line, then the running Total Value for the
                                    chosen quantity (user 2026-09-18). CR capitalized. -->
@@ -18018,17 +18084,19 @@
             {#each Array.from({ length: Math.max(0, 10 - state.captains.length) }) as _, j}
               {@const captainNumber = state.captains.length + j + 1}
               {@const isUnlockable = captainNumber <= MAX_UNLOCKABLE_CAPTAINS}
+              {@const slotNeeds = lockedCaptainSlotRequirement(captainNumber)}
               <div
                 class="cpane locked"
                 title={isUnlockable
-                  ? "Locked, recruit via Homeworld Talents → Fleet Logistics"
+                  ? `Locked. ${slotNeeds?.text ?? "Recruit via Homeworld Talents → Fleet Logistics"}`
                   : "Coming soon, not yet unlockable"}
               >
                 <span class="cpane-id">
                   <span class="cpane-portrait" aria-hidden="true">🔒</span>
                   <span class="fpane-stack">
                     <span class="fpane-name">{#if isUnlockable}Locked{:else}Coming Soon!{/if}</span>
-                    <span class="cpane-sub">{#if isUnlockable}Recruit via Homeworld Talents → Fleet Logistics{:else}Not yet unlockable{/if}</span>
+                    <!-- FR-C R3: the slot names its talent, Admin Point cost and Fleet Admiral level (captainSlotDisplay.ts). -->
+                    <span class="cpane-sub">{#if isUnlockable}{slotNeeds?.text ?? "Recruit via Homeworld Talents → Fleet Logistics"}{:else}Not yet unlockable{/if}</span>
                   </span>
                 </span>
               </div>
@@ -22412,6 +22480,42 @@
             <div class="offline-summary-row">
               <span class="offline-summary-row-label">Unidentified relics</span>
               <span class="offline-summary-row-value">+{formatNumber(sum.relicsFound)} to the vault</span>
+            </div>
+          {/if}
+
+          <!-- FR-C R11-4: queued orders that started, and upgrades that finished, while away (the queue and the
+               completed-events log, read off the same catch-up run). -->
+          {#if sum.ordersStarted.length > 0}
+            <div class="offline-summary-section">
+              <div class="offline-summary-section-title">Queued orders started</div>
+              {#each sum.ordersStarted as order (order.id)}
+                <div class="offline-summary-row">
+                  <span class="offline-summary-row-label">{order.label}</span>
+                  <span class="offline-summary-row-value">{queueFacilityLabel(order.facility)}</span>
+                </div>
+              {/each}
+            </div>
+          {/if}
+          {#if sum.upgradesFinished.length > 0}
+            <div class="offline-summary-section">
+              <div class="offline-summary-section-title">Upgrades finished</div>
+              {#each sum.upgradesFinished as up (up.id)}
+                <div class="offline-summary-row">
+                  <span class="offline-summary-row-label">{up.label}</span>
+                </div>
+              {/each}
+            </div>
+          {/if}
+          <!-- FR-C R8-6: what the Auto-Salvage Terminal took while away, one row per thing, with how many. -->
+          {#if sum.autoSalvaged.length > 0}
+            <div class="offline-summary-section">
+              <div class="offline-summary-section-title">Auto-salvage took</div>
+              {#each sum.autoSalvaged as row (row.label)}
+                <div class="offline-summary-row">
+                  <span class="offline-summary-row-label">{row.label}</span>
+                  <span class="offline-summary-row-value">×{formatNumber(row.count)}</span>
+                </div>
+              {/each}
             </div>
           {/if}
 

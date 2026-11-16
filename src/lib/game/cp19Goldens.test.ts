@@ -9,6 +9,11 @@
 import { canonicalOrderOffForThisFile } from "./orderingSwitch.fixture";
 canonicalOrderOffForThisFile();
 import { describe, expect, it } from "vitest";
+// FR-C R2-5 / R8-6 (the finite-work FA XP folded into lifetimeStats, the auto-salvage log stamp) came after every pin
+// here: the file runs with them off (recapFoldsSwitch.fixture.ts), so its pins keep proving their own slice;
+// faXpAwardedStat.test.ts and offlineRecapSections.test.ts pin the moves.
+import { recapFoldsOffForThisFile } from "./recapFoldsSwitch.fixture";
+recapFoldsOffForThisFile();
 // Wiring WR-10 (the away rules stamped at dispatch, a hire's account program) came after every pin here: the whole file
 // runs with WR-10 off (wr10Switch.fixture.ts), so its pins keep proving their own slice (wr10Goldens.test.ts pins WR-10's).
 import { wr10OffForThisFile } from "./wr10Switch.fixture";

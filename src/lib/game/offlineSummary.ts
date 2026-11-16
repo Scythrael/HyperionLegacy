@@ -37,6 +37,11 @@ import type { GameState, CaptainState, CaptainStopReason, ShipInstance } from ".
 import { MISSIONS, PATROLS, xpForNextLevel, xpForNextFleetAdminLevel, shipDisplayLabel } from "./model";
 import { itemTotal } from "./inventory";
 import { formatDuration } from "./format";
+// FR-C R8-6 / R11-4: the recap's auto-salvage, started-order and finished-upgrade sections read the engine's cumulative
+// tally and the queue, named through the SAME views the Home board and the consoles use (pure readers, no sim contact).
+import type { CompletionLogEntry, QueueFacilityKey, RecapTally } from "./model";
+import { completionRowView } from "./homeDashboard";
+import { buildAllCraftQueues } from "./craftQueue";
 
 // One material whose on-hand total rose across the offline advance. `qty` is the
 // POSITIVE delta (after - before) as a Decimal, so the UI can format it with the
@@ -84,6 +89,27 @@ export interface OfflineShipInRepair {
   name: string;
 }
 
+// FR-C R8-6: what the Auto-Salvage Terminal took while away, one row per thing it broke down (the completed-events
+// entry's own label, "Salvaged, Prospector Hold"), with how many.
+export interface OfflineAutoSalvageRow {
+  label: string;
+  count: number;
+}
+
+// FR-C R11-4: a queued order that started while away (it left its facility's queue), named as its queue row named it.
+export interface OfflineOrderStarted {
+  id: string;
+  facility: QueueFacilityKey;
+  label: string;
+}
+
+// FR-C R11-4: an upgrade that finished while away (a facility level, a Docks, Systems Bay or berth expansion), named as
+// its RECENTLY COMPLETED row names it ("Upgraded, Fuel Depot, Level 2").
+export interface OfflineUpgradeFinished {
+  id: string;
+  label: string;
+}
+
 // The complete before/after diff the "While you were away" modal renders. Every
 // collection is empty (and every scalar zero) when nothing of that kind happened,
 // so a section can be shown purely on its own non-emptiness. `hasContent` is the
@@ -102,6 +128,86 @@ export interface OfflineSummary {
   // G1-5: the unidentified relics that reached the vault while away (short-range cycles find them as they deliver; an
   // expedition's relics only land when the player claims it). A whole count, 0 when none.
   relicsFound: number;
+  // FR-C R8-6 / R11-4 (each empty when nothing of the kind happened).
+  autoSalvaged: OfflineAutoSalvageRow[];
+  ordersStarted: OfflineOrderStarted[];
+  upgradesFinished: OfflineUpgradeFinished[];
+}
+
+// FR-C fix pass: the recap's three engine sections read the cumulative tally (GameState.recapTally), diffed before
+// against after, never the 50-entry completed-events log, so the counts are exact however long the absence ran.
+function tallyOf(state: GameState): RecapTally {
+  const t = (state as GameState | undefined)?.recapTally;
+  return t && typeof t === "object" ? t : {};
+}
+
+// What the Auto-Salvage Terminal took: each key's count delta, named through the Home board's own row (a synthetic
+// entry carrying the key's naming fields), rows with the same name merged, in first-seen key order. Fail-open.
+function autoSalvagedOf(before: GameState, after: GameState): OfflineAutoSalvageRow[] {
+  const was = tallyOf(before).autoSalvage ?? {};
+  const now = tallyOf(after).autoSalvage ?? {};
+  const rows: OfflineAutoSalvageRow[] = [];
+  for (const key of Object.keys(now)) {
+    const count = Math.max(0, (now[key] ?? 0) - (was[key] ?? 0));
+    if (count <= 0) continue;
+    let label = "Salvaged";
+    try {
+      const [reward, subjectKey, salvageSubject] = JSON.parse(key) as [CompletionLogEntry["reward"], string | null, CompletionLogEntry["salvageSubject"] | null];
+      label = completionRowView(syntheticEntry({ kind: "salvageJob", reward, subjectKey, ...(salvageSubject ? { salvageSubject } : {}) }), after).primaryLabel;
+    } catch {
+      // a malformed key keeps the plain verb
+    }
+    const row = rows.find((r) => r.label === label);
+    if (row !== undefined) row.count += count;
+    else rows.push({ label, count });
+  }
+  return rows;
+}
+
+// The upgrades that finished: per track, its count delta n, one row per level reached (level - n + 1 through level,
+// every upgrade raising its track by one), named as RECENTLY COMPLETED names it. Fail-open.
+function upgradesFinishedOf(before: GameState, after: GameState): OfflineUpgradeFinished[] {
+  const was = tallyOf(before).upgrades ?? {};
+  const now = tallyOf(after).upgrades ?? {};
+  const out: OfflineUpgradeFinished[] = [];
+  for (const key of Object.keys(now)) {
+    const track = now[key];
+    const n = Math.max(0, (track?.n ?? 0) - (was[key]?.n ?? 0));
+    if (n <= 0 || typeof track?.level !== "number") continue;
+    const bar = key.indexOf("|");
+    const kind = key.slice(0, bar) as CompletionLogEntry["kind"];
+    const subjectKey = key.slice(bar + 1);
+    for (let level = track.level - n + 1; level <= track.level; level++) {
+      const view = completionRowView(syntheticEntry({ kind, reward: "level", subjectKey, level }), after);
+      out.push({ id: `${key}|${level}`, label: view.secondaryLabel !== null ? `${view.primaryLabel}, ${view.secondaryLabel}` : view.primaryLabel });
+    }
+  }
+  return out;
+}
+
+// A completed-events entry carrying only the naming fields the recap needs (the rest neutral), for completionRowView.
+function syntheticEntry(fields: Pick<CompletionLogEntry, "kind" | "reward" | "subjectKey"> & Partial<CompletionLogEntry>): CompletionLogEntry {
+  return { id: "recap", atMs: 0, startedAtMs: 0, iterations: 1, items: [], pieces: 0, level: null, fuelAmount: null, creditsAmount: null, stale: false, ...fields };
+}
+
+// The queued orders the ENGINE started: in BEFORE's queue, gone from AFTER's, and recorded by the promotion pass (so an
+// order the player removed or started by hand, live between two absences, is never listed). Named by BEFORE's own
+// queue rows. Fail-open to none.
+function ordersStartedOf(before: GameState, after: GameState): OfflineOrderStarted[] {
+  const beforeQueue = Array.isArray(before?.processQueue) ? before.processQueue : [];
+  if (beforeQueue.length === 0) return [];
+  const stillQueued = new Set((Array.isArray(after?.processQueue) ? after.processQueue : []).map((j) => j.id));
+  const promotedIds = tallyOf(after).promoted;
+  const promoted = new Set(Array.isArray(promotedIds) ? promotedIds : []);
+  const left = beforeQueue.filter((j) => !stillQueued.has(j.id) && promoted.has(j.id));
+  if (left.length === 0) return [];
+  const rows = new Map<string, { facility: QueueFacilityKey; label: string }>();
+  try {
+    for (const view of buildAllCraftQueues(before)) for (const row of view.queued) rows.set(row.id, { facility: view.facility, label: row.summary });
+  } catch {
+    // a malformed snapshot: the rows below fall back to the raw facility
+  }
+  return left.map((j) => ({ id: j.id, facility: j.facility, label: rows.get(j.id)?.label ?? "Queued order" }));
 }
 
 // --- Small fail-open readers ------------------------------------------------
@@ -361,6 +467,11 @@ export function summarizeOfflineProgress(
   const beforeVault = new Set(vaultIdsOf(before));
   const relicsFound = vaultIdsOf(after).filter((id) => id !== "" && !beforeVault.has(id)).length;
 
+  // --- FR-C R8-6 / R11-4 (exact since the fix pass): auto-salvage taken, upgrades finished, queued orders started ---
+  const autoSalvaged = autoSalvagedOf(before, after);
+  const upgradesFinished = upgradesFinishedOf(before, after);
+  const ordersStarted = ordersStartedOf(before, after);
+
   // --- hasContent gate ---
   // True iff at least one section carries something worth surfacing. The modal (and
   // the onMount open-decision) reads this single boolean rather than re-checking each
@@ -373,7 +484,10 @@ export function summarizeOfflineProgress(
     captainsProgressed.length > 0 ||
     materialsGained.length > 0 ||
     shipsInRepair.length > 0 ||
-    relicsFound > 0;
+    relicsFound > 0 ||
+    autoSalvaged.length > 0 ||
+    ordersStarted.length > 0 ||
+    upgradesFinished.length > 0;
 
   return {
     secondsAway,
@@ -386,6 +500,9 @@ export function summarizeOfflineProgress(
     materialsGained,
     shipsInRepair,
     relicsFound,
+    autoSalvaged,
+    ordersStarted,
+    upgradesFinished,
   };
 }
 

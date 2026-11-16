@@ -4,6 +4,20 @@ import { gatheringTrainingStamp } from "./game/gearWearEngine";
 import { OVERTIME_CREDITS_PER_MINUTE, OVERTIME_MAX_STEPS as OT_MAX, OVERTIME_STEP_RATE as OT_STEP } from "./game/processSpeed";
 
 // OC-F12 control (user answers 2026-11-12): the Away-Team Members topic states Set for new hires and Clear as built.
+// FR-C lane 1 M3: Refining said "each upgrade unlocks another line", but the real ladder is lines 1, 2, 3, 3 (the last
+// rung is speed). The sentence now reads the facility table.
+describe("the Refining topic states the real line ladder", () => {
+  it("names the line count and the speed rung, never 'each upgrade unlocks another line'", async () => {
+    const { FACILITIES } = await import("./game/model");
+    const rungs = FACILITIES.refinery.upgrades;
+    const lineRungs = rungs.filter((r) => "addRefineSlots" in r.effect).length;
+    const body = HELP_TOPICS.find((t) => t.id === "refining")!.body;
+    expect(body).not.toContain("each upgrade unlocks another line");
+    expect(body).toContain(`${lineRungs} lines in all`);
+    expect(body).toContain("faster");
+  });
+});
+
 describe("the new-hire default in the Away-Team Members topic (OC-F12)", () => {
   it("states Set for new hires, the merge, Clear and Balanced, and that nobody already hired changes", () => {
     const b = HELP_TOPICS.find((x) => x.id === "awayMembers")!.body;
@@ -883,7 +897,10 @@ describe("HELP_TOPICS", () => {
       expect(b()).toContain("Move here");
       expect(b()).toContain("Leave all on the waiting list");
       expect(b()).toContain(`${articleFor(reloc)} ${reloc} job takes one person from the waiting list along to lead the new camp, the one who has waited longest`);
-      expect(b()).toContain("With nobody waiting it runs exactly as before.");
+      expect(b()).toContain("With nobody it can take, it runs exactly as before.");
+      // FR-C crew lane I2: echoes are exempt from a relocation.
+      expect(b()).toContain("never one of the special arrivals, who always stay");
+      expect(REFUGEE_ECHO_HELP).toContain("a relocation never takes one of them along");
       expect(b()).toContain("POSTED PEOPLE ALWAYS STAY: nothing ever takes a posted refugee away.");
     });
 

@@ -1193,7 +1193,8 @@ User 2026-10-21 (merge-batch answers, late calls): "Build them in 0.14.0 (Recomm
 
 - CP-19 / OC-17 + credit sinks OC-C4: "Personnel Rosters track (Recommended)": an upgrade track on the existing
   Personnel Rosters card, 5 rungs, +2 candidate slots each (10 -> 20, both boards), 3,000 x rung credits + time; the
-  Recruiter captain talent (candidateRosterSize, currently dead) is wired to +1 slot on the D23 curve. No new facility.
+  Recruiter captain talent (candidateRosterSize, currently dead) is wired to a flat +1 slot (no curve; FINAL per the
+  user's "Keep flat +1" answer of 2026-11-13/14, which replaced this line's earlier "on the D23 curve"). No new facility.
 - CP-20 / OC-24: "Default, Colorblind, Mono (Recommended)": three presets for the complement graph: Default (gray cap,
   red/yellow/green), Colorblind-safe (Okabe-Ito vermillion/orange/bluish green), Monochrome (gray ramp). Per-device
   preference (localStorage, one key per graph), never in the save.

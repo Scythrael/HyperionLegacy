@@ -162,6 +162,28 @@ export function welcomeTransportCount(openBerths: number, crewOnHand: number, ba
   return Math.ceil(need / batchSize);
 }
 
+// FR-C A1-2 (QA 2026-11-14): the welcome batch used to deliver the most recent `welcomeTransportCount` ORDINARY
+// transports, whose random divisions and ranks the ships' division and rank caps then refused, so explorers sat half
+// empty and the surplus went to the Homeworld reserve. With this live the welcome instead sends ONE crewmember per open
+// SEAT, of that seat's division and rank (crewOverlay.ts welcomeSeat), rolled deterministically like any transport
+// crew (generateComplementCrew with the division and rank pinned), and seats it directly. The TEST-ONLY off switch (welcomeSeatSwitch.fixture.ts)
+// restores the transport-count welcome, so a golden captured before can be traced. Always live in the game.
+export const WELCOME_SEAT_SWITCH = { live: true };
+
+// One welcome crewmember per seat, as a coalesced bucket list. Deterministic in (seed, windowIndex, seats). Pure.
+export function welcomeSeatBatch(
+  seed: number,
+  windowIndex: number,
+  seats: readonly { profession: CrewSignature["profession"]; rank: CrewSignature["rank"] }[],
+  // The running seat index of the first seat (each ship's seats continue the fleet's count, so no two seats share a roll).
+  firstIndex = 0,
+): CrewBucket[] {
+  if (seats.length === 0) return [];
+  const welcomeSeed = (Math.imul((seed >>> 0) ^ 0x5bd1e995, 0xc2b2ae35) ^ ((windowIndex + 1) >>> 0)) >>> 0;
+  const crew = seats.map((seat, i) => ({ ...generateComplementCrew(welcomeSeed, firstIndex + i, { profession: seat.profession, rank: seat.rank }), count: 1 }));
+  return coalesceBuckets(crew);
+}
+
 // The marker the welcome batch delivers from: the current window less the welcome transports, so deliverDueTransports
 // delivers exactly the most recent `transports` windows and leaves the marker at now. Pure.
 export function welcomeTransportMarker(gameTimeSeconds: number, transports: number): number {

@@ -145,16 +145,18 @@ describe("E5-6b arrivals: once per save, then normal refugees", () => {
     expect(out.refugees.echoes).toHaveLength(59);
   });
 
-  it("an echo who leaves with a Refugee Relocation never comes back", () => {
+  // FR-C crew lane I2 (user 2026-11-13/14, "Exempt echoes"): a waiting echo never leaves on a Refugee Relocation (this
+  // case used to pin that one left and never came back). The echo stays waiting, still counted as arrived once.
+  it("an echo waiting when a Refugee Relocation arrives stays (echoes are exempt), and still arrives only once", () => {
     const roll = echoRolls(4000)[0];
     const arrived = applyRefugeeDeliveries(EMPTY, 1e9, [evac(roll, 1)], CALL).refugees;
     const key = arrived.list[0].echo!;
     const gone = applyRefugeeDeliveries(arrived, 1e9, [{ kind: "relocation", atTick: 2, slotId: 0, roll }], CALL).refugees;
-    expect(gone.list).toHaveLength(0);
+    expect(gone.list.map((r) => r.echo)).toEqual([key]);
     expect(gone.echoes).toEqual([key]);
     const again = applyRefugeeDeliveries(gone, 1e9, [evac(roll, 3)], CALL).refugees;
-    expect(again.list[0].echo).toBeDefined();
-    expect(again.list[0].echo).not.toBe(key);
+    expect(again.list[1].echo).toBeDefined();
+    expect(again.list[1].echo).not.toBe(key);
   });
 
   it("a normal arrival adds no echoes key (an old save's state shape is unchanged)", () => {

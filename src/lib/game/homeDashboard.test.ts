@@ -1433,9 +1433,10 @@ describe("buildHomeDashboard: a running refine/fabricate row reports the WHOLE O
       ],
     };
     const row = rowById(buildHomeDashboard(state).inProgress, "p-refine");
-    // The ORDER total, not the per-item 5 left. Both fields carry it: durationTicks only
-    // feeds the power-user "N / total" prefix, so setting both to etaTicks is safe.
-    expect(row.remainingTicks).toBe(100);
+    // FR-C R2-1: the time left on the ORDER (the 5 left on the unit in flight plus 9 full units, 95), not the per-item 5,
+    // and not the (9 + 1) x 10 that ignored the time already spent. durationTicks is the order total (100), as the
+    // Refinery console's "X / Y" reads. (Was: both 100.)
+    expect(row.remainingTicks).toBe(95);
     expect(row.durationTicks).toBe(100);
     // remaining (9 not started) + 1 in flight = the order's total unit count.
     expect(row.secondaryLabel).toBe("10 to refine");
@@ -1463,7 +1464,7 @@ describe("buildHomeDashboard: a running refine/fabricate row reports the WHOLE O
       ],
     };
     const row = rowById(buildHomeDashboard(state).inProgress, "p-fabricate");
-    expect(row.remainingTicks).toBe(18);
+    expect(row.remainingTicks).toBe(15); // FR-C R2-1: 3 left on the unit + 2 x 6 (was 18)
     expect(row.durationTicks).toBe(18);
     expect(row.secondaryLabel).toBe("3 to fabricate");
     expect(row.progress).toBeCloseTo(0.5, 10); // (6 - 3) / 6

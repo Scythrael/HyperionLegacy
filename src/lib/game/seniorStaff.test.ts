@@ -236,6 +236,26 @@ describe("hireOfficer / fireOfficer", () => {
     expect(next).toBe(state);
     expect(next.officers).toHaveLength(1);
   });
+
+  // FR-C A4-26: a fired (or retirement-consumed) officer must not stay pinned in a saved Personnel Roster,
+  // or the roster's seat select is bound to an id with no option. Other seats and rosters are untouched.
+  it("firing scrubs the officer's seat pin from every saved roster, keeping other pins", () => {
+    const base = stateWith({ officers: [officer({ id: "officer-1" }), officer({ id: "officer-2", seat: "science" })] });
+    const roster = (id: string, pins: Partial<Record<"pilot" | "science", string>>) => ({
+      id, name: id, linkedLoadoutId: null, includePeople: true, seatAssignments: pins, pinnedNotableCrew: [],
+    });
+    const state: GameState = {
+      ...base,
+      personnelRosters: [
+        roster("roster-1", { pilot: "officer-1", science: "officer-2" }),
+        roster("roster-2", { science: "officer-2" }),
+      ],
+    };
+    const next = fireOfficer(state, "officer-1");
+    expect(next.personnelRosters[0].seatAssignments).toEqual({ science: "officer-2" });
+    expect(next.personnelRosters[1]).toBe(state.personnelRosters[1]); // no pin: same reference
+    expect(state.personnelRosters[0].seatAssignments).toEqual({ pilot: "officer-1", science: "officer-2" });
+  });
 });
 
 // ============================================================================

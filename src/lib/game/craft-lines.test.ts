@@ -116,6 +116,8 @@ describe("startLine, appends a line + mints a monotonic id", () => {
       recipeKey: "refineCommonOre",
       remaining: 5, // batch count = allocation basis
       mode: { kind: "batch", remaining: 5 },
+      // FR-C lane 1 I3: a batch line runs under its own order (ord-1), so a free lane can join it (was: no orderId).
+      orderId: "ord-1",
     });
     expect(next.nextCraftLineId).toBe(2);
     expect(state.refineLines).toHaveLength(0); // input untouched (immutability)

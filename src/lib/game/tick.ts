@@ -193,6 +193,10 @@ import {
   type OpenJobBatch,
   type FacilityState,
   COMPLETION_LOG_CAP,
+  RECAP_PROMOTED_CAP,
+  recapSalvageKey,
+  recapUpgradeKey,
+  type RecapTally,
   // 0.13.3.1 Feature 3: the ONE writer of EquipmentInstance.graceStartedAtGameSeconds. The
   // three crafted-mint branches below call it so a fresh craft is not swept away by the
   // auto-salvage rules; the uninstall routes (equipment.ts, salvageShip) call it for the
@@ -504,6 +508,7 @@ import {
   type CraftLine,
   type CraftLineKind,
   type CraftLineMode,
+  type CraftOrder,
 } from "./allocation";
 // Quality-bucketed inventory helpers (Equipment 0.11.0, Task 9a): every inventory
 // read/write routes through these so the economy is identical to the old scalar shape.
@@ -1429,6 +1434,32 @@ function pushCompletionEntry(log: CompletionLogEntry[], entry: CompletionLogEntr
   return next.length > COMPLETION_LOG_CAP ? next.slice(next.length - COMPLETION_LOG_CAP) : next;
 }
 
+// FR-C fix pass (While You Were Away, exact for any absence): bump the recap's cumulative tally for ONE entry the
+// completion recorder just wrote. An auto-salvage that consumed its target counts under its naming key; an upgrade
+// counts on its track with the level it reached. Every other entry returns the tally by reference. Pure.
+const RECAP_UPGRADE_KINDS: ReadonlySet<string> = new Set(["facilityUpgrade", "equipmentStorageUpgrade", "docksExpansion", "transitBerthExpansion"]);
+function bumpRecapTally(tally: RecapTally | undefined, entry: CompletionLogEntry): RecapTally | undefined {
+  if (entry.kind === "salvageJob" && entry.auto === true && !entry.stale) {
+    const key = recapSalvageKey(entry);
+    const counts = tally?.autoSalvage ?? {};
+    return { ...tally, autoSalvage: { ...counts, [key]: (counts[key] ?? 0) + 1 } };
+  }
+  if (RECAP_UPGRADE_KINDS.has(entry.kind) && entry.level !== null) {
+    const key = recapUpgradeKey(entry);
+    const tracks = tally?.upgrades ?? {};
+    return { ...tally, upgrades: { ...tracks, [key]: { n: (tracks[key]?.n ?? 0) + 1, level: entry.level } } };
+  }
+  return tally;
+}
+
+// FR-C fix pass: the promotion pass took queued order `id` wholly out of the queue (the engine started it), newest
+// last, capped at RECAP_PROMOTED_CAP. Pure.
+function recordRecapPromotion(state: GameState, id: string): GameState {
+  const prior = state.recapTally?.promoted ?? [];
+  const next = [...prior, id];
+  return { ...state, recapTally: { ...state.recapTally, promoted: next.length > RECAP_PROMOTED_CAP ? next.slice(next.length - RECAP_PROMOTED_CAP) : next } };
+}
+
 // Infrastructure 0.13.4 (Phase 2 Unit 2.2, design §6.4): append ONE completion-log entry per
 // patrol that ended this tick, and advance the log id counter by exactly that many.
 //
@@ -1844,6 +1875,18 @@ function completionYieldFor(
 // A line that is GONE from both arrays is also finished: the player cancelled it while it
 // had no iteration in flight, or the engine already removed it. Either way nothing further
 // will ever be added to that accumulation, so holding it open would strand it forever.
+// FR-C lane 1 I3: the id of the live CraftOrder the lane `lineId` is attached to, or undefined (an unattached lane, a
+// lane whose order is gone, or no such lane). Pure.
+function attachedOrderIdOf(state: GameState, lineId: string): string | undefined {
+  const orders = state.craftOrders ?? [];
+  if (orders.length === 0) return undefined;
+  const line =
+    (state.refineLines ?? []).find((l) => l.id === lineId) ??
+    (state.fabricateLines ?? []).find((l) => l.id === lineId);
+  const orderId = line?.orderId;
+  return orderId !== undefined && orders.some((o) => o.id === orderId) ? orderId : undefined;
+}
+
 function craftOrderFinished(state: GameState, lineId: string): boolean {
   const line =
     (state.refineLines ?? []).find((l) => l.id === lineId) ??
@@ -1855,7 +1898,8 @@ function craftOrderFinished(state: GameState, lineId: string): boolean {
 // Ordering determinism part 2 (canonicalOrder.ts): the whole tick of a resolve window a job
 // completes on (1 = the window's first), from its time left at the window's start: the first
 // whole tick at which that time reaches 0, resolveProcesses' own epsilon test. Pure.
-function completionTickIn(remainingTicks: number): number {
+// FR-C fix pass: exported so Overtime's whole-tick refusal (processSpeed.ts) counts ticks by this same rule.
+export function completionTickIn(remainingTicks: number): number {
   return Math.max(1, Math.ceil(remainingTicks - MISSION_TICK_EPSILON));
 }
 
@@ -1893,7 +1937,25 @@ function recordCompletion(args: {
   const overtime = completionOvertime(process, state.tickDurationSeconds);
 
   // A line-backed iteration folds; everything else is a batch of one and emits now.
+  // FR-C lane 1 I3: a lane attached to a live ORDER folds into the order's accumulation (keyed by the order id), since
+  // several lanes may share it; the line engine's order sweep emits that one entry once no lane holds the order.
   const lineId = policy.batched ? process.lineId ?? null : null;
+  const orderKey = lineId === null ? undefined : attachedOrderIdOf(state, lineId);
+  if (orderKey !== undefined) {
+    const prior = acc.open.find((b) => b.lineId === orderKey) ?? null;
+    const batch: OpenJobBatch = prior === null
+      ? { lineId: orderKey, kind: process.kind, reward: contribution.reward, startedAtMs, lastAtMs: nowMs, iterations: 1, items: contribution.items, pieces: contribution.pieces, subjectKey: contribution.subjectKey }
+      : {
+          ...prior,
+          reward: contribution.reward === "nothing" ? prior.reward : contribution.reward,
+          lastAtMs: nowMs,
+          iterations: prior.iterations + 1,
+          items: contribution.items.reduce((acc2, r) => foldRewardItem(acc2, r.itemId, r.amount), prior.items),
+          pieces: prior.pieces + contribution.pieces,
+          subjectKey: prior.subjectKey ?? contribution.subjectKey,
+        };
+    return { log: acc.log, nextId: acc.nextId, open: prior === null ? [...acc.open, batch] : acc.open.map((b) => (b.lineId === orderKey ? batch : b)) };
+  }
 
   if (lineId === null) {
     const entry: CompletionLogEntry = {
@@ -1917,6 +1979,8 @@ function recordCompletion(args: {
       ...(contribution.salvageSubject !== undefined ? { salvageSubject: contribution.salvageSubject } : {}),
       ...(contribution.salvageRoll !== undefined ? { salvageRoll: contribution.salvageRoll } : {}),
       ...(overtime !== undefined ? { overtime } : {}),
+      // FR-C R8-6: an auto-salvage teardown says so, for the While You Were Away recap (absent on every other entry).
+      ...(process.effect.type === "salvageResolve" && process.effect.auto === true && RECAP_FOLDS_SWITCH.live ? { auto: true as const } : {}),
     };
     return { log: pushCompletionEntry(acc.log, entry), nextId: acc.nextId + 1, open: acc.open };
   }
@@ -4591,6 +4655,20 @@ export function applyCraftingXp(state: GameState, craftingXpDelta: number): Game
 // received it (so it was already discovered), meaning the two readings coincide in
 // practice; gating on the requested amount keeps the reveal rule unchanged from
 // before the clamp (drift-proof).
+// FR-C lane 1 M5 / M6 and lane 3 M2 (user 2026-11-13/14, "Never discard (Recommended)": deliveries may sit over the cap,
+// nothing trimmed on load, logs show what landed). With this live, addToInventory lands every deposit IN FULL (a
+// mission's finds, an expedition haul, a craft's output, a time-skip grant): nothing is clamped away and an over-cap
+// stack is never drained. The cap still PAUSES producers (materialAtCap: missions, trickle and lines stop at it) and a
+// purchase is still refused over it (their own gates); a load no longer trims (save.ts migrate). The TEST-ONLY off
+// switch (neverDiscardSwitch.fixture.ts) restores the old clamp and load trim, so a golden captured before can be
+// traced. Never written by app code.
+export const NEVER_DISCARD_SWITCH: { live: boolean } = { live: true };
+
+// FR-C R2-5 and R8-6: TEST-ONLY off switch for the two read-side folds of this round (the finite-work Fleet Admiral XP in
+// lifetimeStats.fleetAdminXpAwarded, and the `auto` stamp on an auto-salvage completed-events entry), so a golden that
+// hashes lifetimeStats or the completion log can be traced (recapFoldsSwitch.fixture.ts). Never written by app code.
+export const RECAP_FOLDS_SWITCH: { live: boolean } = { live: true };
+
 export function addToInventory(
   inventory: Record<string, Decimal[]>,
   discovered: string[],
@@ -4625,9 +4703,9 @@ export function addToInventory(
   // with NO bucket going negative, and the player keeps their best stock. The delta >= 0
   // path is UNCHANGED and byte-identical: a positive delta lands on the rolled tier, a zero
   // delta is a no-op on bucket 0 (never growing the array for a full-warehouse discard).
+  // FR-C (Never discard): the whole amount lands; the old clamp (and its over-cap drain) only with the switch off.
   const priorTotal = itemTotal(inventory, itemId);
-  const clampedTotal = Decimal.min(priorTotal.plus(amount), cap);
-  const delta = clampedTotal.minus(priorTotal);
+  const delta = NEVER_DISCARD_SWITCH.live ? amount : Decimal.min(priorTotal.plus(amount), cap).minus(priorTotal);
   let nextInventory: Record<string, Decimal[]>;
   if (delta.lt(0)) {
     // Over-cap re-clamp: drain the overflow (priorTotal - cap) lowest-quality-first so no
@@ -5742,11 +5820,23 @@ export function economyTick(
   // early-outs to a same-reference no-op today, inert but correct + drift-proof
   // for when processes exist.
   const {
-    next: postProcessStateRaw,
+    next: postProcessResolved,
     fleetAdminXpDelta: processFleetAdminXpDelta,
     craftingXpDelta: processCraftingXpDelta,
   } = resolveProcesses(postMissionState, ticksElapsed, rng, nowMs);
   fleetAdminXpDelta += processFleetAdminXpDelta;
+  // FR-C R2-5: the Fleet Admiral XP finite work grants (upgrades, research, crafting) counts in Statistics' "Fleet Admiral
+  // XP Awarded" too (it held only the mission XP folded above). The same once-per-call fold on both paths.
+  const postProcessStateRaw: GameState =
+    processFleetAdminXpDelta > 0 && RECAP_FOLDS_SWITCH.live
+      ? {
+          ...postProcessResolved,
+          lifetimeStats: {
+            ...postProcessResolved.lifetimeStats,
+            fleetAdminXpAwarded: postProcessResolved.lifetimeStats.fleetAdminXpAwarded.plus(processFleetAdminXpDelta),
+          },
+        }
+      : postProcessResolved;
 
   // 0.13.4 Phase 2 Unit 2.2: drain the patrol endings the captain map collected into the
   // completion log.
@@ -10097,7 +10187,15 @@ function lineJobSpec(state: GameState, line: CraftLine): CraftLineJobSpec | null
 // bookkeeping (lines have no pause-reason field in C2; a blocked line simply survives
 // unchanged and retries next tick). PURE: no mutation; the returned `next` is a fresh
 // state when a job started, else the same reference.
-function stepCraftLine(state: GameState, line: CraftLine): { next: GameState; line: CraftLine | null } {
+// FR-C lane 1 I3: the facility's capacity picture for a pass over its lanes, so a lane can tell when it is over-subscribed
+// (more lanes than slots: a player's line or queued order has claimed back a borrowed slot). Absent = not over-subscribed.
+interface LaneCapacity {
+  slotCount: number;
+  laneCount: number;              // lanes still held by the facility at this point of the pass
+  laneIds: ReadonlySet<string>;   // every lane id of this facility in this pass (for the in-flight count)
+}
+
+function stepCraftLine(state: GameState, line: CraftLine, capacity?: LaneCapacity): { next: GameState; line: CraftLine | null } {
   const spec = lineJobSpec(state, line);
   if (spec === null) {
     // Unknown/corrupt recipe on a persisted line: keep it inert (survives), start
@@ -10139,6 +10237,16 @@ function stepCraftLine(state: GameState, line: CraftLine): { next: GameState; li
   // once no lane holds it.
   if (line.mode.kind === "batch" && poolRemaining <= 0) {
     return { next: state, line: null };
+  }
+
+  // FR-C lane 1 I3: THE BORROWED-SLOT RULES, only while the facility holds more lanes than slots (never true on a save
+  // without joined lanes, so every other lane runs exactly as before). A JOINED lane between units hands its slot back
+  // (leaves); any other lane waits until fewer jobs run than there are slots, so the facility never runs more jobs at
+  // once than it has slots.
+  if (capacity !== undefined && capacity.laneCount > capacity.slotCount) {
+    if (line.joined === true) return { next: state, line: null };
+    const running = state.activeProcesses.reduce((n, p) => n + (p.lineId !== undefined && capacity.laneIds.has(p.lineId) ? 1 : 0), 0);
+    if (running >= capacity.slotCount) return { next: state, line };
   }
 
   // Output at its warehouse cap -> this line makes no progress this tick (survives,
@@ -10298,6 +10406,8 @@ function joinFreeLanesToRunningOrders(
       mode: order.mode,
       // Material Lines ML-4: the order's "Use best materials" toggle, mirrored like the fields above (only when on).
       ...(order.materialPreference === "best" ? { materialPreference: "best" as const } : {}),
+      // FR-C lane 1 I3: borrowed capacity (CraftLine.joined).
+      joined: true,
     });
     mintId += 1;
     free -= 1;
@@ -10306,15 +10416,63 @@ function joinFreeLanesToRunningOrders(
   return { lines: [...lines, ...added], nextCraftLineId: mintId };
 }
 
-function runCraftLines(state: GameState, lines: CraftLine[]): { next: GameState; lines: CraftLine[] } {
+function runCraftLines(state: GameState, lines: CraftLine[], slotCount?: number): { next: GameState; lines: CraftLine[] } {
   let working = state;
   const nextLines: CraftLine[] = [];
+  // FR-C lane 1 I3: the capacity picture (see LaneCapacity); laneCount drops as lanes leave during the pass.
+  const capacity: LaneCapacity | undefined =
+    slotCount === undefined ? undefined : { slotCount, laneCount: lines.length, laneIds: new Set(lines.map((l) => l.id)) };
   for (const line of lines) {
-    const stepped = stepCraftLine(working, line);
+    const stepped = stepCraftLine(working, line, capacity);
     working = stepped.next;
     if (stepped.line !== null) nextLines.push(stepped.line);
+    else if (capacity !== undefined) capacity.laneCount -= 1;
   }
   return { next: working, lines: nextLines };
+}
+
+// FR-C lane 1 I3: how many of a facility's lanes CLAIM a slot: every lane but the borrowed ones the join pass minted
+// (CraftLine.joined). The ONE count canStartLine's noSlot gate and the queue's hasFreeSlot both read, so the player's
+// Start button and the queue never disagree about whether a slot is free. Equals lines.length on every save without
+// joined lanes. Pure.
+export function claimedLaneCount(lines: readonly CraftLine[]): number {
+  let n = 0;
+  for (const l of lines) if (l.joined !== true) n += 1;
+  return n;
+}
+
+// FR-C lane 1 I3: retire every DRAINED order of `kind` that no lane holds any more (its last lane finished, or a cancel removed
+// them), and emit its run's ONE completed-log entry from the accumulation its lanes folded into (recordCompletion). A
+// same-reference no-op when nothing is retired, so a save with no orders is untouched. Pure.
+function sweepCraftOrders(state: GameState, kind: CraftLineKind): GameState {
+  const orders = state.craftOrders ?? [];
+  if (orders.length === 0) return state;
+  const held = new Set<string>();
+  for (const l of (kind === "refine" ? state.refineLines : state.fabricateLines) ?? []) if (l.orderId !== undefined) held.add(l.orderId);
+  // Only a DRAINED order (its pool at 0: every unit started, or a cancel) is retired; an order that still has units and
+  // no lane is work a free lane will join (the join pass), never something to drop.
+  const gone = orders.filter((o) => o.kind === kind && o.remaining <= 0 && !held.has(o.id));
+  if (gone.length === 0) return state;
+  let log = state.completionLog ?? [];
+  let nextId = state.nextCompletionLogId ?? 1;
+  let open = state.openJobBatches ?? [];
+  for (const o of gone) {
+    const batch = open.find((b) => b.lineId === o.id);
+    if (batch === undefined) continue;
+    if (batch.iterations > 0) {
+      log = pushCompletionEntry(log, completionEntryFromBatch(batch, nextId));
+      nextId += 1;
+    }
+    open = open.filter((b) => b !== batch);
+  }
+  const goneIds = new Set(gone.map((o) => o.id));
+  return {
+    ...state,
+    craftOrders: orders.filter((o) => !goneIds.has(o.id)),
+    completionLog: log,
+    nextCompletionLogId: nextId,
+    openJobBatches: open,
+  };
 }
 
 // The per-tick REFINE line engine, called ONCE per economyTick (AFTER resolveProcesses,
@@ -10324,13 +10482,14 @@ function runCraftLines(state: GameState, lines: CraftLine[]): { next: GameState;
 // a pre-C6 save that predates the field (defensive; freshState always seeds []).
 export function processRefineLines(state: GameState): GameState {
   const lines = state.refineLines ?? [];
-  if (lines.length === 0) return state; // no lines -> same-reference no-op
+  // FR-C lane 1 I3: an order no lane holds is still swept (its run logged) even when the facility has no lanes left.
+  if (lines.length === 0) return sweepCraftOrders(state, "refine"); // no lines and no orders -> same-reference no-op
   // 0.13.4 Phase 5: join BEFORE stepping, so a lane that attaches this tick also starts its first
   // iteration this tick. That mirrors how a slot freed by a completion is refilled the same tick,
   // which is the cadence the rest of this engine already promises.
   const joined = joinFreeLanesToRunningOrders(state, lines, "refine");
-  const { next, lines: nextLines } = runCraftLines({ ...state, nextCraftLineId: joined.nextCraftLineId }, joined.lines);
-  return { ...next, refineLines: nextLines };
+  const { next, lines: nextLines } = runCraftLines({ ...state, nextCraftLineId: joined.nextCraftLineId }, joined.lines, refineSlotCount(state));
+  return sweepCraftOrders({ ...next, refineLines: nextLines }, "refine");
 }
 
 // The per-tick FABRICATE line engine, the EXACT mirror of processRefineLines for the
@@ -10341,13 +10500,13 @@ export function processRefineLines(state: GameState): GameState {
 // facility's slot count).
 export function processFabricateLines(state: GameState): GameState {
   const lines = state.fabricateLines ?? [];
-  if (lines.length === 0) return state; // no lines -> same-reference no-op
+  if (lines.length === 0) return sweepCraftOrders(state, "fabricate"); // no lines and no orders -> same-reference no-op
   // 0.13.4 Phase 5: same join-then-step order as processRefineLines. The two engines deliberately
   // stay symmetrical; a divergence between them is how one facility quietly gains a behavior the
   // other lacks.
   const joined = joinFreeLanesToRunningOrders(state, lines, "fabricate");
-  const { next, lines: nextLines } = runCraftLines({ ...state, nextCraftLineId: joined.nextCraftLineId }, joined.lines);
-  return { ...next, fabricateLines: nextLines };
+  const { next, lines: nextLines } = runCraftLines({ ...state, nextCraftLineId: joined.nextCraftLineId }, joined.lines, fabricateSlotCount(state));
+  return sweepCraftOrders({ ...next, fabricateLines: nextLines }, "fabricate");
 }
 
 // ============================================================================
@@ -10515,7 +10674,8 @@ export function canStartLine(
   // slot guard (and canFabricate's noSlot, though that counts in-flight jobs, lines here).
   const lines = (kind === "refine" ? state.refineLines : state.fabricateLines) ?? [];
   const slotCount = kind === "refine" ? refineSlotCount(state) : fabricateSlotCount(state);
-  if (lines.length >= slotCount) return { ok: false, reason: "noSlot" };
+  // FR-C lane 1 I3: a borrowed (joined) lane does not hold a slot against the player's own work (claimedLaneCount).
+  if (claimedLaneCount(lines) >= slotCount) return { ok: false, reason: "noSlot" };
 
   // --- Count validity: a line must order a WHOLE, POSITIVE number of iterations. Guards a
   // continuous line's implicit 1 (always valid) and a batch line's configured count.
@@ -10577,6 +10737,10 @@ export function canStartLine(
 // Material Lines ML-4 (L5): `materialPreference` "best" is the configurator's "Use best materials" toggle, stamped on
 // the line only when on (absent = lowest-first), so a line started without it is byte-identical. It changes no gate:
 // affordability and reservation stay total-based.
+// FR-C lane 1 I3: the TEST-ONLY off switch (laneJoinSwitch.fixture.ts). With `live` false startLine opens no order, the
+// game before the lane join was wired exactly, so a golden captured before it can be traced. Never written by app code.
+export const LANE_JOIN_SWITCH: { live: boolean } = { live: true };
+
 export function startLine(
   state: GameState,
   kind: CraftLineKind,
@@ -10598,6 +10762,22 @@ export function startLine(
   // affordable inputs, and output room. Append the line, byte-for-byte the C2 append path.
   const lines = (kind === "refine" ? state.refineLines : state.fabricateLines) ?? [];
   const remaining = count;
+  // FR-C lane 1 I3 (user 2026-11-15, "Wire it in 0.14.0"): a BATCH runs under its own CraftOrder, so a free lane at this
+  // facility can join it and pull units from the same pool (joinFreeLanesToRunningOrders). The order holds the pool (and
+  // the reservation, counted once); the lane mirrors it. A CONTINUOUS line stays unattached: it is never joined.
+  const orderNumber = state.nextCraftOrderId ?? 1;
+  const order: CraftOrder | null =
+    mode.kind === "batch" && LANE_JOIN_SWITCH.live
+      ? {
+          id: `ord-${orderNumber}`,
+          facility: kind === "refine" ? "refinery" : "fabricator",
+          kind,
+          recipeKey,
+          remaining,
+          mode,
+          ...(materialPreference === "best" ? { materialPreference } : {}),
+        }
+      : null;
   const line: CraftLine = {
     id: `craft-${state.nextCraftLineId}`,
     kind,
@@ -10605,10 +10785,16 @@ export function startLine(
     remaining,
     mode,
     ...(materialPreference === "best" ? { materialPreference } : {}),
+    ...(order !== null ? { orderId: order.id } : {}),
   };
   const field = kind === "refine" ? "refineLines" : "fabricateLines";
   return {
-    next: { ...state, [field]: [...lines, line], nextCraftLineId: state.nextCraftLineId + 1 },
+    next: {
+      ...state,
+      [field]: [...lines, line],
+      nextCraftLineId: state.nextCraftLineId + 1,
+      ...(order !== null ? { craftOrders: [...(state.craftOrders ?? []), order], nextCraftOrderId: orderNumber + 1 } : {}),
+    },
     started: true,
   };
 }
@@ -10644,6 +10830,29 @@ export function cancelLine(state: GameState, lineId: string, nowMs: number = UNK
   const inRefine = refineLines.some((l) => l.id === lineId);
   const inFabricate = fabricateLines.some((l) => l.id === lineId);
   if (!inRefine && !inFabricate) return state; // no such line -> same-ref no-op
+
+  // FR-C lane 1 I3: a lane attached to a live ORDER cancels the whole order (every lane on it shares one pool, so
+  // stopping one lane alone would only hand its work to the others). The pool drops to 0, which releases the
+  // reservation at once; each lane with a unit in flight drains it (the unit lands as usual), the rest leave now. Once no
+  // lane holds the order, it is retired and its run logged ONCE (sweepCraftOrders, stamped with the cancel clock).
+  const orderId = attachedOrderIdOf(state, lineId);
+  if (orderId !== undefined) {
+    const busy = new Set(state.activeProcesses.map((p) => p.lineId).filter((id): id is string => id !== undefined));
+    const stop = (lines: CraftLine[]): CraftLine[] =>
+      lines
+        .filter((l) => l.orderId !== orderId || busy.has(l.id))
+        .map((l) => (l.orderId === orderId ? { ...l, remaining: 0, mode: { kind: "batch" as const, remaining: 0 } } : l));
+    const stopped: GameState = {
+      ...state,
+      refineLines: inRefine ? stop(refineLines) : refineLines,
+      fabricateLines: inFabricate ? stop(fabricateLines) : fabricateLines,
+      craftOrders: (state.craftOrders ?? []).map((o) => (o.id === orderId ? { ...o, remaining: 0, mode: { kind: "batch" as const, remaining: 0 } } : o)),
+      openJobBatches: (state.openJobBatches ?? []).map((b) =>
+        b.lineId === orderId && nowMs > UNKNOWN_COMPLETION_TIME_MS ? { ...b, lastAtMs: nowMs } : b,
+      ),
+    };
+    return sweepCraftOrders(stopped, inRefine ? "refine" : "fabricate");
+  }
 
   // Cancel = "stop after the CURRENT iteration finishes." If the line has an iteration
   // already IN FLIGHT (a job stamped with this lineId), we DRAIN it rather than delete
@@ -10833,7 +11042,8 @@ function craftLineQueueAdapter(kind: CraftLineKind): QueueAdapter {
       // hand, and canStartLine cannot be asked without one.
       const lines = (kind === "refine" ? state.refineLines : state.fabricateLines) ?? [];
       const slotCount = kind === "refine" ? refineSlotCount(state) : fabricateSlotCount(state);
-      return lines.length < slotCount;
+      // FR-C lane 1 I3: borrowed (joined) lanes do not hold a slot against a queued order (claimedLaneCount).
+      return claimedLaneCount(lines) < slotCount;
     },
     canStart(state, order) {
       if (!matches(order)) return { ok: false, reason: "wrongFacility" };
@@ -12235,7 +12445,9 @@ export function promoteQueuedOrders(state: GameState): GameState {
       // before the loop and moves on to the next ENTRY. That is the intended bound, not a
       // limitation: one unit per job duration is what keeps the per-unit rng draw pattern
       // identical to the single-unit path, which is the whole parity argument.
-      working = next;
+      // FR-C fix pass: an order that left the queue whole (a salvage batch's last unit included) is one the ENGINE
+      // started, recorded for the While You Were Away recap ("Queued orders started").
+      working = RECAP_FOLDS_SWITCH.live && !(next.processQueue ?? []).some((j) => j.id === job.id) ? recordRecapPromotion(next, job.id) : next;
     }
   }
 
@@ -13055,7 +13267,8 @@ export function resolveProcesses(
       if (process.kind === "refineJob") {
         const itemId = process.effect.itemId;
         const priorRefined = lifetimeStats.itemsRefined[itemId] ?? new Decimal(0);
-        const refined = { ...lifetimeStats.itemsRefined, [itemId]: priorRefined.plus(process.effect.amount) };
+        // FR-C lane 1 M4: the DELIVERED output (a Refiner extra batch doubles it), the same amount itemsCrafted adds.
+        const refined = { ...lifetimeStats.itemsRefined, [itemId]: priorRefined.plus(outputAmount) };
         lifetimeStats = {
           ...lifetimeStats,
           // Ordering determinism (canonicalOrder.ts): a new key lands in canonical key order.
@@ -13565,7 +13778,14 @@ export function resolveProcesses(
   if (ORDERING2_SWITCH.live && toRecord.length > 1) {
     toRecord.sort((a, b) => a.tick - b.tick || compareProcessIds(a.args.process.id, b.args.process.id));
   }
-  for (const { args } of toRecord) completionAcc = recordCompletion({ ...args, acc: completionAcc });
+  // FR-C fix pass: each entry the recorder writes bumps the recap's cumulative tally (an entry is new iff the id counter
+  // moved, and pushCompletionEntry always appends it last), so the recap counts exactly past the log's cap.
+  let recapTally = state.recapTally;
+  for (const { args } of toRecord) {
+    const priorId = completionAcc.nextId;
+    completionAcc = recordCompletion({ ...args, acc: completionAcc });
+    if (completionAcc.nextId !== priorId && RECAP_FOLDS_SWITCH.live) recapTally = bumpRecapTally(recapTally, completionAcc.log[completionAcc.log.length - 1]);
+  }
 
   return {
     next: {
@@ -13616,6 +13836,8 @@ export function resolveProcesses(
       completionLog: completionAcc.log,
       nextCompletionLogId: completionAcc.nextId,
       openJobBatches: completionAcc.open,
+      // FR-C fix pass: written only when an entry bumped it (byte-identical otherwise, key set included).
+      ...(recapTally !== state.recapTally ? { recapTally } : {}),
       activeProcesses: stillActive,
       // Exploration 0.14.0 (Phase E4a): the museum + first-find registry, written back ONLY when a relic
       // study completed this call (conditional spread), so every call that completes no study lands

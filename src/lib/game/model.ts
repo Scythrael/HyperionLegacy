@@ -5956,6 +5956,13 @@ function warehouseT1CapAtLevel(level: number): Decimal {
   return new Decimal(WAREHOUSE_T1_BASE_CAP).times(2 ** level);
 }
 
+// FR-C lane 1 M2: 3/4 of a warehouse cap as an EXACT whole number. break_infinity's times/div drift (rung 5's
+// 12,000,000 came out 12000000.000000002, unbuyable with exactly the listed ore), so the product is taken in plain
+// numbers (every cap here is an integer far below 2^53, divisible by 4) and rounded, then wrapped once.
+function exactThreeQuarters(cap: Decimal): Decimal {
+  return new Decimal(Math.round((Math.round(cap.toNumber()) * 3) / 4));
+}
+
 // Builds T1's finite (~25-rung) doubling track. Rung i (level i -> i+1):
 //   - materials: { commonOre: 75% of the cap at level i }, steep, scales with cap.
 //   - durationTicks: escalating placeholder in the Refinery's ballpark, grows
@@ -5968,7 +5975,8 @@ function buildWarehouseT1Upgrades(): FacilityUpgradeDef[] {
   const upgrades: FacilityUpgradeDef[] = [];
   for (let i = 0; i < WAREHOUSE_T1_RUNG_COUNT; i++) {
     upgrades.push({
-      materials: { commonOre: warehouseT1CapAtLevel(i).times(3).div(4) }, // 75% of cap at level i
+      // FR-C lane 1 M2: 75% of the cap at level i, as an EXACT whole number (Decimal times/div drifted to 12000000.000000002).
+      materials: { commonOre: exactThreeQuarters(warehouseT1CapAtLevel(i)) },
       durationTicks: 20 * (i + 1), // TUNABLE placeholder: 20, 40, ... 500 (Refinery ballpark)
       effect: { storageCapMult: 2 },
     });
@@ -6007,7 +6015,7 @@ function buildWarehouseT2Upgrades(): FacilityUpgradeDef[] {
   // Rungs 1..N-1: the denseOre-priced cap upgrades.
   for (let i = 1; i < WAREHOUSE_T2_RUNG_COUNT; i++) {
     upgrades.push({
-      materials: { denseOre: warehouseT2CapAtLevel(i).times(3).div(4) }, // 75% of T2 cap at level i
+      materials: { denseOre: exactThreeQuarters(warehouseT2CapAtLevel(i)) }, // 75% of T2 cap at level i (exact, FR-C M2)
       durationTicks: 60 * (i + 1), // TUNABLE placeholder, escalating
       effect: { storageCapMult: 2 },
     });
@@ -7348,6 +7356,9 @@ export interface CompletionLogEntry {
   // the resolver could still see it. Absent everywhere else, and absent on every entry
   // written before this field existed, so every read is presence-checked.
   salvageSubject?: CompletionSalvageSubject;
+  // FR-C R8-6: true on a "salvageJob" entry the Auto-Salvage Terminal ran (its effect's `auto` stamp), so the While You
+  // Were Away recap can name what auto-salvage took. Absent on every other entry and on every entry written before it.
+  auto?: true;
   // G1-5: the unidentified relics a short-range run found over its cycles (they went to the vault as each cycle was
   // delivered). Written only on a "shortRangeRun" entry that found at least one, and on every "shortRangeRelicFind"
   // entry (the relics that one cycle found); absent everywhere else.
@@ -7396,6 +7407,35 @@ export interface OpenJobBatch {
 // Oldest is evicted first (the array is chronological, so eviction is a slice off the
 // front).
 export const COMPLETION_LOG_CAP = 50;
+
+// FR-C fix pass: the While You Were Away recap's cumulative counters (GameState.recapTally). Each only ever grows, so
+// the recap's before/after diff is exact however long the absence ran, unlike the 50-entry log.
+//   autoSalvage: one count per thing the Auto-Salvage Terminal broke down, keyed by recapSalvageKey (the naming ids
+//                of its completed-events entry), bumped once per auto-salvage completion that consumed its target.
+//   upgrades:    per upgrade track (recapUpgradeKey: the entry's kind and subject), how many completed and the level
+//                (or count) the newest one reached. Every upgrade completion raises its track by exactly one, so the
+//                levels a span reached are the `n` newest: level - n + 1 through level.
+//   promoted:    the ids of the queued orders the ENGINE started (the promotion pass took the whole order out of the
+//                queue), newest last, capped at RECAP_PROMOTED_CAP. Only the player adds to the queue, so one absence
+//                can promote at most what was queued when it began (the queue depth caps keep that far under the cap).
+export interface RecapTally {
+  autoSalvage?: Record<string, number>;
+  upgrades?: Record<string, { n: number; level: number }>;
+  promoted?: string[];
+}
+
+export const RECAP_PROMOTED_CAP = 200;
+
+// The tally key of an auto-salvage entry: the fields its row is named from (reward, subject and the consumed target's
+// naming ids), so the recap rebuilds the same label the Home board shows. Pure.
+export function recapSalvageKey(entry: Pick<CompletionLogEntry, "reward" | "subjectKey" | "salvageSubject">): string {
+  return JSON.stringify([entry.reward, entry.subjectKey, entry.salvageSubject ?? null]);
+}
+
+// The tally key of an upgrade track: the entry's kind and subject ("facilityUpgrade|fuelStorage"). Pure.
+export function recapUpgradeKey(entry: Pick<CompletionLogEntry, "kind" | "subjectKey">): string {
+  return `${entry.kind}|${entry.subjectKey ?? ""}`;
+}
 
 // --- Crafting 0.13.3 (Phase 2 Unit 2.2): salvage DURATION -------------------
 // docs/plans/2026-09-01-crafting-0.13.3-design.md §7.2.
@@ -10208,6 +10248,10 @@ export interface GameState {
   // (see OpenJobBatch). Never rendered; this is engine bookkeeping that exists purely so
   // ONE entry can be emitted per ORDER rather than one per iteration.
   openJobBatches: OpenJobBatch[];
+  // FR-C fix pass (While You Were Away, exact for any absence): cumulative counters the engine bumps as it works, which
+  // the recap diffs before against after (the completed-events log above holds only the newest 50, so a long absence
+  // evicted the early entries). Absent on a save until the engine first bumps one (absent reads as all zero).
+  recapTally?: RecapTally;
   // --- Crew 0.14.0 (Phase 0, DORMANT) --------------------------------------------------------
   // The crew layer's fleet-wide state, landed dormant so the save shape moves once at the start
   // of the release. NOTHING reads or writes any of these yet (the Senior Staff engine, transports,
@@ -10713,14 +10757,21 @@ export const DEUTERIUM_ICE_SELL_VALUE = 4;
 // module (E-MOD EM-8, precursorLensBp). [PROVISIONAL] prices for 0.16.0.
 export const SALVAGE_DROP_SELL_VALUE = { salvagedCircuitry: 12, precursorCircuit: 300 } as const;
 
-// The Deuterium Canister anchors the scale (450 cr); the Standard band sells under it and each band up roughly doubles.
-// It was set when ten Deuterium Ice sold for 400 cr; ice is now a cheap crafting input (DEUTERIUM_ICE_SELL_VALUE), so
-// the refine adds most of the value.
+// FR-C lane 1 I1 (user 2026-11-13/14, "Price near input value (Recommended)"): the Deuterium Canister is the one canister
+// the Refinery makes from a cheap input (10 Deuterium Ice), and at 450 cr it made ice to canister to Sell about 60x the
+// planned early income. It now sells for the ice it took plus a small refining margin, DERIVED from the recipe and the ice
+// price so the two can never drift apart again: 10 x 4 cr x 1.25 = 50 cr. The other canisters come from Gas Giant Study
+// fieldwork, not from a refine, and keep their prices (the band scale they were set on is unchanged).
+// [PROVISIONAL] the margin (+25%), for 0.16.0 balancing.
+export const DEUTERIUM_CANISTER_REFINE_MARGIN = 1.25;
+export const DEUTERIUM_CANISTER_SELL_VALUE = Math.round(
+  REFINE_RECIPES.refineDeuteriumCanister.input.deuteriumIce.toNumber() * DEUTERIUM_ICE_SELL_VALUE * DEUTERIUM_CANISTER_REFINE_MARGIN,
+);
 export const GAS_CANISTER_SELL_VALUE = {
   hydrogenCanister: 200,
   methaneCanister: 200,
   ammoniaCanister: 450,
-  deuteriumCanister: 450,
+  deuteriumCanister: DEUTERIUM_CANISTER_SELL_VALUE,
   helium3Canister: 1_000,
   antimatterCell: 2_500,
 } as const;

@@ -31,6 +31,11 @@ canonicalOrderOffForThisFile();
 import { ordering2OffForThisFile } from "./ordering2Switch.fixture";
 ordering2OffForThisFile();
 import { describe, expect, it } from "vitest";
+// FR-C lane 1 M5 / M6 (Never discard: deliveries land in full, a load trims nothing) came after every pin here: the file
+// runs with it off (neverDiscardSwitch.fixture.ts), so its pins keep proving their own slice; neverDiscard.test.ts pins
+// the move.
+import { neverDiscardOffForThisFile } from "./neverDiscardSwitch.fixture";
+neverDiscardOffForThisFile();
 // Gear wear close-out (2026-11-11: "Make it exact", "Keep the bay rate") came after every pin here: the file runs with it
 // off (gearWearCloseoutSwitch.fixture.ts), so its pins keep proving their own slice (gearWearCloseoutGoldens.test.ts and
 // gearWearCloseout.test.ts pin and prove what the close-out moved: leftover underway seconds at a run's end, a repair

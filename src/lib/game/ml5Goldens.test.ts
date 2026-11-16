@@ -14,6 +14,15 @@
 import { ordering2OffForThisFile } from "./ordering2Switch.fixture";
 ordering2OffForThisFile();
 import { describe, expect, it } from "vitest";
+// FR-C R2-5 / R8-6 (the finite-work FA XP folded into lifetimeStats, the auto-salvage log stamp) came after every pin
+// here: the file runs with them off (recapFoldsSwitch.fixture.ts), so its pins keep proving their own slice;
+// faXpAwardedStat.test.ts and offlineRecapSections.test.ts pin the moves.
+import { recapFoldsOffForThisFile } from "./recapFoldsSwitch.fixture";
+recapFoldsOffForThisFile();
+// FR-C lane 1 I3 (the lane join wired: startLine opens an order for a batch) came after every pin here: the file runs
+// with it off (laneJoinSwitch.fixture.ts), so its pins keep proving their own slice; laneJoinWired.test.ts traces it.
+import { laneJoinOffForThisFile } from "./laneJoinSwitch.fixture";
+laneJoinOffForThisFile();
 import Decimal from "break_infinity.js";
 import { type GameState } from "./model";
 import { economyTick, inspectBlanks, startLine, tick } from "./tick";

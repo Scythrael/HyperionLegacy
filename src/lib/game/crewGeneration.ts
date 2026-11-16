@@ -57,6 +57,9 @@ const EXCLUSIVE_SECOND_BUFF_CHANCE = 35;
 // omitted, it is rolled uniformly over the six professions.
 export interface GenerateComplementOptions {
   profession?: CrewProfession;
+  // FR-C A1-2: pins the rank (the welcome batch fills an open seat of a known division AND rank). Pinned, the rank draw
+  // is skipped (as a pinned profession skips its draw); every unpinned roll is unchanged.
+  rank?: CrewRank;
 }
 
 // Mix a base seed + a row index into one uint32 PRNG seed, so row `index` gives an independent draw
@@ -82,11 +85,13 @@ export function generateComplementCrew(
 
   const profession: CrewProfession = opts.profession ?? CREW_PROFESSIONS[rng.nextInt(CREW_PROFESSIONS.length)];
   const rarity: CrewRarity = clampCrewRarity(weightedPick(rng, GEN_RARITIES, GEN_RARITY_WEIGHTS));
-  const rank = weightedPick(
-    rng,
-    [1, 2, 3, 4, 5, 6, 7, 8] as CrewRank[],
-    [1, 2, 3, 4, 5, 6, 7, 8].map((r) => GEN_RANK_WEIGHTS[r as CrewRank]),
-  );
+  const rank =
+    opts.rank ??
+    weightedPick(
+      rng,
+      [1, 2, 3, 4, 5, 6, 7, 8] as CrewRank[],
+      [1, 2, 3, 4, 5, 6, 7, 8].map((r) => GEN_RANK_WEIGHTS[r as CrewRank]),
+    );
   const race: CrewRace = CREW_RACE_IDS[rng.nextInt(CREW_RACE_IDS.length)];
 
   // buff1: always present, from the profession's own pool.

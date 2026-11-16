@@ -49,7 +49,7 @@ import {
   type TimedProcess,
   type TimedProcessKind,
 } from "./model";
-import { addToInventory, itemCap, mintBuiltShip } from "./tick";
+import { NEVER_DISCARD_SWITCH, addToInventory, completionTickIn, itemCap, mintBuiltShip } from "./tick";
 import { advanceExpedition } from "./expedition";
 import { expeditionHomeNow } from "./gearWearEngine";
 import { itemTotal } from "./inventory";
@@ -159,9 +159,16 @@ export function canBuyOvertime(state: GameState, ref: ProcessRef): OvertimeQuote
   if (steps >= OVERTIME_MAX_STEPS) return { ok: false, reason: "maxSteps" };
   if (p.remainingTicks <= OVERTIME_FINISHING_TICKS) return { ok: false, reason: "finishing" };
   const step = steps + 1;
+  // FR-C lane 1 M1: a job completes once its time left reaches 0, so it finishes after ceil(remainingTicks) ticks. A step
+  // whose rescale leaves that whole-tick count unchanged would buy nothing, so it is refused like the last tick
+  // ("finishing"), before any price is asked.
+  // FR-C fix pass: both sides count whole ticks by the completion's own rule (tick.ts completionTickIn, ceil(x - epsilon)),
+  // so a float leftover such as 4.000000000000001 (which completes on its 4th tick) cannot let a step that saves nothing through.
+  const rescaled = rescaledRemaining(p.remainingTicks, steps, step);
+  if (completionTickIn(rescaled) >= completionTickIn(p.remainingTicks)) return { ok: false, reason: "finishing" };
   const cost = overtimeStepCost(state, p, step);
   if (state.credits.lt(cost)) return { ok: false, reason: "credits", cost };
-  const ticksSaved = p.remainingTicks - rescaledRemaining(p.remainingTicks, steps, step);
+  const ticksSaved = p.remainingTicks - rescaled;
   return { ok: true, step, cost, ticksSaved };
 }
 
@@ -445,13 +452,16 @@ export function canGrant(state: GameState, bundle: GrantBundle): { ok: true } | 
     if (state.ships.length >= state.shipStorageCapacity) return { ok: false, reason: "docksFull" };
   }
   // Items only, and every one already at its storage cap: nothing would arrive, so refuse rather than log an empty gift.
+  // FR-C (Never discard): a grant's items now land in full even at the cap, so this refusal holds only with the test-only
+  // switch off (tick.ts NEVER_DISCARD_SWITCH).
   const onlyItems = bundle.credits === undefined && gear.length === 0 && bundle.hullType === undefined && relics.length === 0;
-  if (onlyItems && items.every(([id]) => itemTotal(state.inventory, id).gte(itemCap(state, id)))) return { ok: false, reason: "storageFull" };
+  if (!NEVER_DISCARD_SWITCH.live && onlyItems && items.every(([id]) => itemTotal(state.inventory, id).gte(itemCap(state, id)))) return { ok: false, reason: "storageFull" };
   return { ok: true };
 }
 
 // Grant a bundle and return the System Log line naming what arrived ("<reason>. Received 500 credits, 4 Frame
-// Segments, 1 uninspected Plasma Cannon and a General Freighter."). Items fill up to their storage cap (the line names
+// Segments, 1 uninspected Plasma Cannon and a General Freighter."). Items land in full, even past their storage cap (FR-C
+// "Never discard"; the line names
 // what arrived; a bundle of items that are all at their cap is refused as storageFull); the hull is minted the way a Shipyard build mints one (mintBuiltShip, Standard Issue installed).
 // A grant is not income: lifetime credits earned are unchanged [PROPOSAL]. A refusal returns the SAME state, the
 // reason and an empty line.
@@ -475,7 +485,8 @@ export function grant(
   for (const [id, n] of Object.entries(bundle.items ?? {})) {
     const before = itemTotal(inventory, id);
     ({ inventory, discovered } = addToInventory(inventory, discovered, id, new Decimal(n), itemCap(state, id)));
-    const arrived = itemTotal(inventory, id).minus(before).toNumber();
+    // Whole items: rounded, so Decimal drift on a big stack never prints as 1,000,999.9999.
+    const arrived = Math.round(itemTotal(inventory, id).minus(before).toNumber());
     if (arrived > 0) parts.push(counted(arrived, ITEMS[id].label));
   }
   if (inventory !== next.inventory || discovered !== next.discovered) next = { ...next, inventory, discovered };

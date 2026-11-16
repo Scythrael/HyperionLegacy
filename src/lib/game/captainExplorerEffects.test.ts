@@ -21,10 +21,11 @@ import {
   explorerTalentText,
 } from "./captainExplorerEffects";
 import { describeSecondaryTalentEffect, secondaryTalentEffectText } from "./captainSecondaryEffects";
-import { effectiveShipStats, officerMissionOutputBonus } from "./crewOverlay";
+import { crewEffectivenessMultiplier, effectiveShipStats, officerMissionOutputBonus, shipCrewContribution } from "./crewOverlay";
+import { CREW_STAT_KEYS } from "./crewBuffs";
 import { discoveryOddsPermille, expeditionCandidates, rollBodyDiscoveries, scanRatePerSecond } from "./expedition";
 import { dispatchCaptainOnMission, economyTick, tick } from "./tick";
-import { officerPromotionCounter } from "./seniorStaff";
+import { officerPromotionCounter, officerRacialBonus } from "./seniorStaff";
 import { relicChancePermille, relicTierCeiling, rollRelicToken } from "./gambit";
 import { readSystem, telescopeReading, TELESCOPE_DETAIL } from "./telescope";
 import { expeditionRiskPreview } from "./expedition";
@@ -86,6 +87,23 @@ describe("WR-5c own ship (OC-A2): a node acts only on the ship its captain comma
     const s2 = withNode.ships.find((x) => x.id === "ship-2")!;
     expect(officerMissionOutputBonus(withNode, ship1(withNode))).toBeCloseTo(officerMissionOutputBonus(both, ship1(both)) * (1 + mag("commandCrew2")), 12);
     expect(officerMissionOutputBonus(withNode, s2)).toBe(officerMissionOutputBonus(both, s2));
+  });
+
+  // FR-C crew lane I1: Mentor (and Legendary Captain) lift an Earth-born officer's Crew Effectiveness racial in the
+  // display (the officer fold uses officerOutputMultiplier), so the complement lift it drives must use it too. It used
+  // the bridge module only, so the displayed lift did nothing.
+  it("Mentor lifts an Earth-born officer's Crew Effectiveness, and the complement lift acts on it", () => {
+    const lifted = bucketOf("operations", "ops.unloadSpeed");
+    const crewOnly = withBuckets(wiringBase(), [lifted]);
+    const seated = seatOfficer(crewOnly, "executive", [], { race: "earthBorn" });
+    const racial = officerRacialBonus(seated.officers[0]);
+    expect(racial.statKey).toBe(CREW_STAT_KEYS.crewEffectiveness);
+    const withNode = own(seated, "commandCrew2");
+    const unload = (s: GameState): number => shipCrewContribution(s, ship1(s))[CREW_STAT_KEYS.unloadSpeed];
+    const own0 = shipCrewContribution(crewOnly, ship1(crewOnly))[CREW_STAT_KEYS.crewEffectiveness] ?? 0;
+    const expected = crewEffectivenessMultiplier(own0 + racial.magnitude * (1 + mag("commandCrew2"))) / crewEffectivenessMultiplier(own0);
+    expect(unload(withNode) / unload(crewOnly)).toBeCloseTo(expected, 12);
+    expect(unload(withNode)).toBeGreaterThan(unload(seated));
   });
 });
 

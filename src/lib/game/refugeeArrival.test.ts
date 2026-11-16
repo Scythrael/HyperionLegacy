@@ -4,6 +4,7 @@
 // live; an old save's draws identical before each slot's stamp).
 
 import { describe, expect, it } from "vitest";
+import { withEchoExemptOff } from "./refugeeEchoExemptSwitch.fixture";
 import { freshState, type CaptainState, type GameState, type ShortRangeMissionState } from "./model";
 import {
   EVACUATION_DRAW_SWITCH,
@@ -539,6 +540,19 @@ describe("E5-3 a delivered Refugee Relocation takes the longest-waiting refugee 
     expect(refugeeFarewellPick({ ...posted, list: [...posted.list].reverse() })?.id).toBe(3);
     expect(refugeeFarewellPick({ ...base, list: base.list.map((r) => ({ ...r, posting: "shipyard" as const })) })).toBeNull();
     expect(refugeeFarewellPick(refugeesOf(freshState()))).toBeNull();
+  });
+
+  // FR-C crew lane I2 (user 2026-11-13/14, "Exempt echoes (Recommended)"): a waiting echo refugee never leaves on a
+  // Refugee Relocation (an echo arrives once per save, so leaving would lose them for good). The next-longest-waiting
+  // ordinary refugee goes instead, and with only echoes waiting nobody goes.
+  it("refugeeFarewellPick never takes a waiting echo refugee", () => {
+    const base = refugeesOf(withWaiting(freshState(), 3));
+    const echoFirst: RefugeeState = { ...base, list: base.list.map((r) => (r.id === 1 ? { ...r, echo: "someEcho" } : r)) };
+    expect(refugeeFarewellPick(echoFirst)?.id).toBe(2);
+    // The trace: with the exemption off (the game before it) the echo, waiting longest, went.
+    expect(withEchoExemptOff(() => refugeeFarewellPick(echoFirst))?.id).toBe(1);
+    const allEchoes: RefugeeState = { ...base, list: base.list.map((r) => ({ ...r, echo: `echo-${r.id}` })) };
+    expect(refugeeFarewellPick(allEchoes)).toBeNull();
   });
 
   it("with three waiting (and one posted) it removes the lowest-id waiting refugee only and emits one farewell", () => {

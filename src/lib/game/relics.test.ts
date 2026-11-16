@@ -80,6 +80,7 @@ import { migrate, type SaveFile } from "./save";
 import { startV1RelicStudy } from "./relicStudyV1.fixture";
 import { withoutCompletionTracking } from "./firstRunsGoldens.fixture";
 import { runCompletion, runSystemRecord } from "./completion";
+import { withNeverDiscardOff } from "./neverDiscardSwitch.fixture";
 
 // --- fixtures ----------------------------------------------------------------
 
@@ -301,12 +302,17 @@ describe("CLAIM DEPOSIT: findings land in inventory / credits / the relic vault"
     });
   });
 
-  it("honors the warehouse cap: a near-cap stack lands AT the cap, never past it", () => {
+  // FR-C lane 3 M2 (user 2026-11-13/14, "Never discard"): an expedition haul on a near-full stack lands in full, so the
+  // claim line (which names the haul) names what landed. Was: the deposit clamped AT the cap (still true with the switch
+  // off, the trace below).
+  it("lands the whole haul even past the warehouse cap (Never discard)", () => {
     const s0 = freshState();
     const cap = itemCap(s0, "scrapAlloy");
     const nearCap = { ...s0, inventory: { ...s0.inventory, scrapAlloy: [cap.minus(2)] } };
     const out = depositExpeditionFindings(nearCap, [{ id: "f", source: "activity", poiId: "mineralOutcrop", materials: { scrapAlloy: 5 } }]);
-    expect(itemTotal(out.inventory, "scrapAlloy").equals(cap)).toBe(true);
+    expect(itemTotal(out.inventory, "scrapAlloy").equals(cap.plus(3))).toBe(true);
+    const off = withNeverDiscardOff(() => depositExpeditionFindings(nearCap, [{ id: "f", source: "activity", poiId: "mineralOutcrop", materials: { scrapAlloy: 5 } }]));
+    expect(itemTotal(off.inventory, "scrapAlloy").equals(cap)).toBe(true);
   });
 
   it("an anomaly-only (payload-free) finding list is a same-reference no-op deposit", () => {

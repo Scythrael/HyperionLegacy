@@ -38,12 +38,24 @@ import { coalesceBuckets, contributionForSignature, notableSignature, removeFrom
 import { shipCrewLocked } from "./crewLock";
 import { captainRacialBonus, officerCrewHoursMs, officerRacialBonus, officerRankMagnitudeFactor } from "./seniorStaff";
 import { getSeniorStaffBonusById } from "./seniorStaffBonuses";
-import { crewTransportsDue, deliverDueTransports, takesWelcomeBatch, transportBatchSize, welcomeTransportCount, welcomeTransportMarker } from "./transports";
+import {
+  WELCOME_SEAT_SWITCH,
+  crewTransportsDue,
+  deliverDueTransports,
+  foldTransportBatch,
+  takesWelcomeBatch,
+  transportBatchSize,
+  transportWindowIndex,
+  welcomeSeatBatch,
+  welcomeTransportCount,
+  welcomeTransportMarker,
+} from "./transports";
 import { autoCrewShip } from "./autoCrew";
+import { seatCrewOnHand } from "./welcomeSeating";
 // Homeworld reserve (user 2026-11-12): the surplus sweep and the reserve list (imports crew, commandStructure and
 // crewModules only, so no cycle).
 import { HOMEWORLD_RESERVE_SWITCH, NO_RESERVE, homeworldReserveOf, sweepSurplusToReserve, withHomeworldReserve } from "./homeworldReserve";
-import { commandStructureWithBonus, complementTotalCap, hullLeanDivisions, type CommandStructure } from "./commandStructure";
+import { CREW_PROFESSIONS, commandStructureWithBonus, complementTotalCap, hullLeanDivisions, type CommandStructure } from "./commandStructure";
 import {
   installedQuartersModule,
   installedBridgeModule,
@@ -457,7 +469,7 @@ function rawShipCrewContribution(state: GameState, ship: ShipInstance, hullBonus
     // above) plus every assigned officer's Earth-born racial lifts every OTHER complement key by
     // crewEffectivenessMultiplier (D23 curve). It never scales itself, and the officers' own bonuses (added below) are
     // not scaled. Exactly 1 without it, and then every value is added as before (no float op).
-    const lift = crewEffectivenessMultiplier((rollup[EFFECTIVENESS_KEY] ?? 0) + officerEffectivenessRacials(state, ship, bridgeMod));
+    const lift = crewEffectivenessMultiplier((rollup[EFFECTIVENESS_KEY] ?? 0) + officerEffectivenessRacials(state, ship, bridgeMod, officerOutput));
     // CP-4's rest fix round: with `dept`, only that department's crew are added (at the whole ship's lift).
     const kept = dept === undefined ? rollup : rollupBuckets(buckets.filter((b) => b.profession === dept), contrib);
     for (const key of Object.keys(kept)) add(key, lift === 1 || key === EFFECTIVENESS_KEY ? kept[key] : kept[key] * lift);
@@ -509,13 +521,15 @@ const EFFECTIVENESS_KEY = CREW_STAT_KEYS.crewEffectiveness;
 
 // CP-2 (OC-3): the Crew Effectiveness the officers assigned to `ship` add through their racial (Earth-born), at the
 // officer magnitude, bridge-module amp included exactly as the officer fold below applies it. 0 without one. Pure.
-function officerEffectivenessRacials(state: GameState, ship: ShipInstance, bridgeMod: ReturnType<typeof installedBridgeModule>): number {
+// FR-C crew lane I1: x the captain's officer output too (Mentor, Legendary Captain), through the SAME officerOutputMultiplier
+// the officer fold and the display use, so the lift the card shows is the lift that acts. Exactly 1 without them.
+function officerEffectivenessRacials(state: GameState, ship: ShipInstance, bridgeMod: ReturnType<typeof installedBridgeModule>, officerOutput: number): number {
   let total = 0;
   for (const officer of state.officers) {
     if (officer.assignedShipId !== ship.id) continue;
     const racial = officerRacialBonus(officer);
     if (racial.statKey !== EFFECTIVENESS_KEY || racial.magnitude === 0) continue;
-    total += racial.magnitude * (bridgeMod ? bridgeOfficerMultiplier(bridgeMod, officer, hullSpecOf(ship)) : 1);
+    total += racial.magnitude * officerOutputMultiplier(bridgeMod, officer, hullSpecOf(ship), officerOutput);
   }
   // WR-6: an Earth-born commanding captain's racial lifts the complement the same way (unamplified, see the fold).
   const captainRacial = captainRacialBonus(commandingCaptain(state, ship));
@@ -1383,7 +1397,95 @@ function deliverTransportsOrWelcome(state: GameState, reserveIn: CrewBucket[]): 
   return deliverDueTransports(transportSeedFor(state), state.crewPool, fromWindow, state.gameTimeSeconds, batchSize);
 }
 
-export function resolveCrew(state: GameState): GameState {
+// FR-C A1-2 (QA 2026-11-14): the WELCOME BATCH, seat by seat. The old welcome delivered the most recent ordinary
+// transports, sized by the fleet's TOTAL berths, and their random divisions and ranks did not match what the ships had
+// open, so explorers sat half empty and the surplus was swept to the Homeworld reserve. Now:
+//   - the crew already on hand (the pool, then the reserve) are seated first on the PASSIVE ships that are not
+//     crew-locked, as many as can be seated (welcomeSeating.ts, rank- and division-aware: FR-C fix pass, since the
+//     ship-by-ship top-rank-down fill stranded crew a later ship's seats could have held);
+//   - each such ship's remaining open SEATS are then read by running the autoCrewShip filler over an unlimited supply of
+//     every division and rank (so the seats follow the filler's own order: the lean division first, top rank down),
+//     and one welcome crewmember is rolled per seat (generateComplementCrew with the division and rank pinned,
+//     deterministic in the save's transport seed and a running seat index) and seated there directly;
+//   - an ACTIVE or crew-locked ship takes nobody now (resolveCrew's rule): the crew still on hand are counted against
+//     its open seats (seated only on paper), and crew are rolled into the pool only for the seats left, for the player
+//     (or the ship's return) to place.
+// The marker moves to now, so normal transports resume from the update on. Pure.
+const WELCOME_SUPPLY = 1_000_000;
+function welcomeSeat(state: GameState, reserveIn: CrewBucket[]): GameState {
+  const current = transportWindowIndex(state.gameTimeSeconds);
+  const supply: CrewBucket[] = [];
+  for (const profession of CREW_PROFESSIONS) {
+    const buff1Id = CREW_PROFESSION_BUFFS[profession][0]?.id ?? "";
+    for (const rank of [8, 7, 6, 5, 4, 3, 2, 1] as const) {
+      supply.push({ profession, rank, rarity: "standard", race: "earthBorn", buff1Id, buff2Id: null, count: WELCOME_SUPPLY });
+    }
+  }
+  const seed = transportSeedFor(state);
+  // Each ship's occupancy (bulk plus assigned notables, the fill rule) and whether it fills now.
+  const rows = state.ships.map((ship) => {
+    const notables = state.notableCrew.filter((n) => (n.assignedShipId ?? null) === ship.id);
+    return {
+      ship,
+      mode: ship.complement?.mode ?? "passive",
+      bonus: quartersCapacityBonus(state, ship),
+      notables,
+      occupancy: coalesceBuckets([...(ship.complement?.buckets ?? []), ...notables.map((n) => ({ ...notableSignature(n), count: 1 }))]),
+      fills: (ship.complement?.mode ?? "passive") === "passive" && !shipCrewLocked(state, ship.id),
+    };
+  });
+  // 1) The crew on hand: as many as the filling ships can seat, then (on paper) the others.
+  const filling = rows.filter((r) => r.fills);
+  const waiting = rows.filter((r) => !r.fills);
+  const onHand = seatCrewOnHand(filling.map((r) => ({ typeKey: r.ship.typeKey, bonus: r.bonus, occupancy: r.occupancy })), [state.crewPool, reserveIn]);
+  const onPaper = seatCrewOnHand(waiting.map((r) => ({ typeKey: r.ship.typeKey, bonus: r.bonus, occupancy: r.occupancy })), onHand.left);
+  const seatedOf = new Map<string, CrewBucket[]>();
+  filling.forEach((r, i) => seatedOf.set(r.ship.id, onHand.seated[i]));
+  waiting.forEach((r, i) => seatedOf.set(r.ship.id, onPaper.seated[i]));
+  // 2) The seats nobody on hand can take, one welcome crewmember each, in state.ships order.
+  const forPool: { profession: CrewProfession; rank: CrewSignature["rank"] }[] = [];
+  let seatIndex = 0;
+  const ships = rows.map((r) => {
+    const placed = seatedOf.get(r.ship.id) ?? [];
+    const complement: NonNullable<ShipInstance["complement"]> = { buckets: placed.length > 0 ? foldTransportBatch(r.occupancy, placed) : r.occupancy, mode: r.mode };
+    // The open seats, as the filler itself would take them from an unlimited supply.
+    const ideal = autoCrewShip(supply, r.ship.typeKey, complement, r.bonus).complement.buckets;
+    const seats: { profession: CrewProfession; rank: CrewSignature["rank"] }[] = [];
+    for (const profession of CREW_PROFESSIONS) {
+      for (const rank of [8, 7, 6, 5, 4, 3, 2, 1] as const) {
+        const count = (bs: CrewBucket[]) => bs.reduce((n, b) => n + (b.profession === profession && b.rank === rank ? b.count : 0), 0);
+        const open = count(ideal) - count(complement.buckets);
+        for (let i = 0; i < open; i += 1) seats.push({ profession, rank });
+      }
+    }
+    if (!r.fills) {
+      forPool.push(...seats);
+      return r.ship;
+    }
+    const batch = welcomeSeatBatch(seed, current, seats, seatIndex);
+    seatIndex += seats.length;
+    let buckets = batch.length === 0 ? complement.buckets : foldTransportBatch(complement.buckets, batch);
+    for (const n of r.notables) buckets = removeFromBucketList(buckets, notableSignature(n), 1);
+    const before = totalCrew(r.ship.complement?.buckets ?? []);
+    return totalCrew(buckets) > before ? { ...r.ship, complement: { buckets, mode: r.mode } } : r.ship;
+  });
+  // What the filling ships did not take stays on hand (the crew seated on paper included): the pool's, then the reserve's.
+  const [poolLeft, reserveLeft] = onHand.left;
+  const poolBatch = welcomeSeatBatch(seed, current, forPool, seatIndex);
+  const nextPool = poolBatch.length === 0 ? poolLeft : foldTransportBatch(poolLeft, poolBatch);
+  const next: GameState = { ...state, ships, crewPool: nextPool, lastTransportWindow: current };
+  return HOMEWORLD_RESERVE_SWITCH.live ? withHomeworldReserve(next, reserveLeft) : next;
+}
+
+export function resolveCrew(stateIn: GameState): GameState {
+  // FR-C A1-2: a save that takes the welcome batch is welcomed seat by seat first (welcomeSeat); its marker is then at
+  // now, so the rest of this pass runs as on any tick with no window due.
+  const state =
+    WELCOME_SEAT_SWITCH.live &&
+    crewTransportsDue(stateIn.lastTransportWindow, stateIn.gameTimeSeconds) > 0 &&
+    takesWelcomeBatch(stateIn.lastTransportWindow, stateIn.gameTimeSeconds)
+      ? welcomeSeat(stateIn, HOMEWORLD_RESERVE_SWITCH.live ? homeworldReserveOf(stateIn) : NO_RESERVE)
+      : stateIn;
   const due = crewTransportsDue(state.lastTransportWindow, state.gameTimeSeconds);
   // Homeworld reserve: with the switch off (test only) the reserve is neither drawn nor written.
   const reserveLive = HOMEWORLD_RESERVE_SWITCH.live;

@@ -12,6 +12,11 @@
 // NEVER regenerate these from a later build. A slice that moves one names it and the reason in its commit.
 
 import { describe, it, expect } from "vitest";
+// FR-C R2-5 / R8-6 (the finite-work FA XP folded into lifetimeStats, the auto-salvage log stamp) came after every pin
+// here: the file runs with them off (recapFoldsSwitch.fixture.ts), so its pins keep proving their own slice;
+// faXpAwardedStat.test.ts and offlineRecapSections.test.ts pin the moves.
+import { recapFoldsOffForThisFile } from "./recapFoldsSwitch.fixture";
+recapFoldsOffForThisFile();
 import { freshState, generalMuseumRecord, withGeneralMuseumRecord, RELIC_DEFAULT_SEED, type EquipmentRarity, type Expedition, type ExpeditionFinding, type GameState, type RelicSetId } from "./model";
 import { MUSEUM_STATS, RELIC_SETS, RELICS, identifyRelic, museumBonusesFromRecord, relicStudyDurationTicks, relicStudySeed } from "./relics";
 import { rollRelicToken } from "./gambit";

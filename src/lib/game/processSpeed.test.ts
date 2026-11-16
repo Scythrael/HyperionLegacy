@@ -40,6 +40,7 @@ import { resolveCrew } from "./crewOverlay";
 import { editShip, installPiece, wiringBase, withRunningJobs } from "./wiring/probes";
 import { WIRING_REGISTRY } from "./wiring/registry";
 import { OTUI_RESTATED_ID, otUiReadBack } from "./otUiRegistry.fixture";
+import { withNeverDiscardOff } from "./neverDiscardSwitch.fixture";
 import { asPreCurveDispatch, ensureMinimumAwayTeam, plainAwayMember, withSlottedAwayTeams, dispatchPastPropulsion } from "./awayTeamTestFixtures";
 import {
   OVERTIME_CREDITS_PER_MINUTE,
@@ -307,7 +308,62 @@ describe("Overtime: refusals", () => {
     expect(r.bought).toBe(false);
     expect(r.next).toBe(broke);
   });
+
+  // FR-C lane 1 M1: a job completes once its time left reaches 0, so it finishes after ceil(remainingTicks) ticks. A step
+  // whose rescale leaves that whole-tick count unchanged buys nothing, so it is refused ("finishing") and never sold.
+  it("refuses a step that would save no whole tick, and every sold step saves at least one", () => {
+    const { state, ref } = withJob("shipBuild");
+    for (let left = 40; left >= 2; left--) {
+      let s = stepped(state, JOB_TICKS - left);
+      for (let k = 0; k < OVERTIME_MAX_STEPS; k++) {
+        const job = s.activeProcesses.find((p) => p.id === (ref as { id: string }).id)!;
+        const q = canBuyOvertime(s, ref);
+        if (!q.ok) {
+          if (q.reason === "finishing" && job.remainingTicks > 1) {
+            // Refused for saving nothing: the next step's whole-tick count really is unchanged.
+            const after = buyOvertimeIgnoringWholeTicks(job, k);
+            expect(Math.ceil(after), `left ${left}, step ${k + 1}`).toBe(Math.ceil(job.remainingTicks));
+          }
+          break;
+        }
+        const before = Math.ceil(job.remainingTicks);
+        s = buy(s, ref);
+        const now = s.activeProcesses.find((p) => p.id === (ref as { id: string }).id)!;
+        expect(before - Math.ceil(now.remainingTicks), `left ${left}, step ${k + 1}`).toBeGreaterThanOrEqual(1);
+      }
+    }
+  });
 });
+
+// FR-C fix pass: the refusal counts whole ticks with the completion's own rule (ceil(x - epsilon)), so a float leftover
+// like 4.000000000000001 (which completes on tick 4, not 5) cannot let a step that saves nothing through.
+describe("Overtime: the whole-tick rule matches completion", () => {
+  it("refuses a step on a float leftover that would still complete on the same tick", () => {
+    const { state, ref } = withJob("shipBuild");
+    const id = (ref as { id: string }).id;
+    const leftover = 4.000000000000001;
+    const s: GameState = { ...state, activeProcesses: state.activeProcesses.map((p) => (p.id === id ? { ...p, remainingTicks: leftover } : p)) };
+    // 4.000000000000001 completes on its 4th tick; one step would leave 3.2, which completes on its 4th tick too.
+    expect(completionTick(s, ref)).toBe(4);
+    const q = canBuyOvertime(s, ref);
+    expect(q).toEqual({ ok: false, reason: "finishing" });
+    expect(buyOvertime(s, ref).next).toBe(s);
+  });
+
+  it("still sells a step that saves a whole tick by the completion's count", () => {
+    const { state, ref } = withJob("shipBuild");
+    const id = (ref as { id: string }).id;
+    const s: GameState = { ...state, activeProcesses: state.activeProcesses.map((p) => (p.id === id ? { ...p, remainingTicks: 5.000000000000001 } : p)) };
+    // 5 ticks becomes 4 (5.000000000000001 x 0.8 = 4.000000000000001, which completes on its 4th tick).
+    expect(canBuyOvertime(s, ref).ok).toBe(true);
+    expect(completionTick(buy(s, ref), ref)).toBe(4);
+  });
+});
+
+// The time left one more Overtime step would leave (processSpeed.ts rescale, without its whole-tick rule).
+function buyOvertimeIgnoringWholeTicks(job: { remainingTicks: number }, steps: number): number {
+  return (job.remainingTicks * overtimeRate(steps)) / overtimeRate(steps + 1);
+}
 
 // ============================================================================
 // OT-UI (user 2026-11-10): "Show both times" (the completion log) and "Chip + no jump" (the bar measures work done)
@@ -779,7 +835,18 @@ describe("grant: items, credits, gear and a hull, with a log line", () => {
     expect(granted.nextEquipmentId).toBe(built.nextEquipmentId);
   });
 
-  it("items respect the storage cap and the log names what arrived", () => {
+  // FR-C (user 2026-11-13/14, "Never discard"): a grant's items land in full, past the cap, and the log names them all.
+  it("items land in full even past the storage cap, and the log names what arrived", () => {
+    const s = freshState();
+    const cap = itemCap(s, "frameSegment").toNumber();
+    const r = grant(s, { items: { frameSegment: cap + 1000 } }, "Quest reward");
+    expect(Math.round(itemTotal(r.next.inventory, "frameSegment").toNumber())).toBe(cap + 1000);
+    expect(r.logLine).toBe(`Quest reward. Received ${(cap + 1000).toLocaleString("en-US")} Frame Segments.`);
+    expect(canGrant(r.next, { items: { frameSegment: 5 } })).toEqual({ ok: true });
+  });
+
+  // The pre-FR-C rule, with the change switched off (neverDiscardSwitch.fixture.ts): items filled up to the cap.
+  it("with Never discard off: items respect the storage cap and the log names what arrived", () => withNeverDiscardOff(() => {
     const s = freshState();
     const cap = itemCap(s, "frameSegment").toNumber();
     const r = grant(s, { items: { frameSegment: cap + 1000 } }, "Quest reward");
@@ -792,7 +859,7 @@ describe("grant: items, credits, gear and a hull, with a log line", () => {
     expect(none.next).toBe(r.next);
     // A bundle that also carries something else still arrives, naming only what came.
     expect(grant(r.next, { credits: 3, items: { frameSegment: 5 } }, "Quest reward").logLine).toBe("Quest reward. Received 3 credits.");
-  });
+  }));
 
   it("refuses atomically: an empty grant, a bad amount, an unknown item, a non-gear blueprint, an unknown hull, full docks", () => {
     const s = freshState();

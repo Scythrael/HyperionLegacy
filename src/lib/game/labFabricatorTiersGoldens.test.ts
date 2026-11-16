@@ -15,6 +15,11 @@
 //                                   reasons return with the tier rows cut off the tracks, so the new rungs are the
 //                                   only cause).
 import { describe, expect, it } from "vitest";
+// FR-C R2-5 / R8-6 (the finite-work FA XP folded into lifetimeStats, the auto-salvage log stamp) came after every pin
+// here: the file runs with them off (recapFoldsSwitch.fixture.ts), so its pins keep proving their own slice;
+// faXpAwardedStat.test.ts and offlineRecapSections.test.ts pin the moves.
+import { recapFoldsOffForThisFile } from "./recapFoldsSwitch.fixture";
+recapFoldsOffForThisFile();
 import { GG7_BLUEPRINT_KEYS } from "./gasGiantSpecials.fixture";
 // E-MOD EM-8 came after this capture: the Precursor Lens's blueprint, variety and the circuit's recipe held apart.
 import { EM8_BLUEPRINT_KEYS, withoutEm8Content } from "./emodEm8Switch.fixture";

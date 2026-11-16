@@ -125,6 +125,38 @@ describe("Quartermaster sell: the bound", () => {
   });
 });
 
+// FR-C lane 1 M7 (user 2026-11-13/14, "Sell only free stock (Recommended)"): stock a running line or a queued order has
+// reserved is not for sale; the counter sells only the Free amount (the same Free the Warehouse tooltip shows).
+describe("Quartermaster sell: only free stock", () => {
+  // A running canister line with 5 iterations left reserves 50 ice.
+  function reserving(ice: number): GameState {
+    const base = stocked(ice, 0, 0);
+    return {
+      ...base,
+      refineLines: [{ id: "line-1", kind: "refine", recipeKey: "refineDeuteriumCanister", remaining: 5, mode: { kind: "batch", remaining: 5 } }],
+    };
+  }
+
+  it("refuses a sale that would dip into reserved stock, writing nothing", () => {
+    const state = reserving(100);
+    const gate = canSell(state, "deuteriumIce", new Decimal(51));
+    expect(gate.ok).toBe(false);
+    if (!gate.ok) expect(gate.reason).toBe("reserved");
+    expect(sellItem(state, "deuteriumIce", new Decimal(51)).ok).toBe(false);
+  });
+
+  it("sells up to the free amount", () => {
+    const state = reserving(100);
+    expect(canSell(state, "deuteriumIce", new Decimal(50)).ok).toBe(true);
+  });
+
+  it("the shelf row carries the free amount next to the owned amount", () => {
+    const ice = sellableInventory(reserving(100)).find((e) => e.itemId === "deuteriumIce");
+    expect(ice?.owned.toNumber()).toBe(100);
+    expect(ice?.free.toNumber()).toBe(50);
+  });
+});
+
 // 0.14.0 (reactor fuel ladder review): the shelf's "Retired" tag reads ItemDef.retired, never every row. Deuterium Ice and
 // the canisters have crafting uses, so nothing sellable today is retired.
 describe("Quartermaster sell: the Retired tag", () => {

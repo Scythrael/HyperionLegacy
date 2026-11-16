@@ -22,6 +22,7 @@ import {
 import { countedLcg, rigFleet, withBuckets, withMaterialQualityOff } from "./materialQualityGoldens.fixture";
 import { pieceMaterialQualityText, shipMaterialQualityText } from "../ui/materialQualityText";
 import { wiringEntry } from "./wiring/registry";
+import { withNeverDiscardOff } from "./neverDiscardSwitch.fixture";
 
 // Steps a dispatched fleet one tick at a time until its first delivery lands (commonOre rises), on `rng`.
 function toFirstDelivery(s0: GameState, rng: () => number, item = "commonOre"): { before: GameState; after: GameState } {
@@ -142,7 +143,8 @@ describe("ML-3 the delivery", () => {
     expect(after.inventory.rareMaterial.length).toBeLessThanOrEqual(MAX_MATERIAL_QUALITY + 1);
   });
 
-  it("the climbed units deposit first, so a warehouse cap trims ordinary units", () => {
+  // Pre-FR-C rule (the cap trimmed a delivery), kept as its trace with Never discard off (neverDiscardSwitch.fixture.ts).
+  it("with Never discard off: the climbed units deposit first, so a warehouse cap trims ordinary units", () => withNeverDiscardOff(() => {
     const fleet = rigFleet();
     const cap = itemCap(fleet, "commonOre").toNumber();
     // Room for 60: the climbed units (well under 60 of the haul) all land, then the ordinary units fill the rest.
@@ -153,6 +155,17 @@ describe("ML-3 the delivery", () => {
     expect(climbed).toBeLessThan(60);
     expect(itemTotal(after.inventory, "commonOre").toNumber()).toBeCloseTo(cap, 6);
     expect(getBucket(after.inventory, "commonOre", 0).toNumber()).toBeCloseTo(cap - climbed, 6);
+  }));
+
+  // FR-C (user 2026-11-13/14, "Never discard"): the whole delivery lands, climbed and ordinary units alike, past the cap.
+  it("a delivery crossing the cap lands in full, climbed units and ordinary units alike", () => {
+    const fleet = rigFleet();
+    const cap = itemCap(fleet, "commonOre").toNumber();
+    const s0 = dispatched(withBuckets(fleet, { commonOre: [cap - 60] }));
+    const { after } = toFirstDelivery(s0, () => 0.999999);
+    const off = withNeverDiscardOff(() => toFirstDelivery(dispatched(withBuckets(rigFleet(), { commonOre: [cap - 60] })), () => 0.999999).after);
+    expect(itemTotal(after.inventory, "commonOre").toNumber()).toBeGreaterThan(cap);
+    expect(getBucket(after.inventory, "commonOre", 1).toNumber()).toBe(getBucket(off.inventory, "commonOre", 1).toNumber());
   });
 
   it("takes exactly the shared draws a ship without the climb takes (never the shared stream)", () => {

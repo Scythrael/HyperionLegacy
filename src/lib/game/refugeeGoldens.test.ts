@@ -69,6 +69,10 @@ import { describe, expect, it } from "vitest";
 // pins keep proving their own slice (enemyTorpedoGoldens.test.ts pins what WR-8b moved, enemyTorpedoes.test.ts proves it).
 import { enemyTorpedoesOffForThisFile } from "./enemyTorpedoSwitch.fixture";
 enemyTorpedoesOffForThisFile();
+// FR-C crew lane I2 (echo refugees exempt from a Relocation) came after every pin here: the file runs with it off
+// (refugeeEchoExemptSwitch.fixture.ts), so its pins keep proving their own slice; refugeeArrival.test.ts pins the move.
+import { echoExemptOffForThisFile } from "./refugeeEchoExemptSwitch.fixture";
+echoExemptOffForThisFile();
 import { gw5ReadBack } from "./gearWearStep5Registry.fixture"; // Gear wear step 5: its deleted and flipped rows read back, innermost
 import { otUiReadBack } from "./otUiRegistry.fixture"; // OT-UI: the Overtime row restated, read back innermost
 import { cp16OffForThisFile } from "./cp16Switch.fixture";

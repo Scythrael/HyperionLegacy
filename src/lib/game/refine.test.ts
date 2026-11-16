@@ -284,6 +284,23 @@ describe("refineJob completion grants output + lifetime itemsRefined", () => {
     expect(next.lifetimeStats.itemsCrafted).toEqual({});
   });
 
+  // FR-C lane 1 M4: a refine job the Refiner stamped with an extra batch (bonusOutput) deposits twice its amount, and the
+  // lifetime itemsRefined stat must count both batches (it used to add only effect.amount).
+  it("a Refiner extra batch counts in itemsRefined (the stat matches the delivered output)", () => {
+    const base = freshState();
+    const job: TimedProcess = {
+      id: "proc-1",
+      kind: "refineJob",
+      remainingTicks: 12,
+      durationTicks: 12,
+      effect: { type: "addItem", itemId: "titaniumIngot", amount: new Decimal(1) },
+      bonusOutput: true,
+    };
+    const { next } = resolveProcesses({ ...base, activeProcesses: [job], nextProcessId: 2 }, 12);
+    expect(itemTotal(next.inventory, "titaniumIngot").toString()).toBe("2");
+    expect(next.lifetimeStats.itemsRefined.titaniumIngot.toString()).toBe("2");
+  });
+
   it("does NOT feed itemsRefined for a facilityUpgrade completion (only refineJob does)", () => {
     // A facilityLevelUp process completing must leave itemsRefined empty, the
     // hook is guarded on kind === 'refineJob'.

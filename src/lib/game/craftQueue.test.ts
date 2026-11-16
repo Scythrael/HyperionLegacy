@@ -1593,6 +1593,8 @@ describe("promoteQueuedOrders: a free slot pulls the oldest eligible order out o
       recipeKey: REFINE_KEY,
       remaining: 2,
       mode: { kind: "batch", remaining: 2 },
+      // FR-C lane 1 I3: a promoted batch runs under its own order, so a free lane can join it (was: no orderId).
+      orderId: "ord-1",
     });
     expect(promoted.nextCraftLineId).toBe(2);
     // And it is GONE from the queue: an order that promoted twice would double-book.
@@ -2578,7 +2580,11 @@ describe("buildCraftQueue: RUNNING work sits alongside the QUEUED orders", () =>
       // the order-level ETA is the whole batch (remaining not-yet-started, plus the one in flight)
       // at this lane's own iteration cost.
       lanesAttached: 1,
-      etaTicks: Math.ceil((line.remaining + 1) * job!.durationTicks),
+      // FR-C R2-1: the time already spent on the unit in flight counts (its remainingTicks), plus every unstarted unit.
+      etaTicks: job!.remainingTicks + line.remaining * job!.durationTicks,
+      orderTotalTicks: (line.remaining + 1) * job!.durationTicks,
+      // FR-C fix pass: the one unit in flight (Home reads remaining + unitsInFlight).
+      unitsInFlight: 1,
     });
     // Non-vacuous: the bar is genuinely partway, not the 0 an absent job would give.
     expect(view.running[0].progress).toBeGreaterThan(0);
