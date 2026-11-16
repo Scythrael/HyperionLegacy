@@ -56,6 +56,7 @@ import {
   // WR-7 follow-up (OC-D5): the favored-spec stamp and the favored lines.
   favoredSpecStamp,
   withFavoredLines,
+  FAVORED_SPEC_SWITCH,
   CAPTAIN_TALENTS,
   CAPTAIN_SPEC_BONUS,
   HOMEWORLD_TALENTS,
@@ -3469,6 +3470,9 @@ function lazyOnce<T>(compute: () => T): () => T {
 // type and its installed pieces. Computed once per cycle instead of on every 1 s step: reused while every input is the
 // SAME object (or value) it was computed from. A gear change of any kind (an install, a swap, wear or repair landing on
 // a piece) replaces that piece object in the state, and a relaunch mints new records, so either misses and recomputes.
+// The module-level test switches the setup reads are part of the check too (FAVORED_SPEC_SWITCH, through
+// withFavoredLines; shipToCombatant and systemPoolsForHull read none), so a test that toggles one on the same state
+// never reads a stale setup.
 interface PatrolCycleSetup {
   cycleGear: EquipmentInstance[] | undefined;
   foldedDefense: ReturnType<typeof foldedPlayerDefense>;
@@ -3483,6 +3487,7 @@ interface PatrolCycleSetupEntry {
   combatRules: PatrolMissionState["combatRules"];
   favoredSpec: PatrolMissionState["favoredSpec"];
   typeKey: ShipInstance["typeKey"];
+  favoredSwitch: boolean;
   setup: PatrolCycleSetup;
 }
 // Keyed on the cycle's wave schedule (one array per cycle, minted with it and only ever replaced whole), and checked
@@ -3530,6 +3535,7 @@ function patrolCycleSetup(
     hit.combatRules === mission.combatRules &&
     hit.favoredSpec === mission.favoredSpec &&
     hit.typeKey === ship.typeKey &&
+    hit.favoredSwitch === FAVORED_SPEC_SWITCH.live &&
     samePieces(hit.gear, installedGear)
   ) {
     return hit.setup;
@@ -3543,6 +3549,7 @@ function patrolCycleSetup(
     combatRules: mission.combatRules,
     favoredSpec: mission.favoredSpec,
     typeKey: ship.typeKey,
+    favoredSwitch: FAVORED_SPEC_SWITCH.live,
     setup,
   });
   return setup;
@@ -3708,9 +3715,7 @@ export function tickCaptainPatrol(
   // per-wave damageControlBeforeWave call below a same-value no-op (byte-identical attrition).
   // GEAR WEAR step 4: from the cycle's frozen gear (a worn suite patches at its worn line), re-read at a relaunch.
   // WR-7 follow-up (OC-D5): a run stamped with the favored spec reads the suite's favored lines on a Tactician hull (the
-  // stamp rides every relaunch); a run in flight from before reads them as stored.
-  const favoredRun = captain.mission.favoredSpec === 1;
-  const suiteGear = (g: EquipmentInstance[] | undefined): EquipmentInstance[] | undefined => (g && favoredRun ? withFavoredLines(g, ship.typeKey) : g);
+  // stamp rides every relaunch); a run in flight from before reads them as stored (computePatrolCycleSetup).
   let waveHullRegenFraction = setupAtStart.waveHullRegenFraction;
 
   // WORKING mission copy. Spread makes a fresh object (so wavesWon/phase/etc. mutations
@@ -4146,7 +4151,7 @@ export function tickCaptainPatrol(
       // GEAR WEAR step 4 (user 2026-10-28, the repair trigger from realism): the NEXT cycle, minted now so its wear can be
       // projected before it flies (the relaunch below takes this same value). Pure.
       const cur: PatrolMissionState = mission;
-      const next: { mission: PatrolMissionState; gear: typeof installedGear } | null = cur.repeatDispatch && !cur.recalled
+      const next: { mission: PatrolMissionState } | null = cur.repeatDispatch && !cur.recalled
         ? (() => {
           // Fresh master seed derived PURELY from this captain's OWN current master seed
           // (RELAUNCH_SEED_SALT), forming an independent per-captain chain. NOT drawn from
@@ -4236,7 +4241,7 @@ export function tickCaptainPatrol(
             // WR-9 fix round: and the run's Pilot Cunning stamp (absent stays absent).
             pilotCunning: cur.pilotCunning,
           });
-          return { mission: minted, gear: nextGear };
+          return { mission: minted };
         })()
         : null;
       // GEAR WEAR step 4, PAUSE TO REPAIR (user 2026-10-27; the trigger, user 2026-10-28 "from realism"): a stamped
@@ -4275,14 +4280,16 @@ export function tickCaptainPatrol(
         // auto-buy and the "truly broke" end (outOfFuel) are gone, unreachable since 0.13.6 (an infinite budget).
         // The next cycle, minted above (nextCycle: its fresh seed, frozen bonuses and frozen gear).
         mission = next!.mission;
-        const nextGear = next!.gear;
         // The new cycle's frozen bonuses may differ from the old one's: re-fold the carry pools so the
         // between-wave regen and the limp damage read the SAME fold as this cycle's wave combatants.
         // GEAR WEAR step 4: and its frozen gear (the view, the suite's patch-up, the pools its wear is read against).
-        cycleGear = nextGear;
-        foldedDefense = foldedPlayerDefense(shipDef, cycleGear, mission.officerCombat, mission.captainCombat);
-        waveHullRegenFraction = damageControlEffect(suiteGear(cycleGear)).waveHullRegenFraction;
-        cyclePools = patrolCyclePools(hullType, shipDef, cycleGear, mission);
+        // The same setup the cycle's first step reads (computePatrolCycleSetup), so the two cannot drift: its view is
+        // the minted cycle's own (its cycleStartCondition is the nextConditions the view above was made with).
+        const relaunched = computePatrolCycleSetup(installedGear, mission, ship, hullType, shipDef);
+        cycleGear = relaunched.cycleGear;
+        foldedDefense = relaunched.foldedDefense;
+        waveHullRegenFraction = relaunched.waveHullRegenFraction;
+        cyclePools = relaunched.cyclePools;
         // WR-7 follow-up OC-D8: and the new cycle's route (its frozen legs), which its phases, end and limp read.
         route = patrolRouteOf(mission);
         routeLength = patrolRouteTicks(route);

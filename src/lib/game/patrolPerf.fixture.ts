@@ -7,14 +7,20 @@
 //                 catch-up take minutes. Options add: a Dispatch Once defeat (a bare General Freighter on the Warband),
 //                 an extraction mission (a Prospector Hauler on a Short Ore Run), and the first patrol's combat gear
 //                 worn to `wornShip1` per mille before it leaves (Repeat: "Repair first, then go", a repair pause).
+//   steps / oneCall / chunks : a span in production tick() 1 s steps, in one economyTick call, in 997 s chunks.
+//   withOvertimeMidPause : the mixed fleet's span with an Overtime step bought 300 s into ship-1's repair pause.
+//   PATROL_PERF_CASES / wholeStateHash : the runs whose whole states patrolPerfParity.test.ts pins to the base build
+//                 (c4c1d89c, before the optimizations), and the hash it pins them by.
 //   withRepeatPatrol : any state plus a second captain on a Destroyer flying a Repeat Sweep (beside a short-range run or
 //                 an expedition).
 
 import Decimal from "break_infinity.js";
 import { freshCaptains, freshState, seedStandardIssueForShip, type CaptainState, type EquipmentInstance, type GameState, type ShipInstance } from "./model";
 import { migrate, type SaveFile } from "./save";
-import { dispatchCaptainOnMission, dispatchCaptainOnPatrol, installMissingCombatBaselines, tick } from "./tick";
+import { dispatchCaptainOnMission, dispatchCaptainOnPatrol, economyTick, installMissingCombatBaselines, tick } from "./tick";
 import { withPieceCondition } from "./gearWear";
+import { pausedPatrolOf } from "./gearWearEngine";
+import { buyGearRepairOvertime } from "./processSpeed";
 import { asPatrolVeteran } from "./awayTeamTestFixtures";
 
 export function lcg(seed: number): () => number {
@@ -137,4 +143,55 @@ export function withRepeatPatrol(s: GameState, captainId = 2, shipId = "ship-pat
   const r = dispatchCaptainOnPatrol(out, captainId, "crimsonReaverSweep", "balanced", true);
   must(r.success, `repeat patrol: ${r.reason}`);
   return r.next;
+}
+
+const HOUR = 3600;
+
+export function steps(s0: GameState, seconds: number, seed = 0x15): GameState {
+  return tick(seconds, s0, lcg(seed));
+}
+export function oneCall(s0: GameState, seconds: number, seed = 0x15): GameState {
+  return economyTick(s0, seconds, lcg(seed));
+}
+export function chunks(s0: GameState, seconds: number, chunk = 997, seed = 0x15): GameState {
+  const rng = lcg(seed);
+  let s = s0;
+  for (let left = seconds; left > 0; left -= chunk) s = economyTick(s, Math.min(chunk, left), rng);
+  return s;
+}
+
+// The mixed fleet (ship-1 leaves worn, so its Repeat run starts with a repair pause): 300 s into the pause an Overtime
+// step is bought, then the span runs on to `seconds` in all.
+export function withOvertimeMidPause(mixed: GameState, seconds: number, advance: (s: GameState, n: number) => GameState): GameState {
+  const mid = advance(mixed, 300);
+  must(pausedPatrolOf(mid, "ship-1") !== null, "ship-1 is not paused 300 s in");
+  const r = buyGearRepairOvertime(mid, "ship-1");
+  must(r.bought, `Overtime: ${r.reason}`);
+  return advance(r.next, seconds - 300);
+}
+
+export const mixedFleet = (): GameState => patrolFleet({ defeat: true, extraction: true, wornShip1: 100 });
+
+// The runs pinned to the base build, each a pure function of a fresh fixture state.
+export const PATROL_PERF_CASES: Record<string, () => GameState> = {
+  "fleet 1 h steps": () => steps(patrolFleet(), HOUR),
+  "fleet 6 h one call": () => oneCall(patrolFleet(), 6 * HOUR),
+  "fleet 6 h chunks": () => chunks(patrolFleet(), 6 * HOUR),
+  "mixed 1 h steps": () => withOvertimeMidPause(mixedFleet(), HOUR, (x, n) => steps(x, n)),
+  "mixed 1 h one call": () => withOvertimeMidPause(mixedFleet(), HOUR, (x, n) => oneCall(x, n)),
+  "mixed 6 h one call": () => withOvertimeMidPause(mixedFleet(), 6 * HOUR, (x, n) => oneCall(x, n)),
+  "mixed 6 h chunks": () => chunks(mixedFleet(), 6 * HOUR),
+};
+
+// The whole state's JSON, hashed: 32-bit FNV-1a over its UTF-16 units read forward, then read backward (64 bits in all,
+// 16 hex digits). Nothing in the state reads the wall clock.
+export function wholeStateHash(s: GameState): string {
+  const json = JSON.stringify(s);
+  let f = 0x811c9dc5;
+  let b = 0x811c9dc5;
+  for (let i = 0, j = json.length - 1; i < json.length; i++, j--) {
+    f = Math.imul(f ^ json.charCodeAt(i), 0x01000193);
+    b = Math.imul(b ^ json.charCodeAt(j), 0x01000193);
+  }
+  return (f >>> 0).toString(16).padStart(8, "0") + (b >>> 0).toString(16).padStart(8, "0");
 }
