@@ -16236,7 +16236,8 @@
                       </div>
                       <div class="cq-list">
                         {#each section.items as entry (entry.itemId)}
-                          {@const ownedWhole = wholeUnitsFree(entry.owned.toNumber())}
+                          <!-- FR-C M7 ("Sell only free stock"): the row sells up to the FREE amount; reserved stock stays put. -->
+                          {@const ownedWhole = wholeUnitsFree(entry.free.toNumber())}
                           {@const qty = sellQtyFor(entry.itemId, ownedWhole)}
                           <div class="cq-row">
                             <div class="cq-body">
@@ -16252,7 +16253,7 @@
                                 {#if entry.retired}<span class="qm-retire-tag">Retired</span>{/if}
                               </span>
                               <span class="home-l2">
-                                <span class="home-meta">owned {formatNumber(entry.owned)}</span>
+                                <span class="home-meta">owned {formatNumber(entry.owned)}{#if entry.free.lt(entry.owned)}, free {formatNumber(entry.free)} (the rest is reserved){/if}</span>
                               </span>
                               <!-- Unit price on its own line, then the running Total Value for the
                                    chosen quantity (user 2026-09-18). CR capitalized. -->

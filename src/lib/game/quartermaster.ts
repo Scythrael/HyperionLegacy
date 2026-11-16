@@ -92,7 +92,9 @@ import type { DroneRole } from "./combat/drones";
 // reservation.ts and NOT from salvage.ts on purpose, the same reason equipment.ts records:
 // salvage.ts imports from equipment.ts, so reaching for it from a sibling risks a cycle;
 // reservation.ts is the leaf both sides already depend on.
-import { salvageReservedInstanceIds } from "./reservation";
+import { salvageReservedInstanceIds, salvageReservedMaterialCount } from "./reservation";
+// FR-C lane 1 M7: the Sell counter sells only FREE stock (allocation.ts is a leaf over model.ts and inventory.ts).
+import { freeItemForState } from "./allocation";
 // The one "which squad wears this piece" rule, shared with the member install gate (Task 9 review M2).
 // memberEquipment.ts imports nothing that imports this file, so there is no cycle.
 import { pieceWearableBy } from "./memberEquipment";
@@ -743,6 +745,7 @@ export interface SellableEntry {
   category: ItemCategory;
   subCategory?: RawSubCategory;
   owned: Decimal;    // total held across quality buckets
+  free: Decimal;     // FR-C M7: owned minus what running lines, queued orders and queued salvage hold (sellableFree)
   unitValue: number; // credits per unit (ItemDef.sellValue)
   retired: boolean;  // the shelf's "Retired" tag (isRetiredStock)
 }
@@ -757,7 +760,15 @@ export function isRetiredStock(itemId: string): boolean {
 export type SellBlockReason =
   | "notSellable"    // the item has no sellValue: it can never be sold
   | "noneRequested"  // qty <= 0
-  | "insufficient";  // qty exceeds the amount on hand
+  | "insufficient"   // qty exceeds the amount on hand
+  | "reserved";      // FR-C M7: qty fits the amount on hand but dips into stock a line or queued order holds
+
+// FR-C lane 1 M7 (user 2026-11-13/14, "Sell only free stock (Recommended)"): the units of an item the Sell counter may
+// take = the Warehouse's Free (stock minus what running lines and waiting craft orders reserve, freeItemForState) minus
+// what waiting salvage orders hold of it (salvageReservedMaterialCount), floored at 0. Pure read.
+export function sellableFree(state: GameState, itemId: string): Decimal {
+  return Decimal.max(new Decimal(0), freeItemForState(state, itemId).minus(salvageReservedMaterialCount(state, itemId)));
+}
 
 // The DERIVED, ordered list of sellable lines the player currently holds (owned > 0). Stable
 // order: by category, then by the item's registry order, so the shelf does not reshuffle as
@@ -774,6 +785,7 @@ export function sellableInventory(state: GameState): SellableEntry[] {
       category: def.category,
       subCategory: def.subCategory,
       owned,
+      free: sellableFree(state, itemId),
       unitValue: def.sellValue,
       retired: isRetiredStock(itemId),
     });
@@ -797,6 +809,7 @@ export function canSell(
   if (qty.gt(itemTotal(state.inventory, itemId))) {
     return { ok: false, reason: "insufficient" };
   }
+  if (qty.gt(sellableFree(state, itemId))) return { ok: false, reason: "reserved" };
   return { ok: true };
 }
 
@@ -833,6 +846,8 @@ export function sellBlockText(reason: SellBlockReason): string {
       return "Enter how many to sell.";
     case "insufficient":
       return "You do not hold that many to sell.";
+    case "reserved":
+      return "Some of that stock is reserved by a running line or a queued order. Only free stock can be sold.";
   }
 }
 
