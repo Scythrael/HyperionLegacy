@@ -4352,7 +4352,14 @@ export interface PatrolMissionState {
   // GEAR WEAR close-out (user 2026-11-11 "Allow Overtime in pauses"): `overtime`, each gear repair Overtime step bought
   // during the pause, at its instant (game seconds) and the steps then in force: from that instant the ship's installed
   // pieces repair at the home rate x overtimeRate(steps) (gearWearEngine.ts pauseRepairWindows). Absent = none bought.
-  repairPause?: { from: number; ticksRemaining: number; first?: true; overtime?: { at: number; steps: number }[] };
+  // Fix round FR-E (lane 4 I1, user 2026-11-14 "Resume when safe (Recommended)"): `target`, the condition (per-mille) each
+  // worn combat piece must reach for the patrol to head out (tick.ts cycleRepairPause: the least repair that makes the
+  // next route's projection safe), read by an Overtime step's rescale (gearWearEngine.ts pauseResumeTicks). Absent: every
+  // combat piece back to full (a pause from before the fix, or one only full repair makes safe).
+  // Fix round FR-E (lane 4 M6): `jobMinutes`, the docked gear repair job's length for the same gear at the normal home
+  // rate, which prices the pause's Overtime steps (processSpeed.ts gearRepairJobMinutes). Absent: the pause's whole length,
+  // as before. Both appended last; no SAVE bump.
+  repairPause?: { from: number; ticksRemaining: number; first?: true; overtime?: { at: number; steps: number }[]; target?: Record<string, number>; jobMinutes?: number };
   // The times this run has paused to repair (user "Count on the run": its one completion log entry says so), carried
   // across relaunches like routesCompletedThisRun. Absent until the first pause.
   repairPausesThisRun?: number;
@@ -5238,7 +5245,11 @@ export type PatrolEndReason =
   // The unknown-key inert guard dropped the captain to idle because the patrol key no longer
   // exists in the registry. Rare and self-healing, but it IS an ending, and leaving it out
   // would be exactly the blank reason this enumeration exists to make impossible.
-  | "missionKeyRetired";
+  | "missionKeyRetired"
+  // Fix round FR-E (lane 4 q3, user 2026-11-14 "Stop and explain (Recommended)"): a Repeat run stopped at a route's end
+  // because the next route's projection is lost even with every combat piece fully repaired (tick.ts
+  // projectedPristineDefeat). The ship is home and undamaged; the log entry says why. NOT a wall-stop.
+  | "outmatched";
 
 // ⚠️ ONE PATH LOOKS LIKE AN ENDING AND IS NOT, named here so nobody adds a sixth member for
 // it: tickCaptainPatrol's defensive no-op, taken when the assigned ship or its

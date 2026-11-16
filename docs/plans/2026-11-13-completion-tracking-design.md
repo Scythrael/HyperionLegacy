@@ -153,3 +153,25 @@ Re-asked; answers:
   skipped; check clean; test:perf 4 passed; RELEASE_GATE 0 pending (wiring.completeness and no-dead-stats gates pass).
 - Gates (2026-11-13, before the review fixes): full suite 12232 passed, 311 skipped; check clean; test:perf 4 passed; RELEASE_GATE 1 pending
   (relic:audit:generalPick).
+
+## Fix round FR-E (2026-11-16): the sweep ledger's lane 3 answers that touch completion
+
+- "Roll needs a real objective (Recommended)" (ledger lane 3 q3): a planet's 100% bonus roll now needs at least one of
+  its objectives really finished there (done, not skipped; a gas giant's ship study counts). Skips still count toward
+  the % (Q3 B is unchanged), so a planet finished by skips alone, or one with no objectives, shows 100% but pays no roll
+  and is NOT marked in `bodiesRolled`: a later visit that finishes one of its objectives pays it then. completion.ts
+  `bodiesToRoll`; switch model.ts `PLANET_ROLL_REAL_OBJECTIVE_SWITCH`.
+- "Same system every visit (Recommended)" (lane 3 I2): a REAL STAR (a famous system) draws its bodies (count, planet
+  types, scan sizes, hazards) from the star itself (expedition.ts `starBodySeed`), so a record keyed on the system id and
+  a body's index always names the same planet. Each visit still rolls its own risk grades, discoveries, objectives and
+  events on the run's seed (a new survey of the same planets), so a revisit's per-body objective counts may differ; the
+  record keeps the best % per system as before.
+  OLD RECORDS (written before the fix; staging and dev saves only, since completion tracking never reached production)
+  are kept exactly as they are: their % and `bodiesRolled` stay. A real star's old record described the bodies of the
+  visit that wrote it, which may not be the star's fixed bodies; its body indices are read against the fixed bodies from
+  now on. The conservative consequence: an index that already paid its roll never pays again, even if the planet now at
+  that index is a different one (no roll is ever paid twice; a missed roll is possible only on such a pre-fix record).
+  A catalog-named system (e.g. "LB-0042") keeps its slot's draw; two slots can draw the same catalog name with different
+  bodies (about 10,000 names per tier). Unchanged, and listed for the user as an open call.
+- Recall and Resume (lane 3 I1, M1, I3) change no completion rule: a held system keeps the scan boundaries it already
+  rolled and its charted anomaly, so a resume or a relaunch never re-pays them.

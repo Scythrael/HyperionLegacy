@@ -72,7 +72,12 @@ export function proveTrainingPatrol(hull: ShipTypeKey, key: PatrolKey, seed: num
   const counts = runCountsOf(end).patrol;
   expect(counts, label).toEqual({ dispatched: 1, completed: 0, veteran: false });
   const after = patrolOf(end);
-  if (repeat) {
+  // Fix round FR-E (lane 4 q3, user "Stop and explain"): a Repeat run whose next route (the curve's floor) would be lost
+  // even fully repaired stops at home instead, undamaged, its log saying why (still never a defeat or a limp home).
+  if (repeat && after === null) {
+    expect(end.completionLog.at(-1)?.patrolEndReason, label).toBe("outmatched");
+    expect(end.captains[0].lastStopReason, label).toBeUndefined();
+  } else if (repeat) {
     expect(after, label).not.toBeNull();
     expect(after!.phase, label).toBe("transitOut");
     expect(after!.routesCompletedThisRun, label).toBe(1);

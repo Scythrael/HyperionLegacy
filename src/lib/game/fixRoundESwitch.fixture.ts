@@ -18,6 +18,8 @@
 
 import { afterAll } from "vitest";
 import { PLANET_ROLL_REAL_OBJECTIVE_SWITCH, RECALL_KEEPS_LIST_SWITCH, RECALL_NO_REPAY_SWITCH, STAR_BODIES_SWITCH } from "./model";
+import { PATROL_RESUME_WHEN_SAFE_SWITCH, PATROL_STOP_DOOMED_SWITCH, PAUSE_JOB_LIKE_DOCKED_SWITCH } from "./tick";
+import { PATROL_REPEAT_CLIMB_SWITCH } from "./runDifficulty";
 
 type Switch = { live: boolean };
 
@@ -55,5 +57,27 @@ export const withFixRoundEExpeditionsOff = <T>(run: () => T): T => withOff(FIX_R
 export function fixRoundEExpeditionsOffForThisFile(): void {
   offForThisFile(FIX_ROUND_E_EXPEDITION_SWITCHES);
 }
+
+export const FIX_ROUND_E_PATROL_SWITCHES: readonly Switch[] = [PATROL_RESUME_WHEN_SAFE_SWITCH, PATROL_REPEAT_CLIMB_SWITCH, PATROL_STOP_DOOMED_SWITCH, PAUSE_JOB_LIKE_DOCKED_SWITCH];
+
+export const withResumeWhenSafeOff = <T>(run: () => T): T => withOff([PATROL_RESUME_WHEN_SAFE_SWITCH], run);
+export const withRepeatClimbOff = <T>(run: () => T): T => withOff([PATROL_REPEAT_CLIMB_SWITCH], run);
+export const withStopDoomedOff = <T>(run: () => T): T => withOff([PATROL_STOP_DOOMED_SWITCH], run);
+export const withPauseJobLikeDockedOff = <T>(run: () => T): T => withOff([PAUSE_JOB_LIKE_DOCKED_SWITCH], run);
+// Every patrol fix of the round off at once.
+export const withFixRoundEPatrolsOff = <T>(run: () => T): T => withOff(FIX_ROUND_E_PATROL_SWITCHES, run);
+
+// For a golden or fixture FILE captured before the round whose pins are about another slice (its Repeat patrols pause to
+// repair, fly long enough to climb, or fly into a route they would lose): the whole file runs with the round's patrol
+// fixes off. The round's own pins: patrolFixRoundEGoldens.test.ts. Called once at the file's top level.
+export function fixRoundEPatrolsOffForThisFile(): void {
+  offForThisFile(FIX_ROUND_E_PATROL_SWITCHES);
+}
+
+// Every fix of the round off, for a whole FILE (both of the above).
+export function fixRoundEOffForThisFile(): void {
+  offForThisFile([...FIX_ROUND_E_EXPEDITION_SWITCHES, ...FIX_ROUND_E_PATROL_SWITCHES]);
+}
+export const withFixRoundEOff = <T>(run: () => T): T => withOff([...FIX_ROUND_E_EXPEDITION_SWITCHES, ...FIX_ROUND_E_PATROL_SWITCHES], run);
 
 export { withOff as withSwitchesOff, offForThisFile as switchesOffForThisFile };

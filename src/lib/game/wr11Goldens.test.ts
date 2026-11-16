@@ -42,6 +42,13 @@ cp16OffForThisFile();
 import { WR11_SEEDS, WR11_VARIANT_SEEDS, wr11Candidates, wr11Hash, wr11Run, wr11SalvageRun, type Wr11Variant } from "./wr11.fixture";
 import { getPlanetTypeById, getPoiById } from "./expeditionContent";
 import { withWr11Off } from "./wr11Switch.fixture";
+import { fixRoundEOffForThisFile } from "./fixRoundESwitch.fixture";
+
+// Fix round FR-E (0.14.0): this file's fixtures launch real stars, recall and resume, or fly Repeat patrols that pause,
+// climb or meet a route they would lose, and its pins are about another slice; it runs with the round's fixes off
+// (fixRoundESwitch.fixture.ts), so they keep proving that slice. The round's own pins: expeditionFixRoundEGoldens and
+// patrolFixRoundE tests.
+fixRoundEOffForThisFile();
 
 const runKey = (seed: number, variant: Wr11Variant) => `${variant}:${seed.toString(16)}`;
 

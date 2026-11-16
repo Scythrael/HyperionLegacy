@@ -84,7 +84,8 @@ const WINNING_SEED = 0;
 describe("PATROL_END_REASON_VIEW: the exhaustive wording table", () => {
   // The five members, written as a literal. Deriving them from the table under test would make
   // this tautological, so the spec is stated independently and the table is the claim.
-  const ALL: PatrolEndReason[] = ["defeat", "outOfFuel", "ordersComplete", "recalled", "missionKeyRetired"];
+  // (Fix round FR-E lane 4 q3 added "outmatched": Repeat stopped before a route it would lose even fully repaired.)
+  const ALL: PatrolEndReason[] = ["defeat", "outOfFuel", "ordersComplete", "recalled", "missionKeyRetired", "outmatched"];
 
   it("covers every reason with real words, and no blanks", () => {
     for (const reason of ALL) {

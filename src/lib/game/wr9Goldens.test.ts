@@ -69,6 +69,13 @@ gatheringTrainingOffForThisFile();
 // Evacuation overlay. The file draws the seven-template board (evacuationDrawSwitch.fixture.ts), so its pins keep proving
 // their own slice (E5-2's moves: refugeeGoldens.test.ts and refugeeArrival.test.ts).
 import { evacuationDrawOffForThisFile } from "./evacuationDrawSwitch.fixture";
+import { fixRoundEOffForThisFile } from "./fixRoundESwitch.fixture";
+
+// Fix round FR-E (0.14.0): this file's fixtures launch real stars, recall and resume, or fly Repeat patrols that pause,
+// climb or meet a route they would lose, and its pins are about another slice; it runs with the round's fixes off
+// (fixRoundESwitch.fixture.ts), so they keep proving that slice. The round's own pins: expeditionFixRoundEGoldens and
+// patrolFixRoundE tests.
+fixRoundEOffForThisFile();
 evacuationDrawOffForThisFile();
 
 // Captured on the code BEFORE the engine edit (1e6a40a).

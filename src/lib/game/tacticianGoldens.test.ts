@@ -68,6 +68,13 @@ battleWearOffInThisFile();
 // Control Suite favors the Tactician spec): the pins predate it; favorsSpecGoldens.test.ts pins it.
 import { favoredSpecOffForThisFile } from "./favoredSpecSwitch.fixture";
 import { wr11OffForThisFile } from "./wr11Switch.fixture";
+import { fixRoundEOffForThisFile } from "./fixRoundESwitch.fixture";
+
+// Fix round FR-E (0.14.0): this file's fixtures launch real stars, recall and resume, or fly Repeat patrols that pause,
+// climb or meet a route they would lose, and its pins are about another slice; it runs with the round's fixes off
+// (fixRoundESwitch.fixture.ts), so they keep proving that slice. The round's own pins: expeditionFixRoundEGoldens and
+// patrolFixRoundE tests.
+fixRoundEOffForThisFile();
 favoredSpecOffForThisFile();
 // Wiring WR-11 came after every pin here: the whole file runs with WR-11 off (wr11Switch.fixture.ts), so its pins keep
 // proving their own slice moved nothing else (WR-11's own moves are pinned in wr11Goldens.test.ts).

@@ -19,6 +19,7 @@ import {
   heldSystems,
   recallExpedition,
   startExpedition,
+  systemTaskPreview,
   tierCandidateSystems,
 } from "./expedition";
 import { famousSystemsOfTier } from "./starCatalog";
@@ -221,7 +222,8 @@ describe("FR-E I2: a real star is the same system every visit", () => {
         const shape = JSON.stringify(res.expedition!.bodies.map((b) => [b.planetType, b.scanTotal, b.hazard]));
         // The preview reads the same bodies the launch flies.
         expect(list.foreknowledge.bodyCount === null || list.foreknowledge.bodyCount === res.expedition!.bodies.length).toBe(true);
-        expect(expeditionRiskPreview(cand.seed, cand.region).bodies.length).toBe(res.expedition!.bodies.length);
+        expect(expeditionRiskPreview(cand.seed, cand.region).bodies).toEqual(res.expedition!.bodies.map((b) => b.risk));
+        expect(systemTaskPreview(cand.seed, res.expedition!.scanParams, cand.region).bodies).toEqual(res.expedition!.bodies.map((b) => b.risk));
         const was = byStar.get(cand.famousId);
         if (was !== undefined) {
           pairs += 1;

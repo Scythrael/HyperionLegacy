@@ -27,6 +27,13 @@ import { rollReinforcements, type ObjectiveAffix } from "./affixes";
 import { CLOAKED_SALVAGE_SCALE, PROBE_SALVAGE_SCALE, shipSalvageScale } from "./shipScanEvents";
 import { advanceExpedition, encounterChance, expeditionCandidates, shipScanEventChance, PRE_FKR8_DEVICE_EFFECTIVENESS } from "./expedition";
 import { scanStepKey } from "./gambit";
+import { fixRoundEOffForThisFile } from "./fixRoundESwitch.fixture";
+
+// Fix round FR-E (0.14.0): this file's fixtures launch real stars, recall and resume, or fly Repeat patrols that pause,
+// climb or meet a route they would lose, and its pins are about another slice; it runs with the round's fixes off
+// (fixRoundESwitch.fixture.ts), so they keep proving that slice. The round's own pins: expeditionFixRoundEGoldens and
+// patrolFixRoundE tests.
+fixRoundEOffForThisFile();
 
 const SEED = 0x51ab3;
 const member = (memberId: string, teamType: "security" | "science", varieties: string[] = [], traits: string[] = []): SnapshotMember =>

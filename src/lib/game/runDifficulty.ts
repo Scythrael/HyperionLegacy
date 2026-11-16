@@ -207,12 +207,34 @@ function patrolOddsBelowTop(state: GameState, completed: number): boolean {
 // ramped cycle hands over its own stamp unchanged; the training cycle hands over the curve's floor (the training run
 // does not count, SF5, so its later routes fly where the next patrol will start). Absent in = absent out (full strength
 // stays full; an in-flight patrol from before SF-4 relaunches as it did). Pure.
-export function nextPatrolCycleDifficulty(stamp: PatrolDifficultyStamp | undefined): PatrolDifficultyStamp | undefined {
+// Fix round FR-E (lane 4 I2, user 2026-11-14 "Climb every N routes (Recommended)"): a Repeat run that began as training,
+// or at any step of the curve, no longer farms that step forever: every PATROL_CLIMB_EVERY_ROUTES routes the run has won
+// (`routesThisRun`, the stored per-run count, so the climb reads the same however the span is chunked) it climbs ONE
+// step, as if one more patrol had been completed (the enemies, and the torpedo odds the stamp's `completed` reads), up
+// to full strength (no stamp). The save's own curve (runCounts.patrol.completed) still counts runs, not routes.
+export function nextPatrolCycleDifficulty(stamp: PatrolDifficultyStamp | undefined, routesThisRun: number = 0): PatrolDifficultyStamp | undefined {
   const s = patrolStampOf({ difficulty: stamp });
   if (s === null) return undefined;
+  const climb = PATROL_REPEAT_CLIMB_SWITCH.live && routesThisRun > 0 && Number.isInteger(routesThisRun) && routesThisRun % PATROL_CLIMB_EVERY_ROUTES === 0;
+  if (climb) return climbedPatrolStamp(s.completed + 1);
   if (!s.firstRun) return s;
   const ramp = runRamp(s.completed, RAMP_MAX_TIER);
   return ramp >= 1 ? undefined : { version: 1, firstRun: false, ramp, tier: RAMP_MAX_TIER, completed: s.completed };
+}
+
+// [PROVISIONAL] FR-E lane 4 I2: the routes a Repeat run flies per step it climbs (the user named the rule, not the
+// number). 20 is the gentle end: a Repeat run climbs twenty times slower than dispatching one patrol per route would.
+export const PATROL_CLIMB_EVERY_ROUTES = 20;
+// Test switch only (fixRoundESwitch.fixture.ts): off, a Repeat run keeps one curve position for every route, as before.
+export const PATROL_REPEAT_CLIMB_SWITCH = { live: true };
+
+// The stamp a Repeat run climbs to: the curve after `completed` patrols, read as patrolDifficultyAt reads it for a save
+// on the curve (full strength drops the stamp, unless the torpedo odds still lag the enemies: then ramp 1 with its
+// count). Pure.
+function climbedPatrolStamp(completed: number): PatrolDifficultyStamp | undefined {
+  const ramp = runRamp(completed, RAMP_MAX_TIER);
+  if (ramp >= 1 && !(newRunsCarryEnemyTorpedoes() && rampOddsFraction(completed) < 1)) return undefined;
+  return { version: 1, firstRun: false, ramp, tier: RAMP_MAX_TIER, completed };
 }
 
 // A patrol cycle's stamp read strictly (a missing or malformed stamp reads null: full strength, the cycle plays as it

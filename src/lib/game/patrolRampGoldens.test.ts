@@ -54,6 +54,13 @@ combatRulesOffForThisFile();
 // Gear wear step 4 (0.14.0): the same for battle wear (battleWearSwitch.fixture.ts): the pins predate it, and a patrol
 // cycle stamped for it fights its carried wear (gearWearCombatGoldens.test.ts pins that).
 import { battleWearOffInThisFile } from "./battleWearSwitch.fixture";
+import { fixRoundEOffForThisFile } from "./fixRoundESwitch.fixture";
+
+// Fix round FR-E (0.14.0): this file's fixtures launch real stars, recall and resume, or fly Repeat patrols that pause,
+// climb or meet a route they would lose, and its pins are about another slice; it runs with the round's fixes off
+// (fixRoundESwitch.fixture.ts), so they keep proving that slice. The round's own pins: expeditionFixRoundEGoldens and
+// patrolFixRoundE tests.
+fixRoundEOffForThisFile();
 battleWearOffInThisFile();
 
 const ROUTES = Object.keys(PATROLS) as PatrolKey[];

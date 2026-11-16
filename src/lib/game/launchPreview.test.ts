@@ -38,6 +38,13 @@ import { TELESCOPE_DETAIL, blindLaunchCount } from "./telescope";
 import { forecastTasksText, previewForHull, recommendLaunch, taskDemand, taskDemandText, type SystemTaskPreview } from "./launchRecommendation";
 import { deserialize, migrate, serialize } from "./save";
 import { plainAwayMember, withoutShipEvents, dispatchPastPropulsion } from "./awayTeamTestFixtures";
+import { fixRoundEOffForThisFile } from "./fixRoundESwitch.fixture";
+
+// Fix round FR-E (0.14.0): this file's fixtures launch real stars, recall and resume, or fly Repeat patrols that pause,
+// climb or meet a route they would lose, and its pins are about another slice; it runs with the round's fixes off
+// (fixRoundESwitch.fixture.ts), so they keep proving that slice. The round's own pins: expeditionFixRoundEGoldens and
+// patrolFixRoundE tests.
+fixRoundEOffForThisFile();
 
 const T0 = 100_000;
 // The instant the bodies are scanned: the outbound transit (the regular one since safe first runs SF-2 retired the 30
