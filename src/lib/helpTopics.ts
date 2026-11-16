@@ -124,7 +124,7 @@ import {
   TIER_ENCOUNTER_HAZARD_CEILING,
   rampOddsFraction,
 } from "./game/runDifficulty";
-import { FULL_HOLD_FRACTION, SHIP_TYPES } from "./game/model";
+import { FACILITIES, FULL_HOLD_FRACTION, SHIP_TYPES } from "./game/model";
 import { TRAINING_RUN_CHIP } from "./trainingRunDisplay";
 import {
   REGION_TIER_NAMES,
@@ -158,6 +158,14 @@ import { REFINERY_LINES } from "./ui/materialLinesDisplay";
 import { MAX_MATERIAL_QUALITY } from "./game/materialQuality";
 
 // "Structural, Heavy metals, Recovered tech, Organic and Volatiles".
+// FR-C lane 1 M3: the Refinery's real ladder, read from its facility table (it was "each upgrade unlocks another line",
+// but the rungs are lines 1, 2, 3 and then a speed rung). Building it opens the first line.
+const REFINERY_RUNGS = FACILITIES.refinery.upgrades;
+const REFINERY_LINE_RUNGS = REFINERY_RUNGS.filter((r) => "addRefineSlots" in r.effect).length;
+const REFINERY_SPEED_MULT = REFINERY_RUNGS.reduce((m, r) => ("refineSpeedMult" in r.effect ? m * r.effect.refineSpeedMult : m), 1);
+const REFINERY_LADDER_SENTENCE =
+  `Building the Refinery opens its first line, each of the next ${REFINERY_LINE_RUNGS - 1} upgrades adds another (${REFINERY_LINE_RUNGS} lines in all)` +
+  (REFINERY_SPEED_MULT !== 1 ? `, and the last upgrade runs every line ${REFINERY_SPEED_MULT} times faster.` : ".");
 const LINE_LABELS = REFINERY_LINES.map((l) => l.label);
 const LINE_NAMES = LINE_LABELS.length > 1 ? `${LINE_LABELS.slice(0, -1).join(", ")} and ${LINE_LABELS[LINE_LABELS.length - 1]}` : LINE_LABELS.join("");
 const TOP_Q = `Q${MAX_MATERIAL_QUALITY}`;
@@ -1188,7 +1196,7 @@ export const HELP_TOPICS: HelpTopic[] = [
   {
     id: "refining",
     title: "Refining",
-    body: "The Refinery, in Facilities, turns raw ore into the refined materials your Fabricator needs (for example Titanium Ore into Titanium Ingots, and Polysilicate Ore into Polysilicate Wafers). It runs as a set of independent production lines: each slot can be configured with its own tier, item, and amount, so several different refine jobs run at once. Starting a job reserves its ingredients up front so lines never double-spend the same stockpile, and each upgrade unlocks another line. You can queue a fixed batch or run continuously, and the status readout tells you why a line paused, whether it ran out of ingredients or the output storage is full. The Production tab lists every recipe grouped by material line, with the stock you hold of each; Order on a recipe opens a free line's form on it, or the queue's form when every line is busy (see Material lines and quality).",
+    body: `The Refinery, in Facilities, turns raw ore into the refined materials your Fabricator needs (for example Titanium Ore into Titanium Ingots, and Polysilicate Ore into Polysilicate Wafers). It runs as a set of independent production lines: each slot can be configured with its own tier, item, and amount, so several different refine jobs run at once. Starting a job reserves its ingredients up front so lines never double-spend the same stockpile. ${REFINERY_LADDER_SENTENCE} You can queue a fixed batch or run continuously, and the status readout tells you why a line paused, whether it ran out of ingredients or the output storage is full. The Production tab lists every recipe grouped by material line, with the stock you hold of each; Order on a recipe opens a free line's form on it, or the queue's form when every line is busy (see Material lines and quality).`,
   },
   {
     id: "materialQuality",
