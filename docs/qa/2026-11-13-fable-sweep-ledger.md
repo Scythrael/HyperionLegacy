@@ -221,4 +221,5 @@ left 0 stuck pixels past two thirds.
 The SVG-only rule (icons.ts) is broken in more places than A2-7: ship rows (🚀), the profile portrait (🖼️), every
 facility card glyph, empty-state glyphs, lock glyphs (🔒/🔓), captain portraits (🎖️), Equipment tooltip system glyphs,
 job-kind glyphs. Most predate the rule. Line-by-line list: docs/qa/2026-11-15-emoji-inventory.txt (comment lines
-with ⚠️ are code notes, not UI). Scope question for the user: sweep them all in 0.14.0 or only the 0.14.0 ones.
+with ⚠️ are code notes, not UI). User answer (2026-11-16): "All of them in 0.14.0 (Recommended)": every UI emoji becomes an SVG glyph (icons.ts,
+reuse where one exists), each reviewed at 16/28/56 px, in this fix round.
