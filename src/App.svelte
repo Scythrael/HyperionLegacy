@@ -102,7 +102,7 @@
   // card, rendered inline below the Ship Systems bay grid when a tile is selected.
   // equipmentRarityColor (its module-context export) is the SINGLE rarity->color
   // source the bay TILES also read, so tile border/dot and the tooltip never drift.
-  import EquipmentTooltip, { equipmentRarityColor, equipmentIcon, equipmentSvgIcon, varietySvgIcon, blueprintIcon, type ItemTooltipSubject } from "./lib/EquipmentTooltip.svelte";
+  import EquipmentTooltip, { equipmentRarityColor, equipmentSvgIcon, blueprintIcon, type ItemTooltipSubject } from "./lib/EquipmentTooltip.svelte";
   import { clampFloatingTip } from "./lib/floatingTip";
   // 0.14.0 gear wear step 5: a spare's or loadout piece's condition block on its card, and the Command Home fleet care line.
   import { fleetCare, gearOvertimePurchase, pieceWearCard } from "./lib/gearWearDisplay";
@@ -2457,36 +2457,39 @@
   // no materials at all (e.g. a higher tier before its items exist).
   $: materialsTierEmpty = materialsStandardSections.every((s) => s.items.length === 0);
 
-  // Per-category placeholder glyph for a discovered tile (real icons land later,
-  // per the mockup's "icons are placeholders" note). A generic emoji per
-  // category group, deliberately simple; the fill + count + rarity ring carry
-  // the real at-a-glance information, not the glyph.
-  function warehouseCategoryGlyph(category: ItemCategory): string {
+  // Per-category glyph for a discovered tile: one SVG glyph per category group (icons.ts),
+  // deliberately simple; the fill + count + rarity ring carry the real at-a-glance
+  // information, not the glyph. (The 0.14.0 emoji sweep moved these off emoji.)
+  function warehouseCategoryGlyph(category: ItemCategory): IconName | null {
     switch (category) {
       case "raw":
-        return "🪨";
+        return "ore";
       case "refined":
-        return "🔷";
+        return "ingot";
       case "minorComponent":
       case "majorComponent":
-        return "⚙️";
+        return "component";
       case "shipModule":
       case "shipSystem":
-        return "🛡️";
+        return "equipment";
       // salvagedMaterial (0.11.0 Task A3): a broken-down item you strip for parts,
       // not a raw resource or a finished part, so it gets its own recycle glyph.
       case "salvagedMaterial":
-        return "♻️";
-      // Field Kits FKR-3: a kit draws its own SVG glyph (fieldKitIcons.ts fieldKitIcon) wherever one is listed, so
-      // this emoji placeholder set stays out of it.
+        return "salvage";
+      // Field Kits FKR-3: a kit draws its own SVG glyph (fieldKitIcons.ts fieldKitIcon), and so does a gas canister
+      // (GG-1, gasStudyIcons.ts gasCanisterIcon); itemGlyphIcon below picks those first. Research data reaches no list
+      // before its screen (GG-6), which brings its glyph.
       case "fieldKit":
-        return "";
-      // Gas Giant Study GG-1: a canister draws its own SVG glyph (gasStudyIcons.ts gasCanisterIcon); research data
-      // reaches no list before its screen (GG-6), which brings its glyph.
       case "gasCanister":
       case "researchData":
-        return "";
+        return null;
     }
+  }
+
+  // The one glyph an item tile, a drop chip or a recap row draws: the item's own SVG glyph where it has one (a field
+  // kit, a gas canister, Biofiber, Resin Distillate), else its category's glyph, else none.
+  function itemGlyphIcon(itemId: string, category: ItemCategory): IconName | null {
+    return fieldKitIcon(itemId) ?? gasCanisterIcon(itemId) ?? refinedItemIcon(itemId) ?? warehouseCategoryGlyph(category);
   }
 
   // Combat 0.13.0 (offline recap "why did it stop early"): map a captain's wall-stop reason
@@ -4564,43 +4567,12 @@
   // falls back to a neutral dot rather than rendering the raw hint text, so a future model
   // icon can never leak a bare keyword onto the board. NOTE: locked chips do NOT use this,
   // they render a fixed lock glyph per design Section 9 (see the markup below).
-  const HOME_ICON_GLYPH: Record<string, string> = {
-    // In-progress + prompt hints (the generic-process + mission + idle-slot set).
-    refine: "⚙️",       // Refinery line
-    fabricate: "🔧",    // Fabricator bay
-    research: "🔬",     // Research Lab
-    shipBuild: "🚧",    // Shipyard build
-    fuel: "⛽",         // Fuel Depot
-    storage: "📦",      // Ship Systems storage upgrade
-    docks: "⚓",        // docks-capacity expansion
-    // 0.13.3 Unit 4.4b: the Salvage Bay, reachable now that a completed salvage leaves a
-    // record on the board (the RECENTLY COMPLETED section's only new hint).
-    salvage: "♻️",      // a completed salvage run
-    extraction: "⛏️",   // captain on a gathering / extraction mission
-    patrol: "⚔️",       // captain on a combat patrol
-    dispatch: "👤",     // idle captain awaiting orders (the dispatch prompt)
-  };
-
-  // ⚠️ THE EMOJI SWEEP, HALF DONE ON PURPOSE (0.13.5, user decision).
-  //
-  // The icon REGISTRY (ui/icons.ts) carries real stroke-SVG geometry for a named set, and the pack
-  // seam built in phase 2 lets a bought pack replace any of it. What the registry does NOT carry is
-  // a drawing for every hint this board uses: `extraction`, `patrol` and `dispatch` have no icon yet, and
-  // DRAWING them is new content rather than a conversion. (OT-UI, 0.14.0, drew `repair` and `facility`: the user
-  // asked for the emoji on the rows that build touched to become SVG, "Replace them now".)
-  //
-  // So the rule here is: a hint with a registry icon RENDERS THE ICON, and a hint without one keeps
-  // its emoji until the art exists. That is the user's call ("sweep only what maps today"), and it
-  // is the right shape regardless: a half-swept board is honest about what is finished, whereas
-  // inventing five glyphs to finish the sweep would ship five drawings nobody approved.
-  //
   // ⚠️ MAPPING A HINT TO A REGISTRY NAME IS NOT ALWAYS THE SAME WORD. The board's hints are verbs
   // about work ("refine", "fabricate", "shipBuild") while the registry is named for THINGS
   // ("refinery", "fabricator", "shipyard"), because an icon depicts the place, not the activity.
   // That translation lives here, in one table, rather than being spread across call sites.
   const HOME_ICON_NAME: Record<string, IconName> = {
-    // OT-UI (user 2026-11-10 "Replace them now"): the ship repair and facility upgrade rows this build touches wear
-    // their own SVG glyphs (their emoji left HOME_ICON_GLYPH).
+    // OT-UI (user 2026-11-10 "Replace them now"): the ship repair and facility upgrade rows wear their own SVG glyphs.
     repair: "hullRepair",
     facility: "facilityUpgrade",
     refine: "refinery",
@@ -4620,19 +4592,17 @@
     refugeeArrival: "refugeeArrival",
     refugeeNoArrival: "check",
     refugeeFarewell: "refugeeFarewell",
+    // The 0.14.0 emoji sweep (user 2026-11-16 "All of them in 0.14.0"): the last three hints left emoji.
+    extraction: "pickaxe", // captain on a gathering / extraction mission
+    patrol: "fightPoint",  // captain on a combat patrol
+    dispatch: "person",    // idle captain awaiting orders (the dispatch prompt)
   };
 
-  // The registry icon for a hint, or null when the sweep has not reached it yet.
+  // The registry icon for a hint, or null for an unmapped hint (the board then draws a neutral dot, never the raw hint).
   function homeIconName(hint: string): IconName | null {
     return HOME_ICON_NAME[hint] ?? null;
   }
 
-  // Resolve an icon hint to its glyph, neutral-dot fallback for any unmapped hint.
-  // ⚠️ STILL USED, for the hints above that have no registry icon. It is not dead code and should
-  // not be deleted when the sweep finishes; it should get smaller until its table is empty.
-  function homeIconGlyph(hint: string): string {
-    return HOME_ICON_GLYPH[hint] ?? "•";
-  }
 
   // ── RECENTLY COMPLETED readouts (0.13.3 Unit 4.4b) ────────────────────────────
   // The completed-events log stores raw wall-clock stamps (never formatted strings), so
@@ -8262,11 +8232,11 @@
       return ((bp && blueprintGearCategory(bp)) ?? "ship") === cat;
     }),
   })).filter((g) => g.rows.length > 0);
-  // A member blueprint's slot glyph (SVG), or null for ship gear (which keeps its blueprintIcon glyph). E-MOD EM-10: a
-  // variety that draws an SVG glyph (a universal module, the Guest Wing) returns it too, so its blank tile is never blank.
-  function blueprintMemberIcon(key: string): IconName | null {
+  // A blank's tile glyph (SVG): a member blueprint draws its slot glyph, ship gear its variety or slot glyph
+  // (blueprintIcon), so no blank tile is ever blank.
+  function blueprintTileIcon(key: string): IconName | null {
     const out = BLUEPRINTS[key]?.equipmentOutput;
-    return out ? memberSlotIcon(out.slotType) ?? varietySvgIcon(out.varietyKey, out.slotType) : null;
+    return (out ? memberSlotIcon(out.slotType) : null) ?? blueprintIcon(key);
   }
 
   // ── Crafted Blanks 0.13.7: the Product Inspection panel state ──────────────
@@ -11515,10 +11485,10 @@
     | { kind: "info"; title: string; line: string };
   type FacilityRow = { label: string; fraction: number; pctText: string; upgrade?: boolean; tip?: FacilityTip };
   type FacilityPaneVM = {
-    key: FoundryFacilityKey; glyph: string; label: string; sub: string;
+    key: FoundryFacilityKey; label: string; sub: string;
     attention: boolean; action: FacilityRow | null; upgrade: FacilityRow | null; idle: string | null;
-    // Squads SQ-7.4: an SVG glyph (icons.ts) drawn in place of the emoji `glyph` (new cards use SVG).
-    icon?: IconName;
+    // The card's SVG glyph (icons.ts). The 0.14.0 emoji sweep moved every card onto it.
+    icon: IconName;
   };
   // OT-UI (user "Chip + no jump"): the WORK done (processSpeed.ts processWorkFraction), so an Overtime purchase never
   // moves a pane's bar; at the normal rate it is the familiar (duration - remaining) / duration, bit for bit.
@@ -11589,25 +11559,25 @@
     return { label: "Upgrade", fraction: f, pctText: facilityPct(f), upgrade: true, tip: { kind: "info", title: `${facilityLabel} upgrade`, line: "" } };
   }
   function fpane(
-    key: FoundryFacilityKey, glyph: string, label: string, sub: string,
+    key: FoundryFacilityKey, icon: IconName, label: string, sub: string,
     action: FacilityRow | null, upgrade: FacilityRow | null, idle: string | null, attention: boolean,
   ): FacilityPaneVM {
-    return { key, glyph, label, sub, attention, action, upgrade, idle };
+    return { key, icon, label, sub, attention, action, upgrade, idle };
   }
   $: facilityPanes = [
-    fpane("refinery", "⚗️", FACILITY_LABELS.refinery, `Level ${refineryLevel}`,
+    fpane("refinery", "refinery", FACILITY_LABELS.refinery, `Level ${refineryLevel}`,
       facilityAction("Refining", repJob(activeRefineJobs)),
       facilityUpgrade(refineryUpgradeInFlight, FACILITY_LABELS.refinery),
       refinerySlots === 0 ? "Not built"
         : activeRefineJobs.length === 0 ? `Idle · ${refinerySlots} slot${refinerySlots === 1 ? "" : "s"} free${cardQueuedSuffix(refineryQueue)}` : null,
       facilityAttention.has("refinery")),
-    fpane("fabricator", "🔧", FACILITY_LABELS.fabricator, `Level ${fabricatorLevel}`,
+    fpane("fabricator", "fabricator", FACILITY_LABELS.fabricator, `Level ${fabricatorLevel}`,
       facilityAction("Crafting", repJob(activeFabricateJobs)),
       facilityUpgrade(fabricatorUpgradeInFlight, FACILITY_LABELS.fabricator),
       fabricateSlots === 0 ? "Not built"
         : activeFabricateJobs.length === 0 ? `Idle · ${fabricateSlots} slot${fabricateSlots === 1 ? "" : "s"} free${cardQueuedSuffix(fabricatorQueue)}` : null,
       facilityAttention.has("fabricator")),
-    fpane("research", "🔬", FACILITY_LABELS.research, `Level ${researchLevel}`,
+    fpane("research", "research", FACILITY_LABELS.research, `Level ${researchLevel}`,
       facilityAction("Researching", repJob(activeResearchProjects)),
       facilityUpgrade(researchUpgradeInFlight, FACILITY_LABELS.research),
       researchSlots === 0 ? "Not built"
@@ -11615,54 +11585,54 @@
       facilityAttention.has("research")),
     // WR-4 (OC-C1, "Turn into range"): the Fuel Depot is back as the FLEET REACH track (its card was hidden from
     // 0.13.6, when fuel stopped being a refined resource, until its levels became a reach bonus).
-    { ...fpane("fuelStorage", "", FACILITY_LABELS.fuelStorage, `Level ${fuelStorageLevel}`,
+    fpane("fuelStorage", "fuel", FACILITY_LABELS.fuelStorage, `Level ${fuelStorageLevel}`,
       null,
       facilityUpgrade(fuelStorageUpgradeInFlight, FACILITY_LABELS.fuelStorage),
       `Fleet reach +${fleetReachPct}%`,
-      facilityAttention.has("fuelStorage")), icon: "fuel" as IconName },
-    fpane("shipyard", "🛠️", FACILITY_LABELS.shipyard, `Level ${shipyardLevel}`,
+      facilityAttention.has("fuelStorage")),
+    fpane("shipyard", "shipyard", FACILITY_LABELS.shipyard, `Level ${shipyardLevel}`,
       facilityAction("Building", activeShipBuild ?? null),
       facilityUpgrade(shipyardUpgradeInFlight, FACILITY_LABELS.shipyard),
       !shipyardFounded ? "Not founded" : activeShipBuild ? null : `Idle${cardQueuedSuffix(shipyardQueue)}`,
       facilityAttention.has("shipyard")),
-    fpane("salvageBay", "♻️", FACILITY_LABELS.salvageBay, "Recycling bay",
+    fpane("salvageBay", "salvage", FACILITY_LABELS.salvageBay, "Recycling bay",
       facilityAction("Salvaging", repJob(bayJobsInFlight)),
       facilityUpgrade(salvageBayUpgradeInFlight, FACILITY_LABELS.salvageBay),
       bayJobsInFlight.length > 0 ? null : `${spareEquipmentCount(state)} spare system${spareEquipmentCount(state) === 1 ? "" : "s"} to salvage`,
       facilityAttention.has("salvageBay")),
     // Squads SQ-7.4: the Subspace Telescope (pre-granted at Level 1). No action row: it reads, it does not run jobs.
-    { ...fpane("subspaceTelescope", "", FACILITY_LABELS.subspaceTelescope, `Level ${telescopeView.level}`,
+    fpane("subspaceTelescope", "telescope", FACILITY_LABELS.subspaceTelescope, `Level ${telescopeView.level}`,
       null,
       facilityUpgrade(telescopeUpgradeInFlight, FACILITY_LABELS.subspaceTelescope),
       `Range ${telescopeView.rangeText} · ${telescopeView.reachText}`,
-      facilityAttention.has("subspaceTelescope")), icon: "telescope" as IconName },
-    fpane("warehouse", "📦", FACILITY_LABELS.warehouse, `Level ${warehouseT1Level}`,
+      facilityAttention.has("subspaceTelescope")),
+    fpane("warehouse", "warehouse", FACILITY_LABELS.warehouse, `Level ${warehouseT1Level}`,
       null, null,
       warehouseItemsAtCap.length === 0 ? "No items at cap" : `${warehouseItemsAtCap.length} item${warehouseItemsAtCap.length === 1 ? "" : "s"} at cap`,
       facilityAttention.has("warehouse")),
-    fpane("docks", "🚉", FACILITY_LABELS.docks, "Ship storage",
+    fpane("docks", "docks", FACILITY_LABELS.docks, "Ship storage",
       null, null,
       `${state.ships.length} / ${state.shipStorageCapacity} berths used`,
       facilityAttention.has("docks")),
-    fpane("quartermaster", "📦", FACILITY_LABELS.quartermaster, "Supply counter",
+    fpane("quartermaster", "supplyCache", FACILITY_LABELS.quartermaster, "Supply counter",
       null, null,
       `${quartermasterAvailableCount} of ${REQUISITION_ENTRIES.length} Standard-Issue patterns available`,
       facilityAttention.has("quartermaster")),
     // ITEM LIFECYCLE 0.13.6: the Armory (loadout bay). Like the Quartermaster it is a SERVICE
     // facility, no FACILITIES entry, no founding, no level; loadout count comes from talents.
-    fpane("armory", "🗄️", FACILITY_LABELS.armory, "Loadout bay",
+    fpane("armory", "locker", FACILITY_LABELS.armory, "Loadout bay",
       null, null,
       armoryCountShort(state),
       facilityAttention.has("armory")),
     // ITEM LIFECYCLE 0.13.6: the Archive (completion record), a service facility like the Armory.
-    fpane("archive", "🏛️", FACILITY_LABELS.archive, "Completion record",
+    fpane("archive", "museum", FACILITY_LABELS.archive, "Completion record",
       null, null,
       `${archiveCompletionVM.pct.toFixed(1)}% complete`,
       facilityAttention.has("archive")),
     // CREW 0.14.0 (phase 4d): Personnel Rosters, saved PEOPLE loadouts (the personnel counterpart to
     // the Armory's gear loadouts). Complement CP-19 gave it a level track (pre-granted Level 1): each rung grows both
     // candidate boards, so the card shows its level, an upgrade row while a rung builds, and the board size.
-    fpane("personnelRosters", "🧑‍🚀", FACILITY_LABELS.personnelRosters, `Level ${rostersView.level}`,
+    fpane("personnelRosters", "manifest", FACILITY_LABELS.personnelRosters, `Level ${rostersView.level}`,
       null,
       facilityUpgrade(rostersUpgradeInFlight, FACILITY_LABELS.personnelRosters),
       `${state.personnelRosters.length} saved roster${state.personnelRosters.length === 1 ? "" : "s"} · Board ${rostersView.board}`,
@@ -12555,7 +12525,7 @@
           aria-label="Open admiral profile"
           on:click={() => { activeTab = "personnel"; activePersonnelTab = "admiral"; }}
         >
-          🖼️
+          <Icon name="portrait" />
         </button>
 
         <!-- STATS: EXP / CRAFT / (TICK), the header's spine on both platforms. ⚠️ CRAFT is AMBER so
@@ -12715,7 +12685,7 @@
               on:click={() => { activeFoundryFacility = p.key; facilitiesView = "console"; }}
             >
               <span class="fpane-id">
-                <span class="fpane-glyph" aria-hidden="true">{#if p.icon}<Icon name={p.icon} size={18} />{:else}{p.glyph}{/if}</span>
+                <span class="fpane-glyph" aria-hidden="true"><Icon name={p.icon} size={18} /></span>
                 <span class="fpane-stack">
                   <span class="fpane-name">
                     {p.label}{#if p.attention}<span class="roster-card-attention-dot" aria-hidden="true"></span><span class="sr-only"> (needs attention)</span>{/if}
@@ -14412,21 +14382,16 @@
 
             {#if activeWarehouseCat === "overview"}
               <!-- OVERVIEW, at-a-glance warehouse state (design §3.1): T1 level +
-                   cap, how many items are AT cap (the ⚠ auto-stop signal),
+                   cap, how many items are AT cap (the warning glyph is the auto-stop signal),
                    discovered/total catalog progress, and an Attention card listing
                    each FULL material when any producer is idled.
 
-                   0.13.3 Unit 6.2, DELIBERATE NON-CONVERSION of the ⚠ glyph, reported
-                   rather than done. ⚠ is a GLOBAL warning marker, not a Warehouse one:
-                   the same bare glyph marks the Ships roster attention row, the patrol
-                   and mission dispatch block lines, the no-weapon warning and the
-                   warehouse hover tooltip's FULL note. Converting only the two here
-                   would desynchronise it from the already-redesigned Ships tab, exactly
-                   the reasoning that kept Unit 6.1 off the credits sigil. It belongs to
-                   the 6.5 cross-cutting sweep, as one decision across all of its
-                   surfaces. The at-cap counter therefore KEEPS both its danger color and
-                   its warning glyph unchanged, which is what the preservation inventory
-                   asks for.
+                   The warning marker is GLOBAL, not a Warehouse one: the same glyph marks
+                   the Ships roster attention row, the mission dispatch block line and the
+                   warehouse hover tooltip's FULL note. 0.13.3 Unit 6.2 deliberately left
+                   it as a text glyph so no surface moved alone; the 0.14.0 emoji sweep
+                   moved every one of those surfaces to <Icon warning> together. The
+                   at-cap counter keeps its danger color.
 
                    NOTHING ELSE ON THIS VIEW IS TOUCHED BY THIS UNIT. The at-cap
                    ATTENTION card below is the only place in the game that explains why
@@ -14442,14 +14407,14 @@
                   class="research-cost"
                   style="color: {warehouseItemsAtCap.length > 0 ? 'var(--color-danger)' : 'var(--color-text-secondary)'}"
                 >
-                  Items at cap: {warehouseItemsAtCap.length}{warehouseItemsAtCap.length > 0 ? " ⚠" : ""}
+                  Items at cap: {warehouseItemsAtCap.length}{#if warehouseItemsAtCap.length > 0}{" "}<Icon name="warning" />{/if}
                 </div>
                 <div class="research-cost">Discovered: {warehouseDiscoveredCount} / {warehouseTotalCount} items</div>
               </Panel>
 
               {#if warehouseItemsAtCap.length > 0}
                 <Panel>
-                  <div class="panel-title">⚠ ATTENTION</div>
+                  <div class="panel-title"><Icon name="warning" /> ATTENTION</div>
                   {#each warehouseItemsAtCap as id (id)}
                     <div class="research-cost" style="color: var(--color-danger)">
                       [{ITEMS[id]?.label ?? id}], FULL, producers auto-stopped
@@ -14808,7 +14773,7 @@
               </div>
               {#if salvageBayHeldSalvaged.length === 0}
                 <div class="warehouse-stub">
-                  <div class="warehouse-stub-glyph">♻️</div>
+                  <div class="warehouse-stub-glyph"><Icon name="salvage" /></div>
                   <p>No salvaged materials yet. Recover them from salvage missions, then break them down here for a loot roll.</p>
                 </div>
               {:else}
@@ -15079,7 +15044,7 @@
               </div>
               {#if sec.groups.length === 0}
                 <div class="warehouse-stub">
-                  <div class="warehouse-stub-glyph">🛰️</div>
+                  <div class="warehouse-stub-glyph"><Icon name="equipment" /></div>
                   <p>No spare systems to salvage. Fabricate ship systems at the Fabricator, or uninstall an installed system to store it here first.</p>
                 </div>
               {:else}
@@ -15106,10 +15071,11 @@
                         {@const salvageState = systemSalvageState(bayInFlightInstances, bayReservations, piece.id)}
                         <!-- G1-1: a variety with an SVG glyph (the Guest Wing) draws it here like a member piece. -->
                         {@const memberIc = memberSlotIcon(piece.slotType) ?? equipmentSvgIcon(piece)}
+                        {@const isMemberPiece = memberSlotIcon(piece.slotType) !== null}
                         <!-- The ship tiles' title convention ("Standard-Issue baseline" / "radiant · Q5"),
                              led by a member piece's variety name ("Ballistic Weave · Standard-Issue baseline"). -->
                         {@const shipTitle = isBaseline ? "Standard-Issue baseline" : `${piece.rarity} · Q${piece.quality}`}
-                        {@const baseTitle = memberIc !== null
+                        {@const baseTitle = isMemberPiece
                           ? `${memberPieceName(piece).replace(/^Standard-Issue /, "")} · ${shipTitle}`
                           : shipTitle}
                         <button
@@ -15131,7 +15097,7 @@
                           on:click={() => selectSystemTile(piece.id)}
                         >
                           <span class="systems-tile-dot"></span>
-                          <span class="systems-tile-ic">{#if memberIc !== null}<Icon name={memberIc} />{:else}{equipmentIcon(piece)}{/if}</span>
+                          <span class="systems-tile-ic">{#if memberIc !== null}<Icon name={memberIc} />{/if}</span>
                           <span class="systems-tile-il">iL {piece.iLevel}</span>
                           <!-- 0.13.3.1 Feature 2 / 0.13.6 split: the at-a-glance MARKERS, indicators
                                and not controls. The tile is itself a <button> (clicking it selects
@@ -15141,7 +15107,7 @@
                                piece can be both favorited (amber star, sorted to the top) and locked
                                (padlock, safe from salvage), so both markers can show at once. -->
                           {#if piece.locked === true}
-                            <span class="sb-tile-lock" aria-hidden="true">🔒</span>
+                            <span class="sb-tile-lock" aria-hidden="true"><Icon name="lock" /></span>
                           {/if}
                           {#if piece.favorite === true}
                             <span class="sb-tile-fav" aria-hidden="true">★</span>
@@ -15260,7 +15226,7 @@
                     on:click={() => doToggleEquipmentLock(sys.id, sys.locked !== true)}
                     aria-pressed={sys.locked === true}
                   >
-                    {sys.locked === true ? "🔒 Locked" : "🔓 Lock"}
+                    <Icon name={sys.locked === true ? "lock" : "unlock"} /> {sys.locked === true ? "Locked" : "Lock"}
                   </button>
                   {#if sys.locked === true}
                     <span class="systems-salvage-none">Locked, so nothing can salvage it. Unlock it to salvage.</span>
@@ -15664,7 +15630,7 @@
                            shipBuildDurationTicks call, so the build-speed adjustment this line
                            exists to show is untouched. -->
                       <div class="research-cost" style="margin-top: 6px;">
-                        ◈ {formatNumber(recipe.credits)} · ⏱ {durationReadout(shipBuildDurationTicks(state, typeKey as ShipTypeKey), showTickCounts, state.tickDurationSeconds)}
+                        ◈ {formatNumber(recipe.credits)} · <Icon name="clock" /> {durationReadout(shipBuildDurationTicks(state, typeKey as ShipTypeKey), showTickCounts, state.tickDurationSeconds)}
                       </div>
 
                       <button
@@ -16287,7 +16253,7 @@
 
                   {#if sellSections.length === 0}
                     <div class="warehouse-stub">
-                      <div class="warehouse-stub-glyph">🪙</div>
+                      <div class="warehouse-stub-glyph"><Icon name="credits" /></div>
                       <p>Nothing to sell right now. Anything you hold that the Quartermaster buys will appear here.</p>
                     </div>
                   {:else}
@@ -16423,7 +16389,7 @@
                   <div class="armory-create-count">{armoryCountText(state)}</div>
                 </div>
                 {#if state.loadouts.length === 0}
-                  <div class="warehouse-stub"><div class="warehouse-stub-glyph">🗄️</div><p>No loadouts yet. Pick a ship type above and create one.</p></div>
+                  <div class="warehouse-stub"><div class="warehouse-stub-glyph"><Icon name="locker" /></div><p>No loadouts yet. Pick a ship type above and create one.</p></div>
                 {:else}
                   {#each state.loadouts as lo (lo.id)}
                     {@const coShip = lo.checkedOutToShipId ? state.ships.find((s) => s.id === lo.checkedOutToShipId) : null}
@@ -16530,7 +16496,7 @@
                               aria-expanded={armoryTip?.itemId === inst.id}
                               on:click={(e) => toggleArmoryTip(e, inst.id)}
                             >
-                              <span style="color:{equipmentRarityColor(inst.rarity)};">{#if equipmentSvgIcon(inst) !== null}<Icon name={equipmentSvgIcon(inst) ?? "equipment"} size={12} />{:else}{equipmentIcon(inst)}{/if} {systemSalvageName(inst)}</span>
+                              <span style="color:{equipmentRarityColor(inst.rarity)};"><Icon name={equipmentSvgIcon(inst) ?? "equipment"} size={12} /> {systemSalvageName(inst)}</span>
                               <span class="armory-item-sub">{inst.rarity} · Q{inst.quality}</span>
                               <span class="armory-item-info" aria-hidden="true">ⓘ</span>
                             </button>
@@ -16574,7 +16540,7 @@
                               title={cand.locked === true ? "Locked, so it cannot be committed. Unlock it in Ship Equipment first." : undefined}
                               on:click={() => doArmoryInstall(armoryInstallSlotKey!, cand.id)}
                             >
-                              <span class="ship-pick-name"><span style="color:{equipmentRarityColor(cand.rarity)};">{#if equipmentSvgIcon(cand) !== null}<Icon name={equipmentSvgIcon(cand) ?? "equipment"} size={12} />{:else}{equipmentIcon(cand)}{/if} {systemSalvageName(cand)}</span>{#if cand.locked === true} 🔒{:else if cand.favorite} <span style="color:var(--color-warning);">★</span>{/if}</span>
+                              <span class="ship-pick-name"><span style="color:{equipmentRarityColor(cand.rarity)};"><Icon name={equipmentSvgIcon(cand) ?? "equipment"} size={12} /> {systemSalvageName(cand)}</span>{#if cand.locked === true} <Icon name="lock" size={12} title="Locked" />{:else if cand.favorite} <span style="color:var(--color-warning);">★</span>{/if}</span>
                               <span class="ship-pick-sub">{cand.rarity} · Q{cand.quality} · iL {cand.iLevel}{#if netBR !== 0} · <span style="color:{netBR > 0 ? 'var(--color-success)' : 'var(--color-danger)'};">{netBR > 0 ? "+" : ""}{formatNumber(netBR)} BR</span>{/if}</span>
                             </button>
                           {/each}
@@ -16854,7 +16820,7 @@
 
             {#if baySystemGroups.length === 0}
               <div class="warehouse-stub">
-                <div class="warehouse-stub-glyph">🛰️</div>
+                <div class="warehouse-stub-glyph"><Icon name="equipment" /></div>
                 <p>No spare systems in the bay. Fabricate ship systems at the Fabricator, or uninstall an installed system to store it here.</p>
               </div>
             {:else}
@@ -16869,7 +16835,6 @@
                     {#each group.pieces as piece (piece.id)}
                       {@const isBaseline = piece.blueprintKey === null}
                       {@const baseTitle = isBaseline ? "Standard-Issue baseline" : `${piece.rarity} · Q${piece.quality}`}
-                      <!-- G1-1: a variety with an SVG glyph (the Guest Wing) draws it in place of the emoji. -->
                       {@const svgIc = equipmentSvgIcon(piece)}
                       <button
                         type="button"
@@ -16885,10 +16850,10 @@
                         on:click={() => (selectedShipSpareId = selectedShipSpareId === piece.id ? null : piece.id)}
                       >
                         <span class="systems-tile-dot"></span>
-                        <span class="systems-tile-ic">{#if svgIc !== null}<Icon name={svgIc} />{:else}{equipmentIcon(piece)}{/if}</span>
+                        <span class="systems-tile-ic">{#if svgIc !== null}<Icon name={svgIc} />{/if}</span>
                         <span class="systems-tile-il">iL {piece.iLevel}</span>
                         {#if piece.locked === true}
-                          <span class="sb-tile-lock" aria-hidden="true">🔒</span>
+                          <span class="sb-tile-lock" aria-hidden="true"><Icon name="lock" /></span>
                         {/if}
                         {#if piece.favorite === true}
                           <span class="sb-tile-fav" aria-hidden="true">★</span>
@@ -16972,7 +16937,7 @@
                 <span
                   style="display: inline-flex; align-items: center; gap: 6px; padding: 6px 12px; border-radius: var(--corner); border: 1px solid rgba(var(--color-accent-rgb), 0.2); background: rgba(var(--color-accent-rgb), 0.06); color: var(--color-text-secondary); font-size: var(--text-md); opacity: 0.5;"
                   title="Reserved for a future update (combat)"
-                >🔒 {label}</span>
+                ><Icon name="lock" title="Locked" /> {label}</span>
               {/each}
             </div>
           </Panel>
@@ -17100,7 +17065,7 @@
             </div>
             {#if blankRows.length === 0}
               <div class="warehouse-stub">
-                <div class="warehouse-stub-glyph">🔬</div>
+                <div class="warehouse-stub-glyph"><Icon name="study" /></div>
                 <p>No blanks to inspect. Craft ship systems, weapons, drone pods, away-team gear or implants at the Fabricator and they arrive here as blanks.</p>
               </div>
             {:else}
@@ -17116,7 +17081,7 @@
                 </div>
                 <div class="warehouse-grid">
                   {#each bg.rows as row (row.key)}
-                    {@const memberIc = blueprintMemberIcon(row.key)}
+                    {@const memberIc = blueprintTileIcon(row.key)}
                     <button
                       type="button"
                       class="systems-tile"
@@ -17126,7 +17091,7 @@
                       on:click={() => selectBlankTile(row.key)}
                     >
                       <span class="systems-tile-dot"></span>
-                      <span class="systems-tile-ic">{#if memberIc !== null}<Icon name={memberIc} />{:else}{blueprintIcon(row.key)}{/if}</span>
+                      <span class="systems-tile-ic">{#if memberIc !== null}<Icon name={memberIc} />{/if}</span>
                       <span class="systems-tile-il">×{row.count.toString()}</span>
                     </button>
                   {/each}
@@ -17141,10 +17106,10 @@
                the engine (inspectBlanks) re-enforces the same cap, so the panel is advisory only. -->
           {#if selectedBlankKey !== null && selectedBlankHeld > 0}
             {@const label = BLUEPRINTS[selectedBlankKey]?.label ?? selectedBlankKey}
-            {@const selMemberIc = blueprintMemberIcon(selectedBlankKey)}
+            {@const selMemberIc = blueprintTileIcon(selectedBlankKey)}
             <Panel>
               <div class="panel-title">PRODUCT INSPECTION</div>
-              <div class="research-name">{#if selMemberIc !== null}<Icon name={selMemberIc} />{:else}{blueprintIcon(selectedBlankKey)}{/if} {label}</div>
+              <div class="research-name">{#if selMemberIc !== null}<Icon name={selMemberIc} />{/if} {label}</div>
               <div class="research-cost">Blanks held: {selectedBlankHeld}</div>
               <!-- ML-5 (quality blanks): the held split, exactly as the store holds it, and the quality the next
                    inspect takes (highestBlankQuality, the engine's own rule). -->
@@ -17258,7 +17223,7 @@
                    the player to "gather and refine to fill these shelves" would be
                    misleading when the shelves are not unlocked yet. -->
               <div class="warehouse-stub">
-                <div class="warehouse-stub-glyph">🗄️</div>
+                <div class="warehouse-stub-glyph"><Icon name="warehouse" /></div>
                 <p>No materials at this tier yet. Gather from missions and refine to fill these shelves.</p>
               </div>
             {/if}
@@ -17308,13 +17273,13 @@
                                non-danger fill) while materialAtCap is still false and it still accepts
                                stock. Only a genuinely capped item (atCap) shows 100%. -->
                           <span class="warehouse-pct">{atCap ? 100 : Math.floor(pct)}%</span>
-                          {@const kitIc = fieldKitIcon(item.id) ?? gasCanisterIcon(item.id) ?? refinedItemIcon(item.id)}
+                          {@const kitIc = itemGlyphIcon(item.id, item.category)}
                           <!-- Field Kits FKR-3: a kit wears its own SVG glyph (fieldKitIcons.ts), and so does a gas canister (GG-1,
-                               gasStudyIcons.ts), and so do Biofiber and Resin Distillate (ML-2, refinedIcons.ts); the rest keep the category glyph. -->
-                          <span class="warehouse-glyph">{#if kitIc !== null}<Icon name={kitIc} />{:else}{warehouseCategoryGlyph(item.category)}{/if}</span>
+                               gasStudyIcons.ts), and so do Biofiber and Resin Distillate (ML-2, refinedIcons.ts); the rest wear the category glyph. -->
+                          <span class="warehouse-glyph">{#if kitIc !== null}<Icon name={kitIc} />{/if}</span>
                           <span class="warehouse-ct">{formatNumber(count)}</span>
                         {:else}
-                          <span class="warehouse-glyph warehouse-glyph-unknown">❓</span>
+                          <span class="warehouse-glyph warehouse-glyph-unknown"><Icon name="help" /></span>
                         {/if}
                       </button>
                     {/each}
@@ -17448,7 +17413,7 @@
                       shipsReturnTo = null;
                     }}
                   >
-                    <span class="ship-row-glyph" aria-hidden="true">🚀</span>
+                    <span class="ship-row-glyph" aria-hidden="true"><Icon name="ship" /></span>
                     <span class="ship-row-body">
                       <span class="ship-row-name">{row.name}</span>
                       <!-- Meta line (0.13.2 Unit 7): show the hull class here ONLY when the ship
@@ -17457,7 +17422,7 @@
                            in the pure row model (shipRoster.ts). -->
                       <span class="ship-row-meta">{#if row.hasCustomName}{row.className} · {/if}{row.captainName ?? "No captain"} · {SHIP_STATUS_LABEL[row.status]}</span>
                       {#if row.needsAttention}
-                        <span class="ship-row-attn">⚠ {row.attentionReason}</span>
+                        <span class="ship-row-attn"><Icon name="warning" /> {row.attentionReason}</span>
                       {/if}
                       {#if shipCrewLockText.get(row.id)}
                         <!-- CP-6: the crew lock badge (glyph + words; the reason in the tooltip). -->
@@ -17817,7 +17782,7 @@
         <Panel>
           <div class="panel-title">PROFILE</div>
           <div class="profile-identity">
-            <div class="mission-portrait-frame profile-portrait" aria-hidden="true">🖼️</div>
+            <div class="mission-portrait-frame profile-portrait" aria-hidden="true"><Icon name="portrait" /></div>
             <div class="profile-identity-name">Fleet Admiral · Level {state.fleetAdminLevel}</div>
           </div>
           <div class="stat-row">
@@ -18020,7 +17985,7 @@
                 }}
               >
                 <span class="cpane-id">
-                  <span class="cpane-portrait" aria-hidden="true">🎖️</span>
+                  <span class="cpane-portrait" aria-hidden="true"><Icon name="captain" /></span>
                   <span class="fpane-stack">
                     <span class="fpane-name">
                       {captain.label}{#if paneAttn}<span class="roster-card-attention-dot" aria-hidden="true"></span><span class="sr-only"> (needs attention)</span>{/if}
@@ -18092,7 +18057,7 @@
                   : "Coming soon, not yet unlockable"}
               >
                 <span class="cpane-id">
-                  <span class="cpane-portrait" aria-hidden="true">🔒</span>
+                  <span class="cpane-portrait" aria-hidden="true"><Icon name="lock" /></span>
                   <span class="fpane-stack">
                     <span class="fpane-name">{#if isUnlockable}Locked{:else}Coming Soon!{/if}</span>
                     <!-- FR-C R3: the slot names its talent, Admin Point cost and Fleet Admiral level (captainSlotDisplay.ts). -->
@@ -18170,10 +18135,10 @@
                assigned ship, display-only). -->
           <Panel>
             <div class="cc-id">
-              <span class="cc-portrait" aria-hidden="true">🎖️</span>
+              <span class="cc-portrait" aria-hidden="true"><Icon name="captain" /></span>
               <div class="cc-idcol">
                 <!-- RENAME INLINE (no modal). captainRenameModalOpen is reused purely as
-                     the in-frame edit toggle now: "✏ Rename" opens it (openCaptainRenameModal
+                     the in-frame edit toggle now: "Rename" opens it (openCaptainRenameModal
                      seeds captainRenameInput with the current label), Save routes through the
                      SAME doRenameCaptain -> renameCaptain seam (validation + save unchanged;
                      a failed Save shows the mapped reason inline and keeps editing), Cancel
@@ -18201,7 +18166,7 @@
                 {:else}
                   <div class="cc-namerow">
                     <span class="cc-name">{activeCaptain.label}</span>
-                    <button class="cc-edit" on:click={openCaptainRenameModal}>✏ Rename</button>
+                    <button class="cc-edit" on:click={openCaptainRenameModal}><Icon name="edit" /> Rename</button>
                   </div>
                 {/if}
                 <div class="cc-meta">
@@ -18352,7 +18317,7 @@
                   }
                 }}
               >
-                Ship Systems ↗
+                Ship Systems <Icon name="goTo" />
               </button>
             </div>
           </Panel>
@@ -18453,13 +18418,14 @@
                     onSelect={(k) => (selectedSecondaryBranch = SECONDARY_TREE_BRANCHES[k as SecondaryTalentTree][0])}
                   />
                 </div>
-                <!-- Branch selector (the selected tree's 3 branches). Off-branch branches get a 🔒 prefix
+                <!-- Branch selector (the selected tree's 3 branches). Off-branch branches wear a lock glyph (SubTabs viewLock)
                      once the captain is committed, so the single-branch lock reads in the nav itself. -->
                 <div class="cc-prestige-tabs">
                   <SubTabs
                     tabs={SECONDARY_TREE_BRANCHES[selectedSecondaryTree].map((b) => ({
                       key: b,
-                      label: (prestigeCommitted !== null && prestigeCommitted !== b ? "🔒 " : "") + SECONDARY_BRANCH_LABEL[b],
+                      label: SECONDARY_BRANCH_LABEL[b],
+                      viewLock: prestigeCommitted !== null && prestigeCommitted !== b ? `Committed to ${SECONDARY_BRANCH_LABEL[prestigeCommitted]}, this branch is view-only` : undefined,
                     }))}
                     active={selectedSecondaryBranch}
                     onSelect={(k) => (selectedSecondaryBranch = k as SecondaryTalentBranch)}
@@ -18472,7 +18438,7 @@
                   <!-- Viewing an OFF-branch tree while committed: it is view-only. Passing points=0 +
                        pointsLabel="" below makes every node render locked and hides the corner readout,
                        so nothing looks buyable; this banner says why. -->
-                  <div class="cc-prestige-locked">🔒 Committed to {SECONDARY_BRANCH_LABEL[prestigeCommitted]} · this branch is view-only.</div>
+                  <div class="cc-prestige-locked"><Icon name="lock" /> Committed to {SECONDARY_BRANCH_LABEL[prestigeCommitted]} · this branch is view-only.</div>
                 {/if}
 
                 <RadialWeb
@@ -18496,7 +18462,7 @@
                `locked` (never selectable), but the body is guarded here too. -->
           <Panel>
             <div class="panel-title">EQUIPMENT</div>
-            <div class="research-cost">🔒 Crew equipment, coming in a later update.</div>
+            <div class="research-cost"><Icon name="lock" /> Crew equipment, coming in a later update.</div>
           </Panel>
           {/if}
           {/if}
@@ -18722,7 +18688,7 @@
                         <div class="mpane-id">
                           <!-- Reactor fuel ladder (0.14.0): a mission with its own SVG glyph (missionIcons.ts) draws it;
                                the others keep the shared row glyph until their surface is redrawn. -->
-                          <span class="mpane-glyph" aria-hidden="true">{#if ownGlyph}<Icon name={ownGlyph} size={22} />{:else}🚀{/if}</span>
+                          <span class="mpane-glyph" aria-hidden="true"><Icon name={ownGlyph ?? "ship"} size={22} /></span>
                           <div class="mpane-idcol">
                             <div class="mpane-name">{missionDef.label}</div>
                             <!-- Captain-XP/tick via the shared xpPerTick helper, tucked under
@@ -18751,6 +18717,7 @@
                               {#each missionDropTiers(loot, missionDef.uncommonChance, missionDef.rareChance) as drop (drop.key)}
                                 {@const dropItem = ITEMS[drop.key]}
                                 {#if dropItem}
+                                  {@const dropIc = itemGlyphIcon(drop.key, dropItem.category)}
                                   <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_noninteractive_element_interactions, INTENTIONAL: this icon is a span (not a focusable button) carrying a tap-to-pin tooltip; stopPropagation is a harmless leftover from when the card was a button. Keyboard/AT users get the SAME drops as real, focusable buttons in the dispatch popup, so no interaction is lost. -->
                                   <span
                                     class="drop-icon"
@@ -18760,7 +18727,7 @@
                                     on:pointerenter={(e) => hoverEnterWarehouseTooltip(e, drop.key, drop.chancePct)}
                                     on:pointerleave={(e) => hoverLeaveWarehouseTooltip(e, drop.key)}
                                     on:click|stopPropagation={(e) => toggleWarehouseTooltip(e, drop.key, drop.chancePct)}
-                                  >{warehouseCategoryGlyph(dropItem.category)}</span>
+                                  >{#if dropIc !== null}<Icon name={dropIc} />{/if}</span>
                                 {/if}
                               {/each}
                             </span>
@@ -18842,7 +18809,7 @@
                          convention, with the will-require preview so the player can plan. -->
                     <div class="mpane locked" title="Unlock via Mission Control (Operations)">
                       <div class="mpane-id">
-                        <span class="mpane-glyph" aria-hidden="true">🔒</span>
+                        <span class="mpane-glyph" aria-hidden="true"><Icon name="lock" size={22} /></span>
                         <div class="mpane-idcol">
                           <div class="mpane-name">{missionDef.label}</div>
                           <div class="mpane-sub">Locked &middot; Mission Control</div>
@@ -19332,14 +19299,14 @@
                 {#each unlockedMissionKeys as mKey (mKey)}
                   {@const completed = state.lifetimeStats.missionsCompleted[mKey] ?? new Decimal(0)}
                   <div class="research-cost" style="color: var(--color-success)">
-                    ✅ {MISSIONS[mKey].label}, {formatNumber(completed)} completed
+                    <Icon name="check" size={12} /> {MISSIONS[mKey].label}, {formatNumber(completed)} completed
                   </div>
                 {/each}
 
                 {#if lockedMissionKeys.length > 0}
                   <div class="research-name" style="margin-top: 10px;">Locked missions</div>
                   {#each lockedMissionKeys as mKey (mKey)}
-                    <div class="research-cost" style="color: var(--color-text-secondary)">🔒 {MISSIONS[mKey].label}, unlocks at level {MISSIONS[mKey].unlockLevel}</div>
+                    <div class="research-cost" style="color: var(--color-text-secondary)"><Icon name="lock" size={12} /> {MISSIONS[mKey].label}, unlocks at level {MISSIONS[mKey].unlockLevel}</div>
                   {/each}
                 {/if}
 
@@ -19396,7 +19363,7 @@
                     {@const reserved = stock.minus(have)}
                     {@const met = have.gte(need)}
                     <div class="research-cost" style="color: {met ? 'var(--color-success)' : 'var(--color-danger)'}">
-                      {met ? "✅" : "❌"} [{ITEMS[itemId]?.label ?? itemId}]: {formatNumber(have)} / {formatNumber(need)}{#if reserved.gt(0)}{" "}({formatNumber(reserved)} reserved){/if}
+                      {#if met}<Icon name="check" size={12} />{:else}<Icon name="warning" size={12} />{/if} [{ITEMS[itemId]?.label ?? itemId}]: {formatNumber(have)} / {formatNumber(need)}{#if reserved.gt(0)}{" "}({formatNumber(reserved)} reserved){/if}
                     </div>
                   {/each}
 
@@ -19410,7 +19377,7 @@
                       {@const have = state.lifetimeStats.missionsCompleted[mKey] ?? new Decimal(0)}
                       {@const met = have.gte(need)}
                       <div class="research-cost" style="color: {met ? 'var(--color-success)' : 'var(--color-danger)'}">
-                        {met ? "✅" : "❌"} {MISSIONS[mKey as MissionKey].label} completions: {formatNumber(have)} / {need}
+                        {#if met}<Icon name="check" size={12} />{:else}<Icon name="warning" size={12} />{/if} {MISSIONS[mKey as MissionKey].label} completions: {formatNumber(have)} / {need}
                       </div>
                     {/each}
                   {/if}
@@ -19491,7 +19458,7 @@
           <span class="home-ico" aria-hidden="true">
             {#if homeIconName(row.icon) !== null}
               <Icon name={homeIconName(row.icon)!} size="1.05em" />
-            {:else}{homeIconGlyph(row.icon)}{/if}
+            {:else}•{/if}
           </span>
           <span class="home-row-body">
             <span class="home-l1">{row.primaryLabel}</span>
@@ -19546,7 +19513,7 @@
           <span class="home-ico" aria-hidden="true">
             {#if homeIconName(done.icon) !== null}
               <Icon name={homeIconName(done.icon)!} size="1.05em" />
-            {:else}{homeIconGlyph(done.icon)}{/if}
+            {:else}•{/if}
           </span>
           <span class="done-line">
             <span class="done-time">{completionClockText(done.atMs)}</span>
@@ -19627,7 +19594,7 @@
             <span class="home-ico" aria-hidden="true">
               {#if homeIconName(prompt.icon) !== null}
                 <Icon name={homeIconName(prompt.icon)!} size="1.05em" />
-              {:else}{homeIconGlyph(prompt.icon)}{/if}
+              {:else}•{/if}
             </span>
             <span class="home-prompt-txt">
               <span class="home-l1">{prompt.label}</span>
@@ -19917,7 +19884,7 @@
                   <!-- Non-interactive dimmed chip (design Section 9): a fixed lock glyph +
                        the feature name + an optional "coming soon" / unlock note. -->
                   <div class="home-lock">
-                    <span class="home-lock-ico" aria-hidden="true">🔒</span>
+                    <span class="home-lock-ico" aria-hidden="true"><Icon name="lock" /></span>
                     <span class="home-lock-l">{slot.label}</span>
                     {#if slot.note !== null}<span class="home-lock-note">{slot.note}</span>{/if}
                   </div>
@@ -21462,6 +21429,7 @@
             {#each missionDropTiers(loot, effectiveUncommonChance, effectiveRareChance) as drop (drop.key)}
               {@const dropItem = ITEMS[drop.key]}
               {#if dropItem}
+                {@const dropIc = itemGlyphIcon(drop.key, dropItem.category)}
                 <button
                   type="button"
                   class="drop-icon"
@@ -21472,7 +21440,7 @@
                   on:focus={(e) => focusShowWarehouseTooltip(e, drop.key, drop.chancePct)}
                   on:blur={hideWarehouseTooltip}
                   on:click={(e) => toggleWarehouseTooltip(e, drop.key, drop.chancePct)}
-                >{warehouseCategoryGlyph(dropItem.category)}</button>
+                >{#if dropIc !== null}<Icon name={dropIc} />{/if}</button>
               {/if}
             {/each}
           </div>
@@ -21515,7 +21483,7 @@
             Ship range: {shipRangeLy !== null && selectedShip !== null ? `${formatNumber(Math.floor(shipRangeLy))} LY${longHaulNote(state, selectedShip, missionTripTicks)}` : "no ship assigned"}
           </div>
           {#if missionPopupGate !== null && !missionPopupGate.ok}
-            <div class="research-cost" style="color: var(--color-danger)">⚠ {dispatchBlockMessage(missionPopupGate.reason, missionPopupKey, missionPopupCaptainId)}</div>
+            <div class="research-cost" style="color: var(--color-danger)"><Icon name="warning" /> {dispatchBlockMessage(missionPopupGate.reason, missionPopupKey, missionPopupCaptainId)}</div>
           {/if}
         {/if}
 
@@ -21813,7 +21781,7 @@
             {#if improves}
               Enshrining this raises your {row.label} record by +{formatNumber(selScore - row.archived)} (to {formatNumber(selScore)}).
             {:else}
-              ⚠️ This will not beat your record of {formatNumber(row.archived)}. Enshrining it consumes the item for no completion gain. To recover materials instead, salvage it in the Salvage Bay.
+              <Icon name="warning" /> This will not beat your record of {formatNumber(row.archived)}. Enshrining it consumes the item for no completion gain. To recover materials instead, salvage it in the Salvage Bay.
             {/if}
           </p>
         {/if}
@@ -22462,8 +22430,8 @@
                 <div class="offline-summary-row">
                   <span class="offline-summary-row-label">
                     {#if ITEMS[mat.itemId]}
-                      {@const kitIc = fieldKitIcon(mat.itemId) ?? gasCanisterIcon(mat.itemId) ?? refinedItemIcon(mat.itemId)}
-                      <span class="offline-summary-item-icon" aria-hidden="true">{#if kitIc !== null}<Icon name={kitIc} />{:else}{warehouseCategoryGlyph(ITEMS[mat.itemId].category)}{/if}</span>
+                      {@const kitIc = itemGlyphIcon(mat.itemId, ITEMS[mat.itemId].category)}
+                      <span class="offline-summary-item-icon" aria-hidden="true">{#if kitIc !== null}<Icon name={kitIc} />{/if}</span>
                       {ITEMS[mat.itemId].label}
                     {:else}
                       {mat.itemId}
@@ -22589,7 +22557,7 @@
         {@const tipPct = warehouseFillPct(tipCount, tipCap)}
         <div class="warehouse-tooltip info-pop" style="left: {warehouseTooltip.x}px; top: {warehouseTooltip.y}px;" role="tooltip">
           {#if !tipDiscovered}
-            <div class="warehouse-tt-name" style="color: var(--color-text-secondary)">❓ Undiscovered</div>
+            <div class="warehouse-tt-name" style="color: var(--color-text-secondary)"><Icon name="help" /> Undiscovered</div>
             <div class="warehouse-tt-hint">Hint: {tip.unlockHint}</div>
           {:else}
             <div class="warehouse-tt-name">{tip.label}</div>
@@ -22639,7 +22607,7 @@
             {/if}
             <div class="warehouse-tt-stat">{tip.flavor}</div>
             {#if tipAtCap}
-              <div class="warehouse-tt-warn">⚠ FULL, producers auto-stopped. Expand storage.</div>
+              <div class="warehouse-tt-warn"><Icon name="warning" /> FULL, producers auto-stopped. Expand storage.</div>
             {/if}
           {/if}
         </div>
@@ -23543,7 +23511,7 @@
   .mission-col-label { font-size: var(--text-xs); font-weight: 600; color: var(--color-text-primary); margin-bottom: 2px; }
   .mission-req-line { font-size: var(--text-sm); color: var(--color-text-secondary); }
   /* Portrait-frame placeholder, no ship/captain art asset exists yet (see
-     the 🖼️ emoji placeholder in the template), so this is a dashed
+     the portrait glyph in the template), so this is a dashed
      theme-tinted box rather than an <img>, sized to read clearly as "art
      goes here" without implying a real image failed to load. */
   .mission-portrait-frame {
@@ -24117,7 +24085,7 @@
      the locked tabs and the old locked captain rows used. */
   .cpane.locked { opacity: 0.5; cursor: not-allowed; border-style: dashed; }
   .cpane-id { display: flex; align-items: center; gap: 10px; min-width: 0; }
-  /* Squared portrait box (no per-captain art asset yet), the 🎖️/🔒 glyph framed like
+  /* Squared portrait box (no per-captain art asset yet), the captain / lock glyph framed like
      the facility .fpane-glyph. */
   .cpane-portrait { width: 40px; height: 40px; flex: 0 0 40px; display: grid; place-items: center; border: 1px solid var(--color-border-strong); border-radius: var(--corner); background: rgba(var(--color-accent-rgb), 0.05); font-size: calc(20px * var(--ui-scale)); }
   .cpane-sub { font-family: var(--font-mono); font-size: var(--text-2xs); color: var(--color-text-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }

@@ -12,7 +12,7 @@ import { CREW_MODULE_TILE_SLOTS, SHIP_SYSTEM_TILES, hasShipSystemTile, installFr
 import { seatOfficer, shipOf, wiringBase, WIRING_SHIP_ID } from "./wiring/probes";
 import { WIRING_REGISTRY } from "./wiring/registry";
 import { fabricateKeyGroups, fabricatorGroupOf, researchSectionOf, RESEARCH_SECTION_LABEL, RESEARCH_SECTION_ORDER } from "../awayGearDisplay";
-import { equipmentIcon, equipmentSvgIcon, varietySvgIcon } from "../EquipmentTooltip.svelte";
+import { equipmentSvgIcon, varietySvgIcon } from "../EquipmentTooltip.svelte";
 import { ICON_PATHS, ICON_NAMES } from "../ui/icons";
 import { ICON_SEMANTICS } from "../ui/iconPacks";
 import { liftPercentText, shipSystemTileLine } from "../crewModuleTileDisplay";
@@ -182,7 +182,6 @@ describe("CP-12 fix round: every crew module, sensor and module piece draws its 
         expect(ic, `${slot}:${v.key}`).not.toBeNull();
         expect(ICON_PATHS[ic!], v.key).toBeDefined();
         expect(ICON_SEMANTICS[ic!], v.key).toBe("subject");
-        expect(equipmentIcon(piece(slot, v.key)), v.key).toBe("");
       }
     }
     // Every blueprint that makes one draws SVG too (its Research and Fabricator cards).
@@ -195,7 +194,6 @@ describe("CP-12 fix round: every crew module, sensor and module piece draws its 
 
   it("the sensor slot has an SVG fallback: an unmapped sensor variety draws the Sensor Suite glyph, never the satellite emoji", () => {
     expect(equipmentSvgIcon(piece("sensor", "notAnArrayYet"))).toBe("sensorArray");
-    expect(equipmentIcon(piece("sensor", "notAnArrayYet"))).toBe("");
     expect(varietySvgIcon(null, "sensor")).toBe("sensorArray");
   });
 

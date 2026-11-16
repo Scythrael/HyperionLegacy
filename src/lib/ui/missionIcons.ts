@@ -2,8 +2,7 @@
 //
 // EVERY GRAPHIC IS SVG (user hard requirement): the values are IconName keys into the shared registry (icons.ts, drawn
 // by <Icon>, classified in iconPacks.ts ICON_SEMANTICS), never emoji. A mission listed here draws its glyph on the
-// mission row; the older missions still wear the shared row emoji until their surface is redrawn (icons.ts migration
-// policy: existing emoji migrate only on a surface a later unit rewrites).
+// mission row; the others draw the shared `ship` glyph (the 0.14.0 emoji sweep retired the row's rocket emoji).
 
 import type { IconName } from "./icons";
 import type { MissionKey } from "../game/model";

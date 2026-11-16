@@ -122,33 +122,24 @@
   }
 
   // ============================================================================
-  // equipmentIcon: the SINGLE source of truth for a system's display glyph, keyed by
-  // its VARIETY, so both the Ship Systems tiles and this tooltip render ONE mapping.
-  // WHY emoji placeholders: final art is a later polish pass; chosen to differentiate
-  // at a glance across the live slots and within each slot.
+  // The SINGLE source of truth for a system's display glyph, keyed by its VARIETY, so the Ship Systems tiles, the bay,
+  // the Armory and this tooltip render ONE mapping. EVERY GLYPH IS SVG (icons.ts, classified in iconPacks.ts
+  // ICON_SEMANTICS): the economy varieties' emoji placeholders moved here in the 0.14.0 emoji sweep (user 2026-11-16
+  // "All of them in 0.14.0"), each to its own glyph (the standing distinct-icon rule).
   // ============================================================================
-  const EQUIPMENT_VARIETY_ICON: Record<string, string> = {
-    // Cargo Bay holds:
-    prospectorHold: "⛏️",
-    balancedHold: "📦",
-    haulerHold: "🏗️",
-    // FTL Drives:
-    sprintDrive: "🚀",
-    economyDrive: "⛽",
-    balancedDrive: "🧭",
-    // Reactor Cores:
-    highOutputCore: "⚛️",
-    efficientCore: "🔋",
-    balancedCore: "⚖️",
-    // Spec Utility rigs and suites: E-MOD EM-10 review moved all five to SVG (EQUIPMENT_VARIETY_SVG_ICON below).
-    // Sensor arrays: Complement CP-12 moved the last emoji array (Bio-Resonance) to SVG as well.
-  };
-
-  // G1-1 (Short-Range Missions): the varieties that ship an SVG glyph (icons.ts, classified in ICON_SEMANTICS) in
-  // place of an emoji. Every NEW variety glyph is SVG (the icon migration policy); iconFor returns "" for these so no
-  // emoji draws, and the hosts (this card's header, the Armory and Ships storage tiles) render <Icon> from
-  // varietySvgIcon / equipmentSvgIcon instead.
   const EQUIPMENT_VARIETY_SVG_ICON: Partial<Record<string, IconName>> = {
+    // Cargo Bay holds (0.14.0 emoji sweep).
+    prospectorHold: "pickaxe",
+    balancedHold: "cargoHold",
+    haulerHold: "cargoStack",
+    // FTL Drives (0.14.0 emoji sweep). The Economy Drive draws the fuel pump: it is the drive that saves fuel.
+    sprintDrive: "sprintDrive",
+    economyDrive: "fuel",
+    balancedDrive: "compass",
+    // Reactor Cores (0.14.0 emoji sweep).
+    highOutputCore: "atom",
+    efficientCore: "coreEfficient",
+    balancedCore: "balance",
     quartersGuestWing: "guestWing",
     // E-MOD EM-7: the v1 universal modules (the signed-off modules mockup's glyphs).
     auxiliaryCapacitor: "moduleCapacitor",
@@ -162,10 +153,10 @@
     // E-MOD EM-8: the Precursor Lens module draws its relic's glyph (the signed-off modules mockup's own choice: the
     // optical tripod telescope, apart from the Long-Baseline Array's radio dish).
     precursorLens: "relicPrecursorLens",
-    // Gas Giant Study GG-7 (EM-8 fix round): the Ramscoop Collector, a gas-scoop intake funnel (it fell back to an emoji).
+    // Gas Giant Study GG-7 (EM-8 fix round): the Ramscoop Collector, a gas-scoop intake funnel.
     ramscoopCollector: "moduleRamscoop",
-    // E-MOD EM-10 review (SVG only, never emoji): every Spec Utility variety, drawn on the Modules row, its picker, the
-    // card header, the Logistics bay and the Armory.
+    // E-MOD EM-10 review: every Spec Utility variety, drawn on the Modules row, its picker, the card header, the
+    // Logistics bay and the Armory.
     yieldRig: "rigYield",
     surveyRig: "rigSurvey",
     refineryFeedRig: "rigRefineryFeed",
@@ -181,29 +172,23 @@
     sensorResonance: "sensorResonance",
   };
 
-  // Fallback glyph per SLOT, used if a variety is unmapped OR a slot has no variety
-  // (weapons/drone pods roll no EQUIPMENT_SLOTS variety), so a card never renders blank.
-  const SLOT_ICON_FALLBACK: Record<string, string> = {
-    cargoBay: "📦",
-    ftlDrive: "🚀",
-    reactorCore: "⚛️",
-    specUtility: "🛠️",
-    hullPlating: "🛡️",
-    shieldEmitters: "🔰",
-    weapon: "🔫",
-    droneBay: "🛸",
-  };
-
-  // EM-8 fix round (SVG only, never emoji): the SVG glyph a slot draws when its variety has no SVG glyph of its own. A
-  // module slot draws the Modules row's chip glyph, so a module added later without a glyph never falls back to an emoji.
+  // The glyph a SLOT draws when its variety has none of its own, or when the slot rolls no variety at all (weapons and
+  // drone pods). A module slot draws the Modules row's chip glyph, so a module added later never goes glyphless.
   const SLOT_SVG_FALLBACK: Partial<Record<string, IconName>> = {
+    // 0.14.0 emoji sweep: the economy and combat slots.
+    cargoBay: "cargoHold",
+    ftlDrive: "drive",
+    reactorCore: "atom",
+    specUtility: "equipment",
+    hullPlating: "plating",
+    shieldEmitters: "shieldEmitter",
+    weapon: "shipWeapon",
+    droneBay: "drone",
     module: "module",
-    // Complement CP-11: every bridge and quarters module draws its slot's glyph (the Guest Wing keeps its own bed), so
-    // the crew module blueprints' Research and Fabricator cards never fall back to an emoji.
+    // Complement CP-11: every bridge and quarters module draws its slot's glyph (the Guest Wing keeps its own bed).
     bridge: "bridge",
     quarters: "quarters",
-    // Complement CP-12 fix round: a sensor piece whose variety has no glyph of its own draws the Sensor Suite's glyph,
-    // so no sensor piece can ever fall back to the satellite emoji.
+    // Complement CP-12 fix round: a sensor piece whose variety has no glyph of its own draws the Sensor Suite's glyph.
     sensor: "sensorArray",
   };
 
@@ -218,43 +203,31 @@
     return BLUEPRINTS[piece.blueprintKey]?.equipmentOutput?.varietyKey ?? null;
   }
 
-  // Glyph from a (variety, slot) pair, shared by equipmentIcon(piece) and the craft path.
-  // E-CREW 0.14.0 (Task 10): an away-team MEMBER piece has no emoji glyph on purpose (member gear ships with
-  // SVG glyphs only, icons.ts armor / weaponHand / tool / implant, drawn by the host surfaces), so this
-  // returns "" and the card's existing {#if view.icon} guard renders no icon rather than the satellite fallback.
-  function iconFor(varietyKey: string | null, slotType: string): string {
-    if (isMemberSlotType(slotType)) return "";
-    if (varietyKey !== null && EQUIPMENT_VARIETY_SVG_ICON[varietyKey] !== undefined) return ""; // G1-1: drawn as SVG
-    if (SLOT_SVG_FALLBACK[slotType] !== undefined) return ""; // EM-8 fix round: the slot's SVG fallback draws instead
-    if (varietyKey !== null && EQUIPMENT_VARIETY_ICON[varietyKey] !== undefined) return EQUIPMENT_VARIETY_ICON[varietyKey];
-    return SLOT_ICON_FALLBACK[slotType] ?? "🛰️";
-  }
-
-  export function equipmentIcon(piece: EquipmentInstance): string {
-    return iconFor(resolveVarietyKey(piece), piece.slotType);
-  }
-
-  // G1-1: the SVG glyph a variety draws with (EQUIPMENT_VARIETY_SVG_ICON), or null for an emoji-glyph variety. Given
-  // its slot, an unmapped variety takes the slot's SVG fallback (SLOT_SVG_FALLBACK: every module draws SVG).
+  // The SVG glyph a (variety, slot) pair draws: the variety's own glyph, else its slot's, else the generic gear for any
+  // other ship slot. E-CREW 0.14.0 (Task 10): an away-team MEMBER piece returns null on purpose (member gear draws its
+  // slot's glyph, icons.ts armor / weaponHand / tool / implant, from the host surfaces' memberSlotIcon). Without a slot,
+  // only a variety's own glyph answers.
   export function varietySvgIcon(varietyKey: string | null, slotType?: string): IconName | null {
     const own = varietyKey === null ? undefined : EQUIPMENT_VARIETY_SVG_ICON[varietyKey];
-    return own ?? (slotType === undefined ? undefined : SLOT_SVG_FALLBACK[slotType]) ?? null;
+    if (own !== undefined) return own;
+    if (slotType === undefined || isMemberSlotType(slotType)) return null;
+    return SLOT_SVG_FALLBACK[slotType] ?? "equipment";
   }
   export function equipmentSvgIcon(piece: EquipmentInstance): IconName | null {
     return varietySvgIcon(resolveVarietyKey(piece), piece.slotType);
   }
 
-  // Crafted Blanks 0.13.7: the glyph for an UNROLLED blank, keyed off its BLUEPRINT (a blank
-  // has no rolled instance yet). Resolves the same (variety, slot) pair the minted piece would
-  // carry, so a blank tile and its inspected system share one icon. Weapon / drone blueprints
-  // roll no variety, so they fall back to the "weapon" / "droneBay" slot glyph via iconFor.
-  export function blueprintIcon(blueprintKey: string): string {
+  // Crafted Blanks 0.13.7: the glyph for an UNROLLED blank, keyed off its BLUEPRINT (a blank has no rolled instance
+  // yet). Resolves the same (variety, slot) pair the minted piece would carry, so a blank tile and its inspected system
+  // share one glyph. Weapon / drone blueprints roll no variety, so they take the "weapon" / "droneBay" slot glyph. Null
+  // for a member blueprint (its host draws the member slot glyph) or an unknown key.
+  export function blueprintIcon(blueprintKey: string): IconName | null {
     const bp = BLUEPRINTS[blueprintKey];
-    if (bp === undefined) return "🛰️";
-    if (bp.equipmentOutput) return iconFor(bp.equipmentOutput.varietyKey, bp.equipmentOutput.slotType);
-    if (bp.weaponOutput) return iconFor(null, "weapon");
-    if (bp.droneOutput) return iconFor(null, "droneBay");
-    return "🛰️";
+    if (bp === undefined) return null;
+    if (bp.equipmentOutput) return varietySvgIcon(bp.equipmentOutput.varietyKey, bp.equipmentOutput.slotType);
+    if (bp.weaponOutput) return varietySvgIcon(null, "weapon");
+    if (bp.droneOutput) return varietySvgIcon(null, "droneBay");
+    return null;
   }
 
   // The generalized subject: exactly one item, tagged by kind. `equipment` carries a rolled
@@ -467,7 +440,7 @@
     | {
         kind: "equipment";
         accent: string;
-        icon: string;
+        icon: IconName | null;
         name: string;
         chip: string;
         chipColor: string;
@@ -497,7 +470,7 @@
     | {
         kind: "material";
         accent: string;
-        icon: string;
+        icon: IconName | null;
         name: string;
         chip: string;
         chipColor: string;
@@ -508,7 +481,7 @@
     | {
         kind: "ship";
         accent: string;
-        icon: string;
+        icon: IconName | null;
         name: string;
         chip: string;
         chipColor: string;
@@ -519,7 +492,7 @@
     | {
         kind: "craft";
         accent: string;
-        icon: string;
+        icon: IconName | null;
         name: string;
         chip: string;
         chipColor: string;
@@ -535,8 +508,6 @@
       }
     | null;
 
-  // G1-1: the header's SVG glyph for a variety that draws one (the Guest Wing), else null (the emoji `icon` draws).
-  $: svgIcon = view === null ? null : view.kind === "equipment" ? equipmentSvgIcon(view.piece) : view.kind === "craft" ? varietySvgIcon(view.preview?.varietyKey ?? null, view.preview?.slotType) : view.kind === "ship" ? "ship" : null;
 
   const NEUTRAL = "var(--color-text-secondary)";
   const DIM = "var(--color-text-dim)";
@@ -553,7 +524,7 @@
       return {
         kind: "equipment",
         accent,
-        icon: equipmentIcon(p),
+        icon: equipmentSvgIcon(p),
         name: equipmentName(p),
         chip: `${grade} · Q${p.quality}`,
         chipColor: accent,
@@ -587,7 +558,7 @@
       return {
         kind: "material",
         accent: itemRarityColor(def.rarity),
-        icon: "",
+        icon: null,
         name: def.label,
         chip: catLabel,
         chipColor: itemRarityColor(def.rarity),
@@ -612,8 +583,8 @@
       return {
         kind: "ship",
         accent: NEUTRAL,
-        // CP-21: the hull draws the SVG ship glyph (svgIcon below), never an emoji.
-        icon: "",
+        // CP-21: the hull draws the SVG ship glyph, never an emoji.
+        icon: "ship",
         name: def.label,
         chip: "Hull",
         chipColor: NEUTRAL,
@@ -637,7 +608,7 @@
     return {
       kind: "craft",
       accent: ACCENT,
-      icon: iconFor(preview?.varietyKey ?? null, preview?.slotType ?? ""),
+      icon: blueprintIcon(resolved.blueprintKey),
       name: blueprintName(resolved.blueprintKey),
       chip: "In progress",
       chipColor: DIM,
@@ -678,10 +649,10 @@
       }}
     >
       <div class="et-r1">
-        {#if svgIcon !== null}<span class="et-icon"><Icon name={svgIcon} /></span>{:else if view.icon}<span class="et-icon">{view.icon}</span>{/if}
+        {#if view.icon !== null}<span class="et-icon"><Icon name={view.icon} /></span>{/if}
         <span class="et-name-text">{view.name}</span>
         <span class="et-q" style="color: {view.chipColor}; border-color: {view.chipColor};">{view.chip}</span>
-        {#if interactive}<span class="et-chev" aria-hidden="true">▶</span>{/if}
+        {#if interactive}<span class="et-chev" aria-hidden="true"><Icon name="chevronRight" /></span>{/if}
       </div>
       {#if !collapsed}
         {#if view.kind === "equipment"}

@@ -6,7 +6,7 @@
 import { describe, expect, it } from "vitest";
 import { BLUEPRINTS, DRIVE_CLASS_BLUEPRINTS, DRIVE_CLASS_POWER_DRAW_MULT, EQUIPMENT_SLOTS, SHIP_TYPES, equipmentStatMods, freshState, type EquipmentInstance, type GameState } from "../game/model";
 import { gearSheetWithReactorDrive } from "../game/crewOverlay";
-import { equipmentIcon, equipmentSvgIcon, varietySvgIcon } from "../EquipmentTooltip.svelte";
+import { equipmentSvgIcon, varietySvgIcon } from "../EquipmentTooltip.svelte";
 import { ICON_PATHS } from "./icons";
 import { ICON_SEMANTICS } from "./iconPacks";
 import { equippedFor, fittedInSlot } from "../game/equipment";
@@ -253,7 +253,6 @@ describe("EM-10 review fixes", () => {
       expect(ICON_PATHS[ic!], v.key).toBeDefined();
       expect(ICON_SEMANTICS[ic!], v.key).toBe("subject");
       const piece = { ...fittedInSlot(freshState(), SHIP, "specUtility")!, moduleVariant: v.key };
-      expect(equipmentIcon(piece), v.key).toBe("");
       expect(equipmentSvgIcon(piece), v.key).toBe(ic);
     }
   });
@@ -267,13 +266,11 @@ describe("EM-10 review fixes", () => {
       expect(ICON_PATHS[ic!], v.key).toBeDefined();
       expect(ICON_SEMANTICS[ic!], v.key).toBe("subject");
       const piece = { ...base, moduleVariant: v.key };
-      expect(equipmentIcon(piece), v.key).toBe("");
       expect(equipmentSvgIcon(piece), v.key).toBe(ic);
     }
     expect(varietySvgIcon("ramscoopCollector")).toBe("moduleRamscoop");
     // A module variety with no glyph of its own still draws SVG (the slot's chip), never an emoji.
     const unmapped = { ...base, moduleVariant: "notAModuleYet" };
-    expect(equipmentIcon(unmapped)).toBe("");
     expect(equipmentSvgIcon(unmapped)).toBe("module");
   });
 });

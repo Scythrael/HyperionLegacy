@@ -13,6 +13,7 @@
   // Props: `tabs` (each { key, label, locked? }), `active` (the selected key), and
   // `onSelect` (called with a tab's key when tapped; locked tabs never call it).
   import { onMount } from "svelte";
+  import Icon from "./ui/Icon.svelte";
 
   // `count` (E5-6, optional): a small number pill after the label (the Refugees tab's waiting count).
   export let tabs: { key: string; label: string; locked?: boolean; count?: number }[] = [];
@@ -61,7 +62,7 @@
   <div class="ctabs" bind:this={scroller} on:scroll={updateEdges}>
     {#each tabs as t (t.key)}
       {#if t.locked}
-        <div class="ctab locked" title="Coming soon, not yet available">🔒 {t.label}</div>
+        <div class="ctab locked" title="Coming soon, not yet available"><Icon name="lock" title="Locked" /> {t.label}</div>
       {:else}
         <button class="ctab" class:active={active === t.key} on:click={() => onSelect(t.key)}>{t.label}{#if t.count !== undefined}<span class="ctab-count">{t.count}</span>{/if}</button>
       {/if}
