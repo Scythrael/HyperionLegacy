@@ -76,6 +76,15 @@ import { withCombatRulesOff } from "./combatRulesSwitch.fixture";
 import { gearWearOffInThisFile } from "./gearWearSwitch.fixture";
 import { patrolLegsOffForThisFile } from "./patrolLegsSwitch.fixture";
 import { wr11OffForThisFile } from "./wr11Switch.fixture";
+import { fixRoundESwitchesOffForThisFile } from "./fixRoundESwitch.fixture";
+
+// Fix round FR-E (0.14.0): the star rule (lane 3 I2, STAR_BODIES_SWITCH: a real star's bodies are drawn from the star,
+// not from its candidate slot) moves the shipEvent rows (their expeditions are real stars); and the stop rule (lane 4
+// q3, PATROL_STOP_DOOMED_SWITCH: Repeat stops "outmatched" before a route it would lose even fully repaired) moves the
+// Repeat Warband patrol rows. The pins here predate the round and are about another slice, so the file runs with those
+// fixes off (fixRoundESwitch.fixture.ts); every other fix of the round runs here. The round's own pins:
+// expeditionFixRoundE.test.ts and expeditionFixRoundEGoldens.test.ts and patrolFixRoundE.test.ts.
+fixRoundESwitchesOffForThisFile("starBodies", "stopDoomed");
 
 // WR-7 follow-up OC-D8 (patrol legs scale with transit speed): every pin here predates the legs and is about WR-8 (the combat descriptors);
 // with the legs off each one returns (checked when the legs were wired), so the file runs with them off and keeps

@@ -223,3 +223,21 @@ facility card glyph, empty-state glyphs, lock glyphs (🔒/🔓), captain portra
 job-kind glyphs. Most predate the rule. Line-by-line list: docs/qa/2026-11-15-emoji-inventory.txt (comment lines
 with ⚠️ are code notes, not UI). User answer (2026-11-16): "All of them in 0.14.0 (Recommended)": every UI emoji becomes an SVG glyph (icons.ts,
 reuse where one exists), each reviewed at 16/28/56 px, in this fix round.
+
+## Fix round FR-E (2026-11-16): lanes 3 and 4 (expeditions, completion, patrols)
+
+Fixed: lane 3 I1 (recall/resume never re-pays rolled scan boundaries: HeldSystem.scanStepsRolled), M1 (charted anomaly
+kept: HeldSystem.anomalyCharted, Expedition.anomalyMet), I3 (a recall that returns its system to the candidates
+restores the list its launch drew), I2 (a real star's bodies are seeded from the star), q3 (the planet roll needs a real
+objective). Lane 4 I1 (a repair pause ends once the next route is safe), I2 (Repeat climbs one step every 20 routes,
+[PROVISIONAL]), q3 (Repeat stops "outmatched" before a route it would lose fully repaired), I3/M5/M7 (Help), M6 (a
+pause's Overtime priced like docked), M4 (parity test added). Switches: src/lib/game/fixRoundESwitch.fixture.ts.
+Measured (30,000 s veteran Repeat Sweep, 1 s steps, round on vs off): destroyer paused 90% vs 92% (ends "outmatched" at
+13,725 s instead of a defeat at 17,052 s), carrier 87% vs 93% (ends "outmatched" at 1,783 s instead of a defeat at
+3,501 s), battleship 74% vs 73%. Resuming early means flying worn, so the pauses come back sooner: the paused share
+barely moves; the wear rows and home rate decide it (a tuning call).
+Not fixed: lane 4 M8. Cause found: it is M4's. The carrier's Repeat run ends mid-call (a defeat before the round, an
+"outmatched" stop now), and the passive crew fill (crewOverlay.ts resolveCrew) and the Shipyard repair job start at the
+END of the economyTick call, so a call that spans the end fills from a pool holding later transports. Production always
+steps one tick per call, so players never see it; a chunk-invariant fix needs the crew engine to fill at the unlock
+instant (crew lane, crewOverlay.ts).

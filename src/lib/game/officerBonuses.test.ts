@@ -90,6 +90,14 @@ import { withoutRunCounts, goldenJson, withoutCompletionTracking } from "./first
 import { withCombatRulesOff } from "./combatRulesSwitch.fixture";
 import { withPatrolLegsOff } from "./patrolLegsSwitch.fixture";
 import { wr11OffForThisFile } from "./wr11Switch.fixture";
+import { fixRoundESwitchesOffForThisFile } from "./fixRoundESwitch.fixture";
+
+// Fix round FR-E (0.14.0): the star rule (lane 3 I2, STAR_BODIES_SWITCH: a real star's bodies are drawn from the star,
+// not from its candidate slot) moves the expeditions dispatch record (its candidate is a real star). The pins here
+// predate the round and are about another slice, so the file runs with that fix off (fixRoundESwitch.fixture.ts); every
+// other fix of the round runs here. The round's own pins: expeditionFixRoundE.test.ts and
+// expeditionFixRoundEGoldens.test.ts.
+fixRoundESwitchesOffForThisFile("starBodies");
 // Wiring WR-11 came after every pin here: the whole file runs with WR-11 off (wr11Switch.fixture.ts), so its pins keep
 // proving their own slice moved nothing else (WR-11's own moves are pinned in wr11Goldens.test.ts).
 wr11OffForThisFile();

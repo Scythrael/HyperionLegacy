@@ -248,6 +248,10 @@ export function shipGearMinutesToFull(state: GameState, shipId: string, normal =
 export function gearRepairJobMinutes(state: GameState, shipId: string): number {
   const ship = state.ships.find((s) => s.id === shipId);
   const paused = pausedPatrolOf(state, shipId);
+  // Fix round FR-E (lane 4 M6): a pause records the docked job's length for its gear (RepairPauseRecord.jobMinutes), so
+  // a step costs what it costs on the same gear docked (the pause's own length carried its settle margin tick, and since
+  // "Resume when safe" it can end before the gear is full). A pause from before the fix keeps its whole length.
+  if (paused !== null && paused.jobMinutes !== undefined) return paused.jobMinutes;
   if (paused !== null) return Math.max(0, state.gameTimeSeconds - paused.from + paused.ticksRemaining * state.tickDurationSeconds) / 60;
   return Math.max(ship?.gearRepairJobMinutes ?? 0, shipGearMinutesToFull(state, shipId, true) ?? 0);
 }

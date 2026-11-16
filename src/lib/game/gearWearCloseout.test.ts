@@ -26,6 +26,17 @@ import { onHull } from "./firstRunsGoldens.fixture";
 import { asPatrolVeteran } from "./awayTeamTestFixtures";
 import { withCloseoutOff } from "./gearWearCloseoutSwitch.fixture";
 import { withEnemyTorpedoesOff } from "./enemyTorpedoSwitch.fixture";
+import { fixRoundESwitchesOffForThisFile } from "./fixRoundESwitch.fixture";
+
+// Fix round FR-E (0.14.0): Resume when safe (lane 4 I1, PATROL_RESUME_WHEN_SAFE_SWITCH: a Repeat repair pause ends once
+// the next route is safe, not at full) moves sections 1, 2 and 2b (the pause to full: its 1,471 s repro, the live bar
+// to full, Overtime's exact resume tick and the mid-bank reference; the same promises on the pause the game now makes:
+// patrolFixRoundE.test.ts "I1 with Overtime"); and the pause's docked pricing (lane 4 M6, PAUSE_JOB_LIKE_DOCKED_SWITCH:
+// a repair pause records the docked job's length for its Overtime) moves section 2's price (the pause's whole length;
+// the docked price: patrolFixRoundE.test.ts M6). The pins here predate the round and are about another slice, so the
+// file runs with those fixes off (fixRoundESwitch.fixture.ts); every other fix of the round runs here. The round's own
+// pins: patrolFixRoundE.test.ts.
+fixRoundESwitchesOffForThisFile("resumeWhenSafe", "pauseJobLikeDocked");
 
 const RNG = () => 0.5;
 const SHIP = "ship-1";
@@ -107,12 +118,13 @@ describe("1. a paused patrol's gear reads home and repairing, live, and never ju
     const strip = gearOvertimeStrip(s, weapon)!;
     expect(strip.state).toBe("buy");
     expect(strip.button).not.toBe("Docked only");
-    expect(strip.when).toMatch(/^Speeds up the repair pause: .*'s combat gear full and back on patrol in about \d+ min instead of about \d+ min\.$/);
+    // (Fix round FR-E lane 4 I1: the patrol heads out once its gear is safe for the next route, not always at full.)
+    expect(strip.when).toMatch(/^Speeds up the repair pause: .* back on patrol in about \d+ min instead of about \d+ min\.$/);
     const chip = shipGearSummary(s, SHIP);
     expect(chip.recovery).toMatch(/^Repairing at home, full in about \d+ min$/);
     expect(chip.context).toBe("home");
     const care = fleetCare(s)!;
-    expect(care.rows.find((r) => r.shipId === SHIP)!.status).toMatch(/^Repairing at home while its patrol pauses, gear full in about \d+ min$/);
+    expect(care.rows.find((r) => r.shipId === SHIP)!.status).toMatch(/^Repairing at home while its patrol pauses, back out in about \d+ min$/);
     expect(care.summary).toContain("1 ship recovering.");
     expect(care.summary).not.toContain("out on patrol");
     expect(buildHomeDashboard(s).inProgress.find((x) => x.kind === "patrol")!.secondaryLabel).toBe("Repairing gear at home");
@@ -149,7 +161,7 @@ describe("2. Overtime during a repair pause (user 2026-11-11 'Allow Overtime in 
     expect(r.bought).toBe(true);
     const name = gearOvertimeStrip(s0, combat(s0)[0])!.shipName;
     expect(r.log).toBe(
-      `Overtime on ${name}'s repair pause: step 1 of 3 for ${q.cost.toLocaleString("en-US")} cr. Its combat gear is full and the patrol heads back out in ${aboutMinutes(q.minutesLeftAfter)} instead of ${aboutMinutes(q.minutesLeft)}.`,
+      `Overtime on ${name}'s repair pause: step 1 of 3 for ${q.cost.toLocaleString("en-US")} cr. The patrol heads back out in ${aboutMinutes(q.minutesLeftAfter)} instead of ${aboutMinutes(q.minutesLeft)}.`,
     );
     expect(s0.credits.minus(r.next.credits).toNumber()).toBe(q.cost);
     const after = patrolOf(r.next)!.repairPause!;

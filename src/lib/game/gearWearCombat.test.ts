@@ -51,6 +51,14 @@ import { gw5ReadBack } from "./gearWearStep5Registry.fixture";
 import { otUiReadBack } from "./otUiRegistry.fixture"; // OT-UI: the Overtime row restated, read back innermost
 
 const RNG = () => 0.5;
+import { fixRoundESwitchesOffForThisFile } from "./fixRoundESwitch.fixture";
+
+// Fix round FR-E (0.14.0): Resume when safe (lane 4 I1, PATROL_RESUME_WHEN_SAFE_SWITCH: a Repeat repair pause ends once
+// the next route is safe, not at full) moves "Repair first, then go" (the pause now ends once the first route is safe,
+// not at full; that promise with the round on: patrolFixRoundE.test.ts "Repair first, then go"). The pins here predate
+// the round and are about another slice, so the file runs with that fix off (fixRoundESwitch.fixture.ts); every other
+// fix of the round runs here. The round's own pins: patrolFixRoundE.test.ts.
+fixRoundESwitchesOffForThisFile("resumeWhenSafe");
 
 function stepped(s: GameState, n: number): GameState {
   let out = s;

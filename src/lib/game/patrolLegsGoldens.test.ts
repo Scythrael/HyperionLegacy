@@ -38,6 +38,16 @@ import { hash } from "./firstRunsGoldens.fixture";
 import { PATROLS, type GameState, type PatrolMissionState } from "./model";
 import { LEGS_HULLS, LEGS_LOADOUTS, LEGS_PINS_MOVED, LEGS_PINS_PRE, LEGS_ROUTES, REPEAT_SECONDS, legsDispatch, legsRows } from "./patrolLegsGoldens.fixture";
 import { withPatrolLegsOff } from "./patrolLegsSwitch.fixture";
+import { fixRoundESwitchesOffForThisFile } from "./fixRoundESwitch.fixture";
+
+// Fix round FR-E (0.14.0): Resume when safe (lane 4 I1, PATROL_RESUME_WHEN_SAFE_SWITCH: a Repeat repair pause ends once
+// the next route is safe, not at full) moves the Repeat rows' repair pauses; the stop rule (lane 4 q3,
+// PATROL_STOP_DOOMED_SWITCH: Repeat stops "outmatched" before a route it would lose even fully repaired) moves the
+// Repeat rows that meet a route they would lose; and the pause's docked pricing (lane 4 M6,
+// PAUSE_JOB_LIKE_DOCKED_SWITCH: a repair pause records the docked job's length for its Overtime) moves the pauses'
+// records. The pins here predate the round and are about another slice, so the file runs with those fixes off
+// (fixRoundESwitch.fixture.ts); every other fix of the round runs here. The round's own pins: patrolFixRoundE.test.ts.
+fixRoundESwitchesOffForThisFile("resumeWhenSafe", "stopDoomed", "pauseJobLikeDocked");
 
 const CAPTURE = import.meta.env.LEGS_CAPTURE as string | undefined;
 const RNG = (): number => 0.5;

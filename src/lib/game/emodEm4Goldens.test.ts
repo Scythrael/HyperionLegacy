@@ -71,6 +71,7 @@ import { wr9OffForThisFile } from "./wr9Switch.fixture";
 // fleet whose surplus crew the reserve now moves out of the pool, so the whole file runs with it off and its pins keep
 // proving their own slice (switch-off reproduction: every pin holds with it off). homeworldReserveGoldens pins the reserve.
 import { homeworldReserveOffForThisFile } from "./homeworldReserveSwitch.fixture";
+
 homeworldReserveOffForThisFile();
 
 // Wiring WR-9: this file's pins are about other slices and were captured before WR-9; it runs with WR-9 off (the

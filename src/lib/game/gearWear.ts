@@ -391,13 +391,38 @@ export function settlePiece<T extends EquipmentInstance>(piece: T, nowSeconds: n
 // in the settle's own integers, so a countdown of that many seconds ends exactly as the last per-mille lands. 0 when
 // pristine; Infinity without a rate. Pure.
 export function secondsToFull(piece: Pick<EquipmentInstance, "condition" | "conditionAt">, nowSeconds: number, ratePerMinute: number): number {
+  return secondsToCondition(piece, nowSeconds, ratePerMinute, CONDITION_FULL);
+}
+
+// Fix round FR-E (lane 4 I1, "Resume when safe"): the same count to a `target` condition (per-mille) below full: the
+// whole seconds until the piece's condition reads at least `target` at that rate. 0 when it already does. Pure.
+export function secondsToCondition(piece: Pick<EquipmentInstance, "condition" | "conditionAt">, nowSeconds: number, ratePerMinute: number, target: number): number {
   if (piece.condition === undefined) return 0;
+  const goal = Math.min(CONDITION_FULL, target);
+  if (pieceCondition(piece) >= goal) return 0;
   const rateQ = repairRateQ(ratePerMinute);
   if (rateQ <= 0) return Infinity;
   const { at, bank } = decodeRepairAnchor(piece.conditionAt ?? nowSeconds, rateQ);
-  const need = (CONDITION_FULL - pieceCondition(piece)) * REPAIR_BANK_PER_MILLE - bank;
+  const need = (goal - pieceCondition(piece)) * REPAIR_BANK_PER_MILLE - bank;
   if (need <= 0) return 0;
   return Math.max(0, at + ceilDiv(need, rateQ) - nowSeconds);
+}
+
+// Fix round FR-E fix pass: the same count to the INSTANT the condition first reads `target` (seconds from now, possibly
+// fractional), for a countdown on a game clock that may sit mid-second. The settle reads any instant (its bank grows
+// with the fractional seconds too), so the goal is reached the moment the bank covers it; secondsToCondition's count
+// lands on the anchor's next whole second, which on a mid-second clock can be one tick after it. On a whole-second clock
+// the two agree once rounded up to a tick. Pure.
+export function secondsUntilCondition(piece: Pick<EquipmentInstance, "condition" | "conditionAt">, nowSeconds: number, ratePerMinute: number, target: number): number {
+  if (piece.condition === undefined) return 0;
+  const goal = Math.min(CONDITION_FULL, target);
+  if (pieceCondition(piece) >= goal) return 0;
+  const rateQ = repairRateQ(ratePerMinute);
+  if (rateQ <= 0) return Infinity;
+  const { at, bank } = decodeRepairAnchor(piece.conditionAt ?? nowSeconds, rateQ);
+  const need = (goal - pieceCondition(piece)) * REPAIR_BANK_PER_MILLE - bank;
+  if (need <= 0) return 0;
+  return Math.max(0, at + need / rateQ - nowSeconds);
 }
 
 // The durability a piece's combat pool OPENS at (user W3 "True condition": its real condition, no raised start floor):

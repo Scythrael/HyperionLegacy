@@ -30,6 +30,8 @@ import { fnv, goldenJson } from "./firstRunsGoldens.fixture";
 // `battle`, its ship battle snapshot's frozen reactor and drive), so the file runs with the battle sources off.
 import { battleWearOffInThisFile } from "./battleWearSwitch.fixture";
 import { wr11OffForThisFile } from "./wr11Switch.fixture";
+
+// Fix round FR-E (0.14.0): this file runs with the round on (its weak-crew fixture is found, see wipeFixture).
 // Wiring WR-11 came after every pin here: the whole file runs with WR-11 off (wr11Switch.fixture.ts), so its pins keep
 // proving their own slice moved nothing else (WR-11's own moves are pinned in wr11Goldens.test.ts).
 wr11OffForThisFile();
@@ -254,9 +256,28 @@ describe("pickup pause: only when it brings the team aboard sooner (GG-6 pause r
 });
 
 describe("pickup pause: a wiped team (the recovery leg pauses the study too)", () => {
-  // The review's weak crew: three thin teams of rank 1 members (save seed 0x51f15e + 2 x 977, cand-2-1, Tier II).
+  // The review's weak crew: three thin teams of rank 1 members on a Tier II study run whose wiped team's recovery leg
+  // pauses the study. The review's capture was save seed 0x51f15e + 2 x 977, cand-2-1; that slot is the Orion Nebula, whose
+  // bodies fix round FR-E's star rule (lane 3 I2) now draws from the star, so the fixture is the first such run from
+  // that save seed on (found once, then fixed for the file).
+  const hasRecoveryPause = (exp: Expedition): boolean =>
+    advanceExpedition(exp, exp.phaseAnchorSeconds + 4_000_000).groundOps!.shipLegs.some((l) => l.studyPause === 1 && l.pickup === undefined);
+  let found: { save: number; id: string } | null = null;
   const wipeFixture = (): Expedition => {
-    const res = dispatchPastPropulsion(crewed(0x51f15e + 2 * 977, 1, 3), "ship-1", 1, "cand-2-1", true);
+    if (found === null) {
+      for (let k = 2; k < 200 && found === null; k++) {
+        const save = 0x51f15e + k * 977;
+        for (const id of ["cand-2-0", "cand-2-1", "cand-2-2"]) {
+          const res = dispatchPastPropulsion(crewed(save, 1, 3), "ship-1", 1, id, true);
+          if (res.success && res.expedition?.study && hasRecoveryPause(res.expedition)) {
+            found = { save, id };
+            break;
+          }
+        }
+      }
+    }
+    if (found === null) throw new Error("no weak-crew study run with a recovery leg that pauses the study");
+    const res = dispatchPastPropulsion(crewed(found.save, 1, 3), "ship-1", 1, found.id, true);
     if (!res.success || !res.expedition) throw new Error(`dispatch refused: ${res.reason}`);
     return res.expedition;
   };

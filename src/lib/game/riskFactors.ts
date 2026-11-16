@@ -74,6 +74,10 @@ export function toRiskGrade(n: number): RiskGrade {
 export interface ExpeditionRegion {
   tier: RegionTier;
   enemyTerritory: boolean;
+  // Fix round FR-E (lane 3 I2, user "Same system every visit (Recommended)"): the real star (starCatalog.ts famous system
+  // id) a candidate is, so every preview and the launch draw its bodies from the star (expedition.ts generateBodies).
+  // Absent for a catalog-named system. Never stored on a run (the run's region stamp is its own, regionStampOf).
+  starId?: string;
 }
 
 // The region a candidate system lies in is the CANDIDATE'S (expedition.ts tierCandidateSystems, G2-2): the tier the

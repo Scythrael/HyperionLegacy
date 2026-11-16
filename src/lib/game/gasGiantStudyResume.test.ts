@@ -11,6 +11,9 @@ import { isStudyBody } from "./gasGiantStudy";
 import { installMissingCombatBaselines } from "./tick";
 import { asExpeditionVeteran, plainAwayMember } from "./awayTeamTestFixtures";
 
+// Fix round FR-E (0.14.0): this file runs with the round on, so its resume paths are pinned on the rules the game plays
+// (a recall keeps the rolled scan boundaries of the body it cut short, a real star's bodies are the star's).
+
 const T0 = 100_000;
 const FINAL = T0 + 3_000_000;
 const SEC = ["member-1", "member-2", "member-3", "member-4", "member-5", "member-6"];
@@ -65,7 +68,9 @@ function midStudy(exp: Expedition, giant: number): number {
 function recallAndClaim(state: GameState, exp: Expedition, t: number): GameState {
   const s1 = recallExpedition(at(state, t), exp.id);
   const home = advanceExpedition(s1.expeditions[0], FINAL);
-  return claimExpedition({ ...s1, gameTimeSeconds: home.phaseAnchorSeconds, expeditions: [home] }, exp.id).next;
+  const s2 = claimExpedition({ ...s1, gameTimeSeconds: home.phaseAnchorSeconds, expeditions: [home] }, exp.id).next;
+  // (The Shipyard repairs any hull damage the scan events left before the resumed launch.)
+  return { ...s2, ships: s2.ships.map(({ damaged: _d, repairDamage: _r, ...sh }) => sh as GameState["ships"][number]), activeProcesses: [] };
 }
 
 function finish(run: Expedition): Expedition {

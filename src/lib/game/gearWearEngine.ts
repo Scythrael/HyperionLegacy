@@ -95,7 +95,7 @@ import {
   decodeRepairAnchor,
   encodeRepairAnchor,
   repairRateQ,
-  secondsToFull,
+  secondsUntilCondition,
   settlePiece,
   useWear,
   useWearRaw,
@@ -915,17 +915,23 @@ export function pausedPatrolOf(state: GameState, shipId: string): RepairPauseRec
 // the home rate with `steps` of Overtime: each piece settled to now through the pause, its banked fraction carried to
 // the new rate, its seconds to full counted in the settle's own integers (gearWear.ts secondsToFull), so the patrol
 // heads out on the tick its gear is full. At least 1; null when the ship is not paused. Pure.
+// Fix round FR-E (lane 4 I1, "Resume when safe"): a pause with a target (RepairPauseRecord.target) waits for each listed
+// piece to reach its goal instead (a piece not listed needs nothing), so a step rescales to when the next route is safe.
 export function pauseResumeTicks(state: GameState, shipId: string, steps: number): number | null {
-  if (pausedPatrolOf(state, shipId) === null) return null;
+  const pause = pausedPatrolOf(state, shipId);
+  if (pause === null) return null;
   const index = repairContextIndex(state);
   const now = state.gameTimeSeconds;
   const mult = steps > 0 ? overtimeRate(steps) : 1;
   let most = 0;
   for (const piece of state.equipment) {
     if (piece.fittedToShipId !== shipId || piece.condition === undefined || !REPAIR_PAUSE_SLOTS.has(piece.slotType)) continue;
+    const goal = pause.target === undefined ? CONDITION_FULL : pause.target[piece.id];
+    if (goal === undefined) continue;
     const live = settlePieceNow(state, index, piece);
     const rate = pieceRepairRate(state, index, piece, "home") * mult;
-    most = Math.max(most, secondsToFull(rebaseAnchor(live.piece, now, live.rate, rate), now, rate));
+    // (The fix pass: to the instant each goal is reached, so a mid-second clock heads out on the first tick at it.)
+    most = Math.max(most, secondsUntilCondition(rebaseAnchor(live.piece, now, live.rate, rate), now, rate, goal));
   }
   return Math.max(1, Math.ceil(most / state.tickDurationSeconds));
 }

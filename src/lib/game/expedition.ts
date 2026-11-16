@@ -53,7 +53,7 @@ import type {
   GroundOpsState,
   SnapshotMember,
 } from "./model";
-import { COMPLETION_HELD_SKIPS_SWITCH, FIELD_REPAIR_RULES_SWITCH, SHIP_TYPES, WR10_SWITCH, WR11_SWITCH, WR9_SWITCH, commandingCaptain, moduleEffectScale, shipGearSetBonusLines, withFavoredLines } from "./model";
+import { COMPLETION_HELD_SKIPS_SWITCH, FIELD_REPAIR_RULES_SWITCH, RECALL_KEEPS_LIST_SWITCH, RECALL_NO_REPAY_SWITCH, STAR_BODIES_SWITCH, SHIP_TYPES, WR10_SWITCH, WR11_SWITCH, WR9_SWITCH, commandingCaptain, moduleEffectScale, shipGearSetBonusLines, withFavoredLines } from "./model";
 // E-MOD EM-6: the body-scanned module trigger (its frozen procs and private stream).
 import { moduleNebulaSweep, moduleScanProcs, moduleScanSeed, rollModuleChance } from "./shipModules";
 import { makeRng, type Rng } from "./combat/rng";
@@ -417,6 +417,9 @@ export const SYSTEM_NAME_SALT = 0x5d3f8a2b;
 export const CANDIDATE_BEARING_SALT = 0x6e2c47d9;
 export const FAMOUS_SYSTEM_SALT = 0x19b7e563;
 export const BODY_COUNT_SALT = 0x2a64f1e7;
+// Fix round FR-E (lane 3 I2, user "Same system every visit (Recommended)"): a real star's bodies are drawn from the star
+// itself (its id, hashed on this salt), not from the candidate slot that rolled it.
+export const STAR_BODY_SALT = 0x4c9e2b37;
 
 // ============================================================================
 // Expedition Tiers G2-2: candidates per region tier (user #5 and G11 "Region, then 3 nearest")
@@ -607,7 +610,15 @@ function tierBodyCount(seed: number, tier: RegionTier, drawn: number): number {
 // generation order never perturbs discovery outcomes. G2-2: the stream's FIRST draw (the retired banked-name pick)
 // is kept with its value unused, and so is the 1 to 3 count draw on a deeper tier, so a Tier I system draws exactly
 // as before; the name comes from the candidate (tierCandidateSystems).
-function generateBodies(seed: number, tier: RegionTier): ExpeditionBody[] {
+// Fix round FR-E (lane 3 I2, user "Same system every visit (Recommended)"): a REAL STAR (a famous system, the region's
+// `starId`) draws its bodies (how many, their planet types, scan sizes and hazards) from the star itself
+// (starBodySeed), so every visit finds the same planets and a completion record keyed on the system and a body's index
+// stays true. Everything a VISIT rolls stays on the run's own seed (the risk grades and hostile sites, discoveries and
+// objectives, scan events, the anomaly): each trip is a new survey of the same planets. A catalog-named system keeps its
+// slot's draw.
+function generateBodies(seed: number, region: Pick<ExpeditionRegion, "tier" | "starId">): ExpeditionBody[] {
+  const tier = region.tier;
+  if (STAR_BODIES_SWITCH.live && region.starId !== undefined) seed = starBodySeed(region.starId);
   const rng = makeRng((seed ^ SYSTEM_SALT) >>> 0);
   rng.nextInt(BANKED_SYSTEMS.length); // the retired banked-name pick: draw kept, value unused
   const bodyCount = tierBodyCount(seed, tier, rng.nextRange(BODY_COUNT_MIN, BODY_COUNT_MAX));
@@ -631,6 +642,13 @@ function generateBodies(seed: number, tier: RegionTier): ExpeditionBody[] {
     });
   }
   return bodies;
+}
+
+// Fix round FR-E (lane 3 I2): the body seed of real star `starId`: its id hashed (32-bit FNV-1a) on STAR_BODY_SALT. Pure.
+export function starBodySeed(starId: string): number {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < starId.length; i++) h = Math.imul(h ^ starId.charCodeAt(i), 0x01000193) >>> 0;
+  return (h ^ STAR_BODY_SALT) >>> 0;
 }
 
 // ===== Expedition Tiers G2-2: the candidate systems of a tier =====
@@ -675,15 +693,17 @@ function heldLaunchCount(state: Pick<GameState, "heldLaunches">): number {
 // advances expeditionSeed and so draws a fresh list; a launch to a held system (G2-5) is not from the list and draws
 // none (G2-9 close-out: counting it as a dispatch rerolled slot 0 of the list on screen). So: the dispatches less the
 // held launches. Pure.
-function listDraws(state: Pick<GameState, "nextExpeditionId" | "heldLaunches">): number {
+// FR-E (lane 3 I3): a launch whose recall restored its list (GameState.listRewinds) drew a list that was taken back, so it
+// is not counted either.
+function listDraws(state: Pick<GameState, "nextExpeditionId" | "heldLaunches" | "listRewinds">): number {
   const n = state.nextExpeditionId;
   const dispatched = typeof n === "number" && Number.isFinite(n) ? Math.max(0, Math.floor(n) - 1) : 0;
-  return Math.max(0, dispatched - heldLaunchCount(state));
+  return Math.max(0, dispatched - heldLaunchCount(state) - listRewindCount(state));
 }
 
 // Does the save's current Tier I list carry Wolf 359 on slot 0 by guarantee: the list after the first run (every
 // save), or a veteran's scheduled list (GameState.wolf359List). Pure.
-function wolf359Guaranteed(state: Pick<GameState, "nextExpeditionId" | "heldLaunches" | "wolf359List">): boolean {
+function wolf359Guaranteed(state: Pick<GameState, "nextExpeditionId" | "heldLaunches" | "listRewinds" | "wolf359List">): boolean {
   const n = listDraws(state);
   return n === WOLF_359_LIST_AFTER_DISPATCHES || (typeof state.wolf359List === "number" && state.wolf359List === n);
 }
@@ -726,7 +746,7 @@ export function wolf359DerelictEntry(
 // (telescope.ts systemDistanceLy) and drawn bearing. Enemy territory: its bearing inside the tier's fixed sector
 // (galaxy.ts inEnemySector; Tier I has none). Stable until a dispatch advances expeditionSeed. Pure.
 export function tierCandidateSystems(
-  state: Pick<GameState, "expeditionSeed" | "nextExpeditionId" | "heldLaunches" | "homeworld" | "wolf359List">,
+  state: Pick<GameState, "expeditionSeed" | "nextExpeditionId" | "heldLaunches" | "listRewinds" | "homeworld" | "wolf359List">,
   tier: RegionTier,
   homeworld: HomeworldPlacement = stateHomeworld(state),
 ): CandidateSystem[] {
@@ -763,7 +783,8 @@ export function tierCandidateSystems(
       famousId: famous?.id ?? null,
       bearing,
       distanceLy,
-      region: { tier, enemyTerritory: inEnemySector(homeworld, tier, bearing) },
+      // FR-E I2: a real star carries its id, so its bodies are the star's (generateBodies).
+      region: { tier, enemyTerritory: inEnemySector(homeworld, tier, bearing), ...(famous && STAR_BODIES_SWITCH.live ? { starId: famous.id } : {}) },
     });
   }
   return out;
@@ -771,7 +792,7 @@ export function tierCandidateSystems(
 
 // The candidate system `candidateId` names on the current console (any tier; a pre-G2 `cand-<slot>` id names the
 // Tier I slot), or null. Pure.
-export function candidateSystemById(state: Pick<GameState, "expeditionSeed" | "nextExpeditionId" | "heldLaunches" | "homeworld" | "wolf359List">, candidateId: string): CandidateSystem | null {
+export function candidateSystemById(state: Pick<GameState, "expeditionSeed" | "nextExpeditionId" | "heldLaunches" | "listRewinds" | "homeworld" | "wolf359List">, candidateId: string): CandidateSystem | null {
   const m = /^cand-(?:([1-7])-)?(0|[1-9]\d*)$/.exec(candidateId);
   if (!m) return null;
   const tier = (m[1] === undefined ? 1 : Number(m[1])) as RegionTier;
@@ -858,7 +879,7 @@ export function expeditionDispatchGate(state: GameState, ship: ShipInstance, can
 // A throwaway system for a preview at `seed` in `region` (the forecast's simulated launch; no candidate name is
 // needed there). Pure.
 function previewSystem(seed: number, region: ExpeditionRegion): { systemId: string; systemName: string; bodies: ExpeditionBody[] } {
-  return { systemId: "preview", systemName: "", bodies: generateBodies(seed, region.tier) };
+  return { systemId: "preview", systemName: "", bodies: generateBodies(seed, region) };
 }
 
 // The resolved sensor snapshot for a ship: its installed array (or null), that array's rarity/quality-
@@ -1119,7 +1140,7 @@ export function expeditionCandidates(state: GameState, shipId: string, tier: Reg
   // G2-5: a system a recall returned to the candidates (nothing charted) joins its tier's list after the three.
   return [...tierCandidateSystems(state, tier, homeworld), ...heldCandidates(state, tier)].map((cand) => {
     const { seed, region } = cand;
-    const bodies = generateBodies(seed, region.tier);
+    const bodies = generateBodies(seed, region);
     const sys = readSystem(reading, seed, snap.sensorPower, expeditionRiskPreview(seed, region), homeworld, sight, cand.distanceLy);
     // Squads SQ-6: the task demand (cheap: one throwaway discovery and stamping pass) rides the candidate from Per
     // body. The recommendation and the forecast simulate launches, so they are NOT built here: the UI asks for them
@@ -1465,7 +1486,7 @@ export function expeditionLaunchView(
 // reading (the Subspace Telescope, SQ-5) can never disagree with the run. A body's hostile `site` is the seeded
 // placement; whether it becomes a task depends on the squads the ship deploys (hostileSiteFieldable).
 export function expeditionRiskPreview(seed: number, region: ExpeditionRegion = TIER_I_REGION): { profile: ExpeditionRiskProfile; bodies: BodyRiskGrades[] } {
-  return generateRiskProfile(seed, region, generateBodies(seed, region.tier));
+  return generateRiskProfile(seed, region, generateBodies(seed, region));
 }
 
 // Dispatch a ship + captain on a NEW expedition by COMMITTING a chosen candidate target. Pure: returns
@@ -1536,7 +1557,7 @@ export function startExpedition(
   // G2-5 (user G12 "Pick up where you left off"): a resumed system flies to its held bodies (scans, discoveries and
   // objectives as the recall left them) under its held risk profile; every other dispatch generates the system.
   const resumed = held?.kind === "resume" && held.bodies && held.risk ? held : null;
-  const gen = { systemId: cand.systemId, systemName: cand.systemName, bodies: resumed ? resumedBodies(resumed) : generateBodies(seed, cand.tier) };
+  const gen = { systemId: cand.systemId, systemName: cand.systemName, bodies: resumed ? resumedBodies(resumed) : generateBodies(seed, cand.region) };
   // Squads SQ-4: the RISK PROFILE (riskFactors.ts), drawn from the committed candidate's seed and region exactly as
   // expeditionRiskPreview reads it, so the pre-launch reading and the run are one draw.
   const risk = resumed ? { profile: { ...resumed.risk! }, bodies: gen.bodies.map((b, i) => b.risk ?? expeditionRiskPreview(seed, cand.region).bodies[i]) } : expeditionRiskPreview(seed, cand.region);
@@ -1577,9 +1598,11 @@ export function startExpedition(
           scannedBodies: chartedPrefix(resumed.bodies!),
           // Completion tracking (review fix): the held skips stay counted on the resumed run until it finishes them.
           ...(COMPLETION_HELD_SKIPS_SWITCH.live && (resumed.skipped ?? []).length > 0 ? { skipped: [...resumed.skipped!] } : {}),
+          // FR-E (lane 3 I1): the boundaries an earlier trip rolled on the body it cut short (openResumedWindow skips them).
+          ...(RECALL_NO_REPAY_SWITCH.live && (resumed.scanStepsRolled ?? 0) > 0 ? { scanStepsRolled: resumed.scanStepsRolled } : {}),
         },
       }
-    : launched;
+    : againAsCandidate(launched, held ?? listNoteFor(state, cand));
   // Field Kits FKR-7: the packs leave stock (lowest quality first) and a top-up's credits are spent: the SAME plan
   // buildExpedition packed (planDispatchPacks is pure on the same inputs). A run without flag 2 settles nothing.
   const packed = fieldKitsLive(built)
@@ -1595,11 +1618,24 @@ export function startExpedition(
   // dispatch FROM THE LIST draws a fresh list, and every system a recall returned to the candidates rolls off with it,
   // like the list's own three. Resumable systems stay (they are kept until finished or abandoned).
   const heldNow = heldSystems(state);
+  // FR-E fix pass (lane 3 I3): a note waiting for a list a restore took back (HeldSystem.listSeed, not the list on
+  // screen) does not roll off: this very dispatch may be the one that draws its list again.
+  const keepsList = RECALL_KEEPS_LIST_SWITCH.live;
+  const rollsOff = (h: HeldSystem): boolean => h.kind === "candidate" && !(keepsList && noteWaiting(state, h));
   const heldLeft = held
     ? heldNow.filter((h) => h.id !== held.id)
-    : heldNow.some((h) => h.kind === "candidate")
-      ? heldNow.filter((h) => h.kind !== "candidate")
+    : heldNow.some(rollsOff)
+      ? heldNow.filter((h) => !rollsOff(h))
       : undefined;
+  // FR-E fix pass (lane 3 I3, the review's re-pay loop): what a dispatch from the list rolls off rides the run
+  // (Expedition.listNotes), so a recall that restores the list puts it back; a launch to a held candidate draws no list
+  // and is marked (Expedition.heldLaunch), so its recall never restores one.
+  const listNotes = keepsList && !held ? heldNow.filter(rollsOff) : [];
+  const listStamp = {
+    ...(listNotes.length > 0 ? { listNotes } : {}),
+    ...(keepsList && held?.kind === "candidate" ? { heldLaunch: 1 as const } : {}),
+  };
+  const stamped: Expedition = Object.keys(listStamp).length > 0 ? { ...expedition, ...listStamp } : expedition;
 
   // Complement CP-16: the dispatch is the captain's first expedition, and (Tier II or deeper) their first Tier II+ run,
   // when their command has none yet (recorded at this instant; the run carries its captain, Expedition.captainId).
@@ -1610,7 +1646,7 @@ export function startExpedition(
   return {
     next: noted({
       ...packed,
-      expeditions: [...state.expeditions, expedition],
+      expeditions: [...state.expeditions, stamped],
       nextExpeditionId: number + 1,
       // Safe first runs SF-1 (review): the counters as they read BEFORE this dispatch. A state without stored counters
       // (a dev save or fixture from before SF-1) derives them from its history, and that derivation would read this
@@ -1627,7 +1663,23 @@ export function startExpedition(
       ...(heldLeft !== undefined ? { heldSystems: heldLeft } : {}),
     }),
     success: true,
-    expedition,
+    expedition: stamped,
+  };
+}
+
+// FR-E (lane 3 I1, M1): a candidate launched again (a held candidate, or a restored list's slot with its note): the scan
+// boundaries an earlier trip rolled on its first body are skipped (the first cursor starts past them), and a route
+// anomaly it charted is met already (resolved from the start, marked anomalyMet so a later recall keeps the note). The
+// SAME run for any other launch, or with nothing kept. Pure.
+function againAsCandidate(run: Expedition, note: HeldSystem | null): Expedition {
+  if (!RECALL_NO_REPAY_SWITCH.live || note === null || note.kind !== "candidate") return run;
+  const perBody = Math.max(0, (run.encounterSteps ?? 1) - 1);
+  const steps = Math.max(0, Math.min(perBody, note.scanStepsRolled ?? 0));
+  if (steps === 0 && note.anomalyCharted !== true) return run;
+  return {
+    ...run,
+    ...(steps > 0 ? { scanStepCursor: steps } : {}),
+    ...(note.anomalyCharted === true ? { anomalyResolved: true, anomalyMet: 1 as const } : {}),
   };
 }
 
@@ -2912,7 +2964,13 @@ function heldFromRecall(exp: Expedition, t: number): HeldSystem | null {
     region: { ...region },
   };
   const charted = chartedPrefix(exp.bodies);
-  if (charted === 0) return { ...base, kind: "candidate" };
+  // FR-E (lane 3 I1, M1): what the next launch to the system must not pay again, written only when there is any.
+  const rolled = scanStepsRolledAt(exp, charted);
+  const kept = {
+    ...(rolled > 0 ? { scanStepsRolled: rolled } : {}),
+    ...(RECALL_NO_REPAY_SWITCH.live && (exp.anomalyCharted || exp.anomalyMet === 1) ? { anomalyCharted: true as const } : {}),
+  };
+  if (charted === 0) return { ...base, kind: "candidate", ...kept };
   if (!exp.groundOps || !exp.risk) return null;
   const bodies = heldBodies(exp);
   // GG-4: a nebula swept on this trip (or on an earlier one) is not swept again; one the recall cut short (or never
@@ -2923,7 +2981,27 @@ function heldFromRecall(exp: Expedition, t: number): HeldSystem | null {
   // Completion tracking (review fix, user Q3 "count as done", "never dips"): the objectives counted as skipped stay
   // counted while they wait in the queue (heldSkippedIds).
   const skipped = heldSkippedIds(exp);
-  return { ...base, kind: "resume", risk: { ...exp.risk }, bodies, ...(swept ? { nebulaSwept: true as const } : {}), ...(skipped.length > 0 ? { skipped } : {}) };
+  return {
+    ...base,
+    kind: "resume",
+    risk: { ...exp.risk },
+    bodies,
+    ...(swept ? { nebulaSwept: true as const } : {}),
+    ...(skipped.length > 0 ? { skipped } : {}),
+    ...(rolled > 0 ? { scanStepsRolled: rolled } : {}),
+  };
+}
+
+// FR-E (lane 3 I1, "an unbounded loop must be closed"): how many scan boundaries of the first uncharted body (the one
+// a recall cuts short: body `charted`) have been rolled, on this trip or (a resumed run, or a candidate launched again,
+// that has not reached them yet) an earlier one. Their events paid when they rolled, so the next launch skips them
+// (openResumedWindow; a candidate launch's first cursor). 0 with the switch off. Pure.
+function scanStepsRolledAt(exp: Pick<Expedition, "encounterSteps" | "scanStepCursor" | "resume">, charted: number): number {
+  if (!RECALL_NO_REPAY_SWITCH.live) return 0;
+  const perBody = Math.max(0, (exp.encounterSteps ?? 1) - 1);
+  const onThisTrip = Math.max(0, Math.min(perBody, (exp.scanStepCursor ?? 0) - charted * perBody));
+  const carried = exp.resume !== undefined && exp.resume.scannedBodies === charted ? Math.max(0, Math.min(perBody, exp.resume.scanStepsRolled ?? 0)) : 0;
+  return Math.max(onThisTrip, carried);
 }
 
 // The objective ids a hold of `exp` keeps counted as skipped (HeldSystem.skipped): every charted body's objective not
@@ -2983,7 +3061,10 @@ function openResumedWindow(e: Expedition): void {
   const open = e.phaseAnchorSeconds;
   ops.startedAt = open - skip;
   if (skip > 0) ops.scanClockSkip = skip;
-  e.scanStepCursor = charted * Math.max(0, (e.encounterSteps ?? 1) - 1);
+  // FR-E (lane 3 I1): past the boundaries an earlier trip rolled on the body it cut short (HeldSystem.scanStepsRolled):
+  // the scan of that body starts over, but those boundaries roll nothing again.
+  const perBody = Math.max(0, (e.encounterSteps ?? 1) - 1);
+  e.scanStepCursor = charted * perBody + Math.max(0, Math.min(perBody, resume.scanStepsRolled ?? 0));
   openResumedGroundOps(e, charted, open);
 }
 
@@ -2991,9 +3072,25 @@ function openResumedWindow(e: Expedition): void {
 export function heldSystems(state: Pick<GameState, "heldSystems">): HeldSystem[] {
   return Array.isArray(state.heldSystems) ? state.heldSystems : [];
 }
+// (FR-E I3: a note on a restored list's slot, HeldSystem.inList, is not a held system of its own: its slot launches it.)
 function heldSystemById(state: Pick<GameState, "heldSystems">, id: string): HeldSystem | null {
   if (!id.startsWith("held-")) return null;
-  return heldSystems(state).find((h) => h.id === id) ?? null;
+  return heldSystems(state).find((h) => h.id === id && h.inList !== true) ?? null;
+}
+
+// FR-E (lane 3 I1, M1, I3): the note a recall left on candidate `cand` of the list on screen (HeldSystem.inList), or
+// null. Pure.
+function listNoteFor(state: Pick<GameState, "heldSystems" | "expeditionSeed">, cand: Pick<CandidateSystem, "seed" | "systemId">): HeldSystem | null {
+  return (
+    heldSystems(state).find((h) => h.kind === "candidate" && h.inList === true && !noteWaiting(state, h) && h.seed === cand.seed && h.systemId === cand.systemId) ??
+    null
+  );
+}
+
+// FR-E fix pass (lane 3 I3): is `h` a note on a list that is not on screen (HeldSystem.listSeed): a restore took its list
+// back, and it waits for the next launch from the restored list to draw it again? Pure.
+function noteWaiting(state: Pick<GameState, "expeditionSeed">, h: HeldSystem): boolean {
+  return h.inList === true && typeof h.listSeed === "number" && h.listSeed !== state.expeditionSeed;
 }
 
 // A held system as a candidate (its own id; slot -1: it is not one of the list's slots). Pure.
@@ -3008,13 +3105,15 @@ function heldCandidateSystem(h: HeldSystem): CandidateSystem {
     famousId: h.famousId,
     bearing: h.region.bearing,
     distanceLy: h.region.distanceLy,
-    region: { tier: h.region.tier, enemyTerritory: h.region.enemyTerritory },
+    // FR-E I2: a real star's bodies are the star's (generateBodies).
+    region: { tier: h.region.tier, enemyTerritory: h.region.enemyTerritory, ...(h.famousId !== null && STAR_BODIES_SWITCH.live ? { starId: h.famousId } : {}) },
   };
 }
 
-// The ordinary candidates a recall returned to `tier` (kind "candidate"), oldest first. Pure.
+// The ordinary candidates a recall returned to `tier` (kind "candidate"), oldest first; a note on a restored list's slot
+// (FR-E I3, HeldSystem.inList) is offered by the list itself. Pure.
 function heldCandidates(state: Pick<GameState, "heldSystems">, tier: RegionTier): CandidateSystem[] {
-  return heldSystems(state).filter((h) => h.kind === "candidate" && h.region.tier === tier).map(heldCandidateSystem);
+  return heldSystems(state).filter((h) => h.kind === "candidate" && h.inList !== true && h.region.tier === tier).map(heldCandidateSystem);
 }
 
 // One resumable system for the console (the mockup's Resume card): its identity, its charted bodies and the
@@ -3123,8 +3222,55 @@ export function recallExpedition(state: GameState, expeditionId: string): GameSt
   if (index < 0) return state;
   const res = recallAt(state.expeditions[index], state.gameTimeSeconds);
   if (!res.ok) return state;
-  const expeditions = state.expeditions.map((e, i) => (i === index ? res.exp : e));
+  // FR-E fix pass: the held candidates the run's launch rolled off (Expedition.listNotes) leave the record here: back to
+  // the save with a restored list, or gone for good with the list they were on.
+  const { listNotes, ...recalled } = res.exp;
+  const run: Expedition = listNotes === undefined ? res.exp : recalled;
+  const expeditions = state.expeditions.map((e, i) => (i === index ? run : e));
+  // FR-E (lane 3 I3, user "Recalled launch keeps the list (Recommended)"): a system that goes back to the candidates
+  // (nothing charted) goes back to the list it was launched from, when that launch drew the list on screen: the list is
+  // restored (no free reroll) and the system is offered in its own slot again, its held record a note on that slot
+  // (HeldSystem.inList, on HeldSystem.listSeed). The fix pass: the held candidates the launch rolled off come back with
+  // the list; the notes on the list the recall takes back wait in the save for it to be drawn again (the next launch
+  // from the restored one draws it), so no note is lost while its slot can still be launched.
+  const restored = res.held?.kind === "candidate" ? restoredListSeed(state, res.exp) : null;
+  if (restored !== null && res.held) {
+    const note: HeldSystem = { ...res.held, inList: true, listSeed: restored };
+    const back = [...heldSystems(state), ...(listNotes ?? []), note].sort((x, y) => x.heldAt - y.heldAt);
+    return { ...state, expeditions, expeditionSeed: restored, listRewinds: listRewindCount(state) + 1, heldSystems: back };
+  }
   return { ...state, expeditions, ...(res.held ? { heldSystems: [...heldSystems(state), res.held] } : {}) };
+}
+
+// FR-E (lane 3 I3): the multiplier advanceExpeditionSeed scrambles by is odd, so the advance is a bijection on 32 bits;
+// this is its inverse (Newton's iteration for the multiplicative inverse mod 2^32). Pure.
+const SEED_MULT_INVERSE = ((): number => {
+  const a = 0x27d4eb2f;
+  let x = a;
+  for (let i = 0; i < 5; i++) x = Math.imul(x, (2 - Math.imul(a, x)) >>> 0) >>> 0;
+  return x >>> 0;
+})();
+export function rewindExpeditionSeed(saveSeed: number): number {
+  return (Math.imul(((saveSeed >>> 0) ^ 0x85ebca6b) >>> 0, SEED_MULT_INVERSE) ^ 0x9e3779b9) >>> 0;
+}
+
+// How many recalls restored their list (GameState.listRewinds; absent reads 0). Pure.
+function listRewindCount(state: Pick<GameState, "listRewinds">): number {
+  const n = state.listRewinds;
+  return typeof n === "number" && Number.isFinite(n) ? Math.max(0, Math.floor(n)) : 0;
+}
+
+// FR-E (lane 3 I3): the expedition seed of the list run `exp` was launched from, when that launch drew the list on
+// screen (the list before it holds `exp`'s system at `exp`'s seed in its tier), else null (another list was drawn
+// since, or the switch is off). The fix pass: only a launch FROM THE LIST draws a list; a launch to a held candidate
+// (Expedition.heldLaunch) or a resumed system draws none, so its recall restores nothing even when its seed sits on the
+// list before the one on screen. A launch from that list is then the one that drew the list on screen: a second launch
+// from it would need the list restored first, and only the recall of the first can do that. Pure.
+function restoredListSeed(state: GameState, exp: Pick<Expedition, "seed" | "targetSystemId" | "region" | "heldLaunch" | "resume">): number | null {
+  if (!RECALL_KEEPS_LIST_SWITCH.live || !exp.region || exp.heldLaunch === 1 || exp.resume !== undefined) return null;
+  const before = rewindExpeditionSeed(state.expeditionSeed);
+  const shape = { ...state, expeditionSeed: before, listRewinds: listRewindCount(state) + 1 };
+  return tierCandidateSystems(shape, exp.region.tier).some((c) => c.seed === exp.seed && c.systemId === exp.targetSystemId) ? before : null;
 }
 
 // ============================================================================

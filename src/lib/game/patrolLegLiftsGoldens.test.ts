@@ -73,6 +73,16 @@ homeworldReserveOffForThisFile();
 // crew from a backlog longer than any catch-up (a fixture shortcut), so the whole file runs with it off and its pins
 // keep proving their own slice (switch-off reproduction: every pin holds with it off). transportWelcome.test.ts pins it.
 import { transportWelcomeOffForThisFile } from "./transportWelcomeSwitch.fixture";
+import { fixRoundESwitchesOffForThisFile } from "./fixRoundESwitch.fixture";
+
+// Fix round FR-E (0.14.0): Resume when safe (lane 4 I1, PATROL_RESUME_WHEN_SAFE_SWITCH: a Repeat repair pause ends once
+// the next route is safe, not at full) moves the Repeat rows' repair pauses; the stop rule (lane 4 q3,
+// PATROL_STOP_DOOMED_SWITCH: Repeat stops "outmatched" before a route it would lose even fully repaired) moves the
+// Repeat rows that meet a route they would lose; and the pause's docked pricing (lane 4 M6,
+// PAUSE_JOB_LIKE_DOCKED_SWITCH: a repair pause records the docked job's length for its Overtime) moves the pauses'
+// records. The pins here predate the round and are about another slice, so the file runs with those fixes off
+// (fixRoundESwitch.fixture.ts); every other fix of the round runs here. The round's own pins: patrolFixRoundE.test.ts.
+fixRoundESwitchesOffForThisFile("resumeWhenSafe", "stopDoomed", "pauseJobLikeDocked");
 transportWelcomeOffForThisFile();
 
 // Wiring WR-9: this file's pins are about other slices and were captured before WR-9; it runs with WR-9 off (the

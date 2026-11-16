@@ -17,7 +17,8 @@
 //     never rounds up to 100 (99 at most).
 //
 // THE REWARDS (user 2026-11-13 "Planet roll + system badge (Recommended)", correcting the first build's "no reward"):
-//   - THE PLANET ROLL: each body that reaches 100% pays the 2026-10-09 bonus relic roll ONCE (Relics v2 G2 call 11, the
+//   - THE PLANET ROLL: each body that reaches 100% (with at least one objective really finished there, not skipped: fix
+//     round FR-E, user 2026-11-14 "Roll needs a real objective") pays the 2026-10-09 bonus relic roll ONCE (Relics v2 G2 call 11, the
 //     relics engine's hook relicBlanks.ts planetCompletionRelicBlank: one extra blank, one rarity step above the body's
 //     own roll, at the run's region tier, with the body's culture). WHERE IT FIRES: at the record's write, the CLAIM of the
 //     run that finished the body (or the ABANDON of its Resume system), because the engine resolves a visit's rewards at
@@ -44,6 +45,7 @@
 import {
   COMPLETION_ROLL_SWITCH,
   COMPLETION_TRACKING_SWITCH,
+  PLANET_ROLL_REAL_OBJECTIVE_SWITCH,
   type CompletionBodyTally,
   type Expedition,
   type GameState,
@@ -238,11 +240,15 @@ export function withSystemRecord(records: Readonly<Record<string, SystemRecord>>
 // ===== The planet roll (user 2026-11-13 "Planet roll + system badge") =====
 
 // The bodies (by index) of `tally` at 100% whose roll has not paid for the system yet (`kept`'s bodiesRolled). Pure.
+// Fix round FR-E (lane 3 q3, user 2026-11-14 "Roll needs a real objective (Recommended)": skips still count for the %):
+// a planet rolls only when at least one of its objectives was really finished there (done, not skipped; a giant's ship
+// study counts), so a planet finished by skips alone, or one with no objectives, shows 100% but pays no roll. It is not
+// marked paid either, so finishing a real objective there on a later visit pays it then.
 export function bodiesToRoll(tally: CompletionTally, kept: Pick<SystemRecord, "bodiesRolled"> | undefined): number[] {
   const paid = new Set(kept?.bodiesRolled ?? []);
   const out: number[] = [];
   systemCompletion(tally).bodyLines.forEach((b, i) => {
-    if (b.complete && !paid.has(i)) out.push(i);
+    if (b.complete && !paid.has(i) && (b.done > 0 || !PLANET_ROLL_REAL_OBJECTIVE_SWITCH.live)) out.push(i);
   });
   return out;
 }

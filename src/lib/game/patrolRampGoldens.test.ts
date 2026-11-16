@@ -54,6 +54,13 @@ combatRulesOffForThisFile();
 // Gear wear step 4 (0.14.0): the same for battle wear (battleWearSwitch.fixture.ts): the pins predate it, and a patrol
 // cycle stamped for it fights its carried wear (gearWearCombatGoldens.test.ts pins that).
 import { battleWearOffInThisFile } from "./battleWearSwitch.fixture";
+import { fixRoundESwitchesOffForThisFile } from "./fixRoundESwitch.fixture";
+
+// Fix round FR-E (0.14.0): the stop rule (lane 4 q3, PATROL_STOP_DOOMED_SWITCH: Repeat stops "outmatched" before a
+// route it would lose even fully repaired) moves the Dispatch Repeatedly row (a cycle meets a route it would lose). The
+// pins here predate the round and are about another slice, so the file runs with that fix off
+// (fixRoundESwitch.fixture.ts); every other fix of the round runs here. The round's own pins: patrolFixRoundE.test.ts.
+fixRoundESwitchesOffForThisFile("stopDoomed");
 battleWearOffInThisFile();
 
 const ROUTES = Object.keys(PATROLS) as PatrolKey[];

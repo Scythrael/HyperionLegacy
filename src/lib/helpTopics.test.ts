@@ -984,7 +984,8 @@ describe("HELP_TOPICS", () => {
       expect(b()).toMatch(/already on its way home cannot be recalled/);
       expect(recallBlockText("returning")).toBe("The ship is already on its way home");
       expect(b()).toMatch(/Resume list until you finish it or abandon it/);
-      expect(b()).toMatch(/recalled before anything was charted becomes a candidate again, until the next fresh list is drawn/);
+      // Fix round FR-E (lane 3 I3, "Recalled launch keeps the list").
+      expect(b()).toMatch(/recalled before anything was charted goes back to the candidates: the list it was launched from comes back as it was/);
     });
 
     it("the fuel topic gains deep-space reach and the depot's reach covers expeditions too", () => {
@@ -1183,7 +1184,7 @@ describe("System Completion (0.14.0 completion tracking)", () => {
       "marked Abandoned",
       "Systems claimed before this update left no record",
       "a green arc around each region's badge",
-      "each planet that reaches 100% earns one bonus relic roll",
+      "each planet that reaches 100% with at least one of its objectives really finished there",
       "one rarity step above what that planet's own finds roll, at its region's tier",
       "It pays once per planet, ever",
       "when you abandon its Resume system",

@@ -187,6 +187,13 @@ wr11OffForThisFile();
 // file runs with the float crewHours counter (crewHoursSwitch.fixture.ts; crewHoursMs.test.ts traces the move).
 import { crewHoursFloatForThisFile } from "./crewHoursSwitch.fixture";
 import { wr11OffForThisFile } from "./wr11Switch.fixture";
+import { fixRoundESwitchesOffForThisFile } from "./fixRoundESwitch.fixture";
+
+// Fix round FR-E (0.14.0): the stop rule (lane 4 q3, PATROL_STOP_DOOMED_SWITCH: Repeat stops "outmatched" before a
+// route it would lose even fully repaired) moves the Repeat patrol rows (each meets a route it would lose). The pins
+// here predate the round and are about another slice, so the file runs with that fix off (fixRoundESwitch.fixture.ts);
+// every other fix of the round runs here. The round's own pins: patrolFixRoundE.test.ts.
+fixRoundESwitchesOffForThisFile("stopDoomed");
 crewHoursFloatForThisFile();
 
 // ===== shared helpers =====

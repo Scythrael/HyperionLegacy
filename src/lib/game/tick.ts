@@ -3977,7 +3977,8 @@ export function tickCaptainPatrol(
             : officerEffects.relaunchCombat;
           // Safe first runs SF-4: the new cycle's difficulty, from this cycle's stamp alone (the training cycle hands
           // over the curve's floor; a ramped cycle keeps its stamp, one step per patrol run; none stays none).
-          const nextDifficulty = nextPatrolCycleDifficulty(cur.difficulty);
+          // Fix round FR-E (lane 4 I2): and a Repeat run climbs one step every PATROL_CLIMB_EVERY_ROUTES routes it has won.
+          const nextDifficulty = nextPatrolCycleDifficulty(cur.difficulty, routesThisRun);
           // GEAR WEAR step 4 (user 2026-10-21 "Re-read each cycle", W3): the new cycle freezes the ship's gear as it
           // stands at this relaunch: the stored pieces, worn by this call's earlier battles at their instants and
           // settled underway (gearWearEngine.ts projectCycleConditions, exactly what the tail pass will write), so a
@@ -4057,9 +4058,24 @@ export function tickCaptainPatrol(
       // replay leaves, its known fights, no draw spent) and goes home to repair first only when a worn combat system
       // would BREAK mid-cycle (its pool down to PATROL_BREAK_MARGIN); otherwise it flies worn (less efficient). Never
       // a recalled run (it is going home anyway) or an unstamped cycle (in flight from before step 4).
-      const pauseFor = next !== null && cyclePools !== null ? cycleRepairPause(next.mission, playerId, hullType, installedGear, officerEffects.gearWear) : 0;
-      if (pauseFor > 0 && officerEffects.gearWear) {
-        mission.repairPause = { from: officerEffects.gearWear.startSeconds + offsetNow() * officerEffects.gearWear.secondsPerTick, ticksRemaining: pauseFor };
+      // Fix round FR-E (lane 4 q3, user 2026-11-14 "Stop and explain (Recommended)"): FIRST, Repeat never flies a route
+      // its pristine projection loses (the next cycle with every combat piece fully repaired: no repair could save it).
+      // The run ends here, home and undamaged, its one log entry saying why ("outmatched"). Read from the stored mission
+      // and gear at this instant, like the pause, so it is the same however the span is chunked.
+      if (next !== null && PATROL_STOP_DOOMED_SWITCH.live && installedGear && projectedPristineDefeat(next.mission, playerId, hullType, installedGear)) {
+        endReason = "outmatched";
+        if (cyclePools !== null) endedAtTicks = offsetNow();
+        mission = null;
+        break;
+      }
+      const pausePlan = next !== null && cyclePools !== null ? cycleRepairPause(next.mission, playerId, hullType, installedGear, officerEffects.gearWear) : null;
+      const pauseFor = pausePlan?.ticks ?? 0;
+      if (pausePlan !== null && pauseFor > 0 && officerEffects.gearWear) {
+        mission.repairPause = {
+          from: officerEffects.gearWear.startSeconds + offsetNow() * officerEffects.gearWear.secondsPerTick,
+          ticksRemaining: pauseFor,
+          ...pauseRecordExtras(pausePlan),
+        };
         pausesThisRun += 1;
         // A time skip never runs a pause in zero time: it stops at the pause, which then takes its real time.
         if (mission.speed !== undefined) {
@@ -4273,11 +4289,107 @@ export function projectedCycleBreak(mission: PatrolMissionState, playerId: strin
   });
 }
 
-// The pause the next cycle needs (route ticks): 0 unless it would break a worn system (projectedCycleBreak); else
-// long enough for every combat piece to repair back to full at the home rate. 0 without the engine's clock. Pure.
-function cycleRepairPause(next: PatrolMissionState, playerId: string, hullType: CombatHullType, storedGear: EquipmentInstance[] | undefined, clock: PatrolWearClock | undefined): number {
-  if (!clock || !projectedCycleBreak(next, playerId, hullType, storedGear)) return 0;
-  return repairPauseTicks(storedGear, next.cycleStartCondition, clock);
+// Fix round FR-E (lane 4 q3, user 2026-11-14 "Stop and explain (Recommended)"): would `mission` (a cycle about to fly)
+// be LOST even with every combat piece fully repaired (its pristine projection: the same cycle with its frozen gear read
+// at full, resolveMissionCycle, no draw spent)? Then no repair pause can save it, and Repeat stops instead of flying it.
+// Pure.
+export function projectedPristineDefeat(mission: PatrolMissionState, playerId: string, hullType: CombatHullType, storedGear: EquipmentInstance[]): boolean {
+  return resolveMissionCycle({ ...mission, cycleStartCondition: {} }, playerId, hullType, storedGear).defeated;
+}
+
+// Test switches only (fixRoundESwitch.fixture.ts; always live in the game; off, each fix is undone exactly):
+//   PATROL_STOP_DOOMED_SWITCH (lane 4 q3): off, Repeat flies a route its pristine projection loses, as before;
+//   PATROL_RESUME_WHEN_SAFE_SWITCH (lane 4 I1, user "Resume when safe (Recommended)"): off, a repair pause lasts until
+//     every combat piece is back to full, as before.
+export const PATROL_STOP_DOOMED_SWITCH = { live: true };
+export const PATROL_RESUME_WHEN_SAFE_SWITCH = { live: true };
+//   PAUSE_JOB_LIKE_DOCKED_SWITCH (lane 4 M6): off, a pause's Overtime is priced by the pause's whole length, as before.
+export const PAUSE_JOB_LIKE_DOCKED_SWITCH = { live: true };
+
+// A repair pause's plan (cycleRepairPause): its length (route ticks), the condition each combat piece must reach for the
+// patrol to head out (absent: every combat piece back to full), and the docked job's length its Overtime is priced by.
+interface RepairPausePlan {
+  ticks: number;
+  target?: Record<string, number>;
+  jobMinutes?: number;
+}
+
+// The pause the next cycle needs: null unless it would break a worn system (projectedCycleBreak). Fix round FR-E (lane 4
+// I1, user 2026-11-14 "Resume when safe (Recommended)": "resume as soon as the next cycle's projection no longer breaks
+// gear, not at full"): the pause lasts until every worn combat piece has recovered the SMALLEST whole per-mille amount
+// that makes the next cycle's projection safe (safeRepairAmount: every piece gains the same amount, as they do at the
+// home rate), each piece's goal then stored on the pause (RepairPauseRecord.target) for an Overtime step to rescale to.
+// When only full repair is safe the plan is the old one exactly (no target). The relaunch at the pause's end projects
+// again, so a cycle that still breaks pauses again. Fix round FR-E (lane 4 M6): the plan also carries the docked job's
+// length for the same gear at the normal home rate (`normalHomeRate`, no Overtime), so a step bought in the pause costs
+// what it costs on the same gear docked. Null without the engine's clock. Pure.
+function cycleRepairPause(
+  next: PatrolMissionState,
+  playerId: string,
+  hullType: CombatHullType,
+  storedGear: EquipmentInstance[] | undefined,
+  clock: PatrolWearClock | undefined,
+  normalHomeRate: number | undefined = clock?.homeRate,
+): RepairPausePlan | null {
+  if (!clock || !storedGear || !projectedCycleBreak(next, playerId, hullType, storedGear)) return null;
+  const frozen = next.cycleStartCondition ?? {};
+  const job = PAUSE_JOB_LIKE_DOCKED_SWITCH.live ? pauseJobMinutes(frozen, normalHomeRate) : undefined;
+  const amount = PATROL_RESUME_WHEN_SAFE_SWITCH.live ? safeRepairAmount(next, playerId, hullType, storedGear) : null;
+  if (amount === null) return { ticks: repairPauseTicks(storedGear, frozen, clock), ...(job !== undefined ? { jobMinutes: job } : {}) };
+  const target: Record<string, number> = {};
+  for (const p of storedGear) {
+    const c = frozen[p.id] ?? CONDITION_FULL;
+    if (REPAIR_PAUSE_SLOTS.has(p.slotType) && c < CONDITION_FULL) target[p.id] = Math.min(CONDITION_FULL, c + amount);
+  }
+  return { ticks: pauseTicksFor(amount, clock), target: inCanonicalKeyOrder(target), ...(job !== undefined ? { jobMinutes: job } : {}) };
+}
+
+// The pause record's extras for `plan` (its target and job length), each only when present. Pure.
+function pauseRecordExtras(plan: RepairPausePlan): Pick<NonNullable<PatrolMissionState["repairPause"]>, "target" | "jobMinutes"> {
+  return { ...(plan.target !== undefined ? { target: plan.target } : {}), ...(plan.jobMinutes !== undefined ? { jobMinutes: plan.jobMinutes } : {}) };
+}
+
+// FR-E (lane 4 I1): the smallest whole per-mille amount every worn combat piece of `next` must recover for its
+// projection not to break (projectedCycleBreak), or null when only full repair is safe (the old pause). A bisection
+// over the amount whose upper end is always a tested-safe one (everything full is always safe: nothing is worn), so the
+// amount returned is safe even if the projection were not monotone. Pure.
+function safeRepairAmount(next: PatrolMissionState, playerId: string, hullType: CombatHullType, storedGear: EquipmentInstance[]): number | null {
+  const frozen = next.cycleStartCondition ?? {};
+  const combat = storedGear.filter((p) => REPAIR_PAUSE_SLOTS.has(p.slotType));
+  const missing = Math.max(0, ...combat.map((p) => CONDITION_FULL - (frozen[p.id] ?? CONDITION_FULL)));
+  const lifted = (amount: number): Record<string, number> => {
+    const out: Record<string, number> = { ...frozen };
+    for (const p of combat) {
+      const c = Math.min(CONDITION_FULL, (frozen[p.id] ?? CONDITION_FULL) + amount);
+      if (c >= CONDITION_FULL) delete out[p.id];
+      else out[p.id] = c;
+    }
+    return out;
+  };
+  let unsafe = 0;
+  let safe = missing;
+  while (safe - unsafe > 1) {
+    const mid = Math.floor((unsafe + safe) / 2);
+    if (projectedCycleBreak({ ...next, cycleStartCondition: lifted(mid) }, playerId, hullType, storedGear)) unsafe = mid;
+    else safe = mid;
+  }
+  return safe < missing ? safe : null;
+}
+
+// Route ticks for a recovery of `amount` per-mille at the home rate (one tick of margin for the settle's whole-per-mille
+// floor). Pure.
+function pauseTicksFor(amount: number, clock: PatrolWearClock): number {
+  if (!(amount > 0) || !(clock.homeRate > 0) || !(clock.secondsPerTick > 0)) return 0;
+  return Math.ceil((amount * 60) / clock.homeRate / clock.secondsPerTick) + 1;
+}
+
+// FR-E (lane 4 M6): the docked gear repair job's length for the gear at `conditions` (its most worn piece back to full
+// at the normal home rate, in minutes: gearWearEngine.ts shipGearJobMinutes' reading), or undefined with nothing worn
+// or no rate. Pure.
+function pauseJobMinutes(conditions: Record<string, number>, normalHomeRate: number | undefined): number | undefined {
+  if (!(normalHomeRate !== undefined && normalHomeRate > 0)) return undefined;
+  const missing = Math.max(0, ...Object.values(conditions).map((c) => CONDITION_FULL - c));
+  return missing > 0 ? missing / normalHomeRate : undefined;
 }
 
 // Route ticks for every combat piece to repair back to full at the home rate from `conditions` (one tick of margin for
@@ -4286,8 +4398,7 @@ function repairPauseTicks(installedGear: EquipmentInstance[] | undefined, condit
   if (!installedGear || !conditions || !clock || !(clock.homeRate > 0) || !(clock.secondsPerTick > 0)) return 0;
   const combat = installedGear.filter((p) => REPAIR_PAUSE_SLOTS.has(p.slotType));
   const missing = Math.max(0, ...combat.map((p) => CONDITION_FULL - (conditions[p.id] ?? CONDITION_FULL)));
-  if (!(missing > 0)) return 0;
-  return Math.ceil((missing * 60) / clock.homeRate / clock.secondsPerTick) + 1;
+  return pauseTicksFor(missing, clock);
 }
 
 
@@ -6880,21 +6991,24 @@ export function dispatchCaptainOnPatrol(
   // (it never left home): the pause repairs at the bought rate and is that much shorter.
   // User 2026-11-12 "Yes, keep it (Recommended)": gearWearEngine.ts DOCKED_OVERTIME_CARRIES_INTO_FIRST_PAUSE stays true.
   const dockedSteps = DOCKED_OVERTIME_CARRIES_INTO_FIRST_PAUSE ? ship.gearRepairSpeed?.overtimeSteps ?? 0 : 0;
+  // FR-E (lane 4 M6): the normal home rate (no Overtime) prices the pause's steps like the same gear docked.
+  const normalHomeRate = repairRatePerMinute("home", shipRepairBonuses(state, ship, mission.favoredSpec === 1, mission.hullBonus === 1));
   const firstPause = repeatDispatch && cycle.cycleStartCondition
     ? cycleRepairPause(mission, ship.id, hullType, installedGear, {
         startSeconds: state.gameTimeSeconds,
         secondsPerTick: state.tickDurationSeconds,
         // WR-7 follow-up (OC-D5): on the stamp this dispatch just wrote, as the tail pass reads it.
         underwayRate: repairRatePerMinute("underway", shipRepairBonuses(state, ship, mission.favoredSpec === 1, mission.hullBonus === 1)),
-        homeRate: repairRatePerMinute("home", shipRepairBonuses(state, ship, mission.favoredSpec === 1, mission.hullBonus === 1)) * (dockedSteps > 0 ? gearOvertimeMult(state, ship.id) : 1),
-      })
-    : 0;
-  if (firstPause > 0) {
+        homeRate: normalHomeRate * (dockedSteps > 0 ? gearOvertimeMult(state, ship.id) : 1),
+      }, normalHomeRate)
+    : null;
+  if (firstPause !== null && firstPause.ticks > 0) {
     mission.repairPause = {
       from: state.gameTimeSeconds,
-      ticksRemaining: firstPause,
+      ticksRemaining: firstPause.ticks,
       first: true,
       ...(dockedSteps > 0 ? { overtime: [{ at: state.gameTimeSeconds, steps: dockedSteps }] } : {}),
+      ...pauseRecordExtras(firstPause),
     };
     mission.repairPausesThisRun = 1;
   }

@@ -50,6 +50,10 @@ import {
 import { ITEMS } from "./model";
 import { asPreNebulaDispatch, dispatchPastPropulsion, plainAwayMember, withoutStudy } from "./awayTeamTestFixtures";
 
+// Fix round FR-E (0.14.0): this file runs with the round on. Its "giant before the last body" system is found, not fixed
+// (BEFORE_LAST): the old capture (save seed 0x51f15e, Tier I candidate 0) is Wolf 359 on the first list after the first
+// run, whose bodies the star rule (lane 3 I2) now draws from the star, and the star has no giant.
+
 const SEC = ["member-1", "member-2", "member-3", "member-4", "member-5", "member-6"];
 const SCI = ["member-11", "member-12", "member-13", "member-14", "member-15", "member-16"];
 const T0 = 100_000;
@@ -117,6 +121,21 @@ function settled(exp: Expedition): Expedition {
 // The GG-0 gas giant system: a fresh save's candidate 2 (body 1 is the giant).
 const GIANT = "cand-1-2";
 
+// A Tier I study run whose giant is not the last body: the first such candidate from save seed 0x51f15e on. Pure.
+const BEFORE_LAST = ((): { save: number; id: string } => {
+  for (let k = 0; k < 200; k++) {
+    const save = (0x51f15e + k * 977) >>> 0;
+    for (const id of ["cand-1-0", "cand-1-1", "cand-1-2"]) {
+      const res = asPreNebulaDispatch(dispatchPastPropulsion(crewed(save), "ship-1", 1, id));
+      const exp = res.expedition;
+      if (!res.success || !exp?.study) continue;
+      const giant = exp.bodies.findIndex((b) => isOrbitalPlanetType(b.planetType));
+      if (giant >= 0 && giant < exp.bodies.length - 1) return { save, id };
+    }
+  }
+  throw new Error("no study run with a body after its giant");
+})();
+
 describe("GG-3 the study leg", () => {
   it("starts when the giant's scan completes, lasts studySeconds, the ship holds orbit and the scan clock pauses", () => {
     const { exp } = dispatch(crewed(), GIANT);
@@ -137,8 +156,8 @@ describe("GG-3 the study leg", () => {
   });
 
   it("a study before the last body pauses the scan clock for its whole length; the next body's scan resumes after", () => {
-    // Save seed 0x51f15e, Tier I candidate 0: its giant is not the last body (gasGiantStudyGoldens GG-3 capture).
-    const { exp } = dispatch(crewed(0x51f15e), "cand-1-0");
+    // A run whose giant is not the last body (BEFORE_LAST).
+    const { exp } = dispatch(crewed(BEFORE_LAST.save), BEFORE_LAST.id);
     const run = settled(exp);
     const leg = run.groundOps!.studyLegs![0];
     expect(leg.scanBodyIndex).not.toBeNull();
@@ -223,7 +242,7 @@ describe("GG-3 the study leg", () => {
   });
 
   it("offline == live: one call == 997 s chunks == 1 s steps, across the study's start and end", () => {
-    for (const [save, id] of [[undefined, GIANT], [0x51f15e, "cand-1-0"]] as const) {
+    for (const [save, id] of [[undefined, GIANT], [BEFORE_LAST.save, BEFORE_LAST.id]] as const) {
       const { exp } = dispatch(crewed(save, true), id);
       const end = T0 + 4_000_000;
       const one = advanceExpedition(exp, end);

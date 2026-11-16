@@ -249,13 +249,15 @@ describe("SQ-4 the gate: a flagged run without a risk profile resolves byte-iden
 // ===== preview == run =====
 
 describe("SQ-4 the risk profile: drawn at dispatch from the committed seed, so the preview never lies", () => {
-  it("startExpedition stores exactly expeditionRiskPreview(seed): the profile and every body's grades", () => {
+  // Fix round FR-E (lane 3 I2): a real star's bodies are the star's, so the preview reads the candidate's region (its
+  // starId), exactly as the console does (ExpeditionPanel.svelte hands each preview the candidate's region).
+  it("startExpedition stores exactly expeditionRiskPreview(seed, region): the profile and every body's grades", () => {
     for (let k = 0; k < 12; k += 1) {
       const s = { ...compState("one"), expeditionSeed: (0x51ed27 + k * 0x9e3779b) >>> 0 };
       for (const cand of expeditionCandidates(s, "ship-1")) {
         const res = asPreCurveDispatch(asPreG2NamesDispatch(dispatchPastPropulsion(s, "ship-1", 1, cand.id)));
         const exp = res.expedition!;
-        const preview = expeditionRiskPreview(cand.seed);
+        const preview = expeditionRiskPreview(cand.seed, cand.region);
         expect(exp.seed).toBe(cand.seed);
         expect(exp.risk).toEqual(preview.profile);
         expect(exp.bodies.map((b) => b.risk)).toEqual(preview.bodies);

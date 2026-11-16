@@ -1290,6 +1290,8 @@ export const PATROL_END_REASON_VIEW: Record<
   // Rare and self-healing, but it IS an ending and it gets real words rather than a blank.
   // Worded for a player rather than a developer: they did not retire anything, the content did.
   missionKeyRetired: { label: "patrol no longer available", wallStop: null },
+  // Fix round FR-E (lane 4 q3, "Stop and explain"): the log line reads "N routes, <label>".
+  outmatched: { label: "stopped: the next route would be lost even fully repaired", wallStop: null },
 };
 
 // Resolve a record's `subjectKey` (a raw id, never a rendered string) to a display name.

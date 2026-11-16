@@ -49,6 +49,13 @@ wr11OffForThisFile();
 // 100%, which these vault and claim pins (about their own slice) were captured without. The roll is off for this file;
 // its moves are pinned and proven in completionRollGoldens.test.ts.
 import { completionRollOffForThisFile } from "./completionTrackingSwitch.fixture";
+import { fixRoundESwitchesOffForThisFile } from "./fixRoundESwitch.fixture";
+
+// Fix round FR-E (0.14.0): the star rule (lane 3 I2, STAR_BODIES_SWITCH: a real star's bodies are drawn from the star,
+// not from its candidate slot) moves the Tier 1, seed 23 row (a real star). The pins here predate the round and are
+// about another slice, so the file runs with that fix off (fixRoundESwitch.fixture.ts); every other fix of the round
+// runs here. The round's own pins: expeditionFixRoundE.test.ts and expeditionFixRoundEGoldens.test.ts.
+fixRoundESwitchesOffForThisFile("starBodies");
 completionRollOffForThisFile();
 
 const SEEDS = [11, 23, 37] as const;

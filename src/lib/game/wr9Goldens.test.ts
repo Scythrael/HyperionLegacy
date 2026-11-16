@@ -69,6 +69,15 @@ gatheringTrainingOffForThisFile();
 // Evacuation overlay. The file draws the seven-template board (evacuationDrawSwitch.fixture.ts), so its pins keep proving
 // their own slice (E5-2's moves: refugeeGoldens.test.ts and refugeeArrival.test.ts).
 import { evacuationDrawOffForThisFile } from "./evacuationDrawSwitch.fixture";
+import { fixRoundESwitchesOffForThisFile } from "./fixRoundESwitch.fixture";
+
+// Fix round FR-E (0.14.0): the climb (lane 4 I2, PATROL_REPEAT_CLIMB_SWITCH: a Repeat run climbs one curve step every
+// PATROL_CLIMB_EVERY_ROUTES routes) moves the patrol run (it flies past PATROL_CLIMB_EVERY_ROUTES routes); and Resume
+// when safe (lane 4 I1, PATROL_RESUME_WHEN_SAFE_SWITCH: a Repeat repair pause ends once the next route is safe, not at
+// full) moves the same run's repair pauses. The pins here predate the round and are about another slice, so the file
+// runs with those fixes off (fixRoundESwitch.fixture.ts); every other fix of the round runs here. The round's own pins:
+// patrolFixRoundE.test.ts.
+fixRoundESwitchesOffForThisFile("repeatClimb", "resumeWhenSafe");
 evacuationDrawOffForThisFile();
 
 // Captured on the code BEFORE the engine edit (1e6a40a).

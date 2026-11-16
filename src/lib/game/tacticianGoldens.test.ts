@@ -68,6 +68,13 @@ battleWearOffInThisFile();
 // Control Suite favors the Tactician spec): the pins predate it; favorsSpecGoldens.test.ts pins it.
 import { favoredSpecOffForThisFile } from "./favoredSpecSwitch.fixture";
 import { wr11OffForThisFile } from "./wr11Switch.fixture";
+import { fixRoundESwitchesOffForThisFile } from "./fixRoundESwitch.fixture";
+
+// Fix round FR-E (0.14.0): the stop rule (lane 4 q3, PATROL_STOP_DOOMED_SWITCH: Repeat stops "outmatched" before a
+// route it would lose even fully repaired) moves every row's patrol (it meets a route it would lose). The pins here
+// predate the round and are about another slice, so the file runs with that fix off (fixRoundESwitch.fixture.ts); every
+// other fix of the round runs here. The round's own pins: patrolFixRoundE.test.ts.
+fixRoundESwitchesOffForThisFile("stopDoomed");
 favoredSpecOffForThisFile();
 // Wiring WR-11 came after every pin here: the whole file runs with WR-11 off (wr11Switch.fixture.ts), so its pins keep
 // proving their own slice moved nothing else (WR-11's own moves are pinned in wr11Goldens.test.ts).

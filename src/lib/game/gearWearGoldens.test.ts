@@ -124,6 +124,15 @@ import { evacuationDrawOffForThisFile } from "./evacuationDrawSwitch.fixture";
 // fleet whose surplus crew the reserve now moves out of the pool, so the whole file runs with it off and its pins keep
 // proving their own slice (switch-off reproduction: every pin holds with it off). homeworldReserveGoldens pins the reserve.
 import { homeworldReserveOffForThisFile } from "./homeworldReserveSwitch.fixture";
+import { fixRoundESwitchesOffForThisFile } from "./fixRoundESwitch.fixture";
+
+// Fix round FR-E (0.14.0): Resume when safe (lane 4 I1, PATROL_RESUME_WHEN_SAFE_SWITCH: a Repeat repair pause ends once
+// the next route is safe, not at full) moves the wear4 carrier Repeat Warband row's pause; and the pause's docked
+// pricing (lane 4 M6, PAUSE_JOB_LIKE_DOCKED_SWITCH: a repair pause records the docked job's length for its Overtime)
+// moves the same pause's record. The pins here predate the round and are about another slice, so the file runs with
+// those fixes off (fixRoundESwitch.fixture.ts); every other fix of the round runs here. The round's own pins:
+// patrolFixRoundE.test.ts.
+fixRoundESwitchesOffForThisFile("resumeWhenSafe", "pauseJobLikeDocked");
 homeworldReserveOffForThisFile();
 evacuationDrawOffForThisFile();
 

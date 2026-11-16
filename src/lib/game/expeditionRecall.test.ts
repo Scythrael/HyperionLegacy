@@ -26,6 +26,7 @@ import { REGION_TIERS } from "./galaxy";
 import { WOLF_359_ID } from "./starCatalog";
 import { IN_SYSTEM_LEG_SECONDS } from "./groundOps";
 import { installMissingCombatBaselines } from "./tick";
+import { withRecallKeepsListOff } from "./fixRoundESwitch.fixture";
 import { asExpeditionVeteran, plainAwayMember } from "./awayTeamTestFixtures";
 
 const T0 = 100_000;
@@ -132,9 +133,12 @@ describe("G2-5 recall in transit: home in the time flown (user #7), the system a
     expect(after.recall!.returnSeconds).toBeLessThanOrEqual(v.returnSeconds);
   });
 
+  // Fix round FR-E (lane 3 I3, user "Recalled launch keeps the list"): a recall now restores the list its launch drew
+  // (expeditionFixRoundE.test.ts). These three tests pin the ordinary held candidate, which is still what a recall
+  // leaves when another list was drawn since the launch; they recall with the list rule off to reach it directly.
   it("the system returns to the ordinary candidates of its tier and launches fresh from there; the list stays", () => {
     const { state, exp } = launched();
-    const s1 = recallExpedition(at(state, T0 + 600), exp.id);
+    const s1 = withRecallKeepsListOff(() => recallExpedition(at(state, T0 + 600), exp.id));
     expect(heldSystems(s1)).toMatchObject([{ id: `held-${exp.id}`, kind: "candidate", seed: exp.seed, systemName: exp.systemName }]);
     expect(resumableSystems(s1)).toEqual([]);
     const home = advanceExpedition(only(s1), FINAL);
@@ -155,7 +159,7 @@ describe("G2-5 recall in transit: home in the time flown (user #7), the system a
   // returned candidate rolls off with the next list draw, like the list's own three. A resumable system stays.
   it("a returned candidate rolls off with the next dispatch from the list; a resumable system stays", () => {
     const { state, exp } = launched();
-    const s1 = recallExpedition(at(state, T0 + 600), exp.id);
+    const s1 = withRecallKeepsListOff(() => recallExpedition(at(state, T0 + 600), exp.id));
     const home = advanceExpedition(only(s1), FINAL);
     const s2 = claimExpedition({ ...s1, gameTimeSeconds: home.phaseAnchorSeconds, expeditions: [home] }, exp.id).next;
     const resume = { ...heldSystems(s2)[0], id: "held-expedition-99", fromExpeditionId: "expedition-99", kind: "resume" as const, bodies: home.bodies, risk: home.risk };
@@ -185,7 +189,7 @@ describe("G2-5 recall in transit: home in the time flown (user #7), the system a
       const exp = first.expedition!;
       const listAfterFirst = tierCandidateSystems(first.next, 1);
       if (!veteran) expect(listAfterFirst[0].famousId).toBe(WOLF_359_ID);
-      const s1 = recallExpedition(at(first.next, T0 + 600), exp.id);
+      const s1 = withRecallKeepsListOff(() => recallExpedition(at(first.next, T0 + 600), exp.id));
       const home = advanceExpedition(only(s1), FINAL);
       const s2 = claimExpedition({ ...s1, gameTimeSeconds: home.phaseAnchorSeconds, expeditions: [home] }, exp.id).next;
       const before = REGION_TIERS.map((t) => tierCandidateSystems(s2, t));
