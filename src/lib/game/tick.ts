@@ -56,6 +56,7 @@ import {
   // WR-7 follow-up (OC-D5): the favored-spec stamp and the favored lines.
   favoredSpecStamp,
   withFavoredLines,
+  FAVORED_SPEC_SWITCH,
   CAPTAIN_TALENTS,
   CAPTAIN_SPEC_BONUS,
   HOMEWORLD_TALENTS,
@@ -320,6 +321,7 @@ import { generateEnemyWave } from "./combat/enemyWave";
 import { resolveBattle } from "./combat/resolveBattle";
 import { recoverPatrolDrones } from "./combat/droneDefense";
 import type { DroneSquadron } from "./combat/drones";
+import type { Combatant } from "./combat/types";
 // Combat 0.13.0 (Phase 12b-1): the SHARED per-wave leaves. buildPatrolPlayerCombatant
 // builds the wave's player combatant from the carry-state; regenPatrolShield is the
 // between-wave shield-regen formula. The DISPLAY-ONLY patrol replay (patrolReplay.ts)
@@ -3443,6 +3445,116 @@ interface PatrolTickResult {
   levelMilestones?: { level: number; atTick: number }[];
 }
 
+// PATROL CATCH-UP PERFORMANCE (0.14.0 release blocker): a test-only switch (patrolPerfSwitch.fixture.ts; always live in
+// the game). Live, the patrol arm reads its relaunch-only inputs lazily (each computed at most once per call, only when a
+// relaunch reads it), the FR-E projections keep no display record and stop at their answer, and the per-cycle setup is
+// reused across calls. Off, every one of those is computed as before. The results are identical either
+// way (patrolPerfParity.test.ts proves it on whole states); only the work differs.
+export const PATROL_PERF_SWITCH = { live: true };
+
+// A value computed at most once, on first read. Pure inputs only (the patrol arm reads the same state either way).
+function lazyOnce<T>(compute: () => T): () => T {
+  let done = false;
+  let value: T;
+  return () => {
+    if (!done) {
+      value = compute();
+      done = true;
+    }
+    return value;
+  };
+}
+
+// PATROL CATCH-UP PERFORMANCE: a cycle's setup (its frozen gear view, the folded carry pools, the Damage Control Suite's
+// patch-up fraction and the stamped cycle's system pools), a pure function of the cycle's frozen records, the ship's
+// type and its installed pieces. Computed once per cycle instead of on every 1 s step: reused while every input is the
+// SAME object (or value) it was computed from. A gear change of any kind (an install, a swap, wear or repair landing on
+// a piece) replaces that piece object in the state, and a relaunch mints new records, so either misses and recomputes.
+// The module-level test switches the setup reads are part of the check too (FAVORED_SPEC_SWITCH, through
+// withFavoredLines; shipToCombatant and systemPoolsForHull read none), so a test that toggles one on the same state
+// never reads a stale setup.
+interface PatrolCycleSetup {
+  cycleGear: EquipmentInstance[] | undefined;
+  foldedDefense: ReturnType<typeof foldedPlayerDefense>;
+  waveHullRegenFraction: number;
+  cyclePools: ReturnType<typeof patrolCyclePools>;
+}
+interface PatrolCycleSetupEntry {
+  gear: readonly EquipmentInstance[] | undefined;
+  cycleStartCondition: PatrolMissionState["cycleStartCondition"];
+  officerCombat: PatrolMissionState["officerCombat"];
+  captainCombat: PatrolMissionState["captainCombat"];
+  combatRules: PatrolMissionState["combatRules"];
+  favoredSpec: PatrolMissionState["favoredSpec"];
+  typeKey: ShipInstance["typeKey"];
+  favoredSwitch: boolean;
+  setup: PatrolCycleSetup;
+}
+// Keyed on the cycle's wave schedule (one array per cycle, minted with it and only ever replaced whole), and checked
+// against every input above before it is reused.
+const PATROL_CYCLE_SETUP = new WeakMap<readonly number[], PatrolCycleSetupEntry>();
+
+function samePieces(a: readonly EquipmentInstance[] | undefined, b: readonly EquipmentInstance[] | undefined): boolean {
+  if (a === undefined || b === undefined) return a === b;
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return false;
+  return true;
+}
+
+function computePatrolCycleSetup(
+  installedGear: EquipmentInstance[] | undefined,
+  mission: PatrolMissionState,
+  ship: ShipInstance,
+  hullType: CombatHullType,
+  shipDef: ShipTypeDef,
+): PatrolCycleSetup {
+  const cycleGear = patrolCycleGear(installedGear, mission);
+  const suite = cycleGear && mission.favoredSpec === 1 ? withFavoredLines(cycleGear, ship.typeKey) : cycleGear;
+  return {
+    cycleGear,
+    foldedDefense: foldedPlayerDefense(shipDef, cycleGear, mission.officerCombat, mission.captainCombat),
+    waveHullRegenFraction: damageControlEffect(suite).waveHullRegenFraction,
+    cyclePools: patrolCyclePools(hullType, shipDef, cycleGear, mission),
+  };
+}
+
+function patrolCycleSetup(
+  installedGear: EquipmentInstance[] | undefined,
+  mission: PatrolMissionState,
+  ship: ShipInstance,
+  hullType: CombatHullType,
+  shipDef: ShipTypeDef,
+): PatrolCycleSetup {
+  if (!PATROL_PERF_SWITCH.live) return computePatrolCycleSetup(installedGear, mission, ship, hullType, shipDef);
+  const hit = PATROL_CYCLE_SETUP.get(mission.waveTicks);
+  if (
+    hit !== undefined &&
+    hit.cycleStartCondition === mission.cycleStartCondition &&
+    hit.officerCombat === mission.officerCombat &&
+    hit.captainCombat === mission.captainCombat &&
+    hit.combatRules === mission.combatRules &&
+    hit.favoredSpec === mission.favoredSpec &&
+    hit.typeKey === ship.typeKey &&
+    hit.favoredSwitch === FAVORED_SPEC_SWITCH.live &&
+    samePieces(hit.gear, installedGear)
+  ) {
+    return hit.setup;
+  }
+  const setup = computePatrolCycleSetup(installedGear, mission, ship, hullType, shipDef);
+  PATROL_CYCLE_SETUP.set(mission.waveTicks, {
+    gear: installedGear === undefined ? undefined : [...installedGear],
+    cycleStartCondition: mission.cycleStartCondition,
+    officerCombat: mission.officerCombat,
+    captainCombat: mission.captainCombat,
+    combatRules: mission.combatRules,
+    favoredSpec: mission.favoredSpec,
+    typeKey: ship.typeKey,
+    favoredSwitch: FAVORED_SPEC_SWITCH.live,
+    setup,
+  });
+  return setup;
+}
+
 // tickCaptainPatrol: advance ONE captain's patrol by `ticksElapsed` route ticks. PURE
 // given its inputs (the only randomness is the state-derived combat seeds, never
 // Math.random), so it is closed-form / offline==live (see the header invariant). A
@@ -3590,19 +3702,21 @@ export function tickCaptainPatrol(
   // cycleStartCondition), which every wave, the carry pools and the Damage Control Suite read. A cycle without the
   // stamp (one that started before step 4, or the training cycle) reads the stored gear, which every combat reader takes
   // as pristine: exactly the cycle it was. `let`: a relaunch freezes its own.
-  let cycleGear = patrolCycleGear(installedGear, captain.mission);
-  let foldedDefense = foldedPlayerDefense(shipDef, cycleGear, captain.mission.officerCombat, captain.mission.captainCombat);
-  // Command Presence's per-wave reward share (0 = no multiply, byte-identical rewards).
-  const patrolOutputShare = Math.max(0, officerEffects.outputShare ?? 0);
+  // PATROL CATCH-UP PERFORMANCE: the cycle's setup (this view, these pools, the suite's fraction and the system pools
+  // below) is computed once per cycle and reused while its inputs are unchanged (patrolCycleSetup).
+  const setupAtStart = patrolCycleSetup(installedGear, captain.mission, ship, hullType, shipDef);
+  let cycleGear = setupAtStart.cycleGear;
+  let foldedDefense = setupAtStart.foldedDefense;
+  // Command Presence's per-wave reward share (0 = no multiply, byte-identical rewards). Read on the first WON wave only
+  // (economyTick hands it as a lazy getter, PATROL_PERF_SWITCH), the same value whenever it is read.
+  const patrolOutputShare = lazyOnce(() => Math.max(0, officerEffects.outputShare ?? 0));
   // Exploration 0.14.0 (E4d): the installed Damage Control Suite's between-wave hull patch-up fraction,
   // computed ONCE (pure, from the same installedGear). EXACTLY 0 without the suite, which makes the
   // per-wave damageControlBeforeWave call below a same-value no-op (byte-identical attrition).
   // GEAR WEAR step 4: from the cycle's frozen gear (a worn suite patches at its worn line), re-read at a relaunch.
   // WR-7 follow-up (OC-D5): a run stamped with the favored spec reads the suite's favored lines on a Tactician hull (the
-  // stamp rides every relaunch); a run in flight from before reads them as stored.
-  const favoredRun = captain.mission.favoredSpec === 1;
-  const suiteGear = (g: EquipmentInstance[] | undefined): EquipmentInstance[] | undefined => (g && favoredRun ? withFavoredLines(g, ship.typeKey) : g);
-  let waveHullRegenFraction = damageControlEffect(suiteGear(cycleGear)).waveHullRegenFraction;
+  // stamp rides every relaunch); a run in flight from before reads them as stored (computePatrolCycleSetup).
+  let waveHullRegenFraction = setupAtStart.waveHullRegenFraction;
 
   // WORKING mission copy. Spread makes a fresh object (so wavesWon/phase/etc. mutations
   // never touch the input), and playerDrones is DEEP-cloned so the between-wave
@@ -3684,7 +3798,7 @@ export function tickCaptainPatrol(
   // stamped cycle's pools (the start it opened at and its ceilings) for the cycle's pool wear (null: an unstamped
   // cycle, which wears nothing); and the offset a stamped cycle's patrol ended at.
   const gearWearEvents: PatrolWearEvent[] = [];
-  let cyclePools = patrolCyclePools(hullType, shipDef, cycleGear, captain.mission);
+  let cyclePools = setupAtStart.cyclePools;
   let endedAtTicks: number | null = null;
   // GEAR WEAR step 4 (pause to repair): the home repair windows of the pauses that closed this call (absolute game
   // seconds); the run's pauses so far (user "Count on the run": its one log entry says how many).
@@ -3925,7 +4039,7 @@ export function tickCaptainPatrol(
         // output-rounding stream (WAVE_OUTPUT_ROUNDING_SEED_SALT; materials in roll order, then the bounty).
         // WR-5b: the cycle's frozen captain Patrol Efficiency is its own factor on the same amounts and the same
         // stream (exactly 1 + patrolOutputShare without it, so a no-node patrol is unchanged).
-        const rewardMult = patrolWaveRewardMult(patrolOutputShare, mission.captainCombat);
+        const rewardMult = patrolWaveRewardMult(patrolOutputShare(), mission.captainCombat);
         const outputRng =
           rewardMult === 1 ? null : makeRng(deriveWaveSeed(mission.masterSeed, waveIndex, WAVE_OUTPUT_ROUNDING_SEED_SALT));
         const boosted = (amount: number): number =>
@@ -4037,7 +4151,7 @@ export function tickCaptainPatrol(
       // GEAR WEAR step 4 (user 2026-10-28, the repair trigger from realism): the NEXT cycle, minted now so its wear can be
       // projected before it flies (the relaunch below takes this same value). Pure.
       const cur: PatrolMissionState = mission;
-      const next: { mission: PatrolMissionState; gear: typeof installedGear } | null = cur.repeatDispatch && !cur.recalled
+      const next: { mission: PatrolMissionState } | null = cur.repeatDispatch && !cur.recalled
         ? (() => {
           // Fresh master seed derived PURELY from this captain's OWN current master seed
           // (RELAUNCH_SEED_SALT), forming an independent per-captain chain. NOT drawn from
@@ -4127,7 +4241,7 @@ export function tickCaptainPatrol(
             // WR-9 fix round: and the run's Pilot Cunning stamp (absent stays absent).
             pilotCunning: cur.pilotCunning,
           });
-          return { mission: minted, gear: nextGear };
+          return { mission: minted };
         })()
         : null;
       // GEAR WEAR step 4, PAUSE TO REPAIR (user 2026-10-27; the trigger, user 2026-10-28 "from realism"): a stamped
@@ -4166,14 +4280,16 @@ export function tickCaptainPatrol(
         // auto-buy and the "truly broke" end (outOfFuel) are gone, unreachable since 0.13.6 (an infinite budget).
         // The next cycle, minted above (nextCycle: its fresh seed, frozen bonuses and frozen gear).
         mission = next!.mission;
-        const nextGear = next!.gear;
         // The new cycle's frozen bonuses may differ from the old one's: re-fold the carry pools so the
         // between-wave regen and the limp damage read the SAME fold as this cycle's wave combatants.
         // GEAR WEAR step 4: and its frozen gear (the view, the suite's patch-up, the pools its wear is read against).
-        cycleGear = nextGear;
-        foldedDefense = foldedPlayerDefense(shipDef, cycleGear, mission.officerCombat, mission.captainCombat);
-        waveHullRegenFraction = damageControlEffect(suiteGear(cycleGear)).waveHullRegenFraction;
-        cyclePools = patrolCyclePools(hullType, shipDef, cycleGear, mission);
+        // The same setup the cycle's first step reads (computePatrolCycleSetup), so the two cannot drift: its view is
+        // the minted cycle's own (its cycleStartCondition is the nextConditions the view above was made with).
+        const relaunched = computePatrolCycleSetup(installedGear, mission, ship, hullType, shipDef);
+        cycleGear = relaunched.cycleGear;
+        foldedDefense = relaunched.foldedDefense;
+        waveHullRegenFraction = relaunched.waveHullRegenFraction;
+        cyclePools = relaunched.cyclePools;
         // WR-7 follow-up OC-D8: and the new cycle's route (its frozen legs), which its phases, end and limp read.
         route = patrolRouteOf(mission);
         routeLength = patrolRouteTicks(route);
@@ -4355,17 +4471,25 @@ export function projectedCycleBreak(mission: PatrolMissionState, playerId: strin
   const frozen = mission.cycleStartCondition;
   if (!storedGear || frozen === undefined) return false;
   if (!storedGear.some((p) => REPAIR_PAUSE_SLOTS.has(p.slotType) && (frozen[p.id] ?? CONDITION_FULL) < CONDITION_FULL)) return false;
+  // PATROL CATCH-UP PERFORMANCE (PATROL_PERF_SWITCH): the answer is yes at the first wave a system breaks, so the
+  // projection stops there (and keeps no display record); with no break it runs to its end (or its defeat), as before.
+  if (PATROL_PERF_SWITCH.live) {
+    const probed = resolveMissionCycle(mission, playerId, hullType, storedGear, { stopAfterWave: projectedSystemBroke });
+    return probed.stopped === true || (PATROL_REPAIR_ON_PROJECTED_DEFEAT && probed.defeated);
+  }
   const cycle = resolveMissionCycle(mission, playerId, hullType, storedGear);
   if (PATROL_REPAIR_ON_PROJECTED_DEFEAT && cycle.defeated) return true;
-  return cycle.waves.some((w) => {
-    const end = w.playerEnd;
-    if (!end) return false;
-    return (
-      end.weapons.some((weapon) => weapon.durability <= PATROL_BREAK_MARGIN) ||
-      (end.reactor !== undefined && end.reactor.durability <= PATROL_BREAK_MARGIN) ||
-      (end.ftl !== undefined && end.ftl.durability <= PATROL_BREAK_MARGIN)
-    );
-  });
+  return cycle.waves.some((w) => projectedSystemBroke(w.playerEnd));
+}
+
+// A wave's end state with a combat system (a weapon, the reactor, the drive) down to PATROL_BREAK_MARGIN. Pure.
+function projectedSystemBroke(end: Combatant | undefined): boolean {
+  if (!end) return false;
+  return (
+    end.weapons.some((weapon) => weapon.durability <= PATROL_BREAK_MARGIN) ||
+    (end.reactor !== undefined && end.reactor.durability <= PATROL_BREAK_MARGIN) ||
+    (end.ftl !== undefined && end.ftl.durability <= PATROL_BREAK_MARGIN)
+  );
 }
 
 // Fix round FR-E (lane 4 q3, user 2026-11-14 "Stop and explain (Recommended)"): would `mission` (a cycle about to fly)
@@ -4373,7 +4497,8 @@ export function projectedCycleBreak(mission: PatrolMissionState, playerId: strin
 // at full, resolveMissionCycle, no draw spent)? Then no repair pause can save it, and Repeat stops instead of flying it.
 // Pure.
 export function projectedPristineDefeat(mission: PatrolMissionState, playerId: string, hullType: CombatHullType, storedGear: EquipmentInstance[]): boolean {
-  return resolveMissionCycle({ ...mission, cycleStartCondition: {} }, playerId, hullType, storedGear).defeated;
+  // PATROL CATCH-UP PERFORMANCE: as a projection (no display record kept; PATROL_PERF_SWITCH off, the display replay).
+  return resolveMissionCycle({ ...mission, cycleStartCondition: {} }, playerId, hullType, storedGear, PATROL_PERF_SWITCH.live ? {} : undefined).defeated;
 }
 
 // Test switches only (fixRoundESwitch.fixture.ts; always live in the game; off, each fix is undone exactly):
@@ -5129,7 +5254,67 @@ function economyTickCall(
         const patrolFavored = captain.mission.favoredSpec === 1;
         // Complement CP-13 (OC-13): likewise a patrol stamped with the hull-family stamp reads its crew modules' hull bonus.
         const patrolHullBonus = captain.mission.hullBonus === 1;
-        const patrolStats = patrolShip && patrolGear ? effectiveShipStats(state, patrolShip, { favored: patrolFavored, hullBonus: patrolHullBonus }) : null;
+        // PATROL CATCH-UP PERFORMANCE (PATROL_PERF_SWITCH): most of these inputs are read only at a RELAUNCH (about once
+        // every 14+ route ticks), and outputShare only on a won wave, yet each re-runs the crew rollup. So each is a lazy
+        // getter over this same state, computed at most once per call and only when read (the repair bonuses once for both
+        // rates). Pure reads of a state this call does not change, so a value read late equals the value read early. With
+        // the switch off the getters are read up front into a plain object, the eager build exactly.
+        const patrolStats = lazyOnce(() => (patrolShip && patrolGear ? effectiveShipStats(state, patrolShip, { favored: patrolFavored, hullBonus: patrolHullBonus }) : null));
+        const patrolLazy = patrolShip
+          ? {
+              outputShare: lazyOnce(() => shipMissionOutputBonus(state, patrolShip, patrolHullBonus)),
+              relaunchCombatProfile: lazyOnce(() => officerCombatProfile(state, patrolShip)),
+              hullWeapon: lazyOnce(() => (patrolHullBonus ? hullFamilyWeaponLine(state, patrolShip) : 0)),
+              freeRepairChance: lazyOnce(() => departmentFacet(state, patrolShip, "engineering", "cunning")),
+              returnConstitution: lazyOnce(() => departmentFacet(state, patrolShip, "flightDeck", "constitution")),
+              homeGuardShield: lazyOnce(() => homeGuardPatrolShieldMult(state)),
+              deckHandling: lazyOnce(() => shipDeckHandling(state, patrolShip, patrolHullBonus)),
+              deckHandlingSteady: lazyOnce(() => shipFlightDeckIntegrityDeckHandling(state, patrolShip, patrolHullBonus)),
+              combatRules: lazyOnce(() => shipCombatRulesStamp(state, patrolShip, patrolFavored, patrolHullBonus)),
+              repairBonuses: lazyOnce(() => shipRepairBonuses(state, patrolShip, patrolFavored, patrolHullBonus)),
+            }
+          : null;
+        const patrolEffectsLazy = patrolLazy
+          ? {
+              // CP-2 (OC-E3): plus the complement's Crew Output Multiplier (shipMissionOutputBonus).
+              get outputShare() { return patrolLazy.outputShare(); },
+              get relaunchCombatProfile() { return patrolLazy.relaunchCombatProfile(); },
+              // CP-13: the bridge's weapon line a stamped run's relaunch freezes (0 off a Tactician hull).
+              get hullWeapon() { return patrolLazy.hullWeapon(); },
+              secondsPerTick: state.tickDurationSeconds,
+              get freeRepairChance() { return patrolLazy.freeRepairChance(); },
+              get returnConstitution() { return patrolLazy.returnConstitution(); },
+              // WR-6: Home Guard, for the next cycle's frozen record (exactly 1 without the talent).
+              get homeGuardShield() { return patrolLazy.homeGuardShield(); },
+              // 0.14.0 (CP-4): Deck Handling, for the next cycle's frozen record (0 without the key).
+              get deckHandling() { return patrolLazy.deckHandling(); },
+              // CP-4's rest: and the Flight Deck's Integrity lift below half hull, on its own Deck Handling only (user
+              // 2026-11-11 "Flight Deck's own only"; 0 without the facet).
+              get deckHandlingSteady() { return patrolLazy.deckHandlingSteady(); },
+              // WR-8: the combat rules and combat speed, for the next cycle's frozen record.
+              get combatRules() { return patrolLazy.combatRules(); },
+              // WR-7 follow-up OC-D8: the transit speed the next cycle freezes its legs at (the sheet the fuel reads), and
+              // (OC-D8 follow-up) its per-leg lifts (Fast Departure, Fast Return), each on its own leg. Undefined without
+              // the sheet, which every reader takes as absent.
+              get transitSpeed() { return patrolStats()?.transitSpeedMult; },
+              get transitOutLegMult() { return patrolStats()?.transitOutLegMult; },
+              get transitBackLegMult() { return patrolStats()?.transitBackLegMult; },
+              // GEAR WEAR step 4: the clock and the underway repair rate a relaunch freezes its gear with.
+              gearWear: {
+                startSeconds: state.gameTimeSeconds,
+                secondsPerTick: state.tickDurationSeconds,
+                // WR-7 follow-up (OC-D5): on the run's favored-spec stamp, as the tail pass reads it.
+                get underwayRate() { return repairRatePerMinute("underway", patrolLazy.repairBonuses()); },
+                get homeRate() { return repairRatePerMinute("home", patrolLazy.repairBonuses()); },
+              },
+            }
+          : null;
+        // Switch off: every input read now (a spread reads each getter), the eager build.
+        const patrolEffects = patrolEffectsLazy === null
+          ? {}
+          : PATROL_PERF_SWITCH.live
+            ? patrolEffectsLazy
+            : { ...patrolEffectsLazy, gearWear: { ...patrolEffectsLazy.gearWear } };
         const patrolResult = tickCaptainPatrol(
           ticksElapsed,
           captain,
@@ -5142,40 +5327,7 @@ function economyTickCall(
           // won wave; the combat bonuses a relaunch freezes). Both zero / undefined without the officers.
           // E-CREW 0.14.0 (Task 21): the relaunch now folds the officers' combat PROFILE (Constitution ramp +
           // Integrity extras) at the run's hours, and rolls Engineering's Cunning for each new cycle.
-          patrolShip
-            ? {
-                // CP-2 (OC-E3): plus the complement's Crew Output Multiplier (shipMissionOutputBonus).
-                outputShare: shipMissionOutputBonus(state, patrolShip, patrolHullBonus),
-                relaunchCombatProfile: officerCombatProfile(state, patrolShip),
-                // CP-13: the bridge's weapon line a stamped run's relaunch freezes (0 off a Tactician hull).
-                hullWeapon: patrolHullBonus ? hullFamilyWeaponLine(state, patrolShip) : 0,
-                secondsPerTick: state.tickDurationSeconds,
-                freeRepairChance: departmentFacet(state, patrolShip, "engineering", "cunning"),
-                returnConstitution: departmentFacet(state, patrolShip, "flightDeck", "constitution"),
-                // WR-6: Home Guard, for the next cycle's frozen record (exactly 1 without the talent).
-                homeGuardShield: homeGuardPatrolShieldMult(state),
-                // 0.14.0 (CP-4): Deck Handling, for the next cycle's frozen record (0 without the key).
-                deckHandling: shipDeckHandling(state, patrolShip, patrolHullBonus),
-                // CP-4's rest: and the Flight Deck's Integrity lift below half hull, on its own Deck Handling only (user
-                // 2026-11-11 "Flight Deck's own only"; 0 without the facet).
-                deckHandlingSteady: shipFlightDeckIntegrityDeckHandling(state, patrolShip, patrolHullBonus),
-                // WR-8: the combat rules and combat speed, for the next cycle's frozen record.
-                combatRules: shipCombatRulesStamp(state, patrolShip, patrolFavored, patrolHullBonus),
-                // WR-7 follow-up OC-D8: the transit speed the next cycle freezes its legs at (the sheet the fuel reads).
-                ...(patrolStats ? { transitSpeed: patrolStats.transitSpeedMult } : {}),
-                // OC-D8 follow-up: and its per-leg lifts (Fast Departure, Fast Return), each on its own leg.
-                ...(patrolStats?.transitOutLegMult !== undefined ? { transitOutLegMult: patrolStats.transitOutLegMult } : {}),
-                ...(patrolStats?.transitBackLegMult !== undefined ? { transitBackLegMult: patrolStats.transitBackLegMult } : {}),
-                // GEAR WEAR step 4: the clock and the underway repair rate a relaunch freezes its gear with.
-                gearWear: {
-                  startSeconds: state.gameTimeSeconds,
-                  secondsPerTick: state.tickDurationSeconds,
-                  // WR-7 follow-up (OC-D5): on the run's favored-spec stamp, as the tail pass reads it.
-                  underwayRate: repairRatePerMinute("underway", shipRepairBonuses(state, patrolShip, patrolFavored, patrolHullBonus)),
-                  homeRate: repairRatePerMinute("home", shipRepairBonuses(state, patrolShip, patrolFavored, patrolHullBonus)),
-                },
-              }
-            : {},
+          patrolEffects,
         );
         // GEAR WEAR step 4: the battle wear the patrol's stamped cycles took this call, each at its instant, and the
         // instant a stamped patrol ended (its pieces settle underway up to it, then at home or in a bay).
