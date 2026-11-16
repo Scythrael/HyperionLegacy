@@ -95,7 +95,7 @@ import {
   decodeRepairAnchor,
   encodeRepairAnchor,
   repairRateQ,
-  secondsToCondition,
+  secondsUntilCondition,
   settlePiece,
   useWear,
   useWearRaw,
@@ -930,7 +930,8 @@ export function pauseResumeTicks(state: GameState, shipId: string, steps: number
     if (goal === undefined) continue;
     const live = settlePieceNow(state, index, piece);
     const rate = pieceRepairRate(state, index, piece, "home") * mult;
-    most = Math.max(most, secondsToCondition(rebaseAnchor(live.piece, now, live.rate, rate), now, rate, goal));
+    // (The fix pass: to the instant each goal is reached, so a mid-second clock heads out on the first tick at it.)
+    most = Math.max(most, secondsUntilCondition(rebaseAnchor(live.piece, now, live.rate, rate), now, rate, goal));
   }
   return Math.max(1, Math.ceil(most / state.tickDurationSeconds));
 }

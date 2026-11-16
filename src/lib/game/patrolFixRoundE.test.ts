@@ -10,8 +10,9 @@ import { describe, expect, it } from "vitest";
 import Decimal from "break_infinity.js";
 import { type EquipmentInstance, type GameState, type PatrolMissionState } from "./model";
 import { dispatchCaptainOnPatrol, economyTick, projectedCycleBreak, projectedPristineDefeat, recallCaptain, tick } from "./tick";
-import { CONDITION_FULL, withPieceCondition } from "./gearWear";
-import { REPAIR_PAUSE_SLOTS } from "./gearWearEngine";
+import { CONDITION_FULL, REPAIR_BANK_PER_MILLE, REPAIR_RATES, repairRateQ, withPieceCondition } from "./gearWear";
+import { REPAIR_PAUSE_SLOTS, livePieceCondition } from "./gearWearEngine";
+import { gearOvertimePurchase } from "../gearWearDisplay";
 import { canBuyGearRepairOvertime } from "./processSpeed";
 import { combatHullTypeOf } from "./combat/bridge";
 import { fnv, onHull } from "./firstRunsGoldens.fixture";
@@ -100,6 +101,136 @@ describe("FR-E I1: a Repeat repair pause ends once the next route is safe, not a
     if (!q.ok) return;
     expect(q.minutesLeftAfter).toBeLessThan(q.minutesLeft);
     expect(q.minutesLeft * 60).toBe(before.ticksRemaining * later.tickDurationSeconds);
+  });
+});
+
+// The fix pass: gearWearCloseout.test.ts sections 2 and 2b and gearWearCombat.test.ts "Repair first, then go" pin the
+// pause that runs to full (they run with "Resume when safe" off); the same promises on the pause the game now makes, with
+// the round on: Overtime in a pause rescales it to the tick its gear reaches the goals, exactly, and the live bar
+// matches a hand-built exact reference every second, a purchase mid-bank and at a mid-second large game time included.
+describe("FR-E I1 with Overtime: the target pause resumes on the exact tick its gear reaches the goals", () => {
+  // The first condition (every combat piece at it) whose Repeat Sweep dispatch pauses short of full, and its goal (every
+  // piece starts at the same condition, so every piece has the same goal).
+  const SHORT = ((): { c: number; goal: number } => {
+    for (const c of [20, 100, 200, 300, 400, 500, 600, 700]) {
+      const pause = patrolOf(dispatchCaptainOnPatrol(wornAt(veteran(), c), 1, "crimsonReaverSweep", "balanced", true).next)?.repairPause;
+      if (pause?.target !== undefined) {
+        const goals = new Set(Object.values(pause.target));
+        expect(goals.size).toBe(1);
+        return { c, goal: [...goals][0] };
+      }
+    }
+    throw new Error("no fixture pause short of full repair");
+  })();
+  const Q_HOME = repairRateQ(REPAIR_RATES.home);
+  // A combat piece at SHORT.c, anchored (bank 0) at the pause's start t0, with Overtime steps bought at [instant, steps].
+  function reference(t0: number, buys: readonly [number, number][], t: number): number {
+    let units = 0;
+    let from = t0;
+    let q = Q_HOME;
+    for (const [at, steps] of buys) {
+      if (t <= at) break;
+      units += q * (at - from);
+      from = at;
+      q = repairRateQ(REPAIR_RATES.home * (1 + 0.25 * steps));
+    }
+    units += q * Math.max(0, t - from);
+    return Math.min(CONDITION_FULL, SHORT.c + Math.floor(units / REPAIR_BANK_PER_MILLE));
+  }
+  function pausedFrom(t0: number): GameState {
+    const base = { ...veteran(), gameTimeSeconds: t0 };
+    const r = dispatchCaptainOnPatrol(wornAt(base, SHORT.c), 1, "crimsonReaverSweep", "balanced", true);
+    expect(r.success, r.reason).toBe(true);
+    const pause = patrolOf(r.next)!.repairPause!;
+    expect(pause.from).toBe(t0);
+    expect(new Set(Object.values(pause.target!))).toEqual(new Set([SHORT.goal]));
+    return r.next;
+  }
+  const targeted = (s: GameState): EquipmentInstance[] => combat(s).filter((p) => patrolOf(s)!.repairPause!.target![p.id] !== undefined);
+
+  it("steps 1 to 3: the patrol heads out on the tick its gear reaches the goals, not a tick before", () => {
+    for (let steps = 1; steps <= 3; steps++) {
+      let s = pausedFrom(0);
+      s = stepped(s, Math.floor(patrolOf(s)!.repairPause!.ticksRemaining / 4));
+      for (let i = 0; i < steps; i++) s = gearOvertimePurchase(s, SHIP).next;
+      expect(s.ships[0].gearRepairSpeed?.overtimeSteps).toBe(steps);
+      const ids = targeted(s).map((p) => p.id);
+      let before = s;
+      while (patrolOf(s)!.repairPause !== undefined) {
+        before = s;
+        s = economyTick(s, 1, RNG);
+      }
+      // One tick before the close a targeted piece was still short of its goal; the relaunched cycle opens with each at
+      // or past it, short of full (the pause ended when the route was safe, not at full).
+      expect(combat(before).some((p) => ids.includes(p.id) && livePieceCondition(before, p) < SHORT.goal), `x${steps}`).toBe(true);
+      const opened = patrolOf(s)!.cycleStartCondition ?? {};
+      for (const id of ids) expect(opened[id] ?? CONDITION_FULL, `x${steps}`).toBeGreaterThanOrEqual(SHORT.goal);
+      expect(ids.some((id) => (opened[id] ?? CONDITION_FULL) < CONDITION_FULL), `x${steps}`).toBe(true);
+      expect(s.ships[0].gearRepairSpeed, `x${steps}`).toBeUndefined();
+    }
+  });
+
+  // Buy at each offset (seconds after t0, steps in order), then step 1 s: every second the live bar of every combat piece
+  // is the reference; the pause closes on exactly the second the reference reaches the goal. `coarse`: the spans before
+  // the buy and up to 3 s before the close run as one call each (one call == 1 s steps, I1 above).
+  function check(t0: number, offsets: readonly number[], coarse = false): void {
+    let s = pausedFrom(t0);
+    const buys: [number, number][] = [];
+    for (const off of offsets) {
+      const n = off - (s.gameTimeSeconds - t0);
+      s = coarse ? economyTick(s, n, RNG) : stepped(s, n);
+      for (const p of combat(s)) expect(livePieceCondition(s, p), `${t0}+${off} before the buy`).toBe(reference(t0, buys, s.gameTimeSeconds));
+      const r = gearOvertimePurchase(s, SHIP);
+      expect(r.bought, `${t0}+${off}`).toBe(true);
+      s = r.next;
+      buys.push([s.gameTimeSeconds, buys.length + 1]);
+      for (const p of combat(s)) expect(livePieceCondition(s, p), `${t0}+${off} at the buy`).toBe(reference(t0, buys, s.gameTimeSeconds));
+    }
+    let goalAt = s.gameTimeSeconds;
+    while (reference(t0, buys, goalAt) < SHORT.goal) goalAt += 1;
+    if (coarse && goalAt - 3 > s.gameTimeSeconds) {
+      s = economyTick(s, goalAt - 3 - s.gameTimeSeconds, RNG);
+      expect(patrolOf(s)!.repairPause).toBeDefined();
+    }
+    while (patrolOf(s)!.repairPause !== undefined) {
+      s = economyTick(s, 1, RNG);
+      if (patrolOf(s)!.repairPause !== undefined) {
+        for (const p of combat(s)) expect(livePieceCondition(s, p), `${t0} ${offsets} at ${s.gameTimeSeconds}`).toBe(reference(t0, buys, s.gameTimeSeconds));
+      }
+    }
+    expect(s.gameTimeSeconds, `${t0} ${offsets} resumes`).toBe(goalAt);
+    expect(reference(t0, buys, goalAt - 1)).toBeLessThan(SHORT.goal);
+  }
+  // Offsets inside the pause (it is shorter than the full one): a quarter in, and a second later (a bank in flight).
+  const quarter = (): number => Math.max(2, Math.floor(patrolOf(pausedFrom(0))!.repairPause!.ticksRemaining / 4));
+
+  it("bought a quarter in and a second later (a bank in flight), one step", () => {
+    check(0, [quarter()]);
+    check(0, [quarter() + 1]);
+  });
+
+  it("two steps at banked seconds", () => {
+    check(0, [quarter() + 1, 2 * quarter() + 1]);
+  });
+
+  it("a mid-second purchase at a large game time (3e6 + 0.5 s)", () => {
+    check(3e6 + 0.5, [quarter() + 1], true);
+  });
+});
+
+describe("FR-E I1: Repair first, then go (gearWearCombat's pin with the round on)", () => {
+  it("the run repairs until the first route is safe, then flies it repaired that far; a Dispatch Once never pauses", () => {
+    const worn = wornAt(veteran(), 20);
+    const s = dispatchCaptainOnPatrol(worn, 1, "crimsonReaverSweep", "balanced", true).next;
+    const pause = patrolOf(s)!.repairPause!;
+    expect(patrolOf(s)!.repairPausesThisRun).toBe(1);
+    let st = s;
+    while (patrolOf(st)!.repairPause !== undefined) st = economyTick(st, 1, RNG);
+    const opened = patrolOf(st)!.cycleStartCondition ?? {};
+    const goals = pause.target ?? Object.fromEntries(combat(s).map((p) => [p.id, CONDITION_FULL]));
+    for (const [id, goal] of Object.entries(goals)) expect(opened[id] ?? CONDITION_FULL).toBeGreaterThanOrEqual(goal);
+    expect(projectedCycleBreak(patrolOf(st)!, SHIP, combatHullTypeOf(st.ships[0].typeKey)!, pieces(st))).toBe(false);
+    expect(patrolOf(dispatchCaptainOnPatrol(worn, 1, "crimsonReaverSweep", "balanced", false).next)!.repairPause).toBeUndefined();
   });
 });
 
