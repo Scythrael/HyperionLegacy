@@ -124,6 +124,9 @@ function decodedCodePoints(line: string): number[] {
   }
   for (const m of line.matchAll(/&#(\d+);/g)) cps.push(parseInt(m[1], 10));
   for (const m of line.matchAll(/&#x([0-9a-fA-F]+);/g)) cps.push(parseInt(m[1], 16));
+  // CSS escapes (content: "\1F512"): a backslash then 4 to 6 hex digits. Short JS escapes such as \b or \d decode to
+  // control characters and are filtered out below.
+  for (const m of line.matchAll(/\\([0-9a-fA-F]{4,6})(?![0-9a-fA-F])/g)) cps.push(parseInt(m[1], 16));
   return cps;
 }
 
@@ -164,8 +167,38 @@ describe("the emoji guard's own reader", () => {
       "<style>/* \u{1F512} */ .x { color: red; }</style>",
     ].join("\n");
     expect(emojiOnLines(stripSvelteComments(svelte)).map((h) => h.line)).toEqual([6, 7]);
+
+    // CSS: comments ignored, a CSS escape in `content` caught (review follow-up 2026-11-16).
+    const css = ["/* \u{1F512} note */", '.lock::before { content: "\\1F512"; }', ".ok::before { content: \"\\2605\"; }"].join("\n");
+    expect(emojiOnLines(stripCssComments(css)).map((h) => h.line)).toEqual([2]);
   });
 });
+
+describe("member gear and unknown slots (the sweep's varietySvgIcon contract)", () => {
+  it("an away-team member piece draws no ship glyph; an unknown ship slot falls back to the generic gear", () => {
+    expect(varietySvgIcon(null, "memberArmor")).toBeNull();
+    expect(varietySvgIcon(null, "implant")).toBeNull();
+    expect(varietySvgIcon(null, "someNewSlot")).toBe("equipment");
+  });
+});
+
+// CSS and plain HTML: strip /* */ and <!-- --> comments, keeping newlines.
+function stripCssComments(src: string): string {
+  return src.replace(/\/\*[\s\S]*?\*\//g, blank).replace(/<!--[\s\S]*?-->/g, blank);
+}
+
+function styleAndPageFiles(): string[] {
+  const css: string[] = [];
+  const walk = (dir: string) => {
+    for (const f of readdirSync(dir)) {
+      const p = `${dir}/${f}`;
+      if (statSync(p).isDirectory()) walk(p);
+      else if (f.endsWith(".css")) css.push(p);
+    }
+  };
+  walk(SRC);
+  return [...css, "index.html"];
+}
 
 describe("ship gear glyphs are all SVG (the sweep's EquipmentTooltip maps)", () => {
   const SHIP_SLOTS = ["cargoBay", "ftlDrive", "reactorCore", "specUtility", "shieldEmitters", "hullPlating", "weapon", "droneBay"];
@@ -203,5 +236,13 @@ describe("no emoji in player-facing source (0.14.0 emoji sweep)", () => {
       for (const h of emojiOnLines(stripped)) report.push(`${file}:${h.line} ${h.found} | ${h.text}`);
     }
     expect(report, `emoji found (draw an <Icon> from ui/icons.ts instead):\n${report.join("\n")}`).toEqual([]);
+  });
+
+  it("every stylesheet under src and index.html are free of emoji outside comments (CSS escapes included)", () => {
+    const report: string[] = [];
+    for (const file of styleAndPageFiles()) {
+      for (const h of emojiOnLines(stripCssComments(readFileSync(file, "utf-8")))) report.push(`${file}:${h.line} ${h.found} | ${h.text}`);
+    }
+    expect(report, `emoji found:\n${report.join("\n")}`).toEqual([]);
   });
 });

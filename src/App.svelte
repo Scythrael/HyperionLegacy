@@ -13159,7 +13159,7 @@
                          success/danger color instead of shipping its own per-OS emoji palette;
                          the color, the condition and the text are all untouched. -->
                     <div class="research-cost" style="color: {met ? 'var(--color-success)' : 'var(--color-danger)'}">
-                      {#if met}<Icon name="check" size={12} />{:else}<Icon name="warning" size={12} />{/if} [{ITEMS[itemId]?.label ?? itemId}]: {formatNumber(have)} / {formatNumber(need)}{#if reserved.gt(0)}{" "}({formatNumber(reserved)} reserved){/if}
+                      {#if met}<Icon name="check" size={12} title="Met" />{:else}<Icon name="warning" size={12} title="Not met" />{/if} [{ITEMS[itemId]?.label ?? itemId}]: {formatNumber(have)} / {formatNumber(need)}{#if reserved.gt(0)}{" "}({formatNumber(reserved)} reserved){/if}
                     </div>
                   {/each}
 
@@ -13167,7 +13167,7 @@
                   {#if nextRefineryUpgrade.requiresFleetAdminLevel !== undefined}
                     {@const met = state.fleetAdminLevel >= nextRefineryUpgrade.requiresFleetAdminLevel}
                     <div class="research-cost" style="color: {met ? 'var(--color-success)' : 'var(--color-danger)'}">
-                      {#if met}<Icon name="check" size={12} />{:else}<Icon name="warning" size={12} />{/if} Requires Fleet Admiral level {nextRefineryUpgrade.requiresFleetAdminLevel} (current: {state.fleetAdminLevel})
+                      {#if met}<Icon name="check" size={12} title="Met" />{:else}<Icon name="warning" size={12} title="Not met" />{/if} Requires Fleet Admiral level {nextRefineryUpgrade.requiresFleetAdminLevel} (current: {state.fleetAdminLevel})
                     </div>
                   {/if}
 
@@ -13178,7 +13178,7 @@
                     {#each nextRefineryUpgrade.requiresHomeworldTalents as talentKey}
                       {@const met = state.unlockedHomeworldTalents.includes(talentKey)}
                       <div class="research-cost" style="color: {met ? 'var(--color-success)' : 'var(--color-danger)'}">
-                        {#if met}<Icon name="check" size={12} />{:else}<Icon name="warning" size={12} />{/if} Requires Homeworld Talent: {HOMEWORLD_TALENTS[talentKey].label}
+                        {#if met}<Icon name="check" size={12} title="Met" />{:else}<Icon name="warning" size={12} title="Not met" />{/if} Requires Homeworld Talent: {HOMEWORLD_TALENTS[talentKey].label}
                       </div>
                     {/each}
                   {/if}
@@ -13827,7 +13827,7 @@
                   {#if nextFabricatorUpgrade.credits !== undefined}
                     {@const met = state.credits.gte(nextFabricatorUpgrade.credits)}
                     <div class="research-cost" style="color: {met ? 'var(--color-success)' : 'var(--color-danger)'}">
-                      {#if met}<Icon name="check" size={12} />{:else}<Icon name="warning" size={12} />{/if} Cost: ◈ {formatNumber(nextFabricatorUpgrade.credits)} (have {formatNumber(state.credits)})
+                      {#if met}<Icon name="check" size={12} title="Met" />{:else}<Icon name="warning" size={12} title="Not met" />{/if} Cost: ◈ {formatNumber(nextFabricatorUpgrade.credits)} (have {formatNumber(state.credits)})
                     </div>
                   {/if}
 
@@ -13847,7 +13847,7 @@
                          Fabricator track is gated on credits AND (today: empty) materials, and
                          the two can be short for different reasons, so they are never merged. -->
                     <div class="research-cost" style="color: {met ? 'var(--color-success)' : 'var(--color-danger)'}">
-                      {#if met}<Icon name="check" size={12} />{:else}<Icon name="warning" size={12} />{/if} [{ITEMS[itemId]?.label ?? itemId}]: {formatNumber(have)} / {formatNumber(need)}{#if reserved.gt(0)}{" "}({formatNumber(reserved)} reserved){/if}
+                      {#if met}<Icon name="check" size={12} title="Met" />{:else}<Icon name="warning" size={12} title="Not met" />{/if} [{ITEMS[itemId]?.label ?? itemId}]: {formatNumber(have)} / {formatNumber(need)}{#if reserved.gt(0)}{" "}({formatNumber(reserved)} reserved){/if}
                     </div>
                   {/each}
 
@@ -13855,7 +13855,7 @@
                   {#if nextFabricatorUpgrade.requiresFleetAdminLevel !== undefined}
                     {@const met = state.fleetAdminLevel >= nextFabricatorUpgrade.requiresFleetAdminLevel}
                     <div class="research-cost" style="color: {met ? 'var(--color-success)' : 'var(--color-danger)'}">
-                      {#if met}<Icon name="check" size={12} />{:else}<Icon name="warning" size={12} />{/if} Requires Fleet Admiral level {nextFabricatorUpgrade.requiresFleetAdminLevel} (current: {state.fleetAdminLevel})
+                      {#if met}<Icon name="check" size={12} title="Met" />{:else}<Icon name="warning" size={12} title="Not met" />{/if} Requires Fleet Admiral level {nextFabricatorUpgrade.requiresFleetAdminLevel} (current: {state.fleetAdminLevel})
                     </div>
                   {/if}
 
@@ -14260,7 +14260,7 @@
                          ternary to a template block only because a component cannot be a
                          ternary branch. The color and the text are unchanged. -->
                     <div class="research-cost" style="color: {met ? 'var(--color-success)' : 'var(--color-danger)'}">
-                      {#if met}<Icon name="check" size={12} />{:else}<Icon name="warning" size={12} />{/if} Cost: ◈ {formatNumber(nextResearchUpgrade.credits)} (have {formatNumber(state.credits)})
+                      {#if met}<Icon name="check" size={12} title="Met" />{:else}<Icon name="warning" size={12} title="Not met" />{/if} Cost: ◈ {formatNumber(nextResearchUpgrade.credits)} (have {formatNumber(state.credits)})
                     </div>
                   {/if}
 
@@ -14281,7 +14281,7 @@
                          the two can be short for different reasons, so they are never merged.
                          The reservation-aware "(N reserved)" annotation is untouched. -->
                     <div class="research-cost" style="color: {met ? 'var(--color-success)' : 'var(--color-danger)'}">
-                      {#if met}<Icon name="check" size={12} />{:else}<Icon name="warning" size={12} />{/if} [{ITEMS[itemId]?.label ?? itemId}]: {formatNumber(have)} / {formatNumber(need)}{#if reserved.gt(0)}{" "}({formatNumber(reserved)} reserved){/if}
+                      {#if met}<Icon name="check" size={12} title="Met" />{:else}<Icon name="warning" size={12} title="Not met" />{/if} [{ITEMS[itemId]?.label ?? itemId}]: {formatNumber(have)} / {formatNumber(need)}{#if reserved.gt(0)}{" "}({formatNumber(reserved)} reserved){/if}
                     </div>
                   {/each}
 
@@ -14290,7 +14290,7 @@
                     {@const met = state.fleetAdminLevel >= nextResearchUpgrade.requiresFleetAdminLevel}
                     <!-- 0.13.3 Unit 6.2: ✅/❌ to <Icon>, condition and text untouched. -->
                     <div class="research-cost" style="color: {met ? 'var(--color-success)' : 'var(--color-danger)'}">
-                      {#if met}<Icon name="check" size={12} />{:else}<Icon name="warning" size={12} />{/if} Requires Fleet Admiral level {nextResearchUpgrade.requiresFleetAdminLevel} (current: {state.fleetAdminLevel})
+                      {#if met}<Icon name="check" size={12} title="Met" />{:else}<Icon name="warning" size={12} title="Not met" />{/if} Requires Fleet Admiral level {nextResearchUpgrade.requiresFleetAdminLevel} (current: {state.fleetAdminLevel})
                     </div>
                   {/if}
 
@@ -14349,7 +14349,7 @@
                     {@const reserved = stock.minus(have)}
                     {@const met = have.gte(need)}
                     <div class="research-cost" style="color: {met ? 'var(--color-success)' : 'var(--color-danger)'}">
-                      {#if met}<Icon name="check" size={12} />{:else}<Icon name="warning" size={12} />{/if} [{ITEMS[itemId]?.label ?? itemId}]: {formatNumber(have)} / {formatNumber(need)}{#if reserved.gt(0)}{" "}({formatNumber(reserved)} reserved){/if}
+                      {#if met}<Icon name="check" size={12} title="Met" />{:else}<Icon name="warning" size={12} title="Not met" />{/if} [{ITEMS[itemId]?.label ?? itemId}]: {formatNumber(have)} / {formatNumber(need)}{#if reserved.gt(0)}{" "}({formatNumber(reserved)} reserved){/if}
                     </div>
                   {/each}
 
@@ -14483,7 +14483,7 @@
                            "(N reserved)" annotation are all untouched. A denseOre-priced T2 rung shows
                            the warning icon until enough Dense Ore (Lunar Mine Contract, WR-4) is held. -->
                       <div class="research-cost" style="color: {met ? 'var(--color-success)' : 'var(--color-danger)'}">
-                        {#if met}<Icon name="check" size={12} />{:else}<Icon name="warning" size={12} />{/if} [{ITEMS[itemId]?.label ?? itemId}]: {formatNumber(have)} / {formatNumber(need)}{#if reserved.gt(0)}{" "}({formatNumber(reserved)} reserved){/if}
+                        {#if met}<Icon name="check" size={12} title="Met" />{:else}<Icon name="warning" size={12} title="Not met" />{/if} [{ITEMS[itemId]?.label ?? itemId}]: {formatNumber(have)} / {formatNumber(need)}{#if reserved.gt(0)}{" "}({formatNumber(reserved)} reserved){/if}
                       </div>
                     {/each}
 
@@ -15339,7 +15339,7 @@
                 {#if nextSalvageBayUpgrade.credits !== undefined}
                   {@const met = state.credits.gte(nextSalvageBayUpgrade.credits)}
                   <div class="research-cost" style="color: {met ? 'var(--color-success)' : 'var(--color-danger)'}">
-                    {#if met}<Icon name="check" size={12} />{:else}<Icon name="warning" size={12} />{/if} Cost: ◈ {formatNumber(nextSalvageBayUpgrade.credits)} (have {formatNumber(state.credits)})
+                    {#if met}<Icon name="check" size={12} title="Met" />{:else}<Icon name="warning" size={12} title="Not met" />{/if} Cost: ◈ {formatNumber(nextSalvageBayUpgrade.credits)} (have {formatNumber(state.credits)})
                   </div>
                 {/if}
 
@@ -15354,7 +15354,7 @@
                   {@const reserved = stock.minus(have)}
                   {@const met = have.gte(need)}
                   <div class="research-cost" style="color: {met ? 'var(--color-success)' : 'var(--color-danger)'}">
-                    {#if met}<Icon name="check" size={12} />{:else}<Icon name="warning" size={12} />{/if} [{ITEMS[itemId]?.label ?? itemId}]: {formatNumber(have)} / {formatNumber(need)}{#if reserved.gt(0)}{" "}({formatNumber(reserved)} reserved){/if}
+                    {#if met}<Icon name="check" size={12} title="Met" />{:else}<Icon name="warning" size={12} title="Not met" />{/if} [{ITEMS[itemId]?.label ?? itemId}]: {formatNumber(have)} / {formatNumber(need)}{#if reserved.gt(0)}{" "}({formatNumber(reserved)} reserved){/if}
                   </div>
                 {/each}
 
@@ -15365,7 +15365,7 @@
                 {#if nextSalvageBayUpgrade.requiresFleetAdminLevel !== undefined}
                   {@const met = state.fleetAdminLevel >= nextSalvageBayUpgrade.requiresFleetAdminLevel}
                   <div class="research-cost" style="color: {met ? 'var(--color-success)' : 'var(--color-danger)'}">
-                    {#if met}<Icon name="check" size={12} />{:else}<Icon name="warning" size={12} />{/if} Requires Fleet Admiral level {nextSalvageBayUpgrade.requiresFleetAdminLevel} (current: {state.fleetAdminLevel})
+                    {#if met}<Icon name="check" size={12} title="Met" />{:else}<Icon name="warning" size={12} title="Not met" />{/if} Requires Fleet Admiral level {nextSalvageBayUpgrade.requiresFleetAdminLevel} (current: {state.fleetAdminLevel})
                   </div>
                 {/if}
 
@@ -15463,7 +15463,7 @@
                            founding-cost line above it: credits and admiral level can be short for
                            different reasons, so they are never merged. -->
                       <div class="research-cost" style="color: {met ? 'var(--color-success)' : 'var(--color-danger)'}">
-                        {#if met}<Icon name="check" size={12} />{:else}<Icon name="warning" size={12} />{/if} Requires Fleet Admiral level {nextShipyardUpgrade.requiresFleetAdminLevel} (current: {state.fleetAdminLevel})
+                        {#if met}<Icon name="check" size={12} title="Met" />{:else}<Icon name="warning" size={12} title="Not met" />{/if} Requires Fleet Admiral level {nextShipyardUpgrade.requiresFleetAdminLevel} (current: {state.fleetAdminLevel})
                       </div>
                     {/if}
                     <div class="research-cost">Founding time: {durationReadout(nextShipyardUpgrade.durationTicks, showTickCounts, state.tickDurationSeconds)}</div>
@@ -15800,7 +15800,7 @@
                          and the offline summary. It belongs to a currency decision, not this
                          unit. -->
                     <div class="research-cost" style="color: {met ? 'var(--color-success)' : 'var(--color-danger)'}">
-                      {#if met}<Icon name="check" size={12} />{:else}<Icon name="warning" size={12} />{/if} Cost: ◈ {formatNumber(nextShipyardUpgrade.credits)} (have {formatNumber(state.credits)})
+                      {#if met}<Icon name="check" size={12} title="Met" />{:else}<Icon name="warning" size={12} title="Not met" />{/if} Cost: ◈ {formatNumber(nextShipyardUpgrade.credits)} (have {formatNumber(state.credits)})
                     </div>
                   {/if}
 
@@ -15821,7 +15821,7 @@
                          short for different reasons, so they are never merged. The
                          reservation-aware "(N reserved)" annotation is untouched. -->
                     <div class="research-cost" style="color: {met ? 'var(--color-success)' : 'var(--color-danger)'}">
-                      {#if met}<Icon name="check" size={12} />{:else}<Icon name="warning" size={12} />{/if} [{ITEMS[itemId]?.label ?? itemId}]: {formatNumber(have)} / {formatNumber(need)}{#if reserved.gt(0)}{" "}({formatNumber(reserved)} reserved){/if}
+                      {#if met}<Icon name="check" size={12} title="Met" />{:else}<Icon name="warning" size={12} title="Not met" />{/if} [{ITEMS[itemId]?.label ?? itemId}]: {formatNumber(have)} / {formatNumber(need)}{#if reserved.gt(0)}{" "}({formatNumber(reserved)} reserved){/if}
                     </div>
                   {/each}
 
@@ -15830,7 +15830,7 @@
                     {@const met = state.fleetAdminLevel >= nextShipyardUpgrade.requiresFleetAdminLevel}
                     <!-- 0.13.3 Unit 6.4: ✅/❌ to <Icon>, condition and text untouched. -->
                     <div class="research-cost" style="color: {met ? 'var(--color-success)' : 'var(--color-danger)'}">
-                      {#if met}<Icon name="check" size={12} />{:else}<Icon name="warning" size={12} />{/if} Requires Fleet Admiral level {nextShipyardUpgrade.requiresFleetAdminLevel} (current: {state.fleetAdminLevel})
+                      {#if met}<Icon name="check" size={12} title="Met" />{:else}<Icon name="warning" size={12} title="Not met" />{/if} Requires Fleet Admiral level {nextShipyardUpgrade.requiresFleetAdminLevel} (current: {state.fleetAdminLevel})
                     </div>
                   {/if}
 
@@ -18701,7 +18701,7 @@
                         <div class="mpane-mid">
                           <div class="statline">
                             <span>Needs <b>Lv {missionDef.requiresCaptainLevel ?? 1}</b></span>
-                            <span>Cargo <b>{missionDef.requiresCargoCapacity !== undefined ? formatNumber(missionDef.requiresCargoCapacity) : "--"}</b></span>
+                            <span>Cargo <b>{missionDef.requiresCargoCapacity !== undefined ? formatNumber(missionDef.requiresCargoCapacity) : "any"}</b></span>
                             <span>Distance <b>{formatNumber(Math.round(distanceLy))} LY</b></span>
                           </div>
                           <div class="statline">
@@ -19348,7 +19348,7 @@
                   {#if nextMissionControlUpgrade.credits !== undefined}
                     {@const met = state.credits.gte(nextMissionControlUpgrade.credits)}
                     <div class="research-cost" style="color: {met ? 'var(--color-success)' : 'var(--color-danger)'}">
-                      {#if met}<Icon name="check" size={12} />{:else}<Icon name="warning" size={12} />{/if} Cost: ◈ {formatNumber(nextMissionControlUpgrade.credits)} (have {formatNumber(state.credits)})
+                      {#if met}<Icon name="check" size={12} title="Met" />{:else}<Icon name="warning" size={12} title="Not met" />{/if} Cost: ◈ {formatNumber(nextMissionControlUpgrade.credits)} (have {formatNumber(state.credits)})
                     </div>
                   {/if}
 
@@ -19363,7 +19363,7 @@
                     {@const reserved = stock.minus(have)}
                     {@const met = have.gte(need)}
                     <div class="research-cost" style="color: {met ? 'var(--color-success)' : 'var(--color-danger)'}">
-                      {#if met}<Icon name="check" size={12} />{:else}<Icon name="warning" size={12} />{/if} [{ITEMS[itemId]?.label ?? itemId}]: {formatNumber(have)} / {formatNumber(need)}{#if reserved.gt(0)}{" "}({formatNumber(reserved)} reserved){/if}
+                      {#if met}<Icon name="check" size={12} title="Met" />{:else}<Icon name="warning" size={12} title="Not met" />{/if} [{ITEMS[itemId]?.label ?? itemId}]: {formatNumber(have)} / {formatNumber(need)}{#if reserved.gt(0)}{" "}({formatNumber(reserved)} reserved){/if}
                     </div>
                   {/each}
 
@@ -19377,7 +19377,7 @@
                       {@const have = state.lifetimeStats.missionsCompleted[mKey] ?? new Decimal(0)}
                       {@const met = have.gte(need)}
                       <div class="research-cost" style="color: {met ? 'var(--color-success)' : 'var(--color-danger)'}">
-                        {#if met}<Icon name="check" size={12} />{:else}<Icon name="warning" size={12} />{/if} {MISSIONS[mKey as MissionKey].label} completions: {formatNumber(have)} / {need}
+                        {#if met}<Icon name="check" size={12} title="Met" />{:else}<Icon name="warning" size={12} title="Not met" />{/if} {MISSIONS[mKey as MissionKey].label} completions: {formatNumber(have)} / {need}
                       </div>
                     {/each}
                   {/if}
