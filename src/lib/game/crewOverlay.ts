@@ -457,7 +457,7 @@ function rawShipCrewContribution(state: GameState, ship: ShipInstance, hullBonus
     // above) plus every assigned officer's Earth-born racial lifts every OTHER complement key by
     // crewEffectivenessMultiplier (D23 curve). It never scales itself, and the officers' own bonuses (added below) are
     // not scaled. Exactly 1 without it, and then every value is added as before (no float op).
-    const lift = crewEffectivenessMultiplier((rollup[EFFECTIVENESS_KEY] ?? 0) + officerEffectivenessRacials(state, ship, bridgeMod));
+    const lift = crewEffectivenessMultiplier((rollup[EFFECTIVENESS_KEY] ?? 0) + officerEffectivenessRacials(state, ship, bridgeMod, officerOutput));
     // CP-4's rest fix round: with `dept`, only that department's crew are added (at the whole ship's lift).
     const kept = dept === undefined ? rollup : rollupBuckets(buckets.filter((b) => b.profession === dept), contrib);
     for (const key of Object.keys(kept)) add(key, lift === 1 || key === EFFECTIVENESS_KEY ? kept[key] : kept[key] * lift);
@@ -509,13 +509,15 @@ const EFFECTIVENESS_KEY = CREW_STAT_KEYS.crewEffectiveness;
 
 // CP-2 (OC-3): the Crew Effectiveness the officers assigned to `ship` add through their racial (Earth-born), at the
 // officer magnitude, bridge-module amp included exactly as the officer fold below applies it. 0 without one. Pure.
-function officerEffectivenessRacials(state: GameState, ship: ShipInstance, bridgeMod: ReturnType<typeof installedBridgeModule>): number {
+// FR-C crew lane I1: x the captain's officer output too (Mentor, Legendary Captain), through the SAME officerOutputMultiplier
+// the officer fold and the display use, so the lift the card shows is the lift that acts. Exactly 1 without them.
+function officerEffectivenessRacials(state: GameState, ship: ShipInstance, bridgeMod: ReturnType<typeof installedBridgeModule>, officerOutput: number): number {
   let total = 0;
   for (const officer of state.officers) {
     if (officer.assignedShipId !== ship.id) continue;
     const racial = officerRacialBonus(officer);
     if (racial.statKey !== EFFECTIVENESS_KEY || racial.magnitude === 0) continue;
-    total += racial.magnitude * (bridgeMod ? bridgeOfficerMultiplier(bridgeMod, officer, hullSpecOf(ship)) : 1);
+    total += racial.magnitude * officerOutputMultiplier(bridgeMod, officer, hullSpecOf(ship), officerOutput);
   }
   // WR-6: an Earth-born commanding captain's racial lifts the complement the same way (unamplified, see the fold).
   const captainRacial = captainRacialBonus(commandingCaptain(state, ship));
