@@ -54,6 +54,14 @@ for 0.13.11.1: keep Starfall as data (a preset record: style id + color stops) s
 
 Balancing method (user 2026-10-23: "Then we will build off of this for our balancing plans and such as well."): the 0.13.11.1 minigame tuning approach is the template for the 0.16.0 balance pass: simulate OPTIMAL, AVERAGE and CASUAL player profiles; report time to each milestone; measure the FELT effect of each reset or upgrade (multiplier gained per action), not just totals; check that no setting or strategy beats the default by more than a small margin; tune one layer while holding the overall pace; present options with numbers and let the user pick.
 
+## 0.16.0: tuning items from the 0.14.0 fix round (user, 2026-11-17)
+
+Logged for the 0.16.0 balance pass (answers in docs/qa/2026-11-13-fable-sweep-ledger.md, "USER ANSWERS (2026-11-17)"):
+- Repair pause share on Repeat patrols (destroyer 90%, carrier 87%, battleship 74% of patrol time paused): tune gear
+  wear rows and the home repair rate together.
+- Repeat difficulty climbs one step every 20 routes (`PATROL_CLIMB_EVERY_ROUTES`, [PROVISIONAL]).
+- Deuterium canister sell value 50 cr (margin 1.25, [PROVISIONAL]) and the salvage recovery knee 0.5 ([PROVISIONAL]).
+
 ## 0.16.0: minigame scale cut to e1,000 (user, 2026-11-14)
 
 User, verbatim: "I think we should cut down the scaling of tje minigame massively. I think we should top out at e1000

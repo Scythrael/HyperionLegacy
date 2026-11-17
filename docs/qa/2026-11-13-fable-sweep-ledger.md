@@ -265,3 +265,22 @@ Fleet: 11 ships, 5 combat hulls on Repeat Crimson-Reaver Sweep (Standard Issue g
   to 330 us per step (was about 1,800 to 2,300); a real 4-day catch-up 38 s desktop (was 187 s on unoptimized feat;
   prod about 31 to 48 s). Phones still minutes in the worst case: async catch-up (user question 13) and the remaining
   FR-E safe-repair search cost (about 26%, a design change) are open. Parity pinned against base c4c1d89c hashes.
+
+## USER ANSWERS (2026-11-17) on the fix-round questions
+
+- Q13 prod catch-up freeze: "Both". Hotfix prod (0.13.11.4, hotfix branch off main) with (a) the exact per-cycle
+  setup cache and (b) an asynchronous catch-up with a progress bar (identical results). (b) also goes into 0.14.0.
+- Q14 bigger catch-up steps: "No, keep exact". Offline equals live, byte for byte.
+- Q12 mission secondary finds past the cap: "Stop at the cap". A capped secondary find does not land (matches Help).
+- Q6 Overtime during a repair pause: "Price the actual pause". Overtime costs only the pause's remaining repair.
+- Q7 lane join Cancel: "Release only that lane". Cancel on a helper lane frees that lane; the order continues in its
+  own lane. Cancel on the order's own lane still stops the whole order.
+- Q8 never discard: "Keep it wide" (all deposits, craft output and grants included).
+- Q9 welcome batch leftovers: "OK, keep in reserve".
+- Q10 Sell Free excludes queued salvage units: "Keep, align tooltip" (Warehouse tooltip says the same).
+- Q1 repair pause share: "In 0.16.0 balancing".
+- Q2 climb every 20 routes: "Keep 20, tune in 0.16.0" (stays [PROVISIONAL]).
+- Q3 catalog-named systems: "Yes, same every visit".
+- Q4 outmatched stop scope: "Second route on".
+- Q11 placeholders (canister 50 cr / margin 1.25, salvage knee 0.5): "Keep, tune in 0.16.0".
+- Q5 carrier crew count: done earlier (merged).
