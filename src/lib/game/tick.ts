@@ -4248,14 +4248,17 @@ export function beginTickJob(
   rng: () => number = Math.random,
   endedAtMs: number = UNKNOWN_COMPLETION_TIME_MS
 ): TickJob {
-  if (deltaSeconds <= 0) {
-    // Nothing to do: tick() returns the input state itself.
-    return { state, callsDone: 0, callsTotal: 0, rng, wholeSteps: 0, frac: 0, clockKnown: false, tickMs: 0, spanStartsAtMs: 0, spanEndsAtMs: 0 };
-  }
+  // Nothing to do: tick() returns the input state itself.
+  const noOp = (): TickJob => ({ state, callsDone: 0, callsTotal: 0, rng, wholeSteps: 0, frac: 0, clockKnown: false, tickMs: 0, spanStartsAtMs: 0, spanEndsAtMs: 0 });
+  if (deltaSeconds <= 0) return noOp();
   // Same deltaSeconds -> ticksElapsed conversion as before, then clamp to the cap.
   // Math.min discards any excess span beyond the cap (the offlineCapTicks limit: OFFLINE_CAP_DAYS_BASE, 4 days by default).
   const rawTicksElapsed = deltaSeconds / state.tickDurationSeconds;
   const clampedTicks = Math.min(rawTicksElapsed, offlineCapTicks(state));
+  // 0.13.11.4 hardening: a span that is not a finite positive tick count (a NaN or zero tick length, a
+  // NaN span) is the no-op job, so no job can ever claim calls it cannot make (a NaN total would
+  // never read as done, and an infinite one would never end).
+  if (!Number.isFinite(clampedTicks) || !(clampedTicks > 0)) return noOp();
 
   // The per-tick stamp schedule (see the header). `clockKnown` is what keeps an omitted
   // clock at the honest "unknown" sentinel instead of walking backwards from zero.

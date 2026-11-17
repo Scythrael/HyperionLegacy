@@ -38,12 +38,16 @@ export const CATCH_UP_SYNC_MAX_MS = 1000;
 
 // Make the job's calls, one at a time, until it is done or `budgetMs` has passed since the start.
 // At least one call is made (when any remain), so every slice makes progress. Returns the calls made.
+// A job that makes no call when asked (never expected: beginTickJob only builds jobs that can) ends the
+// slice at once with 0, rather than spinning for the whole budget.
 export function runCatchUpSlice(job: TickJob, budgetMs: number, now: () => number): number {
   if (tickJobDone(job)) return 0;
   const t0 = now();
   let made = 0;
   do {
-    made += advanceTickJob(job, 1);
+    const step = advanceTickJob(job, 1);
+    if (step === 0) break;
+    made += step;
   } while (!tickJobDone(job) && now() - t0 < budgetMs);
   return made;
 }
@@ -155,15 +159,19 @@ export class CatchUpController {
       while (!tickJobDone(job)) {
         await this.opts.yieldToBrowser();
         if (this.disposed) return;
-        runCatchUpSlice(job, sliceMs, now);
+        // A slice that makes no call (never expected) ends the run with what it has, as tick() would
+        // return it, so the overlay can never hang.
+        if (runCatchUpSlice(job, sliceMs, now) === 0) break;
         onView({ detail, done: job.callsDone, total: job.callsTotal });
       }
     } catch (error) {
+      // The run is dropped and the overlay closes. The deferred callbacks still run (the away recap of
+      // what was paid before the run), so nothing queued behind a failed run is lost.
       this.running = false;
       onView(null);
-      this.deferred = [];
       this.opts.onError?.(error);
       failed?.(error);
+      this.flushDeferred();
       return;
     }
     if (this.disposed) return;
@@ -172,8 +180,19 @@ export class CatchUpController {
     this.running = false;
     onView(null);
     apply(job);
+    this.flushDeferred();
+  }
+
+  // Run every deferred callback once, in order. One that starts a new run defers the rest behind it.
+  private flushDeferred(): void {
     const deferred = this.deferred;
     this.deferred = [];
-    for (const fn of deferred) fn();
+    for (let i = 0; i < deferred.length; i++) {
+      if (this.running) {
+        this.deferred.push(...deferred.slice(i));
+        return;
+      }
+      deferred[i]();
+    }
   }
 }
