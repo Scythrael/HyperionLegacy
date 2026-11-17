@@ -65,7 +65,7 @@ export function isStructuredNote(n: PatchNote): n is PatchNoteStructured {
 export const PATCH_NOTES: PatchNote[] = [
   {
     // 0.13.11.4 (user, 2026-11-17, "Both"): an exact catch-up speedup plus a progress bar for a long catch-up.
-    // [PROPOSAL] wording for the user's sign-off; short and player-facing. Not approved yet.
+    // Wording approved by the user 2026-11-17 ("Approve as written").
     version: "0.13.11.4",
     lede: "Coming back after a long time away no longer freezes the game.",
     categories: [

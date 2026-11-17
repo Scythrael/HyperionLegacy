@@ -1,8 +1,8 @@
 <!--
   0.13.11.4 Discord post (prod hotfix, 2026-11-17). Same format as 0.13.11.3: a short blurb plus a
   link to the full patch-notes page on the site, sourced from the same PATCH_NOTES data as the
-  in-game tab. [PROPOSAL] wording for the user's sign-off. No em dashes, US spelling. The earlier
-  posts open each line with an emoji; this draft leaves them out (add them back if wanted).
+  in-game tab. Wording approved by the user 2026-11-17. No em dashes, US spelling. The earlier
+  posts open each line with an emoji; this one has none (user 2026-11-17, "No emoji").
 -->
 
 **Hyperion Legacy 0.13.11.4** is live.
