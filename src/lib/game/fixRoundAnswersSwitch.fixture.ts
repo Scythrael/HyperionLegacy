@@ -8,11 +8,14 @@
 //                                                             the repair the pause has left; off, by the docked job.
 //   helperCancelReleases (tick.ts HELPER_CANCEL_RELEASES_SWITCH)  Q7: Cancel on a helper (joined) lane releases just that
 //                                                             lane; off, Cancel on any lane stops the whole order.
+//   catalogBodies (model.ts CATALOG_BODIES_SWITCH)  Q3: a catalog-named system's bodies are drawn from its catalog id, the
+//                                                             same every visit; off, from its candidate slot's seed.
 // OFF (for one call, or one file), each answer is undone exactly, so every state made inside it is the code before it.
 
 import { afterAll } from "vitest";
 import { HELPER_CANCEL_RELEASES_SWITCH, SECONDARY_FIND_PAUSE_SWITCH } from "./tick";
 import { PAUSE_OVERTIME_REMAINING_SWITCH } from "./processSpeed";
+import { CATALOG_BODIES_SWITCH } from "./model";
 
 type Switch = { live: boolean };
 
@@ -30,6 +33,7 @@ const BY_NAME = {
   secondaryFindPause: SECONDARY_FIND_PAUSE_SWITCH,
   pauseOvertimeRemaining: PAUSE_OVERTIME_REMAINING_SWITCH,
   helperCancelReleases: HELPER_CANCEL_RELEASES_SWITCH,
+  catalogBodies: CATALOG_BODIES_SWITCH,
 } as const satisfies Record<string, Switch>;
 export type FixRoundAnswer = keyof typeof BY_NAME;
 

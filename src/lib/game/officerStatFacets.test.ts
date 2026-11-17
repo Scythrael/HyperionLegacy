@@ -116,6 +116,13 @@ import { withCp3Off } from "./complementCp3Switch.fixture";
 import { withRacialsOff } from "./racialsSwitch.fixture";
 import { withCombatRulesOff } from "./combatRulesSwitch.fixture";
 import { withPatrolLegsOff } from "./patrolLegsSwitch.fixture";
+import { fixRoundAnswersOffForThisFile } from "./fixRoundAnswersSwitch.fixture";
+
+// Fix round answers Q3 (2026-11-17, "Yes, same every visit": a catalog-named system's bodies are drawn from its
+// catalog id, the same every visit) moves this file's pins (the catalog-named systems its runs fly have other bodies).
+// They predate it and are about another slice, so the file runs with it off (fixRoundAnswersSwitch.fixture.ts). Q3's
+// own pins: expeditionFixRoundE.test.ts.
+fixRoundAnswersOffForThisFile("catalogBodies");
 // WR-7 follow-up OC-D8: these neutrality goldens were captured before the patrol legs scaled, so their patrols fly the
 // route's legs too (patrolLegsSwitch.fixture.ts; patrolLegsGoldens.test.ts pins the legs).
 // The crewHours determinism fix (2026-10-30): these neutrality goldens predate it and are about the officer facets, so

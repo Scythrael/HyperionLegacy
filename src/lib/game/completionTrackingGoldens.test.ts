@@ -28,6 +28,13 @@ import { completionRollOffForThisFile, withCompletionTrackingOff } from "./compl
 import { recordCompletion } from "./completion";
 import { economyTick, tick } from "./tick";
 import { fixRoundESwitchesOffForThisFile } from "./fixRoundESwitch.fixture";
+import { fixRoundAnswersOffForThisFile } from "./fixRoundAnswersSwitch.fixture";
+
+// Fix round answers Q3 (2026-11-17, "Yes, same every visit": a catalog-named system's bodies are drawn from its
+// catalog id, the same every visit) moves this file's pins (the catalog-named systems its runs fly have other bodies).
+// They predate it and are about another slice, so the file runs with it off (fixRoundAnswersSwitch.fixture.ts). Q3's
+// own pins: expeditionFixRoundE.test.ts.
+fixRoundAnswersOffForThisFile("catalogBodies");
 
 // Fix round FR-E (0.14.0): the no-repay rule (lane 3 I1, RECALL_NO_REPAY_SWITCH: a recall keeps the scan boundaries
 // already rolled on the body it cut short, and the resumed run skips them) moves seed 3003's recall, claim and abandon;

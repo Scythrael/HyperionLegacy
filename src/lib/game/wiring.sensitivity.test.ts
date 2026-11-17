@@ -21,6 +21,13 @@
 import { describe, it, expect } from "vitest";
 import { CATALOGS, FLAT_UNCONTROLLED, WIRING_REGISTRY, WIRING_SYSTEMS, curveExpected, flatControl, wiringEntry, type WiringEntry } from "./wiring/registry";
 import { readProbe, type ContextId } from "./wiring/probes";
+import { fixRoundAnswersOffForThisFile } from "./fixRoundAnswersSwitch.fixture";
+
+// Fix round answers Q3 (2026-11-17, "Yes, same every visit": a catalog-named system's bodies are drawn from its
+// catalog id, the same every visit) moves this file's pins (the catalog-named systems its runs fly have other bodies).
+// They predate it and are about another slice, so the file runs with it off (fixRoundAnswersSwitch.fixture.ts). Q3's
+// own pins: expeditionFixRoundE.test.ts.
+fixRoundAnswersOffForThisFile("catalogBodies");
 
 function measure(e: WiringEntry, ctx: ContextId): { off: number; on: number; unit?: number } {
   const s0 = e.base();

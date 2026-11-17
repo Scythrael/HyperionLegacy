@@ -18,6 +18,13 @@ import { WIRING_SHIP_ID, installPiece, shipOf, wiringBase, withAwayTeam } from "
 import { withFixtureCondition } from "./wiring/wearProbes";
 import { withGearWearOff } from "./gearWearSwitch.fixture";
 import { withBattleWearOff } from "./battleWearSwitch.fixture";
+import { fixRoundAnswersOffForThisFile } from "./fixRoundAnswersSwitch.fixture";
+
+// Fix round answers Q3 (2026-11-17, "Yes, same every visit": a catalog-named system's bodies are drawn from its
+// catalog id, the same every visit) moves this file's pins (the catalog-named systems its runs fly have other bodies).
+// They predate it and are about another slice, so the file runs with it off (fixRoundAnswersSwitch.fixture.ts). Q3's
+// own pins: expeditionFixRoundE.test.ts.
+fixRoundAnswersOffForThisFile("catalogBodies");
 
 const RNG = () => 0.5;
 

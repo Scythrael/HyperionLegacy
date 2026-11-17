@@ -34,6 +34,13 @@ import { WR10_FIGHT_POIS, WR10_SEEDS, wr10Dispatch, wr10FightHash, wr10Hash, wr1
 import { withWr10Off } from "./wr10Switch.fixture";
 import { mergeWithBuiltInDefault } from "./memberGambits";
 import { gambitPresetPrograms } from "./gambit";
+import { fixRoundAnswersOffForThisFile } from "./fixRoundAnswersSwitch.fixture";
+
+// Fix round answers Q3 (2026-11-17, "Yes, same every visit": a catalog-named system's bodies are drawn from its
+// catalog id, the same every visit) moves this file's pins (the catalog-named systems its runs fly have other bodies).
+// They predate it and are about another slice, so the file runs with it off (fixRoundAnswersSwitch.fixture.ts). Q3's
+// own pins: expeditionFixRoundE.test.ts.
+fixRoundAnswersOffForThisFile("catalogBodies");
 
 // Captured on the code BEFORE the engine edit (5339682).
 const BEFORE_RUNS: Record<string, string[]> = {
