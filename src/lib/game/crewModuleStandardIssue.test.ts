@@ -11,9 +11,16 @@ import {
   type CaptainMissionState,
   type EquipmentInstance,
   type GameState,
+  type PatrolKey,
+  type PatrolMissionState,
   type SeniorStaffOfficer,
+  type ShipTypeKey,
 } from "./model";
-import { buyHomeworldTalent, dispatchCaptainOnMission, mintBuiltShip, tick } from "./tick";
+import { buyHomeworldTalent, dispatchCaptainOnMission, dispatchCaptainOnPatrol, economyTick, mintBuiltShip, tick } from "./tick";
+import Decimal from "break_infinity.js";
+import { advanceExpedition } from "./expedition";
+import { onHull, withCrew } from "./firstRunsGoldens.fixture";
+import { asPatrolVeteran, dispatchPastPropulsion } from "./awayTeamTestFixtures";
 import { equippedFor } from "./equipmentQueries";
 import { BRIDGE_MODULES, bridgeOfficerMultiplier, crewStationsBerths, crewStationsBerthsForPoints, HULL_FAMILY_MODULE_BONUS, installedBridgeModule, installedQuartersModule, quartersCapacityBonus, QUARTERS_MODULES } from "./crewModules";
 import { COMPLEMENT_PARAGRAPHS, HELP_TOPICS, SENSORS_HELP, SI_QUARTERS_BERTHS, STANDARD_ISSUE_CREW_MODULES_TEXT } from "../helpTopics";
@@ -433,5 +440,60 @@ describe("Standard-Issue crew modules: the Quartermaster issues them", () => {
     const issued = requisitionStandardIssue(bare, "quarters");
     const back = fitEquipment(issued.next, "ship-1", issued.minted!.id);
     expect(quartersCapacityBonus(back, back.ships[0])).toBe(SI_QUARTERS_BERTHS);
+  });
+});
+
+// Fix pass: the offline == live gates the golden files prove with the set OFF (firstRunsGoldens.test.ts golden 2's
+// closed-form patrol and golden 4's expedition parity), rerun here on the shipped game (every switch live, the set on).
+// Parity only: no hash pins, so a later balance move cannot break them, only a determinism break can.
+describe("Standard-Issue crew modules: offline == live with the set on (the golden parity gates, shipped game)", () => {
+  const RNG = (): number => 0.5;
+  const patrolOf = (s: GameState): PatrolMissionState | null => s.captains[0].mission as PatrolMissionState | null;
+  const patrolBase = (hull: ShipTypeKey): GameState => ({ ...onHull(hull), nextPatrolSeed: 1, credits: new Decimal(100_000) });
+
+  it("patrol closed form: one economyTick call == 1 s ticks over a won training cycle and a veteran's Warband", () => {
+    for (const [hull, key, veteran] of [["orion", "crimsonReaverSweep", false], ["prospectorRunner", "crimsonReaverWarband", true]] as [ShipTypeKey, PatrolKey, boolean][]) {
+      const from = veteran ? asPatrolVeteran(patrolBase(hull)) : patrolBase(hull);
+      expectStandardIssueSet(from, "ship-1");
+      const start = dispatchCaptainOnPatrol(from, 1, key, "balanced", false);
+      expect(start.success, `${hull} ${key}: ${start.reason}`).toBe(true);
+      let end = start.next;
+      let ticks = 0;
+      while (patrolOf(end) !== null) {
+        end = economyTick(end, 1, RNG);
+        ticks += 1;
+        if (ticks > 2000) throw new Error("the patrol never ended");
+      }
+      if (!veteran) expect(end.ships[0].damaged === true, "the training cycle cannot be lost").toBe(false);
+      const big = economyTick(start.next, ticks, RNG);
+      expect(big.captains).toEqual(end.captains);
+      expect(big.ships).toEqual(end.ships);
+      expect(big.nextPatrolSeed).toBe(end.nextPatrolSeed);
+      expect(big.credits.toString()).toBe(end.credits.toString());
+      expect(big.equipment).toEqual(end.equipment); // the three free pieces wear the same both ways
+    }
+  });
+
+  it("expedition: one call == 997 s chunks == the event-boundary chain on the D18 Orion's first run", () => {
+    const H = 250_000;
+    const base = withCrew(onHull("orion"), "d18");
+    expectStandardIssueSet(base, "ship-1");
+    const exp = dispatchPastPropulsion(base, "ship-1", 1, "cand-1").expedition!;
+    const frozen = structuredClone(exp);
+    const one = advanceExpedition(exp, H);
+    let e = exp;
+    for (let t = 997; t < H; t += 997) e = advanceExpedition(e, t);
+    expect(advanceExpedition(e, H)).toEqual(one);
+    const times = new Set<number>([exp.phaseAnchorSeconds]);
+    const ops = one.groundOps!;
+    for (const r of ops.history) for (const t of [r.startedAt, r.endedAt]) times.add(t);
+    for (const l of ops.log ?? []) times.add(l.at);
+    for (const leg of ops.shipLegs) for (const t of [leg.startsAt, leg.arrivesAt, leg.endsAt]) times.add(t);
+    const chain = [...times].filter((t) => Number.isFinite(t) && t > 1 && t + 1 < H).sort((a, b) => a - b);
+    expect(chain.length).toBeGreaterThan(20);
+    e = exp;
+    for (const t of chain) for (const at of [t - 1, t, t + 1]) e = advanceExpedition(e, at);
+    expect(advanceExpedition(e, H)).toEqual(one);
+    expect(exp).toEqual(frozen);
   });
 });

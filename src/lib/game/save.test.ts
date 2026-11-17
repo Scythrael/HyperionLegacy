@@ -33,13 +33,25 @@ import { SHIP_TYPES, PATROLS, REPAIR_BASE_TICKS, REPAIR_TICKS_PER_HULL } from ".
 // durability carry-state; this helper is the expected full value (the same source the
 // migration + freshPatrolMission use).
 import { defaultSystemDurabilityForHull, COMBAT_DEFAULT_LOADOUT, defaultWeaponsForHull, defaultDroneRolesForHull } from "./combat/bridge";
-import { crewModuleSiOffForThisFile } from "./crewModuleSiSwitch.fixture";
+import { withCrewModuleSiOff } from "./crewModuleSiSwitch.fixture";
+import { CREW_MODULE_STANDARD_ISSUE, CREW_MODULE_STANDARD_ISSUE_SWITCH } from "./model";
 
-// Standard-Issue crew modules (0.14.0, user 2026-11-17 "free basic set, all ships"): this file's pins predate the
-// free Sensor Suite, Bridge Module and Crew Quarters every ship now carries (their berths, officer lift, hull bonus
-// and equipment ids), so the set is off here and the pins keep proving their own slice. The set itself is pinned in
-// crewModuleStandardIssue.test.ts.
-crewModuleSiOffForThisFile();
+// Standard-Issue crew modules (0.14.0, user 2026-11-17 "free basic set, all ships"): this file runs with the set ON,
+// the shipped game, so its round trips and its "a migrated save matches freshState()" parity prove the set too. Every
+// ship a full migration chain ends with also carries the three free pieces (the v71 -> v72 step), so the piece counts
+// below add CREW_SET_PIECES. A save shaped as an OLD version (v33, v35) is built with the set off (withCrewModuleSiOff),
+// because no save of that version ever held the set.
+// The free crew module slots, and how many pieces the set adds to every ship (0 with the test switch off).
+const CREW_SET_SLOTS: readonly string[] = Object.keys(CREW_MODULE_STANDARD_ISSUE);
+const crewSetPieces = (): number => (CREW_MODULE_STANDARD_ISSUE_SWITCH.live ? CREW_SET_SLOTS.length : 0);
+// Set-aware "the same equipment": the same pieces (every field but the id) and the same ids, though a migrated save
+// mints the crew set AFTER its combat set (the v71 -> v72 step comes last) where a new game mints it after the economy
+// four, so the two lists differ in id order only.
+function sameEquipmentAsFresh(migrated: any[], fresh: any[]): void {
+  const shape = (list: any[]) => list.map(({ id: _id, ...rest }: any) => JSON.stringify(rest)).sort();
+  expect(shape(migrated)).toEqual(shape(fresh));
+  expect(migrated.map((e: any) => e.id).sort()).toEqual(fresh.map((e: any) => e.id).sort());
+}
 // The retired combat frame share (bridge.ts frameHp, retired by WR-8): the pre-rework migration fixtures below still
 // build Standard-Issue plating the way those old saves carried it (hullIntegrity minus 20% of it, rounded).
 const frameHp = (hullIntegrity: number): number => Math.round(hullIntegrity * 0.2);
@@ -66,8 +78,9 @@ import type { GameState } from "./model";
 // + one weapon per hardpoint
 // + one shield emitter + one hull plating
 // + one pod per drone bay
+// + the free Sensor Suite, Bridge Module and Crew Quarters (0.14.0, the v71 -> v72 step; crewSetPieces)
 function expectedBaselinePieces(hull: string): number {
-  return 4 + defaultWeaponsForHull(hull as never).length + 2 + defaultDroneRolesForHull(hull as never).length;
+  return 4 + defaultWeaponsForHull(hull as never).length + 2 + defaultDroneRolesForHull(hull as never).length + crewSetPieces();
 }
 // Crafting 0.13.3 (Phase 1 Unit 1.1): the v39->v40 seed's confirm-every-tier default, read
 // from its single source of truth rather than hardcoding [0..5], so a future quality tier
@@ -3716,8 +3729,10 @@ describe("migrate, equipment GameState fields backfill (v26 -> v27)", () => {
     const save: SaveFile = { version: 26, created_at: 0, last_saved_at: 0, game_time_seconds: 0, state: legacyState };
     const migrated: any = migrate(save);
 
-    expect(migrated.equipment).toEqual(fresh.equipment); // 4 economy + 3 weak combat baselines
-    expect(migrated.nextEquipmentId).toBe(fresh.nextEquipmentId); // 8
+    // 4 economy + the weak combat baselines + the free crew set (0.14.0), id order aside (sameEquipmentAsFresh)
+    expect(crewSetPieces()).toBe(3); // the set is really on here
+    sameEquipmentAsFresh(migrated.equipment, fresh.equipment);
+    expect(migrated.nextEquipmentId).toBe(fresh.nextEquipmentId);
     expect(migrated.craftingLevel).toBe(fresh.craftingLevel); // 1
     expect(migrated.craftingXp.equals(fresh.craftingXp)).toBe(true); // Decimal(0)
     expect(migrated.craftingXp instanceof Decimal).toBe(true);
@@ -3853,8 +3868,10 @@ describe("migrate, Standard-Issue baseline seed (v27 -> v28)", () => {
     // effectiveMissionDef derives purely from shipDerivedStats, identical derived stats ->
     // identical mission resolution. The Standard-Issue floor is stat-neutral, so a ship WITH
     // its seeded gear derives the EXACT same stats as the bare hull (no gear).
+    // 0.14.0: the free crew set the chain's last step adds is NOT stat-neutral by design (its hull-family bonus, user
+    // 2026-11-17 "Keep it"; crewModuleStandardIssue.test.ts), so the claim is about the economy and combat floors.
     for (const ship of migrated.ships) {
-      const withGear = shipDerivedStats(ship, equippedFor(migrated, ship.id));
+      const withGear = shipDerivedStats(ship, equippedFor(migrated, ship.id).filter((e: any) => !CREW_SET_SLOTS.includes(e.slotType)));
       const bareHull = shipDerivedStats(ship, []);
       expect(withGear).toEqual(bareHull);
     }
@@ -3870,8 +3887,10 @@ describe("migrate, Standard-Issue baseline seed (v27 -> v28)", () => {
     const singleShip = makeV27MultiShipSave();
     singleShip.state.ships = [{ id: "ship-1", typeKey: "generalFreighter", assignedCaptainId: 1 }];
     const migrated: any = migrate(singleShip);
-    expect(migrated.equipment).toEqual(fresh.equipment); // 4 economy + 3 combat baselines, same ids, same install state
-    expect(migrated.nextEquipmentId).toBe(fresh.nextEquipmentId); // 8
+    // 4 economy + combat baselines + the free crew set (0.14.0), same install state, id order aside (sameEquipmentAsFresh)
+    expect(crewSetPieces()).toBe(3); // the set is really on here
+    sameEquipmentAsFresh(migrated.equipment, fresh.equipment);
+    expect(migrated.nextEquipmentId).toBe(fresh.nextEquipmentId);
   });
 
   it("is IDEMPOTENT per-ship: a ship that already carries fitted gear is not re-seeded", () => {
@@ -3897,7 +3916,7 @@ describe("migrate, Standard-Issue baseline seed (v27 -> v28)", () => {
     const ship1 = migrated.equipment.filter((e: any) => e.fittedToShipId === "ship-1");
     const ship2 = migrated.equipment.filter((e: any) => e.fittedToShipId === "ship-2");
     // ⚠️ 0.13.5 F5: derived. A generalFreighter now carries 2 weapons (2 hardpoints) rather than 1.
-    expect(ship1).toHaveLength(1 + defaultWeaponsForHull("generalFreighter").length + 2);
+    expect(ship1).toHaveLength(1 + defaultWeaponsForHull("generalFreighter").length + 2 + crewSetPieces()); // + the free crew set (v72)
     expect(ship1.some((e: any) => e.id === "equip-99")).toBe(true); // the pre-existing economy piece survives
     expect(ship1.filter((e: any) => LIVE_SLOTS.includes(e.slotType))).toHaveLength(1); // economy NOT re-seeded
     expect(ship2).toHaveLength(expectedBaselinePieces("generalFreighter"));
@@ -4374,7 +4393,7 @@ describe("migrate, Standard-Issue combat baseline seed (v33 -> v34)", () => {
   // Standard-Issue baselines and NO combat gear (the pre-Unit-1.3 shape). Built by retyping
   // freshState's ship-1 to a destroyer WITHOUT the combat seed, then stamping version 33.
   function makeV33CombatSave(): SaveFile {
-    const base = freshState();
+    const base = withCrewModuleSiOff(freshState); // a v33 save never held the 0.14.0 crew set
     const preGear = { ...base, ships: base.ships.map((s) => (s.id === "ship-1" ? { ...s, typeKey: "destroyer" as const } : s)) };
     const raw = deserialize(serialize(preGear, 0)) as SaveFile;
     raw.version = 33;
@@ -4395,7 +4414,7 @@ describe("migrate, Standard-Issue combat baseline seed (v33 -> v34)", () => {
     const loadout = defaultWeaponsForHull("destroyer");
     const migrated: any = migrate(save);
     const fitted = migrated.equipment.filter((e: any) => e.fittedToShipId === "ship-1");
-    expect(fitted).toHaveLength(4 + loadout.length + 2); // 4 economy + (N weapons + shield + plating)
+    expect(fitted).toHaveLength(4 + loadout.length + 2 + crewSetPieces()); // 4 economy + (N weapons + shield + plating) + the free crew set (v72)
     expect(fitted.filter((e: any) => e.slotType === "weapon")).toHaveLength(loadout.length);
     for (const slot of ["shieldEmitters", "hullPlating"]) {
       expect(fitted.filter((e: any) => e.slotType === slot)).toHaveLength(1);
@@ -4424,7 +4443,7 @@ describe("migrate, Standard-Issue combat baseline seed (v33 -> v34)", () => {
     // "every hull is combat-capable", the shared seeder now fits it out with its WEAK combat set too
     // (its 1-autocannon default loadout + shield emitter + hull plating = 3 pieces, NO drone pod), so
     // an old economy ship becomes dispatchable on load, just STRICTLY INFERIOR to a combat hull.
-    const raw = deserialize(serialize(freshState(), 0)) as SaveFile;
+    const raw = deserialize(serialize(withCrewModuleSiOff(freshState), 0)) as SaveFile; // a v33 save never held the crew set
     raw.version = 33;
     const migrated: any = migrate(raw);
     const fitted = migrated.equipment.filter((e: any) => e.fittedToShipId === "ship-1");
@@ -4547,7 +4566,7 @@ describe("migrate, every-hull combat baseline seed (v35 -> v36)", () => {
   // economy Standard-Issue baselines and NO combat gear (the pre-widening economy shape). Built from
   // freshState (which seeds only the economy baselines), stamped version 35.
   function makeV35EconomySave(typeKey: ShipTypeKey): SaveFile {
-    const base = freshState();
+    const base = withCrewModuleSiOff(freshState); // a v35 save never held the 0.14.0 crew set
     const preState = {
       ...base,
       ships: base.ships.map((s) => (s.id === "ship-1" ? { ...s, typeKey } : s)),
@@ -4578,7 +4597,8 @@ describe("migrate, every-hull combat baseline seed (v35 -> v36)", () => {
     // Its shield/plating magnitudes come from the freighter's own SHIP_TYPES stats (the weak, honest
     // profile), NOT a combat hull's: the plating carries hullIntegrity - frameHp, the emitter the hull
     // shield pool. Just prove they are the freighter's numbers, not a warship's, via presence + fold.
-    const withGear = shipDerivedStats(migrated.ships[0], equippedFor(migrated, "ship-1"));
+    // (0.14.0: the free crew set the chain's last step adds carries its hull-family bonus by design, so it is left out.)
+    const withGear = shipDerivedStats(migrated.ships[0], equippedFor(migrated, "ship-1").filter((e: any) => !CREW_SET_SLOTS.includes(e.slotType)));
     const bareHull = shipDerivedStats(migrated.ships[0], []);
     expect(withGear).toEqual(bareHull); // combat baselines are economy-neutral (mass 0 / powerDraw 0)
   });
@@ -6682,6 +6702,9 @@ describe("migrate, v66 -> v67 ground-team slots (Ground Ops GO-1)", () => {
     seeded.homeworld = viaStep.homeworld;
     // E5-1: and the board the v70 -> v71 step stamps (its value is the E5-1 block's business below).
     seeded.shortRangeBoard = viaStep.shortRangeBoard;
+    // 0.14.0: and the free crew set the v71 -> v72 step installs (its value is crewModuleStandardIssue.test.ts's business).
+    seeded.equipment = viaStep.equipment;
+    seeded.nextEquipmentId = viaStep.nextEquipmentId;
     const noStep = migrateFrom(SAVE_VERSION, seeded);
     expect(noStep.ships[0].groundTeams).toBeUndefined();
     expect(viaStep.ships[0].groundTeams).toBeDefined();

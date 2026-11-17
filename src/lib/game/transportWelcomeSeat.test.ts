@@ -4,7 +4,7 @@
 // sends crew for the seats that are open: one crewmember per open seat, of that seat's division and rank (after the crew
 // already waiting take their share), so every passive ship is full and nothing spills over.
 import { describe, expect, it } from "vitest";
-import { freshState, type GameState, type ShipTypeKey } from "./model";
+import { freshState, seedCrewModuleStandardIssueForShip, type GameState, type ShipInstance, type ShipTypeKey } from "./model";
 import { resolveCrew } from "./crewOverlay";
 import { totalCrew } from "./crew";
 import { homeworldReserveCount } from "./homeworldReserve";
@@ -12,13 +12,13 @@ import { CREW_PROFESSIONS, complementTotalCap, remainingCapacityForSignature } f
 import { TRANSPORT_BATCH_SIZE, TRANSPORT_WELCOME_AFTER_WINDOWS, TRANSPORT_WELCOME_PENDING, TRANSPORT_WINDOW_SECONDS, transportWindowIndex } from "./transports";
 import { migrate, type SaveFile } from "./save";
 import { withWelcomeSeatOff } from "./welcomeSeatSwitch.fixture";
-import { crewModuleSiOffForThisFile } from "./crewModuleSiSwitch.fixture";
+import { quartersCapacityBonus } from "./crewModules";
+import { withCrewModuleSiOff } from "./crewModuleSiSwitch.fixture";
 
-// Standard-Issue crew modules (0.14.0, user 2026-11-17 "free basic set, all ships"): this file's pins predate the
-// free Sensor Suite, Bridge Module and Crew Quarters every ship now carries (their berths, officer lift, hull bonus
-// and equipment ids), so the set is off here and the pins keep proving their own slice. The set itself is pinned in
-// crewModuleStandardIssue.test.ts.
-crewModuleSiOffForThisFile();
+// Standard-Issue crew modules (0.14.0, user 2026-11-17 "free basic set, all ships"): this file proves invariants (every
+// ship full, nothing spilled), not pinned numbers, so it runs with the set ON, the shipped game: every ship carries
+// its free Utilitarian Quarters, and every berth count below is the hull's base plus its quarters' bonus
+// (quartersCapacityBonus), the cap auto-crew and the welcome actually fill to.
 
 const DAY = 86400;
 const TYPES: readonly ShipTypeKey[] = ["eir", "aurora", "orion", "carrier", "destroyer", "generalFreighter", "prospectorMiner"];
@@ -26,9 +26,19 @@ const TYPES: readonly ShipTypeKey[] = ["eir", "aurora", "orion", "carrier", "des
 function fleet(): GameState {
   const base = freshState();
   const extra = TYPES.map((typeKey, i) => ({ id: `ship-${i + 2}`, typeKey, assignedCaptainId: null }));
+  // Each added hull carries the free set, as a built one does (ids threaded; nothing with the set off).
+  let nextEquipmentId = base.nextEquipmentId;
+  const equipment = [...base.equipment];
+  for (const ship of extra) {
+    const seeded = seedCrewModuleStandardIssueForShip(ship.id, nextEquipmentId);
+    equipment.push(...seeded.pieces);
+    nextEquipmentId = seeded.nextId;
+  }
   return {
     ...base,
     ships: [...base.ships, ...extra],
+    equipment,
+    nextEquipmentId,
     nextShipId: base.ships.length + extra.length + 1,
     gameTimeSeconds: 365 * DAY + 7,
     lastTransportWindow: TRANSPORT_WELCOME_PENDING,
@@ -36,7 +46,9 @@ function fleet(): GameState {
 }
 
 const seated = (s: GameState) => s.ships.reduce((a, sh) => a + totalCrew(sh.complement?.buckets ?? []), 0);
-const berths = (s: GameState) => s.ships.reduce((a, sh) => a + complementTotalCap(sh.typeKey), 0);
+// A ship's berths: the hull's own plus its installed quarters' bonus (the free Utilitarian Quarters' 12 on every ship).
+const shipBerths = (s: GameState, sh: ShipInstance) => complementTotalCap(sh.typeKey, quartersCapacityBonus(s, sh));
+const berths = (s: GameState) => s.ships.reduce((a, sh) => a + shipBerths(s, sh), 0);
 
 describe("the welcome batch fills every ship, seat by seat", () => {
   it("every passive ship is full after the welcome, with nothing swept to the reserve", () => {
@@ -44,12 +56,13 @@ describe("the welcome batch fills every ship, seat by seat", () => {
     const out = resolveCrew(s);
     for (const ship of out.ships) {
       const total = totalCrew(ship.complement?.buckets ?? []);
-      expect(total, ship.typeKey).toBe(complementTotalCap(ship.typeKey));
+      expect(total, ship.typeKey).toBe(shipBerths(out, ship));
+      expect(quartersCapacityBonus(out, ship), ship.typeKey).toBe(12); // the free set is really on (Utilitarian's 12)
       // No seat of any division or rank is left open.
       for (const profession of CREW_PROFESSIONS) {
         for (const rank of [1, 2, 3, 4, 5, 6, 7, 8] as const) {
           const sig = { profession, rank, rarity: "standard", race: "earthBorn", buff1Id: "", buff2Id: null } as never;
-          expect(remainingCapacityForSignature(ship.complement!, ship.typeKey, sig), `${ship.typeKey} ${profession} ${rank}`).toBe(0);
+          expect(remainingCapacityForSignature(ship.complement!, ship.typeKey, sig, quartersCapacityBonus(out, ship)), `${ship.typeKey} ${profession} ${rank}`).toBe(0);
         }
       }
     }
@@ -63,7 +76,8 @@ describe("the welcome batch fills every ship, seat by seat", () => {
   });
 
   it("a v54 save a year old: every berth filled once (no whole-transport rounding), marker at now, then ordinary transports", () => {
-    const cur = fleet();
+    // A v54 save never held the set (built with it off); the v71 -> v72 step installs it on every ship on load.
+    const cur = withCrewModuleSiOff(fleet);
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
     const { officers, nextOfficerId, crewPool, notableCrew, nextNotableId, lastTransportWindow, ...pre } = cur as any;
     const save: SaveFile = {
@@ -72,6 +86,7 @@ describe("the welcome batch fills every ship, seat by seat", () => {
     };
     const migrated = migrate(save);
     expect(migrated.lastTransportWindow).toBe(TRANSPORT_WELCOME_PENDING);
+    for (const sh of migrated.ships) expect(quartersCapacityBonus(migrated, sh), sh.id).toBe(12);
     const out = resolveCrew(migrated);
     expect(seated(out)).toBe(berths(out));
     expect(totalCrew(out.crewPool) + homeworldReserveCount(out)).toBe(0);
