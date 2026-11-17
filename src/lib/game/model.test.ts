@@ -2562,7 +2562,7 @@ describe("freshState equipment + crafting fields (0.11.0 Task 3 + Task 20 seed)"
     const state = freshState();
     // Task 20: the one starting hull is born fully fitted with Standard-Issue on all
     // four live slots (no live slot is ever empty), then (0.14.0, user 2026-11-17 "free basic set, all ships") its
-    // Standard-Issue Sensor Suite, Bridge Module and Crew Quarters, so the pool holds exactly seven pieces, all fitted
+    // Standard-Issue Sensor Suite, Bridge Module and Crew Quarters, so the pool holds exactly seven pieces, all installed
     // to "ship-1", and nextEquipmentId has advanced past them.
     expect(state.equipment).toHaveLength(7);
     expect(state.equipment.every((e) => e.fittedToShipId === "ship-1")).toBe(true);
