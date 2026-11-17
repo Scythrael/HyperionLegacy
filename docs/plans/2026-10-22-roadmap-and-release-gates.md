@@ -64,6 +64,8 @@ Logged for the 0.16.0 balance pass (answers in docs/qa/2026-11-13-fable-sweep-le
 - Early expeditions with the free Standard-Issue Balanced Array (user 2026-11-17, "Accept, tune in 0.16.0"): its +0.05
   landmark and underground odds surface a few more sites and fights (Orion sample: runs with a loss 4 to 5 of 10, lost
   fights 83 to 89); first runs stay safe.
+- Patrols with the free crew set are a little easier for the General Freighter and the warships (Freighter Warband
+  curve 1: 285 to 303 wins of 400; Destroyer Warband full strength: 33 to 42); first patrol still safe.
 
 ## 0.16.0: minigame scale cut to e1,000 (user, 2026-11-14)
 
