@@ -321,3 +321,8 @@ User confirmations on the builder's calls (2026-11-17): after a Release the orde
 closed"); the helper lane's button reads "Release" ("Release"); the cap pause applies to mission extra finds only
 ("Missions only"); the Salvage Bay and the Refinery / Fabricator / Shipyard requirement "free" rows keep counting the
 way their own Start gate checks ("Leave them").
+Review of the batch (2026-11-17): no blockers; fix pass running. User answers: catalog-named systems are the SAME PLACE
+too (distance, bearing, enemy territory follow the name; "Same place too"); the pre-existing Refinery / Fabricator
+Free and Start-gate double count of joined helper lanes gets fixed now ("Fix it now"); docked Overtime that carries
+into a pause keeps its docked price ("Leave it"). Q6 recall leak (pause price carried into dock) is being fixed.
+Prod 0.13.11.4 RELEASED 2026-11-17 @ 26cc922e (tag release/0.13.11.4), verified live on crystalisoft.com.
