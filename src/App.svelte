@@ -1340,6 +1340,24 @@
   import { loadTickBarEnabled, saveTickBarEnabled } from "./lib/tickBarPreference";
   import { GRAPH_PALETTE_IDS, GRAPH_PALETTE_LABELS, graphPaletteStore, setGraphPalette } from "./lib/graphPalettePreference";
   import { loadShowTickCounts, saveShowTickCounts } from "./lib/tickReadoutPreference";
+  // Research tab search and filters (0.14.0, user 2026-11-17): the pure filter and its per-device view preference.
+  import {
+    DEFAULT_RESEARCH_FILTER_VIEW,
+    RESEARCH_FILTER_EMPTY_TEXT,
+    RESEARCH_ALL_DONE_TEXT,
+    filterBlueprintTierGroups,
+    researchCategoryOptions,
+    researchHiddenCountText,
+    researchStatusOptions,
+    researchTierOptions,
+    type ResearchFilterView,
+  } from "./lib/researchFilter";
+  import {
+    loadResearchFilterView,
+    loadShowCompletedResearch,
+    saveResearchFilterView,
+    saveShowCompletedResearch,
+  } from "./lib/researchViewPreference";
   import { loadShowExperienceValues, saveShowExperienceValues } from "./lib/experienceReadoutPreference";
   import { loadRefineConfirmEnabled, saveRefineConfirmEnabled } from "./lib/refineConfirmPreference";
   // 0.13.5: the confirmation-level ladder. The rungs, the Custom derivation and the
@@ -1486,6 +1504,10 @@
   // migration. Loaded in onMount alongside tickBarEnabled; default FALSE
   // (players see just the clock; tick counts are an opt-in power-user detail).
   let showTickCounts = false;
+  // "Show completed research" (Settings, 0.14.0 user 2026-11-17): off hides researched blueprints from the Research
+  // tab list. Per-device localStorage (researchViewPreference.ts), never the save; loaded in onMount beside
+  // showTickCounts; default FALSE.
+  let showCompletedResearch = false;
   // Whether the header EXP + CRAFT readouts show the raw current/total XP and a decimal percent
   // instead of just the whole-number percent. Persisted in localStorage (loadShowExperienceValues),
   // same device-preference pattern as showTickCounts; default FALSE. Off, "99%" is enough; on, you
@@ -3888,6 +3910,7 @@
     initIconPack();
     tickBarEnabled = loadTickBarEnabled();
     showTickCounts = loadShowTickCounts();
+    showCompletedResearch = loadShowCompletedResearch();
     showExperienceValues = loadShowExperienceValues();
     // 0.13.5: load the accessibility settings and APPLY them immediately. Applying on load is the
     // half that is easy to forget and impossible to notice while developing (you toggle a setting,
@@ -11497,6 +11520,25 @@
       });
   })();
 
+  // Research tab search and filters (0.14.0, user 2026-11-17 "Research screen cleanup"). The filter bar's choices
+  // (search, Status, Category, Tier) persist per device like the Ships roster's view (researchViewPreference.ts, never
+  // the save) and are saved on every change. researchFiltered is the list the RESEARCH panel renders: the same tier
+  // groups and shelves, narrowed by researchFilter.ts (pure, display only), with researched blueprints hidden unless
+  // Settings > Show completed research is on. It names `state` so the statuses follow every tick.
+  let researchView: ResearchFilterView = loadResearchFilterView();
+  $: saveResearchFilterView(researchView);
+  $: researchFiltered = filterBlueprintTierGroups(state, blueprintTierGroups, researchView, showCompletedResearch);
+  function clearResearchFilters(): void {
+    researchView = { ...DEFAULT_RESEARCH_FILTER_VIEW };
+  }
+  // The Status chip shown pressed: a remembered Researched choice reads as All while completed research is hidden (the
+  // filter treats it as All too), and comes back when the setting is turned on again.
+  $: researchStatusPressed = !showCompletedResearch && researchView.status === "researched" ? "all" : researchView.status;
+  // Whether any filter is narrowing the list, so the empty state offers Clear filters only when there is something to
+  // clear.
+  $: researchFiltersActive =
+    researchView.search.trim() !== "" || researchStatusPressed !== "all" || researchView.family !== "all" || researchView.tier !== "all";
+
   // Combat 0.13.0 (warship research gate): the hull (if any) an UNLOCK-ONLY blueprint grants
   // build access to, the REVERSE of ShipTypeDef.requiresBlueprint. The Research card uses this
   // to describe an unlock-only blueprint by WHAT it unlocks ("Unlocks: Battleship") instead of
@@ -14189,10 +14231,85 @@
                 <div class="panel-title">RESEARCH</div>
                 <div class="research-cost">Research slots: {activeResearchProjects.length} / {researchSlots} in use</div>
 
-                {#each blueprintTierGroups as group (group.tier)}
+                <!-- SEARCH AND FILTERS (0.14.0, user 2026-11-17 "Research screen cleanup"): a search box (name, recipe
+                     materials, output, unlocked hull) and three single-select chip groups (Status, Category, Tier),
+                     combined with AND. The list below renders researchFiltered (researchFilter.ts, pure), the same tier
+                     groups and shelves with the misses removed; the card markup is unchanged. Researched blueprints are
+                     hidden unless Settings > Show completed research is on, and the note says how many. Each chip group
+                     sits in its own row and wraps, so a phone never scrolls the page sideways. -->
+                <div class="research-filter">
+                  <input
+                    class="ship-roster-search research-filter-search"
+                    type="text"
+                    placeholder="Search blueprints or materials"
+                    aria-label="Search blueprints or materials"
+                    bind:value={researchView.search}
+                  />
+                  <div class="research-filter-row">
+                    <span class="research-filter-label">Status</span>
+                    <div class="research-filter-chips" role="group" aria-label="Filter research by status">
+                      {#each researchStatusOptions(showCompletedResearch) as opt (opt.key)}
+                        <button
+                          class="ship-chip"
+                          class:active={researchStatusPressed === opt.key}
+                          aria-pressed={researchStatusPressed === opt.key}
+                          on:click={() => (researchView = { ...researchView, status: opt.key })}
+                        >
+                          {opt.label}
+                        </button>
+                      {/each}
+                    </div>
+                  </div>
+                  <div class="research-filter-row">
+                    <span class="research-filter-label">Category</span>
+                    <div class="research-filter-chips" role="group" aria-label="Filter research by category">
+                      {#each researchCategoryOptions(state, blueprintTierGroups, researchView.family) as opt (opt.key)}
+                        <button
+                          class="ship-chip"
+                          class:active={researchView.family === opt.key}
+                          aria-pressed={researchView.family === opt.key}
+                          on:click={() => (researchView = { ...researchView, family: opt.key })}
+                        >
+                          {opt.label}
+                        </button>
+                      {/each}
+                    </div>
+                  </div>
+                  <div class="research-filter-row">
+                    <span class="research-filter-label">Tier</span>
+                    <div class="research-filter-chips" role="group" aria-label="Filter research by tier">
+                      {#each researchTierOptions(blueprintTierGroups) as opt (opt.key)}
+                        <button
+                          class="ship-chip"
+                          class:active={researchView.tier === opt.key}
+                          aria-pressed={researchView.tier === opt.key}
+                          on:click={() => (researchView = { ...researchView, tier: opt.key })}
+                        >
+                          {opt.label}
+                        </button>
+                      {/each}
+                    </div>
+                  </div>
+                  {#if !showCompletedResearch && researchFiltered.hiddenResearched > 0}
+                    <p class="research-filter-note">{researchHiddenCountText(researchFiltered.hiddenResearched)}</p>
+                  {/if}
+                </div>
+
+                {#if researchFiltered.matched === 0}
+                  <div class="research-filter-empty">
+                    <p class="research-status">{researchFiltersActive ? RESEARCH_FILTER_EMPTY_TEXT : RESEARCH_ALL_DONE_TEXT}</p>
+                    {#if researchFiltersActive}
+                      <button class="buy-btn" on:click={clearResearchFilters}>
+                        Clear filters
+                      </button>
+                    {/if}
+                  </div>
+                {/if}
+
+                {#each researchFiltered.groups as group (group.tier)}
                   <!-- 0.13.3 Unit 6.2 (presentation only): THE TIER GROUPING IS THE STRUCTURE OF
-                       THIS LIST and it is preserved exactly, {#each blueprintTierGroups} over
-                       ascending tiers with one header per group. The header itself moves from a
+                       THIS LIST and it is preserved exactly, {#each} over the tier groups (filtered since
+                       0.14.0, empty tiers dropped) in ascending tiers with one header per group. The header itself moves from a
                        bare bold line to the Home/Ships section-header idiom (icon + label +
                        rule), which is the same conversion Unit 6.1 applied to the REQUIRES /
                        REWARDS headers: a line that heads a group is a section header. NO COUNT
@@ -20566,6 +20683,16 @@
           />
         </SettingRow>
         <SettingRow
+          label="Show completed research"
+          description="Shows blueprints you have already researched in the Research Lab's Research list. When off, they are hidden and the list says how many."
+        >
+          <Toggle
+            label="Show completed research"
+            checked={showCompletedResearch}
+            on:change={(e) => { showCompletedResearch = e.detail; saveShowCompletedResearch(showCompletedResearch); }}
+          />
+        </SettingRow>
+        <SettingRow
           label="Show experience values"
           description="Shows the exact current / total XP and a decimal percent on the header's EXP and Craft bars, instead of just the whole-number percent. Useful for seeing small gains from a single job, which a rounded percent hides."
         >
@@ -24925,6 +25052,51 @@
     font-size: var(--text-2xs); letter-spacing: 0.08em; text-transform: uppercase;
     color: var(--color-text-secondary);
   }
+
+  /* Research list search and filters (0.14.0): the search box (the Ships roster's .ship-roster-search look) over three
+     chip rows (the roster's .ship-chip). Each row is a small label beside its chips; the chips wrap inside their own
+     row, so at 375px a long Category row takes two or three lines instead of pushing the page sideways. */
+  .research-filter {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin: 10px 0 4px;
+  }
+  /* flex: none undoes the roster box's row basis (160px), which in this column would set its HEIGHT. */
+  .research-filter-search { flex: none; width: 100%; box-sizing: border-box; }
+  .research-filter-row {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    min-width: 0;
+  }
+  .research-filter-label {
+    flex: 0 0 4.5rem;
+    font-size: var(--text-xs);
+    color: var(--color-text-secondary);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+  }
+  .research-filter-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    flex: 1 1 auto;
+    min-width: 0;
+  }
+  .research-filter-note {
+    margin: 0;
+    font-size: var(--text-sm);
+    color: var(--color-text-secondary);
+  }
+  .research-filter-empty {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 10px;
+    margin-top: 12px;
+  }
+  .research-filter-empty .research-status { margin: 0; }
 
   /* Docks "Expand Docks" header (Fleet Management): the Berths readout on the left,
      the Expand Docks button on the right. Mirrors the systems-bay-head layout so the
