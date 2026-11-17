@@ -314,3 +314,10 @@ Exact per-cycle patrol setup: 92 us to 35 us per step (5 Repeat patrols, 11 ship
 desktop. Async catch-up: resumable tick job, 14 ms slices over MessageChannel, overlay when the estimate is over 1 s.
 User answers (2026-11-17): closing mid-catch-up "Start over" (last save untouched, the next load redoes it once);
 Discord post "No emoji". Patch note wording still needs the user's approval before main.
+
+## 0.14.0 fix-round answers batch (2026-11-17): built 6ce76698, in review
+
+User confirmations on the builder's calls (2026-11-17): after a Release the order stays closed to new helpers ("Stay
+closed"); the helper lane's button reads "Release" ("Release"); the cap pause applies to mission extra finds only
+("Missions only"); the Salvage Bay and the Refinery / Fabricator / Shipyard requirement "free" rows keep counting the
+way their own Start gate checks ("Leave them").
