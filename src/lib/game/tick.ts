@@ -4797,8 +4797,9 @@ export function applyCraftingXp(state: GameState, craftingXpDelta: number): Game
 // before the clamp (drift-proof).
 // FR-C lane 1 M5 / M6 and lane 3 M2 (user 2026-11-13/14, "Never discard (Recommended)": deliveries may sit over the cap,
 // nothing trimmed on load, logs show what landed). With this live, addToInventory lands every deposit IN FULL (a
-// mission's finds, an expedition haul, a craft's output, a time-skip grant): nothing is clamped away and an over-cap
-// stack is never drained. The cap still PAUSES producers (materialAtCap: missions, trickle and lines stop at it) and a
+// mission's primary delivery, an expedition haul, a craft's output, a time-skip grant): nothing is clamped away and an
+// over-cap stack is never drained. A mission's SECONDARY finds never reach it while their item is capped (Q12, 2026-11-17,
+// pauseCappedSecondaryFinds: they pause at the cap like any producer). The cap still PAUSES producers (materialAtCap: missions, trickle and lines stop at it) and a
 // purchase is still refused over it (their own gates); a load no longer trims (save.ts migrate). The TEST-ONLY off
 // switch (neverDiscardSwitch.fixture.ts) restores the old clamp and load trim, so a golden captured before can be
 // traced. Never written by app code.
@@ -4808,6 +4809,39 @@ export const NEVER_DISCARD_SWITCH: { live: boolean } = { live: true };
 // lifetimeStats.fleetAdminXpAwarded, and the `auto` stamp on an auto-salvage completed-events entry), so a golden that
 // hashes lifetimeStats or the completion log can be traced (recapFoldsSwitch.fixture.ts). Never written by app code.
 export const RECAP_FOLDS_SWITCH: { live: boolean } = { live: true };
+
+// Fix round answers Q12 (user 2026-11-17, "Stop at the cap"): TEST-ONLY off switch (fixRoundAnswersSwitch.fixture.ts).
+// Off, a mission's secondary find lands even with its item at the cap (the FR-C never-discard deposit), as before.
+// Never written by app code.
+export const SECONDARY_FIND_PAUSE_SWITCH: { live: boolean } = { live: true };
+
+// The mission's secondary items (its loot table's uncommon and rare entries, never its primary material) that are at
+// or over their cap at the start of the call are taken out of this captain's delivery and out of its gathered count.
+// Returns the inputs unchanged (same references) when nothing is capped, so an under-cap fleet is byte-identical.
+export function pauseCappedSecondaryFinds(
+  state: GameState,
+  missionKey: MissionKey,
+  delta: Record<string, Decimal>,
+  lifetimeStatsDelta: MissionLifetimeStatsDelta,
+): { delta: Record<string, Decimal>; lifetimeStatsDelta: MissionLifetimeStatsDelta } {
+  if (!SECONDARY_FIND_PAUSE_SWITCH.live) return { delta, lifetimeStatsDelta };
+  const def = MISSIONS[missionKey];
+  if (def.missionType === "transport") return { delta, lifetimeStatsDelta };
+  let paused: string[] | null = null;
+  for (const key of [def.lootTable.uncommon, def.lootTable.rare]) {
+    if (key === def.primaryMaterial || paused?.includes(key)) continue;
+    const amount = delta[key];
+    if (amount === undefined || !amount.gt(0) || !materialAtCap(state, key)) continue;
+    (paused ??= []).push(key);
+  }
+  if (paused === null) return { delta, lifetimeStatsDelta };
+  const keep = <T>(rec: Record<string, T>): Record<string, T> => {
+    const out: Record<string, T> = {};
+    for (const key of Object.keys(rec)) if (!paused!.includes(key)) out[key] = rec[key];
+    return out;
+  };
+  return { delta: keep(delta), lifetimeStatsDelta: { ...lifetimeStatsDelta, itemsGathered: keep(lifetimeStatsDelta.itemsGathered) } };
+}
 
 export function addToInventory(
   inventory: Record<string, Decimal[]>,
@@ -5706,10 +5740,10 @@ function economyTickCall(
     // inline Math.random; the live loop / tests can inject a deterministic rng.
     const {
       captain: updated,
-      homePlanetDelta: delta,
+      homePlanetDelta: missionDelta,
       fleetAdminXpDelta: captainFleetAdminXpDelta,
       creditsDelta: captainCreditsDelta,
-      lifetimeStatsDelta: captainLifetimeStatsDelta,
+      lifetimeStatsDelta: missionLifetimeStatsDelta,
       berthsClaimed: captainBerthsClaimed,
       cycleEndTicks,
       endedAtTicks: missionEndedAtTicks,
@@ -5728,6 +5762,13 @@ function economyTickCall(
       // GEAR WEAR step 3: a stamped run records each delivered cycle's use and re-reads its gear for the next cycle.
       onCycleDelivered,
     );
+    // Fix round answers Q12 (user 2026-11-17, "Stop at the cap"): a mission's SECONDARY find (its loot table's uncommon
+    // and rare items, never its primary material) is a producer that pauses at the cap, like the trickle: an item at or
+    // over its cap at the START of this call (the materialAtCap seam the primary auto-stop and the trickle read) takes
+    // none of this captain's delivery of it. Under the cap it lands in full (no partial trim). It is not gathered
+    // either (itemsGathered mirrors what lands). Both paths step economyTick one tick at a time, so the check runs at
+    // the same tick live and offline. Off (test-only, SECONDARY_FIND_PAUSE_SWITCH), the find lands as it did before.
+    const { delta, lifetimeStatsDelta: captainLifetimeStatsDelta } = pauseCappedSecondaryFinds(state, missionKey, missionDelta, missionLifetimeStatsDelta);
     // 0.13.4 Phase 3: draw the shared berth budget down so the next captain in this map sees it.
     berthBudgetRemaining -= captainBerthsClaimed;
     // Lane 4 M8: the run's return (a recalled run's last delivery), only when the mission really ended this call.
