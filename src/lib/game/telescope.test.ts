@@ -28,6 +28,7 @@ import {
   expeditionCandidates,
   expeditionLaunchView,
   expeditionRiskPreview,
+  tierCandidateSystems,
   } from "./expedition";
 import {
   PROVISIONAL_HOMEWORLD,
@@ -50,13 +51,6 @@ import {
 import { buildHomeDashboard } from "./homeDashboard";
 import { plainAwayMember, dispatchPastPropulsion } from "./awayTeamTestFixtures";
 import { groundOpsStuck, groundOpsStuckTaskIds } from "./groundOps";
-import { fixRoundAnswersOffForThisFile } from "./fixRoundAnswersSwitch.fixture";
-
-// Fix round answers Q3 (2026-11-17, "Yes, same every visit": a catalog-named system's bodies are drawn from its
-// catalog id, the same every visit) moves this file's pins (the catalog-named systems its runs fly have other bodies).
-// They predate it and are about another slice, so the file runs with it off (fixRoundAnswersSwitch.fixture.ts). Q3's
-// own pins: expeditionFixRoundE.test.ts.
-fixRoundAnswersOffForThisFile("catalogBodies");
 
 const TELESCOPE = FACILITIES[SUBSPACE_TELESCOPE_FACILITY_KEY];
 
@@ -373,8 +367,11 @@ describe("the candidate carries the telescope reading", () => {
       expect(c.telescope.regionTier).toBe(1);
       expect(c.telescope.detail).toBe(2);
       // SQ-6: the reading plus the task-based pieces, none of which Graded shows.
+      // (Fix round answers Q3: a catalog-named system's bodies and distance come from its name, so the reading is of the
+      // candidate's own region and distance, as the list draws them.)
+      const sys = tierCandidateSystems(s, 1).find((x) => x.id === c.id)!;
       expect(c.telescope).toEqual({
-        ...readSystem(telescopeReading(s), c.seed, 0, expeditionRiskPreview(c.seed), stateHomeworld(s)),
+        ...readSystem(telescopeReading(s), c.seed, 0, expeditionRiskPreview(c.seed, sys.region), stateHomeworld(s), undefined, sys.distanceLy),
         demand: null,
       });
     }

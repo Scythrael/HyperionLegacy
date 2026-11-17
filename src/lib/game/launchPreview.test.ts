@@ -39,13 +39,6 @@ import { TELESCOPE_DETAIL, blindLaunchCount } from "./telescope";
 import { forecastTasksText, previewForHull, recommendLaunch, taskDemand, taskDemandText, type SystemTaskPreview } from "./launchRecommendation";
 import { deserialize, migrate, serialize } from "./save";
 import { plainAwayMember, withoutShipEvents, dispatchPastPropulsion } from "./awayTeamTestFixtures";
-import { fixRoundAnswersOffForThisFile } from "./fixRoundAnswersSwitch.fixture";
-
-// Fix round answers Q3 (2026-11-17, "Yes, same every visit": a catalog-named system's bodies are drawn from its
-// catalog id, the same every visit) moves this file's pins (the catalog-named systems its runs fly have other bodies).
-// They predate it and are about another slice, so the file runs with it off (fixRoundAnswersSwitch.fixture.ts). Q3's
-// own pins: expeditionFixRoundE.test.ts.
-fixRoundAnswersOffForThisFile("catalogBodies");
 
 const T0 = 100_000;
 // The instant the bodies are scanned: the outbound transit (the regular one since safe first runs SF-2 retired the 30
@@ -214,7 +207,9 @@ describe("the candidate carries only what its detail shows", () => {
 
   it("Forecast (Level 7) adds the forecast for the recommended composition", () => {
     for (const c of cands(atLevel(7, s))) {
-      expect(c.telescope.forecast).toEqual(launchForecast(s, "ship-1", c.seed, c.telescope.recommendation!.kinds));
+      // (Fix round answers Q3: a catalog-named system's bodies come from its name, its region's identity, so the forecast
+      // is read on the candidate's own region, as the list builds it.)
+      expect(c.telescope.forecast).toEqual(launchForecast(s, "ship-1", c.seed, c.telescope.recommendation!.kinds, c.region));
       expect(c.telescope.forecast!.label).toBe(c.telescope.recommendation!.label);
     }
   });

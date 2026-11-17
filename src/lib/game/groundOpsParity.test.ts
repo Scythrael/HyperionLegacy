@@ -12,13 +12,6 @@ import { advanceExpedition, expeditionCandidates, expeditionPhaseFraction, scanR
 import { IN_SYSTEM_LEG_SECONDS, groundShipPosition, scanClockAt, scanClockToTime } from "./groundOps";
 import { asPreFieldKitsDispatch, plainAwayMember, withSlottedAwayTeams, withoutEnemyRanks, withoutShipEvents, dispatchPastPropulsion } from "./awayTeamTestFixtures";
 import { deserialize, migrate, serialize, type SaveFile } from "./save";
-import { fixRoundAnswersOffForThisFile } from "./fixRoundAnswersSwitch.fixture";
-
-// Fix round answers Q3 (2026-11-17, "Yes, same every visit": a catalog-named system's bodies are drawn from its
-// catalog id, the same every visit) moves this file's pins (the catalog-named systems its runs fly have other bodies).
-// They predate it and are about another slice, so the file runs with it off (fixRoundAnswersSwitch.fixture.ts). Q3's
-// own pins: expeditionFixRoundE.test.ts.
-fixRoundAnswersOffForThisFile("catalogBodies");
 
 const member = (id: string, teamType: AwayMember["teamType"], over: Partial<AwayMember> = {}): AwayMember => ({
   ...plainAwayMember(id, teamType, "ship-1"),
@@ -30,7 +23,9 @@ const SQUAD: AwayMember[] = [
   member("member-11", "science"),
 ];
 // Pinned by a seed search (the scenario assertions below fail loudly if a change ever moves it off).
-const SEED = 0x0a13bd4;
+// Fix round answers Q3 fix pass (a catalog-named system's bodies and place from its name): 0x0a13bd4's system lost the
+// scenario (one body now); the same search from it finds 0x0a13bdb (with Q3 off 0x0a13bd4 holds it, as before).
+const SEED = 0x0a13bdb;
 // Ground Ops GO-8: the run as dispatched before the ship-side scan events (withoutShipEvents), so this file keeps
 // pinning the GO-7b window it was written for; the ship events' own parity lives in shipScanEvents.test.ts.
 const TWO_HOURS = 7200;

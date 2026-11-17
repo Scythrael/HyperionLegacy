@@ -37,13 +37,6 @@ import {
   type GroundTaskRef,
 } from "./groundOps";
 import { asPreCurveDispatch, plainAwayMember, withoutGroundOps, withSlottedAwayTeams, dispatchPastPropulsion } from "./awayTeamTestFixtures";
-import { fixRoundAnswersOffForThisFile } from "./fixRoundAnswersSwitch.fixture";
-
-// Fix round answers Q3 (2026-11-17, "Yes, same every visit": a catalog-named system's bodies are drawn from its
-// catalog id, the same every visit) moves this file's pins (the catalog-named systems its runs fly have other bodies).
-// They predate it and are about another slice, so the file runs with it off (fixRoundAnswersSwitch.fixture.ts). Q3's
-// own pins: expeditionFixRoundE.test.ts.
-fixRoundAnswersOffForThisFile("catalogBodies");
 
 // ===== fixtures =====
 
@@ -720,7 +713,9 @@ describe("GO-7d EDIT PARITY: one call to T + edit + one call to the end == chunk
 
   it("a REAL dispatched run edited while the ship still scans (and once in transit)", { timeout: 120_000 }, () => {
     const SQ: AwayMember[] = [member("member-1", "security", { rank: 3 }), member("member-2", "security", { rank: 2, traits: ["fieldMedic"] }), member("member-11", "science")];
-    const s = withSlottedAwayTeams({ ...freshState(), awayMembers: SQ.map((m) => ({ ...m })), nextAwayMemberId: 100, expeditionSeed: 0x0a13bd4 });
+    // List seed 0x0a13bdb: groundOpsParity.test.ts's run (fix round answers Q3 fix pass: 0x0a13bd4's system, drawn from
+    // its name, has one body and no work while the ship scans; with Q3 off 0x0a13bd4 holds the scenario, as before).
+    const s = withSlottedAwayTeams({ ...freshState(), awayMembers: SQ.map((m) => ({ ...m })), nextAwayMemberId: 100, expeditionSeed: 0x0a13bdb });
     const res = asPreCurveDispatch(dispatchPastPropulsion(s, "ship-1", 1, expeditionCandidates(s, "ship-1")[0].id));
     const exp = res.expedition!;
     // In transit: only the help toggle has anything to change.

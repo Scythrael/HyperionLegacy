@@ -18,13 +18,6 @@ import { ADVANCE_MODES, simStartState, simulate, type SimReport } from "./simPla
 import { ALL_AUTO, NEWCOMER, SIM_HOUR, scripted } from "./policies";
 import { ablateChoices } from "./ablation";
 import { onHull } from "../firstRunsGoldens.fixture";
-import { fixRoundAnswersOffForThisFile } from "../fixRoundAnswersSwitch.fixture";
-
-// Fix round answers Q3 (2026-11-17, "Yes, same every visit": a catalog-named system's bodies are drawn from its
-// catalog id, the same every visit) moves this file's pins (the catalog-named systems its runs fly have other bodies).
-// They predate it and are about another slice, so the file runs with it off (fixRoundAnswersSwitch.fixture.ts). Q3's
-// own pins: expeditionFixRoundE.test.ts.
-fixRoundAnswersOffForThisFile("catalogBodies");
 
 const withoutMode = (r: SimReport): Omit<SimReport, "advance"> => {
   const { advance: _mode, ...rest } = r;
@@ -123,7 +116,9 @@ describe("WR-2 safe first runs: the allAuto newcomer baseline (SF-2 flipped the 
     // Before SF-2 (characterization): "stalled: 0/11 objectives done, stuck on derelictOutpost", "3 lost fights".
     // Safe First Runs OC-1 / OC-2: the weakest launchable crew finishes 100% with no setbacks.
     expect(r.firstExpedition).toEqual({ verdict: "safe", safe: true, reasons: [] });
-    expect(first).toMatchObject({ end: "complete", claimed: true, objectivesDone: 11, objectivesTotal: 11, lostFights: 0, hullDamage: 0, setbacks: 0, boardingLoss: 0 });
+    // Fix round answers Q3 fix pass (a catalog-named system's bodies and place from its name): the training run's system
+    // holds 9 objectives (11 with Q3 off); still finished 100% with no setbacks.
+    expect(first).toMatchObject({ end: "complete", claimed: true, objectivesDone: 9, objectivesTotal: 9, lostFights: 0, hullDamage: 0, setbacks: 0, boardingLoss: 0 });
   });
 });
 

@@ -45,13 +45,6 @@ import {
   shipEventsLive,
   type ShipEventDraws,
 } from "./shipScanEvents";
-import { fixRoundAnswersOffForThisFile } from "./fixRoundAnswersSwitch.fixture";
-
-// Fix round answers Q3 (2026-11-17, "Yes, same every visit": a catalog-named system's bodies are drawn from its
-// catalog id, the same every visit) moves this file's pins (the catalog-named systems its runs fly have other bodies).
-// They predate it and are about another slice, so the file runs with it off (fixRoundAnswersSwitch.fixture.ts). Q3's
-// own pins: expeditionFixRoundE.test.ts.
-fixRoundAnswersOffForThisFile("catalogBodies");
 
 const member = (id: string, teamType: AwayMember["teamType"], over: Partial<AwayMember> = {}): AwayMember => ({
   ...plainAwayMember(id, teamType, "ship-1"),
@@ -73,7 +66,9 @@ const FAR = 120_000;
 
 // Seeds pinned by a sweep (the scenario test below fails loudly if a change moves them off): between them the
 // runs hold every event kind and both outcomes of every check and of the cloaked fight.
-const PINNED = [0x6eed1, 0x69204, 0xaadc2, 0x65426];
+// Fix round answers Q3 fix pass (a catalog-named system's bodies and place from its name): 0x69204 (its ghost:fail)
+// is now 0x60f0f, which adds the storm:fail the moved systems lost (with Q3 off the old four held every kind).
+const PINNED = [0x6eed1, 0x60f0f, 0xaadc2, 0x65426];
 
 // The time the window opened (the scanning anchor).
 function windowOpen(exp: Expedition): number {
