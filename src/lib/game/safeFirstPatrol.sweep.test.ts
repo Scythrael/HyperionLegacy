@@ -16,13 +16,11 @@ import { SWEEP } from "./firstRunsGoldens.fixture";
 import { HULLS, ROUTES, onPatrolCurve, patrolBase, patrolWon, proveTrainingPatrol } from "./safeFirstPatrol.fixture";
 import { N_FULL, RAMP_ODDS_LAG, runCountsOf } from "./runDifficulty";
 import type { GameState } from "./model";
-import { crewModuleSiOffForThisFile } from "./crewModuleSiSwitch.fixture";
 
-// Standard-Issue crew modules (0.14.0, user 2026-11-17 "free basic set, all ships"): this file's pins predate the
-// free Sensor Suite, Bridge Module and Crew Quarters every ship now carries (their berths, officer lift, hull bonus
-// and equipment ids), so the set is off here and the pins keep proving their own slice. The set itself is pinned in
-// crewModuleStandardIssue.test.ts.
-crewModuleSiOffForThisFile();
+// Standard-Issue crew modules (0.14.0, user 2026-11-17 "free basic set, all ships"): the sweep runs with the set ON,
+// the shipped game (every hull carries its free Sensor Suite, Bridge Module and Crew Quarters), so the proof (the first
+// patrol cannot be lost) and the curve's claims (wins never rise, c11 equals the veteran's) hold for the game players
+// have. The win table is re-pinned on it (see the trace above CURVE_WINS).
 
 const SEEDS = 1000;
 const CHUNK = 250;
@@ -112,17 +110,38 @@ const CURVE_SEEDS = 400;
 // Unmoved (gaining only the c11 column, 400): battleship Sweep and carrier Sweep. Every row still falls, and c11 equals
 // the veteran's on every hull and route. The early Sweep is no longer 400 of 400 through c4 on every hull (the Runner
 // and the Miner lose one seed from c3, the Marauder chance at 4.2%).
+//
+// Re-pin 2026-11-17 (the Standard-Issue crew modules fix pass), traced in two steps, every safety claim green in both:
+// 1. STALE since a0f32e8c (the WR-8b re-pin above): the fix rounds merged after it (before 824f477d) moved five
+//    Warband rows by +1 to +4 wins, so `npm run test:sweep:patrol` already failed on this table alone on 824f477d.
+//    Measured with the crew set switched off (withCrewModuleSiOff, the game before the set), c0 to c11:
+//      generalFreighter Warband: 315 285 259 203 ... to 316 285 259 203 ... (c0 +1, the rest unchanged)
+//      prospectorHauler Warband: 345 333 302 241 ... to 346 333 302 241 ... (c0 +1, the rest unchanged)
+//      destroyer Warband       : 395 391 382 374 346 294 206 ... to 396 392 383 375 347 295 206 ... (c0 to c5 +1)
+//      orion Warband           : 157 134 126 89 68 40 20 14 ... to 158 135 126 91 71 42 21 14 ...
+//      eir Warband             : 161 146 133 93 66 37 16 9 ... to 163 148 135 96 70 38 17 9 ...
+// 2. THE FREE SET (Utilitarian Quarters' berths and division lift, Balanced Command's officer lift, the bridge and
+//    quarters hull-family bonus), set off to set on, c0 to c11:
+//      generalFreighter Sweep  : 400 400 400 400 400 400 398 389 361 328 306 297 to 400 400 400 400 400 400 399 394 372 345 314 307
+//      generalFreighter Warband: 316 285 259 203 114 57 22 13 6 4 3 3 to 315 303 265 206 121 61 26 13 5 5 2 2
+//      destroyer Sweep         : ... 400 396 394 to ... 400 397 395
+//      destroyer Warband       : 396 392 383 375 347 295 206 139 93 60 33 33 to 398 393 383 367 351 299 222 149 101 67 44 42
+//      battleship Warband      : 400 400 400 400 400 399 394 386 362 338 289 287 to 400 400 400 400 400 400 396 385 366 345 307 303
+//      carrier Warband         : 386 375 374 363 345 297 250 198 143 113 82 78 to 385 376 374 362 352 312 259 212 151 115 90 87
+//    Unmoved by the set: the Hauler, Runner, Miner and the three explorers (their rows are step 1's). Most cells rise
+//    (the free set is a small lift); a few fall by a seed or so where the lifted crew shift a fight's draws. Every row
+//    still falls, and c11 equals the veteran's on every hull and route.
 const CURVE_WINS: Record<string, [number[], number[]]> = {
-  generalFreighter: [[400, 400, 400, 400, 400, 400, 398, 389, 361, 328, 306, 297], [315, 285, 259, 203, 114, 57, 22, 13, 6, 4, 3, 3]],
-  prospectorHauler: [[400, 400, 400, 400, 400, 400, 400, 395, 384, 358, 333, 326], [345, 333, 302, 241, 160, 96, 39, 23, 15, 9, 4, 3]],
+  generalFreighter: [[400, 400, 400, 400, 400, 400, 399, 394, 372, 345, 314, 307], [315, 303, 265, 206, 121, 61, 26, 13, 5, 5, 2, 2]],
+  prospectorHauler: [[400, 400, 400, 400, 400, 400, 400, 395, 384, 358, 333, 326], [346, 333, 302, 241, 160, 96, 39, 23, 15, 9, 4, 3]],
   prospectorRunner: [[400, 400, 400, 399, 399, 389, 340, 251, 210, 207, 206, 206], [136, 108, 76, 41, 18, 6, 3, 1, 1, 1, 1, 1]],
   prospectorMiner: [[400, 400, 400, 399, 399, 395, 357, 313, 232, 207, 207, 207], [198, 163, 108, 60, 24, 11, 4, 1, 1, 1, 1, 1]],
-  destroyer: [[400, 400, 400, 400, 400, 400, 400, 400, 400, 400, 396, 394], [395, 391, 382, 374, 346, 294, 206, 139, 93, 60, 33, 33]],
-  battleship: [[400, 400, 400, 400, 400, 400, 400, 400, 400, 400, 400, 400], [400, 400, 400, 400, 400, 399, 394, 386, 362, 338, 289, 287]],
-  carrier: [[400, 400, 400, 400, 400, 400, 400, 400, 400, 400, 400, 400], [386, 375, 374, 363, 345, 297, 250, 198, 143, 113, 82, 78]],
-  orion: [[400, 400, 400, 400, 400, 400, 399, 389, 363, 317, 292, 283], [157, 134, 126, 89, 68, 40, 20, 14, 8, 2, 1, 1]],
+  destroyer: [[400, 400, 400, 400, 400, 400, 400, 400, 400, 400, 397, 395], [398, 393, 383, 367, 351, 299, 222, 149, 101, 67, 44, 42]],
+  battleship: [[400, 400, 400, 400, 400, 400, 400, 400, 400, 400, 400, 400], [400, 400, 400, 400, 400, 400, 396, 385, 366, 345, 307, 303]],
+  carrier: [[400, 400, 400, 400, 400, 400, 400, 400, 400, 400, 400, 400], [385, 376, 374, 362, 352, 312, 259, 212, 151, 115, 90, 87]],
+  orion: [[400, 400, 400, 400, 400, 400, 399, 389, 363, 317, 292, 283], [158, 135, 126, 91, 71, 42, 21, 14, 8, 2, 1, 1]],
   aurora: [[400, 400, 400, 400, 400, 400, 399, 388, 359, 313, 288, 279], [143, 112, 109, 84, 65, 40, 18, 12, 9, 2, 1, 1]],
-  eir: [[400, 400, 400, 400, 400, 400, 398, 376, 346, 306, 266, 259], [161, 146, 133, 93, 66, 37, 16, 9, 2, 1, 1, 1]],
+  eir: [[400, 400, 400, 400, 400, 400, 398, 376, 346, 306, 266, 259], [163, 148, 135, 96, 70, 38, 17, 9, 2, 1, 1, 1]],
 };
 
 // The curve positions measured, c0 to c11: the enemy curve tops out at c10 (N_FULL - 1), and since the WR-8b fix round
