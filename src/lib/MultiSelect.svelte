@@ -20,6 +20,8 @@
   // the trigger's rect and place the popover below it (flipping above when it would fall off).
   // ============================================================================
   import { createEventDispatcher, tick as svelteTick } from "svelte";
+  // HOTFIX 0.13.11.4: the portaled checklist is inert while the catch-up overlay blocks the game.
+  import { catchUpBlocking } from "./catchUpGate";
 
   function portal(node: HTMLElement) {
     document.body.appendChild(node);
@@ -126,7 +128,7 @@
     <!-- The click handler only STOPS PROPAGATION so ticking an option does not reach the document
          close listener; the interactive controls inside (checkboxes + Clear) carry their own
          keyboard support, so the group container needs none. -->
-    <div class="ms-pop" use:portal style={popStyle} bind:this={pop} role="group" aria-label={label} on:click={(e) => e.stopPropagation()}>
+    <div class="ms-pop" use:portal style={popStyle} bind:this={pop} role="group" aria-label={label} inert={$catchUpBlocking ? true : undefined} on:click={(e) => e.stopPropagation()}>
       {#each options as opt (opt.value)}
         <label class="ms-opt" class:on={selectedSet.has(opt.value)}>
           <input

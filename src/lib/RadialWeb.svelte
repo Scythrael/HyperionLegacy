@@ -65,6 +65,9 @@
   //   "Tooltip (Task 11)" state/handler block and the tooltip markup at the end.
 
   import { computeVisibleTalents } from "./game/talentWeb";
+  // HOTFIX 0.13.11.4 review (0.14.0 port): the portaled tooltip's Learn button writes state, so it goes inert while a
+  // catch-up runs, like ActionModal (catchUpGate.ts).
+  import { catchUpBlocking } from "./catchUpGate";
 
   // --- portal action (Task 11) ---------------------------------------------
   // Moves `node` to be a direct child of <body> on mount and removes it on
@@ -961,6 +964,7 @@
     class="web-tooltip-backdrop"
     use:portal
     on:pointerup|self={closeTooltip}
+    inert={$catchUpBlocking ? true : undefined}
   >
     <div class="web-tooltip" role="dialog" aria-modal="true" aria-label={tooltip.label}>
       <!-- Header row: node label + explicit close (×). -->

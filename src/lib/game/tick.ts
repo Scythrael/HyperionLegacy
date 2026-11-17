@@ -6323,6 +6323,11 @@ function economyTickCall(
 // per-iteration progress log either, it would dwarf the sub-second loop's own cost
 // (console I/O per tick), and App.svelte already emits a start/end "Welcome back.
 // Advanced Ns offline." bookend around this call.
+// HOTFIX 0.13.11.4: a long catch-up no longer runs as one blocking call in the browser. App.svelte runs
+// this same function's job (beginTickJob / advanceTickJob below) in time-sliced batches behind a
+// progress overlay (catchUpRunner.ts); the calls, their order and their arguments are unchanged, so
+// the result is too. The patrol arm's per-step setup is also computed once per cycle now
+// (PATROL_PERF_SWITCH), with results unchanged.
 //
 // rng defaults to Math.random (the only production caller, App.svelte's offline
 // catch-up, passes no rng, byte-identical to the old inline Math.random). Tests
@@ -6365,11 +6370,51 @@ export function tick(
   rng: () => number = Math.random,
   endedAtMs: number = UNKNOWN_COMPLETION_TIME_MS
 ): GameState {
-  if (deltaSeconds <= 0) return state;
+  // 0.13.11.4: the body below is the catch-up job (beginTickJob / advanceTickJob), run to the end in one go.
+  // An asynchronous catch-up (catchUpRunner.ts) runs the SAME job in slices, so the two make the identical
+  // sequence of economyTick calls and land on the identical state by construction.
+  const job = beginTickJob(deltaSeconds, state, rng, endedAtMs);
+  advanceTickJob(job, Infinity);
+  return job.state;
+}
+
+// 0.13.11.4 ASYNCHRONOUS CATCH-UP: tick() as a resumable job. beginTickJob does tick()'s setup (the span, the
+// offline cap clamp, the stamp schedule); advanceTickJob makes the next economyTick calls, at most `maxCalls` of
+// them, in tick()'s exact order with tick()'s exact arguments (each whole tick, then the fractional remainder
+// last). Run to the end it IS tick(). A caller may stop between any two calls and resume later: the job holds
+// the state reached so far and the index of the next call, and nothing else changes between calls.
+export interface TickJob {
+  // The state after the calls made so far (the input state before any; the result once done).
+  state: GameState;
+  // economyTick calls made so far, and in all (the whole ticks plus one for a fractional remainder).
+  callsDone: number;
+  readonly callsTotal: number;
+  readonly rng: () => number;
+  readonly wholeSteps: number;
+  readonly frac: number;
+  readonly clockKnown: boolean;
+  readonly tickMs: number;
+  readonly spanStartsAtMs: number;
+  readonly spanEndsAtMs: number;
+}
+
+export function beginTickJob(
+  deltaSeconds: number,
+  state: GameState,
+  rng: () => number = Math.random,
+  endedAtMs: number = UNKNOWN_COMPLETION_TIME_MS
+): TickJob {
+  // Nothing to do: tick() returns the input state itself.
+  const noOp = (): TickJob => ({ state, callsDone: 0, callsTotal: 0, rng, wholeSteps: 0, frac: 0, clockKnown: false, tickMs: 0, spanStartsAtMs: 0, spanEndsAtMs: 0 });
+  if (deltaSeconds <= 0) return noOp();
   // Same deltaSeconds -> ticksElapsed conversion as before, then clamp to the cap.
   // Math.min discards any excess span beyond the cap (the offlineCapTicks limit: OFFLINE_CAP_DAYS_BASE, 4 days by default).
   const rawTicksElapsed = deltaSeconds / state.tickDurationSeconds;
   const clampedTicks = Math.min(rawTicksElapsed, offlineCapTicks(state));
+  // 0.13.11.4 hardening: a span that is not a finite positive tick count (a NaN or zero tick length, a
+  // NaN span) is the no-op job, so no job can ever claim calls it cannot make (a NaN total would
+  // never read as done, and an infinite one would never end).
+  if (!Number.isFinite(clampedTicks) || !(clampedTicks > 0)) return noOp();
 
   // The per-tick stamp schedule (see the header). `clockKnown` is what keeps an omitted
   // clock at the honest "unknown" sentinel instead of walking backwards from zero.
@@ -6377,14 +6422,38 @@ export function tick(
   const tickMs = state.tickDurationSeconds * 1000;
   const spanEndsAtMs = endedAtMs;
   const spanStartsAtMs = endedAtMs - clampedTicks * tickMs;
+  const wholeSteps = Math.floor(clampedTicks);
+  const frac = clampedTicks - wholeSteps;
+  return {
+    state,
+    callsDone: 0,
+    callsTotal: wholeSteps + (frac > 0 ? 1 : 0),
+    rng,
+    wholeSteps,
+    frac,
+    clockKnown,
+    tickMs,
+    spanStartsAtMs,
+    spanEndsAtMs,
+  };
+}
+
+export function tickJobDone(job: TickJob): boolean {
+  return job.callsDone >= job.callsTotal;
+}
+
+// Make up to `maxCalls` more of the job's economyTick calls (Infinity: all of them). Returns how many it made.
+export function advanceTickJob(job: TickJob, maxCalls: number): number {
+  const { rng, wholeSteps, frac, clockKnown, tickMs, spanStartsAtMs, spanEndsAtMs } = job;
+  let next = job.state;
+  let i = job.callsDone;
+  const stop = Math.min(job.callsTotal, i + maxCalls);
 
   // Step the WHOLE ticks first: one economyTick(state, 1) per tick, so the auto-stop
   // cap-check inside economyTick runs every tick. Each call returns a fresh state that
   // feeds the next, accumulated inventory carries forward, so a mid-span cap crossing
   // is seen on the very next iteration.
-  const wholeSteps = Math.floor(clampedTicks);
-  let next = state;
-  for (let i = 0; i < wholeSteps; i++) {
+  for (; i < stop && i < wholeSteps; i++) {
     // Step i covers the tick that ENDS at spanStartsAtMs + (i + 1) cadence periods, which
     // is the moment live play would have stamped that same tick's completions.
     const stepEndsAtMs = clockKnown
@@ -6416,14 +6485,18 @@ export function tick(
   // tick, so it is a negligible, accepted precision artifact of the step-forward foundation,
   // not a correctness bug. Left AS-IS deliberately: eliminating it would require a separate
   // offline code path that bypasses economyTick, reintroducing the exact live-vs-offline drift
-  // this per-tick stepping exists to prevent (see this function's header, design §2.2).
-  const frac = clampedTicks - wholeSteps;
-  if (frac > 0) {
-    // The trailing residue lands at the span's own end (limit 4 in this function's header).
+  // this per-tick stepping exists to prevent (see tick()'s header, design §2.2).
+  // (The fractional call is the job's last call, index wholeSteps, made only when frac > 0.)
+  if (i < stop && i === wholeSteps && frac > 0) {
+    // The trailing residue lands at the span's own end (limit 4 in tick()'s header).
     next = economyTick(next, frac, rng, clockKnown ? Math.round(spanEndsAtMs) : UNKNOWN_COMPLETION_TIME_MS);
+    i++;
   }
 
-  return next;
+  const made = i - job.callsDone;
+  job.state = next;
+  job.callsDone = i;
+  return made;
 }
 
 // Mission Rework (Task 7, design §4): the typed reason canDispatch returns when a
