@@ -648,6 +648,9 @@
     // Sell counter (0.13.6): the derived sellable-stock shelf + the sell transform. Only items
     // carrying an ItemDef.sellValue are sellable; sellItem hard-refuses everything else.
     sellableInventory,
+    // Fix round answers Q10: the Warehouse tooltip's stock rows and the Sell row's reason, so both Free figures agree.
+    warehouseStockRows,
+    sellReservedReason,
     sellItem,
     sellBlockText,
     type SellableEntry,
@@ -920,6 +923,8 @@
     // amount field clamps to. All PURE except startLine/cancelLine which return new state.
     startLine,
     cancelLine,
+    // Fix round answers Q7: what Cancel does on a lane (a helper lane releases just itself).
+    cancelLineScope,
     // FR-C lane 1 I3: the slots a facility's lanes CLAIM (a joined lane is borrowed, so it leaves a slot open).
     claimedLaneCount,
     canStartLine,
@@ -1176,6 +1181,8 @@
     queuedOrderLabel,
     // FR-C fix pass: the whole-order time left and total the line cards share with Home.
     orderTimeLeft,
+    // Fix round answers Q7: the line cards' Cancel button, tooltip and note.
+    cancelLineText,
     type CraftQueueRow,
     type CraftQueueView,
   } from "./lib/game/craftQueue";
@@ -1269,13 +1276,13 @@
   // Crafting Allocation Redesign (Task C1/C4), the DERIVED material-allocation helpers the
   // per-line configurator's REQUIRES preview reads: lineInputsPerIteration(line) => a recipe's
   // per-iteration input map (for the "per/ea" column); allocatedItem(lines, item) => units
-  // reserved by all active lines; freeItem(inventory, lines, item) => usable stock (inventory −
-  // allocated, clamped ≥ 0). CraftLine/CraftLineMode/CraftLineKind type the line arrays + the
-  // batch|continuous run-mode the configurator builds for startLine.
+  // reserved by all active lines. CraftLine/CraftLineMode/CraftLineKind type the line arrays + the
+  // batch|continuous run-mode the configurator builds for startLine. (Fix round answers fix pass: the configurators'
+  // Free reads freeItemForState, which counts a running order's pool ONCE however many lanes work it, as Start and
+  // Add to queue do.)
   import {
     lineInputsPerIteration,
     allocatedItem,
-    freeItem,
     // Shipyard (Task S5 UI): the reservation-aware FREE-stock reader for the hull-card
     // REQUIRES box. freeItemForState(state, itemId) = inventory MINUS what active craft
     // lines reserve, the SAME pool canBuildShip gates a build's BOM against, so the "free
@@ -9017,8 +9024,10 @@
     // the same purity reason the tick's clock is, even though this handler is UI-only and
     // never runs offline: a run stopped partway still leaves a dated record of what it
     // produced, and the engine stays a pure function of its arguments.
+    // Fix round answers Q7: a joined (helper) line is released alone; the order keeps its reservation.
+    const scope = cancelLineScope(state, lineId);
     state = cancelLine(state, lineId, trustedNow());
-    pushLog("Production line canceled; remaining reservation released.");
+    pushLog(scope === "release" ? "Joined line released; the order carries on in its own line." : "Production line canceled; remaining reservation released.");
     doSave();
   }
 
@@ -11408,15 +11417,18 @@
   // FR-C lane 1 I3: the units not yet started on this lane's work: its order's shared pool when it is attached to one
   // (several lanes may pull from it), else its own count.
   function lanePoolRemaining(line: CraftLine): number {
+    // Fix round answers Q7: a released helper lane only finishes the unit it is on.
+    if (line.released === true) return 0;
     if (line.orderId === undefined) return line.remaining;
     const order = (state.craftOrders ?? []).find((o) => o.id === line.orderId);
     return order !== undefined ? order.remaining : line.remaining;
   }
 
-  function laneShareCount(line: { id: string; orderId?: string }): number {
-    if (line.orderId === undefined) return 1;
+  function laneShareCount(line: { id: string; orderId?: string; released?: true }): number {
+    // Fix round answers Q7: a released helper lane is not working the order's pool (craftQueue.ts reads it the same way).
+    if (line.orderId === undefined || line.released === true) return 1;
     const all = [...(state.refineLines ?? []), ...(state.fabricateLines ?? [])];
-    return all.filter((l) => l.orderId === line.orderId).length;
+    return all.filter((l) => l.orderId === line.orderId && l.released !== true).length;
   }
 
   function lineRemainingReadout(
@@ -12874,7 +12886,8 @@
                              (either naturally, or drained by a prior Cancel), nothing left to
                              cancel, so it just shows "finishing" until it clears itself. -->
                         {#if line.remaining > 0}
-                          <button class="dev-btn danger" on:click={() => doCancelLine(line.id)}>Cancel</button>
+                          {@const cancelText = cancelLineText(state, line.id)}
+                          <button class="dev-btn danger" title={cancelText.title} on:click={() => doCancelLine(line.id)}>{cancelText.button}</button>
                         {/if}
                       </div>
                       <div class="research-cost">
@@ -12893,7 +12906,10 @@
                       <!-- FR-C lane 1 I3: a joined lane says it is helping, and that it hands the bay back. -->
                       {#if line.joined}
                         <div class="research-cost">Joined to help this order; it hands the bay back when you start or queue something else.</div>
-                        <div class="research-cost">Cancel on this line stops the whole batch.</div>
+                      {/if}
+                      <!-- Fix round answers Q7: what Cancel (or Release, on a joined line) does on this line. -->
+                      {#if line.remaining > 0 && cancelLineText(state, line.id).note !== null}
+                        <div class="research-cost">{cancelLineText(state, line.id).note}</div>
                       {/if}
                       <!-- ⚠️ THE LANE COUNT EXISTS TO EXPLAIN A NUMBER THAT WOULD OTHERWISE LOOK
                            BROKEN (0.13.4 Phase 6, design 7.6). When a second lane joins this order,
@@ -13008,7 +13024,7 @@
                         {#each Object.keys(perIteration) as itemId}
                           {@const per = perIteration[itemId]}
                           {@const total = per.times(Math.max(1, cfgRefineRuns))}
-                          {@const free = freeItem(state.inventory, allLines, queuedOrders, itemId)}
+                          {@const free = freeItemForState(state, itemId)}
                           {@const allocated = allocatedItem(allLines, queuedOrders, itemId, state.craftOrders ?? [])}
                           {@const stock = itemTotal(state.inventory, itemId)}
                           <div class="cfg-box">
@@ -13032,7 +13048,7 @@
                           perRun={perIteration}
                           runs={cfgRefineRuns}
                           best={cfgBestMaterials}
-                          {...orderStockContext(perIteration, (id) => freeItem(state.inventory, allLines, queuedOrders, id), (id) => allocatedItem(allLines, queuedOrders, id, state.craftOrders ?? []), isQueueOpener)}
+                          {...orderStockContext(perIteration, (id) => freeItemForState(state, id), (id) => allocatedItem(allLines, queuedOrders, id, state.craftOrders ?? []), isQueueOpener)}
                         />
 
                         <div class="dev-row" style="margin-top: 8px;">
@@ -13458,7 +13474,8 @@
                         <div class="research-name"><Icon name="fabricator" size={12} /> LINE {li + 1} · FABRICATING</div>
                         <!-- Cancel only while iterations remain to stop (see the refine card above). -->
                         {#if line.remaining > 0}
-                          <button class="dev-btn danger" on:click={() => doCancelLine(line.id)}>Cancel</button>
+                          {@const cancelText = cancelLineText(state, line.id)}
+                          <button class="dev-btn danger" title={cancelText.title} on:click={() => doCancelLine(line.id)}>{cancelText.button}</button>
                         {/if}
                       </div>
                       <div class="research-cost">
@@ -13487,7 +13504,10 @@
                       <!-- FR-C lane 1 I3: a joined lane says it is helping, and that it hands the bay back. -->
                       {#if line.joined}
                         <div class="research-cost">Joined to help this order; it hands the bay back when you start or queue something else.</div>
-                        <div class="research-cost">Cancel on this line stops the whole batch.</div>
+                      {/if}
+                      <!-- Fix round answers Q7: what Cancel (or Release, on a joined line) does on this line. -->
+                      {#if line.remaining > 0 && cancelLineText(state, line.id).note !== null}
+                        <div class="research-cost">{cancelLineText(state, line.id).note}</div>
                       {/if}
                       <!-- ⚠️ THE LANE COUNT EXISTS TO EXPLAIN A NUMBER THAT WOULD OTHERWISE LOOK
                            BROKEN (0.13.4 Phase 6, design 7.6). When a second lane joins this order,
@@ -13631,7 +13651,7 @@
                           {#each Object.keys(perIteration) as itemId}
                             {@const per = perIteration[itemId]}
                             {@const total = per.times(Math.max(1, Math.floor(cfgQty)))}
-                            {@const free = freeItem(state.inventory, allLines, queuedOrders, itemId)}
+                            {@const free = freeItemForState(state, itemId)}
                             {@const allocated = allocatedItem(allLines, queuedOrders, itemId, state.craftOrders ?? [])}
                             {@const stock = itemTotal(state.inventory, itemId)}
                             <div class="cfg-box">
@@ -13719,7 +13739,7 @@
                               perRun={perIteration}
                               runs={cfgQty}
                               best={cfgBestMaterials}
-                              {...orderStockContext(perIteration, (id) => freeItem(state.inventory, allLines, queuedOrders, id), (id) => allocatedItem(allLines, queuedOrders, id, state.craftOrders ?? []), isQueueOpener)}
+                              {...orderStockContext(perIteration, (id) => freeItemForState(state, id), (id) => allocatedItem(allLines, queuedOrders, id, state.craftOrders ?? []), isQueueOpener)}
                             />
                           {/if}
 
@@ -16284,7 +16304,7 @@
                                 {#if entry.retired}<span class="qm-retire-tag">Retired</span>{/if}
                               </span>
                               <span class="home-l2">
-                                <span class="home-meta">owned {formatNumber(entry.owned)}{#if entry.free.lt(entry.owned)}, free {formatNumber(entry.free)} (the rest is reserved){/if}</span>
+                                <span class="home-meta">owned {formatNumber(entry.owned)}{#if entry.free.lt(entry.owned)}, free {formatNumber(entry.free)} ({sellReservedReason(state, entry.itemId)}){/if}</span>
                               </span>
                               <!-- Unit price on its own line, then the running Total Value for the
                                    chosen quantity (user 2026-09-18). CR capitalized. -->
@@ -22582,7 +22602,11 @@
                  so a reserve-ahead continuous line can never render "Allocated > Total",
                  the freeItem helper already clamps Free >= 0, this keeps the tooltip
                  coherent. The two ROWS are unchanged; only the numbers now move. -->
-            {@const tipAllocated = Decimal.min(allocatedItem(allLines, queuedOrders, tipId, state.craftOrders ?? []), tipCount)}
+            <!-- Fix round answers Q10 (user 2026-11-17, "Keep, align tooltip"): the rows come from warehouseStockRows, so
+                 Free is the Sell counter's Free (it also leaves out what queued salvage holds), and a Queued salvage row
+                 shows that share whenever there is one. -->
+            {@const tipRows = warehouseStockRows(state, tipId)}
+            {@const tipAllocated = tipRows.allocated}
             <!-- ⚠️ THE LABEL CARRIES THE 0.13.3 MEANING CHANGE. "Allocated" used to mean
                  "held by a RUNNING line" and now also counts WAITING orders, which is why
                  Free drops the instant an order is queued. An unchanged label would have let
@@ -22593,9 +22617,15 @@
               <span>Allocated (incl. queued)</span>
               <span class="warehouse-tt-v" style="color: var(--color-warning)">{formatNumber(tipAllocated)}</span>
             </div>
+            {#if tipRows.queuedSalvage > 0}
+              <div class="warehouse-tt-row">
+                <span>Queued salvage</span>
+                <span class="warehouse-tt-v" style="color: var(--color-warning)">{formatNumber(tipRows.queuedSalvage)}</span>
+              </div>
+            {/if}
             <div class="warehouse-tt-row">
               <span>Free</span>
-              <span class="warehouse-tt-v" style="color: var(--color-success)">{formatNumber(freeItem(state.inventory, allLines, queuedOrders, tipId))}</span>
+              <span class="warehouse-tt-v" style="color: var(--color-success)">{formatNumber(tipRows.free)}</span>
             </div>
             <!-- Material Lines ML-7: the Stored count split by quality (hover a tile, or tap it on a phone). -->
             {@const tipChips = qualityChips(state.inventory, tipId)}

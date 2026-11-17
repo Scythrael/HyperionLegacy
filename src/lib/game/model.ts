@@ -1227,6 +1227,10 @@ export const COMPLETION_HELD_SKIPS_SWITCH = { live: true };
 export const RECALL_NO_REPAY_SWITCH = { live: true };
 export const RECALL_KEEPS_LIST_SWITCH = { live: true };
 export const STAR_BODIES_SWITCH = { live: true };
+// Fix round answers Q3 (user 2026-11-17, "Yes, same every visit"): TEST-ONLY off switch (fixRoundAnswersSwitch.fixture.ts).
+// Off, a catalog-named system's bodies, distance and bearing are drawn from its candidate slot's seed, as before
+// (expedition.ts generateBodies, tierCandidateSystems).
+export const CATALOG_BODIES_SWITCH = { live: true };
 export const PLANET_ROLL_REAL_OBJECTIVE_SWITCH = { live: true };
 
 // Test switch only (the same pattern, Wiring WR-9): off, a captain mission is dispatched without the Pilot's Cunning
@@ -4359,7 +4363,12 @@ export interface PatrolMissionState {
   // Fix round FR-E (lane 4 M6): `jobMinutes`, the docked gear repair job's length for the same gear at the normal home
   // rate, which prices the pause's Overtime steps (processSpeed.ts gearRepairJobMinutes). Absent: the pause's whole length,
   // as before. Both appended last; no SAVE bump.
-  repairPause?: { from: number; ticksRemaining: number; first?: true; overtime?: { at: number; steps: number }[]; target?: Record<string, number>; jobMinutes?: number };
+  // Fix round answers Q6 fix pass: `overtimeJobMinutes`, the pause's OWN Overtime quote (the repair the pause had left at
+  // the normal rate when its first step was bought here, processSpeed.ts gearRepairJobMinutes). Present only when this
+  // pause priced the ship's Overtime (not when docked Overtime carried in at dispatch, which keeps its docked price). The
+  // pause price lives and ends with the pause: a recall ends that Overtime (tick.ts recallCaptain), so the docked job is
+  // priced by its own length. Optional, appended last; no SAVE bump.
+  repairPause?: { from: number; ticksRemaining: number; first?: true; overtime?: { at: number; steps: number }[]; target?: Record<string, number>; jobMinutes?: number; overtimeJobMinutes?: number };
   // The times this run has paused to repair (user "Count on the run": its one completion log entry says so), carried
   // across relaunches like routesCompletedThisRun. Absent until the first pause.
   repairPausesThisRun?: number;

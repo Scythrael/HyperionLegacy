@@ -66,7 +66,9 @@ const FAR = 120_000;
 
 // Seeds pinned by a sweep (the scenario test below fails loudly if a change moves them off): between them the
 // runs hold every event kind and both outcomes of every check and of the cloaked fight.
-const PINNED = [0x6eed1, 0x69204, 0xaadc2, 0x65426];
+// Fix round answers Q3 fix pass (a catalog-named system's bodies and place from its name): 0x69204 (its ghost:fail)
+// is now 0x60f0f, which adds the storm:fail the moved systems lost (with Q3 off the old four held every kind).
+const PINNED = [0x6eed1, 0x60f0f, 0xaadc2, 0x65426];
 
 // The time the window opened (the scanning anchor).
 function windowOpen(exp: Expedition): number {

@@ -4797,8 +4797,9 @@ export function applyCraftingXp(state: GameState, craftingXpDelta: number): Game
 // before the clamp (drift-proof).
 // FR-C lane 1 M5 / M6 and lane 3 M2 (user 2026-11-13/14, "Never discard (Recommended)": deliveries may sit over the cap,
 // nothing trimmed on load, logs show what landed). With this live, addToInventory lands every deposit IN FULL (a
-// mission's finds, an expedition haul, a craft's output, a time-skip grant): nothing is clamped away and an over-cap
-// stack is never drained. The cap still PAUSES producers (materialAtCap: missions, trickle and lines stop at it) and a
+// mission's primary delivery, an expedition haul, a craft's output, a time-skip grant): nothing is clamped away and an
+// over-cap stack is never drained. A mission's SECONDARY finds never reach it while their item is capped (Q12, 2026-11-17,
+// pauseCappedSecondaryFinds: they pause at the cap like any producer). The cap still PAUSES producers (materialAtCap: missions, trickle and lines stop at it) and a
 // purchase is still refused over it (their own gates); a load no longer trims (save.ts migrate). The TEST-ONLY off
 // switch (neverDiscardSwitch.fixture.ts) restores the old clamp and load trim, so a golden captured before can be
 // traced. Never written by app code.
@@ -4808,6 +4809,39 @@ export const NEVER_DISCARD_SWITCH: { live: boolean } = { live: true };
 // lifetimeStats.fleetAdminXpAwarded, and the `auto` stamp on an auto-salvage completed-events entry), so a golden that
 // hashes lifetimeStats or the completion log can be traced (recapFoldsSwitch.fixture.ts). Never written by app code.
 export const RECAP_FOLDS_SWITCH: { live: boolean } = { live: true };
+
+// Fix round answers Q12 (user 2026-11-17, "Stop at the cap"): TEST-ONLY off switch (fixRoundAnswersSwitch.fixture.ts).
+// Off, a mission's secondary find lands even with its item at the cap (the FR-C never-discard deposit), as before.
+// Never written by app code.
+export const SECONDARY_FIND_PAUSE_SWITCH: { live: boolean } = { live: true };
+
+// The mission's secondary items (its loot table's uncommon and rare entries, never its primary material) that are at
+// or over their cap at the start of the call are taken out of this captain's delivery and out of its gathered count.
+// Returns the inputs unchanged (same references) when nothing is capped, so an under-cap fleet is byte-identical.
+export function pauseCappedSecondaryFinds(
+  state: GameState,
+  missionKey: MissionKey,
+  delta: Record<string, Decimal>,
+  lifetimeStatsDelta: MissionLifetimeStatsDelta,
+): { delta: Record<string, Decimal>; lifetimeStatsDelta: MissionLifetimeStatsDelta } {
+  if (!SECONDARY_FIND_PAUSE_SWITCH.live) return { delta, lifetimeStatsDelta };
+  const def = MISSIONS[missionKey];
+  if (def.missionType === "transport") return { delta, lifetimeStatsDelta };
+  let paused: string[] | null = null;
+  for (const key of [def.lootTable.uncommon, def.lootTable.rare]) {
+    if (key === def.primaryMaterial || paused?.includes(key)) continue;
+    const amount = delta[key];
+    if (amount === undefined || !amount.gt(0) || !materialAtCap(state, key)) continue;
+    (paused ??= []).push(key);
+  }
+  if (paused === null) return { delta, lifetimeStatsDelta };
+  const keep = <T>(rec: Record<string, T>): Record<string, T> => {
+    const out: Record<string, T> = {};
+    for (const key of Object.keys(rec)) if (!paused!.includes(key)) out[key] = rec[key];
+    return out;
+  };
+  return { delta: keep(delta), lifetimeStatsDelta: { ...lifetimeStatsDelta, itemsGathered: keep(lifetimeStatsDelta.itemsGathered) } };
+}
 
 export function addToInventory(
   inventory: Record<string, Decimal[]>,
@@ -5706,10 +5740,10 @@ function economyTickCall(
     // inline Math.random; the live loop / tests can inject a deterministic rng.
     const {
       captain: updated,
-      homePlanetDelta: delta,
+      homePlanetDelta: missionDelta,
       fleetAdminXpDelta: captainFleetAdminXpDelta,
       creditsDelta: captainCreditsDelta,
-      lifetimeStatsDelta: captainLifetimeStatsDelta,
+      lifetimeStatsDelta: missionLifetimeStatsDelta,
       berthsClaimed: captainBerthsClaimed,
       cycleEndTicks,
       endedAtTicks: missionEndedAtTicks,
@@ -5728,6 +5762,13 @@ function economyTickCall(
       // GEAR WEAR step 3: a stamped run records each delivered cycle's use and re-reads its gear for the next cycle.
       onCycleDelivered,
     );
+    // Fix round answers Q12 (user 2026-11-17, "Stop at the cap"): a mission's SECONDARY find (its loot table's uncommon
+    // and rare items, never its primary material) is a producer that pauses at the cap, like the trickle: an item at or
+    // over its cap at the START of this call (the materialAtCap seam the primary auto-stop and the trickle read) takes
+    // none of this captain's delivery of it. Under the cap it lands in full (no partial trim). It is not gathered
+    // either (itemsGathered mirrors what lands). Both paths step economyTick one tick at a time, so the check runs at
+    // the same tick live and offline. Off (test-only, SECONDARY_FIND_PAUSE_SWITCH), the find lands as it did before.
+    const { delta, lifetimeStatsDelta: captainLifetimeStatsDelta } = pauseCappedSecondaryFinds(state, missionKey, missionDelta, missionLifetimeStatsDelta);
     // 0.13.4 Phase 3: draw the shared berth budget down so the next captain in this map sees it.
     berthBudgetRemaining -= captainBerthsClaimed;
     // Lane 4 M8: the run's return (a recalled run's last delivery), only when the mission really ended this call.
@@ -7436,7 +7477,18 @@ export function recallCaptain(state: GameState, captainId: number, nowMs: number
     captains[idx] = { ...captains[idx], mission: null };
     // GEAR WEAR close-out ("Make it exact"): its pieces settled through the pause to now and carried into the docked rate.
     const shipId = state.ships.find((sh) => sh.assignedCaptainId === captainId)?.id;
-    const docked = shipId === undefined ? { ...state, captains } : settleRecalledPause(state, { ...state, captains }, shipId);
+    // Fix round answers Q6 fix pass: Overtime this pause priced (its own quote, repairPause.overtimeJobMinutes: the repair
+    // the pause had left) ends with the pause, as it does when the pause ends by itself, so the docked repair is a new
+    // job at the normal rate, its Overtime priced by its own length. Docked Overtime that carried into the pause (its
+    // docked price, no pause quote) carries on docked.
+    const ships = mission.repairPause.overtimeJobMinutes !== undefined
+      ? state.ships.map((sh) => {
+        if (sh.id !== shipId || sh.gearRepairSpeed === undefined) return sh;
+        const { gearRepairSpeed: _ot, ...rest } = sh;
+        return rest as ShipInstance;
+      })
+      : state.ships;
+    const docked = shipId === undefined ? { ...state, captains } : settleRecalledPause(state, { ...state, captains, ships }, shipId);
     const ended = appendPatrolCompletions(
       docked,
       [{ captainId, patrolKey: mission.patrolKey, reason: "recalled", routes: mission.routesCompletedThisRun ?? 0, repairPauses: mission.repairPausesThisRun ?? 0 }],
@@ -10497,6 +10549,8 @@ function stepCraftLine(state: GameState, line: CraftLine, capacity?: LaneCapacit
   if (line.mode.kind === "batch" && poolRemaining <= 0) {
     return { next: state, line: null };
   }
+  // Fix round answers Q7: a helper lane the player released leaves once its last unit has landed (it starts no other).
+  if (line.released === true) return { next: state, line: null };
 
   // FR-C lane 1 I3: THE BORROWED-SLOT RULES, only while the facility holds more lanes than slots (never true on a save
   // without joined lanes, so every other lane runs exactly as before). A JOINED lane between units hands its slot back
@@ -10641,7 +10695,8 @@ function joinFreeLanesToRunningOrders(
   // OLDEST FIRST is array order, since orders are appended (design 17.3 Q6). Deterministic and
   // stable across save, load and offline catch-up; preferring "most remaining" or "soonest to
   // finish" would depend on values that move every tick, so offline and live could diverge.
-  const attachable = orders.filter((o) => o.kind === kind && o.mode.kind === "batch" && o.remaining > 0);
+  // Fix round answers Q7: an order the player released a helper lane from (joinClosed) takes no helper again.
+  const attachable = orders.filter((o) => o.kind === kind && o.mode.kind === "batch" && o.remaining > 0 && o.joinClosed !== true);
   if (attachable.length === 0) return { lines, nextCraftLineId: nextId };
   const added: CraftLine[] = [];
   let mintId = nextId;
@@ -10791,6 +10846,10 @@ export function processFabricateLines(state: GameState): GameState {
 // 0), or when the recipe is unknown / has no inputs (nothing to reserve against -> 0,
 // NOT an unbounded cap). PURE: reads state.inventory + both line arrays + the static
 // registries via lineInputsPerIteration; mutates nothing.
+// Fix round answers fix pass: TEST-ONLY off switch (fixRoundAnswersSwitch.fixture.ts "craftOrderFree"); never written
+// by app code. Off, maxAffordableIterations reads free stock without the running orders (each lane's own count).
+export const CRAFT_ORDER_FREE_SWITCH: { live: boolean } = { live: true };
+
 export function maxAffordableIterations(
   state: GameState,
   kind: CraftLineKind,
@@ -10829,7 +10888,10 @@ export function maxAffordableIterations(
     // A non-positive per-unit amount would divide-by-zero / be meaningless; skip it so it
     // contributes no bound (defensive, real recipes carry positive input amounts).
     if (perUnit.lte(0)) continue;
-    const free = freeItem(state.inventory, allLines, queued, itemId);
+    // Fix round answers fix pass (review, user "Fix it now"): through the one chokepoint (freeItemForState), so a running
+    // order's pool is reserved ONCE however many lanes (its own and helper lanes) work it, as Add to queue reads it
+    // (canReserveOrder). Off (test-only, CRAFT_ORDER_FREE_SWITCH), the lanes' own counts as before.
+    const free = CRAFT_ORDER_FREE_SWITCH.live ? freeItemForState(state, itemId) : freeItem(state.inventory, allLines, queued, itemId);
     const iterations = free.div(perUnit).floor(); // whole iterations THIS input can fund
     cap = cap === null ? iterations : Decimal.min(cap, iterations);
   }
@@ -11083,6 +11145,21 @@ export function startLine(
 // function is UI-only (no tick path calls it), so a Date.now() at the call site would be
 // harmless for parity. It is still injected, so the function stays pure and its test can
 // assert an exact stamp.
+// Fix round answers Q7: TEST-ONLY off switch (fixRoundAnswersSwitch.fixture.ts); never written by app code.
+export const HELPER_CANCEL_RELEASES_SWITCH: { live: boolean } = { live: true };
+
+// Fix round answers Q7: what Cancel on the lane `lineId` does: "release" (a helper lane: just that lane), "order" (the
+// order's own lane while it shares the order with a helper: the whole order, helpers included) or "line" (a lane
+// working alone). The console's button and its note read it, so they say what the engine does. Pure.
+export function cancelLineScope(state: GameState, lineId: string): "release" | "order" | "line" {
+  const all = [...(state.refineLines ?? []), ...(state.fabricateLines ?? [])];
+  const line = all.find((l) => l.id === lineId);
+  const orderId = attachedOrderIdOf(state, lineId);
+  if (line === undefined || orderId === undefined) return "line";
+  if (line.joined === true && HELPER_CANCEL_RELEASES_SWITCH.live) return "release";
+  return all.some((l) => l.id !== lineId && l.orderId === orderId) ? "order" : "line";
+}
+
 export function cancelLine(state: GameState, lineId: string, nowMs: number = UNKNOWN_COMPLETION_TIME_MS): GameState {
   const refineLines = state.refineLines ?? [];
   const fabricateLines = state.fabricateLines ?? [];
@@ -11094,7 +11171,28 @@ export function cancelLine(state: GameState, lineId: string, nowMs: number = UNK
   // stopping one lane alone would only hand its work to the others). The pool drops to 0, which releases the
   // reservation at once; each lane with a unit in flight drains it (the unit lands as usual), the rest leave now. Once no
   // lane holds the order, it is retired and its run logged ONCE (sweepCraftOrders, stamped with the cancel clock).
+  // Fix round answers Q7 (user 2026-11-17, "Release only that lane"): that is now Cancel on the order's OWN lane only.
+  // Cancel on a HELPER lane (one the join pass minted, CraftLine.joined) releases just that lane, the way Cancel treats a
+  // unit in flight everywhere: a unit in flight lands as usual (the lane stays, marked released, starts nothing more and
+  // leaves once it lands; the unit is logged with its order), an idle helper leaves now. The order keeps its pool and
+  // its reservation and carries on in its own lane, and takes no helper again (joinClosed), so the freed lane stays free.
+  // Off (test-only, HELPER_CANCEL_RELEASES_SWITCH), every lane stops the whole order, as before.
   const orderId = attachedOrderIdOf(state, lineId);
+  const helper = orderId !== undefined && HELPER_CANCEL_RELEASES_SWITCH.live && [...refineLines, ...fabricateLines].some((l) => l.id === lineId && l.joined === true);
+  if (orderId !== undefined && helper) {
+    if ([...refineLines, ...fabricateLines].some((l) => l.id === lineId && l.released === true)) return state; // already released
+    const busy = state.activeProcesses.some((p) => p.lineId === lineId);
+    const release = (lines: CraftLine[]): CraftLine[] =>
+      busy
+        ? lines.map((l) => (l.id === lineId ? { ...l, remaining: 0, mode: { kind: "batch" as const, remaining: 0 }, released: true as const } : l))
+        : lines.filter((l) => l.id !== lineId);
+    return {
+      ...state,
+      refineLines: inRefine ? release(refineLines) : refineLines,
+      fabricateLines: inFabricate ? release(fabricateLines) : fabricateLines,
+      craftOrders: (state.craftOrders ?? []).map((o) => (o.id === orderId ? { ...o, joinClosed: true as const } : o)),
+    };
+  }
   if (orderId !== undefined) {
     const busy = new Set(state.activeProcesses.map((p) => p.lineId).filter((id): id is string => id !== undefined));
     const stop = (lines: CraftLine[]): CraftLine[] =>

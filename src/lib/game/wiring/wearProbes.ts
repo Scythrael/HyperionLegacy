@@ -646,10 +646,13 @@ function conditionOfWorn(s: GameState): number {
 
 // ===== the probe dive (Gas Giant Study GG-3's seam, gasGiantStudy.ts studyDiveEvents) =====
 
-// The probe dive fixture's Galileo-Class Probe (a member tool) and the system the GG fixtures fly: a fresh save's
-// candidate 2, whose body 1 is the gas giant.
+// The probe dive fixture's Galileo-Class Probe (a member tool) and the system the GG fixtures fly: the first Tier I
+// candidate (candidate 2 first) with a gas giant, on the fixture's list or, when it has none, the next list that does.
+// Fix round answers Q3 fix pass: the fixture's candidate 2 was the giant system while a catalog-named system's bodies
+// came from its slot; drawn from its name the list has no giant, so the measurement finds one (with Q3 off it is the
+// fixture's candidate 2 again, as before).
 export const WEAR_DIVE_PROBE_ID = "wiring-galileo";
-const DIVE_GIANT_CANDIDATE = "cand-1-2";
+const DIVE_GIANT_CANDIDATES = ["cand-1-2", "cand-1-0", "cand-1-1"];
 const DIVE_SEC = ["member-1", "member-2", "member-3"];
 const DIVE_SCI = ["member-11", "member-12", "member-13"];
 
@@ -692,9 +695,21 @@ export function diveFixture(): GameState {
 function divePerUnit(s: GameState): number {
   const probe = s.equipment.find((e) => e.id === WEAR_DIVE_PROBE_ID);
   if (!probe) return 0;
-  const res = startExpedition(s, WIRING_SHIP_ID, 1, DIVE_GIANT_CANDIDATE, true, undefined, false);
-  if (!res.success || !res.expedition) throw new Error(`wear probe: dive dispatch refused: ${res.reason}`);
-  const done = advanceExpedition(res.expedition, res.expedition.phaseAnchorSeconds + 4_000_000);
+  let pick: { res: ReturnType<typeof startExpedition>; done: Expedition } | null = null;
+  for (let k = 0; k < 64 && pick === null; k++) {
+    const list = k === 0 ? s : { ...s, expeditionSeed: (s.expeditionSeed + Math.imul(k, 0x9e3779b1)) >>> 0 };
+    for (const id of DIVE_GIANT_CANDIDATES) {
+      const r = startExpedition(list, WIRING_SHIP_ID, 1, id, true, undefined, false);
+      if (!r.success || !r.expedition) throw new Error(`wear probe: dive dispatch refused: ${r.reason}`);
+      const d = advanceExpedition(r.expedition, r.expedition.phaseAnchorSeconds + 4_000_000);
+      if (studyDiveEvents(d).length > 0) {
+        pick = { res: r, done: d };
+        break;
+      }
+    }
+  }
+  if (pick === null) return 0;
+  const { res, done } = pick;
   const first = studyDiveEvents(done)[0];
   if (!first || !done.groundOps) return 0;
   const leg = done.groundOps.studyLegs!.find((l) => l.done && l.endsAt === first.at)!;

@@ -49,6 +49,7 @@ import { asExpeditionVeteran, withoutCurve } from "./awayTeamTestFixtures";
 import { onHull, SWEEP_END, withCrew } from "./firstRunsGoldens.fixture";
 import { afterTraining, rampRun, rampSeed, tally } from "./safeFirstRamp.fixture";
 import { withWr10Off } from "./wr10Switch.fixture";
+import { withAnswersOff } from "./fixRoundAnswersSwitch.fixture";
 import { fixRoundESwitchesOffForThisFile } from "./fixRoundESwitch.fixture";
 
 // Fix round FR-E (0.14.0): the star rule (lane 3 I2, STAR_BODIES_SWITCH: a real star's bodies are drawn from the star,
@@ -438,11 +439,15 @@ describe("SF-3 the sample: difficulty rises with the curve and never falls", () 
       }
       if (crew === "d18") expect(rows[0].stalled, "the weakest launchable crew finishes run 2").toBe(0);
       expect(rows.map((r) => `${r.stalled}/${r.anyLost}/${r.lostFights}/${r.vaultWon}:${r.vaultSites}`)).toEqual(SAMPLE_PINS[crew]);
+      // Fix round answers Q3 moved the pins in place: with it off the sample reads them as WR-10 left them.
+      const before = withAnswersOff(["catalogBodies"], () => SAMPLE_KS.map((k) => tally(SAMPLE.map((i) => rampRun("orion", crew, k, rampSeed(i))))));
+      expect(before.map((r) => `${r.stalled}/${r.anyLost}/${r.lostFights}/${r.vaultWon}:${r.vaultSites}`)).toEqual(SAMPLE_PINS_BEFORE_Q3[crew]);
     });
     // Wiring WR-10 moved the pins in place: with WR-10 switched off (wr10Switch.fixture.ts) the sample reads the pins as
-    // the SF-3 review left them, so every move above is WR-10's.
+    // the SF-3 review left them, so every move above is WR-10's. (Read with fix round answers Q3 off too: the SF-3
+    // review's capture predates it.)
     it(`Orion ${crew}: with WR-10 off the sample reads the pre-WR-10 pins`, { timeout: 120_000 }, () => {
-      const rows = withWr10Off(() => SAMPLE_KS.map((k) => tally(SAMPLE.map((i) => rampRun("orion", crew, k, rampSeed(i))))));
+      const rows = withAnswersOff(["catalogBodies"], () => withWr10Off(() => SAMPLE_KS.map((k) => tally(SAMPLE.map((i) => rampRun("orion", crew, k, rampSeed(i)))))));
       expect(rows.map((r) => `${r.stalled}/${r.anyLost}/${r.lostFights}/${r.vaultWon}:${r.vaultSites}`)).toEqual(SAMPLE_PINS_BEFORE_WR10[crew]);
     });
   }
@@ -466,6 +471,16 @@ const SAMPLE_PINS: Record<string, string[]> = {
   // curve position 0, 31 permille at 3, 124 at 6, 237 at 9, where it was 300 everywhere): d18 run 2 5/88 back to 4/83 (no
   // Corroded at the first ramped run, so no roll is drawn: the pre-WR-10 cell) and run 5 lost fights 316 to 295; rank 1
   // unchanged. Every row still never falls, and run 2 never stalls.
+  // Re-measured by the fix round answers Q3 fix pass (a catalog-named system's bodies and place are drawn from its
+  // name): the sample's later runs fly other systems, with 13 Vault and Subterranean objectives where they held 19.
+  // d18 run 5 4/9/295/12:19 to 3/8/274/9:13, run 8 10/10/400 to 9/10/398; rank 1 run 5 0/1/1 to 0/0/0, run 8 0/4/7 to
+  // 0/3/5, run 11 0/9/203 to 0/9/130. Every row still never falls, and run 2 never stalls. With Q3 off the sample reads
+  // SAMPLE_PINS_BEFORE_Q3 (the pins below, unchanged).
+  d18: ["0/4/83/19:19", "3/8/274/9:13", "9/10/398/0:13", "10/10/400/0:13"],
+  rank1: ["0/0/0/19:19", "0/0/0/13:13", "0/3/5/13:13", "0/9/130/13:13"],
+};
+// The pins before fix round answers Q3, read back with it off.
+const SAMPLE_PINS_BEFORE_Q3: Record<string, string[]> = {
   d18: ["0/4/83/19:19", "4/9/295/12:19", "10/10/400/0:19", "10/10/400/0:19"],
   rank1: ["0/0/0/19:19", "0/1/1/19:19", "0/4/7/19:19", "0/9/203/19:19"],
 };

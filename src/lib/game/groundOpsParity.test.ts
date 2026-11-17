@@ -23,7 +23,9 @@ const SQUAD: AwayMember[] = [
   member("member-11", "science"),
 ];
 // Pinned by a seed search (the scenario assertions below fail loudly if a change ever moves it off).
-const SEED = 0x0a13bd4;
+// Fix round answers Q3 fix pass (a catalog-named system's bodies and place from its name): 0x0a13bd4's system lost the
+// scenario (one body now); the same search from it finds 0x0a13bdb (with Q3 off 0x0a13bd4 holds it, as before).
+const SEED = 0x0a13bdb;
 // Ground Ops GO-8: the run as dispatched before the ship-side scan events (withoutShipEvents), so this file keeps
 // pinning the GO-7b window it was written for; the ship events' own parity lives in shipScanEvents.test.ts.
 const TWO_HOURS = 7200;

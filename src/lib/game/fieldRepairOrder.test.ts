@@ -21,8 +21,11 @@ import { asPreCurveDispatch, plainAwayMember, withSlottedAwayTeams, dispatchPast
 import { withRecallKeepsRepairOff } from "./recallKeepsRepairSwitch.fixture";
 import { expeditionCandidates } from "./expedition";
 
-const TOXIC_FROZEN = 0xa6fe4; // body 0 toxic (the ship scans it first), body 1 frozen (a repair world)
-const ARID_ONLY = 0xa6fe5; // three arid worlds
+// Fix round answers Q3 fix pass (a catalog-named system's bodies and place from its name): 0xa6fe4 and 0xa6fe5 now fly
+// other systems (an ocean world; two arid worlds), so the same systems are found again on the seeds after them, the
+// first toxic + frozen and the first three arid worlds (with Q3 off 0xa6fe4 and 0xa6fe5 hold them, as before).
+const TOXIC_FROZEN = 0xa70ed; // body 0 toxic (the ship scans it first), body 1 frozen (a repair world)
+const ARID_ONLY = 0xa6ff8; // three arid worlds
 
 // The run of `seed` advanced to `dt` seconds into its window, carrying `damage`, as a state at that instant.
 function at(seed: number, dt: number, damage: number): { state: GameState; t: number; id: string } {
@@ -224,7 +227,10 @@ describe("OC-F14 determinism after a cancel", () => {
     for (let n = 0; n < N; n += 1) steps = economyTick(steps, 1, RNG);
     expect(chunked.expeditions).toEqual(one.expeditions);
     expect(steps.expeditions).toEqual(one.expeditions);
-    expect(one.expeditions[0].groundOps!.hullDamage).toBe(1162 - 386);
+    // The share kept (386 of 1162 repaired), plus a lost cloaked fight's 60 (fix round answers Q3 fix pass: this system,
+    // 0xa70ed's, meets one; 0xa6fe4's did not, so it read 1162 - 386 = 776 with Q3 off).
+    expect(one.expeditions[0].groundOps!.hullDamage).toBe(1162 - 386 + 60);
+    expect((one.expeditions[0].scanEvents ?? []).filter((e) => (e.hullWear ?? 0) > 0).map((e) => [e.kind === "shipEvent" ? e.event : e.kind, e.hullWear])).toEqual([["cloaked", 60]]);
   });
 });
 
@@ -240,7 +246,10 @@ describe("OC-F14 review: the cancel pulls queued legs earlier, a new order after
       const s0 = withSlottedAwayTeams({ ...freshState(), awayMembers: medicSquad(), nextAwayMemberId: 100, expeditionSeed: seed });
       const res = asPreCurveDispatch(dispatchPastPropulsion(s0, "ship-1", 1, expeditionCandidates(s0, "ship-1")[0].id));
       const exp = res.expedition!;
-      const wipe = advanceExpedition(exp, OCF14_FAR).groundOps!.shipLegs[0].startsAt;
+      // (Fix round answers Q3 fix pass: a seed whose system has no wipe now is skipped like any other that does not apply.)
+      const firstLeg = advanceExpedition(exp, OCF14_FAR).groundOps!.shipLegs[0];
+      if (firstLeg === undefined) continue;
+      const wipe = firstLeg.startsAt;
       // A long repair ordered just before the wipe, so the pickup is asked for while the ship repairs.
       const before = ocf14Damaged(advanceExpedition(exp, wipe - 60), 1162);
       const ordered = orderFieldRepair({ ...res.next, gameTimeSeconds: wipe - 60, expeditions: [before] }, exp.id);

@@ -713,7 +713,9 @@ describe("GO-7d EDIT PARITY: one call to T + edit + one call to the end == chunk
 
   it("a REAL dispatched run edited while the ship still scans (and once in transit)", { timeout: 120_000 }, () => {
     const SQ: AwayMember[] = [member("member-1", "security", { rank: 3 }), member("member-2", "security", { rank: 2, traits: ["fieldMedic"] }), member("member-11", "science")];
-    const s = withSlottedAwayTeams({ ...freshState(), awayMembers: SQ.map((m) => ({ ...m })), nextAwayMemberId: 100, expeditionSeed: 0x0a13bd4 });
+    // List seed 0x0a13bdb: groundOpsParity.test.ts's run (fix round answers Q3 fix pass: 0x0a13bd4's system, drawn from
+    // its name, has one body and no work while the ship scans; with Q3 off 0x0a13bd4 holds the scenario, as before).
+    const s = withSlottedAwayTeams({ ...freshState(), awayMembers: SQ.map((m) => ({ ...m })), nextAwayMemberId: 100, expeditionSeed: 0x0a13bdb });
     const res = asPreCurveDispatch(dispatchPastPropulsion(s, "ship-1", 1, expeditionCandidates(s, "ship-1")[0].id));
     const exp = res.expedition!;
     // In transit: only the help toggle has anything to change.

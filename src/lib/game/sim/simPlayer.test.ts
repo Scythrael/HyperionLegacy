@@ -116,7 +116,9 @@ describe("WR-2 safe first runs: the allAuto newcomer baseline (SF-2 flipped the 
     // Before SF-2 (characterization): "stalled: 0/11 objectives done, stuck on derelictOutpost", "3 lost fights".
     // Safe First Runs OC-1 / OC-2: the weakest launchable crew finishes 100% with no setbacks.
     expect(r.firstExpedition).toEqual({ verdict: "safe", safe: true, reasons: [] });
-    expect(first).toMatchObject({ end: "complete", claimed: true, objectivesDone: 11, objectivesTotal: 11, lostFights: 0, hullDamage: 0, setbacks: 0, boardingLoss: 0 });
+    // Fix round answers Q3 fix pass (a catalog-named system's bodies and place from its name): the training run's system
+    // holds 9 objectives (11 with Q3 off); still finished 100% with no setbacks.
+    expect(first).toMatchObject({ end: "complete", claimed: true, objectivesDone: 9, objectivesTotal: 9, lostFights: 0, hullDamage: 0, setbacks: 0, boardingLoss: 0 });
   });
 });
 

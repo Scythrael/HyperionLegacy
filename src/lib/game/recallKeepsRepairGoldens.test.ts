@@ -19,6 +19,13 @@ import { OCF14_FAR, ocf14Damaged, ocf14Dispatch, ocf14Hash, ocf14WindowOpen } fr
 import { withRepairRulesOff } from "./fieldRepairRulesSwitch.fixture";
 import { IN_SYSTEM_LEG_SECONDS, partialFieldRepair } from "./groundOps";
 import type { Expedition, GameState, GroundRepairLeg } from "./model";
+import { fixRoundAnswersOffForThisFile } from "./fixRoundAnswersSwitch.fixture";
+
+// Fix round answers Q3 (2026-11-17, "Yes, same every visit": a catalog-named system's bodies are drawn from its
+// catalog id, the same every visit) moves this file's pins (the catalog-named systems its runs fly have other bodies).
+// They predate it and are about another slice, so the file runs with it off (fixRoundAnswersSwitch.fixture.ts). Q3's
+// own pins: expeditionFixRoundE.test.ts.
+fixRoundAnswersOffForThisFile("catalogBodies");
 
 const TOXIC_FROZEN = 0xa6fe4; // body 0 toxic (the ship scans it first), body 1 frozen (a repair world)
 

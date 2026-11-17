@@ -53,7 +53,7 @@ import type {
   GroundOpsState,
   SnapshotMember,
 } from "./model";
-import { COMPLETION_HELD_SKIPS_SWITCH, FIELD_REPAIR_RULES_SWITCH, RECALL_KEEPS_LIST_SWITCH, RECALL_NO_REPAY_SWITCH, STAR_BODIES_SWITCH, SHIP_TYPES, WR10_SWITCH, WR11_SWITCH, WR9_SWITCH, commandingCaptain, moduleEffectScale, shipGearSetBonusLines, withFavoredLines } from "./model";
+import { COMPLETION_HELD_SKIPS_SWITCH, FIELD_REPAIR_RULES_SWITCH, RECALL_KEEPS_LIST_SWITCH, RECALL_NO_REPAY_SWITCH, STAR_BODIES_SWITCH, CATALOG_BODIES_SWITCH, SHIP_TYPES, WR10_SWITCH, WR11_SWITCH, WR9_SWITCH, commandingCaptain, moduleEffectScale, shipGearSetBonusLines, withFavoredLines } from "./model";
 // E-MOD EM-6: the body-scanned module trigger (its frozen procs and private stream).
 import { moduleNebulaSweep, moduleScanProcs, moduleScanSeed, rollModuleChance } from "./shipModules";
 import { makeRng, type Rng } from "./combat/rng";
@@ -614,11 +614,15 @@ function tierBodyCount(seed: number, tier: RegionTier, drawn: number): number {
 // `starId`) draws its bodies (how many, their planet types, scan sizes and hazards) from the star itself
 // (starBodySeed), so every visit finds the same planets and a completion record keyed on the system and a body's index
 // stays true. Everything a VISIT rolls stays on the run's own seed (the risk grades and hostile sites, discoveries and
-// objectives, scan events, the anomaly): each trip is a new survey of the same planets. A catalog-named system keeps its
-// slot's draw.
+// objectives, scan events, the anomaly): each trip is a new survey of the same planets.
+// Fix round answers Q3 (user 2026-11-17, "Yes, same every visit"): a catalog-named system does the same, on its catalog
+// id (its tier's code and its number, ExpeditionRegion.starId), so the same name is the same planets every visit.
 function generateBodies(seed: number, region: Pick<ExpeditionRegion, "tier" | "starId">): ExpeditionBody[] {
   const tier = region.tier;
-  if (STAR_BODIES_SWITCH.live && region.starId !== undefined) seed = starBodySeed(region.starId);
+  // Each identity answers to its own switch (bodyIdentity sets them; a region built by hand is read the same way).
+  if (region.starId !== undefined && (famousSystem(region.starId) !== undefined ? STAR_BODIES_SWITCH.live : CATALOG_BODIES_SWITCH.live)) {
+    seed = starBodySeed(region.starId);
+  }
   const rng = makeRng((seed ^ SYSTEM_SALT) >>> 0);
   rng.nextInt(BANKED_SYSTEMS.length); // the retired banked-name pick: draw kept, value unused
   const bodyCount = tierBodyCount(seed, tier, rng.nextRange(BODY_COUNT_MIN, BODY_COUNT_MAX));
@@ -645,6 +649,7 @@ function generateBodies(seed: number, region: Pick<ExpeditionRegion, "tier" | "s
 }
 
 // Fix round FR-E (lane 3 I2): the body seed of real star `starId`: its id hashed (32-bit FNV-1a) on STAR_BODY_SALT. Pure.
+// (Q3: a catalog-named system's id, "lb-0472", hashes the same way; no famous id has that form, so the two never meet.)
 export function starBodySeed(starId: string): number {
   let h = 0x811c9dc5;
   for (let i = 0; i < starId.length; i++) h = Math.imul(h ^ starId.charCodeAt(i), 0x01000193) >>> 0;
@@ -743,7 +748,8 @@ export function wolf359DerelictEntry(
 // rolled one, never twice in
 // one list) at its real distance and bearing from the homeworld (clamped into the band, as a near star can sit
 // closer to a homeworld than the band's nearest-star edge), or a catalog-named system at its drawn distance
-// (telescope.ts systemDistanceLy) and drawn bearing. Enemy territory: its bearing inside the tier's fixed sector
+// (telescope.ts systemDistanceLy) and drawn bearing, both drawn from its catalog id (fix round answers Q3: the same
+// name is the same place every visit). Enemy territory: its bearing inside the tier's fixed sector
 // (galaxy.ts inEnemySector; Tier I has none). Stable until a dispatch advances expeditionSeed. Pure.
 export function tierCandidateSystems(
   state: Pick<GameState, "expeditionSeed" | "nextExpeditionId" | "heldLaunches" | "listRewinds" | "homeworld" | "wolf359List">,
@@ -771,8 +777,12 @@ export function tierCandidateSystems(
       distanceLy = Math.max(Math.min(band.near + 1, band.far), Math.min(band.far, seen.distanceLy));
     } else {
       named = catalogSystemName(tier, makeRng((seed ^ SYSTEM_NAME_SALT) >>> 0).nextRange(1, CATALOG_NUMBER_MAX));
-      bearing = makeRng((seed ^ CANDIDATE_BEARING_SALT) >>> 0).nextInt(BEARING_TURN);
-      distanceLy = systemDistanceLy(seed, tier, homeworld);
+      // Fix round answers Q3 fix pass (user 2026-11-17, "Same place too"): a catalog-named system's distance and bearing
+      // (so its enemy-territory flag) are drawn from its catalog id, like its bodies, so the same name is the same place
+      // every visit. Off (CATALOG_BODIES_SWITCH), from the slot's seed as before.
+      const placeSeed = CATALOG_BODIES_SWITCH.live ? starBodySeed(named.systemId) : seed;
+      bearing = makeRng((placeSeed ^ CANDIDATE_BEARING_SALT) >>> 0).nextInt(BEARING_TURN);
+      distanceLy = systemDistanceLy(placeSeed, tier, homeworld);
     }
     out.push({
       id: `cand-${tier}-${slot}`,
@@ -784,7 +794,8 @@ export function tierCandidateSystems(
       bearing,
       distanceLy,
       // FR-E I2: a real star carries its id, so its bodies are the star's (generateBodies).
-      region: { tier, enemyTerritory: inEnemySector(homeworld, tier, bearing), ...(famous && STAR_BODIES_SWITCH.live ? { starId: famous.id } : {}) },
+      // Q3: a catalog-named system carries its catalog id, so its bodies are the named system's.
+      region: { tier, enemyTerritory: inEnemySector(homeworld, tier, bearing), ...bodyIdentity(famous?.id ?? null, named.systemId) },
     });
   }
   return out;
@@ -3124,8 +3135,17 @@ function heldCandidateSystem(h: HeldSystem): CandidateSystem {
     bearing: h.region.bearing,
     distanceLy: h.region.distanceLy,
     // FR-E I2: a real star's bodies are the star's (generateBodies).
-    region: { tier: h.region.tier, enemyTerritory: h.region.enemyTerritory, ...(h.famousId !== null && STAR_BODIES_SWITCH.live ? { starId: h.famousId } : {}) },
+    // Q3: a held catalog-named system's are the named system's, the same as on the list.
+    region: { tier: h.region.tier, enemyTerritory: h.region.enemyTerritory, ...bodyIdentity(h.famousId, h.systemId) },
   };
+}
+
+// The identity a candidate's bodies are drawn from (ExpeditionRegion.starId): a real star's id (FR-E I2), else, fix round
+// answers Q3 (user 2026-11-17, "Yes, same every visit"), the catalog-named system's own id, so the same name is the same
+// place. Each is off with its own test switch, where the system keeps its slot's draw. Pure.
+function bodyIdentity(famousId: string | null, systemId: string): { starId?: string } {
+  if (famousId !== null) return STAR_BODIES_SWITCH.live ? { starId: famousId } : {};
+  return CATALOG_BODIES_SWITCH.live ? { starId: systemId } : {};
 }
 
 // The ordinary candidates a recall returned to `tier` (kind "candidate"), oldest first; a note on a restored list's slot

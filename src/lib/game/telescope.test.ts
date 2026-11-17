@@ -28,6 +28,7 @@ import {
   expeditionCandidates,
   expeditionLaunchView,
   expeditionRiskPreview,
+  tierCandidateSystems,
   } from "./expedition";
 import {
   PROVISIONAL_HOMEWORLD,
@@ -366,8 +367,11 @@ describe("the candidate carries the telescope reading", () => {
       expect(c.telescope.regionTier).toBe(1);
       expect(c.telescope.detail).toBe(2);
       // SQ-6: the reading plus the task-based pieces, none of which Graded shows.
+      // (Fix round answers Q3: a catalog-named system's bodies and distance come from its name, so the reading is of the
+      // candidate's own region and distance, as the list draws them.)
+      const sys = tierCandidateSystems(s, 1).find((x) => x.id === c.id)!;
       expect(c.telescope).toEqual({
-        ...readSystem(telescopeReading(s), c.seed, 0, expeditionRiskPreview(c.seed), stateHomeworld(s)),
+        ...readSystem(telescopeReading(s), c.seed, 0, expeditionRiskPreview(c.seed, sys.region), stateHomeworld(s), undefined, sys.distanceLy),
         demand: null,
       });
     }

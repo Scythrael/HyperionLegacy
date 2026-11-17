@@ -59,7 +59,7 @@ import { withSetCompletion } from "./relicIdentify";
 import { relicSetCompletedEvents, withNotableEvents } from "./notableEvents";
 import { regionTierNumeral } from "./galaxy";
 import { overtimeRate } from "./overtimeRate";
-import { gearRepairOutlook, pausedPatrolOf, pauseResumeTicks, shipWornPieces, settleShipForRateChange } from "./gearWearEngine";
+import { gearRepairOutlook, pausedPatrolOf, pauseResumeTicks, pauseSecondsToTarget, shipWornPieces, settleShipForRateChange } from "./gearWearEngine";
 
 // What a speed action points at: an in-flight timed process (by its "proc-N" id), a captain's current extraction
 // cycle or patrol route, or an expedition (by its "expedition-N" id).
@@ -223,9 +223,9 @@ export type GearRepairOvertimeQuote =
 
 // GEAR WEAR close-out (user 2026-11-11 "Allow Overtime in pauses (Recommended)": one tap speeds the pause like any
 // docked repair, and the patrol resumes sooner). A Repeat patrol paused to repair is home, so its gear card's Overtime
-// strip sells the same steps by the same rule: priced by the job's FULL length at the normal rate (the pause's whole
-// length: the time its combat pieces needed to be back to full at the home rate when it began), frozen at the first step
-// (gearRepairSpeed.jobMinutes); the hull's tier. A step lifts the home rate of the ship's own installed pieces from its
+// strip sells the same steps by the same rule, priced on the same curve (fix round answers Q6, 2026-11-17: by the repair
+// the pause has LEFT at the normal rate, the time until it heads back out, gearRepairJobMinutes), frozen at the first
+// step (gearRepairSpeed.jobMinutes); the hull's tier. A step lifts the home rate of the ship's own installed pieces from its
 // instant (recorded on the pause, PatrolMissionState.repairPause.overtime, which the engine's pause windows read) and
 // rescales the pause's countdown so the patrol heads out exactly when its combat gear is full at the new rate
 // (gearWearEngine.ts pauseResumeTicks, in the settle's own integers). Nothing is settled at the purchase: the pause's
@@ -247,14 +247,22 @@ export function shipGearMinutesToFull(state: GameState, shipId: string, normal =
   return most;
 }
 
+// Fix round answers Q6: TEST-ONLY off switch (fixRoundAnswersSwitch.fixture.ts); never written by app code.
+export const PAUSE_OVERTIME_REMAINING_SWITCH: { live: boolean } = { live: true };
+
 // The full length of a ship's docked gear repair job, in minutes at the normal rate (the price's job size): the length
 // recorded when the job started (ShipInstance.gearRepairJobMinutes), or, before the engine's next tick has recorded it
 // (the job starts now) or when a more worn piece was installed since, the time left at the normal rate now. Pure.
-// A Repeat patrol paused to repair: the pause's whole length at the normal rate (from its start to its end, before any
-// Overtime rescaled it), the job its steps are priced by.
+// A Repeat patrol paused to repair: the repair the pause has left (Q6 below), the job its steps are priced by.
+// Fix round answers Q6 (user 2026-11-17, "Price the actual pause"): a pause's Overtime is priced by what is actually
+// left of its repair, the time from now until every piece it waits on reaches its goal (the pause's target, or full) at
+// the normal home rate (gearWearEngine.ts pauseSecondsToTarget at 0 steps), on the same curve a docked job of that
+// length is priced on. Frozen at the first step (gearRepairSpeed.jobMinutes, canBuyGearRepairOvertime), as docked.
+// Off (test-only, PAUSE_OVERTIME_REMAINING_SWITCH), the FR-E reading below: the docked job for the same gear.
 export function gearRepairJobMinutes(state: GameState, shipId: string): number {
   const ship = state.ships.find((s) => s.id === shipId);
   const paused = pausedPatrolOf(state, shipId);
+  if (paused !== null && PAUSE_OVERTIME_REMAINING_SWITCH.live) return (pauseSecondsToTarget(state, shipId, 0) ?? 0) / 60;
   // Fix round FR-E (lane 4 M6): a pause records the docked job's length for its gear (RepairPauseRecord.jobMinutes), so
   // a step costs what it costs on the same gear docked (the pause's own length carried its settle margin tick, and since
   // "Resume when safe" it can end before the gear is full). A pause from before the fix keeps its whole length.
@@ -286,15 +294,17 @@ function withGearOvertimeSteps(state: GameState, shipId: string, steps: number, 
 }
 
 // A paused patrol's ship with its pause at `steps` of Overtime from now: the step recorded at its instant and the
-// countdown rescaled to the ticks its combat gear needs at the new rate. Pure.
-function withPauseOvertime(state: GameState, shipId: string, steps: number, ticks: number): GameState {
+// countdown rescaled to the ticks its combat gear needs at the new rate. `pauseQuote`: the pause's own price (the Q6
+// quote, set at the first step this pause priced), kept on the pause record so it ends with the pause. Pure.
+function withPauseOvertime(state: GameState, shipId: string, steps: number, ticks: number, pauseQuote?: number): GameState {
   const ship = state.ships.find((s) => s.id === shipId);
   return {
     ...state,
     captains: state.captains.map((c) => {
       if (ship === undefined || c.id !== ship.assignedCaptainId || c.mission === null || c.mission.kind !== "patrol" || c.mission.repairPause === undefined) return c;
       const pause = c.mission.repairPause;
-      return { ...c, mission: { ...c.mission, repairPause: { ...pause, ticksRemaining: ticks, overtime: [...(pause.overtime ?? []), { at: state.gameTimeSeconds, steps }] } } };
+      const overtime = [...(pause.overtime ?? []), { at: state.gameTimeSeconds, steps }];
+      return { ...c, mission: { ...c.mission, repairPause: { ...pause, ticksRemaining: ticks, overtime, ...(pauseQuote !== undefined ? { overtimeJobMinutes: pauseQuote } : {}) } } };
     }),
   };
 }
@@ -331,7 +341,11 @@ export function buyGearRepairOvertime(
   // A paused patrol: the step and the rescaled countdown go on the pause (nothing settled now; its window settles as it
   // closes). A docked ship: its gear settled to now and re-anchored at the new rate.
   const ticks = pausedPatrolOf(state, shipId) !== null ? pauseResumeTicks(state, shipId, quote.step) : null;
-  const settled = ticks !== null ? withPauseOvertime(state, shipId, quote.step, ticks) : settleShipForRateChange(state, shipId, overtimeRate(quote.step));
+  // Fix round answers Q6 fix pass: the first step a pause prices itself (no docked Overtime carried in) keeps that quote
+  // on the pause record, so the cheap pause price never outlives the pause (tick.ts recallCaptain ends it).
+  const ship = state.ships.find((s) => s.id === shipId);
+  const pauseQuote = ticks !== null && PAUSE_OVERTIME_REMAINING_SWITCH.live && ship?.gearRepairSpeed === undefined ? quote.jobMinutes : undefined;
+  const settled = ticks !== null ? withPauseOvertime(state, shipId, quote.step, ticks, pauseQuote) : settleShipForRateChange(state, shipId, overtimeRate(quote.step));
   const next = withGearOvertimeSteps({ ...settled, credits: settled.credits.minus(quote.cost) }, shipId, quote.step, quote.jobMinutes);
   return { next, bought: true, cost: quote.cost };
 }

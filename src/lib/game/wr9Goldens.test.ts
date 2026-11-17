@@ -70,6 +70,13 @@ gatheringTrainingOffForThisFile();
 // their own slice (E5-2's moves: refugeeGoldens.test.ts and refugeeArrival.test.ts).
 import { evacuationDrawOffForThisFile } from "./evacuationDrawSwitch.fixture";
 import { fixRoundESwitchesOffForThisFile } from "./fixRoundESwitch.fixture";
+import { fixRoundAnswersOffForThisFile } from "./fixRoundAnswersSwitch.fixture";
+
+// Fix round answers Q3 (2026-11-17, "Yes, same every visit": a catalog-named system's bodies are drawn from its
+// catalog id, the same every visit) moves this file's pins (the catalog-named systems its runs fly have other bodies).
+// They predate it and are about another slice, so the file runs with it off (fixRoundAnswersSwitch.fixture.ts). Q3's
+// own pins: expeditionFixRoundE.test.ts.
+fixRoundAnswersOffForThisFile("catalogBodies");
 
 // Fix round FR-E (0.14.0): the climb (lane 4 I2, PATROL_REPEAT_CLIMB_SWITCH: a Repeat run climbs one curve step every
 // PATROL_CLIMB_EVERY_ROUTES routes) moves the patrol run (it flies past PATROL_CLIMB_EVERY_ROUTES routes); and Resume

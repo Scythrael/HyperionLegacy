@@ -34,13 +34,18 @@ function shipPieces(s: GameState): EquipmentInstance[] {
 // An ordinary run: the starting freighter past the propulsion gates (not a training run, so it is wear-stamped), a
 // medic squad, the ship leaving with hull damage one point under the field repair threshold so its first light damage
 // sets it down for a REAL field repair (the complementGoldens pattern). No piece is worn before it leaves.
+// Fix round answers Q3 fix pass (a catalog-named system's bodies and place from its name): list seed 0x1244's system
+// now holds an objective this squad never finishes (the run is still at work 2,000,000 s in), so the run is list seed
+// 0x1246, the first after it with the same scenario: the run completes, a field repair leg, the reactor worn before it
+// (with Q3 off 0x1244 holds it, as before).
+const FIELD_REPAIR_SEED = 0x1246;
 function fieldRepairRun(): { s: GameState; exp: Expedition; done: Expedition } {
   const squad = [
     { ...plainAwayMember("member-1", "security", "ship-1"), rank: 3 as const },
     { ...plainAwayMember("member-2", "security", "ship-1"), rank: 2 as const, traits: ["fieldMedic" as const] },
     plainAwayMember("member-11", "science", "ship-1"),
   ];
-  const s = withSlottedAwayTeams({ ...freshState(), awayMembers: squad, nextAwayMemberId: 100, expeditionSeed: 0x1244 });
+  const s = withSlottedAwayTeams({ ...freshState(), awayMembers: squad, nextAwayMemberId: 100, expeditionSeed: FIELD_REPAIR_SEED });
   // Dispatched as complementGoldens' groundOpsRepair dispatches it (before enemy ranks and safe first runs), whose ship
   // events set it down for a field repair.
   // Wiring WR-11: dispatched before the site rules too (withWr11Off), the run whose ship events set it down after its

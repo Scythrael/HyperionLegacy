@@ -191,12 +191,28 @@ describe("GG-2 orbital bodies", () => {
   });
 
   it("the launch view counts the ship studies and asks no squad for them", () => {
-    const state = crewed();
-    const cand = expeditionCandidates(state, "ship-1").find((c) => c.id === "cand-1-2")!;
+    // A list with a one-giant system and a system without one: the fresh save's candidates 2 and 0 while a catalog-named
+    // system's bodies came from its slot. Fix round answers Q3 fix pass: drawn from its name, so the list is found (the
+    // first save from the fresh one with such a pair, candidate 2 and candidate 0 first; with Q3 off: the fresh save's).
+    const giants = (s: GameState, id: string) => {
+      const res = dispatchPastPropulsion(s, "ship-1", 1, id);
+      return res.success && res.expedition ? res.expedition.bodies.filter((b) => isOrbitalPlanetType(b.planetType)).length : -1;
+    };
+    const order = ["cand-1-2", "cand-1-0", "cand-1-1"];
+    let found: { state: GameState; giant: string; plain: string } | null = null;
+    for (let k = -1; k < 200 && found === null; k++) {
+      const s = crewed(k < 0 ? undefined : (0x51f15e + k * 977) >>> 0);
+      const giant = order.find((id) => giants(s, id) === 1);
+      const plain = ["cand-1-0", "cand-1-1", "cand-1-2"].find((id) => id !== giant && giants(s, id) === 0);
+      if (giant !== undefined && plain !== undefined) found = { state: s, giant, plain };
+    }
+    expect(found).not.toBeNull();
+    const { state } = found!;
+    const cand = expeditionCandidates(state, "ship-1").find((c) => c.id === found!.giant)!;
     const view = expeditionLaunchView(state, "ship-1", cand);
     expect(view.demand?.shipStudies).toBe(1);
     expect(view.forecast?.studies).toBe(1);
-    const plain = expeditionLaunchView(state, "ship-1", expeditionCandidates(state, "ship-1").find((c) => c.id === "cand-1-0")!);
+    const plain = expeditionLaunchView(state, "ship-1", expeditionCandidates(state, "ship-1").find((c) => c.id === found!.plain)!);
     expect(plain.demand && "shipStudies" in plain.demand).toBe(false);
     expect(plain.forecast && "studies" in plain.forecast).toBe(false);
   });

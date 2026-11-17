@@ -918,6 +918,15 @@ export function pausedPatrolOf(state: GameState, shipId: string): RepairPauseRec
 // Fix round FR-E (lane 4 I1, "Resume when safe"): a pause with a target (RepairPauseRecord.target) waits for each listed
 // piece to reach its goal instead (a piece not listed needs nothing), so a step rescales to when the next route is safe.
 export function pauseResumeTicks(state: GameState, shipId: string, steps: number): number | null {
+  const most = pauseSecondsToTarget(state, shipId, steps);
+  return most === null ? null : Math.max(1, Math.ceil(most / state.tickDurationSeconds));
+}
+
+// The seconds from now until every piece a paused patrol waits on reaches its goal (the pause's target, or full) at the
+// home rate with `steps` of Overtime: pauseResumeTicks' count before it is rounded to whole ticks. Null when the ship is
+// not paused. Fix round answers Q6 (user 2026-11-17, "Price the actual pause"): at 0 steps, the repair the pause has left
+// at the normal rate, which prices its Overtime (processSpeed.ts gearRepairJobMinutes). Pure.
+export function pauseSecondsToTarget(state: GameState, shipId: string, steps: number): number | null {
   const pause = pausedPatrolOf(state, shipId);
   if (pause === null) return null;
   const index = repairContextIndex(state);
@@ -933,7 +942,7 @@ export function pauseResumeTicks(state: GameState, shipId: string, steps: number
     // (The fix pass: to the instant each goal is reached, so a mid-second clock heads out on the first tick at it.)
     most = Math.max(most, secondsUntilCondition(rebaseAnchor(live.piece, now, live.rate, rate), now, rate, goal));
   }
-  return Math.max(1, Math.ceil(most / state.tickDurationSeconds));
+  return most;
 }
 
 // A paused patrol's Overtime multiplier on its own installed pieces right now (the last step bought in the pause). Pure.

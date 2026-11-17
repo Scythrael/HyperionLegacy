@@ -28,6 +28,7 @@ ordering2OffForThisFile();
 import { repairRulesOffForThisFile } from "./fieldRepairRulesSwitch.fixture";
 repairRulesOffForThisFile();
 import { describe, it, expect } from "vitest";
+import { withAnswersOff } from "./fixRoundAnswersSwitch.fixture";
 // Wiring WR-10 (the away rules stamped at dispatch, a hire's account program) came after every pin here: the whole file
 // runs with WR-10 off (wr10Switch.fixture.ts), so its pins keep proving their own slice (wr10Goldens.test.ts pins WR-10's).
 import { wr10OffForThisFile } from "./wr10Switch.fixture";
@@ -290,14 +291,20 @@ describe("neutrality: no officer = byte-identical to before Task 20 (golden)", (
 
   it("expeditions: the dispatch record (OC-G1 retired the legacy resolution and claim halves)", () => {
     const s0: GameState = { ...freshState(), awayMembers: GOLDEN_ROSTER, nextAwayMemberId: 100 };
-    const runs: string[] = [];
-    for (let i = 0; i < 8; i++) {
-      const s = { ...s0, expeditionSeed: (0x2468ace + i * 7919) >>> 0 };
-      const res = preGroundOpsRecord(s, "ship-1", 1, expeditionCandidates(s, "ship-1")[0].id);
-      expect(res.success).toBe(true);
-      runs.push(fnv(goldenJson(res.expedition)));
-    }
-    expect(runs).toEqual(GOLDEN.expedition);
+    const record = (): string[] => {
+      const runs: string[] = [];
+      for (let i = 0; i < 8; i++) {
+        const s = { ...s0, expeditionSeed: (0x2468ace + i * 7919) >>> 0 };
+        const res = preGroundOpsRecord(s, "ship-1", 1, expeditionCandidates(s, "ship-1")[0].id);
+        expect(res.success).toBe(true);
+        runs.push(fnv(goldenJson(res.expedition)));
+      }
+      return runs;
+    };
+    record();
+    // The capture predates fix round answers Q3 (a catalog-named system's bodies and place from its name), which moves
+    // the systems these runs fly, so the GOLDEN hashes are read with it off (only this pin).
+    expect(withAnswersOff(["catalogBodies"], record)).toEqual(GOLDEN.expedition);
   });
 
   // Wiring OC-G1 fix round: the expedition pins above hash only the dispatch record now, so this restores a resolved
@@ -307,8 +314,13 @@ describe("neutrality: no officer = byte-identical to before Task 20 (golden)", (
     const neutral: SeniorStaffOfficer = { ...officerWith("ops.cargoExpand"), bonuses: [{ id: "test.none", magnitude: 0 }, { id: "test.none", magnitude: 0 }] };
     const plain = groundOpsRunHash([]);
     expect(groundOpsRunHash([neutral])).toBe(plain);
-    expect(plain).toBe(GOLDEN.groundOpsTorpedoes);
-    expect(withEnemyTorpedoesOff(() => groundOpsRunHash([]))).toBe(GOLDEN.groundOps);
+    // The GOLDEN captures predate fix round answers Q3 (a catalog-named system's bodies and place from its name): read
+    // with it off (only these pins); the neutrality above holds with it on.
+    withAnswersOff(["catalogBodies"], () => {
+      expect(groundOpsRunHash([neutral])).toBe(groundOpsRunHash([]));
+      expect(groundOpsRunHash([])).toBe(GOLDEN.groundOpsTorpedoes);
+      expect(withEnemyTorpedoesOff(() => groundOpsRunHash([]))).toBe(GOLDEN.groundOps);
+    });
   });
 
   it("a ship whose officers carry only non-combat bonuses freezes NO combat record", () => {

@@ -7,6 +7,13 @@ import { advanceExpedition, cancelFieldRepair, expeditionCandidates, orderFieldR
 import { OCF14_FAR, ocf14Damaged, ocf14Dispatch, ocf14Threshold, ocf14WindowOpen } from "./game/fieldRepairOrder.fixture";
 import { asPreCurveDispatch, plainAwayMember, withSlottedAwayTeams, dispatchPastPropulsion } from "./game/awayTeamTestFixtures";
 import { autoRepairAt, fieldRepairLogText, fieldRepairRefusalText, fieldRepairStripView, type TextPart } from "./fieldRepairStripDisplay";
+import { fixRoundAnswersOffForThisFile } from "./game/fixRoundAnswersSwitch.fixture";
+
+// Fix round answers Q3 (2026-11-17, "Yes, same every visit": a catalog-named system's bodies are drawn from its
+// catalog id, the same every visit) moves this file's pins (the catalog-named systems its runs fly have other bodies).
+// They predate it and are about another slice, so the file runs with it off (fixRoundAnswersSwitch.fixture.ts). Q3's
+// own pins: expeditionFixRoundE.test.ts.
+fixRoundAnswersOffForThisFile("catalogBodies");
 
 const TOXIC_FROZEN = 0xa6fe4;
 const ARID_ONLY = 0xa6fe5;

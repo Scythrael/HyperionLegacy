@@ -231,7 +231,10 @@ describe("G2-6 the candidate card: transit, reach and gates are the engine's", (
 
   // Expedition seed 1: a Class II Orion's Tier II list holds systems both inside and past its reach (forced, not hoped for).
   it("an out of reach card: the bar is hatched full with the reach marked, the full line names both numbers", () => {
-    const s = sensors(drive(crewed("orion", 1), "classIIDriveBp"), 30);
+    // A list with one card beyond this ship's reach and one within it: list seed 8 (fix round answers Q3 fix pass: a
+    // catalog-named system's distance is now drawn from its name, and list 1's Tier II cards are all within reach; with
+    // Q3 off list 1 holds both, as before).
+    const s = sensors(drive(crewed("orion", 8), "classIIDriveBp"), 30);
     const cards = nearestFirst(expeditionCandidates(s, "ship-1", 2)).map((c) => candidateCardView(s, ship1(s), c));
     const over = cards.find((c) => !c.reach.met)!;
     const within = cards.find((c) => c.reach.met)!;

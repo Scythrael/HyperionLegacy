@@ -76,7 +76,9 @@ export interface ExpeditionRegion {
   enemyTerritory: boolean;
   // Fix round FR-E (lane 3 I2, user "Same system every visit (Recommended)"): the real star (starCatalog.ts famous system
   // id) a candidate is, so every preview and the launch draw its bodies from the star (expedition.ts generateBodies).
-  // Absent for a catalog-named system. Never stored on a run (the run's region stamp is its own, regionStampOf).
+  // Fix round answers Q3 (user 2026-11-17, "Yes, same every visit"): a catalog-named system carries its catalog id
+  // (starCatalog.ts catalogSystemName: its tier's code and its number, "lb-0472") here the same way, so the same name is
+  // the same planets. Never stored on a run (the run's region stamp is its own, regionStampOf).
   starId?: string;
 }
 

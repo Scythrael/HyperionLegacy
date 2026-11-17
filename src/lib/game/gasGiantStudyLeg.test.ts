@@ -118,8 +118,23 @@ function settled(exp: Expedition): Expedition {
   return run;
 }
 
-// The GG-0 gas giant system: a fresh save's candidate 2 (body 1 is the giant).
-const GIANT = "cand-1-2";
+// The GG-0 gas giant system: a fresh save's candidate 2 (body 1 is the giant) while a catalog-named system's bodies
+// came from its list slot. Fix round answers Q3 fix pass: drawn from its name, that system has no giant, so the system
+// is found: the first save from the fresh one (save seeds from 0x51f15e) whose list holds a study run with a giant,
+// candidate 2 first. With Q3 off it is the fresh save's candidate 2, as before. `nextExpeditionId` 1 finds a training
+// run's (a fresh save's first expedition).
+function giantSystem(nextExpeditionId = 2): { save: number | undefined; id: string } {
+  for (let k = -1; k < 200; k++) {
+    const save = k < 0 ? undefined : (0x51f15e + k * 977) >>> 0;
+    for (const id of ["cand-1-2", "cand-1-0", "cand-1-1"]) {
+      const res = asPreNebulaDispatch(dispatchPastPropulsion({ ...crewed(save), nextExpeditionId }, "ship-1", 1, id));
+      if (res.success && res.expedition?.study && res.expedition.bodies.some((b) => isOrbitalPlanetType(b.planetType))) return { save, id };
+    }
+  }
+  throw new Error("no study run with a gas giant");
+}
+const { save: SAVE, id: GIANT } = giantSystem();
+const TRAINING = giantSystem(1);
 
 // A Tier I study run whose giant is not the last body: the first such candidate from save seed 0x51f15e on. Pure.
 const BEFORE_LAST = ((): { save: number; id: string } => {
@@ -138,7 +153,7 @@ const BEFORE_LAST = ((): { save: number; id: string } => {
 
 describe("GG-3 the study leg", () => {
   it("starts when the giant's scan completes, lasts studySeconds, the ship holds orbit and the scan clock pauses", () => {
-    const { exp } = dispatch(crewed(), GIANT);
+    const { exp } = dispatch(crewed(SAVE), GIANT);
     const run = settled(exp);
     const legs = run.groundOps!.studyLegs!;
     const giant = run.bodies.findIndex((b) => isOrbitalPlanetType(b.planetType));
@@ -170,7 +185,7 @@ describe("GG-3 the study leg", () => {
   });
 
   it("the window closes only after every study is done, and the run then completes and claims", () => {
-    const { next, exp } = dispatch(crewed(), GIANT);
+    const { next, exp } = dispatch(crewed(SAVE), GIANT);
     const done = advanceExpedition(exp, T0 + 4_000_000);
     expect(done.phase).toBe("complete");
     for (const l of done.groundOps!.studyLegs!) expect(done.groundOps!.endedAt!).toBeGreaterThanOrEqual(l.endsAt);
@@ -214,7 +229,7 @@ describe("GG-3 the study leg", () => {
   });
 
   it("the study counts in the run's progress (weight 1) and only on a study run", () => {
-    const { exp } = dispatch(crewed(), GIANT);
+    const { exp } = dispatch(crewed(SAVE), GIANT);
     const done = advanceExpedition(exp, T0 + 4_000_000);
     expect(groundOpsProgress(done, done.groundOps!.endedAt!)).toBe(1);
     const leg = done.groundOps!.studyLegs![0];
@@ -230,9 +245,9 @@ describe("GG-3 the study leg", () => {
   });
 
   it("the training run (a fresh save's first expedition) with a gas giant still cannot be lost: it completes with its study", () => {
-    const base = crewed();
+    const base = crewed(TRAINING.save);
     const fresh: GameState = { ...base, nextExpeditionId: 1 };
-    const { next, exp } = dispatch(fresh, GIANT);
+    const { next, exp } = dispatch(fresh, TRAINING.id);
     expect(exp.difficulty?.firstRun).toBeDefined();
     const done = advanceExpedition(exp, T0 + 6_000_000);
     expect(done.phase).toBe("complete");
@@ -242,7 +257,7 @@ describe("GG-3 the study leg", () => {
   });
 
   it("offline == live: one call == 997 s chunks == 1 s steps, across the study's start and end", () => {
-    for (const [save, id] of [[undefined, GIANT], [BEFORE_LAST.save, BEFORE_LAST.id]] as const) {
+    for (const [save, id] of [[SAVE, GIANT], [BEFORE_LAST.save, BEFORE_LAST.id]] as const) {
       const { exp } = dispatch(crewed(save, true), id);
       const end = T0 + 4_000_000;
       const one = advanceExpedition(exp, end);
@@ -265,23 +280,23 @@ describe("GG-3 the study's length, the probe and the dive", () => {
   it("30 minutes with no Science member; the party's pace shortens it (a Galileo's fieldwork line on a giant); floored", () => {
     const giant = { planetType: "gasGiant" as const };
     expect(studySeconds({ roster: { security: [], science: [] }, scienceStrength: 0 }, giant)).toBe(STUDY_BASE_SECONDS);
-    const plain = dispatch(crewed(), GIANT).exp;
-    const probed = dispatch(crewed(undefined, true), GIANT).exp;
+    const plain = dispatch(crewed(SAVE), GIANT).exp;
+    const probed = dispatch(crewed(SAVE, true), GIANT).exp;
     expect(studySeconds(probed, giant)).toBeLessThan(studySeconds(plain, giant));
     expect(studySeconds(plain, giant)).toBeLessThanOrEqual(STUDY_BASE_SECONDS);
-    const huge = dispatch(crewed(undefined, true, 1e7), GIANT).exp;
+    const huge = dispatch(crewed(SAVE, true, 1e7), GIANT).exp;
     expect(studySeconds(huge, giant)).toBe(STUDY_MIN_SECONDS);
   });
 
   it("studyProbe: the best Galileo aboard (by its crush rating), a reference one rates 1, none without", () => {
-    expect(studyProbe(dispatch(crewed(), GIANT).exp)).toBeNull();
-    const one = studyProbe(dispatch(crewed(undefined, true), GIANT).exp)!;
+    expect(studyProbe(dispatch(crewed(SAVE), GIANT).exp)).toBeNull();
+    const one = studyProbe(dispatch(crewed(SAVE, true), GIANT).exp)!;
     expect(one.memberId).toBe(SCI[0]);
     expect(one.hazardResist).toBeCloseTo(GALILEO_REFERENCE_LINES.hazardResist, 9);
     expect(one.relicFind).toBeCloseTo(GALILEO_REFERENCE_LINES.relicFind, 9);
     expect(one.diveRating).toBeCloseTo(1, 9);
     expect(one.relicRating).toBeCloseTo(1, 9);
-    const two = withGalileo(crewed(undefined, true), SCI[3], 60);
+    const two = withGalileo(crewed(SAVE, true), SCI[3], 60);
     const best = studyProbe(dispatch(two, GIANT).exp)!;
     expect(best.memberId).toBe(SCI[3]);
     expect(best.diveRating).toBeCloseTo(3, 9);
@@ -306,8 +321,8 @@ describe("GG-3 the study's length, the probe and the dive", () => {
   });
 
   it("the canister haul scale: the dive x the tier haul; no probe pays the bare range", () => {
-    const plain = dispatch(crewed(), GIANT).exp;
-    const probed = dispatch(crewed(undefined, true), GIANT).exp;
+    const plain = dispatch(crewed(SAVE), GIANT).exp;
+    const probed = dispatch(crewed(SAVE, true), GIANT).exp;
     const i = plain.bodies.findIndex((b) => isOrbitalPlanetType(b.planetType));
     expect(studyCanisterScale(plain, i)).toBe(1);
     expect(studyCanisterScale(probed, i)).toBeGreaterThan(1);
@@ -335,10 +350,10 @@ describe("GG-3 the study's length, the probe and the dive", () => {
   });
 
   it("the probe dive seam: one event per finished study with a Galileo aboard, none without", () => {
-    const probed = advanceExpedition(dispatch(crewed(undefined, true), GIANT).exp, T0 + 4_000_000);
+    const probed = advanceExpedition(dispatch(crewed(SAVE, true), GIANT).exp, T0 + 4_000_000);
     const leg = probed.groundOps!.studyLegs![0];
     expect(studyDiveEvents(probed)).toEqual([{ bodyIndex: leg.bodyIndex, at: leg.endsAt, memberId: SCI[0], pieceId: `galileo-${SCI[0]}` }]);
-    expect(studyDiveEvents(advanceExpedition(dispatch(crewed(), GIANT).exp, T0 + 4_000_000))).toEqual([]);
+    expect(studyDiveEvents(advanceExpedition(dispatch(crewed(SAVE), GIANT).exp, T0 + 4_000_000))).toEqual([]);
   });
 });
 

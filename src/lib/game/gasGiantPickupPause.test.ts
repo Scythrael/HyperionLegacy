@@ -30,6 +30,13 @@ import { fnv, goldenJson } from "./firstRunsGoldens.fixture";
 // `battle`, its ship battle snapshot's frozen reactor and drive), so the file runs with the battle sources off.
 import { battleWearOffInThisFile } from "./battleWearSwitch.fixture";
 import { wr11OffForThisFile } from "./wr11Switch.fixture";
+import { fixRoundAnswersOffForThisFile } from "./fixRoundAnswersSwitch.fixture";
+
+// Fix round answers Q3 (2026-11-17, "Yes, same every visit": a catalog-named system's bodies are drawn from its
+// catalog id, the same every visit) moves this file's pins (the catalog-named systems its runs fly have other bodies).
+// They predate it and are about another slice, so the file runs with it off (fixRoundAnswersSwitch.fixture.ts). Q3's
+// own pins: expeditionFixRoundE.test.ts.
+fixRoundAnswersOffForThisFile("catalogBodies");
 
 // Fix round FR-E (0.14.0): this file runs with the round on (its weak-crew fixture is found, see wipeFixture).
 // Wiring WR-11 came after every pin here: the whole file runs with WR-11 off (wr11Switch.fixture.ts), so its pins keep

@@ -94,7 +94,7 @@ import type { DroneRole } from "./combat/drones";
 // reservation.ts is the leaf both sides already depend on.
 import { salvageReservedInstanceIds, salvageReservedMaterialCount } from "./reservation";
 // FR-C lane 1 M7: the Sell counter sells only FREE stock (allocation.ts is a leaf over model.ts and inventory.ts).
-import { freeItemForState } from "./allocation";
+import { allocatedItem, freeItemForState } from "./allocation";
 // The one "which squad wears this piece" rule, shared with the member install gate (Task 9 review M2).
 // memberEquipment.ts imports nothing that imports this file, so there is no cycle.
 import { pieceWearableBy } from "./memberEquipment";
@@ -768,6 +768,31 @@ export type SellBlockReason =
 // what waiting salvage orders hold of it (salvageReservedMaterialCount), floored at 0. Pure read.
 export function sellableFree(state: GameState, itemId: string): Decimal {
   return Decimal.max(new Decimal(0), freeItemForState(state, itemId).minus(salvageReservedMaterialCount(state, itemId)));
+}
+
+// Fix round answers Q10 (user 2026-11-17, "Keep, align tooltip"): the Warehouse tooltip's stock rows, read so its Free
+// is the Sell counter's Free (sellableFree) and the reason is on the rows above it: `allocated`, what running lines,
+// their orders and queued craft orders reserve (display-clamped to the stock), and `queuedSalvage`, the units waiting
+// salvage orders hold. Pure.
+export function warehouseStockRows(state: GameState, itemId: string): { allocated: Decimal; queuedSalvage: number; free: Decimal } {
+  const lines = [...(state.refineLines ?? []), ...(state.fabricateLines ?? [])];
+  const stored = itemTotal(state.inventory, itemId);
+  return {
+    allocated: Decimal.min(allocatedItem(lines, state.processQueue ?? [], itemId, state.craftOrders ?? []), stored),
+    queuedSalvage: salvageReservedMaterialCount(state, itemId),
+    free: sellableFree(state, itemId),
+  };
+}
+
+// Fix round answers Q10: the Sell row's reason its Free is under what is owned, the same two holds the Warehouse
+// tooltip names (warehouseStockRows): production lines and craft orders, and queued salvage. Pure.
+export function sellReservedReason(state: GameState, itemId: string): string {
+  const rows = warehouseStockRows(state, itemId);
+  const production = rows.allocated.gt(0);
+  const salvage = rows.queuedSalvage > 0;
+  if (production && salvage) return "the rest is reserved by production and queued salvage";
+  if (salvage) return "the rest is held by queued salvage";
+  return "the rest is reserved by production";
 }
 
 // The DERIVED, ordered list of sellable lines the player currently holds (owned > 0). Stable

@@ -43,6 +43,13 @@ import { WR11_SEEDS, WR11_VARIANT_SEEDS, wr11Candidates, wr11Hash, wr11Run, wr11
 import { getPlanetTypeById, getPoiById } from "./expeditionContent";
 import { withWr11Off } from "./wr11Switch.fixture";
 import { fixRoundESwitchesOffForThisFile } from "./fixRoundESwitch.fixture";
+import { fixRoundAnswersOffForThisFile } from "./fixRoundAnswersSwitch.fixture";
+
+// Fix round answers Q3 (2026-11-17, "Yes, same every visit": a catalog-named system's bodies are drawn from its
+// catalog id, the same every visit) moves this file's pins (the catalog-named systems its runs fly have other bodies).
+// They predate it and are about another slice, so the file runs with it off (fixRoundAnswersSwitch.fixture.ts). Q3's
+// own pins: expeditionFixRoundE.test.ts.
+fixRoundAnswersOffForThisFile("catalogBodies");
 
 // Fix round FR-E (0.14.0): the star rule (lane 3 I2, STAR_BODIES_SWITCH: a real star's bodies are drawn from the star,
 // not from its candidate slot) moves the 2a2a Ground Ops run and the candidate lists (real stars among them). The pins

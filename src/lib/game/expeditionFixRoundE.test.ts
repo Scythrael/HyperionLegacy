@@ -21,7 +21,10 @@ import {
   startExpedition,
   systemTaskPreview,
   tierCandidateSystems,
+  type CandidateSystem,
 } from "./expedition";
+import { withAnswersOff } from "./fixRoundAnswersSwitch.fixture";
+import { HELP_TOPICS } from "../helpTopics";
 import { famousSystemsOfTier } from "./starCatalog";
 import { installMissingCombatBaselines } from "./tick";
 import { asExpeditionVeteran, plainAwayMember } from "./awayTeamTestFixtures";
@@ -234,7 +237,7 @@ describe("FR-E I2: a real star is the same system every visit", () => {
     }
     expect(pairs).toBeGreaterThanOrEqual(6);
     expect(famousSystemsOfTier(1).length).toBeGreaterThan(0);
-    // A catalog system keeps its slot's draw (the bodies differ by slot as before).
+    // (Q3, 2026-11-17: a catalog-named system is now drawn from its name too; the Q3 block below.)
     expect(candidateSlotSeed(1, 1, 0)).not.toBe(candidateSlotSeed(1, 1, 1));
   });
 });
@@ -381,5 +384,85 @@ describe("FR-E fix pass R2: a recall restores only the list its own launch drew"
     const heldA2 = heldSystems(s3).find((h) => h.fromExpeditionId === a2.expedition!.id)!;
     expect([heldA2.kind, heldA2.inList]).toEqual(["candidate", undefined]);
     expect(tierCandidateSystems(s3, 1)).toEqual(tierCandidateSystems(s2, 1));
+  });
+});
+
+// Fix round answers Q3 (user 2026-11-17, "Yes, same every visit"): a catalog-named system's bodies come from its catalog
+// id (its tier's code and number), the way a real star's come from the star, so the same name is the same planets.
+describe("Q3: a catalog-named system is the same system every visit", () => {
+  // Two list slots (on different lists) that drew the same catalog name.
+  function sameNamePair(): [GameState, CandidateSystem, GameState, CandidateSystem] {
+    const seen = new Map<string, [GameState, CandidateSystem]>();
+    for (let k = 0; k < 20_000; k++) {
+      const s = crewed(0x9000 + k);
+      for (const cand of tierCandidateSystems(s, 1)) {
+        if (cand.famousId !== null) continue;
+        const was = seen.get(cand.systemId);
+        if (was !== undefined && was[1].seed !== cand.seed) return [was[0], was[1], s, cand];
+        seen.set(cand.systemId, [s, cand]);
+      }
+    }
+    throw new Error("no repeated catalog name");
+  }
+
+  it("two slots that drew the same name launch to the same bodies; their visits still roll their own", () => {
+    const [sa, a, sb, b] = sameNamePair();
+    expect(a.region.starId).toBe(a.systemId);
+    const ra = startExpedition(sa, "ship-1", 1, a.id);
+    const rb = startExpedition(sb, "ship-1", 1, b.id);
+    expect(ra.success && rb.success).toBe(true);
+    const shape = (e: Expedition) => JSON.stringify(e.bodies.map((x) => [x.planetType, x.scanTotal, x.hazard]));
+    expect(shape(rb.expedition!)).toBe(shape(ra.expedition!));
+    // The preview reads the same bodies the launch flies.
+    expect(expeditionRiskPreview(a.seed, a.region).bodies).toEqual(ra.expedition!.bodies.map((x) => x.risk));
+    // Q3 off: each slot keeps its own draw (the code before), and the candidate carries no identity.
+    withAnswersOff(["catalogBodies"], () => {
+      const offA = tierCandidateSystems(sa, 1).find((c) => c.id === a.id)!;
+      expect(offA.region.starId).toBeUndefined();
+      const xa = startExpedition(sa, "ship-1", 1, a.id).expedition!;
+      const xb = startExpedition(sb, "ship-1", 1, b.id).expedition!;
+      expect(shape(xa)).not.toBe(shape(xb));
+    });
+  });
+
+  // Fix pass (user 2026-11-17, "Same place too"): the same distance, bearing and enemy-territory flag as well.
+  it("two slots that drew the same name are the same place: distance, bearing, enemy territory, the run's stamp", () => {
+    const place = (c: CandidateSystem) => [c.distanceLy, c.bearing, c.region.enemyTerritory];
+    const [sa, a, sb, b] = sameNamePair();
+    expect(place(b)).toEqual(place(a));
+    const ra = startExpedition(sa, "ship-1", 1, a.id).expedition!;
+    const rb = startExpedition(sb, "ship-1", 1, b.id).expedition!;
+    expect(rb.region).toEqual(ra.region);
+    expect(rb.voyage).toEqual(ra.voyage);
+    // A tier with an enemy sector (a seeded homeworld's): every repeat of a name is at the same place, on either side.
+    const byName = new Map<string, unknown[]>();
+    let repeats = 0;
+    let inside = 0;
+    for (let k = 0; k < 3_000; k++) {
+      for (const c of tierCandidateSystems({ ...crewed(0x9000 + k), homeworld: { version: 1, seed: 12345 } }, 4)) {
+        if (c.famousId !== null) continue;
+        const was = byName.get(c.systemId);
+        if (was === undefined) byName.set(c.systemId, place(c));
+        else {
+          expect(place(c)).toEqual(was);
+          repeats++;
+          if (c.region.enemyTerritory) inside++;
+        }
+      }
+    }
+    expect(repeats).toBeGreaterThan(0);
+    expect(inside).toBeGreaterThan(0);
+    // Off (Q3), each slot drew its own place: the same name was somewhere else.
+    withAnswersOff(["catalogBodies"], () => {
+      const offA = tierCandidateSystems(sa, 1).find((c) => c.id === a.id)!;
+      const offB = tierCandidateSystems(sb, 1).find((c) => c.id === b.id)!;
+      expect(offA.systemId).toBe(offB.systemId);
+      expect(place(offB)).not.toEqual(place(offA));
+    });
+  });
+
+  it("the Expeditions Help says so", () => {
+    const body = HELP_TOPICS.map((t) => t.body).join(" ");
+    expect(body).toContain("the rest carry catalog names such as LB-0472. Every system, real star or catalog name, is the same system every visit: the same place (its distance and bearing from your homeworld, so whether it lies in enemy territory too) and the same planets (what each trip finds on them is its own).");
   });
 });

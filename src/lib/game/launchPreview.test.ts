@@ -207,7 +207,9 @@ describe("the candidate carries only what its detail shows", () => {
 
   it("Forecast (Level 7) adds the forecast for the recommended composition", () => {
     for (const c of cands(atLevel(7, s))) {
-      expect(c.telescope.forecast).toEqual(launchForecast(s, "ship-1", c.seed, c.telescope.recommendation!.kinds));
+      // (Fix round answers Q3: a catalog-named system's bodies come from its name, its region's identity, so the forecast
+      // is read on the candidate's own region, as the list builds it.)
+      expect(c.telescope.forecast).toEqual(launchForecast(s, "ship-1", c.seed, c.telescope.recommendation!.kinds, c.region));
       expect(c.telescope.forecast!.label).toBe(c.telescope.recommendation!.label);
     }
   });

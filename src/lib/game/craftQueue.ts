@@ -78,6 +78,7 @@ import {
   QUEUE_ADAPTERS,
   QUEUE_FACILITY_ORDER,
   canEnqueueOrder,
+  cancelLineScope,
   fabricateSlotCount,
   queueDepth,
   queuedForFacility,
@@ -439,6 +440,29 @@ export function orderTimeLeft(remainingTicks: number, durationTicks: number, uns
   return { etaTicks: remainingTicks + shared, totalTicks: durationTicks + shared };
 }
 
+// Fix round answers Q7 (user 2026-11-17, "Release only that lane"): the Refinery and Fabricator cards' Cancel button,
+// its tooltip and the note under it, read from what the engine's Cancel does on that lane (tick.ts cancelLineScope), so
+// the button never says one thing and does another. A helper lane's button releases just that lane; the order's own
+// lane, while a helper shares it, stops the whole order; a lane working alone stops after the unit it is on. Pure.
+export function cancelLineText(state: GameState, lineId: string): { button: string; title: string; note: string | null } {
+  switch (cancelLineScope(state, lineId)) {
+    case "release":
+      return {
+        button: "Release",
+        title: "Releases just this line: a unit it already started still lands, then its bay is free. The order carries on in its own line.",
+        note: "Release frees just this line; the order carries on in its own line.",
+      };
+    case "order":
+      return {
+        button: "Cancel",
+        title: "Stops the whole batch, its joined lines included; a unit already started still lands.",
+        note: "Cancel on this line stops the whole batch, its joined lines included.",
+      };
+    default:
+      return { button: "Cancel", title: "Stops this line; a unit already started still lands.", note: null };
+  }
+}
+
 // True when a mode never releases its slot. Hoisted so both row builders ask it the
 // same way; it is what drives the design section 5.4 warning ("runs until cancelled;
 // queued orders wait for another slot").
@@ -519,12 +543,14 @@ function runningRowsFor(state: GameState, facility: QueueFacilityKey): CraftQueu
     // 0.13.4 Phase 6: how many lanes share this line's order. Counted over the SAME lines array
     // this row list is built from, so the number a player sees is the number the engine is running.
     // 1 for an unattached lane: it is one lane doing one order's work.
+    // Fix round answers Q7: a helper lane the player released (CraftLine.released) only finishes the unit it is on, so it
+    // is not counted as working the order's pool, and its own row has nothing unstarted.
     const lanesAttached =
-      line.orderId === undefined ? 1 : lines.filter((l) => l.orderId === line.orderId).length;
+      line.orderId === undefined || line.released === true ? 1 : lines.filter((l) => l.orderId === line.orderId && l.released !== true).length;
     // FR-C lane 1 I3: an attached lane's unstarted units are its ORDER's shared pool (the lane's own count is a mirror
     // written when it last started a unit, so a joined lane's would lag); an unattached lane reads its own.
     const order = line.orderId === undefined ? undefined : (state.craftOrders ?? []).find((o) => o.id === line.orderId);
-    const unstarted = order !== undefined ? order.remaining : line.remaining;
+    const unstarted = line.released === true ? 0 : order !== undefined ? order.remaining : line.remaining;
     // The ORDER-level estimate. Per-iteration duration comes from the in-flight job, so with
     // nothing running there is no rate to extrapolate from and the honest answer is null rather
     // than a fabricated number.
@@ -542,8 +568,12 @@ function runningRowsFor(state: GameState, facility: QueueFacilityKey): CraftQueu
     const orderTotalTicks = timeLeft?.totalTicks ?? null;
     // FR-C fix pass: the units of this line's work in flight right now (every lane of its order with a job), so Home's
     // "N to refine" reads unstarted + in flight, the same number on every joined lane.
+    // Fix round answers fix pass (Q7): a released lane works only the unit it is finishing, so it counts that unit alone
+    // (Home read "3 to refine" with an 11 s ETA on a lane landing 1 unit).
     const unitsInFlight =
-      line.orderId === undefined ? (job !== undefined ? 1 : 0) : lines.filter((l) => l.orderId === line.orderId && jobByLine.has(l.id)).length;
+      line.orderId === undefined || line.released === true
+        ? (job !== undefined ? 1 : 0)
+        : lines.filter((l) => l.orderId === line.orderId && jobByLine.has(l.id)).length;
     return {
       id: line.id,
       label: craftLineOutputLabel(line.kind, line.recipeKey),
