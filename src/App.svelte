@@ -506,7 +506,8 @@
     type AutoSalvageProtection,
   } from "./lib/game/salvage";
   import {
-    tick,
+    // (tick() itself is no longer called here since HOTFIX 0.13.11.4: every catch-up, the Debug
+    // simulated absence included, runs its job, beginTickJob, through catchUp.pay.)
     beginTickJob,
     // (economyTick, the shared per-span economy body, is no longer imported here: since HOTFIX
     // 0.13.10 the live poll reaches it through runPollEconomy in src/lib/game/loopClock.ts.)
@@ -897,10 +898,12 @@
     type LoopClock,
     beginPollCatchUp,
     finishPollCatchUp,
+    asyncCatchUpSave,
   } from "./lib/game/loopClock";
   // HOTFIX 0.13.11.4: a long catch-up runs in slices behind a progress overlay (identical results).
   import { CatchUpController, type CatchUpView } from "./lib/game/catchUpRunner";
   import CatchUpOverlay from "./lib/CatchUpOverlay.svelte";
+  import { catchUpBlocking } from "./lib/catchUpGate";
   import { formatNumber, formatDuration, formatClock } from "./lib/game/format";
   import { deriveStatistics } from "./lib/game/statistics";
   import { saveToLocalStorage, loadFromLocalStorage, clearSave, downloadRawSave, downloadLiveSave, importRawSave, hasRawSave, exportRawSave } from "./lib/game/save";
@@ -2814,6 +2817,9 @@
   // lives for the session. The code itself is never logged.
   let codeStreak: RedeemStreak = NO_STREAK;
   function doRedeemCode(raw: string): RedeemOutcome {
+    // HOTFIX 0.13.11.4: refused while a catch-up runs (its result would overwrite the credits); the
+    // window says to try again in a moment. Nothing is paid or recorded.
+    if (catchUp.busy || catchUpFailed) return { kind: "busy" };
     const r = redeemGift(state, raw, codeStreak, Math.random);
     codeStreak = r.streak;
     if (r.next !== state) {
@@ -2836,7 +2842,9 @@
     doSave();
   }
   let accountReady = false;
-  $: if (accountReady && !suppressSave && $secretGame.milestones.starfall !== undefined && !hasThemeStyle(state, "washShine")) doUnlockThemeStyle("washShine");
+  // HOTFIX 0.13.11.4: held while a catch-up runs (catchUpView), whose result would overwrite the unlock;
+  // it fires as soon as the run lands.
+  $: if (accountReady && !suppressSave && catchUpView === null && $secretGame.milestones.starfall !== undefined && !hasThemeStyle(state, "washShine")) doUnlockThemeStyle("washShine");
   // The look: preset + manual picks (device-side), the account's unlocked styles and the Default
   // color theme, resolved by themeStyle.ts and written to the root by ONE writer (applyLook).
   let lookPrefs: LookPrefs = DEFAULT_LOOK_PREFS;
@@ -2975,14 +2983,26 @@
   //     real time is paid by the first poll after it, exactly as the old blocking call's was);
   //   - NOTHING IS SAVED (doSave returns): the last save stays as it was, with the stamp it was paid
   //     through, so a tab closed or reloaded mid-run pays the whole absence again from that save, once.
-  //     No save ever holds a half-paid state, so no second can be paid twice or lost;
-  //   - the away recap waits for the run (catchUp.whenIdle) and the game behind the overlay is inert.
-  // catchUpView is the overlay's model (null: no run in flight).
+  //     No save ever holds a half-paid state, so no second can be paid twice or lost. A POLL that goes
+  //     asynchronous first writes one save of the state as it stood before that poll, stamped with how
+  //     far it was paid (asyncCatchUpSave), so whatever the player did since the last autosave is kept;
+  //   - the away recap waits for the run (catchUp.whenIdle) and the game behind the overlay is inert,
+  //     the windows portaled to <body> included (catchUpBlocking).
+  // catchUpView is the overlay's model (null: no run in flight). catchUpFailed: a run threw (never
+  // expected). The overlay then stays up with a Reload button, nothing is saved (suppressSave), and the
+  // game does not run, so the last save, paid through its own stamp, is caught up again on reload.
   let catchUpView: CatchUpView | null = null;
+  let catchUpFailed = false;
   const catchUp = new CatchUpController({
     onView: (view) => (catchUpView = view),
     onError: (error) => console.error("Catch-up failed", error),
   });
+  $: catchUpBlocking.set(catchUpView !== null || catchUpFailed);
+  // A run threw: stop saving (no save may stamp past the unpaid gap) and keep the overlay up.
+  function onCatchUpFailed(): void {
+    suppressSave = true;
+    catchUpFailed = true;
+  }
   // The overlay's line: what is being caught up, from the time this catch-up pays.
   function catchUpDetail(paidSeconds: number): string {
     return `You were away ${formatDuration(paidSeconds, 1)}. Your fleet is catching up.`;
@@ -3080,6 +3100,11 @@
     // HOTFIX 0.13.11.4: never while a catch-up is in flight (see catchUp above): the last save keeps
     // its state and stamp, so an interrupted run is paid again from it, exactly once.
     if (catchUp.busy) return;
+    writeSave(state, paidThroughMs(loopClock, trustedNow()));
+  }
+
+  // The save write itself (doSave, and the one save a poll writes as its catch-up goes asynchronous).
+  function writeSave(saveState: GameState, paidThroughStampMs: number) {
     // Capture the write result instead of discarding it (the old silent-loss hole):
     // a blocked or full store returns false here, and on mobile that meant progress
     // lived only in memory until a reload wiped it, with zero warning. Surface the
@@ -3090,7 +3115,7 @@
     // HOTFIX 0.13.10: stamp how far the economy is PAID (the loop's cycle start), not the write
     // time. A hidden tab closed between throttled polls, and the leftover under one bar cycle, are
     // then paid by the next load's offline catch-up instead of being lost. Now while paused.
-    const persisted = saveToLocalStorage(state, createdAt, paidThroughMs(loopClock, trustedNow()));
+    const persisted = saveToLocalStorage(saveState, createdAt, paidThroughStampMs);
     persistTrustedTime();
     if (persisted !== lastSavePersisted) {
       lastSavePersisted = persisted;
@@ -3297,6 +3322,11 @@
       // The loaded save shows (inert, under the overlay) while an asynchronous run is in flight.
       state = beforeSnapshot;
       if (offlineSeconds > 5) {
+        // The screen behind the overlay is the player's own: the account and the look prefs are read
+        // now, from the real save (startGame reads them again; both reads are idempotent). The Starfall
+        // mirror that accountReady enables waits for the run (it is gated on catchUpView === null).
+        accountReady = true;
+        lookPrefs = loadLookPrefs(currentTheme);
         const job = beginTickJob(offlineSeconds, beforeSnapshot, Math.random, returnedAtMs);
         const wentAsync = !catchUp.pay(
           job,
@@ -3306,10 +3336,10 @@
             if (loadCatchUpAsync) startGame();
           },
           () => {
-            // Never expected (a bug in the economy). Nothing was paid: start the game on the loaded
-            // save, paid through its own stamp, so the next poll owes the whole absence again.
-            paidThroughAtLoadMs = Math.min(loadedSave.lastSavedAt, returnedAtMs);
-            startGame();
+            // Never expected (a bug in the economy). Nothing was paid, so the game does NOT start: no
+            // loop and no autosave, nothing can stamp a save past the unpaid absence. The overlay stays
+            // up asking for a reload, which catches up again from the untouched save.
+            onCatchUpFailed();
           },
         );
         loadCatchUpAsync = wentAsync;
@@ -3349,7 +3379,7 @@
       // Tick-bar loop, checks the ONE shared fleet-wide cycle's progress every
       // 100ms, firing tickCaptainMission (Phase 3a) for EVERY mission captain
       // in lockstep whenever that shared cycle completes on this poll (Task 4
-      // of the UI Redesign plan collapsed this from a per-captain-cycle loop --
+      // of the UI Redesign plan collapsed this from a per-captain-cycle loop;
       // see docs/plans/2026-07-07-ui-redesign-plan.md, since
       // tickDurationSeconds is fleet-wide now, per Task 1 of that same plan).
       // Idle captains (mission === null) have no passive economy anymore, see
@@ -3390,9 +3420,14 @@
         barCompletedFrame = false;
         // HOTFIX 0.13.11.4: a catch-up is in flight. Do nothing at all, not even planPoll, so the loop
         // clock stays where the run's poll left it and the first poll after the run pays the run's own
-        // real time, once (just as the first poll after the old blocking call did).
-        if (catchUp.busy) return;
+        // real time, once (just as the first poll after the old blocking call did). After a failed run
+        // the game stays stopped behind the overlay until the player reloads.
+        if (catchUp.busy || catchUpFailed) return;
 
+        // The state and the clock as they stand before this poll: what the one save written when this
+        // poll's catch-up goes asynchronous holds (asyncCatchUpSave below).
+        const prePollState = state;
+        const prePollClock = loopClock;
         const polled = planPoll(loopClock, now, state.tickDurationSeconds, speed);
         loopClock = polled.clock;
         let plan = polled.plan;
@@ -3494,9 +3529,19 @@
             // other poll steps as it always did.
             if (plan.mode === "catchUp") {
               const job = beginPollCatchUp(beforeEconomy, plan, Math.random, completionClockMs);
-              catchUp.pay(job, catchUpDetail(paidRealSeconds(plan, beforeEconomy)), (done) =>
-                afterPollEconomy(finishPollCatchUp(beforeEconomy, done)),
+              const wentAsync = !catchUp.pay(
+                job,
+                catchUpDetail(paidRealSeconds(plan, beforeEconomy)),
+                (done) => afterPollEconomy(finishPollCatchUp(beforeEconomy, done)),
+                onCatchUpFailed,
               );
+              // Saves hold from here until the run is applied, so write ONE now: the state before this
+              // poll, paid through the clock before this poll. Anything the player did since the last
+              // autosave is kept, and a tab closed mid-run pays the gap from there on the next load, once.
+              if (wentAsync && !suppressSave) {
+                const snapshot = asyncCatchUpSave(prePollState, prePollClock, now);
+                writeSave(snapshot.state, snapshot.paidThroughMs);
+              }
             } else {
               afterPollEconomy(runPollEconomy(beforeEconomy, plan, Math.random, completionClockMs));
             }
@@ -3547,12 +3592,14 @@
         // stopped, so a big held amount first waits (at most 3 s) for the server to confirm the clock.
         // The away clock stays set meanwhile, so the loop's own catch-up never recaps part of it, and
         // finish() reads and writes state in one synchronous pass (nothing straddles the await).
-        // HOTFIX 0.13.11.4: when the poll above (or this one) started an asynchronous catch-up, the
-        // recap waits for it (catchUp.whenIdle), so it covers exactly what the old blocking call paid
-        // before recapping. The run's own real time is paid by the next poll, as before.
+        // HOTFIX 0.13.11.4: when the poll above (or this one) started an asynchronous catch-up, finish
+        // waits for it (catchUp.whenIdle) and then runs again: its poll pays the run's own real time
+        // while the away clock is still set, so the one recap covers the absence plus the run.
         const finish = () => {
           if (document.hidden) return; // hidden again: the next return recaps the whole stretch
-          if (catchUp.busy) return catchUp.whenIdle(recapAway);
+          // A run in flight: come back here once it is applied, so the poll below pays the run's own
+          // time into the same away tally and ONE recap covers the absence and the run together.
+          if (catchUp.busy) return catchUp.whenIdle(finish);
           pollGameLoop();
           catchUp.whenIdle(recapAway);
         };
@@ -4537,20 +4584,34 @@
     // like a real return, so Date.now() is the same honest anchor the real path uses and
     // tick() derives the per-tick schedule from it identically. It stays a plain ARGUMENT, so
     // the tick still reads no ambient clock and offline == live is untouched.
-    state = tick(secondsAway, before, Math.random, Date.now()); // fleet-wide: advances every captain, matches real offline catch-up
-    // Surface the SAME While-You-Were-Away recap the real reload path builds, using the SAME
-    // pure diff helper, so this dev button exercises the offline summary end-to-end for a KNOWN
-    // duration (verifiable numbers, screenshot-able). Unlike the real onMount path it does NOT
-    // gate on hasContent, so pressing the button always shows what that duration produced (an
-    // empty recap = nothing was running), giving clear QA feedback that the trigger fired.
-    // HOTFIX 0.13.11.3: labeled like the real path, with what tick() paid and the cap note.
+    // HOTFIX 0.13.11.4: paid through catchUp.pay, the controller the real catch-ups use (the same tick()
+    // job), so a long simulated absence runs behind the progress overlay and this button QA-tests it.
+    // One run at a time: pressed while a run is in flight (it cannot be: the Debug tab is inert under
+    // the overlay), it does nothing.
+    if (catchUp.busy) return;
     const devCapSeconds = offlineCapSeconds(before);
     const devPaidSeconds = Math.min(secondsAway, devCapSeconds);
     const devCappedAwaySeconds = cappedAbsence(secondsAway, devCapSeconds);
-    offlineSummary = summarizeOfflineProgress(before, state, devPaidSeconds);
-    offlineSummaryBasis = { before, secondsAway: devPaidSeconds, shownAtMs: Date.now(), cappedAwaySeconds: devCappedAwaySeconds };
-    offlineSummaryCappedAwaySeconds = devCappedAwaySeconds;
-    pushLog(`[DEV] Simulated ${hours}h offline for the whole fleet.`);
+    const job = beginTickJob(secondsAway, before, Math.random, Date.now()); // fleet-wide: advances every captain, matches real offline catch-up
+    catchUp.pay(
+      job,
+      catchUpDetail(devPaidSeconds),
+      (done) => {
+        state = done.state;
+        // Surface the SAME While-You-Were-Away recap the real reload path builds, using the SAME
+        // pure diff helper, so this dev button exercises the offline summary end-to-end for a KNOWN
+        // duration (verifiable numbers, screenshot-able). Unlike the real onMount path it does NOT
+        // gate on hasContent, so pressing the button always shows what that duration produced (an
+        // empty recap = nothing was running), giving clear QA feedback that the trigger fired.
+        // HOTFIX 0.13.11.3: labeled like the real path, with what tick() paid and the cap note.
+        offlineSummary = summarizeOfflineProgress(before, state, devPaidSeconds);
+        offlineSummaryBasis = { before, secondsAway: devPaidSeconds, shownAtMs: Date.now(), cappedAwaySeconds: devCappedAwaySeconds };
+        offlineSummaryCappedAwaySeconds = devCappedAwaySeconds;
+        pushLog(`[DEV] Simulated ${hours}h offline for the whole fleet.`);
+      },
+      // A simulated absence touches no save stamp, so a failure only needs saying (the state is as it was).
+      () => pushLog(`[DEV] Simulated ${hours}h offline failed; see the console.`),
+    );
   }
 
   // --- [DEV] Progression testing grants (Progression Pacing Rework) -------
@@ -10016,7 +10077,7 @@
 {/snippet}
 
 <!-- HOTFIX 0.13.11.4: the whole game is inert while a catch-up runs behind the CatchUpOverlay below. -->
-<div class="root" inert={catchUpView !== null ? true : undefined}>
+<div class="root" inert={catchUpView !== null || catchUpFailed ? true : undefined}>
   <Starfield />
   <div class="frame">
     <div class="top-bar">
@@ -18868,8 +18929,8 @@
 
 <!-- HOTFIX 0.13.11.4: the catch-up progress window (src/lib/CatchUpOverlay.svelte), outside .root so it is
      never inert itself. Shown only while an asynchronous catch-up is in flight. -->
-{#if catchUpView !== null}
-  <CatchUpOverlay view={catchUpView} />
+{#if catchUpView !== null || catchUpFailed}
+  <CatchUpOverlay view={catchUpView} failed={catchUpFailed} />
 {/if}
 
 <style>

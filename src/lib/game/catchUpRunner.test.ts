@@ -7,7 +7,19 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import type { GameState } from "./model";
 import { beginTickJob, advanceTickJob, tick, tickJobDone } from "./tick";
-import { beginPollCatchUp, finishPollCatchUp, planPoll, runPollEconomy, startLoopClock, type AdvancePlan } from "./loopClock";
+import {
+  asyncCatchUpSave,
+  beginPollCatchUp,
+  finishPollCatchUp,
+  paidRealSeconds,
+  planPoll,
+  runPollEconomy,
+  startLoopClock,
+  tallyAwayPoll,
+  type AdvancePlan,
+  type AwayTally,
+  type LoopClock,
+} from "./loopClock";
 import { CatchUpController, catchUpPercent, finishesQuickly, runCatchUpSlice, type CatchUpView } from "./catchUpRunner";
 import { lcg, mixedFleet, patrolFleet } from "./patrolPerf.fixture";
 
@@ -213,13 +225,17 @@ describe("App.svelte wiring (checked against the source)", () => {
   it("never saves while a catch-up is in flight", () => {
     const save = block("function doSave() {");
     expect(save).toContain("if (catchUp.busy) return;");
-    expect(save.indexOf("if (catchUp.busy) return;")).toBeLessThan(save.indexOf("saveToLocalStorage("));
+    expect(save.indexOf("if (catchUp.busy) return;")).toBeLessThan(save.indexOf("writeSave("));
+    // The one writer: doSave and the async-start save both go through it.
+    expect(block("function writeSave(saveState: GameState, paidThroughStampMs: number) {")).toContain(
+      "saveToLocalStorage(saveState, createdAt, paidThroughStampMs)",
+    );
   });
 
-  it("the game loop does nothing while a catch-up is in flight, not even planPoll", () => {
+  it("the game loop does nothing while a catch-up is in flight (or after one failed), not even planPoll", () => {
     const poll = block("const pollGameLoop = () => {");
-    expect(poll.indexOf("if (catchUp.busy) return;")).toBeGreaterThan(0);
-    expect(poll.indexOf("if (catchUp.busy) return;")).toBeLessThan(poll.indexOf("planPoll("));
+    expect(poll.indexOf("if (catchUp.busy || catchUpFailed) return;")).toBeGreaterThan(0);
+    expect(poll.indexOf("if (catchUp.busy || catchUpFailed) return;")).toBeLessThan(poll.indexOf("planPoll("));
     // A gap is paid through the controller, as the job runPollEconomy runs.
     expect(poll).toContain("beginPollCatchUp(beforeEconomy, plan, Math.random, completionClockMs)");
     expect(poll).toContain("finishPollCatchUp(beforeEconomy, done)");
@@ -232,14 +248,17 @@ describe("App.svelte wiring (checked against the source)", () => {
     expect(APP).toContain("if (loadCatchUpAsync) startGame();");
   });
 
-  it("the away recap waits for a catch-up in flight", () => {
-    expect(APP).toContain("if (catchUp.busy) return catchUp.whenIdle(recapAway);");
-    expect(APP).toContain("catchUp.whenIdle(recapAway);");
+  it("the away recap waits for a catch-up in flight, by running finish again once it lands", () => {
+    const finish = block("const finish = () => {");
+    expect(finish).toContain("if (catchUp.busy) return catchUp.whenIdle(finish);");
+    expect(finish.indexOf("if (catchUp.busy) return catchUp.whenIdle(finish);")).toBeLessThan(finish.indexOf("pollGameLoop();"));
+    expect(finish.indexOf("pollGameLoop();")).toBeLessThan(finish.indexOf("catchUp.whenIdle(recapAway);"));
+    expect(APP).not.toContain("catchUp.whenIdle(recapAway);\n          pollGameLoop");
   });
 
   it("the game is inert under the overlay, which sits outside it", () => {
-    expect(APP).toContain('<div class="root" inert={catchUpView !== null ? true : undefined}>');
-    const overlayAt = APP.indexOf("<CatchUpOverlay view={catchUpView} />");
+    expect(APP).toContain('<div class="root" inert={catchUpView !== null || catchUpFailed ? true : undefined}>');
+    const overlayAt = APP.indexOf("<CatchUpOverlay view={catchUpView} failed={catchUpFailed} />");
     expect(overlayAt).toBeGreaterThan(APP.lastIndexOf('<div class="root"'));
     expect(overlayAt).toBeLessThan(APP.indexOf("<style>"));
   });
@@ -254,9 +273,283 @@ describe("App.svelte wiring (checked against the source)", () => {
     expect(OVERLAY).toContain("aria-valuenow={percent}");
     expect(OVERLAY).toContain('<Icon name="clock"');
     expect(OVERLAY).toContain("Catching up");
+    // Focus is trapped in the window (Escape does nothing: there is nothing to close).
+    expect(OVERLAY).toContain("use:focusTrap={() => {}}");
     expect(OVERLAY).not.toMatch(/\p{Extended_Pictographic}/u);
     // Theme tokens only: no hard-coded text or accent colors.
     expect(OVERLAY).toContain("var(--color-accent)");
     expect(OVERLAY).not.toMatch(/color:\s*#/);
   });
+
+  it("a poll that goes asynchronous writes ONE save first: the pre-poll state, paid through the pre-poll clock", () => {
+    const poll = block("const pollGameLoop = () => {");
+    // Captured before planPoll and before the poll's fleet-clock bump.
+    const preState = poll.indexOf("const prePollState = state;");
+    const preClock = poll.indexOf("const prePollClock = loopClock;");
+    expect(preState).toBeGreaterThan(0);
+    expect(preClock).toBeGreaterThan(0);
+    expect(preState).toBeLessThan(poll.indexOf("planPoll("));
+    expect(preClock).toBeLessThan(poll.indexOf("planPoll("));
+    expect(preState).toBeLessThan(poll.indexOf("gameTimeSeconds: state.gameTimeSeconds + plan.realElapsedSeconds * speed"));
+    // Written right after pay() goes asynchronous (pay returned false), through the one writer.
+    const pay = poll.indexOf("const wentAsync = !catchUp.pay(");
+    const save = poll.indexOf("if (wentAsync && !suppressSave) {");
+    expect(pay).toBeGreaterThan(0);
+    expect(save).toBeGreaterThan(pay);
+    expect(poll.slice(save, save + 200)).toContain("asyncCatchUpSave(prePollState, prePollClock, now)");
+    expect(poll.slice(save, save + 300)).toContain("writeSave(snapshot.state, snapshot.paidThroughMs)");
+    // A failed poll run stops saving.
+    expect(poll.slice(pay, save)).toContain("onCatchUpFailed,");
+  });
+
+  it("a failed run never starts the game, stops saving and keeps the overlay up asking for a reload", () => {
+    const failed = block("function onCatchUpFailed(): void {");
+    expect(failed).toContain("suppressSave = true;");
+    expect(failed).toContain("catchUpFailed = true;");
+    // The reload path's failure callback calls only that: no startGame, so no loop and no autosave.
+    const load = APP.slice(APP.indexOf("const wentAsync = !catchUp.pay(\n          job,\n          catchUpDetail(loadPaidSeconds),"));
+    const failCb = load.slice(load.indexOf("() => {"), load.indexOf("loadCatchUpAsync = wentAsync;"));
+    expect(failCb).toContain("onCatchUpFailed();");
+    expect(failCb).not.toContain("startGame()");
+    expect(OVERLAY).toContain("Catching up failed. Reload to try again.");
+    expect(OVERLAY).toContain("window.location.reload()");
+  });
+
+  it("the windows portaled to <body> go inert while the overlay blocks the game; the minigame layers do not", () => {
+    expect(APP).toContain("$: catchUpBlocking.set(catchUpView !== null || catchUpFailed);");
+    const modal = readFileSync("src/lib/ActionModal.svelte", "utf-8");
+    expect(modal).toContain('<div class="am-backdrop" use:portal on:click|self={onClose} inert={$catchUpBlocking ? true : undefined}>');
+    const multi = readFileSync("src/lib/MultiSelect.svelte", "utf-8");
+    expect(multi).toContain("inert={$catchUpBlocking ? true : undefined}");
+    for (const path of ["src/lib/SecretGameOverlay.svelte", "src/lib/HeaderButtons.svelte", "src/lib/AchievementToasts.svelte"]) {
+      expect(readFileSync(path, "utf-8"), path).not.toContain("catchUpBlocking");
+    }
+    // The locked layering: the overlay at 1850, under the Minigames list (1900), the minigame (2000), the toasts (2100).
+    expect(OVERLAY).toContain("z-index: 1850;");
+  });
+
+  it("main-game writes from outside the inert game wait for the run or are refused", () => {
+    // A gift code is refused (with a message) while a run is in flight or after one failed.
+    const redeem = block("function doRedeemCode(raw: string): RedeemOutcome {");
+    expect(redeem.indexOf('if (catchUp.busy || catchUpFailed) return { kind: "busy" };')).toBeGreaterThan(0);
+    expect(redeem.indexOf('if (catchUp.busy || catchUpFailed) return { kind: "busy" };')).toBeLessThan(redeem.indexOf("redeemGift("));
+    expect(readFileSync("src/lib/EnterCodeModal.svelte", "utf-8")).toContain('case "busy":');
+    // The Starfall unlock mirrored from the minigame waits for the run to land.
+    expect(APP).toContain("$: if (accountReady && !suppressSave && catchUpView === null && $secretGame.milestones.starfall !== undefined");
+  });
+
+  it("an asynchronous reload shows the player's own theme behind the overlay", () => {
+    const load = APP.slice(APP.indexOf("      if (offlineSeconds > 5) {\n        // The screen behind the overlay"));
+    const pay = load.indexOf("catchUp.pay(");
+    expect(load.indexOf("accountReady = true;")).toBeGreaterThan(0);
+    expect(load.indexOf("accountReady = true;")).toBeLessThan(pay);
+    expect(load.indexOf("lookPrefs = loadLookPrefs(currentTheme);")).toBeLessThan(pay);
+  });
+
+  it("the Debug simulated absence runs through the controller (so the overlay can be QA-tested)", () => {
+    const sim = block("function simulateOffline(hours: number) {");
+    expect(sim).toContain("beginTickJob(secondsAway, before, Math.random, Date.now())");
+    expect(sim).toContain("catchUp.pay(");
+    expect(sim).not.toMatch(/\btick\(secondsAway/);
+  });
+
+  it("the hotfix's App.svelte lines carry no double dash and no em dash", () => {
+    expect(APP).not.toContain("per-captain-cycle loop --");
+    expect(OVERLAY).not.toMatch(/\u2014/);
+  });
 });
+
+// Finding 1 of the 0.13.11.4 review: a purchase made after the last autosave, then a long hidden stretch whose
+// return poll goes asynchronous, then the tab closed mid-run. The model below is App.svelte's poll in miniature
+// (planPoll, the fleet-clock bump, beginPollCatchUp, catchUp.pay, then asyncCatchUpSave when it went async).
+describe("an asynchronous poll keeps the player's last actions and pays the gap once", () => {
+  it("action before hide, async poll, close mid-run, reload: the action is kept and the absence paid exactly once", { timeout: SLOW }, async () => {
+    const S0 = patrolFleet({ patrols: 2, spares: 20 });
+    const T0 = END_MS;
+    // The last autosave: S0 paid through T0.
+    let saved = { state: S0, lastSavedAt: T0 };
+    let state = S0;
+    let clock: LoopClock = startLoopClock(T0);
+    const rng = lcg(0x21);
+    // Live play, one poll a second for ten seconds (each a single "step" cycle, as in production).
+    for (let k = 1; k <= 10; k++) {
+      const now = T0 + k * 1000;
+      const polled = planPoll(clock, now, state.tickDurationSeconds, 1);
+      clock = polled.clock;
+      const plan = polled.plan as AdvancePlan;
+      expect(plan.mode).toBe("step");
+      state = { ...state, gameTimeSeconds: state.gameTimeSeconds + plan.realElapsedSeconds };
+      state = runPollEconomy(state, plan, rng, now);
+    }
+    // The purchase, 10.5 s in: well inside the 30 s autosave, so the autosave never saw it. Then the phone locks.
+    const SALE = 12345;
+    state = { ...state, credits: state.credits.add(SALE) };
+    const withAction = state;
+
+    // Two hours later the tab is shown: the return poll owes a gap and goes asynchronous.
+    const T1 = T0 + 10_000 + 2 * HOUR * 1000;
+    const prePollState = state;
+    const prePollClock = clock;
+    const polled = planPoll(clock, T1, state.tickDurationSeconds, 1);
+    clock = polled.clock;
+    const plan = polled.plan as AdvancePlan;
+    expect(plan.mode).toBe("catchUp");
+    const beforeEconomy = { ...state, gameTimeSeconds: state.gameTimeSeconds + plan.realElapsedSeconds };
+    const c1 = new CatchUpController({ onView: () => {}, now: fakeClock(1), yieldToBrowser: () => Promise.resolve() });
+    const wentAsync = !c1.pay(beginPollCatchUp(beforeEconomy, plan, lcg(5), T1), "x", (done) => (state = finishPollCatchUp(beforeEconomy, done)));
+    expect(wentAsync).toBe(true);
+    // THE FIX: one save, now, of the pre-poll state paid through the pre-poll clock.
+    const snapshot = asyncCatchUpSave(prePollState, prePollClock, T1);
+    saved = { state: snapshot.state, lastSavedAt: snapshot.paidThroughMs };
+    expect(saved.state).toBe(withAction);
+    expect(saved.lastSavedAt).toBe(T0 + 10_000);
+    // The overlay says closing is safe; the player closes the tab mid-run.
+    for (let i = 0; i < 100; i++) await Promise.resolve();
+    expect(c1.busy).toBe(true);
+    c1.dispose();
+
+    // Reload an hour later, from that save.
+    const T2 = T1 + HOUR * 1000;
+    const c2 = new CatchUpController({ onView: () => {}, now: fakeClock(1), yieldToBrowser: () => Promise.resolve() });
+    let reloaded: GameState | null = null;
+    c2.pay(beginTickJob((T2 - saved.lastSavedAt) / 1000, saved.state, lcg(9), T2), "x", (d) => (reloaded = d.state));
+    await settle(c2);
+    // The action is kept...
+    expectSameState(reloaded!, tick((T2 - (T0 + 10_000)) / 1000, withAction, lcg(9), T2), "reload from the async-start save");
+    // ...and every second from T0 to T2 is paid exactly once: ten live seconds, then the reload's span.
+    expect(reloaded!.gameTimeSeconds).toBe(S0.gameTimeSeconds + (T2 - T0) / 1000);
+    // Without the fix the save would still be S0: the reload would pay T0..T2 from it and the purchase would be gone.
+    const withoutFix = tick((T2 - T0) / 1000, S0, lcg(9), T2);
+    expect(JSON.stringify(withoutFix)).not.toBe(JSON.stringify(reloaded));
+  });
+
+  it("the reload path has no such gap: the state it runs from IS the save on disk", () => {
+    // Nothing can act during an asynchronous reload run (the game is inert and the loop has not started), and the
+    // run starts from loadedSave.state, so the save on disk already holds everything the run would hold.
+    const APP = readFileSync("src/App.svelte", "utf-8");
+    expect(APP).toContain("const beforeSnapshot = loadedSave.state;");
+    expect(APP).toContain("beginTickJob(offlineSeconds, beforeSnapshot, Math.random, returnedAtMs)");
+  });
+});
+
+// Finding 3 and 5 of the 0.13.11.4 review: error paths and a job that cannot progress.
+describe("a failed or stuck run never hangs and never strands queued work", () => {
+  it("a run that throws closes the overlay, reports the failure, and still runs the deferred callbacks", async () => {
+    const s0 = patrolFleet({ patrols: 1, spares: 0 });
+    const views: (CatchUpView | null)[] = [];
+    const order: string[] = [];
+    let throwAt = 50;
+    let t = 0;
+    const controller = new CatchUpController({
+      onView: (v) => views.push(v),
+      now: () => {
+        if (--throwAt === 0) throw new Error("boom");
+        return (t += 1);
+      },
+      yieldToBrowser: () => Promise.resolve(),
+      syncMaxMs: 0,
+      probeMs: 5,
+      onError: () => order.push("onError"),
+    });
+    const wentAsync = !controller.pay(beginTickJob(HOUR, s0, lcg(1)), "x", () => order.push("applied"), () => order.push("failed"));
+    expect(wentAsync).toBe(true);
+    controller.whenIdle(() => order.push("recap"));
+    await settle(controller);
+    expect(controller.busy).toBe(false);
+    expect(order).toEqual(["onError", "failed", "recap"]);
+    expect(views[views.length - 1]).toBeNull();
+  });
+
+  it("a span that is not a finite positive tick count is the no-op job (and tick() returns the input)", () => {
+    const s0 = patrolFleet({ patrols: 1, spares: 0 });
+    for (const bad of [{ ...s0, tickDurationSeconds: 0 }, { ...s0, tickDurationSeconds: Number.NaN }]) {
+      const job = beginTickJob(HOUR, bad);
+      expect(job.callsTotal).toBe(0);
+      expect(tickJobDone(job)).toBe(true);
+      expect(tick(HOUR, bad)).toBe(bad);
+    }
+    const nanSpan = beginTickJob(Number.NaN, s0);
+    expect(nanSpan.callsTotal).toBe(0);
+    expect(tick(Number.NaN, s0)).toBe(s0);
+  });
+
+  it("a job whose slice makes no call ends the run with what it has, so the overlay cannot hang", async () => {
+    const s0 = patrolFleet({ patrols: 1, spares: 0 });
+    // A job that claims calls it cannot make (never built by beginTickJob, which now refuses such spans).
+    const stuck = { ...beginTickJob(10, s0, lcg(1)), callsTotal: 5, wholeSteps: 0, frac: 0 };
+    expect(advanceTickJob(stuck, 1)).toBe(0);
+    expect(runCatchUpSlice(stuck, 1_000_000, fakeClock(1))).toBe(0);
+    const views: (CatchUpView | null)[] = [];
+    const controller = new CatchUpController({ onView: (v) => views.push(v), now: fakeClock(1), yieldToBrowser: () => Promise.resolve(), syncMaxMs: 0 });
+    let applied: GameState | null = null;
+    expect(controller.pay(stuck, "x", (d) => (applied = d.state))).toBe(false);
+    await settle(controller);
+    expect(controller.busy).toBe(false);
+    expect(applied).toBe(s0);
+    expect(views[views.length - 1]).toBeNull();
+  });
+});
+
+// Finding 4 of the 0.13.11.4 review: a visibility return whose poll goes asynchronous raises ONE recap, covering
+// the absence AND the run's own time. The model is App.svelte's onVisibilityChange / finish / recapAway in
+// miniature: the away tally is open while hidden, finish defers itself while the run is in flight, then polls
+// (paying the run's own time into the same tally) and recaps once.
+describe("a return whose poll goes asynchronous recaps once", () => {
+  it("one recap line covering the absence plus the run's own time", { timeout: SLOW }, async () => {
+    const T0 = END_MS;
+    let state = patrolFleet({ patrols: 2, spares: 20 });
+    let clock: LoopClock = startLoopClock(T0);
+    let away: (AwayTally & { atMs: number }) | null = null;
+    const recaps: number[] = [];
+    let wall = T0;
+    const controller = new CatchUpController({ onView: () => {}, now: fakeClock(1), yieldToBrowser: () => Promise.resolve() });
+
+    const poll = () => {
+      if (controller.busy) return;
+      const polled = planPoll(clock, wall, state.tickDurationSeconds, 1);
+      clock = polled.clock;
+      const plan = polled.plan as AdvancePlan;
+      if (plan.mode === "none") return;
+      const before = { ...state, gameTimeSeconds: state.gameTimeSeconds + plan.realElapsedSeconds };
+      const after = (paid: GameState) => {
+        state = paid;
+        const pollPaid = paidRealSeconds(plan, before);
+        if (away !== null) away = { ...away, ...tallyAwayPoll(away, pollPaid, null) };
+        else if (plan.mode === "catchUp" && pollPaid >= 120) recaps.push(pollPaid); // welcomeBack's visible-gap line
+      };
+      if (plan.mode === "catchUp") {
+        controller.pay(beginPollCatchUp(before, plan, lcg(3), wall), "x", (done) => after(finishPollCatchUp(before, done)));
+      } else {
+        after(runPollEconomy(before, plan, lcg(3), wall));
+      }
+    };
+    const recapAway = () => {
+      const a = away;
+      away = null;
+      if (a !== null && a.paidSeconds >= 120) recaps.push(a.paidSeconds);
+    };
+    const finish = (): void => {
+      if (controller.busy) return controller.whenIdle(finish);
+      poll();
+      controller.whenIdle(recapAway);
+    };
+
+    // Hidden for three hours.
+    away = { atMs: T0, paidSeconds: 0, awaySeconds: 0, cappedAwaySeconds: null };
+    wall = T0 + 3 * HOUR * 1000;
+    // Shown: the return poll goes asynchronous; finish defers itself behind it.
+    poll();
+    expect(controller.busy).toBe(true);
+    finish();
+    // The run takes 40 s of real time on a slow phone.
+    wall += 40_000;
+    await settle(controller);
+    // Every later 100 ms poll: nothing more is owed, and nothing more is recapped.
+    for (let i = 0; i < 5; i++) {
+      wall += 100;
+      poll();
+    }
+    expect(recaps).toEqual([3 * HOUR + 40]);
+  });
+});
+

@@ -58,6 +58,8 @@
         return { tone: "ok", strong: "Code redeemed.", text: `+${outcome.credits.toLocaleString("en-US")} credits added to your fleet.` };
       case "already":
         return { tone: "info", text: "This code has been redeemed on this account.", lore: outcome.line?.text };
+      case "busy":
+        return { tone: "info", text: "Your fleet is catching up. Try the code again in a moment." };
     }
   }
 

@@ -68,7 +68,8 @@ describe("App wiring for 0.13.11", () => {
     const unlock = functionBody("doUnlockThemeStyle");
     for (const part of ["unlockThemeStyle(state", "if (next === state) return", "state = next", "pushLog(", "doSave()"]) expect(unlock).toContain(part);
     // the Starfall mirror waits for the real save to load and never writes over a corrupt one
-    expect(APP).toContain("$: if (accountReady && !suppressSave && $secretGame.milestones.starfall !== undefined");
+    // (HOTFIX 0.13.11.4: nor while a catch-up runs, whose result would overwrite it; it fires once the run lands)
+    expect(APP).toContain("$: if (accountReady && !suppressSave && catchUpView === null && $secretGame.milestones.starfall !== undefined");
   });
 
   it("0.13.11.1: Delete Save and Debug Reset still rebuild from freshState, which carries none of the new fields", () => {

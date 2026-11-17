@@ -154,6 +154,16 @@ export function paidThroughMs(clock: LoopClock, nowMs: number): number {
   return clock.paused ? nowMs : Math.min(nowMs, clock.cycleStartMs);
 }
 
+// HOTFIX 0.13.11.4: the ONE save a poll writes the moment its catch-up goes asynchronous (saves then hold
+// until the run is applied). It is the state as it stood BEFORE that poll (before planPoll and before the
+// poll's fleet-clock bump), stamped with how far THAT state was paid (paidThroughMs of the clock captured
+// before planPoll): exactly what an autosave just before the poll would have written. Self-consistent
+// ("this state, paid through T0"), so anything the player did since the last autosave is kept, and a tab
+// closed mid-run pays the whole gap from T0 on the next load, once.
+export function asyncCatchUpSave(prePollState: GameState, prePollClock: LoopClock, nowMs: number): { state: GameState; paidThroughMs: number } {
+  return { state: prePollState, paidThroughMs: paidThroughMs(prePollClock, nowMs) };
+}
+
 // The span a return-from-away recap should cover. With no recap open it is just this absence.
 // With one still open (the player never pressed Continue), the new recap must not replace it, so
 // it starts from the OPEN recap's snapshot and spans everything since: the open recap's span, the
