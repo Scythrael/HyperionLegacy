@@ -326,3 +326,8 @@ too (distance, bearing, enemy territory follow the name; "Same place too"); the 
 Free and Start-gate double count of joined helper lanes gets fixed now ("Fix it now"); docked Overtime that carries
 into a pause keeps its docked price ("Leave it"). Q6 recall leak (pause price carried into dock) is being fixed.
 Prod 0.13.11.4 RELEASED 2026-11-17 @ 26cc922e (tag release/0.13.11.4), verified live on crystalisoft.com.
+2026-11-17 status: the fix-round answers batch is MERGED (8ba07aa2, tag slice/fix-round-answers; user confirmed pause
+Overtime ends on recall) and prod 0.13.11.4 is MERGED into 0.14.0 (824f477d, tag slice/hotfix-0.13.11.4-merged: async
+catch-up overlay ported, 0.14.0's own patrol perf kept; overlay verified in a browser on 0.14.0). Gates: 12,473 tests,
+check 0 errors, perf 7/7, release gate 202. STAGING = 824f477d. Building next: research filter + Standard-Issue crew
+modules (docs/superpowers/plans/2026-11-17-research-filter-and-crew-standard-issue.md).
