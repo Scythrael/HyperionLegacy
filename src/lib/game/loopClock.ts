@@ -21,7 +21,7 @@
 // unit tested directly; see loopClock.test.ts.
 
 import type { GameState } from "./model";
-import { economyTick, tick, offlineCapTicks } from "./tick";
+import { advanceTickJob, beginTickJob, economyTick, offlineCapTicks, type TickJob } from "./tick";
 
 // A poll that owes at most this many cycles is paid by stepping them live, the steady path. At
 // production speed one poll owes exactly one cycle, so the steady case is the old behavior
@@ -115,7 +115,10 @@ export function runPollEconomy(state: GameState, plan: AdvancePlan, rng: () => n
 
   let next = state;
   if (plan.mode === "catchUp") {
-    next = tick(plan.gameSeconds, state, rng, nowMs);
+    // 0.13.11.4: the same job an asynchronous catch-up runs in slices (beginPollCatchUp + finishPollCatchUp).
+    const job = beginPollCatchUp(state, plan, rng, nowMs);
+    advanceTickJob(job, Infinity);
+    return finishPollCatchUp(state, job);
   } else {
     const wholeSteps = Math.floor(plan.ticksPerCycle);
     const frac = plan.ticksPerCycle - wholeSteps;
@@ -131,6 +134,17 @@ export function runPollEconomy(state: GameState, plan: AdvancePlan, rng: () => n
   return { ...next, gameTimeSeconds: state.gameTimeSeconds };
 }
 
+// 0.13.11.4 ASYNCHRONOUS CATCH-UP: a "catchUp" poll as a resumable job, so App.svelte can pay a long gap in
+// slices behind a progress bar. beginPollCatchUp is the tick() call runPollEconomy makes (the same span, rng
+// and clock anchor); finishPollCatchUp is its return (the input's gameTimeSeconds kept, as above). Sliced or
+// in one go, the result is the same state.
+export function beginPollCatchUp(state: GameState, plan: AdvancePlan, rng: () => number, nowMs: number): TickJob {
+  return beginTickJob(plan.gameSeconds, state, rng, nowMs);
+}
+export function finishPollCatchUp(state: GameState, job: TickJob): GameState {
+  return { ...job.state, gameTimeSeconds: state.gameTimeSeconds };
+}
+
 // The moment a save should stamp as last_saved_at: how far the economy is actually PAID. The
 // reload-time offline catch-up pays (reopen - last_saved_at), so stamping the paid-through time
 // instead of the write time means a hidden tab closed between throttled polls, or the leftover
@@ -138,6 +152,16 @@ export function runPollEconomy(state: GameState, plan: AdvancePlan, rng: () => n
 // paused it is now: a paused span is never owed, exactly as before.
 export function paidThroughMs(clock: LoopClock, nowMs: number): number {
   return clock.paused ? nowMs : Math.min(nowMs, clock.cycleStartMs);
+}
+
+// HOTFIX 0.13.11.4: the ONE save a poll writes the moment its catch-up goes asynchronous (saves then hold
+// until the run is applied). It is the state as it stood BEFORE that poll (before planPoll and before the
+// poll's fleet-clock bump), stamped with how far THAT state was paid (paidThroughMs of the clock captured
+// before planPoll): exactly what an autosave just before the poll would have written. Self-consistent
+// ("this state, paid through T0"), so anything the player did since the last autosave is kept, and a tab
+// closed mid-run pays the whole gap from T0 on the next load, once.
+export function asyncCatchUpSave(prePollState: GameState, prePollClock: LoopClock, nowMs: number): { state: GameState; paidThroughMs: number } {
+  return { state: prePollState, paidThroughMs: paidThroughMs(prePollClock, nowMs) };
 }
 
 // The span a return-from-away recap should cover. With no recap open it is just this absence.

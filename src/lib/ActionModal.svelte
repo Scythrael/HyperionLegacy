@@ -9,6 +9,8 @@
   // which is the reference implementation. The Options gear popup is DELIBERATELY not migrated here.
   import { focusTrap } from "./focusTrap";
   import Icon from "./ui/Icon.svelte";
+  // HOTFIX 0.13.11.4: inert while the catch-up overlay blocks the game (see catchUpGate.ts).
+  import { catchUpBlocking } from "./catchUpGate";
 
   export let title: string;
   export let onClose: () => void;
@@ -33,7 +35,7 @@
 <!-- INTENTIONAL: the backdrop is a presentation dimmer whose only job is click-to-dismiss; keyboard
      users dismiss with Escape (the focusTrap on the dialog) or the header close button, and every
      real control lives inside the dialog. -->
-<div class="am-backdrop" use:portal on:click|self={onClose}>
+<div class="am-backdrop" use:portal on:click|self={onClose} inert={$catchUpBlocking ? true : undefined}>
   <div class="am-dialog" class:am-wide={wide} role="dialog" aria-modal="true" aria-label={ariaLabel} use:focusTrap={onClose}>
     <div class="am-head">
       <span class="am-title">{title}</span>

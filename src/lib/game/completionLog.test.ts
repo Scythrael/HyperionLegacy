@@ -897,8 +897,10 @@ function callArguments(source: string, openParenIndex: number): string[] {
 // The lookbehind keeps `economyTick(` and any `x.tick(` out.
 function offlineTickCallArguments(): string[][] {
   const found: string[][] = [];
-  for (const match of appSource.matchAll(/(?<![A-Za-z0-9_$.])tick\(\s*(?!\))/g)) {
-    found.push(callArguments(appSource, match.index! + "tick".length));
+  // HOTFIX 0.13.11.4: the reload catch-up now builds tick()'s job (beginTickJob, the same four arguments) so it
+  // can run in slices; it is scanned exactly like a tick() call.
+  for (const match of appSource.matchAll(/(?<![A-Za-z0-9_$.])(tick|beginTickJob)\(\s*(?!\))/g)) {
+    found.push(callArguments(appSource, match.index! + match[1].length));
   }
   return found;
 }

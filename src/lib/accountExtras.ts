@@ -25,7 +25,10 @@ export type RedeemOutcome =
   | { kind: "empty" }
   | { kind: "unknown" }
   | { kind: "redeemed"; credits: number }
-  | { kind: "already"; line?: { id: number; text: string }; endlessGreed: boolean };
+  | { kind: "already"; line?: { id: number; text: string }; endlessGreed: boolean }
+  // HOTFIX 0.13.11.4: refused, nothing paid, while a catch-up is running (its result would overwrite
+  // the credits). The host answers this; redeemGift never does.
+  | { kind: "busy" };
 
 // The achievement for seeing every line. Name: the default of the three in the joke file (the user
 // may pick another).

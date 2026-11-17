@@ -64,6 +64,22 @@ export function isStructuredNote(n: PatchNote): n is PatchNoteStructured {
 
 export const PATCH_NOTES: PatchNote[] = [
   {
+    // 0.13.11.4 (user, 2026-11-17, "Both"): an exact catch-up speedup plus a progress bar for a long catch-up.
+    // Wording approved by the user 2026-11-17 ("Approve as written").
+    version: "0.13.11.4",
+    lede: "Coming back after a long time away no longer freezes the game.",
+    categories: [
+      {
+        title: "Bug Fixes",
+        tone: "fixes",
+        bullets: [
+          { lead: "No more frozen screen on return.", text: "With several patrols on Repeat, catching up after a long absence could lock the page for many seconds, and for minutes on a phone. Catching up is now much faster, and a long catch-up shows a progress bar instead. Your fleet earns exactly what it did before." },
+        ],
+      },
+    ],
+    save: "Your save carries over untouched.",
+  },
+  {
     // 0.13.11.3 (user, 2026-11-02): "Let's change the cap to 4 days by default. I think that's fairer."
     // Wording approved by the user (2026-11-02, "Promote now").
     version: "0.13.11.3",

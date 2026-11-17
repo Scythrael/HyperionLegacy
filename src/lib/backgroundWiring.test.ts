@@ -34,7 +34,9 @@ function section(from: string, to: string): string {
 
 describe("Default renders today's background unchanged", () => {
   it("the game root mounts Background where the Starfield was, behind the frame", () => {
-    const root = APP.indexOf('<div class="root">');
+    // HOTFIX 0.13.11.4: the root carries the catch-up inert attribute, so the anchor stops before its closing bracket.
+    const root = APP.indexOf('<div class="root"');
+    expect(root).toBeGreaterThan(0);
     const bg = APP.indexOf("<Background id={background.id}", root);
     const frame = APP.indexOf('<div class="frame">', root);
     expect(bg).toBeGreaterThan(root);
@@ -114,7 +116,8 @@ describe("settings mirror the theme preset", () => {
 
 describe("the unlock and the reward hook", () => {
   it("the milestone mirror waits for the real save and never writes over a corrupt one (like Starfall)", () => {
-    expect(APP).toContain("$: if (accountReady && !suppressSave) {\n    for (const id of backgroundsFromMilestones($secretGame.milestones)) if (!hasBackground(state, id)) doUnlockBackground(id);");
+    // HOTFIX 0.13.11.4 (0.14.0 port): it also waits for a catch-up in flight (catchUpView), like the Starfall mirror.
+    expect(APP).toContain("$: if (accountReady && !suppressSave && catchUpView === null) {\n    for (const id of backgroundsFromMilestones($secretGame.milestones)) if (!hasBackground(state, id)) doUnlockBackground(id);");
     const unlock = functionBody("doUnlockBackground");
     for (const part of ["unlockBackground(state", "if (next === state) return", "state = next", "pushLog(", "doSave()"]) expect(unlock).toContain(part);
   });
@@ -130,7 +133,10 @@ describe("the unlock and the reward hook", () => {
   });
 
   it("the device-side choice loads with the look", () => {
-    expect(APP).toContain("    lookPrefs = loadLookPrefs(currentTheme);\n    backgroundPrefs = loadBackgroundPrefs();");
+    // HOTFIX 0.13.11.4 (0.14.0 port): read in startGame, and before an asynchronous reload catch-up so the player's own
+    // look shows behind the overlay.
+    expect(APP).toContain("      lookPrefs = loadLookPrefs(currentTheme);\n      backgroundPrefs = loadBackgroundPrefs();");
+    expect(APP).toContain("        lookPrefs = loadLookPrefs(currentTheme);\n        backgroundPrefs = loadBackgroundPrefs();\n        const job = beginTickJob(");
   });
 });
 
