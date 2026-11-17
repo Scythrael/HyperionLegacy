@@ -135,6 +135,10 @@ export interface CraftLine {
   // and when the facility holds more lanes than slots it hands its slot back as soon as it finishes the unit it is on.
   // Absent on every lane the player (or the queue) started, so every older lane is byte-identical.
   joined?: true;
+  // Fix round answers Q7 (user 2026-11-17, "Release only that lane"): true on a JOINED lane the player cancelled while it
+  // had a unit in flight. It stays attached so that unit lands and is logged with its order, starts no further unit, and
+  // leaves once the unit lands (tick.ts stepCraftLine). Absent on every other lane.
+  released?: true;
   // Material Lines ML-4 (L5, user 2026-10-19 "Toggle, lowest-first default"): "best" = this line's "Use best
   // materials" toggle, so each job spends the highest quality stock first and carries more quality into its output.
   // Written only when the player turned it on (absent = lowest-first, the documented consume policy), so every line
@@ -172,6 +176,10 @@ export interface CraftOrder {
   mode: CraftLineMode; // batch (fixed N) or continuous
   // Material Lines ML-4 (L5): the order's "Use best materials" toggle, mirrored onto every lane that joins it.
   materialPreference?: MaterialPreference;
+  // Fix round answers Q7 (user 2026-11-17, "Release only that lane"): true once the player released a joined lane from
+  // this order (Cancel on a helper lane). The freed lane stays free for the player: no free lane joins this order again,
+  // and it carries on in the lanes it still holds (its own lane at least). Absent on every other order.
+  joinClosed?: true;
 }
 
 // Inputs consumed by a SINGLE iteration of this line, as a fresh Decimal map keyed

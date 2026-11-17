@@ -19,6 +19,7 @@ import { getBucket, itemTotal } from "./inventory";
 import { buildAllCraftQueues, orderTimeLeft } from "./craftQueue";
 import { buildHomeDashboard } from "./homeDashboard";
 import { withLaneJoinOff } from "./laneJoinSwitch.fixture";
+import { withAnswersOff } from "./fixRoundAnswersSwitch.fixture";
 
 const RNG = () => 0.5;
 const RECIPE = "refineCommonOre";
@@ -134,15 +135,20 @@ describe("a joined lane is borrowed: the player's next work claims it back after
     expect(lanes(s).some((l) => l.recipeKey === OTHER_RECIPE)).toBe(true);
   });
 
-  it("Cancel on any lane of a shared order stops the whole order and releases its reservation", () => {
-    let s = joinedRun();
-    const helper = lanes(s)[2];
-    s = cancelLine(s, helper.id, 1_000);
-    expect(freeItemForState(s, INPUT).toNumber()).toBe(itemTotal(s.inventory, INPUT).toNumber());
-    for (let t = 0; t < REFINE_RECIPES[RECIPE].durationTicks + 2; t++) s = economyTick(s, 1, RNG);
-    expect(lanes(s)).toEqual([]);
-    expect(s.craftOrders ?? []).toEqual([]);
-    expect(s.openJobBatches ?? []).toEqual([]);
+  // Fix round answers Q7 (2026-11-17, "Release only that lane") narrowed this to the order's own lane; a helper lane's
+  // Cancel releases just that lane (laneRelease.test.ts). The pin runs both: the own lane now, a helper with Q7 off.
+  it("Cancel on the order's own lane (any lane, before Q7) stops the whole order and releases its reservation", () => {
+    for (const pick of ["own", "helperBeforeQ7"] as const) {
+      let s = joinedRun();
+      const lane = pick === "own" ? lanes(s)[0] : lanes(s)[2];
+      expect(lane.joined === true).toBe(pick !== "own");
+      s = pick === "own" ? cancelLine(s, lane.id, 1_000) : withAnswersOff(["helperCancelReleases"], () => cancelLine(s, lane.id, 1_000));
+      expect(freeItemForState(s, INPUT).toNumber()).toBe(itemTotal(s.inventory, INPUT).toNumber());
+      for (let t = 0; t < REFINE_RECIPES[RECIPE].durationTicks + 2; t++) s = economyTick(s, 1, RNG);
+      expect(lanes(s)).toEqual([]);
+      expect(s.craftOrders ?? []).toEqual([]);
+      expect(s.openJobBatches ?? []).toEqual([]);
+    }
   });
 });
 

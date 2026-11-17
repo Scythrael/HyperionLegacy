@@ -920,6 +920,8 @@
     // amount field clamps to. All PURE except startLine/cancelLine which return new state.
     startLine,
     cancelLine,
+    // Fix round answers Q7: what Cancel does on a lane (a helper lane releases just itself).
+    cancelLineScope,
     // FR-C lane 1 I3: the slots a facility's lanes CLAIM (a joined lane is borrowed, so it leaves a slot open).
     claimedLaneCount,
     canStartLine,
@@ -1176,6 +1178,8 @@
     queuedOrderLabel,
     // FR-C fix pass: the whole-order time left and total the line cards share with Home.
     orderTimeLeft,
+    // Fix round answers Q7: the line cards' Cancel button, tooltip and note.
+    cancelLineText,
     type CraftQueueRow,
     type CraftQueueView,
   } from "./lib/game/craftQueue";
@@ -9017,8 +9021,10 @@
     // the same purity reason the tick's clock is, even though this handler is UI-only and
     // never runs offline: a run stopped partway still leaves a dated record of what it
     // produced, and the engine stays a pure function of its arguments.
+    // Fix round answers Q7: a joined (helper) line is released alone; the order keeps its reservation.
+    const scope = cancelLineScope(state, lineId);
     state = cancelLine(state, lineId, trustedNow());
-    pushLog("Production line canceled; remaining reservation released.");
+    pushLog(scope === "release" ? "Joined line released; the order carries on in its own line." : "Production line canceled; remaining reservation released.");
     doSave();
   }
 
@@ -11408,15 +11414,18 @@
   // FR-C lane 1 I3: the units not yet started on this lane's work: its order's shared pool when it is attached to one
   // (several lanes may pull from it), else its own count.
   function lanePoolRemaining(line: CraftLine): number {
+    // Fix round answers Q7: a released helper lane only finishes the unit it is on.
+    if (line.released === true) return 0;
     if (line.orderId === undefined) return line.remaining;
     const order = (state.craftOrders ?? []).find((o) => o.id === line.orderId);
     return order !== undefined ? order.remaining : line.remaining;
   }
 
-  function laneShareCount(line: { id: string; orderId?: string }): number {
-    if (line.orderId === undefined) return 1;
+  function laneShareCount(line: { id: string; orderId?: string; released?: true }): number {
+    // Fix round answers Q7: a released helper lane is not working the order's pool (craftQueue.ts reads it the same way).
+    if (line.orderId === undefined || line.released === true) return 1;
     const all = [...(state.refineLines ?? []), ...(state.fabricateLines ?? [])];
-    return all.filter((l) => l.orderId === line.orderId).length;
+    return all.filter((l) => l.orderId === line.orderId && l.released !== true).length;
   }
 
   function lineRemainingReadout(
@@ -12874,7 +12883,8 @@
                              (either naturally, or drained by a prior Cancel), nothing left to
                              cancel, so it just shows "finishing" until it clears itself. -->
                         {#if line.remaining > 0}
-                          <button class="dev-btn danger" on:click={() => doCancelLine(line.id)}>Cancel</button>
+                          {@const cancelText = cancelLineText(state, line.id)}
+                          <button class="dev-btn danger" title={cancelText.title} on:click={() => doCancelLine(line.id)}>{cancelText.button}</button>
                         {/if}
                       </div>
                       <div class="research-cost">
@@ -12893,7 +12903,10 @@
                       <!-- FR-C lane 1 I3: a joined lane says it is helping, and that it hands the bay back. -->
                       {#if line.joined}
                         <div class="research-cost">Joined to help this order; it hands the bay back when you start or queue something else.</div>
-                        <div class="research-cost">Cancel on this line stops the whole batch.</div>
+                      {/if}
+                      <!-- Fix round answers Q7: what Cancel (or Release, on a joined line) does on this line. -->
+                      {#if line.remaining > 0 && cancelLineText(state, line.id).note !== null}
+                        <div class="research-cost">{cancelLineText(state, line.id).note}</div>
                       {/if}
                       <!-- ⚠️ THE LANE COUNT EXISTS TO EXPLAIN A NUMBER THAT WOULD OTHERWISE LOOK
                            BROKEN (0.13.4 Phase 6, design 7.6). When a second lane joins this order,
@@ -13458,7 +13471,8 @@
                         <div class="research-name"><Icon name="fabricator" size={12} /> LINE {li + 1} · FABRICATING</div>
                         <!-- Cancel only while iterations remain to stop (see the refine card above). -->
                         {#if line.remaining > 0}
-                          <button class="dev-btn danger" on:click={() => doCancelLine(line.id)}>Cancel</button>
+                          {@const cancelText = cancelLineText(state, line.id)}
+                          <button class="dev-btn danger" title={cancelText.title} on:click={() => doCancelLine(line.id)}>{cancelText.button}</button>
                         {/if}
                       </div>
                       <div class="research-cost">
@@ -13487,7 +13501,10 @@
                       <!-- FR-C lane 1 I3: a joined lane says it is helping, and that it hands the bay back. -->
                       {#if line.joined}
                         <div class="research-cost">Joined to help this order; it hands the bay back when you start or queue something else.</div>
-                        <div class="research-cost">Cancel on this line stops the whole batch.</div>
+                      {/if}
+                      <!-- Fix round answers Q7: what Cancel (or Release, on a joined line) does on this line. -->
+                      {#if line.remaining > 0 && cancelLineText(state, line.id).note !== null}
+                        <div class="research-cost">{cancelLineText(state, line.id).note}</div>
                       {/if}
                       <!-- ⚠️ THE LANE COUNT EXISTS TO EXPLAIN A NUMBER THAT WOULD OTHERWISE LOOK
                            BROKEN (0.13.4 Phase 6, design 7.6). When a second lane joins this order,

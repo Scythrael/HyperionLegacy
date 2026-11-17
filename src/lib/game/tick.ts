@@ -10538,6 +10538,8 @@ function stepCraftLine(state: GameState, line: CraftLine, capacity?: LaneCapacit
   if (line.mode.kind === "batch" && poolRemaining <= 0) {
     return { next: state, line: null };
   }
+  // Fix round answers Q7: a helper lane the player released leaves once its last unit has landed (it starts no other).
+  if (line.released === true) return { next: state, line: null };
 
   // FR-C lane 1 I3: THE BORROWED-SLOT RULES, only while the facility holds more lanes than slots (never true on a save
   // without joined lanes, so every other lane runs exactly as before). A JOINED lane between units hands its slot back
@@ -10682,7 +10684,8 @@ function joinFreeLanesToRunningOrders(
   // OLDEST FIRST is array order, since orders are appended (design 17.3 Q6). Deterministic and
   // stable across save, load and offline catch-up; preferring "most remaining" or "soonest to
   // finish" would depend on values that move every tick, so offline and live could diverge.
-  const attachable = orders.filter((o) => o.kind === kind && o.mode.kind === "batch" && o.remaining > 0);
+  // Fix round answers Q7: an order the player released a helper lane from (joinClosed) takes no helper again.
+  const attachable = orders.filter((o) => o.kind === kind && o.mode.kind === "batch" && o.remaining > 0 && o.joinClosed !== true);
   if (attachable.length === 0) return { lines, nextCraftLineId: nextId };
   const added: CraftLine[] = [];
   let mintId = nextId;
@@ -11124,6 +11127,21 @@ export function startLine(
 // function is UI-only (no tick path calls it), so a Date.now() at the call site would be
 // harmless for parity. It is still injected, so the function stays pure and its test can
 // assert an exact stamp.
+// Fix round answers Q7: TEST-ONLY off switch (fixRoundAnswersSwitch.fixture.ts); never written by app code.
+export const HELPER_CANCEL_RELEASES_SWITCH: { live: boolean } = { live: true };
+
+// Fix round answers Q7: what Cancel on the lane `lineId` does: "release" (a helper lane: just that lane), "order" (the
+// order's own lane while it shares the order with a helper: the whole order, helpers included) or "line" (a lane
+// working alone). The console's button and its note read it, so they say what the engine does. Pure.
+export function cancelLineScope(state: GameState, lineId: string): "release" | "order" | "line" {
+  const all = [...(state.refineLines ?? []), ...(state.fabricateLines ?? [])];
+  const line = all.find((l) => l.id === lineId);
+  const orderId = attachedOrderIdOf(state, lineId);
+  if (line === undefined || orderId === undefined) return "line";
+  if (line.joined === true && HELPER_CANCEL_RELEASES_SWITCH.live) return "release";
+  return all.some((l) => l.id !== lineId && l.orderId === orderId) ? "order" : "line";
+}
+
 export function cancelLine(state: GameState, lineId: string, nowMs: number = UNKNOWN_COMPLETION_TIME_MS): GameState {
   const refineLines = state.refineLines ?? [];
   const fabricateLines = state.fabricateLines ?? [];
@@ -11135,7 +11153,28 @@ export function cancelLine(state: GameState, lineId: string, nowMs: number = UNK
   // stopping one lane alone would only hand its work to the others). The pool drops to 0, which releases the
   // reservation at once; each lane with a unit in flight drains it (the unit lands as usual), the rest leave now. Once no
   // lane holds the order, it is retired and its run logged ONCE (sweepCraftOrders, stamped with the cancel clock).
+  // Fix round answers Q7 (user 2026-11-17, "Release only that lane"): that is now Cancel on the order's OWN lane only.
+  // Cancel on a HELPER lane (one the join pass minted, CraftLine.joined) releases just that lane, the way Cancel treats a
+  // unit in flight everywhere: a unit in flight lands as usual (the lane stays, marked released, starts nothing more and
+  // leaves once it lands; the unit is logged with its order), an idle helper leaves now. The order keeps its pool and
+  // its reservation and carries on in its own lane, and takes no helper again (joinClosed), so the freed lane stays free.
+  // Off (test-only, HELPER_CANCEL_RELEASES_SWITCH), every lane stops the whole order, as before.
   const orderId = attachedOrderIdOf(state, lineId);
+  const helper = orderId !== undefined && HELPER_CANCEL_RELEASES_SWITCH.live && [...refineLines, ...fabricateLines].some((l) => l.id === lineId && l.joined === true);
+  if (orderId !== undefined && helper) {
+    if ([...refineLines, ...fabricateLines].some((l) => l.id === lineId && l.released === true)) return state; // already released
+    const busy = state.activeProcesses.some((p) => p.lineId === lineId);
+    const release = (lines: CraftLine[]): CraftLine[] =>
+      busy
+        ? lines.map((l) => (l.id === lineId ? { ...l, remaining: 0, mode: { kind: "batch" as const, remaining: 0 }, released: true as const } : l))
+        : lines.filter((l) => l.id !== lineId);
+    return {
+      ...state,
+      refineLines: inRefine ? release(refineLines) : refineLines,
+      fabricateLines: inFabricate ? release(fabricateLines) : fabricateLines,
+      craftOrders: (state.craftOrders ?? []).map((o) => (o.id === orderId ? { ...o, joinClosed: true as const } : o)),
+    };
+  }
   if (orderId !== undefined) {
     const busy = new Set(state.activeProcesses.map((p) => p.lineId).filter((id): id is string => id !== undefined));
     const stop = (lines: CraftLine[]): CraftLine[] =>

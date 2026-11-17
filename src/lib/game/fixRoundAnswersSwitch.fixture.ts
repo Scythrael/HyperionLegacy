@@ -6,10 +6,12 @@
 //                                                             does not land; off, it lands as before.
 //   pauseOvertimeRemaining (processSpeed.ts PAUSE_OVERTIME_REMAINING_SWITCH)  Q6: a repair pause's Overtime is priced by
 //                                                             the repair the pause has left; off, by the docked job.
+//   helperCancelReleases (tick.ts HELPER_CANCEL_RELEASES_SWITCH)  Q7: Cancel on a helper (joined) lane releases just that
+//                                                             lane; off, Cancel on any lane stops the whole order.
 // OFF (for one call, or one file), each answer is undone exactly, so every state made inside it is the code before it.
 
 import { afterAll } from "vitest";
-import { SECONDARY_FIND_PAUSE_SWITCH } from "./tick";
+import { HELPER_CANCEL_RELEASES_SWITCH, SECONDARY_FIND_PAUSE_SWITCH } from "./tick";
 import { PAUSE_OVERTIME_REMAINING_SWITCH } from "./processSpeed";
 
 type Switch = { live: boolean };
@@ -27,6 +29,7 @@ function withOff<T>(switches: readonly Switch[], run: () => T): T {
 const BY_NAME = {
   secondaryFindPause: SECONDARY_FIND_PAUSE_SWITCH,
   pauseOvertimeRemaining: PAUSE_OVERTIME_REMAINING_SWITCH,
+  helperCancelReleases: HELPER_CANCEL_RELEASES_SWITCH,
 } as const satisfies Record<string, Switch>;
 export type FixRoundAnswer = keyof typeof BY_NAME;
 
