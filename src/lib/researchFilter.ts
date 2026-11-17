@@ -194,6 +194,9 @@ export function researchTierOptions(groups: readonly ResearchTierGroupShape[]): 
   return [{ key: "all" as const, label: "All" }, ...groups.map((g) => ({ key: g.tier, label: tierNumeral(g.tier) }))];
 }
 
+// The Research list's empty state when no blueprint passes the filters (a Clear filters button sits beside it).
+export const RESEARCH_FILTER_EMPTY_TEXT = "No blueprints match these filters.";
+
 // The line under the filter bar while completed research is hidden. Pure.
 export function researchHiddenCountText(n: number): string {
   return `${n} researched blueprint${n === 1 ? "" : "s"} hidden (Settings > Show completed research)`;

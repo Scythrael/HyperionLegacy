@@ -2,6 +2,7 @@
 // list's tier groups. Display only: every verdict here is read off the engine's own predicates (blueprintUnlocked,
 // canResearch, blueprintRelicLocked, the research queue), never re-derived.
 import { describe, it, expect } from "vitest";
+import { readFileSync } from "node:fs";
 import Decimal from "break_infinity.js";
 import { BLUEPRINTS, RESEARCH_FACILITY_KEY, freshState, type BlueprintDef, type GameState } from "./game/model";
 import { startResearch } from "./game/tick";
@@ -9,6 +10,7 @@ import { researchFamilyOf } from "./game/dataStudy";
 import { RESEARCH_SECTION_LABEL, RESEARCH_SECTION_ORDER, researchSectionOf } from "./awayGearDisplay";
 import {
   DEFAULT_RESEARCH_FILTER_VIEW,
+  RESEARCH_FILTER_EMPTY_TEXT,
   filterBlueprintTierGroups,
   researchCategoryOptions,
   researchHiddenCountText,
@@ -204,5 +206,60 @@ describe("researchFilter", () => {
   it("hidden-count line names the count and points at Settings", () => {
     expect(researchHiddenCountText(12)).toBe("12 researched blueprints hidden (Settings > Show completed research)");
     expect(researchHiddenCountText(1)).toBe("1 researched blueprint hidden (Settings > Show completed research)");
+  });
+});
+
+// Task A3: the Research tab and Settings wiring. No test DOM in this project, so the App is read as source (the
+// shipRosterViewPreference.test.ts pattern); the behavior itself is pinned on the pure helpers above.
+describe("Research tab filter bar wiring (App.svelte)", () => {
+  const app = readFileSync("src/App.svelte", "utf8");
+  const researchTab = app.slice(app.indexOf('{#if activeResearchSubTab === "research"}'), app.indexOf('{#if activeResearchSubTab === "relics"}'));
+
+  it("the list renders the filtered groups, never the raw tier groups", () => {
+    expect(app).toMatch(/\$: researchFiltered = filterBlueprintTierGroups\(state, blueprintTierGroups, researchView, showCompletedResearch\)/);
+    expect(researchTab).toContain("{#each researchFiltered.groups as group (group.tier)}");
+    expect(researchTab).not.toContain("{#each blueprintTierGroups as group");
+  });
+
+  it("a labeled search box and three single-select chip groups with aria-pressed", () => {
+    expect(researchTab).toContain('aria-label="Search blueprints or materials"');
+    expect(researchTab).toContain('placeholder="Search blueprints or materials"');
+    expect(researchTab).toContain("bind:value={researchView.search}");
+    for (const g of ["status", "category", "tier"]) expect(researchTab).toContain(`aria-label="Filter research by ${g}"`);
+    expect(researchTab).toContain("researchStatusOptions(showCompletedResearch)");
+    expect(researchTab).toContain("researchCategoryOptions(state, blueprintTierGroups, researchView.family)");
+    expect(researchTab).toContain("researchTierOptions(blueprintTierGroups)");
+    expect((researchTab.match(/aria-pressed=\{researchView\.(family|tier) === opt\.key\}/g) ?? []).length).toBe(2);
+    // A remembered Researched status shows All pressed while completed research is hidden.
+    expect(researchTab).toContain("aria-pressed={researchStatusPressed === opt.key}");
+    expect(app).toContain('$: researchStatusPressed = !showCompletedResearch && researchView.status === "researched" ? "all" : researchView.status;');
+  });
+
+  it("the hidden-count line, the empty state and Clear filters", () => {
+    expect(researchTab).toContain("{#if !showCompletedResearch && researchFiltered.hiddenResearched > 0}");
+    expect(researchTab).toContain("{researchHiddenCountText(researchFiltered.hiddenResearched)}");
+    expect(researchTab).toContain("{RESEARCH_FILTER_EMPTY_TEXT}");
+    expect(RESEARCH_FILTER_EMPTY_TEXT).toBe("No blueprints match these filters.");
+    expect(researchTab).toMatch(/on:click=\{clearResearchFilters\}>\s*Clear filters\s*<\/button>/);
+    expect(researchTab).toContain("{#if researchFiltered.matched === 0}");
+    expect(app).toMatch(/function clearResearchFilters\(\)[^]*?researchView = \{ \.\.\.DEFAULT_RESEARCH_FILTER_VIEW \}/);
+  });
+
+  it("the view loads on start, saves on every change; Settings has Show completed research, off by default", () => {
+    expect(app).toContain("let researchView: ResearchFilterView = loadResearchFilterView();");
+    expect(app).toContain("$: saveResearchFilterView(researchView);");
+    expect(app).toContain("let showCompletedResearch = false;");
+    expect(app).toContain("showCompletedResearch = loadShowCompletedResearch();");
+    expect(app).toContain('label="Show completed research"');
+    expect(app).toMatch(/on:change=\{\(e\) => \{ showCompletedResearch = e\.detail; saveShowCompletedResearch\(showCompletedResearch\); \}\}/);
+    // Beside "Show tick counts" in the READOUTS section.
+    const readouts = app.slice(app.indexOf('<div class="panel-title">READOUTS</div>'));
+    expect(readouts.indexOf('label="Show completed research"')).toBeGreaterThan(readouts.indexOf('label="Show tick counts"'));
+    expect(readouts.indexOf('label="Show completed research"')).toBeLessThan(readouts.indexOf("</Panel>"));
+  });
+
+  it("phone width: each chip group wraps in its own row", () => {
+    expect(app).toMatch(/\.research-filter-chips \{[^}]*flex-wrap: wrap;/);
+    expect(app).toMatch(/\.research-filter-row \{[^}]*min-width: 0;/);
   });
 });
