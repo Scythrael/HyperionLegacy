@@ -2,7 +2,7 @@
   // CatchUpOverlay: the progress window a long catch-up runs behind (HOTFIX 0.13.11.4, see
   // src/lib/game/catchUpRunner.ts). Shown only while an asynchronous catch-up is in flight; it blocks
   // the game underneath (App.svelte also makes the game inert) and reports real progress. It has no
-  // controls: the catch-up cannot be skipped or cancelled, and closing the tab is always safe (the
+  // controls: the catch-up cannot be skipped or canceled, and closing the tab is always safe (the
   // last save is untouched while it runs, so the next load simply catches up again).
   //
   // `failed` (never expected: a catch-up threw): the window stays up with one Reload button. Nothing

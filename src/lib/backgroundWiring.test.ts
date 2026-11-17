@@ -151,7 +151,7 @@ describe("accessibility and peace", () => {
     expect(FTL).toContain('document.addEventListener("visibilitychange", onVisibility);');
     expect(FTL).toContain('document.removeEventListener("visibilitychange", onVisibility);');
     expect(FTL).toContain("if (paused || hidden) renderer.stop();");
-    expect(APP).toContain("paused={backgroundConfigureOpen}");
+    expect(APP).toContain("paused={backgroundConfigureOpen || catchUpView !== null}"); // and behind a catch-up (0.13.11.4 port)
   });
 
   it("the canvas caps its pixel ratio and is decoration for assistive tech", () => {

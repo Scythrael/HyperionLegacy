@@ -12670,7 +12670,7 @@
 <!-- HOTFIX 0.13.11.4: the whole game is inert while a catch-up runs behind the CatchUpOverlay below. -->
 <div class="root" inert={catchUpView !== null || catchUpFailed ? true : undefined}>
   <!-- 0.14.0 Slice 5b: Default is today's Starfield, unchanged; an unlocked visualization replaces it. -->
-  <Background id={background.id} settings={background.ftl} palette={backgroundPalette} still={backgroundStill} paused={backgroundConfigureOpen} />
+  <Background id={background.id} settings={background.ftl} palette={backgroundPalette} still={backgroundStill} paused={backgroundConfigureOpen || catchUpView !== null} />
   <div class="frame">
     <div class="top-bar">
       <!-- ============================================================================

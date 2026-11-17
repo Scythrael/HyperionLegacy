@@ -324,6 +324,11 @@ describe("App.svelte wiring (checked against the source)", () => {
     expect(modal).toContain('<div class="am-backdrop" use:portal on:click|self={onClose} inert={$catchUpBlocking ? true : undefined}>');
     const multi = readFileSync("src/lib/MultiSelect.svelte", "utf-8");
     expect(multi).toContain("inert={$catchUpBlocking ? true : undefined}");
+    // 0.14.0 port review: the talent web's portaled tooltip has a Learn button that writes state.
+    const web = readFileSync("src/lib/RadialWeb.svelte", "utf-8").replace(/\r\n/g, "\n");
+    expect(web).toContain('class="web-tooltip-backdrop"\n    use:portal\n    on:pointerup|self={closeTooltip}\n    inert={$catchUpBlocking ? true : undefined}');
+    // The animated background pauses behind the overlay so its frames do not compete with the catch-up slices.
+    expect(APP).toContain("paused={backgroundConfigureOpen || catchUpView !== null}");
     for (const path of ["src/lib/SecretGameOverlay.svelte", "src/lib/HeaderButtons.svelte", "src/lib/AchievementToasts.svelte"]) {
       expect(readFileSync(path, "utf-8"), path).not.toContain("catchUpBlocking");
     }

@@ -15,7 +15,7 @@
 // left untouched (never rewrite patch-note history), so this deliberately reads
 // as "0.2.0 newer than 0.9.0" once, only here.
 
-export const APP_VERSION = "0.13.11.3";
+export const APP_VERSION = "0.13.11.4";
 
 // ---------------------------------------------------------------------------
 // SHAPE. 0.13.5 introduced a STRUCTURED entry (marquee features + category
