@@ -294,3 +294,16 @@ Facts: the Research Lab's Research tab is one long list of every blueprint, grou
 shelves inside a tier), researched ones included, each card with recipe, cost and time, state and queue button. The
 catalog grew from about 36 blueprints on prod 0.13.11.3 to about 85+ on 0.14.0. Status: brainstorming (scope and
 release not decided yet).
+User follow-up (2026-11-17): "For now, we can use the search/filter option for research, and I can ask the players if
+they'd find another option better to use, like a tech tree similar to our talent trees. I'm starting to lean toward
+that a bit." Decision: search/filter now; a research TECH TREE (like the talent trees) is a candidate for later,
+pending player feedback.
+
+## User report 2026-11-17: new ships built without Sensor Suite / Bridge Module / Crew Quarters
+
+User: "Also, ships are not building with their sensor/bridge/crew quarters set up."
+Cause found: by construction, not a crash. A shipBuild completion seeds Standard-Issue only for the four economy slots
+(seedStandardIssueForShip reads DEFAULT_EQUIPMENT_VARIETY: cargoBay, ftlDrive, reactorCore, specUtility) plus the
+combat set on combat hulls. The 0.14.0 slots bridge, quarters and sensor have no Standard-Issue variety and are
+allow-empty, so every ship (new or old) starts with them empty until a crafted module is installed. No design doc
+found that says a ship comes with them. Prod is unaffected (the slots are 0.14.0-only). Awaiting the user's call.
