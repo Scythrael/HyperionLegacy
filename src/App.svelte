@@ -14388,7 +14388,7 @@
                              craftable. The ternary is unchanged; only the two glyphs left the
                              strings, and the icon now sits outside the ternary because both
                              branches carried the same mark. -->
-                        <div class="research-cost" style="color: var(--color-success)"><Icon name="check" size={12} /> {blueprintKind(bp) === "unlockOnly" ? "Researched, build it at the Shipyard" : "Researched, craftable once the Fabricator is online"}</div>
+                        <div class="research-cost" style="color: var(--color-success)"><Icon name="check" size={12} /> {blueprintKind(bp) === "unlockOnly" ? "Researched, build it at the Shipyard" : fabricatorBuilt ? "Researched, craft it at the Fabricator" : "Researched, craftable once the Fabricator is online"}</div>
                       {:else if job}
                         {@render jobProgress(job)}
                       {:else if gate.ok}

@@ -536,7 +536,8 @@
           p.slotType === "weapon" && p.weaponType !== undefined
             ? weaponCombatRows(weaponInstanceFromGear(p, p.id))
             : null,
-        implicit: Object.entries(p.implicitStats),
+        // QA 2026-11-17: a zero signature line (a Standard-Issue crew module rolls none) is left out, not shown as "+0".
+        implicit: Object.entries(p.implicitStats).filter(([, v]) => v !== 0),
         primaries: Object.entries(p.rolledStats),
         hazardResist: pieceHazardResistText(readPiece),
         materialQuality: pieceMaterialQualityText(readPiece),
@@ -739,6 +740,7 @@
           {/each}
         </div>
       {/if}
+      {#if view.implicit.length > 0}
       <div class="et-imp">
         <div class="et-imp-stats">
           {#each view.implicit as [key, value] (key)}
@@ -747,6 +749,7 @@
         </div>
         <span class="et-imp-cap">slot signature</span>
       </div>
+      {/if}
       {#if view.primaries.length > 0}
         <div class="et-sec">
           <div class="et-lblrow">Primaries</div>
@@ -948,6 +951,13 @@
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+  }
+  /* QA 2026-11-17: at phone width a name wraps instead of being cut to a few letters ("Standar..."). */
+  @media (max-width: 480px) {
+    .et-name-text {
+      white-space: normal;
+      overflow-wrap: anywhere;
+    }
   }
   /* The chip: type/quality/rarity marker, colored per kind (inline style sets the color). */
   .et-q {
