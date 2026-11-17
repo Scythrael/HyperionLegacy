@@ -748,7 +748,8 @@ export function wolf359DerelictEntry(
 // rolled one, never twice in
 // one list) at its real distance and bearing from the homeworld (clamped into the band, as a near star can sit
 // closer to a homeworld than the band's nearest-star edge), or a catalog-named system at its drawn distance
-// (telescope.ts systemDistanceLy) and drawn bearing. Enemy territory: its bearing inside the tier's fixed sector
+// (telescope.ts systemDistanceLy) and drawn bearing, both drawn from its catalog id (fix round answers Q3: the same
+// name is the same place every visit). Enemy territory: its bearing inside the tier's fixed sector
 // (galaxy.ts inEnemySector; Tier I has none). Stable until a dispatch advances expeditionSeed. Pure.
 export function tierCandidateSystems(
   state: Pick<GameState, "expeditionSeed" | "nextExpeditionId" | "heldLaunches" | "listRewinds" | "homeworld" | "wolf359List">,
@@ -776,8 +777,12 @@ export function tierCandidateSystems(
       distanceLy = Math.max(Math.min(band.near + 1, band.far), Math.min(band.far, seen.distanceLy));
     } else {
       named = catalogSystemName(tier, makeRng((seed ^ SYSTEM_NAME_SALT) >>> 0).nextRange(1, CATALOG_NUMBER_MAX));
-      bearing = makeRng((seed ^ CANDIDATE_BEARING_SALT) >>> 0).nextInt(BEARING_TURN);
-      distanceLy = systemDistanceLy(seed, tier, homeworld);
+      // Fix round answers Q3 fix pass (user 2026-11-17, "Same place too"): a catalog-named system's distance and bearing
+      // (so its enemy-territory flag) are drawn from its catalog id, like its bodies, so the same name is the same place
+      // every visit. Off (CATALOG_BODIES_SWITCH), from the slot's seed as before.
+      const placeSeed = CATALOG_BODIES_SWITCH.live ? starBodySeed(named.systemId) : seed;
+      bearing = makeRng((placeSeed ^ CANDIDATE_BEARING_SALT) >>> 0).nextInt(BEARING_TURN);
+      distanceLy = systemDistanceLy(placeSeed, tier, homeworld);
     }
     out.push({
       id: `cand-${tier}-${slot}`,

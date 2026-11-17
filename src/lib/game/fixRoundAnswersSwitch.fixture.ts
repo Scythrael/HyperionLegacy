@@ -8,8 +8,9 @@
 //                                                             the repair the pause has left; off, by the docked job.
 //   helperCancelReleases (tick.ts HELPER_CANCEL_RELEASES_SWITCH)  Q7: Cancel on a helper (joined) lane releases just that
 //                                                             lane; off, Cancel on any lane stops the whole order.
-//   catalogBodies (model.ts CATALOG_BODIES_SWITCH)  Q3: a catalog-named system's bodies are drawn from its catalog id, the
-//                                                             same every visit; off, from its candidate slot's seed.
+//   catalogBodies (model.ts CATALOG_BODIES_SWITCH)  Q3: a catalog-named system's bodies, distance and bearing (so its enemy
+//                                                             territory) are drawn from its catalog id, the same every
+//                                                             visit; off, from its candidate slot's seed.
 //   craftOrderFree (tick.ts CRAFT_ORDER_FREE_SWITCH)  fix pass ("Fix it now"): Start's free count reads a running order's
 //                                                             pool once (freeItemForState); off, each lane's own count.
 // OFF (for one call, or one file), each answer is undone exactly, so every state made inside it is the code before it.

@@ -425,8 +425,44 @@ describe("Q3: a catalog-named system is the same system every visit", () => {
     });
   });
 
+  // Fix pass (user 2026-11-17, "Same place too"): the same distance, bearing and enemy-territory flag as well.
+  it("two slots that drew the same name are the same place: distance, bearing, enemy territory, the run's stamp", () => {
+    const place = (c: CandidateSystem) => [c.distanceLy, c.bearing, c.region.enemyTerritory];
+    const [sa, a, sb, b] = sameNamePair();
+    expect(place(b)).toEqual(place(a));
+    const ra = startExpedition(sa, "ship-1", 1, a.id).expedition!;
+    const rb = startExpedition(sb, "ship-1", 1, b.id).expedition!;
+    expect(rb.region).toEqual(ra.region);
+    expect(rb.voyage).toEqual(ra.voyage);
+    // A tier with an enemy sector (a seeded homeworld's): every repeat of a name is at the same place, on either side.
+    const byName = new Map<string, unknown[]>();
+    let repeats = 0;
+    let inside = 0;
+    for (let k = 0; k < 3_000; k++) {
+      for (const c of tierCandidateSystems({ ...crewed(0x9000 + k), homeworld: { version: 1, seed: 12345 } }, 4)) {
+        if (c.famousId !== null) continue;
+        const was = byName.get(c.systemId);
+        if (was === undefined) byName.set(c.systemId, place(c));
+        else {
+          expect(place(c)).toEqual(was);
+          repeats++;
+          if (c.region.enemyTerritory) inside++;
+        }
+      }
+    }
+    expect(repeats).toBeGreaterThan(0);
+    expect(inside).toBeGreaterThan(0);
+    // Off (Q3), each slot drew its own place: the same name was somewhere else.
+    withAnswersOff(["catalogBodies"], () => {
+      const offA = tierCandidateSystems(sa, 1).find((c) => c.id === a.id)!;
+      const offB = tierCandidateSystems(sb, 1).find((c) => c.id === b.id)!;
+      expect(offA.systemId).toBe(offB.systemId);
+      expect(place(offB)).not.toEqual(place(offA));
+    });
+  });
+
   it("the Expeditions Help says so", () => {
     const body = HELP_TOPICS.map((t) => t.body).join(" ");
-    expect(body).toContain("the rest carry catalog names such as LB-0472. Every system, real star or catalog name, is the same system every visit, with the same planets each time (what each trip finds on them is its own).");
+    expect(body).toContain("the rest carry catalog names such as LB-0472. Every system, real star or catalog name, is the same system every visit: the same place (its distance and bearing from your homeworld, so whether it lies in enemy territory too) and the same planets (what each trip finds on them is its own).");
   });
 });

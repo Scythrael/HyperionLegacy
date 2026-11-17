@@ -1228,7 +1228,8 @@ export const RECALL_NO_REPAY_SWITCH = { live: true };
 export const RECALL_KEEPS_LIST_SWITCH = { live: true };
 export const STAR_BODIES_SWITCH = { live: true };
 // Fix round answers Q3 (user 2026-11-17, "Yes, same every visit"): TEST-ONLY off switch (fixRoundAnswersSwitch.fixture.ts).
-// Off, a catalog-named system's bodies are drawn from its candidate slot's seed, as before (expedition.ts generateBodies).
+// Off, a catalog-named system's bodies, distance and bearing are drawn from its candidate slot's seed, as before
+// (expedition.ts generateBodies, tierCandidateSystems).
 export const CATALOG_BODIES_SWITCH = { live: true };
 export const PLANET_ROLL_REAL_OBJECTIVE_SWITCH = { live: true };
 
