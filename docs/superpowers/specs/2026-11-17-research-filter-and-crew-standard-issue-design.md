@@ -51,7 +51,7 @@ Tier II ________________________________________________
 **Design.**
 - The Standard-Issue pieces: Sensor Suite = Balanced Array (sensorBalanced), Bridge Module = Balanced Command (bridgeBalancedCommand), Crew Quarters = Utilitarian Quarters (quartersUtilitarian), each at the Standard-Issue floor (Standard rarity, quality 0, the same generateStandardIssue shape as the economy slots).
 - Seeded everywhere a ship is born: freshState, the shipBuild completion, the captain-slot hull grant.
-- Existing saves: a one-time load migration installs the set into each ship's EMPTY bridge / quarters / sensor slot. It never replaces an installed module, and it runs once per save (a new optional save field), so a slot the player empties later stays empty.
+- Existing saves: a one-time load migration installs the set into each ship's EMPTY bridge / quarters / sensor slot. It never replaces an installed module, and it runs once per save (a versioned migration, SAVE_VERSION 71 to 72), so a slot the player empties later stays empty.
 - The slots stay allow-empty: uninstalling leaves the slot empty; the pieces declutter like other Standard-Issue gear.
 - Crafted modules become upgrades: module effects scale with rarity and quality (moduleEffectScale), so the quality-0 floor is the weakest. Utilitarian Quarters' 12 berths do not scale, so a crafted Utilitarian adds no berths over Standard-Issue; its upgrade is the division lift.
 - Effects: every ship gains the floor's officer lift, a modest division lift, 12 berths and Balanced Array scanning. Goldens move: traced with a switch fixture, every moved pin named. Help texts that say these slots start empty are updated with numbers from engine constants.
