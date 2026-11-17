@@ -20,6 +20,7 @@ import { asPatrolVeteran } from "./awayTeamTestFixtures";
 import { PATROL_CLIMB_EVERY_ROUTES } from "./runDifficulty";
 import { PATROL_END_REASON_VIEW } from "./homeDashboard";
 import { HELP_TOPICS } from "../helpTopics";
+import { withAnswersOff } from "./fixRoundAnswersSwitch.fixture";
 import { withFixRoundEOff, withPauseJobLikeDockedOff, withRepeatClimbOff, withResumeWhenSafeOff, withStopDoomedOff } from "./fixRoundESwitch.fixture";
 
 const RNG = () => 0.5;
@@ -235,7 +236,9 @@ describe("FR-E I1: Repair first, then go (gearWearCombat's pin with the round on
 });
 
 describe("FR-E M6: a pause's Overtime step costs what the same gear's docked step costs", () => {
-  it("at the pause's first instant, paused and docked quote the same step price (and differed by the margin before)", () => {
+  // Fix round answers Q6 (2026-11-17, "Price the actual pause") replaced this pricing: a pause's step is now priced by
+  // the repair the pause has left (pauseOvertimePrice.test.ts). M6's own promise is pinned with Q6 off.
+  it("at the pause's first instant, paused and docked quote the same step price (and differed by the margin before)", () => withAnswersOff(["pauseOvertimeRemaining"], () => {
     for (const c of [20, 100]) {
       const r = dispatchCaptainOnPatrol(wornAt(veteran(), c), 1, "crimsonReaverSweep", "balanced", true);
       const paused = r.next;
@@ -256,7 +259,7 @@ describe("FR-E M6: a pause's Overtime step costs what the same gear's docked ste
       }));
       expect(old.ok && old.jobMinutes > b.jobMinutes, `c ${c}`).toBe(true);
     }
-  });
+  }));
 });
 
 describe("FR-E I2: a Repeat run climbs the patrol curve every N routes", () => {

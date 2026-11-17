@@ -4,10 +4,13 @@
 //
 //   secondaryFindPause (tick.ts SECONDARY_FIND_PAUSE_SWITCH)  Q12: a mission's secondary find of an item at its cap
 //                                                             does not land; off, it lands as before.
+//   pauseOvertimeRemaining (processSpeed.ts PAUSE_OVERTIME_REMAINING_SWITCH)  Q6: a repair pause's Overtime is priced by
+//                                                             the repair the pause has left; off, by the docked job.
 // OFF (for one call, or one file), each answer is undone exactly, so every state made inside it is the code before it.
 
 import { afterAll } from "vitest";
 import { SECONDARY_FIND_PAUSE_SWITCH } from "./tick";
+import { PAUSE_OVERTIME_REMAINING_SWITCH } from "./processSpeed";
 
 type Switch = { live: boolean };
 
@@ -23,6 +26,7 @@ function withOff<T>(switches: readonly Switch[], run: () => T): T {
 
 const BY_NAME = {
   secondaryFindPause: SECONDARY_FIND_PAUSE_SWITCH,
+  pauseOvertimeRemaining: PAUSE_OVERTIME_REMAINING_SWITCH,
 } as const satisfies Record<string, Switch>;
 export type FixRoundAnswer = keyof typeof BY_NAME;
 

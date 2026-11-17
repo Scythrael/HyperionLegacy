@@ -27,6 +27,7 @@ import { asPatrolVeteran } from "./awayTeamTestFixtures";
 import { withCloseoutOff } from "./gearWearCloseoutSwitch.fixture";
 import { withEnemyTorpedoesOff } from "./enemyTorpedoSwitch.fixture";
 import { fixRoundESwitchesOffForThisFile } from "./fixRoundESwitch.fixture";
+import { fixRoundAnswersOffForThisFile } from "./fixRoundAnswersSwitch.fixture";
 
 // Fix round FR-E (0.14.0): Resume when safe (lane 4 I1, PATROL_RESUME_WHEN_SAFE_SWITCH: a Repeat repair pause ends once
 // the next route is safe, not at full) moves sections 1, 2 and 2b (the pause to full: its 1,471 s repro, the live bar
@@ -37,6 +38,10 @@ import { fixRoundESwitchesOffForThisFile } from "./fixRoundESwitch.fixture";
 // file runs with those fixes off (fixRoundESwitch.fixture.ts); every other fix of the round runs here. The round's own
 // pins: patrolFixRoundE.test.ts.
 fixRoundESwitchesOffForThisFile("resumeWhenSafe", "pauseJobLikeDocked");
+// Fix round answers Q6 (2026-11-17, "Price the actual pause": a pause's Overtime is priced by the repair the pause has
+// left) moves section 2's price the same way; its pin (the pause's whole length) is the code before, so it is off here
+// too (fixRoundAnswersSwitch.fixture.ts). The answer's own pins: pauseOvertimePrice.test.ts.
+fixRoundAnswersOffForThisFile("pauseOvertimeRemaining");
 
 const RNG = () => 0.5;
 const SHIP = "ship-1";

@@ -29,6 +29,12 @@ import {
   withRepeatPatrol,
 } from "./patrolPerf.fixture";
 import { withPatrolPerfOff } from "./patrolPerfSwitch.fixture";
+import { fixRoundAnswersOffForThisFile } from "./fixRoundAnswersSwitch.fixture";
+
+// Fix round answers Q6 (2026-11-17, "Price the actual pause": a repair pause's Overtime is priced by the repair the
+// pause has left) moves this file's base hashes (the mixed fleet buys Overtime mid-pause, so its credits differ). They
+// predate it, so the file runs with it off (fixRoundAnswersSwitch.fixture.ts). Q6's own pins: pauseOvertimePrice.test.ts.
+fixRoundAnswersOffForThisFile("pauseOvertimeRemaining");
 
 const HOUR = 3600;
 // Long cases: the unoptimized side alone takes seconds (that is the bug).

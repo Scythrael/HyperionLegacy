@@ -59,7 +59,7 @@ import { withSetCompletion } from "./relicIdentify";
 import { relicSetCompletedEvents, withNotableEvents } from "./notableEvents";
 import { regionTierNumeral } from "./galaxy";
 import { overtimeRate } from "./overtimeRate";
-import { gearRepairOutlook, pausedPatrolOf, pauseResumeTicks, shipWornPieces, settleShipForRateChange } from "./gearWearEngine";
+import { gearRepairOutlook, pausedPatrolOf, pauseResumeTicks, pauseSecondsToTarget, shipWornPieces, settleShipForRateChange } from "./gearWearEngine";
 
 // What a speed action points at: an in-flight timed process (by its "proc-N" id), a captain's current extraction
 // cycle or patrol route, or an expedition (by its "expedition-N" id).
@@ -223,9 +223,9 @@ export type GearRepairOvertimeQuote =
 
 // GEAR WEAR close-out (user 2026-11-11 "Allow Overtime in pauses (Recommended)": one tap speeds the pause like any
 // docked repair, and the patrol resumes sooner). A Repeat patrol paused to repair is home, so its gear card's Overtime
-// strip sells the same steps by the same rule: priced by the job's FULL length at the normal rate (the pause's whole
-// length: the time its combat pieces needed to be back to full at the home rate when it began), frozen at the first step
-// (gearRepairSpeed.jobMinutes); the hull's tier. A step lifts the home rate of the ship's own installed pieces from its
+// strip sells the same steps by the same rule, priced on the same curve (fix round answers Q6, 2026-11-17: by the repair
+// the pause has LEFT at the normal rate, the time until it heads back out, gearRepairJobMinutes), frozen at the first
+// step (gearRepairSpeed.jobMinutes); the hull's tier. A step lifts the home rate of the ship's own installed pieces from its
 // instant (recorded on the pause, PatrolMissionState.repairPause.overtime, which the engine's pause windows read) and
 // rescales the pause's countdown so the patrol heads out exactly when its combat gear is full at the new rate
 // (gearWearEngine.ts pauseResumeTicks, in the settle's own integers). Nothing is settled at the purchase: the pause's
@@ -247,14 +247,22 @@ export function shipGearMinutesToFull(state: GameState, shipId: string, normal =
   return most;
 }
 
+// Fix round answers Q6: TEST-ONLY off switch (fixRoundAnswersSwitch.fixture.ts); never written by app code.
+export const PAUSE_OVERTIME_REMAINING_SWITCH: { live: boolean } = { live: true };
+
 // The full length of a ship's docked gear repair job, in minutes at the normal rate (the price's job size): the length
 // recorded when the job started (ShipInstance.gearRepairJobMinutes), or, before the engine's next tick has recorded it
 // (the job starts now) or when a more worn piece was installed since, the time left at the normal rate now. Pure.
-// A Repeat patrol paused to repair: the pause's whole length at the normal rate (from its start to its end, before any
-// Overtime rescaled it), the job its steps are priced by.
+// A Repeat patrol paused to repair: the repair the pause has left (Q6 below), the job its steps are priced by.
+// Fix round answers Q6 (user 2026-11-17, "Price the actual pause"): a pause's Overtime is priced by what is actually
+// left of its repair, the time from now until every piece it waits on reaches its goal (the pause's target, or full) at
+// the normal home rate (gearWearEngine.ts pauseSecondsToTarget at 0 steps), on the same curve a docked job of that
+// length is priced on. Frozen at the first step (gearRepairSpeed.jobMinutes, canBuyGearRepairOvertime), as docked.
+// Off (test-only, PAUSE_OVERTIME_REMAINING_SWITCH), the FR-E reading below: the docked job for the same gear.
 export function gearRepairJobMinutes(state: GameState, shipId: string): number {
   const ship = state.ships.find((s) => s.id === shipId);
   const paused = pausedPatrolOf(state, shipId);
+  if (paused !== null && PAUSE_OVERTIME_REMAINING_SWITCH.live) return (pauseSecondsToTarget(state, shipId, 0) ?? 0) / 60;
   // Fix round FR-E (lane 4 M6): a pause records the docked job's length for its gear (RepairPauseRecord.jobMinutes), so
   // a step costs what it costs on the same gear docked (the pause's own length carried its settle margin tick, and since
   // "Resume when safe" it can end before the gear is full). A pause from before the fix keeps its whole length.
