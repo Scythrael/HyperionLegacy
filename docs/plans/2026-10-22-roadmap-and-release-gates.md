@@ -61,6 +61,9 @@ Logged for the 0.16.0 balance pass (answers in docs/qa/2026-11-13-fable-sweep-le
   wear rows and the home repair rate together.
 - Repeat difficulty climbs one step every 20 routes (`PATROL_CLIMB_EVERY_ROUTES`, [PROVISIONAL]).
 - Deuterium canister sell value 50 cr (margin 1.25, [PROVISIONAL]) and the salvage recovery knee 0.5 ([PROVISIONAL]).
+- Early expeditions with the free Standard-Issue Balanced Array (user 2026-11-17, "Accept, tune in 0.16.0"): its +0.05
+  landmark and underground odds surface a few more sites and fights (Orion sample: runs with a loss 4 to 5 of 10, lost
+  fights 83 to 89); first runs stay safe.
 
 ## 0.16.0: minigame scale cut to e1,000 (user, 2026-11-14)
 
