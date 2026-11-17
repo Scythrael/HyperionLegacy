@@ -331,3 +331,12 @@ Overtime ends on recall) and prod 0.13.11.4 is MERGED into 0.14.0 (824f477d, tag
 catch-up overlay ported, 0.14.0's own patrol perf kept; overlay verified in a browser on 0.14.0). Gates: 12,473 tests,
 check 0 errors, perf 7/7, release gate 202. STAGING = 824f477d. Building next: research filter + Standard-Issue crew
 modules (docs/superpowers/plans/2026-11-17-research-filter-and-crew-standard-issue.md).
+
+## Research filter + Standard-Issue crew modules (2026-11-17): both built, in review
+
+User answers on the builders' calls: research "Can research" means REQUIREMENTS met (lab level, discovery); busy slots
+or low credits do not make a blueprint Locked ("Requirements only"). Free crew modules keep their hull-family bonus
+("Keep it"); the Quartermaster also hands out the free Sensor Suite / Bridge Module / Crew Quarters ("Yes, add them");
+ships out on a mission at load get the set as built ("OK as built").
+Open: the builder reports `npm run test:sweep:patrol` already fails on 824f477d (generalFreighter, prospectorHauler,
+destroyer, orion, eir rows); being checked in review.
