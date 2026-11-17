@@ -65,7 +65,7 @@ describe("G2-1: SAVE v70 step 3 seeds the homeworld", () => {
   });
 
   it("v70 stays the shared bump (no v71)", () => {
-    expect(SAVE_VERSION).toBe(71); // E5-1 took v71 (the board evacuation stamp); this feature added no bump
+    expect(SAVE_VERSION).toBe(72); // E5-1 took v71 (the board evacuation stamp); this feature added no bump; the Standard-Issue crew modules took v72
   });
 
   it("a v69 save gets { version: 1, seed: entropy }; everything else is byte-identical", () => {

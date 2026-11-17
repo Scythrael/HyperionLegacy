@@ -128,7 +128,12 @@ const C1_MOVED_PRE: Record<string, unknown> = {
   "patrolRepeat:destroyer:inFlight": ["8f383097", "won:2500", "5b8da85f"],
   "mission:prospectorMiner:ore:none": ["a56128bd", "db32b9f1"],
 };
-const PINS: Record<string, unknown> = { ...CP13_PINS_PRE, ...MOVED, ...C1_MOVED };
+// SAVE v72 (0.14.0 Standard-Issue crew modules): the save bytes carry the new SAVE_VERSION, so only the save rows
+// move (with SAVE_VERSION held at 71 every one returns to its pin, checked). V72_MOVED overlays the current pins,
+// V72_MOVED_PRE the pre-slice pins.
+const V72_MOVED: Record<string, unknown> = { save: ["1599e8c9", "fa94659c"] };
+const V72_MOVED_PRE: Record<string, unknown> = { save: ["1599e8c9", "fa94659c"] };
+const PINS: Record<string, unknown> = { ...CP13_PINS_PRE, ...MOVED, ...C1_MOVED, ...V72_MOVED };
 
 describe("Complement CP-13 goldens (captured before the hull-family module bonuses)", () => {
   it("every reading matches its pin (moves are named in MOVED)", () => {
@@ -142,6 +147,6 @@ describe("Complement CP-13 goldens (captured before the hull-family module bonus
   }, 600_000);
 
   it("with the bonus switched off every row returns to its pre-CP-13 pin", () => {
-    expect(withoutCp13(() => cp13Rows(withoutCp13))).toEqual({ ...CP13_PINS_PRE, ...C1_MOVED_PRE });
+    expect(withoutCp13(() => cp13Rows(withoutCp13))).toEqual({ ...CP13_PINS_PRE, ...C1_MOVED_PRE, ...V72_MOVED_PRE });
   }, 600_000);
 });

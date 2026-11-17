@@ -457,7 +457,7 @@ describe("team kinds: Claim and Dig (design section 6)", () => {
 
 describe("save (design section 7): optional fields only, no bump", () => {
   it("SAVE_VERSION is unchanged (70) and a fresh save has no Prospecting field", () => {
-    expect(SAVE_VERSION).toBe(71); // E5-1 took v71 (the board evacuation stamp); this feature added no bump
+    expect(SAVE_VERSION).toBe(72); // E5-1 took v71 (the board evacuation stamp); this feature added no bump; the Standard-Issue crew modules took v72
     expect("prospectingSquadsUnlocked" in freshState()).toBe(false);
   });
 

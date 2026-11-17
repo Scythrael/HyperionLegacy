@@ -96,7 +96,12 @@ const C1_MOVED: Record<string, unknown> = {
 const C1_MOVED_PRE: Record<string, unknown> = {
   "shortRange:eir:tierOne": ["bc1870ee", "a7f0f72b"],
 };
-const PINS: Record<string, unknown> = { ...CP16_PINS_PRE, ...MOVED, ...C1_MOVED };
+// SAVE v72 (0.14.0 Standard-Issue crew modules): the save bytes carry the new SAVE_VERSION, so only the save rows
+// move (with SAVE_VERSION held at 71 every one returns to its pin, checked). V72_MOVED overlays the current pins,
+// V72_MOVED_PRE the pre-slice pins.
+const V72_MOVED: Record<string, unknown> = { save: ["6a7e6eb6", "7327da9e"] };
+const V72_MOVED_PRE: Record<string, unknown> = { save: ["200e9ac1", "e0126011"] };
+const PINS: Record<string, unknown> = { ...CP16_PINS_PRE, ...MOVED, ...C1_MOVED, ...V72_MOVED };
 
 describe("Complement CP-16 goldens (captured before the Hall of Command)", () => {
   it("every reading matches its pin (moves are named in MOVED)", () => {
@@ -110,11 +115,11 @@ describe("Complement CP-16 goldens (captured before the Hall of Command)", () =>
   }, 600_000);
 
   it("with the slice switched off every row returns to its pre-CP-16 pin", () => {
-    expect(withoutCp16(() => cp16Rows())).toEqual({ ...CP16_PINS_PRE, ...C1_MOVED_PRE });
+    expect(withoutCp16(() => cp16Rows())).toEqual({ ...CP16_PINS_PRE, ...C1_MOVED_PRE, ...V72_MOVED_PRE });
   }, 600_000);
 
   it("with the CP-16 records taken off every row returns to its pre-CP-16 pin (nothing else moved)", () => {
-    expect(cp16Rows(asPreCp16)).toEqual({ ...CP16_PINS_PRE, ...C1_MOVED_PRE });
+    expect(cp16Rows(asPreCp16)).toEqual({ ...CP16_PINS_PRE, ...C1_MOVED_PRE, ...V72_MOVED_PRE });
   }, 600_000);
 
   it("the registry read-back names exactly the rows CP-16 added, each live", () => {

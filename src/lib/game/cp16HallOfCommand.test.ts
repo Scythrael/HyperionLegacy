@@ -506,7 +506,7 @@ describe("CP-16 the final-retirement warning", () => {
 
 describe("CP-16 save: optional fields, no bump", () => {
   it("an old save (no record) loads with no Hall entries; a written record survives a round trip", () => {
-    expect(SAVE_VERSION).toBe(71);
+    expect(SAVE_VERSION).toBe(72); // the Standard-Issue crew modules took v72
     const old = deserialize(serialize(freshState(), 0, 0));
     expect(old && migrate(old).hallOfCommand).toBeUndefined();
     const retired = retireCaptain(cp16RetireReady(0), WIRING_CAPTAIN_ID);

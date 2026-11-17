@@ -229,8 +229,10 @@ const HELD_CAPTURE: Record<string, string> = {
   "keep:generalFreighter:quartersEfficient": "54e6e059",
   "keep:generalFreighter:quartersElite": "d0529ba5",
   "keep:generalFreighter:quartersGuestWing": "8e9f3ad6",
-  "save:bytes": "c095e8d6",
-  "save:roundTrip": "de493c1e",
+  // SAVE v72 (0.14.0 Standard-Issue crew modules): the bytes carry the new SAVE_VERSION (save:bytes c095e8d6 and
+  // save:roundTrip de493c1e at v71, checked).
+  "save:bytes": "96a65865",
+  "save:roundTrip": "35b45753",
   "registry:rows": "805cd5b9",
 };
 const MOVED_BEFORE: Record<string, string> = {

@@ -73,7 +73,12 @@ const MOVED: Record<string, unknown> = {
   "upgrade:oneCall": ["2e44c08e", 2],
   "upgrade:chunks": ["2e44c08e", 2],
 };
-const PINS: Record<string, unknown> = { ...CP19_PINS_PRE, ...MOVED };
+// SAVE v72 (0.14.0 Standard-Issue crew modules): the save bytes carry the new SAVE_VERSION, so only the save rows
+// move (with SAVE_VERSION held at 71 every one returns to its pin, checked). V72_MOVED overlays the current pins,
+// V72_MOVED_PRE the pre-slice pins.
+const V72_MOVED: Record<string, unknown> = { "save:fresh": ["dba0a852", "b469e38f"], "save:noTrack": "b469e38f", "save:v70": "93d51a98" };
+const V72_MOVED_PRE: Record<string, unknown> = { "save:fresh": ["6562ac2f", "d0fbfe2f"], "save:noTrack": "d0fbfe2f", "save:v70": "69549e0a" };
+const PINS: Record<string, unknown> = { ...CP19_PINS_PRE, ...MOVED, ...V72_MOVED };
 
 describe("Complement CP-19 goldens (captured before the Personnel Rosters track)", () => {
   it("every reading matches its pin (moves are named in MOVED)", () => {
@@ -87,7 +92,7 @@ describe("Complement CP-19 goldens (captured before the Personnel Rosters track)
   }, 600_000);
 
   it("with the slice switched off every row returns to its pre-CP-19 pin", () => {
-    expect(withoutCp19(() => cp19Rows())).toEqual(CP19_PINS_PRE);
+    expect(withoutCp19(() => cp19Rows())).toEqual({ ...CP19_PINS_PRE, ...V72_MOVED_PRE });
   }, 600_000);
 
   // The fix round's trace (user 2026-11-09 "Flat +1 always"): the Recruiter's Level 6 boards moved from 22 to 21. A

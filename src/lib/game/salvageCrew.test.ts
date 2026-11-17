@@ -330,13 +330,28 @@ describe("migrate, v68 -> v69 orphaned ship references repaired (CP-6)", () => {
     const clean = raw(crewedFleet());
     // G2-1: the "at" load is handed the homeworld the v69 -> v70 step seeds (homeworldMigration.test.ts tests it).
     const via = migrateFrom(68, JSON.parse(JSON.stringify(clean)));
-    // E5-1: and the board the v70 -> v71 step stamps (save.test.ts tests it).
-    const at = migrateFrom(SAVE_VERSION, { ...JSON.parse(JSON.stringify(clean)), homeworld: via.homeworld, shortRangeBoard: via.shortRangeBoard });
+    // E5-1: and the board the v70 -> v71 step stamps (save.test.ts tests it). 0.14.0: and the Standard-Issue crew modules
+    // the v71 -> v72 step installs (crewModuleStandardIssue.test.ts tests it).
+    const at = migrateFrom(SAVE_VERSION, {
+      ...JSON.parse(JSON.stringify(clean)),
+      homeworld: via.homeworld,
+      shortRangeBoard: via.shortRangeBoard,
+      equipment: via.equipment,
+      nextEquipmentId: via.nextEquipmentId,
+    });
     expect(JSON.stringify(via)).toBe(JSON.stringify(at));
     const fresh = raw(freshState());
     const freshVia = migrateFrom(68, JSON.parse(JSON.stringify(fresh)));
     expect(JSON.stringify(freshVia)).toBe(
-      JSON.stringify(migrateFrom(SAVE_VERSION, { ...JSON.parse(JSON.stringify(fresh)), homeworld: freshVia.homeworld, shortRangeBoard: freshVia.shortRangeBoard }))
+      JSON.stringify(
+        migrateFrom(SAVE_VERSION, {
+          ...JSON.parse(JSON.stringify(fresh)),
+          homeworld: freshVia.homeworld,
+          shortRangeBoard: freshVia.shortRangeBoard,
+          equipment: freshVia.equipment,
+          nextEquipmentId: freshVia.nextEquipmentId,
+        }),
+      ),
     );
   });
 

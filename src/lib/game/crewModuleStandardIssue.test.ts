@@ -14,11 +14,14 @@ import {
 } from "./model";
 import { buyHomeworldTalent, dispatchCaptainOnMission, mintBuiltShip, tick } from "./tick";
 import { equippedFor } from "./equipmentQueries";
-import { bridgeOfficerMultiplier, installedBridgeModule, installedQuartersModule, quartersCapacityBonus, QUARTERS_MODULES } from "./crewModules";
+import { BRIDGE_MODULES, bridgeOfficerMultiplier, installedBridgeModule, installedQuartersModule, quartersCapacityBonus, QUARTERS_MODULES } from "./crewModules";
+import { COMPLEMENT_PARAGRAPHS, HELP_TOPICS, SENSORS_HELP, SI_QUARTERS_BERTHS, STANDARD_ISSUE_CREW_MODULES_TEXT } from "../helpTopics";
 import { installedSensorArray } from "./sensorArrays";
 import { complementTotalCap } from "./commandStructure";
 import { generateEquipment } from "./itemgen";
 import { withCrewModuleSiOff } from "./crewModuleSiSwitch.fixture";
+import { deserialize, migrate, SAVE_VERSION, serialize, type SaveFile } from "./save";
+import { unfitEquipmentInstance } from "./equipment";
 
 const CREW_SLOTS = ["sensor", "bridge", "quarters"] as const;
 
@@ -181,5 +184,142 @@ describe("Standard-Issue crew modules: effects", () => {
     const craftedLift = bridgeOfficerMultiplier({ def: free.def, instance: craftedPlain }, officer, "general");
     expect(freeLift).toBeCloseTo(1.1, 12); // Balanced Command's amp 0.1 at the quality-0 floor
     expect(craftedLift).toBeGreaterThan(freeLift);
+  });
+});
+
+// Task B2: Help names the free set with numbers read from the catalogs.
+describe("Standard-Issue crew modules: Help", () => {
+  const body = (id: string): string => HELP_TOPICS.find((t) => t.id === id)!.body;
+  const util = QUARTERS_MODULES.find((m) => m.id === CREW_MODULE_STANDARD_ISSUE.quarters)!;
+  const bridge = BRIDGE_MODULES.find((m) => m.id === CREW_MODULE_STANDARD_ISSUE.bridge)!;
+  it("the Ship Systems topic names the set, its numbers, the one-time grant and the empty slots", () => {
+    expect(util.baseCapacity).toBe(12);
+    expect(bridge.amp).toBe(0.1);
+    expect(util.focusBoost).toBe(0.1);
+    expect(STANDARD_ISSUE_CREW_MODULES_TEXT).toBe(
+      "Every ship also comes with a free Standard-Issue Sensor Suite, Bridge Module and Crew Quarters: a Balanced Array (slightly better odds of surface landmarks and underground finds when it scans; it adds no sensor points of its own), Balanced Command (every officer seated on the ship works 10% better) and Utilitarian Quarters (12 crew berths, and every division works 10% better). Each also gives its hull bonus (see the Hull bonuses topic). Ships you already had were given the same set in any of these three slots that was empty. These three slots can be left empty: uninstalling one leaves it empty, and nothing puts a free one back. Crafted modules are upgrades, since rarity and quality raise their effects (a crafted Utilitarian Quarters adds no berths over the free one; it lifts the divisions more).",
+    );
+    expect(body("shipSystems")).toContain(STANDARD_ISSUE_CREW_MODULES_TEXT);
+    expect(body("shipSystems")).toContain("issues one for any economy or combat slot at no cost");
+  });
+  it("the Quartermaster, Complement and Sensors topics agree", () => {
+    expect(body("quartermaster")).toContain("one row per economy and combat slot");
+    expect(body("quartermaster")).toContain("The free Sensor Suite, Bridge Module and Crew Quarters a ship is born with are not issued here.");
+    expect(COMPLEMENT_PARAGRAPHS.join("\n")).toContain(`every ship comes with Standard-Issue Utilitarian Quarters, ${SI_QUARTERS_BERTHS} berths; the Elite Quarters add none`);
+    expect(SENSORS_HELP).toContain("The free Standard-Issue Balanced Array every ship comes with adds none; a crafted Sensor Suite does.");
+    for (const text of [STANDARD_ISSUE_CREW_MODULES_TEXT, body("shipSystems"), body("quartermaster"), SENSORS_HELP]) expect(text).not.toMatch(/—|-{2}|\bfit/);
+  });
+});
+
+// Task B2: existing ships get the set ONCE, into their EMPTY sensor / bridge / quarters slots (SAVE_VERSION 71 to 72).
+describe("Standard-Issue crew modules: the v71 -> v72 migration", () => {
+  const ENTROPY = 0x5eed0072;
+  // A save a v71 build wrote: built with the set off (no v71 ship ever had it), stamped version 71.
+  const v71Save = (state: GameState): SaveFile => ({ ...(deserialize(serialize(state, 0)) as SaveFile), version: 71 });
+  // A pre-set game with a second ship (a destroyer) built.
+  function oldFleet(): GameState {
+    return withCrewModuleSiOff(() => {
+      const base = freshState();
+      const built = mintBuiltShip({ ships: base.ships, nextShipId: base.nextShipId, equipment: base.equipment, nextEquipmentId: base.nextEquipmentId }, "destroyer");
+      return { ...base, ships: built.ships, nextShipId: built.nextShipId, equipment: built.equipment, nextEquipmentId: built.nextEquipmentId };
+    });
+  }
+
+  it("is SAVE_VERSION 72", () => {
+    expect(SAVE_VERSION).toBe(72);
+  });
+
+  it("installs the set on every ship, ids threaded from nextEquipmentId in ship order (sensor, bridge, quarters)", () => {
+    const old = oldFleet();
+    for (const sh of old.ships) for (const slot of CREW_SLOTS) expect(crewSet(old, sh.id)[slot]).toHaveLength(0);
+    const start = old.nextEquipmentId;
+    const m = migrate(v71Save(old), ENTROPY);
+    for (const sh of m.ships) expectStandardIssueSet(m, sh.id);
+    const isCrew = (e: EquipmentInstance): boolean => CREW_SLOTS.includes(e.slotType as (typeof CREW_SLOTS)[number]);
+    expect(m.equipment.filter(isCrew).map((e) => [e.id, e.slotType, e.fittedToShipId])).toEqual([
+      [`equip-${start}`, "sensor", "ship-1"],
+      [`equip-${start + 1}`, "bridge", "ship-1"],
+      [`equip-${start + 2}`, "quarters", "ship-1"],
+      [`equip-${start + 3}`, "sensor", "ship-2"],
+      [`equip-${start + 4}`, "bridge", "ship-2"],
+      [`equip-${start + 5}`, "quarters", "ship-2"],
+    ]);
+    expect(m.nextEquipmentId).toBe(start + 6);
+    // Nothing else in the pool moved.
+    expect(m.equipment.filter((e) => !isCrew(e))).toEqual(old.equipment);
+  });
+
+  it("never replaces an installed module: a ship with a crafted bridge keeps it and gains only the sensor and quarters", () => {
+    const old = oldFleet();
+    const crafted = generateEquipment({
+      slotType: "bridge",
+      varietyKey: "bridgeFlagCommand",
+      blueprintKey: "flagCommandBp",
+      iLevel: 20,
+      quality: 2,
+      rarity: "standard",
+      ascension: "none",
+      rng: () => 0.5,
+      allocateId: () => `equip-${old.nextEquipmentId}`,
+    });
+    const withBridge: GameState = { ...old, equipment: [...old.equipment, { ...crafted, fittedToShipId: "ship-1" }], nextEquipmentId: old.nextEquipmentId + 1 };
+    const m = migrate(v71Save(withBridge), ENTROPY);
+    const set1 = crewSet(m, "ship-1");
+    expect(set1.bridge).toHaveLength(1);
+    expect(set1.bridge[0].id).toBe(crafted.id);
+    expect(set1.bridge[0].moduleVariant).toBe("bridgeFlagCommand");
+    expect(set1.sensor.map((e) => e.moduleVariant)).toEqual(["sensorBalanced"]);
+    expect(set1.quarters.map((e) => e.moduleVariant)).toEqual(["quartersUtilitarian"]);
+    const start = withBridge.nextEquipmentId;
+    expect([...set1.sensor, ...set1.quarters].map((e) => e.id)).toEqual([`equip-${start}`, `equip-${start + 1}`]);
+    expectStandardIssueSet(m, "ship-2");
+    expect(m.nextEquipmentId).toBe(start + 5);
+  });
+
+  it("a ship out on a mission keeps its run record unchanged (the pieces land, the stamps do not move)", () => {
+    const old = withCrewModuleSiOff(() => {
+      const s0 = freshState();
+      s0.captains = s0.captains.map((c) => ({ ...c, level: 10 }));
+      return tick(30, dispatchCaptainOnMission(s0, 1, "shortOreRun").next, () => 0.5);
+    });
+    const before = captainMission(old);
+    expect(before).not.toBeNull();
+    expect(before!.hullBonus).toBeUndefined(); // dispatched with no module aboard
+    const m = migrate(v71Save(old), ENTROPY);
+    expectStandardIssueSet(m, "ship-1");
+    expect(JSON.stringify(captainMission(m))).toBe(JSON.stringify(before));
+  });
+
+  it("runs once: a slot the player empties after the migration stays empty on every later load", () => {
+    const m = migrate(v71Save(oldFleet()), ENTROPY);
+    const bridge = crewSet(m, "ship-1").bridge[0];
+    const emptied = unfitEquipmentInstance(m, "ship-1", bridge.id);
+    expect(crewSet(emptied, "ship-1").bridge).toHaveLength(0);
+    const reloaded = migrate(deserialize(serialize(emptied, 0)) as SaveFile, ENTROPY);
+    expect(crewSet(reloaded, "ship-1").bridge).toHaveLength(0);
+    expect(reloaded.equipment.filter((e) => e.slotType === "bridge" && e.fittedToShipId === null).map((e) => e.id)).toEqual([bridge.id]);
+    expect(reloaded.nextEquipmentId).toBe(emptied.nextEquipmentId);
+  });
+
+  it("a fresh v72 game loads unchanged (no second set)", () => {
+    const fresh = freshState();
+    const loaded = migrate(deserialize(serialize(fresh, 0)) as SaveFile, ENTROPY);
+    expect(loaded.equipment).toEqual(fresh.equipment);
+    expect(loaded.nextEquipmentId).toBe(fresh.nextEquipmentId);
+  });
+
+  it("an old save from before Standard-Issue (v27) still loads, each ship fully set up", () => {
+    const old = withCrewModuleSiOff(() => freshState());
+    const v27 = { ...v71Save({ ...old, equipment: [], nextEquipmentId: 1 }), version: 27 } as SaveFile;
+    const m = migrate(v27, ENTROPY);
+    expectStandardIssueSet(m, "ship-1");
+    expect(equippedFor(m, "ship-1").filter((e) => e.slotType === "reactorCore")).toHaveLength(1);
+  });
+
+  it("with the test switch off the migration adds nothing", () => {
+    const old = oldFleet();
+    const m = withCrewModuleSiOff(() => migrate(v71Save(old), ENTROPY));
+    expect(m.equipment).toEqual(old.equipment);
+    expect(m.nextEquipmentId).toBe(old.nextEquipmentId);
   });
 });

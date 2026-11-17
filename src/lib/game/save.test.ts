@@ -103,7 +103,7 @@ function creditsBeforeFuelRefund(migrated: any): Decimal {
 
 describe("SAVE_VERSION", () => {
   it("is pinned to its expected value (the only literal pin in the suite)", () => {
-    expect(SAVE_VERSION).toBe(71); // E5-1: v71 (the board's evacuation stamp; save.ts lists what v70 and v71 contain)
+    expect(SAVE_VERSION).toBe(72); // E5-1: v71 (the board's evacuation stamp; save.ts lists what v70 and v71 contain); the Standard-Issue crew modules took v72
   });
 });
 
