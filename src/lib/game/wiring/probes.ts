@@ -369,8 +369,12 @@ export const identity: Transform = (s) => s;
 // Quarters (model.ts seedCrewModuleStandardIssueForShip); the fixture takes them off again (and hands their ids back),
 // so each entry still measures its own source against a ship with no crew module, exactly as before the set. The set's
 // own effect is measured by the module entries (a Utilitarian Quarters' berths, a Balanced Command's officer lift).
+// WIRING_BARE_HULL (test-only switch, the FAVORED_SPEC_SWITCH pattern): live (always, in the game and the registry
+// tests) takes the free set off; off keeps it, so wiring.crewSetDirection.test.ts can check each source's direction on
+// the hull players actually have.
+export const WIRING_BARE_HULL = { live: true };
 export function wiringBase(typeKey?: ShipTypeKey): GameState {
-  const base = withoutCrewModuleStandardIssue(freshState());
+  const base = WIRING_BARE_HULL.live ? withoutCrewModuleStandardIssue(freshState()) : freshState();
   const s: GameState = { ...base, credits: new Decimal(1_000_000) };
   return typeKey ? editShip(s, { typeKey }) : s;
 }
