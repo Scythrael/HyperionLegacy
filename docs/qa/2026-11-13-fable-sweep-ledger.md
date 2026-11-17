@@ -340,3 +340,7 @@ or low credits do not make a blueprint Locked ("Requirements only"). Free crew m
 ships out on a mission at load get the set as built ("OK as built").
 Open: the builder reports `npm run test:sweep:patrol` already fails on 824f477d (generalFreighter, prospectorHauler,
 destroyer, orion, eir rows); being checked in review.
+2026-11-17 status: research filter MERGED (269ed752, tag slice/research-filter; browser-checked desktop and 375 px) and
+Standard-Issue crew modules MERGED (36354b39, tag slice/crew-module-si; save v72; Quartermaster issues them). Gates on
+e2391677: 13,607 tests, check 0 errors, perf 7/7, release gate 202, patrol sweep 51/51 (table re-pinned: stale since
+a0f32e8c plus the free set). 0.16.0 notes logged (early expeditions with the free array; patrol odds with the set).
