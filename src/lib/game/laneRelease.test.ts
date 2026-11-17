@@ -11,6 +11,7 @@ import { allocatedItem } from "./allocation";
 import { cancelLine, cancelLineScope, canStartLine, economyTick, refineSlotCount, startLine, tick } from "./tick";
 import { itemTotal } from "./inventory";
 import { buildAllCraftQueues, cancelLineText } from "./craftQueue";
+import { buildHomeDashboard } from "./homeDashboard";
 import { HELP_TOPICS } from "../helpTopics";
 
 const RNG = () => 0.5;
@@ -161,6 +162,14 @@ describe("Q7: Cancel on a helper lane releases just that lane", () => {
     const own = rows.find((r) => r.id === lanes(s0)[0].id)!;
     expect(own.lanesAttached).toBe(2);
     expect(refineSlotCount(s1)).toBe(3);
+    // Fix pass: the released lane counts only its own unit in flight (it read 3, the whole order's), so Home's row for
+    // it says "1 to refine" with that unit's own time left, not the order's.
+    expect(released.unitsInFlight).toBe(1);
+    expect(own.unitsInFlight).toBe(3);
+    const job = s1.activeProcesses.find((p) => p.lineId === lanes(s0)[2].id)!;
+    const homeRow = buildHomeDashboard(s1).inProgress.find((r) => r.id === job.id);
+    expect(homeRow?.secondaryLabel).toBe("1 to refine");
+    expect(homeRow?.remainingTicks).toBe(job.remainingTicks);
   });
 
   it("the Help states the rule", () => {

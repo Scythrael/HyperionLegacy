@@ -568,8 +568,12 @@ function runningRowsFor(state: GameState, facility: QueueFacilityKey): CraftQueu
     const orderTotalTicks = timeLeft?.totalTicks ?? null;
     // FR-C fix pass: the units of this line's work in flight right now (every lane of its order with a job), so Home's
     // "N to refine" reads unstarted + in flight, the same number on every joined lane.
+    // Fix round answers fix pass (Q7): a released lane works only the unit it is finishing, so it counts that unit alone
+    // (Home read "3 to refine" with an 11 s ETA on a lane landing 1 unit).
     const unitsInFlight =
-      line.orderId === undefined ? (job !== undefined ? 1 : 0) : lines.filter((l) => l.orderId === line.orderId && jobByLine.has(l.id)).length;
+      line.orderId === undefined || line.released === true
+        ? (job !== undefined ? 1 : 0)
+        : lines.filter((l) => l.orderId === line.orderId && jobByLine.has(l.id)).length;
     return {
       id: line.id,
       label: craftLineOutputLabel(line.kind, line.recipeKey),

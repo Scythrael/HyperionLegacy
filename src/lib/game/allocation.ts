@@ -135,7 +135,7 @@ export interface CraftLine {
   // and when the facility holds more lanes than slots it hands its slot back as soon as it finishes the unit it is on.
   // Absent on every lane the player (or the queue) started, so every older lane is byte-identical.
   joined?: true;
-  // Fix round answers Q7 (user 2026-11-17, "Release only that lane"): true on a JOINED lane the player cancelled while it
+  // Fix round answers Q7 (user 2026-11-17, "Release only that lane"): true on a JOINED lane the player canceled while it
   // had a unit in flight. It stays attached so that unit lands and is logged with its order, starts no further unit, and
   // leaves once the unit lands (tick.ts stepCraftLine). Absent on every other lane.
   released?: true;
