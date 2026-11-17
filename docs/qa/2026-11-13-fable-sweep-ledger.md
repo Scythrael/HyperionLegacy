@@ -344,3 +344,21 @@ destroyer, orion, eir rows); being checked in review.
 Standard-Issue crew modules MERGED (36354b39, tag slice/crew-module-si; save v72; Quartermaster issues them). Gates on
 e2391677: 13,607 tests, check 0 errors, perf 7/7, release gate 202, patrol sweep 51/51 (table re-pinned: stale since
 a0f32e8c plus the free set). 0.16.0 notes logged (early expeditions with the free array; patrol odds with the set).
+
+## Automated browser QA (2026-11-17, local dev server = staging 0f6956bc)
+
+15 PASS, 1 FAIL (fixed), 3 NOT REACHED; no app console errors; the 375 px width held in every section. PASS:
+catch-up overlay (desktop and phone), Research search / chips / Can research when busy or broke / hidden count /
+empty state / remembered view / Settings toggle, free crew modules on all ships (berths +12), uninstall leaves the slot
+empty, Quartermaster issues the three (one-spare limit), Help texts, Storage Help extra-finds pause, catalog systems
+same distance across lists, no emoji / em dashes / British spellings across 79 screens. The sheet
+docs/qa/2026-11-17-delta-qa.html tags these rows "auto-checked".
+FIXED same day (d. QA fixes commit): a researched card said "craftable once the Fabricator is online" while the
+Fabricator was built (now "Researched, craft it at the Fabricator"); the tooltip showed a "+0" signature line on the
+free crew modules (zero lines hidden) and cut "Standard-Issue" to "Standar..." at 375 px (names wrap on phones).
+NOT REACHED (needs a built Refinery / helper lanes / sellable stock): Release on a helper lane, Refinery Free vs Start,
+Warehouse Free vs Sell Free. They stay on the sheet for the user.
+Notes for the user (not fixed, their call): text glyphs that are not emoji still render as characters (credits ◈
+about 296 places, Admin Points ✦, favorite ☆, info ⓘ, chevrons ⌄ ›, close ✕ ×, stepper −); the Crew Quarters tile says
+injured crew recover 14.8% faster (quality-0 scaling) while Hull bonuses Help says 15%; an install comparison can show
+"×0.71 → ×0.71 (+0.1 pts)" (rounding); the recap repeats "~4d" twice when away longer than the cap.

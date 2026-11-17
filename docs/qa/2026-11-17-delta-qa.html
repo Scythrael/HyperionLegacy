@@ -61,6 +61,7 @@
   .chip.device { color: #7fb2ff; background: rgba(127,178,255,0.12); border: 1px solid rgba(127,178,255,0.4); }
   .chip.theme { color: #7cf6c9; background: rgba(124,246,201,0.10); border: 1px solid rgba(124,246,201,0.35); }
   .chip.debug { color: #b98bff; background: rgba(185,139,255,0.12); border: 1px solid rgba(185,139,255,0.4); }
+  .chip.auto { color: #9be38a; background: rgba(155,227,138,0.10); border: 1px solid rgba(155,227,138,0.4); }
   .chip.only { color: #dce6f3; background: rgba(255,255,255,0.05); border: 1px solid #2a3a54; }
   .src { color: #5d6d86; font-size: 11.5px; }
 
@@ -166,7 +167,7 @@
   <div class="legend">
     <p><b>Where to test.</b> Staging only: <b><a href="https://devpreview.crystalisoft.com" target="_blank" rel="noopener">https://devpreview.crystalisoft.com</a></b>. Every check below means "on staging".</p>
     <p><b>The two columns.</b> <b style="color:#38e0ff">1280</b> is desktop, <b style="color:#ffcc66">375</b> is a phone width (or a real phone). A check that only makes sense at one width shows <span class="na">n/a</span> in the other column.</p>
-    <p>Tags: <span class="chip fresh">fresh save</span> a new save in its own browser profile. <span class="chip save">needs real save</span> your migrated save. <span class="chip device">needs device</span> touch, a real phone, or a visual call. <span class="chip theme">light + dark</span> look at it in both themes. <span class="chip debug">Debug tab</span> uses the staging Debug tab.</p>
+    <p>Tags: <span class="chip fresh">fresh save</span> a new save in its own browser profile. <span class="chip save">needs real save</span> your migrated save. <span class="chip device">needs device</span> touch, a real phone, or a visual call. <span class="chip theme">light + dark</span> look at it in both themes. <span class="chip debug">Debug tab</span> uses the staging Debug tab. <span class="chip auto">auto-checked</span> an automated browser pass already confirmed it on 2026-11-17 (worth a quick look on a real device, but lower risk).</p>
   </div>
 
   <div class="howto">
@@ -224,11 +225,17 @@ const SECTIONS = [
   "items": [
    {
     "t": "With some patrols on Repeat, Debug, simulate a long time away (a day or more): a <b>Catching up</b> card appears with a progress bar that rises to 100%, then closes; one While You Were Away recap follows.",
-    "tag": "debug"
+    "tag": [
+     "debug",
+     "auto"
+    ]
    },
    {
     "t": "While the card is up, nothing behind it can be clicked or tabbed to, and the moving background (if you use one) pauses; your own theme shows behind the card.",
-    "tag": "theme"
+    "tag": [
+     "theme",
+     "auto"
+    ]
    },
    {
     "t": "Lock the phone (or hide the tab) for a few hours with patrols on Repeat, then come back: if the catch-up is long the card shows; afterwards there is exactly <b>one</b> Welcome back recap line, not two.",
@@ -251,37 +258,65 @@ const SECTIONS = [
   "sheets": [],
   "items": [
    {
-    "t": "The filter bar shows a search box and three rows of chips: <b>Status</b> (All, Can research, In progress or queued, Locked), <b>Category</b> (All plus the research families) and <b>Tier</b> (All, I, II, III ...)."
+    "t": "The filter bar shows a search box and three rows of chips: <b>Status</b> (All, Can research, In progress or queued, Locked), <b>Category</b> (All plus the research families) and <b>Tier</b> (All, I, II, III ...).",
+    "tag": [
+     "auto"
+    ]
    },
    {
-    "t": "Search matches blueprint names and materials in recipes (try <b>Titanium</b>, a blueprint's name, and a card's own text such as <b>Cargo Bay · Balanced Hold</b>)."
+    "t": "Search matches blueprint names and materials in recipes (try <b>Titanium</b>, a blueprint's name, and a card's own text such as <b>Cargo Bay · Balanced Hold</b>).",
+    "tag": [
+     "auto"
+    ]
    },
    {
-    "t": "Chips combine: e.g. Tier II plus Weapons shows only Tier II weapon blueprints; empty tiers and shelves disappear."
+    "t": "Chips combine: e.g. Tier II plus Weapons shows only Tier II weapon blueprints; empty tiers and shelves disappear.",
+    "tag": [
+     "auto"
+    ]
    },
    {
-    "t": "<b>Can research</b> lists every blueprint whose requirements are met, even while every research slot is busy or credits are short (its button may say the lab is busy). <b>Locked</b> means the lab level is too low, a relic is undiscovered, or an ancient entry is not decoded."
+    "t": "<b>Can research</b> lists every blueprint whose requirements are met, even while every research slot is busy or credits are short (its button may say the lab is busy). <b>Locked</b> means the lab level is too low, a relic is undiscovered, or an ancient entry is not decoded.",
+    "tag": [
+     "auto"
+    ]
    },
    {
-    "t": "Undiscovered relic projects stay masked: searching their real name finds nothing, and they appear only under Category All."
+    "t": "Undiscovered relic projects stay masked: searching their real name finds nothing, and they appear only under Category All.",
+    "tag": [
+     "auto"
+    ]
    },
    {
-    "t": "Research one blueprint: it disappears from the list and a line reads <b>1 researched blueprint hidden (Settings &gt; Show completed research)</b>."
+    "t": "Research one blueprint: it disappears from the list and a line reads <b>1 researched blueprint hidden (Settings &gt; Show completed research)</b>.",
+    "tag": [
+     "auto"
+    ]
    },
    {
-    "t": "Settings, Readouts, <b>Show completed research</b> (off by default): turning it on shows researched blueprints and adds a <b>Researched</b> status chip."
+    "t": "Settings, Readouts, <b>Show completed research</b> (off by default): turning it on shows researched blueprints and adds a <b>Researched</b> status chip.",
+    "tag": [
+     "auto"
+    ]
    },
    {
-    "t": "Filter down to nothing: <b>No blueprints match these filters.</b> with a <b>Clear filters</b> button that resets everything."
+    "t": "Filter down to nothing: <b>No blueprints match these filters.</b> with a <b>Clear filters</b> button that resets everything.",
+    "tag": [
+     "auto"
+    ]
    },
    {
-    "t": "Reload the page: your search and chip choices are remembered."
+    "t": "Reload the page: your search and chip choices are remembered.",
+    "tag": [
+     "auto"
+    ]
    },
    {
     "t": "At 375 px each chip row wraps on its own, nothing scrolls sideways, and the bar reads well in light and dark.",
     "tag": [
      "device",
-     "theme"
+     "theme",
+     "auto"
     ]
    }
   ]
@@ -294,23 +329,38 @@ const SECTIONS = [
   "items": [
    {
     "t": "Fresh save: the starting ship's Ship Systems board shows all three as Standard-Issue pieces, and its berths include the Utilitarian Quarters' <b>12</b>.",
-    "tag": "fresh"
+    "tag": [
+     "fresh",
+     "auto"
+    ]
    },
    {
     "t": "Migrated save: every ship that had an empty Sensor Suite, Bridge Module or Crew Quarters now has the free piece there; any module you had crafted and installed is untouched.",
-    "tag": "save"
+    "tag": [
+     "save",
+     "auto"
+    ]
    },
    {
     "t": "Build a new ship at the Shipyard: it is born with all three."
    },
    {
-    "t": "Uninstall a free module: the slot stays empty, also after a reload; the crew already aboard stay."
+    "t": "Uninstall a free module: the slot stays empty, also after a reload; the crew already aboard stay.",
+    "tag": [
+     "auto"
+    ]
    },
    {
-    "t": "Quartermaster: three new rows (Sensor Suite, Bridge Module, Crew Quarters) issue a free Standard-Issue piece, one spare per slot."
+    "t": "Quartermaster: three new rows (Sensor Suite, Bridge Module, Crew Quarters) issue a free Standard-Issue piece, one spare per slot.",
+    "tag": [
+     "auto"
+    ]
    },
    {
-    "t": "Help, Ship Systems: the paragraph on the free set says a crafted Utilitarian Quarters adds berths from its Crew Stations line on top of the free 12, and that the Bridge Module and Crew Quarters (not the Sensor Suite) give a hull bonus. Crew berths and Sensors topics mention the free set too."
+    "t": "Help, Ship Systems: the paragraph on the free set says a crafted Utilitarian Quarters adds berths from its Crew Stations line on top of the free 12, and that the Bridge Module and Crew Quarters (not the Sensor Suite) give a hull bonus. Crew berths and Sensors topics mention the free set too.",
+    "tag": [
+     "auto"
+    ]
    },
    {
     "t": "Patrols and expeditions run normally with the set aboard; a first run of each type still cannot be lost.",
@@ -325,7 +375,10 @@ const SECTIONS = [
   "sheets": [],
   "items": [
    {
-    "t": "Storage Help says a mission's extra finds pause at the cap; a mission running while one of its uncommon or rare items is at its cap collects none of it, and the primary material still lands."
+    "t": "Storage Help says a mission's extra finds pause at the cap; a mission running while one of its uncommon or rare items is at its cap collects none of it, and the primary material still lands.",
+    "tag": [
+     "auto"
+    ]
    },
    {
     "t": "A patrol in a repair pause: Overtime costs only the pause's remaining repair (cheap for a short pause). Recall that ship: the pause Overtime ends, and docked Overtime is priced by the docked repair."
@@ -343,7 +396,10 @@ const SECTIONS = [
     "t": "Warehouse tooltip's <b>Free</b> equals the Sell screen's Free for the same item; with salvage queued, a <b>Queued salvage</b> row explains the difference."
    },
    {
-    "t": "Expeditions: a catalog-named system (such as LB-0472) that shows up in two different lists has the same distance and the same planets both times; Help says each system is the same place every visit."
+    "t": "Expeditions: a catalog-named system (such as LB-0472) that shows up in two different lists has the same distance and the same planets both times; Help says each system is the same place every visit.",
+    "tag": [
+     "auto"
+    ]
    }
   ]
  },
@@ -441,6 +497,7 @@ const CHIP = {
   device: '<span class="chip device">needs device</span>',
   theme: '<span class="chip theme">light + dark</span>',
   debug: '<span class="chip debug">Debug tab</span>',
+  auto: '<span class="chip auto">auto-checked</span>',
 };
 
 function cb(kind, id, checked, label) {
