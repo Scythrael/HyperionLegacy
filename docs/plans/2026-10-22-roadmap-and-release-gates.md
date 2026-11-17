@@ -83,6 +83,13 @@ e1,000,000-equivalent in about a month, e10,000,000-equivalent in about 6 months
 e1,000. Use the balancing method above (optimal, average, casual profiles). Open questions then: new thresholds and
 names, the save remap rule, and where the relic ceiling's plateau lands.
 
+## Future (unscheduled): research tech trees (user, 2026-11-17)
+
+Research by TYPE picked like a spec (ship classes, ship systems, crew equipment, components, ...), each opening a
+radial tech tree with prerequisites; several trees with several starting points so it does not timegate. The user
+leans toward it and will ask players; 0.14.0 ships search and filter instead. Full capture:
+docs/plans/2026-11-17-research-tech-tree-idea.md.
+
 ## 1.0 content length target (user, 2026-10-27, verbatim)
 
 "I'm thinking ~2 years of content from start to finish for 1.0 overall." (Said about relic collection pacing: "we will
