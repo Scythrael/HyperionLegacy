@@ -93,3 +93,85 @@ describe("Q6: a repair pause's Overtime is priced by the repair the pause has le
     expect(body).toContain("In a pause the steps are priced by the repair the pause has left, the time until the patrol would head back out at the normal rate, set when you buy the first step, not by the whole repair job.");
   });
 });
+
+// Fix pass (review SHOULD-FIX): the pause price lives and ends with the pause. Before, a recall carried the pause's cheap
+// frozen price (ShipInstance.gearRepairSpeed.jobMinutes) into the docked repair: its next docked step cost the pause
+// price, not the docked job's.
+describe("Q6 fix pass: the pause price applies only while paused", () => {
+  // The review's case: a destroyer's first ("repair first") pause on a Repeat Sweep, its combat gear at 20.
+  const firstPause = (): GameState => dispatchCaptainOnPatrol(wornAt(veteran(), 20), 1, "crimsonReaverSweep", "balanced", true).next;
+  const buy = (s: GameState): GameState => {
+    const r = buyGearRepairOvertime(s, SHIP);
+    expect(r.bought).toBe(true);
+    return r.next;
+  };
+
+  it("recall after pause steps: the Overtime ends with the pause, the docked job is priced by its own length", () => {
+    const s0 = firstPause();
+    const q1 = canBuyGearRepairOvertime(s0, SHIP);
+    expect(q1).toMatchObject({ ok: true, step: 1, cost: 53, jobMinutes: 2.625 });
+    const s1 = buy(s0);
+    expect(canBuyGearRepairOvertime(s1, SHIP)).toMatchObject({ ok: true, step: 2, cost: 105, jobMinutes: 2.625 });
+    const s2 = buy(s1);
+    expect(patrolOf(s2)?.repairPause?.overtimeJobMinutes).toBe(2.625);
+    const docked = recallCaptain(s2, 1).next;
+    expect(docked.ships[0].gearRepairSpeed).toBeUndefined();
+    // Step 1 again, on the docked job (24.5 min at the normal rate): 490 cr, as on the same gear never paused.
+    const free = recallCaptain(s0, 1).next;
+    expect(canBuyGearRepairOvertime(docked, SHIP)).toMatchObject({ ok: true, step: 1, cost: 490, jobMinutes: 24.5 });
+    expect(canBuyGearRepairOvertime(docked, SHIP)).toEqual(canBuyGearRepairOvertime(free, SHIP));
+    // Still so once the engine records the docked job, and the gear repairs at the normal rate (as the free recall's).
+    const later = stepped(docked, 3);
+    expect(later.ships[0].gearRepairJobMinutes).toBe(24.5);
+    expect(canBuyGearRepairOvertime(later, SHIP)).toMatchObject({ ok: true, step: 1, cost: 490, jobMinutes: 24.5 });
+    expect(stepped(docked, 120).equipment).toEqual(stepped(free, 120).equipment);
+    // With Q6 off (the docked price in the pause, FR-E), the recall carries the Overtime on as before: step 3, 1,470 cr.
+    withAnswersOff(["pauseOvertimeRemaining"], () => {
+      const old = recallCaptain(buy(buy(firstPause())), 1).next;
+      expect(old.ships[0].gearRepairSpeed).toEqual({ overtimeSteps: 2, jobMinutes: 24.5 });
+      expect(canBuyGearRepairOvertime(old, SHIP)).toMatchObject({ ok: true, step: 3, cost: 1470 });
+    });
+  });
+
+  it("a step bought in a pause's last ticks (1 cr on what is left) never prices the docked repair after a recall", () => {
+    let s = firstPause();
+    while ((patrolOf(s)?.repairPause?.ticksRemaining ?? 0) > 3) s = stepped(s, 1);
+    expect(canBuyGearRepairOvertime(s, SHIP)).toMatchObject({ ok: true, step: 1, cost: 1, jobMinutes: 0.025 });
+    const bought = buy(s);
+    expect(canBuyGearRepairOvertime(bought, SHIP)).toMatchObject({ ok: true, step: 2, cost: 1 });
+    const docked = recallCaptain(bought, 1).next;
+    expect(docked.ships[0].gearRepairSpeed).toBeUndefined();
+    expect(canBuyGearRepairOvertime(docked, SHIP)).toMatchObject({ ok: true, step: 1, cost: 438, jobMinutes: 21.9 });
+  });
+
+  it("Overtime bought DOCKED that carries into a pause keeps its docked price there, and stays on after a recall", () => {
+    const worn = wornAt(veteran(), 20);
+    const dockedQuote = canBuyGearRepairOvertime(worn, SHIP);
+    expect(dockedQuote).toMatchObject({ ok: true, step: 1, jobMinutes: 24.5, cost: 490 });
+    const carried = dispatchCaptainOnPatrol(buy(worn), 1, "crimsonReaverSweep", "balanced", true).next;
+    expect(patrolOf(carried)?.repairPause?.overtime).toEqual([{ at: 0, steps: 1 }]);
+    // In the pause: step 2 on the docked job (980 cr), not on what the pause has left (user 2026-11-17, "Leave it").
+    expect(canBuyGearRepairOvertime(carried, SHIP)).toMatchObject({ ok: true, step: 2, cost: 980, jobMinutes: 24.5 });
+    const two = buy(carried);
+    expect(patrolOf(two)?.repairPause?.overtimeJobMinutes).toBeUndefined();
+    const docked = recallCaptain(two, 1).next;
+    expect(docked.ships[0].gearRepairSpeed).toEqual({ overtimeSteps: 2, jobMinutes: 24.5 });
+    expect(canBuyGearRepairOvertime(docked, SHIP)).toMatchObject({ ok: true, step: 3, cost: 1470 });
+  });
+
+  it("offline == live after the recall: one call == 997 s chunks == 1 s steps", () => {
+    const docked = recallCaptain(buy(buy(firstPause())), 1).next;
+    const one = economyTick(docked, 2000, RNG);
+    let chunks = docked;
+    for (let t = 0; t < 2000; t += 997) chunks = economyTick(chunks, Math.min(997, 2000 - t), RNG);
+    const steps = stepped(docked, 2000);
+    expect(chunks.equipment).toEqual(one.equipment);
+    expect(steps.equipment).toEqual(one.equipment);
+    expect(steps.ships).toEqual(one.ships);
+  });
+
+  it("the Gear wear Help says the pause's Overtime ends with it, and docked Overtime carried in keeps its price", () => {
+    const body = HELP_TOPICS.map((t) => t.body).join("\n");
+    expect(body).toContain("Overtime bought in a pause ends with the pause, also when you recall the patrol: the ship's repair at home is then a new job, priced by its own length. Overtime bought on a docked ship before its patrol repairs first keeps that docked price in the pause, and stays on if you recall the patrol.");
+  });
+});

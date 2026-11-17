@@ -7477,7 +7477,18 @@ export function recallCaptain(state: GameState, captainId: number, nowMs: number
     captains[idx] = { ...captains[idx], mission: null };
     // GEAR WEAR close-out ("Make it exact"): its pieces settled through the pause to now and carried into the docked rate.
     const shipId = state.ships.find((sh) => sh.assignedCaptainId === captainId)?.id;
-    const docked = shipId === undefined ? { ...state, captains } : settleRecalledPause(state, { ...state, captains }, shipId);
+    // Fix round answers Q6 fix pass: Overtime this pause priced (its own quote, repairPause.overtimeJobMinutes: the repair
+    // the pause had left) ends with the pause, as it does when the pause ends by itself, so the docked repair is a new
+    // job at the normal rate, its Overtime priced by its own length. Docked Overtime that carried into the pause (its
+    // docked price, no pause quote) carries on docked.
+    const ships = mission.repairPause.overtimeJobMinutes !== undefined
+      ? state.ships.map((sh) => {
+        if (sh.id !== shipId || sh.gearRepairSpeed === undefined) return sh;
+        const { gearRepairSpeed: _ot, ...rest } = sh;
+        return rest as ShipInstance;
+      })
+      : state.ships;
+    const docked = shipId === undefined ? { ...state, captains } : settleRecalledPause(state, { ...state, captains, ships }, shipId);
     const ended = appendPatrolCompletions(
       docked,
       [{ captainId, patrolKey: mission.patrolKey, reason: "recalled", routes: mission.routesCompletedThisRun ?? 0, repairPauses: mission.repairPausesThisRun ?? 0 }],

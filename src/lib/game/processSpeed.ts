@@ -294,15 +294,17 @@ function withGearOvertimeSteps(state: GameState, shipId: string, steps: number, 
 }
 
 // A paused patrol's ship with its pause at `steps` of Overtime from now: the step recorded at its instant and the
-// countdown rescaled to the ticks its combat gear needs at the new rate. Pure.
-function withPauseOvertime(state: GameState, shipId: string, steps: number, ticks: number): GameState {
+// countdown rescaled to the ticks its combat gear needs at the new rate. `pauseQuote`: the pause's own price (the Q6
+// quote, set at the first step this pause priced), kept on the pause record so it ends with the pause. Pure.
+function withPauseOvertime(state: GameState, shipId: string, steps: number, ticks: number, pauseQuote?: number): GameState {
   const ship = state.ships.find((s) => s.id === shipId);
   return {
     ...state,
     captains: state.captains.map((c) => {
       if (ship === undefined || c.id !== ship.assignedCaptainId || c.mission === null || c.mission.kind !== "patrol" || c.mission.repairPause === undefined) return c;
       const pause = c.mission.repairPause;
-      return { ...c, mission: { ...c.mission, repairPause: { ...pause, ticksRemaining: ticks, overtime: [...(pause.overtime ?? []), { at: state.gameTimeSeconds, steps }] } } };
+      const overtime = [...(pause.overtime ?? []), { at: state.gameTimeSeconds, steps }];
+      return { ...c, mission: { ...c.mission, repairPause: { ...pause, ticksRemaining: ticks, overtime, ...(pauseQuote !== undefined ? { overtimeJobMinutes: pauseQuote } : {}) } } };
     }),
   };
 }
@@ -339,7 +341,11 @@ export function buyGearRepairOvertime(
   // A paused patrol: the step and the rescaled countdown go on the pause (nothing settled now; its window settles as it
   // closes). A docked ship: its gear settled to now and re-anchored at the new rate.
   const ticks = pausedPatrolOf(state, shipId) !== null ? pauseResumeTicks(state, shipId, quote.step) : null;
-  const settled = ticks !== null ? withPauseOvertime(state, shipId, quote.step, ticks) : settleShipForRateChange(state, shipId, overtimeRate(quote.step));
+  // Fix round answers Q6 fix pass: the first step a pause prices itself (no docked Overtime carried in) keeps that quote
+  // on the pause record, so the cheap pause price never outlives the pause (tick.ts recallCaptain ends it).
+  const ship = state.ships.find((s) => s.id === shipId);
+  const pauseQuote = ticks !== null && PAUSE_OVERTIME_REMAINING_SWITCH.live && ship?.gearRepairSpeed === undefined ? quote.jobMinutes : undefined;
+  const settled = ticks !== null ? withPauseOvertime(state, shipId, quote.step, ticks, pauseQuote) : settleShipForRateChange(state, shipId, overtimeRate(quote.step));
   const next = withGearOvertimeSteps({ ...settled, credits: settled.credits.minus(quote.cost) }, shipId, quote.step, quote.jobMinutes);
   return { next, bought: true, cost: quote.cost };
 }
