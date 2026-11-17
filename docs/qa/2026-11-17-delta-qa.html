@@ -1,0 +1,546 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Delta QA 2026-11-17</title>
+<style>
+  * { box-sizing: border-box; }
+  html { color-scheme: dark; }
+  body {
+    margin: 0;
+    background:
+      radial-gradient(1200px 600px at 78% -10%, rgba(56,224,255,0.10), transparent 60%),
+      radial-gradient(900px 500px at 8% 8%, rgba(185,139,255,0.08), transparent 55%),
+      #070b12;
+    color: #dce6f3;
+    font: 14px/1.55 ui-sans-serif, system-ui, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    padding: env(safe-area-inset-top, 0) 0 calc(env(safe-area-inset-bottom, 0) + 48px);
+  }
+  .wrap { max-width: 980px; margin: 0 auto; padding: 28px 18px 0; }
+  a { color: #38e0ff; }
+  code { font-size: 12.5px; color: #7cf6c9; }
+
+  .eyebrow { font-size: 11px; letter-spacing: 3px; text-transform: uppercase; color: #38e0ff; opacity: 0.85; margin: 0 0 6px; }
+  h1 { font-size: clamp(22px, 4.4vw, 34px); line-height: 1.1; margin: 0 0 4px; text-wrap: balance; font-weight: 750; letter-spacing: 0.3px; }
+  h1 .v { color: #38e0ff; }
+  .sub { color: #8497af; margin: 0 0 20px; font-size: 13px; }
+
+  .progress-card {
+    background: linear-gradient(180deg, #111a29, #0b1220);
+    border: 1px solid #2a3a54; border-radius: 16px; padding: 20px 22px; box-shadow: 0 0 0 1px #1f2c40, 0 18px 40px -24px #000; margin-bottom: 20px;
+  }
+  .progress-top { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+  .pct { font-size: clamp(30px, 8vw, 52px); font-weight: 800; line-height: 1; letter-spacing: -1px; color: #38e0ff;
+    text-shadow: 0 0 24px rgba(56,224,255,0.45); font-variant-numeric: tabular-nums; }
+  .pct small { font-size: 15px; font-weight: 600; color: #8497af; margin-left: 8px; letter-spacing: 0; }
+  .rowcount { color: #dce6f3; font-size: 15px; font-weight: 650; font-variant-numeric: tabular-nums; }
+  .rowcount b { color: #7cf6c9; }
+  .bar { margin-top: 16px; height: 16px; border-radius: 999px; background: #0a1220; border: 1px solid #2a3a54; overflow: hidden; }
+  .bar > i { display: block; height: 100%; width: 0%; background: linear-gradient(90deg, #2bd0ff, #7cf6c9);
+    box-shadow: 0 0 18px rgba(56,224,255,0.6); border-radius: 999px; transition: width .35s cubic-bezier(.2,.8,.2,1); }
+  .substats { display: flex; gap: 18px; flex-wrap: wrap; margin-top: 14px; font-size: 12.5px; color: #8497af; }
+  .substats .dot { display: inline-block; width: 9px; height: 9px; border-radius: 3px; margin-right: 7px; vertical-align: middle; }
+  .substats b { color: #dce6f3; font-variant-numeric: tabular-nums; }
+  .d-desk { background: #38e0ff; box-shadow: 0 0 10px #38e0ff; }
+  .d-mob { background: #ffcc66; box-shadow: 0 0 10px #ffcc66; }
+
+  .legend { background: #0b1220; border: 1px solid #1f2c40; border-radius: 12px; padding: 14px 16px; margin-bottom: 18px; font-size: 12.5px; color: #8497af; }
+  .legend p { margin: 0 0 8px; }
+  .legend p:last-child { margin-bottom: 0; }
+  .legend b { color: #dce6f3; }
+  .howto { background: linear-gradient(180deg, rgba(56,224,255,0.07), transparent); border: 1px solid rgba(56,224,255,0.28); border-radius: 12px; padding: 14px 16px; margin-bottom: 18px; font-size: 13px; color: #8497af; }
+  .howto h2 { margin: 0 0 6px; font-size: 14px; color: #38e0ff; letter-spacing: 0.3px; }
+  .howto ol { margin: 6px 0 0; padding-left: 20px; }
+  .howto li { margin-bottom: 5px; }
+  .howto b { color: #dce6f3; }
+
+  .chip { display: inline-block; padding: 1px 8px; border-radius: 999px; font-size: 11px; font-weight: 650; letter-spacing: 0.3px; vertical-align: middle; }
+  .chip.save { color: #ff9a6b; background: rgba(255,154,107,0.12); border: 1px solid rgba(255,154,107,0.4); }
+  .chip.fresh { color: #f0a8ff; background: rgba(240,168,255,0.10); border: 1px solid rgba(240,168,255,0.4); }
+  .chip.device { color: #7fb2ff; background: rgba(127,178,255,0.12); border: 1px solid rgba(127,178,255,0.4); }
+  .chip.theme { color: #7cf6c9; background: rgba(124,246,201,0.10); border: 1px solid rgba(124,246,201,0.35); }
+  .chip.debug { color: #b98bff; background: rgba(185,139,255,0.12); border: 1px solid rgba(185,139,255,0.4); }
+  .chip.only { color: #dce6f3; background: rgba(255,255,255,0.05); border: 1px solid #2a3a54; }
+  .src { color: #5d6d86; font-size: 11.5px; }
+
+  .jump { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 18px; }
+  .jump a { text-decoration: none; font-size: 12px; color: #8497af; border: 1px solid #2a3a54; border-radius: 999px; padding: 3px 10px; background: #0b1220; }
+  .jump a:hover { color: #38e0ff; border-color: #38e0ff; }
+  .jump a b { color: #38e0ff; font-variant-numeric: tabular-nums; margin-right: 4px; }
+
+  .toolbar { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-bottom: 22px; }
+  .btn { background: #111a29; color: #dce6f3; border: 1px solid #2a3a54; border-radius: 8px; padding: 7px 13px; font-size: 12.5px; cursor: pointer; font-weight: 600; }
+  .btn:hover { border-color: #38e0ff; color: #38e0ff; }
+  .toolbar .note { color: #5d6d86; font-size: 12px; }
+
+  section { margin-bottom: 30px; scroll-margin-top: 12px; }
+  .sec-head { display: flex; align-items: center; gap: 12px; margin: 0 0 6px; }
+  .sec-num { font-variant-numeric: tabular-nums; font-weight: 800; color: #38e0ff; font-size: 13px; letter-spacing: 1px;
+    background: rgba(56,224,255,0.08); border: 1px solid rgba(56,224,255,0.3); border-radius: 7px; padding: 3px 9px; min-width: 34px; text-align: center; }
+  .sec-title { font-size: 16px; font-weight: 700; letter-spacing: 0.2px; }
+  .sec-line { flex: 1; height: 1px; background: linear-gradient(90deg, #2a3a54, transparent); }
+  .sec-done { font-size: 11.5px; color: #5d6d86; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .sec-note { color: #8497af; font-size: 12.5px; font-style: italic; margin: 0 0 10px; border-left: 2px solid #2a3a54; padding: 2px 0 2px 12px; }
+
+  .sheets { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 8px; margin: 0 0 12px; }
+  .sheet { background: #0b1220; border: 1px solid #1f2c40; border-radius: 10px; padding: 10px 12px; font-size: 12.5px; color: #8497af; min-width: 0; }
+  .sheet a { font-weight: 650; text-decoration: none; }
+  .sheet a:hover { text-decoration: underline; }
+  .sheet .file { display: block; color: #5d6d86; font-size: 11px; margin-top: 1px; overflow-wrap: anywhere; }
+  .sheet p { margin: 6px 0 0; }
+  .sheets-label { font-size: 10.5px; letter-spacing: 1px; text-transform: uppercase; color: #5d6d86; margin: 0 0 6px; }
+
+  .items { display: flex; flex-direction: column; gap: 2px; }
+  .col-head, .item { display: grid; grid-template-columns: 52px 52px 1fr; gap: 10px; }
+  .col-head { align-items: center; padding: 4px 12px; font-size: 10.5px; letter-spacing: 1px; text-transform: uppercase; color: #5d6d86; }
+  .col-head .ch { text-align: center; }
+  .col-head .ch.desk { color: #38e0ff; }
+  .col-head .ch.mob { color: #ffcc66; }
+  .item { align-items: start; padding: 10px 12px; border-radius: 10px; border: 1px solid transparent; }
+  .item:nth-child(odd) { background: rgba(255,255,255,0.014); }
+  .item.done { background: rgba(124,246,201,0.05); border-color: rgba(124,246,201,0.18); }
+  .cell { display: flex; justify-content: center; padding-top: 1px; }
+  .na { font-size: 10.5px; color: #5d6d86; padding-top: 3px; letter-spacing: 0.5px; }
+
+  .cb { position: relative; width: 22px; height: 22px; }
+  .cb input { position: absolute; inset: 0; opacity: 0; margin: 0; cursor: pointer; }
+  .cb .box { width: 22px; height: 22px; border-radius: 6px; border: 2px solid #2a3a54; display: grid; place-items: center; transition: .12s; background: #0a1220; }
+  .cb .box svg { width: 13px; height: 13px; opacity: 0; transform: scale(.5); transition: .12s; }
+  .cb input:checked + .box svg { opacity: 1; transform: scale(1); }
+  .cb input:focus-visible + .box { outline: 2px solid #38e0ff; outline-offset: 2px; }
+  .cb.desk input:checked + .box { background: rgba(56,224,255,0.18); border-color: #38e0ff; }
+  .cb.desk .box svg { color: #38e0ff; }
+  .cb.mob input:checked + .box { background: rgba(255,204,102,0.18); border-color: #ffcc66; }
+  .cb.mob .box svg { color: #ffcc66; }
+  .cb.desk input:hover + .box { border-color: #38e0ff; }
+  .cb.mob input:hover + .box { border-color: #ffcc66; }
+
+  .body .t { color: #dce6f3; }
+  .meta { margin-top: 5px; display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+
+  .index { background: #0b1220; border: 1px solid #1f2c40; border-radius: 14px; padding: 16px 18px; margin-top: 12px; }
+  .index h2 { margin: 0 0 4px; font-size: 15px; color: #6ff2b0; letter-spacing: 0.3px; }
+  .index p { margin: 0 0 10px; color: #8497af; font-size: 12.5px; }
+  .index table { width: 100%; border-collapse: collapse; font-size: 12.5px; table-layout: fixed; }
+  .index th { text-align: left; font-size: 10.5px; letter-spacing: 1px; text-transform: uppercase; color: #5d6d86; font-weight: 650; padding: 6px 8px; border-bottom: 1px solid #2a3a54; }
+  .index td { padding: 6px 8px; border-bottom: 1px solid #1f2c40; vertical-align: top; overflow-wrap: anywhere; color: #8497af; }
+  .index td a { text-decoration: none; }
+  .index td a:hover { text-decoration: underline; }
+  .index col.c-date { width: 92px; }
+  .index col.c-sec { width: 36%; }
+  .foot { margin-top: 26px; color: #5d6d86; font-size: 11.5px; text-align: center; }
+
+  @media (max-width: 520px) {
+    .col-head, .item { grid-template-columns: 34px 34px 1fr; gap: 6px; }
+    .item { padding: 10px 8px; }
+    .col-head { padding: 4px 8px; font-size: 9.5px; letter-spacing: 0.5px; }
+    .wrap { padding-left: 14px; padding-right: 14px; }
+    .sheets { grid-template-columns: 1fr; }
+    .index { padding: 14px 10px; }
+    .index col.c-date { width: 0; }
+    .index .h-date, .index .d-date { display: none; }
+    .index col.c-sec { width: 40%; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <p class="eyebrow">Hyperion Legacy QA, 0.14.0 delta pass</p>
+  <h1><span class="v">2026-11-17</span> Delta QA: today's changes and round 1 rechecks</h1>
+  <p class="sub">What changed on staging on 2026-11-17 (0f6956bc): the catch-up progress screen from prod 0.13.11.4, your fix-round answers, the Research tab search and filters, and the free crew modules on every ship. Then the round 1 FAILs that are fixed, and the coverage gaps the sweep lanes listed. An automated browser pass ran the same day; its results are in the ledger (docs/qa/2026-11-13-fable-sweep-ledger.md).</p>
+
+  <div class="progress-card">
+    <div class="progress-top">
+      <div class="pct" id="pct">0%<small id="pctlabel">ready</small></div>
+      <div class="rowcount"><b id="doneCount">0</b> / <span id="totalCount">0</span> checks complete</div>
+    </div>
+    <div class="bar"><i id="barFill"></i></div>
+    <div class="substats">
+      <span><span class="dot d-desk"></span>You at 1280 px <b id="deskCount">0</b> / <span id="deskTotal">0</span></span>
+      <span><span class="dot d-mob"></span>You at 375 px <b id="mobCount">0</b> / <span id="mobTotal">0</span></span>
+      <span style="color:#5d6d86">A row is complete when every width it applies to is ticked.</span>
+    </div>
+  </div>
+
+  <div class="legend">
+    <p><b>Where to test.</b> Staging only: <b><a href="https://devpreview.crystalisoft.com" target="_blank" rel="noopener">https://devpreview.crystalisoft.com</a></b>. Every check below means "on staging".</p>
+    <p><b>The two columns.</b> <b style="color:#38e0ff">1280</b> is desktop, <b style="color:#ffcc66">375</b> is a phone width (or a real phone). A check that only makes sense at one width shows <span class="na">n/a</span> in the other column.</p>
+    <p>Tags: <span class="chip fresh">fresh save</span> a new save in its own browser profile. <span class="chip save">needs real save</span> your migrated save. <span class="chip device">needs device</span> touch, a real phone, or a visual call. <span class="chip theme">light + dark</span> look at it in both themes. <span class="chip debug">Debug tab</span> uses the staging Debug tab.</p>
+  </div>
+
+  <div class="howto">
+    <h2>How to use</h2>
+    <ol>
+      <li><b>Sections 1 to 4 are new today</b>; do them first, on a fresh save and on your migrated save.</li>
+      <li><b>Section 5</b> rechecks what failed in round 1. <b>Section 6</b> is a quick sweep of lines the earlier lists never covered.</li>
+      <li>Anything off: note the row number and what you saw; I fold it into the next fix pass.</li>
+    </ol>
+  </div>
+
+  <nav class="jump" id="jump" aria-label="Jump to a section"></nav>
+
+  <div class="toolbar">
+    <button class="btn" type="button" id="resetBtn">Reset my ticks</button>
+    <span class="note">Ticks persist in this browser only.</span>
+  </div>
+
+  <div id="sections"></div>
+
+  <p class="foot">0.14.0 delta QA 2026-11-17, boxes persist in this browser only.</p>
+</div>
+
+<script>
+const TICK = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>';
+
+// Every 0.14.0 per-slice sheet, its short name and a 1 to 3 line summary. Each one has one home section below.
+const SHEETS = {};
+
+const SECTIONS = [
+ {
+  "n": "0",
+  "title": "Before you start",
+  "note": "Staging, on the 0.14.0 build of 2026-11-17 (0f6956bc).",
+  "sheets": [],
+  "items": [
+   {
+    "t": "Open <a href=\"https://devpreview.crystalisoft.com\" target=\"_blank\" rel=\"noopener\">devpreview.crystalisoft.com</a>. The <b>Debug</b> tab is present (preview build).",
+    "tag": "debug"
+   },
+   {
+    "t": "Two browser profiles: a <b>fresh save</b> in one, your <b>migrated save</b> in the other. Keep the console open in both; no errors is a check in every section.",
+    "tag": [
+     "fresh",
+     "save"
+    ]
+   }
+  ]
+ },
+ {
+  "n": "1",
+  "title": "Catching up (the 0.13.11.4 progress screen, now in 0.14.0)",
+  "note": "Long offline catch-ups run behind a progress screen instead of freezing. Results are identical to the old way.",
+  "sheets": [],
+  "items": [
+   {
+    "t": "With some patrols on Repeat, Debug, simulate a long time away (a day or more): a <b>Catching up</b> card appears with a progress bar that rises to 100%, then closes; one While You Were Away recap follows.",
+    "tag": "debug"
+   },
+   {
+    "t": "While the card is up, nothing behind it can be clicked or tabbed to, and the moving background (if you use one) pauses; your own theme shows behind the card.",
+    "tag": "theme"
+   },
+   {
+    "t": "Lock the phone (or hide the tab) for a few hours with patrols on Repeat, then come back: if the catch-up is long the card shows; afterwards there is exactly <b>one</b> Welcome back recap line, not two.",
+    "tag": "device",
+    "only": "mob"
+   },
+   {
+    "t": "Buy something, hide the tab right away, come back much later, and close the game while the card is up. Reopen: the catch-up starts over, and the thing you bought is still there.",
+    "tag": "device"
+   },
+   {
+    "t": "A short absence (a few minutes) shows no card at all and plays on as before."
+   }
+  ]
+ },
+ {
+  "n": "2",
+  "title": "Research tab: search and filters",
+  "note": "Facilities, Research Lab, Research. Tier grouping stays; the filter bar sits under the order queue.",
+  "sheets": [],
+  "items": [
+   {
+    "t": "The filter bar shows a search box and three rows of chips: <b>Status</b> (All, Can research, In progress or queued, Locked), <b>Category</b> (All plus the research families) and <b>Tier</b> (All, I, II, III ...)."
+   },
+   {
+    "t": "Search matches blueprint names and materials in recipes (try <b>Titanium</b>, a blueprint's name, and a card's own text such as <b>Cargo Bay · Balanced Hold</b>)."
+   },
+   {
+    "t": "Chips combine: e.g. Tier II plus Weapons shows only Tier II weapon blueprints; empty tiers and shelves disappear."
+   },
+   {
+    "t": "<b>Can research</b> lists every blueprint whose requirements are met, even while every research slot is busy or credits are short (its button may say the lab is busy). <b>Locked</b> means the lab level is too low, a relic is undiscovered, or an ancient entry is not decoded."
+   },
+   {
+    "t": "Undiscovered relic projects stay masked: searching their real name finds nothing, and they appear only under Category All."
+   },
+   {
+    "t": "Research one blueprint: it disappears from the list and a line reads <b>1 researched blueprint hidden (Settings &gt; Show completed research)</b>."
+   },
+   {
+    "t": "Settings, Readouts, <b>Show completed research</b> (off by default): turning it on shows researched blueprints and adds a <b>Researched</b> status chip."
+   },
+   {
+    "t": "Filter down to nothing: <b>No blueprints match these filters.</b> with a <b>Clear filters</b> button that resets everything."
+   },
+   {
+    "t": "Reload the page: your search and chip choices are remembered."
+   },
+   {
+    "t": "At 375 px each chip row wraps on its own, nothing scrolls sideways, and the bar reads well in light and dark.",
+    "tag": [
+     "device",
+     "theme"
+    ]
+   }
+  ]
+ },
+ {
+  "n": "3",
+  "title": "Free crew modules on every ship",
+  "note": "Every ship gets a Standard-Issue Sensor Suite (Balanced Array), Bridge Module (Balanced Command) and Crew Quarters (Utilitarian Quarters).",
+  "sheets": [],
+  "items": [
+   {
+    "t": "Fresh save: the starting ship's Ship Systems board shows all three as Standard-Issue pieces, and its berths include the Utilitarian Quarters' <b>12</b>.",
+    "tag": "fresh"
+   },
+   {
+    "t": "Migrated save: every ship that had an empty Sensor Suite, Bridge Module or Crew Quarters now has the free piece there; any module you had crafted and installed is untouched.",
+    "tag": "save"
+   },
+   {
+    "t": "Build a new ship at the Shipyard: it is born with all three."
+   },
+   {
+    "t": "Uninstall a free module: the slot stays empty, also after a reload; the crew already aboard stay."
+   },
+   {
+    "t": "Quartermaster: three new rows (Sensor Suite, Bridge Module, Crew Quarters) issue a free Standard-Issue piece, one spare per slot."
+   },
+   {
+    "t": "Help, Ship Systems: the paragraph on the free set says a crafted Utilitarian Quarters adds berths from its Crew Stations line on top of the free 12, and that the Bridge Module and Crew Quarters (not the Sensor Suite) give a hull bonus. Crew berths and Sensors topics mention the free set too."
+   },
+   {
+    "t": "Patrols and expeditions run normally with the set aboard; a first run of each type still cannot be lost.",
+    "tag": "fresh"
+   }
+  ]
+ },
+ {
+  "n": "4",
+  "title": "Your fix-round answers (2026-11-17)",
+  "note": "Each line is one of your answers this morning.",
+  "sheets": [],
+  "items": [
+   {
+    "t": "Storage Help says a mission's extra finds pause at the cap; a mission running while one of its uncommon or rare items is at its cap collects none of it, and the primary material still lands."
+   },
+   {
+    "t": "A patrol in a repair pause: Overtime costs only the pause's remaining repair (cheap for a short pause). Recall that ship: the pause Overtime ends, and docked Overtime is priced by the docked repair."
+   },
+   {
+    "t": "Overtime bought while docked that carries into a patrol's repair pause keeps its docked price."
+   },
+   {
+    "t": "Refinery or Fabricator: start a batch, let a free line join it. The joined line's button reads <b>Release</b> (with a note); the order's own line reads <b>Cancel</b>. Release frees just that line; Home then shows only that line's last unit in flight."
+   },
+   {
+    "t": "Same setup: the line's Free materials, Start, and Add to queue all agree (Start no longer refuses with 'not enough materials' while plenty is free)."
+   },
+   {
+    "t": "Warehouse tooltip's <b>Free</b> equals the Sell screen's Free for the same item; with salvage queued, a <b>Queued salvage</b> row explains the difference."
+   },
+   {
+    "t": "Expeditions: a catalog-named system (such as LB-0472) that shows up in two different lists has the same distance and the same planets both times; Help says each system is the same place every visit."
+   }
+  ]
+ },
+ {
+  "n": "5",
+  "title": "Round 1 rechecks (fixed since the 2026-11-14 run)",
+  "note": "Each line was a FAIL or a user report in round 1 and has been fixed.",
+  "sheets": [],
+  "items": [
+   {
+    "t": "Migrated save: after the crew welcome, explorers are not half empty and the Homeworld reserve holds only a few leftovers (was thousands).",
+    "tag": "save"
+   },
+   {
+    "t": "Retire a captain whose XO sits in a saved roster: the roster no longer points at the gone XO, also after a reload."
+   },
+   {
+    "t": "Facilities: the Personnel Rosters card glyph is an SVG icon (no emoji). No emoji anywhere you look.",
+    "tag": "theme"
+   },
+   {
+    "t": "Home's time left for a refine or craft counts the time already spent on the current item (matches the facility console)."
+   },
+   {
+    "t": "Fresh save, Crew, Captain Roster: locked captain slots show what unlocks them.",
+    "tag": "fresh"
+   },
+   {
+    "t": "Refinery: a continuous (run until canceled) order can be chosen in the UI."
+   },
+   {
+    "t": "Ships roster: sort, view and search are remembered after a reload."
+   },
+   {
+    "t": "While You Were Away lists what auto-salvage took, queued orders that started, and upgrades that finished.",
+    "tag": "debug"
+   },
+   {
+    "t": "Leave the game in a background tab for a long while with the warp background on, come back: no magenta band or stuck streaks.",
+    "tag": [
+     "device",
+     "theme"
+    ]
+   }
+  ]
+ },
+ {
+  "n": "6",
+  "title": "Round 1 coverage gaps (from the sweep lanes)",
+  "note": "Lines the 2026-11-13 sweep said the QA lists did not cover yet. Quick spot checks; open the ledger for detail.",
+  "sheets": [],
+  "items": [
+   {
+    "t": "Expeditions: recall and resume pay each scan reward once; a real star revisited has the same planets; an instant recall; two explorers on one held system; abandon while flying home; short-reach resume."
+   },
+   {
+    "t": "Expeditions: skip-all body bonus; the warehouse cap log line; the medical bay at claim; Lab III lanes; a short-range relic find; an in-flight run from a migrated save; offline across a recall.",
+    "tag": "save"
+   },
+   {
+    "t": "Economy: canister sell math (50 cr each); the ice economy; a two-line refine order; Overtime in its last seconds; Overtime then closing the game; the salvage refund ceiling."
+   },
+   {
+    "t": "Economy: the Warehouse shows exact ore; storage at the cap; the research queue; Fuel Depot range; the telescope card; purchase refusals at the cap."
+   },
+   {
+    "t": "Patrols: the share of time paused on Repeat; a training patrol on Repeat; Repeat until a defeat; Overtime then a Repeat pause; pause versus docked price; Aggressive versus Balanced logs."
+   },
+   {
+    "t": "Patrols: closing the game after a defeat; carrier crew buckets offline; Combat Patrols Help reads right (usually won, not always; stances; Repeat and repairs; climbs every 20 routes; stops 'outmatched')."
+   },
+   {
+    "t": "Crew: load a real PRODUCTION save; export size; Mentor on Earth-born crew; Crew Effectiveness acts; the refugee echo on relocation; the notable cap.",
+    "tag": "save"
+   },
+   {
+    "t": "Crew: a roster apply fills from the pool then the reserve; retiring a pinned XO; the reserve at 375 px with 100+ groups; 4 days offline crew math.",
+    "tag": [
+     "save",
+     "device"
+    ]
+   }
+  ]
+ }
+];
+
+const STORE = "hl-qa-0140-delta-1117-v1";
+let userState = {};
+try { userState = JSON.parse(localStorage.getItem(STORE) || "{}"); } catch (e) { userState = {}; }
+function save() { try { localStorage.setItem(STORE, JSON.stringify(userState)); } catch (e) {} }
+
+const CHIP = {
+  save: '<span class="chip save">needs real save</span>',
+  fresh: '<span class="chip fresh">fresh save</span>',
+  device: '<span class="chip device">needs device</span>',
+  theme: '<span class="chip theme">light + dark</span>',
+  debug: '<span class="chip debug">Debug tab</span>',
+};
+
+function cb(kind, id, checked, label) {
+  return '<span class="cb ' + kind + '"><input type="checkbox" id="' + id + '" ' + (checked ? "checked " : "") +
+    'aria-label="' + label + '"><span class="box">' + TICK + "</span></span>";
+}
+function tagList(it) { return it.tag ? (Array.isArray(it.tag) ? it.tag : [it.tag]) : []; }
+function secId(si) { return "sec-" + SECTIONS[si].n; }
+
+const jump = document.getElementById("jump");
+const secWrap = document.getElementById("sections");
+SECTIONS.forEach((sec, si) => {
+  jump.insertAdjacentHTML("beforeend", '<a href="#' + secId(si) + '"><b>' + sec.n + "</b>" + sec.title.split(" (")[0] + "</a>");
+  const el = document.createElement("section");
+  el.id = secId(si);
+  let html = '<div class="sec-head"><span class="sec-num">' + sec.n + '</span><span class="sec-title">' + sec.title +
+    '</span><span class="sec-line"></span><span class="sec-done" id="secdone-' + si + '"></span></div>';
+  if (sec.note) html += '<p class="sec-note">' + sec.note + "</p>";
+  if (sec.sheets.length) {
+    html += '<p class="sheets-label">Folded-in sheets (' + sec.sheets.length + ")</p><div class=\"sheets\">";
+    sec.sheets.forEach((k) => {
+      const s = SHEETS[k];
+      html += '<div class="sheet"><a href="' + s.f + '">' + s.name + '</a><span class="file">' + s.f + "</span><p>" + s.sum + "</p></div>";
+    });
+    html += "</div>";
+  }
+  html += '<div class="items"><div class="col-head"><span class="ch desk">1280</span><span class="ch mob">375</span><span></span></div>';
+  sec.items.forEach((it, ii) => {
+    const key = si + "-" + ii;
+    let meta = tagList(it).map((t) => CHIP[t] || "").join("");
+    if (it.only === "desk") meta += '<span class="chip only">desktop only</span>';
+    if (it.only === "mob") meta += '<span class="chip only">phone only</span>';
+    if (it.src) meta += '<span class="src">from: ' + SHEETS[it.src].name + "</span>";
+    const deskCell = it.only === "mob" ? '<span class="na">n/a</span>' : cb("desk", "d-" + key, !!userState["d-" + key], "Checked at 1280 px");
+    const mobCell = it.only === "desk" ? '<span class="na">n/a</span>' : cb("mob", "m-" + key, !!userState["m-" + key], "Checked at 375 px");
+    html += '<div class="item" data-key="' + key + '">' +
+      '<div class="cell">' + deskCell + "</div>" +
+      '<div class="cell">' + mobCell + "</div>" +
+      '<div class="body"><span class="t">' + it.t + "</span>" + (meta ? '<div class="meta">' + meta + "</div>" : "") + "</div></div>";
+  });
+  html += "</div>";
+  el.innerHTML = html;
+  secWrap.appendChild(el);
+});
+
+// The link index: every sheet with its home section, by date.
+const homes = [];
+SECTIONS.forEach((sec, si) => sec.sheets.forEach((k) => homes.push({ k: k, si: si })));
+homes.sort((a, b) => (SHEETS[a.k].f < SHEETS[b.k].f ? -1 : 1));
+const _ib = document.getElementById("indexBody");
+if (_ib) _ib.innerHTML = homes.map((h) => {
+  const s = SHEETS[h.k];
+  const sec = SECTIONS[h.si];
+  return '<tr><td class="d-date">' + s.f.slice(0, 10) + '</td><td><a href="' + s.f + '">' + s.name + '</a></td><td><a href="#' + secId(h.si) + '">' + sec.n + " · " + sec.title.split(" (")[0] + "</a></td></tr>";
+}).join("");
+
+function needsDesk(it) { return it.only !== "mob"; }
+function needsMob(it) { return it.only !== "desk"; }
+function isDone(key, it) { return (!needsDesk(it) || !!userState["d-" + key]) && (!needsMob(it) || !!userState["m-" + key]); }
+function recompute() {
+  let total = 0, done = 0, desk = 0, mob = 0, deskTotal = 0, mobTotal = 0;
+  SECTIONS.forEach((sec, si) => {
+    let secTotal = 0, secDone = 0;
+    sec.items.forEach((it, ii) => {
+      const key = si + "-" + ii;
+      total += 1; secTotal += 1;
+      if (needsDesk(it)) { deskTotal += 1; if (userState["d-" + key]) desk += 1; }
+      if (needsMob(it)) { mobTotal += 1; if (userState["m-" + key]) mob += 1; }
+      const d = isDone(key, it);
+      if (d) { done += 1; secDone += 1; }
+      const row = secWrap.querySelector('.item[data-key="' + key + '"]');
+      if (row) row.classList.toggle("done", d);
+    });
+    const sd = document.getElementById("secdone-" + si);
+    if (sd) sd.textContent = secDone + " / " + secTotal;
+  });
+  const pctVal = total ? Math.round((done / total) * 100) : 0;
+  document.getElementById("pct").firstChild.textContent = pctVal + "%";
+  document.getElementById("barFill").style.width = pctVal + "%";
+  document.getElementById("doneCount").textContent = done;
+  document.getElementById("totalCount").textContent = total;
+  document.getElementById("deskCount").textContent = desk;
+  document.getElementById("deskTotal").textContent = deskTotal;
+  document.getElementById("mobCount").textContent = mob;
+  document.getElementById("mobTotal").textContent = mobTotal;
+  document.getElementById("pctlabel").textContent = pctVal >= 100 ? "launch-ready" : (pctVal >= 60 ? "closing in" : "in progress");
+}
+
+secWrap.addEventListener("change", (e) => {
+  const inp = e.target;
+  if (!inp.id || (inp.id[0] !== "d" && inp.id[0] !== "m")) return;
+  if (inp.checked) userState[inp.id] = true; else delete userState[inp.id];
+  save(); recompute();
+});
+document.getElementById("resetBtn").addEventListener("click", () => {
+  userState = {}; save();
+  secWrap.querySelectorAll('input[id^="d-"], input[id^="m-"]').forEach((i) => (i.checked = false));
+  recompute();
+});
+recompute();
+</script>
+</body>
+</html>
