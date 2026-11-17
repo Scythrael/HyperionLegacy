@@ -157,12 +157,24 @@ function affixOf(piece: EquipmentInstance | undefined, key: string): number {
 // this always returns an all-zero map for a Standard-Issue set, matching the pre-1.4
 // hardcoded zeroResist(). Wired now so the fold reads real numbers the moment those
 // affixes exist, without reshaping shipToCombatant. PURE (fresh map per call).
+// 0.13.11.4 (catch-up speed): the `${prefix}_${family}` keys are built ONCE per prefix and reused, instead
+// of a fresh string per piece per family (a fresh string key made every lookup slow, and this fold runs on
+// every patrol wave). Same keys, same order, same sums: the result is unchanged.
+const RESIST_KEYS = new Map<string, readonly string[]>();
+function resistKeysFor(prefix: string): readonly string[] {
+	let keys = RESIST_KEYS.get(prefix);
+	if (keys === undefined) {
+		keys = RESIST_FAMILIES.map((family) => `${prefix}_${family}`);
+		RESIST_KEYS.set(prefix, keys);
+	}
+	return keys;
+}
 function sumFamilyResist(gear: EquipmentInstance[], prefix: string): FamilyResist {
 	const resist = zeroResist();
+	const keys = resistKeysFor(prefix);
 	for (const piece of gear) {
-		for (const family of RESIST_FAMILIES) {
-			const key = `${prefix}_${family}`;
-			resist[family] += statOf(piece, key);
+		for (let i = 0; i < RESIST_FAMILIES.length; i++) {
+			resist[RESIST_FAMILIES[i]] += statOf(piece, keys[i]);
 		}
 	}
 	return resist;

@@ -74,6 +74,7 @@ import {
   type CaptainStopReason,
   type CaptainMissionState,
   type PatrolMissionState,
+  type PatrolSystemDurability,
   type PatrolKey,
   type PatrolDef,
   type PatrolPhase,
@@ -2557,6 +2558,125 @@ interface PatrolTickResult {
   endRoutesCompleted: number;
 }
 
+// 0.13.11.4 CATCH-UP SPEED: a test-only switch (patrolPerfSwitch.fixture.ts turns it off; always on in the game).
+// On, a patrol cycle's setup (below) is computed once per cycle and reused on every 1 s step of that cycle. Off, it
+// is computed on every step, as before. The results are identical either way (patrolPerfParity.test.ts proves it on
+// whole states); only the work differs.
+export const PATROL_PERF_SWITCH = { live: true };
+
+// A patrol cycle's setup: the ship's folded defensive pools (foldedPlayerDefense, the between-wave shield regen and
+// the limp-home damage read them) and one relaunch's fuel (economyTick prices it from the installed-gear fold). Both
+// are PURE functions of the ship's type, the patrol, and the ship's installed pieces, so a cached value equals a fresh
+// one exactly while those inputs are the SAME objects they were computed from. Each field is filled on first read.
+interface PatrolCycleSetupEntry {
+  typeKey: ShipInstance["typeKey"];
+  patrolKey: PatrolKey;
+  // A copy of the installed piece list the entry was computed from (piece objects by identity, in order).
+  gear: readonly EquipmentInstance[] | undefined;
+  foldedDefense?: ReturnType<typeof foldedPlayerDefense>;
+  fuelPerCycle?: number;
+  // The full (no wear) per-system durability a relaunch seeds (defaultSystemDurabilityForHull). Handed out as a copy,
+  // since the mission stores it.
+  systemDurability?: PatrolSystemDurability;
+}
+// Keyed on the cycle's wave schedule array: one array per cycle, minted with the cycle (dispatch or relaunch) and only
+// ever replaced whole. Every input above is checked before an entry is reused: any gear change (an install, an
+// uninstall, a swap, a salvage, any edit to a piece) replaces that piece object in the state and misses; a relaunch
+// mints a new schedule and misses; a loaded save holds new objects and misses. Nothing is ever stale, and the WeakMap
+// lets an entry go when its cycle does.
+const PATROL_CYCLE_SETUP = new WeakMap<readonly number[], PatrolCycleSetupEntry>();
+
+// The patrol arm's gear view: a patrol ship's installed pieces (equippedFor), filtered once per equipment list instead
+// of on every 1 s step. The state's equipment array is never edited in place (every install, uninstall, salvage, mint
+// or piece edit builds a new array), so the same array holds the same pieces and the filter returns the same list.
+// Frozen, since one list is shared by every step; its readers only filter, find and map it.
+const PATROL_GEAR_VIEW = new WeakMap<readonly EquipmentInstance[], Map<string, EquipmentInstance[]>>();
+function patrolInstalledGear(state: GameState, shipId: string): EquipmentInstance[] {
+  if (!PATROL_PERF_SWITCH.live) return equippedFor(state, shipId);
+  let byShip = PATROL_GEAR_VIEW.get(state.equipment);
+  if (byShip === undefined) {
+    byShip = new Map();
+    PATROL_GEAR_VIEW.set(state.equipment, byShip);
+  }
+  let gear = byShip.get(shipId);
+  if (gear === undefined) {
+    gear = Object.freeze(equippedFor(state, shipId)) as EquipmentInstance[];
+    byShip.set(shipId, gear);
+  }
+  return gear;
+}
+
+function samePieces(a: readonly EquipmentInstance[] | undefined, b: readonly EquipmentInstance[] | undefined): boolean {
+  if (a === undefined || b === undefined) return a === b;
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return false;
+  return true;
+}
+
+// The cycle's cache entry for these inputs (a fresh one, stored, when the cached entry does not match them all).
+function patrolCycleSetup(
+  mission: PatrolMissionState,
+  typeKey: ShipInstance["typeKey"],
+  installedGear: readonly EquipmentInstance[] | undefined,
+): PatrolCycleSetupEntry {
+  const hit = PATROL_CYCLE_SETUP.get(mission.waveTicks);
+  if (hit !== undefined && hit.typeKey === typeKey && hit.patrolKey === mission.patrolKey && samePieces(hit.gear, installedGear)) {
+    return hit;
+  }
+  const entry: PatrolCycleSetupEntry = {
+    typeKey,
+    patrolKey: mission.patrolKey,
+    gear: installedGear === undefined ? undefined : [...installedGear],
+  };
+  PATROL_CYCLE_SETUP.set(mission.waveTicks, entry);
+  return entry;
+}
+
+// The ship's folded defensive pools for this cycle (see PatrolCycleSetupEntry). Frozen, since one object is shared by
+// every step of the cycle; its readers (tickCaptainPatrol, freshPatrolMission) never write it.
+function entryFoldedDefense(
+  entry: PatrolCycleSetupEntry,
+  shipDef: ShipTypeDef,
+  installedGear: EquipmentInstance[] | undefined,
+): ReturnType<typeof foldedPlayerDefense> {
+  if (entry.foldedDefense === undefined) entry.foldedDefense = Object.freeze(foldedPlayerDefense(shipDef, installedGear));
+  return entry.foldedDefense;
+}
+
+// A fresh copy of the cycle's full per-system durability seed (see PatrolCycleSetupEntry).
+function entrySystemDurability(
+  entry: PatrolCycleSetupEntry,
+  hullType: CombatHullType,
+  shipDef: ShipTypeDef,
+  installedGear: EquipmentInstance[] | undefined,
+): PatrolSystemDurability {
+  if (entry.systemDurability === undefined) entry.systemDurability = defaultSystemDurabilityForHull(hullType, shipDef, installedGear);
+  const d = entry.systemDurability;
+  return { weapons: [...d.weapons], reactor: d.reactor, ftl: d.ftl };
+}
+
+// One relaunch's fuel on this ship for this patrol (economyTick's patrol arm), the same expression it always used:
+// fuelForRoundTrip over the patrol's legs with the hull's equipment-folded engineEfficiency (shipDerivedStats reads only
+// the ship's type and its pieces).
+function computePatrolFuelPerCycle(patrolDef: PatrolDef, ship: ShipInstance, gear: EquipmentInstance[]): number {
+  const stats = shipDerivedStats(ship, gear);
+  return fuelForRoundTrip(patrolDef.transitOutTicks, patrolDef.transitBackTicks, {
+    ...SHIP_TYPES[ship.typeKey],
+    engineEfficiency: stats.engineEfficiency,
+  });
+}
+function cyclePatrolFuelPerCycle(
+  mission: PatrolMissionState,
+  patrolDef: PatrolDef,
+  ship: ShipInstance,
+  gear: EquipmentInstance[],
+): number {
+  if (!PATROL_PERF_SWITCH.live) return computePatrolFuelPerCycle(patrolDef, ship, gear);
+  const entry = patrolCycleSetup(mission, ship.typeKey, gear);
+  if (entry.fuelPerCycle === undefined) entry.fuelPerCycle = computePatrolFuelPerCycle(patrolDef, ship, gear);
+  return entry.fuelPerCycle;
+}
+
 // tickCaptainPatrol: advance ONE captain's patrol by `ticksElapsed` route ticks. PURE
 // given its inputs (the only randomness is the state-derived combat seeds, never
 // Math.random), so it is closed-form / offline==live (see the header invariant). A
@@ -2639,7 +2759,12 @@ export function tickCaptainPatrol(
   // emitter's above-authored shield is stripped on the first quiet tick and a crafted-plated hull's
   // limp damage goes negative. Computed once (pure). For a Standard-Issue set (or absent gear) this
   // folds byte-identically to the authored stats, so parity + SI fixtures do not move.
-  const foldedDefense = foldedPlayerDefense(shipDef, installedGear);
+  // 0.13.11.4: read through the per-cycle setup (PatrolCycleSetupEntry), computed once per cycle, not every step.
+  // Off the switch (tests only), computed fresh here as before.
+  const setupEntry = PATROL_PERF_SWITCH.live ? patrolCycleSetup(captain.mission, ship.typeKey, installedGear) : null;
+  const foldedDefense = setupEntry
+    ? entryFoldedDefense(setupEntry, shipDef, installedGear)
+    : foldedPlayerDefense(shipDef, installedGear);
 
   // WORKING mission copy. Spread makes a fresh object (so wavesWon/phase/etc. mutations
   // never touch the input), and playerDrones is DEEP-cloned so the between-wave
@@ -2942,7 +3067,14 @@ export function tickCaptainPatrol(
             // Unit 2.3b: the SAME installed gear this tick already resolved, so a relaunched cycle's
             // drone carry-state seeds from the ship's installed pods identically to a fresh dispatch.
             installedGear,
+            // 0.13.11.4: the relaunch's full pools and durability seed from the cycle setup, the same values
+            // freshPatrolMission would compute from these same inputs (shipDef + installedGear + hullType).
+            seeds: setupEntry
+              ? { folded: foldedDefense, systemDurability: entrySystemDurability(setupEntry, hullType, shipDef, installedGear) }
+              : undefined,
           });
+          // 0.13.11.4: the new cycle has the same ship, patrol and pieces, so it shares the setup.
+          if (setupEntry) PATROL_CYCLE_SETUP.set(mission.waveTicks, setupEntry);
           // ⚠️ 0.13.4 Phase 2: CARRY THE PER-RUN COUNT ACROSS THE RELAUNCH. freshPatrolMission
           // is the shared factory for a NEW patrol and seeds routesCompletedThisRun to 0, which
           // is right for a dispatch and WRONG here: a relaunch is the middle of a run, not the
@@ -3488,15 +3620,11 @@ export function economyTick(
         // equippedFor source the derived-stats fold uses, then handed to tickCaptainPatrol so the
         // player combatant reads real weapons + shield + hull + defenses. undefined when there is no
         // ship (defensive; a patrol always has one), which tickCaptainPatrol treats as the absent path.
-        const patrolGear = patrolShip ? equippedFor(state, patrolShip.id) : undefined;
-        const patrolStats = patrolShip && patrolGear ? shipDerivedStats(patrolShip, patrolGear) : null;
+        // 0.13.11.4: through the cached gear view (patrolInstalledGear), the same pieces in the same order.
+        const patrolGear = patrolShip ? patrolInstalledGear(state, patrolShip.id) : undefined;
+        // 0.13.11.4: read through the per-cycle setup (cyclePatrolFuelPerCycle), computed once per cycle.
         const patrolFuelPerCycle =
-          patrolShip && patrolStats
-            ? fuelForRoundTrip(patrolDef.transitOutTicks, patrolDef.transitBackTicks, {
-                ...SHIP_TYPES[patrolShip.typeKey],
-                engineEfficiency: patrolStats.engineEfficiency,
-              })
-            : 0;
+          patrolShip && patrolGear ? cyclePatrolFuelPerCycle(captain.mission, patrolDef, patrolShip, patrolGear) : 0;
         const patrolResult = tickCaptainPatrol(
           ticksElapsed,
           captain,
@@ -4426,8 +4554,12 @@ function freshPatrolMission(args: {
   // Standard-Issue set is byte-identical to the installed-pod build. In normal play BOTH call sites
   // pass the ship's real fitted gear, so a Standard-Issue carrier is seeded byte-identically to before.
   installedGear?: EquipmentInstance[];
+  // 0.13.11.4 (catch-up speed): a relaunch passes the cycle setup's values for the two seeds below, which are the
+  // values this function computes from the same shipDef / hullType / installedGear. Absent (a dispatch, or the
+  // test-only switch off): computed here.
+  seeds?: { folded: ReturnType<typeof foldedPlayerDefense>; systemDurability: PatrolSystemDurability };
 }): PatrolMissionState {
-  const { patrolKey, stance, masterSeed, repeatDispatch, shipDef, hullType, installedGear } = args;
+  const { patrolKey, stance, masterSeed, repeatDispatch, shipDef, hullType, installedGear, seeds } = args;
   // factionId + wave params BOTH come from this one def lookup (no caller-passed def that
   // could disagree with patrolKey).
   const def = PATROLS[patrolKey];
@@ -4437,7 +4569,7 @@ function freshPatrolMission(args: {
   // wave 1 below its real pool and the first buildPatrolPlayerCombatant override clamped it there.
   // For a Standard-Issue set (or absent gear) this folds byte-identically to the authored stats, so
   // no SI patrol fixture / parity outcome moves.
-  const folded = foldedPlayerDefense(shipDef, installedGear);
+  const folded = seeds ? seeds.folded : foldedPlayerDefense(shipDef, installedGear);
   return {
     kind: "patrol",
     patrolKey,
@@ -4478,7 +4610,7 @@ function freshPatrolMission(args: {
     // Carry-state seeded to FULL system durability (Phase 12b Unit B2): every weapon + the
     // reactor + the ftl at their fresh ceilings (no wear), the same "start clean" a fresh
     // dispatch AND a relaunch both want. Wear accumulates from here across the cycle's waves.
-    playerSystemDurability: defaultSystemDurabilityForHull(hullType, shipDef, installedGear),
+    playerSystemDurability: seeds ? seeds.systemDurability : defaultSystemDurabilityForHull(hullType, shipDef, installedGear),
     recalled: false,
     repeatDispatch,
   };
