@@ -310,7 +310,7 @@ export const REQUISITION_CATALOGUE: RequisitionCatalogue = {
     mint: { kind: "dronePod", droneRole: "attack" },
   },
 
-  // --- The CREW MODULE floors (0.14.0; user 2026-11-17 "free basic set, all ships", then "Yes, add them" for the
+  // The CREW MODULE floors (0.14.0; user 2026-11-17 "free basic set, all ships", then "Yes, add them" for the
   // counter). Every ship is born with these three (model.ts CREW_MODULE_STANDARD_ISSUE), so issuing the same piece
   // free restores where a new ship starts and nothing beyond it, exactly the posture of the combat floors. Unlike the
   // economy four they are not stat-neutral (a small officer and division lift, 12 berths, an even scan bias); a

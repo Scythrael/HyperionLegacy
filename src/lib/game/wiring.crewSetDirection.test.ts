@@ -2,7 +2,7 @@
 // over the wiring registry with the free Sensor Suite, Bridge Module and Crew Quarters KEPT on ship-1 (the hull every
 // player has). wiring.sensitivity.test.ts measures every entry on a bare hull (wiringBase takes the set off), exactly
 // and through its curve; this pass only asks that each live source still moves its value the declared way when the
-// free set is aboard, so no source is silently cancelled or flipped by the set. No magnitudes: the set lifts officers,
+// free set is aboard, so no source is silently canceled or flipped by the set. No magnitudes: the set lifts officers,
 // divisions and some hull stats, so the size of a move may differ, never its sign.
 
 import { afterAll, describe, expect, it } from "vitest";
@@ -27,12 +27,12 @@ function checkPlanetBias(e: WiringEntry): void {
   expect(params.landmarkOddsBias, "the free Balanced Array's scan bias is aboard").toBeGreaterThan(0);
   const def = PLANET_TYPES.find((p) => p.id === planet)!;
   const pool = kind === "landmark" ? "surface" : "underground";
-  const cancelled =
+  const canceled =
     kind === "landmark"
       ? { ...params, landmarkOddsBias: params.landmarkOddsBias - def.surfaceBias }
       : { ...params, undergroundPoiOddsBias: params.undergroundPoiOddsBias - def.undergroundBias };
   const on = discoveryOddsPermille(params, planet)[pool];
-  const off = discoveryOddsPermille(cancelled, planet)[pool];
+  const off = discoveryOddsPermille(canceled, planet)[pool];
   if (e.direction === "up") expect(on, `${e.id}: odds should rise with the set aboard`).toBeGreaterThan(off);
   if (e.direction === "down") expect(on, `${e.id}: odds should fall with the set aboard`).toBeLessThan(off);
 }
