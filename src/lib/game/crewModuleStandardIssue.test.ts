@@ -3,6 +3,7 @@
 import { describe, it, expect } from "vitest";
 import {
   CREW_MODULE_STANDARD_ISSUE,
+  EQUIPMENT_SLOTS,
   freshState,
   isStandardIssueBaseline,
   seedCrewModuleStandardIssueForShip,
@@ -14,14 +15,15 @@ import {
 } from "./model";
 import { buyHomeworldTalent, dispatchCaptainOnMission, mintBuiltShip, tick } from "./tick";
 import { equippedFor } from "./equipmentQueries";
-import { BRIDGE_MODULES, bridgeOfficerMultiplier, installedBridgeModule, installedQuartersModule, quartersCapacityBonus, QUARTERS_MODULES } from "./crewModules";
+import { BRIDGE_MODULES, bridgeOfficerMultiplier, crewStationsBerths, crewStationsBerthsForPoints, HULL_FAMILY_MODULE_BONUS, installedBridgeModule, installedQuartersModule, quartersCapacityBonus, QUARTERS_MODULES } from "./crewModules";
 import { COMPLEMENT_PARAGRAPHS, HELP_TOPICS, SENSORS_HELP, SI_QUARTERS_BERTHS, STANDARD_ISSUE_CREW_MODULES_TEXT } from "../helpTopics";
 import { installedSensorArray } from "./sensorArrays";
 import { complementTotalCap } from "./commandStructure";
 import { generateEquipment } from "./itemgen";
 import { withCrewModuleSiOff } from "./crewModuleSiSwitch.fixture";
 import { deserialize, migrate, SAVE_VERSION, serialize, type SaveFile } from "./save";
-import { unfitEquipmentInstance } from "./equipment";
+import { fitEquipment, unfitEquipmentInstance } from "./equipment";
+import { canRequisition, freeSpareBaselinesFor, REQUISITION_ENTRIES, requisitionStandardIssue } from "./quartermaster";
 
 const CREW_SLOTS = ["sensor", "bridge", "quarters"] as const;
 
@@ -197,14 +199,42 @@ describe("Standard-Issue crew modules: Help", () => {
     expect(bridge.amp).toBe(0.1);
     expect(util.focusBoost).toBe(0.1);
     expect(STANDARD_ISSUE_CREW_MODULES_TEXT).toBe(
-      "Every ship also comes with a free Standard-Issue Sensor Suite, Bridge Module and Crew Quarters: a Balanced Array (slightly better odds of surface landmarks and underground finds when it scans; it adds no sensor points of its own), Balanced Command (every officer seated on the ship works 10% better) and Utilitarian Quarters (12 crew berths, and every division works 10% better). Each also gives its hull bonus (see the Hull bonuses topic). Ships you already had were given the same set in any of these three slots that was empty. These three slots can be left empty: uninstalling one leaves it empty, and nothing puts a free one back. Crafted modules are upgrades, since rarity and quality raise their effects (a crafted Utilitarian Quarters adds no berths over the free one; it lifts the divisions more).",
+      `Every ship also comes with a free Standard-Issue Sensor Suite, Bridge Module and Crew Quarters: a Balanced Array (slightly better odds of surface landmarks and underground finds when it scans; it adds no sensor points of its own), Balanced Command (every officer seated on the ship works 10% better) and Utilitarian Quarters (12 crew berths, and every division works 10% better). The Bridge Module and Crew Quarters also give their hull bonus (see the Hull bonuses topic). Ships you already had were given the same set in any of these three slots that was empty. These three slots can be left empty: uninstalling one leaves it empty, and the Quartermaster issues a free replacement of each. Crafted modules are upgrades, since rarity and quality raise their effects: a crafted Utilitarian Quarters adds the berths of its Crew Stations line on top of the 12 (${crewStationsBerthsForPoints(50)} more at 50 points), and it lifts the divisions more.`,
     );
+    expect(crewStationsBerthsForPoints(50)).toBe(2); // the curve's sample (CREW_STATIONS_BERTH_SCALE, CREW_STATIONS_BERTH_KNEE)
+    // Only the bridge and quarters carry a hull-family bonus; the sensor has none, so Help names those two.
+    for (const spec of Object.keys(HULL_FAMILY_MODULE_BONUS)) {
+      expect(Object.keys(HULL_FAMILY_MODULE_BONUS[spec as keyof typeof HULL_FAMILY_MODULE_BONUS]).sort()).toEqual(["bridge", "quarters"]);
+    }
     expect(body("shipSystems")).toContain(STANDARD_ISSUE_CREW_MODULES_TEXT);
-    expect(body("shipSystems")).toContain("issues one for any economy or combat slot at no cost");
+    expect(body("shipSystems")).toContain("issues one for any economy or combat slot, Sensor Suite, Bridge Module or Crew Quarters at no cost");
+  });
+  it("the berths line is true: a crafted Utilitarian Quarters adds its Crew Stations berths over the free 12", () => {
+    // Measured, not assumed (fix pass 2026-11-17): the free one is 12, a crafted one 12 plus crewStationsBerths.
+    const s = freshState();
+    const ship = s.ships[0];
+    expect(quartersCapacityBonus(s, ship)).toBe(util.baseCapacity);
+    const crafted = generateEquipment({
+      slotType: "quarters",
+      varietyKey: CREW_MODULE_STANDARD_ISSUE.quarters,
+      blueprintKey: "craftedQuartersTest",
+      iLevel: 100,
+      quality: 5,
+      rarity: "radiant",
+      ascension: "none",
+      rng: () => 0.5,
+      allocateId: () => "equip-q",
+    });
+    const withCrafted: GameState = { ...s, equipment: [...s.equipment.filter((e) => e.slotType !== "quarters"), { ...crafted, fittedToShipId: ship.id }] };
+    const bonus = quartersCapacityBonus(withCrafted, ship);
+    expect(crewStationsBerths(crafted)).toBeGreaterThan(0);
+    expect(bonus).toBe(util.baseCapacity + crewStationsBerths(crafted));
   });
   it("the Quartermaster, Complement and Sensors topics agree", () => {
-    expect(body("quartermaster")).toContain("one row per economy and combat slot");
-    expect(body("quartermaster")).toContain("The free Sensor Suite, Bridge Module and Crew Quarters a ship is born with are not issued here.");
+    expect(body("quartermaster")).toContain("one row per slot that has a baseline");
+    expect(body("quartermaster")).toContain("the free Sensor Suite, Bridge Module and Crew Quarters every ship is born with (a Balanced Array, Balanced Command and Utilitarian Quarters)");
+    expect(body("quartermaster")).toContain("or canceled");
+    expect(body("quartermaster")).not.toMatch(/not issued here|cancelled/);
     expect(COMPLEMENT_PARAGRAPHS.join("\n")).toContain(`every ship comes with Standard-Issue Utilitarian Quarters, ${SI_QUARTERS_BERTHS} berths; the Elite Quarters add none`);
     expect(SENSORS_HELP).toContain("The free Standard-Issue Balanced Array every ship comes with adds none; a crafted Sensor Suite does.");
     for (const text of [STANDARD_ISSUE_CREW_MODULES_TEXT, body("shipSystems"), body("quartermaster"), SENSORS_HELP]) expect(text).not.toMatch(/—|-{2}|\bfit/);
@@ -321,5 +351,87 @@ describe("Standard-Issue crew modules: the v71 -> v72 migration", () => {
     const m = withCrewModuleSiOff(() => migrate(v71Save(old), ENTROPY));
     expect(m.equipment).toEqual(old.equipment);
     expect(m.nextEquipmentId).toBe(old.nextEquipmentId);
+  });
+});
+
+// Fix pass (user 2026-11-17 "Yes, add them"): the Quartermaster issues the free Sensor Suite, Bridge Module and Crew
+// Quarters like the other Standard-Issue gear: the same piece a new ship is born with, one spare of each at a time.
+describe("Standard-Issue crew modules: the Quartermaster issues them", () => {
+  const born = seedCrewModuleStandardIssueForShip("ship-1", 5).pieces;
+  const bornPiece = (slot: (typeof CREW_SLOTS)[number]): EquipmentInstance => born.find((p) => p.slotType === slot)!;
+
+  it("has a row for each, labeled from the slot and naming the free piece, after the combat rows", () => {
+    const keys = REQUISITION_ENTRIES.filter((e) => e.teamType === null).map((e) => e.key);
+    expect(keys.slice(-3)).toEqual(["sensor", "bridge", "quarters"]);
+    for (const slot of CREW_SLOTS) {
+      const entry = REQUISITION_ENTRIES.find((e) => e.slotType === slot)!;
+      expect(entry.mint).toEqual({ kind: "crewModule", varietyKey: CREW_MODULE_STANDARD_ISSUE[slot] });
+      expect(entry.label).toBe(EQUIPMENT_SLOTS[slot]!.label);
+    }
+    expect(REQUISITION_ENTRIES.filter((e) => CREW_SLOTS.includes(e.slotType as (typeof CREW_SLOTS)[number])).map((e) => e.issuedName)).toEqual([
+      "Standard-Issue Balanced Array",
+      "Standard-Issue Balanced Command",
+      "Standard-Issue Utilitarian Quarters",
+    ]);
+  });
+
+  it("issues each one free as a spare: the piece a new ship is born with, bar its id, install and grace stamp", () => {
+    for (const slot of CREW_SLOTS) {
+      const s = freshState();
+      // The ship's own installed piece is doing its job, so it never counts as holding one.
+      expect(canRequisition(s, slot)).toEqual({ ok: true });
+      const r = requisitionStandardIssue(s, slot);
+      expect(r.reason, slot).toBeNull();
+      const piece = r.minted!;
+      expect(piece.id).toBe(`equip-${s.nextEquipmentId}`);
+      expect(r.next.nextEquipmentId).toBe(s.nextEquipmentId + 1);
+      expect(r.next.credits).toEqual(s.credits); // free
+      expect(piece.fittedToShipId).toBeNull();
+      expect(piece.graceStartedAtGameSeconds).toBe(s.gameTimeSeconds);
+      expect(isStandardIssueBaseline(piece)).toBe(true);
+      const { id: _a, fittedToShipId: _b, graceStartedAtGameSeconds: _c, ...rest } = piece;
+      const { id: _d, fittedToShipId: _e, ...bornRest } = bornPiece(slot);
+      expect(rest).toEqual(bornRest);
+      expect(freeSpareBaselinesFor(r.next, slot).map((p) => p.id)).toEqual([piece.id]);
+    }
+  });
+
+  it("holds the one-spare limit per slot, each slot on its own", () => {
+    let s = freshState();
+    for (const slot of CREW_SLOTS) s = requisitionStandardIssue(s, slot).next;
+    for (const slot of CREW_SLOTS) {
+      expect(canRequisition(s, slot)).toEqual({ ok: false, reason: "alreadyHoldingOne" });
+      const again = requisitionStandardIssue(s, slot);
+      expect(again.minted).toBeNull();
+      expect(again.next).toBe(s);
+    }
+    // An uninstalled free piece is a spare too: emptying the bridge leaves one in hand, so the counter waits.
+    const bridge = crewSet(freshState(), "ship-1").bridge[0];
+    const emptied = unfitEquipmentInstance(freshState(), "ship-1", bridge.id);
+    expect(canRequisition(emptied, "bridge")).toEqual({ ok: false, reason: "alreadyHoldingOne" });
+    expect(canRequisition(emptied, "quarters")).toEqual({ ok: true });
+  });
+
+  it("installs from the issued spare into an emptied slot, and the counter then issues another", () => {
+    for (const slot of CREW_SLOTS) {
+      const fresh = freshState();
+      const own = crewSet(fresh, "ship-1")[slot][0];
+      // The player salvaged the ship's own piece: model that as gone from the pool, leaving the slot empty.
+      const bare: GameState = { ...fresh, equipment: fresh.equipment.filter((e) => e.id !== own.id) };
+      expect(crewSet(bare, "ship-1")[slot]).toHaveLength(0);
+      const issued = requisitionStandardIssue(bare, slot);
+      const installed = fitEquipment(issued.next, "ship-1", issued.minted!.id);
+      expect(crewSet(installed, "ship-1")[slot].map((p) => p.id)).toEqual([issued.minted!.id]);
+      expectStandardIssueSet(installed, "ship-1");
+      expect(canRequisition(installed, slot)).toEqual({ ok: true });
+    }
+    // The berths come back with the quarters.
+    const fresh = freshState();
+    const own = crewSet(fresh, "ship-1").quarters[0];
+    const bare: GameState = { ...fresh, equipment: fresh.equipment.filter((e) => e.id !== own.id) };
+    expect(quartersCapacityBonus(bare, bare.ships[0])).toBe(0);
+    const issued = requisitionStandardIssue(bare, "quarters");
+    const back = fitEquipment(issued.next, "ship-1", issued.minted!.id);
+    expect(quartersCapacityBonus(back, back.ships[0])).toBe(SI_QUARTERS_BERTHS);
   });
 });

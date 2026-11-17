@@ -162,9 +162,16 @@ export function siPreview(bpKey: string, level: number): string {
   return hash(previewCraftOutcome(BLUEPRINTS[bpKey], { craftingLevel: level }));
 }
 
+// The ship rows the capture saw: the Sensor Suite, Bridge Module and Crew Quarters rows came after it (0.14.0
+// Standard-Issue crew modules, user 2026-11-17 "Yes, add them"; pinned in crewModuleStandardIssue.test.ts).
+const SHIP_ROWS_ADDED_AFTER_THE_CAPTURE: ReadonlySet<string> = new Set(["sensor", "bridge", "quarters"]);
 export function shipMint(): string {
   const s = freshState();
-  return hash(REQUISITION_ENTRIES.filter((e) => e.teamType === null).map((e) => requisitionStandardIssue(s, e.slotType, null).minted));
+  return hash(
+    REQUISITION_ENTRIES.filter((e) => e.teamType === null && !SHIP_ROWS_ADDED_AFTER_THE_CAPTURE.has(e.slotType)).map(
+      (e) => requisitionStandardIssue(s, e.slotType, null).minted
+    )
+  );
 }
 
 export const CRAFTED_CASES: readonly (readonly [string, number])[] = [

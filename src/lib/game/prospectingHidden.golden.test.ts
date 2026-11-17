@@ -51,6 +51,8 @@ const PINS: Readonly<Record<string, string>> = {
 // Member pieces added after the capture (so the "wearers" pin hashes exactly the pieces it saw): Field Kits FKR-5's
 // Impact Grenade, a Security tool.
 const ADDED_AFTER_THE_PIN: ReadonlySet<string> = new Set(["impactGrenade"]);
+// Quartermaster rows added after the capture: the 0.14.0 Standard-Issue crew module floors (sensor, bridge, quarters).
+const ROWS_ADDED_AFTER_THE_PIN: ReadonlySet<string> = new Set(["sensor", "bridge", "quarters"]);
 
 function pin(name: string, value: unknown): void {
   expect(PINS[name], `no pin named ${name}`).toBeDefined();
@@ -108,7 +110,11 @@ describe("Prospecting hidden: nothing a player can see moves while the unlock fl
   });
 
   it("the Quartermaster rows", () => {
-    pin("requisition", REQUISITION_ENTRIES);
+    // The Sensor Suite, Bridge Module and Crew Quarters rows came after the capture (0.14.0 Standard-Issue crew
+    // modules, user 2026-11-17 "Yes, add them"), so the pin hashes exactly the rows it saw, in order.
+    const crewModuleRows = REQUISITION_ENTRIES.filter((e) => ROWS_ADDED_AFTER_THE_PIN.has(e.slotType));
+    expect(crewModuleRows.map((e) => e.key)).toEqual(["sensor", "bridge", "quarters"]);
+    pin("requisition", REQUISITION_ENTRIES.filter((e) => !ROWS_ADDED_AFTER_THE_PIN.has(e.slotType)));
   });
 
   it("every hull's valid compositions, crew capacity per composition, reserve berths and empty teams", () => {
