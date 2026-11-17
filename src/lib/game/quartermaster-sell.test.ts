@@ -16,7 +16,7 @@
 import { describe, it, expect } from "vitest";
 import Decimal from "break_infinity.js";
 import { freshState, ITEMS, type GameState } from "./model";
-import { canSell, isRetiredStock, sellItem, sellableInventory } from "./quartermaster";
+import { canSell, isRetiredStock, sellItem, sellableInventory, sellReservedReason, warehouseStockRows } from "./quartermaster";
 
 // Deuterium Ice was the first item flagged sellable (0.13.6). Its price, 40 then, is 4 since the user's 2026-10-21 call
 // ("Cut ice to ~4 credits"): a crafting input, not a money run (model.ts DEUTERIUM_ICE_SELL_VALUE).
@@ -154,6 +154,41 @@ describe("Quartermaster sell: only free stock", () => {
     const ice = sellableInventory(reserving(100)).find((e) => e.itemId === "deuteriumIce");
     expect(ice?.owned.toNumber()).toBe(100);
     expect(ice?.free.toNumber()).toBe(50);
+  });
+});
+
+// Fix round answers Q10 (user 2026-11-17, "Keep, align tooltip"): Sell's Free leaves out what queued salvage holds, and
+// the Warehouse tooltip's Free is the same number, with the holds that explain it on its own rows.
+describe("Quartermaster sell: the Warehouse tooltip shows the same Free", () => {
+  function holding(ice: number, line: number, salvage: number): GameState {
+    const base = stocked(ice, 0, 0);
+    return {
+      ...base,
+      refineLines: line > 0 ? [{ id: "line-1", kind: "refine", recipeKey: "refineDeuteriumCanister", remaining: line, mode: { kind: "batch", remaining: line } }] : [],
+      processQueue: salvage > 0
+        ? [{ id: "q-1", facility: "salvageBay", order: { type: "salvage", target: { kind: "material", itemId: "deuteriumIce" }, mode: { kind: "batch", remaining: salvage } } }]
+        : [],
+    } as GameState;
+  }
+
+  it("the tooltip's Free equals the shelf's Free, and its rows name both holds", () => {
+    const state = holding(100, 5, 7);
+    const rows = warehouseStockRows(state, "deuteriumIce");
+    const shelf = sellableInventory(state).find((e) => e.itemId === "deuteriumIce")!;
+    expect(rows.allocated.toNumber()).toBe(50);
+    expect(rows.queuedSalvage).toBe(7);
+    expect(rows.free.toNumber()).toBe(43);
+    expect(rows.free.equals(shelf.free)).toBe(true);
+    expect(canSell(state, "deuteriumIce", new Decimal(43)).ok).toBe(true);
+    expect(canSell(state, "deuteriumIce", new Decimal(44)).ok).toBe(false);
+  });
+
+  it("the shelf row's reason names what holds the rest", () => {
+    expect(sellReservedReason(holding(100, 5, 7), "deuteriumIce")).toBe("the rest is reserved by production and queued salvage");
+    expect(sellReservedReason(holding(100, 0, 7), "deuteriumIce")).toBe("the rest is held by queued salvage");
+    expect(sellReservedReason(holding(100, 5, 0), "deuteriumIce")).toBe("the rest is reserved by production");
+    const rows = warehouseStockRows(holding(100, 0, 0), "deuteriumIce");
+    expect([rows.allocated.toNumber(), rows.queuedSalvage, rows.free.toNumber()]).toEqual([0, 0, 100]);
   });
 });
 

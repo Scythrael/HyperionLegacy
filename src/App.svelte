@@ -648,6 +648,9 @@
     // Sell counter (0.13.6): the derived sellable-stock shelf + the sell transform. Only items
     // carrying an ItemDef.sellValue are sellable; sellItem hard-refuses everything else.
     sellableInventory,
+    // Fix round answers Q10: the Warehouse tooltip's stock rows and the Sell row's reason, so both Free figures agree.
+    warehouseStockRows,
+    sellReservedReason,
     sellItem,
     sellBlockText,
     type SellableEntry,
@@ -16301,7 +16304,7 @@
                                 {#if entry.retired}<span class="qm-retire-tag">Retired</span>{/if}
                               </span>
                               <span class="home-l2">
-                                <span class="home-meta">owned {formatNumber(entry.owned)}{#if entry.free.lt(entry.owned)}, free {formatNumber(entry.free)} (the rest is reserved){/if}</span>
+                                <span class="home-meta">owned {formatNumber(entry.owned)}{#if entry.free.lt(entry.owned)}, free {formatNumber(entry.free)} ({sellReservedReason(state, entry.itemId)}){/if}</span>
                               </span>
                               <!-- Unit price on its own line, then the running Total Value for the
                                    chosen quantity (user 2026-09-18). CR capitalized. -->
@@ -22599,7 +22602,11 @@
                  so a reserve-ahead continuous line can never render "Allocated > Total",
                  the freeItem helper already clamps Free >= 0, this keeps the tooltip
                  coherent. The two ROWS are unchanged; only the numbers now move. -->
-            {@const tipAllocated = Decimal.min(allocatedItem(allLines, queuedOrders, tipId, state.craftOrders ?? []), tipCount)}
+            <!-- Fix round answers Q10 (user 2026-11-17, "Keep, align tooltip"): the rows come from warehouseStockRows, so
+                 Free is the Sell counter's Free (it also leaves out what queued salvage holds), and a Queued salvage row
+                 shows that share whenever there is one. -->
+            {@const tipRows = warehouseStockRows(state, tipId)}
+            {@const tipAllocated = tipRows.allocated}
             <!-- ⚠️ THE LABEL CARRIES THE 0.13.3 MEANING CHANGE. "Allocated" used to mean
                  "held by a RUNNING line" and now also counts WAITING orders, which is why
                  Free drops the instant an order is queued. An unchanged label would have let
@@ -22610,9 +22617,15 @@
               <span>Allocated (incl. queued)</span>
               <span class="warehouse-tt-v" style="color: var(--color-warning)">{formatNumber(tipAllocated)}</span>
             </div>
+            {#if tipRows.queuedSalvage > 0}
+              <div class="warehouse-tt-row">
+                <span>Queued salvage</span>
+                <span class="warehouse-tt-v" style="color: var(--color-warning)">{formatNumber(tipRows.queuedSalvage)}</span>
+              </div>
+            {/if}
             <div class="warehouse-tt-row">
               <span>Free</span>
-              <span class="warehouse-tt-v" style="color: var(--color-success)">{formatNumber(freeItem(state.inventory, allLines, queuedOrders, tipId))}</span>
+              <span class="warehouse-tt-v" style="color: var(--color-success)">{formatNumber(tipRows.free)}</span>
             </div>
             <!-- Material Lines ML-7: the Stored count split by quality (hover a tile, or tap it on a phone). -->
             {@const tipChips = qualityChips(state.inventory, tipId)}
