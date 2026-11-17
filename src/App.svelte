@@ -1276,13 +1276,13 @@
   // Crafting Allocation Redesign (Task C1/C4), the DERIVED material-allocation helpers the
   // per-line configurator's REQUIRES preview reads: lineInputsPerIteration(line) => a recipe's
   // per-iteration input map (for the "per/ea" column); allocatedItem(lines, item) => units
-  // reserved by all active lines; freeItem(inventory, lines, item) => usable stock (inventory −
-  // allocated, clamped ≥ 0). CraftLine/CraftLineMode/CraftLineKind type the line arrays + the
-  // batch|continuous run-mode the configurator builds for startLine.
+  // reserved by all active lines. CraftLine/CraftLineMode/CraftLineKind type the line arrays + the
+  // batch|continuous run-mode the configurator builds for startLine. (Fix round answers fix pass: the configurators'
+  // Free reads freeItemForState, which counts a running order's pool ONCE however many lanes work it, as Start and
+  // Add to queue do.)
   import {
     lineInputsPerIteration,
     allocatedItem,
-    freeItem,
     // Shipyard (Task S5 UI): the reservation-aware FREE-stock reader for the hull-card
     // REQUIRES box. freeItemForState(state, itemId) = inventory MINUS what active craft
     // lines reserve, the SAME pool canBuildShip gates a build's BOM against, so the "free
@@ -13024,7 +13024,7 @@
                         {#each Object.keys(perIteration) as itemId}
                           {@const per = perIteration[itemId]}
                           {@const total = per.times(Math.max(1, cfgRefineRuns))}
-                          {@const free = freeItem(state.inventory, allLines, queuedOrders, itemId)}
+                          {@const free = freeItemForState(state, itemId)}
                           {@const allocated = allocatedItem(allLines, queuedOrders, itemId, state.craftOrders ?? [])}
                           {@const stock = itemTotal(state.inventory, itemId)}
                           <div class="cfg-box">
@@ -13048,7 +13048,7 @@
                           perRun={perIteration}
                           runs={cfgRefineRuns}
                           best={cfgBestMaterials}
-                          {...orderStockContext(perIteration, (id) => freeItem(state.inventory, allLines, queuedOrders, id), (id) => allocatedItem(allLines, queuedOrders, id, state.craftOrders ?? []), isQueueOpener)}
+                          {...orderStockContext(perIteration, (id) => freeItemForState(state, id), (id) => allocatedItem(allLines, queuedOrders, id, state.craftOrders ?? []), isQueueOpener)}
                         />
 
                         <div class="dev-row" style="margin-top: 8px;">
@@ -13651,7 +13651,7 @@
                           {#each Object.keys(perIteration) as itemId}
                             {@const per = perIteration[itemId]}
                             {@const total = per.times(Math.max(1, Math.floor(cfgQty)))}
-                            {@const free = freeItem(state.inventory, allLines, queuedOrders, itemId)}
+                            {@const free = freeItemForState(state, itemId)}
                             {@const allocated = allocatedItem(allLines, queuedOrders, itemId, state.craftOrders ?? [])}
                             {@const stock = itemTotal(state.inventory, itemId)}
                             <div class="cfg-box">
@@ -13739,7 +13739,7 @@
                               perRun={perIteration}
                               runs={cfgQty}
                               best={cfgBestMaterials}
-                              {...orderStockContext(perIteration, (id) => freeItem(state.inventory, allLines, queuedOrders, id), (id) => allocatedItem(allLines, queuedOrders, id, state.craftOrders ?? []), isQueueOpener)}
+                              {...orderStockContext(perIteration, (id) => freeItemForState(state, id), (id) => allocatedItem(allLines, queuedOrders, id, state.craftOrders ?? []), isQueueOpener)}
                             />
                           {/if}
 

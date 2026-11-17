@@ -10846,6 +10846,10 @@ export function processFabricateLines(state: GameState): GameState {
 // 0), or when the recipe is unknown / has no inputs (nothing to reserve against -> 0,
 // NOT an unbounded cap). PURE: reads state.inventory + both line arrays + the static
 // registries via lineInputsPerIteration; mutates nothing.
+// Fix round answers fix pass: TEST-ONLY off switch (fixRoundAnswersSwitch.fixture.ts "craftOrderFree"); never written
+// by app code. Off, maxAffordableIterations reads free stock without the running orders (each lane's own count).
+export const CRAFT_ORDER_FREE_SWITCH: { live: boolean } = { live: true };
+
 export function maxAffordableIterations(
   state: GameState,
   kind: CraftLineKind,
@@ -10884,7 +10888,10 @@ export function maxAffordableIterations(
     // A non-positive per-unit amount would divide-by-zero / be meaningless; skip it so it
     // contributes no bound (defensive, real recipes carry positive input amounts).
     if (perUnit.lte(0)) continue;
-    const free = freeItem(state.inventory, allLines, queued, itemId);
+    // Fix round answers fix pass (review, user "Fix it now"): through the one chokepoint (freeItemForState), so a running
+    // order's pool is reserved ONCE however many lanes (its own and helper lanes) work it, as Add to queue reads it
+    // (canReserveOrder). Off (test-only, CRAFT_ORDER_FREE_SWITCH), the lanes' own counts as before.
+    const free = CRAFT_ORDER_FREE_SWITCH.live ? freeItemForState(state, itemId) : freeItem(state.inventory, allLines, queued, itemId);
     const iterations = free.div(perUnit).floor(); // whole iterations THIS input can fund
     cap = cap === null ? iterations : Decimal.min(cap, iterations);
   }
