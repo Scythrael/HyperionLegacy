@@ -307,3 +307,10 @@ Cause found: by construction, not a crash. A shipBuild completion seeds Standard
 combat set on combat hulls. The 0.14.0 slots bridge, quarters and sensor have no Standard-Issue variety and are
 allow-empty, so every ship (new or old) starts with them empty until a crafted module is installed. No design doc
 found that says a ship comes with them. Prod is unaffected (the slots are 0.14.0-only). Awaiting the user's call.
+
+## Prod hotfix 0.13.11.4 (2026-11-17): built on hotfix/catchup-0.13.11.4 (cb5026b7), in review
+
+Exact per-cycle patrol setup: 92 us to 35 us per step (5 Repeat patrols, 11 ships); 4 days about 32 s to about 12 s
+desktop. Async catch-up: resumable tick job, 14 ms slices over MessageChannel, overlay when the estimate is over 1 s.
+User answers (2026-11-17): closing mid-catch-up "Start over" (last save untouched, the next load redoes it once);
+Discord post "No emoji". Patch note wording still needs the user's approval before main.
