@@ -11,6 +11,13 @@
 // here, traced: the file runs with it off (fieldRepairRulesSwitch.fixture.ts), so its pins keep proving their own slice
 // (fieldRepairOrderGoldens.test.ts pins OC-F14's moves and proves them with the switch off).
 import { repairRulesOffForThisFile } from "./fieldRepairRulesSwitch.fixture";
+import { crewModuleSiOffForThisFile } from "./crewModuleSiSwitch.fixture";
+
+// Standard-Issue crew modules (0.14.0, user 2026-11-17 "free basic set, all ships"): this file's pins predate the
+// free Sensor Suite, Bridge Module and Crew Quarters every ship now carries (their berths, officer lift, hull bonus
+// and equipment ids), so the set is off here and the pins keep proving their own slice. The set itself is pinned in
+// crewModuleStandardIssue.test.ts.
+crewModuleSiOffForThisFile();
 repairRulesOffForThisFile();
 import { describe, it, expect } from "vitest";
 // Relics v2 source planets (user 2026-11-13 "First + count") came after these pins: each blank now also carries its

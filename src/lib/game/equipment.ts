@@ -158,7 +158,8 @@ const COMBAT_SLOT_TYPES: ReadonlySet<EquipmentSlotType> = new Set<EquipmentSlotT
 ]);
 // CATALOG_SINGLETON_SLOTS: the slots whose per-variety EFFECT is catalog-resolved (not read off the
 // budgeted stat lines) and which are player-installable, ALLOW-EMPTY SINGLETONS (one per hull;
-// uninstall leaves the slot bare, no Standard-Issue baseline). Members:
+// uninstall leaves the slot bare and nothing re-seeds it; a ship is born with a Standard-Issue piece in each since
+// 0.14.0, model.ts CREW_MODULE_STANDARD_ISSUE). Members:
 //   - Crew 0.14.0 (Phase 1b): bridge + quarters crew modules (effect from crewModules.ts).
 //   - 0.14.0 sensors (DORMANT): sensor arrays (effect from sensorArrays.ts; no consumer yet, but the
 //     item is installable so a player can build/hold/equip it ahead of the exploration system).

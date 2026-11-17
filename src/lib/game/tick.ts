@@ -69,6 +69,7 @@ import {
   // shipBuild completion or a captain-slot unlock is born fully fitted on every live slot
   // (never-empty invariant), the SAME helper freshState + the save migration use.
   seedStandardIssueForShip,
+  seedCrewModuleStandardIssueForShip,
   // Combat 1.0 (Unit 1.3): the combat parallel, so a newly-built or newly-granted COMBAT hull
   // is also born with its free Standard-Issue combat set (weapon + shield emitter + hull plating)
   // installed, keeping it dispatchable past the new empty-required-slot dispatch blocker below.
@@ -7094,6 +7095,11 @@ export function mintBuiltShip(acc: ShipMintAccumulator, typeKey: ShipTypeKey): S
   const seededCombat = seedCombatStandardIssueForShip(minted.id, combatStandardIssueSpecFor(minted.typeKey), nextEquipmentId);
   equipment = [...equipment, ...seededCombat.pieces];
   nextEquipmentId = seededCombat.nextId;
+  // 0.14.0 (user 2026-11-17 "free basic set, all ships"): then its Standard-Issue Sensor Suite, Bridge Module and Crew
+  // Quarters, threaded off the combat seed's advanced id (economy, combat, crew modules: the one birth order).
+  const seededCrew = seedCrewModuleStandardIssueForShip(minted.id, nextEquipmentId);
+  equipment = [...equipment, ...seededCrew.pieces];
+  nextEquipmentId = seededCrew.nextId;
   return { ships, nextShipId, equipment, nextEquipmentId, shipId: minted.id };
 }
 
@@ -14441,6 +14447,9 @@ export function buyHomeworldTalent(
       combatStandardIssueSpecFor("generalFreighter"),
       seededHull.nextId
     );
+    // 0.14.0 (user 2026-11-17 "free basic set, all ships"): and its Standard-Issue Sensor Suite, Bridge Module and Crew
+    // Quarters, threaded off the combat seed (the mintBuiltShip birth order).
+    const seededCrew = seedCrewModuleStandardIssueForShip(newShipId, seededCombat.nextId);
     return {
       next: {
         ...state,
@@ -14449,8 +14458,8 @@ export function buyHomeworldTalent(
         nextShipId: state.nextShipId + 1,
         nextCaptainId: nextId + 1, // Combat 0.13.0 (Task 1.2): consume the monotonic captain-id counter
 
-        equipment: [...state.equipment, ...seededHull.pieces, ...seededCombat.pieces],
-        nextEquipmentId: seededCombat.nextId,
+        equipment: [...state.equipment, ...seededHull.pieces, ...seededCombat.pieces, ...seededCrew.pieces],
+        nextEquipmentId: seededCrew.nextId,
         adminPoints,
         unlockedHomeworldTalents,
       },

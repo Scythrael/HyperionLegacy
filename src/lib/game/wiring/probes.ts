@@ -35,6 +35,8 @@ import {
   returnLegSpeed,
   groundTeamCount,
   freshState,
+  CREW_MODULE_STANDARD_ISSUE,
+  isStandardIssueBaseline,
   missionPhaseTicks,
   rollQuality,
   type AffixAlignment,
@@ -363,10 +365,29 @@ export type Transform = (s: GameState) => GameState;
 export const identity: Transform = (s) => s;
 
 // A fresh save with room to work (credits), optionally on another hull.
+// 0.14.0: on a BARE hull. Every ship is now born with a free Standard-Issue Sensor Suite, Bridge Module and Crew
+// Quarters (model.ts seedCrewModuleStandardIssueForShip); the fixture takes them off again (and hands their ids back),
+// so each entry still measures its own source against a ship with no crew module, exactly as before the set. The set's
+// own effect is measured by the module entries (a Utilitarian Quarters' berths, a Balanced Command's officer lift).
 export function wiringBase(typeKey?: ShipTypeKey): GameState {
-  const base = freshState();
+  const base = withoutCrewModuleStandardIssue(freshState());
   const s: GameState = { ...base, credits: new Decimal(1_000_000) };
   return typeKey ? editShip(s, { typeKey }) : s;
+}
+
+// `s` without the Standard-Issue crew-module set on ship-1, the equipment counter handed back to the first freed id when
+// those pieces were the last minted (a fresh save: equip-5 to equip-7). The same state when ship-1 carries none.
+function withoutCrewModuleStandardIssue(s: GameState): GameState {
+  const isSet = (e: EquipmentInstance): boolean =>
+    e.fittedToShipId === WIRING_SHIP_ID &&
+    isStandardIssueBaseline(e) &&
+    e.moduleVariant !== undefined &&
+    (CREW_MODULE_STANDARD_ISSUE as Readonly<Record<string, string>>)[e.slotType] === e.moduleVariant;
+  const freed = s.equipment.filter(isSet);
+  if (freed.length === 0) return s;
+  const ids = freed.map((e) => Number(e.id.replace("equip-", "")));
+  const lastMinted = Math.max(...ids) === s.nextEquipmentId - 1 && Math.max(...ids) - Math.min(...ids) === ids.length - 1;
+  return { ...s, equipment: s.equipment.filter((e) => !isSet(e)), nextEquipmentId: lastMinted ? Math.min(...ids) : s.nextEquipmentId };
 }
 
 // A combat hull with its Standard Issue combat gear installed (plating, emitters, weapons, pods).

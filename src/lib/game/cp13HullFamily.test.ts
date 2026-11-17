@@ -31,6 +31,13 @@ import { withCp13Kit } from "./cp13Goldens.fixture";
 import { withoutCp13 } from "./cp13Switch.fixture";
 import { hullFamilyBonusLine } from "../crewModuleTileDisplay";
 import { HELP_TOPICS } from "../helpTopics";
+import { crewModuleSiOffForThisFile } from "./crewModuleSiSwitch.fixture";
+
+// Standard-Issue crew modules (0.14.0, user 2026-11-17 "free basic set, all ships"): this file's pins predate the
+// free Sensor Suite, Bridge Module and Crew Quarters every ship now carries (their berths, officer lift, hull bonus
+// and equipment ids), so the set is off here and the pins keep proving their own slice. The set itself is pinned in
+// crewModuleStandardIssue.test.ts.
+crewModuleSiOffForThisFile();
 
 const SPECS: readonly ShipSpec[] = ["general", "prospector", "tactician", "explorer"];
 const HULL_OF: Readonly<Record<ShipSpec, ShipTypeKey>> = { general: "generalFreighter", prospector: "prospectorMiner", tactician: "destroyer", explorer: "aurora" };

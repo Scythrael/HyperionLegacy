@@ -108,9 +108,19 @@ describe("wiring panel: a new game", () => {
 
   it("owns only the starting facilities, the starting hull and its Standard Issue gear, and nothing owned is dead", () => {
     const owned = rows.filter((r) => r.ownership === "owned");
-    expect(new Set(owned.map((r) => r.source.split(":")[0]))).toEqual(new Set(["FACILITIES", "SUBSPACE_TELESCOPE_LEVELS", "SHIP_GEAR_LINES", "SHIP_TYPES"]));
-    // The plan's QA line: "contributing nothing" is empty on a fresh save (no deferred source is owned yet).
-    expect(rows.filter((r) => rowMatches(r, { ...ALL, view: "ownedNothing" })).map((r) => r.id)).toEqual([]);
+    // 0.14.0 (user 2026-11-17 "free basic set, all ships"): the hull's Standard-Issue gear now includes a Balanced Array,
+    // a Balanced Command bridge and Utilitarian Quarters, so their catalogs (and the hull bonus they give) are owned too.
+    expect(new Set(owned.map((r) => r.source.split(":")[0]))).toEqual(
+      new Set(["FACILITIES", "SUBSPACE_TELESCOPE_LEVELS", "SHIP_GEAR_LINES", "SHIP_TYPES", "SENSOR_ARRAYS", "BRIDGE_MODULES", "QUARTERS_MODULES", "HULL_FAMILY_MODULE_BONUS"]),
+    );
+    // The plan's QA line: "contributing nothing" on a fresh save lists no deferred source. Since the free crew modules,
+    // it lists exactly the three module effects that wait on people a new game does not have yet: the bridge's officer
+    // lift (no officer seated) and the quarters' division lifts (no crew aboard).
+    expect(rows.filter((r) => rowMatches(r, { ...ALL, view: "ownedNothing" })).map((r) => r.id)).toEqual([
+      "ship:QUARTERS_MODULES:quartersUtilitarian",
+      "ship:BRIDGE_MODULES:bridgeBalancedCommand",
+      "ship:HULL_FAMILY_MODULE_BONUS:general:quarters:divisions",
+    ]);
     // Mission Control rung 1 opens its missions, measured as that rung's own step, on its curve.
     const mc = rowOf(rows, "facility:FACILITIES:missionControl:0");
     expect(mc.verdict).toBe("contributing");
@@ -190,7 +200,9 @@ describe("wiring panel: owned sources measure their live contribution", () => {
     expect(rowOf(rows, "relic:RELICS:glyphTablet").verdict).toBe("contributing");
     // A Museum stat no relic held here gives is not owned (not a false "contributing nothing").
     expect(rowOf(rows, "relic:MUSEUM_STATS:hazardResist").ownership).toBe("notOwned");
-    expect(rows.filter((r) => r.verdict === "nothing" || r.verdict === "error").map((r) => r.id)).toEqual([]);
+    // The free Balanced Command bridge lifts officers, and none is seated here (the crew aboard now gives the free
+    // Utilitarian Quarters' division lifts something to act on).
+    expect(rows.filter((r) => r.verdict === "nothing" || r.verdict === "error").map((r) => r.id)).toEqual(["ship:BRIDGE_MODULES:bridgeBalancedCommand"]);
   });
 
   it("away members under their own save ids are measured as the probes' members", () => {

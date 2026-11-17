@@ -34,6 +34,13 @@ import { buildRosterCombatants, generateEncounter, resolveGroundBattle, type Gam
 import { makeRng } from "./combat/rng";
 import { INJURY_BASE_RECOVERY_SECONDS, injuryRecoveredFraction, memberFallOutcome, shipInjuryFactors } from "./injuries";
 import { deserialize, migrate, serialize } from "./save";
+import { crewModuleSiOffForThisFile } from "./crewModuleSiSwitch.fixture";
+
+// Standard-Issue crew modules (0.14.0, user 2026-11-17 "free basic set, all ships"): this file's pins predate the
+// free Sensor Suite, Bridge Module and Crew Quarters every ship now carries (their berths, officer lift, hull bonus
+// and equipment ids), so the set is off here and the pins keep proving their own slice. The set itself is pinned in
+// crewModuleStandardIssue.test.ts.
+crewModuleSiOffForThisFile();
 
 // ===== fixtures =====
 

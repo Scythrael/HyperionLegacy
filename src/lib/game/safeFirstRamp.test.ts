@@ -51,6 +51,13 @@ import { afterTraining, rampRun, rampSeed, tally } from "./safeFirstRamp.fixture
 import { withWr10Off } from "./wr10Switch.fixture";
 import { withAnswersOff } from "./fixRoundAnswersSwitch.fixture";
 import { fixRoundESwitchesOffForThisFile } from "./fixRoundESwitch.fixture";
+import { crewModuleSiOffForThisFile } from "./crewModuleSiSwitch.fixture";
+
+// Standard-Issue crew modules (0.14.0, user 2026-11-17 "free basic set, all ships"): this file's pins predate the
+// free Sensor Suite, Bridge Module and Crew Quarters every ship now carries (their berths, officer lift, hull bonus
+// and equipment ids), so the set is off here and the pins keep proving their own slice. The set itself is pinned in
+// crewModuleStandardIssue.test.ts.
+crewModuleSiOffForThisFile();
 
 // Fix round FR-E (0.14.0): the star rule (lane 3 I2, STAR_BODIES_SWITCH: a real star's bodies are drawn from the star,
 // not from its candidate slot) moves the Orion d18 and rank1 ramp samples (the list after the training run holds Wolf

@@ -36,7 +36,7 @@ import {
   SLOT_BASE_PHYSICALS,
   craftedMemberFloorImplicits,
   isMemberSlotType,
-  varietyHasOwnIdentity,
+  stampsModuleVariant,
   type BlueprintDef,
   type EquipmentInstance,
   type EquipmentRarity,
@@ -699,14 +699,8 @@ export function generateEquipment(a: {
   //     moduleVariant through pieceVarietyDef.
   //   - E-MOD EM-5 (0.14.0): a UNIVERSAL MODULE (module) stores its UNIVERSAL_MODULES id; its effect, the one-per-ship
   //     rule and its draw are all read from the catalog through it (shipModules.ts).
-  if (
-    a.slotType === "bridge" ||
-    a.slotType === "quarters" ||
-    a.slotType === "sensor" ||
-    a.slotType === "module" ||
-    isMemberSlotType(a.slotType) ||
-    varietyHasOwnIdentity(variety)
-  ) {
+  // The rule lives in model.ts stampsModuleVariant, shared with the Standard-Issue mint (generateStandardIssue).
+  if (stampsModuleVariant(a.slotType, variety)) {
     piece.moduleVariant = a.varietyKey;
   }
   return piece;

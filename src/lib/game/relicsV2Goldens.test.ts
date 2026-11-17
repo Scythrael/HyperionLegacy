@@ -16,6 +16,13 @@ import { describe, it, expect } from "vitest";
 // here: the file runs with them off (recapFoldsSwitch.fixture.ts), so its pins keep proving their own slice;
 // faXpAwardedStat.test.ts and offlineRecapSections.test.ts pin the moves.
 import { recapFoldsOffForThisFile } from "./recapFoldsSwitch.fixture";
+import { crewModuleSiOffForThisFile } from "./crewModuleSiSwitch.fixture";
+
+// Standard-Issue crew modules (0.14.0, user 2026-11-17 "free basic set, all ships"): this file's pins predate the
+// free Sensor Suite, Bridge Module and Crew Quarters every ship now carries (their berths, officer lift, hull bonus
+// and equipment ids), so the set is off here and the pins keep proving their own slice. The set itself is pinned in
+// crewModuleStandardIssue.test.ts.
+crewModuleSiOffForThisFile();
 recapFoldsOffForThisFile();
 import { freshState, generalMuseumRecord, withGeneralMuseumRecord, RELIC_DEFAULT_SEED, type EquipmentRarity, type Expedition, type ExpeditionFinding, type GameState, type RelicSetId } from "./model";
 import { MUSEUM_STATS, RELIC_SETS, RELICS, identifyRelic, museumBonusesFromRecord, relicStudyDurationTicks, relicStudySeed } from "./relics";

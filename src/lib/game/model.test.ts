@@ -2561,18 +2561,17 @@ describe("freshState equipment + crafting fields (0.11.0 Task 3 + Task 20 seed)"
   it("seeds ship-1 with a Standard-Issue baseline on every live slot, advances nextEquipmentId, crafting level 1, 0 crafting xp", () => {
     const state = freshState();
     // Task 20: the one starting hull is born fully fitted with Standard-Issue on all
-    // four live slots (no live slot is ever empty), so the pool holds exactly four
-    // pieces, all fitted to "ship-1", and nextEquipmentId has advanced past them.
-    expect(state.equipment).toHaveLength(4);
+    // four live slots (no live slot is ever empty), then (0.14.0, user 2026-11-17 "free basic set, all ships") its
+    // Standard-Issue Sensor Suite, Bridge Module and Crew Quarters, so the pool holds exactly seven pieces, all fitted
+    // to "ship-1", and nextEquipmentId has advanced past them.
+    expect(state.equipment).toHaveLength(7);
     expect(state.equipment.every((e) => e.fittedToShipId === "ship-1")).toBe(true);
     expect(state.equipment.every((e) => e.blueprintKey === null)).toBe(true); // craft-less baselines
     expect(state.equipment.every((e) => e.rarity === "standard" && e.quality === 0)).toBe(true);
-    // One per live slot, ids monotonic from equip-1.
-    expect(state.equipment.map((e) => e.slotType).sort()).toEqual(
-      ["cargoBay", "ftlDrive", "reactorCore", "specUtility"].sort()
-    );
-    expect(state.equipment.map((e) => e.id)).toEqual(["equip-1", "equip-2", "equip-3", "equip-4"]);
-    expect(state.nextEquipmentId).toBe(5); // advanced past the four minted ids
+    // One per slot, ids monotonic from equip-1: the economy four, then sensor, bridge, quarters.
+    expect(state.equipment.map((e) => e.slotType)).toEqual(["cargoBay", "ftlDrive", "reactorCore", "specUtility", "sensor", "bridge", "quarters"]);
+    expect(state.equipment.map((e) => e.id)).toEqual(["equip-1", "equip-2", "equip-3", "equip-4", "equip-5", "equip-6", "equip-7"]);
+    expect(state.nextEquipmentId).toBe(8); // advanced past the seven minted ids
     expect(state.craftingLevel).toBe(1); // 1-based, mirrors fleetAdminLevel
     expect(state.craftingXp.equals(0)).toBe(true); // Decimal(0), idle-scale accumulator
   });
