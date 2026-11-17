@@ -5,7 +5,7 @@ import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import Decimal from "break_infinity.js";
 import { BLUEPRINTS, RESEARCH_FACILITY_KEY, freshState, type BlueprintDef, type GameState } from "./game/model";
-import { startResearch } from "./game/tick";
+import { canResearch, startResearch } from "./game/tick";
 import { researchFamilyOf } from "./game/dataStudy";
 import { RESEARCH_SECTION_LABEL, RESEARCH_SECTION_ORDER, researchSectionOf } from "./awayGearDisplay";
 import {
@@ -118,6 +118,31 @@ describe("researchFilter", () => {
       processQueue: [...(s.processQueue ?? []), { id: "q-x", facility: "researchLab", order: { type: "research", blueprintKey: "sprintDriveBp" } }],
     };
     expect(researchStatusOf(queued, "sprintDriveBp")).toBe("inProgress");
+  });
+
+  it("can research means the requirements are met: a busy lab or short credits do not make it Locked (user 2026-11-17)", () => {
+    const broke = labState({ credits: new Decimal(0) });
+    expect(canResearch(broke, "powerCouplingBp")).toEqual({ ok: false, reason: "credits" });
+    expect(researchStatusOf(broke, "powerCouplingBp")).toBe("canResearch");
+    // Fill every research slot, then a fresh blueprint is refused for noSlot and still reads Can research.
+    let busy = labState();
+    for (const key of ["powerCouplingBp", "frameSegmentBp", "sprintDriveBp", "economyDriveBp"]) {
+      const r = startResearch(busy, key);
+      if (r.started) busy = r.next;
+    }
+    const idle = Object.values(BLUEPRINTS).find((bp) => {
+      const g = canResearch(busy, bp.key);
+      return !g.ok && g.reason === "noSlot";
+    });
+    expect(idle).toBeDefined();
+    expect(researchStatusOf(busy, idle!.key)).toBe("canResearch");
+    // A requirement not met stays Locked: the lab's level, and an ancient entry not decoded yet.
+    expect(researchStatusOf(labState(), "structuralAssemblyBp")).toBe("locked");
+    const decodeGated = Object.values(BLUEPRINTS).find((bp) => bp.requiresDecode !== undefined && bp.requiresRelicDiscovery === undefined);
+    expect(decodeGated).toBeDefined();
+    const highLab = labState({ facilities: { ...freshState(1).facilities, [RESEARCH_FACILITY_KEY]: { level: 5 } } });
+    expect(canResearch(highLab, decodeGated!.key)).toEqual({ ok: false, reason: "undecoded" });
+    expect(researchStatusOf(highLab, decodeGated!.key)).toBe("locked");
   });
 
   it("status, family and tier combine (AND)", () => {
@@ -238,7 +263,8 @@ describe("Research tab filter bar wiring (App.svelte)", () => {
   it("the hidden-count line, the empty state and Clear filters", () => {
     expect(researchTab).toContain("{#if !showCompletedResearch && researchFiltered.hiddenResearched > 0}");
     expect(researchTab).toContain("{researchHiddenCountText(researchFiltered.hiddenResearched)}");
-    expect(researchTab).toContain("{RESEARCH_FILTER_EMPTY_TEXT}");
+    // Empty: the filter message while a filter narrows the list, else every blueprint is researched (and hidden).
+    expect(researchTab).toContain("{researchFiltersActive ? RESEARCH_FILTER_EMPTY_TEXT : RESEARCH_ALL_DONE_TEXT}");
     expect(RESEARCH_FILTER_EMPTY_TEXT).toBe("No blueprints match these filters.");
     expect(researchTab).toMatch(/on:click=\{clearResearchFilters\}>\s*Clear filters\s*<\/button>/);
     expect(researchTab).toContain("{#if researchFiltered.matched === 0}");

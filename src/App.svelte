@@ -1344,6 +1344,7 @@
   import {
     DEFAULT_RESEARCH_FILTER_VIEW,
     RESEARCH_FILTER_EMPTY_TEXT,
+    RESEARCH_ALL_DONE_TEXT,
     filterBlueprintTierGroups,
     researchCategoryOptions,
     researchHiddenCountText,
@@ -14296,7 +14297,7 @@
 
                 {#if researchFiltered.matched === 0}
                   <div class="research-filter-empty">
-                    <p class="research-status">{RESEARCH_FILTER_EMPTY_TEXT}</p>
+                    <p class="research-status">{researchFiltersActive ? RESEARCH_FILTER_EMPTY_TEXT : RESEARCH_ALL_DONE_TEXT}</p>
                     {#if researchFiltersActive}
                       <button class="buy-btn" on:click={clearResearchFilters}>
                         Clear filters

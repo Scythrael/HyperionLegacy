@@ -62,8 +62,10 @@ export interface ResearchTierGroupShape {
 
 // A blueprint's status for the Status chips. Masked relic cards are Locked (the card offers no action). Otherwise:
 // researched (blueprintUnlocked), in progress or queued (a running lab project, which canResearch reports as
-// inProgress, or a waiting research order in the lab's queue), can research (canResearch ok), else locked (any other
-// canResearch refusal: lab level, a free slot, credits, decoding). Pure.
+// inProgress, or a waiting research order in the lab's queue), can research when its REQUIREMENTS are met, else
+// locked. User 2026-11-17 ("Requirements only"): a busy lab (noSlot) or short credits do not make a blueprint Locked;
+// canResearch checks those two last, so either reason means every requirement passed. Locked is a requirement not
+// met: the lab's level (tierLocked), an undiscovered relic, or an ancient entry not decoded yet. Pure.
 export function researchStatusOf(state: GameState, bpKey: string): Exclude<ResearchStatusFilter, "all"> {
   if (blueprintRelicLocked(state, bpKey)) return "locked";
   if (blueprintUnlocked(state, bpKey)) return "researched";
@@ -73,7 +75,23 @@ export function researchStatusOf(state: GameState, bpKey: string): Exclude<Resea
     (job) => job.order.type === "research" && job.order.blueprintKey === bpKey
   );
   if (queued) return "inProgress";
-  return gate.ok ? "canResearch" : "locked";
+  if (gate.ok) return "canResearch";
+  switch (gate.reason) {
+    case "noSlot":
+    case "credits":
+      return "canResearch";
+    case "tierLocked":
+    case "undiscovered":
+    case "undecoded":
+    case "notFound":
+    case "alreadyResearched":
+    case "inProgress":
+      return "locked";
+    default: {
+      const unhandled: never = gate.reason;
+      return unhandled;
+    }
+  }
 }
 
 // The hull an unlock-only blueprint grants build access to (the reverse of ShipTypeDef.requiresBlueprint), the same
@@ -92,7 +110,7 @@ function outputLabel(bp: BlueprintDef): string {
   if (bp.equipmentOutput) {
     const { slotType, varietyKey } = bp.equipmentOutput;
     const variety = EQUIPMENT_SLOTS[slotType]?.varieties.find((v) => v.key === varietyKey);
-    return `${equipmentSlotLabel(slotType, varietyKey)} ${variety?.label ?? varietyKey}`;
+    return `${equipmentSlotLabel(slotType, varietyKey)} · ${variety?.label ?? varietyKey}`;
   }
   const out = bp.recipe.outputItem;
   return out !== undefined ? ITEMS[out]?.label ?? out : "";
@@ -196,6 +214,8 @@ export function researchTierOptions(groups: readonly ResearchTierGroupShape[]): 
 
 // The Research list's empty state when no blueprint passes the filters (a Clear filters button sits beside it).
 export const RESEARCH_FILTER_EMPTY_TEXT = "No blueprints match these filters.";
+// The empty list with no filter narrowing it: everything left is researched and hidden (the setting is off).
+export const RESEARCH_ALL_DONE_TEXT = "Every blueprint is researched.";
 
 // The line under the filter bar while completed research is hidden. Pure.
 export function researchHiddenCountText(n: number): string {
