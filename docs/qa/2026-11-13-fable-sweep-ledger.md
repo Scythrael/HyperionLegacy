@@ -284,3 +284,13 @@ Fleet: 11 ships, 5 combat hulls on Repeat Crimson-Reaver Sweep (Standard Issue g
 - Q4 outmatched stop scope: "Second route on".
 - Q11 placeholders (canister 50 cr / margin 1.25, salvage knee 0.5): "Keep, tune in 0.16.0".
 - Q5 carrier crew count: done earlier (merged).
+
+## User request 2026-11-17: Research screen cleanup
+
+User, verbatim: "One thing we should add in as well. A way to clean up the research screen. It's hard to keep track
+of things in there. Either a redesign of how we present it is in order, or at the very least, a search function to
+only show the ones we want. A search/filter option."
+Facts: the Research Lab's Research tab is one long list of every blueprint, grouped by tier (Away-Team Gear / Implants
+shelves inside a tier), researched ones included, each card with recipe, cost and time, state and queue button. The
+catalog grew from about 36 blueprints on prod 0.13.11.3 to about 85+ on 0.14.0. Status: brainstorming (scope and
+release not decided yet).
