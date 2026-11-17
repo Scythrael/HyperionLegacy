@@ -507,6 +507,7 @@
   } from "./lib/game/salvage";
   import {
     tick,
+    beginTickJob,
     // (economyTick, the shared per-span economy body, is no longer imported here: since HOTFIX
     // 0.13.10 the live poll reaches it through runPollEconomy in src/lib/game/loopClock.ts.)
     tickCaptainMission,
@@ -894,7 +895,12 @@
     releaseHeld,
     type HeldRelease,
     type LoopClock,
+    beginPollCatchUp,
+    finishPollCatchUp,
   } from "./lib/game/loopClock";
+  // HOTFIX 0.13.11.4: a long catch-up runs in slices behind a progress overlay (identical results).
+  import { CatchUpController, type CatchUpView } from "./lib/game/catchUpRunner";
+  import CatchUpOverlay from "./lib/CatchUpOverlay.svelte";
   import { formatNumber, formatDuration, formatClock } from "./lib/game/format";
   import { deriveStatistics } from "./lib/game/statistics";
   import { saveToLocalStorage, loadFromLocalStorage, clearSave, downloadRawSave, downloadLiveSave, importRawSave, hasRawSave, exportRawSave } from "./lib/game/save";
@@ -2961,6 +2967,27 @@
   // planPoll (src/lib/game/loopClock.ts); replaces the old lastPollTime / paused pair.
   let loopClock: LoopClock = { cycleStartMs: Date.now(), lastPollMs: Date.now(), paused: false };
 
+  // HOTFIX 0.13.11.4, THE ASYNCHRONOUS CATCH-UP (src/lib/game/catchUpRunner.ts). A catch-up long enough
+  // to notice (the reload catch-up, or a poll paying a long hidden-tab gap) runs in slices behind the
+  // CatchUpOverlay instead of freezing the page; a short one still runs synchronously, as before. The
+  // result is the same state either way. While a run is in flight (catchUp.busy):
+  //   - the game loop does nothing (pollGameLoop returns at its top, before planPoll, so the run's own
+  //     real time is paid by the first poll after it, exactly as the old blocking call's was);
+  //   - NOTHING IS SAVED (doSave returns): the last save stays as it was, with the stamp it was paid
+  //     through, so a tab closed or reloaded mid-run pays the whole absence again from that save, once.
+  //     No save ever holds a half-paid state, so no second can be paid twice or lost;
+  //   - the away recap waits for the run (catchUp.whenIdle) and the game behind the overlay is inert.
+  // catchUpView is the overlay's model (null: no run in flight).
+  let catchUpView: CatchUpView | null = null;
+  const catchUp = new CatchUpController({
+    onView: (view) => (catchUpView = view),
+    onError: (error) => console.error("Catch-up failed", error),
+  });
+  // The overlay's line: what is being caught up, from the time this catch-up pays.
+  function catchUpDetail(paidSeconds: number): string {
+    return `You were away ${formatDuration(paidSeconds, 1)}. Your fleet is catching up.`;
+  }
+
   // Return-from-away recap (HOTFIX 0.13.10, the user chose "Same as offline"): when the tab is
   // hidden we remember the state and the time, and when it is shown again the time away is paid
   // and, past AWAY_SUMMARY_MIN_SECONDS, the same "While you were away" summary a reload shows is
@@ -3050,6 +3077,9 @@
 
   function doSave() {
     if (suppressSave) return;
+    // HOTFIX 0.13.11.4: never while a catch-up is in flight (see catchUp above): the last save keeps
+    // its state and stamp, so an interrupted run is paid again from it, exactly once.
+    if (catchUp.busy) return;
     // Capture the write result instead of discarding it (the old silent-loss hole):
     // a blocked or full store returns false here, and on mobile that meant progress
     // lived only in memory until a reload wiped it, with zero warning. Surface the
@@ -3206,6 +3236,9 @@
     // Where the economy is paid through once loading finishes (HOTFIX 0.13.10): the catch-up's
     // end on a successful load, otherwise now. The loop clock starts HERE (see below).
     let paidThroughAtLoadMs: number | null = null;
+    // HOTFIX 0.13.11.4: true when the reload catch-up went asynchronous (catchUp.pay). The running game
+    // (startGame below: the loop, the autosave, the listeners) then starts when the run is applied.
+    let loadCatchUpAsync = false;
     if (loadedSave) {
       createdAt = loadedSave.createdAt;
       // Captured ONCE and reused for both the span and the catch-up's clock anchor, so the
@@ -3240,8 +3273,11 @@
       // seeded rng has), and tick() derives the per-tick schedule from it. See tick()'s
       // header for the reconstruction and its accuracy limits.
       const beforeSnapshot = loadedSave.state;
-      state = offlineSeconds > 5 ? tick(offlineSeconds, beforeSnapshot, Math.random, returnedAtMs) : beforeSnapshot;
-      if (offlineSeconds > 5) {
+      // HOTFIX 0.13.11.4: the tick() call that used to sit here is the same job (beginTickJob), paid by
+      // catchUp.pay: synchronously for a short absence (exactly as before), in slices behind the overlay
+      // for a long one. Either way applyLoadCatchUp receives the very state tick() returned.
+      const applyLoadCatchUp = (after: GameState) => {
+        state = after;
         pushLog(`Welcome back. Advanced ${formatNumber(loadPaidSeconds)}s offline.`);
         // Only surface the full "While you were away" modal for a MEANINGFUL absence, and
         // only when the advance actually produced something to report (hasContent). A brief
@@ -3257,6 +3293,26 @@
             offlineSummaryCappedAwaySeconds = loadCappedAwaySeconds;
           }
         }
+      };
+      // The loaded save shows (inert, under the overlay) while an asynchronous run is in flight.
+      state = beforeSnapshot;
+      if (offlineSeconds > 5) {
+        const job = beginTickJob(offlineSeconds, beforeSnapshot, Math.random, returnedAtMs);
+        const wentAsync = !catchUp.pay(
+          job,
+          catchUpDetail(loadPaidSeconds),
+          (done) => {
+            applyLoadCatchUp(done.state);
+            if (loadCatchUpAsync) startGame();
+          },
+          () => {
+            // Never expected (a bug in the economy). Nothing was paid: start the game on the loaded
+            // save, paid through its own stamp, so the next poll owes the whole absence again.
+            paidThroughAtLoadMs = Math.min(loadedSave.lastSavedAt, returnedAtMs);
+            startGame();
+          },
+        );
+        loadCatchUpAsync = wentAsync;
       }
     } else if (hasRawSave()) {
       // A save EXISTS but failed to load (corrupt). Do NOT let the game overwrite it:
@@ -3274,256 +3330,296 @@
     } else {
       pushLog("New save initialized.");
     }
-    // ⚠️ HOTFIX 0.13.10: start from where the reload catch-up PAID THROUGH, not from now. The
-    // catch-up takes real time to compute; starting the clock after it would leave those seconds
-    // unpaid (and a save right after load would stamp past them). The first poll pays them, once.
-    const loopStartMs = paidThroughAtLoadMs ?? trustedNow();
-    loopClock = startLoopClock(loopStartMs);
-    cycle = { barCycleStart: loopStartMs, nowTick: loopStartMs };
-    // 0.13.11.1: the Starfall mirror and the theme style read the account only from here on, so a
-    // placeholder state before the load can never be written over the real save.
-    accountReady = true;
-    lookPrefs = loadLookPrefs(currentTheme);
+    // HOTFIX 0.13.11.4: everything below starts the running game. It waits for an asynchronous reload
+    // catch-up (startGame is then called when the run is applied, above); otherwise it runs right here,
+    // exactly as it always did. The cleanup it registers is handed back through `stopGame`.
+    let stopGame: () => void = () => {};
+    const startGame = () => {
+      // ⚠️ HOTFIX 0.13.10: start from where the reload catch-up PAID THROUGH, not from now. The
+      // catch-up takes real time to compute; starting the clock after it would leave those seconds
+      // unpaid (and a save right after load would stamp past them). The first poll pays them, once.
+      const loopStartMs = paidThroughAtLoadMs ?? trustedNow();
+      loopClock = startLoopClock(loopStartMs);
+      cycle = { barCycleStart: loopStartMs, nowTick: loopStartMs };
+      // 0.13.11.1: the Starfall mirror and the theme style read the account only from here on, so a
+      // placeholder state before the load can never be written over the real save.
+      accountReady = true;
+      lookPrefs = loadLookPrefs(currentTheme);
 
-    // Tick-bar loop, checks the ONE shared fleet-wide cycle's progress every
-    // 100ms, firing tickCaptainMission (Phase 3a) for EVERY mission captain
-    // in lockstep whenever that shared cycle completes on this poll (Task 4
-    // of the UI Redesign plan collapsed this from a per-captain-cycle loop --
-    // see docs/plans/2026-07-07-ui-redesign-plan.md, since
-    // tickDurationSeconds is fleet-wide now, per Task 1 of that same plan).
-    // Idle captains (mission === null) have no passive economy anymore, see
-    // the Phase 4 comment on tick()'s loop body below, so only mission
-    // captains ever have anything to fire here. Fleet-wide gameTimeSeconds
-    // advances continuously off real elapsed time every poll, decoupled from
-    // the shared cycle's cadence (gameTimeSeconds is fleet bookkeeping; it
-    // is never read by tickCaptainMission's production math, so this
-    // decoupling cannot desync production from time).
-    // barSeconds is floored at 1 real second so dev-speed presets never make
-    // the shared bar flicker unreadably, multiple game-ticks just batch
-    // into one visual cycle, which is still correct because
-    // tickCaptainMission is closed-form.
-    //
-    // ⚠️ LOAD-BEARING ASYNC INVARIANT (do NOT break, especially when the online /
-    // cloud-save / chat work lands): this tick callback, and every do* state handler,
-    // MUST stay SYNCHRONOUS between reading and writing `state` (compute a new state,
-    // then assign it, with NO await/then in between). JS never preempts a running
-    // callback, so this one property is what guarantees ticks cannot overlap
-    // (re-entrancy), autosave cannot serialize a half-updated state, and no captured-state
-    // callback can drop an intervening update (lost update). Introduce an `await` inside
-    // this callback, or between a handler's `const { next } = ...` and its `state = next`,
-    // and all three of those bug classes reopen at once. Verified sound 2026-07-29.
-    //
-    // ⚠️ HOTFIX 0.13.10, WHOLE CYCLES FROM REAL TIME, NEVER DISCARDED. This poll used to grant ONE
-    // cycle per completion and then reset the cycle start to `now`, throwing the overshoot away,
-    // so every late timer cost real progress: background tabs (throttled to 1 Hz, then once a
-    // minute), sleeping laptops and frozen mobile tabs lost most of their time, and the hidden
-    // tab's autosave stamped the save as current so a reload never recovered it. planPoll
-    // (src/lib/game/loopClock.ts) now counts every whole cycle since the cycle start and carries
-    // the leftover forward. A normal poll (a cycle or two) is stepped live exactly as before; a
-    // large gap is paid by tick(), the very catch-up a reload runs, offline cap included. The
-    // pause rules and the speed rule are unchanged and live in planPoll too, where they are tested.
-    const pollGameLoop = () => {
-      const now = trustedNow();
-      // Consume the completed frame from the PREVIOUS poll. Cleared here, at the very top and
-      // before any early return, so a pause or a speed change cannot strand the bar at 100%.
-      barCompletedFrame = false;
+      // Tick-bar loop, checks the ONE shared fleet-wide cycle's progress every
+      // 100ms, firing tickCaptainMission (Phase 3a) for EVERY mission captain
+      // in lockstep whenever that shared cycle completes on this poll (Task 4
+      // of the UI Redesign plan collapsed this from a per-captain-cycle loop --
+      // see docs/plans/2026-07-07-ui-redesign-plan.md, since
+      // tickDurationSeconds is fleet-wide now, per Task 1 of that same plan).
+      // Idle captains (mission === null) have no passive economy anymore, see
+      // the Phase 4 comment on tick()'s loop body below, so only mission
+      // captains ever have anything to fire here. Fleet-wide gameTimeSeconds
+      // advances continuously off real elapsed time every poll, decoupled from
+      // the shared cycle's cadence (gameTimeSeconds is fleet bookkeeping; it
+      // is never read by tickCaptainMission's production math, so this
+      // decoupling cannot desync production from time).
+      // barSeconds is floored at 1 real second so dev-speed presets never make
+      // the shared bar flicker unreadably, multiple game-ticks just batch
+      // into one visual cycle, which is still correct because
+      // tickCaptainMission is closed-form.
+      //
+      // ⚠️ LOAD-BEARING ASYNC INVARIANT (do NOT break, especially when the online /
+      // cloud-save / chat work lands): this tick callback, and every do* state handler,
+      // MUST stay SYNCHRONOUS between reading and writing `state` (compute a new state,
+      // then assign it, with NO await/then in between). JS never preempts a running
+      // callback, so this one property is what guarantees ticks cannot overlap
+      // (re-entrancy), autosave cannot serialize a half-updated state, and no captured-state
+      // callback can drop an intervening update (lost update). Introduce an `await` inside
+      // this callback, or between a handler's `const { next } = ...` and its `state = next`,
+      // and all three of those bug classes reopen at once. Verified sound 2026-07-29.
+      //
+      // ⚠️ HOTFIX 0.13.10, WHOLE CYCLES FROM REAL TIME, NEVER DISCARDED. This poll used to grant ONE
+      // cycle per completion and then reset the cycle start to `now`, throwing the overshoot away,
+      // so every late timer cost real progress: background tabs (throttled to 1 Hz, then once a
+      // minute), sleeping laptops and frozen mobile tabs lost most of their time, and the hidden
+      // tab's autosave stamped the save as current so a reload never recovered it. planPoll
+      // (src/lib/game/loopClock.ts) now counts every whole cycle since the cycle start and carries
+      // the leftover forward. A normal poll (a cycle or two) is stepped live exactly as before; a
+      // large gap is paid by tick(), the very catch-up a reload runs, offline cap included. The
+      // pause rules and the speed rule are unchanged and live in planPoll too, where they are tested.
+      const pollGameLoop = () => {
+        const now = trustedNow();
+        // Consume the completed frame from the PREVIOUS poll. Cleared here, at the very top and
+        // before any early return, so a pause or a speed change cannot strand the bar at 100%.
+        barCompletedFrame = false;
+        // HOTFIX 0.13.11.4: a catch-up is in flight. Do nothing at all, not even planPoll, so the loop
+        // clock stays where the run's poll left it and the first poll after the run pays the run's own
+        // real time, once (just as the first poll after the old blocking call did).
+        if (catchUp.busy) return;
 
-      const polled = planPoll(loopClock, now, state.tickDurationSeconds, speed);
-      loopClock = polled.clock;
-      let plan = polled.plan;
-      // HOTFIX 0.13.11.3: the full absence behind this poll when it ran past the offline cap (a
-      // release cut by its budget, or a catch-up beyond the cap); null when the cap was not reached.
-      let pollCappedAwaySeconds: number | null = null;
-      // 0.13.11.1: the release of a held absence is paid under the same offline cap as its reload;
-      // only the released part is limited (releaseHeld), any other gap in the same poll is paid.
-      if (heldRelease !== null && plan.kind === "advance") {
-        const released = releaseHeld(plan, heldRelease, trustedHeldMs() / 1000);
-        plan = released.plan;
-        heldRelease = released.arm;
-        if (released.capped) pollCappedAwaySeconds = heldReleaseCappedAwaySeconds;
-        if (heldRelease === null) heldReleaseCappedAwaySeconds = null;
-      }
-
-      // Paused (speed 0): the poll clock is frozen and nothing advances.
-      if (plan.kind === "paused") return;
-
-      if (plan.kind === "resumed") {
-        // Resuming: the paused wall-clock gap is discarded entirely for the fleet clock AND the
-        // shared cycle (planPoll restarted both at `now`), rather than letting it read as elapsed
-        // time (which would fire unearned progress on resume).
-        cycle.barCycleStart = loopClock.cycleStartMs;
-        return;
-      }
-
-      state = { ...state, gameTimeSeconds: state.gameTimeSeconds + plan.realElapsedSeconds * speed };
-      cycle.nowTick = now;
-
-      // Phase 2 (Task A3, docs/plans/phase2-tick-map.md): the live poll's economy is the shared
-      // economyTick, the EXACT same per-span body offline catch-up (tick()) runs, which is what
-      // makes live play and offline catch-up drift-proof BY CONSTRUCTION. runPollEconomy keeps
-      // the two load-bearing rules this loop always had: it STEPS per whole tick (never one big
-      // multi-tick economyTick call, which would check the storage cap and refill refine orders
-      // only once across the span), and it hands back this loop's own gameTimeSeconds (the fleet
-      // clock advanced just above off real time), discarding economyTick's bump so the fleet
-      // clock is never double counted. At production speed one poll owes exactly one cycle of
-      // one tick, so the steady case is a single economyTick(state, 1), as it always was.
-      if (plan.mode !== "none") {
-        const ticksElapsed = plan.cycles * plan.ticksPerCycle;
-
-        // ⚠️ ticksElapsed > 0 GUARD (REQUIRED, belt-and-suspenders): economyTick has NO internal
-        // non-positive guard, so no future change to the cycle gating may feed it an empty span.
-        if (ticksElapsed > 0) {
-          // Fuel-runway measurement (Wave 2), READ-ONLY snapshot of the PRE-step fuel & ice,
-          // captured while `state` is still the pre-economy value. They only feed the UI-local
-          // EMA updated below and never touch the economy.
-          const preFuel = state.fuel.toNumber();
-          // Quality-bucketed (Task 9a): ice total across buckets via itemTotal (absent -> 0).
-          const preIce = itemTotal(state.inventory, "deuteriumIce").toNumber();
-          const beforeEconomy = state;
-
-          // ⚠️ 0.13.3 Unit 4.4b: the LIVE half of the injected completion clock. Every step of a
-          // live poll is stamped with ONE Date.now() captured here (exact at production speed,
-          // where one poll IS one tick); a catch-up uses it as the END of its reconstructed
-          // schedule, exactly like the reload path. Reading the clock HERE rather than inside
-          // economyTick keeps the tick a pure function of its arguments.
-          const completionClockMs = trustedNow();
-          state = runPollEconomy(state, plan, Math.random, completionClockMs);
-
-          // Fuel-runway EMA update (Wave 2): per-tick instantaneous rate = total delta over the
-          // ticks this poll actually PAID (a catch-up past the offline cap pays only the cap), so
-          // any poll contributes a per-TICK rate. Live play samples once per bar cycle, so a poll
-          // that pays several cycles weighs as that many samples (blendRunwayEma); one cycle is
-          // the old single blend exactly. The first sample seeds the EMA directly. Pure UI
-          // bookkeeping: it writes only these three locals.
-          const paid = paidTicks(plan, beforeEconomy);
-          const sampleWeight = plan.cycles * (paid / ticksElapsed);
-          const postIce = itemTotal(state.inventory, "deuteriumIce").toNumber();
-          const instDFuel = (state.fuel.toNumber() - preFuel) / paid;
-          const instDIce = (postIce - preIce) / paid;
-          emaDFuelPerTick = blendRunwayEma(emaDFuelPerTick, instDFuel, runwaySamples, sampleWeight, RUNWAY_EMA_ALPHA);
-          emaDIcePerTick = blendRunwayEma(emaDIcePerTick, instDIce, runwaySamples, sampleWeight, RUNWAY_EMA_ALPHA);
-          runwaySamples += Math.max(1, Math.round(sampleWeight));
-
-          // A large gap seen while the tab is VISIBLE (a sleep the browser never reported as
-          // hidden) gets its recap here. A gap paid while hidden is recapped by the visibility
-          // handler instead, once, over the whole time away.
-          //
-          // ⚠️ HOTFIX 0.13.11.3: labeled with what this poll PAID (paidRealSeconds: the cut plan,
-          // bounded by tick()'s cap), never plan.realElapsedSeconds. A held release cut to its last
-          // ~30 s of budget used to raise a second popup claiming the whole raw gap ("~1d 1h").
-          const pollPaidSeconds = paidRealSeconds(plan, beforeEconomy);
-          if (exceedsOfflineCap(plan, beforeEconomy)) pollCappedAwaySeconds = plan.realElapsedSeconds;
-          if (awayFrom !== null) {
-            // Paid and away accumulate over the SAME polls (tallyAwayPoll), so live hidden play
-            // followed by a long sleep never shows more paid than away.
-            awayFrom = { ...awayFrom, ...tallyAwayPoll(awayFrom, pollPaidSeconds, pollCappedAwaySeconds) };
-          } else if (plan.mode === "catchUp" && !document.hidden) {
-            welcomeBack(beforeEconomy, pollPaidSeconds, now - plan.realElapsedSeconds * 1000, pollCappedAwaySeconds);
-          }
+        const polled = planPoll(loopClock, now, state.tickDurationSeconds, speed);
+        loopClock = polled.clock;
+        let plan = polled.plan;
+        // HOTFIX 0.13.11.3: the full absence behind this poll when it ran past the offline cap (a
+        // release cut by its budget, or a catch-up beyond the cap); null when the cap was not reached.
+        let pollCappedAwaySeconds: number | null = null;
+        // 0.13.11.1: the release of a held absence is paid under the same offline cap as its reload;
+        // only the released part is limited (releaseHeld), any other gap in the same poll is paid.
+        if (heldRelease !== null && plan.kind === "advance") {
+          const released = releaseHeld(plan, heldRelease, trustedHeldMs() / 1000);
+          plan = released.plan;
+          heldRelease = released.arm;
+          if (released.capped) pollCappedAwaySeconds = heldReleaseCappedAwaySeconds;
+          if (heldRelease === null) heldReleaseCappedAwaySeconds = null;
         }
 
-        // The cycle start carries the leftover forward (planPoll), so a late poll never costs
-        // time. Once for the whole fleet: there is one shared cycle.
-        cycle.barCycleStart = loopClock.cycleStartMs;
-        // ⚠️ Raised in the SAME poll that starts the next cycle, which is the whole point: without
-        // it the last tenth of the bar is never rendered. The next poll clears it.
-        barCompletedFrame = true;
-      }
-    };
+        // Paused (speed 0): the poll clock is frozen and nothing advances.
+        if (plan.kind === "paused") return;
 
-    // "Same as offline" recap for a return from a long absence (HOTFIX 0.13.10): the same log
-    // line pattern and the same "While you were away" modal the reload path raises, built from
-    // the same pure before/after diff. Skipped for short absences, while paused (nothing ran) and
-    // while the corrupt-save recovery modal is up (never stacked over it). A recap still open from
-    // earlier is EXTENDED, never replaced: the new one starts from the open one's snapshot and
-    // spans both absences (awayRecapSpan), so no reported gains are lost.
-    // HOTFIX 0.13.11.3: `paidSeconds` is what the absence actually PAID (never the raw gap), so a
-    // release that paid less than the threshold raises nothing; `awayStartMs` is when the absence
-    // began, so an open recap is extended by the live play before it plus what this one paid.
-    const welcomeBack = (before: GameState, paidSeconds: number, awayStartMs: number, cappedAwaySeconds: number | null) => {
-      if (loopClock.paused || saveCorruptModalOpen || paidSeconds < AWAY_SUMMARY_MIN_SECONDS) return;
-      pushLog(`Welcome back. Advanced ${formatNumber(paidSeconds)}s while away.`);
-      const nowMs = trustedNow();
-      const span = awayRecapSpan(offlineSummary !== null ? offlineSummaryBasis : null, before, paidSeconds, awayStartMs, cappedAwaySeconds);
-      const summary = summarizeOfflineProgress(span.before, state, span.secondsAway);
-      if (summary.hasContent) {
-        offlineSummary = summary;
-        offlineSummaryBasis = { before: span.before, secondsAway: span.secondsAway, shownAtMs: nowMs, cappedAwaySeconds: span.cappedAwaySeconds };
-        offlineSummaryCappedAwaySeconds = span.cappedAwaySeconds;
-      }
-    };
+        if (plan.kind === "resumed") {
+          // Resuming: the paused wall-clock gap is discarded entirely for the fleet clock AND the
+          // shared cycle (planPoll restarted both at `now`), rather than letting it read as elapsed
+          // time (which would fire unearned progress on resume).
+          cycle.barCycleStart = loopClock.cycleStartMs;
+          return;
+        }
 
-    tickHandle = setInterval(pollGameLoop, 100);
+        state = { ...state, gameTimeSeconds: state.gameTimeSeconds + plan.realElapsedSeconds * speed };
+        cycle.nowTick = now;
 
-    // Pay what is owed the moment the tab is shown again rather than up to a throttled timer
-    // period later, and recap the whole hidden stretch once. Hiding only remembers where we were.
-    const onVisibilityChange = () => {
-      if (document.hidden) {
-        if (awayFrom === null) awayFrom = { atMs: trustedNow(), snapshot: state, paidSeconds: 0, awaySeconds: 0, cappedAwaySeconds: null };
-        return;
-      }
-      pollGameLoop();
-      // 0.13.11.1: recap once the time away is known. After a device sleep performance.now() may have
-      // stopped, so a big held amount first waits (at most 3 s) for the server to confirm the clock.
-      // The away clock stays set meanwhile, so the loop's own catch-up never recaps part of it, and
-      // finish() reads and writes state in one synchronous pass (nothing straddles the await).
-      const finish = () => {
-        if (document.hidden) return; // hidden again: the next return recaps the whole stretch
-        pollGameLoop();
-        const away = awayFrom;
-        awayFrom = null;
-        // HOTFIX 0.13.11.3: labeled with what the polls while away PAID, never the raw time away.
-        if (away !== null) welcomeBack(away.snapshot, away.paidSeconds, away.atMs, away.cappedAwaySeconds);
+        // Phase 2 (Task A3, docs/plans/phase2-tick-map.md): the live poll's economy is the shared
+        // economyTick, the EXACT same per-span body offline catch-up (tick()) runs, which is what
+        // makes live play and offline catch-up drift-proof BY CONSTRUCTION. runPollEconomy keeps
+        // the two load-bearing rules this loop always had: it STEPS per whole tick (never one big
+        // multi-tick economyTick call, which would check the storage cap and refill refine orders
+        // only once across the span), and it hands back this loop's own gameTimeSeconds (the fleet
+        // clock advanced just above off real time), discarding economyTick's bump so the fleet
+        // clock is never double counted. At production speed one poll owes exactly one cycle of
+        // one tick, so the steady case is a single economyTick(state, 1), as it always was.
+        if (plan.mode !== "none") {
+          const ticksElapsed = plan.cycles * plan.ticksPerCycle;
+
+          // ⚠️ ticksElapsed > 0 GUARD (REQUIRED, belt-and-suspenders): economyTick has NO internal
+          // non-positive guard, so no future change to the cycle gating may feed it an empty span.
+          if (ticksElapsed > 0) {
+            // Fuel-runway measurement (Wave 2), READ-ONLY snapshot of the PRE-step fuel & ice,
+            // captured while `state` is still the pre-economy value. They only feed the UI-local
+            // EMA updated below and never touch the economy.
+            const preFuel = state.fuel.toNumber();
+            // Quality-bucketed (Task 9a): ice total across buckets via itemTotal (absent -> 0).
+            const preIce = itemTotal(state.inventory, "deuteriumIce").toNumber();
+            const beforeEconomy = state;
+
+            // ⚠️ 0.13.3 Unit 4.4b: the LIVE half of the injected completion clock. Every step of a
+            // live poll is stamped with ONE Date.now() captured here (exact at production speed,
+            // where one poll IS one tick); a catch-up uses it as the END of its reconstructed
+            // schedule, exactly like the reload path. Reading the clock HERE rather than inside
+            // economyTick keeps the tick a pure function of its arguments.
+            const completionClockMs = trustedNow();
+            // HOTFIX 0.13.11.4: everything after the economy, as a step of its own, so a catch-up paid
+            // asynchronously runs it when its result lands (with this poll's own values, captured here).
+            const afterPollEconomy = (paidState: GameState) => {
+              state = paidState;
+
+              // Fuel-runway EMA update (Wave 2): per-tick instantaneous rate = total delta over the
+              // ticks this poll actually PAID (a catch-up past the offline cap pays only the cap), so
+              // any poll contributes a per-TICK rate. Live play samples once per bar cycle, so a poll
+              // that pays several cycles weighs as that many samples (blendRunwayEma); one cycle is
+              // the old single blend exactly. The first sample seeds the EMA directly. Pure UI
+              // bookkeeping: it writes only these three locals.
+              const paid = paidTicks(plan, beforeEconomy);
+              const sampleWeight = plan.cycles * (paid / ticksElapsed);
+              const postIce = itemTotal(state.inventory, "deuteriumIce").toNumber();
+              const instDFuel = (state.fuel.toNumber() - preFuel) / paid;
+              const instDIce = (postIce - preIce) / paid;
+              emaDFuelPerTick = blendRunwayEma(emaDFuelPerTick, instDFuel, runwaySamples, sampleWeight, RUNWAY_EMA_ALPHA);
+              emaDIcePerTick = blendRunwayEma(emaDIcePerTick, instDIce, runwaySamples, sampleWeight, RUNWAY_EMA_ALPHA);
+              runwaySamples += Math.max(1, Math.round(sampleWeight));
+
+              // A large gap seen while the tab is VISIBLE (a sleep the browser never reported as
+              // hidden) gets its recap here. A gap paid while hidden is recapped by the visibility
+              // handler instead, once, over the whole time away.
+              //
+              // ⚠️ HOTFIX 0.13.11.3: labeled with what this poll PAID (paidRealSeconds: the cut plan,
+              // bounded by tick()'s cap), never plan.realElapsedSeconds. A held release cut to its last
+              // ~30 s of budget used to raise a second popup claiming the whole raw gap ("~1d 1h").
+              const pollPaidSeconds = paidRealSeconds(plan, beforeEconomy);
+              if (exceedsOfflineCap(plan, beforeEconomy)) pollCappedAwaySeconds = plan.realElapsedSeconds;
+              if (awayFrom !== null) {
+                // Paid and away accumulate over the SAME polls (tallyAwayPoll), so live hidden play
+                // followed by a long sleep never shows more paid than away.
+                awayFrom = { ...awayFrom, ...tallyAwayPoll(awayFrom, pollPaidSeconds, pollCappedAwaySeconds) };
+              } else if (plan.mode === "catchUp" && !document.hidden) {
+                welcomeBack(beforeEconomy, pollPaidSeconds, now - plan.realElapsedSeconds * 1000, pollCappedAwaySeconds);
+              }
+            };
+            // A gap ("catchUp") is the same job runPollEconomy runs (beginPollCatchUp / finishPollCatchUp),
+            // paid by catchUp.pay: synchronously when short, in slices behind the overlay when long. Every
+            // other poll steps as it always did.
+            if (plan.mode === "catchUp") {
+              const job = beginPollCatchUp(beforeEconomy, plan, Math.random, completionClockMs);
+              catchUp.pay(job, catchUpDetail(paidRealSeconds(plan, beforeEconomy)), (done) =>
+                afterPollEconomy(finishPollCatchUp(beforeEconomy, done)),
+              );
+            } else {
+              afterPollEconomy(runPollEconomy(beforeEconomy, plan, Math.random, completionClockMs));
+            }
+          }
+
+          // The cycle start carries the leftover forward (planPoll), so a late poll never costs
+          // time. Once for the whole fleet: there is one shared cycle.
+          cycle.barCycleStart = loopClock.cycleStartMs;
+          // ⚠️ Raised in the SAME poll that starts the next cycle, which is the whole point: without
+          // it the last tenth of the bar is never rendered. The next poll clears it.
+          barCompletedFrame = true;
+        }
       };
-      if (trustedHeldMs() > SERVER_TOLERANCE_MS) {
-        void confirmTrustedTime(3000).then(finish);
-        return;
+
+      // "Same as offline" recap for a return from a long absence (HOTFIX 0.13.10): the same log
+      // line pattern and the same "While you were away" modal the reload path raises, built from
+      // the same pure before/after diff. Skipped for short absences, while paused (nothing ran) and
+      // while the corrupt-save recovery modal is up (never stacked over it). A recap still open from
+      // earlier is EXTENDED, never replaced: the new one starts from the open one's snapshot and
+      // spans both absences (awayRecapSpan), so no reported gains are lost.
+      // HOTFIX 0.13.11.3: `paidSeconds` is what the absence actually PAID (never the raw gap), so a
+      // release that paid less than the threshold raises nothing; `awayStartMs` is when the absence
+      // began, so an open recap is extended by the live play before it plus what this one paid.
+      const welcomeBack = (before: GameState, paidSeconds: number, awayStartMs: number, cappedAwaySeconds: number | null) => {
+        if (loopClock.paused || saveCorruptModalOpen || paidSeconds < AWAY_SUMMARY_MIN_SECONDS) return;
+        pushLog(`Welcome back. Advanced ${formatNumber(paidSeconds)}s while away.`);
+        const nowMs = trustedNow();
+        const span = awayRecapSpan(offlineSummary !== null ? offlineSummaryBasis : null, before, paidSeconds, awayStartMs, cappedAwaySeconds);
+        const summary = summarizeOfflineProgress(span.before, state, span.secondsAway);
+        if (summary.hasContent) {
+          offlineSummary = summary;
+          offlineSummaryBasis = { before: span.before, secondsAway: span.secondsAway, shownAtMs: nowMs, cappedAwaySeconds: span.cappedAwaySeconds };
+          offlineSummaryCappedAwaySeconds = span.cappedAwaySeconds;
+        }
+      };
+
+      tickHandle = setInterval(pollGameLoop, 100);
+
+      // Pay what is owed the moment the tab is shown again rather than up to a throttled timer
+      // period later, and recap the whole hidden stretch once. Hiding only remembers where we were.
+      const onVisibilityChange = () => {
+        if (document.hidden) {
+          if (awayFrom === null) awayFrom = { atMs: trustedNow(), snapshot: state, paidSeconds: 0, awaySeconds: 0, cappedAwaySeconds: null };
+          return;
+        }
+        pollGameLoop();
+        // 0.13.11.1: recap once the time away is known. After a device sleep performance.now() may have
+        // stopped, so a big held amount first waits (at most 3 s) for the server to confirm the clock.
+        // The away clock stays set meanwhile, so the loop's own catch-up never recaps part of it, and
+        // finish() reads and writes state in one synchronous pass (nothing straddles the await).
+        // HOTFIX 0.13.11.4: when the poll above (or this one) started an asynchronous catch-up, the
+        // recap waits for it (catchUp.whenIdle), so it covers exactly what the old blocking call paid
+        // before recapping. The run's own real time is paid by the next poll, as before.
+        const finish = () => {
+          if (document.hidden) return; // hidden again: the next return recaps the whole stretch
+          if (catchUp.busy) return catchUp.whenIdle(recapAway);
+          pollGameLoop();
+          catchUp.whenIdle(recapAway);
+        };
+        // The recap itself: consumes the away clock (only ever after the wait above, never before it).
+        const recapAway = () => {
+          if (document.hidden) return; // hidden again: the next return recaps the whole stretch
+          const away = awayFrom;
+          awayFrom = null;
+          // HOTFIX 0.13.11.3: labeled with what the polls while away PAID, never the raw time away.
+          if (away !== null) welcomeBack(away.snapshot, away.paidSeconds, away.atMs, away.cappedAwaySeconds);
+        };
+        if (trustedHeldMs() > SERVER_TOLERANCE_MS) {
+          void confirmTrustedTime(3000).then(finish);
+          return;
+        }
+        void syncServerTimeIfDue();
+        finish();
+      };
+      document.addEventListener("visibilitychange", onVisibilityChange);
+      // A tab opened in the background never fires a "hidden" change, so start the away clock here;
+      // the first time it is shown, the hidden stretch is recapped like any other.
+      if (document.hidden) awayFrom = { atMs: trustedNow(), snapshot: state, paidSeconds: 0, awaySeconds: 0, cappedAwaySeconds: null };
+
+      // 0.13.11.1: check the server's clock now and every ten minutes while shown (and on returns, above).
+      void syncServerTime();
+      timeSyncHandle = setInterval(() => {
+        if (!document.hidden) void syncServerTime();
+      }, 10 * 60 * 1000);
+
+      // Autosave every 30s, tech spec §6.
+      saveHandle = setInterval(doSave, 30000);
+
+      // Home "Needs your orders" ticker cadence (0.13.1, Unit 6). A UI-only timer that
+      // advances the collapsed, DISPLAY-ONLY ticker. It HOLDS (does not advance) when the list
+      // is expanded (the player is reading the full stationary list), when there is 0 or 1
+      // prompt (nothing to rotate through), or when the player prefers reduced motion, so
+      // honoring that preference is simply a no-op cycle rather than a separate code path.
+      // Reads the reactive dashboardModel at FIRE time, so it always rotates the current set.
+      prefersReducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+      needsTickerHandle = setInterval(() => {
+        const n = dashboardModel.needsOrders.length;
+        if (needsExpanded || prefersReducedMotion || n <= 1) return;
+        needsTickerIndex = (needsTickerIndex + 1) % n;
+      }, NEEDS_TICKER_INTERVAL_MS);
+
+      const onUnload = () => doSave();
+      window.addEventListener("beforeunload", onUnload);
+      // 0.13.11: the secret game's own runtime (own state, own save, own 1 s ticker), started after
+      // the main load and catch-up above. It never touches `state` or pollGameLoop.
+      // Guarded on top of the runtime's own guards: nothing in the secret game may break startup.
+      let stopSecret: () => void = () => {};
+      try {
+        stopSecret = startSecretRuntime();
+      } catch {
+        // The main game runs on; the secret game simply is not running this session.
       }
-      void syncServerTimeIfDue();
-      finish();
+      stopGame = () => {
+        stopSecret();
+        window.removeEventListener("beforeunload", onUnload);
+        document.removeEventListener("visibilitychange", onVisibilityChange);
+      };
     };
-    document.addEventListener("visibilitychange", onVisibilityChange);
-    // A tab opened in the background never fires a "hidden" change, so start the away clock here;
-    // the first time it is shown, the hidden stretch is recapped like any other.
-    if (document.hidden) awayFrom = { atMs: trustedNow(), snapshot: state, paidSeconds: 0, awaySeconds: 0, cappedAwaySeconds: null };
-
-    // 0.13.11.1: check the server's clock now and every ten minutes while shown (and on returns, above).
-    void syncServerTime();
-    timeSyncHandle = setInterval(() => {
-      if (!document.hidden) void syncServerTime();
-    }, 10 * 60 * 1000);
-
-    // Autosave every 30s, tech spec §6.
-    saveHandle = setInterval(doSave, 30000);
-
-    // Home "Needs your orders" ticker cadence (0.13.1, Unit 6). A UI-only timer that
-    // advances the collapsed, DISPLAY-ONLY ticker. It HOLDS (does not advance) when the list
-    // is expanded (the player is reading the full stationary list), when there is 0 or 1
-    // prompt (nothing to rotate through), or when the player prefers reduced motion, so
-    // honoring that preference is simply a no-op cycle rather than a separate code path.
-    // Reads the reactive dashboardModel at FIRE time, so it always rotates the current set.
-    prefersReducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-    needsTickerHandle = setInterval(() => {
-      const n = dashboardModel.needsOrders.length;
-      if (needsExpanded || prefersReducedMotion || n <= 1) return;
-      needsTickerIndex = (needsTickerIndex + 1) % n;
-    }, NEEDS_TICKER_INTERVAL_MS);
-
-    const onUnload = () => doSave();
-    window.addEventListener("beforeunload", onUnload);
-    // 0.13.11: the secret game's own runtime (own state, own save, own 1 s ticker), started after
-    // the main load and catch-up above. It never touches `state` or pollGameLoop.
-    // Guarded on top of the runtime's own guards: nothing in the secret game may break startup.
-    let stopSecret: () => void = () => {};
-    try {
-      stopSecret = startSecretRuntime();
-    } catch {
-      // The main game runs on; the secret game simply is not running this session.
-    }
+    if (!loadCatchUpAsync) startGame();
     return () => {
-      stopSecret();
-      window.removeEventListener("beforeunload", onUnload);
-      document.removeEventListener("visibilitychange", onVisibilityChange);
+      // A reload catch-up still in flight is dropped (never applied, never saved); then the game's own cleanup.
+      catchUp.dispose();
+      stopGame();
     };
   });
 
@@ -9919,7 +10015,8 @@
   </Panel>
 {/snippet}
 
-<div class="root">
+<!-- HOTFIX 0.13.11.4: the whole game is inert while a catch-up runs behind the CatchUpOverlay below. -->
+<div class="root" inert={catchUpView !== null ? true : undefined}>
   <Starfield />
   <div class="frame">
     <div class="top-bar">
@@ -18768,6 +18865,12 @@
     {/if}
   {/if}
 </div>
+
+<!-- HOTFIX 0.13.11.4: the catch-up progress window (src/lib/CatchUpOverlay.svelte), outside .root so it is
+     never inert itself. Shown only while an asynchronous catch-up is in flight. -->
+{#if catchUpView !== null}
+  <CatchUpOverlay view={catchUpView} />
+{/if}
 
 <style>
   .root {
