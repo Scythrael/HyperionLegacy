@@ -51,6 +51,12 @@ import { afterTraining, rampRun, rampSeed, tally } from "./safeFirstRamp.fixture
 import { withWr10Off } from "./wr10Switch.fixture";
 import { withAnswersOff } from "./fixRoundAnswersSwitch.fixture";
 import { fixRoundESwitchesOffForThisFile } from "./fixRoundESwitch.fixture";
+import { withCrewModuleSiOff } from "./crewModuleSiSwitch.fixture";
+
+// Standard-Issue crew modules (0.14.0, user 2026-11-17 "free basic set, all ships"): the claims here (each effect
+// against the same run without the stamp, the curve's anchors, determinism, difficulty never falling as the curve
+// rises, the weakest launchable crew finishing run 2) run with the set ON, the shipped game. Only the sample's pinned
+// counts (SAMPLE_PINS and the two "before" tables) predate the set, so those are read with it off (withCrewModuleSiOff).
 
 // Fix round FR-E (0.14.0): the star rule (lane 3 I2, STAR_BODIES_SWITCH: a real star's bodies are drawn from the star,
 // not from its candidate slot) moves the Orion d18 and rank1 ramp samples (the list after the training run holds Wolf
@@ -430,6 +436,7 @@ const SAMPLE_KS = [0, 3, 6, 9];
 
 describe("SF-3 the sample: difficulty rises with the curve and never falls", () => {
   for (const crew of ["d18", "rank1"] as const) {
+    // With the set ON (the shipped game): the claims, no pinned counts.
     it(`Orion ${crew}: the stall count and the lost fights never fall as the curve rises`, { timeout: 120_000 }, () => {
       const rows = SAMPLE_KS.map((k) => tally(SAMPLE.map((i) => rampRun("orion", crew, k, rampSeed(i)))));
       for (let j = 1; j < rows.length; j += 1) {
@@ -438,16 +445,22 @@ describe("SF-3 the sample: difficulty rises with the curve and never falls", () 
         expect(rows[j].lostFights, `${crew} k=${SAMPLE_KS[j]}`).toBeGreaterThanOrEqual(rows[j - 1].lostFights);
       }
       if (crew === "d18") expect(rows[0].stalled, "the weakest launchable crew finishes run 2").toBe(0);
-      expect(rows.map((r) => `${r.stalled}/${r.anyLost}/${r.lostFights}/${r.vaultWon}:${r.vaultSites}`)).toEqual(SAMPLE_PINS[crew]);
-      // Fix round answers Q3 moved the pins in place: with it off the sample reads them as WR-10 left them.
-      const before = withAnswersOff(["catalogBodies"], () => SAMPLE_KS.map((k) => tally(SAMPLE.map((i) => rampRun("orion", crew, k, rampSeed(i))))));
-      expect(before.map((r) => `${r.stalled}/${r.anyLost}/${r.lostFights}/${r.vaultWon}:${r.vaultSites}`)).toEqual(SAMPLE_PINS_BEFORE_Q3[crew]);
+    });
+    // The pinned counts predate the Standard-Issue crew modules: read with the set off.
+    it(`Orion ${crew}: the sample's pinned counts (the set off)`, { timeout: 120_000 }, () => {
+      withCrewModuleSiOff(() => {
+        const rows = SAMPLE_KS.map((k) => tally(SAMPLE.map((i) => rampRun("orion", crew, k, rampSeed(i)))));
+        expect(rows.map((r) => `${r.stalled}/${r.anyLost}/${r.lostFights}/${r.vaultWon}:${r.vaultSites}`)).toEqual(SAMPLE_PINS[crew]);
+        // Fix round answers Q3 moved the pins in place: with it off the sample reads them as WR-10 left them.
+        const before = withAnswersOff(["catalogBodies"], () => SAMPLE_KS.map((k) => tally(SAMPLE.map((i) => rampRun("orion", crew, k, rampSeed(i))))));
+        expect(before.map((r) => `${r.stalled}/${r.anyLost}/${r.lostFights}/${r.vaultWon}:${r.vaultSites}`)).toEqual(SAMPLE_PINS_BEFORE_Q3[crew]);
+      });
     });
     // Wiring WR-10 moved the pins in place: with WR-10 switched off (wr10Switch.fixture.ts) the sample reads the pins as
     // the SF-3 review left them, so every move above is WR-10's. (Read with fix round answers Q3 off too: the SF-3
     // review's capture predates it.)
     it(`Orion ${crew}: with WR-10 off the sample reads the pre-WR-10 pins`, { timeout: 120_000 }, () => {
-      const rows = withAnswersOff(["catalogBodies"], () => withWr10Off(() => SAMPLE_KS.map((k) => tally(SAMPLE.map((i) => rampRun("orion", crew, k, rampSeed(i)))))));
+      const rows = withCrewModuleSiOff(() => withAnswersOff(["catalogBodies"], () => withWr10Off(() => SAMPLE_KS.map((k) => tally(SAMPLE.map((i) => rampRun("orion", crew, k, rampSeed(i))))))));
       expect(rows.map((r) => `${r.stalled}/${r.anyLost}/${r.lostFights}/${r.vaultWon}:${r.vaultSites}`)).toEqual(SAMPLE_PINS_BEFORE_WR10[crew]);
     });
   }

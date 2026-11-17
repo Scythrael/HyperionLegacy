@@ -27,6 +27,13 @@ import { hash, withV1Museum } from "./firstRunsGoldens.fixture";
 // Complement CP-19: this file's pins predate the Personnel Rosters track (a new game's facility map gains its
 // pre-granted Level 1), so it runs with the slice off; cp19Goldens.test.ts pins the slice itself.
 import { cp19OffForThisFile } from "./cp19Switch.fixture";
+import { crewModuleSiOffForThisFile } from "./crewModuleSiSwitch.fixture";
+
+// Standard-Issue crew modules (0.14.0, user 2026-11-17 "free basic set, all ships"): this file's pins predate the
+// free Sensor Suite, Bridge Module and Crew Quarters every ship now carries (their berths, officer lift, hull bonus
+// and equipment ids), so the set is off here and the pins keep proving their own slice. The set itself is pinned in
+// crewModuleStandardIssue.test.ts.
+crewModuleSiOffForThisFile();
 cp19OffForThisFile();
 
 // Captured at 5f9342a (feat/crew-0.14.0's tip), before any Prospecting edit.
@@ -44,6 +51,8 @@ const PINS: Readonly<Record<string, string>> = {
 // Member pieces added after the capture (so the "wearers" pin hashes exactly the pieces it saw): Field Kits FKR-5's
 // Impact Grenade, a Security tool.
 const ADDED_AFTER_THE_PIN: ReadonlySet<string> = new Set(["impactGrenade"]);
+// Quartermaster rows added after the capture: the 0.14.0 Standard-Issue crew module floors (sensor, bridge, quarters).
+const ROWS_ADDED_AFTER_THE_PIN: ReadonlySet<string> = new Set(["sensor", "bridge", "quarters"]);
 
 function pin(name: string, value: unknown): void {
   expect(PINS[name], `no pin named ${name}`).toBeDefined();
@@ -101,7 +110,11 @@ describe("Prospecting hidden: nothing a player can see moves while the unlock fl
   });
 
   it("the Quartermaster rows", () => {
-    pin("requisition", REQUISITION_ENTRIES);
+    // The Sensor Suite, Bridge Module and Crew Quarters rows came after the capture (0.14.0 Standard-Issue crew
+    // modules, user 2026-11-17 "Yes, add them"), so the pin hashes exactly the rows it saw, in order.
+    const crewModuleRows = REQUISITION_ENTRIES.filter((e) => ROWS_ADDED_AFTER_THE_PIN.has(e.slotType));
+    expect(crewModuleRows.map((e) => e.key)).toEqual(["sensor", "bridge", "quarters"]);
+    pin("requisition", REQUISITION_ENTRIES.filter((e) => !ROWS_ADDED_AFTER_THE_PIN.has(e.slotType)));
   });
 
   it("every hull's valid compositions, crew capacity per composition, reserve berths and empty teams", () => {

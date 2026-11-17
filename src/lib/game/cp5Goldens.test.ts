@@ -32,6 +32,13 @@ import { withHullCrewCapsOff } from "./hullCrewCapsSwitch.fixture";
 // fleet whose surplus crew the reserve now moves out of the pool, so the whole file runs with it off and its pins keep
 // proving their own slice (switch-off reproduction: every pin holds with it off). homeworldReserveGoldens pins the reserve.
 import { homeworldReserveOffForThisFile } from "./homeworldReserveSwitch.fixture";
+import { crewModuleSiOffForThisFile } from "./crewModuleSiSwitch.fixture";
+
+// Standard-Issue crew modules (0.14.0, user 2026-11-17 "free basic set, all ships"): this file's pins predate the
+// free Sensor Suite, Bridge Module and Crew Quarters every ship now carries (their berths, officer lift, hull bonus
+// and equipment ids), so the set is off here and the pins keep proving their own slice. The set itself is pinned in
+// crewModuleStandardIssue.test.ts.
+crewModuleSiOffForThisFile();
 homeworldReserveOffForThisFile();
 
 const hash = (v: unknown): string => fnv(goldenJson(v));

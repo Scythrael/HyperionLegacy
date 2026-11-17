@@ -98,7 +98,11 @@ export function withoutCrewModuleLines<T extends { equipment: EquipmentInstance[
 
 // The berths a crew module's Crew Stations line adds (0 without it). Pure.
 export function crewStationsBerths(piece: EquipmentInstance): number {
-  const points = linePoints(piece, "crewStations");
+  return crewStationsBerthsForPoints(linePoints(piece, "crewStations"));
+}
+
+// The berths `points` of Crew Stations add (the curve crewStationsBerths reads; Help quotes it). Pure.
+export function crewStationsBerthsForPoints(points: number): number {
   return points > 0 ? Math.round(CREW_STATIONS_BERTH_SCALE * diminishing(points, CREW_STATIONS_BERTH_KNEE)) : 0;
 }
 

@@ -5,7 +5,7 @@
 import LZString from "lz-string";
 import Decimal from "break_infinity.js";
 import { QUALITY_TIERS } from "./inventory";
-import { type GameState, type MissionPhase, type ShortRangeMissionState, freshCaptains, freshLifetimeStats, requiredTicksForPhase, missionDefWithoutShip, MISSIONS, SHIP_TYPES, seedStandardIssueForShip, STANDARD_ISSUE_ILEVEL, SI_PLATING_HP, SI_EMITTER_CAP, SI_EMITTER_RECHARGE, isStandardIssueBaseline, withStandardIssueMemberLines, withScienceLineSwap, AUTO_SALVAGE_RARITIES_NONE, AUTO_SALVAGE_GRACE_SECONDS_DEFAULT, SENIOR_STAFF_DEFAULT_SEED, SENIOR_STAFF_ROSTER_BASE, EXPEDITION_DEFAULT_SEED, DEFAULT_GAMBIT_PROGRAMS, RELIC_DEFAULT_SEED, awayRecruitSeedFrom, normalizeEquipmentRarity, normalizeEquipmentAscension, PERSONNEL_ROSTERS_FACILITY_KEY, PERSONNEL_ROSTERS_TRACK_SWITCH } from "./model";
+import { type GameState, type MissionPhase, type ShortRangeMissionState, freshCaptains, freshLifetimeStats, requiredTicksForPhase, missionDefWithoutShip, MISSIONS, SHIP_TYPES, seedStandardIssueForShip, seedCrewModuleStandardIssueForShip, STANDARD_ISSUE_ILEVEL, SI_PLATING_HP, SI_EMITTER_CAP, SI_EMITTER_RECHARGE, isStandardIssueBaseline, withStandardIssueMemberLines, withScienceLineSwap, AUTO_SALVAGE_RARITIES_NONE, AUTO_SALVAGE_GRACE_SECONDS_DEFAULT, SENIOR_STAFF_DEFAULT_SEED, SENIOR_STAFF_ROSTER_BASE, EXPEDITION_DEFAULT_SEED, DEFAULT_GAMBIT_PROGRAMS, RELIC_DEFAULT_SEED, awayRecruitSeedFrom, normalizeEquipmentRarity, normalizeEquipmentAscension, PERSONNEL_ROSTERS_FACILITY_KEY, PERSONNEL_ROSTERS_TRACK_SWITCH } from "./model";
 // E-CREW (Task 2): the v64->v65 step backfills each officer's stats through the officer stat roll
 // (a neutral stub until Task 19, the real seeded roll since). Task 19's v65->v66 step re-rolls the
 // stub-era neutral lines through the same roll. One-way import: seniorStaff.ts is a pure leaf over
@@ -135,7 +135,15 @@ import { withCultureRevealsOnLoad } from "./relics";
 //   4. Wiring OC-G1 (no bump, no MIGRATIONS entry): a LEGACY expedition still out (no `groundOps` record: dispatched
 //      before GO-7b, only in a dev save) is FINISHED on every load (finishLegacyExpeditionsOnLoad): set "complete" with
 //      the findings it holds, claimed as usual. Idempotent. An older build reads a complete run as it always did.
-export const SAVE_VERSION = 71;
+//
+// SAVE v72 (0.14.0, user 2026-11-17 "free basic set, all ships"; design
+// docs/superpowers/specs/2026-11-17-research-filter-and-crew-standard-issue-design.md section 2). Its own bump: the step
+// must run ONCE per save (a slot the player empties after it must stay empty), and only the version tells a save that
+// already had its set from one that never did.
+//   1. Every existing ship gets the Standard-Issue Sensor Suite, Bridge Module and Crew Quarters (model.ts
+//      seedCrewModuleStandardIssueForShip) in each of those slots that is EMPTY; an installed module is never replaced.
+//      See withCrewModuleStandardIssueV72.
+export const SAVE_VERSION = 72;
 export const SAVE_KEY = "fleet_admiral_save";
 
 export interface SaveFile {
@@ -2687,7 +2695,37 @@ const MIGRATIONS: Record<number, Migration> = {
   // Complement CP-19 rides the same step (no bump; v71 has not reached staging): the Personnel Rosters track's
   // pre-granted Level 1 (withPersonnelRostersTrackV71), which migrate ALSO runs on every load.
   70: (state: any): any => withPersonnelRostersTrackV71(withEvacuationStampV71(state)),
+  // v71 -> v72 (0.14.0, "free basic set, all ships"): the Standard-Issue crew modules into every ship's empty sensor,
+  // bridge and quarters slots, once (withCrewModuleStandardIssueV72).
+  71: (state: any): any => withCrewModuleStandardIssueV72(state),
 };
+
+// The v71 -> v72 step: for each ship, in roster order, the Standard-Issue set (sensor, bridge, quarters) minus every slot
+// the ship already fills (any piece of that slot type installed on it, crafted or not), minted through the SAME seeder
+// every birth site uses (seedCrewModuleStandardIssueForShip), ids threaded from nextEquipmentId. It touches nothing but
+// the pool and the counter: a ship out on a run keeps its run record (its dispatch stamps) exactly as it was, and its
+// gear lock only guards the player's own installs. Runs once by construction (the version), so a later uninstall stays
+// empty. Hardened: a non-object state, or one whose ships or equipment is not an array, passes through; a ship without a
+// string id is skipped; a non-numeric counter reads as one past the highest equip-N id in the pool. Plain data.
+export function withCrewModuleStandardIssueV72(state: any): any {
+  if (!state || typeof state !== "object" || !Array.isArray(state.ships)) return state;
+  const pool: any[] = state.equipment === undefined ? [] : state.equipment;
+  if (!Array.isArray(pool)) return state;
+  let nextEquipmentId: number =
+    typeof state.nextEquipmentId === "number" && Number.isFinite(state.nextEquipmentId)
+      ? state.nextEquipmentId
+      : pool.reduce((n: number, e: any) => Math.max(n, Number(String(e?.id ?? "").replace("equip-", "")) + 1 || n), 1);
+  const added: any[] = [];
+  for (const ship of state.ships) {
+    if (!ship || typeof ship.id !== "string") continue;
+    const filled = new Set<string>(pool.filter((e: any) => e && e.fittedToShipId === ship.id).map((e: any) => e.slotType));
+    const seeded = seedCrewModuleStandardIssueForShip(ship.id, nextEquipmentId, filled);
+    added.push(...seeded.pieces);
+    nextEquipmentId = seeded.nextId;
+  }
+  if (added.length === 0) return state;
+  return { ...state, equipment: [...pool, ...added], nextEquipmentId };
+}
 
 // Complement CP-19 (plan 2026-10-14 CP-19 / OC-17; user 2026-11-02 "Personnel Rosters track (Recommended)"): the
 // Personnel Rosters track at its pre-granted Level 1, the telescope's v67 -> v68 seed posture (an existing value is

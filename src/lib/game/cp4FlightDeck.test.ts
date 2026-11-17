@@ -21,6 +21,13 @@ import { withCp4FlightDeckOff } from "./cp4FlightDeckSwitch.fixture";
 // 2c66d749 and on this merge, with WR-8b switched off every fixture reproduces its capture hash for hash; WR-13 and
 // OC-G1 move none of them. The torpedoes-on case is proven in cp4FlightDeck.test.ts ("with enemy torpedoes live").
 import { enemyTorpedoesOffForThisFile, withEnemyTorpedoesOn } from "./enemyTorpedoSwitch.fixture";
+import { crewModuleSiOffForThisFile } from "./crewModuleSiSwitch.fixture";
+
+// Standard-Issue crew modules (0.14.0, user 2026-11-17 "free basic set, all ships"): this file's pins predate the
+// free Sensor Suite, Bridge Module and Crew Quarters every ship now carries (their berths, officer lift, hull bonus
+// and equipment ids), so the set is off here and the pins keep proving their own slice. The set itself is pinned in
+// crewModuleStandardIssue.test.ts.
+crewModuleSiOffForThisFile();
 enemyTorpedoesOffForThisFile();
 
 const patrolOf = (s: GameState): PatrolMissionState => s.captains[0].mission as PatrolMissionState;

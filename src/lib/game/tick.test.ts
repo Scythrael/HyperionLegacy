@@ -5172,10 +5172,12 @@ describe("shipBuild completion installs the combat baseline on every hull (Comba
     // retune moves this with the data.
     const loadout = defaultWeaponsForHull("destroyer");
     const fitted = next.equipment.filter((e) => e.fittedToShipId === newShipId);
-    expect(fitted).toHaveLength(4 + loadout.length + 2);
-    // Every required combat slot is present (dispatchable), plus the four economy slots.
+    // 0.14.0 (user 2026-11-17 "free basic set, all ships"): plus its Standard-Issue Sensor Suite, Bridge Module and Crew
+    // Quarters (3).
+    expect(fitted).toHaveLength(4 + loadout.length + 2 + 3);
+    // Every required combat slot is present (dispatchable), plus the four economy slots and the three crew modules.
     expect(new Set(fitted.map((e) => e.slotType))).toEqual(
-      new Set(["cargoBay", "ftlDrive", "hullPlating", "reactorCore", "shieldEmitters", "specUtility", "weapon"])
+      new Set(["cargoBay", "ftlDrive", "hullPlating", "reactorCore", "shieldEmitters", "specUtility", "weapon", "sensor", "bridge", "quarters"])
     );
     // One weapon per hardpoint (the full loadout, in order), and exactly one shield + one plating.
     expect(fitted.filter((e) => e.slotType === "weapon").map((e) => e.weaponType)).toEqual([...loadout]);
@@ -5192,15 +5194,19 @@ describe("shipBuild completion installs the combat baseline on every hull (Comba
     // carrier-only, builtInBays 0).
     const loadout = COMBAT_DEFAULT_LOADOUT.prospectorMiner.weapons;
     const fitted = next.equipment.filter((e) => e.fittedToShipId === newShipId);
-    expect(fitted).toHaveLength(4 + loadout.length + 2); // 4 economy + 1 weapon + shield + plating
+    expect(fitted).toHaveLength(4 + loadout.length + 2 + 3); // 4 economy + 1 weapon + shield + plating + 3 crew modules (0.14.0)
     expect(new Set(fitted.map((e) => e.slotType))).toEqual(
-      new Set(["cargoBay", "ftlDrive", "hullPlating", "reactorCore", "shieldEmitters", "specUtility", "weapon"])
+      new Set(["cargoBay", "ftlDrive", "hullPlating", "reactorCore", "shieldEmitters", "specUtility", "weapon", "sensor", "bridge", "quarters"])
     );
     // Its weapon is the outgunned autocannon default (NOT a combat hull's kit), and no drone bay.
     expect(fitted.filter((e) => e.slotType === "weapon").map((e) => e.weaponType)).toEqual([...loadout]);
     expect(fitted.some((e) => e.slotType === "droneBay")).toBe(false); // no drones for economy hulls
   });
 });
+
+// The pieces a fresh game's ship-1 is born with (the economy four, then, since 0.14.0, its Standard-Issue Sensor Suite,
+// Bridge Module and Crew Quarters), all installed; ids equip-1 onward, so the next id is one past them.
+const FRESH_PIECES = freshState().equipment.length;
 
 describe("Fabricator mints real equipment (Task 19)", () => {
   it("a completed EQUIPMENT fabricate deposits ONE stackable blank, NOT an instance (the roll is deferred to inspect)", () => {
@@ -5215,9 +5221,9 @@ describe("Fabricator mints real equipment (Task 19)", () => {
     // The pool still holds ONLY the four fitted Standard-Issue baselines, and the id source is
     // untouched because nothing was minted.
     expect(s.blanks["prospectorHoldBp"].toString()).toBe("1");
-    expect(s.equipment.length).toBe(4); // the four fitted baselines, no crafted spare
+    expect(s.equipment.length).toBe(FRESH_PIECES); // the fresh ship's installed baselines, no crafted spare
     expect(s.equipment.filter((e) => e.fittedToShipId === null).length).toBe(0);
-    expect(s.nextEquipmentId).toBe(5); // untouched: no mint at completion
+    expect(s.nextEquipmentId).toBe(FRESH_PIECES + 1); // untouched: no mint at completion
     // Inputs were still consumed by the craft.
     expect(itemTotal(s.inventory, "frameSegment").toString()).toBe("0");
     expect(itemTotal(s.inventory, "titaniumIngot").toString()).toBe("0");
@@ -5235,9 +5241,9 @@ describe("Fabricator mints real equipment (Task 19)", () => {
     // material craft mints no EquipmentInstance and does not advance the id source past
     // freshState's post-seed value of 5.
     expect(itemTotal(s.inventory, "frameSegment").toString()).toBe("1");
-    expect(s.equipment.length).toBe(4); // the four Standard-Issue baselines, unchanged
+    expect(s.equipment.length).toBe(FRESH_PIECES); // the fresh ship's installed baselines, unchanged
     expect(s.equipment.every((e) => e.blueprintKey === null)).toBe(true); // all baselines, no crafted piece
-    expect(s.nextEquipmentId).toBe(5); // id source untouched by a material craft (still freshState's post-seed 5)
+    expect(s.nextEquipmentId).toBe(FRESH_PIECES + 1); // id source untouched by a material craft (still freshState's post-seed id)
   });
 
   it("⚠️ offline==live PARITY: an equipment craft deposits the SAME blank whether jumped or stepped", () => {
@@ -5254,10 +5260,10 @@ describe("Fabricator mints real equipment (Task 19)", () => {
 
     expect(jumped.blanks["prospectorHoldBp"].toString()).toBe("1");
     expect(stepped.blanks["prospectorHoldBp"].toString()).toBe("1");
-    expect(jumped.equipment.length).toBe(4); // no mint: only the four fitted baselines
-    expect(stepped.equipment.length).toBe(4);
-    expect(jumped.nextEquipmentId).toBe(5); // id source untouched on both paths
-    expect(stepped.nextEquipmentId).toBe(5);
+    expect(jumped.equipment.length).toBe(FRESH_PIECES); // no mint: only the fresh ship's installed baselines
+    expect(stepped.equipment.length).toBe(FRESH_PIECES);
+    expect(jumped.nextEquipmentId).toBe(FRESH_PIECES + 1); // id source untouched on both paths
+    expect(stepped.nextEquipmentId).toBe(FRESH_PIECES + 1);
   });
 });
 
@@ -5282,11 +5288,11 @@ describe("Fabricator mints real weapons (Combat 1.0, Unit 1.2b)", () => {
     for (let i = 0; i < 130; i++) s = economyTick(s, 1, rng); // > 120-tick duration -> completes
 
     // ITEM LIFECYCLE 0.13.6: a weapon craft deposits a blank keyed by blueprint; no instance minted
-    // at completion (the roll is at INSPECT). Pool holds only the four fitted baselines, id untouched.
+    // at completion (the roll is at INSPECT). Pool holds only the fresh ship's installed baselines, id untouched.
     expect(s.blanks["autocannonBp"].toString()).toBe("1");
-    expect(s.equipment.length).toBe(4);
+    expect(s.equipment.length).toBe(FRESH_PIECES);
     expect(s.equipment.filter((e) => e.fittedToShipId === null).length).toBe(0);
-    expect(s.nextEquipmentId).toBe(5);
+    expect(s.nextEquipmentId).toBe(FRESH_PIECES + 1);
     expect(itemTotal(s.inventory, "titaniumIngot").toString()).toBe("0");
     expect(itemTotal(s.inventory, "frameSegment").toString()).toBe("0");
   });
@@ -5302,10 +5308,10 @@ describe("Fabricator mints real weapons (Combat 1.0, Unit 1.2b)", () => {
 
     expect(jumped.blanks["autocannonBp"].toString()).toBe("1");
     expect(stepped.blanks["autocannonBp"].toString()).toBe("1");
-    expect(jumped.equipment.length).toBe(4);
-    expect(stepped.equipment.length).toBe(4);
-    expect(jumped.nextEquipmentId).toBe(5);
-    expect(stepped.nextEquipmentId).toBe(5);
+    expect(jumped.equipment.length).toBe(FRESH_PIECES);
+    expect(stepped.equipment.length).toBe(FRESH_PIECES);
+    expect(jumped.nextEquipmentId).toBe(FRESH_PIECES + 1);
+    expect(stepped.nextEquipmentId).toBe(FRESH_PIECES + 1);
   });
 });
 
@@ -5330,11 +5336,11 @@ describe("Fabricator mints real drone pods (Combat 1.0, Unit 2.1b)", () => {
     for (let i = 0; i < 170; i++) s = economyTick(s, 1, rng); // > 160-tick duration -> completes
 
     // ITEM LIFECYCLE 0.13.6: a drone craft deposits a blank keyed by blueprint; no instance minted
-    // at completion (the roll is at INSPECT). Pool holds only the four fitted baselines, id untouched.
+    // at completion (the roll is at INSPECT). Pool holds only the fresh ship's installed baselines, id untouched.
     expect(s.blanks["attackDronePodBp"].toString()).toBe("1");
-    expect(s.equipment.length).toBe(4);
+    expect(s.equipment.length).toBe(FRESH_PIECES);
     expect(s.equipment.filter((e) => e.fittedToShipId === null).length).toBe(0);
-    expect(s.nextEquipmentId).toBe(5);
+    expect(s.nextEquipmentId).toBe(FRESH_PIECES + 1);
     expect(itemTotal(s.inventory, "polysilicateWafer").toString()).toBe("0");
     expect(itemTotal(s.inventory, "powerCoupling").toString()).toBe("0");
     expect(itemTotal(s.inventory, "frameSegment").toString()).toBe("0");
@@ -5351,9 +5357,9 @@ describe("Fabricator mints real drone pods (Combat 1.0, Unit 2.1b)", () => {
 
     expect(jumped.blanks["attackDronePodBp"].toString()).toBe("1");
     expect(stepped.blanks["attackDronePodBp"].toString()).toBe("1");
-    expect(jumped.equipment.length).toBe(4);
-    expect(stepped.equipment.length).toBe(4);
-    expect(jumped.nextEquipmentId).toBe(5);
-    expect(stepped.nextEquipmentId).toBe(5);
+    expect(jumped.equipment.length).toBe(FRESH_PIECES);
+    expect(stepped.equipment.length).toBe(FRESH_PIECES);
+    expect(jumped.nextEquipmentId).toBe(FRESH_PIECES + 1);
+    expect(stepped.nextEquipmentId).toBe(FRESH_PIECES + 1);
   });
 });

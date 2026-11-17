@@ -28,6 +28,13 @@ import { describe, expect, it } from "vitest";
 // WR-8b (enemy torpedoes) came after every pin here: the file runs with it off (enemyTorpedoSwitch.fixture.ts), so its
 // pins keep proving their own slice (enemyTorpedoGoldens.test.ts pins what WR-8b moved, enemyTorpedoes.test.ts proves it).
 import { enemyTorpedoesOffForThisFile } from "./enemyTorpedoSwitch.fixture";
+import { crewModuleSiOffForThisFile } from "./crewModuleSiSwitch.fixture";
+
+// Standard-Issue crew modules (0.14.0, user 2026-11-17 "free basic set, all ships"): this file's pins predate the
+// free Sensor Suite, Bridge Module and Crew Quarters every ship now carries (their berths, officer lift, hull bonus
+// and equipment ids), so the set is off here and the pins keep proving their own slice. The set itself is pinned in
+// crewModuleStandardIssue.test.ts.
+crewModuleSiOffForThisFile();
 enemyTorpedoesOffForThisFile();
 import { gw5ReadBack } from "./gearWearStep5Registry.fixture"; // Gear wear step 5: its deleted and flipped rows read back, innermost
 import { otUiReadBack } from "./otUiRegistry.fixture"; // OT-UI: the Overtime row restated, read back innermost
@@ -222,8 +229,10 @@ const HELD_CAPTURE: Record<string, string> = {
   "keep:generalFreighter:quartersEfficient": "54e6e059",
   "keep:generalFreighter:quartersElite": "d0529ba5",
   "keep:generalFreighter:quartersGuestWing": "8e9f3ad6",
-  "save:bytes": "c095e8d6",
-  "save:roundTrip": "de493c1e",
+  // SAVE v72 (0.14.0 Standard-Issue crew modules): the bytes carry the new SAVE_VERSION (save:bytes c095e8d6 and
+  // save:roundTrip de493c1e at v71, checked).
+  "save:bytes": "96a65865",
+  "save:roundTrip": "35b45753",
   "registry:rows": "805cd5b9",
 };
 const MOVED_BEFORE: Record<string, string> = {

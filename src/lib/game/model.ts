@@ -2644,6 +2644,22 @@ export function varietyHasOwnIdentity(variety: EquipmentVarietyDef): boolean {
   return variety.implicitStats !== undefined || variety.affixPool !== undefined || variety.equipRequirement !== undefined;
 }
 
+// Does a minted piece of `slotType` and `variety` persist its variety key as moduleVariant? The ONE stamping rule the
+// crafted mint (itemgen.ts generateEquipment) and the Standard-Issue mint (generateStandardIssue) share, so a free piece
+// and a crafted piece of the same variety resolve the same catalog entry. True for the catalog-resolved slots (a crew
+// module, a sensor array, a universal module), every away-team member piece, and any variety with its own identity;
+// false for every default economy variety (so those mints gain no field). Pure.
+export function stampsModuleVariant(slotType: EquipmentSlotType, variety: EquipmentVarietyDef): boolean {
+  return (
+    slotType === "bridge" ||
+    slotType === "quarters" ||
+    slotType === "sensor" ||
+    slotType === "module" ||
+    isMemberSlotType(slotType) ||
+    varietyHasOwnIdentity(variety)
+  );
+}
+
 // The catalog variety a piece rolled, resolved from its stamped moduleVariant (see EquipmentInstance), or
 // undefined when the piece carries no stamp (every economy / combat piece without its own identity) or the
 // key no longer names a variety of its slot (a retired variety on an old save). The ONE resolver for
@@ -2986,8 +3002,10 @@ export const EQUIPMENT_SLOTS: Record<string, EquipmentSlotDef> = {
   },
   // CREW 0.14.0 (Phase 1b): the two CREW-MODULE slots, activated from the reserved bridge/quarters
   // EquipmentSlotType members. These are craftable/rollable, ALLOW-EMPTY singletons (one bridge +
-  // one quarters per hull; NO Standard-Issue baseline, so they are deliberately absent from
-  // DEFAULT_EQUIPMENT_VARIETY and never auto-seeded, exactly like the two defensive combat slots).
+  // one quarters per hull; absent from DEFAULT_EQUIPMENT_VARIETY, so the economy seeder never touches them). Since
+  // 0.14.0 (user 2026-11-17 "free basic set, all ships") every ship is born with a Standard-Issue Balanced Command and
+  // Utilitarian Quarters (CREW_MODULE_STANDARD_ISSUE, seedCrewModuleStandardIssueForShip); an uninstall still leaves
+  // the slot empty.
   //
   // ⚠️ THE MODULE'S CREW EFFECT DOES NOT LIVE IN THESE STAT LINES. A module amplifies the crew stack
   // (quarters -> complement capacity + division/per-head effectiveness; bridge -> Senior Staff officer
@@ -3063,10 +3081,10 @@ export const EQUIPMENT_SLOTS: Record<string, EquipmentSlotDef> = {
     ],
   },
   // 0.14.0 SENSORS (DORMANT): the SENSOR slot, activated from the reserved `sensor` EquipmentSlotType
-  // member. A craftable/rollable, ALLOW-EMPTY singleton (one per hull; NO Standard-Issue baseline, so
-  // deliberately absent from DEFAULT_EQUIPMENT_VARIETY and never auto-seeded, exactly like the crew-module
-  // and defensive-combat slots). It mints through the shared generation path so a sensor is a well-formed,
-  // budgeted piece of gear (physicals, durability, iLevel).
+  // member. A craftable/rollable, ALLOW-EMPTY singleton (one per hull; absent from DEFAULT_EQUIPMENT_VARIETY, so the
+  // economy seeder never touches it; since 0.14.0 every ship is born with a Standard-Issue Balanced Array,
+  // CREW_MODULE_STANDARD_ISSUE, and an uninstall still leaves the slot empty). It mints through the shared generation
+  // path so a sensor is a well-formed, budgeted piece of gear (physicals, durability, iLevel).
   //
   // ⚠️ LIVE AS OF EXPLORATION 0.14.0 E1a. The signature stat is `sensors`, now the FIRST live consumer
   // of the sensor slot: equipmentStatMods FOLDS `sensors` as a flat point-sum into ShipDerivedStats.sensors,
@@ -4553,7 +4571,7 @@ export interface ShipDerivedStats {
   // ARRAY (the `sensor` slot's `sensors` implicit + affix lines). This is the FIRST live consumer of
   // the `sensors` stat: survey missions scale their material yield by it (tick.ts's tickCaptainMission).
   // ⚠️ ADDITIVE-NEUTRAL: a bare hull, and any ship with NO sensor item fitted, folds to sensors 0 (the
-  // sensor slot has no Standard-Issue baseline, so an un-sensored ship contributes nothing here), so
+  // Standard-Issue Balanced Array carries its sensors line at 0, so it contributes nothing here either), so
   // every non-survey stat + fixture is byte-identical to before this field existed. Complement CP-14 (OC-16, OC-20):
   // the hull's base sensors join the installed points (hullDerivedStats), and the Science division and Science officer
   // multiply the sum (crewOverlay.ts applyScienceSensorLift). The crew overlay still maps no crew.* key onto it.
@@ -13642,10 +13660,11 @@ export function generateStandardIssue(a: {
     durabilityMax: basePhysicals.durability, // toughness (gear wear): a fresh piece is pristine (no condition field)
     fittedToShipId: a.fittedToShipId,
   };
-  // The same stamping rule generateEquipment applies (itemgen.ts): every member piece, and any variety with
-  // its own identity, persists its variety key. False for every default economy variety, so the seeded
-  // and migrated ship baselines gain no field.
-  if (isMemberSlotType(a.slotType) || varietyHasOwnIdentity(variety)) {
+  // The same stamping rule generateEquipment applies (stampsModuleVariant): every member piece, every crew module
+  // and sensor array (their effect is catalog-resolved from the stamp), and any variety with its own identity,
+  // persists its variety key. False for every default economy variety, so the seeded and migrated economy
+  // baselines gain no field.
+  if (stampsModuleVariant(a.slotType, variety)) {
     piece.moduleVariant = varietyKey;
   }
   // 0.14.0: an away-team MEMBER baseline carries its real Standard-Issue lines (STANDARD_ISSUE_MEMBER_POINTS below).
@@ -13843,6 +13862,51 @@ export function seedStandardIssueForShip(
         allocateId: () => `equip-${mintedId}`,
       })
     );
+    nextId += 1;
+  }
+  return { pieces, nextId };
+}
+
+// STANDARD-ISSUE CREW MODULES AND SENSOR SUITE (0.14.0; user 2026-11-17 "free basic set, all ships", design
+// docs/superpowers/specs/2026-11-17-research-filter-and-crew-standard-issue-design.md section 2). Every ship is born
+// with a free Sensor Suite, Bridge Module and Crew Quarters, and the v71 -> v72 migration (save.ts) installs the same
+// set ONCE into each existing ship's EMPTY sensor, bridge and quarters slot. The slots stay allow-empty: an uninstall
+// leaves the slot empty and nothing re-seeds it.
+//   sensor    Balanced Array        (SENSOR_ARRAYS sensorBalanced: the neutral scan, a small even discovery bias)
+//   bridge    Balanced Command      (BRIDGE_MODULES bridgeBalancedCommand: an even lift to every officer)
+//   quarters  Utilitarian Quarters  (QUARTERS_MODULES quartersUtilitarian: its fixed berths, a small division lift)
+// Each piece is the Standard-Issue floor (generateStandardIssue: Standard rarity, quality 0, no affixes, its signature
+// line at 0), so every crafted module of the same variant is an upgrade: the effects scale with rarity and quality
+// (moduleEffectScale) and the floor is the weakest. The mint order is the record's key order (sensor, bridge,
+// quarters), so the ids are deterministic. A module's catalog id is its slot variety key, stamped as moduleVariant.
+export const CREW_MODULE_STANDARD_ISSUE: Readonly<Record<"sensor" | "bridge" | "quarters", string>> = {
+  sensor: "sensorBalanced",
+  bridge: "bridgeBalancedCommand",
+  quarters: "quartersUtilitarian",
+};
+
+// Test-only switch (the FAVORED_SPEC_SWITCH pattern; crewModuleSiSwitch.fixture.ts): off, no birth site and no
+// migration seeds the set, exactly the game before it, so a golden can show which pins the set moved. Always live in
+// the game.
+export const CREW_MODULE_STANDARD_ISSUE_SWITCH = { live: true };
+
+// Mint the Standard-Issue crew module set for `shipId` (sensor, bridge, quarters, in that order), all installed on it,
+// ids allocated from `startId` exactly like seedStandardIssueForShip (capture, then advance). A slot type in `skip` is
+// left out (the migration skips a slot the ship already fills). Every birth site calls it right after its economy and
+// combat seeds (freshState, mintBuiltShip, the captain-slot hull grant), threading the same id counter. With the test
+// switch off it mints nothing. PURE: fresh records and the advanced id, mutates nothing.
+export function seedCrewModuleStandardIssueForShip(
+  shipId: string,
+  startId: number,
+  skip?: ReadonlySet<string>
+): { pieces: EquipmentInstance[]; nextId: number } {
+  if (!CREW_MODULE_STANDARD_ISSUE_SWITCH.live) return { pieces: [], nextId: startId };
+  const pieces: EquipmentInstance[] = [];
+  let nextId = startId;
+  for (const [slotType, varietyKey] of Object.entries(CREW_MODULE_STANDARD_ISSUE) as [EquipmentSlotType, string][]) {
+    if (skip?.has(slotType)) continue;
+    const mintedId = nextId;
+    pieces.push(generateStandardIssue({ slotType, fittedToShipId: shipId, allocateId: () => `equip-${mintedId}`, varietyKey }));
     nextId += 1;
   }
   return { pieces, nextId };
@@ -16553,6 +16617,9 @@ export function freshState(homeworldSeed?: number): GameState {
   // save land on the identical fully-fitted shape. nextEquipmentId advances past the
   // four minted ids (first minted is "equip-1", so the counter ends at 5).
   const seededShip1 = seedStandardIssueForShip("ship-1", 1);
+  // 0.14.0 (user 2026-11-17 "free basic set, all ships"): then its Standard-Issue Sensor Suite, Bridge Module and Crew
+  // Quarters (seedCrewModuleStandardIssueForShip), threaded off the economy seed: equip-5 to equip-7, the counter at 8.
+  const seededCrew1 = seedCrewModuleStandardIssueForShip("ship-1", seededShip1.nextId);
   return {
     captains: freshCaptains(1),
     tickDurationSeconds: 1,
@@ -16683,8 +16750,8 @@ export function freshState(homeworldSeed?: number): GameState {
     // no live slot is ever empty. Existing saves reach the identical shape via the
     // v27->v28 migration (save.ts). craftingLevel starts at 1 (mirrors fleetAdminLevel)
     // with 0 xp.
-    equipment: seededShip1.pieces,
-    nextEquipmentId: seededShip1.nextId,
+    equipment: [...seededShip1.pieces, ...seededCrew1.pieces],
+    nextEquipmentId: seededCrew1.nextId,
     // Item Lifecycle 0.13.6 (Armory, dormant): no loadouts on a fresh save; id source at 1.
     loadouts: [],
     nextLoadoutId: 1,

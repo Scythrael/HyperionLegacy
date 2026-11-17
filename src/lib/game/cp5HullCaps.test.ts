@@ -22,6 +22,13 @@ import { autoCrewShip } from "./autoCrew";
 import { resolveCrew } from "./crewOverlay";
 import { totalCrew } from "./crew";
 import { withHullCrewCapsOff } from "./hullCrewCapsSwitch.fixture";
+import { crewModuleSiOffForThisFile } from "./crewModuleSiSwitch.fixture";
+
+// Standard-Issue crew modules (0.14.0, user 2026-11-17 "free basic set, all ships"): this file's pins predate the
+// free Sensor Suite, Bridge Module and Crew Quarters every ship now carries (their berths, officer lift, hull bonus
+// and equipment ids), so the set is off here and the pins keep proving their own slice. The set itself is pinned in
+// crewModuleStandardIssue.test.ts.
+crewModuleSiOffForThisFile();
 
 const HULLS = Object.keys(SHIP_TYPES) as ShipTypeKey[];
 // The Andromeda (user 2026-10-16: "the Andromeda has 1017. That's the largest."), a later hull tier: every 0.14.0 hull

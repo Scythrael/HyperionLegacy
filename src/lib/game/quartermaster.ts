@@ -46,7 +46,7 @@
 // and never mutates its input.
 //
 // Contents:
-//   RequisitionMint          how one row mints its baseline (the four generator shapes)
+//   RequisitionMint          how one row mints its baseline (one shape per generator call)
 //   REQUISITION_CATALOGUE    the TOTAL Record over EquipmentSlotType (totality lives here)
 //   REQUISITION_ENTRIES      the DERIVED, ordered list the console renders
 //   RequisitionBlockReason   the typed refusal union (mirrors EquipFitBlockReason)
@@ -67,6 +67,7 @@ import type {
 } from "./model";
 import {
   AWAY_TEAM_TYPES,
+  CREW_MODULE_STANDARD_ISSUE,
   DEFAULT_EQUIPMENT_VARIETY,
   EQUIPMENT_SLOTS,
   ITEMS,
@@ -138,17 +139,23 @@ import { addToInventory, itemCap } from "./tick";
 //                  no single default variety; each per-team row names the variety its squad wears,
 //                  and the generator stamps it as moduleVariant so the member install gate
 //                  (canFitToMember) knows which squad the piece is for.
+//   crewModule     (0.14.0, user 2026-11-17 "Yes, add them") generateStandardIssue with the slot's
+//                  CREW_MODULE_STANDARD_ISSUE variety: the free Sensor Suite, Bridge Module and Crew
+//                  Quarters every ship is born with (model.ts seedCrewModuleStandardIssueForShip). These
+//                  slots have no DEFAULT_EQUIPMENT_VARIETY, so the row names the variety; it is the very
+//                  piece a new ship carries, the same but for its id and where it is installed.
 export type RequisitionMint =
   | { kind: "economy" }
   | { kind: "shieldEmitter" }
   | { kind: "hullPlating" }
   | { kind: "weapon"; weaponType: WeaponId }
   | { kind: "dronePod"; droneRole: DroneRole }
-  | { kind: "member"; varietyKey: string };
+  | { kind: "member"; varietyKey: string }
+  | { kind: "crewModule"; varietyKey: string };
 
 // One catalogue row, before the player-facing label is resolved.
 export interface RequisitionRow {
-  // The name shown ONLY for a slot with no EQUIPMENT_SLOTS entry. The six slots that DO
+  // The name shown ONLY for a slot with no EQUIPMENT_SLOTS entry. The ship slots that DO
   // have one take their label from there instead (see buildRequisitionEntries), so a slot
   // rename in the blessed table can never leave a stale name on this console. weapon and
   // droneBay mint through their own tables (WEAPON_DEFS / ROLE_TEMPLATE) and have no
@@ -187,6 +194,21 @@ export type RequisitionCatalogue = {
   [K in EquipmentSlotType]: K extends MemberSlotType ? MemberRequisitionSlot | null : RequisitionRow | null;
 };
 
+// One crew module floor row (0.14.0): the slot's CREW_MODULE_STANDARD_ISSUE variety, named from the slot's own catalog
+// (the issued piece reads "Standard-Issue Balanced Array"). A variety the slot's catalog lacks is a data bug: fail at
+// module load rather than render a row whose every requisition would throw in the generator.
+function crewModuleRow(slotType: keyof typeof CREW_MODULE_STANDARD_ISSUE, blurb: string): RequisitionRow {
+  const varietyKey = CREW_MODULE_STANDARD_ISSUE[slotType];
+  const variety = EQUIPMENT_SLOTS[slotType]?.varieties.find((v) => v.key === varietyKey);
+  if (variety === undefined) throw new Error(`REQUISITION_CATALOGUE: ${slotType} names unknown variety "${varietyKey}"`);
+  return {
+    fallbackLabel: EQUIPMENT_SLOTS[slotType]?.label ?? slotType,
+    issuedName: `Standard-Issue ${variety.label}`,
+    blurb,
+    mint: { kind: "crewModule", varietyKey },
+  };
+}
+
 // ----------------------------------------------------------------------------
 // REQUISITION_CATALOGUE: the TOTAL Record over EquipmentSlotType.
 // ----------------------------------------------------------------------------
@@ -199,7 +221,7 @@ export type RequisitionCatalogue = {
 // UI edits. An array of rows would have allowed a silent omission; this cannot.
 //
 // null means "this slot has NO Standard-Issue floor", which is the honest answer for the
-// five reserved slots: they have no EQUIPMENT_SLOTS definition, no default variety and no
+// reserved slots: they have no EQUIPMENT_SLOTS definition, no default variety and no
 // generator, so generateStandardIssue would THROW for them. A counter cannot issue a part
 // that does not exist. When one of them becomes real, replacing its null here is the
 // whole UI change.
@@ -288,14 +310,21 @@ export const REQUISITION_CATALOGUE: RequisitionCatalogue = {
     mint: { kind: "dronePod", droneRole: "attack" },
   },
 
+  // The CREW MODULE floors (0.14.0; user 2026-11-17 "free basic set, all ships", then "Yes, add them" for the
+  // counter). Every ship is born with these three (model.ts CREW_MODULE_STANDARD_ISSUE), so issuing the same piece
+  // free restores where a new ship starts and nothing beyond it, exactly the posture of the combat floors. Unlike the
+  // economy four they are not stat-neutral (a small officer and division lift, 12 berths, an even scan bias); a
+  // crafted module of the same variant is the upgrade. The rows read the variety from CREW_MODULE_STANDARD_ISSUE, so
+  // the born piece and the issued piece can never differ. Order: sensor, bridge, quarters (the mint order).
+  sensor: crewModuleRow("sensor", "The ship's scanner. The same Balanced Array every new ship carries; a crafted Sensor Suite adds sensor points."),
+  bridge: crewModuleRow("bridge", "The command deck. The same Balanced Command every new ship carries, a small lift to every seated officer."),
+  quarters: crewModuleRow("quarters", "The crew's berths. The same Utilitarian Quarters every new ship carries: its berths and a small lift to every division."),
+
   // --- RESERVED slots: no definition, no default variety, no generator, so NO floor
   // exists to issue. Explicit nulls rather than omissions, which is the entire point of
   // the total Record: each of these is a recorded decision the compiler will make someone
   // revisit when the slot becomes real.
-  bridge: null,
-  quarters: null,
   thrusters: null,
-  sensor: null,
   propellantTanks: null,
   // E-MOD EM-5: a universal module has no Standard-Issue floor (no default variety; every module is a crafted or found
   // accessory, H.1), so the counter issues none.
@@ -399,10 +428,10 @@ const MEMBER_SLOT_NOUN: Record<MemberSlotType, string> = {
 //
 // ORDER is the catalogue's own key order (ES2015+ object key order is insertion order),
 // which is deliberate and readable: the four economy slots, then shields, plating, weapon,
-// drone pod. Not sorted, because a sort by label would shuffle the list every time a slot
+// drone pod, then the sensor, bridge and quarters floors (0.14.0). Not sorted, because a sort by label would shuffle the list every time a slot
 // is renamed.
 //
-// LABEL resolution is single-source wherever a source exists: the six slots with an
+// LABEL resolution is single-source wherever a source exists: the ship slots with an
 // EQUIPMENT_SLOTS entry take their label from THERE, so renaming a slot in the blessed
 // table renames it here too. weapon and droneBay have no entry (they mint through
 // WEAPON_DEFS / ROLE_TEMPLATE), so they fall back to the catalogue's own name.
@@ -635,6 +664,10 @@ function mintForRow(
         fittedToShipId: null,
         allocateId,
       });
+    case "crewModule":
+      // The generator the birth sites use (seedCrewModuleStandardIssueForShip), with the same variety, landing as a
+      // spare installed on nothing.
+      return generateStandardIssue({ slotType, varietyKey: mint.varietyKey, fittedToShipId: null, allocateId });
     case "member":
       // The same generator the ship's economy floors use, told which variety to mint: the implicit lines
       // carry the Standard-Issue member set's values (0.14.0) and the variety is stamped as moduleVariant

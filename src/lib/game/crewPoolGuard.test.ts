@@ -9,6 +9,11 @@ import { totalCrew } from "./crew";
 import { CREW_PROFESSION_BUFFS } from "./crewBuffs";
 import { complementTotalCap } from "./commandStructure";
 import { withHullCrewCapsOff } from "./hullCrewCapsSwitch.fixture";
+import { quartersCapacityBonus } from "./crewModules";
+
+// Standard-Issue crew modules (0.14.0, user 2026-11-17 "free basic set, all ships"): this file proves an invariant (each
+// skip equals the full fill), not pinned numbers, so it runs with the set ON, the shipped game. ship-1 keeps its free
+// Utilitarian Quarters through the re-hull, so its berths are the hull's plus the quarters' bonus (ship1Berths).
 
 function pool(profession: CrewProfession, count: number): CrewBucket[] {
   return [{ profession, rarity: "standard", rank: 1, race: "belter", buff1Id: CREW_PROFESSION_BUFFS[profession][0].id, buff2Id: null, count }];
@@ -26,11 +31,13 @@ function withPool(hull: ShipTypeKey, crewPool: CrewBucket[]): GameState {
 
 const crewOnShip1 = (s: GameState): number => totalCrew(s.ships.find((sh) => sh.id === "ship-1")!.complement?.buckets ?? []);
 const fresh = (s: GameState): GameState => structuredClone(s);
+const ship1Berths = (s: GameState, hull: ShipTypeKey): number => complementTotalCap(hull, quartersCapacityBonus(s, s.ships.find((sh) => sh.id === "ship-1")!));
 
 describe("CP-21 crew pool guard: every skip equals the full fill", () => {
   it("a full ship and an idle pool: the same state comes back, equal to a fresh fill", () => {
     const filled = resolveCrew(withPool("generalFreighter", [...pool("operations", 500), ...pool("engineering", 500), ...pool("security", 500), ...pool("science", 500), ...pool("medical", 500), ...pool("flightDeck", 500)]));
-    expect(crewOnShip1(filled)).toBe(complementTotalCap("generalFreighter"));
+    expect(quartersCapacityBonus(filled, filled.ships[0])).toBe(12); // the free set is really on
+    expect(crewOnShip1(filled)).toBe(ship1Berths(filled, "generalFreighter"));
     expect(resolveCrew(filled)).toBe(filled);
     expect(resolveCrew(fresh(filled))).toEqual(filled);
   });
@@ -39,7 +46,7 @@ describe("CP-21 crew pool guard: every skip equals the full fill", () => {
     // Only Flight Deck crew wait: the carrier seats its Flight Deck division and the rest of its berths stay empty.
     const once = resolveCrew(withPool("carrier", pool("flightDeck", 500)));
     expect(crewOnShip1(once)).toBeGreaterThan(0);
-    expect(crewOnShip1(once)).toBeLessThan(complementTotalCap("carrier"));
+    expect(crewOnShip1(once)).toBeLessThan(ship1Berths(once, "carrier"));
     const again = resolveCrew(once);
     expect(again).toBe(once);
     expect(resolveCrew(fresh(once))).toEqual(once);

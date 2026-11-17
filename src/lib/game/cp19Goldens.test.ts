@@ -7,6 +7,13 @@
 // came after every pin here: the file runs with it off (orderingSwitch.fixture.ts), so its pins keep proving their own
 // slice (orderingGoldens.test.ts pins the order move and proves it moved order only).
 import { canonicalOrderOffForThisFile } from "./orderingSwitch.fixture";
+import { crewModuleSiOffForThisFile } from "./crewModuleSiSwitch.fixture";
+
+// Standard-Issue crew modules (0.14.0, user 2026-11-17 "free basic set, all ships"): this file's pins predate the
+// free Sensor Suite, Bridge Module and Crew Quarters every ship now carries (their berths, officer lift, hull bonus
+// and equipment ids), so the set is off here and the pins keep proving their own slice. The set itself is pinned in
+// crewModuleStandardIssue.test.ts.
+crewModuleSiOffForThisFile();
 canonicalOrderOffForThisFile();
 import { describe, expect, it } from "vitest";
 // FR-C R2-5 / R8-6 (the finite-work FA XP folded into lifetimeStats, the auto-salvage log stamp) came after every pin
@@ -66,7 +73,12 @@ const MOVED: Record<string, unknown> = {
   "upgrade:oneCall": ["2e44c08e", 2],
   "upgrade:chunks": ["2e44c08e", 2],
 };
-const PINS: Record<string, unknown> = { ...CP19_PINS_PRE, ...MOVED };
+// SAVE v72 (0.14.0 Standard-Issue crew modules): the save bytes carry the new SAVE_VERSION, so only the save rows
+// move (with SAVE_VERSION held at 71 every one returns to its pin, checked). V72_MOVED overlays the current pins,
+// V72_MOVED_PRE the pre-slice pins.
+const V72_MOVED: Record<string, unknown> = { "save:fresh": ["dba0a852", "b469e38f"], "save:noTrack": "b469e38f", "save:v70": "93d51a98" };
+const V72_MOVED_PRE: Record<string, unknown> = { "save:fresh": ["6562ac2f", "d0fbfe2f"], "save:noTrack": "d0fbfe2f", "save:v70": "69549e0a" };
+const PINS: Record<string, unknown> = { ...CP19_PINS_PRE, ...MOVED, ...V72_MOVED };
 
 describe("Complement CP-19 goldens (captured before the Personnel Rosters track)", () => {
   it("every reading matches its pin (moves are named in MOVED)", () => {
@@ -80,7 +92,7 @@ describe("Complement CP-19 goldens (captured before the Personnel Rosters track)
   }, 600_000);
 
   it("with the slice switched off every row returns to its pre-CP-19 pin", () => {
-    expect(withoutCp19(() => cp19Rows())).toEqual(CP19_PINS_PRE);
+    expect(withoutCp19(() => cp19Rows())).toEqual({ ...CP19_PINS_PRE, ...V72_MOVED_PRE });
   }, 600_000);
 
   // The fix round's trace (user 2026-11-09 "Flat +1 always"): the Recruiter's Level 6 boards moved from 22 to 21. A

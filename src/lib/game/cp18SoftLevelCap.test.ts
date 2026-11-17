@@ -239,7 +239,7 @@ describe("an old save with a captain past the threshold", () => {
     const s = loaded(oldSave(17_999));
     expect(captainOf(s)).toMatchObject({ level: 60, statPoints: 7 });
     expect(captainOf(s).xp.toNumber()).toBe(17_999);
-    expect(SAVE_VERSION).toBe(71);
+    expect(SAVE_VERSION).toBe(72); // the Standard-Issue crew modules took v72
   });
 
   it("its stored XP counts toward the new, larger price (the bar reads lower, nothing is lost)", () => {
