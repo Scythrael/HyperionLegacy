@@ -380,3 +380,11 @@ user config; the write test was refused and the copy stayed clean.
   makes the game inert. Its "known fractional-tail" note matches M4 (chunked-call parity, not player-visible). Both
   reports were thin, so AGENTS.md now requires traced functions and at least eight walked scenarios for a no-findings
   round.
+- Round 3 (commit ad03c4ba): area 2 again, saves and migrations, with the stricter report rules. ONE FINDING.
+  - CX-1 CONFIRMED by Claude (S1 per Codex): a save from a NEWER version loads in an older build. deserialize checks only
+    that version is an integer (save.ts ~3286); migrate's `while (MIGRATIONS[version])` simply does nothing for an
+    unknown future version (~3186); serialize then stamps the build's own SAVE_VERSION (~3250), erasing the real one.
+    The same gap is in PROD (release/0.13.11.4 save.ts L2187, SAVE_VERSION 54). Real path: a player exports a staging
+    0.14.0 save (v72) and imports it on the live game (v54). Prod loads a v72-shaped state with v54 code, the autosave
+    relabels it v54, and when 0.14.0 ships the v54 label makes migrations 54 to 71 run a SECOND time on an
+    already-migrated state. Also bites any rollback. Fix shape and prod hotfix: user decision pending.

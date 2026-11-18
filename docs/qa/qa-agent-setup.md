@@ -99,6 +99,7 @@ Round log (Claude keeps it current):
 |---|---|---|---|
 | 1 (2026-11-17) | 2, saves and migrations (Codex chose it; the focus line was still a placeholder) | 56aae282 | No findings; damaged saves and real legacy saves not covered |
 | 2 (2026-11-17) | 1, offline catch-up and determinism | 1cc80503 (same code as 56aae282) | No findings; its "fractional tail" note = known ledger M4. Thin report, so AGENTS.md now requires traced scenarios |
+| 3 (2026-11-17) | 2 again, saves and migrations | ad03c4ba | 1 finding, CX-1 (a newer-version save loads in an older build), confirmed by Claude; also in prod |
 
 ## 4. Kickoff prompt for ChatGPT (playtest in a browser)
 
