@@ -46,8 +46,9 @@ Open Codex **in the `hl-qa` folder**, never in `fleet-admiral`.
 
 - **Desktop app (ChatGPT app's Codex):** the app has no profile picker; `[profiles.*]` blocks in config.toml only
   apply to the command-line tool started with `--profile`. In the app:
-  1. Open the `hl-qa` folder as the project. If it asks whether to trust the folder, choose **not** to trust it
-     (an untrusted folder starts read-only).
+  1. Open the `hl-qa` folder as the project. If it asks you to trust the folder, choose **Trust folder** (the only
+     other choice, Cancel, does not open it). Trusting is safe here: the copy holds only our own committed files and
+     cannot push, and step 2 sets the mode.
   2. In the message box, type `/permissions` and choose **Read only**. Check the mode shown near the message box
      says read-only before pasting the kickoff prompt.
   3. Optional, to make the folder stay untrusted: add this to `%USERPROFILE%\.codex\config.toml`:
