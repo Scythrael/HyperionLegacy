@@ -221,6 +221,20 @@ just before a prestige, returnable within a window (for example 2 h), nothing el
 pinned rolls, cooldown, leaderboard freeze, server-side records. Claude's lean: B covers the user's real use case with
 the least to cheese; pinned rolls are worth doing whichever is chosen.
 
+USER DECISION (2026-11-18, verbatim): "Hmmm. Yeah, I'm thinking that we have a variant of A. In the event of a rollback,
+I can do it. I can do so in a targeted fashion like choose a player, and then choose which one to roll back to. Or, if
+a save is corrupted and the game attempts to load it and fails, there is an option to be able to roll back to the
+cloud save."
+- **Variant of A.** No general player restore. Rollbacks are done by the owner: **pick a player, then pick which backup
+  to roll back to** (admin control panel).
+- **One player-facing exception:** when a save is **corrupted and fails to load**, the player is offered a **rollback to
+  the cloud save**.
+- Notes for that design (Claude, PROPOSALS): the corruption rollback should go to the NEWEST good cloud copy only (no
+  choosing an older one), and "corrupted" should be decided by the game or server, not by anything the player can
+  trigger, or a player could break their local copy on purpose to get a free undo (worst if auto cloud save was off,
+  so the newest cloud copy is old). Owner rollbacks should leave an audit record (who, when, which backup). Open: with
+  no player restore, does the player's "auto cloud save off" setting still have a purpose?
+
 ## Future (unscheduled): research tech trees (user, 2026-11-17)
 
 Research by TYPE picked like a spec (ship classes, ship systems, crew equipment, components, ...), each opening a
