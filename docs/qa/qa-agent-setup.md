@@ -10,9 +10,19 @@ make it certain.
    the never-list, what to look for, and the report format.
 4. **The kickoff prompt** below, which repeats the key rules in the first message.
 
-## 1. Make the QA copy (once)
+## 1. The QA copy (Claude prepares it every round)
 
-Run these in a terminal:
+**Standing process (user, 2026-11-17):** every time a Codex QA round is about to start, Claude prepares the copy
+first, without being asked:
+
+1. If `F:/Windows Folders/Documents/hl-qa` is missing, Claude creates it with the two commands below.
+2. If it exists, Claude first checks `git status --short` there. Anything listed means something wrote to the copy:
+   Claude stops, shows you what changed, and does not overwrite it until you decide.
+3. If it is clean, Claude updates it to the latest `feat/crew-0.14.0` (`git pull --ff-only`) and confirms push is
+   still disabled.
+4. Claude tells you the commit the copy is on, so it goes into the kickoff prompt and the report.
+
+For reference, the commands Claude uses (you can also run them yourself):
 
 ```bash
 git clone --branch feat/crew-0.14.0 "F:/Windows Folders/Documents/fleet-admiral" "F:/Windows Folders/Documents/hl-qa"
@@ -24,7 +34,7 @@ git -C "F:/Windows Folders/Documents/hl-qa" remote set-url --push origin DISABLE
 
 The second command makes any push from the copy fail. The copy needs no `node_modules`, because Codex only reads.
 
-**Refresh the copy before each QA round** (Claude can also do this after each merge, if you ask):
+Refresh before a round (step 3 above):
 
 ```bash
 git -C "F:/Windows Folders/Documents/hl-qa" pull --ff-only
