@@ -234,6 +234,12 @@ cloud save."
   trigger, or a player could break their local copy on purpose to get a free undo (worst if auto cloud save was off,
   so the newest cloud copy is old). Owner rollbacks should leave an audit record (who, when, which backup). Open: with
   no player restore, does the player's "auto cloud save off" setting still have a purpose?
+- USER ANSWER (2026-11-18, verbatim): "Yeah, there would be no purpose to automatic cloud save off. Not only that,
+  but we want to account for this from a legitimizing accounts and creating things like a leaderboard and the like.
+  It's one more avenue that we can harden against would be malicious actors who would try and use the system to get
+  ahead where they shouldn't." So: **no player setting to turn automatic cloud save off** (cloud saving is always on),
+  and the forced cloud save button is no longer needed for rollbacks. The rollback rules are part of hardening accounts
+  and leaderboards against bad actors (Fable pass 2 lane 2, the online threat model).
 
 ## Future (unscheduled): research tech trees (user, 2026-11-17)
 
