@@ -470,3 +470,12 @@ user config; the write test was refused and the copy stayed clean.
     the original save lived only in the closed tab and is lost. Guide fixed: export first, then do the absence in the
     SAME tab via about:blank; never close the tab or move the playthrough to a new tab; stop on any fresh game.
   - It exported the fresh starter save, not the playthrough one; it could not see a filename or confirmation.
+- Restarted session 1 (2026-11-18), theme 9, fresh save, 1x, no Debug. Reached FA 2, 300 credits, 10 missions, Play
+  Time 2h25m, Refinery L1. Milestones: first Local Asteroid about 2 min (30 credits), Refinery about 5 min. The
+  starter freighter had its Standard-Issue modules. PAUSED itself because Export Save produced no file in the Codex
+  browser (no clipboard export exists; the download is a blob link). Claude: the guide's "export before each Offline
+  sim" gate was too strict (Offline sim never unloads the page; a same-tab reload kept the save in session 1). Guide
+  and AGENTS.md now say: report a missing export once and keep playing.
+  - OPEN, to check with the agent: 10 missions in 2h25m of Play Time (game time, offline included) is far fewer than a
+    repeating 2-minute run would give (about 70). Either the repeat stopped (why, and was the player told?) or the
+    agent's browser froze the page. Ask it for the captain's status and the Log around the 10th mission.

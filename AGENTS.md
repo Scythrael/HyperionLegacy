@@ -106,7 +106,8 @@ you can show it still misbehaves on the current code. If so, say what changed.
   Settings > Save Data > Export Save) and keep the file so the project owner can hand it to the developer. Also export
   at the end of every playtest session. This is required, not optional: a bug in a specific system often cannot be
   reproduced without the save. It is the single exception to the "never create a file" rule in section 1; nothing
-  else in this file forbids it. If your browser blocks the download, say so in the report.
+  else in this file forbids it. If your browser blocks the download, say so in the report and keep playing; never
+  pause a playthrough for a missing export (the save is safe while the game's tab stays open).
 - The Debug tab is allowed for skipping long waits (Speed, Offline sim) and, when needed, for reaching content. Mark
   every finding made after using it with the buttons you used, and never judge pacing or balance from a fast-forwarded
   save. Never use Reset save or Wipe unless the owner asks. The full playtest guide is

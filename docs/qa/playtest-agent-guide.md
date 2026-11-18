@@ -67,7 +67,7 @@ Also on that tab: a Wiring table (developer data; ignore it unless something the
 minigame's fast-forward buttons (only if the theme is the minigame).
 
 **Real absences matter too.** Offline sim is a shortcut. At least once per session, really leave the game:
-1. **Export the save first** (Section 6) and confirm the file downloaded.
+1. **Export the save first** (Section 6) if your browser can download files (see "If exports do not work" below).
 2. In the **same tab**, go to `about:blank` and stay away 3 or more minutes. This unloads the game exactly like
    closing it.
 3. In that same tab, open the staging address again, and watch the catch-up screen and the "While you were away"
@@ -79,12 +79,21 @@ in playtest session 2). If you ever see a fresh game where your save should be, 
 it.
 
 **Keep a recent export, and restore from it.** Your browser may reset or time out between sessions or while you wait
-for the owner, which also starts a fresh game. So export the save at every check-in (before each Offline sim skip
-and at the end of each session), not only when you find a bug. If a session starts, or the game comes back, on a
+for the owner, which also starts a fresh game. So export the save at the end of each session and at check-ins
+before you step away, not only when you find a bug. (Offline sim never unloads the page, so it is safe without an export.) If a session starts, or the game comes back, on a
 fresh game where your save should be: do not play on it. Use **System > Settings > Save Data > Import Save** with
 your latest export, confirm the level, credits, and ships match what you last reported, then continue, and note the
 restore (and any progress lost since that export) in the report. The import keeps the moment the save was made, so the game pays the whole time since then as a normal absence (up to the 4-day cap): a save exported at night and imported the next morning comes back with the night's progress, exactly as if the tab had stayed open. Importing your own export is allowed; it is the
-partner of the required Export Save. Switching to another tab is
+partner of the required Export Save.
+
+**If exports do not work in your browser** (you click Export Save and no `fleet-admiral-save-*.json` file appears),
+say so once in the report and **keep playing**: never pause the playthrough for a missing export. Your save stays safe
+as long as the game's tab stays open: Offline sim, a reload, and the same-tab `about:blank` absence above all keep it.
+For a bug, the evidence is then the exact steps, the numbers on screen (level, credits, Admin Points, ships, Career
+Play Time from Statistics), and the tab left open for the owner. If the browser itself ever resets and the save is
+gone, report it (it is a browser limit, not a game bug) and start fresh.
+
+Switching to another tab is
 a second test, not a replacement: some automated browsers never tell the page it is hidden, so the game just keeps
 running live and no recap appears. After a tab switch, open System > Log and look for "Welcome back. Advanced ...s while
 away." If that line is missing, report it as an observation and say which browser you are in.
