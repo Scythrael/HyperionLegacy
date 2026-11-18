@@ -101,6 +101,30 @@ member asking "What is this thing even for?", the game's first meme). Mechanics 
 SUGGESTIONS "THE ARCHIVE AI"). ⚠️ The namelessness rule applies: the AI must never NAME the DBDs before
 the story does; it can know, hint, fear, or refuse to say.
 
+## Dimension idea: the Sun pushed into a red giant (user, 2026-11-18)
+User, verbatim: "We should have something happen to Earth. A device launched into our sun that pushes the sun's
+evolution into the next phase, swelling it into a red giant and causing a mass extinction event. Easy to play into the
+DR lore and so forth, but I don't know how it might impact the actual game itself unless there's some tie in with
+Earth that we don't have in that DR that makes the game harder."
+("DR" = one of the Dimensional Traversal dimensions, DT I..X.)
+
+Existing game ties to Earth and Sol that this dimension could act on (found 2026-11-18, all PROPOSALS, nothing
+decided):
+- **Crew supply.** The saga design says passive crew arrive "on TRANSPORTS from Earth and nearby colonies"
+  (exploration-crew saga doc, section 3). With Earth gone, only the colonies send people: fewer recruits, harder to
+  staff ships.
+- **The Earth-born race** (crewRaces.ts: the balanced default origin, racial = Crew Effectiveness). No new Earth-born
+  recruits in this dimension; only those already serving remain.
+- **The rest of Sol's human origins.** Real physics: a red giant scorches Mars and boils off the Belt's ices, while
+  the habitable zone moves outward toward the outer planets. Martian and Belter recruits could dwindle while
+  Outer-Colony recruits rise. That makes the modifier SYMMETRIC (some origins lose, one gains), matching the
+  per-dimension rule above.
+- **The homeworld sits near Sol** (galaxy.ts `PROVISIONAL_HOMEWORLD`, "provisionalNearSol"; Tier I = the Local
+  Bubble). A swollen Sun next door could be a near-space hazard or a new survey site.
+- **Story rhymes:** the master design's candidate driving force "The long search: Earth is lost" (master design
+  5.5), and the First Traversal's "deadly device" that ruins the homeworld. Whether the Sun device is the same weapon
+  is the user's call; do not connect them until they say so.
+
 ## Status
 Deep-future north-star. Captured so the beat is not lost; no scheduling. When DT is designed, this
 cinematic is the anchor for the first traversal's presentation and the carry-forward rules.
