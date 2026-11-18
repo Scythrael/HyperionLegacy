@@ -240,6 +240,9 @@ cloud save."
   ahead where they shouldn't." So: **no player setting to turn automatic cloud save off** (cloud saving is always on),
   and the forced cloud save button is no longer needed for rollbacks. The rollback rules are part of hardening accounts
   and leaderboards against bad actors (Fable pass 2 lane 2, the online threat model).
+- Same loophole, other door (Claude): today's Export Save / Import Save is exactly a player restore (export, roll,
+  import, repeat), and an edited export imports unchecked (Codex round 8). For accounts and leaderboards, 0.14.1
+  needs a decision on Import Save (remove it, or owner-only from the admin panel). Export can stay as a read-only copy.
 
 ## Future (unscheduled): research tech trees (user, 2026-11-17)
 
