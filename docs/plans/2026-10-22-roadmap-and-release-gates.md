@@ -137,6 +137,32 @@ Notes for designing the kill switches (PROPOSALS, the user decides):
 - Older note: SUGGESTIONS.md put the dev-panel spin-out with 0.15.1; the roadmap now has online as 0.14.1, which
   matches the user's "redesign with 0.14.1".
 
+## 0.14.1: scheduled cloud save backups (user, 2026-11-18): REQUIREMENT, design open
+
+The user (verbatim): "One thing for 0.14.1 as well. We will have the system working within the actual database for
+Vercel. However we handle that one, I'm not 100% sure yet. We will work that out when this is done, however, we will
+want a cloud save backup option that backs up the save on a timer (perhaps every 24 hours, or at a cadence I can set
+in the admin level control panel) that backs up the JSON string or something akin to that in a way that would prevent
+save game loss."
+
+- REQUIREMENT: a **cloud backup of each player's save on a timer**, separate from the live cloud save, so a save can
+  always be recovered. Default cadence "perhaps every 24 hours"; the cadence is **set in the admin control panel**
+  (the same 0.14.1 dev-panel redesign as the system kill switches above).
+- The database and hosting choice is still open (the user will work it out when 0.14.0 is done).
+
+Facts (2026-11-18): the save today is one string, LZ-compressed base64 of the JSON (`serialize` in save.ts; a fresh
+save is about 11 KB). Export Save downloads that string; Import Save writes it back unchanged, keeping its save time,
+so a restored save pays the time since it was made as a normal absence (4-day cap). Import refuses a save from a newer
+build (CX-1). Why it matters: playtest session 2 lost a day-1 save when the agent's browser storage went away.
+
+Questions for the design (PROPOSALS, the user decides):
+- Keep several backups (for example the last 7 daily ones) rather than only the newest, so a save that went bad is
+  not backed up over the last good copy.
+- Also back up at risky moments (just before a save-version migration on a new release), not only on the timer.
+- Who can restore: the player from a list, an admin from the control panel, or both; restore uses the same path as
+  Import (migrations run on load).
+- Backups are server-side copies the player cannot edit, which fits the online threat model (Fable pass 2 lane 2).
+
 ## Future (unscheduled): research tech trees (user, 2026-11-17)
 
 Research by TYPE picked like a spec (ship classes, ship systems, crew equipment, components, ...), each opening a
