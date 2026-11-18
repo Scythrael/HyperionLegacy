@@ -111,8 +111,8 @@ Earth that we don't have in that DR that makes the game harder."
 Existing game ties to Earth and Sol that this dimension could act on (found 2026-11-18, all PROPOSALS, nothing
 decided):
 - **Crew supply.** The saga design says passive crew arrive "on TRANSPORTS from Earth and nearby colonies"
-  (exploration-crew saga doc, section 3). With Earth gone, only the colonies send people: fewer recruits, harder to
-  staff ships.
+  (exploration-crew saga doc, section 3). ~~With Earth gone, only the colonies send people: fewer recruits, harder to
+  staff ships.~~ SUPERSEDED by the user (2026-11-18, below): crew arrivals SPEED UP (a refugee crisis), not dwindle.
 - **The Earth-born race** (crewRaces.ts: the balanced default origin, racial = Crew Effectiveness). No new Earth-born
   recruits in this dimension; only those already serving remain.
 - **The rest of Sol's human origins.** Real physics: a red giant scorches Mars and boils off the Belt's ices, while
@@ -145,8 +145,30 @@ Notes for the design pass (PROPOSALS, not decided):
   0.15.0 (the mystery), and expeditions (exploring Sol).
 - Real stellar aftermath, if later beats want it: red giant, then a helium flash, later a shed shell of gas (a
   planetary nebula), ending as a white dwarf.
-- Still open from the first reply: should the crew loss be a slow squeeze (recruits dwindle over time) or a sudden
-  loss (the Earth-born line simply ends)?
+- ~~Still open: slow squeeze or sudden loss of crew?~~ ANSWERED by the user (below): neither; crew speeds up.
+
+User follow-up 2 (2026-11-18, verbatim): "The crew actually speeds up, and colony missions increase. It'd become a
+refugee crisis."
+
+DECIDED (user):
+- **Crew arrivals speed up** in this dimension: people flee Sol, so the homeworld takes in MORE crew, not fewer.
+- **Colony missions increase.**
+- The framing is a **refugee crisis**.
+
+Ties found 2026-11-18 (facts):
+- Evacuation / transport / colony missions are PLANNED, not built: the saga design lists `crewCapacity` /
+  `maxCapacity` as ship stats that "FUTURE evacuation/transport/colony missions gate on" (saga doc ~line 311;
+  PLANNED_FEATURES_INVENTORY S2-09; inventory S4-C29 "no mission gates on it yet"). The 1,017-complement long-range
+  explorer was designed with "enormous evacuation space" for exactly this.
+- So this dimension needs those missions to exist first; it is their natural showcase.
+
+Open for the design pass (PROPOSALS / QUESTIONS, not decided):
+- Where the difficulty comes from now that crew is plentiful: housing and ship capacity (where do the refugees go),
+  and fleet time spent ferrying people instead of mining or fighting. The user's call.
+- "Crisis" vs the game's calm promise ("build ease-of-use, sell peace"): should the refugee load be a pressure that
+  costs something if ignored, or an opportunity with no penalty for going slow? Ask before designing.
+- Does the Earth-born line still end (no new Earth-born born after the event, but survivors arrive as refugees), or
+  do Earth-born refugees keep coming for a while? Ask.
 
 ## Status
 Deep-future north-star. Captured so the beat is not lost; no scheduling. When DT is designed, this
