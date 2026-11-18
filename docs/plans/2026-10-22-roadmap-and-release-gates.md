@@ -200,6 +200,27 @@ worth doing at that point, I turn on cloud saving. If I feel it was not worth it
   - Dimensional Traversal (the prestige) could offer a built-in "preview" instead, which would cover this use case
     without a general restore. Only an idea; DT is 0.15.x.
 
+USER (2026-11-18): none of this is set in stone; Claude is to play DEVIL'S ADVOCATE here. The user's example: "You
+could cheese the system with ease if you crafted a bunch of blanks, rolled them, then reverted your save over and over
+until you got what you wanted."
+Devil's advocate (Claude, 2026-11-18; for the 0.14.1 design, the user decides):
+1. Save-scumming RNG. TRUE TODAY: the live loop feeds Math.random into each poll (App.svelte beginPollCatchUp /
+   runPollEconomy), so a restored save re-rolls a craft. Counter: pin randomness to the save (the save carries its
+   own seed stream, so a restore replays the same rolls), better still a roll fixed when the blank is made or the
+   craft is queued, so reordering actions cannot shift it. Also strengthens offline == live.
+2. Losses become optional (Tier II+ can be lost by design); forgiving but hollow.
+3. Anything that leaves the save duplicates on restore: gifts, trades, event or leaderboard rewards, gift codes. All
+   of these must be recorded server-side, never only in the save.
+4. Leaderboards: a restore is a free retry; needs entries frozen or rolled back on restore, or no restores in a
+   ranked season.
+5. Support: players will restore the wrong backup; confirm clearly and back up the current save first, so a restore
+   can itself be undone.
+6. Forced cloud saves need a rate limit (cost, flooding).
+Middle grounds: A) no player restore, developer restore on request; B) prestige-only undo: an automatic checkpoint
+just before a prestige, returnable within a window (for example 2 h), nothing else; C) full player restore with
+pinned rolls, cooldown, leaderboard freeze, server-side records. Claude's lean: B covers the user's real use case with
+the least to cheese; pinned rolls are worth doing whichever is chosen.
+
 ## Future (unscheduled): research tech trees (user, 2026-11-17)
 
 Research by TYPE picked like a spec (ship classes, ship systems, crew equipment, components, ...), each opening a
