@@ -66,9 +66,17 @@ Open the **System** window, then the **Debug** tab (it exists only on staging). 
 Also on that tab: a Wiring table (developer data; ignore it unless something there looks broken) and the secret
 minigame's fast-forward buttons (only if the theme is the minigame).
 
-**Real absences matter too.** Offline sim is a shortcut. At least once per session, really leave: **close the game's
-tab** for 3 or more minutes, then open the staging address again, and watch the catch-up screen and the "While you
-were away" recap (it appears after about a minute or more away, when something happened). Switching to another tab is
+**Real absences matter too.** Offline sim is a shortcut. At least once per session, really leave the game:
+1. **Export the save first** (Section 6) and confirm the file downloaded.
+2. In the **same tab**, go to `about:blank` and stay away 3 or more minutes. This unloads the game exactly like
+   closing it.
+3. In that same tab, open the staging address again, and watch the catch-up screen and the "While you were away"
+   recap (it appears after about a minute or more away, when something happened).
+
+**Never close the game's tab and never move the playthrough to a new tab.** Automated browsers often give every new
+tab its own empty storage, so a new tab starts a fresh game and the old save is lost with the closed tab (this happened
+in playtest session 2). If you ever see a fresh game where your save should be, stop, do not play on it, and report
+it. Switching to another tab is
 a second test, not a replacement: some automated browsers never tell the page it is hidden, so the game just keeps
 running live and no recap appears. After a tab switch, open System > Log and look for "Welcome back. Advanced ...s while
 away." If that line is missing, report it as an observation and say which browser you are in.

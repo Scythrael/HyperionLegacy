@@ -459,3 +459,14 @@ user config; the write test was refused and the copy stayed clean.
     what to report if the browser blocks downloads.
   - Version: About shows 0.13.11.4 on staging because APP_VERSION is bumped only at release. QUESTION for the owner:
     should staging show a dev label (for example "0.14.0-dev") so testers can tell staging from prod at a glance?
+- Session 2 (2026-11-18), theme 9, same save (about 18h52m), no Debug. Ran on the Codex app's browser after the
+  AGENTS.md fix (its hl-qa copy had been cut off at line 27 by a paste from a collapsed diff view; Claude restored it).
+  - The tab-switch return worked this time: "Welcome back. Advanced 714s while away." with a matching recap (5
+    Gathering missions, +150 credits, +714 FA XP).
+  - Its F1 (S1 BUG): closed the tab, reopened the staging URL in a NEW tab, got a fresh level 1 game ("Advanced 11s
+    offline", so a 11 s old starter save was loaded, not a damaged one). Claude: NOT A GAME BUG. Reproduced the exact
+    flow on the local build in a normal browser (+200K credits marker, Save now, opened a new tab, closed the old one,
+    loaded the game in the new tab): the save loaded intact. The agent's browser gives each new tab its own storage, so
+    the original save lived only in the closed tab and is lost. Guide fixed: export first, then do the absence in the
+    SAME tab via about:blank; never close the tab or move the playthrough to a new tab; stop on any fresh game.
+  - It exported the fresh starter save, not the playthrough one; it could not see a filename or confirmation.
