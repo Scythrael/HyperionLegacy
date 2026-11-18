@@ -163,6 +163,21 @@ Questions for the design (PROPOSALS, the user decides):
   Import (migrations run on load).
 - Backups are server-side copies the player cannot edit, which fits the online threat model (Fable pass 2 lane 2).
 
+USER FOLLOW-UP (2026-11-18, verbatim): "Mmhmm. Exactly. That works for me. It's mainly to prevent something from nuking
+the game. Plus, we can create a process before each patch (even a hotfix) that we can use to trigger a full backup for
+a specialized developer field that only we can make use of that can't be restored without our express action. As for
+my thoughts on the matter. I am not sure if we should allow restores by players or not. At the same time, we might
+want to. If you want to know why I am on the fence, if you can check the CIFI discussion I have with you in the LLM
+chat side, you can see why. It's a great tool. But we'd have to design it rather carefully to ensure nothing goes
+wrong with whatever we choose."
+- Purpose: mainly to keep anything from nuking the game.
+- REQUIREMENT: a **pre-patch full backup** step in the release process, before EVERY patch, hotfixes included, into a
+  **developer-only store** that only the owner and the developer can use. Nothing restores from it without their
+  **express action** (no automatic or player-triggered restore).
+- OPEN: **player self-restore** (yes or no). The user is on the fence: a great tool, but it needs careful design so
+  nothing goes wrong. The reasons are in a claude.ai chat about CIFI, which Claude Code cannot read; to be pasted
+  or summarized here before the design.
+
 ## Future (unscheduled): research tech trees (user, 2026-11-17)
 
 Research by TYPE picked like a spec (ship classes, ship systems, crew equipment, components, ...), each opening a
