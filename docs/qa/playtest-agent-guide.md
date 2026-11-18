@@ -36,8 +36,10 @@ content normally again. Rules:
 - **Say so.** Every finding made after you used the Debug tab gets the line "Debug used: (which buttons)".
 - **Prefer time over gifts.** Skip time first (Speed, Offline sim). Use grants (credits, materials, gear) only to
   reach content you could not reach otherwise.
-- **No pacing or balance verdicts from a fast-forwarded save.** "This took too long" or "this is too easy" only counts
-  from Phase A play. Wrong results, crashes, and mismatches count from either phase.
+- **No pacing or balance verdicts from a save that got grants.** "This took too long" or "this is too easy" counts
+  from Phase A play, and from any save where you used ONLY the time controls (Speed, Offline sim): skipped time is
+  just time a real player would have spent away. Once you use a grant (credits, levels, materials, gear, refugees),
+  pacing opinions from that save no longer count. Wrong results, crashes, and mismatches count from either phase.
 - **Never use "Reset save" or "Wipe"** unless the owner's theme line says to start fresh. Export your save first if
   you do.
 
@@ -110,6 +112,20 @@ The owner names one. Each is sized to keep a session short and focused.
    catch-up.
 7. **Phone.** The whole loop at phone width: navigation, every main tab, modals, tooltips, tap targets.
 8. **Delta checklist.** Work through the attached QA checklist row by row (the owner attaches it).
+9. **Full playthrough (the main one).** Play through as much of the game as you can, as a regular player would, from
+   a fresh save. The Debug tab is used for **time only**: Speed and Offline sim, never grants. Treat every skip as
+   real time passing for the player: you were away for those hours, so come back the way a player would (read the
+   recap, collect what finished, spend what you earned, set up the next jobs).
+   - **Keep a realistic rhythm.** Play a short session (10 to 30 minutes of real play), then skip time like a real day:
+     a few hours between check-ins, about 8 hours overnight. Count your simulated days.
+   - **Keep a milestone log** with the simulated time since the save started at each one: first mission done, first
+     ship built, first crew hired, first research, first patrol, first expedition, first relic, each new ship type,
+     each new unlock tab. List it at the end of the report. These numbers help the balance pass.
+   - Note where you felt stuck, bored, lost, or rushed, and where you did not know what to do next. With time-only
+     skips, these pacing notes count.
+   - Still do the awkward moments from Section 4 along the way, and one real absence per session.
+   - This theme can span several sessions on the same save. Export the save at the end of each session and say which
+     simulated day you reached.
 
 ## 6. Evidence
 
@@ -139,6 +155,7 @@ Then end with:
 - **Checked and fine:** what you tried that worked, with the exact action (for example "reloaded at 3 seconds into a
   patrol launch: the patrol resumed, no double charge").
 - **Not covered:** what you did not get to.
+- **Milestone log** (theme 9): each milestone with the simulated time it took, and the simulated day you reached.
 - **Version:** from System > About.
 
 Write in plain American English. Report only what you saw. A short honest report beats a long guessed one.

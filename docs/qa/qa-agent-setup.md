@@ -129,7 +129,7 @@ afterward.
 The browser agent cannot read the repo, so its rules travel with the prompt: **`docs/qa/playtest-agent-guide.md`**
 (user, 2026-11-18). It covers the hard rules (staging only, never sign in, nothing posted), the two phases (play like a
 real player, then fast-forward with the Debug tab, marking every finding made after Debug use), a map of the Debug
-tab, the awkward moments to try, eight session themes, evidence (Export Save, version from System > About), and the
+tab, the awkward moments to try, nine session themes (theme 9 = the full playthrough, time-only Debug use, with a milestone log), evidence (Export Save, version from System > About), and the
 report format.
 
 To run one:
