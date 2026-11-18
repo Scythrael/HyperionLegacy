@@ -479,3 +479,10 @@ user config; the write test was refused and the copy stayed clean.
   - OPEN, to check with the agent: 10 missions in 2h25m of Play Time (game time, offline included) is far fewer than a
     repeating 2-minute run would give (about 70). Either the repeat stopped (why, and was the player told?) or the
     agent's browser froze the page. Ask it for the captain's status and the Log around the 10th mission.
+- Check-in (2026-11-18, commit 157cbb4c in its copy; staging still 3fd5c980), time-only Debug (Offline sim +8h, Speed
+  10x). NO FINDINGS. Play Time 29h04m (day 2). +8h recap: 163 gathering missions, 6.52K credits, Research Lab to L2.
+  Second General Freighter built at about 29h with its Standard-Issue modules at full condition. First patrol
+  (Crimson-Reaver Sweep) done during an overnight catch-up. Mission Control: 202 Local Asteroid, 340 Cometary Ice
+  Harvest runs, which fits a captain repeating all along (the earlier "10 missions in 2h25m" was likely a misread at the
+  restart; not pursued). Not reached by day 2: a crew hire, an expedition, a relic, a new hull. Export still produces no
+  file in the Codex browser; guide now says to skip the about:blank test in a browser without exports.

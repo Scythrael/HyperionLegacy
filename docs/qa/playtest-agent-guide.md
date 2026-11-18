@@ -92,6 +92,8 @@ as long as the game's tab stays open: Offline sim, a reload, and the same-tab `a
 For a bug, the evidence is then the exact steps, the numbers on screen (level, credits, Admin Points, ships, Career
 Play Time from Statistics), and the tab left open for the owner. If the browser itself ever resets and the save is
 gone, report it (it is a browser limit, not a game bug) and start fresh.
+In a browser without working exports, **skip the `about:blank` absence test** (a failure there would lose the whole
+playthrough with nothing to restore); the tab-switch return and Offline sim still cover coming back.
 
 Switching to another tab is
 a second test, not a replacement: some automated browsers never tell the page it is hidden, so the game just keeps
