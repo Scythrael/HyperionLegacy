@@ -88,6 +88,29 @@ e1,000,000-equivalent in about a month, e10,000,000-equivalent in about 6 months
 e1,000. Use the balancing method above (optimal, average, casual profiles). Open questions then: new thresholds and
 names, the save remap rule, and where the relic ceiling's plateau lands.
 
+## News ticker, story timing, and Dimensional Traversal timing (user, 2026-11-18): OPEN
+
+User (verbatim): "The scrolling marquee can be an easy add to 0.15.0. It builds the lore of the game a bit. That will
+start the actual storyline of the game when we get to that point, so we will hold off until then. Or, we don't actually
+push any of that story and that particular aspect remains disabled under the hood until 0.16.0. So it's more incentive
+to start over after the save wipe. We should also determine how far we want to push content and if we want to actually
+implement DR capability for that point or not."
+
+Context: the news ticker and the red-giant dimension are in docs/lore/first-cause-dimensional-traversal.md (2026-11-18).
+0.16.0 carries the announced save wipe (SUGGESTIONS.md founder save-wipe entry).
+
+Open calls (the user's):
+1. **News ticker / storyline timing:** live in 0.15.0, or built in 0.15.0 and kept switched off until 0.16.0 so the
+   story starts fresh after the wipe (or a middle path: ambient world news in 0.15.0, story beats from 0.16.0).
+2. **How much content 0.16.0 pushes**, and whether Dimensional Traversal (DR) ships in 0.16.0 or later.
+
+Facts for those calls (found 2026-11-18):
+- The First Traversal unlocks at the END of a campaign (lore doc: "a hopelessness cliffhanger that ENDS one of the
+  campaigns"), so DT needs at least one complete story campaign to exist first.
+- DT is designed so DT 0 is today's game byte-identical; the balance pass can tune the base game without DT.
+- Switched-off story text still ships in the game files, so dataminers could read it early unless it is held back
+  from the build (or served once online features exist).
+
 ## Future (unscheduled): research tech trees (user, 2026-11-17)
 
 Research by TYPE picked like a spec (ship classes, ship systems, crew equipment, components, ...), each opening a
