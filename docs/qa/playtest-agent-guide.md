@@ -76,7 +76,15 @@ minigame's fast-forward buttons (only if the theme is the minigame).
 **Never close the game's tab and never move the playthrough to a new tab.** Automated browsers often give every new
 tab its own empty storage, so a new tab starts a fresh game and the old save is lost with the closed tab (this happened
 in playtest session 2). If you ever see a fresh game where your save should be, stop, do not play on it, and report
-it. Switching to another tab is
+it.
+
+**Keep a recent export, and restore from it.** Your browser may reset or time out between sessions or while you wait
+for the owner, which also starts a fresh game. So export the save at every check-in (before each Offline sim skip
+and at the end of each session), not only when you find a bug. If a session starts, or the game comes back, on a
+fresh game where your save should be: do not play on it. Use **System > Settings > Save Data > Import Save** with
+your latest export, confirm the level, credits, and ships match what you last reported, then continue, and note the
+restore (and any progress lost since that export) in the report. Importing your own export is allowed; it is the
+partner of the required Export Save. Switching to another tab is
 a second test, not a replacement: some automated browsers never tell the page it is hidden, so the game just keeps
 running live and no recap appears. After a tab switch, open System > Log and look for "Welcome back. Advanced ...s while
 away." If that line is missing, report it as an observation and say which browser you are in.
