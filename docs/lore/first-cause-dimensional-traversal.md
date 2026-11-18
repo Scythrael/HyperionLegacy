@@ -125,6 +125,29 @@ decided):
   5.5), and the First Traversal's "deadly device" that ruins the homeworld. Whether the Sun device is the same weapon
   is the user's call; do not connect them until they say so.
 
+User follow-up (2026-11-18, verbatim): "Ooooh. Yes. I like that. In that DR, we have to develop a shielding that can
+help protect us from the sun, and try and solve the mystery of what happened to the sun, and to explore the Sol System
+after the issue transpires. The sun is not large enough to supernova, so it will only turn the entire system into a
+barbecue."
+
+The dimension's three player goals (user's words, DECIDED as the shape):
+1. **Develop shielding** that protects us from the Sun.
+2. **Solve the mystery** of what happened to the Sun.
+3. **Explore the Sol System** after the event.
+
+Physics rule (user): the Sun is too small to go supernova (that takes roughly 8 or more solar masses). It swells into
+a red giant and bakes the system; no explosion.
+
+Notes for the design pass (PROPOSALS, not decided):
+- "Shielding" here is protection from the Sun, separate from ship combat shields (which already exist). Keep the two
+  clearly apart in names and stats.
+- The three goals line up with systems that exist or are planned: research (shielding), story and quests, planned for
+  0.15.0 (the mystery), and expeditions (exploring Sol).
+- Real stellar aftermath, if later beats want it: red giant, then a helium flash, later a shed shell of gas (a
+  planetary nebula), ending as a white dwarf.
+- Still open from the first reply: should the crew loss be a slow squeeze (recruits dwindle over time) or a sudden
+  loss (the Earth-born line simply ends)?
+
 ## Status
 Deep-future north-star. Captured so the beat is not lost; no scheduling. When DT is designed, this
 cinematic is the anchor for the first traversal's presentation and the carry-forward rules.
