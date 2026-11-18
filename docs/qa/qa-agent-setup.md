@@ -49,8 +49,8 @@ Open Codex **in the `hl-qa` folder**, never in `fleet-admiral`.
   1. Open the `hl-qa` folder as the project. If it asks you to trust the folder, choose **Trust folder** (the only
      other choice, Cancel, does not open it). Trusting is safe here: the copy holds only our own committed files and
      cannot push, and step 2 sets the mode.
-  2. In the message box, type `/permissions` and choose **Read only**. Check the mode shown near the message box
-     says read-only before pasting the kickoff prompt.
+  2. Set read-only in the app's settings: **Configuration > user config** (this is what worked, user 2026-11-17).
+     Typing `/permissions` and pressing Enter does NOT work: it is sent as a chat message, and Codex only answers it.
   3. Optional, to make the folder stay untrusted: add this to `%USERPROFILE%\.codex\config.toml`:
 
      ```toml
