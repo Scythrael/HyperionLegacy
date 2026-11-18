@@ -362,3 +362,15 @@ Notes for the user (not fixed, their call): text glyphs that are not emoji still
 about 296 places, Admin Points ✦, favorite ☆, info ⓘ, chevrons ⌄ ›, close ✕ ×, stepper −); the Crew Quarters tile says
 injured crew recover 14.8% faster (quality-0 scaling) while Hull bonuses Help says 15%; an install comparison can show
 "×0.71 → ×0.71 (+0.1 pts)" (rounding); the recap repeats "~4d" twice when away longer than the cap.
+
+## Codex read-only QA rounds (2026-11-17 onward)
+
+Setup: AGENTS.md (rules, report format, focus areas in section 6) and docs/qa/qa-agent-setup.md. Codex works only in the
+clone F:/Windows Folders/Documents/hl-qa (push disabled), read-only mode set in the Codex app under Configuration >
+user config; the write test was refused and the copy stayed clean.
+
+- Round 1 (commit 56aae282): area 2, saves and migrations (chosen by Codex; the kickoff focus line was still a
+  placeholder, now replaced by area numbers). NO FINDINGS. Codex read as fine: the v72 Standard-Issue migration adds
+  missing Sensor Suite, Bridge Module and Crew Quarters, skips occupied slots, runs once via the versioned chain;
+  malformed top-level shapes are rejected; local load catches migration errors into corrupt-save recovery. Not covered:
+  running migrations on real legacy saves, damaged-save cases beyond the paths read, playtesting.

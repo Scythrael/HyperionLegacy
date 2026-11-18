@@ -85,22 +85,19 @@ Paste this as the first message of each Codex session:
 >
 > Before reporting, read docs/qa/2026-11-13-fable-sweep-ledger.md so you do not re-report fixed or decided items.
 >
-> This round's focus: **[fill in, for example: "offline catch-up and save migrations: src/lib/game/tick.ts,
-> loopClock.ts, catchUpRunner.ts, save.ts. Look for any way live play and offline catch-up could disagree, and any
-> save that could load wrong after the version 72 migration."]**
+> This round: **focus area 1** in AGENTS.md section 6. Go deep on that area only.
 >
 > Report in the AGENTS.md format, most severe first, and end with "Checked and fine", "Not covered", and the commit
 > you reviewed.
 
-Suggested focus areas, one per session so each gets a deep read:
+The only thing to change between rounds is the area number. The seven areas, with what to check in each, are in
+AGENTS.md section 6. One area per session, so each gets a deep read.
 
-1. Offline catch-up and determinism (tick.ts, loopClock.ts, catchUpRunner.ts)
-2. Saves and migrations (save.ts, savePersist.ts): old saves, damaged saves, edited saves
-3. Crew and Standard-Issue modules (crew rollups, model.ts seeding, the version 72 migration)
-4. Combat, patrols, and gear wear (repair pauses, "resume when safe", the outmatched check)
-5. Economy: crafting, refinery, warehouse, selling, reservations
-6. Research screen and its filter; Help and tooltip text against the real numbers
-7. Exploits: anything that duplicates items or resources, or skips a timer
+Round log (Claude keeps it current):
+
+| Round | Area | Commit | Result |
+|---|---|---|---|
+| 1 (2026-11-17) | 2, saves and migrations (Codex chose it; the focus line was still a placeholder) | 56aae282 | No findings; damaged saves and real legacy saves not covered |
 
 ## 4. Kickoff prompt for ChatGPT (playtest in a browser)
 

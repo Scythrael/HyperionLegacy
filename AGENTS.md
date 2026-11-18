@@ -129,3 +129,28 @@ Then end with:
 
 Write in plain American English, without em dashes. Report what you found, including "nothing found here". Never
 guess at a finding to fill the list. Accuracy is worth more than volume.
+
+## 6. Focus areas
+
+The kickoff message names one area by number. Go deep on that area only; trace real code paths end to end rather
+than skimming many files. If no area is named, ask which one before starting.
+
+1. **Offline catch-up and determinism.** `src/lib/game/tick.ts` (the tick job: `beginTickJob`, `advanceTickJob`),
+   `loopClock.ts`, `catchUpRunner.ts`, `CatchUpOverlay.svelte`, `catchUpGate.ts`. Can live play, one big offline
+   call, and a sliced async catch-up ever end in different states? What happens on reload, tab close, or an action
+   mid-catch-up? Any use of `Date.now()`, `Math.random()`, object key order, or floating-point accumulation that could
+   make two runs differ?
+2. **Saves and migrations.** `save.ts` (the `MIGRATIONS` chain up to version 72), `savePersist.ts`. Old saves from
+   every version, damaged or truncated saves, hand-edited saves (negative, huge, NaN, or missing values), and saves
+   from a newer version than the game.
+3. **Crew and the free Standard-Issue modules.** Crew rollups (`rawShipCrewContribution` and friends), the
+   Standard-Issue seeding in `model.ts`, building a new ship, uninstalling and reinstalling a free module, selling or
+   scrapping one.
+4. **Combat, patrols, and gear wear.** Repair pauses and "resume when safe", the "outmatched" stop, Repeat patrols,
+   first-run safety, wear and repair rates.
+5. **Economy.** Crafting orders and lanes (including Release), refinery, warehouse, selling, reservations, the
+   quartermaster. Can anything be spent twice, lost, or created from nothing?
+6. **Text against numbers.** Research screen and its filter, Help pages, tooltips, patch notes draft: does every
+   number shown match what the code actually does?
+7. **Exploits and fairness.** Duplicating items or resources, skipping timers, clock changes, edited local storage,
+   anything that would matter once online features arrive.
