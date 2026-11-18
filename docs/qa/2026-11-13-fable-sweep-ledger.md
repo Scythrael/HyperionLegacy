@@ -437,3 +437,25 @@ user config; the write test was refused and the copy stayed clean.
   duration) found and fixed, plus the related one-tick carry gap Claude found while checking CX-2. Next: the model
   calibration ladder (Terra, Sol, Astra on the same calibration prompt), the browser playtest
   (docs/qa/playtest-agent-guide.md), Fable pass 2.
+
+## Browser playtest (ChatGPT agent, free tier) on staging 3fd5c980
+
+- Session 1 (2026-11-18), theme 9 (full playthrough), time-only Debug (Offline sim +8h x2, +1h x2), no grants.
+  NO FINDINGS. Reached simulated day 1 (Career Play Time about 18h40m).
+  - Milestones (approximate): first mission about 2 min; Refinery built and first refining done before the first
+    skip; first research (Frame Segment, Power Coupling, 1 min each, matched real time) at about 8h (started just
+    before the skip); second General Freighter built at about 18h40m, arrived with its Standard-Issue modules.
+    Not reached: crew hire, patrol, expedition, relic, a new ship type.
+  - Checked and fine (its words, consistent with the code): first mission auto-repeats; refinery batch of 4 gives 4;
+    crafted parts consumed by the freighter build; reload mid-mission kept the mission, no double payout.
+  - Its observation: switched to a blank tab for 3 minutes, came back, credits 120 to 180, NO recap. Claude: the code
+    raises the recap past 120 s paid while hidden (App.svelte AWAY_SUMMARY_MIN_SECONDS, welcomeBack via
+    onVisibilityChange). Credits kept rising at the live rate, which fits an agent browser that never reports the
+    tab as hidden (so the game simply ran live, nothing lost). NOT A FINDING as reported; the guide now asks for a
+    real absence by CLOSING the tab (the reload path, recap past 60 s) and for the Log's "Welcome back" line as proof
+    on a tab switch. A real tab switch on a normal browser is still worth one manual check.
+  - Process gaps fixed in the guide: it skipped Export Save, citing "read-only instructions" (it likely mixed in
+    AGENTS.md); the guide now makes Export Save an explicit, required step at the end of each session and says
+    what to report if the browser blocks downloads.
+  - Version: About shows 0.13.11.4 on staging because APP_VERSION is bumped only at release. QUESTION for the owner:
+    should staging show a dev label (for example "0.14.0-dev") so testers can tell staging from prod at a glance?

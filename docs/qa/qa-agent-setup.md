@@ -137,6 +137,12 @@ To run one:
 2. Paste or attach the guide, then one line: **"Session theme N."** (theme 8 = attach `docs/qa/2026-11-17-delta-qa.html`).
 3. One theme per session keeps each run short and its cost down.
 
+Playtest log (details in the sweep ledger):
+
+| Session | Theme | Staging commit | Result |
+|---|---|---|---|
+| 1 (2026-11-18, ChatGPT agent, free tier) | 9, full playthrough | 3fd5c980 | No findings; reached simulated day 1 (second freighter at about 18h40m). Skipped Export Save and saw no recap after a tab switch (its browser likely never reports hidden tabs); guide tightened for both |
+
 ## 5. Bringing findings back
 
 Paste each agent's report into the HL Hub chat (or save it yourself as a file under `docs/qa/` and point Claude at
