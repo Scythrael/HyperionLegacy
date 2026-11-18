@@ -127,7 +127,9 @@ Then end with:
   line range) and the specific scenario you walked through (for example: "reload at second 37 of a 4-day catch-up;
   traced `asyncCatchUpSave` loopClock.ts L120-160 to the next load"). A bare "X looks fine" does not count. A round
   with no findings must list at least eight such traced scenarios, including the hardest edge cases you could think
-  of for the area.
+  of for the area. "An existing test covers it" is not proof: tests encode what the developer expected, and the bugs
+  that matter are the cases nobody expected. Trace the code itself, and say where a test's setup is narrower than
+  real play (one ship instead of many, a fresh save instead of a late one, one step instead of a long catch-up).
 - **Not covered:** what you did not get to.
 - **Commit reviewed:** the output of `git rev-parse --short HEAD`.
 

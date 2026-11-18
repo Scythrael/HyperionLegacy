@@ -102,6 +102,7 @@ Round log (Claude keeps it current):
 | 3 (2026-11-17) | 2 again, saves and migrations | ad03c4ba | 1 finding, CX-1 (a newer-version save loads in an older build), confirmed by Claude; also in prod |
 | Calibration (2026-11-17, Luna) | blind, expeditions at ca70ac65 (before fix a5991f92) | ca70ac65 | Found M1 (anomaly re-pay) exactly; missed I1 (scan re-pay, the Important one) and called its code fine. Findings credible; clean rounds are not a clearance |
 | 4 (2026-11-17, Luna) | 3, crew and free modules | f1392ba0 | No findings, ten traced scenarios; selling or scrapping a free module not covered |
+| 5 (2026-11-17, Luna) | 4, combat, patrols, gear wear | f1392ba0 | No findings, eight scenarios, partly resting on existing tests (AGENTS.md now says tests are not proof) |
 
 ## 4. Kickoff prompt for ChatGPT (playtest in a browser)
 

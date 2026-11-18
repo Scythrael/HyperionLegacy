@@ -403,3 +403,7 @@ user config; the write test was refused and the copy stayed clean.
   migration and its malformed-pool edges, resolveCrew capacity and auto-fill, crew rollups, the sensor/science sheet,
   uninstall leaves the slot empty, Quartermaster crew-module spares. Not covered: selling or scrapping a free module,
   runtime. Per the calibration, a clean round is "nothing obvious", not a clearance.
+- Round 5 (commit f1392ba0, Luna): area 4, combat, patrols and gear wear. NO FINDINGS, eight traced scenarios (pause
+  countdown, safe-resume target, pause Overtime, recall stops relaunch, outmatched stop, wear-driven pause, defeat not
+  counted as a win, the climb every 20 routes). Several items leaned on "existing regression coverage", so AGENTS.md
+  now says a test is not proof. Correctly treated the paused share as a 0.16.0 balance item.
