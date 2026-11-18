@@ -29,6 +29,11 @@ not fix them, and you do not decide what the design should be.
 
 Each session has one theme. Work through it in two phases.
 
+**Keep it lean.** If your browser lets you read a page's text, prefer that over screenshots: numbers, the Log, recaps,
+and button labels all read fine as text, and a screenshot costs far more. Take screenshots only when the look itself
+matters (a layout or phone-width problem) or as evidence for a finding. While waiting out a timer, skip time with the
+Debug tab instead of checking back over and over.
+
 **Phase A: play like a real player (no Debug tab).** Speed 1x. Read the screens, follow what the game suggests, and
 note anything confusing, slow, stressful, or wrong. This phase is where friction and unclear text show up, so do not
 rush it. For a fresh-save session, play the opening for at least 20 minutes this way.
