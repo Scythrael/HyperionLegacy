@@ -130,6 +130,7 @@
   // Player-facing release marker + patch-note history. Extracted from this
   // file so src/Landing.svelte can render the same news strip from one source.
   import { APP_VERSION, PATCH_NOTES } from "./lib/patchNotes";
+  import { versionLabel } from "./lib/buildInfo";
   import PatchNotesEntry from "./lib/PatchNotesEntry.svelte";
   // Help program's core-systems manual (0.11.2 UI Restructure, Task 14). Static
   // structured topics, rendered verbatim like PATCH_NOTES (no markdown).
@@ -21578,7 +21579,7 @@
           <span class="title">FLEET ADMIRAL</span>
           <span class="subtitle">prototype build · multi-captain · single sector</span>
         </div>
-        <div class="research-cost">Version {APP_VERSION}</div>
+        <div class="research-cost">Version {versionLabel(APP_VERSION, DEV_MODE)}</div>
         <p class="prestige-text">Contact info coming soon.</p>
       </Panel>
       {/if}

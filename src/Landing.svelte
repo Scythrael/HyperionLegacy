@@ -13,6 +13,7 @@
   import Panel from "./lib/Panel.svelte";
   import Starfield from "./lib/Starfield.svelte";
   import { APP_VERSION, PATCH_NOTES, isStructuredNote, type PatchNote } from "./lib/patchNotes";
+  import { IS_DEV_BUILD, versionLabel } from "./lib/buildInfo";
 
   export let navigate: (to: string) => void;
 
@@ -108,7 +109,7 @@
     <footer class="landing-footer">
       <span>Hyperion Legacy</span>
       <span class="footer-dot">&middot;</span>
-      <span>prototype build v{APP_VERSION}</span>
+      <span>prototype build v{versionLabel(APP_VERSION, IS_DEV_BUILD)}</span>
     </footer>
   </main>
 </div>

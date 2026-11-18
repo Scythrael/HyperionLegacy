@@ -11,6 +11,7 @@
   import Starfield from "./lib/Starfield.svelte";
   import PatchNotesEntry from "./lib/PatchNotesEntry.svelte";
   import { APP_VERSION, PATCH_NOTES } from "./lib/patchNotes";
+  import { IS_DEV_BUILD, versionLabel } from "./lib/buildInfo";
 
   export let navigate: (to: string) => void;
 </script>
@@ -22,7 +23,7 @@
     <header class="pnp-head">
       <button class="pnp-back" on:click={() => navigate("/game/hl")}>&larr; Back</button>
       <h1 class="pnp-title">Patch Notes</h1>
-      <span class="pnp-ver">v{APP_VERSION}</span>
+      <span class="pnp-ver">v{versionLabel(APP_VERSION, IS_DEV_BUILD)}</span>
     </header>
 
     <div class="pnp-list">
@@ -36,7 +37,7 @@
     <footer class="pnp-footer">
       <span>Hyperion Legacy</span>
       <span class="pnp-dot">&middot;</span>
-      <span>prototype build v{APP_VERSION}</span>
+      <span>prototype build v{versionLabel(APP_VERSION, IS_DEV_BUILD)}</span>
     </footer>
   </main>
 </div>

@@ -15,7 +15,10 @@
 // left untouched (never rewrite patch-note history), so this deliberately reads
 // as "0.2.0 newer than 0.9.0" once, only here.
 
-export const APP_VERSION = "0.13.11.4";
+// The feature branch carries the version it is BUILDING (user, 2026-11-18: staging shows 0.14.0, since it no longer
+// runs prod's 0.13.11.4; buildInfo.ts adds "development build" off production). When a hotfix branch is merged
+// into the feature branch, keep this line; main keeps its own number until the release is promoted.
+export const APP_VERSION = "0.14.0";
 
 // ---------------------------------------------------------------------------
 // SHAPE. 0.13.5 introduced a STRUCTURED entry (marquee features + category
