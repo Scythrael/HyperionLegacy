@@ -383,6 +383,18 @@ capability." APPROVED by the user 2026-11-14 ("Yes indeed"; finish the current Q
 Outputs: one findings ledger plus a separate online threat model doc (input to 0.14.1 design). First sweep used ~10% of
 the weekly Fable allowance.
 
+### Fable pass 2: cost measurement (user, 2026-11-18)
+
+User: "Once we are ready to start that, then I will want to have a proper analysis of how much each of those passes
+costs in terms of session and weekly limit so I don't overdo it."
+- Claude reads the plan limits itself (get_usage: 5-hour, weekly all models, weekly Fable) BEFORE and AFTER each lane
+  and reports a per-lane table, so the user can stop or reorder lanes partway.
+- Lanes run ONE AT A TIME with no other builders running, so each lane's cost is attributable (slower than four at
+  once; this hub session's own small use is noted alongside). Readings are whole percents, so a lane under 1% reads as 0.
+- Before launching: show the current readings and an estimate (the first sweep, four lanes in parallel, used about
+  10% of the weekly Fable limit; confirmed 2026-11-18 as Fable weekly 10% still in that week's window), and the user
+  says go.
+
 ### Fable pass 2: additions after the 2026-11-16 fix round
 
 What the fix round changed that pass 2 must cover (merged to feat at 9190eaa8, emoji sweep ee5cc47a, follow-ups
