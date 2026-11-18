@@ -170,6 +170,90 @@ Open for the design pass (PROPOSALS / QUESTIONS, not decided):
 - Does the Earth-born line still end (no new Earth-born born after the event, but survivors arrive as refugees), or
   do Earth-born refugees keep coming for a while? Ask.
 
+User follow-up 3 (2026-11-18, verbatim):
+"1. That's the main question I wasn't sure about. Because that part is a difficult one to answer. But housing and ship
+crises are a good start. Finding planets that could be a good place for the remnants of humanity to start is a good
+option.
+2. There should be some sort of progress that has to be completed in order to progress through that DR. In fact. The
+DR might have it's own minor issue to throw people off of the scent. Something that makes you think "That's the debuff
+for this DR? A little bit weak, but okay." and then all of a sudden, boom. Perhaps we can have some sort of news ticker
+marquee at the top that has news beats that unlock as time goes on. This can have subtle hints about the news
+happening back on Earth as well. In this DR (perhaps the second or third one, probably the third), it will start to
+very lightly indicate something is wrong. Scientific reports. Solar activity out of the ordinary. But the actual
+expansion won't be gradual. Instantaneous. Also, in one of the DRs later on (perhaps 5 or 6) one of the exploration
+missions will find a derelict jump gate still intact that the crew can study to get a feel for aprt of what is
+happening.
+3. They continue to come in in droves, but the progress indicator would indicate resettlement, with the missions and
+such from the storyline being involved with that. How about this idea as well. New campaigns with each DR. A little
+different from time to time, but some will vary wildly like this one. Perhaps growing progressively worse and worse. So
+if that's the case, perhaps this wouldn't be DR 2. This would have to be further out as I am not sure how many DRs I
+will have. Sometthing nice and round like 5 or 10, with each one providing 2 types of talent points. They will appear
+in the same tree. One a progressing line that requires the one before. 1 point for each tree. Or 1 for one of them,
+and we can balance how many for each DR to make the system feel truly impactful. But one of them is a talent (or just
+an unlock without a talent tree) that allows you to bring back more during each DR to make each progressive loop a bit
+faster. Like one of them is remembering a design, and as you progress through the DR and get through the campaign,
+you're trying to remember something that is always on the edge of your mind, itching to get out, and you determine
+that it's a crafting recipe for modules equipped to your senior staff. There's a story beat where you include them in
+a briefing (of course, this is based on who is seated on your ship during the mission, and they are referenced as
+speakers during scenes like these) where you inform them of what is going on, and you show the first of these items,
+with missions dropping vital components for this. The additional objective of that DR will be to craft enough for
+everyone. Then, when you DR, they come with you. You always keep those items. Or perhaps a key item. A special implant
+that you don't burn an equip slot for, or something?"
+
+### Red-giant dimension, as decided so far (user)
+- **Where the difficulty comes from:** housing crises and ship crises (capacity), plus **finding planets where the
+  remnants of humanity can start over**.
+- **A progress goal gates the dimension:** you must complete a **resettlement** progress to move through it. Refugees
+  keep arriving in droves; the storyline's missions feed the resettlement progress.
+- **A decoy:** the dimension opens with its own minor, underwhelming debuff ("That's the debuff for this DR? A little
+  bit weak, but okay."), then the real event hits.
+- **The expansion is INSTANTANEOUS**, not gradual.
+- **Foreshadowing starts in an EARLIER dimension** (perhaps the 2nd or 3rd, "probably the third"): very light hints
+  that something is wrong (scientific reports, unusual solar activity).
+- **The red-giant dimension itself sits further out**, not DT 2.
+
+### New across-dimension ideas (user)
+- **A news ticker (marquee) at the top of the screen**, with news beats that unlock over time, including subtle hints
+  about events back on Earth. This is how the foreshadowing is delivered.
+- **A derelict jump gate**, still intact, found by an exploration mission in a later dimension (perhaps the 5th or
+  6th). The crew can study it to understand part of what is happening.
+- **A new campaign with each dimension.** Some differ a little, some vary wildly (like the red giant). They grow
+  progressively worse.
+- **Dimension count:** something round, 5 or 10 (undecided). The 2026-08-21 notes above say DT I..X.
+- **Each dimension grants two types of talent points, in the same tree:**
+  1. A **progressing line**: each node requires the one before.
+  2. A **carry-forward** talent (or a plain unlock with no tree) that lets you **bring more back** each traversal, so
+     each loop goes a bit faster.
+  How many points of each per dimension is a balance call (1 each, or 1 of one type), tuned so the system feels
+  truly impactful. This REFINES the 2026-08-21 note "each grants a prestige-tree point plus a powerful buff".
+- **"Remembering a design" (a carry-forward example):** through a dimension's campaign, the Admiral is trying to
+  remember something always at the edge of his mind. It turns out to be a **crafting recipe for items for your Senior
+  Staff**. A **briefing story beat**: he tells the staff what is going on (the speakers are whoever is seated on his
+  ship for that mission) and shows the first item. Missions drop its vital components. **That dimension's extra
+  objective is to craft enough for everyone.** When you traverse, **the staff come with you, and you always keep
+  those items.**
+  - OPEN (user's own either/or): a module equipped to Senior Staff, OR a key item, such as a special implant that does
+    not use up an equip slot.
+
+### What already exists in 0.14.0 that this builds on (facts, found 2026-11-18)
+- **Refugees and evacuations exist.** E5 Refugee Posts: Evacuation jobs on the short-range board bring home named
+  refugees, who are posted at homeworld facilities for buffs, with an unlimited waiting list (design
+  docs/plans/2026-11-02-refugee-posts-e5-design.md; code refugees.ts, refugeeArrival.ts, refugeeBuffs.ts). Short-range
+  missions (G1) already carry refugees OUTWARD to new camps. The 59 "echo" refugees are rare franchise nods
+  (refugeeEchoes.ts). The refugee crisis can scale this loop instead of inventing a new one. (Correction: my first
+  reply said evacuation missions were not built; they are. A dedicated COLONY mission is the part not yet built.)
+- **A marquee already exists:** the Notable Crew ticker under the Personnel tabs (NotableTicker.svelte, ui/marquee.ts),
+  with pause-on-hover and Reduce motion. A news ticker could reuse the same motion and rules.
+- **Implants already exist** for away-team members (awayTeam.ts: per-member implant slots, design saga ~line 554).
+  Senior Staff currently have no item slots of their own.
+
+### Open questions for the design pass (the user's calls)
+- Which dimension is the red giant (with a count of 5, the foreshadowing in the 3rd leaves little room), and does it
+  come before or after the jump-gate dimension?
+- Is the decoy debuff special to this dimension, or does every dimension open with a surface debuff?
+- The Senior Staff carry-forward item: a module, or a slotless implant / key item?
+- Does the news ticker appear in every dimension (and at DT 0), or only once DT begins?
+
 ## Status
 Deep-future north-star. Captured so the beat is not lost; no scheduling. When DT is designed, this
 cinematic is the anchor for the first traversal's presentation and the carry-forward rules.
