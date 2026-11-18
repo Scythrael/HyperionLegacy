@@ -111,6 +111,32 @@ Facts for those calls (found 2026-11-18):
 - Switched-off story text still ships in the game files, so dataminers could read it early unless it is held back
   from the build (or served once online features exist).
 
+USER ANSWERS (2026-11-18):
+1. Story timing: **"Middle path (Recommended)"**. 0.15.0 ships the news ticker with everyday world news (lore grows
+   right away); the story beats that start the plot arrive in 0.16.0, after the wipe, so everyone starts the story
+   fresh.
+2. DT timing (verbatim): "We should add in the system in another patch. Perhaps one of the 0.15.x patches and wire it
+   in but don't activate it. In fact, we should have the ability to completely disable systems. Especially if they're
+   causing problems. So we can temporarily disable them in the event that something catastrophic is bugged with them,
+   and we're working on a hot fix. This would be no different. disabled by default. A control panel in the dev panel
+   that gets a nice redesign with 0.14.1 because it'll be used in a different way with online accounts and
+   permissions."
+   - DT is built and wired in a **0.15.x** patch, **disabled by default**, activated later.
+   - NEW requirement: **system kill switches.** Any system can be completely disabled (for example while a
+     catastrophic bug waits on a hotfix). DT's "off by default" is the same switch.
+   - The switches live in a **control panel in the dev panel**, which gets a **redesign in 0.14.1** for online
+     accounts and permissions.
+
+Notes for designing the kill switches (PROPOSALS, the user decides):
+- Today's code has only TEST-ONLY switches (for example `REFUGEE_ECHO_SWITCH`, "Never written by app code"); a
+  runtime switch is new.
+- Turning a system off must PAUSE it, never lose its state (a mission in flight, items in a queue), and turning it back
+  on resumes exactly. Offline catch-up must stay exact across a toggle (which state did the switch have each second?).
+- Once online, the switch could come from the server, so a hotfix-in-progress outage reaches every player at once.
+- Players should see a calm note when a system is paused for maintenance, not a missing tab.
+- Older note: SUGGESTIONS.md put the dev-panel spin-out with 0.15.1; the roadmap now has online as 0.14.1, which
+  matches the user's "redesign with 0.14.1".
+
 ## Future (unscheduled): research tech trees (user, 2026-11-17)
 
 Research by TYPE picked like a spec (ship classes, ship systems, crew equipment, components, ...), each opening a
