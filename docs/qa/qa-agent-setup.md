@@ -44,19 +44,25 @@ git -C "F:/Windows Folders/Documents/hl-qa" pull --ff-only
 
 Open Codex **in the `hl-qa` folder**, never in `fleet-admiral`.
 
-- **Codex CLI:** add this profile to `%USERPROFILE%\.codex\config.toml`:
+- **Desktop app (ChatGPT app's Codex):** the app has no profile picker; `[profiles.*]` blocks in config.toml only
+  apply to the command-line tool started with `--profile`. In the app:
+  1. Open the `hl-qa` folder as the project. If it asks whether to trust the folder, choose **not** to trust it
+     (an untrusted folder starts read-only).
+  2. In the message box, type `/permissions` and choose **Read only**. Check the mode shown near the message box
+     says read-only before pasting the kickoff prompt.
+  3. Optional, to make the folder stay untrusted: add this to `%USERPROFILE%\.codex\config.toml`:
 
-  ```toml
-  [profiles.hl-qa]
-  sandbox_mode = "read-only"
-  approval_policy = "never"
-  ```
+     ```toml
+     [projects.'F:\Windows Folders\Documents\hl-qa']
+     trust_level = "untrusted"
+     ```
 
-  Then start it from the `hl-qa` folder with `codex --profile hl-qa`. (Without the profile, use
-  `codex --sandbox read-only --ask-for-approval never`.) The "never" setting means Codex cannot even ask you to
-  allow a write. Anything that writes simply fails.
-- **Codex app or IDE extension:** pick the read-only mode (called "Read only" or "Chat" depending on the version),
-  not "Agent" or "Full access".
+  4. Only if you use Codex for nothing but QA: the top-level lines `sandbox_mode = "read-only"` and
+     `approval_policy = "never"` at the top of config.toml (above every `[section]`) make every session
+     read-only. Skip this if you use Codex for other projects.
+- **Command-line tool:** `codex --sandbox read-only --ask-for-approval never`, started from the `hl-qa` folder.
+  "never" means Codex cannot even ask you to allow a write; anything that writes simply fails.
+- Menu names change between app versions; the test below is what proves the mode, not the label.
 - **If Codex ever asks you to approve a command or file change, the answer is No.**
 - **Native Windows note:** if your Codex version cannot sandbox on Windows, the separate copy (layer 1) is what keeps
   the real repo safe. Keep using the copy either way.
