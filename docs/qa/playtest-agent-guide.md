@@ -83,7 +83,7 @@ for the owner, which also starts a fresh game. So export the save at every check
 and at the end of each session), not only when you find a bug. If a session starts, or the game comes back, on a
 fresh game where your save should be: do not play on it. Use **System > Settings > Save Data > Import Save** with
 your latest export, confirm the level, credits, and ships match what you last reported, then continue, and note the
-restore (and any progress lost since that export) in the report. Importing your own export is allowed; it is the
+restore (and any progress lost since that export) in the report. The import keeps the moment the save was made, so the game pays the whole time since then as a normal absence (up to the 4-day cap): a save exported at night and imported the next morning comes back with the night's progress, exactly as if the tab had stayed open. Importing your own export is allowed; it is the
 partner of the required Export Save. Switching to another tab is
 a second test, not a replacement: some automated browsers never tell the page it is hidden, so the game just keeps
 running live and no recap appears. After a tab switch, open System > Log and look for "Welcome back. Advanced ...s while
@@ -157,6 +157,8 @@ The owner names one. Each is sized to keep a session short and focused.
   click").
 - **At the end of every session**, export the save the same way and name the file in the report with the session
   number and simulated day (for example "theme 9, session 1, day 1").
+  The download is named `fleet-admiral-save-<number>.json` (the number is the moment it was made); check your
+  browser's downloads for it, and give that name in the report.
 - Note the version from **System > About**. Staging may show the last released version number while it runs newer
   code; report what it shows.
 - Screenshots help; describe what each one shows.
