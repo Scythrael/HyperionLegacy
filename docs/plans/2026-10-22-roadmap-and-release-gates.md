@@ -178,6 +178,28 @@ wrong with whatever we choose."
   nothing goes wrong. The reasons are in a claude.ai chat about CIFI, which Claude Code cannot read; to be pasted
   or summarized here before the design.
 
+USER FOLLOW-UP 2 (2026-11-18, verbatim), why the user is on the fence (from playing CIFI, whose community guide says
+"Cloud save before every TR and turn off auto cloud save until you're sure nothing broke"): "Long story short is
+that I will often force a cloud save, and then turn off cloud saving (which I don't really want to do, unless we have
+a forced cloud save option and we mention that turning off cloud saving does not turn off all cloud saving, and that
+there is a cloud save that happens every 24 hours, so rollbacks are possible if needed. Anyway, I would force a cloud
+save, and then do something like a reset that could take an hour or two. Then if I feel that the prestige reset was
+worth doing at that point, I turn on cloud saving. If I feel it was not worth it, I restore the cloud save back."
+- The player use case: **try a prestige reset, play an hour or two, then keep it or roll back.** A real, valued tool.
+- Pieces the user named for that flow (design inputs, not yet decided as a package):
+  - a **forced cloud save** ("save to cloud now") the player can trigger;
+  - a player **auto cloud save on/off** setting;
+  - clear text that turning auto cloud save off does **not** stop every cloud save: the **scheduled (about 24 h)
+    backup still runs**, so a rollback stays possible;
+  - a **restore** from the cloud copy.
+- Design care the user asked for ("design it rather carefully"), for later (PROPOSALS, the user decides):
+  - Keep several backups, so the scheduled backup can never overwrite the only good copy (the CIFI failure mode).
+  - The same restore that undoes a prestige can also undo bad luck (a lost Tier II mission, a bad roll), so once
+    leaderboards or other online fairness exist, player restores may need limits (cooldown, only before a prestige,
+    leaderboard entries frozen at the restore point). Fits Fable pass 2 lane 2.
+  - Dimensional Traversal (the prestige) could offer a built-in "preview" instead, which would cover this use case
+    without a general restore. Only an idea; DT is 0.15.x.
+
 ## Future (unscheduled): research tech trees (user, 2026-11-17)
 
 Research by TYPE picked like a spec (ship classes, ship systems, crew equipment, components, ...), each opening a
