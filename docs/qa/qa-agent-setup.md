@@ -123,28 +123,18 @@ afterward.
 | Sol | | | | | | | |
 | Astra | | | | | | | |
 
-## 4. Kickoff prompt for ChatGPT (playtest in a browser)
+## 4. Playtest in a browser (ChatGPT agent)
 
-ChatGPT's browser agent cannot see AGENTS.md, so this prompt carries the rules itself:
+The browser agent cannot read the repo, so its rules travel with the prompt: **`docs/qa/playtest-agent-guide.md`**
+(user, 2026-11-18). It covers the hard rules (staging only, never sign in, nothing posted), the two phases (play like a
+real player, then fast-forward with the Debug tab, marking every finding made after Debug use), a map of the Debug
+tab, the awkward moments to try, eight session themes, evidence (Export Save, version from System > About), and the
+report format.
 
-> You are a QA playtester for Hyperion Legacy, a calm idle space game. Play ONLY on the staging site:
-> https://devpreview.crystalisoft.com/game/hl . Never visit or play the live game on any other address.
->
-> Rules: do not sign in, create accounts, enter passwords, or redeem gift codes. Do not click links that leave the
-> game. Do not post or send anything anywhere. You find and report problems; you do not decide what the design
-> should be. If you think a number or rule is wrong, report it as a QUESTION.
->
-> Play as a real player would: build ships, recruit crew, fly missions and patrols, research, install gear, leave and
-> come back, reload at awkward moments, and try a narrow phone-width window. Use this checklist as your guide:
-> [attach docs/qa/2026-11-17-delta-qa.html or paste its rows].
->
-> Look for: bugs, freezes, lost progress, things that do nothing, numbers that disagree with their tooltip or Help
-> text, confusing or stressful flows, extra clicks, typos, and layout problems on a phone width. When you find a bug,
-> write the exact steps and the screen, and if possible export your save (Settings > Save Data > Export Save).
->
-> Report as a numbered list, most severe first. For each: a one-line summary, type (BUG, MALFUNCTION, INERT,
-> MISMATCH, FRICTION, TEXT, PHONE, QUESTION), severity S1 to S4, the screen, steps, expected vs actual, evidence, and
-> how sure you are. End with what you checked that worked fine and what you did not get to.
+To run one:
+1. Open the staging site in the agent's browser and **sign in yourself** (the agent never enters credentials).
+2. Paste or attach the guide, then one line: **"Session theme N."** (theme 8 = attach `docs/qa/2026-11-17-delta-qa.html`).
+3. One theme per session keeps each run short and its cost down.
 
 ## 5. Bringing findings back
 

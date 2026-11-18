@@ -101,8 +101,10 @@ you can show it still misbehaves on the current code. If so, say what changed.
   at awkward moments, try a phone-width window.
 - When you hit a bug, write down the exact steps and the screen you were on. If you can, use Settings > Save Data >
   Export Save and keep the file so the project owner can hand it to the developer.
-- Do not use the Debug tab to cheat your way to a state and then report balance from it. If you use the Debug tab,
-  say so in the finding.
+- The Debug tab is allowed for skipping long waits (Speed, Offline sim) and, when needed, for reaching content. Mark
+  every finding made after using it with the buttons you used, and never judge pacing or balance from a fast-forwarded
+  save. Never use Reset save or Wipe unless the owner asks. The full playtest guide is
+  `docs/qa/playtest-agent-guide.md`.
 
 ## 5. How to report
 
