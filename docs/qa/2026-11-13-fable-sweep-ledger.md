@@ -407,3 +407,8 @@ user config; the write test was refused and the copy stayed clean.
   countdown, safe-resume target, pause Overtime, recall stops relaunch, outmatched stop, wear-driven pause, defeat not
   counted as a win, the climb every 20 routes). Several items leaned on "existing regression coverage", so AGENTS.md
   now says a test is not proof. Correctly treated the paused share as a 0.16.0 balance item.
+- Round 6 (commit 6b79ad06, Luna): area 5, economy. NO FINDINGS, nine traced items (shared-order inputs counted once,
+  queued reservations, enqueue affordability, Sell vs reservations, warehouse rows, promotion handoff, helper-lane
+  Release, never-discard over-cap, refinery and fabricator completion). It raised and dismissed one suspicion itself:
+  canReserveOrder's parameter type omits craftOrders. Claude checked: its only caller (tick.ts ~12295) passes the full
+  state, so that is right, not a bug.

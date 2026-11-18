@@ -103,6 +103,7 @@ Round log (Claude keeps it current):
 | Calibration (2026-11-17, Luna) | blind, expeditions at ca70ac65 (before fix a5991f92) | ca70ac65 | Found M1 (anomaly re-pay) exactly; missed I1 (scan re-pay, the Important one) and called its code fine. Findings credible; clean rounds are not a clearance |
 | 4 (2026-11-17, Luna) | 3, crew and free modules | f1392ba0 | No findings, ten traced scenarios; selling or scrapping a free module not covered |
 | 5 (2026-11-17, Luna) | 4, combat, patrols, gear wear | f1392ba0 | No findings, eight scenarios, partly resting on existing tests (AGENTS.md now says tests are not proof) |
+| 6 (2026-11-17, Luna) | 5, economy | 6b79ad06 | No findings, nine traced items; one self-dismissed suspicion, checked by Claude |
 
 ## 4. Kickoff prompt for ChatGPT (playtest in a browser)
 
