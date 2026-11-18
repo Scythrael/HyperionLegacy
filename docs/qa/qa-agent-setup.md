@@ -90,6 +90,9 @@ Paste this as the first message of each Codex session:
 > Report in the AGENTS.md format, most severe first, and end with "Checked and fine", "Not covered", and the commit
 > you reviewed.
 
+**From a phone** (typing is slow there): AGENTS.md carries every rule, so a one-line kickoff is enough: *"Read
+AGENTS.md and follow it. Focus area N."*
+
 The only thing to change between rounds is the area number. The seven areas, with what to check in each, are in
 AGENTS.md section 6. One area per session, so each gets a deep read.
 
@@ -104,6 +107,21 @@ Round log (Claude keeps it current):
 | 4 (2026-11-17, Luna) | 3, crew and free modules | f1392ba0 | No findings, ten traced scenarios; selling or scrapping a free module not covered |
 | 5 (2026-11-17, Luna) | 4, combat, patrols, gear wear | f1392ba0 | No findings, eight scenarios, partly resting on existing tests (AGENTS.md now says tests are not proof) |
 | 6 (2026-11-17, Luna) | 5, economy | 6b79ad06 | No findings, nine traced items; one self-dismissed suspicion, checked by Claude |
+| 7 (2026-11-18, Luna, phone app) | 6, text against numbers | 17c7b760 | 1 finding, CX-2 (Research card duration omits banked data boosts), confirmed and fixed; Claude found a related one-tick carry gap |
+
+### Model comparison (same calibration prompt, commit ca70ac65)
+
+The calibration prompt has a known answer key (all four bugs fixed in a5991f92): I1 Important (recall/resume re-pays
+scan rewards), M1 (anomaly haul repeats), I3 (recall loses the list), I2 (a real star's bodies differ per visit). Note
+the session and weekly usage before and after each run. Claude resets the QA copy to ca70ac65 for the run and back
+afterward.
+
+| Model | I1 | M1 | I3 | I2 | False alarms | Session usage | Weekly usage |
+|---|---|---|---|---|---|---|---|
+| Luna (2026-11-17) | missed (called its code fine) | found | missed | missed | none | not measured | not measured |
+| Terra | | | | | | | |
+| Sol | | | | | | | |
+| Astra | | | | | | | |
 
 ## 4. Kickoff prompt for ChatGPT (playtest in a browser)
 

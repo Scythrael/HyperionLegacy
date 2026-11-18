@@ -412,3 +412,15 @@ user config; the write test was refused and the copy stayed clean.
   Release, never-discard over-cap, refinery and fabricator completion). It raised and dismissed one suspicion itself:
   canReserveOrder's parameter type omits craftOrders. Claude checked: its only caller (tick.ts ~12295) passes the full
   state, so that is right, not a bug.
+- Round 7 (commit 17c7b760, Luna, run from the phone app): area 6, text against numbers. ONE finding:
+  - CX-2 CONFIRMED (Codex S2 MISMATCH, Claude rates it S3: the card showed LONGER than real, the player's favor): the
+    Research card's duration (App.svelte, museumResearchDurationTicks(base, museum+refugee speed)) omitted the
+    family's banked data boosts, which startResearch spends at start (tick.ts GG-5, / (1 + researchBoostSpeed(n))).
+    Claude also found a second, smaller gap Codex did not: the card ignored the Research Lab refugee CARRY that
+    startResearch pays back (researchDurationCarried), so it could show one tick too many.
+  - CX-2 FIXED on feat: one pure reader, tick.ts researchStartTiming(state, bp, museumSpeed) -> { ticks, carry },
+    used by BOTH startResearch and the card (math bit for bit as before). Tests in refugeeBuffs.test.ts "CX-2": a
+    40-start chain with and without an off-match Scholar, every other start boosted, shown == started each time;
+    boosts shorten only their own family; the App anchor.
+  - Its checked-and-fine list (research filter status, AND-combined filters, masked cards hide family, malformed
+    view preference falls back) is consistent with the code. Not covered: staging play, a full Help/tooltip audit.

@@ -1096,17 +1096,16 @@
     // Exploration 0.14.0 (E4c): the relic study readers. Relics v2 R2-7: the Identification tab's queue actions
     // (queueRelicStudy / queueAllRelicStudies / unqueueRelicStudy / moveRelicQueueEntry: a queued blank starts the moment
     // a lane frees); relicStudiesInFlight + identifyStudiedRelic feed the identification-reveal OBSERVER;
-    // museumResearchDurationTicks is the museum research-speed seam the research catalog's duration label now reads, so
-    // the label shows the time a project really takes.
+    // researchStartTiming (CX-2) is the ONE reader startResearch and the research catalog's duration label share, so the
+    // label shows the time a project really takes (museum, Research Lab refugee buff and carry, banked data boosts).
     queueRelicStudy,
     queueAllRelicStudies,
     unqueueRelicStudy,
     moveRelicQueueEntry,
     relicStudiesInFlight,
     identifyStudiedRelic,
-    museumResearchDurationTicks,
-    // E5-4: the research speed with the Research Lab refugee buff folded in, and the fabricate duration seam.
-    researchSpeedFor,
+    researchStartTiming,
+    // E5-4: the fabricate duration seam.
     fabricateDurationTicks,
     // 0.13.11.1 clock protection: a held absence is released under this same offline cap.
     // HOTFIX 0.13.11.3: read in seconds (the save's own cap) by the release budget and the recap.
@@ -6993,9 +6992,10 @@
   // tick-count preference). Reactive so a preference flip re-renders the panel.
   $: relicRemainingFmt = (remaining: number, total: number) => remainingReadout(remaining, total, showTickCounts, state.tickDurationSeconds);
 
-  // E4c display honesty: the museum's research speed, read once per state for the research catalog's
-  // duration labels (startResearch applies the same bonus through museumResearchDurationTicks).
-  $: museumResearchSpeed = researchSpeedFor(state, museumBonuses(state).researchSpeed); // E5-4: plus the Research Lab refugee buff
+  // E4c display honesty: the museum's research speed, read once per state for the research catalog's duration labels,
+  // which go through researchStartTiming exactly as startResearch does (CX-2: the Research Lab refugee buff and carry and
+  // the family's banked data boosts are applied there).
+  $: researchMuseumSpeed = museumBonuses(state).researchSpeed;
 
   // ── Away-Team Gambits (Exploration 0.14.0 phase E3b; per member since Ground Operations GO-16) ─────────
   // The GambitEditorPanel's edits route here. LIVE PLAYER actions (never on the tick path): each calls a pure
@@ -14378,10 +14378,10 @@
                           Crafts: {#each Object.keys(bp.recipe.inputs) as inId, i}{bp.recipe.inputs[inId]}× [{ITEMS[inId]?.label ?? inId}]{i < Object.keys(bp.recipe.inputs).length - 1 ? " + " : ""}{/each} → {#if bp.weaponOutput || bp.droneOutput}[{craftedInstanceBlueprintLabel(bp)}]{:else if bp.equipmentOutput}[{equipmentOutputLabel(bp.equipmentOutput)}]{:else}{bp.recipe.outputQty}× [{ITEMS[bp.recipe.outputItem ?? ""]?.label ?? bp.recipe.outputItem}]{/if}
                         </div>
                       {/if}
-                      <!-- E4c display honesty: the duration is the MUSEUM-ADJUSTED one (the research-speed seam
-                           startResearch applies at start), not the catalog base, so the label is the time the
-                           project will actually take. With an empty museum it is the base, unchanged. -->
-                      <div class="research-cost">Cost: ◈ {formatNumber(bp.researchCreditCost)} · {durationReadout(museumResearchDurationTicks(bp.researchDurationTicks, museumResearchSpeed), showTickCounts, state.tickDurationSeconds)}</div>
+                      <!-- E4c display honesty (CX-2: through researchStartTiming, the reader startResearch uses):
+                           the museum, the Research Lab refugee buff and carry, and the family's banked data boosts,
+                           not the catalog base, so the label is the time the project will actually take. -->
+                      <div class="research-cost">Cost: ◈ {formatNumber(bp.researchCreditCost)} · {durationReadout(researchStartTiming(state, bp, researchMuseumSpeed).ticks, showTickCounts, state.tickDurationSeconds)}</div>
 
                       {#if unlocked}
                         <!-- 0.13.3 Unit 7.0, GLYPH ONLY: the literal ✓ dingbat becomes the same

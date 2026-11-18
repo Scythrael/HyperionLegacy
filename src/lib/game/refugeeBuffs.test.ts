@@ -3,6 +3,7 @@
 // defined moment; one call == 997 s chunks == 1 s steps; offline == live; nobody posted is the game before E5-4).
 
 import { describe, expect, it } from "vitest";
+import { readFileSync } from "node:fs";
 import Decimal from "break_infinity.js";
 import { BLUEPRINTS, SHIP_TYPES, freshState, type GameState, type ShipTypeKey, type ShortRangeMissionState } from "./model";
 import { diminishing } from "./diminishing";
@@ -45,10 +46,13 @@ import {
   startLine,
   startProcess,
   queueRelicStudy,
+  researchStartTiming,
   startResearch,
   tick,
 } from "./tick";
 import { museumBonuses } from "./relics";
+import { researchFamilyOf } from "./dataStudy";
+import { RESEARCH_FAMILIES } from "./gasGiantContent";
 import { hullTeardownFraction, salvageYieldMult } from "./salvage";
 import { shortRangeBoardSlots, startShortRangeCycle } from "./shortRangeBoard";
 import { SHORT_RANGE_TEMPLATE_KEYS, rollShortRangeJob } from "./shortRange";
@@ -552,3 +556,57 @@ describe("E5-4 fix round: carried fractions (small buffs always act over time)",
   });
 });
 
+
+describe("CX-2 (Codex round 7): the research card's duration is the time the project really takes", () => {
+  // The card read only the museum and Research Lab speed; startResearch also spends the family's banked data boosts and
+  // pays back the Research Lab's carried fraction. researchStartTiming is now the one reader both use.
+  const LOW = 20;
+  const offMatchPosted = (s: GameState) =>
+    withRefugeePosted(s, REFUGEE_BACKGROUND_KEYS.find((b) => REFUGEE_BACKGROUNDS[b].facility !== "research")!, "research", LOW);
+
+  it("matches every start in a chain: museum speed, an off-match Scholar's carry, and banked boosts of the family", () => {
+    const ready: GameState = {
+      ...refugeeBase(),
+      facilities: { ...refugeeBase().facilities, research: { level: 9 } },
+      credits: new Decimal(1e15),
+    };
+    for (const start of [ready, offMatchPosted(ready)]) {
+      let s: GameState = start;
+      let checked = 0;
+      let boostedChecked = 0;
+      for (let i = 0; i < 40; i++) {
+        const key = Object.keys(BLUEPRINTS).find((k) => canResearch(s, k).ok);
+        if (key === undefined) break;
+        // Every other start has boosts banked for the blueprint's own family.
+        if (i % 2 === 1) s = { ...s, researchBoosts: { [researchFamilyOf(BLUEPRINTS[key])]: 1 + (i % 5) } };
+        const shown = researchStartTiming(s, BLUEPRINTS[key], museumBonuses(s).researchSpeed).ticks;
+        const r = startResearch(s, key);
+        expect(r.started).toBe(true);
+        expect(r.next.activeProcesses.at(-1)!.durationTicks).toBe(shown);
+        checked++;
+        if (i % 2 === 1) boostedChecked++;
+        s = { ...r.next, researchedBlueprints: [...(r.next.researchedBlueprints ?? []), key], activeProcesses: [] };
+      }
+      expect(checked).toBeGreaterThanOrEqual(8);
+      expect(boostedChecked).toBeGreaterThanOrEqual(4);
+    }
+  });
+
+  it("banked boosts make the shown duration shorter, and only for their own family", () => {
+    const ready: GameState = { ...refugeeBase(), facilities: { ...refugeeBase().facilities, research: { level: 9 } } };
+    const key = Object.keys(BLUEPRINTS).find((k) => canResearch({ ...ready, credits: new Decimal(1e15) }, k).ok && BLUEPRINTS[k].researchDurationTicks >= 60)!;
+    const bp = BLUEPRINTS[key];
+    const fam = researchFamilyOf(bp);
+    const other = RESEARCH_FAMILIES.find((f) => f !== fam)!;
+    const speed = museumBonuses(ready).researchSpeed;
+    const plain = researchStartTiming(ready, bp, speed).ticks;
+    expect(researchStartTiming({ ...ready, researchBoosts: { [fam]: 3 } }, bp, speed).ticks).toBeLessThan(plain);
+    expect(researchStartTiming({ ...ready, researchBoosts: { [other]: 3 } }, bp, speed).ticks).toBe(plain);
+  });
+
+  it("the research card reads researchStartTiming", () => {
+    const app = readFileSync("src/App.svelte", "utf8");
+    expect(app).toMatch(/durationReadout\(researchStartTiming\(state, bp, researchMuseumSpeed\)\.ticks/);
+    expect(app).not.toMatch(/museumResearchDurationTicks\(bp\.researchDurationTicks/);
+  });
+});

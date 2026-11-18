@@ -9658,6 +9658,9 @@ export function startResearch(
   const family = researchFamilyOf(bp);
   const boosts = researchBoostsBanked(state, family);
   const spentBoosts = boosts > 0 ? withBoostsSpent(state.researchBoosts, family) : state.researchBoosts;
+  // CX-2: the duration and the new carry come from researchStartTiming, the SAME reader the research card shows, read
+  // from the state BEFORE the boosts are spent.
+  const timing = researchStartTiming(state, bp, museumBonuses(state).researchSpeed);
   const afterCredits: GameState = { ...state, credits: state.credits.minus(cost) };
   if (boosts > 0) {
     if (spentBoosts === undefined) delete afterCredits.researchBoosts;
@@ -9665,9 +9668,7 @@ export function startResearch(
   }
   // E5-4 (the Scholar): the Research Lab's refugee buff multiplies into the museum's speed, at the START, and (fix
   // round, "Carry the fractions") the rounding pays back the research carry, stored with the start.
-  const carried = researchDurationCarried(state, bp.researchDurationTicks, museumBonuses(state).researchSpeed, "research");
-  const museumTicks = carried.ticks;
-  const afterCarry = withRefugeeCarry(afterCredits, "research", carried.carry);
+  const afterCarry = withRefugeeCarry(afterCredits, "research", timing.carry);
   // No MATERIAL inputs (locked design #3: research costs TIME + CREDITS, not materials), so
   // the inputs map is empty, startProcess's gate/deduct loops no-op over it. It pushes the
   // "researchProject" TimedProcess (remainingTicks = researchDurationTicks) whose completion
@@ -9678,12 +9679,30 @@ export function startResearch(
     afterCarry,
     "researchProject",
     {},
-    boosts > 0 ? museumResearchDurationTicks(museumTicks, researchBoostSpeed(boosts)) : museumTicks,
+    timing.ticks,
     {
       type: "unlockBlueprint",
       key: blueprintKey,
     }
   );
+}
+
+// CX-2 (Codex round 7): the time a research project of `bp` takes if started from `state` now, and the Research Lab
+// carry that start stores. ONE reader for startResearch and the research card, so the card can never disagree with the
+// start: the museum speed `museumSpeed` (museumBonuses(state).researchSpeed) with the Research Lab's refugee buff and
+// its carried fraction (researchDurationCarried), then every boost banked for the blueprint's family (GG-5:
+// / (1 + researchBoostSpeed(n)), rounded up). Math unchanged from the pre-CX-2 startResearch, bit for bit. Pure.
+export function researchStartTiming(
+  state: Pick<GameState, "refugees" | "researchBoosts">,
+  bp: BlueprintDef,
+  museumSpeed: number,
+): { ticks: number; carry: number } {
+  const carried = researchDurationCarried(state, bp.researchDurationTicks, museumSpeed, "research");
+  const boosts = researchBoostsBanked(state, researchFamilyOf(bp));
+  return {
+    ticks: boosts > 0 ? museumResearchDurationTicks(carried.ticks, researchBoostSpeed(boosts)) : carried.ticks,
+    carry: carried.carry,
+  };
 }
 
 // Exploration 0.14.0 (Phase E4b): the museum RESEARCH SPEED seam, shared by blueprint research
