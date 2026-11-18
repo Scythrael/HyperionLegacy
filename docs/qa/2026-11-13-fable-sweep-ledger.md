@@ -374,3 +374,9 @@ user config; the write test was refused and the copy stayed clean.
   missing Sensor Suite, Bridge Module and Crew Quarters, skips occupied slots, runs once via the versioned chain;
   malformed top-level shapes are rejected; local load catches migration errors into corrupt-save recovery. Not covered:
   running migrations on real legacy saves, damaged-save cases beyond the paths read, playtesting.
+- Round 2 (commit 1cc80503, same code as 56aae282): area 1, offline catch-up and determinism. NO FINDINGS. Codex read
+  as fine: sync tick() and sliced catch-up share the tick job; the live loop blocks polling and saves during a run; an
+  async poll saves its pre-poll state with the matching paid-through time, so a reload redoes the gap once; the overlay
+  makes the game inert. Its "known fractional-tail" note matches M4 (chunked-call parity, not player-visible). Both
+  reports were thin, so AGENTS.md now requires traced functions and at least eight walked scenarios for a no-findings
+  round.

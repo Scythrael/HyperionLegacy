@@ -123,7 +123,11 @@ Reply in chat with a numbered list. One finding per entry, most severe first. Us
 
 Then end with:
 
-- **Checked and fine:** the areas you looked at that held up (so the next round does not repeat them).
+- **Checked and fine:** what held up, with proof of depth. For each item name the functions you traced (file and
+  line range) and the specific scenario you walked through (for example: "reload at second 37 of a 4-day catch-up;
+  traced `asyncCatchUpSave` loopClock.ts L120-160 to the next load"). A bare "X looks fine" does not count. A round
+  with no findings must list at least eight such traced scenarios, including the hardest edge cases you could think
+  of for the area.
 - **Not covered:** what you did not get to.
 - **Commit reviewed:** the output of `git rev-parse --short HEAD`.
 
