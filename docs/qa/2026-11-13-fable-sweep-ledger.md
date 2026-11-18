@@ -424,3 +424,16 @@ user config; the write test was refused and the copy stayed clean.
     boosts shorten only their own family; the App anchor.
   - Its checked-and-fine list (research filter status, AND-combined filters, masked cards hide family, malformed
     view preference falls back) is consistent with the code. Not covered: staging play, a full Help/tooltip audit.
+- Round 8 (commit 17c7b760, Luna, phone app): area 7, exploits and fairness. ONE finding, no normal-play exploit:
+  - Its F1 (S2 SECURITY, "Likely"): an exported save can be hand-edited (credits, inventory) and imported; import
+    checks only parse and version. Claude: TRUE, and KNOWN BY DESIGN for a client-only game (nothing to protect yet;
+    the owner's online plan keeps the 0.15.1 cloud save a dumb blob and puts the authoritative economy later). Not a
+    0.14.0 fix. It is already in scope for Fable pass 2 lane 2 (the online threat model: what the client decides that
+    a server must not trust) and feeds the 0.14.1 design. Codex itself noted no online endpoint exists.
+  - Its checked-and-fine list was spot-checked: trustedTime.ts initTrustState / ceiling / readTrusted /
+    withServerTime / trustedNow, accountExtras.ts redeemGift, and expedition claim and recall paths exist where it
+    says. Not covered: runtime play, every purchase and refund path.
+- FIRST FULL CODEX PASS DONE (all seven areas on Luna, free tier): CX-1 (newer-version saves) and CX-2 (research card
+  duration) found and fixed, plus the related one-tick carry gap Claude found while checking CX-2. Next: the model
+  calibration ladder (Terra, Sol, Astra on the same calibration prompt), the browser playtest
+  (docs/qa/playtest-agent-guide.md), Fable pass 2.

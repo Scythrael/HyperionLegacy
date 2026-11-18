@@ -108,6 +108,7 @@ Round log (Claude keeps it current):
 | 5 (2026-11-17, Luna) | 4, combat, patrols, gear wear | f1392ba0 | No findings, eight scenarios, partly resting on existing tests (AGENTS.md now says tests are not proof) |
 | 6 (2026-11-17, Luna) | 5, economy | 6b79ad06 | No findings, nine traced items; one self-dismissed suspicion, checked by Claude |
 | 7 (2026-11-18, Luna, phone app) | 6, text against numbers | 17c7b760 | 1 finding, CX-2 (Research card duration omits banked data boosts), confirmed and fixed; Claude found a related one-tick carry gap |
+| 8 (2026-11-18, Luna, phone app) | 7, exploits and fairness | 17c7b760 | 1 finding: edited saves import unchecked. True but by design while the game is client-only; goes to Fable pass 2's online threat model. No normal-play exploit found. First full pass complete |
 
 ### Model comparison (same calibration prompt, commit ca70ac65)
 
