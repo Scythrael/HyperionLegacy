@@ -3320,6 +3320,9 @@ export function loadFromLocalStorage(): { state: GameState; lastSavedAt: number;
   if (!raw) return null;
   const save = deserialize(raw);
   if (!save) return null;
+  // CX-1: a save from a NEWER build never loads here (see rawSaveNewerVersion). Null routes it to the caller's
+  // recovery path, which keeps the raw save untouched and suppresses autosave.
+  if (save.version > SAVE_VERSION) return null;
   try {
     // G2-1: the one entropy draw a load makes (read only if the save needs its v70 homeworld).
     return { state: migrate(save, drawHomeworldSeed()), lastSavedAt: save.last_saved_at, createdAt: save.created_at };
@@ -3334,6 +3337,15 @@ export function loadFromLocalStorage(): { state: GameState; lastSavedAt: number;
     // valid-load behavior.
     return null;
   }
+}
+
+// CX-1 (Codex QA 2026-11-17, user: fix in 0.14.0): the version of a save made by a NEWER build than this one, or null
+// (current, older, or not a save at all). Such a save must never load or be stored here: migrate() has no steps for
+// a future version and serialize() would relabel it with this build's SAVE_VERSION, so the newer build would later
+// run migrations on it a second time. Load and import refuse it; the App names it so the player knows why.
+export function rawSaveNewerVersion(raw: string): number | null {
+  const save = deserialize(raw);
+  return save && save.version > SAVE_VERSION ? save.version : null;
 }
 
 export function exportRawSave(): string | null {
@@ -3410,6 +3422,7 @@ export function downloadLiveSave(state: GameState, createdAt: number): boolean {
 export function importRawSave(raw: string): boolean {
   const save = deserialize(raw);
   if (!save) return false;
+  if (save.version > SAVE_VERSION) return false; // CX-1: never store a newer build's save (see rawSaveNewerVersion)
   // safeSetItem returns false on a blocked/full store instead of throwing (the old
   // try/catch's job). Key the boolean off the PRIMARY save write so a blocked store,
   // which fails both writes together, reports false exactly as before.

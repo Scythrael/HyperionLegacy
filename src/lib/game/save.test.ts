@@ -1,7 +1,8 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import Decimal from "break_infinity.js";
 import LZString from "lz-string";
-import { migrate, serialize, deserialize, importRawSave, loadFromLocalStorage, SAVE_KEY, SAVE_VERSION, dropRetiredFuelV70, dropRetiredDurabilityV70, withEvacuationStampV71, V70_FUEL_REFUND_CREDITS_PER_UNIT, V70_FREE_STARTER_TANK, type SaveFile } from "./save";
+import { readFileSync } from "node:fs";
+import { migrate, serialize, deserialize, importRawSave, loadFromLocalStorage, hasRawSave, rawSaveNewerVersion, SAVE_KEY, SAVE_VERSION, dropRetiredFuelV70, dropRetiredDurabilityV70, withEvacuationStampV71, V70_FUEL_REFUND_CREDITS_PER_UNIT, V70_FREE_STARTER_TANK, type SaveFile } from "./save";
 // E5-1: the board's evacuation stamp and the refugee record.
 import { isWellFormedShortRangeBoard, shortRangeBoardSlots, shortRangeNextCycle } from "./shortRangeBoard";
 import { refugeesOf, type RefugeeState } from "./refugees";
@@ -6246,6 +6247,65 @@ describe("importRawSave", () => {
       localStorage.removeItem(SAVE_KEY);
       localStorage.removeItem(`${SAVE_KEY}_created_at`);
     }
+  });
+
+  // CX-1 (Codex QA 2026-11-17, user: fix in 0.14.0): a save from a NEWER build must never load here. migrate() has no
+  // steps for a future version and serialize() would relabel it with this build's SAVE_VERSION, so the newer build
+  // would later re-run migrations it already ran. Refuse it, keep it byte for byte.
+  const newerRaw = (): string => {
+    const raw = serialize(freshState(), 1234);
+    const parsed = JSON.parse(LZString.decompressFromBase64(raw)!);
+    parsed.version = SAVE_VERSION + 1;
+    return LZString.compressToBase64(JSON.stringify(parsed));
+  };
+
+  it("CX-1: rawSaveNewerVersion names a newer save's version and is null for current, older, and garbage saves", () => {
+    expect(rawSaveNewerVersion(newerRaw())).toBe(SAVE_VERSION + 1);
+    expect(rawSaveNewerVersion(serialize(freshState(), 1234))).toBeNull();
+    const older = JSON.parse(LZString.decompressFromBase64(serialize(freshState(), 1234))!);
+    older.version = SAVE_VERSION - 1;
+    expect(rawSaveNewerVersion(LZString.compressToBase64(JSON.stringify(older)))).toBeNull();
+    expect(rawSaveNewerVersion("not a save")).toBeNull();
+  });
+
+  it("CX-1: importRawSave refuses a newer-version save, leaving the existing save untouched", () => {
+    localStorage.setItem(SAVE_KEY, "existing-valid-save-placeholder");
+    try {
+      expect(importRawSave(newerRaw())).toBe(false);
+      expect(localStorage.getItem(SAVE_KEY)).toBe("existing-valid-save-placeholder");
+    } finally {
+      localStorage.removeItem(SAVE_KEY);
+      localStorage.removeItem(`${SAVE_KEY}_created_at`);
+    }
+  });
+
+  it("CX-1: a stored newer-version save does not load (recovery path) and stays byte-identical in storage", () => {
+    const raw = newerRaw();
+    localStorage.setItem(SAVE_KEY, raw);
+    try {
+      expect(loadFromLocalStorage()).toBeNull();
+      expect(hasRawSave()).toBe(true);
+      expect(localStorage.getItem(SAVE_KEY)).toBe(raw);
+    } finally {
+      localStorage.removeItem(SAVE_KEY);
+    }
+  });
+
+  it("CX-1: a save at the current version still loads", () => {
+    localStorage.setItem(SAVE_KEY, serialize(freshState(), 1234));
+    try {
+      expect(loadFromLocalStorage()).not.toBeNull();
+    } finally {
+      localStorage.removeItem(SAVE_KEY);
+    }
+  });
+
+  it("CX-1: App refuses a newer save on import with its own message and names it in the recovery modal", () => {
+    const app = readFileSync("src/App.svelte", "utf8");
+    expect(app).toContain("rawSaveNewerVersion(pendingImportRaw)");
+    expect(app).toContain("NEWER_SAVE_IMPORT_TEXT");
+    expect(app).toContain("corruptSaveIsNewer = rawSaveNewerVersion(corruptRawSave) !== null");
+    expect(app).toContain("NEWER_SAVE_RECOVERY_TEXT");
   });
 });
 

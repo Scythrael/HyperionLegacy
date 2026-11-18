@@ -388,3 +388,18 @@ user config; the write test was refused and the copy stayed clean.
     0.14.0 save (v72) and imports it on the live game (v54). Prod loads a v72-shaped state with v54 code, the autosave
     relabels it v54, and when 0.14.0 ships the v54 label makes migrations 54 to 71 run a SECOND time on an
     already-migrated state. Also bites any rollback. Fix shape and prod hotfix: user decision pending.
+- CX-1 FIXED on feat (user: "0.14.0 only", prod not hotfixed): load and import refuse a save whose version is above
+  SAVE_VERSION (save.ts rawSaveNewerVersion); the import names why; a stored newer save opens the recovery modal with
+  its own text, kept byte for byte, never autosaved over.
+- Calibration round (blind, Luna, commit ca70ac65 = just before a5991f92, docs/ and git history banned): focus
+  "expedition recall then resume or relaunch". Planted, all fixed in a5991f92: lane 3 I1 (Important, recall/resume
+  re-pays scan event rewards, unbounded), M1 (anomaly haul repeats on a held candidate), I3 (recall loses the list),
+  I2 (real star's bodies differ per visit). RESULT: found M1 exactly (its F1, right mechanism, right lines, S2
+  EXPLOIT). MISSED I1, and listed its exact mechanism under "Checked and fine" ("unfinished scans are reset" at
+  heldBodies ~2942-2965) without seeing the re-pay. Reading: Codex finds real bugs and its findings are credible,
+  but its "Checked and fine" is NOT a clearance. Rerun the same prompt on Sol for comparison.
+- Round 4 (commit f1392ba0, Luna): area 3, crew and the free Standard-Issue modules. NO FINDINGS, with ten traced
+  scenarios (the new depth rule worked): fresh-save seeding, built ships (mintBuiltShip), captain-slot grants, the v72
+  migration and its malformed-pool edges, resolveCrew capacity and auto-fill, crew rollups, the sensor/science sheet,
+  uninstall leaves the slot empty, Quartermaster crew-module spares. Not covered: selling or scrapping a free module,
+  runtime. Per the calibration, a clean round is "nothing obvious", not a clearance.

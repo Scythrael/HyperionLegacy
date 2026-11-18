@@ -1326,7 +1326,10 @@
   import { catchUpBlocking } from "./lib/catchUpGate";
   import { formatNumber, formatDuration, formatClock } from "./lib/game/format";
   import { deriveStatistics } from "./lib/game/statistics";
-  import { saveToLocalStorage, loadFromLocalStorage, clearSave, downloadRawSave, downloadLiveSave, importRawSave, hasRawSave, exportRawSave } from "./lib/game/save";
+  import { saveToLocalStorage, loadFromLocalStorage, clearSave, downloadRawSave, downloadLiveSave, importRawSave, hasRawSave, exportRawSave, rawSaveNewerVersion } from "./lib/game/save";
+  // CX-1 (Codex QA 2026-11-17): a save from a newer build is refused on import and named in the recovery modal.
+  const NEWER_SAVE_IMPORT_TEXT = "That save was made by a newer version of the game, so this version can't load it. Your current game is unchanged.";
+  const NEWER_SAVE_RECOVERY_TEXT = "Your save was made by a newer version of the game, so this version can't load it. It has NOT been changed or deleted. Reload the page to get the latest version, or download a backup first.";
   // Save-persist warning bridge: doSave reports write success/failure into
   // savePersistFailed (the banner in Root.svelte subscribes), and we register a
   // live-state exporter so the banner's "Export save" downloads CURRENT progress
@@ -1586,6 +1589,7 @@
   // as the flows above. corruptRawSave holds the raw string for the readonly
   // textarea; it stays put until the player explicitly resolves the modal.
   let saveCorruptModalOpen = false;
+  let corruptSaveIsNewer = false; // CX-1: the unloadable save came from a newer build
   let corruptRawSave = "";
 
   // While-You-Were-Away offline summary (Combat 0.13.0, Phase 13, design Section 17).
@@ -4058,6 +4062,7 @@
       // game would silently NEVER persist. Keep the two coupled.
       suppressSave = true;
       corruptRawSave = exportRawSave() ?? "";
+      corruptSaveIsNewer = rawSaveNewerVersion(corruptRawSave) !== null;
       saveCorruptModalOpen = true;
       pushLog("Your save could not be loaded. Recovery options are shown.");
     } else {
@@ -10762,6 +10767,10 @@
 
   function confirmImport() {
     if (pendingImportRaw === null) return;
+    if (rawSaveNewerVersion(pendingImportRaw) !== null) {
+      importError = NEWER_SAVE_IMPORT_TEXT; // CX-1: importRawSave refuses it too; this names why
+      return;
+    }
     const success = importRawSave(pendingImportRaw);
     if (!success) {
       importError = "That file isn't a valid Fleet Admiral save.";
@@ -22651,7 +22660,7 @@
     <div class="modal-backdrop" role="dialog" aria-modal="true" aria-label="Save could not be loaded" use:focusTrap={() => {}}>
       <Panel class="modal-dialog">
         <div class="panel-title">SAVE COULD NOT BE LOADED</div>
-        <p class="modal-warning">Your save exists but could not be loaded. It has NOT been deleted. Copy the text below as a backup before you continue.</p>
+        <p class="modal-warning">{corruptSaveIsNewer ? NEWER_SAVE_RECOVERY_TEXT : "Your save exists but could not be loaded. It has NOT been deleted. Copy the text below as a backup before you continue."}</p>
         <textarea class="modal-textarea" readonly aria-label="Corrupt save backup text" rows="4">{corruptRawSave}</textarea>
         <div class="modal-row">
           <button class="dev-btn" on:click={downloadRawSave}>Download backup</button>
