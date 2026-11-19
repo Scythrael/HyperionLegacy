@@ -501,4 +501,4 @@ user config; the write test was refused and the copy stayed clean.
     Tell the agent: inspect the drive blank under Logistics, Crafted Blanks, install it, and carry on to Tier II.
 - Checkpoint (2026-11-19, f6eb983c, Offline sim +2h only). NO FINDINGS. First Tier I expedition (LB-6585): scan plus
   all four ground objectives done, every fight won; Orion on the return leg. Agent's own usage reading: 1% of the
-  5-hour and 1% of the weekly window (Luna, PAID tier by this point, per the user). PF-1 drive blank not yet rechecked (the agent has the tip).
+  5-hour and 1% of the weekly window (Luna, PAID tier by this point, per the user). PF-1 drive blank not yet rechecked (inspect tip relayed or pending).
