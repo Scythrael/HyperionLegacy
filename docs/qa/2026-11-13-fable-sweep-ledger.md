@@ -486,3 +486,16 @@ user config; the write test was refused and the copy stayed clean.
   Harvest runs, which fits a captain repeating all along (the earlier "10 missions in 2h25m" was likely a misread at the
   restart; not pursued). Not reached by day 2: a crew hire, an expedition, a relic, a new hull. Export still produces no
   file in the Codex browser; guide now says to skip the about:blank test in a browser without exports.
+- Continuation (2026-11-19, commit f6eb983c in its copy; staging still 3fd5c980), time-only Debug (Offline sim +1h, six
+  times). Reached: Class II Drive Blueprint researched (2,400 credits), wafers refined and Power Couplings fabricated,
+  the Class II drive crafted, a Tier II Survey Mineral Anomaly run (13 cycles) and its recall, Museum identification of
+  31 relic blanks.
+  - PF-1 (agent F1, "completed Class II drive leaves no drive to install"): NOT an engine bug. A finished gear craft
+    deposits an UNINSPECTED blank (ITEM LIFECYCLE 0.13.6), and the agent never inspected it. The real finding is TEXT /
+    FRICTION: the ship install picker's empty state (ShipSystemsPanel) said "No spare FTL Drive systems in storage.
+    Fabricate one, or uninstall from another ship." and never named the inspect step, so a finished craft read as
+    lost. (App.svelte's older swap modal already said "Inspect blanks under Logistics, Crafted Blanks".) FIXED: when
+    blanks that would fill the open picker exist, it now says "You have N uninspected <slot> blank(s). Inspect it/them
+    under Logistics, Crafted Blanks to roll a system you can install."; every other empty state names the inspect step
+    (pickerBlanks.ts + test). Not touched: the expedition gate line "Needs a Class II drive to reach the <region>."
+    Tell the agent: inspect the drive blank under Logistics, Crafted Blanks, install it, and carry on to Tier II.

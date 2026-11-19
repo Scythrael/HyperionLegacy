@@ -57,6 +57,7 @@
   } from "./game/model";
   import { BLUEPRINTS, SHIP_TYPES, EQUIPMENT_SLOTS, shipDerivedStats, isSparePiece, pieceVarietyDef, shipDisplayLabel, outboundLegSpeed, returnLegSpeed, guestQuartersShown } from "./game/model";
   import { LY_PER_TICK } from "./game/fuel";
+  import { uninspectedBlanksFor, type PickerBlankTarget } from "./game/pickerBlanks";
   // WR-4 (OC-C1): the Fuel Depot's fleet reach, so the Range row matches the dispatch gates (tick.ts shipReachDef).
   import { fleetReachBonus } from "./game/tick";
   // Renamable Ships: the shared name-length ceiling, so this panel's rename input
@@ -898,6 +899,14 @@
     const gate = canFitEquipment(safeState, shipId, instanceId);
     return !gate.ok && gate.reason === "hullSpec";
   }
+  // Playtest F1 (2026-11-19): uninspected blanks that would fill the open picker (pickerBlanks.ts), so an empty
+  // spare list can say "inspect it" instead of "fabricate one" when the craft already finished.
+  function blankTargetFor(slot: string | null, hardpoint: unknown): PickerBlankTarget {
+    if (slot !== null) return { kind: "slot", slotType: slot };
+    return hardpoint !== null ? { kind: "weapon" } : { kind: "drone" };
+  }
+  $: pickerBlankTarget = blankTargetFor(selectedSlot, selectedHardpoint);
+  $: pickerBlankCount = pickerActive ? uninspectedBlanksFor(state.blanks, pickerBlankTarget).toNumber() : 0;
   $: pickerLabel =
     selectedSlot !== null
       ? // E4d: the Spec Utility slot's catalog label is "Prospecting Rig" (its original single family); on a
@@ -2199,13 +2208,17 @@
             {#if shipDamaged}
               <p class="ss-note ss-note-dim">Repair the ship before installing new ship systems.</p>
             {:else if pickerSpares.length === 0}
-              {#if selectedSlot === "module"}
-                <p class="ss-note ss-note-dim">No spare modules in storage. Craft one at the Fabricator (its Modules group), or remove one from another ship.</p>
+              <!-- Playtest F1 (2026-11-19): a finished craft is an UNINSPECTED blank, so point at it when one would
+                   fill this picker, and name the inspect step in every empty state. -->
+              {#if pickerBlankCount > 0}
+                <p class="ss-note ss-note-dim">You have {pickerBlankCount} uninspected {pickerLabel} blank{pickerBlankCount === 1 ? "" : "s"}. Inspect {pickerBlankCount === 1 ? "it" : "them"} under Logistics, Crafted Blanks to roll a system you can install.</p>
+              {:else if selectedSlot === "module"}
+                <p class="ss-note ss-note-dim">No spare modules in storage. Craft one at the Fabricator (its Modules group) and inspect it under Logistics, Crafted Blanks, or remove one from another ship.</p>
               {:else if selectedSlot === "bridge" || selectedSlot === "quarters"}
                 <!-- CP-12: research the blueprint at the Research Lab, then craft it in the Fabricator's Crew Modules group. -->
-                <p class="ss-note ss-note-dim">No spare {selectedSlot === "bridge" ? "bridge modules" : "crew quarters"} in storage. Research a blueprint at the Research Lab and craft it at the Fabricator (its Crew Modules group), or uninstall one from another ship.</p>
+                <p class="ss-note ss-note-dim">No spare {selectedSlot === "bridge" ? "bridge modules" : "crew quarters"} in storage. Research a blueprint at the Research Lab, craft it at the Fabricator (its Crew Modules group), and inspect it under Logistics, Crafted Blanks, or uninstall one from another ship.</p>
               {:else}
-                <p class="ss-note ss-note-dim">No spare {pickerLabel} systems in storage. Fabricate one, or uninstall from another ship.</p>
+                <p class="ss-note ss-note-dim">No spare {pickerLabel} systems in storage. Fabricate one and inspect it under Logistics, Crafted Blanks, or uninstall one from another ship.</p>
               {/if}
             {:else}
               <!-- 1. INSTALLED banner: the piece currently in this slot / hardpoint / bay. -->
