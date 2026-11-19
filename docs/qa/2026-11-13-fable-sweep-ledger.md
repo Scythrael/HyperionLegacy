@@ -499,3 +499,6 @@ user config; the write test was refused and the copy stayed clean.
     under Logistics, Crafted Blanks to roll a system you can install."; every other empty state names the inspect step
     (pickerBlanks.ts + test). Not touched: the expedition gate line "Needs a Class II drive to reach the <region>."
     Tell the agent: inspect the drive blank under Logistics, Crafted Blanks, install it, and carry on to Tier II.
+- Checkpoint (2026-11-19, f6eb983c, Offline sim +2h only). NO FINDINGS. First Tier I expedition (LB-6585): scan plus
+  all four ground objectives done, every fight won; Orion on the return leg. Agent's own usage reading: 1% of the
+  5-hour and 1% of the weekly window (Luna, free tier). PF-1 drive blank not yet rechecked (the agent has the tip).
