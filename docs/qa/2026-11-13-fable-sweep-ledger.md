@@ -510,3 +510,25 @@ user config; the write test was refused and the copy stayed clean.
     completed research, off) and the list says "N researched blueprints hidden". The crafted Class II drive is still
     an uninspected blank (PF-1): inspect it under Logistics, Crafted Blanks, then install it. Friction note only:
     the agent missed both the hidden-count line and the blank, so both cues may be quiet; no change proposed.
+- Report (2026-11-20, f6eb983c): PF-1 drive blank inspected and installed; four Tier II expeditions done (OR-6364 with
+  reinforcements and a wipe that resumed, OR-2904, Polaris, OR-4512). Then the save was lost.
+  - PF-3 (agent F1 "Importing the verified save returns to a fresh game", S1): the import is FINE; the real bug is
+    **two open tabs of the game overwrite each other's save, silently**. CONFIRMED by Claude, and it is IN PROD
+    (release/0.13.11.4 App.svelte L3633, same 30 s autosave, no tab guard).
+    - Evidence: Claude decoded the agent's export (F:/Windows Folders/Downloads/fleet-admiral-save-1795185490230.json,
+      read-only): version 72, created_at 2026-11-18T15:04:56Z, last_saved_at 2026-11-20T14:37:53Z, FA Lv 1, 0
+      credits, one ship, no research, no expeditions, game_time 171,177 s = EXACTLY the wall time since created_at.
+      The real playthrough had many hours of Debug Offline sim, so its game time is far above wall time: the file is
+      a SECOND, untouched game instance (an old tab left open since 2026-11-18), not the FA Lv 15 checkpoint. A
+      no-save load would stamp created_at = now (App.svelte L1500), so it is not a storage wipe either.
+    - Mechanism: every game tab autosaves its own in-memory state every 30 s (setInterval(doSave, 30000)) and on
+      unload, to the one localStorage key, with no cross-tab check (no BroadcastChannel, storage event, or Web Lock).
+      Last writer wins. Export Save (downloadRawSave) copies the STORED raw, not the live game, so an export from the
+      active tab can hold the other tab's game. That explains all three symptoms: the fresh export, the fresh game
+      after the about:blank absence (the idle tab wrote over the agent's unload save within 30 s), and the "failed"
+      import (it faithfully restored a fresh file). Likely also session 2's "lost save" (2026-11-18).
+    - Reproduced locally (dev server, 2026-11-20 15:01 to 15:04 UTC): tab A idle (captain awaiting orders); tab B
+      dispatched Captain 1 (stored save showed the mission at 15:03:04); B navigated away; tab A's autosave at
+      15:03:42 stored mission null; B came back to "1 needs orders, 0 running". Progress lost with no warning.
+    - Real-player reach: anyone with the game open in two tabs or windows (a forgotten tab, a phone browser keeping
+      old tabs) can silently lose progress. Fix shape and prod hotfix: user decision pending.
