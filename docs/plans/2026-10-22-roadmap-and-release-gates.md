@@ -13,6 +13,8 @@ docs/plans/2026-09-15-exploration-crew-saga-0.14.0-design.md (:31 and :590-591).
 | 0.14.3 | Achievements: main-game achievements, the theme builder (moved from 0.14.2), minigame rewards paying out (back pay), real codes and giveaways; systems fully wired, numbers balanced in 0.16.0 (outline: docs/plans/2026-10-23-0.14.3-achievements-outline.md) |
 | 0.15.0 | Tutorial, story and quests |
 | 0.16.0 | Balancing (and content) patch |
+| 0.16.x (idea, 2026-11-20) | One content tier per patch: 0.16.1 = tier 8, and so on (see "0.16.x content patches and 0.17.0") |
+| 0.17.0 (idea, 2026-11-20) | Perhaps the storyline plus the full Dimensional Traversal experience; conflicts with the 2026-11-18 answers, open |
 
 ## Release gates (a patch cannot START until its gate items are done)
 
@@ -243,6 +245,32 @@ cloud save."
 - Same loophole, other door (Claude): today's Export Save / Import Save is exactly a player restore (export, roll,
   import, repeat), and an edited export imports unchecked (Codex round 8). For accounts and leaderboards, 0.14.1
   needs a decision on Import Save (remove it, or owner-only from the admin panel). Export can stay as a read-only copy.
+
+## 0.16.x content patches and 0.17.0 (user, 2026-11-20): PLAN IDEA, open
+
+The user (verbatim): "Also, future plan for 0.16.x patches before whatever we plan out specifically for 0.17.0 ( I don't
+know if I ever mentioned that patch yet), will be additional content additions to the game. So if 0.16.0 launches with
+7 tiers of content, then 0.16.1 might include all tier 8 content, and so forth. Should the first version of the game
+release with up to tier 10 content? Perhaps 0.17.0 includes the storyline and actually designing and implementing the
+full DR experience."
+
+- PLAN (user): **0.16.x patches add content one tier at a time**: 0.16.0 launches with 7 tiers, 0.16.1 adds all of
+  tier 8, and so on. First mention of **0.17.0** anywhere in the docs (checked 2026-11-20).
+- OPEN QUESTION (user): should the first version (read as 1.0) ship with content up to **tier 10**?
+- PROPOSAL (user, "perhaps"): **0.17.0 = the storyline plus the full Dimensional Traversal (DR) experience**, designed
+  and built.
+- CONFLICT to resolve (Claude): the 2026-11-18 answers above put the story beats in **0.16.0** (after the save wipe, so
+  everyone starts the story fresh) and DT's build in a **0.15.x** patch, switched off. Story in 0.17.0 means players who
+  start fresh at 0.16.0 are several tiers deep before the plot begins, which loses the fresh-start reason for the
+  middle path unless the early story beats can reach players who are already past them. Both 2026-11-18 answers
+  stand until the user changes them.
+- Facts (Claude, 2026-11-20): today's content runs to tier VII (Lab and Fabricator tracks, drive Classes II to VII
+  with Deuterium and Antimatter, since OC-15 "Add tiers 3-7 now"). The 1.0 target is about 2 years from start to
+  finish (below), and 0.16.0 is the balancing pass toward it.
+- Note for the tier-10 call (Claude): the 2-year target is spread across every tier. If 0.16.0 balances 7 tiers to
+  2 years and tiers 8 to 10 arrive afterward, either the game grows past 2 years or the balance pass is redone. If 1.0
+  is tier 10, the 0.16.0 balance pass should plan the curve for 10 tiers from the start (tiers 8 to 10 as pacing
+  targets in the balance model, not as content in the game), so 0.16.1 to 0.16.3 slot in without re-tuning.
 
 ## Pre-0.16.0: referral system (user, 2026-11-20): REQUIREMENT, design open
 
