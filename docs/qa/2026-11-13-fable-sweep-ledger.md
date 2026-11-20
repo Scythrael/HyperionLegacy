@@ -564,3 +564,14 @@ user config; the write test was refused and the copy stayed clean.
   (never in the future). Verified on the local dev server (= staging code): loads clean, header FA 15 / Craft 7 /
   179K / 10 AP, Orion docked with the Class II drive, Captain 2 awaiting orders. Pacing from this save is NOT a
   balance signal (built, not played).
+- PF-3 FOLLOW-UP (2026-11-20 evening, agent on staging 4fed129e): "Opening your fleet" for about 5 s, then "Another
+  game tab is open" (the older-build notice), returning after "Got it" (when opening Save Data). The agent closed
+  its only visible staging tab and opened one fresh tab; the notice persisted. Claude's read: the guard is WORKING.
+  The notice fires only on a storage event for the exact key fleet_admiral_save (tabGuard.ts onStorageKey, e.key ===
+  key), and storage events come only from ANOTHER document on the same site in the same browser profile, so a hidden
+  pre-hotfix staging page is still running in the agent's browser and autosaving every 30 s. Almost certainly the
+  same idle game found in PF-3 (born 2026-11-18 15:04 UTC, FA 1), invisible in the tab list (another thread or
+  background webview). Risk: whenever no guarded tab is open, that ghost overwrites the save within 30 s. Remedy:
+  fully quit and restart the agent's browser/app, open one staging tab, re-import the rebuilt save if it shows FA 1,
+  and confirm no notice for about 2 minutes. Observation only (no change proposed): a player cannot always find the
+  "other tab" the notice names; the notice repeats every 30 s by design while it writes.
