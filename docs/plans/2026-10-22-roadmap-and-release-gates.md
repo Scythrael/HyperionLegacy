@@ -310,8 +310,10 @@ STANDING RULES (user; every online, chat, story and analytics design must follow
 2. **Chat does not exist for under-18 players**: the enabling option is not in the game for them at all (not hidden,
    not greyed out).
 3. **Analytics cannot be opted into under 18**, even though analytics are non-identifying.
-4. **Story wording for under-18 players is the family-friendly version, and they cannot toggle it** ("slight word
-   changes and so forth").
+4. **Family-friendly story wording is a toggle for EVERY age** (UPDATED by the user 2026-11-20, from a coworker's
+   point; verbatim: "Story censorship should be enable/disable regardless of age. The rest (like chat not even being
+   an option you can toggle on and off) stays. 100%."). This replaces the earlier "untoggleable at under 18". Open
+   point: the toggle's default (for everyone, or on by default for under-18 accounts) is the user's call.
 5. **The ToS at signup (0.14.1)** says the game is appropriate for all ages and some features are unavailable under 18.
 6. **Hard stance on chat:** moderation is never instant, and the user will not allow a Roblox-style culture. If there
    is no solid way to run chat without risking children, **chat does not ship. Period.**
