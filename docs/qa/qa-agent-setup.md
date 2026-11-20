@@ -113,16 +113,41 @@ Round log (Claude keeps it current):
 ### Model comparison (same calibration prompt, commit ca70ac65)
 
 The calibration prompt has a known answer key (all four bugs fixed in a5991f92): I1 Important (recall/resume re-pays
-scan rewards), M1 (anomaly haul repeats), I3 (recall loses the list), I2 (a real star's bodies differ per visit). Note
-the session and weekly usage before and after each run. Claude resets the QA copy to ca70ac65 for the run and back
-afterward.
+scan rewards), M1 (anomaly haul repeats), I3 (recall loses the list), I2 (a real star's bodies differ per visit).
 
-| Model | I1 | M1 | I3 | I2 | False alarms | Session usage | Weekly usage |
-|---|---|---|---|---|---|---|---|
-| Luna (2026-11-17) | missed (called its code fine) | found | missed | missed | none | not measured | not measured |
-| Terra | | | | | | | |
-| Sol | | | | | | | |
-| Astra | | | | | | | |
+**Controlled runs (user, 2026-11-20).** One page per model, run in this order:
+`docs/qa/2026-11-20-calibration-terra.html`, `-sol.html`, `-astra.html`. Then the winner (the user's choice, from
+Claude's recommendation) does the full second pass with `docs/qa/2026-11-20-final-pass-winning-model.html` (all seven
+areas, one fresh session each, on the normal `hl-qa` copy, with the first pass's "not covered" items added per area).
+Every page stays locked until the user sends a screenshot showing the selected model (plus reasoning level and project
+folder) and Claude replies with that run's unlock word. Neither Codex nor Claude can reliably name its own model
+(user checked with Codex, 2026-11-20), so the screenshot is the only check; the kickoffs no longer ask the model to
+name itself. An end-of-run screenshot of the same thread's model picker catches a silent model fallback (that voids
+the run).
+
+What Claude does for each calibration run (all of it is Claude's job, never the agent's):
+
+1. **Build the blind copy fresh** at `F:/Windows Folders/Documents/hl-qa-calib`: delete the old folder (only that
+   folder, after checking its path), then
+   `git archive ca70ac65 src public scripts index.html package.json tsconfig.json tsconfig.app.json tsconfig.node.json svelte.config.js vite.config.ts | tar -x -C <folder>`
+   and `git show 157cbb4c:AGENTS.md > <folder>/AGENTS.md`. No `docs/`, no root notes files (SESSION_HANDOFF,
+   KNOWN_ISSUES and the like), no `.git`. Checked 2026-11-20: nothing in it names the planted bugs.
+2. **Fingerprint** it from inside the folder: `find . -type f -print0 | LC_ALL=C sort -z | xargs -0 sha256sum | sha256sum`,
+   first 16 characters. Must be `2befca6fc933a3c5`, before AND after the run (after = nothing wrote to it).
+3. **Gate words.** Only after the screenshot shows the right model. Calibration: `<MODEL>-` plus the first 6 hex
+   characters of `sha1("HL-calib|<MODEL>")` (MODEL in capitals). Final pass: `<MODEL>-<area>-` plus the first 6 of
+   `sha1("HL-final|<MODEL>|<area>")`. Pages compare case-insensitively. A guard against skipping the check by
+   accident, not a secret.
+4. **Score** with the rules printed on the pages: Important found 3, each other key bug 1, partial half, a missed key
+   bug listed under "Checked and fine" -1, each false alarm -1, a confirmed bug not on the key +1. Max 6 from the key.
+   Ties go to the cheaper run. Claude recommends a winner; the user chooses.
+
+| Model | I1 | M1 | I3 | I2 | False alarms | Score | Reasoning level | 5-hour used | Weekly used | Time |
+|---|---|---|---|---|---|---|---|---|---|---|
+| Luna (2026-11-17, older rules, git access) | missed (called its code fine) | found | missed | missed | none | 0 | not recorded | not measured | not measured | not recorded |
+| Terra | | | | | | | | | | |
+| Sol | | | | | | | | | | |
+| Astra | | | | | | | | | | |
 
 ## 4. Playtest in a browser (ChatGPT agent)
 

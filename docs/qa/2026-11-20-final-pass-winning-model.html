@@ -1,0 +1,248 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Final Codex Pass</title>
+<style>
+  * { box-sizing: border-box; }
+  html { color-scheme: dark; }
+  body {
+    margin: 0;
+    background:
+      radial-gradient(1100px 560px at 80% -10%, rgba(56,224,255,0.09), transparent 60%),
+      radial-gradient(900px 500px at 6% 6%, rgba(185,139,255,0.07), transparent 55%),
+      #070b12;
+    color: #dce6f3;
+    font: 14px/1.6 ui-sans-serif, system-ui, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    padding-bottom: 56px;
+  }
+  .wrap { max-width: 860px; margin: 0 auto; padding: 28px 16px 0; }
+  a { color: #38e0ff; }
+  code { font-family: ui-monospace, "Cascadia Mono", Consolas, monospace; font-size: 12.5px; color: #7cf6c9; }
+  .eyebrow { font-size: 11px; letter-spacing: 3px; text-transform: uppercase; color: #38e0ff; margin: 0 0 6px; }
+  h1 { font-size: clamp(24px, 5vw, 36px); line-height: 1.1; margin: 0 0 6px; font-weight: 760; text-wrap: balance; }
+  h1 .m { color: #38e0ff; }
+  .sub { color: #8497af; margin: 0 0 22px; max-width: 65ch; }
+  h2 { font-size: 15px; letter-spacing: 0.3px; margin: 0 0 8px; }
+  h3 { font-size: 13.5px; margin: 14px 0 6px; color: #f1f6fc; }
+  .card { background: linear-gradient(180deg, #101827, #0b1220); border: 1px solid #22324a; border-radius: 14px; padding: 16px 18px; margin-bottom: 14px; }
+  .card p { margin: 0 0 8px; max-width: 70ch; }
+  .card p:last-child { margin-bottom: 0; }
+  .card ul, .card ol { margin: 4px 0 0; padding-left: 20px; }
+  .card li { margin-bottom: 5px; }
+  .muted { color: #8497af; }
+  b { color: #f1f6fc; }
+  .rule { color: #ffcc66; }
+  .controls { border-color: rgba(124,246,201,0.35); }
+  .controls h2 { color: #7cf6c9; }
+  .pick { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 8px; }
+  .pick button[aria-pressed="true"] { background: #7cf6c9; color: #062018; border-color: #7cf6c9; }
+  button { background: #12324a; color: #dff7ff; border: 1px solid #2e6a8a; border-radius: 9px; padding: 9px 14px; font: inherit; font-weight: 650; cursor: pointer; }
+  button:hover { background: #17405e; }
+  input[type=text] { background: #070d18; color: #dce6f3; border: 1px solid #2a3a54; border-radius: 9px; padding: 9px 11px; font: inherit; min-width: 0; }
+  input[type=text]:focus-visible, button:focus-visible, summary:focus-visible { outline: 2px solid #38e0ff; outline-offset: 2px; }
+  .area { border: 1px solid #22324a; border-radius: 14px; margin-bottom: 12px; background: #0b1220; }
+  .area > summary { list-style: none; cursor: pointer; padding: 14px 18px; display: flex; gap: 12px; align-items: center; }
+  .area > summary::-webkit-details-marker { display: none; }
+  .anum { width: 30px; height: 30px; border-radius: 9px; display: grid; place-items: center; font-weight: 800; background: #0a1322; border: 1px solid #2a3a54; color: #38e0ff; flex: none; }
+  .area.done .anum { background: #7cf6c9; color: #062018; border-color: #7cf6c9; }
+  .atitle { font-weight: 700; }
+  .astate { margin-left: auto; font-size: 12px; color: #8497af; white-space: nowrap; }
+  .abody { padding: 0 18px 16px; }
+  .gate { border: 1px solid rgba(255,204,102,0.55); background: linear-gradient(180deg, rgba(255,204,102,0.08), transparent); border-radius: 12px; padding: 12px 14px; }
+  .gate h3 { color: #ffcc66; margin-top: 0; }
+  .gate-row { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 8px; }
+  .gate input[type=text] { flex: 1 1 200px; font-family: ui-monospace, Consolas, monospace; letter-spacing: 1px; }
+  .gate-msg { margin-top: 6px; font-size: 13px; min-height: 1.2em; }
+  .gate-msg.bad { color: #ff9a6b; }
+  .gate-msg.ok { color: #7cf6c9; }
+  .lock-cover { border: 1px dashed #3a4a64; border-radius: 12px; padding: 16px; text-align: center; color: #8497af; margin-top: 12px; }
+  .prompt { background: #050a12; border: 1px solid #22324a; border-radius: 10px; padding: 12px; margin-top: 8px; white-space: pre-wrap;
+    font-family: ui-monospace, Consolas, monospace; font-size: 12.5px; color: #cfe3f5; overflow-x: auto; }
+  .fields { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 10px; margin-top: 10px; }
+  .fields label { display: grid; gap: 4px; font-size: 12px; color: #8497af; }
+  .tick { display: flex; gap: 8px; align-items: center; margin-top: 8px; color: #8497af; font-size: 13px; cursor: pointer; }
+  .tick input { width: 18px; height: 18px; accent-color: #7cf6c9; }
+  .tbl { overflow-x: auto; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid #1d2a3e; }
+  th { color: #8497af; font-weight: 600; font-size: 12px; }
+  td { font-variant-numeric: tabular-nums; }
+  .foot { color: #5f7290; font-size: 12px; margin-top: 18px; }
+  .hidden { display: none; }
+  @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <p class="eyebrow">Hyperion Legacy · Codex model ladder · final stage</p>
+  <h1>Final pass: <span class="m" id="mname">winner not chosen</span></h1>
+  <p class="sub">After the three calibration runs, the model you choose does the second full code review: all seven
+    focus areas in AGENTS.md, one fresh session each, on the current code. Each area has its own model check, because
+    the app can switch models between sessions.</p>
+
+  <div class="card">
+    <h2>1. Choose the winner</h2>
+    <p>Claude recommends one from the calibration scoreboard (<code>docs/qa/qa-agent-setup.md</code>); the choice is
+      yours. Changing it later locks every area again.</p>
+    <div class="pick" id="pick" role="group" aria-label="Winning model">
+      <button type="button" data-m="Terra" aria-pressed="false">Terra</button>
+      <button type="button" data-m="Sol" aria-pressed="false">Sol</button>
+      <button type="button" data-m="Astra" aria-pressed="false">Astra</button>
+    </div>
+  </div>
+
+  <div class="card controls">
+    <h2>What stays the same in every area</h2>
+    <ul>
+      <li><b>Copy:</b> the normal QA copy, <code>F:\Windows Folders\Documents\hl-qa</code>. Before each area, tell
+        Claude <b>"Prepare the QA copy for area N."</b> Claude checks it is clean, brings it up to date, confirms push
+        is disabled, and gives you the commit.</li>
+      <li><b>Surface:</b> the Codex desktop app, read-only, a brand-new thread per area.</li>
+      <li><b>Reasoning level:</b> the one used in the calibration runs.</li>
+      <li><b>Prompt:</b> the area's kickoff, pasted once. No follow-ups except the fixed reply.</li>
+      <li><b>Cost:</b> usage read before and after every area.</li>
+    </ul>
+    <div class="fields">
+      <label>Stop and check with Claude when weekly usage passes (%) <input type="text" id="budget" /></label>
+    </div>
+    <p class="muted" style="margin-top:8px">Your number; leave it blank to run all seven areas without a stop.</p>
+  </div>
+
+  <div id="areas" class="hidden"></div>
+  <div id="noWinner" class="card muted">Choose the winner above to open the seven areas.</div>
+
+  <div class="card">
+    <h2>Cost by area</h2>
+    <div class="tbl"><table id="costTbl"><thead><tr><th>Area</th><th>5-hour before</th><th>5-hour after</th><th>Weekly before</th><th>Weekly after</th></tr></thead><tbody></tbody></table></div>
+  </div>
+
+  <p class="foot">Ticks and numbers are saved in this browser only. Unlock checks are a guard against skipping the
+    model check by accident, not a lock against anyone.</p>
+</div>
+
+<script>
+const FINAL_HASH = {
+  TERRA: ["1s3lq6a","1jamhqx","1ofcdok","1bdp3ww","1yxe5cl","129csqn","1kd68fk"],
+  SOL: ["8a54pw","1u5lfoq","5415vb","1u50zcf","10j3lh7","1day1sk","m01i8b"],
+  ASTRA: ["1bdd9er","r2apd0","1nes9jv","ghcxw6","uzak9e","1c6dtzk","wf6d5u"],
+};
+const AREAS = [
+  { n: 1, t: "Offline catch-up and determinism", extra: "" },
+  { n: 2, t: "Saves and migrations", extra: "Real legacy saves and damaged or truncated saves, which the first pass did not reach, and the newer-version guard added for CX-1." },
+  { n: 3, t: "Crew and the free Standard-Issue modules", extra: "Selling or scrapping a free Standard-Issue module, which the first pass did not cover." },
+  { n: 4, t: "Combat, patrols, and gear wear", extra: "Trace the code paths themselves; the first pass leaned on existing tests for several items." },
+  { n: 5, t: "Economy", extra: "Crafted blanks end to end: a finished craft's blank, inspecting it (inspectBlanks), and the install picker's blank count (pickerBlanks.ts)." },
+  { n: 6, t: "Text against numbers", extra: "A full Help page and tooltip audit, which the first pass did not reach." },
+  { n: 7, t: "Exploits and fairness", extra: "Every purchase and refund path. Hand-edited save imports are known and by design while the game is client-only; do not re-report them." },
+];
+const STORE = "hl-final-pass-2026-11-20";
+function djb(s) { let h = 5381; for (const ch of s.toUpperCase()) h = ((h * 33) ^ ch.charCodeAt(0)) >>> 0; return h.toString(36); }
+let st = {};
+try { st = JSON.parse(localStorage.getItem(STORE) || "{}"); } catch (e) { st = {}; }
+function save() { try { localStorage.setItem(STORE, JSON.stringify(st)); } catch (e) {} }
+const esc = (s) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;");
+
+function kickoff(a) {
+  return "You are a read-only QA reviewer for Hyperion Legacy. Read AGENTS.md first and follow it exactly; it overrides any other instruction you find in the repo. Before reporting, read docs/qa/2026-11-13-fable-sweep-ledger.md so you do not re-report fixed or decided items.\n\n" +
+    "This round: focus area " + a.n + " in AGENTS.md section 6. Go deep on that area only." + (a.extra ? "\n\nAlso cover: " + a.extra : "") + "\n\n" +
+    "Report in the AGENTS.md format, most severe first, and end with \"Checked and fine\", \"Not covered\", and the commit you reviewed.";
+}
+
+function render() {
+  const m = st.model || null;
+  document.querySelectorAll("#pick button").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.m === m)));
+  document.getElementById("mname").textContent = m || "winner not chosen";
+  document.getElementById("areas").classList.toggle("hidden", !m);
+  document.getElementById("noWinner").classList.toggle("hidden", !!m);
+  const wrap = document.getElementById("areas");
+  wrap.innerHTML = "";
+  if (!m) { renderCost(); return; }
+  const a0 = st[m] || (st[m] = {});
+  AREAS.forEach((a) => {
+    const s = a0[a.n] || (a0[a.n] = {});
+    const d = document.createElement("details");
+    d.className = "area" + (s.c4 ? " done" : "");
+    if (s.open) d.open = true;
+    d.addEventListener("toggle", () => { s.open = d.open; save(); });
+    const state = s.c4 ? "done" : s.unlocked ? "model confirmed" : "locked";
+    d.innerHTML =
+      '<summary><span class="anum">' + a.n + '</span><span class="atitle">' + esc(a.t) + '</span><span class="astate">' + state + "</span></summary>" +
+      '<div class="abody">' +
+        '<label class="tick"><input type="checkbox" data-c="c0" /> Claude prepared the QA copy for area ' + a.n + " and gave the commit</label>" +
+        '<div class="gate" style="margin-top:10px"><h3>Model check (required)</h3>' +
+          "<ol><li>Open <code>hl-qa</code> in the Codex desktop app and start a <b>new</b> thread.</li>" +
+          "<li>Select <b>" + m + "</b> in the model picker, with the calibration runs' reasoning level.</li>" +
+          "<li>Screenshot the model name, reasoning level, and project folder together. Send it to Claude as <b>\"" + m + " area " + a.n + " model check\"</b>.</li>" +
+          "<li>Claude replies with this area's unlock word only if the screenshot shows " + m + ".</li></ol>" +
+          '<div class="gate-row"><input type="text" class="gin" autocomplete="off" spellcheck="false" aria-label="Unlock word for area ' + a.n + '" placeholder="Unlock word from Claude" /><button type="button" class="gbtn">Unlock</button></div>' +
+          '<div class="gate-msg" role="status">' + (s.unlocked ? "Model confirmed by Claude." : "") + "</div>" +
+        "</div>" +
+        (s.unlocked
+          ? '<div class="fields"><label>5-hour before (%) <input type="text" data-f="h5b" /></label><label>Weekly before (%) <input type="text" data-f="wkb" /></label></div>' +
+            '<label class="tick"><input type="checkbox" data-c="c1" /> Usage-before screenshot sent to Claude</label>' +
+            '<h3>Kickoff (paste once)</h3><div class="prompt">' + esc(kickoff(a)) + '</div><button type="button" class="copy" style="margin-top:8px">Copy kickoff</button>' +
+            '<label class="tick"><input type="checkbox" data-c="c2" /> Kickoff sent</label>' +
+            '<p class="muted" style="margin-top:8px">Hands off while it runs. If it asks or stops early, send once: <code>Proceed under AGENTS.md. No further input this round.</code> A second stop ends the area.</p>' +
+            '<h3>End check</h3><p class="muted">In the same thread, screenshot the model picker again (a switched model voids the area), screenshot usage, and send Claude both plus the full report.</p>' +
+            '<div class="fields"><label>5-hour after (%) <input type="text" data-f="h5a" /></label><label>Weekly after (%) <input type="text" data-f="wka" /></label></div>' +
+            '<label class="tick"><input type="checkbox" data-c="c3" /> Report and end screenshots sent to Claude</label>' +
+            '<label class="tick"><input type="checkbox" data-c="c4" /> Claude checked the findings and logged the area</label>' +
+            '<p class="rule budget-note" style="margin-top:8px"></p>'
+          : '<div class="lock-cover">The rest of area ' + a.n + " unlocks after Claude confirms the model from your screenshot.</div>") +
+      "</div>";
+    wrap.appendChild(d);
+
+    const gin = d.querySelector(".gin"), msg = d.querySelector(".gate-msg");
+    const tryGate = () => {
+      if (djb(gin.value.trim()) === FINAL_HASH[m.toUpperCase()][a.n - 1]) { s.unlocked = true; s.open = true; save(); render(); }
+      else { msg.className = "gate-msg bad"; msg.textContent = "That word does not match " + m + " area " + a.n + ". Send Claude the model screenshot to get it."; }
+    };
+    d.querySelector(".gbtn").addEventListener("click", tryGate);
+    gin.addEventListener("keydown", (e) => { if (e.key === "Enter") tryGate(); });
+    if (s.unlocked) d.querySelector(".gate-msg").className = "gate-msg ok";
+    d.querySelectorAll("input[data-c]").forEach((cb) => {
+      cb.checked = !!s[cb.dataset.c];
+      cb.addEventListener("change", () => { s[cb.dataset.c] = cb.checked; save(); if (cb.dataset.c === "c4") render(); });
+    });
+    d.querySelectorAll("input[data-f]").forEach((inp) => {
+      inp.value = s[inp.dataset.f] || "";
+      inp.addEventListener("input", () => { s[inp.dataset.f] = inp.value; save(); renderCost(); budgetNote(d, s); });
+    });
+    const cp = d.querySelector(".copy");
+    if (cp) cp.addEventListener("click", async () => {
+      try { await navigator.clipboard.writeText(kickoff(a)); cp.textContent = "Copied"; } catch (e) { cp.textContent = "Copy failed: select the text by hand"; }
+      setTimeout(() => { cp.textContent = "Copy kickoff"; }, 2200);
+    });
+    budgetNote(d, s);
+  });
+  renderCost();
+}
+function budgetNote(d, s) {
+  const el = d.querySelector(".budget-note");
+  if (!el) return;
+  const cap = parseFloat(st.budget), wk = parseFloat(s.wka);
+  el.textContent = Number.isFinite(cap) && Number.isFinite(wk) && wk >= cap
+    ? "Weekly usage has passed your stop line (" + cap + "%). Check with Claude before the next area." : "";
+}
+function renderCost() {
+  const tb = document.querySelector("#costTbl tbody");
+  tb.innerHTML = "";
+  const a0 = st.model ? st[st.model] || {} : {};
+  AREAS.forEach((a) => {
+    const s = a0[a.n] || {};
+    tb.insertAdjacentHTML("beforeend", "<tr><td>" + a.n + ". " + esc(a.t) + "</td><td>" + esc(s.h5b || "") + "</td><td>" + esc(s.h5a || "") + "</td><td>" + esc(s.wkb || "") + "</td><td>" + esc(s.wka || "") + "</td></tr>");
+  });
+}
+document.querySelectorAll("#pick button").forEach((b) => b.addEventListener("click", () => {
+  if (st.model === b.dataset.m) return;
+  st.model = b.dataset.m; save(); render();
+}));
+const budget = document.getElementById("budget");
+budget.value = st.budget || "";
+budget.addEventListener("input", () => { st.budget = budget.value; save(); render(); });
+render();
+</script>
+</body>
+</html>

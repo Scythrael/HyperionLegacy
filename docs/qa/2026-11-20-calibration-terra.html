@@ -1,0 +1,310 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Calibration Run Terra</title>
+<style>
+  * { box-sizing: border-box; }
+  html { color-scheme: dark; }
+  body {
+    margin: 0;
+    background:
+      radial-gradient(1100px 560px at 80% -10%, rgba(56,224,255,0.09), transparent 60%),
+      radial-gradient(900px 500px at 6% 6%, rgba(185,139,255,0.07), transparent 55%),
+      #070b12;
+    color: #dce6f3;
+    font: 14px/1.6 ui-sans-serif, system-ui, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    padding-bottom: 56px;
+  }
+  .wrap { max-width: 860px; margin: 0 auto; padding: 28px 16px 0; }
+  a { color: #38e0ff; }
+  code, .mono { font-family: ui-monospace, "Cascadia Mono", Consolas, monospace; font-size: 12.5px; color: #7cf6c9; }
+  .eyebrow { font-size: 11px; letter-spacing: 3px; text-transform: uppercase; color: #38e0ff; margin: 0 0 6px; }
+  h1 { font-size: clamp(24px, 5vw, 36px); line-height: 1.1; margin: 0 0 6px; font-weight: 760; text-wrap: balance; }
+  h1 .m { color: #38e0ff; }
+  .sub { color: #8497af; margin: 0 0 22px; max-width: 65ch; }
+  h2 { font-size: 15px; letter-spacing: 0.3px; margin: 0 0 8px; color: #dce6f3; }
+  .card { background: linear-gradient(180deg, #101827, #0b1220); border: 1px solid #22324a; border-radius: 14px; padding: 16px 18px; margin-bottom: 14px; }
+  .card p { margin: 0 0 8px; max-width: 70ch; }
+  .card p:last-child { margin-bottom: 0; }
+  .card ul, .card ol { margin: 4px 0 0; padding-left: 20px; }
+  .card li { margin-bottom: 5px; }
+  .muted { color: #8497af; }
+  b { color: #f1f6fc; }
+  .controls { border-color: rgba(124,246,201,0.35); }
+  .controls h2 { color: #7cf6c9; }
+  .step { display: grid; grid-template-columns: 34px 1fr; gap: 12px; align-items: start; }
+  .num { width: 30px; height: 30px; border-radius: 9px; display: grid; place-items: center; font-weight: 800; font-variant-numeric: tabular-nums;
+    background: #0a1322; border: 1px solid #2a3a54; color: #38e0ff; }
+  .done .num { background: #7cf6c9; color: #062018; border-color: #7cf6c9; }
+  .tick { display: flex; gap: 8px; align-items: center; margin-top: 10px; color: #8497af; font-size: 13px; cursor: pointer; }
+  .tick input { width: 18px; height: 18px; accent-color: #7cf6c9; }
+  .gate { border: 1px solid rgba(255,204,102,0.55); background: linear-gradient(180deg, rgba(255,204,102,0.08), #0b1220); }
+  .gate h2 { color: #ffcc66; }
+  .gate-row { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
+  input[type=text] { background: #070d18; color: #dce6f3; border: 1px solid #2a3a54; border-radius: 9px; padding: 9px 11px; font: inherit; min-width: 0; }
+  input[type=text]:focus-visible, button:focus-visible, summary:focus-visible { outline: 2px solid #38e0ff; outline-offset: 2px; }
+  .gate input[type=text] { flex: 1 1 200px; font-family: ui-monospace, Consolas, monospace; letter-spacing: 1px; }
+  button { background: #12324a; color: #dff7ff; border: 1px solid #2e6a8a; border-radius: 9px; padding: 9px 14px; font: inherit; font-weight: 650; cursor: pointer; }
+  button:hover { background: #17405e; }
+  .gate-msg { margin-top: 8px; font-size: 13px; min-height: 1.2em; }
+  .gate-msg.bad { color: #ff9a6b; }
+  .gate-msg.ok { color: #7cf6c9; }
+  .locked { position: relative; }
+  .locked .lock-cover { display: block; }
+  .lock-cover { display: none; border: 1px dashed #3a4a64; border-radius: 14px; padding: 22px 18px; text-align: center; color: #8497af; margin-bottom: 14px; }
+  .locked .lock-body { display: none; }
+  .prompt { position: relative; background: #050a12; border: 1px solid #22324a; border-radius: 10px; padding: 14px; margin-top: 10px;
+    white-space: pre-wrap; font-family: ui-monospace, Consolas, monospace; font-size: 12.5px; color: #cfe3f5; overflow-x: auto; }
+  .copy { margin-top: 8px; }
+  .fields { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 10px; margin-top: 10px; }
+  .fields label { display: grid; gap: 4px; font-size: 12px; color: #8497af; }
+  .rule { color: #ffcc66; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  .tbl { overflow-x: auto; }
+  th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid #1d2a3e; vertical-align: top; }
+  th { color: #8497af; font-weight: 600; font-size: 12px; }
+  td.n { font-variant-numeric: tabular-nums; }
+  .foot { color: #5f7290; font-size: 12px; margin-top: 18px; }
+  @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <p class="eyebrow">Hyperion Legacy · Codex model ladder · run <span id="order"></span></p>
+  <h1>Calibration run: <span class="m" id="mname"></span></h1>
+  <p class="sub">The same blind code review we gave Luna on 2026-11-17, with the input locked down so the three models
+    can be compared fairly. Each model reviews identical code, gets the identical prompt, and is scored against the
+    same sealed answer key. We also record what it cost.</p>
+
+  <div class="card controls">
+    <h2>What stays identical for all three runs</h2>
+    <ul>
+      <li><b>Code:</b> a blind copy at <code>F:\Windows Folders\Documents\hl-qa-calib</code>: the game code as of commit
+        <code>ca70ac65</code> (just before the four expedition bugs were fixed), with no <code>docs</code> folder, no notes
+        files, and no git history. Claude rebuilds it from scratch before every run. Its fingerprint must read
+        <code>2befca6fc933a3c5</code>.</li>
+      <li><b>Rules:</b> today's <code>AGENTS.md</code> (commit <code>157cbb4c</code>), copied into the blind folder.</li>
+      <li><b>Prompt:</b> the kickoff below, pasted once, word for word. No follow-up messages except the one fixed
+        reply in step 6.</li>
+      <li><b>Surface:</b> the Codex desktop app, read-only, the blind folder as its own project, a brand-new thread.</li>
+      <li><b>Reasoning level:</b> the same setting for all three models. Terra's run picks it; Sol and Astra copy it.</li>
+      <li><b>Scoring:</b> the rules at the bottom of this page, fixed before any run.</li>
+    </ul>
+  </div>
+
+  <!-- STEP 1 -->
+  <div class="card step" data-step="1">
+    <div class="num">1</div>
+    <div>
+      <h2>Claude builds the blind copy</h2>
+      <p>Tell Claude in the HL Hub chat: <b>"Prepare the calibration copy for <span class="mn"></span>."</b> Claude rebuilds
+        the folder and replies with its fingerprint. Tick this only when that fingerprint is
+        <code>2befca6fc933a3c5</code>.</p>
+      <label class="tick"><input type="checkbox" data-k="s1" /> Claude confirmed the fingerprint</label>
+    </div>
+  </div>
+
+  <!-- STEP 2: GATE -->
+  <div class="card gate" id="gate">
+    <div class="step">
+      <div class="num">2</div>
+      <div>
+        <h2>Model check (required: this page stays locked until it passes)</h2>
+        <ol>
+          <li>Open the Codex desktop app (not the phone app). Open the folder <code>hl-qa-calib</code> as the project and
+            start a <b>new</b> thread there. If it asks, choose Trust folder.</li>
+          <li>Check read-only mode is still set (Configuration &gt; user config).</li>
+          <li>In the model picker, select <b class="mn"></b>. <span id="reasonNote"></span></li>
+          <li>Take a screenshot that shows <b>the model name, the reasoning level, and the project folder name</b>
+            together.</li>
+          <li>Send it to Claude with the words <b>"<span class="mn"></span> model check"</b>. Claude checks the
+            screenshot and, only if it shows <span class="mn"></span>, replies with this run's unlock word.</li>
+          <li>Type the unlock word here.</li>
+        </ol>
+        <div class="gate-row">
+          <input type="text" id="gateIn" autocomplete="off" spellcheck="false" aria-label="Unlock word from Claude" placeholder="Unlock word from Claude" />
+          <button type="button" id="gateBtn">Unlock</button>
+        </div>
+        <div class="gate-msg" id="gateMsg" role="status"></div>
+      </div>
+    </div>
+  </div>
+
+  <div id="lockWrap" class="locked">
+    <div class="lock-cover">Steps 3 to 8 unlock after Claude confirms the model from your screenshot.</div>
+    <div class="lock-body">
+
+      <div class="card step" data-step="3">
+        <div class="num">3</div>
+        <div>
+          <h2>Usage before</h2>
+          <p>Screenshot Codex's usage readout (5-hour and weekly percentages) and send it to Claude. Write the numbers
+            here too.</p>
+          <div class="fields">
+            <label>Reasoning level used <input type="text" data-f="reason" /></label>
+            <label>5-hour used before (%) <input type="text" data-f="h5b" /></label>
+            <label>Weekly used before (%) <input type="text" data-f="wkb" /></label>
+          </div>
+          <label class="tick"><input type="checkbox" data-k="s3" /> Usage screenshot sent</label>
+        </div>
+      </div>
+
+      <div class="card step" data-step="4">
+        <div class="num">4</div>
+        <div>
+          <h2>No leaks from earlier chats</h2>
+          <p>Luna's calibration results live in earlier chats. If your ChatGPT account has memory or "reference past
+            chats" turned on, turn it off for this run, or tell Claude it was on so the result is marked. Attach
+            nothing to the thread.</p>
+          <label class="tick"><input type="checkbox" data-k="s4" /> Memory off (or Claude told), nothing attached</label>
+        </div>
+      </div>
+
+      <div class="card step" data-step="5">
+        <div class="num">5</div>
+        <div>
+          <h2>Paste the kickoff, once</h2>
+          <p>Copy it exactly and send it as the thread's first message. Write down the start time.</p>
+          <div class="prompt" id="kickoff">You are a read-only QA reviewer for Hyperion Legacy. Read AGENTS.md first and follow it, with these overrides for this round only, from the project owner:
+
+1. This is a blind calibration round. This folder holds the game code as of commit ca70ac65, with no docs/ folder, no notes files, and no git history, on purpose. Read the files directly. Git commands will not work here; that is expected. Do not look for docs, notes, or history anywhere else on this computer.
+2. AGENTS.md section 3 points at files under docs/. They are left out for this round; ignore those references.
+
+Focus: expeditions, especially recalling an expedition early and then resuming or relaunching it. Look for anything that pays out twice, loses progress, or behaves differently from an uninterrupted run.
+
+Report in the AGENTS.md format, most severe first, and end with "Checked and fine", "Not covered", and "Commit reviewed: ca70ac65". Also state plainly whether you opened any file outside this folder during this round.</div>
+          <button type="button" class="copy" id="copyBtn">Copy kickoff</button>
+          <div class="fields">
+            <label>Start time <input type="text" data-f="start" /></label>
+          </div>
+          <label class="tick"><input type="checkbox" data-k="s5" /> Kickoff sent, start time written</label>
+        </div>
+      </div>
+
+      <div class="card step" data-step="6">
+        <div class="num">6</div>
+        <div>
+          <h2>Hands off while it runs</h2>
+          <p>Do not type anything. If it asks a question or stops before reporting, send only this, once:</p>
+          <div class="prompt">Proceed under AGENTS.md and the round overrides. No further input this round.</div>
+          <p class="rule" style="margin-top:10px">If it stops a second time, the run ends there and is scored as it stands.
+            Never answer its questions about the code, and never hint.</p>
+          <label class="tick"><input type="checkbox" data-k="s6" /> Run finished (report written)</label>
+        </div>
+      </div>
+
+      <div class="card step" data-step="7">
+        <div class="num">7</div>
+        <div>
+          <h2>End check: model still set, usage after</h2>
+          <ol>
+            <li>In the <b>same thread</b>, screenshot the model picker again. If the app switched models during the run
+              (for example a limit fallback), the run is void and gets redone.</li>
+            <li>Screenshot the usage readout again.</li>
+            <li>Copy the whole report. Send Claude the report and both screenshots.</li>
+          </ol>
+          <div class="fields">
+            <label>End time <input type="text" data-f="end" /></label>
+            <label>5-hour used after (%) <input type="text" data-f="h5a" /></label>
+            <label>Weekly used after (%) <input type="text" data-f="wka" /></label>
+          </div>
+          <label class="tick"><input type="checkbox" data-k="s7" /> Report and both screenshots sent to Claude</label>
+        </div>
+      </div>
+
+      <div class="card step" data-step="8">
+        <div class="num">8</div>
+        <div>
+          <h2>Claude scores it</h2>
+          <p>Claude checks the blind copy's fingerprint is unchanged (proof nothing wrote to it), checks every finding
+            against the ca70ac65 code, scores the run with the rules below, and fills in the scoreboard in
+            <code>docs/qa/qa-agent-setup.md</code>. Nothing here is a decision; after all three runs, Claude recommends
+            a winner and you choose.</p>
+          <label class="tick"><input type="checkbox" data-k="s8" /> Claude posted the score</label>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>Scoring rules (fixed before any run)</h2>
+    <p class="muted">Four real bugs were in this code; all were fixed in <code>a5991f92</code>. The answer key is in
+      <code>docs/qa/qa-agent-setup.md</code>. The blind folder never contains it.</p>
+    <div class="tbl"><table>
+      <tr><th>Result</th><th>Points</th></tr>
+      <tr><td>Found the Important bug (right mechanism and code location)</td><td class="n">3</td></tr>
+      <tr><td>Found one of the other three</td><td class="n">1 each</td></tr>
+      <tr><td>Partial: right area, vague or wrong mechanism</td><td class="n">half</td></tr>
+      <tr><td>Missed a key bug AND listed its code under "Checked and fine" (a false all-clear)</td><td class="n">-1</td></tr>
+      <tr><td>False alarm (Claude confirms it is not a bug at ca70ac65)</td><td class="n">-1 each</td></tr>
+      <tr><td>A real bug not on the key (Claude confirms it)</td><td class="n">+1 each</td></tr>
+    </table></div>
+    <p class="muted" style="margin-top:10px">Best possible from the key alone: 6. Cost is the usage difference (after
+      minus before) and the time taken. A tie on points goes to the cheaper run.</p>
+  </div>
+
+  <div class="card">
+    <h2>Baseline, for reference</h2>
+    <p>Luna (2026-11-17): found 1 of 4 (the anomaly re-pay), missed the Important one and called its code fine. Score
+      on these rules: 1 - 1 = 0. Luna ran under older rules with git access, so it is not a perfectly matched run.</p>
+  </div>
+
+  <p class="foot">Run notes and ticks are saved in this browser only. Unlock checks are a guard against skipping the
+    model check by accident, not a lock against anyone.</p>
+</div>
+
+<script>
+const MODEL = "Terra";
+const ORDER = "1 of 3";
+const GATE_HASH = { TERRA: "jmvn95", SOL: "1jw0209", ASTRA: "pnivwy" };
+const STORE = "hl-calib-2026-11-20-" + MODEL.toLowerCase();
+
+function djb(s) { let h = 5381; for (const ch of s.toUpperCase()) h = ((h * 33) ^ ch.charCodeAt(0)) >>> 0; return h.toString(36); }
+let st = {};
+try { st = JSON.parse(localStorage.getItem(STORE) || "{}"); } catch (e) { st = {}; }
+function save() { try { localStorage.setItem(STORE, JSON.stringify(st)); } catch (e) {} }
+
+document.getElementById("mname").textContent = MODEL;
+document.getElementById("order").textContent = ORDER;
+document.querySelectorAll(".mn").forEach((el) => { el.textContent = MODEL; });
+document.getElementById("reasonNote").textContent = MODEL === "Terra"
+  ? "Pick the reasoning level for all three runs (the app's default is fine) and write it down in step 3."
+  : "Set the reasoning level to the one written in Terra's run.";
+
+const lockWrap = document.getElementById("lockWrap");
+const gateMsg = document.getElementById("gateMsg");
+function unlock() { lockWrap.classList.remove("locked"); gateMsg.className = "gate-msg ok"; gateMsg.textContent = "Model confirmed by Claude. Steps 3 to 8 are open."; }
+if (st.unlocked) unlock();
+function tryGate() {
+  const v = document.getElementById("gateIn").value.trim();
+  if (v && djb(v) === GATE_HASH[MODEL.toUpperCase()]) { st.unlocked = true; save(); unlock(); }
+  else { gateMsg.className = "gate-msg bad"; gateMsg.textContent = "That word does not match this run. Send Claude the model screenshot to get it."; }
+}
+document.getElementById("gateBtn").addEventListener("click", tryGate);
+document.getElementById("gateIn").addEventListener("keydown", (e) => { if (e.key === "Enter") tryGate(); });
+
+document.querySelectorAll("input[data-k]").forEach((cb) => {
+  const k = cb.dataset.k;
+  cb.checked = !!st[k];
+  const mark = () => cb.closest(".step")?.classList.toggle("done", cb.checked);
+  mark();
+  cb.addEventListener("change", () => { st[k] = cb.checked; save(); mark(); });
+});
+document.querySelectorAll("input[data-f]").forEach((inp) => {
+  const k = "f_" + inp.dataset.f;
+  inp.value = st[k] || "";
+  inp.addEventListener("input", () => { st[k] = inp.value; save(); });
+});
+document.getElementById("copyBtn").addEventListener("click", async () => {
+  const t = document.getElementById("kickoff").textContent;
+  const b = document.getElementById("copyBtn");
+  try { await navigator.clipboard.writeText(t); b.textContent = "Copied"; }
+  catch (e) { b.textContent = "Copy failed: select the text by hand"; }
+  setTimeout(() => { b.textContent = "Copy kickoff"; }, 2200);
+});
+</script>
+</body>
+</html>
