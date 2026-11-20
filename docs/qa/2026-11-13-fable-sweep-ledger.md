@@ -549,3 +549,18 @@ user config; the write test was refused and the copy stayed clean.
       svelte-check 0 errors (prod has no RELEASE_GATE files). Browser (local, 2 tabs): handover, no write from the
       retired tab after 45 s, "Play here instead" brings the newer progress back, simulated older-build write
       restored within 600 ms with the notice, console clean. Patch note wording: DRAFT, awaiting the user.
+- REBUILT SAVE for the playthrough (2026-11-20, user "build the save that brings them back"): the FA Lv 15 checkpoint
+  was unrecoverable (PF-3), so Claude built an ENGINE-MADE save: F:/Windows Folders/Downloads/
+  fleet-admiral-save-rebuilt-FA15.json (save v72, 38,220 chars). Made by a temporary script (kept out of the repo) that
+  played freshState through engine actions only, time through tick() with a seeded rng, looking every 10 game minutes:
+  Captain 1 on repeating Local Asteroid; Fleet Logistics hub + "Recruit Captain (2nd slot)" (Captain 2 + a General
+  Freighter); refinery L2, Research Lab L2, Fabricator L2, Shipyard founded, fuel storage, salvage bay; researched
+  frame segment, power coupling, structural assembly, Orion hull, Balanced Drive, Class II drive; crafted the Orion's
+  components and built it; Captain 2 moved to the Orion; Security + Science hired and kitted from the Quartermaster;
+  ONE Class II drive crafted, inspected (Balanced Drive, Standard, Q0, as the agent's) and installed while docked;
+  3 Tier I + 4 Tier II expeditions launched and claimed. Ran until FA 15. Only Debug-style help: one +50K credits.
+  Result: FA 15, Craft 7, 179K credits, 10 Admin Points, game time 193 h (Play Time will read about 8 days, more than
+  the agent's), 73 unidentified relics in the vault, the old Class I drive in storage. Stamped saved at build time
+  (never in the future). Verified on the local dev server (= staging code): loads clean, header FA 15 / Craft 7 /
+  179K / 10 AP, Orion docked with the Class II drive, Captain 2 awaiting orders. Pacing from this save is NOT a
+  balance signal (built, not played).
