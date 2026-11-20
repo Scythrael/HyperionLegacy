@@ -575,3 +575,19 @@ user config; the write test was refused and the copy stayed clean.
   fully quit and restart the agent's browser/app, open one staging tab, re-import the rebuilt save if it shows FA 1,
   and confirm no notice for about 2 minutes. Observation only (no change proposed): a player cannot always find the
   "other tab" the notice names; the notice repeats every 30 s by design while it writes.
+  - Agent export after the restore: fleet-admiral-save-1795206826436.json (38,324 bytes) decoded read-only by Claude:
+    same created_at as the rebuilt save (2026-11-12T16:03:01Z), FA 15, Craft 7, 181,576 credits, game time +12,045 s
+    over the rebuilt file (= the catch-up since its stamp). Real lineage, nothing lost. Restore from this file next.
+- PF-4 (Claude, 2026-11-20, from the user's "could this happen to a real player?"; S1, Likely by code reading, in PROD
+  0.13.11.5): a FROZEN guarded tab can still write stale progress over a newer tab's. Steps: play in tab A; A goes to
+  the background and the browser FREEZES it (phones freeze background tabs; desktop Energy Saver too); open tab B (it
+  claims, gets no answer, takes the game after 1.2 s); play in B; close B normally (release() DELETES the owner mark,
+  so the mark is null); return to A. A thaws: its queued claim message runs the handover (flushSave, and mayWrite()
+  allows a write when the mark is null, tabGuard.ts L206-210), or its 30 s autosave fires first (same check). Either
+  way A writes its pre-B state over B's progress, then may show "Playing in another tab" for a tab that is gone.
+  Fix idea: release() leaves a tombstone carrying its claim time instead of deleting the mark, and mayWrite() refuses
+  any tab whose claim is older than the mark's. Not affected: crash or killed tab (it cannot write; at most the last
+  30 s since the autosave, as before), discarded tabs (they reload and claim fresh), live background tabs (they get the
+  claim at once). Minor: a device clock jumped forward 3+ min makes a live owner look stale, so the new tab skips the
+  handover wait and can miss up to 30 s. No service worker exists, so a stale cached build cannot be served. Pending:
+  the user's call on fix and route (prod hotfix or 0.14.0).
