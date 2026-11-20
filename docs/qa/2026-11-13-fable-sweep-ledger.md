@@ -502,3 +502,11 @@ user config; the write test was refused and the copy stayed clean.
 - Checkpoint (2026-11-19, f6eb983c, Offline sim +2h only). NO FINDINGS. First Tier I expedition (LB-6585): scan plus
   all four ground objectives done, every fight won; Orion on the return leg. Agent's own usage reading: 1% of the
   5-hour and 1% of the weekly window (Luna, PAID tier by this point, per the user). PF-1 drive blank not yet rechecked (inspect tip relayed or pending).
+- Checkpoint (2026-11-20, f6eb983c, Offline sim +1h about ten times). Tier I expeditions LB-4527 (7/7 objectives) and
+  Alpha Centauri (6/6) done and claimed; FA EXP Lv 14, Craft Lv 7, 118K credits. Usage: 4% of 5-hour, 2% weekly (Luna,
+  paid tier).
+  - PF-2 (agent candidate "Research Lab shows no Class II drive blueprint"): NOT A BUG. The agent researched Class II
+    earlier (2,400 credits, previous continuation); researched blueprints are hidden by default (Settings > Show
+    completed research, off) and the list says "N researched blueprints hidden". The crafted Class II drive is still
+    an uninspected blank (PF-1): inspect it under Logistics, Crafted Blanks, then install it. Friction note only:
+    the agent missed both the hidden-count line and the blank, so both cues may be quiet; no change proposed.
