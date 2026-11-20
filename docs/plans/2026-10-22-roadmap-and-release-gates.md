@@ -272,7 +272,62 @@ full DR experience."
   is tier 10, the 0.16.0 balance pass should plan the curve for 10 tiers from the start (tiers 8 to 10 as pacing
   targets in the balance model, not as content in the game), so 0.16.1 to 0.16.3 slot in without re-tuning.
 
+## Minor safety, age-gated features, and in-game chat (user, 2026-11-20): STANDING RULES
+
+The user (verbatim): "One thing that I actually have to really plan out because of how regulation (and understandable
+protection for our youngest family members) towards those under 18, I have to figure out the best possible approach
+for the in-game chat that will exist in the game. The in-game chat will have unlocks like name colors and effects like
+bold/underline/glow/font/etc, as well as chat badges (an icon you can hover over for flavor text). So you might get a
+bomb icon that says "Survived the great save nuke of 2026." and such.
+
+Because I'm sure that most parents would want to know that in the event that their child plays a game for all ages,
+that features that should not be available to them are not. I'm not going to ask for ID verification, but signing up
+for your account will determine your current age based on the DOB that is entered, and based on that age, certain
+features will be available. The ToS that accompanies the signup process coming in 0.14.1 will indicate that the game
+itself is appropriate for all ages, but some features are not available to those under the age of 18. The chat
+enabling option is literally not in the game for those under 18. Analytics (even though they are non-identifying)
+cannot be opted into. Etc.
+
+Because moderation is not 100% perfect, and someone saying something questionable in chat might result in a bit of time
+passing before I repeatedly hit them with the banhammer (or a future moderator). Plus, I look at Roblox and I shudder
+hard enough to cramp. I will not allow that kind of culture to occur here. No. Never. If I can't find a solid way of
+enacting this without risking the kiddos out there, I won't have it in my game. Period.
+
+Plus things like potentially censoring the story from things that might cause concerns from parents will be
+untoggleable at under 18. Slight word changes and so forth."
+
+STANDING RULES (user; every online, chat, story and analytics design must follow them):
+1. **The game is for all ages; some features are 18+.** No ID verification. The **date of birth entered at signup**
+   decides the player's current age, and features follow from it.
+2. **Chat does not exist for under-18 players**: the enabling option is not in the game for them at all (not hidden,
+   not greyed out).
+3. **Analytics cannot be opted into under 18**, even though analytics are non-identifying.
+4. **Story wording for under-18 players is the family-friendly version, and they cannot toggle it** ("slight word
+   changes and so forth").
+5. **The ToS at signup (0.14.1)** says the game is appropriate for all ages and some features are unavailable under 18.
+6. **Hard stance on chat:** moderation is never instant, and the user will not allow a Roblox-style culture. If there
+   is no solid way to run chat without risking children, **chat does not ship. Period.**
+7. **Chat cosmetics when chat exists:** name colors; text effects (bold, underline, glow, font, and the like); chat
+   badges, each an icon with hover flavor text (the user's example: a bomb icon, "Survived the great save nuke of
+   2026.", which matches the founder badge the wipe grants, SUGGESTIONS.md).
+
+What this updates in older notes (SUGGESTIONS.md, 2026-08-28 privacy entries), Claude 2026-11-20:
+- The **chat threshold is now 18** (the older entry carried Claude's "recommend CHAT = 16+"; that was a suggestion,
+  never the user's decision). The **analytics threshold is now 18** (the older entry blocked opt-in only under 13).
+- Still standing from the older entries: chat deferred and switched off in the code itself (no endpoint, no stored
+  messages) until its safety work is done; opt-in-only analytics with no passive collection; consent re-acceptance
+  when a new field is added; rewards never tied to the data opt-in; the professional privacy and legal review before
+  online launches (the old "0.14.0 HARD LAUNCH GATE", which now applies to 0.14.1 since online moved there).
+- Open design point (Claude, the user decides): the older entry said to keep only an over/under flag and discard the
+  birthdate (a birthdate is personal data). Rule 1 needs the age to change over time (a 17-year-old turns 18), so a
+  single flag is not enough. Options include storing only the date the player turns 18, or only the birth year and
+  month. Bring this to the legal review.
+- Note on the badge example: the year in "great save nuke of 2026" should match when the 0.16.0 wipe actually happens.
+
 ## Pre-0.16.0: referral system (user, 2026-11-20): REQUIREMENT, design open
+
+Earlier capture of the same idea: SUGGESTIONS.md "REFERRAL BONUSES (user 2026-08-31, 100% wants)" (link or code,
+tiered rewards for 1 / 5 / 10 referrals, flex not power, the playtime-gate farming trap). Read both together.
 
 The user (verbatim): "Pre-0.16.0: We need a referral system of some sort. A generatable link that gives credit to a
 player for referring a friend to the game, as well as some sort of reward structure for this. It needs to be properly
