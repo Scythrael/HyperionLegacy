@@ -244,6 +244,42 @@ cloud save."
   import, repeat), and an edited export imports unchecked (Codex round 8). For accounts and leaderboards, 0.14.1
   needs a decision on Import Save (remove it, or owner-only from the admin panel). Export can stay as a read-only copy.
 
+## Pre-0.16.0: referral system (user, 2026-11-20): REQUIREMENT, design open
+
+The user (verbatim): "Pre-0.16.0: We need a referral system of some sort. A generatable link that gives credit to a
+player for referring a friend to the game, as well as some sort of reward structure for this. It needs to be properly
+balanced as well. Perhaps something like getting some sort of reward any time certain milestones are reached by another
+player. So you can't just spam-create accounts and get instant referral bonuses. An idea (that is not set in stone)
+would be something like silver and gold level achievements presenting the referrer with a bonus of some sort, and/or
+purchases by the referred will reward the referrer in some way as well."
+
+- REQUIREMENT: a **generatable referral link** that credits the referrer; a **reward structure** that is properly
+  balanced; rewards come from **milestones the referred player reaches**, never at sign-up, so spam accounts earn
+  nothing. Lands **before 0.16.0**, and needs accounts, so after the 0.14.1 online work.
+- IDEAS, not set in stone (user): silver and gold tier achievements that give the referrer a bonus; purchases by the
+  referred player reward the referrer.
+- Facts (Claude, 2026-11-20): no referral code exists; no tiered (silver/gold) achievement system exists; no real-money
+  purchases exist; accounts arrive with 0.14.1. The closest existing piece is gift-code redemption
+  (accountExtras.ts redeemGift), a server-delivered grant into the save, which is the deterministic way a referral
+  reward would arrive too.
+- Devil's advocate (Claude, for the design pass; nothing decided):
+  1. **Milestones must be server-verified.** Progress is client-side today and an edited save imports unchecked (Codex
+     round 8), so a referral milestone read from the client can be faked. It needs the same server-side progress
+     record that 0.14.1's leaderboard and rollback hardening needs.
+  2. **Idle games are cheap to farm.** Progress accrues offline, so one person can run several alt accounts in
+     parallel for little effort. Milestones that need real calendar time and real play (returning on several days,
+     choices only a person makes) cost a farmer far more than a raw progress number. Per the standing rule, a limit
+     on rewarded referrals would be diminishing returns, not a hard cap (if the user wants a limit at all).
+  3. **What the reward is matters for fairness.** Permanent power bonuses (multipliers) would leak into leaderboards
+     and favor players with big friend lists. Cosmetics, titles, or one-time grants keep it fair. Whether the
+     referred friend also gets a welcome reward is open.
+  4. **Purchase-based rewards** need a hold period (refunds and chargebacks would otherwise mint free rewards), must
+     never show the referrer what the friend bought (privacy: show only "your referral reached Gold"), and come under
+     app-store rules if the game ever ships in a store.
+  5. **The link must not expose the referrer:** a random code, never an email or account id.
+- Open for the user: the milestones (what silver and gold mean), the reward kinds for each side, whether purchases
+  count, and any limit on rewarded referrals.
+
 ## Future (unscheduled): research tech trees (user, 2026-11-17)
 
 Research by TYPE picked like a spec (ship classes, ship systems, crew equipment, components, ...), each opening a
