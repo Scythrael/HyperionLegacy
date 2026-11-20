@@ -139,6 +139,14 @@ Notes for designing the kill switches (PROPOSALS, the user decides):
 - Older note: SUGGESTIONS.md put the dev-panel spin-out with 0.15.1; the roadmap now has online as 0.14.1, which
   matches the user's "redesign with 0.14.1".
 
+## 0.14.1: one login, one place (user, 2026-11-20): REQUIREMENT
+
+From the PF-3 two-tab save-loss fix (ledger): "You should only be allowed to be logged in in one single place. That'll
+be more easily handled within 0.14.1 I imagine as we can help to engineer this more effectively when setting up the
+online backend." The 0.13.11.5 hotfix enforces "newest tab wins" on one device (the old tab hands over its progress and
+stops); 0.14.1 extends the same rule to the account: a new session anywhere ends the old one, server-side, without
+losing the old session's progress.
+
 ## 0.14.1: scheduled cloud save backups (user, 2026-11-18): REQUIREMENT, design open
 
 The user (verbatim): "One thing for 0.14.1 as well. We will have the system working within the actual database for

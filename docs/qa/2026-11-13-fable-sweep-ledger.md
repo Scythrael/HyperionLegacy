@@ -532,3 +532,9 @@ user config; the write test was refused and the copy stayed clean.
       15:03:42 stored mission null; B came back to "1 needs orders, 0 running". Progress lost with no warning.
     - Real-player reach: anyone with the game open in two tabs or windows (a forgotten tab, a phone browser keeping
       old tabs) can silently lose progress. Fix shape and prod hotfix: user decision pending.
+    - USER ANSWERS (2026-11-20): **prod hotfix** (0.13.11.5 off main, then merged into feat). Behavior (verbatim): "If
+      you open a new tab, the old one should die in a way that doesn't lose you experience. You should only be allowed
+      to be logged in in one single place. That'll be more easily handled within 0.14.1 I imagine as we can help to
+      engineer this more effectively when setting up the online backend." So: the NEWEST tab wins; the old tab hands
+      over its latest progress and then stops for good (no saving, no ticking); one-place login is the 0.14.1
+      account-level version of the same rule (roadmap).
