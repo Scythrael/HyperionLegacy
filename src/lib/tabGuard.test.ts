@@ -8,6 +8,7 @@ import {
   HANDOFF_WAIT_MS,
   STALE_MARK_MS,
   FOREIGN_WRITE_GRACE_MS,
+  RELEASED_MARK_PREFIX,
   type OwnerMark,
   type TabGuardDeps,
   type TabMessage,
@@ -23,6 +24,7 @@ interface World {
   owner: OwnerMark | null;
   save: string | null;
   storageBlocked: boolean;
+  ownerWriteFails: boolean; // storage full: reads work, writing the mark throws (safeSetItem returns false)
   deferWrites: boolean;
   listeners: Map<string, (msg: TabMessage) => void>;
   ownerWatchers: Map<string, () => void>;
@@ -35,6 +37,7 @@ function world(): World {
     owner: null,
     save: null,
     storageBlocked: false,
+    ownerWriteFails: false,
     deferWrites: false,
     listeners: new Map(),
     ownerWatchers: new Map(),
@@ -66,10 +69,9 @@ function tab(w: World, opts: { channel?: boolean; saveDelayMs?: number } = {}) {
   const deps: TabGuardDeps = {
     readOwner: () => (w.storageBlocked ? null : w.owner),
     writeOwner: (m) => {
-      if (!w.storageBlocked) setOwner(m);
-    },
-    clearOwner: () => {
-      if (!w.storageBlocked) setOwner(null);
+      if (w.storageBlocked || w.ownerWriteFails) return false;
+      setOwner(m);
+      return true;
     },
     // A tab always reads its own write at once (localStorage is synchronous within a tab); others see it when it lands.
     readSaveFingerprint: () => saveFingerprint(mine ?? w.save),
@@ -260,12 +262,108 @@ describe("tabGuard (PF-3: one game tab at a time, the newest wins)", () => {
     const a = tab(w);
     await a.guard.claim();
     a.guard.release();
-    expect(w.owner).toBeNull();
+    expect(w.owner?.id).toBe(`${RELEASED_MARK_PREFIX}${a.id}`); // a "given back" mark, not a deleted one (PF-4)
     const a2 = tab(w);
     let done = false;
     void a2.guard.claim().then(() => (done = true));
     await settle();
     expect(done).toBe(true);
+    expect(w.owner?.id).toBe(a2.id);
+    expect(a2.guard.mayWrite()).toBe(true);
+  });
+
+  it("the closing tab's own last writes on the same unload still go through after release", async () => {
+    const w = world();
+    const a = tab(w);
+    await a.guard.claim();
+    a.guard.release();
+    // The secret game and the trusted clock save on beforeunload AFTER App's handler released the mark.
+    expect(a.guard.mayWrite()).toBe(true);
+  });
+
+  it("a page that keeps running after its unload (a cancelled navigation) takes the mark back at its next save", async () => {
+    const w = world();
+    const a = tab(w);
+    await a.guard.claim();
+    a.guard.release();
+    a.writeSave("a-still-here");
+    a.guard.heartbeat();
+    expect(w.owner?.id).toBe(a.id);
+    const b = tab(w);
+    let done = false;
+    void b.guard.claim().then(() => (done = true));
+    await settle();
+    expect(a.log).toEqual(["flush(mayWrite=true)", "retire"]); // a normal handover, nothing lost
+    expect(done).toBe(true);
+    expect(w.save).toBe(`${a.id}-final`);
+  });
+
+  it("a given-back mark with the same claim time competes under its tab's own id", async () => {
+    const w = world();
+    const a = tab(w);
+    await a.guard.claim();
+    // Another tab that claimed in the same millisecond with a higher id gave the game back.
+    w.owner = { id: `${RELEASED_MARK_PREFIX}zz`, since: w.owner!.since, at: Date.now() };
+    w.ownerWatchers.get(a.id)!();
+    await settle();
+    expect(a.log).toEqual(["retire"]); // "zz" outranks "tabN"; the raw "released:zz" would not
+  });
+
+  // HOTFIX 0.13.11.6 (ledger PF-4): a frozen tab woke after the newer tab had been CLOSED. Closing used to DELETE the
+  // owner mark, and "no mark" allowed any write, so the woken tab wrote its older progress over the newer tab's.
+  describe("PF-4: a frozen tab waking after the newer tab was closed", () => {
+    const setup = async () => {
+      const w = world();
+      const a = tab(w);
+      await a.guard.claim();
+      a.writeSave("a-progress");
+      w.frozen.add(a.id); // the browser freezes A in the background (phones do this routinely)
+      const b = tab(w);
+      void b.guard.claim();
+      await settle();
+      await vi.advanceTimersByTimeAsync(HANDOFF_WAIT_MS); // A never answers; B takes the game
+      expect(w.owner?.id).toBe(b.id);
+      const bSince = w.owner!.since;
+      b.writeSave("b-progress");
+      b.guard.release(); // the player closes B normally
+      w.frozen.delete(a.id); // and goes back to A, which thaws
+      return { w, a, b, bSince };
+    };
+
+    it("its autosave cannot write over the newer tab's progress", async () => {
+      const { w, a } = await setup();
+      expect(a.writeSave("a-stale")).toBe(false);
+      expect(w.save).toBe("b-progress");
+    });
+
+    it("B's queued claim, delivered on waking, retires it without a write", async () => {
+      const { w, a, b, bSince } = await setup();
+      w.listeners.get(a.id)!({ t: "claim", id: b.id, since: bSince });
+      await settle();
+      expect(a.log).toEqual(["flush(mayWrite=false)", "retire"]);
+      expect(w.save).toBe("b-progress");
+      expect(a.guard.mayWrite()).toBe(false);
+    });
+
+    it("the queued owner-mark change, delivered on waking, retires it", async () => {
+      const { w, a } = await setup();
+      w.ownerWatchers.get(a.id)!();
+      await settle();
+      expect(a.log).toEqual(["retire"]);
+      expect(a.writeSave("a-stale")).toBe(false);
+      expect(w.save).toBe("b-progress");
+    });
+
+    it("the next tab opened claims at once and loads B's progress", async () => {
+      const { w } = await setup();
+      const c = tab(w);
+      let done = false;
+      void c.guard.claim().then(() => (done = true));
+      await settle();
+      expect(done).toBe(true); // a given-back mark costs no wait
+      expect(w.owner?.id).toBe(c.id);
+      expect(w.save).toBe("b-progress");
+    });
   });
 
   it("release never removes another tab's mark", async () => {
@@ -288,6 +386,41 @@ describe("tabGuard (PF-3: one game tab at a time, the newest wins)", () => {
     expect(a.log).toEqual(["retire"]);
     expect(a.guard.mayWrite()).toBe(false);
     expect(b.guard.mayWrite()).toBe(true);
+  });
+
+  it("FAIL OPEN: storage full, an older page's mark left behind never stops the only tab from saving", async () => {
+    const w = world();
+    w.owner = { id: "previous-page", since: Date.now() - 1000, at: Date.now() - 1000 }; // live-looking, nobody answers
+    w.ownerWriteFails = true;
+    const a = tab(w);
+    let done = false;
+    void a.guard.claim().then(() => (done = true));
+    await settle();
+    await vi.advanceTimersByTimeAsync(HANDOFF_WAIT_MS);
+    expect(done).toBe(true);
+    expect(w.owner?.id).toBe("previous-page"); // the browser refused our mark
+    expect(a.guard.mayWrite()).toBe(true); // the guard steps aside: saving works as it did before the guard
+    expect(a.writeSave("a-progress")).toBe(true);
+    expect(w.save).toBe("a-progress");
+    expect(a.log).toEqual([]); // never retired
+  });
+
+  it("storage full on close: the live mark stays, so a frozen older tab still cannot write", async () => {
+    const w = world();
+    const a = tab(w);
+    await a.guard.claim();
+    w.frozen.add(a.id);
+    const b = tab(w);
+    void b.guard.claim();
+    await settle();
+    await vi.advanceTimersByTimeAsync(HANDOFF_WAIT_MS);
+    b.writeSave("b-progress");
+    w.ownerWriteFails = true;
+    b.guard.release(); // the given-back mark cannot be written; B's own mark remains
+    w.frozen.delete(a.id);
+    expect(w.owner?.id).toBe(b.id);
+    expect(a.writeSave("a-stale")).toBe(false);
+    expect(w.save).toBe("b-progress");
   });
 
   it("storage blocked (private mode): claims at once and writes are allowed, as before the fix", async () => {

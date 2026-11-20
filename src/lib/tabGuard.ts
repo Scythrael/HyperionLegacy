@@ -23,7 +23,7 @@
 // One login in one place across devices is the 0.14.1 account version of the same rule (roadmap).
 // No GameState or simulation code is touched here, so determinism is unaffected.
 
-import { safeGetItem, safeSetItem, safeRemoveItem } from "./safeStorage";
+import { safeGetItem, safeSetItem } from "./safeStorage";
 
 export const TAB_OWNER_KEY = "fleet_admiral_tab_owner";
 export const TAB_CHANNEL_NAME = "fleet_admiral_tabs";
@@ -42,6 +42,11 @@ export const STALE_MARK_MS = 3 * 60 * 1000;
 // Right after taking over, the old tab's last save can still arrive here (the storage event is asynchronous). Writes
 // seen in this window are the handover itself, not an older build, so they raise no warning.
 export const FOREIGN_WRITE_GRACE_MS = 3000;
+// HOTFIX 0.13.11.6 (ledger PF-4). A closing tab GIVES BACK its mark as "released:<its id>" instead of deleting it. A
+// deleted mark meant "nobody owns the game", which let a FROZEN older tab, thawing after the newer tab was closed,
+// write its older progress over the newer tab's. A given-back mark is never live (the next tab claims at once, with a
+// later claim time), and only the tab that gave it back may still write (its own last saves on the same unload).
+export const RELEASED_MARK_PREFIX = "released:";
 
 export type TabMessage = { t: "claim"; id: string; since: number } | { t: "handedOver"; to: string; save: string | null };
 
@@ -51,6 +56,11 @@ export interface OwnerMark {
   at: number; // when the owner last refreshed the mark (wall clock; only compared with this device's own clock)
 }
 
+// The tab id behind a mark: a given-back mark ("released:<id>") stands for the tab that gave it back.
+export function claimantId(markId: string): string {
+  return markId.startsWith(RELEASED_MARK_PREFIX) ? markId.slice(RELEASED_MARK_PREFIX.length) : markId;
+}
+
 // True when claim (aSince, aId) is newer than (bSince, bId): the newest tab wins, ties settled by id.
 export function newerClaim(aSince: number, aId: string, bSince: number, bId: string): boolean {
   return aSince > bSince || (aSince === bSince && aId > bId);
@@ -58,8 +68,8 @@ export function newerClaim(aSince: number, aId: string, bSince: number, bId: str
 
 export interface TabGuardDeps {
   readOwner(): OwnerMark | null;
-  writeOwner(mark: OwnerMark): void;
-  clearOwner(): void;
+  // False when the browser refused the write (storage full or blocked).
+  writeOwner(mark: OwnerMark): boolean;
   // A short fingerprint of the stored main save (null: none), to tell when the old tab's last save is visible.
   readSaveFingerprint(): string | null;
   // null: no cross-tab channel in this browser (the owner mark and the write check still protect the save).
@@ -87,14 +97,16 @@ export interface TabGuard {
   readonly id: string;
   // Resolves once this tab owns the game (immediately when no other live tab holds it).
   claim(): Promise<void>;
-  // True when this tab may write the save: it owns it, or nobody does (storage blocked or cleared).
+  // True when this tab may write the save: it owns it (or just gave it back on unload), or no mark exists at all
+  // (storage blocked or cleared).
   mayWrite(): boolean;
   retired(): boolean;
   // The owner refreshes its mark (called after each save), so the mark never looks stale while this tab lives.
   heartbeat(): void;
   // App retired this tab itself (a refused write): keep the guard's own state in step, without calling retire again.
   noteRetired(): void;
-  // Page unload: give the mark back (only if it is still ours), so a reload of this same tab never waits.
+  // Page unload: give the mark back (only if it is still ours), so a reload of this same tab never waits. The mark
+  // is replaced by a given-back mark, never deleted, so an older frozen tab can never take "no mark" as permission.
   release(): void;
   dispose(): void;
 }
@@ -107,8 +119,10 @@ export function createTabGuard(deps: TabGuardDeps, hooks: TabGuardHooks): TabGua
   let disposed = false;
   let ownedSince = 0;
   let since = 0; // this tab's claim time (set when claim() starts)
+  let markUnwritable = false; // the browser refused this tab's mark: the guard steps aside (see take())
 
-  const markIsLive = (m: OwnerMark | null): m is OwnerMark => m !== null && deps.now() - m.at < STALE_MARK_MS;
+  const markIsLive = (m: OwnerMark | null): m is OwnerMark =>
+    m !== null && !m.id.startsWith(RELEASED_MARK_PREFIX) && deps.now() - m.at < STALE_MARK_MS;
 
   const retire = (): void => {
     if (isRetired) return;
@@ -159,7 +173,8 @@ export function createTabGuard(deps: TabGuardDeps, hooks: TabGuardHooks): TabGua
     if (!owner || isRetired) return;
     const current = deps.readOwner();
     if (current === null || current.id === id) return;
-    if (newerClaim(current.since, current.id, since, id)) retire();
+    // A given-back mark competes under its tab's own id (only matters for a tie on the claim time).
+    if (newerClaim(current.since, claimantId(current.id), since, id)) retire();
     else deps.writeOwner({ id, since, at: deps.now() });
   });
 
@@ -173,7 +188,10 @@ export function createTabGuard(deps: TabGuardDeps, hooks: TabGuardHooks): TabGua
 
   const take = (): void => {
     if (isRetired || disposed) return;
-    deps.writeOwner({ id, since, at: deps.now() });
+    // FAIL OPEN (0.13.11.6): if the browser will not store this tab's mark (storage full or blocked), an older page's
+    // mark could be left behind and wrongly stop the ONLY tab. The guard then steps aside: this tab saves exactly as
+    // the game did before the guard existed. It never blocks a save because of its own storage trouble.
+    markUnwritable = !deps.writeOwner({ id, since, at: deps.now() });
     owner = true;
     ownedSince = deps.now();
   };
@@ -205,21 +223,28 @@ export function createTabGuard(deps: TabGuardDeps, hooks: TabGuardHooks): TabGua
     },
     mayWrite(): boolean {
       if (isRetired) return false;
+      if (markUnwritable) return true; // fail open: see take()
       const current = deps.readOwner();
-      return current === null || current.id === id;
+      // No mark at all: storage blocked or cleared (writes allowed, as before the guard). A mark given back by
+      // ANOTHER tab means a newer tab had the game: this tab is older and must never write again (PF-4).
+      return current === null || current.id === id || current.id === `${RELEASED_MARK_PREFIX}${id}`;
     },
     retired: () => isRetired,
     heartbeat(): void {
       if (!owner || isRetired) return;
       const current = deps.readOwner();
-      if (current === null || current.id === id) deps.writeOwner({ id, since, at: deps.now() });
+      // Its own given-back mark too: a page that kept running after its unload (a cancelled navigation) takes
+      // the game back at its next save, so the mark stays live and older-build writes are still noticed.
+      if (current === null || current.id === id || current.id === `${RELEASED_MARK_PREFIX}${id}`) {
+        deps.writeOwner({ id, since, at: deps.now() });
+      }
     },
     noteRetired(): void {
       isRetired = true;
       owner = false;
     },
     release(): void {
-      if (deps.readOwner()?.id === id) deps.clearOwner();
+      if (deps.readOwner()?.id === id) deps.writeOwner({ id: `${RELEASED_MARK_PREFIX}${id}`, since, at: deps.now() });
     },
     dispose(): void {
       disposed = true;
@@ -268,8 +293,7 @@ export function startBrowserTabGuard(hooks: TabGuardHooks): TabGuard {
   const guard = createTabGuard(
     {
       readOwner: () => parseOwnerMark(safeGetItem(TAB_OWNER_KEY)),
-      writeOwner: (m) => void safeSetItem(TAB_OWNER_KEY, `${m.id}|${m.since}|${m.at}`),
-      clearOwner: () => safeRemoveItem(TAB_OWNER_KEY),
+      writeOwner: (m) => safeSetItem(TAB_OWNER_KEY, `${m.id}|${m.since}|${m.at}`),
       readSaveFingerprint: () => saveFingerprint(safeGetItem(GUARDED_SAVE_KEY)),
       channel: bc
         ? {

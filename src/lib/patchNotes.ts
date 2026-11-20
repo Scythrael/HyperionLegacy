@@ -67,6 +67,22 @@ export function isStructuredNote(n: PatchNote): n is PatchNoteStructured {
 
 export const PATCH_NOTES: PatchNote[] = [
   {
+    // 0.13.11.6 (user, 2026-11-20, ledger PF-4): a frozen background tab could wake after a newer tab was closed and
+    // save its older progress over the newer one. Wording: DRAFT, awaiting the user.
+    version: "0.13.11.6",
+    lede: "One more fix for having the game open in more than one tab.",
+    categories: [
+      {
+        title: "Bug Fixes",
+        tone: "fixes",
+        bullets: [
+          { lead: "Background tabs that wake up late.", text: "Phones and battery savers pause game tabs left in the background. If you opened the game in a new tab, played, closed that tab, and then went back to the paused one, it could save its older progress over the newer tab's. A tab that has been replaced now stays stopped even when it wakes up later." },
+        ],
+      },
+    ],
+    save: "Your save carries over untouched.",
+  },
+  {
     // 0.13.11.5 (user, 2026-11-20, ledger PF-3): two open tabs could overwrite each other's save; the newest tab now
     // wins and the older one hands over its progress and stops. Wording approved by the user 2026-11-20 ("approve as written").
     version: "0.13.11.5",
