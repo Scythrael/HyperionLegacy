@@ -589,5 +589,18 @@ user config; the write test was refused and the copy stayed clean.
   any tab whose claim is older than the mark's. Not affected: crash or killed tab (it cannot write; at most the last
   30 s since the autosave, as before), discarded tabs (they reload and claim fresh), live background tabs (they get the
   claim at once). Minor: a device clock jumped forward 3+ min makes a live owner look stale, so the new tab skips the
-  handover wait and can miss up to 30 s. No service worker exists, so a stale cached build cannot be served. Pending:
-  the user's call on fix and route (prod hotfix or 0.14.0).
+  handover wait and can miss up to 30 s. No service worker exists, so a stale cached build cannot be served.
+  - USER ANSWER (2026-11-20): **prod hotfix 0.13.11.6**, with the caveat (a requirement): it must never make saves
+    fail intermittently or save the wrong file. Asked about 2, 3 or 50 tabs: live tabs hand over through the channel
+    (no storage needed), so only the newest runs.
+  - BUILT (2026-11-20) on hotfix/frozen-tab-0.13.11.6 off prod 0fb854cd: 7aeba376 (local + backup until the user's
+    push go; merged into feat as 289b9046). release() writes "released:<id>" instead of deleting the mark; a given-back
+    mark is never live; mayWrite() allows only no mark, its own mark, or its own given-back mark. Test written first
+    and seen failing (the woken tab wrote its older progress). One fresh review: no Critical/Important; minors fixed (a
+    page that survives its unload re-takes the mark at its next save; claim-time tie compares the real id). Added for
+    the user's caveat: FAIL OPEN, if the browser refuses a tab's mark (storage full), the guard steps aside and saves
+    work as before the guard, never stopping the only tab. Gates: 135 files / 3297 tests, svelte-check 0 errors.
+    Browser (local, 0.13.11.6): handover, newer tab closed then "Play here instead" (about 1.2 s wait, expected),
+    reload left "released:<id>" and the new page claimed in 0.35 s, console clean. Patch note: shown to the user as a
+    draft ("once we're ready we can push"). Rollout notes: a still-open 0.13.11.5 tab closing still deletes the mark
+    (fades as old tabs close); a frozen 0.13.11.5 tab is protected by the new mark too.
