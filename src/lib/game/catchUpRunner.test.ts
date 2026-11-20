@@ -319,7 +319,7 @@ describe("App.svelte wiring (checked against the source)", () => {
   });
 
   it("the windows portaled to <body> go inert while the overlay blocks the game; the minigame layers do not", () => {
-    expect(APP).toContain("$: catchUpBlocking.set(catchUpView !== null || catchUpFailed);");
+    expect(APP).toContain("$: catchUpBlocking.set(catchUpView !== null || catchUpFailed || tabClaiming || tabRetired || tabOlderNotice);");
     const modal = readFileSync("src/lib/ActionModal.svelte", "utf-8");
     expect(modal).toContain('<div class="am-backdrop" use:portal on:click|self={onClose} inert={$catchUpBlocking ? true : undefined}>');
     const multi = readFileSync("src/lib/MultiSelect.svelte", "utf-8");

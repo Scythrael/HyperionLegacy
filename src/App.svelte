@@ -1324,6 +1324,9 @@
   import { CatchUpController, type CatchUpView } from "./lib/game/catchUpRunner";
   import CatchUpOverlay from "./lib/CatchUpOverlay.svelte";
   import { catchUpBlocking } from "./lib/catchUpGate";
+  // HOTFIX 0.13.11.5 (PF-3): one game tab at a time, the newest wins (src/lib/tabGuard.ts).
+  import { startBrowserTabGuard, tabMayWrite, type TabGuard } from "./lib/tabGuard";
+  import TabHandoffOverlay from "./lib/TabHandoffOverlay.svelte";
   import { formatNumber, formatDuration, formatClock } from "./lib/game/format";
   import { deriveStatistics } from "./lib/game/statistics";
   import { saveToLocalStorage, loadFromLocalStorage, clearSave, downloadRawSave, downloadLiveSave, importRawSave, hasRawSave, exportRawSave, rawSaveNewerVersion } from "./lib/game/save";
@@ -3687,7 +3690,40 @@
     onView: (view) => (catchUpView = view),
     onError: (error) => console.error("Catch-up failed", error),
   });
-  $: catchUpBlocking.set(catchUpView !== null || catchUpFailed);
+  $: catchUpBlocking.set(catchUpView !== null || catchUpFailed || tabClaiming || tabRetired || tabOlderNotice);
+
+  // HOTFIX 0.13.11.5 (PF-3, user 2026-11-20): one game tab at a time, the newest wins. Before the save loads,
+  // this tab claims the game (tabGuard.claim, in onMount); an older tab hands over its latest save and retires.
+  // tabClaiming: the brief wait for that handover (the game is covered, so a fresh-looking game never flashes).
+  // tabRetired: a newer tab took the game; this one has stopped for good and says so (TabHandoffOverlay).
+  let tabGuard: TabGuard | null = null;
+  let tabClaiming = false;
+  let tabRetired = false;
+  // A tab running an OLDER build (no guard) wrote the save while this tab owns the game: this tab re-saved its own
+  // progress at once and asks the player to close that tab (TabHandoffOverlay "olderTab").
+  let tabOlderNotice = false;
+  // The running game's own cleanup (the loop, the autosave, the listeners, the secret game), set once booted.
+  let gameCleanup: (() => void) | null = null;
+  function onForeignSaveWrite(): void {
+    doSave(); // put this tab's progress back at once
+    tabOlderNotice = true;
+  }
+  function retireThisTab(): void {
+    if (tabRetired) return;
+    tabRetired = true;
+    tabClaiming = false;
+    tabOlderNotice = false;
+    tabGuard?.noteRetired();
+    suppressSave = true; // nothing from this tab is ever written again
+    // A catch-up in flight is dropped (gameCleanup disposes it); clear its window so only the handoff window shows.
+    catchUpView = null;
+    gameCleanup?.();
+    gameCleanup = null;
+    clearInterval(tickHandle);
+    clearInterval(saveHandle);
+    if (timeSyncHandle !== undefined) clearInterval(timeSyncHandle);
+    clearInterval(needsTickerHandle);
+  }
   // A run threw: stop saving (no save may stamp past the unpaid gap) and keep the overlay up.
   function onCatchUpFailed(): void {
     suppressSave = true;
@@ -3787,6 +3823,8 @@
 
   // The save write itself (doSave, and the one save a poll writes as its catch-up goes asynchronous).
   function writeSave(saveState: GameState, paidThroughStampMs: number) {
+    // HOTFIX 0.13.11.5 (PF-3): only the tab that owns the game writes; a tab another one outranked retires instead.
+    if (!tabMayWrite()) { retireThisTab(); return; }
     // Capture the write result instead of discarding it (the old silent-loss hole):
     // a blocked or full store returns false here, and on mobile that meant progress
     // lived only in memory until a reload wiped it, with zero warning. Surface the
@@ -3798,6 +3836,7 @@
     // time. A hidden tab closed between throttled polls, and the leftover under one bar cycle, are
     // then paid by the next load's offline catch-up instead of being lost. Now while paused.
     const persisted = saveToLocalStorage(saveState, createdAt, paidThroughStampMs);
+    tabGuard?.heartbeat(); // HOTFIX 0.13.11.5: keep the owner mark fresh, so it only goes stale when this tab is gone
     persistTrustedTime();
     // R2-10: every main save refreshes the minigame's relic boosts (a one-way read; guarded inside).
     setSecretRelicBoosts(saveState.museumV2);
@@ -3934,6 +3973,9 @@
     // preference is a SAVED field now (state.salvageConfirmQualities), so it arrives with
     // the save load below rather than through a separate localStorage read on mount.)
 
+    // HOTFIX 0.13.11.5 (PF-3): everything from the save load on runs in bootGame, once this tab owns the game
+    // (the claim below the function). The body is unchanged, kept at its old indentation for a small diff.
+    const bootGame = (): (() => void) => {
     // Register the live-state exporter the SavePersistWarning banner's "Export save"
     // button invokes. The closure reads the reactive `state` / `createdAt` at CALL
     // time (not now), so a click later exports the player's CURRENT progress, and it
@@ -4352,8 +4394,18 @@
         needsTickerIndex = (needsTickerIndex + 1) % n;
       }, NEEDS_TICKER_INTERVAL_MS);
 
-      const onUnload = () => doSave();
+      // HOTFIX 0.13.11.5 (PF-3): save, then give the owner mark back, so a reload of this tab never waits.
+      const onUnload = () => {
+        doSave();
+        tabGuard?.release();
+      };
       window.addEventListener("beforeunload", onUnload);
+      // A page restored from the back-forward cache holds in-memory progress that may be older than the save (another
+      // tab may have played since). Never resume it: reload, which claims the game afresh and loads the real save.
+      const onPageShow = (e: PageTransitionEvent) => {
+        if (e.persisted) window.location.reload();
+      };
+      window.addEventListener("pageshow", onPageShow);
       // 0.13.11: the secret game's own runtime (own state, own save, own 1 s ticker), started after
       // the main load and catch-up above. It never touches `state` or pollGameLoop.
       // Guarded on top of the runtime's own guards: nothing in the secret game may break startup.
@@ -4368,6 +4420,7 @@
       stopGame = () => {
         stopSecret();
         window.removeEventListener("beforeunload", onUnload);
+        window.removeEventListener("pageshow", onPageShow);
         document.removeEventListener("visibilitychange", onVisibilityChange);
       };
     };
@@ -4376,6 +4429,25 @@
       // A reload catch-up still in flight is dropped (never applied, never saved); then the game's own cleanup.
       catchUp.dispose();
       stopGame();
+    };
+    };
+
+    // HOTFIX 0.13.11.5 (PF-3): claim the game for this tab, then boot it. With no other game tab open (the usual
+    // case, including a reload) the claim resolves at once; with one open, that tab saves, retires and hands over
+    // first (at most HANDOFF_WAIT_MS when it is frozen), so this tab loads its latest progress.
+    let disposed = false;
+    tabGuard = startBrowserTabGuard({ flushSave: () => doSave(), retire: () => retireThisTab(), foreignWrite: () => onForeignSaveWrite() });
+    tabClaiming = true;
+    void tabGuard.claim().then(() => {
+      tabClaiming = false;
+      if (disposed || tabRetired) return;
+      gameCleanup = bootGame();
+    });
+    return () => {
+      disposed = true;
+      gameCleanup?.();
+      gameCleanup = null;
+      tabGuard?.dispose();
     };
   });
 
@@ -10688,6 +10760,9 @@
   function doExportSave() {
     // Delegates to the shared helper in save.ts so this button and the
     // update-detector banner's "Export save" stay identical (see downloadRawSave).
+    // HOTFIX 0.13.11.5 (PF-3): save first, so the exported file is this tab's latest progress (the helper copies
+    // the STORED save, which could otherwise be up to one autosave old).
+    doSave();
     downloadRawSave();
   }
 
@@ -22967,6 +23042,14 @@
      never inert itself. Shown only while an asynchronous catch-up is in flight. -->
 {#if catchUpView !== null || catchUpFailed}
   <CatchUpOverlay view={catchUpView} failed={catchUpFailed} />
+{/if}
+<!-- HOTFIX 0.13.11.5 (PF-3): one game tab at a time (src/lib/TabHandoffOverlay.svelte), outside .root too. -->
+{#if tabRetired}
+  <TabHandoffOverlay mode="retired" />
+{:else if tabClaiming}
+  <TabHandoffOverlay mode="claiming" />
+{:else if tabOlderNotice}
+  <TabHandoffOverlay mode="olderTab" on:dismiss={() => (tabOlderNotice = false)} />
 {/if}
 
 <style>
