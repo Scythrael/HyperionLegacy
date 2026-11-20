@@ -85,8 +85,9 @@ it.
 
 **Exactly ONE game tab, always.** Before you start, close every other tab that has the game open (any staging page
 under `/game/hl/play`). Two game tabs that share storage overwrite each other's save every 30 seconds, and the older
-one can silently erase your progress (ledger PF-3, found in this playthrough, 2026-11-20; a fix that makes the game run
-in one tab at a time is on its way). Other tabs for other sites are fine. If you are not sure whether an old game tab
+one could silently erase your progress (ledger PF-3, found in this playthrough, 2026-11-20). FIXED on staging since
+4fed129e: the game now runs in the newest tab and an older tab shows "Playing in another tab". Tabs opened before
+the fix still run the old code until reloaded, so the one-tab rule stays. Other tabs for other sites are fine. If you are not sure whether an old game tab
 is still open somewhere, ask the owner before you continue.
 
 **Keep a recent export, and restore from it.** Your browser may reset or time out between sessions or while you wait
