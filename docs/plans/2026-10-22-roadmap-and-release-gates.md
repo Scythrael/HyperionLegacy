@@ -139,6 +139,59 @@ Notes for designing the kill switches (PROPOSALS, the user decides):
 - Older note: SUGGESTIONS.md put the dev-panel spin-out with 0.15.1; the roadmap now has online as 0.14.1, which
   matches the user's "redesign with 0.14.1".
 
+## 0.14.1: save integrity and tamper detection (user, 2026-11-20): IDEA, design open
+
+The user (verbatim): "I have a new doc I have another iteration of yours prepping right now on something we can
+consider for one way to protect ourselves going forward when it comes to save integrity. I imagine that we can use a
+combination of this document's system for encrypting the save, as well as some sort of CRC check/testing and so forth.
+Something that can use something traceable to confirm tampering. Something between different cloud saves. We keep the
+last X number of cloud saves, decrypt them, and then compare them and check for obvious inconsistencies that should be
+impossible for someone with the played time and other aspects that they already have."
+
+- IDEA (user): encrypt the save; add a CRC-style check; keep the last X cloud saves and compare them for changes that
+  are impossible given the play time and what the player already had. The other session's doc (pending) holds the
+  encryption proposal; read it together with this entry.
+- Notes for the design (Claude, 2026-11-20; nothing decided):
+  1. **Anything the game client can do, a cheater can do.** The encryption key and the checksum code ship inside the
+     game, so encryption and a CRC on the device stop casual editing and catch accidental damage, but a determined
+     editor can decrypt, change, and re-checksum. Treat them as a speed bump plus corruption detection, not proof.
+  2. **A signature only proves something when the server holds the secret** (for example the server signs each cloud
+     save it accepts). Then "this save is exactly what our server accepted" is checkable; edits made offline are not.
+  3. **The user's comparison idea is the strong part**, because it runs on the server where the player cannot reach:
+     between two cloud saves, gains must fit the elapsed time (offline cap 4 days, the known best rates), counters only
+     go up (lifetime stats, research, ids), and nothing appears without a source. The game is deterministic, so a
+     later step could even re-run a stretch on the server and compare.
+  4. **Gate what matters, not everything.** Leaderboards, referral milestones and anything shared need the check; a
+     purely single-player save can stay lenient (a false alarm on an honest player is a worse outcome than a missed
+     cheat in a solo game).
+  5. **Open link:** the 0.14.1 Import Save decision (remove it, or owner-only) and the restore rules above, since an
+     imported or restored save breaks the cloud history the comparison relies on.
+- **THE DOC (2026-11-20):** "Protecting Save Data in a Web Game (Svelte + Vercel)", a Claude Docs doc:
+  https://claude.ai/code/artifact/f13fa2fc-3b81-491e-84b7-ae44af9d70d6 . It recommends tier 3 (server-authoritative):
+  the server stores the canonical save, HMAC-signs each accepted save with a secret only in server env vars, checks a
+  version counter (no rollback), uses server time only, and validates every change (schema, monotonic counters, growth
+  ceiling per elapsed time, spending matches the cost formula, offline cap, rate limit, prestige rules); plus a
+  provenance system (requirements graph, append-only acquisition ledger, hash-chained signed checkpoints, last N plus
+  one per day), audits in background jobs, and a rollout of LOG-ONLY first, then enforce the certain checks, then the
+  judgment calls. Tier 4 (server replays actions) is the ideal later step. CRC only for "damaged"; HMAC for "changed".
+- Reconciled with THIS codebase (Claude, 2026-11-20, facts checked):
+  1. Not SvelteKit: the app is plain Vite + Svelte, so the doc's `+server.ts` routes become Vercel Functions in a root
+     `api/` folder. The secret rule is the same (never a VITE_ variable).
+  2. **Prerequisite: seeded randomness in the save.** Live play passes Math.random into the simulation (App.svelte:
+     the reload catch-up beginTickJob, the poll catch-up and runPollEconomy, redeemGift). So a server cannot replay a
+     stretch (tier 4) or recompute exact gains, and a restored save re-rolls crafts (the save-scum hole in the restore
+     notes above). Moving the live RNG to a seed carried in the save (like the existing inspect seed) unlocks tier 4,
+     closes save-scumming, and keeps determinism. Biggest single enabler; worth doing before or with 0.14.1.
+  3. Already in place: the trusted clock (server Date header, never backward) is a head start on "server time only";
+     big numbers are already saved as strings (break_infinity Decimals), which canonical signing needs; the game
+     logic already lives in a shared module (src/lib/game/) a server function can import.
+  4. Not in place: no per-item origin record (the doc's ledger needs one; the old "item origin field" groundwork
+     idea); the offline catch-up is an exact per-second replay, so a server computing offline gains must respect
+     Vercel function time limits (the phone catch-up timing data applies).
+  5. Matches the user's decisions: owner-run targeted rollback from checkpoints, cloud save always on, no player
+     restore except a corrupted save; the doc's "last N plus one per day" fits the scheduled backups. Import Save
+     cannot coexist with a server-held truth unless it is owner-only.
+
 ## 0.14.1: one login, one place (user, 2026-11-20): REQUIREMENT
 
 From the PF-3 two-tab save-loss fix (ledger): "You should only be allowed to be logged in in one single place. That'll
