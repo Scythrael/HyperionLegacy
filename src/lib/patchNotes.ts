@@ -65,7 +65,7 @@ export function isStructuredNote(n: PatchNote): n is PatchNoteStructured {
 export const PATCH_NOTES: PatchNote[] = [
   {
     // 0.13.11.5 (user, 2026-11-20, ledger PF-3): two open tabs could overwrite each other's save; the newest tab now
-    // wins and the older one hands over its progress and stops. DRAFT wording, awaiting the user's approval.
+    // wins and the older one hands over its progress and stops. Wording approved by the user 2026-11-20 ("approve as written").
     version: "0.13.11.5",
     lede: "Having the game open in two tabs can no longer erase your progress.",
     categories: [

@@ -61,7 +61,7 @@
         <button class="th-btn" type="button" on:click={() => dispatch("dismiss")}>Got it</button>
       </div>
     {:else}
-      <p class="th-detail" id="tab-handoff-detail">Your fleet moved to the tab you opened most recently, with all its progress. You can close this one.</p>
+      <p class="th-detail" id="tab-handoff-detail">Your fleet moved to the tab you opened most recently, with all its progress. You can safely close this tab.</p>
       <p class="th-note">The game runs in one tab at a time, so two tabs can never overwrite each other's progress.</p>
       <div class="th-actions">
         <button class="th-btn" type="button" on:click={playHere}>Play here instead</button>
