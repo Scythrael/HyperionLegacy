@@ -28,6 +28,7 @@ import { pushAchievement } from "../achievements";
 import { safeGetItem, safeSetItem, safeRemoveItem } from "../safeStorage";
 // 0.13.11.1 clock protection: every moment the minigame pays for comes from the shared trusted clock.
 import { trustedNow, raiseTrustedFloor } from "../trustedTime";
+import { tabMayWrite } from "../tabGuard"; // HOTFIX 0.13.11.5 (PF-3): only the tab that owns the game saves
 
 const TICK_MS = 1000;
 const SAVE_MS = 30000;
@@ -94,7 +95,7 @@ export function markSecretFound(): boolean {
 }
 
 function persist(): void {
-  if (readOnly) return;
+  if (readOnly || !tabMayWrite()) return;
   try {
     saveSecret(state);
   } catch {

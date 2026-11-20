@@ -15,7 +15,7 @@
 // left untouched (never rewrite patch-note history), so this deliberately reads
 // as "0.2.0 newer than 0.9.0" once, only here.
 
-export const APP_VERSION = "0.13.11.4";
+export const APP_VERSION = "0.13.11.5";
 
 // ---------------------------------------------------------------------------
 // SHAPE. 0.13.5 introduced a STRUCTURED entry (marquee features + category
@@ -63,6 +63,22 @@ export function isStructuredNote(n: PatchNote): n is PatchNoteStructured {
 }
 
 export const PATCH_NOTES: PatchNote[] = [
+  {
+    // 0.13.11.5 (user, 2026-11-20, ledger PF-3): two open tabs could overwrite each other's save; the newest tab now
+    // wins and the older one hands over its progress and stops. DRAFT wording, awaiting the user's approval.
+    version: "0.13.11.5",
+    lede: "Having the game open in two tabs can no longer erase your progress.",
+    categories: [
+      {
+        title: "Bug Fixes",
+        tone: "fixes",
+        bullets: [
+          { lead: "One tab at a time.", text: "With the game open in two tabs, the older tab could save over the newer one's progress without any warning. Now the game runs in the tab you opened most recently: the older tab hands over all its progress, stops, and tells you so. Export Save also saves first, so the file always holds your latest progress." },
+        ],
+      },
+    ],
+    save: "Your save carries over untouched.",
+  },
   {
     // 0.13.11.4 (user, 2026-11-17, "Both"): an exact catch-up speedup plus a progress bar for a long catch-up.
     // Wording approved by the user 2026-11-17 ("Approve as written").
