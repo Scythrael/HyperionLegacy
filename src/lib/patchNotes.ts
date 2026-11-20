@@ -73,7 +73,7 @@ export const PATCH_NOTES: PatchNote[] = [
         title: "Bug Fixes",
         tone: "fixes",
         bullets: [
-          { lead: "One tab at a time.", text: "With the game open in two tabs, the older tab could save over the newer one's progress without any warning. Now the game runs in the tab you opened most recently: the older tab hands over all its progress, stops, and tells you so. Export Save also saves first, so the file always holds your latest progress." },
+          { lead: "One tab at a time.", text: "With the game open in two tabs, the older tab could save over the newer one's progress without any warning. Now the game runs in the tab you opened most recently: the older tab hands over all its progress, stops, and tells you so. Export Save also saves first, so the file holds your latest progress." },
         ],
       },
     ],

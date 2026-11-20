@@ -207,7 +207,7 @@ describe("one catch-up at a time, each second paid once", () => {
 });
 
 describe("App.svelte wiring (checked against the source)", () => {
-  const APP = readFileSync("src/App.svelte", "utf-8");
+  const APP = readFileSync("src/App.svelte", "utf-8").replace(/\r\n/g, "\n");
   const OVERLAY = readFileSync("src/lib/CatchUpOverlay.svelte", "utf-8");
 
   function block(start: string): string {
@@ -316,7 +316,7 @@ describe("App.svelte wiring (checked against the source)", () => {
   });
 
   it("the windows portaled to <body> go inert while the overlay blocks the game; the minigame layers do not", () => {
-    expect(APP).toContain("$: catchUpBlocking.set(catchUpView !== null || catchUpFailed);");
+    expect(APP).toContain("$: catchUpBlocking.set(catchUpView !== null || catchUpFailed || tabClaiming || tabRetired || tabOlderNotice);");
     const modal = readFileSync("src/lib/ActionModal.svelte", "utf-8");
     expect(modal).toContain('<div class="am-backdrop" use:portal on:click|self={onClose} inert={$catchUpBlocking ? true : undefined}>');
     const multi = readFileSync("src/lib/MultiSelect.svelte", "utf-8");
@@ -426,7 +426,7 @@ describe("an asynchronous poll keeps the player's last actions and pays the gap 
   it("the reload path has no such gap: the state it runs from IS the save on disk", () => {
     // Nothing can act during an asynchronous reload run (the game is inert and the loop has not started), and the
     // run starts from loadedSave.state, so the save on disk already holds everything the run would hold.
-    const APP = readFileSync("src/App.svelte", "utf-8");
+    const APP = readFileSync("src/App.svelte", "utf-8").replace(/\r\n/g, "\n");
     expect(APP).toContain("const beforeSnapshot = loadedSave.state;");
     expect(APP).toContain("beginTickJob(offlineSeconds, beforeSnapshot, Math.random, returnedAtMs)");
   });

@@ -39,6 +39,7 @@
 // browser.
 
 import { safeGetItem, safeSetItem } from "./safeStorage";
+import { tabMayWrite } from "./tabGuard";
 import { OFFLINE_CAP_SECONDS_BASE } from "./game/offlineCap";
 
 export const SERVER_TOLERANCE_MS = 10 * 60 * 1000;
@@ -202,7 +203,8 @@ export function trustedHeldMs(): number {
 }
 
 export function persistTrustedTime(): void {
-  if (!initialized) return;
+  // HOTFIX 0.13.11.5 (PF-3): a tab another tab outranked never writes (tabGuard.ts), the clock floor included.
+  if (!initialized || !tabMayWrite()) return;
   const st = current();
   lastPersistedFloor = st.floorMs;
   safeSetItem(KEY, JSON.stringify({ floorMs: st.floorMs, verifiedMs: st.verifiedMs, anchorMs: st.anchorMs }));

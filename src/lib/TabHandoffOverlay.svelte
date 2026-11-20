@@ -6,14 +6,19 @@
   // mode "retired": a newer tab took the game. This tab has stopped for good (it no longer runs or saves), and
   //   says so calmly. "Play here instead" reloads, which makes this the newest tab, so the game moves back here
   //   with all its progress (the other tab retires the same way).
+  // mode "olderTab": a tab still running an OLDER build of the game (from before this fix, so it has no guard) wrote
+  //   over the save. This tab has already saved its own progress back; the window asks the player to close that tab.
+  //   "Got it" closes the window (dispatches "dismiss"); it comes back if the older tab writes again.
   //
   // Portaled to <body> and styled like CatchUpOverlay (same layer, theme tokens only, SVG icon). Focus is trapped
   // inside; Escape does nothing, since there is nothing to close.
-  import { onMount, tick } from "svelte";
+  import { createEventDispatcher, onMount, tick } from "svelte";
   import Icon from "./ui/Icon.svelte";
   import { focusTrap } from "./focusTrap";
 
-  export let mode: "claiming" | "retired";
+  export let mode: "claiming" | "retired" | "olderTab";
+
+  const dispatch = createEventDispatcher<{ dismiss: void }>();
 
   let dialog: HTMLDivElement;
 
@@ -31,7 +36,7 @@
   });
 </script>
 
-<div class="th-backdrop" use:portal>
+<div class="th-backdrop" class:th-opaque={mode === "claiming"} use:portal>
   <div
     class="th-dialog"
     role="dialog"
@@ -44,11 +49,17 @@
     use:focusTrap={() => {}}
   >
     <div class="th-head">
-      <span class="th-glyph"><Icon name={mode === "claiming" ? "clock" : "ship"} size={18} /></span>
-      <span class="th-title" id="tab-handoff-title">{mode === "claiming" ? "Opening your fleet" : "Playing in another tab"}</span>
+      <span class="th-glyph"><Icon name={mode === "claiming" ? "clock" : mode === "olderTab" ? "warning" : "ship"} size={18} /></span>
+      <span class="th-title" id="tab-handoff-title">{mode === "claiming" ? "Opening your fleet" : mode === "olderTab" ? "Another game tab is open" : "Playing in another tab"}</span>
     </div>
     {#if mode === "claiming"}
       <p class="th-detail" id="tab-handoff-detail">Your game is open in another tab. Moving it here with all its progress.</p>
+    {:else if mode === "olderTab"}
+      <p class="th-detail" id="tab-handoff-detail">Another tab is running an older version of the game and saved over your progress. This tab has put your progress back.</p>
+      <p class="th-note">Please close the other game tab, or reload it to update it, so it cannot save over this one again.</p>
+      <div class="th-actions">
+        <button class="th-btn" type="button" on:click={() => dispatch("dismiss")}>Got it</button>
+      </div>
     {:else}
       <p class="th-detail" id="tab-handoff-detail">Your fleet moved to the tab you opened most recently, with all its progress. You can close this one.</p>
       <p class="th-note">The game runs in one tab at a time, so two tabs can never overwrite each other's progress.</p>
@@ -70,6 +81,10 @@
     justify-content: center;
     padding: 16px;
     background: rgba(4, 6, 10, 0.72);
+  }
+  /* While claiming, the game behind has not loaded yet (a fresh-looking default state): hide it completely. */
+  .th-opaque {
+    background: var(--color-bg-deep, #04060a);
   }
   .th-dialog {
     width: 100%;

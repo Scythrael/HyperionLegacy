@@ -3000,7 +3000,7 @@
     onView: (view) => (catchUpView = view),
     onError: (error) => console.error("Catch-up failed", error),
   });
-  $: catchUpBlocking.set(catchUpView !== null || catchUpFailed || tabClaiming || tabRetired);
+  $: catchUpBlocking.set(catchUpView !== null || catchUpFailed || tabClaiming || tabRetired || tabOlderNotice);
 
   // HOTFIX 0.13.11.5 (PF-3, user 2026-11-20): one game tab at a time, the newest wins. Before the save loads,
   // this tab claims the game (tabGuard.claim, in onMount); an older tab hands over its latest save and retires.
@@ -3009,13 +3009,24 @@
   let tabGuard: TabGuard | null = null;
   let tabClaiming = false;
   let tabRetired = false;
+  // A tab running an OLDER build (no guard) wrote the save while this tab owns the game: this tab re-saved its own
+  // progress at once and asks the player to close that tab (TabHandoffOverlay "olderTab").
+  let tabOlderNotice = false;
   // The running game's own cleanup (the loop, the autosave, the listeners, the secret game), set once booted.
   let gameCleanup: (() => void) | null = null;
+  function onForeignSaveWrite(): void {
+    doSave(); // put this tab's progress back at once
+    tabOlderNotice = true;
+  }
   function retireThisTab(): void {
     if (tabRetired) return;
     tabRetired = true;
     tabClaiming = false;
+    tabOlderNotice = false;
+    tabGuard?.noteRetired();
     suppressSave = true; // nothing from this tab is ever written again
+    // A catch-up in flight is dropped (gameCleanup disposes it); clear its window so only the handoff window shows.
+    catchUpView = null;
     gameCleanup?.();
     gameCleanup = null;
     clearInterval(tickHandle);
@@ -3143,6 +3154,7 @@
     // time. A hidden tab closed between throttled polls, and the leftover under one bar cycle, are
     // then paid by the next load's offline catch-up instead of being lost. Now while paused.
     const persisted = saveToLocalStorage(saveState, createdAt, paidThroughStampMs);
+    tabGuard?.heartbeat(); // HOTFIX 0.13.11.5: keep the owner mark fresh, so it only goes stale when this tab is gone
     persistTrustedTime();
     if (persisted !== lastSavePersisted) {
       lastSavePersisted = persisted;
@@ -3681,9 +3693,10 @@
         tabGuard?.release();
       };
       window.addEventListener("beforeunload", onUnload);
-      // A page restored from the back-forward cache: take the game back if no other tab holds it, else retire.
+      // A page restored from the back-forward cache holds in-memory progress that may be older than the save (another
+      // tab may have played since). Never resume it: reload, which claims the game afresh and loads the real save.
       const onPageShow = (e: PageTransitionEvent) => {
-        if (e.persisted) tabGuard?.resumed();
+        if (e.persisted) window.location.reload();
       };
       window.addEventListener("pageshow", onPageShow);
       // 0.13.11: the secret game's own runtime (own state, own save, own 1 s ticker), started after
@@ -3714,7 +3727,7 @@
     // case, including a reload) the claim resolves at once; with one open, that tab saves, retires and hands over
     // first (at most HANDOFF_WAIT_MS when it is frozen), so this tab loads its latest progress.
     let disposed = false;
-    tabGuard = startBrowserTabGuard({ flushSave: () => doSave(), retire: () => retireThisTab() });
+    tabGuard = startBrowserTabGuard({ flushSave: () => doSave(), retire: () => retireThisTab(), foreignWrite: () => onForeignSaveWrite() });
     tabClaiming = true;
     void tabGuard.claim().then(() => {
       tabClaiming = false;
@@ -18999,6 +19012,8 @@
   <TabHandoffOverlay mode="retired" />
 {:else if tabClaiming}
   <TabHandoffOverlay mode="claiming" />
+{:else if tabOlderNotice}
+  <TabHandoffOverlay mode="olderTab" on:dismiss={() => (tabOlderNotice = false)} />
 {/if}
 
 <style>
