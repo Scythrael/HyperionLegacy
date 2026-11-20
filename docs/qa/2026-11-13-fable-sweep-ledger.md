@@ -538,3 +538,14 @@ user config; the write test was refused and the copy stayed clean.
       engineer this more effectively when setting up the online backend." So: the NEWEST tab wins; the old tab hands
       over its latest progress and then stops for good (no saving, no ticking); one-place login is the 0.14.1
       account-level version of the same rule (roadmap).
+    - BUILT (2026-11-20) on hotfix/two-tab-0.13.11.5 off prod 26cc922e: 26dc65bd + review fixes 5d7802a9 (backed up,
+      NOT on origin). src/lib/tabGuard.ts + TabHandoffOverlay.svelte; App boots the game only after the tab claims it;
+      every save write (main save, secret game, trusted clock) checks the owner mark; Export saves first; APP_VERSION
+      0.13.11.5. One fresh review (2 Important: bfcache restore resumed stale state; two simultaneous claims could both
+      retire; plus minors: handover/save ordering, older-build tabs at deploy, stuck catch-up window, visible fresh
+      game while claiming, trusted-clock write, guard state) ALL fixed: claims ordered by start time, handover carries
+      a save fingerprint, heartbeat mark (stale after 3 min costs no wait), bfcache reloads, older-build writes are
+      detected (owner re-saves at once and asks the player to close that tab). Gates: 135 files / 3288 tests green,
+      svelte-check 0 errors (prod has no RELEASE_GATE files). Browser (local, 2 tabs): handover, no write from the
+      retired tab after 45 s, "Play here instead" brings the newer progress back, simulated older-build write
+      restored within 600 ms with the notice, console clean. Patch note wording: DRAFT, awaiting the user.
